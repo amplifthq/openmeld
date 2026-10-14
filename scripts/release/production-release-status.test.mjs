@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
   mkdirSync,
@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   assertGuardedLocalEvidenceRepository,
@@ -505,6 +506,80 @@ test("one status read can plan a stage without collecting release history again"
   assert.match(output, PLANNED_WEB_STAGE);
   assert.match(output, PLANNING_ONLY);
 });
+
+test(
+  "the status CLI finishes stage planning from its initial snapshot",
+  {
+    skip:
+      process.platform === "win32" &&
+      "Production release runners use Linux or macOS",
+  },
+  () => {
+    const root = mkdtempSync(path.join(tmpdir(), "openmeld-status-cli-"));
+    const log = path.join(root, "reads.jsonl");
+    try {
+      // These are the documented GitHub collection / gh run-list shapes. All
+      // process boundaries are local fixtures; no release history is requested.
+      const fixtures = {
+        gh: `const {appendFileSync}=require("node:fs");
+const a=process.argv.slice(2); appendFileSync(process.env.STATUS_READ_LOG,JSON.stringify(a)+"\\n");
+if(a[0]==="repo") console.log("fixture/repo");
+else if(a[0]==="api" && a[1].startsWith("repos/fixture/repo/actions/workflows?")) console.log(JSON.stringify({total_count:0,workflows:[]}));
+else if(a[0]==="run" && a[1]==="list") console.log(JSON.stringify([{workflowName:"Historical Push Guard",status:"completed",conclusion:"success",event:"push",createdAt:"2026-07-15T20:00:00Z"}]));
+else throw Error("Unexpected gh request: "+JSON.stringify(a));`,
+        git: `const a=process.argv.slice(2);
+if(a[0]==="rev-parse") console.log(${JSON.stringify(SOURCE_SHA)});
+else if(!["ls-remote","merge-base","ls-tree","diff","show"].includes(a[0])) throw Error("Unexpected Git request: "+JSON.stringify(a));`,
+        pnpm: 'console.log("[]");',
+      };
+      for (const [command, source] of Object.entries(fixtures)) {
+        const file = path.join(root, command);
+        writeFileSync(file, `#!${process.execPath}\n${source}\n`);
+        chmodSync(file, 0o755);
+      }
+      const result = spawnSync(
+        process.execPath,
+        [
+          fileURLToPath(
+            new URL("./production-release-status.mjs", import.meta.url)
+          ),
+          "--ref",
+          SOURCE_SHA,
+          "--repo",
+          "fixture/repo",
+          ...RELEASE_SCOPES_FOR_TEST.flatMap((scope) => [
+            "--deployed",
+            `${scope}=${SOURCE_SHA}`,
+          ]),
+          "--plan-stage",
+          "remote-agent",
+        ],
+        {
+          cwd: root,
+          encoding: "utf8",
+          timeout: 10_000,
+          env: {
+            ...process.env,
+            GITHUB_ACTIONS: "false",
+            PATH: `${root}${path.delimiter}${process.env.PATH}`,
+            STATUS_READ_LOG: log,
+          },
+        }
+      );
+      assert.equal(result.status, 0, result.stderr || result.stdout);
+      assert.equal(result.stderr, "");
+      assert.ok(result.stdout.includes("Selected scopes: remote-agent"));
+      assert.match(result.stdout, PLANNING_ONLY);
+      const reads = readFileSync(log, "utf8")
+        .trim()
+        .split("\n")
+        .map(JSON.parse);
+      assert.equal(reads.filter((args) => args[0] === "api").length, 1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
 
 test("separates the exact current-change scopes from the global deployment backlog", async () => {
   let output = "";

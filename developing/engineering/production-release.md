@@ -611,6 +611,14 @@ The result keeps two facts separate:
 - `Global pending scopes` are older or unrelated deployment backlog visible in
   GitHub history.
 
+For a dependency patch whose lockfile changes only its patch hashes, the planner
+uses the existing affected-workspace proof and reads consumers from the target
+commit's lockfile and package names. That same proof limits both workspace
+impact and the lockfile's broad CLI/Service release signal. The complete changed
+path list stays in the plan. Root-toolchain consumers, mixed dependency changes,
+unknown lockfile shapes and missing history keep the conservative full runtime
+scope; a scope override cannot certify whole-change completion.
+
 The workflow mapping uses the current-change scopes when `--change-base` is
 present. Without it, the mapping is explicitly global-backlog information.
 Neither form authorizes a release or expands the responsible agent's business
@@ -2099,6 +2107,11 @@ Windows Native AOT helper bytes can differ across builds of identical source.
 Set `windows_artifact_run_id` to the run used above when publishing the stamped
 manifest. The publisher rechecks its provenance and bytes and skips a second
 Windows build. A different run with the same source is not interchangeable.
+When using guarded hosted release continuation, set `WINDOWS_ARTIFACT_RUN_ID`
+to that numeric run ID. The CLI stage validates and forwards it as
+`windows_artifact_run_id`; other scopes ignore it. An omitted or blank value
+preserves the workflow's normal helper-build behavior. Existing active release
+runs are still watched rather than dispatched again.
 
 Use `release:verify:local -- --scope cli` only when an earlier full go/no-go
 decision or handoff is needed; it is not a default extra gate.

@@ -87,7 +87,11 @@ is not a future release strategy.
    lineage, excludes hidden reasoning, and cannot cross conversation generations.
    Unused string arguments accept null for strict provider schemas. The
    checkpoint prompt retains active facts and source pointers without growing
-   an exhaustive archive. Mid-tool-loop cuts retain the issuing assistant and
+   an exhaustive archive. Its system instruction requires a fresh rewrite of
+   the previous checkpoint, consolidating repeated facts and replacing old
+   inventories with conclusions and recall/source references within the visible
+   target. The previous checkpoint is source material, not a draft to expand.
+   Mid-tool-loop cuts retain the issuing assistant and
    its paired results, including when the latest entry is a tool result. The
    public Node-runtime boundary tests are in `working-context.test.ts` and
    `context-recovery.test.ts`, including recovery after a failed summary and

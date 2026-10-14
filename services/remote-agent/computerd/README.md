@@ -32,6 +32,23 @@ external hardlinks survive cleanup. Delayed tombstones cannot overwrite newer
 deletion history. Path resolution checks read-only destinations through symlinks.
 Metadata, deliberate refusals and accepted source cursors commit together.
 ACK loss replays the exact source page without overwriting receiver-local work.
+Push watermarks can include a requested retention slot's generation and closed
+flag in the same read transaction as its epoch and cursors. After reconciliation,
+a matching open generation avoids repeated retention-head and admission calls.
+This projection is not persisted and is not a lease: all pinning and writes
+still validate the original scope. Initial ownership uses the existing
+expected-generation compare-and-set; closed cleanup remains idempotent.
+Import receipts are acknowledged immediately, including the final page.
+
+The object receiver buffers at most 256 objects and 8 MiB per transaction,
+with at most one additional filesystem chunk read ahead to select that boundary.
+It reads the stream outside the transaction, rechecks its original retention
+scope inside each transaction, and commits bytes, pins and maintenance dirtiness
+together. Interrupted streams discard the uncommitted tail; prior complete
+groups can remain staged without advancing metadata or receipt cursors.
+Capacity or commit failures retain their original error. An acknowledged object
+batch still does not authorize execution without the existing metadata ACK.
+
 Preparation exposes an opaque digest of its actual durable traversal position,
 including pending deletion traversal, without revealing file paths. Repeating
 a read without work produces the same checkpoint.
@@ -61,6 +78,34 @@ that maintenance finishes. Pending executions retain their necessary journal.
 
 `MOUNT_IGNORE` is not enabled. Dependencies and user files retain their existing
 storage semantics. Excluding a directory from FUSE is not an equivalent fix.
+
+## Preparation timing
+
+AgentComputer enables the existing SDK `sync.block` log for execution
+preparation as well as public synchronization. Preparation records carry
+`purpose: execution-preparation`, generation, phase, opaque checkpoint,
+block entry/byte counts and accepted revision cursors. Revision values are not
+file counts. Failed blocks omit unconfirmed progress and retain `failedStage`;
+logging failures cannot change the sync result or its original exception.
+
+Each block reports `startedAtMs` and `finishedAtMs` for correlation, monotonic
+`blockMs`, and scalar elapsed intervals: `watermarksMs`, `retentionMs`,
+`prepareMs`, `planMs`, `hasObjectsMs`, `pushObjectsMs`, `pushEntriesMs`,
+`importAckMs`, `cleanupMs` and `localMs`. Counts include `preparationReads`,
+`plannedEntries`, `plannedObjects` and successfully acknowledged `stagedObjects`.
+The existing log owner emits one record per driven block, with no file paths,
+contents, commands, credentials, new durable statistics or RPC fields.
+
+Use one Computer and generation to separate active blocks from gaps between
+blocks, then compare the stage intervals. Keep the platform invocation wall/CPU
+measurements alongside these records. Production Workers timers advance only
+after I/O, so synchronous planning can report zero and its elapsed work can be
+charged to the next I/O interval. These are observations, not SQL CPU profiles
+or isolated network RTTs. CPU headroom is omitted unless the host supplies an
+actual CPU measurement. See the [Workers timer contract](https://developers.cloudflare.com/workers/runtime-apis/performance/).
+Query sampling or missing records prevents an exact gap or total calculation.
+Object-transfer time includes streaming and receiver writes; it does not
+separate native stream waits from individual SQLite commits.
 
 ## Imported-file confirmation
 
@@ -161,6 +206,21 @@ Apply `upstream.patch` to the pinned archive, install its locked workspaces with
 `npm ci --ignore-scripts`, and build `@cloudflare/computer`. Its distribution
 generates `patches/@cloudflare__computer@0.5.0.patch`; do not hand-edit generated
 bundle internals. Run builds and native checks through `pnpm dev:run`.
+
+The optional retention projection interoperates with the previously patched
+0.5.0 protocol in both directions: new clients use the original retention RPCs
+when old servers omit it; old clients use their original RPCs on new servers.
+Object batching changes no wire fields. Metadata/receipt bounds, native dispatch
+fences, file storage and command identities remain unchanged. This does not
+extend compatibility to older unpatched peers without bounded sync support.
+No public OpenMeld CLI, Service, Skills, Core, Gateway or Web contract changes.
+
+The 0.5.1 upgrade was assessed separately. Its deletion/replay and mount-schema
+changes overlap the current ownership patch: applying the existing patch fails
+in nine files across 23 hunks, including receiver apply and sync-engine code.
+Adopting it requires a separate merge and deletion/replay migration check. Its
+object receiver still stages one object at a time and its watermarks have no
+retention projection, so the present bounded cost correction stays on 0.5.0.
 
 Focused source checks cover bounded planning, receiver reclamation, large file
 objects, source replacement, refusal retention, dispatch fencing and execution

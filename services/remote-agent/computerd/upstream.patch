@@ -592,10 +592,10 @@ index ee1c858..c399535 100644
      if (expectedRuntimeId !== undefined && this.#entries.get(key) !== expectedRuntimeId) return;
 diff --git a/packages/computer/src/execution-sync.test.ts b/packages/computer/src/execution-sync.test.ts
 new file mode 100644
-index 0000000..3e21bbe
+index 0000000..d6d34bd
 --- /dev/null
 +++ b/packages/computer/src/execution-sync.test.ts
-@@ -0,0 +1,617 @@
+@@ -0,0 +1,633 @@
 +import type { ExecEvent, ShellRPC } from "@cloudflare/computer-rpc";
 +import { createSyncServer, createWorkspaceServer } from "@cloudflare/computer-rpc/server";
 +import { captureSyncTarget } from "@cloudflare/computer-rpc/driver";
@@ -606,6 +606,7 @@ index 0000000..3e21bbe
 +import { getWorkspace } from "./client.js";
 +import { WorkspaceSyncPendingError } from "./sync-pending.js";
 +import { Workspace } from "./workspace.js";
++import type { SyncBlockTelemetry } from "./observe/sync-telemetry.js";
 +
 +it("admits new work after peer replacement while preserving lost pull evidence", async () => {
 +  const local = new SQLiteTestStorage();
@@ -634,7 +635,18 @@ index 0000000..3e21bbe
 +    id: "peer", type: "replacement-peer",
 +    connect: async () => ({ runtimeId: "new-runtime", sync: "remote", rpc, close: async () => {} }),
 +  };
-+  let owner = new Workspace({ storage: local, backends: [backend] });
++  const blocks: SyncBlockTelemetry[] = [];
++  const createOwner = () => new Workspace({
++    storage: local, backends: [backend],
++    syncTelemetry: {
++      block(value) {
++        blocks.push(value);
++        throw new Error("diagnostics unavailable");
++      },
++      operation() {},
++    },
++  });
++  let owner = createOwner();
 +  const db = new Database(local);
 +  try {
 +    await owner.fs.writeFile("/input", "preserved input");
@@ -658,11 +670,15 @@ index 0000000..3e21bbe
 +        // Reconstruct the owner as a Worker restart would. Durable progress,
 +        // not a live iterator or a cleared diagnostic, must permit admission.
 +        await owner.close();
-+        owner = new Workspace({ storage: local, backends: [backend] });
++        owner = createOwner();
 +      }
 +    }
 +    expect(starts).toEqual(["new-command"]);
 +    expect(admissions).toBe(1);
++    expect(blocks.some(block => block.phase === "transferring" && block.complete === false)).toBe(true);
++    expect(blocks.some(block => block.phase === "cleaning" && block.complete === true)).toBe(true);
++    expect(blocks.every(block => block.purpose === "execution-preparation" && block.outcome === "progress")).toBe(true);
++    expect(JSON.stringify(blocks)).not.toContain("preserved input");
 +    expect(result).toMatchObject({ exitCode: 17 });
 +    expect(await owner.fs.readFile("/input", "utf8")).toBe("preserved input");
 +    expect(new SQLiteWorkspaceProvider(fresh).readFileSync("/input", "utf8")).toBe("preserved input");
@@ -1730,7 +1746,7 @@ index a9027ed..0dd284c 100644
      let closes = 0;
      const broken: import("@cloudflare/computer-rpc").SyncRPC = {
 diff --git a/packages/computer/src/workspace.ts b/packages/computer/src/workspace.ts
-index 12820e6..d41a8ee 100644
+index 12820e6..a5fb0ec 100644
 --- a/packages/computer/src/workspace.ts
 +++ b/packages/computer/src/workspace.ts
 @@ -13,18 +13,26 @@ import type { ShellRPC } from "@cloudflare/computer-rpc";
@@ -1800,6 +1816,17 @@ index 12820e6..d41a8ee 100644
  
    // Registered execution backends. The first is the default;
    // callers can select another by stable id.
+@@ -113,8 +135,8 @@ export interface WorkspaceOptions {
+   observer?: WorkspaceObserver;
+ 
+   // Structured per-block sync telemetry, emitted as single-line JSON so
+-  // the Workers Observability query API can aggregate it into the CPU
+-  // headroom and transport throughput numbers local benchmarks can only
++  // the Workers Observability query API can aggregate it into elapsed-time
++  // and transport throughput numbers local benchmarks can only
+   // model. See observe/sync-telemetry.ts for the queries.
+   //
+   // Off by default. Workers Logs is billed per event and a large sync
 @@ -305,8 +327,15 @@ export class Workspace {
      this.#artifacts = options.artifacts
        ? createArtifact(options.artifacts.binding, artifactsSessionId(options))
@@ -1817,6 +1844,15 @@ index 12820e6..d41a8ee 100644
      this.#executionRuntimes = new ExecutionRuntimeTracker(
        1_024,
        new SqlExecutionRuntimeStore(this.#db),
+@@ -651,7 +680,7 @@ export class Workspace {
+             // Structured telemetry alongside the span. The span nests
+             // for tracing; this record is what the Workers Observability
+             // query API can aggregate, so production runs can answer the
+-            // CPU-headroom and throughput questions the local benchmarks
++            // elapsed-time and throughput questions the local benchmarks
+             // could only model.
+             const blockMs = Date.now() - blockStarted;
+             const progress = result.value;
 @@ -710,7 +739,139 @@ export class Workspace {
      };
    }
@@ -2310,7 +2346,7 @@ index 12820e6..d41a8ee 100644
            });
          },
          (span, outcome) => {
-@@ -1233,21 +1527,34 @@ export class Workspace {
+@@ -1233,21 +1527,55 @@ export class Workspace {
      );
    }
  
@@ -2318,7 +2354,28 @@ index 12820e6..d41a8ee 100644
 +    remote: import("@cloudflare/computer-rpc").SyncRPC,
 +    backend: string,
 +  ): Promise<number> {
-+    const step = await pushBlocks(this.#db, remote, { backend })[Symbol.asyncIterator]().next();
++    const step = await pushBlocks(this.#db, remote, {
++      backend,
++      onBlock: (timing, progress) => this.#syncLogger.block({
++        ...timing,
++        backend,
++        direction: "push",
++        mode: "entries",
++        purpose: "execution-preparation",
++        ...(progress ? {
++          operationId: progress.operationId,
++          generation: progress.generation,
++          phase: progress.phase,
++          checkpoint: progress.checkpoint,
++          entries: progress.entries,
++          bytes: progress.bytes,
++          skipped: progress.skipped,
++          complete: progress.complete,
++          cursorRev: progress.cursor.rev,
++          targetRev: progress.targetCursor.rev,
++        } : {}),
++      }),
++    })[Symbol.asyncIterator]().next();
 +    if (step.done) throw new Error("sync: missing push progress");
 +    // New writes after a fixed window require another window before dispatch.
 +    if (!step.value.complete || currentRev(this.#db) > step.value.targetCursor.rev) {
@@ -2359,7 +2416,7 @@ index 12820e6..d41a8ee 100644
      );
    }
  
-@@ -1289,6 +1596,26 @@ export class Workspace {
+@@ -1289,6 +1617,26 @@ export class Workspace {
      });
    }
  
@@ -2386,7 +2443,7 @@ index 12820e6..d41a8ee 100644
    #executionRuntimeKey(backendId: string, executionId: string): string {
      return JSON.stringify([backendId, executionId]);
    }
-@@ -1344,14 +1671,18 @@ function assertExecutionRuntime(
+@@ -1344,14 +1692,18 @@ function assertExecutionRuntime(
    currentRuntimeId: string | undefined,
  ): void {
    if (expectedRuntimeId === undefined || currentRuntimeId === expectedRuntimeId) return;
@@ -2412,15 +2469,16 @@ index 12820e6..d41a8ee 100644
  // CommandExecutor disposes this local envelope when the stream ends;
 diff --git a/packages/computer/tests/execution-sync-worker.ts b/packages/computer/tests/execution-sync-worker.ts
 new file mode 100644
-index 0000000..7c66b28
+index 0000000..a0d8a02
 --- /dev/null
 +++ b/packages/computer/tests/execution-sync-worker.ts
-@@ -0,0 +1,72 @@
+@@ -0,0 +1,106 @@
 +import { DurableObject } from "cloudflare:workers";
 +import type { ShellRPC } from "@cloudflare/computer-rpc";
 +import { reconcileSyncSnapshot } from "@cloudflare/computer-rpc/driver";
 +import { createSyncServer } from "@cloudflare/computer-rpc/server";
-+import { Database } from "@cloudflare/dofs";
++import { Database, initializeSchema, retentionHead, readFetchCursor } from "@cloudflare/dofs";
++import { createHash } from "node:crypto";
 +import { SqlExecutionRuntimeStore } from "../src/execution-runtime-tracker.js";
 +import { Workspace } from "../src/workspace.js";
 +
@@ -2485,15 +2543,48 @@ index 0000000..7c66b28
 +  nativeCalls() {
 +    return this.#nativeCalls;
 +  }
++
++  async objectBatchRollback() {
++    const failure = new Error("maintenance observer failed");
++    let armed = false;
++    let writes = 0;
++    const db = new Database(this.ctx.storage, () => {
++      if (armed && ++writes === 2) throw failure;
++    });
++    initializeSchema(db, Date.now);
++    const rpc = createSyncServer(db);
++    const scope = { epoch: retentionHead(db, "push").epoch, slot: "push", generation: "worker-batch" };
++    await rpc.beginRetention!(scope, null);
++    const dirty = db.scalar<number>("SELECT dirty FROM _vfs_gc_state WHERE slot=1")!;
++    let originalError = false;
++    armed = true;
++    try {
++      await rpc.pushObjects(new ReadableStream({ start(controller) {
++        for (const text of ["first", "second"]) {
++          const bytes = new TextEncoder().encode(text);
++          controller.enqueue({ bytes, hash: new Uint8Array(createHash("sha256").update(bytes).digest()) });
++        }
++        controller.close();
++      } }), scope);
++    } catch (error) { originalError = error === failure; }
++    return {
++      originalError, writes,
++      objects: db.scalar<number>("SELECT count(*) FROM vfs_blob_bytes"),
++      pins: db.scalar<number>("SELECT count(*) FROM _vfs_blob_pins"),
++      dirtyDelta: db.scalar<number>("SELECT dirty FROM _vfs_gc_state WHERE slot=1")! - dirty,
++      cursor: readFetchCursor(db),
++      receipts: db.scalar<number>("SELECT count(*) FROM _vfs_import_receipts"),
++    };
++  }
 +}
 +
 +export default { fetch: () => new Response("execution sync tests") };
 diff --git a/packages/computer/tests/execution-sync.test.ts b/packages/computer/tests/execution-sync.test.ts
 new file mode 100644
-index 0000000..beb22aa
+index 0000000..4ea8f95
 --- /dev/null
 +++ b/packages/computer/tests/execution-sync.test.ts
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,33 @@
 +import { env } from "cloudflare:test";
 +import { expect, it } from "vitest";
 +import { getWorkspace } from "../src/client.js";
@@ -2502,6 +2593,14 @@ index 0000000..beb22aa
 +declare module "cloudflare:test" {
 +  interface ProvidedEnv extends Env {}
 +}
++
++it("rolls back a failed object batch through actual Workers nested transactions", async () => {
++  const owner = env.WORKSPACE.get(env.WORKSPACE.newUniqueId());
++  expect(await owner.objectBatchRollback()).toEqual({
++    originalError: true, writes: 2, objects: 0, pins: 0, dirtyDelta: 0,
++    cursor: { rev: 0, path: null }, receipts: 0,
++  });
++});
 +
 +it.each(["runtime", "epoch", "retired epoch"] as const)(
 +  "preserves typed %s loss through SQLite Workspace, Workers RPC and WorkspaceClient",
@@ -6163,7 +6262,7 @@ index 0000000..8af057b
 +});
 diff --git a/packages/rpc/src/import-receipts.test.ts b/packages/rpc/src/import-receipts.test.ts
 new file mode 100644
-index 0000000..a12fd0d
+index 0000000..78be9ec
 --- /dev/null
 +++ b/packages/rpc/src/import-receipts.test.ts
 @@ -0,0 +1,313 @@
@@ -6275,7 +6374,7 @@ index 0000000..a12fd0d
 +        return typeof value === "function" ? value.bind(target) : value;
 +      },
 +    });
-+    await expect(pushBlocks(source.db, peer)[Symbol.asyncIterator]().next()).rejects.toThrow("peer epoch changed");
++    await expect(pushBlocks(source.db, peer)[Symbol.asyncIterator]().next()).rejects.toThrow("ESYNC_STALE_RETENTION");
 +    expect(readPushCursor(replacement.db)).toEqual(before);
 +    for await (const step of pushBlocks(source.db, replacement.rpc)) if (step.complete) break;
 +    for await (const step of pullBlocks(source.db, replacement.rpc)) if (step.complete) break;
@@ -6481,15 +6580,24 @@ index 0000000..a12fd0d
 +  },
 +);
 diff --git a/packages/rpc/src/interface.ts b/packages/rpc/src/interface.ts
-index 8e46173..13944dc 100644
+index 8e46173..8415ecf 100644
 --- a/packages/rpc/src/interface.ts
 +++ b/packages/rpc/src/interface.ts
-@@ -17,9 +17,20 @@
+@@ -17,9 +17,29 @@
  // WorkspaceRPC, so the wire stub exposes one stable surface while
  // the two halves stay internally separable.
  
 -import type { ChangeCursor, ChangeEntry } from "@cloudflare/dofs";
 +import type { ChangeCursor, ChangeEntry, RetentionScope, ImportReceipt, ImportRequest } from "@cloudflare/dofs";
++
++export const OBJECT_BATCH_LIMIT = 256;
++export const OBJECT_BATCH_BYTES = 8 * 1024 * 1024;
++
++export interface RetentionWatermark {
++  slot: string;
++  generation: string | null;
++  closed: boolean;
++}
  
  export interface SyncRPC {
 +  acknowledgeImport?(receipt: ImportReceipt): Promise<void>;
@@ -6506,7 +6614,7 @@ index 8e46173..13944dc 100644
    // DO → container. Stream a coalesced batch of changes. Bytes are
    // not inline: the DO sends ChangeEntry records with chunk hashes,
    // the container calls back via hasObjects / asks for the missing
-@@ -29,10 +40,13 @@ export interface SyncRPC {
+@@ -29,10 +49,13 @@ export interface SyncRPC {
    // settles, and echoes that cursor back as `appliedPushCursor` so
    // the sender can assert applied covers pushed on every response.
    push(input: {
@@ -6520,7 +6628,7 @@ index 8e46173..13944dc 100644
      rev: number;
      applied?: number;
      appliedPushCursor: ChangeCursor;
-@@ -51,6 +65,9 @@ export interface SyncRPC {
+@@ -51,6 +74,9 @@ export interface SyncRPC {
    //
    // Per-file entries carry (hash, size) chunk lists; no bytes inline.
    fetchChanges(input: {
@@ -6530,7 +6638,7 @@ index 8e46173..13944dc 100644
      after?: ChangeCursor;
      through?: ChangeCursor;
      ignore?: string[];
-@@ -58,6 +75,8 @@ export interface SyncRPC {
+@@ -58,10 +84,12 @@ export interface SyncRPC {
      currentCursor: ChangeCursor;
      appliedPushCursor: ChangeCursor;
      stream: ReadableStream<ChangeEntry>;
@@ -6538,16 +6646,27 @@ index 8e46173..13944dc 100644
 +    drained?: boolean;
    }>;
  
-   // Read the receiver's full sync watermark state. Cheap (three
-@@ -75,6 +94,7 @@ export interface SyncRPC {
+-  // Read the receiver's full sync watermark state. Cheap (three
+-  // SQL scalars) and read-only. Diagnostic surface for load
++  // Read the receiver's full sync watermark state. Bounded indexed
++  // reads in one snapshot. Diagnostic surface for load
+   // tests, dashboards, and the agent's exec stream when it
+   // wants to wait for the wire to drain. The three values are:
+   //
+@@ -74,7 +102,11 @@ export interface SyncRPC {
+   // a sync peer. Otherwise they sit at 0. Pass `settle: true` to run
    // the receiver's pre-fetch reconciliation before currentRev is read;
    // deferred command sync uses that as its durable target fence.
-   watermarks(input?: { settle?: boolean }): Promise<{
+-  watermarks(input?: { settle?: boolean }): Promise<{
++  // retentionSlot asks for a read-only view of the existing retention row in
++  // the same snapshot. Older peers omit it; mutations still fence the scope.
++  watermarks(input?: { settle?: boolean; retentionSlot?: string }): Promise<{
 +    epoch?: string;
++    retention?: RetentionWatermark;
      currentRev: number;
      pushRev: number;
      fetchCursor: ChangeCursor;
-@@ -89,12 +109,12 @@ export interface SyncRPC {
+@@ -89,12 +121,12 @@ export interface SyncRPC {
    // to look up one path.
    readEntry(path: string): Promise<ChangeEntry | null>;
  
@@ -6562,7 +6681,7 @@ index 8e46173..13944dc 100644
  
    // Bulk pull transport. Same cursor semantics as fetchChanges, but the
    // response is one gzip change pack carrying entries interleaved with
-@@ -136,7 +156,7 @@ export interface SyncRPC {
+@@ -136,7 +168,7 @@ export interface SyncRPC {
    // DO → container direction of object transfer. The DO streams the
    // bytes the container reported missing (via hasObjects) during a
    // push. Pushed objects are addressable immediately by hash.
@@ -6571,7 +6690,7 @@ index 8e46173..13944dc 100644
  }
  
  // Process supervision surface. Lives alongside SyncRPC. computerd's
-@@ -148,6 +168,7 @@ export interface ShellRPC {
+@@ -148,6 +180,7 @@ export interface ShellRPC {
    // Capnweb streams handle backpressure end-to-end; consumer-side
    // slowness propagates to the spawned process via the kernel pipe.
    exec(input: {
@@ -6581,14 +6700,14 @@ index 8e46173..13944dc 100644
      id?: string;
 diff --git a/packages/rpc/src/retention.test.ts b/packages/rpc/src/retention.test.ts
 new file mode 100644
-index 0000000..253a88c
+index 0000000..234e54c
 --- /dev/null
 +++ b/packages/rpc/src/retention.test.ts
-@@ -0,0 +1,282 @@
+@@ -0,0 +1,425 @@
 +import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 +import { tmpdir } from "node:os";
 +import { join } from "node:path";
-+import { randomBytes } from "node:crypto";
++import { createHash, randomBytes } from "node:crypto";
 +import { Database, initializeSchema, SQLiteWorkspaceProvider, collectContentStep, retentionHead, beginRetention, pinBlobs, failOperation, readOperation, readFetchCursor, readPushCursor, type RetentionScope } from "@cloudflare/dofs";
 +import { NodeSQLiteStorage } from "@cloudflare/dofs/node";
 +import { describe, expect, it } from "vitest";
@@ -6607,6 +6726,149 @@ index 0000000..253a88c
 +}
 +
 +describe("content retention across interrupted synchronization", () => {
++  it.each([false, true])("keeps immediate ACK and closed cleanup with retention projection=%s", async (projected) => {
++    const local = peer(":memory:");
++    const remote = peer(":memory:");
++    const calls = new Map<string, number>();
++    let lostClose = false;
++    const rpc = new Proxy(remote.rpc, { get(target, key) {
++      const value = Reflect.get(target, key);
++      if (typeof value !== "function") return value;
++      return async (...args: unknown[]) => {
++        calls.set(String(key), (calls.get(String(key)) ?? 0) + 1);
++        // This is the captured pre-projection wire shape: the old server
++        // ignores retentionSlot and returns only its ordinary watermarks.
++        if (key === "watermarks" && !projected) return target.watermarks();
++        const result = await value.apply(target, args);
++        if (key === "discardChanges" && !lostClose) {
++          lostClose = true;
++          throw new Error("lost closed response");
++        }
++        return result;
++      };
++    } });
++    try {
++      for (let i = 0; i < 6; i++) local.fs.writeFileSync(`/file-${i}`, `bytes-${i}`);
++      let complete = false;
++      for (let i = 0; i < 20 && !complete; i++) {
++        try {
++          const result = await pushBlocks(local.db, rpc, { profile: { maxEntries: 2, maxBytes: 1024 ** 2 } })[Symbol.asyncIterator]().next();
++          complete = result.done || result.value.complete;
++          // Each successful page has already drained its receipt, including
++          // the final page. The fast read does not defer ACK to the next call.
++          expect(local.db.scalar("SELECT count(*) FROM _vfs_import_receipts WHERE slot='send:default'")).toBe(0);
++        } catch (error) { if ((error as Error).message !== "lost closed response") throw error; }
++      }
++      expect(complete && lostClose).toBe(true);
++      for (let i = 0; i < 6; i++) expect(remote.fs.readFileSync(`/file-${i}`, "utf8")).toBe(`bytes-${i}`);
++      expect(calls.get("acknowledgeImport")).toBeGreaterThan(0);
++      if (projected) {
++        expect(calls.get("retentionHead") ?? 0).toBe(0);
++        expect(calls.get("beginRetention")).toBe(1);
++      } else {
++        expect(calls.get("retentionHead")).toBe(calls.get("watermarks"));
++        expect(calls.get("beginRetention")).toBeGreaterThan(1);
++      }
++      const snapshot = await remote.rpc.watermarks({ retentionSlot: "default:push" });
++      expect(snapshot.retention).toMatchObject({ slot: "default:push", closed: true });
++    } finally { local.storage.close(); remote.storage.close(); }
++  });
++
++  it.each(["close", "replace"] as const)("rejects writes if retention changes after the read snapshot: %s", async (change) => {
++    const local = peer(":memory:");
++    const remote = peer(":memory:");
++    try {
++      for (let i = 0; i < 6; i++) local.fs.writeFileSync(`/file-${i}`, `bytes-${i}`);
++      const options = { profile: { maxEntries: 2, maxBytes: 1024 ** 2 } };
++      const first = await pushBlocks(local.db, remote.rpc, options)[Symbol.asyncIterator]().next();
++      expect(first.value).toMatchObject({ phase: "transferring", complete: false });
++      const before = readPushCursor(local.db);
++      const remoteBefore = readFetchCursor(remote.db);
++      const watermarks = remote.rpc.watermarks.bind(remote.rpc);
++      remote.rpc.watermarks = async (input) => {
++        const snapshot = await watermarks(input);
++        const scope = { epoch: snapshot.epoch!, slot: "default:push", generation: snapshot.retention!.generation! };
++        if (change === "close") await remote.rpc.discardChanges!(scope.generation, scope);
++        else await remote.rpc.beginRetention!({ ...scope, generation: "replacement" }, scope.generation);
++        return snapshot;
++      };
++      await expect(pushBlocks(local.db, remote.rpc, options)[Symbol.asyncIterator]().next()).rejects.toThrow("ESYNC_STALE_RETENTION");
++      expect(readPushCursor(local.db)).toEqual(before);
++      expect(readFetchCursor(remote.db)).toEqual(remoteBefore);
++      expect(remote.fs.readFileSync("/file-0", "utf8")).toBe("bytes-0");
++    } finally { local.storage.close(); remote.storage.close(); }
++  });
++
++  it.each(["stream", "close", "replace"] as const)("does not commit the buffered object tail after %s", async (fault) => {
++    const directory = mkdtempSync(join(tmpdir(), "computer-object-tail-"));
++    let remote = peer(join(directory, "state.sqlite"));
++    const object = (i: number) => {
++      const bytes = Buffer.from(`retained-object-${i}`);
++      return { bytes, hash: createHash("sha256").update(bytes).digest() };
++    };
++    try {
++      remote.fs.writeFileSync("/keep", "original result");
++      const scope = { epoch: retentionHead(remote.db, "test:push").epoch, slot: "test:push", generation: "objects" };
++      await remote.rpc.beginRetention!(scope, null);
++      let sent = 0;
++      const failure = new Error("stream interrupted");
++      const stream = new ReadableStream<{ hash: Uint8Array; bytes: Uint8Array }>({
++        async pull(controller) {
++          expect(remote.db.inTransaction).toBe(false);
++          if (sent < 257) { controller.enqueue(object(sent++)); return; }
++          if (fault === "stream") controller.error(failure);
++          else {
++            if (fault === "close") await remote.rpc.discardChanges!(scope.generation, scope);
++            else await remote.rpc.beginRetention!({ ...scope, generation: "replacement" }, scope.generation);
++            controller.close();
++          }
++        },
++      }, { highWaterMark: 0 });
++      if (fault === "stream") await expect(remote.rpc.pushObjects(stream, scope)).rejects.toBe(failure);
++      else await expect(remote.rpc.pushObjects(stream, scope)).rejects.toThrow("ESYNC_STALE_RETENTION");
++      expect(remote.db.scalar("SELECT count(*) FROM _vfs_blob_pins WHERE owner=?", scope.generation)).toBe(256);
++      expect(remote.db.scalar("SELECT count(*) FROM vfs_blob_bytes WHERE hash=?", object(256).hash)).toBe(0);
++      expect(readFetchCursor(remote.db)).toEqual({ rev: 0, path: null });
++      expect(remote.db.scalar("SELECT count(*) FROM _vfs_import_receipts")).toBe(0);
++      remote.storage.close(); remote = peer(join(directory, "state.sqlite"));
++      expect(remote.fs.readFileSync("/keep", "utf8")).toBe("original result");
++      if (fault === "stream") {
++        await remote.rpc.pushObjects(new ReadableStream({ start(controller) {
++          for (let i = 0; i < 257; i++) controller.enqueue(object(i));
++          controller.close();
++        } }), scope);
++        expect(remote.db.scalar("SELECT count(*) FROM _vfs_blob_pins WHERE owner=?", scope.generation)).toBe(257);
++        expect(remote.db.scalar("SELECT count(*) FROM vfs_blob_bytes")).toBe(258);
++      }
++    } finally { remote.storage.close(); rmSync(directory, { recursive: true, force: true }); }
++  });
++
++  it.each(["admission", "sqlite-full"] as const)("rolls back bytes, pins and maintenance dirtiness at mid-batch capacity failure: %s", async (limit) => {
++    const directory = mkdtempSync(join(tmpdir(), "computer-object-capacity-"));
++    const storage = new NodeSQLiteStorage({ location: join(directory, "state.sqlite"), ...(limit === "admission" ? { maxSizeBytes: 1024 ** 2 } : {}) });
++    const db = new Database(storage); initializeSchema(db, Date.now);
++    const rpc = createSyncServer(db);
++    try {
++      const scope = { epoch: retentionHead(db, "push").epoch, slot: "push", generation: "objects" };
++      await rpc.beginRetention!(scope, null);
++      if (limit === "sqlite-full") db.run("PRAGMA max_page_count = 256");
++      const dirty = db.scalar("SELECT dirty FROM _vfs_gc_state WHERE slot=1");
++      const stream = new ReadableStream({ start(controller) {
++        for (let i = 0; i < 4; i++) {
++          const bytes = Buffer.alloc(256 * 1024, i);
++          controller.enqueue({ hash: createHash("sha256").update(bytes).digest(), bytes });
++        }
++        controller.close();
++      } });
++      await expect(rpc.pushObjects(stream, scope)).rejects.toMatchObject({ code: "ENOSPC" });
++      expect(db.scalar("SELECT count(*) FROM vfs_blob_bytes")).toBe(0);
++      expect(db.scalar("SELECT count(*) FROM _vfs_blob_pins")).toBe(0);
++      expect(db.scalar("SELECT dirty FROM _vfs_gc_state WHERE slot=1")).toBe(dirty);
++      expect(readFetchCursor(db)).toEqual({ rev: 0, path: null });
++      expect(db.scalar("SELECT count(*) FROM _vfs_import_receipts")).toBe(0);
++    } finally { storage.close(); rmSync(directory, { recursive: true, force: true }); }
++  });
++
 +  it.each([
 +    { direction: "push", size: 1024 },
 +    { direction: "pull", size: 1024 },
@@ -6868,12 +7130,14 @@ index 0000000..253a88c
 +  });
 +});
 diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
-index 4e675c3..a3161de 100644
+index 4e675c3..9b4c3da 100644
 --- a/packages/rpc/src/server.ts
 +++ b/packages/rpc/src/server.ts
-@@ -6,9 +6,13 @@
+@@ -5,10 +5,15 @@
+ // the DO. Same code on both ends; what differs is who calls whom.
  
  import {
++  CHUNK_SIZE,
    applyChangesSync,
 +  proveImportedWindow, readImportReceipt, saveImportReceipt, sameImportReceipt,
 +  readPushCursor, writePushCursor, type ImportReceipt, type ImportRequest,
@@ -6886,7 +7150,15 @@ index 4e675c3..a3161de 100644
    compareChangeCursors,
    currentRev,
    type Database,
-@@ -89,6 +93,13 @@ export interface ServerOptions {
+@@ -27,6 +32,7 @@ import { newWebSocketRpcSession, RpcTarget } from "capnweb";
+ 
+ import { trackStub, untrackStub } from "./debug.js";
+ import type { ExecEvent, ShellRPC, SyncRPC, WorkspaceRPC } from "./interface.js";
++import { OBJECT_BATCH_BYTES, OBJECT_BATCH_LIMIT } from "./interface.js";
+ 
+ // Subset of computerd's Runner that the shell server needs. Defining
+ // the shape here (instead of importing the concrete class) keeps
+@@ -89,6 +95,13 @@ export interface ServerOptions {
  }
  
  class SyncRPCServer extends RpcTarget implements SyncRPC {
@@ -6900,7 +7172,7 @@ index 4e675c3..a3161de 100644
    constructor(
      private readonly db: Database,
      private readonly options: Required<Pick<ServerOptions, "ignore">> &
-@@ -103,10 +114,12 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -103,10 +116,12 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
    }
  
    async push(input: {
@@ -6914,7 +7186,7 @@ index 4e675c3..a3161de 100644
      const entries: ChangeEntry[] = [];
      const reader = input.changes.getReader();
      try {
-@@ -139,13 +152,50 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -139,13 +154,50 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      // assembly step) rolls back every prior entry. Without this
      // wrapper the receiver could be left with a subset of the
      // pushed entries committed.
@@ -6968,7 +7240,7 @@ index 4e675c3..a3161de 100644
      });
      // Settle the receiver's shim, and let the outcome decide what the
      // caller is told — which differs by who the caller is.
-@@ -157,8 +207,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -157,8 +209,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      // acknowledgment, and only then spawns: acknowledging an
      // unflushed block would retire it and let the command read stale
      // disk. Replay is safe because these entries carry
@@ -6978,7 +7250,7 @@ index 4e675c3..a3161de 100644
      //
      // An external push is not replayable. It has no durable cursor to
      // rewind, and its entries are applied as source: "local", which
-@@ -170,7 +219,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -170,7 +221,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      // remove a file some other writer recreated in between. So the
      // failure is logged and the push acknowledged, leaving the shim's
      // periodic reconcile to repair disk.
@@ -6987,7 +7259,7 @@ index 4e675c3..a3161de 100644
        if (isPeer) {
          await this.options.afterApply();
        } else {
-@@ -183,12 +232,56 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -183,12 +234,56 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      }
      return {
        rev: currentRev(this.db),
@@ -7046,7 +7318,7 @@ index 4e675c3..a3161de 100644
      after?: ChangeCursor;
      through?: ChangeCursor;
      ignore?: string[];
-@@ -196,7 +289,11 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -196,7 +291,11 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      currentCursor: ChangeCursor;
      appliedPushCursor: ChangeCursor;
      stream: ReadableStream<ChangeEntry>;
@@ -7058,7 +7330,7 @@ index 4e675c3..a3161de 100644
      if (this.options.beforeFetch !== undefined) {
        try {
          await this.options.beforeFetch();
-@@ -215,13 +312,30 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -215,13 +314,30 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
        input.through !== undefined && compareChangeCursors(input.through, snapshotCursor) < 0
          ? input.through
          : snapshotCursor;
@@ -7096,7 +7368,7 @@ index 4e675c3..a3161de 100644
    }
  
    // Bulk pull. Plans one block against the same cursor window
-@@ -241,40 +355,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -241,40 +357,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      appliedPushCursor: ChangeCursor;
      stream: ReadableStream<Uint8Array>;
    }> {
@@ -7138,7 +7410,7 @@ index 4e675c3..a3161de 100644
    }
  
    // Bulk push receiver. Decode fully before applying anything: a pack
-@@ -294,12 +375,19 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -294,12 +377,19 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      for (const [key, bytes] of decoded.objects) {
        stageBlob(this.db, hexToBytes(key), bytes, Date.now());
      }
@@ -7161,7 +7433,7 @@ index 4e675c3..a3161de 100644
      // Mirror push(): settle the receiver's shim so a subsequent
      // shell.exec sees the just-pushed files on disk. Pack mode is
      // selected for exactly the large windows a pre-command push
-@@ -312,7 +400,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -312,7 +402,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      // lets the command read stale disk. Failing the RPC leaves the
      // sender cursor where it was and the next push replans the same
      // block; the entries are already committed here, and applying
@@ -7170,23 +7442,42 @@ index 4e675c3..a3161de 100644
      if (this.options.afterApply !== undefined && decoded.entries.length > 0) {
        await this.options.afterApply();
      }
-@@ -328,6 +416,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -327,11 +417,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+     return materialiseChange(this.db, path);
    }
  
-   async watermarks(input: { settle?: boolean } = {}): Promise<{
-+    epoch: string;
-     currentRev: number;
-     pushRev: number;
-     fetchCursor: ChangeCursor;
-@@ -340,29 +429,45 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+-  async watermarks(input: { settle?: boolean } = {}): Promise<{
+-    currentRev: number;
+-    pushRev: number;
+-    fetchCursor: ChangeCursor;
+-  }> {
++  async watermarks(input: { settle?: boolean; retentionSlot?: string } = {}): ReturnType<SyncRPC["watermarks"]> {
+     // Deferred command synchronization needs a cursor that includes
+     // writes still waiting in the userspace shim. Unlike the ordinary
+     // diagnostic read, a settled read propagates hook failures so the
+@@ -339,38 +425,83 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+     if (input.settle === true && this.options.beforeFetch !== undefined) {
        await this.options.beforeFetch();
      }
-     return {
-+      epoch: this.db.scalar<string>("SELECT epoch FROM _vfs_sync_identity WHERE slot='self'")!,
-       currentRev: currentRev(this.db),
-       pushRev: readWatermark(this.db, "pushRev"),
-       fetchCursor: readFetchCursor(this.db),
-     };
+-    return {
+-      currentRev: currentRev(this.db),
+-      pushRev: readWatermark(this.db, "pushRev"),
+-      fetchCursor: readFetchCursor(this.db),
+-    };
++    return this.db.transactionSync(() => {
++      const retention = input.retentionSlot === undefined ? undefined : this.db.one<{ generation: string; closed: number }>(
++        "SELECT generation,closed FROM _vfs_retention_slots WHERE slot=?", input.retentionSlot,
++      );
++      return {
++        epoch: this.db.scalar<string>("SELECT epoch FROM _vfs_sync_identity WHERE slot='self'")!,
++        currentRev: currentRev(this.db),
++        pushRev: readWatermark(this.db, "pushRev"),
++        fetchCursor: readFetchCursor(this.db),
++        ...(input.retentionSlot === undefined ? {} : { retention: {
++          slot: input.retentionSlot, generation: retention?.generation ?? null, closed: retention?.closed === 1,
++        } }),
++      };
++    });
    }
  
 -  async hasObjects(hashes: Uint8Array[]): Promise<Uint8Array[]> {
@@ -7219,17 +7510,35 @@ index 4e675c3..a3161de 100644
 +    scope?: RetentionScope,
    ): Promise<void> {
      const reader = objects.getReader();
++    let batch: { hash: Uint8Array; bytes: Uint8Array }[] = [];
++    let bytes = 0;
++    const commitBatch = () => {
++      if (batch.length === 0) return;
++      // Never hold a transaction while awaiting the stream. Recheck the
++      // original scope after that wait, before accepting any buffered bytes.
++      this.db.transactionSync(() => {
++        const owner = this.requireRetention(scope);
++        for (const object of batch) stageBlob(this.db, object.hash, object.bytes, Date.now(), owner.generation);
++      });
++      batch = [];
++      bytes = 0;
++    };
      try {
        while (true) {
          const { value, done } = await reader.read();
          if (done) break;
 -        stageBlob(this.db, value.hash, value.bytes, Date.now());
-+        const owner = this.requireRetention(scope);
-+        stageBlob(this.db, value.hash, value.bytes, Date.now(), owner.generation);
++        if (value.bytes.byteLength > CHUNK_SIZE)
++          throw new Error("sync: object size exceeds the filesystem chunk contract; cursor unchanged");
++        if (bytes + value.bytes.byteLength > OBJECT_BATCH_BYTES) commitBatch();
++        batch.push(value);
++        bytes += value.bytes.byteLength;
++        if (batch.length === OBJECT_BATCH_LIMIT || bytes === OBJECT_BATCH_BYTES) commitBatch();
        }
++      commitBatch();
      } finally {
        reader.releaseLock();
-@@ -370,7 +475,10 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+     }
    }
  }
  class ShellRPCServer extends RpcTarget implements ShellRPC {
@@ -7241,7 +7550,7 @@ index 4e675c3..a3161de 100644
      super();
      trackStub(this);
    }
-@@ -380,6 +488,7 @@ class ShellRPCServer extends RpcTarget implements ShellRPC {
+@@ -380,6 +511,7 @@ class ShellRPCServer extends RpcTarget implements ShellRPC {
    }
  
    async exec(input: {
@@ -7249,7 +7558,7 @@ index 4e675c3..a3161de 100644
      source: string;
      cwd?: string;
      id?: string;
-@@ -391,6 +500,17 @@ class ShellRPCServer extends RpcTarget implements ShellRPC {
+@@ -391,6 +523,17 @@ class ShellRPCServer extends RpcTarget implements ShellRPC {
      id: string;
      events: ReadableStream<ExecEvent>;
    }> {
@@ -7267,7 +7576,7 @@ index 4e675c3..a3161de 100644
      return this.runner.exec(input.source, {
        id: input.id,
        cwd: input.cwd,
-@@ -472,7 +592,7 @@ export function createWorkspaceServer(
+@@ -472,7 +615,7 @@ export function createWorkspaceServer(
    runner: RunnerLike,
    options: ServerOptions = {},
  ): WorkspaceRPC {
@@ -7384,7 +7693,7 @@ index 850e4af..85f81c5 100644
    // container lifetimes; the container's watermarks are
    // process-lifetime in today's computerd. After a container restart with
 diff --git a/packages/rpc/src/sync-driver.ts b/packages/rpc/src/sync-driver.ts
-index 076e783..563b31c 100644
+index 076e783..bec134f 100644
 --- a/packages/rpc/src/sync-driver.ts
 +++ b/packages/rpc/src/sync-driver.ts
 @@ -11,13 +11,15 @@
@@ -7404,6 +7713,15 @@ index 076e783..563b31c 100644
    readFetchCursor,
    readPushCursor,
    readWatermark,
+@@ -36,7 +38,7 @@ import type { SyncRPC } from "./interface.js";
+ // engine is what the Workspace iterables are built on.
+ import { captureSyncTarget, pullBlocks, pushBlocks } from "./sync-engine.js";
+ 
+-export type { PullBlocksOptions, PushBlocksOptions, SyncProgress } from "./sync-engine.js";
++export type { PullBlocksOptions, PushBlocksOptions, PushBlockTiming, SyncProgress } from "./sync-engine.js";
+ export { captureSyncTarget, pullBlocks, pushBlocks };
+ 
+ function hex(bytes: Uint8Array): string {
 @@ -244,17 +246,16 @@ async function pullOnceImpl(
            }
          }
@@ -7543,10 +7861,10 @@ index 076e783..563b31c 100644
    }
  
 diff --git a/packages/rpc/src/sync-engine-push.test.ts b/packages/rpc/src/sync-engine-push.test.ts
-index a30a99e..52695ff 100644
+index a30a99e..c92e85f 100644
 --- a/packages/rpc/src/sync-engine-push.test.ts
 +++ b/packages/rpc/src/sync-engine-push.test.ts
-@@ -1,6 +1,7 @@
+@@ -1,16 +1,17 @@
  import {
    Database,
    initializeSchema,
@@ -7554,9 +7872,77 @@ index a30a99e..52695ff 100644
    readOperation,
    readPushCursor,
    SQLiteWorkspaceProvider,
-@@ -64,15 +65,15 @@ async function drainPush(
+ } from "@cloudflare/dofs";
+ import { SQLiteTestStorage } from "@cloudflare/dofs/testing";
+-import { describe, expect, it } from "vitest";
++import { describe, expect, it, vi } from "vitest";
+ 
+ import type { SyncRPC } from "./interface.js";
+ import { createSyncServer } from "./server.js";
+-import { pushBlocks, type SyncProgress } from "./sync-engine.js";
++import { pushBlocks, type PushBlockTiming, type SyncProgress } from "./sync-engine.js";
+ 
+ // Push runs the same operation and block machinery as pull, in the
+ // other direction. The property that distinguishes it: the local
+@@ -63,16 +64,71 @@ async function drainPush(
+ }
  
  describe("restartable push engine", () => {
++  it.each([false, true])("measures real push stages without changing ACK or errors (fail=%s)", async (fail) => {
++    const local = makePeer(), remote = makePeer();
++    let clock = 0;
++    const clockSpy = vi.spyOn(performance, "now").mockImplementation(() => clock);
++    const failure = new Error("metadata refused");
++    const observations: { timing: PushBlockTiming; progress?: SyncProgress }[] = [];
++    const costs: Partial<Record<keyof SyncRPC, number>> = {
++      watermarks: 3, retentionHead: 5, beginRetention: 7,
++      hasObjects: 11, pushObjects: 13, push: 17, acknowledgeImport: 19,
++    };
++    const rpc = new Proxy(remote.rpc, {
++      get(target, key: keyof SyncRPC) {
++        const method = target[key];
++        if (typeof method !== "function") return method;
++        return (...args: unknown[]) => {
++          clock += costs[key] ?? 0;
++          if (fail && key === "push") throw failure;
++          return Reflect.apply(method, target, args);
++        };
++      },
++    });
++    try {
++      seedLocal(local.db, 4);
++      const pushing = pushOneBlock(local.db, rpc, {
++        onBlock(timing, progress) {
++          observations.push({ timing, progress });
++          throw new Error("diagnostic sink failed");
++        },
++      });
++      if (fail) {
++        await expect(pushing).rejects.toBe(failure);
++        expect(readPushCursor(local.db).rev).toBe(0);
++        expect(remoteNames(remote.db)).toEqual([]);
++      } else {
++        expect(await pushing).toMatchObject({ phase: "transferring", complete: false });
++        expect(readPushCursor(local.db).rev).toBeGreaterThan(0);
++        expect(remoteNames(remote.db)).toHaveLength(4);
++      }
++      expect(observations).toHaveLength(1);
++      expect(observations[0].timing).toMatchObject({
++        outcome: fail ? "error" : "progress",
++        watermarksMs: 3, retentionMs: 7, hasObjectsMs: 11,
++        pushObjectsMs: 13, pushEntriesMs: 17,
++        plannedObjects: 4, stagedObjects: 4,
++      });
++      expect(observations[0].timing.failedStage).toBe(fail ? "pushEntriesMs" : undefined);
++      expect(observations[0].timing.blockMs).toBe(clock);
++      expect(observations[0].timing.preparationReads).toBeGreaterThan(0);
++      await drainPush(local.db, remote.rpc);
++      expect(remoteNames(remote.db)).toEqual(["f000.txt", "f001.txt", "f002.txt", "f003.txt"]);
++    } finally {
++      clockSpy.mockRestore(); local.close(); remote.close();
++    }
++  });
++
    describe("completion contract", () => {
 -    it("yields a single complete value for an empty window", async () => {
 +    it("yields one terminal completion after bounded cleanup of an empty window", async () => {
@@ -7574,7 +7960,7 @@ index a30a99e..52695ff 100644
        } finally {
          local.close();
          remote.close();
-@@ -114,6 +115,69 @@ describe("restartable push engine", () => {
+@@ -114,6 +170,69 @@ describe("restartable push engine", () => {
    });
  
    describe("acknowledgment is the only cursor authority", () => {
@@ -7719,7 +8105,7 @@ index 9c5381f..0ccd228 100644
          expect(skips[0].reason).toBe("read-only");
        } finally {
 diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
-index b26db85..3f990a9 100644
+index b26db85..b239794 100644
 --- a/packages/rpc/src/sync-engine.ts
 +++ b/packages/rpc/src/sync-engine.ts
 @@ -16,10 +16,16 @@
@@ -7768,10 +8154,11 @@ index b26db85..3f990a9 100644
    shrinkBlockProfile,
    stageBlob,
    writeFetchCursor,
-@@ -52,8 +55,11 @@ import {
+@@ -52,8 +55,12 @@ import {
  } from "@cloudflare/dofs";
  
  import type { SyncRPC } from "./interface.js";
++import { OBJECT_BATCH_BYTES, OBJECT_BATCH_LIMIT } from "./interface.js";
 +import { reconcileSyncSnapshot } from "./sync-driver.js";
  
  export interface SyncProgress {
@@ -7780,7 +8167,7 @@ index b26db85..3f990a9 100644
    readonly operationId: string;
    readonly generation: string;
    readonly backend: string;
-@@ -69,6 +75,15 @@ export interface SyncProgress {
+@@ -69,6 +76,15 @@ export interface SyncProgress {
    readonly complete: boolean;
  }
  
@@ -7796,13 +8183,66 @@ index b26db85..3f990a9 100644
  export interface PullBlocksOptions {
    readonly backend?: string;
    readonly ignore?: string[];
-@@ -87,6 +102,24 @@ export interface PullBlocksOptions {
- export type PushBlocksOptions = PullBlocksOptions;
+@@ -84,10 +100,77 @@ export interface PullBlocksOptions {
+   readonly thresholdBytes?: number;
+ }
+ 
+-export type PushBlocksOptions = PullBlocksOptions;
++export type PushTimingStage = "localMs" | "watermarksMs" | "retentionMs" |
++  "prepareMs" | "planMs" | "hasObjectsMs" | "pushObjectsMs" |
++  "pushEntriesMs" | "importAckMs" | "cleanupMs";
++
++// Ephemeral observations, never part of the RPC or durable sync checkpoint.
++export interface PushBlockTiming extends Record<PushTimingStage, number> {
++  startedAtMs: number;
++  finishedAtMs: number;
++  blockMs: number;
++  outcome: "progress" | "error";
++  failedStage?: PushTimingStage;
++  generation?: string;
++  cursorRev?: number;
++  targetRev?: number;
++  preparationReads: number;
++  plannedEntries: number;
++  plannedObjects: number;
++  stagedObjects: number;
++}
++
++export interface PushBlocksOptions extends PullBlocksOptions {
++  readonly onBlock?: (timing: PushBlockTiming, progress?: SyncProgress) => void;
++}
++
++class PushBlockMeasurement {
++  readonly started = performance.now();
++  readonly data: PushBlockTiming = {
++    startedAtMs: Date.now(), finishedAtMs: 0, blockMs: 0, outcome: "error",
++    localMs: 0, watermarksMs: 0, retentionMs: 0, prepareMs: 0, planMs: 0,
++    hasObjectsMs: 0, pushObjectsMs: 0, pushEntriesMs: 0, importAckMs: 0, cleanupMs: 0,
++    preparationReads: 0, plannedEntries: 0, plannedObjects: 0, stagedObjects: 0,
++  };
++  #stage: PushTimingStage = "localMs";
++  #since = this.started;
++
++  stage(next: PushTimingStage): void {
++    const now = performance.now();
++    this.data[this.#stage] += Math.max(0, now - this.#since);
++    this.#stage = next;
++    this.#since = now;
++  }
++
++  finish(progress?: SyncProgress): PushBlockTiming {
++    const failedStage = this.#stage;
++    this.stage("localMs");
++    this.data.finishedAtMs = Date.now();
++    this.data.blockMs = Math.max(0, this.#since - this.started);
++    this.data.outcome = progress ? "progress" : "error";
++    if (!progress) this.data.failedStage = failedStage;
++    return this.data;
++  }
++}
  
  const DEFAULT_BACKEND = "default";
-+const OBJECT_BATCH_LIMIT = 256;
-+const OBJECT_BATCH_BYTES = 8 * 1024 * 1024;
-+
+ 
 +// Keep the existing large-file byte bound while allowing a page of small
 +// objects to share a round trip. Payloads are still streamed one at a time.
 +function objectBatch(objects: readonly BlockObject[]): BlockObject[] {
@@ -7818,10 +8258,11 @@ index b26db85..3f990a9 100644
 +  }
 +  return batch;
 +}
- 
++
  function hex(bytes: Uint8Array): string {
    let s = "";
-@@ -103,135 +136,56 @@ function entryCursor(entry: ChangeEntry): ChangeCursor {
+   for (let i = 0; i < bytes.byteLength; i++) s += bytes[i].toString(16).padStart(2, "0");
+@@ -103,135 +186,67 @@ function entryCursor(entry: ChangeEntry): ChangeCursor {
    return { rev: entry.rev, path: entry.path };
  }
  
@@ -7923,14 +8364,7 @@ index b26db85..3f990a9 100644
 -  } finally {
 -    maybeDispose(response);
 -  }
-+function operationProfile(db: Database, backend: string, direction: SyncDirection, generation: string, current: BlockProfile, ceiling?: BlockProfile): BlockProfile {
-+  if (!ceiling) return current;
-+  const profile = { maxEntries: Math.min(current.maxEntries, ceiling.maxEntries), maxBytes: Math.min(current.maxBytes, ceiling.maxBytes) };
-+  db.run("UPDATE _vfs_sync_operations SET internal_max_entries=?,internal_max_bytes=? WHERE backend=? AND direction=? AND generation=?",
-+    profile.maxEntries, profile.maxBytes, backend, direction, generation);
-+  return profile;
-+}
- 
+-
 -  // Stage every object the pack carried before applying metadata, so a
 -  // crash between the two replays as a no-op rather than as a file with
 -  // missing bytes.
@@ -7939,27 +8373,60 @@ index b26db85..3f990a9 100644
 -    stageBlob(db, hexToBytes(key), payload, now());
 -    bytes += payload.byteLength;
 -  }
-+async function retainTransfer(db: Database, remote: SyncRPC, backend: string,
-+  direction: "pull" | "push", generation: string, cleaning = false): Promise<RetentionScope> {
-+  if (!remote.retentionHead || !remote.beginRetention) throw new Error("sync: peer requires content retention support");
-+  const slot = `${backend}:${direction}`;
-+  const head = await remote.retentionHead(slot);
-+  assertActiveOperation(db, backend, direction, generation);
-+  const peerEpoch = readSyncPeerEpoch(db, backend);
-+  if (peerEpoch !== undefined && peerEpoch !== head.epoch)
-+    throw new Error("sync: peer epoch changed during transfer; cursor unchanged");
-+  const scope = { epoch: head.epoch, slot, generation };
-+  if (!cleaning || head.generation !== generation) await remote.beginRetention(scope, head.generation);
-+  assertActiveOperation(db, backend, direction, generation);
-+  return scope;
-+}
- 
+-
 -  const result = await applyChanges(db, decoded.entries, new Map(), {
 -    source: "upstream",
 -    backend,
 -  });
 -  for (const skip of result.skipped) {
 -    recordSkip(db, backend, "pull", operation.generation, skip.path, skip.reason, now());
+-  }
++function operationProfile(db: Database, backend: string, direction: SyncDirection, generation: string, current: BlockProfile, ceiling?: BlockProfile): BlockProfile {
++  if (!ceiling) return current;
++  const profile = { maxEntries: Math.min(current.maxEntries, ceiling.maxEntries), maxBytes: Math.min(current.maxBytes, ceiling.maxBytes) };
++  db.run("UPDATE _vfs_sync_operations SET internal_max_entries=?,internal_max_bytes=? WHERE backend=? AND direction=? AND generation=?",
++    profile.maxEntries, profile.maxBytes, backend, direction, generation);
++  return profile;
++}
+ 
+-  // The footer's block cursor is authoritative: it is what the encoder
+-  // committed to, and it already accounts for a drained window jumping
+-  // to the target.
+-  return {
+-    entries: decoded.entries.length,
+-    bytes,
+-    skipped: result.skipped.length,
+-    cursor: decoded.footer.blockCursor,
++async function retainTransfer(db: Database, remote: SyncRPC, backend: string,
++  direction: "pull" | "push", generation: string, cleaning = false,
++  snapshot?: Awaited<ReturnType<SyncRPC["watermarks"]>>): Promise<RetentionScope> {
++  if (!remote.retentionHead || !remote.beginRetention) throw new Error("sync: peer requires content retention support");
++  const slot = `${backend}:${direction}`;
++  const projected = snapshot?.retention;
++  if (projected !== undefined && (projected.slot !== slot || typeof snapshot?.epoch !== "string" ||
++      typeof projected.closed !== "boolean" || (projected.generation !== null && typeof projected.generation !== "string")))
++    throw new Error("sync: invalid retention watermark; cursor unchanged");
++  const head = projected === undefined ? await remote.retentionHead(slot) : {
++    epoch: snapshot!.epoch!, generation: projected.generation,
+   };
++  assertActiveOperation(db, backend, direction, generation);
++  const peerEpoch = readSyncPeerEpoch(db, backend);
++  if (peerEpoch !== undefined && peerEpoch !== head.epoch)
++    throw new Error("sync: peer epoch changed during transfer; cursor unchanged");
++  const scope = { epoch: head.epoch, slot, generation };
++  // This snapshot is not a lease. Every remote read/pin/write still checks
++  // the scope. Closed generations only remain valid for idempotent cleanup.
++  const alreadyRetained = projected?.closed === false && head.generation === generation;
++  if (!(cleaning && head.generation === generation) && !alreadyRetained)
++    await remote.beginRetention(scope, head.generation);
++  assertActiveOperation(db, backend, direction, generation);
++  return scope;
+ }
+ 
+-function hexToBytes(hex: string): Uint8Array {
+-  const out = new Uint8Array(hex.length / 2);
+-  for (let i = 0; i < out.length; i++) {
+-    out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
 +// In-isolate join table. Two iterators in the same isolate driving the
 +// same backend and direction share one in-flight block instead of
 +// duplicating the transfer. This is an optimization only: after an
@@ -7975,31 +8442,16 @@ index b26db85..3f990a9 100644
 +    entries = new Map();
 +    activeByDatabase.set(db, entries);
    }
--
--  // The footer's block cursor is authoritative: it is what the encoder
--  // committed to, and it already accounts for a drained window jumping
--  // to the target.
--  return {
--    entries: decoded.entries.length,
--    bytes,
--    skipped: result.skipped.length,
--    cursor: decoded.footer.blockCursor,
--  };
-+  return entries;
- }
- 
--function hexToBytes(hex: string): Uint8Array {
--  const out = new Uint8Array(hex.length / 2);
--  for (let i = 0; i < out.length; i++) {
--    out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
--  }
 -  return out;
++  return entries;
++}
++
 +function activeKey(backend: string, direction: SyncDirection): string {
 +  return `${backend}:${direction}`;
  }
  
  // Drive one pull block to completion, or throw.
-@@ -248,12 +202,22 @@ async function runPullBlock(
+@@ -248,12 +263,22 @@ async function runPullBlock(
    options: PullBlocksOptions,
  ): Promise<SyncProgress> {
    const now = options.now ?? (() => Date.now());
@@ -8023,7 +8475,7 @@ index b26db85..3f990a9 100644
  
    if (operation.status === "capturing") {
      // Two-phase target capture: the remote settle call cannot join a
-@@ -271,17 +235,9 @@ async function runPullBlock(
+@@ -271,17 +296,9 @@ async function runPullBlock(
      // mode is then fixed: a block's encoding must not depend on when it
      // was requested, or a replayed block would not match the original.
      const target = { rev: settled.currentRev, path: null };
@@ -8044,7 +8496,7 @@ index b26db85..3f990a9 100644
      const promoted = fixTarget(db, backend, "pull", operation.generation, { target, mode }, now());
      if (!promoted) {
        // Another caller replaced this operation while the target was in
-@@ -311,7 +267,15 @@ async function runPullBlock(
+@@ -311,7 +328,15 @@ async function runPullBlock(
    // report completion so a one-step alarm can stop without a second
    // next() call.
    if (compareChangeCursors(after, target) >= 0) {
@@ -8061,7 +8513,7 @@ index b26db85..3f990a9 100644
      return {
        operationId: operation.generation,
        generation: operation.generation,
-@@ -323,7 +287,8 @@ async function runPullBlock(
+@@ -323,7 +348,8 @@ async function runPullBlock(
        entries: 0,
        bytes: 0,
        skipped: 0,
@@ -8071,7 +8523,7 @@ index b26db85..3f990a9 100644
      };
    }
  
-@@ -336,48 +301,42 @@ async function runPullBlock(
+@@ -336,48 +362,42 @@ async function runPullBlock(
        ? (shrinkBlockProfile(db, backend, "pull", operation.generation, now()) ?? profile)
        : profile;
  
@@ -8144,7 +8596,7 @@ index b26db85..3f990a9 100644
      after,
      through: target,
      ...(options.ignore === undefined ? {} : { ignore: options.ignore }),
-@@ -400,7 +359,12 @@ async function runPullBlock(
+@@ -400,7 +420,12 @@ async function runPullBlock(
        }
        // The first entry is always accepted so one oversized file still
        // makes progress; later entries stop the block at the bound.
@@ -8158,7 +8610,7 @@ index b26db85..3f990a9 100644
      }
    } finally {
      reader.releaseLock();
-@@ -414,7 +378,7 @@ async function runPullBlock(
+@@ -414,7 +439,7 @@ async function runPullBlock(
    //    content-addressed store. Bytes are staged into the blob store
    //    rather than handed to applyChanges in memory, so a block's peak
    //    memory stays bounded by its metadata.
@@ -8167,7 +8619,7 @@ index b26db85..3f990a9 100644
    const seen = new Set<string>();
    for (const entry of entries) {
      if (entry.kind !== "file") continue;
-@@ -422,62 +386,98 @@ async function runPullBlock(
+@@ -422,62 +447,98 @@ async function runPullBlock(
        const key = hex(chunk.hash);
        if (seen.has(key)) continue;
        seen.add(key);
@@ -8297,7 +8749,7 @@ index b26db85..3f990a9 100644
  
    return {
      operationId: operation.generation,
-@@ -485,6 +485,8 @@ async function runPullBlock(
+@@ -485,6 +546,8 @@ async function runPullBlock(
      backend,
      direction: "pull",
      mode: operation.mode ?? "entries",
@@ -8306,7 +8758,7 @@ index b26db85..3f990a9 100644
      cursor,
      targetCursor: target,
      entries: entries.length,
-@@ -503,6 +505,7 @@ async function nextPullBlock(
+@@ -503,6 +566,7 @@ async function nextPullBlock(
    options: PullBlocksOptions,
  ): Promise<SyncProgress> {
    const key = activeKey(backend, "pull");
@@ -8314,15 +8766,22 @@ index b26db85..3f990a9 100644
    const existing = active.get(key);
    if (existing !== undefined) {
      // Someone else in this isolate is already driving a block for this
-@@ -543,29 +546,27 @@ async function runPushBlock(
+@@ -541,31 +605,34 @@ async function runPushBlock(
+   remote: SyncRPC,
+   backend: string,
    options: PushBlocksOptions,
++  timing?: PushBlockMeasurement,
  ): Promise<SyncProgress> {
    const now = options.now ?? (() => Date.now());
 -  const profile = options.profile ?? DEFAULT_BLOCK_PROFILE;
-+  reconcileSyncSnapshot(db, await remote.watermarks(), backend);
++  timing?.stage("watermarksMs");
++  const snapshot = await remote.watermarks({ retentionSlot: `${backend}:push` });
++  reconcileSyncSnapshot(db, snapshot, backend);
++  timing?.stage("localMs");
  
    const opened = openOperation(db, backend, "push", now());
    let operation = opened.operation;
++  if (timing) timing.data.generation = operation.generation;
 +  const profile = operationProfile(db, backend, "push", operation.generation, operation.profile, options.profile);
 +  if (operation.mode === "pack") {
 +    db.run(
@@ -8357,10 +8816,12 @@ index b26db85..3f990a9 100644
      const promoted = fixTarget(db, backend, "push", operation.generation, { target, mode }, now());
      const current = readOperation(db, backend, "push");
      if (current === undefined) {
-@@ -582,10 +583,33 @@ async function runPushBlock(
+@@ -581,11 +648,40 @@ async function runPushBlock(
+   if (target === undefined) {
      throw new Error("sync: pending push operation has no target");
    }
- 
++  if (timing) timing.data.targetRev = target.rev;
++
 +  const receiptSlot = `send:${backend}`;
 +  const acknowledgePendingImport = async () => {
 +    const pending = readImportReceipt(db, receiptSlot);
@@ -8372,19 +8833,24 @@ index b26db85..3f990a9 100644
 +      return;
 +    }
 +    if (typeof remote.acknowledgeImport !== "function") throw new Error("sync: peer lost import receipt support");
++    timing?.stage("importAckMs");
 +    await remote.acknowledgeImport(pending);
++    timing?.stage("localMs");
 +    assertActiveOperation(db, backend, "push", operation.generation);
 +    if (readImportReceipt(db, receiptSlot)?.id === pending.id) clearImportReceipt(db, receiptSlot);
 +  };
 +  await acknowledgePendingImport();
-+
+ 
    const after = readPushCursor(db, backend);
++  if (timing) timing.data.cursorRev = after.rev;
  
    if (compareChangeCursors(after, target) >= 0) {
 -    completeOperation(db, backend, "push", operation.generation);
 +    if (typeof remote.discardChanges !== "function")
 +      throw new Error("sync: peer requires bounded planning support");
-+    const scope = await retainTransfer(db, remote, backend, "push", operation.generation, true);
++    timing?.stage("retentionMs");
++    const scope = await retainTransfer(db, remote, backend, "push", operation.generation, true, snapshot);
++    timing?.stage("cleanupMs");
 +    const remoteClosed = await remote.discardChanges(operation.generation, scope);
 +    assertActiveOperation(db, backend, "push", operation.generation);
 +    const complete = remoteClosed && pruneSkips(db, backend, "push", operation.generation);
@@ -8392,7 +8858,7 @@ index b26db85..3f990a9 100644
      return {
        operationId: operation.generation,
        generation: operation.generation,
-@@ -597,7 +621,8 @@ async function runPushBlock(
+@@ -597,7 +693,8 @@ async function runPushBlock(
        entries: 0,
        bytes: 0,
        skipped: 0,
@@ -8402,7 +8868,7 @@ index b26db85..3f990a9 100644
      };
    }
  
-@@ -606,68 +631,55 @@ async function runPushBlock(
+@@ -606,68 +703,67 @@ async function runPushBlock(
        ? (shrinkBlockProfile(db, backend, "push", operation.generation, now()) ?? profile)
        : profile;
  
@@ -8411,7 +8877,9 @@ index b26db85..3f990a9 100644
 -  // Plan the block locally. planBlock owns the ordered-prefix and
 -  // byte-bound rules, so push and pull select blocks identically.
 -  const planned = await planBlock(db, {
-+  const scope = await retainTransfer(db, remote, backend, "push", operation.generation);
++  timing?.stage("retentionMs");
++  const scope = await retainTransfer(db, remote, backend, "push", operation.generation, false, snapshot);
++  timing?.stage("prepareMs");
 +  const preparation = prepareChangePlan(db, {
 +    generation: operation.generation,
      after,
@@ -8447,6 +8915,8 @@ index b26db85..3f990a9 100644
 -    if (packComplete) {
 -      completeOperation(db, backend, "push", operation.generation);
 -    }
++  if (timing) timing.data.preparationReads = preparation.reads;
++  timing?.stage("localMs");
 +  if (!preparation.ready)
      return {
        operationId: operation.generation,
@@ -8468,11 +8938,11 @@ index b26db85..3f990a9 100644
 -      complete: packComplete,
 +      complete: false,
      };
--  }
 +  markBlockStarted(db, backend, "push", operation.generation, after, now());
 +
 +  // Plan the block locally. planBlock owns the ordered-prefix and
 +  // byte-bound rules, so push and pull select blocks identically.
++  timing?.stage("planMs");
 +  const planned = await planBlock(db, {
 +    assertActive: () => {
 +      assertActiveOperation(db, backend, "push", operation.generation);
@@ -8483,6 +8953,11 @@ index b26db85..3f990a9 100644
 +    profile: effectiveProfile,
 +    ...(options.ignore === undefined ? {} : { ignore: options.ignore }),
 +  });
++  if (timing) {
++    timing.data.plannedEntries = planned.entries.length;
++    timing.data.plannedObjects = planned.objects.length;
+   }
++  timing?.stage("localMs");
  
    // Ship the bytes the receiver lacks before the entries that
    // reference them, so the receiver never sees an entry whose content
@@ -8490,7 +8965,9 @@ index b26db85..3f990a9 100644
    let bytes = 0;
    if (planned.objects.length > 0) {
 -    const have = new Set((await remote.hasObjects(planned.objects.map((o) => o.hash))).map(hex));
++    timing?.stage("hasObjectsMs");
 +    const have = new Set((await remote.hasObjects(planned.objects.map((o) => o.hash), scope)).map(hex));
++    timing?.stage("localMs");
 +    assertActiveOperation(db, backend, "push", operation.generation);
      const missing = planned.objects.filter((o) => !have.has(hex(o.hash)));
      if (missing.length > 0) {
@@ -8500,7 +8977,7 @@ index b26db85..3f990a9 100644
        const objectStream = new ReadableStream<{ hash: Uint8Array; bytes: Uint8Array }>({
          pull(controller) {
            const next = pending.shift();
-@@ -683,11 +695,34 @@ async function runPushBlock(
+@@ -683,11 +779,37 @@ async function runPushBlock(
              controller.error(new Error(`sync: missing local blob ${hex(next.hash)}`));
              return;
            }
@@ -8513,7 +8990,10 @@ index b26db85..3f990a9 100644
          },
        });
 -      await remote.pushObjects(objectStream);
++      timing?.stage("pushObjectsMs");
 +      await remote.pushObjects(objectStream, scope);
++      if (timing) timing.data.stagedObjects = batch.length;
++      timing?.stage("localMs");
 +      assertActiveOperation(db, backend, "push", operation.generation);
 +      if (missing.length > batch.length) {
 +        clearBlockMarker(db, backend, "push", operation.generation, now());
@@ -8536,9 +9016,11 @@ index b26db85..3f990a9 100644
      }
    }
  
-@@ -699,6 +734,11 @@ async function runPushBlock(
+@@ -698,26 +820,54 @@ async function runPushBlock(
+     },
    });
  
++  timing?.stage("pushEntriesMs");
    const response = await remote.push({
 +    scope,
 +    ...(readSyncPeerEpoch(db, backend) === scope.epoch ? { importRequest: {
@@ -8548,7 +9030,9 @@ index b26db85..3f990a9 100644
      senderRev: target.rev,
      senderCursor: planned.cursor,
      changes: entryStream,
-@@ -707,17 +747,38 @@ async function runPushBlock(
+   });
++  timing?.stage("localMs");
+ 
    // The receiver's echoed cursor is the authority. assertAppliedPushCursor
    // refuses an acknowledgment that does not cover what we sent, so a
    // confused peer cannot advance us past unapplied entries.
@@ -8596,7 +9080,7 @@ index b26db85..3f990a9 100644
  
    return {
      operationId: operation.generation,
-@@ -725,9 +786,11 @@ async function runPushBlock(
+@@ -725,9 +875,11 @@ async function runPushBlock(
      backend,
      direction: "push",
      mode: operation.mode ?? "entries",
@@ -8610,7 +9094,7 @@ index b26db85..3f990a9 100644
      bytes,
      skipped: 0,
      complete,
-@@ -741,6 +804,7 @@ async function nextPushBlock(
+@@ -741,6 +893,7 @@ async function nextPushBlock(
    options: PushBlocksOptions,
  ): Promise<SyncProgress> {
    const key = activeKey(backend, "push");
@@ -8618,7 +9102,33 @@ index b26db85..3f990a9 100644
    const existing = active.get(key);
    if (existing !== undefined) {
      try {
-@@ -806,21 +870,14 @@ export async function captureSyncTarget(
+@@ -750,13 +903,23 @@ async function nextPushBlock(
+     }
+   }
+ 
+-  const settled = runPushBlock(db, remote, backend, options);
++  const timing = options.onBlock ? new PushBlockMeasurement() : undefined;
++  const settled = runPushBlock(db, remote, backend, options, timing);
+   const operation = readOperation(db, backend, "push");
+   active.set(key, { generation: operation?.generation ?? "", settled });
++  let progress: SyncProgress | undefined;
+   try {
+-    return await settled;
++    progress = await settled;
++    return progress;
+   } finally {
+     if (active.get(key)?.settled === settled) active.delete(key);
++    if (timing) {
++      try {
++        options.onBlock?.(timing.finish(progress), progress);
++      } catch {
++        // Diagnostics cannot replace an original sync result or exception.
++      }
++    }
+   }
+ }
+ 
+@@ -806,21 +969,14 @@ export async function captureSyncTarget(
    options: { now?: () => number } = {},
  ): Promise<ChangeCursor | undefined> {
    const now = options.now ?? (() => Date.now());
@@ -8643,3 +9153,186 @@ index b26db85..3f990a9 100644
    fixTarget(db, backend, "pull", opened.operation.generation, { target, mode }, now());
    return readOperation(db, backend, "pull")?.target;
  }
+diff --git a/packages/computer/src/observe/sync-telemetry.ts b/packages/computer/src/observe/sync-telemetry.ts
+index 5d31cd8..e8cef90 100644
+--- a/packages/computer/src/observe/sync-telemetry.ts
++++ b/packages/computer/src/observe/sync-telemetry.ts
+@@ -37,12 +37,12 @@
+ //
+ // Example queries once a session has run, using the telemetry tool:
+ //
+-//   Worst block CPU, by mode:
++//   Longest elapsed block, by mode:
+ //     filters:      $workers.event.event = "sync.block"
+ //     calculations: max($workers.event.blockMs)
+ //     groupBys:     $workers.event.mode
+ //
+-//   Any block that came close to the CPU limit:
++//   Any block with measured CPU that came close to the CPU limit:
+ //     filters:      $workers.event.event = "sync.block"
+ //                   $workers.event.headroom < 3
+ //
+@@ -52,23 +52,27 @@
+ //                   p95($workers.event.bytesPerSecond)
+ //     groupBys:     $workers.event.mode
+ 
++import type { PushBlockTiming, SyncProgress } from "@cloudflare/computer-rpc/driver";
++
+ /** Default Durable Object active-CPU allowance, in milliseconds. */
+ export const DEFAULT_CPU_LIMIT_MS = 30_000;
+ 
+-export interface SyncBlockTelemetry {
++export interface SyncBlockTelemetry extends Partial<PushBlockTiming> {
+   readonly backend: string;
+   readonly direction: "pull" | "push";
+   readonly mode: "entries" | "pack";
+-  readonly operationId: string;
+-  readonly generation: string;
+-  readonly entries: number;
+-  readonly bytes: number;
+-  readonly skipped: number;
+-  readonly complete: boolean;
+-  /** Wall time for this block, which for a sync block tracks CPU closely. */
++  readonly operationId?: string;
++  readonly entries?: number;
++  readonly bytes?: number;
++  readonly skipped?: number;
++  readonly complete?: boolean;
++  readonly phase?: SyncProgress["phase"];
++  readonly checkpoint?: string;
++  readonly purpose?: "execution-preparation";
++  /** Elapsed time includes I/O; it is not an active-CPU measurement. */
+   readonly blockMs: number;
+-  readonly cursorRev: number;
+-  readonly targetRev: number;
++  /** Only set when the host provides an actual CPU measurement. */
++  readonly cpuMs?: number;
+   readonly cpuLimitMs?: number;
+ }
+ 
+@@ -98,11 +102,8 @@ function round(value: number, places: number): number {
+ /**
+  * Build the flat record for one committed block.
+  *
+- * `headroom` is the ratio of the CPU allowance to what this block
+- * actually spent, so `min(headroom)` over a session is the direct
+- * answer to whether block sizing is safe in production. It is omitted
+- * for a zero-duration block, where the ratio is meaningless rather than
+- * infinite.
++ * CPU fields require an actual host CPU measurement. Elapsed time includes
++ * network and disk waits and cannot establish CPU headroom.
+  */
+ export function syncBlockLog(input: SyncBlockTelemetry): TelemetryRecord {
+   const cpuLimitMs = input.cpuLimitMs ?? DEFAULT_CPU_LIMIT_MS;
+@@ -122,17 +123,40 @@ export function syncBlockLog(input: SyncBlockTelemetry): TelemetryRecord {
+     targetRev: input.targetRev,
+     // Convergence lag. A sync whose blocks never close this gap is the
+     // failure most worth alerting on.
+-    revsBehind: Math.max(0, input.targetRev - input.cursorRev),
+-    cpuLimitMs,
+-    overBudget: input.blockMs > cpuLimitMs,
++    revsBehind: input.targetRev === undefined || input.cursorRev === undefined
++      ? undefined : Math.max(0, input.targetRev - input.cursorRev),
++    purpose: input.purpose,
++    phase: input.phase,
++    checkpoint: input.checkpoint,
++    outcome: input.outcome,
++    failedStage: input.failedStage,
++    startedAtMs: input.startedAtMs,
++    finishedAtMs: input.finishedAtMs,
++    watermarksMs: input.watermarksMs,
++    retentionMs: input.retentionMs,
++    prepareMs: input.prepareMs,
++    planMs: input.planMs,
++    hasObjectsMs: input.hasObjectsMs,
++    pushObjectsMs: input.pushObjectsMs,
++    pushEntriesMs: input.pushEntriesMs,
++    importAckMs: input.importAckMs,
++    cleanupMs: input.cleanupMs,
++    localMs: input.localMs,
++    preparationReads: input.preparationReads,
++    plannedEntries: input.plannedEntries,
++    plannedObjects: input.plannedObjects,
++    stagedObjects: input.stagedObjects,
+   };
+-  if (input.blockMs > 0) {
+-    record.headroom = round(cpuLimitMs / input.blockMs, 2);
++  if (input.cpuMs !== undefined) {
++    record.cpuMs = input.cpuMs;
++    record.cpuLimitMs = cpuLimitMs;
++    record.overBudget = input.cpuMs > cpuLimitMs;
++    if (input.cpuMs > 0) record.headroom = round(cpuLimitMs / input.cpuMs, 2);
+   }
+-  if (input.entries > 0) {
++  if (input.entries !== undefined && input.entries > 0) {
+     record.msPerEntry = round(input.blockMs / input.entries, 3);
+   }
+-  if (input.bytes > 0 && input.blockMs > 0) {
++  if (input.bytes !== undefined && input.bytes > 0 && input.blockMs > 0) {
+     record.bytesPerSecond = Math.round(input.bytes / (input.blockMs / 1000));
+   }
+   return record;
+diff --git a/packages/computer/src/observe/sync-telemetry.test.ts b/packages/computer/src/observe/sync-telemetry.test.ts
+index 4c83d68..89d0ab0 100644
+--- a/packages/computer/src/observe/sync-telemetry.test.ts
++++ b/packages/computer/src/observe/sync-telemetry.test.ts
+@@ -55,7 +55,7 @@ describe("syncBlockLog", () => {
+     }
+   });
+ 
+-  it("reports the CPU headroom a block left against its limit", () => {
++  it("reports CPU headroom from a CPU measurement independently of elapsed time", () => {
+     const record = syncBlockLog({
+       backend: "container",
+       direction: "pull",
+@@ -66,7 +66,8 @@ describe("syncBlockLog", () => {
+       bytes: 1024,
+       skipped: 0,
+       complete: false,
+-      blockMs: 15000,
++      blockMs: 60_000,
++      cpuMs: 15_000,
+       cursorRev: 1,
+       targetRev: 2,
+       cpuLimitMs: 30_000,
+@@ -78,7 +79,7 @@ describe("syncBlockLog", () => {
+     expect(record.headroom).toBe(2);
+   });
+ 
+-  it("omits headroom when the block took no measurable time", () => {
++  it("omits CPU claims when only elapsed time is available", () => {
+     const record = syncBlockLog({
+       backend: "container",
+       direction: "pull",
+@@ -89,12 +90,14 @@ describe("syncBlockLog", () => {
+       bytes: 0,
+       skipped: 0,
+       complete: true,
+-      blockMs: 0,
++      blockMs: 60_000,
+       cursorRev: 1,
+       targetRev: 1,
+     });
+ 
+     expect(record.headroom).toBeUndefined();
++    expect(record.overBudget).toBeUndefined();
++    expect(record.cpuLimitMs).toBeUndefined();
+   });
+ 
+   it("derives per-entry cost so slow blocks are comparable across sizes", () => {
+@@ -128,6 +131,7 @@ describe("syncBlockLog", () => {
+       skipped: 0,
+       complete: false,
+       blockMs: 31_000,
++      cpuMs: 31_000,
+       cursorRev: 1,
+       targetRev: 2,
+       cpuLimitMs: 30_000,
+@@ -150,6 +154,7 @@ describe("syncBlockLog", () => {
+       skipped: 0,
+       complete: false,
+       blockMs: 4_000,
++      cpuMs: 4_000,
+       cursorRev: 1,
+       targetRev: 2,
+       cpuLimitMs: 30_000,

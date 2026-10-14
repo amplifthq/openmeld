@@ -6,7 +6,9 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { parseDocument } from "yaml";
 import { readCutoverTarget } from "../../tooling/postgresql/remote-target.mjs";
+import { resolveExplicitAffectedPackages } from "../dev/affected-workspaces.mjs";
 import { hasUnchangedCloudComputerRequests } from "./cloud-computer-request-compatibility.mjs";
 import {
   admitPostgresqlProductRelease,
@@ -51,6 +53,7 @@ const COMPLETION_PROBE_TIMEOUT_MS = 30_000;
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const LINE_SPLIT_REGEX = /\r?\n/u;
 const GITHUB_RUN_URL = /\/actions\/runs\/(\d+)\b/u;
+const GITHUB_RUN_ID = /^[1-9][0-9]*$/u;
 const TEST_FILE_REGEX =
   /(?:^|\/)[^/]+\.(?:integration\.)?(?:spec|test)\.[cm]?[jt]sx?$/u;
 const VITEST_CONFIG_REGEX = /(?:^|\/)vitest\.[^/]+config\.[cm]?[jt]s$/u;
@@ -1222,7 +1225,8 @@ export function resolveAutomaticReleaseScopes(input) {
     input.changedPaths.some(
       (path) =>
         isCliReleasePath(path) ||
-        isServiceReleasePath(path) ||
+        (isServiceReleasePath(path) &&
+          !(path === "pnpm-lock.yaml" && input.scopedPatchLockfile)) ||
         isSkillsReleasePath(path)
     )
   ) {
@@ -3060,15 +3064,17 @@ function resolveProductionReleaseContext(input) {
     sourceSha: input.sourceSha,
   });
   const requested = expandRequestedReleaseScopes(input.scope);
-  const affectedPackages = requested
-    ? []
-    : (input.affectedPackages ?? resolveAffectedPackages(changedPaths));
+  const workspaceImpact = requested
+    ? { affectedPackages: [] }
+    : resolveReleaseWorkspaceImpact({ ...input, changedPaths, sourceSha });
+  const affectedPackages = workspaceImpact.affectedPackages;
   const scopes =
     requested ??
     resolveAutomaticReleaseScopes({
       affectedPackages,
       changedPaths,
       compatibilityContext,
+      scopedPatchLockfile: workspaceImpact.scopedPatchLockfile,
     });
   return {
     affectedPackages,
@@ -3120,8 +3126,7 @@ export function buildProductionReleaseImpact(input) {
     return {
       changedPaths,
       scopes: resolveAutomaticReleaseScopes({
-        affectedPackages:
-          input.affectedPackages ?? resolveAffectedPackages(changedPaths),
+        ...resolveReleaseWorkspaceImpact({ ...input, changedPaths }),
         changedPaths,
       }).filter((scope) => scope === input.componentScope),
       compatibilityDependencies: [],
@@ -3348,6 +3353,98 @@ function resolveAffectedPackages(changedPaths) {
     }
   }
   return [...affectedPackageNames].toSorted();
+}
+
+function resolveReleaseWorkspaceImpact(input) {
+  // One proof controls both workspace selection and the lockfile's broad
+  // Service signal. Keep the original paths on the plan for audit and contracts.
+  const scopedPackages = resolvePatchOnlyReleasePackages(input);
+  return {
+    affectedPackages:
+      scopedPackages ??
+      input.affectedPackages ??
+      resolveAffectedPackages(input.changedPaths),
+    scopedPatchLockfile: scopedPackages !== null,
+  };
+}
+
+function resolvePatchOnlyReleasePackages(input) {
+  if (
+    !input.changedPaths.includes("pnpm-lock.yaml") ||
+    input.changedPaths.some(
+      (file) =>
+        file !== "pnpm-lock.yaml" && GLOBAL_WORKSPACE_RUNTIME_PATHS.has(file)
+    ) ||
+    !(input.base && input.sourceSha)
+  ) {
+    return null;
+  }
+  try {
+    const read =
+      input.readGitFile ?? ((ref, file) => runGit(["show", `${ref}:${file}`]));
+    const document = parseDocument(read(input.sourceSha, "pnpm-lock.yaml"));
+    if (document.errors.length > 0) {
+      return null;
+    }
+    const lockfile = document.toJS();
+    if (!(lockfile?.lockfileVersion === "9.0" && lockfile.importers?.["."])) {
+      return null;
+    }
+    // Read the target graph, including build dependencies and the root, from
+    // Git. A status query can target a different commit from this checkout.
+    const workspacePackages = Object.entries(lockfile.importers).map(
+      ([relativePath, importer]) => {
+        const manifest = JSON.parse(
+          read(
+            input.sourceSha,
+            relativePath === "."
+              ? "package.json"
+              : `${relativePath}/package.json`
+          )
+        );
+        return {
+          name: manifest.name,
+          relativePath,
+          dependencies: Object.keys({
+            ...manifest.peerDependencies,
+            ...importer.dependencies,
+            ...importer.devDependencies,
+            ...importer.optionalDependencies,
+          }),
+        };
+      }
+    );
+    const names = workspacePackages.map((workspace) => workspace.name);
+    if (
+      names.some((name) => typeof name !== "string" || !name) ||
+      new Set(names).size !== names.length
+    ) {
+      return null;
+    }
+    const lockfileDiff = input.readGitDiff
+      ? input.readGitDiff(input.base, input.sourceSha, "pnpm-lock.yaml")
+      : runGit([
+          "diff",
+          `${input.base}...${input.sourceSha}`,
+          "--",
+          "pnpm-lock.yaml",
+        ]);
+    const affectedPackages = resolveExplicitAffectedPackages({
+      changedPaths: input.changedPaths.filter(
+        (file) =>
+          !(file.startsWith("developing/") || file.startsWith("changelog/"))
+      ),
+      lockfileDiff,
+      workspacePackages,
+    });
+    const rootName = workspacePackages.find(
+      (workspace) => workspace.relativePath === "."
+    )?.name;
+    return affectedPackages?.includes(rootName) ? null : affectedPackages;
+  } catch {
+    // Missing history or an unknown lockfile cannot justify narrowing a release.
+    return null;
+  }
 }
 
 function readWorkspacePackages() {
@@ -3843,7 +3940,22 @@ export async function resumeProductionRelease(input) {
   }
 }
 
+function resolveHostedWindowsArtifactRunId(scope, env) {
+  if (scope !== "cli") {
+    return "";
+  }
+  const windowsArtifactRunId = env.WINDOWS_ARTIFACT_RUN_ID?.trim() ?? "";
+  if (windowsArtifactRunId && !GITHUB_RUN_ID.test(windowsArtifactRunId)) {
+    throw new Error("WINDOWS_ARTIFACT_RUN_ID must be a numeric run ID.");
+  }
+  return windowsArtifactRunId;
+}
+
 export function runHostedRelease(scope, sourceSha, trainScopes, input = {}) {
+  const windowsArtifactRunId = resolveHostedWindowsArtifactRunId(
+    scope,
+    input.env ?? process.env
+  );
   const capture =
     input.capture ??
     ((args) => execFileSync("gh", args, { encoding: "utf8" }).trim());
@@ -3898,6 +4010,9 @@ export function runHostedRelease(scope, sourceSha, trainScopes, input = {}) {
       `release_sha=${sourceSha}`,
       "--raw-field",
       `production_train_scopes=${trainScopes.join(",")}`,
+      ...(windowsArtifactRunId
+        ? ["--raw-field", `windows_artifact_run_id=${windowsArtifactRunId}`]
+        : []),
       ...(scope === "cli"
         ? []
         : ["--raw-field", `scope=${scope === "db" ? "database" : scope}`]),
