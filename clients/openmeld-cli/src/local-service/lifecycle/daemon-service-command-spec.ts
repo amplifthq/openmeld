@@ -51,6 +51,10 @@ const DAEMON_SERVICE_ENV_KEY_WHITELIST = new Set([
   // Antigravity's native profile must match explicit CLI sign-in after the
   // Service moves from the setup shell to launchd/systemd/Task Scheduler.
   "GEMINI_HOME",
+  // Keep BDK's explicit credential location when setup installs the Service.
+  // Credentials remain in their provider-owned files, never in the service definition.
+  "AGENT_SERVE_CONFIG_DIR",
+  "CURSOR_API_KEY_FILE",
   "PATH",
   "SHELL",
   "TERM",

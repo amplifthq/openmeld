@@ -472,6 +472,7 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
       interrupt: z.literal(true).optional(),
       manageInstallations: z.literal(true).optional(),
       manageInstallationsSafely: z.literal(true).optional(),
+      updateInstallations: z.literal(true).optional(),
       forkSession: z.literal(true).optional(),
       refreshCatalog: z.literal(true).optional(),
       resumeControllerConversation: z.literal(true).optional(),

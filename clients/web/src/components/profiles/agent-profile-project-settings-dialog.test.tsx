@@ -619,7 +619,13 @@ describe("AgentProfileProjectSettingsDialog", () => {
 		expect(updateWorkspaceMock).not.toHaveBeenCalled();
 	});
 
-	it("does not expose local Project settings for managed or hosted profiles", () => {
+	it("does not expose local Project settings for managed, hosted, or shared Bot profiles", () => {
+		expect(
+			shouldShowAgentProfileProjectSettings({
+				agentControllerRef: "builtin:grok-bot",
+				managedRole: null,
+			})
+		).toBe(false);
 		expect(
 			shouldShowAgentProfileProjectSettings({
 				agentControllerRef: "builtin:codex",

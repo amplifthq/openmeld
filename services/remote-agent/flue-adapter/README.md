@@ -87,16 +87,23 @@ is not a future release strategy.
    lineage, excludes hidden reasoning, and cannot cross conversation generations.
    Unused string arguments accept null for strict provider schemas. The
    checkpoint prompt retains active facts and source pointers without growing
-   an exhaustive archive. Mid-tool-loop cuts retain the issuing assistant and
+   an exhaustive archive. Its system instruction requires a fresh rewrite of
+   the previous checkpoint, consolidating repeated facts and replacing old
+   inventories with conclusions and recall/source references within the visible
+   target. The previous checkpoint is source material, not a draft to expand.
+   Mid-tool-loop cuts retain the issuing assistant and
    its paired results, including when the latest entry is a tool result. The
    public Node-runtime boundary tests are in `working-context.test.ts` and
    `context-recovery.test.ts`, including recovery after a failed summary and
    SQLite restart without disabling the budget or replaying completed tools. Paid supplier
    comparisons are opt-in in `live-context-cost.test.ts`. No transcript or
    search index is copied into an application-owned store.
-   Working-context and recent-tail estimates share the native 1,200-token
-   image heuristic; Base64 bytes are not text tokens. Original image bytes
-   remain intact and the provider's physical-capacity guard still runs.
+   Working-context admission and cut planning share the same serialized UTF-8
+   content estimate, including opaque provider signatures, and the native
+   1,200-token image heuristic. Base64 bytes are not text tokens. Kept signatures
+   and image bytes remain intact; the provider's physical-capacity guard still
+   runs. Legacy compaction keeps its original estimator when no working-context
+   budget is configured.
    `workingContextHeadroomTokens` reserves space for new work after deducting
    fixed instructions, tools and checkpoint allowance. The recent tail still
    preserves indivisible tool pairs. One working-context checkpoint summarizes
@@ -137,6 +144,19 @@ is not a future release strategy.
    cancellation. Failed-attempt provider usage is retained by the existing
    request metering owner; successful checkpoint usage sums its observed calls.
    `context-recovery.test.ts` exercises these rules through the real runtime.
+
+   Model changes apply at the next admitted submission, not inside a running
+   tool. Summary requests are capacity-bounded even when the new model is
+   smaller than the old history or checkpoint. Sequential intermediate
+   summaries remain ephemeral; only a complete successful reduction may
+   replace the canonical projection. Recent completed messages can be moved
+   into that reduction at valid boundaries. Active input is never truncated.
+   `model-switch-continuity.test.ts` exercises real SQLite restart and file
+   writes, model isolation, summary failure, and single-execution continuity.
+   Its synthetic 8,000-token provider exercises the runtime capacity boundary,
+   not live supplier behavior. The pinned Pi adapter reserves additional space;
+   the current hosted catalog has no such small-window model. Product admission,
+   real inference, and Computer integration require separate smoke evidence.
 
 10. `AgentStatics.modelRetry` configures the existing transient model-error loop.
    Center Agent allows five retries after the initial request, with exponential

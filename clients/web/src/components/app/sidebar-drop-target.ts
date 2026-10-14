@@ -11,6 +11,7 @@ export type SidebarDropTarget = {
 	left: number;
 	top: number;
 	width: number;
+	height?: number;
 };
 
 /** Stable insertion boundaries: rows never move underneath the pointer. */
@@ -59,18 +60,14 @@ export function sidebarCollisionDetection(
 							container.data.current?.kind === "item" &&
 							container.data.current.section === sectionId
 					)
-		).sort((a, b) => a.rect.top - b.rect.top);
+		).sort((a, b) => a.rect.top - b.rect.top || a.rect.left - b.rect.left);
 		const remaining = rows.filter(
 			({ container }) => container.id !== args.active.id
 		);
-		const before = args.pointerCoordinates
-			? remaining.find(({ rect }) => point.y < rect.top + rect.height / 2)
-			: keyboardInsertionTarget(
-					remaining,
-					args.collisionRect.top,
-					args.droppableRects.get(args.active.id)?.top
-				);
+		const grid = section.container.data.current?.layout === "grid";
+		const before = insertionTarget(remaining, point, grid, args);
 		const last = remaining.at(-1);
+		const anchor = before ?? last;
 		const insertionTop =
 			before?.rect.top ?? last?.rect.bottom ?? section.rect.top;
 		const target: SidebarDropTarget = {
@@ -86,6 +83,9 @@ export function sidebarCollisionDetection(
 					)
 				: insertionTop,
 		};
+		if (grid) {
+			applyGridIndicator(target, anchor?.rect, !!before);
+		}
 		const container = before?.container ?? last?.container ?? section.container;
 		return [
 			{
@@ -94,6 +94,65 @@ export function sidebarCollisionDetection(
 			},
 		];
 	};
+}
+
+function applyGridIndicator(
+	target: SidebarDropTarget,
+	rect: ClientRect | undefined,
+	before: boolean
+) {
+	if (!rect) {
+		return;
+	}
+	target.left = before ? rect.left : rect.right;
+	target.top = rect.top;
+	target.height = rect.height;
+}
+function insertionTarget<T extends { rect: ClientRect }>(
+	rows: readonly T[],
+	point: Coordinates,
+	grid: boolean,
+	args: Parameters<CollisionDetection>[0]
+) {
+	const source = args.droppableRects.get(args.active.id);
+	if (grid) {
+		return gridInsertionTarget(
+			rows,
+			point,
+			args.pointerCoordinates ? undefined : source
+		);
+	}
+	if (args.pointerCoordinates) {
+		return rows.find(({ rect }) => point.y < rect.top + rect.height / 2);
+	}
+	return keyboardInsertionTarget(rows, args.collisionRect.top, source?.top);
+}
+
+/** Row-major insertion uses both coordinates; keyboard movement identifies a tile. */
+function gridInsertionTarget<T extends { rect: ClientRect }>(
+	rows: readonly T[],
+	point: Coordinates,
+	source?: ClientRect
+) {
+	if (!source) {
+		return rows.find(
+			({ rect }) =>
+				point.y < rect.top ||
+				(point.y <= rect.bottom && point.x < rect.left + rect.width / 2)
+		);
+	}
+	if (!rows.length) {
+		return undefined;
+	}
+	const distance = (rect: ClientRect) =>
+		Math.hypot(rect.left + rect.width / 2 - point.x, rect.top + 1 - point.y);
+	const anchor = rows.reduce((nearest, row) =>
+		distance(row.rect) < distance(nearest.rect) ? row : nearest
+	);
+	const backwards =
+		anchor.rect.top < source.top ||
+		(anchor.rect.top === source.top && anchor.rect.left < source.left);
+	return backwards ? anchor : rows[rows.indexOf(anchor) + 1];
 }
 
 function containsPoint(

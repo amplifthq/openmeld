@@ -1,0 +1,28 @@
+---
+title: Working folder unavailable
+description: Restore the intended Project connection before retrying local work.
+---
+
+Use this guide when a Local Agent reports that its Project is not connected or its folder is unavailable. The Project name can still exist even when the computer cannot use its folder.
+
+## Check the target first
+
+1. Open the Agent and identify the computer that runs it.
+2. Check the Project selected for this work or the Agent's Default Project.
+3. On that computer, open the Project's details and inspect its local connection.
+4. If the folder moved, connect the correct existing folder. If there are several connections, check the default.
+5. Wait for the connection check to succeed, then send the intended request again.
+
+Use [Connect a Project folder](/docs/work/projects) for the connection steps. A folder connected on your computer does not repair a different computer's connection.
+
+## Match the reason
+
+| What you see | Next check |
+| --- | --- |
+| Project is not connected | Connect that Project on the Agent's computer. |
+| Folder no longer available | Restore or reconnect the intended folder. |
+| Could not verify folders | Read the Git, permission, or verification error. Do not treat this as “not found.” |
+| Computer or Service unavailable | Follow [Computer help](/docs/help/computer). |
+| Space context only | Start a new request with the required file access; see [Local code work](/docs/tasks/local-code). |
+
+Do not delete the repository or reset local state as a first step. Check whether earlier work made changes before retrying a request that writes files.

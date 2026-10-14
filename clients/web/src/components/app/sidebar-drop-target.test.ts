@@ -9,7 +9,7 @@ import { moveSidebarItemIds } from "./sidebar-order";
 type CollisionArgs = Parameters<CollisionDetection>[0];
 type Container = CollisionArgs["droppableContainers"][number];
 
-function fixture(groups = false) {
+function fixture(groups = false, grid = false) {
 	const rect = (top: number, height: number) => ({
 		top,
 		bottom: top + height,
@@ -92,7 +92,9 @@ function fixture(groups = false) {
 			id,
 			key: id,
 			disabled: false,
-			data: { current: { kind, section, itemId } },
+			data: {
+				current: { kind, section, itemId, layout: grid ? "grid" : "list" },
+			},
 			node: { current: null },
 			rect: { current: null },
 		})
@@ -112,15 +114,44 @@ function fixture(groups = false) {
 		droppableContainers: containers,
 		pointerCoordinates: { x: 100, y: 100 },
 	};
+	if (grid) {
+		for (const [id, left, top] of [
+			["item:a", 10, 100],
+			["item:b", 80, 100],
+			["item:c", 10, 150],
+		] as const) {
+			args.droppableRects.set(id, {
+				...rect(top, 40),
+				left,
+				right: left + 60,
+				width: 60,
+			});
+		}
+	}
 	return (y: number, x = 100, allowed = true, keyboard = false) =>
 		sidebarCollisionDetection(() => allowed)({
 			...args,
-			collisionRect: rect(y, 40),
+			collisionRect: grid
+				? { ...rect(y, 40), left: x - 30, right: x + 30, width: 60 }
+				: rect(y, 40),
 			pointerCoordinates: keyboard ? null : { x, y },
 		})[0]?.data?.target;
 }
 
 describe("sidebar insertion targets", () => {
+	it.each([
+		[110, 85, false, "b"],
+		[110, 125, false, "c"],
+		[175, 60, false, undefined],
+		[100, 110, true, "c"],
+		[150, 40, true, undefined],
+	] as const)("orders grid tiles at (%s, %s), keyboard=%s", (y, x, keyboard, beforeId) => {
+		expect(fixture(false, true)(y, x, true, keyboard)).toMatchObject({
+			section: "spaces",
+			beforeId,
+			height: 40,
+		});
+	});
 	it("keeps group insertion stable across spacing and different group heights", () => {
 		const target = fixture(true);
 		for (const y of [215, 221, 230, 239, 245]) {

@@ -17,6 +17,38 @@
 - Source of truth: This file owns the durable architecture boundary for the
   local OpenMeld Service / daemon.
 
+## Account-shared Bot adapter
+
+`@openmeld/adapter-grok-bot` uses the official BDK credential and fixed public
+Grok Bot API host. It only reads, messages and interrupts the existing session
+pinned by the Binding. It never invokes the name-based get-or-create endpoint,
+reads native-app cookies or creates a provider Bot. BDK account identity is an
+Interface observation; Core still owns Wakeability and RuntimeCoordinator owns
+each Wake's lifecycle.
+
+This controller declares `conversationScope: account_shared`. It drains the
+pre-dispatch cursor without publication and refuses a conversation observed busy
+before submission. After submission, only provider-delivered `send-message`
+entries are proposed through the existing dispatch-owned `reply` action. This
+is an explicit shared-conversation delivery contract, not arbitrary stdout or
+reasoning extraction. Concurrent messages in the original app can contribute
+to these replies; there is no claim of task-exclusive attribution. The existing
+action writer and Core publication checks retain authorization and finalization.
+
+The adapter prevents overlapping dispatches to the same session within one
+Service adapter instance. This is not an account-wide provider lock. BDK offers
+no atomic task-specific admission or interrupt. A Stop targets the Bot's current
+conversation, as acknowledged at connection, and the adapter waits for idle
+evidence before returning `runtime.turn.cancelled`. An interrupt HTTP receipt
+alone is not a stopped outcome. A failed read is an explicit failure with a
+warning that provider work may continue, never manufactured settlement.
+
+Independent contexts, local file boundaries and automatic delivery-only repair
+are rejected. The provider keeps its existing tools and permissions. An
+ambiguous message submission is not automatically repeated; stable message IDs
+use the dispatch identity. Per-request network deadlines do not impose a total
+execution timeout.
+
 ## Product Role
 
 Version 2 handoffs can carry a brief alone or exact shared-file revisions without
@@ -129,6 +161,17 @@ adapter capabilities from the Host's reported adapter IDs, not an in-process
 adapter container. Mixed-version cloud negotiation remains a separate contract
 and is not retired by deleting unused local implementation.
 
+The connector retires a failed transport when its existing heartbeat failure
+limit is reached, its PONG deadline expires, or the socket reports an error. It
+releases the current session to the existing reconnect loop without waiting for
+a native close callback. Retirement detaches the Host transport sink, rejects
+pending transport responses, and ignores later frames from that socket. It does not cancel local
+work or acknowledge retained results. The failure reason is logged even when
+the background Service uses a silent presenter; an observed close remains a
+separate transport event.
+Registered-session bootstrap reads and cache persistence yield to that same
+transport exit, so a closed connection cannot remain held by local bootstrap.
+
 The runner starts its control endpoint and registers without waiting for Agent
 inventory. Host initialization, reporting, and execution cross bounded inherited
 IPC; they cannot block the connector's event loop. Host admission is closed until
@@ -199,6 +242,34 @@ file-access behavior, and an actual old-to-new migration require separate
 artifact acceptance; source or IPC fixture success is not that evidence.
 
 ## Ownership Boundary
+
+### Local Agent installation updates
+
+Owner Computer controls can update the selected Local Agent installation through
+the existing installation-control transport. `updateInstallations` is an optional
+capability, separate from installation selection. Core checks the authenticated
+owner and explicit device/lane; clients send only installation and operation IDs.
+The Execution Host rechecks the selected installation and uses its existing
+adapter-operation guard. Active or queued work rejects the request; no update
+queue or automatic retry is added. Accepted updates hold that guard until the
+installer exits and the selected launcher's version has been checked.
+
+The provider adapter owns installer eligibility and invocation. Initially only
+Claude Code's native macOS/Linux managed launcher is supported. Its native
+updater owns channel settings, managed policy, installer locking, and replacement
+of the launcher for future sessions. App bundles, package managers, custom
+launchers, injected arguments, and Windows retain manual maintenance. Advisory
+shell text is never executable authority. npm's latest tag does not describe
+native Claude's configured channel and is not used to label it outdated.
+
+Lane-local operation receipts are written before installer execution. Repeated
+operation IDs read the same receipt; IDs cannot move to another installation.
+Socket loss does not cancel an update. An unfinished receipt after Host loss
+is `outcome_unknown` and does not authorize replay or another automatic update.
+The owner must use the provider's terminal maintenance path in that case.
+Installer exit alone is insufficient: completion also requires the same selected
+launcher and a readable resulting version. Report synchronization remains a
+separate observation. Updates never own Wakeability or RuntimeCoordinator truth.
 
 A retained Service reports the installed managed CLI version, not its own
 carrier version. The CLI installer refreshes the existing local-components
@@ -330,6 +401,12 @@ controller sign-in checks, Skills alignment, diagnostics, and Project discovery
 continue as non-blocking background work. An explicit terminal-side Agent
 selection still prepares and reports the selected controllers before that
 explicit request completes.
+
+An explicit `--local-agents none` request, including ordinary Desktop Connect,
+must skip setup-owned Agent catalog discovery and repair. It still completes
+the same authenticated Service alignment and persists an empty selection.
+Service-owned background controller discovery and reporting remain independent
+of the Prepare catalog used for an explicit Agent selection.
 
 Background controller discovery submits each completed controller check without
 waiting for unrelated controllers to finish. Submission uses the existing
@@ -3489,9 +3566,26 @@ preserving dedupe for already-owned work. It keeps the current Runtime
 Transport socket connected, continues heartbeats and execution progress,
 waits for active local execution slots, flushes the existing durable dispatch
 result outbox, and waits for Core's durable-acceptance receipts before closing
-the socket. If the socket disappears during that wait, unacknowledged results
-remain in the same durable outbox for the next Service session; lifecycle code
-must not create a second result store.
+the socket. If the socket disappears during that wait, the connector exits
+without waiting for Host drain. The existing Service reconnect loop restores
+transport, and the existing controlled-stop coordinator carries the admitted
+stop cause into the replacement session. The stop caller stays pending until
+that session completes the drain, or the Service loop exits with failure.
+The coordinator observes one Host drain operation across connection replacements;
+repeated disconnects must not accumulate pending Host drain RPCs. A Host drain
+refusal or failure rejects the admitted stop with its original error and clears
+that failed observation so a later stop can check the Host again. Host errors
+from beginning drain or settling results also reject the admitted stop; only
+transport failures retain it for reconnect.
+The same Host retains accepted work and closed admission; unacknowledged results
+remain in the same durable outbox. Lifecycle code must not create a second
+result store or start a replacement execution for that work.
+
+A reply awaiting `accepted` or `review_required` still owns its execution slot:
+a review can require another provider turn in the same task. `retry_later` is
+not completion. Keep transport recovery and heartbeats available during this
+wait, including when a resumed stop skips ordinary session bootstrap. A retired
+connector's drain continuation must not settle or close a replacement connection.
 
 On a new registered connection generation, the same result outbox immediately
 replays each unacknowledged, non-terminal result once rather than waiting for
@@ -3518,9 +3612,9 @@ remain mandatory before any automatic force kill.
 
 The final stopping heartbeat must receive a successful Core acknowledgement.
 A rejected or timed-out heartbeat cannot be reported as a completed controlled
-shutdown. Already accepted work still drains before that failure is returned;
-network failure does not authorize interrupting it or assert that Core observed
-the stop. Core's existing freshness window remains the bound when no stop
+shutdown. A failed connector can retire while the Host still drains; an admitted
+control request remains pending across that reconnect. Network failure does not
+authorize interrupting accepted work or assert that Core observed the stop. Core's existing freshness window remains the bound when no stop
 heartbeat reaches it.
 
 Repeated process-discovery failures are aggregated within a bounded local log

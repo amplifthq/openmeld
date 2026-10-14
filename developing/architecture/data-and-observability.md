@@ -99,6 +99,23 @@ owning sync direction starts a new generation. Genuine peer replacement or
 accepted-cursor regression still invalidates the current admission attempt.
 This does not authorize replay of an earlier command or change its result fence.
 
+The SDK may return an existing retention slot's generation and closed flag with
+the peer watermarks from one bounded read snapshot. This transient projection
+can remove duplicate admission reads for the same open generation; it is not a
+persisted lease or another readiness owner. Actual writes still fence the epoch
+and generation. Bounded object groups commit bytes, pins and maintenance state
+together after stream reads finish. Neither optimization moves metadata cursors
+or changes import-receipt acknowledgement and native execution admission.
+
+Computer preparation timings are ephemeral observations from the existing SDK
+sync owner, emitted through its `sync.block` logger. Authorized Worker-log
+readers can correlate a generation's bounded blocks, phase intervals and counts;
+the records contain no paths, file contents or commands. They cannot be rebuilt
+after log expiry and do not own progress, admission, retry or execution truth.
+Elapsed time includes I/O and is not CPU usage. Missing or sampled logs cannot
+prove idle gaps or complete transfer totals. The timing fields and Workers clock
+limits are documented in `services/remote-agent/computerd/README.md`.
+
 The SDK may confirm an imported window without reverse file enumeration only
 when its bounded, atomic comparison proves all pending receiver effects equal
 the supplied source entries. A durable receipt binds both peer epochs, the
@@ -4443,13 +4460,13 @@ retry decisions. Retain only fixed recovery classifications and correlate throug
 the existing request/submission observations; raw provider text is not required
 in the authorized caller's failure explanation.
 
-Runtime Agent Controller reporting follows the same minimization rule. Local
-command paths, launch arguments, provider account email/labels,
-controller-provided model or skill inventories, and free-text local probe
-messages stay on the computer. The cloud read model may persist only the shared
-allowlisted ACI projection defined in `shared-contracts.md`; it must not treat a
-rich local snapshot as safe merely because that snapshot passed schema
-validation.
+Runtime Agent Controller reporting uses the explicit cloud projection in
+`clients/openmeld-cli/src/local-service/reporting/agent-controller-interface-cloud-projection.ts`.
+Executable paths, launch arguments, discovered Skills, and free-text probe
+messages are omitted. Provider account email/labels, model inventory, version,
+capabilities, and usage-limit fields can be included. Do not describe these
+included fields as local-only. The cloud read model must not treat an entire
+rich local snapshot as safe merely because it passed schema validation.
 
 The designated Center Agent Dispatch History tool may expose `errorMessage`
 only as a bounded, sanitized vendor-error summary: the vendor error code, type,

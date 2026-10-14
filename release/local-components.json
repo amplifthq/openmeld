@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-13T18:58:18.963Z",
+  "updatedAt": "2026-10-14T15:19:25.437Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
-      "packageVersion": "0.3.258",
+      "packageVersion": "0.3.261",
       "updatePolicy": "available",
-      "reason": "CLI result reading and explicit session validation remain compatible with both cloud versions; existing setup and Wake work remains safe."
+      "reason": "Bundle internal adapters with the CLI so npm installation does not require unpublished workspace packages; existing command contracts remain compatible."
     },
     "service": {
-      "bundleHash": "0a6fe84f62765d19799e05d0074c3b92f13b789f1ac1cc8b064e37cd1c46fb21",
-      "portableBundleHash": "33e820efc7e37f5ebe858b70c5a2247334b225410ca37835f0f819e446235cd3",
-      "bundleVersion": "0.3.258",
+      "bundleHash": "4892dd3a344877354af2e86de83aca367c56c83826c4f988203a6140a4aa37e7",
+      "portableBundleHash": "a08030e6b59b0904307a9a695e552fc6e9772a00cde4dbd8d33a1314b9be70e1",
+      "bundleVersion": "0.3.261",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
       "updatePolicy": "available",
-      "reason": "Shared file and controller helpers are backward-compatible; current Services retain unchanged transport authority and can safely continue Wake work."
+      "reason": "The packaged Service includes the Grok Bot adapter without changing runtime contracts or requiring existing Services to update."
     },
     "skills": {
       "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",

@@ -5,17 +5,36 @@ description: Record a deliverable, assign responsibility, and review the result.
 
 A Task records a commitment that needs ownership, progress, or review. Keep quick questions in Messages. Use Tasks when someone needs to return to a deliverable later.
 
-Tasks belong to ordinary shared Spaces. They are not available in direct messages or private Center Agent conversations.
+Tasks can belong to shared Spaces and private conversations, including Center Agent chats. They keep the source conversation’s membership and visibility. A private Task does not become visible to the whole Organization.
 
-## Create a Task from a request
+## Open the Task board
 
-1. Open the request's message menu.
-2. Choose **Add to Tasks**.
-3. State the deliverable and completion conditions.
-4. Choose an assignee and, when needed, an independent reviewer.
-5. Save and keep discussion in the source message or thread.
+Open the conversation and select **Tasks**. Filter by phase or Project to find the relevant work, then open a Task to inspect its result, review, and activity. If the board says the list is limited, use its filters; a missing row does not prove that an older Task was deleted.
+
+## Create a Task
+
+- In **Tasks**, choose **New task**, enter the title and description, select the assignee and optional reviewer, then choose **Create task**.
+- In the message composer’s add menu, choose **Create task** to draft a Task with your message. **Create task** records it; **Create and start** also starts the explicitly addressed Agents. Check their Wake targets before sending.
+- To capture an existing request, use its message menu as described below.
+
+Sending an ordinary message does not automatically create a Task. Changing an assignee or marking a Task **In progress** does not start Agent execution.
+
+## Capture an existing request
+
+1. Open the request's message menu and choose **Create task**.
+2. Wait for **Task created from this message**. This action creates the Task immediately, using the message text for its title.
+3. Open **Tasks** and inspect the new Task. A message with exactly one Wake target assigns that Agent; other messages can create an unassigned Task.
+4. Edit the title, completion conditions, assignee, and reviewer as needed. Keep discussion in the source message or thread.
 
 For example, “Review the signup flow” is too broad. A better completion condition is “List each blocking issue, provide reproduction steps, and link the tested build.”
+
+Use a request that makes the review boundary explicit:
+
+```text
+Review the signup flow in the linked build.
+Return blocking issues with reproduction steps and the build URL.
+Do not change code. The reviewer will check each issue before accepting.
+```
 
 ## Understand Task status
 
@@ -28,6 +47,12 @@ For example, “Review the signup flow” is too broad. A better completion cond
 | Canceled | The commitment is no longer being pursued. |
 
 Assigning an Agent is not proof that the Agent has started executing. Check the actual work and result in the conversation.
+
+```text
+Request → Task with an assignee → Submitted result → Review → Done
+```
+
+The review step applies when a reviewer is assigned. A Task records the commitment; a [Wake](/docs/concepts/how-work-starts) asks an Agent to execute it. These are separate facts.
 
 ## Submit and review
 
@@ -43,4 +68,6 @@ Reopening is explicit. A linked GitHub issue reopening does not automatically re
 
 ## Linked issues
 
-Tasks can retain links to GitHub issues. Check both the Task and issue before declaring the work closed. Completing the Task does not silently close its GitHub issue.
+Tasks can retain links to GitHub and Linear issues. Check both the Task and external issue before declaring the work closed. A Task status is not proof that an external issue changed.
+
+A Task can also be associated with Projects. Choose those associations explicitly. They help organize the work; they do not change conversation access or grant permission to act in a repository.

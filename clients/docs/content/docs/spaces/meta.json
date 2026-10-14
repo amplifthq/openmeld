@@ -1,0 +1,11 @@
+{
+  "title": "Spaces",
+  "defaultOpen": false,
+  "pages": [
+    "../work/spaces",
+    "../work/messages",
+    "../work/tasks",
+    "files-and-graph",
+    "../team/access"
+  ]
+}

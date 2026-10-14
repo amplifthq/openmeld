@@ -15,12 +15,27 @@ import {
 import type { ComponentType } from "react";
 import { cn } from "#lib/utils";
 
+// Official installed Grok Bot app mark; provenance lives beside the shared asset.
+function GrokBotLogo({ className }: { className?: string }) {
+  return (
+    // biome-ignore lint/performance/noImgElement: shared Vite clients use this small local brand asset.
+    <img
+      alt=""
+      className={className}
+      height={256}
+      src="/agent-logos/grok-bot.png"
+      width={256}
+    />
+  );
+}
+
 const LOCAL_AGENT_LOGOS = {
   antigravity: { Icon: AntigravityColor, inset: "h-3/4 w-3/4" },
   "claude-code": { Icon: ClaudeColor, inset: "h-3/4 w-3/4" },
   codex: { Icon: CodexColor, inset: "h-full w-full" },
   cursor: { Icon: CursorMono, inset: "h-3/5 w-3/5" },
   "grok-build": { Icon: GrokMono, inset: "h-3/4 w-3/4" },
+  "grok-bot": { Icon: GrokBotLogo, inset: "h-full w-full" },
   opencode: { Icon: OpenCodeMono, inset: "h-3/4 w-3/4" },
   openclaw: { Icon: OpenClawColor, inset: "h-3/4 w-3/4" },
 } as const satisfies Record<

@@ -72,6 +72,12 @@ export type CreateCurrentDeviceApi = (
   getPeopleComputerLocalAgentInstallations: (
     input: { agentId: string } & PeopleComputerTarget
   ) => Promise<CurrentLocalAgentInstallationsResponse>;
+  managePeopleComputerLocalAgentUpdate: (
+    input: {
+      agentId: string;
+      request?: import("@openmeld/schemas/types").LocalAgentUpdateRequest;
+    } & PeopleComputerTarget
+  ) => Promise<import("@openmeld/schemas/types").LocalAgentUpdateState>;
   selectPeopleComputerLocalAgentInstallation: (
     input: SelectCurrentLocalAgentInstallationInput & PeopleComputerTarget
   ) => Promise<SelectCurrentLocalAgentInstallationResponse>;

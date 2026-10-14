@@ -1,0 +1,47 @@
+---
+title: Configure Center Agent
+description: Choose its model and shared context, review actions, and pause or resume work.
+---
+
+Open **Settings → Center Agent** in the intended workspace. Owners and admins can manage shared configuration; other members may have read-only controls. Settings belong to that workspace's Center Agent, not just the conversation you last opened.
+
+## Check the connection
+
+The connection section shows the designated Center Agent. If it is not connected and your workspace supports it, choose **Connect Center Agent** and wait for the connected state. This uses OpenMeld's hosted service; it does not require your own computer to stay online.
+
+If the page cannot load permissions or connection state, retry before changing anything. An unavailable status is not a confirmed disconnection.
+
+## Choose a model
+
+1. Open **Model** under **How this Agent works**.
+2. Choose an available model and, when supported, its reasoning level.
+3. Read the change-impact notice.
+4. Choose **Save model settings** and check the saved selection.
+
+The change applies to new turns across the workspace, including existing conversations. Work already in progress keeps its model. A model change can rebuild the prompt cache and increase input costs on the next turn.
+
+Model availability and account funding are separate. Review [AI usage](/docs/team/usage) if work is blocked by a limit or provider error.
+
+## Set identity and context
+
+- **Identity** controls the Agent's display identity. A name change does not create a separate teammate.
+- **Team Brief** opens or creates the workspace's maintained brief. State the organization’s goals, the Agent’s responsibilities, and decisions that need human approval. For example, give it a technical leadership role focused on release planning and engineering follow-through. Use the document's review controls for approved guidance.
+- **Organization memory** controls reusable shared context. Review the scope and your permissions before changing it.
+
+Use [Skills](/docs/team/skills) for procedures and [Team Knowledge](/docs/team/knowledge) for maintained reference material. These serve different purposes from conversation history and memory.
+
+## Channels and memory
+
+Scroll to **Channels** to connect or manage messaging entrances such as Slack, Lark, or Feishu. Follow [Connect messaging channels](/docs/team/channels) for provider setup.
+
+Use **Memory** on the same settings page to inspect the available member and Organization memory controls. Clearing memory does not delete the conversation or its files. See [Manage memory](/docs/work/memory).
+
+## Review actions
+
+Expand **Audit Log** to review Center Agent actions and requests. Use it alongside the original conversation and the actual destination artifact. An audit entry alone does not establish that the user's intended result is complete.
+
+## Pause or resume
+
+In **Danger zone**, choose **Pause** and read the confirmation. Pausing affects Center Agent work across the Organization, including OpenMeld, Slack, and connected channels. It rejects new work and requests cancellation of active Center Agent executions; identity, conversations, Routines, and connections are preserved. Cancellation can fail or be incomplete. Check the pause result and affected tasks before assuming all work has stopped.
+
+An owner or admin can choose **Resume**. Check the resulting state, then review interrupted work before requesting another attempt. Pausing does not undo changes already made in an external system.

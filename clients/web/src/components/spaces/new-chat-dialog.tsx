@@ -158,7 +158,8 @@ export function NewChatDialog(input: {
 		<PeopleAgentPickerDialog
 			candidateGroups={filterAddMemberGroups(
 				groups,
-				query.trim().toLocaleLowerCase()
+				query.trim().toLocaleLowerCase(),
+				selected
 			)}
 			canSubmit={
 				Boolean(defaultHumanProfile) &&

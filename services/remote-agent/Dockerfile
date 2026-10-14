@@ -50,4 +50,6 @@ ENV COMPUTERD_DB=/var/lib/computerd/workspace.sqlite
 ENV FUSE_MOUNT=auto
 EXPOSE 8080
 
-ENTRYPOINT ["/usr/local/bin/computerd"]
+# The daemon owns each command's process group. PID 1 only reaps orphans;
+# command stop/timeout signals are delivered by the native runner.
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/computerd"]

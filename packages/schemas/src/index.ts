@@ -242,6 +242,13 @@ export {
 } from "./desktop-release";
 export * from "./desktop-transport-diagnostics";
 export * from "./desktop-updater";
+export {
+  grokBotAccountSchema,
+  grokBotConversationIdSchema,
+  grokBotEntriesSchema,
+  grokBotMessageReceiptSchema,
+  grokBotStoredCredentialSchema,
+} from "./grok-bot-bdk";
 export * from "./local-execution-input";
 export {
   buildOpenMeldNavigationAction,
