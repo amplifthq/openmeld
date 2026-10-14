@@ -4389,7 +4389,7 @@ before Remote Agent emits them. No local Service or CLI contract changes.
 
 - Hosted inference uses [workspace AI credits and keys](../engineering/ai-billing.md).
   Free includes 5,000 credits per UTC month for the creator's first workspace.
-  Workspace BYOK and a privately configured internal exemption use separate keys.
+  Workspace BYOK uses a separate key. All workspaces follow the same funding rules.
 - The retired **$50/org/day circuit breaker**, `resting` state, and
   **60 Remote Agent triggers/member/hour** limit are not active product
   gates. Historical database columns and migrations remain as durable evidence.

@@ -25,25 +25,15 @@ import {
 } from "./openrouter-keys";
 
 type CredentialRow = {
-  source: AiFundingSource;
+  source: string;
   encrypted_key: string;
   key_suffix: string;
 };
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 export const MONTHLY_AI_LIMIT_MESSAGE =
   "This workspace has used its included AI credits. Add an OpenRouter API key in AI usage settings, or wait for the monthly reset.";
 export const BYOK_UNAVAILABLE_MESSAGE =
   "OpenRouter could not use this workspace's API key. Check its balance and status, or replace or remove it in AI usage settings. Included credits were not used.";
 
-export function isInternalBillingOrganization(
-  env: CoreBindings,
-  organizationId: string
-) {
-  const configured = env.OPENMELD_INTERNAL_BILLING_ORGANIZATION_ID?.trim();
-  return Boolean(
-    configured && UUID.test(configured) && configured === organizationId
-  );
-}
 export function nextAiCreditReset(nowMs: number) {
   const now = new Date(nowMs);
   return new Date(
@@ -156,11 +146,8 @@ async function decryptCredential(
   }
 }
 
-async function managedCredential(
-  env: CoreBindings,
-  organizationId: string,
-  source: "free" | "internal"
-) {
+async function managedCredential(env: CoreBindings, organizationId: string) {
+  const source = "free";
   const db = getPostgresDatabase(env);
   const existing = (await readCredentials(db, organizationId)).find(
     (row) => row.source === source
@@ -193,9 +180,6 @@ async function managedCredential(
     const created = await createOpenRouterKey({
       managementKey,
       organizationId,
-      source,
-      limitUsd:
-        source === "free" ? AI_FREE_MONTHLY_CREDITS / AI_CREDITS_PER_USD : null,
     });
     const encrypted = await encryptAiCredential(
       env,
@@ -236,22 +220,16 @@ export async function authorizeAiProvider(
       apiKey: await decryptCredential(env, organizationId, byok),
     };
   }
-  const source = isInternalBillingOrganization(env, organizationId)
-    ? "internal"
-    : "free";
-  if (
-    source === "free" &&
-    !(await freeGrant({ db, organizationId, claim: true }))
-  ) {
+  if (!(await freeGrant({ db, organizationId, claim: true }))) {
     throw monthlyAiLimitError();
   }
-  const apiKey = await managedCredential(env, organizationId, source);
+  const apiKey = await managedCredential(env, organizationId);
   const budget = await readOpenRouterKey(apiKey);
-  const credits = sponsoredCredits(budget, source);
-  if (credits.remainingCredits !== null && credits.remainingCredits <= 0) {
+  const credits = sponsoredCredits(budget);
+  if (credits.remainingCredits <= 0) {
     throw monthlyAiLimitError();
   }
-  return { source, apiKey };
+  return { source: "free", apiKey };
 }
 
 export async function readAiBilling(
@@ -262,34 +240,28 @@ export async function readAiBilling(
   const db = getPostgresDatabase(env);
   const rows = await readCredentials(db, organizationId);
   const byok = rows.find((row) => row.source === "byok");
-  const internal = isInternalBillingOrganization(env, organizationId);
-  const eligible =
-    internal || (await freeGrant({ db, organizationId, claim: false }));
-  const sponsoredSource = internal ? "internal" : "free";
-  const source = byok ? "byok" : sponsoredSource;
-  const freeCredits = eligible ? AI_FREE_MONTHLY_CREDITS : 0;
-  const monthlyCredits = internal ? null : freeCredits;
+  const eligible = await freeGrant({ db, organizationId, claim: false });
+  const source = byok ? "byok" : "free";
+  const monthlyCredits = eligible ? AI_FREE_MONTHLY_CREDITS : 0;
   const result: OrganizationAiBilling = {
-    plan: internal ? "internal" : "free",
+    plan: "free",
     source,
     policyVersion: AI_CREDIT_POLICY_VERSION,
     monthlyCredits,
     usedCredits: 0,
     remainingCredits: monthlyCredits,
-    resetsAt: internal ? null : nextAiCreditReset(Date.now()),
+    resetsAt: nextAiCreditReset(Date.now()),
     keySuffix: byok?.key_suffix ?? null,
     canManage,
     status: "available",
   };
-  const sponsored = rows.find(
-    (row) => row.source === (internal ? "internal" : "free")
-  );
+  const sponsored = rows.find((row) => row.source === "free");
   if (sponsored) {
     try {
       const budget = await readOpenRouterKey(
         await decryptCredential(env, organizationId, sponsored)
       );
-      Object.assign(result, sponsoredCredits(budget, sponsoredSource));
+      Object.assign(result, sponsoredCredits(budget));
     } catch {
       result.usedCredits = null;
       result.remainingCredits = null;
@@ -333,22 +305,17 @@ async function readByokStatus(
 }
 
 function sponsoredCredits(
-  budget: Awaited<ReturnType<typeof readOpenRouterKey>>,
-  source: "free" | "internal"
+  budget: Awaited<ReturnType<typeof readOpenRouterKey>>
 ) {
-  const internal = source === "internal";
   if (
-    budget.limit !==
-      (internal ? null : AI_FREE_MONTHLY_CREDITS / AI_CREDITS_PER_USD) ||
-    budget.limit_reset !== (internal ? null : "monthly") ||
-    (!internal && budget.limit_remaining === null)
+    budget.limit !== AI_FREE_MONTHLY_CREDITS / AI_CREDITS_PER_USD ||
+    budget.limit_reset !== "monthly" ||
+    budget.limit_remaining === null
   ) {
     throw aiBillingUnavailable();
   }
   return {
     usedCredits: budget.usage_monthly * AI_CREDITS_PER_USD,
-    remainingCredits: internal
-      ? null
-      : Math.max(0, (budget.limit_remaining ?? 0) * AI_CREDITS_PER_USD),
+    remainingCredits: Math.max(0, budget.limit_remaining * AI_CREDITS_PER_USD),
   };
 }
