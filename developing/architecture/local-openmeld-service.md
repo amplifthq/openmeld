@@ -129,6 +129,17 @@ adapter capabilities from the Host's reported adapter IDs, not an in-process
 adapter container. Mixed-version cloud negotiation remains a separate contract
 and is not retired by deleting unused local implementation.
 
+The connector retires a failed transport when its existing heartbeat failure
+limit is reached, its PONG deadline expires, or the socket reports an error. It
+releases the current session to the existing reconnect loop without waiting for
+a native close callback. Retirement detaches the Host transport sink, rejects
+pending transport responses, and ignores later frames from that socket. It does not cancel local
+work or acknowledge retained results. The failure reason is logged even when
+the background Service uses a silent presenter; an observed close remains a
+separate transport event.
+Registered-session bootstrap reads and cache persistence yield to that same
+transport exit, so a closed connection cannot remain held by local bootstrap.
+
 The runner starts its control endpoint and registers without waiting for Agent
 inventory. Host initialization, reporting, and execution cross bounded inherited
 IPC; they cannot block the connector's event loop. Host admission is closed until
