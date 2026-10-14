@@ -409,6 +409,8 @@ function handleLocalFolderPickerSocketFrame(input: {
 
 export async function runDaemonSocketSession(input: {
   executionHost: ExecutionHostPort;
+  drainExecutionHost: () => Promise<void>;
+  failHostShutdown: (error: unknown) => never;
   computerFileAccessStorePath: string;
   daemonSessionId: string;
   deviceId: string;
@@ -2137,8 +2139,9 @@ export async function runDaemonSocketSession(input: {
     );
     scheduleCatalogSyncSignalPoll();
     await sendHeartbeat();
-    keepalive.start();
   }
+  // A resumed stop still needs transport failure detection while work drains.
+  keepalive.start();
 
   async function finishControlledShutdown(
     stopCause: RuntimeTransportStopCause
@@ -2154,7 +2157,9 @@ export async function runDaemonSocketSession(input: {
       reasonCode: "controlled_stop",
       detailCode: stopCause,
     };
-    await input.executionHost.call("beginDrain", {});
+    await input.executionHost
+      .call("beginDrain", {})
+      .catch(input.failHostShutdown);
     clearHeartbeatTimer();
     emitRunLine({
       presenter: input.presenter,
@@ -2185,8 +2190,19 @@ export async function runDaemonSocketSession(input: {
       code: "daemon.run.controlled_shutdown_draining",
       text: "Waiting for accepted local work to finish in the execution host.",
     });
-    await input.executionHost.call("drain", {}, { timeoutMs: null });
-    const result = await input.executionHost.call("settleResults", {});
+    // The Host owns accepted work across connections. Do not let its wait for
+    // a cloud reply decision prevent this connector from reconnecting. Racing
+    // here also prevents an abandoned session from later settling/closing a
+    // replacement connection when that same Host finishes its work.
+    await Promise.race([
+      input.drainExecutionHost(),
+      transportEnded.promise.then((error) => {
+        throw error;
+      }),
+    ]);
+    const result = await input.executionHost
+      .call("settleResults", {})
+      .catch(input.failHostShutdown);
     if (finalHeartbeatError) {
       throw finalHeartbeatError;
     }

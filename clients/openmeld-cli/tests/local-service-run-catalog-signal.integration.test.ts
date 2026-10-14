@@ -136,11 +136,16 @@ import { createInProcessExecutionHost } from "./helpers/execution-host";
 
 type RunTestDaemonSocketSessionInput = Omit<
   Parameters<typeof runDaemonSocketSessionInternal>[0],
-  "executionHost" | "localComponentsObservation" | "loadRouteCatalog"
+  | "executionHost"
+  | "drainExecutionHost"
+  | "failHostShutdown"
+  | "localComponentsObservation"
+  | "loadRouteCatalog"
 > &
   Omit<ExecutionHostResources, "initialCatalog"> & {
     decorateExecutionHost?: (host: ExecutionHostPort) => ExecutionHostPort;
     onSessionExit?: () => void;
+    failHostShutdown?: (error: unknown) => never;
     profileOwnerName: string | null;
     loadRouteCatalog?: () => Promise<ExecutionHostResources["initialCatalog"]>;
   };
@@ -186,6 +191,7 @@ async function runDaemonSocketSession(
   const localComponentsObservation = createServiceLocalComponentsObservation({
     onError: () => undefined,
   });
+  const executionHost = decorateExecutionHost?.(host.port) ?? host.port;
   try {
     await runDaemonSocketSessionInternal({
       ...sessionInput,
@@ -203,7 +209,15 @@ async function runDaemonSocketSession(
             false
           )),
       localComponentsObservation,
-      executionHost: decorateExecutionHost?.(host.port) ?? host.port,
+      executionHost,
+      failHostShutdown:
+        input.failHostShutdown ??
+        ((error: unknown): never => {
+          throw error;
+        }),
+      drainExecutionHost: async () => {
+        await executionHost.call("drain", {}, { timeoutMs: null });
+      },
     });
   } finally {
     onSessionExit?.();
@@ -268,6 +282,7 @@ describe("local service run catalog signal", () => {
       const socket = createMockSocket();
       let stopping = false;
       const coordinator = createControlledShutdownCoordinator({
+        drainHost: async () => undefined,
         hasUndrainedWork: () => false,
         isStopRequested: () => stopping,
         markStopping: () => {
@@ -288,10 +303,6 @@ describe("local service run catalog signal", () => {
       })
         .then(() => {
           coordinator.handleSessionCompleted();
-        })
-        .catch((error: unknown) => {
-          coordinator.handleSessionFailure(error);
-          throw error;
         })
         .finally(() => {
           coordinator.detachSession(sessionShutdown.resolve);
@@ -656,6 +667,98 @@ describe("local service run catalog signal", () => {
     expect(lines.map((line) => line.code)).not.toContain(
       "daemon.run.controlled_shutdown_final_heartbeat_completed"
     );
+    expect(socket.closeCount).toBe(0);
+  });
+
+  it.each([
+    "close",
+    "error",
+    "missing_pong",
+  ] as const)("releases a stopped connector on %s while the Host still owns pending work", async (failure) => {
+    vi.useFakeTimers();
+    readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+    const lines: Array<{ code: string; text: string }> = [];
+    const socket = createMockSocket({
+      respondToKeepalive: failure !== "missing_pong",
+      terminateEmitsClose: false,
+    });
+    const drain = Promise.withResolvers<void>();
+    const drainStarted = Promise.withResolvers<void>();
+    const settleResults = vi.fn();
+    // A stop carried into a replacement session is already pending during
+    // bootstrap. Its keepalive must still detect a half-open connection.
+    const session = runDaemonSocketSession({
+      ...buildKeepaliveSessionInput(socket, lines),
+      shutdownRequested: Promise.resolve("user_stop"),
+      decorateExecutionHost: (host) => ({
+        ...host,
+        call: async (method, payload, options) => {
+          if (method === "drain") {
+            drainStarted.resolve();
+            await drain.promise;
+          }
+          if (method === "settleResults") {
+            settleResults();
+          }
+          return host.call(method, payload, options);
+        },
+      }),
+    });
+    const outcome = session.then(
+      () => null,
+      (error: unknown) => error
+    );
+    await drainStarted.promise;
+    if (failure === "close") {
+      socket.emitClose(1006, "network lost");
+    }
+    if (failure === "error") {
+      socket.emitError(new Error("network lost"));
+    }
+    if (failure === "missing_pong") {
+      await vi.advanceTimersByTimeAsync(
+        DAEMON_STREAM_KEEPALIVE_INTERVAL_MS +
+          DAEMON_STREAM_KEEPALIVE_PONG_TIMEOUT_MS +
+          1
+      );
+    }
+    // This must finish before Host drain does; otherwise reconnect cannot run.
+    expect(await outcome).toBeInstanceOf(Error);
+    expect(settleResults).not.toHaveBeenCalled();
+    drain.resolve();
+    await flushMicrotasks();
+    // The old drain continuation cannot settle a replacement connection.
+    expect(settleResults).not.toHaveBeenCalled();
+    expect(socket.closeCount).toBe(0);
+  });
+
+  it.each([
+    "beginDrain",
+    "settleResults",
+  ] as const)("reports a Host %s failure instead of treating it as a lost connection", async (failedMethod) => {
+    readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+    const socket = createMockSocket({});
+    const error = new Error("Execution Host IPC disconnected");
+    const failHostShutdown = vi.fn((failure: unknown): never => {
+      throw failure;
+    });
+    await expect(
+      runDaemonSocketSession({
+        ...buildKeepaliveSessionInput(socket, []),
+        shutdownRequested: Promise.resolve("user_stop"),
+        failHostShutdown,
+        decorateExecutionHost: (host) => ({
+          ...host,
+          call: async (method, payload, options) => {
+            if (method === failedMethod) {
+              throw error;
+            }
+            return await host.call(method, payload, options);
+          },
+        }),
+      })
+    ).rejects.toBe(error);
+    expect(failHostShutdown).toHaveBeenCalledExactlyOnceWith(error);
     expect(socket.closeCount).toBe(0);
   });
 
