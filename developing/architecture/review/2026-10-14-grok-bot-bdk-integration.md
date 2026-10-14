@@ -42,9 +42,10 @@ returned `NEW_MESSAGE_AFTER_STOP_OK`.
 
 New Agent creation returned immediately to the picker with pending progress.
 The user could select another Agent while it completed. The created Codex
-Profile appeared selected at the top, and both Agents joined a newly created
-Space. Selected rows retained keyboard focus when moving into or out of the
-top group. These checks use product UI and real providers, not mock replies.
+Profile appeared selected, and both Agents joined a newly created
+Space. Selected rows now stay at the top of their original owner's Agent list,
+with keyboard focus preserved; there is no separate selected group.
+These checks use product UI and real providers, not mock replies.
 Screenshots are local acceptance artifacts; they are not publication evidence.
 
 | Operation | Official API used by BDK | Scope |

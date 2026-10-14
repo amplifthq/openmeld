@@ -4,13 +4,7 @@ import { CheckboxGroup, CheckboxItem } from "@openmeld/ui/fluid/checkbox-group";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { cn } from "@openmeld/ui/lib/utils";
 import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
-import {
-	type ReactNode,
-	useEffect,
-	useLayoutEffect,
-	useRef,
-	useState,
-} from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import {
 	resolveAgentCandidateDescription,
@@ -31,51 +25,21 @@ export function SpaceAddMembersCandidates(input: {
 	selectionScope?: "space" | "desk";
 }) {
 	const viewportRef = useRef<HTMLDivElement>(null);
-	const movedFocus = useRef<string | null>(null);
-	const onToggle = (profileId: string) => {
-		const active = viewportRef.current?.ownerDocument.activeElement;
-		if (active?.getAttribute("data-profile-id") === profileId) {
-			movedFocus.current = profileId;
-		}
-		input.onToggle(profileId);
-	};
-	useLayoutEffect(() => {
-		if (movedFocus.current) {
+	const onToggle = input.onToggle;
+	const previousSelection = useRef(input.selectedProfileIds);
+	useEffect(() => {
+		const addedId = [...input.selectedProfileIds].find(
+			(id) => !previousSelection.current.has(id)
+		);
+		if (addedId) {
 			const rows =
 				viewportRef.current?.querySelectorAll<HTMLElement>("[data-profile-id]");
 			Array.from(rows ?? [])
-				.find((row) => row.dataset.profileId === movedFocus.current)
-				?.focus({ preventScroll: true });
-			movedFocus.current = null;
-		}
-	});
-	const previousSelection = useRef(input.selectedProfileIds);
-	useEffect(() => {
-		if (
-			[...input.selectedProfileIds].some(
-				(id) => !previousSelection.current.has(id)
-			)
-		) {
-			viewportRef.current?.scrollTo({ top: 0 });
+				.find((row) => row.dataset.profileId === addedId)
+				?.scrollIntoView?.({ block: "nearest" });
 		}
 		previousSelection.current = input.selectedProfileIds;
 	}, [input.selectedProfileIds]);
-	const selectedAgents = [
-		...input.candidateGroups.organizationCandidates,
-		...input.candidateGroups.personGroups.flatMap(
-			(group) => group.agentCandidates
-		),
-	].filter(
-		(candidate) =>
-			candidate.profileKind === "agent" &&
-			!candidate.alreadyMember &&
-			input.selectedProfileIds.has(candidate.profileId)
-	);
-	const selectionOrder = [...input.selectedProfileIds];
-	selectedAgents.sort(
-		(a, b) =>
-			selectionOrder.indexOf(b.profileId) - selectionOrder.indexOf(a.profileId)
-	);
 	const [collapsedGroupIds, setCollapsedGroupIds] = useState<
 		ReadonlySet<string>
 	>(() => new Set());
@@ -101,16 +65,7 @@ export function SpaceAddMembersCandidates(input: {
 			viewportRef={viewportRef}
 		>
 			<SpaceAddMembersCandidateGroup
-				candidates={selectedAgents}
-				label="Selected Agents"
-				onToggle={onToggle}
-				selectedProfileIds={input.selectedProfileIds}
-				selectionScope={input.selectionScope}
-			/>
-			<SpaceAddMembersCandidateGroup
-				candidates={input.candidateGroups.organizationCandidates.filter(
-					(candidate) => !selectedAgents.includes(candidate)
-				)}
+				candidates={input.candidateGroups.organizationCandidates}
 				label="Organization"
 				onToggle={onToggle}
 				selectedProfileIds={input.selectedProfileIds}
@@ -249,11 +204,7 @@ function SpaceAddMembersPersonGroupView(input: {
 			{input.group.agentCandidates.length > 0 ? (
 				<div className="ml-9">
 					<SpaceAddMembersCandidateGroup
-						candidates={input.group.agentCandidates.filter(
-							(candidate) =>
-								candidate.alreadyMember ||
-								!input.selectedProfileIds.has(candidate.profileId)
-						)}
+						candidates={input.group.agentCandidates}
 						onToggle={input.onToggle}
 						selectedProfileIds={input.selectedProfileIds}
 						selectionScope={input.selectionScope}
@@ -314,7 +265,12 @@ function SpaceAddMembersCandidateGroup(input: {
 		? `space-add-members-group-${input.label.toLowerCase().replaceAll(" ", "-")}`
 		: undefined;
 	let nextSelectableIndex = 0;
-	const rows = input.candidates.map((candidate) => ({
+	const selectionOrder = [...input.selectedProfileIds];
+	const candidates = [...input.candidates].sort(
+		(a, b) =>
+			selectionOrder.indexOf(b.profileId) - selectionOrder.indexOf(a.profileId)
+	);
+	const rows = candidates.map((candidate) => ({
 		candidate,
 		selectableIndex: candidate.alreadyMember ? null : nextSelectableIndex++,
 	}));

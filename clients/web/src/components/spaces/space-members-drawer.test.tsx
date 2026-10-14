@@ -2366,8 +2366,12 @@ describe("SpaceMembersSidePanel", () => {
 		expect(selectedCheckbox.getAttribute("aria-checked")).toBe("true");
 		expect(document.activeElement).toBe(selectedCheckbox);
 		expect(
-			scope.getByRole("heading", { name: "Selected Agents" })
-		).toBeTruthy();
+			scope.queryByRole("heading", { name: "Selected Agents" })
+		).toBeNull();
+		const ownerAgents = document.getElementById(
+			collapseButton.getAttribute("aria-controls") ?? ""
+		);
+		expect(ownerAgents?.contains(selectedCheckbox)).toBe(true);
 		expect(screen.getByText("1 selected")).toBeTruthy();
 	});
 
