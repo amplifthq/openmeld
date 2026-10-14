@@ -64,6 +64,7 @@ import {
   normalizeText,
   nowIsoString,
   toErrorMessage,
+  warnDaemonEvent,
 } from "../core/logger";
 import type {
   MutableRouteCatalogState,
@@ -480,6 +481,7 @@ export async function runDaemonSocketSession(input: {
   let routeCatalogSyncInFlight = false;
   let heartbeatTimer: NodeJS.Timeout | null = null;
   let heartbeatTimerDueAtMs: number | null = null;
+  const transportEnded = Promise.withResolvers<DaemonServiceRunError>();
   const keepalive = createDaemonStreamKeepalive({
     onPongTimeout: () => {
       emitRunLine({
@@ -491,7 +493,7 @@ export async function runDaemonSocketSession(input: {
           daemonSessionId: input.daemonSessionId,
         },
       });
-      input.socket.terminate();
+      terminateForReconnect("keepalive_pong_timeout");
     },
     sendPing: () => {
       if (closed) {
@@ -592,14 +594,55 @@ export async function runDaemonSocketSession(input: {
     });
   };
 
+  function retireTransport(error: DaemonServiceRunError): void {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    admissionHeartbeatPending = false;
+    clearHeartbeatTimer();
+    keepalive.stop();
+    clearCatalogSyncSignalTimer();
+    hostLink.detach().catch(reportHostFailure);
+    input.attachRouteCatalogSyncInvoker?.(null);
+    waiters.registerRejecter?.(error);
+    waiters.heartbeatRejecter?.(error);
+    failPendingRouteCatalogSyncRequests(error);
+    transportEnded.resolve(error);
+  }
+
+  function terminateForReconnect(
+    reasonCode: "keepalive_pong_timeout" | "heartbeat_failed" | "socket_error"
+  ): void {
+    if (closed) {
+      return;
+    }
+    const error = new DaemonServiceRunError({
+      code: "daemon.run.socket_closed",
+      message: `daemon stream unavailable (${reasonCode})`,
+    });
+    // The connector owns failure detection. Transport termination must not
+    // depend on a later native close callback to release the reconnect loop.
+    retireTransport(error);
+    warnDaemonEvent("[openmeld.daemon.reconnect_required]", {
+      event: "cli.daemon.reconnect_required",
+      reasonCode,
+      connectionGeneration: activeConnectionGeneration,
+      daemonSessionId: input.daemonSessionId,
+    });
+    input.socket.terminate();
+  }
+
   const waitForClose = new Promise<void>((resolve) => {
     input.socket.onClose((code, reason) => {
-      closed = true;
-      admissionHeartbeatPending = false;
-      clearHeartbeatTimer();
-      hostLink.detach().catch(reportHostFailure);
       closeCode = code;
       closeReason = normalizeText(reason) || "closed";
+      retireTransport(
+        new DaemonServiceRunError({
+          code: "daemon.run.socket_closed",
+          message: `daemon stream closed (code=${String(closeCode)}, reason=${closeReason})`,
+        })
+      );
       const closedAtMs = Date.now();
       const durationMs = Math.max(0, closedAtMs - socketConnectedAtMs);
       const disconnectClass = classifyDaemonSocketDisconnect({
@@ -628,13 +671,6 @@ export async function runDaemonSocketSession(input: {
           socketDisconnectedAtMs: closedAtMs,
         },
       });
-      const closeError = new DaemonServiceRunError({
-        code: "daemon.run.socket_closed",
-        message: `daemon stream closed (code=${String(closeCode)}, reason=${closeReason})`,
-      });
-      waiters.registerRejecter?.(closeError);
-      waiters.heartbeatRejecter?.(closeError);
-      failPendingRouteCatalogSyncRequests(closeError);
       resolve();
     });
   });
@@ -954,7 +990,7 @@ export async function runDaemonSocketSession(input: {
     } catch (error) {
       if (recordHeartbeatFailure(error) && !options.requireAcknowledgement) {
         admissionHeartbeatPending = false;
-        input.socket.terminate();
+        terminateForReconnect("heartbeat_failed");
         return;
       }
       updateHeartbeatInterval({
@@ -1842,6 +1878,7 @@ export async function runDaemonSocketSession(input: {
       code: "daemon.run.socket_error",
       text: `daemon stream socket error: ${toErrorMessage(error)}`,
     });
+    terminateForReconnect("socket_error");
   });
 
   const handleOpenMeldToolsControlFrame = (frame: {
@@ -1925,7 +1962,7 @@ export async function runDaemonSocketSession(input: {
     return true;
   };
 
-  input.socket.onMessage((raw) => {
+  const handleMessage = (raw: string): void => {
     // Keepalive PONG (bare "pong", auto-answered by the RuntimeTransportHub DO)
     // is not a daemon frame; feed the keepalive watchdog and swallow it before
     // frame parsing so it never logs as an invalid frame and never touches
@@ -2034,6 +2071,11 @@ export async function runDaemonSocketSession(input: {
     ) {
       hostLink.forward(parsedFrame);
     }
+  };
+  input.socket.onMessage((raw) => {
+    if (!closed) {
+      handleMessage(raw);
+    }
   });
 
   const registerResponse = await registerDaemonSession(
@@ -2086,6 +2128,7 @@ export async function runDaemonSocketSession(input: {
     registerRejected: registerResponse.rejectedProfiles.length > 0,
     scheduleCatalogSyncNext,
     shutdownRequested: input.shutdownRequested,
+    transportEnded: transportEnded.promise,
   });
   const bootstrapShutdownStopCause = bootstrap.shutdownStopCause;
   if (!bootstrapShutdownStopCause) {
@@ -2186,7 +2229,10 @@ export async function runDaemonSocketSession(input: {
         stopCause: bootstrapShutdownStopCause,
       } as const)
     : await Promise.race([
-        waitForClose.then(() => ({ kind: "socket_closed" as const })),
+        transportEnded.promise.then((error) => ({
+          kind: "transport_ended" as const,
+          error,
+        })),
         input.shutdownRequested?.then((stopCause) => ({
           kind: "shutdown_requested" as const,
           stopCause,
@@ -2199,7 +2245,9 @@ export async function runDaemonSocketSession(input: {
       );
     }
   } catch (error) {
-    input.socket.terminate();
+    if (!closed) {
+      input.socket.terminate();
+    }
     throw error;
   } finally {
     hostLink.detach().catch(reportHostFailure);
@@ -2213,6 +2261,9 @@ export async function runDaemonSocketSession(input: {
     (closeCode === 1000 && closeReason === "shutdown");
   if (shouldDrainBeforeExit) {
     return;
+  }
+  if (sessionExit.kind === "transport_ended") {
+    throw sessionExit.error;
   }
   throw new DaemonServiceRunError({
     code: "daemon.run.socket_closed",
@@ -2255,6 +2306,7 @@ async function completeRegisteredSessionBootstrap(input: {
   registerRejected: boolean;
   scheduleCatalogSyncNext: (delayMs: number) => void;
   shutdownRequested?: Promise<RuntimeTransportStopCause>;
+  transportEnded: Promise<DaemonServiceRunError>;
 }): Promise<{
   initialCatalogSyncSignal: DaemonCatalogSyncSignal | null;
   shutdownStopCause: RuntimeTransportStopCause | null;
@@ -2267,9 +2319,10 @@ async function completeRegisteredSessionBootstrap(input: {
       }),
     });
     if (bootstrapPlan.persistCache) {
-      const persistence = await awaitOperationOrShutdown({
+      const persistence = await awaitOperationOrSessionExit({
         operation: input.persistAcceptedRouteCatalogCache(),
         shutdownRequested: input.shutdownRequested,
+        transportEnded: input.transportEnded,
       });
       if (persistence.kind === "shutdown_requested") {
         return {
@@ -2281,9 +2334,10 @@ async function completeRegisteredSessionBootstrap(input: {
     input.scheduleCatalogSyncNext(bootstrapPlan.nextSyncDelayMs);
   }
 
-  const catalogSignal = await awaitOperationOrShutdown({
+  const catalogSignal = await awaitOperationOrSessionExit({
     operation: readDaemonCatalogSyncSignal().catch(() => null),
     shutdownRequested: input.shutdownRequested,
+    transportEnded: input.transportEnded,
   });
   if (catalogSignal.kind === "shutdown_requested") {
     return {
@@ -2297,22 +2351,23 @@ async function completeRegisteredSessionBootstrap(input: {
   };
 }
 
-async function awaitOperationOrShutdown<T>(input: {
+async function awaitOperationOrSessionExit<T>(input: {
   operation: Promise<T>;
   shutdownRequested?: Promise<RuntimeTransportStopCause>;
+  transportEnded: Promise<DaemonServiceRunError>;
 }): Promise<
   | { kind: "completed"; value: T }
   | { kind: "shutdown_requested"; stopCause: RuntimeTransportStopCause }
 > {
-  if (!input.shutdownRequested) {
-    return { kind: "completed", value: await input.operation };
-  }
   return await Promise.race([
     input.operation.then((value) => ({ kind: "completed" as const, value })),
-    input.shutdownRequested.then((stopCause) => ({
+    input.transportEnded.then((error) => {
+      throw error;
+    }),
+    input.shutdownRequested?.then((stopCause) => ({
       kind: "shutdown_requested" as const,
       stopCause,
-    })),
+    })) ?? new Promise<never>(() => undefined),
   ]);
 }
 

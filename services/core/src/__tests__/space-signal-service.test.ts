@@ -26,6 +26,7 @@ import type {
   WakeProgressItem,
   WakeStopEligibilityReadModel,
 } from "@openmeld/schemas/types";
+import { createDispatchContinuationSpaceAccessContext } from "@openmeld/space";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createProjectionPostgresBinding } from "../../test-support/postgresql-query.test-support";
 import { createFinalOutcomeSql } from "../../test-support/space-final-outcome.test-support";
@@ -1499,6 +1500,9 @@ describe("space signal service", () => {
       targetControllerRef: ref,
     });
     const target = TEST_MESSAGE_ENVELOPE.activationTargets[0];
+    if (!target) {
+      throw new Error("The fixture requires an activation target.");
+    }
     const signal = createSignal();
     signal.data.messageEnvelope = TEST_MESSAGE_ENVELOPE;
     signal.data.taskDraft = { title: "Review the existing files" };
@@ -1771,7 +1775,10 @@ describe("space signal service", () => {
     });
   });
 
-  it("returns an execution recovery publication only after Space persistence and reuses the exact notice", async () => {
+  it.each([
+    "password",
+    "dispatch_continuation",
+  ] as const)("persists and deduplicates recovery publications through %s authorization", async (accessKind) => {
     const { signalRows, sql } = createFinalOutcomeSql();
     const broadcastSignal = vi.fn();
     const space = Object.create(Space.prototype) as Space;
@@ -1784,6 +1791,10 @@ describe("space signal service", () => {
       authorizeSpacePasswordAccess: {
         value: vi.fn(async () => ({ ok: true })),
       },
+      authorizeSpaceAccess: {
+        value: vi.fn(async () => ({ ok: true })),
+      },
+      readSpaceMetaRecord: { value: () => null },
       broadcastSignal: { value: broadcastSignal },
       ctx: { value: { storage: { sql } } },
       lastTimestamp: { value: 0, writable: true },
@@ -1832,8 +1843,25 @@ describe("space signal service", () => {
       spaceId: "space-1",
     };
 
-    const first = await space.rpcPostExecutionRecoveryNoticeSignal(input);
-    const repeated = await space.rpcPostExecutionRecoveryNoticeSignal(input);
+    const authorizedInput = {
+      ...input,
+      ...(accessKind === "dispatch_continuation"
+        ? {
+            spaceAccess: createDispatchContinuationSpaceAccessContext({
+              attemptId: "attempt-1",
+              dispatchId: input.data.dispatchId,
+              requestContext: input.context,
+              sourceSignalId: input.data.replyTo.signalId,
+              spaceId: input.spaceId,
+              targetProfileId: input.data.actorProfileId,
+            }),
+          }
+        : {}),
+    };
+    const first =
+      await space.rpcPostExecutionRecoveryNoticeSignal(authorizedInput);
+    const repeated =
+      await space.rpcPostExecutionRecoveryNoticeSignal(authorizedInput);
     for (const conflictingData of [
       {
         ...input.data,
@@ -1853,7 +1881,7 @@ describe("space signal service", () => {
     ]) {
       await expect(
         space.rpcPostExecutionRecoveryNoticeSignal({
-          ...input,
+          ...authorizedInput,
           data: conflictingData,
         })
       ).rejects.toThrow(
