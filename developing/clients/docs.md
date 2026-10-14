@@ -15,8 +15,12 @@ Staging uses `docs.staging.openmeld.ai`. It reads no App session, Organization
 state, database, or authenticated API. Parent-domain cookies can reach this host.
 The renderer ignores them and must not forward them to another service.
 
-The site contains public product guides organized by user task: Start, Work,
-Team, Help, and Reference. Production builds allow indexing and expose a sitemap
+The site organizes public guides by product area: Get started, Spaces, Center Agent,
+Remote Agents, Local Agents, Agent Harness, Team, Settings & Administration, Security & Privacy,
+Concepts & Reference, and Help. Metadata references keep existing article URLs
+stable while moving their navigation placement. Shared Skills, Files, and
+Routines guides each have one owner; Agent-specific guides link to them and
+explain execution differences. Production builds allow indexing and expose a sitemap
 generated from the same MDX source. Development and staging remain noindex.
 Do not copy `developing/` or internal operational runbooks into public content.
 
@@ -32,7 +36,23 @@ Windows instructions separate. Refer readers to the canonical download page for
 current versions, build availability, and release notices instead of copying
 temporary rollout details into the guides.
 
+## Local Agent setup guides
+
+`content/docs/start/local-agents` owns the setup overview and six Agent guides.
+Keep installation prose here, not in the shared product catalog or Website.
+Provider-specific installation commands and platform requirements link to official
+guides. OpenMeld connection, detection, and recovery guidance stays in Docs.
+Each guide declares `icon: local-agent:<id>`; the source loader renders the
+existing `@openmeld/ui` LocalAgentLogo. These pages participate in the same
+search, Markdown, and LLM projections as all other public guides.
+
 ## Content and rendering
+
+`start/connect-with-agent` owns the public, copyable setup handoff. It links to
+the App's Agent Interface for fresh private authorization. Keep tokens and
+authenticated prompt generation in the App; never embed them in Docs, Markdown,
+or LLM projections. The public prompt scopes recovery to connecting the computer
+and distinguishes service health from a successful Agent task.
 
 `content/docs` is the MDX source. `src/lib/content.ts` declares the official
 Fumadocs macro. `src/lib/source.ts` owns its server-side source loader and LLM
@@ -80,3 +100,64 @@ local Workerd. The guarded artifact checker binds HTML source/build metadata
 to the exact clean artifact, saves its immutable snapshot, and closes its preview.
 Browser smoke must also exercise navigation, search, Markdown, missing pages,
 theme selection, mobile layout, and keyboard dismissal.
+
+## Content maintenance
+
+Keep the page tree in `content/docs/**/meta.json` as the navigation owner.
+Relative page references can place a guide in another group without changing
+its URL. `llms(source)` consumes this same tree for `/llms.txt`; do not maintain
+a separate LLM navigation list. `/llms-full.txt` includes all public pages.
+
+Before handing off a content change:
+
+- Verify product claims against the current source, not only an older guide.
+  For Routine form fields use `clients/web/src/components/routines/routine-form.tsx`;
+  for Run labels use `routine-run-presentation.tsx` in that directory and the
+  status contract in `packages/schemas/src/schemas/http/center-agent-routines.ts`.
+  For skipped Run behavior read `services/core/src/routines/routine-scheduler.ts`
+  and `routine-local-delivery.ts`.
+- For Space addressing, check `space-composer-editor.tsx`; for task file access,
+  check `space-message-task-context.tsx`, both under
+  `clients/web/src/components/spaces`. Project and Agent changes also require
+  their scoped product owners and implementation. Do not present source review
+  as evidence that a production workflow was exercised.
+- Keep old page URLs and heading anchors. If a move is necessary, provide and
+  verify the redirect or anchor alias in HTML and Markdown routes.
+- Preserve the zero-install Quickstart. Put prompts in copyable `text` blocks
+  and include a result check. Do not add setup as a prerequisite to that example.
+- Run `pnpm --filter openmeld-docs check:content` for page-tree coverage, local
+  page links, and the Run status fact-sync check. This is a bounded check, not a
+  claim that every product statement is verified.
+- Run the Docs build, lint, and typecheck. With a local Docs server, run
+  `pnpm --filter openmeld-docs check:content -- --url http://127.0.0.1:3600`
+  to check rendered heading anchors, all public page Markdown responses, and
+  missing-page 404s for HTML, `.md`, and Markdown negotiation.
+- In the complete UI, check search, sidebar navigation, Copy Markdown,
+  Open → Markdown, keyboard dismissal, and the 390px layout. Check the old URLs
+  and common anchors against the change's base. Record what actually ran.
+
+Content-only IA work does not alter Agent execution, availability, routing,
+or service lifecycle contracts. A guide must describe those owners rather than
+introduce a second interpretation of their state.
+
+## Agent Harness content ownership
+
+`content/docs/agent-harness` explains execution mechanisms after the Agent product
+guides. Keep Spaces plural to match product navigation. Link to existing task,
+permission, and usage workflows instead of duplicating them.
+
+Verify collaboration against `packages/space-mesh/src/collaboration-context.ts`,
+`services/remote-agent/agent-core/prompt/task-coordination.ts`, and Core's
+`center-agent-delegation-service.ts` and `personal-remote-agent-space-tools.ts`.
+The Space Board is an Agent-readable projection, not another task writer.
+
+Verify hosted context and cost claims against `services/remote-agent/flue-adapter`
+(`model.ts`, `model-context-policy.ts`, `conversation-compaction.ts`, and
+`retained-tool-results.ts`) and `agent-core/tool-result-boundary.ts`. Verify loop
+claims against `agent-core/tool-progress.ts`, its tool classifications, Core
+handoff admission, and `developing/architecture/agent-transport-contract.md`.
+Do not generalize a hosted tool limit to Local tools, the member-owned Remote
+handoff limit to all transport, or prompt guidance to an enforced guarantee.
+Do not publish planned loop fuses, universal spending caps, guaranteed cache
+savings, or lossless summaries as shipped behavior. Keep numeric tuning values
+in their implementation owners unless users need them to make a decision.

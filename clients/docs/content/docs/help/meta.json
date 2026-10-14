@@ -1,9 +1,12 @@
 {
-  "title": "Settings and help",
+  "title": "Help",
   "defaultOpen": false,
   "pages": [
     "troubleshooting",
     "agent-not-replying",
+    "working-folder",
+    "routine-skipped",
+    "routine-result-missing",
     "computer",
     "desktop",
     "account",

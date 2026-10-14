@@ -1,0 +1,30 @@
+---
+title: Cursor CLI
+description: Connect Cursor’s command-line agent to OpenMeld.
+icon: local-agent:cursor
+---
+
+OpenMeld uses Cursor CLI. Check the CLI’s own sign-in status; an IDE login alone is not evidence that the CLI is ready.
+
+## Install and sign in
+
+1. Open the [official Cursor CLI setup guide](https://cursor.com/docs/cli/installation).
+2. Follow the official CLI setup guide. Make sure the installed command is on your PATH, then run `cursor-agent login` and complete browser sign-in.
+3. Resolve any installation or account error in the tool before continuing.
+
+Use the official guide for current operating-system requirements and installation commands.
+
+## Connect to OpenMeld
+
+1. [Connect this computer](/docs/start/connect-computer) if you have not already done so.
+2. Open the computer’s details in OpenMeld and check **Local agents**.
+3. Confirm that Cursor CLI is available, then [create a Local Agent](/docs/work/agents) using that computer and tool.
+4. Select the intended [Project and working folder](/docs/work/projects).
+
+OpenMeld checks the `cursor-agent` executable, version, and sign-in status. Run `cursor-agent status` in your terminal if OpenMeld reports that sign-in is needed.
+
+## Try a first task
+
+Use the [local code review example](/docs/tasks/local-code). Confirm that the Agent reports the intended repository and returns its findings in the conversation.
+
+If it cannot start, read the reason shown in OpenMeld. For connection problems, use [Computer help](/docs/help/computer). For a missing checkout, use [Working folder unavailable](/docs/help/working-folder).

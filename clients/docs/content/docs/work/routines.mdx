@@ -9,13 +9,14 @@ Use a Routine for a task whose inputs, permission, and destination are clear. Fo
 
 ## Create a Routine
 
-1. Open **Routines**. In the current app this is available from Center Agent; newer workspace navigation places it under **Team**.
-2. Choose the create action.
-3. Write the instructions and expected output.
-4. Choose the Agent if the editor offers an executor selector.
-5. Set the schedule and check the timezone.
-6. Choose where the result should appear.
-7. Review and save.
+1. Open **Team → Routines** and choose the create action.
+2. Write the **Instructions**, including the input and expected output.
+3. Set **Visible to** to **Only me** or **Team**. Choose the **Agent** that will do the work.
+4. Set the schedule. Check the timezone in the advanced settings for recurring work.
+5. Choose **Send results to**. Check the audience of that conversation.
+6. Choose **Create**. Review the saved schedule and destination.
+
+Before creating the Routine, make sure the Agent can access its inputs and destination. For a Local Agent, connect its computer and check its working folder. Start with a small task that you can review at the first scheduled time.
 
 Use only destinations you can access. If your editor offers Personal and Team visibility, remember that visibility and output destination are separate: personal instructions can still publish to a shared Space you select.
 
@@ -23,7 +24,16 @@ Use only destinations you can access. If your editor offers Personal and Team vi
 
 Specify the source, reporting period, output, and permitted actions. For example:
 
-> Every Monday, read the release notes from the previous seven days. Post a short summary in Release Planning. Link each source. If nothing shipped, say so. Do not create issues or change releases.
+```text
+Read the release notes linked below for the previous seven days.
+Summarize what changed and link each source.
+If nothing shipped, say so. If a source is unavailable, name it.
+Do not create issues or change releases.
+
+Sources: [replace with the release-note URLs the Agent can access]
+```
+
+Set the weekly schedule and result destination in the form. The text above does not configure those fields.
 
 Scheduled work may run while you are away. A task that needs an interactive sign-in or new approval can fail or need attention.
 
@@ -33,10 +43,16 @@ Open the Routine to review its history. Use **View result** or the completed res
 
 Check failed Runs for the reason. A **skipped** Run means the occurrence did not execute; it is not a successful result.
 
+For the first Run, check both the history entry and the answer in the destination. Open the linked sources and confirm that the reporting period is correct. A saved Routine is only the schedule; the result is the work you requested.
+
+Use [Run status](/docs/reference/run-status) to interpret the history. If no work ran, see [Routine skipped](/docs/help/routine-skipped). If an answer is missing, see [Routine result missing](/docs/help/routine-result-missing).
+
 ## Pause, change, or stop
 
 Pause prevents future scheduling. It does not prove that a Run already in progress stopped. Use the running work's controls when a stop is needed.
 
 After editing, check the schedule, timezone, Agent, and destination again. Do not assume an instruction change reruns a completed one-time Routine.
+
+The Agent and visibility scope are fixed after creation. Create a new Routine if either needs to change. Pause the old schedule when you no longer want it to run.
 
 For a Local Agent Routine, its computer must be available when execution is attempted.

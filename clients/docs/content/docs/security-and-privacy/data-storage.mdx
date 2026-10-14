@@ -1,0 +1,38 @@
+---
+title: Data storage and privacy
+description: Understand retained content, private context, diagnostic minimization, and deletion controls.
+---
+
+OpenMeld processes and stores conversations to run tasks and show history. Data privacy comes from scoped access, limiting unnecessary copies, and applying the relevant deletion controls. It does not mean that all saved content is anonymous or that no service operator can read it.
+
+## What is retained
+
+| Data | How it is handled |
+| --- | --- |
+| Conversations, published replies, and Files | Stored to provide collaboration and history, with access tied to their owning workspace or conversation. |
+| Local Agent task-result archives | The default archive keeps public outcomes rather than the Local Agent’s private final text. A broader archive policy can retain that text. This is separate from the local tool’s own history and hosted conversation storage. |
+| Member and Organization memory | Separate scopes and controls. Private recall must not leak private facts into a shared reply. |
+| Routine model diagnostics for customer Organizations in production | Omit prompt and response content while retaining operational metadata such as usage, cost, status, and timing. |
+| Local tool status reports | The cloud report omits executable paths, launch arguments, discovered Skills, and free-text probe messages. It can include provider account email or labels, available models, tool version, capabilities, and usage limits. |
+
+Hosted Agents retain conversation and tool-result data needed to continue work. Routine diagnostic minimization does not remove this business content or the messages and Files used for history. Development, staging, and approved internal diagnostics can have different content settings.
+
+## Credentials and providers
+
+Use supported account-connection flows for credentials. OpenMeld’s Slack and Lark/Feishu channel credential records are encrypted before storage. This is a specific credential protection, not a claim that all conversation data is end-to-end encrypted.
+
+Hosted execution sends relevant content to the selected AI providers and supporting services. Local tools can also send prompts and files to their providers. Provider retention and processing depend on the service and its configuration; local execution alone is not an offline privacy guarantee.
+
+Authorized infrastructure operators can access stored business content. The support policy is to ask for your consent before investigating your conversations; this is an operational requirement, not a technical barrier that makes the content unreadable. The product does not provide end-to-end encryption of conversation content.
+
+## Review and remove data
+
+- Open **Settings → Privacy & Safety** to reach personal memory and computer access controls.
+- Use [Memory controls](/docs/work/memory) to review or erase the relevant memory. Erasing memory does not erase messages or Files; disabling Organization memory does not itself erase retained memory.
+- Use [Files and Trash](/docs/work/files) for file removal and recovery.
+- Disconnect a [Plugin](/docs/team/plugins) to stop future access through that connection. Imported or published copies have their own lifecycle.
+- Request account deletion in **Settings → Account**. Shared work can remain with teams that continue to exist. Storage or provider failures can leave cleanup pending.
+
+Removing a member, clearing memory, deleting a file, and deleting an account are different operations. None is a universal erasure command for every recipient, provider, backup, or local copy.
+
+See the [Privacy Policy](https://openmeld.ai/privacy) for processing, retention, and privacy requests.
