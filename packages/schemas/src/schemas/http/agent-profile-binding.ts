@@ -137,10 +137,15 @@ export const ensureAgentProfilePrimaryBindingBodySchema = z
     if (!shared) {
       return;
     }
+    const reconnectExisting =
+      value.writeMode === "reconnect" &&
+      value.agentControllerConversationId === undefined &&
+      value.sharedConversationAcknowledged === undefined;
     if (
       !(
-        value.agentControllerConversationId &&
-        value.sharedConversationAcknowledged
+        reconnectExisting ||
+        (value.agentControllerConversationId &&
+          value.sharedConversationAcknowledged)
       )
     ) {
       context.addIssue({

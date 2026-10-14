@@ -4,7 +4,13 @@ import { CheckboxGroup, CheckboxItem } from "@openmeld/ui/fluid/checkbox-group";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { cn } from "@openmeld/ui/lib/utils";
 import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
-import { type ReactNode, useState } from "react";
+import {
+	type ReactNode,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import {
 	resolveAgentCandidateDescription,
@@ -24,6 +30,52 @@ export function SpaceAddMembersCandidates(input: {
 	selectedProfileIds: ReadonlySet<string>;
 	selectionScope?: "space" | "desk";
 }) {
+	const viewportRef = useRef<HTMLDivElement>(null);
+	const movedFocus = useRef<string | null>(null);
+	const onToggle = (profileId: string) => {
+		const active = viewportRef.current?.ownerDocument.activeElement;
+		if (active?.getAttribute("data-profile-id") === profileId) {
+			movedFocus.current = profileId;
+		}
+		input.onToggle(profileId);
+	};
+	useLayoutEffect(() => {
+		if (movedFocus.current) {
+			const rows =
+				viewportRef.current?.querySelectorAll<HTMLElement>("[data-profile-id]");
+			Array.from(rows ?? [])
+				.find((row) => row.dataset.profileId === movedFocus.current)
+				?.focus({ preventScroll: true });
+			movedFocus.current = null;
+		}
+	});
+	const previousSelection = useRef(input.selectedProfileIds);
+	useEffect(() => {
+		if (
+			[...input.selectedProfileIds].some(
+				(id) => !previousSelection.current.has(id)
+			)
+		) {
+			viewportRef.current?.scrollTo({ top: 0 });
+		}
+		previousSelection.current = input.selectedProfileIds;
+	}, [input.selectedProfileIds]);
+	const selectedAgents = [
+		...input.candidateGroups.organizationCandidates,
+		...input.candidateGroups.personGroups.flatMap(
+			(group) => group.agentCandidates
+		),
+	].filter(
+		(candidate) =>
+			candidate.profileKind === "agent" &&
+			!candidate.alreadyMember &&
+			input.selectedProfileIds.has(candidate.profileId)
+	);
+	const selectionOrder = [...input.selectedProfileIds];
+	selectedAgents.sort(
+		(a, b) =>
+			selectionOrder.indexOf(b.profileId) - selectionOrder.indexOf(a.profileId)
+	);
 	const [collapsedGroupIds, setCollapsedGroupIds] = useState<
 		ReadonlySet<string>
 	>(() => new Set());
@@ -46,11 +98,21 @@ export function SpaceAddMembersCandidates(input: {
 				input.isSubmitting && "pointer-events-none opacity-70"
 			)}
 			contentClassName="flex flex-col gap-4 px-1"
+			viewportRef={viewportRef}
 		>
 			<SpaceAddMembersCandidateGroup
-				candidates={input.candidateGroups.organizationCandidates}
+				candidates={selectedAgents}
+				label="Selected Agents"
+				onToggle={onToggle}
+				selectedProfileIds={input.selectedProfileIds}
+				selectionScope={input.selectionScope}
+			/>
+			<SpaceAddMembersCandidateGroup
+				candidates={input.candidateGroups.organizationCandidates.filter(
+					(candidate) => !selectedAgents.includes(candidate)
+				)}
 				label="Organization"
-				onToggle={input.onToggle}
+				onToggle={onToggle}
 				selectedProfileIds={input.selectedProfileIds}
 				selectionScope={input.selectionScope}
 			/>
@@ -83,7 +145,7 @@ export function SpaceAddMembersCandidates(input: {
 											return next;
 										});
 									}}
-									onToggle={input.onToggle}
+									onToggle={onToggle}
 									selectedProfileIds={input.selectedProfileIds}
 									selectionScope={input.selectionScope}
 								/>
@@ -187,7 +249,11 @@ function SpaceAddMembersPersonGroupView(input: {
 			{input.group.agentCandidates.length > 0 ? (
 				<div className="ml-9">
 					<SpaceAddMembersCandidateGroup
-						candidates={input.group.agentCandidates}
+						candidates={input.group.agentCandidates.filter(
+							(candidate) =>
+								candidate.alreadyMember ||
+								!input.selectedProfileIds.has(candidate.profileId)
+						)}
 						onToggle={input.onToggle}
 						selectedProfileIds={input.selectedProfileIds}
 						selectionScope={input.selectionScope}
@@ -297,6 +363,7 @@ function SpaceAddMembersCandidateGroup(input: {
 								/>
 							}
 							checked={input.selectedProfileIds.has(candidate.profileId)}
+							data-profile-id={candidate.profileId}
 							description={resolveAgentCandidateDescription(candidate)}
 							index={selectableIndex}
 							key={candidate.profileId}

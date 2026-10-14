@@ -1,5 +1,22 @@
 # Local OpenMeld Service
 
+## Agent Context
+
+- Purpose: Define OpenMeld Service / daemon as the local execution carrier and trust
+  boundary that lets OpenMeld run local agents from cloud Spaces.
+- Read this when: You are changing service install, update, repair, lifecycle,
+  account alignment, device or lane alignment, runtime identity, controller
+  discovery, current-device Project operations, agent controller reporting,
+  dispatch delivery, result reporting, or service diagnostics.
+- Update this when: OpenMeld Service ownership, daemon lifecycle, local execution
+  contract, runtime identity evidence, agent controller reporting, compatibility
+  policy, or service-facing user copy changes.
+- Do not use this for: Agent Profile product semantics, Space collaboration
+  semantics, RuntimeCoordinator state-machine details, CLI command tutorials,
+  test commands, schema implementation, or general local development workflow.
+- Source of truth: This file owns the durable architecture boundary for the
+  local OpenMeld Service / daemon.
+
 ## Account-shared Bot adapter
 
 `@openmeld/adapter-grok-bot` uses the official BDK credential and fixed public
@@ -31,23 +48,6 @@ are rejected. The provider keeps its existing tools and permissions. An
 ambiguous message submission is not automatically repeated; stable message IDs
 use the dispatch identity. Per-request network deadlines do not impose a total
 execution timeout.
-
-## Agent Context
-
-- Purpose: Define OpenMeld Service / daemon as the local execution carrier and trust
-  boundary that lets OpenMeld run local agents from cloud Spaces.
-- Read this when: You are changing service install, update, repair, lifecycle,
-  account alignment, device or lane alignment, runtime identity, controller
-  discovery, current-device Project operations, agent controller reporting,
-  dispatch delivery, result reporting, or service diagnostics.
-- Update this when: OpenMeld Service ownership, daemon lifecycle, local execution
-  contract, runtime identity evidence, agent controller reporting, compatibility
-  policy, or service-facing user copy changes.
-- Do not use this for: Agent Profile product semantics, Space collaboration
-  semantics, RuntimeCoordinator state-machine details, CLI command tutorials,
-  test commands, schema implementation, or general local development workflow.
-- Source of truth: This file owns the durable architecture boundary for the
-  local OpenMeld Service / daemon.
 
 ## Product Role
 

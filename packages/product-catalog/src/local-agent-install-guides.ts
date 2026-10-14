@@ -23,17 +23,9 @@ export const LOCAL_AGENT_INSTALL_GUIDES = {
   "grok-bot": {
     agentId: "grok-bot",
     displayName: "Grok Bot",
-    installSteps: [
-      "Install the official BDK CLI: npm install -g @cursor/bdk",
-      "Run bdk login and sign in with the account that owns your Bot.",
-      "Connect the existing Bot conversation ID in OpenMeld.",
-    ],
     officialDocsUrl: "https://cursor.com/docs/bdk/guides/grokbot-agents",
     officialInstallUrl: "https://cursor.com/docs/bdk/reference/cli",
-    postInstallNote:
-      "OpenMeld checks BDK sign-in. Your Bot's messages, tools, and settings stay shared with its original app.",
     summary: "Connect an existing Grok Bot through its shared conversation.",
-    verifyCommand: "bdk whoami --json",
   },
   antigravity: {
     agentId: "antigravity",

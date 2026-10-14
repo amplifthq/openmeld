@@ -32,9 +32,22 @@ describe("agent profile binding http schemas", () => {
     expect(
       ensureAgentProfilePrimaryBindingBodySchema.safeParse(body).success
     ).toBe(true);
+    expect(
+      ensureAgentProfilePrimaryBindingBodySchema.safeParse({
+        ...body,
+        agentControllerConversationId: undefined,
+        sharedConversationAcknowledged: undefined,
+        writeMode: "reconnect",
+      }).success
+    ).toBe(true);
     for (const patch of [
       { sharedConversationAcknowledged: undefined },
       { agentControllerConversationId: undefined },
+      {
+        agentControllerConversationId: undefined,
+        sharedConversationAcknowledged: undefined,
+      },
+      { sharedConversationAcknowledged: undefined, writeMode: "reconnect" },
       { modelId: "model" },
       { agentControllerPermissionMode: "codex:fullAccess" },
     ]) {

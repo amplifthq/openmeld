@@ -1,5 +1,13 @@
 # Agent Profiles
 
+## Agent Context
+
+- Purpose: Define Agent Profile identity, Binding, controller settings, membership, and reply recovery.
+- Read this when: Changing Agent Profiles, local-agent selection, workspace preferences, readiness, or connection behavior.
+- Update this when: Agent Profile ownership, lifecycle, or controller semantics change.
+- Do not use this for: Runtime execution authority, Service lifecycle, Space thread mechanics, or implementation runbooks.
+- Source of truth: This document owns durable Agent Profile product semantics.
+
 ## Shared provider conversations
 
 A controller with `conversationScope: account_shared` connects an existing
@@ -13,30 +21,16 @@ Model, reasoning, permissions, tools and working directory remain managed by the
 provider. Creation hides these controls and rejects their configuration in the
 shared request contract. Fork, independent contexts and Activity-session import
 are unavailable. A direct Binding write must include the existing conversation
-ID and shared-control acknowledgment. Reconnecting is a new connection decision.
+ID and shared-control acknowledgment. Reconnecting the same Profile and controller
+can omit both fields to retain its already confirmed conversation. Core rejects
+this form when no existing conversation exists. Changing the conversation still
+requires its ID and acknowledgment. The generic controller switcher excludes
+shared-conversation controllers because it cannot collect that connection.
 
 Connection confirmation: “Shares your Grok Bot conversation. Stopping here stops
 the bot’s current work.” Actions: **Connect bot**, **Cancel**. Ordinary sends do
 not repeat this confirmation. Use the Bot's conversation ID from BDK; resolving
 a name through get-or-create is not a connection operation.
-
-## Agent Context
-
-- Purpose: Define the Agent Profile product model and its relationship to
-  identity, instructions, Space membership, Binding, local controllers,
-  workspace intent, Default Project, readiness, and reply recovery.
-- Read this when: You are changing Agent Profile semantics, Agent Profile
-  Binding behavior, Space agent membership, local-agent selection, workspace
-  behavior, Default Project behavior, readiness, reply recovery, or Agent
-  Profile copy.
-- Update this when: Agent Profile ownership, Binding semantics, readiness
-  interpretation, controller relationship, or user-facing agent lifecycle
-  changes.
-- Do not use this for: Runtime identity ownership, OpenMeld Service lifecycle,
-  RuntimeCoordinator execution truth, Space thread mechanics, endpoint details,
-  test commands, speculative routing models, or low-level schema implementation.
-- Source of truth: This file owns the durable product semantics of Agent
-  Profiles in OpenMeld.
 
 ## Product Role And Identity Boundary
 

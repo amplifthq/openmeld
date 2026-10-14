@@ -1,5 +1,15 @@
 # Existing Grok Bot integration through BDK
 
+## Agent Context
+
+- Purpose: Record provider evidence and acceptance boundaries for the initial Grok Bot integration.
+- Read this when: Reviewing or validating the Grok Bot connection PR.
+- Update this when: Acceptance evidence or the reviewed contract changes.
+- Do not use this for: Production delivery claims or general Agent Profile semantics.
+- Source of truth: The cited provider contract and recorded real-user validation own this review evidence.
+
+Remove this review document after the integration is delivered and its lasting contract is covered by the Agent Profile owner documentation.
+
 Status: Draft implementation. The owner accepted shared-conversation semantics.
 This is not an isolated provider turn and is not a deployment claim.
 
@@ -21,6 +31,21 @@ The isolated OpenMeld Web smoke subsequently created a normal Agent Profile,
 received `OPENMELD_TALI_PROFILE_OK` in its DM, used the existing Stop button,
 observed `(Request stopped)`, and received `OPENMELD_TALI_AFTER_STOP_OK` on the
 next message. No connection Dialog appeared during these messages.
+
+Follow-up acceptance on the isolated PostgreSQL lane, after merging main
+`4be1efd25`, used the development Doppler smoke key through AI usage settings.
+The UI confirmed BYOK. Center Agent returned a three-item launch checklist and
+Tali returned a calculation and safety check in the same Space, each attached to
+its originating message. New message selected Tali and opened its existing DM.
+Stop reached a persisted `visible_stopped` outcome, then the same conversation
+returned `NEW_MESSAGE_AFTER_STOP_OK`.
+
+New Agent creation returned immediately to the picker with pending progress.
+The user could select another Agent while it completed. The created Codex
+Profile appeared selected at the top, and both Agents joined a newly created
+Space. Selected rows retained keyboard focus when moving into or out of the
+top group. These checks use product UI and real providers, not mock replies.
+Screenshots are local acceptance artifacts; they are not publication evidence.
 
 | Operation | Official API used by BDK | Scope |
 | --- | --- | --- |

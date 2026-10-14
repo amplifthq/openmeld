@@ -1,4 +1,5 @@
-import { z } from "zod/v4";
+// biome-ignore lint/performance/noNamespaceImport: Worker-safe Zod import avoids bundling unused locales.
+import * as z from "zod/v4";
 
 // Public BDK 0.2.24 wire contract, captured against an existing Bot.
 export const grokBotConversationIdSchema = z

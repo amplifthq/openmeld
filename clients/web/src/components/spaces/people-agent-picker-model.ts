@@ -329,22 +329,27 @@ export function buildPersonalAddMemberGroups(input: {
 
 export function filterAddMemberGroups(
 	groups: SpaceAddMembersCandidateGroups,
-	query: string
+	query: string,
+	selectedProfileIds?: ReadonlySet<string>
 ): SpaceAddMembersCandidateGroups {
 	if (!query) {
 		return groups;
 	}
 	return {
 		...groups,
-		organizationCandidates: groups.organizationCandidates.filter((candidate) =>
-			candidate.searchText.includes(query)
+		organizationCandidates: groups.organizationCandidates.filter(
+			(candidate) =>
+				candidate.searchText.includes(query) ||
+				selectedProfileIds?.has(candidate.profileId)
 		),
 		personGroups: groups.personGroups.flatMap((group) => {
 			if (group.searchText.includes(query)) {
 				return [group];
 			}
-			const agentCandidates = group.agentCandidates.filter((candidate) =>
-				candidate.searchText.includes(query)
+			const agentCandidates = group.agentCandidates.filter(
+				(candidate) =>
+					candidate.searchText.includes(query) ||
+					selectedProfileIds?.has(candidate.profileId)
 			);
 			return agentCandidates.length > 0 ? [{ ...group, agentCandidates }] : [];
 		}),

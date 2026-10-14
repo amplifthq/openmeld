@@ -1,0 +1,30 @@
+---
+title: Grok Bot
+description: Connect an existing Grok Bot conversation to OpenMeld.
+icon: local-agent:grok-bot
+---
+
+Connect a Bot you already use in Grok Bot. OpenMeld shares its existing conversation, tools, and settings.
+
+## Install and sign in
+
+1. Follow the [official BDK CLI guide](https://cursor.com/docs/bdk/reference/cli) to install `@cursor/bdk`.
+2. Run `bdk login` and sign in with the account that owns your Bot.
+3. Run `bdk whoami --json` to check that sign-in is complete.
+
+See the [official Grok Bot agent guide](https://cursor.com/docs/bdk/guides/grokbot-agents) for the provider's current requirements.
+
+## Connect to OpenMeld
+
+1. [Connect this computer](/docs/start/connect-computer).
+2. Create an Agent from **New message**, **Add people or agents**, or Agent settings.
+3. Select **Grok Bot**, choose the computer, and enter the existing Bot conversation ID.
+4. Confirm **Connect bot**. Then message the Agent or add it to a Space.
+
+Messages appear in the same conversation in both apps. **Stop** stops the Bot's current work, including work started in Grok Bot. Let one task finish before starting another in either app.
+
+Manage the Bot's model, tools, and working folder in Grok Bot. Reconnecting the same Agent keeps its confirmed conversation.
+
+## Try a first task
+
+Ask the Agent to summarize a short checklist. Confirm that the reply appears in OpenMeld and the existing Grok Bot conversation before using it for longer work.
