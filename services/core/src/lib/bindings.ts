@@ -213,7 +213,6 @@ export type RemoteAgentWorkerBindingRpc = {
 export type CoreBindings = {
   OPENROUTER_MANAGEMENT_API_KEY?: string;
   OPENMELD_AI_CREDENTIAL_CRYPTO_KEY?: string;
-  OPENMELD_INTERNAL_BILLING_ORGANIZATION_ID?: string;
   OPENMELD_ACCOUNT_DELETION_GATEWAY?: {
     disconnectAccountConnection(
       input: import("@openmeld/schemas").AccountDeletionConnection

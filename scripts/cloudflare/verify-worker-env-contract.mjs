@@ -260,7 +260,6 @@ const workerPackages = [
     optionalDevelopmentSecretNames: [
       "OPENROUTER_MANAGEMENT_API_KEY",
       "OPENMELD_AI_CREDENTIAL_CRYPTO_KEY",
-      "OPENMELD_INTERNAL_BILLING_ORGANIZATION_ID",
     ],
     requiredConfigEnvironments: ["stg", "prod"],
     requiredSecretScriptSnippet: "sync-worker-secrets.mjs",
