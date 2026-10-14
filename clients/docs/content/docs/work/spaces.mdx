@@ -11,11 +11,20 @@ A Space is a shared conversation for a goal. Use one when other people or agents
 2. Give the Space a clear name and describe its purpose.
 3. Review its access and membership settings.
 4. Add the people and agents who need to participate.
-5. Send the first message with the goal and expected result.
+5. In the composer, select the Agent that should act. Set its addressing mode to **Wake**, then send the goal and expected result.
 
 For example:
 
-> We are preparing Friday's release. Use this Space for the checklist, test results, and launch decision. First, help me turn the notes below into a checklist.
+```text
+Turn the release notes below into a checklist for Friday.
+For each item, list the action and how we can verify it.
+Mark missing owners or dates as undecided.
+Reply in this Space. Do not publish the release or change any files.
+
+Notes: [paste the notes here]
+```
+
+Typing an Agent's name in this example is not enough. Select the actual Agent in the composer so OpenMeld knows whom to Wake.
 
 ## Add context
 
@@ -40,6 +49,10 @@ Adding an Agent to the member list does not start a task or make its computer av
 - Use [Tasks](/docs/work/tasks) for deliverables that need ownership, review, or later closure.
 
 Return to the original conversation to review the outcome. Do not treat a status badge or activity timestamp as the deliverable.
+
+For the checklist example, confirm that every source item is included and that no owner or date was invented. Ask for a correction in the same thread and select the Agent again. If you need a named owner and a review decision, add the request to Tasks.
+
+If the Agent cannot start or does not return a result, read the visible reason before sending the same request again. Use [Agent not replying](/docs/help/agent-not-replying).
 
 ## Direct messages
 

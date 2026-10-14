@@ -16,7 +16,8 @@ state, database, or authenticated API. Parent-domain cookies can reach this host
 The renderer ignores them and must not forward them to another service.
 
 The site contains public product guides organized by user task: Start, Work,
-Team, Help, and Reference. Production builds allow indexing and expose a sitemap
+Understand, Reference, and Help. Team and tools remain a subgroup of Work;
+their existing `/docs/team/*` URLs stay unchanged. Production builds allow indexing and expose a sitemap
 generated from the same MDX source. Development and staging remain noindex.
 Do not copy `developing/` or internal operational runbooks into public content.
 
@@ -80,3 +81,41 @@ local Workerd. The guarded artifact checker binds HTML source/build metadata
 to the exact clean artifact, saves its immutable snapshot, and closes its preview.
 Browser smoke must also exercise navigation, search, Markdown, missing pages,
 theme selection, mobile layout, and keyboard dismissal.
+
+## Content maintenance
+
+Keep the page tree in `content/docs/**/meta.json` as the navigation owner.
+Relative page references can place a guide in another group without changing
+its URL. `llms(source)` consumes this same tree for `/llms.txt`; do not maintain
+a separate LLM navigation list. `/llms-full.txt` includes all public pages.
+
+Before handing off a content change:
+
+- Verify product claims against the current source, not only an older guide.
+  For Routine form fields use `clients/web/src/components/routines/routine-form.tsx`;
+  for Run labels use `routine-run-presentation.tsx` in that directory and the
+  status contract in `packages/schemas/src/schemas/http/center-agent-routines.ts`.
+  For skipped Run behavior read `services/core/src/routines/routine-scheduler.ts`
+  and `routine-local-delivery.ts`.
+- For Space addressing, check `space-composer-editor.tsx`; for task file access,
+  check `space-message-task-context.tsx`, both under
+  `clients/web/src/components/spaces`. Project and Agent changes also require
+  their scoped product owners and implementation. Do not present source review
+  as evidence that a production workflow was exercised.
+- Keep old page URLs and heading anchors. If a move is necessary, provide and
+  verify the redirect or anchor alias in HTML and Markdown routes.
+- Preserve the zero-install Quickstart. Put prompts in copyable `text` blocks
+  and include a result check. Do not add setup as a prerequisite to that example.
+- Run `pnpm --filter openmeld-docs check:content` for page-tree coverage, local
+  page links, and the Run status fact-sync check. This is a bounded check, not a
+  claim that every product statement is verified.
+- Run the Docs build, lint, and typecheck. With a local Docs server, run
+  `pnpm --filter openmeld-docs check:content -- --url http://127.0.0.1:3600`
+  to check rendered heading anchors and all public page Markdown responses.
+- In the complete UI, check search, sidebar navigation, Copy Markdown,
+  Open → Markdown, keyboard dismissal, and the 390px layout. Check the old URLs
+  and common anchors against the change's base. Record what actually ran.
+
+Content-only IA work does not alter Agent execution, availability, routing,
+or service lifecycle contracts. A guide must describe those owners rather than
+introduce a second interpretation of their state.

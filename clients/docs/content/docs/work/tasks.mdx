@@ -17,6 +17,14 @@ Tasks belong to ordinary shared Spaces. They are not available in direct message
 
 For example, “Review the signup flow” is too broad. A better completion condition is “List each blocking issue, provide reproduction steps, and link the tested build.”
 
+Use a request that makes the review boundary explicit:
+
+```text
+Review the signup flow in the linked build.
+Return blocking issues with reproduction steps and the build URL.
+Do not change code. The reviewer will check each issue before accepting.
+```
+
 ## Understand Task status
 
 | Status | Meaning |
@@ -28,6 +36,12 @@ For example, “Review the signup flow” is too broad. A better completion cond
 | Canceled | The commitment is no longer being pursued. |
 
 Assigning an Agent is not proof that the Agent has started executing. Check the actual work and result in the conversation.
+
+```text
+Request → Task with an assignee → Submitted result → Review → Done
+```
+
+The review step applies when a reviewer is assigned. A Task records the commitment; a [Wake](/docs/concepts/how-work-starts) asks an Agent to execute it. These are separate facts.
 
 ## Submit and review
 

@@ -1,5 +1,5 @@
 {
   "title": "Reference",
   "defaultOpen": false,
-  "pages": ["cli", "feature-guide", "docs-for-agents"]
+  "pages": ["run-status", "cli", "feature-guide", "docs-for-agents"]
 }

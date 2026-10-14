@@ -1,0 +1,11 @@
+{
+  "title": "Understand",
+  "defaultOpen": false,
+  "pages": [
+    "how-work-starts",
+    "projects-and-folders",
+    "routines-and-runs",
+    "where-work-runs",
+    "../start/concepts"
+  ]
+}

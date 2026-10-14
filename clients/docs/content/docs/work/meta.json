@@ -1,18 +1,20 @@
 {
-  "title": "Work with agents",
+  "title": "Work",
   "defaultOpen": false,
   "pages": [
-    "center-agent",
-    "navigation",
-    "cloud-computer",
-    "agents",
     "spaces",
-    "messages",
-    "tasks",
-    "files",
-    "projects",
     "routines",
+    "agents",
+    "projects",
+    "tasks",
+    "../tasks/local-code",
+    "center-agent",
+    "cloud-computer",
+    "messages",
+    "files",
     "activity",
-    "memory"
+    "memory",
+    "navigation",
+    "../team"
   ]
 }
