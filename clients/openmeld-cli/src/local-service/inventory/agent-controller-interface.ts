@@ -522,6 +522,14 @@ async function resolveControllerVersionAdvisory(input: {
   currentVersion: string | null;
   launchContract: RuntimeAgentControllerLaunchContract;
 }): Promise<AgentControllerInterfaceVersionAdvisory | undefined> {
+  // Native Claude owns stable/latest and managed version policy. npm's latest
+  // tag cannot prove that this installation is behind its configured channel.
+  if (
+    input.controllerId === "claude-code" &&
+    (await resolveClaudeNativeUpdateCommand(input.launchContract))
+  ) {
+    return undefined;
+  }
   const definition = resolveBuiltinAgentControllerDefinition(
     input.controllerId
   )?.versionMaintenance;
@@ -1735,3 +1743,5 @@ function toErrorMessage(error: unknown): string {
   const message = String(error ?? "").trim();
   return message.length > 0 ? message : "unknown error";
 }
+
+import { resolveClaudeNativeUpdateCommand } from "@openmeld/adapter-claude-code";

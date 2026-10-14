@@ -11,6 +11,7 @@ import {
 } from "@openmeld/schemas";
 import type {
   OpenMeldDaemonManageLocalAgentInstallationPayload,
+  OpenMeldDaemonManageLocalAgentInstallationRequestPayload,
   OpenMeldDaemonSetLocalAgentEnabledPayload,
 } from "@openmeld/schemas/types";
 import {
@@ -31,6 +32,7 @@ import { runResumeControllerConversationOperation } from "../execution-recovery/
 import type { LocalServiceRuntimeAgentControllerReportSyncResult } from "../reporting/runtime-agent-controller-report-sync";
 import { forkAgentSession } from "../session-control/fork-agent-session";
 import { runAgentSessionForkOperation } from "../session-control/session-fork-operation-store";
+import { createLocalAgentUpdater } from "./local-agent-update";
 
 export function isExecutionHostControlFrame(frame: ParsedDaemonFrame): boolean {
   return (
@@ -53,6 +55,15 @@ export function createExecutionHostControls(input: {
 }) {
   const log = (code: string, text: string) =>
     emitRunLine({ presenter: input.presenter, code, text });
+  const updater = createLocalAgentUpdater({
+    rootDir: input.ledgerPaths.rootDirPath,
+    slots: input.localExecutionSlots,
+    refresh: async () => {
+      await refreshReports();
+      input.invalidate("routes");
+    },
+    log: (message) => log("daemon.local_agent_update", message),
+  });
 
   async function refreshReports(): Promise<"failed" | "skipped" | "submitted"> {
     try {
@@ -114,12 +125,16 @@ export function createExecutionHostControls(input: {
     }
   }
 
-  async function manageInstallation(control: {
-    agentId: string;
-    installationId?: string;
-    operation: "list" | "select";
-  }): Promise<OpenMeldDaemonManageLocalAgentInstallationPayload> {
+  async function manageInstallation(
+    control: OpenMeldDaemonManageLocalAgentInstallationRequestPayload
+  ): Promise<OpenMeldDaemonManageLocalAgentInstallationPayload> {
     try {
+      let update: Awaited<ReturnType<typeof updater.state>> | undefined;
+      if (control.operation === "update") {
+        update = await updater.start(control.agentId, control);
+      } else if (control.operation === "read_update") {
+        update = await updater.state(control.agentId);
+      }
       let result: Awaited<
         ReturnType<typeof manageAgentRegistrationInstallation>
       >;
@@ -138,7 +153,10 @@ export function createExecutionHostControls(input: {
         }
         result = guarded.value;
       } else {
-        result = await manageAgentRegistrationInstallation(control);
+        result = await manageAgentRegistrationInstallation({
+          agentId: control.agentId,
+          operation: "list",
+        });
       }
       const selectionStatus =
         input.localExecutionSlots.getAdapterOperationStatus(control.agentId);
@@ -154,6 +172,7 @@ export function createExecutionHostControls(input: {
         agentId: result.agentId,
         changed: result.changed,
         installations: result.installations,
+        ...(update ? { update } : {}),
         reportSyncStatus,
         selectionStatus,
         selectedInstallationId: result.selectedInstallationId,

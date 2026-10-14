@@ -211,6 +211,34 @@ artifact acceptance; source or IPC fixture success is not that evidence.
 
 ## Ownership Boundary
 
+### Local Agent installation updates
+
+Owner Computer controls can update the selected Local Agent installation through
+the existing installation-control transport. `updateInstallations` is an optional
+capability, separate from installation selection. Core checks the authenticated
+owner and explicit device/lane; clients send only installation and operation IDs.
+The Execution Host rechecks the selected installation and uses its existing
+adapter-operation guard. Active or queued work rejects the request; no update
+queue or automatic retry is added. Accepted updates hold that guard until the
+installer exits and the selected launcher's version has been checked.
+
+The provider adapter owns installer eligibility and invocation. Initially only
+Claude Code's native macOS/Linux managed launcher is supported. Its native
+updater owns channel settings, managed policy, installer locking, and replacement
+of the launcher for future sessions. App bundles, package managers, custom
+launchers, injected arguments, and Windows retain manual maintenance. Advisory
+shell text is never executable authority. npm's latest tag does not describe
+native Claude's configured channel and is not used to label it outdated.
+
+Lane-local operation receipts are written before installer execution. Repeated
+operation IDs read the same receipt; IDs cannot move to another installation.
+Socket loss does not cancel an update. An unfinished receipt after Host loss
+is `outcome_unknown` and does not authorize replay or another automatic update.
+The owner must use the provider's terminal maintenance path in that case.
+Installer exit alone is insufficient: completion also requires the same selected
+launcher and a readable resulting version. Report synchronization remains a
+separate observation. Updates never own Wakeability or RuntimeCoordinator truth.
+
 A retained Service reports the installed managed CLI version, not its own
 carrier version. The CLI installer refreshes the existing local-components
 snapshot atomically. Its CLI command contract is usable only when the snapshot

@@ -18,6 +18,7 @@ type CoreRpcMock = {
   updatePeopleComputerFileAccessPolicy: ReturnType<typeof vi.fn>;
   setPeopleComputerLocalAgentEnabled: ReturnType<typeof vi.fn>;
   getPeopleComputerLocalAgentInstallations: ReturnType<typeof vi.fn>;
+  managePeopleComputerLocalAgentUpdate: ReturnType<typeof vi.fn>;
   selectPeopleComputerLocalAgentInstallation: ReturnType<typeof vi.fn>;
   refreshPeopleComputerLocalAgentCatalog: ReturnType<typeof vi.fn>;
   requestPeopleComputerOpenMeldToolsUpdate: ReturnType<typeof vi.fn>;
@@ -71,6 +72,7 @@ function makeEnv(input?: {
     updatePeopleComputerFileAccessPolicy: vi.fn(),
     setPeopleComputerLocalAgentEnabled: vi.fn(),
     getPeopleComputerLocalAgentInstallations: vi.fn(),
+    managePeopleComputerLocalAgentUpdate: vi.fn(),
     selectPeopleComputerLocalAgentInstallation: vi.fn(),
     refreshPeopleComputerLocalAgentCatalog: vi.fn(),
     requestPeopleComputerOpenMeldToolsUpdate: vi.fn(),
@@ -352,6 +354,12 @@ describe("current device target routes", () => {
       "GET",
       "local-agents/codex/installations",
       "getPeopleComputerLocalAgentInstallations",
+      undefined,
+    ],
+    [
+      "GET",
+      "local-agents/codex/installation-update",
+      "managePeopleComputerLocalAgentUpdate",
       undefined,
     ],
     [
