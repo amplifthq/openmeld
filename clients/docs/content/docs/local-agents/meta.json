@@ -1,0 +1,15 @@
+{
+  "title": "Local Agents",
+  "defaultOpen": false,
+  "pages": [
+    "index",
+    "../start/connect-computer",
+    "../start/connect-with-agent",
+    "../start/local-agents",
+    "../work/projects",
+    "../tasks/local-code",
+    "capabilities",
+    "../work/activity",
+    "../start/terminal"
+  ]
+}

@@ -548,6 +548,15 @@ the observed Worker and container state when Cloudflare can be read. Further
 recovery remains blocked for manual reconciliation. Aggregate health and an
 idle instance list do not prove that every dormant instance ran the new image;
 authenticated product Smoke remains a separate acceptance step.
+
+When the failed attempt continued a Worker-only release, recovery preserves its
+retained Container metadata in both the canonical receipt and linked proof.
+Only successful Worker and native verification changes its phase to `complete`;
+failure preserves the unresolved phase and `failed/unknown` outcome. The recovery
+proof uses the shared receipt contract, including that optional retained stage.
+Existing proofs without the stage remain readable. Use current release control
+to inspect new proofs; older control rejects that optional proof field. This
+does not change Worker RPC, CLI, Service, or user command contracts.
 Version 1 successes and version 2 observations remain readable at their original
 evidence strength; they are not upgraded into correlated identities. Older
 writers cannot downgrade a retained record. All events remain append-only with

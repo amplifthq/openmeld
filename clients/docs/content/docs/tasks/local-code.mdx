@@ -1,0 +1,41 @@
+---
+title: Ask a Local Agent to review code
+description: Choose the right computer and folder, send a bounded request, and check the evidence.
+---
+
+Use a Local Agent when the code or tools are on a connected computer. This example asks for a review without authorizing file changes.
+
+## Before you start
+
+- [Connect the computer](/docs/start/connect-computer) that has the repository and agent tool.
+- [Connect the Project folder](/docs/work/projects) if you will select work through a Project.
+- Check the Agent's availability and working folder. Do not assume another computer has the same checkout.
+
+## Send the request
+
+1. Open a Space with the Local Agent, or its direct conversation.
+2. In a shared Space, select the Agent with **Wake**.
+3. Review the task settings offered by that Agent. Under **Access**, choose **Read files only** when available. **No project files** uses a scratch folder without your checkout. Available choices depend on the Agent's tool.
+4. Check whether work will use the current folder or an isolated task folder. To review uncommitted edits, the Agent needs access to the folder containing those edits; an isolated copy does not import them automatically.
+5. Send a request like this:
+
+```text
+Review the signup flow in the selected repository.
+First report the branch, commit, and whether there are uncommitted changes.
+Read the relevant code and identify confirmed defects.
+For each defect, give the file location and a reproduction path.
+Do not edit files, commit, push, merge, or deploy.
+If the checkout or required input is unavailable, report the blocker.
+```
+
+## Verify the outcome
+
+Compare the reported repository and revision with what you intended. Read each finding and its evidence. “No defects found” is a review conclusion only for the code and checks the Agent actually inspected.
+
+For implementation work, send a separate clear request that names the permitted changes and validation. Authorize commit, push, or deployment only when those actions are part of your intended task.
+
+## If it cannot read the repository
+
+Open the request's task context. Continuing a Space-context-only task keeps that task's access. In the composer, choose **Start new**, then review **Access** and the working folder before sending. If the problem is a missing Project connection, follow [Working folder unavailable](/docs/help/working-folder).
+
+Do not point the Agent at a different checkout merely to get past the error. The result must come from the repository you intended.

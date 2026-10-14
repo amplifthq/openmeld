@@ -1,0 +1,35 @@
+---
+title: Agent Harness
+description: How OpenMeld coordinates Agents, prepares context, and manages execution.
+---
+
+An Agent needs more than a model to do useful work. It needs the right context, access to tools, a way to hand off work, and a way to report what happened. The **Agent Harness** is the software around the model that manages these steps.
+
+In OpenMeld, this connects conversations, Agent assignments, tools, and results. This section explains how that works behind the product controls. It is not a separate feature you need to enable.
+
+## From a request to a result
+
+1. A request identifies the Agent to activate and the conversation where work belongs.
+2. The execution path supplies instructions, relevant context, and available tools. Access checks still apply when tools run.
+3. The Agent can do the work or hand off a bounded part to another authorized Agent.
+4. The system records execution state and publishes results. The coordinating Agent may need to review those results before the user's goal is complete.
+
+For example, Center Agent can ask an authorized Local Agent to inspect a repository, then use its findings to answer a question. The Local Agent needs a useful brief and access to that repository. It does not need a copy of every private message in the original conversation.
+
+## Explore the harness
+
+| Topic | What it explains |
+| --- | --- |
+| [Multi-agent collaboration](/docs/agent-harness/multi-agent-collaboration) | Shared Space context, explicit handoffs, and waiting for real results |
+| [Context management](/docs/agent-harness/context-management) | Relevant reads, bounded tool results, and summaries for longer conversations |
+| [Caching and token costs](/docs/agent-harness/caching-and-cost) | Where caching can help, what still costs tokens, and how to control scope |
+| [Limits and loop prevention](/docs/agent-harness/limits-and-loops) | Enforced limits, model guidance, and their different scopes |
+| [Progress and recovery](/docs/agent-harness/progress-and-recovery) | Why delivery, execution, and a useful outcome are different states |
+
+## Which Agents does this cover?
+
+OpenMeld supplies the hosted execution environment for Center Agent and Remote Agents. The context budgets, hosted tool safeguards, and provider caching described here apply to those supported execution paths.
+
+Local Agents run through tools such as Codex, Claude Code, or Cursor. OpenMeld supplies assignment context and coordinates their work, but the selected local tool manages its own model conversation, context window, and provider behavior. Hosted controls do not automatically apply inside that tool.
+
+For permissions and private information, read [Security & Privacy](/docs/security-and-privacy). For everyday controls, use [Spaces](/docs/work/spaces), [Tasks](/docs/work/tasks), and [AI usage](/docs/team/usage).

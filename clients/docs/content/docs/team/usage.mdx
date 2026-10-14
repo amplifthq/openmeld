@@ -1,5 +1,5 @@
 ---
-title: Check usage and availability
+title: Check AI usage and availability
 description: Understand which service or account a limit applies to.
 ---
 
@@ -7,11 +7,27 @@ OpenMeld can use hosted models and agents installed on connected computers. Thes
 
 ## Check the relevant usage view
 
-Open your workspace's **Settings → Usage** for the usage information available to your role.
+Open your workspace's **Settings → AI usage** for the usage information available to your role.
 
 For a Local Agent, inspect its computer and tool details. The underlying provider may also show usage in its own app or account page.
 
 Check the period, account, and scope shown beside a number. A remaining amount for one provider does not describe every Agent.
+
+## Choose scope and period
+
+- **Organization usage** shows workspace usage and the available billing-source summary.
+- **My agents** narrows the view to your agents. It is not a separate provider subscription.
+- Open **Details** for model totals, refresh, and the **Last 7 days** or **Last 30 days** period selector.
+
+Compare the same scope, period, and unit. A loading error or missing cost record is not zero usage.
+
+## Included credits and your own key
+
+The workspace summary distinguishes **Included AI credits** from **Your OpenRouter key**. If your role permits billing changes, use the available management control to update the OpenRouter key. Enter credentials only in that setting, not in a conversation or document.
+
+With your own key (BYOK), the remote usage view shows recorded model costs in USD; it is not your OpenRouter account balance. Where usage is shown as equivalent credits, BYOK usage does not reduce the included credit balance. Check the source label before interpreting the amount.
+
+Local Agent token usage is a separate view of reported usage from local tools. It is not a complete invoice or a guarantee of remaining provider quota.
 
 ## Hosted versus local usage
 
@@ -36,3 +52,5 @@ Changing the model can change behavior and cost. Confirm the intended configurat
 Use the price and billing information currently shown by the product or provider. This guide does not promise a free tier, unlimited use, or a fixed provider price.
 
 For help identifying a blocked path, see [Agent not replying](/docs/help/agent-not-replying).
+
+For prompt caching, context costs, and the limits of execution safeguards, see [Caching and token costs](/docs/agent-harness/caching-and-cost).

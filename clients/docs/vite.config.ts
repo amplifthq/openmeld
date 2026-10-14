@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
@@ -45,6 +46,14 @@ export default defineConfig({
     }),
   },
   build: { assetsDir: "_docs/assets" },
+  resolve: {
+    alias: {
+      "@openmeld/schemas": path.resolve(
+        import.meta.dirname,
+        "../../packages/schemas/src/index.ts"
+      ),
+    },
+  },
   ssr: { noExternal: ["fumadocs-core", "fumadocs-ui", "@fumadocs/base-ui"] },
   // The MDX macro emits imports after scanning. Prebundle it before first SSR.
   environments: {

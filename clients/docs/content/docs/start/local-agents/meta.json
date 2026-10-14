@@ -1,0 +1,12 @@
+{
+  "title": "Supported tools",
+  "pages": [
+    "index",
+    "codex",
+    "claude-code",
+    "cursor",
+    "grok-build",
+    "opencode",
+    "antigravity"
+  ]
+}

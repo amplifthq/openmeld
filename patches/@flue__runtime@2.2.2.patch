@@ -1098,7 +1098,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  			kind: submission.kind,
  			reason: "aborted",
 diff --git a/dist/dispatch-BlxCz6iq.mjs b/dist/dispatch-BlxCz6iq.mjs
-index 94d0dc4e069259c5f321b429e5a086ed724c5158..ee9d696acea4c5bcad2ee4a02ea436d4a9c78944 100644
+index 94d0dc4e069259c5f321b429e5a086ed724c5158..66da52dfeceea83781ed9a1b4b0c045a3e4d965a 100644
 --- a/dist/dispatch-BlxCz6iq.mjs
 +++ b/dist/dispatch-BlxCz6iq.mjs
 @@ -1,9 +1,12 @@
@@ -1394,7 +1394,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..ee9d696acea4c5bcad2ee4a02ea436d4
  			break;
  		}
  	}
-@@ -1974,12 +2064,15 @@ function findCutPoint(messages, start, end, keepRecentTokens) {
+@@ -1974,13 +2064,36 @@ function findCutPoint(messages, start, end, keepRecentTokens) {
  	};
  }
  /** Pure function — no I/O. Finds cut point, extracts messages to summarize, tracks file ops. */
@@ -1405,14 +1405,36 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..ee9d696acea4c5bcad2ee4a02ea436d4
  	const boundaryEnd = messages.length;
  	const tokensBefore = estimateContextTokens(messages);
 -	const cutPoint = findCutPoint(messages, boundaryStart, boundaryEnd, settings.keepRecentTokens);
+-	if (cutPoint.firstKeptIndex <= boundaryStart) return void 0;
 +	// Working-context admission and its recent tail use the same projection,
 +	// including opaque provider state and UTF-8. Legacy compaction keeps its
 +	// existing estimate when no working-context budget is configured.
 +	const cutPoint = findCutPoint(messages, boundaryStart, boundaryEnd, settings.keepRecentTokens, measureMessage);
- 	if (cutPoint.firstKeptIndex <= boundaryStart) return void 0;
++	if (measureMessage) {
++		// The recent tail is a target, not permission to retain one arbitrarily
++		// large completed message after a model switch. Advance only to complete
++		// message boundaries; an assistant tool call retains its paired results.
++		let tailTokens = messages.slice(cutPoint.firstKeptIndex).reduce((total, message) => total + measureMessage(message), 0);
++		for (const next of findValidCutPoints(messages, cutPoint.firstKeptIndex + 1, boundaryEnd)) {
++			if (tailTokens <= settings.keepRecentTokens) break;
++			for (let index = cutPoint.firstKeptIndex; index < next; index++) tailTokens -= measureMessage(messages[index]);
++			cutPoint.firstKeptIndex = next;
++		}
++		cutPoint.turnStartIndex = messages[cutPoint.firstKeptIndex]?.role === "user" ? -1 : findTurnStartIndex(messages, cutPoint.firstKeptIndex, boundaryStart);
++		cutPoint.isSplitTurn = cutPoint.turnStartIndex !== -1;
++	}
++	if (cutPoint.firstKeptIndex <= boundaryStart) {
++		if (!measureMessage || !previousCompaction?.summary) return void 0;
++		// A model change can make the existing checkpoint itself too large.
++		// Rewrite it at the same canonical boundary without consuming new input.
++		cutPoint.firstKeptIndex = boundaryStart;
++		cutPoint.turnStartIndex = -1;
++		cutPoint.isSplitTurn = false;
++	}
  	const historyEnd = cutPoint.isSplitTurn ? cutPoint.turnStartIndex : cutPoint.firstKeptIndex;
  	const messagesToSummarize = messages.slice(boundaryStart, historyEnd);
-@@ -2007,7 +2100,13 @@ function prepareCompaction(messages, settings, previousCompaction) {
+ 	const turnPrefixMessages = cutPoint.isSplitTurn ? messages.slice(cutPoint.turnStartIndex, cutPoint.firstKeptIndex) : [];
+@@ -2007,7 +2120,13 @@ function prepareCompaction(messages, settings, previousCompaction) {
  * generateSummary and generateTurnPrefixSummary; those two only differ in the
  * prompt they build, the purpose label, and the error-message prefix.
  */
@@ -1427,7 +1449,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..ee9d696acea4c5bcad2ee4a02ea436d4
  	const summarizationMessages = [{
  		role: "user",
  		content: [{
-@@ -2020,60 +2119,90 @@ async function runSummarizationCall(purpose, promptText, maxTokens, model, signa
+@@ -2020,60 +2139,132 @@ async function runSummarizationCall(purpose, promptText, maxTokens, model, signa
  		maxTokens,
  		signal
  	};
@@ -1483,6 +1505,14 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..ee9d696acea4c5bcad2ee4a02ea436d4
 -async function generateSummary(currentMessages, model, reserveTokens, signal, previousSummary, observer) {
 -	const maxTokens = Math.min(Math.floor(.8 * reserveTokens), 16e3);
 -	const basePrompt = previousSummary ? UPDATE_SUMMARIZATION_PROMPT : SUMMARIZATION_PROMPT;
+-	let promptText = `<conversation>\n${serializeConversation(currentMessages)}\n</conversation>\n\n`;
+-	if (previousSummary) promptText += `<previous-summary>\n${previousSummary}\n</previous-summary>\n\n`;
+-	promptText += basePrompt;
+-	return runSummarizationCall("compaction", promptText, maxTokens, model, signal, observer, "Summarization failed");
+-}
+-async function generateTurnPrefixSummary(messages, model, reserveTokens, signal, observer) {
+-	const maxTokens = Math.min(Math.floor(.5 * reserveTokens), 16e3);
+-	return runSummarizationCall("compaction_prefix", `<conversation>\n${serializeConversation(messages)}\n</conversation>\n\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`, maxTokens, model, signal, observer, "Turn prefix summarization failed");
 +const WORKING_CONTEXT_SUMMARIZATION_PROMPT = `Create a concise working checkpoint for continuing the current task, incorporating the previous checkpoint if present.
 +Use headings: Goal, Constraints & Preferences, Observed Facts, Current Status, Pending Plan, Key Decisions, Critical Context.
 +Preserve active requirements, explicit limits on authority, unresolved work, corrections, and exact identifiers needed for the next action. Keep observed actions separate from current status and future plans. A later state must not turn "not since checkpoint X" into "never happened", nor turn a pending action into a completed one. Preserve the time and scope of corrections or conflicts.
@@ -1491,17 +1521,54 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..ee9d696acea4c5bcad2ee4a02ea436d4
 +async function generateSummary(currentMessages, model, reserveTokens, signal, previousSummary, canonicalActionEvidence, observer, maxSummaryTokens = 16e3, recallAvailable = false, settings) {
 +	const maxTokens = Math.min(Math.floor(.8 * reserveTokens), maxSummaryTokens);
 +	const basePrompt = recallAvailable ? WORKING_CONTEXT_SUMMARIZATION_PROMPT : previousSummary ? UPDATE_SUMMARIZATION_PROMPT : SUMMARIZATION_PROMPT;
- 	let promptText = `<conversation>\n${serializeConversation(currentMessages)}\n</conversation>\n\n`;
--	if (previousSummary) promptText += `<previous-summary>\n${previousSummary}\n</previous-summary>\n\n`;
-+	if (previousSummary) promptText += `<previous-summary>\n${stripCanonicalActionEvidence(previousSummary)}\n</previous-summary>\n\n`;
-+	promptText += `<canonical-action-evidence>\n${canonicalActionEvidence}\n</canonical-action-evidence>\n\n`;
- 	promptText += basePrompt;
--	return runSummarizationCall("compaction", promptText, maxTokens, model, signal, observer, "Summarization failed");
-+	return runSummarizationCall("compaction", promptText, maxTokens, model, signal, observer, "Summarization failed", settings);
- }
--async function generateTurnPrefixSummary(messages, model, reserveTokens, signal, observer) {
--	const maxTokens = Math.min(Math.floor(.5 * reserveTokens), 16e3);
--	return runSummarizationCall("compaction_prefix", `<conversation>\n${serializeConversation(messages)}\n</conversation>\n\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`, maxTokens, model, signal, observer, "Turn prefix summarization failed");
++	const transcript = serializeConversation(currentMessages);
++	const prompt = (part, checkpoint) => `<conversation>\n${part}\n</conversation>\n\n${checkpoint ? `<previous-summary>\n${stripCanonicalActionEvidence(checkpoint)}\n</previous-summary>\n\n` : ""}<canonical-action-evidence>\n${canonicalActionEvidence}\n</canonical-action-evidence>\n\n${basePrompt}`;
++	// A smaller replacement model must be able to read its own maintenance
++	// requests. Reduce sequential slices into one checkpoint; canonical history
++	// is committed by the caller only after every slice has succeeded.
++	const inputLimit = Math.max(0, model.contextWindow - Math.max(reserveTokens, maxTokens));
++	const bytes = (value) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
++	const system = recallAvailable ? WORKING_CONTEXT_SUMMARIZATION_SYSTEM_PROMPT : SUMMARIZATION_SYSTEM_PROMPT;
++	const fits = (part, checkpoint) => Math.ceil(bytes({ systemPrompt: system, messages: [{ role: "user", content: [{ type: "text", text: prompt(part, checkpoint) }] }] }) / 4) + 1024 <= inputLimit;
++	if (fits(transcript, previousSummary)) return runSummarizationCall("compaction", prompt(transcript, previousSummary), maxTokens, model, signal, observer, "Summarization failed", settings);
++	const sources = currentMessages.map((message, index) => ({ role: message.role, index, text: serializeConversation([message]) }));
++	let offset = 0, checkpoint = previousSummary, usage;
++	if (checkpoint && !fits("", checkpoint)) {
++		sources.unshift({ role: "previous-checkpoint", index: -1, text: stripCanonicalActionEvidence(checkpoint) });
++		checkpoint = undefined;
++	}
++	let total = 0;
++	const spans = sources.map((source) => {
++		const start = total;
++		total += source.text.length;
++		return { ...source, start, end: total };
++	});
++	const sourceText = sources.map((source) => source.text).join("");
++	// Every fragment carries its original role, including fragments beginning
++	// halfway through a huge message. Fragment text is historical source data.
++	const renderSlice = (start, end) => spans.filter((source) => source.start < end && source.end > start).map((source) => {
++		const from = Math.max(start, source.start) - source.start;
++		const to = Math.min(end, source.end) - source.start;
++		return `[Historical ${source.role} message ${source.index}; ${from > 0 ? "continuation" : "start"}; source text follows]\n${source.text.slice(from, to)}`;
++	}).join("\n\n");
++	do {
++		if (signal?.aborted) throw signal.reason ?? new Error("Aborted");
++		let low = 0, high = total - offset;
++		while (low < high) {
++			const middle = Math.ceil((low + high) / 2);
++			if (fits(renderSlice(offset, offset + middle), checkpoint)) low = middle;
++			else high = middle - 1;
++		}
++		// Do not split a UTF-16 surrogate pair between maintenance requests.
++		if (low > 0 && offset + low < total && /[\uD800-\uDBFF]/u.test(sourceText[offset + low - 1])) low--;
++		if ((low === 0 && offset < total) || !fits("", checkpoint)) throw new Error("context.compaction_input_too_large: The selected model cannot fit the checkpoint instructions and retained evidence.");
++		const result = await runSummarizationCall("compaction", prompt(renderSlice(offset, offset + low), checkpoint), maxTokens, model, signal, observer, "Summarization failed", settings);
++		checkpoint = result.text;
++		if (result.usage) usage = usage ? addUsage(usage, result.usage) : result.usage;
++		offset += low;
++	} while (offset < total);
++	return { text: checkpoint, usage };
++}
 +async function generateTurnPrefixSummary(messages, model, reserveTokens, signal, observer, maxSummaryTokens = 16e3, settings) {
 +	const maxTokens = Math.min(Math.floor(.5 * reserveTokens), maxSummaryTokens);
 +	return runSummarizationCall("compaction_prefix", `<conversation>\n${serializeConversation(messages)}\n</conversation>\n\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`, maxTokens, model, signal, observer, "Turn prefix summarization failed", settings);
@@ -1546,7 +1613,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..ee9d696acea4c5bcad2ee4a02ea436d4
  	const { readFiles, modifiedFiles } = computeFileLists(fileOps);
  	summary += formatFileOperations(readFiles, modifiedFiles);
  	return {
-@@ -2101,18 +2230,14 @@ function isAssistantContextOverflow(assistant, contextWindow) {
+@@ -2101,18 +2292,14 @@ function isAssistantContextOverflow(assistant, contextWindow) {
  //#endregion
  //#region src/submission-state.ts
  /**
@@ -1572,7 +1639,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..ee9d696acea4c5bcad2ee4a02ea436d4
  }
  /**
  * Classify how far a persisted submission input progressed.
-@@ -2125,12 +2250,16 @@ function isJoinedDeliveryInput(entry, ownSubmissionId) {
+@@ -2125,12 +2312,16 @@ function isJoinedDeliveryInput(entry, ownSubmissionId) {
  *   explicit overflow error messages are detected then).
  * @param opts.ownSubmissionId - The submission that owns the classified
  *   input entry. User messages joined into that submission's response (see
@@ -1591,7 +1658,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..ee9d696acea4c5bcad2ee4a02ea436d4
  	const assistantIndex = following.findLastIndex((entry) => entry.type === "message" && entry.message.role === "assistant");
  	const assistantEntry = assistantIndex === -1 ? void 0 : following[assistantIndex];
  	const assistant = assistantEntry?.type === "message" ? assistantEntry.message : void 0;
-@@ -2166,6 +2295,13 @@ function classifySubmissionState(following, opts) {
+@@ -2166,6 +2357,13 @@ function classifySubmissionState(following, opts) {
  			assistant
  		};
  	}
@@ -1605,7 +1672,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..ee9d696acea4c5bcad2ee4a02ea436d4
  	if (isCompletedAssistantResponse(assistant)) return {
  		kind: "completed",
  		assistant,
-@@ -2320,7 +2456,12 @@ function isToolBatchAssistant(message) {
+@@ -2320,7 +2518,12 @@ function isToolBatchAssistant(message) {
  	return message.stopReason === "toolUse" || (message.stopReason === "length" || message.stopReason === "stop") && message.content.some((block) => block.type === "toolCall");
  }
  function isCompletedAssistantResponse(message) {
@@ -1619,7 +1686,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..ee9d696acea4c5bcad2ee4a02ea436d4
  }
  function countConsecutiveRetryableModelErrors(entries) {
  	let count = 0;
-@@ -2352,6 +2493,7 @@ function countConsecutiveRetryableModelErrors(entries) {
+@@ -2352,6 +2555,7 @@ function countConsecutiveRetryableModelErrors(entries) {
  function classifySignal(signalType) {
  	switch (signalType) {
  		case "stream_interrupted":
@@ -1627,7 +1694,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..ee9d696acea4c5bcad2ee4a02ea436d4
  		case "stream_continued": return {
  			purpose: "advisory",
  			display: "hidden"
-@@ -2409,22 +2551,33 @@ function classifyConversationSubmission(conversation, inputEntryId, options) {
+@@ -2409,22 +2613,33 @@ function classifyConversationSubmission(conversation, inputEntryId, options) {
  * replacement step. Once replaced, keep the first step's response shell (its
  * id is the stable live-stream target) but omit the superseded model content.
  */
@@ -1664,7 +1731,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..ee9d696acea4c5bcad2ee4a02ea436d4
  	const responseBySubmission = /* @__PURE__ */ new Map();
  	for (const entry of getActiveConversationPath(conversation)) {
  		if (entry.type !== "message") continue;
-@@ -2765,7 +2918,7 @@ function requiresSnapshotReset(record, state) {
+@@ -2765,7 +2980,7 @@ function requiresSnapshotReset(record, state) {
  	if (record.type !== "assistant_message_started" || !record.submissionId) return false;
  	const conversation = state.conversations.get(record.conversationId);
  	if (!conversation) return false;
@@ -1673,7 +1740,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..ee9d696acea4c5bcad2ee4a02ea436d4
  	return getActiveConversationPath(conversation).some((entry) => entry.type === "message" && entry.message.role === "assistant" && entry.submissionId === record.submissionId && superseded.has(entry.id));
  }
  function encodeRecord(record, conversationId, state, responseIds) {
-@@ -3129,6 +3282,44 @@ async function readSubmissionReply(options) {
+@@ -3129,6 +3344,44 @@ async function readSubmissionReply(options) {
  	};
  	return replyFromSnapshot(snapshot, options.submissionId);
  }
@@ -1718,7 +1785,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..ee9d696acea4c5bcad2ee4a02ea436d4
  /**
  * Extract a submission's reply from a materialized conversation snapshot.
  * Shared by {@link readSubmissionReply} and the Cloudflare client, which reads
-@@ -3182,9 +3373,19 @@ function assertThinkingLevel(value, label) {
+@@ -3182,9 +3435,19 @@ function assertThinkingLevel(value, label) {
  function assertCompaction(definition, label) {
  	if (definition === void 0 || definition === false) return;
  	if (typeof definition !== "object" || definition === null || Array.isArray(definition)) throw new Error(`[flue] ${label} compaction must be a configuration object or \`false\`.`);
@@ -1739,7 +1806,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..ee9d696acea4c5bcad2ee4a02ea436d4
  	if (definition.model !== void 0 && typeof definition.model !== "string") throw new Error(`[flue] ${label} compaction.model must be a string.`);
  }
  function assertDurability(definition, label) {
-@@ -3192,7 +3393,7 @@ function assertDurability(definition, label) {
+@@ -3192,7 +3455,7 @@ function assertDurability(definition, label) {
  	if (typeof definition !== "object" || definition === null || Array.isArray(definition)) throw new Error(`[flue] ${label} durability must be a configuration object.`);
  	for (const key of Object.keys(definition)) if (key !== "maxAttempts" && key !== "timeoutMs") throw new Error(`[flue] ${label} durability received unknown field "${key}".`);
  	assertPositiveInteger(definition.maxAttempts, `${label} durability.maxAttempts`);

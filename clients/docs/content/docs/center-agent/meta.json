@@ -1,0 +1,12 @@
+{
+  "title": "Center Agent",
+  "defaultOpen": false,
+  "pages": [
+    "index",
+    "../work/center-agent",
+    "../work/center-agent-settings",
+    "../work/memory",
+    "../team/channels",
+    "capabilities"
+  ]
+}

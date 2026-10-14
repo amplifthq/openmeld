@@ -1,0 +1,42 @@
+---
+title: Organization security
+description: Configure information protection and choose controls that match the actions you want to restrict.
+---
+
+Organization owners and admins can add information-protection guidance. They can also configure Center Agent’s shared context and pause its work. Use the control that matches the risk: instructions guide behavior, while access controls and tool permissions restrict what can run.
+
+## Add protected information categories
+
+1. Open **Settings → Security** in the intended Organization.
+2. Find **Information protection**.
+3. In **Additional protected information**, describe categories or document types your organization considers confidential.
+4. Save the change and check the saved value.
+
+For example:
+
+```text
+Unreleased product pricing, customer contract discounts,
+and internal acquisition plans.
+```
+
+The built-in protection remains active when this field is empty. The system guidance tells the Agent to use your additions only for stricter classification, without weakening the built-in rules or adding approval steps. This text does not grant tool access. Ordinary members cannot manage this setting.
+
+Enter category names, not the sensitive records themselves. Compatible local runtimes receive this guidance for execution; someone who operates that runtime may be able to inspect the supplied instructions.
+
+## Set working instructions
+
+Use Center Agent’s **Team Brief** to define responsibilities, working rules, and decisions that need human review. For example: “Prepare release changes for review. Ask the release owner before publishing.” See [Configure Center Agent](/docs/work/center-agent-settings).
+
+Working instructions are guidance to the Agent. They do not create a technical ban on publishing or give it new permissions. The built-in guidance instructs the Agent not to treat a Space Guide, Skill, message, or retrieved document as an override of information protection.
+
+## Limit high-risk actions
+
+| Risk | Control |
+| --- | --- |
+| An Agent changes local files or runs commands without review | Choose an approval-based [permission mode](/docs/security-and-privacy/permission-modes). Avoid bypass modes for work that needs human review. |
+| An Agent reads unrelated personal folders | Configure **Computer file access** on the computer that runs it. Check that the selected runtime supports and applies the policy. Cancel if it asks to run without the boundary and the task requires that restriction. |
+| Work uses an external account with excessive access | Review the connected account and its provider permissions. Disconnect an unneeded [Plugin](/docs/team/plugins). |
+| A reply or file reaches the wrong audience | Review [Space access](/docs/team/access) and specify the intended recipient before sharing. |
+| Center Agent should stop accepting organizational work | Use **Settings → Center Agent → Danger zone → Pause**. Review interrupted work before resuming. |
+
+Pausing does not undo changes already made. Information protection is model guidance, not a universal command filter. Use enforced permissions and restricted credentials where an action must be prevented.

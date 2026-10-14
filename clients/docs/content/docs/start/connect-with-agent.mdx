@@ -1,0 +1,64 @@
+---
+title: Connect with an agent
+description: Copy a prompt into your local AI tool and let it help connect this computer.
+---
+
+Use an AI tool that can run commands on the computer you want to connect, such as Codex or Claude Code. A browser-only chat cannot install tools or start a service on your computer.
+
+## Copy a setup prompt
+
+Copy the prompt below into your local agent. It asks the agent to guide you through authorization, run the setup command you provide, and check the result.
+
+```text title="Prompt for your local agent"
+Help me connect this computer to OpenMeld.
+
+Read the current official setup guide first:
+https://app.openmeld.ai/agent-interface/guide.md
+
+Keep this task focused on connecting this computer. Tell me which computer
+you can run commands on. If you cannot run local commands, say so and direct
+me to a local tool. Do not claim to connect a computer you cannot access.
+
+Ask me to open https://app.openmeld.ai/agent-interface, sign in to the
+intended OpenMeld account, and copy its fresh private setup prompt into
+this conversation. Let me complete browser login and authorization myself.
+Do not ask for my password or print authorization tokens in your reply.
+
+Once I provide the private prompt, run its exact setup command on this
+computer. Preserve its environment and CLI distribution. Use the final
+cliCommandPrefix or nextCommands from setup.complete for follow-up checks.
+If an older CLI exits successfully without that output, use only the
+fallback prefix supplied in the private prompt.
+
+Check whoami --view agent and service status --view agent with that prefix.
+Explain whether setup completed, which account and computer are connected,
+and whether the background service is healthy. A detected local tool or an
+Available badge alone does not prove that a task can run successfully.
+
+If setup fails, keep the original error and follow the current guide's
+recovery steps within this connection task. Retry at most once when the
+cause is understood. Ask me for fresh authorization if it expired. Stop
+for an account mismatch, required browser login, destructive action, or
+the same failure after recovery. Do not reset local state, switch accounts,
+create Agent Profiles or Spaces, send messages, or start test tasks unless
+I separately ask for those actions.
+
+Finish with a short result and any action I still need to take. If connected,
+point me to the computer's Local agents list so I can choose my next step.
+```
+
+Already know the process? [Open Agent Interface](https://app.openmeld.ai/agent-interface), sign in, and copy its private setup prompt directly into your local agent.
+
+## Authorize this computer
+
+The private prompt contains short-lived setup access for your account. Share it only with the local agent you chose for setup. Do not post it in shared conversations, issues, or public documents. If it expires, return to Agent Interface and copy a fresh prompt.
+
+Docs provides the public instructions. The signed-in App generates the private setup command; this page does not access your account or generate authorization.
+
+## Check the connection
+
+Return to OpenMeld and confirm the computer name and **Computer connected** result. Open its **Local agents** list to check which tools are available. Complete any required provider sign-in in the tool itself.
+
+Connecting the computer does not prove that an Agent has completed work. When you are ready, [create or select a Local Agent](/docs/work/agents) and try a [small code review task](/docs/tasks/local-code).
+
+Prefer to run the command yourself? Follow [Connect your computer](/docs/start/connect-computer). If setup is blocked, use [Computer connection help](/docs/help/computer).
