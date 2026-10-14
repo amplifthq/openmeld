@@ -275,8 +275,9 @@ permissions and no production environment or secrets. A separate `workflow_run`
 result workflow runs trusted default-branch code. Its read-only verifier identifies the exact source run,
 attempt, PR, and current main through GitHub, then recomputes the control
 disposition and validation plan before accepting evidence from that run.
-Candidate source and artifacts are data only in the verifier; it never runs
-candidate scripts. A separate status writer checks live identity again and
+The verifier reads candidate source as immutable Git objects without checking
+it out, and treats artifacts as data. It never runs candidate scripts.
+A separate status writer checks live identity and the latest run again and
 never checks out code, installs dependencies, or downloads artifacts.
 Changes to either workflow require the protected local
 bootstrap. Workflow approval for first-time contributors remains a GitHub

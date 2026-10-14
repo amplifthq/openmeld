@@ -215,21 +215,15 @@ test("keeps status credentials out of candidate commands", () => {
   assert.ok(
     finalJob.includes(`ref: ${GITHUB_EXPRESSION_PREFIX} github.sha }}`)
   );
-  assert.ok(
-    finalJob.includes("Checkout candidate data for trusted comparison")
-  );
+  assert.ok(finalJob.includes("Read candidate Git objects without checkout"));
   assert.ok(
     finalJob.includes(
-      `ref: ${GITHUB_EXPRESSION_PREFIX} steps.identity.outputs.head }}`
+      `CANDIDATE_HEAD_SHA: ${GITHUB_EXPRESSION_PREFIX} steps.identity.outputs.head }}`
     )
   );
-  assert.ok(finalJob.includes("path: untrusted-candidate"));
-  assert.equal(finalJob.match(/persist-credentials: false/gu)?.length, 2);
-  assert.ok(
-    finalJob.includes(
-      '--candidate-root "$GITHUB_WORKSPACE/untrusted-candidate"'
-    )
-  );
+  assert.ok(!finalJob.includes("path: untrusted-candidate"));
+  assert.equal(finalJob.match(/persist-credentials: false/gu)?.length, 1);
+  assert.ok(finalJob.includes('--candidate-ref "$CANDIDATE_HEAD_SHA"'));
   assert.ok(finalJob.includes('--branch "$CANDIDATE_BRANCH"'));
   assert.ok(finalJob.includes("id: publish_final"));
   assert.ok(finalJob.includes("if: always() &&"));
@@ -238,6 +232,13 @@ test("keeps status credentials out of candidate commands", () => {
   const verifier = readJob(finalJob, "verify", "publish");
   assert.ok(!verifier.includes(": write"));
   assert.ok(verifier.includes("--output-only true"));
+  assert.ok(verifier.includes("--no-recurse-submodules"));
+  assert.ok(finalJob.includes('"$latest_id" != "$CANDIDATE_RUN_ID"'));
+  assert.ok(
+    finalJob.includes(
+      `group: final-candidate-result-${GITHUB_EXPRESSION_PREFIX} github.event.workflow_run.head_sha }}`
+    )
+  );
   const finalizerStart = finalJob.indexOf("\n  publish:");
   const finalizer = finalJob.slice(finalizerStart);
   assert.ok(finalizer.includes("gh api --method POST"));

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import {
   mkdirSync,
   mkdtempSync,
@@ -31,6 +32,61 @@ const SELF_REWRITE_PATTERN =
   /cannot let the candidate rewrite its own test-control entrypoints/u;
 const PROTECTED_BOOTSTRAP_PATTERN = /protected local bootstrap/u;
 const DELIVERY_DOCUMENT_PATTERN = /agent-native-delivery\.md/u;
+
+test("inspects immutable candidate objects without replacing trusted working-tree files", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "candidate-object-data-"));
+  const git = (...args) =>
+    execFileSync("git", ["-c", "core.hooksPath=/dev/null", ...args], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "Test",
+        GIT_AUTHOR_EMAIL: "test@example.invalid",
+        GIT_COMMITTER_NAME: "Test",
+        GIT_COMMITTER_EMAIL: "test@example.invalid",
+      },
+    }).trim();
+  try {
+    git("init", "--template=");
+    writeFileSync(
+      path.join(root, "package.json"),
+      '{"scripts":{"check":"trusted-check"}}'
+    );
+    git("add", "package.json");
+    git("commit", "-m", "trusted");
+    const base = git("rev-parse", "HEAD");
+    writeFileSync(
+      path.join(root, "package.json"),
+      '{"scripts":{"check":"forged-check"}}'
+    );
+    git("commit", "-am", "candidate");
+    const head = git("rev-parse", "HEAD");
+    git("checkout", "--detach", base);
+    assert.throws(
+      () =>
+        verifyTrustedCandidateEntrypoints({
+          trustedRoot: root,
+          candidateRoot: root,
+          candidateRef: head,
+        }),
+      SELF_REWRITE_PATTERN
+    );
+    verifyTrustedCandidateEntrypoints({
+      trustedRoot: root,
+      candidateRoot: root,
+      candidateRef: base,
+    });
+    assert.equal(git("rev-parse", "HEAD"), base);
+    assert.equal(
+      readFileSync(path.join(root, "package.json"), "utf8"),
+      '{"scripts":{"check":"trusted-check"}}'
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("rejects a candidate that rewrites the package script used to validate itself", () => {
   const fixture = createFixture();

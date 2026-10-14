@@ -54,6 +54,8 @@ function run() {
   const confidence = requireConfidence(options.confidence);
   const targetUrl = requireTargetUrl(options.targetUrl);
   const candidateRoot = path.resolve(options.candidateRoot);
+  const candidateRef =
+    options.outputOnly === "true" ? expected.headSha : undefined;
   const branchName = requireBranch(options.branch);
   const claimedDisposition = requireHostedDisposition(
     options.hostedDisposition
@@ -69,6 +71,7 @@ function run() {
       expectedHeadSha: expected.headSha,
       pullRequestNumber,
       repository,
+      sourceRef: candidateRef,
     });
     assertCandidateSnapshot(liveState.snapshot, {
       candidateKind: "pull-request",
@@ -98,6 +101,7 @@ function run() {
     });
     trustedDisposition = resolveHostedFinalCandidateDisposition({
       candidateRoot,
+      candidateRef,
       trustedRoot: TRUSTED_ROOT,
     });
     if (trustedDisposition.disposition !== claimedDisposition) {
@@ -321,7 +325,7 @@ function parseOptions(args) {
       repository: "repository",
       target_url: "targetUrl",
       tree: "tree",
-      "output-only": "outputOnly",
+      output_only: "outputOnly",
     }[name];
     if (!key) {
       throw new Error(`Unknown publisher option: ${option}`);
