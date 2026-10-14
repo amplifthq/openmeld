@@ -746,14 +746,6 @@
       "defaultModelId": "opencode/mimo-v2.6-flash-free",
       "models": [
         {
-          "id": "opencode/gemini-4-argon",
-          "displayName": "Gemini 4 Argon (Zen)",
-          "unavailable": false,
-          "supportedReasoningLevels": ["low", "medium", "high"],
-          "minCliVersion": "1.19.0",
-          "badgeLabel": "New"
-        },
-        {
           "id": "openrouter/liquid/lfm-2.5-24b-a2b",
           "displayName": "LFM2.5-24B-A2B (OpenRouter)",
           "unavailable": false,
@@ -790,22 +782,6 @@
             "max"
           ],
           "minCliVersion": "1.18.34",
-          "badgeLabel": "New"
-        },
-        {
-          "id": "opencode/cat-jam-free",
-          "displayName": "Cat Jam Free (Zen)",
-          "unavailable": false,
-          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
-          "minCliVersion": "1.19.0",
-          "badgeLabel": "New"
-        },
-        {
-          "id": "opencode-go/cat-jam-free",
-          "displayName": "Cat Jam Free (Go)",
-          "unavailable": false,
-          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
-          "minCliVersion": "1.19.0",
           "badgeLabel": "New"
         },
         {

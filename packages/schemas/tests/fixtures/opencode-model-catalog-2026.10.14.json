@@ -14,59 +14,6 @@
   },
   "models": [
     {
-      "id": "gemini-4-argon",
-      "providerID": "opencode",
-      "name": "Gemini 4 Argon",
-      "api": {
-        "id": "gemini-4-argon",
-        "url": "https://opencode.ai/inference/v1",
-        "npm": "@ai-sdk/google"
-      },
-      "status": "active",
-      "capabilities": {
-        "temperature": false,
-        "reasoning": true,
-        "attachment": true,
-        "toolcall": true,
-        "input": {
-          "text": true,
-          "audio": true,
-          "image": true,
-          "video": true,
-          "pdf": true
-        },
-        "output": {
-          "text": true,
-          "audio": false,
-          "image": false,
-          "video": false,
-          "pdf": false
-        },
-        "interleaved": false
-      },
-      "release_date": "2026-10-13",
-      "variants": {
-        "low": {
-          "thinkingConfig": {
-            "includeThoughts": true,
-            "thinkingLevel": "low"
-          }
-        },
-        "medium": {
-          "thinkingConfig": {
-            "includeThoughts": true,
-            "thinkingLevel": "medium"
-          }
-        },
-        "high": {
-          "thinkingConfig": {
-            "includeThoughts": true,
-            "thinkingLevel": "high"
-          }
-        }
-      }
-    },
-    {
       "id": "liquid/lfm-2.5-24b-a2b",
       "providerID": "openrouter",
       "name": "LFM2.5-24B-A2B",
@@ -133,6 +80,61 @@
       },
       "release_date": "2026-10-13",
       "variants": {}
+    }
+  ],
+  "deferredModels": [
+    {
+      "id": "gemini-4-argon",
+      "providerID": "opencode",
+      "name": "Gemini 4 Argon",
+      "api": {
+        "id": "gemini-4-argon",
+        "url": "https://opencode.ai/inference/v1",
+        "npm": "@ai-sdk/google"
+      },
+      "status": "active",
+      "capabilities": {
+        "temperature": false,
+        "reasoning": true,
+        "attachment": true,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": true,
+          "image": true,
+          "video": true,
+          "pdf": true
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": false
+      },
+      "release_date": "2026-10-13",
+      "variants": {
+        "low": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "low"
+          }
+        },
+        "medium": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "medium"
+          }
+        },
+        "high": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "high"
+          }
+        }
+      }
     },
     {
       "id": "cat-jam-free",

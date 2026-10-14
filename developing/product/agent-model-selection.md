@@ -422,10 +422,11 @@ reader, or a controller adapter selects the corresponding additional components.
 
 ### Practical retirement and recovery
 
-The October 14 follow-up review adds five OpenCode routes: Gemini 4 Argon
-through Zen, Cat Jam Free through Zen and Go, and Liquid LFM2.5-24B-A2B and
-Pareto 26.9 through OpenRouter. Exact native variants come from OpenCode
-1.19.0; defaults and saved selections do not change. GPT-5.5 still completed
+The October 14 follow-up review adds Liquid LFM2.5-24B-A2B and Pareto 26.9
+through OpenRouter after successful native OpenCode 1.19.0 probes. Zen Gemini
+and both Cat Jam routes are deferred because of provider credential,
+subscription and free-tier request restrictions; no adapter defect was found.
+Defaults and saved selections do not change. GPT-5.5 still completed
 a native ChatGPT-sign-in probe on its announced retirement date, so its notice
 remains announced, with a refreshed verification time. See
 [the review evidence](../../release/model-catalog-evidence/review-1710.md)
