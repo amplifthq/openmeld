@@ -52,7 +52,7 @@
     "entities": "^8.1.0",
     "hono": "^4.11.7",
     "ipaddr.js": "^2.5.0",
-    "protobufjs": "7.5.4",
+    "protobufjs": "7.6.5",
     "slackify-markdown": "5.0.0",
     "yaml": "2.8.2",
     "zod": "catalog:"
