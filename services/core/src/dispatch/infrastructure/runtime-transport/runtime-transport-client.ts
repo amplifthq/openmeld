@@ -619,9 +619,7 @@ export const manageRuntimeTransportLocalAgentInstallation = async (input: {
   deviceId: string;
   env: CoreBindings;
   ownerUserId: string;
-  request:
-    | { agentId: string; operation: "list" }
-    | { agentId: string; installationId: string; operation: "select" };
+  request: import("@openmeld/schemas/types").OpenMeldDaemonManageLocalAgentInstallationRequestPayload;
   runtimeLane: DaemonServiceLane;
 }): Promise<RuntimeTransportManageLocalAgentInstallationResponse> => {
   const parsedRequest =

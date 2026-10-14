@@ -117,6 +117,11 @@ export type {
 export type * from "./common/index";
 export type * from "./config/index";
 export type * from "./daemon/index";
+export type {
+  LocalAgentUpdateOperation,
+  LocalAgentUpdateRequest,
+  LocalAgentUpdateState,
+} from "./daemon/local-agent-update";
 export * from "./daemon/session-history";
 export type * from "./db/index";
 export type * from "./eval-report";

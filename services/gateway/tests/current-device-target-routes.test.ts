@@ -18,6 +18,7 @@ type CoreRpcMock = {
   updatePeopleComputerFileAccessPolicy: ReturnType<typeof vi.fn>;
   setPeopleComputerLocalAgentEnabled: ReturnType<typeof vi.fn>;
   getPeopleComputerLocalAgentInstallations: ReturnType<typeof vi.fn>;
+  managePeopleComputerLocalAgentUpdate: ReturnType<typeof vi.fn>;
   selectPeopleComputerLocalAgentInstallation: ReturnType<typeof vi.fn>;
   refreshPeopleComputerLocalAgentCatalog: ReturnType<typeof vi.fn>;
   requestPeopleComputerOpenMeldToolsUpdate: ReturnType<typeof vi.fn>;
@@ -71,6 +72,7 @@ function makeEnv(input?: {
     updatePeopleComputerFileAccessPolicy: vi.fn(),
     setPeopleComputerLocalAgentEnabled: vi.fn(),
     getPeopleComputerLocalAgentInstallations: vi.fn(),
+    managePeopleComputerLocalAgentUpdate: vi.fn(),
     selectPeopleComputerLocalAgentInstallation: vi.fn(),
     refreshPeopleComputerLocalAgentCatalog: vi.fn(),
     requestPeopleComputerOpenMeldToolsUpdate: vi.fn(),
@@ -192,6 +194,48 @@ function makeEnv(input?: {
 }
 
 describe("current device target routes", () => {
+  it("forwards installation update identity and rejects executable input", async () => {
+    const { coreRpc, env } = makeEnv();
+    const request = {
+      installationId: "selected-installation",
+      operationId: "612062db-e39b-4d2e-861c-e955c81a304b",
+    };
+    coreRpc.managePeopleComputerLocalAgentUpdate.mockResolvedValue({
+      supported: true,
+      operation: null,
+    });
+    const send = (body: object) =>
+      app.fetch(
+        new Request(
+          "http://local/v1/people-computers/selected-device/lanes/canary/local-agents/claude-code/installation-update",
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          }
+        ),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+    expect((await send(request)).status).toBe(200);
+    expect(
+      coreRpc.managePeopleComputerLocalAgentUpdate
+    ).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        deviceId: "selected-device",
+        runtimeLane: "canary",
+        agentId: "claude-code",
+        request,
+      })
+    );
+    expect(
+      (await send({ ...request, command: "arbitrary shell command" })).status
+    ).toBe(400);
+    expect(coreRpc.managePeopleComputerLocalAgentUpdate).toHaveBeenCalledTimes(
+      1
+    );
+    expect(coreRpc.getCurrentDeviceTarget).not.toHaveBeenCalled();
+  });
   it.each([
     "bound",
     "explicit",
@@ -352,6 +396,12 @@ describe("current device target routes", () => {
       "GET",
       "local-agents/codex/installations",
       "getPeopleComputerLocalAgentInstallations",
+      undefined,
+    ],
+    [
+      "GET",
+      "local-agents/codex/installation-update",
+      "managePeopleComputerLocalAgentUpdate",
       undefined,
     ],
     [

@@ -8,6 +8,10 @@ import {
 import { nonEmptyTrimmedStringFromUnknown } from "../protocol/shared";
 import { runtimeTransportModeSchema } from "./controller-contract";
 import { conversationExecutionStateSchema } from "./conversation-execution-state";
+import {
+  localAgentUpdateRequestSchema,
+  localAgentUpdateStateSchema,
+} from "./local-agent-update";
 import { providerDispatchRuntimeContextSchema } from "./provider-runtime-context";
 
 export const OPENMELD_DAEMON_CONTROL_PLANE_SCHEMA_VERSION = 1 as const;
@@ -132,6 +136,14 @@ export const openMeldDaemonManageLocalAgentInstallationRequestPayloadSchema =
       agentId: z.string().trim().min(1).max(256),
       installationId: z.string().trim().min(1).max(256),
       operation: z.literal("select"),
+    }),
+    z.strictObject({
+      agentId: z.string().trim().min(1).max(256),
+      operation: z.literal("read_update"),
+    }),
+    localAgentUpdateRequestSchema.extend({
+      agentId: z.string().trim().min(1).max(256),
+      operation: z.literal("update"),
     }),
   ]);
 
@@ -326,7 +338,13 @@ export const openMeldDaemonSetLocalAgentEnabledPayloadSchema = z.strictObject({
 });
 
 export const openMeldDaemonManageLocalAgentInstallationPayloadSchema =
-  z.discriminatedUnion("accepted", [
+  z.discriminatedUnion("status", [
+    z.strictObject({
+      accepted: z.literal(true),
+      agentId: z.string().trim().min(1).max(256),
+      status: z.literal("update_state"),
+      update: localAgentUpdateStateSchema,
+    }),
     z.strictObject({
       accepted: z.literal(true),
       agentControllerRef: z.string().min(1),

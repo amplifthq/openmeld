@@ -254,6 +254,8 @@ import {
   listCenterAgentAuditJournalResponseSchema,
   listCenterAgentSessionsQuerySchema,
   listSpaceThreadSignalsQuerySchema,
+  localAgentUpdateRequestSchema,
+  localAgentUpdateStateSchema,
   localRuntimeEnrollmentBodySchema,
   localRuntimeEnrollmentResponseSchema,
   localRuntimesResponseSchema,
@@ -1393,6 +1395,7 @@ import { createCoreRpcHttpError, readCoreRpcHttpStatus } from "./errors";
 import {
   requireAcceptedLocalAgentControlPayload,
   requireAcceptedLocalAgentInstallationPayload,
+  requireAcceptedLocalAgentUpdatePayload,
 } from "./local-agent-control-policy";
 import { callRequiredAuthWorkerRpc } from "./required-auth-worker-rpc";
 import {
@@ -3072,6 +3075,46 @@ export function rpcGetPeopleComputerLocalAgentInstallations(
     });
   }
   return rpcGetCurrentLocalAgentInstallations(env, input, parsed.data);
+}
+export async function rpcManagePeopleComputerLocalAgentUpdate(
+  env: CoreBindings,
+  input: GetCurrentLocalAgentInstallationsInput &
+    PeopleComputerTarget & {
+      request?: import("@openmeld/schemas/types").LocalAgentUpdateRequest;
+    }
+): Promise<import("@openmeld/schemas/types").LocalAgentUpdateState> {
+  const target = peopleComputerTargetSchema.parse({
+    deviceId: input.deviceId,
+    runtimeLane: input.runtimeLane,
+  });
+  const { agentId } = currentLocalAgentInstallationsRouteParamsSchema.parse({
+    agentId: input.agentId,
+  });
+  const userId = requireAuthenticatedOwnerUserId(input.context);
+  const { currentTarget } = await resolveCurrentLocalAgentControlTarget({
+    capability: "updateInstallations",
+    env,
+    target,
+    userId,
+    unsupportedCode: "local_agent_control.unsupported",
+    unsupportedReason:
+      "Update OpenMeld Service to update local agents from OpenMeld.",
+  });
+  const request = input.request
+    ? localAgentUpdateRequestSchema.parse(input.request)
+    : null;
+  const result = await manageRuntimeTransportLocalAgentInstallation({
+    env,
+    ownerUserId: userId,
+    deviceId: currentTarget.deviceId,
+    runtimeLane: currentTarget.runtimeLane,
+    request: request
+      ? { ...request, agentId, operation: "update" }
+      : { agentId, operation: "read_update" },
+  });
+  return localAgentUpdateStateSchema.parse(
+    requireAcceptedLocalAgentUpdatePayload(result)
+  );
 }
 export function rpcSelectPeopleComputerLocalAgentInstallation(
   env: CoreBindings,
