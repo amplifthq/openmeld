@@ -131,14 +131,12 @@ export const retainedRemoteContainerSchema = z.strictObject({
   version: z.number().int().nonnegative(),
   image: z.string().regex(/@sha256:[0-9a-f]{64}$/u),
   configurationHash: z.string().regex(/^[0-9a-f]{64}$/u),
-  instances: z
-    .array(
-      z.strictObject({
-        id: z.string().min(1),
-        version: z.number().int().nonnegative(),
-      })
-    )
-    .min(1),
+  instances: z.array(
+    z.strictObject({
+      id: z.string().min(1),
+      version: z.number().int().nonnegative(),
+    })
+  ),
 });
 
 const remoteAgentReleaseStageSchema = z.strictObject({

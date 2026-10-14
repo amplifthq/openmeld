@@ -420,8 +420,9 @@ its Core deployment restores the normal tagged projection.
 
 ### Preserve Containers while repairing their Worker
 
-When original files still exist only in a running Computer, the protected local
-Remote Agent stage can deploy a compatible Worker without replacing Containers:
+The protected local Remote Agent stage can deploy a compatible Worker without
+replacing Containers, including when Computers are inactive or original files
+still exist only in a running Computer:
 
 ```sh
 pnpm run deploy -- --base <BASE> --scope remote-agent --containers-rollout=none
@@ -439,9 +440,16 @@ active instance IDs. The previous release receipt remains linked as evidence;
 its source alone is not proof of a Container image's build provenance. Before
 and after the Worker deployment, the application must have no active rollout.
 The recorded configuration and original active instance IDs must remain present
-at the same version. Incomplete instance pagination or drift fails closed.
-Stable instance IDs do not prove that a native process never restarted. Product
-acceptance must verify the original runtime ID/epoch and original sync window.
+at the same version. A complete snapshot may contain no active instances; an
+empty baseline does not require starting a Computer. New instances may appear
+between checks at the unchanged application version. Missing evidence,
+incomplete instance pagination or drift fails closed.
+
+These snapshots prove the observed configuration and baseline instance checks,
+not continuous process survival between reads. An empty baseline does not prove
+that a previously running Computer synchronized its files. Stable instance IDs
+also do not prove that a native process never restarted. Product acceptance must
+verify the original runtime ID/epoch and original sync window.
 
 This stage stops with an `applied` Remote Agent receipt. It never reports the
 whole component as `verified`, and automatic continuation cannot start native
@@ -460,6 +468,12 @@ remains unresolved evidence; it cannot silently replay a native rollout. A
 repeated Worker-only command only verifies its retained evidence and does not
 deploy again. Worker-only code must remain compatible with the retained native
 RPC contract. This mode does not make an unsynchronized Container disk durable.
+
+Release-control compatibility: the shared receipt schema accepts both empty and
+non-empty instance baselines; historical non-empty receipts remain valid.
+Older release-control readers reject empty baselines, so use updated trusted
+control to read or resume these receipts. This change does not alter the
+published CLI, Service, Worker RPC or Computer contracts.
 
 If the full stage has an `applied` receipt in phase `rollout`, a repeated guarded
 stage only verifies the recorded Worker and its native image. It checks the
