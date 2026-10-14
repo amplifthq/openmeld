@@ -454,7 +454,22 @@ verify the original runtime ID/epoch and original sync window.
 This stage stops with an `applied` Remote Agent receipt. It never reports the
 whole component as `verified`, and automatic continuation cannot start native
 rollout. Complete the original synchronization and read the retained files from
-canonical storage before explicitly running the full stage at the same source:
+canonical storage before replacing a surviving Computer.
+
+If the original runtime and epoch are confirmed lost, its synchronization
+window may no longer have a source that can acknowledge it. Do not wait for an
+impossible ACK or mark that window synchronized. Before explicit native rollout,
+preserve the original command references, saved output, file reads and unknown
+file outcome, and obtain a fresh, complete inventory proving that no active
+instance remains to protect. An empty inventory alone does not prove runtime
+loss or file durability. Recheck immediately before native effects; concurrent
+work, an active instance with unconfirmed writes, or ambiguous evidence still
+requires preservation and investigation. This continuation does not clear
+markers, replay commands, or relax the existing release identity and lease
+checks.
+
+After establishing the applicable protection condition, explicitly run the full
+stage at the same source:
 
 ```sh
 pnpm run deploy -- --base <BASE> --scope remote-agent
