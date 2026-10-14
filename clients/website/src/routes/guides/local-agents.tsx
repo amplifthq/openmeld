@@ -1,24 +1,16 @@
-import { LOCAL_AGENTS_GUIDE_PATH } from "@openmeld/product-catalog/local-agent-install-guides";
-import {
-	createFileRoute,
-	Outlet,
-	useRouterState,
-} from "@tanstack/react-router";
-import { LocalAgentInstallGuideIndexPage } from "#/components/local-agent-install-guides/local-agent-install-guide-pages";
+import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/guides/local-agents")({
-	component: LocalAgentsGuideRoute,
+	component: Outlet,
+	beforeLoad: ({ location }) => {
+		if (
+			location.pathname === "/guides/local-agents" ||
+			location.pathname === "/guides/local-agents/"
+		) {
+			throw redirect({
+				href: `${import.meta.env.VITE_DOCS_URL}/docs/start/local-agents`,
+				statusCode: 301,
+			});
+		}
+	},
 });
-
-export function LocalAgentsGuideRoute() {
-	const pathname = useRouterState({
-		select: (state) => state.location.pathname,
-	});
-	if (
-		pathname !== LOCAL_AGENTS_GUIDE_PATH &&
-		pathname !== `${LOCAL_AGENTS_GUIDE_PATH}/`
-	) {
-		return <Outlet />;
-	}
-	return <LocalAgentInstallGuideIndexPage />;
-}

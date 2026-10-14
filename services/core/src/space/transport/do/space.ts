@@ -6314,9 +6314,9 @@ export class Space extends DurableObject<CoreBindings> {
     }
     const author = await authorizeRpcSignalWrite({
       authorizeSpacePasswordAccess:
-        owner.authorizeSpacePasswordAccess.bind(Space),
+        owner.authorizeSpacePasswordAccess.bind(owner),
       authorizeWritableSpaceAccess:
-        owner.authorizeWritableSpaceAccess.bind(Space),
+        owner.authorizeWritableSpaceAccess.bind(owner),
       context: input.context,
       password: input.password,
       ...(input.spaceAccess ? { spaceAccess: input.spaceAccess } : {}),

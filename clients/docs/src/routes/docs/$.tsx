@@ -10,6 +10,7 @@ import {
   MarkdownCopyButton,
   ViewOptionsPopover,
 } from "fumadocs-ui/layouts/docs/page";
+import { ThemeSwitch } from "fumadocs-ui/layouts/shared/slots/theme-switch";
 import { Suspense, use } from "react";
 import { useMDXComponents } from "@/components/mdx";
 import { docs } from "@/lib/content";
@@ -103,7 +104,14 @@ function Page() {
   );
 
   return (
-    <DocsLayout {...baseOptions()} tree={pageTree}>
+    <DocsLayout
+      {...baseOptions()}
+      sidebar={{
+        footer: <ThemeSwitch className="self-start rounded-lg *:rounded-md" />,
+      }}
+      themeSwitch={{ enabled: false }}
+      tree={pageTree}
+    >
       <Suspense>
         <Content markdownUrl={markdownUrl} path={path} />
       </Suspense>

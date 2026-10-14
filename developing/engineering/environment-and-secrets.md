@@ -119,6 +119,11 @@ which secret names each local component may receive. The runner uses explicit
 project and config flags, requests only those names, disables local fallback
 files, and never downloads or prints values.
 
+For real local BYOK acceptance, `openmeld-core/dev` also stores the reusable
+`OPENROUTER_SMOKE_API_KEY`. This is a smoke input, not an automatically injected
+runtime secret. Follow [the BYOK smoke procedure](ai-billing.md#shared-development-byok-smoke-key)
+to retrieve it without printing the value and save it through the local product.
+
 The top-level development supervisor receives no managed secrets. Each runtime
 requests its own allowlisted values only when that runtime starts:
 
@@ -133,6 +138,11 @@ Auth and Core share one Wrangler process, so that process receives both
 projects. Web, Gateway, and Remote Agent do not receive each other's managed
 secrets. `pnpm dev:doctor` also checks one project at a time instead of building
 one process with all values.
+
+Local organization BYOK requires `OPENMELD_AI_CREDENTIAL_CRYPTO_KEY` in
+`openmeld-core/dev`. Use a development-only 32-byte base64 key. The Core
+component runner reads it directly; the Turbo supervisor must not forward it
+to other components. Without it, credential storage remains unavailable.
 
 Remote Agent local and development traffic uses the checked-in
 `openmeld-remote-agent-prod` AI Gateway id because Cloudflare Provider Keys are

@@ -122,6 +122,7 @@ import { requestLocalDaemonShutdown } from "../src/local-service/control-plane/c
 import { startLocalDaemonControlPlaneServer } from "../src/local-service/control-plane/server";
 import {
   DAEMON_STREAM_KEEPALIVE_INTERVAL_MS,
+  DAEMON_STREAM_KEEPALIVE_PONG_TIMEOUT_MS,
   HEARTBEAT_RESPONSE_TIMEOUT_MS,
 } from "../src/local-service/core/constants";
 import type {
@@ -135,10 +136,16 @@ import { createInProcessExecutionHost } from "./helpers/execution-host";
 
 type RunTestDaemonSocketSessionInput = Omit<
   Parameters<typeof runDaemonSocketSessionInternal>[0],
-  "executionHost" | "localComponentsObservation" | "loadRouteCatalog"
+  | "executionHost"
+  | "drainExecutionHost"
+  | "failHostShutdown"
+  | "localComponentsObservation"
+  | "loadRouteCatalog"
 > &
   Omit<ExecutionHostResources, "initialCatalog"> & {
     decorateExecutionHost?: (host: ExecutionHostPort) => ExecutionHostPort;
+    onSessionExit?: () => void;
+    failHostShutdown?: (error: unknown) => never;
     profileOwnerName: string | null;
     loadRouteCatalog?: () => Promise<ExecutionHostResources["initialCatalog"]>;
   };
@@ -155,6 +162,7 @@ async function runDaemonSocketSession(
     localAdapterContainer,
     ledgerPaths,
     decorateExecutionHost,
+    onSessionExit,
     profileOwnerName,
     ...sessionInput
   } = input;
@@ -183,6 +191,7 @@ async function runDaemonSocketSession(
   const localComponentsObservation = createServiceLocalComponentsObservation({
     onError: () => undefined,
   });
+  const executionHost = decorateExecutionHost?.(host.port) ?? host.port;
   try {
     await runDaemonSocketSessionInternal({
       ...sessionInput,
@@ -200,9 +209,18 @@ async function runDaemonSocketSession(
             false
           )),
       localComponentsObservation,
-      executionHost: decorateExecutionHost?.(host.port) ?? host.port,
+      executionHost,
+      failHostShutdown:
+        input.failHostShutdown ??
+        ((error: unknown): never => {
+          throw error;
+        }),
+      drainExecutionHost: async () => {
+        await executionHost.call("drain", {}, { timeoutMs: null });
+      },
     });
   } finally {
+    onSessionExit?.();
     localComponentsObservation.dispose();
     await host.close();
   }
@@ -264,6 +282,7 @@ describe("local service run catalog signal", () => {
       const socket = createMockSocket();
       let stopping = false;
       const coordinator = createControlledShutdownCoordinator({
+        drainHost: async () => undefined,
         hasUndrainedWork: () => false,
         isStopRequested: () => stopping,
         markStopping: () => {
@@ -284,10 +303,6 @@ describe("local service run catalog signal", () => {
       })
         .then(() => {
           coordinator.handleSessionCompleted();
-        })
-        .catch((error: unknown) => {
-          coordinator.handleSessionFailure(error);
-          throw error;
         })
         .finally(() => {
           coordinator.detachSession(sessionShutdown.resolve);
@@ -362,6 +377,51 @@ describe("local service run catalog signal", () => {
         await observedShutdown;
         await server.close();
       }
+    });
+  });
+
+  it.each([
+    "cache",
+    "catalog_signal",
+  ] as const)("releases a disconnected session while bootstrap %s is pending", async (stage) => {
+    await withTempHome(async () => {
+      vi.useFakeTimers();
+      const started = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const heldOperation = async () => {
+        started.resolve();
+        await release.promise;
+        return null;
+      };
+      readDaemonCatalogSyncSignalMock.mockImplementation(
+        stage === "catalog_signal" ? heldOperation : async () => null
+      );
+      const socket = createMockSocket();
+      let exited = false;
+      const sessionPromise = runDaemonSocketSession({
+        ...buildKeepaliveSessionInput(socket, []),
+        // Observe the connector boundary before the fixture shuts down its Host.
+        onSessionExit: () => {
+          exited = true;
+        },
+        persistRouteCatalogCache: async () => {
+          if (stage === "cache") {
+            await heldOperation();
+          }
+        },
+      });
+      const outcome = sessionPromise.then(
+        () => null,
+        (error: unknown) => error
+      );
+      await started.promise;
+      socket.emitClose(1006, "bootstrap connection lost");
+      await vi.advanceTimersByTimeAsync(0);
+      const exitedBeforeBootstrap = exited;
+      release.resolve();
+      const result = await outcome;
+      expect(exitedBeforeBootstrap).toBe(true);
+      expect(result).toBeInstanceOf(Error);
     });
   });
 
@@ -607,6 +667,98 @@ describe("local service run catalog signal", () => {
     expect(lines.map((line) => line.code)).not.toContain(
       "daemon.run.controlled_shutdown_final_heartbeat_completed"
     );
+    expect(socket.closeCount).toBe(0);
+  });
+
+  it.each([
+    "close",
+    "error",
+    "missing_pong",
+  ] as const)("releases a stopped connector on %s while the Host still owns pending work", async (failure) => {
+    vi.useFakeTimers();
+    readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+    const lines: Array<{ code: string; text: string }> = [];
+    const socket = createMockSocket({
+      respondToKeepalive: failure !== "missing_pong",
+      terminateEmitsClose: false,
+    });
+    const drain = Promise.withResolvers<void>();
+    const drainStarted = Promise.withResolvers<void>();
+    const settleResults = vi.fn();
+    // A stop carried into a replacement session is already pending during
+    // bootstrap. Its keepalive must still detect a half-open connection.
+    const session = runDaemonSocketSession({
+      ...buildKeepaliveSessionInput(socket, lines),
+      shutdownRequested: Promise.resolve("user_stop"),
+      decorateExecutionHost: (host) => ({
+        ...host,
+        call: async (method, payload, options) => {
+          if (method === "drain") {
+            drainStarted.resolve();
+            await drain.promise;
+          }
+          if (method === "settleResults") {
+            settleResults();
+          }
+          return host.call(method, payload, options);
+        },
+      }),
+    });
+    const outcome = session.then(
+      () => null,
+      (error: unknown) => error
+    );
+    await drainStarted.promise;
+    if (failure === "close") {
+      socket.emitClose(1006, "network lost");
+    }
+    if (failure === "error") {
+      socket.emitError(new Error("network lost"));
+    }
+    if (failure === "missing_pong") {
+      await vi.advanceTimersByTimeAsync(
+        DAEMON_STREAM_KEEPALIVE_INTERVAL_MS +
+          DAEMON_STREAM_KEEPALIVE_PONG_TIMEOUT_MS +
+          1
+      );
+    }
+    // This must finish before Host drain does; otherwise reconnect cannot run.
+    expect(await outcome).toBeInstanceOf(Error);
+    expect(settleResults).not.toHaveBeenCalled();
+    drain.resolve();
+    await flushMicrotasks();
+    // The old drain continuation cannot settle a replacement connection.
+    expect(settleResults).not.toHaveBeenCalled();
+    expect(socket.closeCount).toBe(0);
+  });
+
+  it.each([
+    "beginDrain",
+    "settleResults",
+  ] as const)("reports a Host %s failure instead of treating it as a lost connection", async (failedMethod) => {
+    readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+    const socket = createMockSocket({});
+    const error = new Error("Execution Host IPC disconnected");
+    const failHostShutdown = vi.fn((failure: unknown): never => {
+      throw failure;
+    });
+    await expect(
+      runDaemonSocketSession({
+        ...buildKeepaliveSessionInput(socket, []),
+        shutdownRequested: Promise.resolve("user_stop"),
+        failHostShutdown,
+        decorateExecutionHost: (host) => ({
+          ...host,
+          call: async (method, payload, options) => {
+            if (method === failedMethod) {
+              throw error;
+            }
+            return await host.call(method, payload, options);
+          },
+        }),
+      })
+    ).rejects.toBe(error);
+    expect(failHostShutdown).toHaveBeenCalledExactlyOnceWith(error);
     expect(socket.closeCount).toBe(0);
   });
 
@@ -2595,6 +2747,71 @@ describe("daemon stream keepalive", () => {
     });
   });
 
+  it.each([
+    "heartbeat",
+    "keepalive",
+    "socket_error",
+  ] as const)("releases a failed %s session even when termination sends no close event", async (failure) => {
+    await withTempHome(async () => {
+      vi.useFakeTimers();
+      const lines: Array<{ code: string; text: string }> = [];
+      const socket = createMockSocket({
+        terminateEmitsClose: false,
+        respondToHeartbeat: failure !== "heartbeat",
+        respondToKeepalive: failure !== "keepalive",
+      });
+      const attachRouteCatalogSyncInvoker = vi.fn();
+      const ledgerPaths = createLedgerPaths();
+      enqueuePendingResult({
+        currentSocketRef: { connectionGeneration: null, socket: null },
+        ledgerPaths,
+      });
+      let exited = false;
+      const sessionPromise = runDaemonSocketSession({
+        ...buildKeepaliveSessionInput(socket, lines, 60_000),
+        attachRouteCatalogSyncInvoker,
+        ledgerPaths,
+      });
+      const outcome = sessionPromise.then(
+        () => {
+          exited = true;
+          return null;
+        },
+        (error: unknown) => {
+          exited = true;
+          return error;
+        }
+      );
+      await vi.advanceTimersByTimeAsync(1);
+      if (failure === "socket_error") {
+        socket.emitError(new Error("transport failed without a close event"));
+      }
+      const deadline =
+        failure === "heartbeat"
+          ? 3 * HEARTBEAT_RESPONSE_TIMEOUT_MS + 2 * 5000
+          : DAEMON_STREAM_KEEPALIVE_INTERVAL_MS +
+            DAEMON_STREAM_KEEPALIVE_PONG_TIMEOUT_MS;
+      await vi.advanceTimersByTimeAsync(deadline + 1);
+      await flushMicrotasks();
+      const exitedAtDeadline = exited;
+      // Cleanup cannot turn a hung production session into a passing assertion.
+      if (!exited) {
+        socket.emitClose(1006, "test cleanup");
+      }
+      const result = await outcome;
+      expect(socket.terminateCount).toBe(1);
+      expect(exitedAtDeadline).toBe(true);
+      expect(result).toBeInstanceOf(Error);
+      expect(
+        listDispatchResultOutboxPendingAcknowledgementKeys({ ledgerPaths })
+      ).toEqual(["dispatch-drain-1::attempt-drain-1"]);
+      // A late native close must not clear the next session's shared invoker.
+      attachRouteCatalogSyncInvoker.mockClear();
+      socket.emitClose(1006, "delayed native close");
+      expect(attachRouteCatalogSyncInvoker).not.toHaveBeenCalled();
+    });
+  });
+
   it("sends a keepalive PING on its own 20s cadence, faster than and independent of the heartbeat", async () => {
     vi.useFakeTimers();
     const lines: Array<{ code: string; text: string }> = [];
@@ -2948,6 +3165,7 @@ function createMockSocket(input?: {
   executionAdmissionConfirmation?: boolean;
   admissionEvidence?: boolean;
   hangOnClose?: boolean;
+  terminateEmitsClose?: boolean;
   respondToKeepalive?: boolean;
   respondToHeartbeat?:
     | boolean
@@ -2959,6 +3177,7 @@ function createMockSocket(input?: {
 }) {
   let onMessage: ((data: string) => void) | null = null;
   let onClose: ((code: number, reason: string) => void) | null = null;
+  let onError: ((error: unknown) => void) | null = null;
   let terminateCount = 0;
   let closeCount = 0;
   let keepalivePingCount = 0;
@@ -2971,6 +3190,9 @@ function createMockSocket(input?: {
   const respondToRegister = input?.respondToRegister ?? true;
 
   return {
+    emitError: (error: unknown) => {
+      onError?.(error);
+    },
     emitClose: (code: number, reason: string) => {
       onClose?.(code, reason);
     },
@@ -3084,7 +3306,9 @@ function createMockSocket(input?: {
     },
     terminate: () => {
       terminateCount += 1;
-      onClose?.(1011, "terminated");
+      if (input?.terminateEmitsClose !== false) {
+        onClose?.(1011, "terminated");
+      }
     },
     get terminateCount() {
       return terminateCount;
@@ -3095,8 +3319,8 @@ function createMockSocket(input?: {
     onClose: (handler: (code: number, reason: string) => void) => {
       onClose = handler;
     },
-    onError: (_handler: (error: unknown) => void) => {
-      return;
+    onError: (handler: (error: unknown) => void) => {
+      onError = handler;
     },
     waitUntilClosed: async () => undefined,
   };

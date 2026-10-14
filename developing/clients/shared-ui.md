@@ -139,6 +139,10 @@ content without a second shared disclosure component.
 
 ### Fluid Hover reuse
 
+`FluidNavMenu.listClassName` composes list or grid layout over the same measured
+SidebarMenu hover, selection, focus and action scope. Product surfaces supply
+responsive columns and disclosure; they do not introduce another hover engine.
+
 `hooks/use-fluid-hover` and `fluid/fluid-hover-highlight` are installed from the
 official Fluid Functionalism registry. The import retains the vendor's nearest
 enabled-item picking, coalesced measurement, pointer-session reset, optional

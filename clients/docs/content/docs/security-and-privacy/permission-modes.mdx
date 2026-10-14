@@ -1,0 +1,38 @@
+---
+title: Permission modes
+description: Understand the separate controls for access, tool execution, and disclosure.
+---
+
+A permission mode controls how a supported local agent tool handles actions that need approval. It does not replace OpenMeld membership, Space access, connected-account permissions, or computer file-access restrictions.
+
+## Choose a local Agent mode
+
+Open the Local Agent’s settings and find its tool-specific **permissions mode**. Available choices depend on the tool and installed version. Read the description next to the selected option.
+
+| Tool | Examples of available choices |
+| --- | --- |
+| Codex | **Ask for approval**, **Approve for me**, **Full access**. |
+| Claude Code | **Ask permissions**, **Accept edits**, **Plan mode**, **Auto mode**, **Don’t ask**, **Bypass permissions**. |
+| Cursor | **Default**, **Plan**, **Ask**, **Auto-review (Smart Auto)**, **Run Everything**. |
+| Grok Build | **Ask permissions**, **Accept edits**, **Plan mode**, **Auto mode**, **Don’t ask**, **Bypass permissions**. |
+| Antigravity | **Default**, **Accept edits**, **Plan**, **Bypass permissions**. |
+
+These are the tool integrations exposed by OpenMeld, not interchangeable safety levels. **Don’t ask** rejects actions that are not already allowed; it does not mean “approve everything.” A planning mode is not necessarily a read-only sandbox. Antigravity’s **Plan**, for example, requests planning behavior without creating that boundary.
+
+Selecting a dangerous bypass or full-access mode requires explicit confirmation in OpenMeld. It reduces the native tool’s approval restrictions. A separately configured computer file-access boundary applies when the runtime can enforce it and you have not approved the one-run exception described below.
+
+## Approvals and computer access
+
+For supported interactive tools, an approval request can appear in the Space. Review the requested action before answering. Unattended behavior varies: Antigravity’s default mode blocks actions that need approval during unattended runs.
+
+Use **Settings → Privacy & Safety → Computer file access** to reach the settings for each computer. A working folder is the starting location for a task; it is not automatically a boundary that blocks every other folder.
+
+If OpenMeld cannot verify the file-access boundary, it offers **Run once without this boundary** or **Cancel run**. The first option removes that extra boundary for this Wake. If the task requires the boundary, cancel and fix the runtime or configuration. A file-access setting alone is not evidence that a particular run used it.
+
+A separate conversation or isolated working copy also does not, by itself, define file permissions. The task’s execution context and the computer’s applied policy determine those limits. See [Local code access](/docs/tasks/local-code).
+
+## Remote Agents and Center Agent
+
+Hosted Agents use OpenMeld’s service-side authorization and the permissions of their connected tools. The local-tool modes above do not configure hosted execution. Giving an Agent a leadership role or a broad instruction does not grant access to another member’s private resources.
+
+Reading information and publishing it are separate decisions. A tool may be able to read a source while [information protection](/docs/security-and-privacy/private-information) still requires a private or redacted result.

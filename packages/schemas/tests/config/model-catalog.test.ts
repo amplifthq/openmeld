@@ -19,6 +19,7 @@ import openCodeOctoberCapture from "../fixtures/opencode-model-catalog-1.18.34.j
 import openCodeReviewCapture from "../fixtures/opencode-model-catalog-2026.10.06.json";
 import openCodeLatestReviewCapture from "../fixtures/opencode-model-catalog-2026.10.07.json";
 import openCodeAlignmentCapture from "../fixtures/opencode-model-catalog-2026.10.09.json";
+import openCodeOctober14Capture from "../fixtures/opencode-model-catalog-2026.10.14.json";
 import museWonderCapture from "../fixtures/opencode-muse-wonder-2026.10.13.json";
 
 describe("model catalog schema", () => {
@@ -178,6 +179,7 @@ describe("model catalog schema", () => {
       ...haikuCapture.opencode.models,
       ...openCodeAlignmentCapture.models,
       ...museWonderCapture.models,
+      ...openCodeOctober14Capture.models,
     ]) {
       expect(agentControllers.opencode?.models).toContainEqual(
         expect.objectContaining({
@@ -247,6 +249,9 @@ describe("model catalog schema", () => {
     ).toEqual(
       [
         "anthropic/claude-haiku-5.5",
+        ...openCodeOctober14Capture.models.map(
+          (model) => `${model.providerID}/${model.id}`
+        ),
         "gemini-4-argon-medium",
         "gemini-4-argon[reasoning_effort=medium]",
         "google/gemini-4-argon",
@@ -334,8 +339,8 @@ describe("model catalog schema", () => {
                     authType: "chatgpt",
                   },
                   sourceUrl:
-                    "https://learn.chatgpt.com/docs/models#deprecated-codex-models",
-                  verifiedAt: "2026-10-09T03:16:42Z",
+                    "https://learn.chatgpt.com/docs/models#gpt-55-retirement",
+                  verifiedAt: "2026-10-14T02:04:04Z",
                 },
               }
             : {}),

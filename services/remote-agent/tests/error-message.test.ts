@@ -5,6 +5,29 @@ import {
 } from "../agent-core/error-message";
 
 describe("remote agent error message normalization", () => {
+  it.each([
+    "context.working_budget_exceeded",
+    "context.no_compaction_boundary",
+    "context.compaction_candidate_rejected",
+    "context.compaction_input_too_large",
+    "Provider rejected input (request_too_large)",
+  ])("recognizes retained capacity failure through the runtime cause: %s", (message) => {
+    expect(
+      isRemoteAgentContextWindowExceeded(
+        new Error("Agent run failed", {
+          cause: new Error(message),
+        })
+      )
+    ).toBe(true);
+  });
+
+  it("does not label a transient summary failure as insufficient model capacity", () => {
+    expect(
+      isRemoteAgentContextWindowExceeded(
+        new Error("context.compaction_failed: Service unavailable")
+      )
+    ).toBe(false);
+  });
   it("preserves nested provider messages instead of object placeholders", () => {
     expect(
       normalizeRemoteAgentErrorMessage({

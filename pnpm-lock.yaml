@@ -38,10 +38,10 @@ patchedDependencies:
     hash: a17b71a0ae3c0c484d6a40458c00fd006034b8082ff7a03e604e3745ed376fda
     path: patches/@better-auth__electron@1.6.30.patch
   '@cloudflare/computer@0.5.0':
-    hash: b1302eb045670829803d4397d56449940100a8cbf62bebd72e0b8f6753a4f2f9
+    hash: c7f34414044312bb1dbc9a448d2c445d4bb70e277999dd93fd3d80138d5eb673
     path: patches/@cloudflare__computer@0.5.0.patch
   '@flue/runtime@2.2.2':
-    hash: 9080c1cfca8f038c44d97cf5a077d7cbe1ba9e326a911beca2a8b11051c61ec6
+    hash: bfce2b14b6f802ef5ed65378328011104d9d35ae4ae28ea1b392893e90ac3a1d
     path: patches/@flue__runtime@2.2.2.patch
   '@tailwindcss/vite@4.2.1':
     hash: d5776a5397c18293d625eadd895bc63cbf260d59a7df05001dd36759ec11af2b
@@ -328,6 +328,9 @@ importers:
       '@opencode/client':
         specifier: 2.0.24
         version: 2.0.24(effect@4.0.0-rc.112)(solid-js@1.9.11)
+      '@openmeld/adapter-grok-bot':
+        specifier: workspace:*
+        version: link:../../runtime/adapters/grok-bot
       better-sqlite3:
         specifier: ^12.6.2
         version: 12.6.2
@@ -1558,6 +1561,19 @@ importers:
         specifier: ^24.3.0
         version: 24.10.13
 
+  runtime/adapters/grok-bot:
+    dependencies:
+      '@openmeld/adapter-core':
+        specifier: workspace:*
+        version: link:../core
+      '@openmeld/schemas':
+        specifier: workspace:*
+        version: link:../../../packages/schemas
+    devDependencies:
+      '@types/node':
+        specifier: ^24.3.0
+        version: 24.10.13
+
   runtime/adapters/grok-build:
     dependencies:
       '@openmeld/adapter-core':
@@ -1648,6 +1664,9 @@ importers:
       '@openmeld/adapter-cursor':
         specifier: workspace:*
         version: link:../adapters/cursor
+      '@openmeld/adapter-grok-bot':
+        specifier: workspace:*
+        version: link:../adapters/grok-bot
       '@openmeld/adapter-grok-build':
         specifier: workspace:*
         version: link:../adapters/grok-build
@@ -1894,13 +1913,13 @@ importers:
         version: 0.5.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ai@6.0.219(zod@4.6.5))(zod@4.6.5)
       '@cloudflare/computer':
         specifier: 0.5.0
-        version: 0.5.0(patch_hash=b1302eb045670829803d4397d56449940100a8cbf62bebd72e0b8f6753a4f2f9)(@cloudflare/workers-types@5.20261001.1)(ai@6.0.219(zod@4.6.5))(zod@4.6.5)
+        version: 0.5.0(patch_hash=c7f34414044312bb1dbc9a448d2c445d4bb70e277999dd93fd3d80138d5eb673)(@cloudflare/workers-types@5.20261001.1)(ai@6.0.219(zod@4.6.5))(zod@4.6.5)
       '@earendil-works/pi-ai':
         specifier: 0.87.1
         version: 0.87.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ws@8.21.3)(zod@4.6.5)
       '@flue/runtime':
         specifier: 2.2.2
-        version: 2.2.2(patch_hash=9080c1cfca8f038c44d97cf5a077d7cbe1ba9e326a911beca2a8b11051c61ec6)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(typescript@5.9.3)(ws@8.21.3)(zod@4.6.5)
+        version: 2.2.2(patch_hash=bfce2b14b6f802ef5ed65378328011104d9d35ae4ae28ea1b392893e90ac3a1d)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(typescript@5.9.3)(ws@8.21.3)(zod@4.6.5)
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5)
@@ -16299,7 +16318,7 @@ snapshots:
       ai: 6.0.219(zod@4.6.5)
       zod: 4.6.5
 
-  '@cloudflare/computer@0.5.0(patch_hash=b1302eb045670829803d4397d56449940100a8cbf62bebd72e0b8f6753a4f2f9)(@cloudflare/workers-types@5.20261001.1)(ai@6.0.219(zod@4.6.5))(zod@4.6.5)':
+  '@cloudflare/computer@0.5.0(patch_hash=c7f34414044312bb1dbc9a448d2c445d4bb70e277999dd93fd3d80138d5eb673)(@cloudflare/workers-types@5.20261001.1)(ai@6.0.219(zod@4.6.5))(zod@4.6.5)':
     dependencies:
       acorn: 8.18.0
       capnweb: 0.12.0(patch_hash=7f8f0dca8db0a032e037f83deff97aac1b9429e88c880b4cc9aa13d3d661a73a)
@@ -17654,7 +17673,7 @@ snapshots:
 
   '@flue/cli@2.2.2(@babel/core@8.0.1)(@babel/runtime@7.29.7)(@cloudflare/codemode@0.5.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(@cloudflare/workers-types@5.20261001.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@modelcontextprotocol/server@2.0.0)(@types/node@24.10.13)(ai@6.0.219(zod@4.6.5))(chat@4.32.0(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(esbuild@0.28.2)(hono@4.12.22)(jiti@2.7.0)(just-bash@3.0.2)(react@19.2.4)(rolldown@1.1.4)(tsx@4.21.0)(typescript@5.9.3)(ws@8.21.3)(yaml@2.9.1)(zod@4.6.5)':
     dependencies:
-      '@flue/runtime': 2.2.2(patch_hash=9080c1cfca8f038c44d97cf5a077d7cbe1ba9e326a911beca2a8b11051c61ec6)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(typescript@5.9.3)(ws@8.21.3)(zod@4.6.5)
+      '@flue/runtime': 2.2.2(patch_hash=bfce2b14b6f802ef5ed65378328011104d9d35ae4ae28ea1b392893e90ac3a1d)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(typescript@5.9.3)(ws@8.21.3)(zod@4.6.5)
       '@flue/vite': 2.2.2(@babel/core@8.0.1)(@babel/runtime@7.29.7)(@cloudflare/codemode@0.5.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(@cloudflare/workers-types@5.20261001.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@modelcontextprotocol/server@2.0.0)(ai@6.0.219(zod@4.6.5))(chat@4.32.0(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(hono@4.12.22)(just-bash@3.0.2)(react@19.2.4)(rolldown@1.1.4)(typescript@5.9.3)(vite@8.1.2(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))(ws@8.21.3)(zod@4.6.5)
       '@vercel/detect-agent': 1.2.3
       cac: 7.0.0
@@ -17702,7 +17721,7 @@ snapshots:
       - yaml
       - zod
 
-  '@flue/runtime@2.2.2(patch_hash=9080c1cfca8f038c44d97cf5a077d7cbe1ba9e326a911beca2a8b11051c61ec6)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(typescript@5.9.3)(ws@8.21.3)(zod@4.6.5)':
+  '@flue/runtime@2.2.2(patch_hash=bfce2b14b6f802ef5ed65378328011104d9d35ae4ae28ea1b392893e90ac3a1d)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(typescript@5.9.3)(ws@8.21.3)(zod@4.6.5)':
     dependencies:
       '@earendil-works/pi-agent-core': 0.87.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ws@8.21.3)(zod@4.6.5)
       '@earendil-works/pi-ai': 0.87.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ws@8.21.3)(zod@4.6.5)
@@ -17725,7 +17744,7 @@ snapshots:
 
   '@flue/vite@2.2.2(@babel/core@8.0.1)(@babel/runtime@7.29.7)(@cloudflare/codemode@0.5.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(@cloudflare/workers-types@5.20261001.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@modelcontextprotocol/server@2.0.0)(ai@6.0.219(zod@4.6.5))(chat@4.32.0(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(hono@4.12.22)(just-bash@3.0.2)(react@19.2.4)(rolldown@1.1.4)(typescript@5.9.3)(vite@8.1.2(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))(ws@8.21.3)(zod@4.6.5)':
     dependencies:
-      '@flue/runtime': 2.2.2(patch_hash=9080c1cfca8f038c44d97cf5a077d7cbe1ba9e326a911beca2a8b11051c61ec6)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(typescript@5.9.3)(ws@8.21.3)(zod@4.6.5)
+      '@flue/runtime': 2.2.2(patch_hash=bfce2b14b6f802ef5ed65378328011104d9d35ae4ae28ea1b392893e90ac3a1d)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(typescript@5.9.3)(ws@8.21.3)(zod@4.6.5)
       '@hono/node-server': 2.0.8(hono@4.12.22)
       agents: 0.20.1(@babel/core@8.0.1)(@babel/runtime@7.29.7)(@cloudflare/codemode@0.5.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(@cloudflare/workers-types@5.20261001.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@modelcontextprotocol/server@2.0.0)(ai@6.0.219(zod@4.6.5))(chat@4.32.0(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(just-bash@3.0.2)(react@19.2.4)(rolldown@1.1.4)(vite@8.1.2(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))(zod@4.6.5)
       magic-string: 1.4.3

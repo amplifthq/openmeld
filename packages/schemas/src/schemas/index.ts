@@ -438,6 +438,11 @@ export {
   runtimeTransportRuntimeEvidenceIdentityEchoSchema,
   spaceTraceExecutionIdentityProjectionSchema,
 } from "./daemon/execution-identity";
+export {
+  localAgentUpdateOperationSchema,
+  localAgentUpdateRequestSchema,
+  localAgentUpdateStateSchema,
+} from "./daemon/local-agent-update";
 export { localFolderPathSchema } from "./daemon/local-folder-path";
 export {
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,

@@ -422,6 +422,16 @@ reader, or a controller adapter selects the corresponding additional components.
 
 ### Practical retirement and recovery
 
+The October 14 follow-up review adds Liquid LFM2.5-24B-A2B and Pareto 26.9
+through OpenRouter after successful native OpenCode 1.19.0 probes. Zen Gemini
+and both Cat Jam routes are deferred because of provider credential,
+subscription and free-tier request restrictions; no adapter defect was found.
+Defaults and saved selections do not change. GPT-5.5 still completed
+a native ChatGPT-sign-in probe on its announced retirement date, so its notice
+remains announced, with a refreshed verification time. See
+[the review evidence](../../release/model-catalog-evidence/review-1710.md)
+for account-specific execution results and remaining acceptance limits.
+
 The existing Action's retirement recheck section includes all currently cataloged
 models, independent of the new-model discovery cutoff. It preserves reviewed
 notices and extracts relevant official passages. A reviewer records **stopped,

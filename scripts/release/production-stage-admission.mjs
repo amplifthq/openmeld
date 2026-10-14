@@ -7,7 +7,6 @@ import {
   expandRequestedReleaseScopes,
   resolveProductionLeaseScopes,
 } from "./production-release.mjs";
-import { collectProductionReleaseStatus } from "./production-release-status.mjs";
 
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const HOSTED_SCOPE_ALIASES = new Map([
@@ -182,7 +181,11 @@ export async function runProductionStageAdmission(input = {}) {
     throw new Error("Production stage admission requires an exact source SHA.");
   }
   const selectedScopes = resolveSelectedScopes(input.scope);
-  const status = await (input.collectStatus ?? collectProductionReleaseStatus)({
+  const collectStatus =
+    input.collectStatus ??
+    (await import("./production-release-status.mjs"))
+      .collectProductionReleaseStatus;
+  const status = await collectStatus({
     argv: ["--ref", sourceSha, ...(input.repo ? ["--repo", input.repo] : [])],
     adapters: input.adapters,
     remoteAgentRecovery: input.remoteAgentRecovery,

@@ -861,7 +861,15 @@ ID; it still rejects `/v1/devices/current/forget`. Forget removes the account's
 record. It is not Service Stop or local CLI sign-out, and this exception grants
 no local configuration capability.
 
-Working folder selection is a narrow exception. Main reads the existing CLI
+Native Local Agent updates are also available in the shared Computer details.
+Desktop retains authorized installation reads and admits the exact
+installation-update GET/POST routes only for its native account-aligned device
+and lane. Installation selection,
+enablement, and catalog refresh remain Web-only. The shared Service updater owns
+admission, vendor execution, and durable results; Desktop has no separate updater.
+
+Working folder selection and Local Agent updates share one native target check.
+Main reads the existing CLI
 `computer connection-review --json` projection without installing or starting a
 Service and checks its account against the Desktop session before and after the
 read. The shared renderer uses that exact device and lane for folder selection,

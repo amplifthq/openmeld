@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { resolveBuiltinAgentControllerConversationCapability } from "../daemon/agent-controller-conversation-capability";
 import {
   agentControllerRefSchema,
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
@@ -6,6 +7,7 @@ import {
 import { agentProfileCreationPreferenceSelectionSchema } from "./agent-profile-binding";
 
 const identifierSchema = z.string().trim().min(1).max(256);
+const builtinPrefixPattern = /^builtin:/;
 // Launch hold, not legacy: retain teammate requests for isolated development
 // of Request an Agent. Self-owned creation still uses this request contract.
 // Reopening checklist: developing/product/agent-profiles.md#teammate-request-launch-hold
@@ -79,6 +81,49 @@ const completeAgentProfileCreationConfigurationSchema =
       authorizeForOrganization: z.boolean().optional().default(true),
       localAgentConnectionCandidateId: identifierSchema.nullable().optional(),
       targetComputerId: identifierSchema.nullable(),
+      sharedConversation: z
+        .object({
+          conversationId: z
+            .string()
+            .trim()
+            .regex(/^[A-Za-z0-9_-]{1,256}$/),
+          acknowledged: z.literal(true),
+        })
+        .optional(),
+    })
+    .superRefine((configuration, context) => {
+      const shared =
+        resolveBuiltinAgentControllerConversationCapability(
+          configuration.agentControllerRef?.replace(builtinPrefixPattern, "") ??
+            ""
+        )?.conversationScope === "account_shared";
+      if (shared !== Boolean(configuration.sharedConversation)) {
+        context.addIssue({
+          code: "custom",
+          path: ["sharedConversation"],
+          message: shared
+            ? "Connect an existing conversation and acknowledge shared control."
+            : "This controller does not support shared conversations.",
+        });
+      }
+      if (shared) {
+        for (const key of [
+          "modelId",
+          "reasoningLevel",
+          "agentControllerPermissionMode",
+          "agentControllerCollaborationMode",
+          "openCodePermission",
+          "defaultProjectId",
+        ] as const) {
+          if (configuration[key] != null) {
+            context.addIssue({
+              code: "custom",
+              path: [key],
+              message: "Manage this setting in the Bot's original app.",
+            });
+          }
+        }
+      }
     })
     .superRefine((configuration, context) => {
       const hasController = configuration.agentControllerRef !== null;
@@ -262,6 +307,17 @@ export const createAgentProfileCreationRequestBodySchema = z
   })
   .superRefine((request, context) => {
     const nativeSessionId = request.nativeSessionId ?? null;
+    if (
+      request.configuration?.sharedConversation &&
+      request.sessionStrategy !== "new"
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["sessionStrategy"],
+        message:
+          "A shared Bot connection creates a new Profile linked to its existing conversation; it cannot fork or import an Activity session.",
+      });
+    }
     if (
       request.configuration?.agentControllerRef ===
         HOSTED_REMOTE_AGENT_CONTROLLER_REF &&
