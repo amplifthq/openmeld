@@ -1023,6 +1023,28 @@ test("keeps the canonical receipt v3 while linking an immutable recovery proof",
         }),
       PARTIAL_RECOVERY_ERROR
     );
+    assert.throws(
+      () =>
+        publish(verifiedReceipt, "2026-09-20T16:00:03.000Z", {
+          ...verifiedReceipt,
+          remoteAgent: {
+            phase: "complete",
+            container: {
+              id: "container-id",
+              name: "openmeld-agent-computer",
+              version: 99,
+              image: `registry.cloudflare.com/example@sha256:${"a".repeat(64)}`,
+              configurationHash: "b".repeat(64),
+              instances: [],
+            },
+            baselineEvidenceSha: "c".repeat(40),
+            baselineSourceSha: fixture.sourceSha,
+            workerIdentity: identity,
+          },
+          recovery: complete,
+        }),
+      PARTIAL_RECOVERY_ERROR
+    );
     publish(verifiedReceipt, "2026-09-20T16:01:01.000Z", {
       ...verifiedReceipt,
       recovery: complete,

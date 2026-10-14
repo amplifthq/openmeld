@@ -229,14 +229,9 @@ const remoteAgentRecoverySchema = z.strictObject({
 // The canonical receipt stays v3 for older release readers. This v4 proof is
 // its second Git parent; the first parent preserves the original failed event.
 // The baseline never attributes the partial Worker to the failed command.
-export const recoveredComponentReceiptSchema = z
-  .strictObject({
-    attemptId: z.uuid(),
-    componentIndex: z.number().int().nonnegative(),
-    operationKey: z.string().regex(/^[0-9a-f]{64}$/u),
-    startedAt: z.iso.datetime(),
+export const recoveredComponentReceiptSchema = correlatedComponentReceiptSchema
+  .safeExtend({
     status: z.enum(["verified", "failed"]),
-    application: z.enum(["unknown", "applied"]),
     identity: productionWorkerDeploymentIdentitySchema.optional(),
     recovery: remoteAgentRecoverySchema,
   })

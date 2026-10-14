@@ -1,0 +1,31 @@
+---
+title: Limits and loop prevention
+description: The safeguards that reduce redundant Agent work, and the limits of those safeguards.
+---
+
+An Agent can repeat a read, hand work back to a teammate, or continue investigating without making useful progress. OpenMeld combines enforced limits with instructions that help Agents recognize these situations. The two have different strengths and apply to different execution paths.
+
+## Enforced safeguards
+
+| Safeguard | Where it applies | What it does |
+| --- | --- | --- |
+| Assignment tool-call limit | Hosted execution using OpenMeld's tool wrapper | Stops execution when the configured allowance is exhausted. Stored progress keeps supported continuations from resetting the allowance. |
+| Unchanged-read detection | Hosted tools explicitly classified as observations | Rejects repeated calls that return unchanged evidence and directs the Agent to use existing results or resolve a specific question. This does not classify every possible loop. |
+| Handoff-depth limit | The member-owned Remote Agent same-Space handoff tool | Rejects handoffs at its relay-depth limit. This is not a universal limit on all Agent collaboration. |
+| Working-context and result limits | Hosted model calls and tool presentation | Bound the information sent to the model. They do not bound the total cost of a multi-agent task. |
+
+These are execution safeguards, not a guarantee that every allowed action is useful. A model can waste effort without repeating an identical call.
+
+## Instructions that reduce unnecessary work
+
+Agents receive guidance to avoid meaningless Wakes, inspect existing results, keep handoffs self-contained, and distinguish running work from completed results. Supported Center Agent coordination uses completion events so it does not need to keep asking whether a child has finished.
+
+Model guidance is not a hard block. The general Agent transport allows a conversation to return to a previous Agent because review and revision can require several rounds. It does not stop every A-to-B-to-A exchange merely because an Agent appears twice.
+
+There is no universal guarantee that Agents cannot loop, exhaust a provider allowance, or create unexpected costs. The safeguards above reduce specific failure modes; they do not provide a shared spending cap for all execution paths.
+
+## When work stops being useful
+
+Use the relevant Stop control for the active work. A stop request can take time to reach the execution environment, and it cannot undo completed actions. Check the resulting state and any files or external changes before starting again.
+
+For recurring work, pause the [Routine](/docs/work/routines). For Organization-level Center Agent control, see [Center Agent settings](/docs/work/center-agent-settings). Use [AI usage](/docs/team/usage) to review the activity and narrow the next assignment to a specific unresolved question.

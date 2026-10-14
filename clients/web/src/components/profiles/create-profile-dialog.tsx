@@ -18,6 +18,7 @@ import {
 	DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
 	formatAgentRecoveryActionLabel,
 	HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+	resolveBuiltinAgentControllerConversationCapability,
 	TEAMMATE_AGENT_REQUESTS_ENABLED,
 } from "@openmeld/schemas";
 import type {
@@ -164,6 +165,10 @@ import { resolveCreateProfileSubmitBlockReason } from "./create-profile-form-log
 import { formatLocalAgentDisplayName } from "./local-agent-display-name";
 import { isOpenCodeAgentId } from "./open-code-permissions-field";
 import { RequestedAgentProjectField } from "./requested-agent-project-field";
+import {
+	SharedConversationConfirmation,
+	SharedConversationFields,
+} from "./shared-conversation-confirmation";
 import { useAgentCreationComputerRecovery } from "./use-agent-creation-computer-recovery";
 
 type RecoveryController = ReturnType<typeof useLocalAgentRecoveryController>;
@@ -600,6 +605,23 @@ function resolveAllowedInitialSessionPreset(
 		: undefined;
 }
 
+function sharedConversationConfiguration(
+	shared: boolean,
+	conversationId: string
+) {
+	return shared
+		? { conversationId: conversationId.trim(), acknowledged: true as const }
+		: undefined;
+}
+
+function creationSessionPresetKey(
+	shared: boolean,
+	conversationId: string,
+	preset: CreateProfileAgentActivitySessionPreset | undefined
+) {
+	return shared ? conversationId.trim() : resolveSessionPresetKey(preset);
+}
+
 function useCreateProfileDialogController(
 	input: CreateProfileDialogProps,
 	options: { agentOnly: boolean; templateNaming: boolean }
@@ -858,6 +880,13 @@ function useCreateProfileDialogController(
 		selectedProjectId,
 	} = effectiveFormState;
 	const agentControllerRef = resolveAgentControllerRef(boundAgentId);
+	const sharedConversation =
+		resolveBuiltinAgentControllerConversationCapability(boundAgentId)
+			?.conversationScope === "account_shared";
+	const [sharedConversationId, setSharedConversationId] = useState("");
+	const [sharedConnectionKey, setSharedConnectionKey] = useState<string | null>(
+		null
+	);
 	const creationDefaultsEnabled = shouldReadCreationDefaults({
 		agentControllerRef,
 		open: input.open,
@@ -1065,6 +1094,8 @@ function useCreateProfileDialogController(
 	});
 
 	const resetForm = () => {
+		setSharedConversationId("");
+		setSharedConnectionKey(null);
 		submissionInFlightRef.current = false;
 		creationIntentRef.current = null;
 		appliedCreationDefaultsKeyRef.current = null;
@@ -1123,6 +1154,10 @@ function useCreateProfileDialogController(
 				};
 			}
 			return submitProfileCreation({
+				sharedConversation: sharedConversationConfiguration(
+					sharedConversation,
+					sharedConversationId
+				),
 				agentControllerConversationId,
 				agentControllerCollaborationMode:
 					resolveCreateAgentControllerCollaborationMode({
@@ -1454,7 +1489,31 @@ function useCreateProfileDialogController(
 			ownerMode,
 			targetOwnerName,
 		}),
-		agentSessionSlot: sessionChoice,
+		connectionConfirmation: (
+			<SharedConversationConfirmation
+				onCancel={() => {
+					setSharedConnectionKey(null);
+					submissionInFlightRef.current = false;
+				}}
+				onConnect={() => {
+					if (sharedConnectionKey) {
+						createProfileMutation.mutate({
+							idempotencyKey: sharedConnectionKey,
+						});
+						setSharedConnectionKey(null);
+					}
+				}}
+				open={sharedConnectionKey !== null}
+			/>
+		),
+		agentSessionSlot: (
+			<SharedConversationFields
+				enabled={sharedConversation}
+				fallback={sessionChoice}
+				onChange={setSharedConversationId}
+				value={sharedConversationId}
+			/>
+		),
 		remoteAgentCreation: resolvePersonalRemoteAgentCreation(
 			ownerMode,
 			Boolean(sessionPreset),
@@ -1478,6 +1537,7 @@ function useCreateProfileDialogController(
 				},
 			}
 		),
+		sharedConversationId,
 		agentSessionSummary: resolveAgentSessionSummary({
 			sessionMode,
 			sessionPreset,
@@ -1670,12 +1730,21 @@ function useCreateProfileDialogController(
 						selectedHumanProfile?.openMeldProfileId ?? null,
 					selectedProjectId,
 					spaceId: spaceContext?.spaceId ?? null,
-					sessionPresetKey: resolveSessionPresetKey(sessionPreset),
+					sessionPresetKey: creationSessionPresetKey(
+						sharedConversation,
+						sharedConversationId,
+						sessionPreset
+					),
 					targetOwnerUserId,
 				}),
 				onErrorClear: () => setErrorState(null),
-				onSubmit: (idempotencyKey) =>
-					createProfileMutation.mutate({ idempotencyKey }),
+				onSubmit: (idempotencyKey) => {
+					if (sharedConversation) {
+						setSharedConnectionKey(idempotencyKey);
+					} else {
+						createProfileMutation.mutate({ idempotencyKey });
+					}
+				},
 				submissionInFlightRef,
 			});
 		},
@@ -2548,6 +2617,7 @@ async function enableLocalAgentWithOutcomeConfirmation(input: {
 }
 
 type CreateProfileSubmissionInput = {
+	sharedConversation?: { conversationId: string; acknowledged: true };
 	agentControllerConversationId: string | null;
 	agentControllerCollaborationMode: AgentControllerCollaborationMode | null;
 	agentControllerPermissionMode: AgentControllerPermissionMode | null;
@@ -2770,21 +2840,30 @@ async function requestAgentProfile(input: CreateProfileSubmissionInput) {
 	const result = await createAgentProfileCreationRequest({
 		queryClient: input.queryClient,
 		configuration: {
-			agentControllerCollaborationMode: input.agentControllerCollaborationMode,
-			agentControllerPermissionMode: input.agentControllerPermissionMode,
+			sharedConversation: input.sharedConversation,
+			agentControllerCollaborationMode: input.sharedConversation
+				? null
+				: input.agentControllerCollaborationMode,
+			agentControllerPermissionMode: input.sharedConversation
+				? null
+				: input.agentControllerPermissionMode,
 			agentControllerRef: connection.agentControllerRef,
 			localAgentConnectionCandidateId:
 				connection.localAgentConnectionCandidateId,
 			authorizeForOrganization: true,
-			defaultProjectId,
+			defaultProjectId: input.sharedConversation ? null : defaultProjectId,
 			modelId:
-				input.boundAgentId && input.boundModelId ? input.boundModelId : null,
+				!input.sharedConversation && input.boundAgentId && input.boundModelId
+					? input.boundModelId
+					: null,
 			openCodePermission:
 				input.boundAgentId && isOpenCodeAgentId(input.boundAgentId)
 					? input.boundOpenCodePermission
 					: null,
 			reasoningLevel:
-				input.boundAgentId && input.boundReasoningLevel
+				!input.sharedConversation &&
+				input.boundAgentId &&
+				input.boundReasoningLevel
 					? input.boundReasoningLevel
 					: null,
 			targetComputerId: connection.targetComputerId,

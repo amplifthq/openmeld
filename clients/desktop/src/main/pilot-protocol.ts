@@ -22,7 +22,7 @@ import {
   SPACE_ACCESS_VERSION_HEADER,
 } from "@openmeld/schemas";
 import {
-  desktopWorkingFolderTarget,
+  desktopComputerOperationTarget,
   isPilotLocalControlRequest,
 } from "./pilot-local-control-policy";
 import type { TransportObservation } from "./transport-diagnostics";
@@ -182,12 +182,15 @@ async function forwardCloud(
       status: 403,
     });
   }
-  const folderGeneration = desktopWorkingFolderTarget(url, request.method)
+  const operationGeneration = desktopComputerOperationTarget(
+    url,
+    request.method
+  )
     ? input.sessionGeneration?.()
     : undefined;
-  const folderRefusal = await admitWorkingFolder(request, url, input);
-  if (folderRefusal) {
-    return folderRefusal;
+  const operationRefusal = await admitComputerOperation(request, url, input);
+  if (operationRefusal) {
+    return operationRefusal;
   }
   // The owning Session admits only the current native main frame before this
   // handler runs. Electron custom-protocol requests omit HTTP source metadata.
@@ -213,12 +216,12 @@ async function forwardCloud(
     body: await readCloudBody(request),
   };
   if (
-    folderGeneration !== undefined &&
-    input.sessionGeneration?.() !== folderGeneration
+    operationGeneration !== undefined &&
+    input.sessionGeneration?.() !== operationGeneration
   ) {
-    return folderError(
-      "desktop.folder.account_changed",
-      "Your Desktop sign-in changed. Reopen the working folder settings and try again."
+    return computerOperationError(
+      "desktop.computer.account_changed",
+      "Your Desktop sign-in changed. Reopen this computer’s settings and try again."
     );
   }
   return await fetchCloudResponse(
@@ -291,44 +294,47 @@ async function readCloudBody(request: Request) {
     : await request.arrayBuffer();
 }
 
-async function admitWorkingFolder(
+async function admitComputerOperation(
   request: Request,
   url: URL,
   input: PilotProtocolOptions
 ): Promise<Response | null> {
-  const folderTarget = desktopWorkingFolderTarget(url, request.method);
-  if (folderTarget) {
+  const target = desktopComputerOperationTarget(url, request.method);
+  if (target) {
     let local: DesktopLocalComputer | undefined;
     try {
       local = await input.readLocalComputer?.();
     } catch {
-      return folderError(
-        "desktop.folder.computer_unavailable",
+      return computerOperationError(
+        "desktop.computer.unavailable",
         "Couldn’t check this computer. Check its OpenMeld Service, then try again."
       );
     }
     if (!local || local.status !== "available") {
-      return folderError(
-        "desktop.folder.computer_unavailable",
+      return computerOperationError(
+        "desktop.computer.unavailable",
         local?.status === "unavailable"
           ? local.message
-          : "Couldn’t check this computer for folder selection. Reopen Desktop and try again."
+          : "Couldn’t check this computer. Reopen Desktop and try again."
       );
     }
     if (
-      folderTarget.deviceId !== local.target.deviceId ||
-      folderTarget.runtimeLane !== local.target.runtimeLane
+      target.deviceId !== local.target.deviceId ||
+      target.runtimeLane !== local.target.runtimeLane
     ) {
-      return folderError(
-        "desktop.folder.computer_mismatch",
-        "Choose a folder on the computer running this Desktop app. The selected computer or environment is different."
+      return computerOperationError(
+        "desktop.computer.mismatch",
+        "Use the computer running this Desktop app. The selected computer or environment is different."
       );
     }
   }
   return null;
 }
 
-function folderError(upstreamCode: string, message: string): Response {
+function computerOperationError(
+  upstreamCode: string,
+  message: string
+): Response {
   const requestId = randomUUID();
   return Response.json(
     gatewayErrorEnvelopeSchema.parse({

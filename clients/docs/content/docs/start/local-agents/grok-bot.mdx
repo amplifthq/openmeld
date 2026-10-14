@@ -1,0 +1,39 @@
+---
+title: Grok Bot
+description: Connect an existing Grok Bot conversation to OpenMeld.
+icon: local-agent:grok-bot
+---
+
+Connect a Bot you already use in Grok Bot. OpenMeld shares its existing conversation, tools, and settings.
+
+## Install and sign in
+
+1. Follow the [official BDK CLI guide](https://cursor.com/docs/bdk/reference/cli) to install `@cursor/bdk`.
+2. Run `bdk login` and sign in with the account that owns your Bot.
+3. Run `bdk whoami --json` to check that sign-in is complete.
+
+See the [official Grok Bot agent guide](https://cursor.com/docs/bdk/guides/grokbot-agents) for the provider's current requirements.
+
+## Connect to OpenMeld
+
+1. [Connect this computer](/docs/start/connect-computer).
+2. Create an Agent from **New message**, **Add people or agents**, or Agent settings.
+3. Select **Grok Bot**, choose the computer, and enter the existing Bot conversation ID.
+4. Confirm **Connect bot**. Then message the Agent or add it to a Space.
+
+## Shared conversation and limits
+
+Grok Bot connects to an existing conversation through BDK. Unlike a separate local Agent session, it shares the Bot's conversation, tools, and settings with the Grok Bot app.
+
+- **One shared conversation.** OpenMeld does not create a new Bot or a separate conversation for each Space. Messages sent through this connection appear in the Bot's existing conversation. Connecting the same Bot to several Spaces does not isolate their context.
+- **Stop affects the Bot.** **Stop** interrupts the Bot's current work, including work started in the Grok Bot app. It cannot target only one OpenMeld task. For example, stopping a task from a Space can also interrupt work you started in the Bot app.
+- **Replies are not isolated by task.** BDK does not provide reliable task-level reply attribution. Messages sent from the Bot app while an OpenMeld task runs can affect the context and reply returned to that task. Use one task at a time across both apps and all connected Spaces.
+- **Busy conversations must finish first.** OpenMeld rejects a new task when it detects that the Bot is already working. This check does not prevent someone from starting work in the Bot app at the same time. After Stop, wait for the stopped outcome before sending another task.
+- **Settings stay in Grok Bot.** Manage the model, tools, permissions, and working folder there. OpenMeld does not provide a separate project folder or isolated execution context for this connection.
+- **The connected computer must be available.** Its OpenMeld Service runs the BDK connection using that computer's BDK sign-in. Signing in to the Grok Bot app alone does not replace `bdk login`.
+
+Reconnecting the same Agent keeps its confirmed conversation. **Grok Build** is a separate ACP integration; it does not connect to your existing Grok Bot.
+
+## Try a first task
+
+Ask the Agent to summarize a short checklist. Confirm that the reply appears in OpenMeld and the existing Grok Bot conversation before using it for longer work.

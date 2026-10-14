@@ -15,6 +15,7 @@ import {
   agentControllerPermissionModeSchema,
   isHostedAgentControllerRef,
   openCodePermissionConfigSchema,
+  resolveBuiltinAgentControllerConversationCapability,
 } from "@openmeld/schemas";
 import type {
   AgentControllerCollaborationMode,
@@ -356,6 +357,16 @@ export async function ensurePrimaryAgentProfileBinding(input: {
       requestedAgentControllerConversationId:
         localEvidence.agentControllerConversationId,
     });
+  if (
+    resolveBuiltinAgentControllerConversationCapability(
+      parseAgentControllerRef(localEvidence.agentControllerRef)?.id ?? ""
+    )?.conversationScope === "account_shared" &&
+    !agentControllerConversationId
+  ) {
+    // Reconnect can reuse the existing confirmed conversation, but cannot
+    // initialize a shared Bot or switch controllers without a connection.
+    return rejectWith(["agent_profile_binding.session_resume_unavailable"]);
+  }
   const eligibility = resolveAgentProfileBindingCommandEligibility({
     agentProfileId: input.agentProfileId,
     now: new Date(input.nowMs),

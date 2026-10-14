@@ -2575,6 +2575,22 @@ effort at admission. The Harness reads that frozen route value. Usage remains re
 worker through OpenMeld-owned usage records and Analytics Engine and attributes
 the effective primary model.
 
+Changing a model preference affects newly admitted submissions. An already
+admitted submission, its exact recovery, and its running Computer commands keep
+their frozen route and execution identity. Steering text does not replace that
+route. A later submission in the same conversation uses the new selection and
+the existing canonical history, files, and command references; it must not
+restart completed work to reconstruct context.
+
+Context maintenance must fit the selected model too. When the old history or
+checkpoint exceeds its input capacity, the existing compaction owner reduces
+bounded source slices sequentially and commits only the final checkpoint after
+every slice succeeds. Failure preserves the previous canonical projection.
+Completed old messages may move out of the retained tail at complete message
+and tool-result boundaries. Active user input remains intact; if that input
+and required instructions cannot fit, report the capacity limit without
+promising that repeating the same request will fix it.
+
 The worker accepts legacy version-1 submissions during the mixed-deployment and
 recovery window. Those requests preserve the historical Grok 4.5 route because
 they contain no model route, including the historical image-input capability;
@@ -2827,13 +2843,14 @@ OpenMeld configures compaction with six explicit budgets:
   checkpoint target. It prioritizes active constraints, confirmed outcomes,
   unresolved work, and source references instead of listing the full history;
   and
-- `maxSummaryTokens = 4,096` caps the entire summary generation independently
+- `maxSummaryTokens = 4,096` caps each sequential summary call independently
   of the physical model reserve. Reasoning tokens also count toward this limit.
   The visible-text target leaves room to reason and finish; it is not another
   truncation mechanism or permission to exceed the working-context ceiling.
 
 Working-context compaction produces one checkpoint for earlier history and
-the unfinished turn together, with one summary output budget. Its observation
+the unfinished turn together. Each summary call uses the same output ceiling;
+only the final checkpoint is committed after all calls succeed. Its observation
 reports fixed context, before/after estimates, target and ceiling. This is
 maintenance evidence, not exact vendor tokenization or proof of task progress.
 
@@ -4389,7 +4406,7 @@ before Remote Agent emits them. No local Service or CLI contract changes.
 
 - Hosted inference uses [workspace AI credits and keys](../engineering/ai-billing.md).
   Free includes 5,000 credits per UTC month for the creator's first workspace.
-  Workspace BYOK and a privately configured internal exemption use separate keys.
+  Workspace BYOK uses a separate key. All workspaces follow the same funding rules.
 - The retired **$50/org/day circuit breaker**, `resting` state, and
   **60 Remote Agent triggers/member/hour** limit are not active product
   gates. Historical database columns and migrations remain as durable evidence.

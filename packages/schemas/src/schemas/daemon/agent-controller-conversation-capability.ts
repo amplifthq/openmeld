@@ -24,6 +24,7 @@ export const agentControllerConversationTurnOverrideCapabilitySchema = z.enum([
 ]);
 
 export const agentControllerConversationCapabilitySchema = z.strictObject({
+  conversationScope: z.literal("account_shared").optional(),
   discover: agentControllerConversationDiscoverCapabilitySchema,
   externalImport: agentControllerConversationExternalImportCapabilitySchema,
   fork: agentControllerConversationForkCapabilitySchema,
@@ -38,6 +39,14 @@ type AgentControllerConversationCapability = z.infer<
 export const BUILTIN_AGENT_CONTROLLER_CONVERSATION_CAPABILITY_BY_CONTROLLER_ID: Readonly<
   Record<string, AgentControllerConversationCapability>
 > = {
+  "grok-bot": {
+    conversationScope: "account_shared",
+    discover: "unsupported",
+    externalImport: "by_ref_id",
+    fork: "unsupported",
+    resume: "by_ref_id",
+    turnOverride: "unsupported",
+  },
   antigravity: {
     discover: "unsupported",
     externalImport: "by_ref_id",

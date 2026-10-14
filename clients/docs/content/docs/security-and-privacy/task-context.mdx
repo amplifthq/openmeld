@@ -1,0 +1,40 @@
+---
+title: Task context and delegation
+description: Understand where a request came from, who will receive the result, and what a handoff authorizes.
+---
+
+A task envelope is the context delivered with an Agent’s assignment. It helps the receiving Agent understand the request’s source, its execution environment, and where its answer belongs. A delegation is a handoff of work to another Agent.
+
+The purpose is to preserve context when work moves between people, Center Agent, Remote Agents, and Local Agents. A handoff must not make a private request appear to be permission to publish private information.
+
+## What accompanies a request
+
+The exact fields depend on the execution path. Supported paths supply the source message or task reference, requester or sender identity, target Agent, conversation or Organization context, and reply instructions. Hosted Center Agent turns also distinguish the current audience and how personal and Organization context may be used.
+
+OpenMeld records relationships between tasks and declared delegated work. These references let supported tools retrieve more evidence when needed, subject to access checks. Conversation messages, attachments, Space Guides, and task history supply context; they do not create new runtime permissions.
+
+## Follow recorded handoffs
+
+For a Center Agent request with declared delegation, open **Message details** to inspect the child tasks. Where you have access, you can see their task/context summaries, execution or publication states, and source or result links. **Graph** shows recorded conversation and work relationships.
+
+Each child is checked against its own Space access. An unreadable child remains unavailable without exposing its Agent, input, content, or location. A parent’s access does not automatically unlock the child’s Space. A child finishing also does not prove that the parent request has delivered its final result.
+
+Current Local and Remote admission can verify a recorded, one-step delegation from Center Agent to a child task when the original verified requester owns the receiving Agent. It rechecks the active delegation, Center Agent identity, and current membership. This is not recursive identity verification across an arbitrary chain.
+
+The receiving runtime gets the context supplied for its execution path. The current implementation does not guarantee that every Agent sees the complete upstream delegation chain. Use available source and child-result links to inspect recorded evidence; missing context must not be treated as permission.
+
+## Decide what may be disclosed
+
+At each handoff, consider:
+
+1. Who requested the work, and what identity is verified?
+2. What information is needed for this part of the task?
+3. Who can see the destination conversation or output?
+4. Has the person concerned authorized sharing the identified private information there?
+5. Do the receiving environment’s access rules and tool permissions allow the action?
+
+For example, Center Agent can ask a Local Agent for a project status summary. The Local Agent should use the task’s source and destination to return relevant project information. The request does not authorize it to append the computer owner’s private notes. If the intended recipient is unclear, it should resolve that ambiguity before disclosing the information.
+
+People can review source messages, task details, and approval requests. The environment enforces access and tool restrictions; the Agent uses the available context to judge disclosure. Traceability supports that judgment and does not replace authorization.
+
+See [Private information](/docs/security-and-privacy/private-information) and [Permission modes](/docs/security-and-privacy/permission-modes).

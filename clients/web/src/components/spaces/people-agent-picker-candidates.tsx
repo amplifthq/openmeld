@@ -4,7 +4,7 @@ import { CheckboxGroup, CheckboxItem } from "@openmeld/ui/fluid/checkbox-group";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { cn } from "@openmeld/ui/lib/utils";
 import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import {
 	resolveAgentCandidateDescription,
@@ -24,6 +24,22 @@ export function SpaceAddMembersCandidates(input: {
 	selectedProfileIds: ReadonlySet<string>;
 	selectionScope?: "space" | "desk";
 }) {
+	const viewportRef = useRef<HTMLDivElement>(null);
+	const onToggle = input.onToggle;
+	const previousSelection = useRef(input.selectedProfileIds);
+	useEffect(() => {
+		const addedId = [...input.selectedProfileIds].find(
+			(id) => !previousSelection.current.has(id)
+		);
+		if (addedId) {
+			const rows =
+				viewportRef.current?.querySelectorAll<HTMLElement>("[data-profile-id]");
+			Array.from(rows ?? [])
+				.find((row) => row.dataset.profileId === addedId)
+				?.scrollIntoView?.({ block: "nearest" });
+		}
+		previousSelection.current = input.selectedProfileIds;
+	}, [input.selectedProfileIds]);
 	const [collapsedGroupIds, setCollapsedGroupIds] = useState<
 		ReadonlySet<string>
 	>(() => new Set());
@@ -46,11 +62,12 @@ export function SpaceAddMembersCandidates(input: {
 				input.isSubmitting && "pointer-events-none opacity-70"
 			)}
 			contentClassName="flex flex-col gap-4 px-1"
+			viewportRef={viewportRef}
 		>
 			<SpaceAddMembersCandidateGroup
 				candidates={input.candidateGroups.organizationCandidates}
 				label="Organization"
-				onToggle={input.onToggle}
+				onToggle={onToggle}
 				selectedProfileIds={input.selectedProfileIds}
 				selectionScope={input.selectionScope}
 			/>
@@ -83,7 +100,7 @@ export function SpaceAddMembersCandidates(input: {
 											return next;
 										});
 									}}
-									onToggle={input.onToggle}
+									onToggle={onToggle}
 									selectedProfileIds={input.selectedProfileIds}
 									selectionScope={input.selectionScope}
 								/>
@@ -245,10 +262,15 @@ function SpaceAddMembersCandidateGroup(input: {
 		return null;
 	}
 	const headingId = input.label
-		? `space-add-members-group-${input.label.toLowerCase()}`
+		? `space-add-members-group-${input.label.toLowerCase().replaceAll(" ", "-")}`
 		: undefined;
 	let nextSelectableIndex = 0;
-	const rows = input.candidates.map((candidate) => ({
+	const selectionOrder = [...input.selectedProfileIds];
+	const candidates = [...input.candidates].sort(
+		(a, b) =>
+			selectionOrder.indexOf(b.profileId) - selectionOrder.indexOf(a.profileId)
+	);
+	const rows = candidates.map((candidate) => ({
 		candidate,
 		selectableIndex: candidate.alreadyMember ? null : nextSelectableIndex++,
 	}));
@@ -297,6 +319,7 @@ function SpaceAddMembersCandidateGroup(input: {
 								/>
 							}
 							checked={input.selectedProfileIds.has(candidate.profileId)}
+							data-profile-id={candidate.profileId}
 							description={resolveAgentCandidateDescription(candidate)}
 							index={selectableIndex}
 							key={candidate.profileId}

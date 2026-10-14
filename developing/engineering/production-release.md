@@ -544,10 +544,42 @@ The receipt's first parent retains the original failed event; its second parent
 is a version 4 recovery proof with the baseline and completion observations.
 Old release tooling continues to read the version 3 receipt. On failure, the
 canonical receipt remains `failed/unknown`; a linked diagnostic proof records
-the observed Worker and container state when Cloudflare can be read. Further
-recovery remains blocked for manual reconciliation. Aggregate health and an
-idle instance list do not prove that every dormant instance ran the new image;
+the observed Worker and container state when Cloudflare can be read.
+
+After manually checking that failure, the same recovery entrypoint can continue
+the original attempt. Supply the latest observed Worker selectors and the
+unchanged original Container selectors. The control reads only the canonical
+receipt's linked v4 proof chain back to the exact original start event. Every
+event and proof must preserve the source tree, scope, complete receipt and
+parent links. Each recovery window must follow the previous failed event. The
+next baseline must match the preceding failure observation. Missing proofs,
+observations, inconsistent timestamps or more than 32 failed events require
+manual reconciliation instead of another deployment.
+
+Under the Remote Agent lease, exactly one Worker deployment must match the
+latest recovery window and remain the current 100% deployment. The Container
+must still match its original version, digest and configuration. Complete
+instance evidence must retain the protected instances and show no active
+rollout. The control repeats these checks immediately before deployment. This
+observation admits a new guarded deployment from the original source; it never
+proves the observed Worker's source by itself. Preflight, stage admission,
+native provenance, registry digest and final Worker verification still apply.
+The new receipt and proof append to the latest failed event. They retain the
+original source, attempt, operation key and start time. This is explicit manual
+continuation, not automatic retry, and it never runs user commands.
+
+Aggregate health and an idle instance list do not prove that every dormant
+instance ran the new image;
 authenticated product Smoke remains a separate acceptance step.
+
+When the failed attempt continued a Worker-only release, recovery preserves its
+retained Container metadata in both the canonical receipt and linked proof.
+Only successful Worker and native verification changes its phase to `complete`;
+failure preserves the unresolved phase and `failed/unknown` outcome. The recovery
+proof uses the shared receipt contract, including that optional retained stage.
+Existing proofs without the stage remain readable. Use current release control
+to inspect new proofs; older control rejects that optional proof field. This
+does not change Worker RPC, CLI, Service, or user command contracts.
 Version 1 successes and version 2 observations remain readable at their original
 evidence strength; they are not upgraded into correlated identities. Older
 writers cannot downgrade a retained record. All events remain append-only with

@@ -51,7 +51,9 @@ export function SidebarDrag(input: {
 }) {
 	const reduced = useMediaQuery("(prefers-reduced-motion: reduce)");
 	const surface = useRef<HTMLDivElement>(null);
-	const settling = useRef<{ node: HTMLElement; top: number }[]>([]);
+	const settling = useRef<{ node: HTMLElement; top: number; left: number }[]>(
+		[]
+	);
 	const animations = useRef(new Set<Animation>());
 	const keyboardDrag = useRef(false);
 	useEffect(
@@ -64,20 +66,21 @@ export function SidebarDrag(input: {
 	);
 	// Apply the inverse transform in the ordering commit, before its first paint.
 	useLayoutEffect(() => {
-		const movements = settling.current.map(({ node, top }) => ({
+		const movements = settling.current.map(({ node, top, left }) => ({
 			node,
 			delta: top - node.getBoundingClientRect().top,
+			deltaX: left - node.getBoundingClientRect().left,
 		}));
-		if (!movements.some(({ delta }) => delta !== 0)) {
+		if (!movements.some(({ delta, deltaX }) => delta !== 0 || deltaX !== 0)) {
 			return;
 		}
 		settling.current = [];
-		for (const { node, delta } of movements) {
-			if (!reduced && node.isConnected && delta !== 0) {
+		for (const { node, delta, deltaX } of movements) {
+			if (!reduced && node.isConnected && (delta !== 0 || deltaX !== 0)) {
 				const animation = node.animate(
 					[
-						{ transform: `translateY(${delta}px)` },
-						{ transform: "translateY(0)" },
+						{ transform: `translate(${deltaX}px, ${delta}px)` },
+						{ transform: "translate(0, 0)" },
 					],
 					{ duration: 160, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }
 				);
@@ -178,6 +181,7 @@ export function SidebarDrag(input: {
 								.map((node) => ({
 									node,
 									top: node.getBoundingClientRect().top,
+									left: node.getBoundingClientRect().left,
 								}));
 				for (const animation of animations.current) {
 					animation.cancel();
@@ -294,9 +298,10 @@ function SidebarInsertionLine() {
 			data-drop-section={target.section}
 			data-sidebar-drop-indicator={target.kind}
 			style={{
-				left: target.left + 4,
-				top: target.top - 1,
-				width: Math.max(0, target.width - 8),
+				left: target.height ? target.left - 1 : target.left + 4,
+				top: target.height ? target.top + 4 : target.top - 1,
+				width: target.height ? 2 : Math.max(0, target.width - 8),
+				height: target.height ? target.height - 8 : 2,
 			}}
 		/>,
 		document.body
@@ -304,13 +309,14 @@ function SidebarInsertionLine() {
 }
 
 export function SidebarDropSection(input: {
+	layout?: "list" | "grid";
 	section: string;
 	ids: readonly string[];
 	children: ReactNode;
 }) {
 	const { setNodeRef } = useDroppable({
 		id: `section:${input.section}`,
-		data: { kind: "section", section: input.section },
+		data: { kind: "section", section: input.section, layout: input.layout },
 	});
 	return (
 		<div className="min-h-9" ref={setNodeRef}>
