@@ -54,7 +54,13 @@ test("inspects immutable candidate objects without replacing trusted working-tre
       path.join(root, "package.json"),
       '{"scripts":{"check":"trusted-check"}}'
     );
-    git("add", "package.json");
+    const largePatch = "x".repeat(2 * 1024 * 1024);
+    writeFileSync(path.join(root, "dependency.patch"), largePatch);
+    writeFileSync(
+      path.join(root, "pnpm-workspace.yaml"),
+      "patchedDependencies:\n  dependency@1.0.0: dependency.patch\n"
+    );
+    git("add", "package.json", "dependency.patch", "pnpm-workspace.yaml");
     git("commit", "-m", "trusted");
     const base = git("rev-parse", "HEAD");
     writeFileSync(
@@ -78,6 +84,19 @@ test("inspects immutable candidate objects without replacing trusted working-tre
       candidateRoot: root,
       candidateRef: base,
     });
+    writeFileSync(path.join(root, "dependency.patch"), `${largePatch}changed`);
+    git("commit", "-am", "change patch beyond the default buffer limit");
+    const patchedHead = git("rev-parse", "HEAD");
+    git("checkout", "--detach", base);
+    assert.throws(
+      () =>
+        verifyTrustedCandidateEntrypoints({
+          trustedRoot: root,
+          candidateRoot: root,
+          candidateRef: patchedHead,
+        }),
+      SELF_REWRITE_PATTERN
+    );
     assert.equal(git("rev-parse", "HEAD"), base);
     assert.equal(
       readFileSync(path.join(root, "package.json"), "utf8"),
