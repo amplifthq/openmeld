@@ -3,7 +3,7 @@
 ## Agent Context
 
 - Purpose: Define hosted AI funding, native limits, and workspace credentials.
-- Read this when: Changing AI credits, BYOK, provider admission, or exemption configuration.
+- Read this when: Changing AI credits, BYOK, provider admission, or running real AI smoke tests.
 - Update this when: Funding policy, secret ownership, or rollout contracts change.
 - Do not use this for: Local controller token estimates, payments, or release authorization.
 - Source of truth: Core billing service and OpenRouter native key limits own admission; this file owns the operator and product contract.
@@ -112,10 +112,66 @@ visible in the all-model-cost chart but never reduce included credits.
 
 ## Verification boundary
 
-Use disposable provider keys and a local PostgreSQL/Worker lane. Verify native
+For ordinary real BYOK smoke, use the shared development key described below.
+Use disposable provider keys for tests that change limits, revoke credentials,
+or exercise provisioning, and use a local PostgreSQL/Worker lane. Verify native
 monthly configuration, a zero-cap rejection, restoration with propagation delay,
 concurrent first use, BYOK save/replace/remove, member permissions, cross-workspace
 isolation, ignored retired credentials, unavailable secrets, and no fallback. Exercise
 both Agent entry points with real model calls. Check receipts and upstream key
 usage separately. A configured reset timestamp is not proof of an observed
 calendar rollover. Delete all disposable keys after the smoke.
+
+## Shared development BYOK smoke key
+
+Authorized developers and agents can retrieve the reusable inference key from
+Doppler project `openmeld-core`, config `dev`, secret `OPENROUTER_SMOKE_API_KEY`.
+Use it for local real-model smoke and Center/Remote Agent development. When the
+task already authorizes real AI testing, retrieve this key instead of asking
+the user to supply a new one. If access fails or the key is unavailable, report
+that blocker; do not substitute production credentials.
+
+This is a normal OpenRouter inference key, not a management key. It is a test
+input, not a Worker environment binding or an automatic funding fallback. Its
+presence in Doppler does not configure BYOK in a local workspace. Keep it out
+of the runtime environment allowlists and production secret synchronization.
+
+For a manual browser setup, copy only this secret without printing its value:
+
+```sh
+doppler secrets get OPENROUTER_SMOKE_API_KEY \
+  --project openmeld-core --config dev --copy >/dev/null
+```
+
+Run with shell tracing disabled. For automation, capture the single-secret
+command's output with `--plain` instead of `--copy` in private process memory,
+and pass it directly to the password
+input through the browser tool. Never return the value in tool output, embed it
+in a command argument, or save it in a file, screenshot, trace, PR, or chat.
+Do not dump the whole Doppler config. Clear the copied value after use without
+overwriting newer clipboard content.
+
+1. Start an isolated local PostgreSQL lane using the
+   [development workflow](development-workflow.md). Core needs its development
+   `OPENMELD_AI_CREDENTIAL_CRYPTO_KEY` to encrypt the saved BYOK. Keep that key
+   stable while retaining the local database. BYOK does not need the production
+   Management key.
+2. Sign up or sign in through the local product and use an owner/admin in the
+   test workspace. Open **App settings → AI usage → Use your own key**, paste
+   the smoke key, and save. Verify the **BYOK** badge and masked suffix. Each
+   new disposable database/workspace needs this setup once.
+3. Send a short prompt through each relevant real entry point: Center Agent and
+   Remote Agent. Use an inexpensive supported model and a bounded task budget.
+   Verify the visible answer and persisted usage with `fundingSource: byok`;
+   check provider request IDs and reported cost when testing attribution or
+   accounting. A saved badge alone does not prove a real model call. Do not mock
+   billing/provider responses for this acceptance path.
+4. Record only non-secret results and the actual test cost. Remove the workspace
+   BYOK or discard the local database when the disposable test ends, and stop
+   the task-owned development processes. A retained local development workspace
+   can keep its encrypted BYOK for later authorized development.
+
+Do not delete, rotate, exhaust, or change limits on this shared upstream key as
+smoke cleanup. Failure/limit tests must use separately authorized disposable
+keys. Do not treat the smoke key as a grant to run unbounded AI tasks or use it
+in staging or production.

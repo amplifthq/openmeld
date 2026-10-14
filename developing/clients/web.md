@@ -50,8 +50,9 @@ the Message details drawer.
 
 `clients/web` is the App at `app.openmeld.ai` (Staging:
 `app.staging.openmeld.ai`). Its root enters the authenticated Organization
-resolver or sends anonymous visitors to `/login`. Public marketing, legal,
-Changelog, and local-agent guides belong to `clients/website`; Web keeps only
+resolver or sends anonymous visitors to `/login`. Public marketing, legal pages,
+and Changelog belong to `clients/website`; local-agent guides belong to `clients/docs`
+with legacy Website URL redirects. Web keeps only
 redirects for those pages. See [Public Website](website.md) for presentation and
 root-domain forwarding. Web remains the sole owner of Auth proxies, application
 APIs, installers, downloads, and native authorization entry points.

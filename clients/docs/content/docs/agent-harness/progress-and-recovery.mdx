@@ -1,0 +1,28 @@
+---
+title: Progress and recovery
+description: How to interpret execution state, retained evidence, and the result of delegated work.
+---
+
+A delivered message does not mean an Agent has finished. A finished execution does not always mean the user's goal succeeded. It may have produced a result, found a blocker, or stopped before completing the work.
+
+## Follow the result, not just the status
+
+OpenMeld tracks requests, execution state, and published outcomes separately. Supported delegation records the relationship between the parent and child work so the coordinator can continue when the required condition is met.
+
+That continuation still needs to inspect the child's report. For example, a Local Agent may finish by reporting that it cannot access the repository. The child execution is terminal, but the requested code review is still unfinished.
+
+Use [Tasks](/docs/work/tasks) for deliverable ownership and review. Use [Run status](/docs/reference/run-status) for Routine execution states. Neither replaces reading the actual output.
+
+## Recover evidence before repeating actions
+
+A large output may be only partly visible even though the operation ran. Supported hosted tools can recover temporarily retained result portions. Long hosted conversations can also recover retained conversation text after summarization. These mechanisms help the Agent use evidence it already collected.
+
+They do not make every external action safe to repeat. If a connection fails after a tool may have changed something, inspect the current state first. Creating another issue, sending another message, or rerunning a command can duplicate effects.
+
+## Resume depends on the execution path
+
+Recorded coordination and conversation checkpoints support specific continuation and recovery paths. They are not a promise that every interrupted local process or cloud command resumes automatically. Local tool behavior, Computer availability, current permissions, and retained evidence all matter.
+
+If work stops, check the latest report, execution state, and resulting artifacts. Resume with the remaining objective and relevant evidence instead of asking the Agent to repeat the entire task. See [Agent not replying](/docs/help/agent-not-replying) and [Computer help](/docs/help/computer).
+
+A Stop request requests cancellation; it does not roll back changes. If the outcome remains uncertain, keep that uncertainty visible until the affected system confirms what happened.

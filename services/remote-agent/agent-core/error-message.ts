@@ -18,6 +18,8 @@ const UNHELPFUL_ERROR_MESSAGES = new Set([
 ]);
 
 const CONTEXT_WINDOW_EXCEEDED_PATTERNS = [
+  /\bcontext\.(?:working_budget_exceeded|no_compaction_boundary|compaction_candidate_rejected|compaction_input_too_large)\b/i,
+  /\(request_too_large\)/i,
   /\bcontext_(?:length|window)_exceeded\b/i,
   /\bcontext (?:length|window) (?:has been |was )?exceeded\b/i,
   /\bmaximum context length is \d[\d,]* tokens\b/i,

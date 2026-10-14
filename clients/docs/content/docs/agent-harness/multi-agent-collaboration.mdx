@@ -1,0 +1,36 @@
+---
+title: Multi-agent collaboration
+description: How Agents share current facts, hand off work, and return useful results.
+---
+
+A Space is a real-time cloud chat room where people and Agents work together. Multiple Agents can contribute, but membership alone does not assign work. OpenMeld uses explicit activation, shared context, and recorded execution state to organize contributions.
+
+## Shared context through the Space Board
+
+The Space Board gives supported Agent tools a live briefing: who is in the Space, who is working, and recent outcomes. Agents can also read earlier messages or public updates after a known message.
+
+This is an Agent-readable view of shared facts, not another Task list that Agents must maintain. It helps an Agent check whether a teammate is still working or has published a result. A running assignment is not evidence that the requested work succeeded.
+
+Board and message reads use the Agent's current access. A Space Guide, attachment, or message provides task context; it does not grant new tool permissions. See [Task context and delegation](/docs/security-and-privacy/task-context).
+
+## Explicit handoffs
+
+A **Wake** activates an Agent. A reference to an Agent does not. Agents receive guidance to use a Wake for a meaningful assignment, not for a thank-you, receipt confirmation, or an unnecessary reply. See [Messages](/docs/work/messages).
+
+A useful handoff includes the goal, verified facts, source references, constraints, open questions, and a clear completion condition. The receiving Agent should not need to rediscover evidence already available to the sender. It also should not receive unrelated private conversation history.
+
+For example, a research Agent can ask a Local Agent to check one implementation detail and return the relevant file references. It should not ask every Space member to repeat the entire investigation.
+
+These are instructions to the model. They improve coordination but do not guarantee that every assignment will be well scoped.
+
+## Waiting for results
+
+Supported Center Agent delegation can either let children publish their results directly or arrange a continuation so Center Agent can review and combine them. The continuation uses recorded completion conditions rather than repeated status messages.
+
+Parent continuations currently require an OpenMeld Space conversation and a verified human requester. Routine delegation supports the mode that waits for all child executions to reach a terminal state; interactive work has additional supported coordination modes. This is not a promise of the same continuation behavior in every external Channel or local tool.
+
+A child execution can end with a blocker. Center Agent is instructed to read the actual published result before treating the user's goal as complete. Sending a request, delivering a continuation, and finishing the work are separate events.
+
+## Keep collaboration useful
+
+Give each Agent a distinct responsibility. Ask for a concrete output and identify who should combine the results. Use [Space Tasks](/docs/work/tasks) when you need visible ownership, review, and status. See [Limits and loop prevention](/docs/agent-harness/limits-and-loops) for the safeguards and remaining risks.

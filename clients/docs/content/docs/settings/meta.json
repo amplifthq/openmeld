@@ -1,0 +1,5 @@
+{
+  "title": "Settings & Administration",
+  "defaultOpen": false,
+  "pages": ["../work/settings", "../team/workspaces", "../team/usage"]
+}
