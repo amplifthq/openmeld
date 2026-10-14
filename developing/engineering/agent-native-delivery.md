@@ -347,13 +347,17 @@ control against the candidate, rechecks identity after validation, posts the
 evidence comment, and publishes the same status. It requires an authenticated
 `gh` session and fails closed when GitHub or network evidence is unavailable.
 Before local checks and again before final publication, it cancels active hosted
-FC runs owned by this PR and exact head, then waits for the entire workflow,
-including its publisher, to complete. Cancellation acceptance is not completion.
-An unverifiable owner, API failure, or three-minute handoff timeout blocks local
-publication. This prevents an older hosted failure from overwriting local
-certification without hiding failures or trusting a previous green status.
-After a handoff timeout, wait until that exact hosted workflow has completed,
-including its publisher, then rerun the same unchanged candidate command.
+FC runs owned by this PR and exact head. It waits for the source workflow and
+the separate completed-event result workflow for that source run and attempt.
+An empty result list means the event may still be pending; it is not completion.
+The result workflow name carries the source run ID, attempt, and event so the
+handoff can wait automatically without guessing from elapsed time or green checks.
+An unverifiable owner, API failure, three-minute cancellation timeout, or
+twenty-minute result timeout blocks local publication. This prevents an older
+hosted failure from overwriting local certification without hiding failures or
+trusting a previous green status. After a timeout, inspect the named source and
+result workflows before retrying. Runs from before result names were introduced
+need a new hosted request before local takeover.
 Do not extend ownership assumptions from an accepted cancellation or publish
 the local status manually.
 Later explicit hosted requests are new validations, not permanently suppressed.
