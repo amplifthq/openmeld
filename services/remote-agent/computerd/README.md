@@ -139,6 +139,24 @@ that receiver fails explicitly and preserves the pending receipt. Existing data
 without proof is not retroactively declared synchronized. No new command
 state, replay authority, expiry-based cleanup or directory exclusion is added.
 
+## Command output completion
+
+Native execution appends its final exit event only after the child process's
+`close` event, when stdout and stderr have drained. Process `exit` alone does
+not establish that boundary. Cancelling an observer resumes pipe reads and
+retains output for reattachment; it does not stop the command. Explicit log
+disposal first detaches and destroys the local output pipes, then removes the
+record. Spawn failures retain stderr and exit `-1`; a failed signal must not
+finalize a process that is still running. Existing timeout and Tini process-group
+ownership remain unchanged. No new replay, file ACK or recovery authority is
+introduced.
+
+The upstream 0.5.1 runner still finalizes at process `exit`. This native-only
+correction stays on the pinned source while the separately assessed upgrade
+requires the storage and sync compatibility work below. See the official
+[Node child-process close contract](https://nodejs.org/api/child_process.html#event-close)
+and [upstream version comparison](https://github.com/cloudflare/computer/compare/ec39cb693a5be73a735d375e228b4e2adb754abb...ef00c0a790cb87887bf209fa87838cb1a281220b).
+
 ## Deployment boundary
 
 Deploy compatible Core callback and frozen-result readers before Remote Agent.

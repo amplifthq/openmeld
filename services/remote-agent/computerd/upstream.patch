@@ -9336,3 +9336,217 @@ index 4c83d68..89d0ab0 100644
        cursorRev: 1,
        targetRev: 2,
        cpuLimitMs: 30_000,
+diff --git a/packages/computerd/src/exec/runner.ts b/packages/computerd/src/exec/runner.ts
+index 6904e8d..9f1380c 100644
+--- a/packages/computerd/src/exec/runner.ts
++++ b/packages/computerd/src/exec/runner.ts
+@@ -37,6 +37,7 @@ interface ExecRecord {
+   timeoutTimer?: NodeJS.Timeout;
+   killTimer?: NodeJS.Timeout;
+   heartbeatTimer?: NodeJS.Timeout;
++  detachOutput: () => void;
+ }
+ 
+ interface LiveSubscriber {
+@@ -172,6 +173,12 @@ export class Runner {
+       log,
+       startedAt: this.opts.now(),
+       live: true,
++      detachOutput: () => {
++        child.stdout?.off("data", onStdout);
++        child.stderr?.off("data", onStderr);
++        child.stdout?.destroy();
++        child.stderr?.destroy();
++      },
+     };
+     this.records.set(id, record);
+ 
+@@ -181,8 +188,10 @@ export class Runner {
+       record.lastOutputAt = this.opts.now();
+       record.subscriber?.enqueue({ id, seq, name, value });
+     };
+-    child.stdout?.on("data", onData("stdout"));
+-    child.stderr?.on("data", onData("stderr"));
++    const onStdout = onData("stdout");
++    const onStderr = onData("stderr");
++    child.stdout?.on("data", onStdout);
++    child.stderr?.on("data", onStderr);
+ 
+     if (this.opts.heartbeatIntervalMs > 0) {
+       const scheduleHeartbeat = (): void => {
+@@ -244,13 +253,17 @@ export class Runner {
+       record.subscriber = undefined;
+       this.scheduleSweep();
+     };
+-    child.once("exit", finalise);
+-    child.once("error", (err) => {
++    // Process exit can precede its final pipe data. Only close guarantees
++    // stdout/stderr are drained, so the exit event remains last in the log.
++    child.once("close", (code, signal) => finalise(child.pid === undefined ? -1 : code, signal));
++    child.on("error", (err) => {
+       if (!record.live) return;
+-      const value = new TextEncoder().encode(`spawn failed: ${err.message}\n`);
++      const operation = child.pid === undefined ? "spawn failed" : "process error";
++      const value = new TextEncoder().encode(`${operation}: ${err.message}\n`);
+       const seq = log.append("stderr", value);
+       record.subscriber?.enqueue({ id, seq, name: "stderr", value });
+-      finalise(-1, null);
++      // Spawn failures also emit close. Other errors (for example a failed
++      // signal) do not mean the process or its output has finished.
+     });
+ 
+     const timeoutMs = options.timeoutMs ?? this.opts.defaultTimeoutMs;
+@@ -429,6 +442,9 @@ export class Runner {
+ 
+   private disposeRecord(record: ExecRecord): void {
+     record.live = false;
++    // Explicit disposal discards output. Stop callbacks before removing the
++    // log; normal completion instead drains the pipes through close above.
++    record.detachOutput();
+     if (record.timeoutTimer !== undefined) {
+       clearTimeout(record.timeoutTimer);
+       record.timeoutTimer = undefined;
+diff --git a/packages/computerd/src/exec/runner.test.ts b/packages/computerd/src/exec/runner.test.ts
+index 4bc6f0d..e46f34d 100644
+--- a/packages/computerd/src/exec/runner.test.ts
++++ b/packages/computerd/src/exec/runner.test.ts
+@@ -1,7 +1,11 @@
++import { spawnSync } from "node:child_process";
+ import { existsSync } from "node:fs";
++import { createRequire } from "node:module";
++import { fileURLToPath } from "node:url";
+ 
+ import { Database, initializeSchema, WorkspaceFilesystem } from "@cloudflare/dofs";
+ import { SQLiteTestStorage } from "@cloudflare/dofs/testing";
++import { buildSync } from "esbuild";
+ import { expect, test } from "vitest";
+ 
+ import { Runner } from "./runner.js";
+@@ -52,6 +56,127 @@ function decode(value: Uint8Array): string {
+   return new TextDecoder().decode(value);
+ }
+ 
++// Isolate the supervisor: an uncaught pipe callback must fail this test as a
++// process crash, and must not terminate the rest of the suite. Bundle source
++// directly so this never tests stale build output.
++function runSupervisor(script: string): void {
++  const require = createRequire(import.meta.url);
++  const runnerSource = buildSync({
++    entryPoints: [fileURLToPath(new URL("./runner.ts", import.meta.url))],
++    bundle: true,
++    platform: "node",
++    format: "cjs",
++    packages: "external",
++    write: false,
++  }).outputFiles[0].text;
++  const result = spawnSync(
++    process.execPath,
++    [
++      "-e",
++      `
++    ${runnerSource}
++    const assert = require("node:assert/strict");
++    const { Database, initializeSchema } = require(${JSON.stringify(require.resolve("@cloudflare/dofs"))});
++    const { SQLiteTestStorage } = require(${JSON.stringify(require.resolve("@cloudflare/dofs/testing"))});
++    const TestRunner = module.exports.Runner;
++    const storage = new SQLiteTestStorage();
++    const db = new Database(storage);
++    initializeSchema(db, Date.now);
++    const runner = new TestRunner({ db });
++    const text = (events, name) => events.filter(e => e.name === name).map(e => Buffer.from(e.value).toString()).join("");
++    (async () => {
++      try {
++        ${script}
++        console.log("supervisor-survived");
++      } finally { runner.disposeAll(); storage.close(); }
++    })().catch(error => { console.error(error); process.exitCode = 1; });
++  `,
++    ],
++    { encoding: "utf8", timeout: 10_000 },
++  );
++  expect(result.error).toBeUndefined();
++  expect(result.status, result.stderr).toBe(0);
++  expect(result.stdout.trim()).toBe("supervisor-survived");
++}
++
++function nodeCommand(script: string): string {
++  const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
++  return `exec ${quote(process.execPath)} -e ${quote(script)}`;
++}
++
++test.each([false, true])("retains late pipe output with observer cancellation: %s", (cancel) => {
++  // A real descendant writes only after its parent has been reaped. Its large
++  // tail also fills the pipe when a subscriber stops reading.
++  const descendant = `
++    const parent = Number(process.argv[1]);
++    function waitForExit() {
++      try { process.kill(parent, 0); setImmediate(waitForExit); }
++      catch (error) {
++        if (error.code !== "ESRCH") throw error;
++        process.stdout.write("x".repeat(256 * 1024));
++        process.stderr.write("tail-err");
++      }
++    }
++    waitForExit();
++  `;
++  const commandScript = `
++    process.stdout.write("head", () => {
++      require("node:child_process").spawn(process.execPath,
++      ["-e", ${JSON.stringify(descendant)}, String(process.pid)],
++      { stdio: ["ignore", 1, 2] }).unref();
++      process.exit(17);
++    });
++  `;
++  runSupervisor(`
++    const handle = runner.exec(${JSON.stringify(nodeCommand(commandScript))}, { id: "late-output" });
++    let stream = handle.events;
++    if (${cancel}) {
++      const reader = stream.getReader();
++      assert.equal((await reader.read()).value.name, "stdout");
++      // Leave this observer paused while another command completes.
++      const other = await Array.fromAsync(runner.exec("printf other").events);
++      assert.equal(text(other, "stdout"), "other");
++      assert.equal(other.at(-1).code, 0);
++      await reader.cancel();
++      stream = runner.get(handle.id).events;
++    }
++    const events = await Array.fromAsync(stream);
++    assert.equal(text(events, "stdout"), "head" + "x".repeat(256 * 1024));
++    assert.equal(text(events, "stderr"), "tail-err");
++    assert.equal(events.at(-1).name, "exit");
++    assert.equal(events.at(-1).code, 17);
++    assert.equal(events.filter(e => e.name === "exit").length, 1);
++    assert.deepEqual(await Array.fromAsync(runner.get(handle.id).events), events);
++  `);
++});
++
++test("disposing a paused command detaches pending output before removing its log", () => {
++  runSupervisor(`
++    const handle = runner.exec(${JSON.stringify(nodeCommand('process.stdout.write("x".repeat(4 * 1024 * 1024))'))}, { id: "disposed" });
++    const reader = handle.events.getReader();
++    assert.equal((await reader.read()).value.name, "stdout");
++    runner.dispose(handle.id);
++    await reader.cancel();
++    assert.throws(() => runner.get(handle.id), error => error.code === "ENOENT");
++    const other = await Array.fromAsync(runner.exec("printf survived").events);
++    assert.equal(text(other, "stdout"), "survived");
++    assert.equal(other.at(-1).code, 0);
++  `);
++});
++
++test("a real spawn failure keeps stderr and exit -1 in the retained log", async () => {
++  const { runner, dispose } = fixture({ shell: "/no-such-computerd-test-shell" });
++  try {
++    const handle = runner.exec("unreachable");
++    const events = await drain(handle.events);
++    expect(decode(events[0].value)).toMatch(/^spawn failed: /);
++    expect(events.at(-1)).toMatchObject({ name: "exit", code: -1 });
++    expect(await drain(runner.get(handle.id).events)).toEqual(events);
++  } finally {
++    dispose();
++  }
++});
++
+ test("exec captures stdout and propagates exit code", async () => {
+   const { runner, dispose } = fixture();
+   try {
