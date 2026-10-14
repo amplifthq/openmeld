@@ -1362,10 +1362,11 @@ export function createComputerCommandTool(input: {
     let handle: WorkspaceRuntimeExecHandle<"utf8">;
     try {
       handle = await workspace.runtime.execWithAdmission(
-        command.backend === AGENT_COMPUTER_CONTAINER_BACKEND_ID
-          ? buildComputerCommandProcess(request.command)
-          : request.command,
+        request.command,
         {
+          ...(command.backend === AGENT_COMPUTER_CONTAINER_BACKEND_ID
+            ? { legacySource: buildComputerCommandProcess(request.command) }
+            : {}),
           id: command.id,
           backend: command.backend,
           cwd: command.preparation?.workingDirectory ?? input.workingDirectory,

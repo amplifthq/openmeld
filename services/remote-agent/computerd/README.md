@@ -139,6 +139,47 @@ that receiver fails explicitly and preserves the pending receipt. Existing data
 without proof is not retroactively declared synchronized. No new command
 state, replay authority, expiry-based cleanup or directory exclusion is added.
 
+## Command output completion
+
+Native execution appends its final exit event only after the child process's
+`close` event, when stdout and stderr have drained. Process `exit` alone does
+not establish that boundary. Cancelling an observer resumes pipe reads and
+retains output for reattachment; it does not stop the command. Explicit log
+disposal first detaches and destroys the local output pipes, then removes the
+record. Spawn failures retain stderr and exit `-1`; a failed signal must not
+finalize a process that is still running. No new replay, file ACK or recovery
+authority is introduced.
+
+For execution supervision v1, Runner starts the command in its own process
+group and signals that group for Stop, timeout escalation and explicit disposal.
+It can still signal the group after the main process exits while descendants
+hold the output pipes. Container PID 1 uses Tini only to reap orphaned children.
+Commands that deliberately create another process group or session can escape
+this boundary. If an escaped process retains the pipes, normal completion keeps
+waiting for their real closure; it does not discard output or invent an exit.
+
+The authenticated information route advertises v1 with the native database
+epoch. The SDK chooses raw v1 execution or the existing per-command Tini wrapper
+on the final prepared BackendHandle, before admission. A valid older information
+response without the field selects the legacy wrapper; failed or malformed
+information and unknown versions fail closed. The existing native execution
+fence checks that same epoch and accepted input cursor immediately before spawn.
+Closing or replacing the handle invalidates its capability evidence.
+
+Release Worker code first, then the native image. New Worker / old native uses
+the legacy wrapper. Old Worker / new native remains compatible with legacy
+execution, including its existing SIGKILL forwarding limitation; it does not
+gain v1 group termination. Unknown explicit supervision versions are rejected
+before spawn. Database epoch identifies storage, not a process or binary: this
+contract supports the configured ephemeral container disk and replacement, not
+hot binary downgrade while retaining the same SQLite database and connection.
+
+The upstream 0.5.1 runner still finalizes at process `exit`. This correction
+stays on the pinned source while the separately assessed upgrade
+requires the storage and sync compatibility work below. See the official
+[Node child-process close contract](https://nodejs.org/api/child_process.html#event-close)
+and [upstream version comparison](https://github.com/cloudflare/computer/compare/ec39cb693a5be73a735d375e228b4e2adb754abb...ef00c0a790cb87887bf209fa87838cb1a281220b).
+
 ## Deployment boundary
 
 Deploy compatible Core callback and frozen-result readers before Remote Agent.

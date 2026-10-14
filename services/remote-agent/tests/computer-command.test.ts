@@ -2000,6 +2000,28 @@ describe("retained Computer commands", () => {
     expect(f.exec).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    "container",
+    "worker-shell",
+  ] as const)("passes raw source and only supplies the container legacy alternative: %s", async (backend) => {
+    const f = fixture();
+    const command = "printf 'quoted output'; exit 17";
+    await f
+      .tool()
+      .execute({ action: "start", key: "supervision", command, backend });
+    expect(f.exec).toHaveBeenCalledOnce();
+    expect(f.exec.mock.calls[0]?.[0]).toBe(command);
+    const options = f.exec.mock.calls[0]?.[1];
+    if (backend === "container") {
+      expect(options).toHaveProperty(
+        "legacySource",
+        expect.stringContaining("exec /usr/bin/tini -s -g --")
+      );
+    } else {
+      expect(options).not.toHaveProperty("legacySource");
+    }
+  });
+
   it("preserves a shell receipt that completes after cleanup takes its snapshot", async () => {
     const f = fixture();
     await f.tool().execute({ action: "start", key: "a", command: "sleep 20" });

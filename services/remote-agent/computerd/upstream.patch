@@ -60,10 +60,18 @@ index 2c76034..7f2367c 100644
    },
    "peerDependencies": {
 diff --git a/packages/computer/src/backends/container-legacy/cloudflare-container.test.ts b/packages/computer/src/backends/container-legacy/cloudflare-container.test.ts
-index f34dcd8..e8b8b70 100644
+index f34dcd8..8bb7337 100644
 --- a/packages/computer/src/backends/container-legacy/cloudflare-container.test.ts
 +++ b/packages/computer/src/backends/container-legacy/cloudflare-container.test.ts
-@@ -21,6 +21,7 @@ interface FakeHostOptions {
+@@ -10,6 +10,7 @@
+ // example.
+ 
+ import { describe, expect, test, vi } from "vitest";
++import { legacyComputerdInfo } from "../../../test-helpers/computerd-info.js";
+ 
+ import { WorkspaceTransportError } from "../../transport-failure.js";
+ import { LegacyContainerBackend } from "./cloudflare-container.js";
+@@ -21,6 +22,7 @@ interface FakeHostOptions {
    authProbeStatus?: number;
    // Accept the probe and never answer it, to prove the request is bounded.
    authProbeHang?: boolean;
@@ -71,20 +79,33 @@ index f34dcd8..e8b8b70 100644
    healthy?: boolean;
    // Health probe sequence: each connect() reads from the head of
    // this array. true = answer 200, false = throw "connection
-@@ -128,6 +129,12 @@ function makeFakeHost(opts: FakeHostOptions = {}): FakeHost {
+@@ -111,6 +113,9 @@ function makeFakeHost(opts: FakeHostOptions = {}): FakeHost {
+       const request = input instanceof Request ? input : new Request(input, init);
+       const url = new URL(request.url);
+       calls.push({ name: "fetchPort", args: [port, url.pathname, request.method] });
++      if (url.pathname === "/__computerd/info") {
++        return Response.json(legacyComputerdInfo);
++      }
+       if (url.pathname === "/health") {
+         if (!nextHealthy()) throw new Error("connection refused");
+         return new Response(null, { status: 200 });
+@@ -128,6 +133,15 @@ function makeFakeHost(opts: FakeHostOptions = {}): FakeHost {
          return new Response(null, { status: opts.authProbeStatus ?? 401 });
        }
        if (url.pathname === "/connect") {
 +        if (opts.connectHang) {
 +          await new Promise((_, reject) => {
 +            if (request.signal.aborted) reject(request.signal.reason);
-+            else request.signal.addEventListener("abort", () => reject(request.signal.reason), { once: true });
++            else
++              request.signal.addEventListener("abort", () => reject(request.signal.reason), {
++                once: true,
++              });
 +          });
 +        }
          state.connectBody = (await request
            .clone()
            .json()
-@@ -177,6 +184,15 @@ function makeFakeHost(opts: FakeHostOptions = {}): FakeHost {
+@@ -177,6 +191,19 @@ function makeFakeHost(opts: FakeHostOptions = {}): FakeHost {
  const fakeWorkspace: WorkspaceRef = { binding: "TestDO", id: "abc123" };
  
  describe("LegacyContainerBackend", () => {
@@ -92,19 +113,54 @@ index f34dcd8..e8b8b70 100644
 +    const fake = makeFakeHost({ connectHang: true });
 +    const backend = new LegacyContainerBackend({
 +      container: () => ({ getWorkspaceContainer: () => fake.host }),
-+      workspace: fakeWorkspace, connectTimeoutMs: 30, restartAttempts: 0,
++      workspace: fakeWorkspace,
++      connectTimeoutMs: 30,
++      restartAttempts: 0,
 +    });
 +    await expect(backend.connect()).rejects.toThrow("POST /connect failed");
-+    expect(fake.calls.some(call => call.name === "fetchPort" && call.args[1] === "/connect")).toBe(true);
++    expect(
++      fake.calls.some((call) => call.name === "fetchPort" && call.args[1] === "/connect"),
++    ).toBe(true);
 +  });
    test("connect() classifies a container start failure as transport", async () => {
      const platformError = new Error(
        "There is no container instance that can be provided to this Durable Object, try again later",
 diff --git a/packages/computer/src/backends/container-legacy/cloudflare-container.ts b/packages/computer/src/backends/container-legacy/cloudflare-container.ts
-index a6089f0..cd249dc 100644
+index a6089f0..0dbb90d 100644
 --- a/packages/computer/src/backends/container-legacy/cloudflare-container.ts
 +++ b/packages/computer/src/backends/container-legacy/cloudflare-container.ts
-@@ -632,6 +632,7 @@ export class LegacyContainerBackend implements WorkspaceBackend {
+@@ -55,6 +55,7 @@ import {
+   type WorkspaceEgressPolicy,
+ } from "../../runtime/egress.js";
+ import { WorkspaceTransportError } from "../../transport-failure.js";
++import { readComputerdInfo } from "../container/computerd-info.js";
+ import type { ILegacyWorkspaceContainerAPI, WorkspaceRef } from "./container-host.js";
+ import { probeComputerdHealth } from "./health-probe.js";
+ 
+@@ -294,6 +295,14 @@ export class LegacyContainerBackend implements WorkspaceBackend {
+ 
+     runtimeId = await this.#readyWithRestarts(host, env, deadline, priorExit, runtimeId);
+     await this.#requireAuthEnforced(host, deadline);
++    const { executionSupervision } = await readComputerdInfo(() =>
++      host.fetchPort(this.#options.containerPort, "http://container/__computerd/info", {
++        headers: { authorization: `Bearer ${clientSecret}` },
++        signal: AbortSignal.timeout(
++          Math.max(1, Math.min(this.#options.healthProbeTimeoutMs, deadline - Date.now())),
++        ),
++      }),
++    );
+     await this.#postConnect(host, deadline, clientSecret);
+     const ws = await this.#waitForUpgrade(deadline);
+ 
+@@ -348,6 +357,7 @@ export class LegacyContainerBackend implements WorkspaceBackend {
+       rpc: stub as unknown as WorkspaceRPC,
+       runtimeId,
+       closed,
++      executionSupervision,
+       close: async () => {
+         stopHeartbeat?.();
+         // Dispose the root stub first. Per capnweb's docs, this is
+@@ -632,6 +642,7 @@ export class LegacyContainerBackend implements WorkspaceBackend {
      try {
        res = await host.fetchPort(this.#options.containerPort, "http://container/connect", {
          method: "POST",
@@ -113,10 +169,105 @@ index a6089f0..cd249dc 100644
            "content-type": "application/json",
            authorization: `Bearer ${clientSecret}`,
 diff --git a/packages/computer/src/backends/container/container-backend.ts b/packages/computer/src/backends/container/container-backend.ts
-index de42fcc..b8e6d79 100644
+index de42fcc..52cd9b6 100644
 --- a/packages/computer/src/backends/container/container-backend.ts
 +++ b/packages/computer/src/backends/container/container-backend.ts
-@@ -790,6 +790,7 @@ export class ContainerBackend implements WorkspaceBackend {
+@@ -48,6 +48,7 @@ import type { WorkspaceRPC } from "@cloudflare/computer-rpc";
+ import { newWebSocketRpcSession, type RpcStub } from "capnweb";
+ 
+ import type { BackendHandle, WorkspaceBackend } from "../../backend.js";
++import { readComputerdInfo } from "./computerd-info.js";
+ import { startHeartbeat } from "../../heartbeat.js";
+ import {
+   WORKSPACE_EGRESS_TOKEN_HEADER,
+@@ -58,12 +59,7 @@ import { WorkspaceTransportError } from "../../transport-failure.js";
+ import type { IWorkspaceContainerAPI, WorkspaceRef } from "./container-host.js";
+ import type { ContainerInstanceSize, ContainerLaunchSpec } from "./container-launch-record.js";
+ import { probeComputerdHealth } from "./health-probe.js";
+-import {
+-  assertIgnoreMatches,
+-  checkIgnorePatterns,
+-  type ResolvedIgnore,
+-  readIgnoreReport,
+-} from "./ignore-assertion.js";
++import { assertIgnoreMatches, checkIgnorePatterns, readIgnoreReport } from "./ignore-assertion.js";
+ 
+ // What the backend's `container` factory returns: anything with
+ // a getWorkspaceContainer() method — the shape withWorkspaceContainer
+@@ -375,6 +371,14 @@ export class ContainerBackend implements WorkspaceBackend {
+ 
+     runtimeId = await this.#readyWithRestarts(host, env, deadline, priorExit, runtimeId);
+     await this.#requireAuthEnforced(host, deadline);
++    const nativeInfo = await readComputerdInfo(() =>
++      host.fetchPort(this.#options.containerPort, "http://container/__computerd/info", {
++        headers: { authorization: `Bearer ${clientSecret}` },
++        signal: AbortSignal.timeout(
++          Math.max(1, Math.min(this.#options.healthProbeTimeoutMs, deadline - Date.now())),
++        ),
++      }),
++    );
+     await this.#postConnect(host, deadline, clientSecret);
+     const ws = await this.#waitForUpgrade(deadline);
+ 
+@@ -430,7 +434,7 @@ export class ContainerBackend implements WorkspaceBackend {
+     // would let the first exec write into a path the caller believes is
+     // local-only, which is precisely the state that is expensive to
+     // discover later.
+-    const resolvedIgnore = await this.#resolveIgnore(host, clientSecret);
++    const resolvedIgnore = readIgnoreReport(nativeInfo.body);
+     try {
+       assertIgnoreMatches(this.#options.ignore, resolvedIgnore);
+     } catch (error) {
+@@ -455,6 +459,7 @@ export class ContainerBackend implements WorkspaceBackend {
+       runtimeId,
+       closed,
+       ignore: resolvedIgnore,
++      executionSupervision: nativeInfo.executionSupervision,
+       close: async () => {
+         stopHeartbeat?.();
+         // Dispose the root stub first. Per capnweb's docs, this is
+@@ -653,40 +658,6 @@ export class ContainerBackend implements WorkspaceBackend {
+     );
+   }
+ 
+-  // Reads the container's local-only path configuration.
+-  //
+-  // A failure to reach /__computerd/info is reported as "unsupported"
+-  // rather than propagated. The endpoint is diagnostic, and a client
+-  // that declared no `ignore` should not lose a working connection
+-  // because a diagnostic request failed. A client that *did* declare
+-  // one still fails, via assertIgnoreMatches -- which is the right
+-  // split: silence is only acceptable when nobody asked.
+-  //
+-  // The endpoint sits behind the client secret like every route except
+-  // /health. Without the token an enforcing container answers 401, which
+-  // would read as "unsupported" and fail every connect that declared
+-  // `ignore`.
+-  async #resolveIgnore(
+-    host: IWorkspaceContainerAPI,
+-    clientSecret: string,
+-  ): Promise<ResolvedIgnore> {
+-    try {
+-      const res = await host.fetchPort(
+-        this.#options.containerPort,
+-        "http://container/__computerd/info",
+-        {
+-          headers: { authorization: `Bearer ${clientSecret}` },
+-          signal: AbortSignal.timeout(this.#options.healthProbeTimeoutMs),
+-        },
+-      );
+-      if (!res.ok)
+-        return { patterns: [], root: undefined, mountPoint: undefined, supported: false };
+-      return readIgnoreReport(await res.json());
+-    } catch {
+-      return { patterns: [], root: undefined, mountPoint: undefined, supported: false };
+-    }
+-  }
+-
+   async #probeUntilHealthy(host: IWorkspaceContainerAPI, deadline: number): Promise<void> {
+     let delay = this.#options.healthRetryInitialDelayMs;
+     let lastError: unknown;
+@@ -790,6 +761,7 @@ export class ContainerBackend implements WorkspaceBackend {
      try {
        res = await host.fetchPort(this.#options.containerPort, "http://container/connect", {
          method: "POST",
@@ -138,7 +289,7 @@ index 28b2ad3..1e138b9 100644
      expect(ws).not.toHaveProperty("readFile");
    });
 diff --git a/packages/computer/src/client.ts b/packages/computer/src/client.ts
-index db89f87..2181d94 100644
+index db89f87..3c7bb69 100644
 --- a/packages/computer/src/client.ts
 +++ b/packages/computer/src/client.ts
 @@ -76,6 +76,15 @@ async function rebuildExecHandle<E extends ExecEncoding>(
@@ -218,7 +369,16 @@ index db89f87..2181d94 100644
    exec(
      strings: TemplateStringsArray,
      ...values: ShellValue[]
-@@ -281,6 +294,7 @@ function makeRuntimeClient(
+@@ -222,6 +235,8 @@ export interface WorkspaceRuntimeClient {
+ 
+ // Options accepted by the plain `exec` form, common to both paths.
+ export interface RuntimeExecOptions {
++  /** Explicit compatibility command for a native peer without supervision v1. */
++  legacySource?: string;
+   cwd?: string;
+   encoding?: "utf8";
+   backend?: string;
+@@ -281,6 +296,7 @@ function makeRuntimeClient(
    // snapshot serves the client's lifetime. It keeps backends()
    // synchronous over RPC, where the tools need it at construction.
    backends: readonly WorkspaceBackendInfo[],
@@ -226,7 +386,7 @@ index db89f87..2181d94 100644
  ): WorkspaceRuntimeClient {
    async function exec(
      commandOrStrings: string | TemplateStringsArray,
-@@ -320,6 +334,19 @@ function makeRuntimeClient(
+@@ -320,6 +336,19 @@ function makeRuntimeClient(
    );
    return {
      exec,
@@ -246,7 +406,7 @@ index db89f87..2181d94 100644
      getExec,
      killExec,
      disposeExec,
-@@ -338,6 +365,16 @@ function withExecutionId(
+@@ -338,6 +367,16 @@ function withExecutionId(
  // members, passed through. The filesystem stub mirrors the local
  // filesystem, so it also serves as the common client type.
  export interface WorkspaceClient extends Partial<ThinkWorkspaceCompatibility> {
@@ -263,7 +423,7 @@ index db89f87..2181d94 100644
    readonly fs: WorkspaceFilesystem;
    readonly runtime: WorkspaceRuntimeClient;
    // biome-ignore lint/suspicious/noExplicitAny: git type differs local vs remote
-@@ -357,13 +394,19 @@ function makeClient(
+@@ -357,13 +396,19 @@ function makeClient(
    useThink: boolean,
    backends: readonly WorkspaceBackendInfo[],
    hasAssets: boolean,
@@ -283,7 +443,7 @@ index db89f87..2181d94 100644
      get fs() {
        return surface.fs;
      },
-@@ -388,10 +431,11 @@ function makeClient(
+@@ -388,10 +433,11 @@ function makeClient(
  // What `getWorkspace` accepts: a local host carrying the symbol stash
  // (the durable object `this`), or a remote stub exposing
  // `__getWorkspaceStub`.
@@ -297,7 +457,7 @@ index db89f87..2181d94 100644
    if (local instanceof Workspace) {
      // Local path: delegate straight to the in-isolate Workspace.
      // Nothing to dispose — the durable object owns the Workspace
-@@ -399,6 +443,13 @@ export async function getWorkspace(handle: WorkspaceHandle): Promise<WorkspaceCl
+@@ -399,6 +445,13 @@ export async function getWorkspace(handle: WorkspaceHandle): Promise<WorkspaceCl
      await local.ready();
      return makeClient(
        {
@@ -311,7 +471,7 @@ index db89f87..2181d94 100644
          fs: local.fs,
          runtime: local.runtime,
          get git() {
-@@ -413,6 +464,8 @@ export async function getWorkspace(handle: WorkspaceHandle): Promise<WorkspaceCl
+@@ -413,6 +466,8 @@ export async function getWorkspace(handle: WorkspaceHandle): Promise<WorkspaceCl
        local.useThink,
        local.runtime.backends(),
        local.assets !== undefined,
@@ -1300,7 +1460,7 @@ index 0000000..05255f3
 +  );
 +}
 diff --git a/packages/computer/src/runtime/runtime.ts b/packages/computer/src/runtime/runtime.ts
-index fe47aa8..9d86dd9 100644
+index fe47aa8..253cf07 100644
 --- a/packages/computer/src/runtime/runtime.ts
 +++ b/packages/computer/src/runtime/runtime.ts
 @@ -93,6 +93,23 @@ export class WorkspaceRuntime {
@@ -1327,16 +1487,17 @@ index fe47aa8..9d86dd9 100644
    ): Promise<WorkspaceRuntimeExecHandle<E>> {
      if (options.id !== undefined) assertExecutionId(options.id);
      const backend = this.#backend(options.backend);
-@@ -100,7 +117,7 @@ export class WorkspaceRuntime {
+@@ -100,7 +117,8 @@ export class WorkspaceRuntime {
        throw new Error(notCallableMessage(backend));
      }
      const runtime = await this.#options.backendHandle(backend);
 -    const envelope = await runtime.exec({
 +    const input = {
++      legacySource: options.legacySource,
        id: options.id,
        source,
        cwd: options.cwd,
-@@ -109,7 +126,18 @@ export class WorkspaceRuntime {
+@@ -109,7 +127,19 @@ export class WorkspaceRuntime {
        stdin: options.stdin,
        timeoutMs: options.timeoutMs,
        sync: options.sync,
@@ -1350,13 +1511,14 @@ index fe47aa8..9d86dd9 100644
 +      await beforeDispatch();
 +      envelope = await runtime.exec(input);
 +    } else {
-+      if (!runtime.execWithAdmission) throw new Error("Command backend lacks local execution admission");
++      if (!runtime.execWithAdmission)
++        throw new Error("Command backend lacks local execution admission");
 +      envelope = await runtime.execWithAdmission(input, beforeDispatch);
 +    }
      return wrapModuleHandle(
        runtime,
        backend,
-@@ -254,11 +282,12 @@ function wrapModuleHandle<E extends ExecEncoding>(
+@@ -254,11 +284,12 @@ function wrapModuleHandle<E extends ExecEncoding>(
        async cancel(reason) {
          sourceCancelled = true;
          if (reader) {
@@ -1372,7 +1534,7 @@ index fe47aa8..9d86dd9 100644
            }
          } else await source.cancel(reason);
        },
-@@ -317,14 +346,14 @@ function transformModuleEvents<E extends ExecEncoding>(
+@@ -317,14 +348,14 @@ function transformModuleEvents<E extends ExecEncoding>(
    let stderrMeta: { id: string; seq: number } | undefined;
    let lastSeq = 0;
    const enqueue = (
@@ -1389,7 +1551,7 @@ index fe47aa8..9d86dd9 100644
      beforeSeq?: number,
    ) => {
      const pending: WorkspaceRuntimeEvent<E>[] = [];
-@@ -357,29 +386,27 @@ function transformModuleEvents<E extends ExecEncoding>(
+@@ -357,29 +388,27 @@ function transformModuleEvents<E extends ExecEncoding>(
      stdoutMeta = undefined;
      stderrMeta = undefined;
    };
@@ -1440,7 +1602,7 @@ index fe47aa8..9d86dd9 100644
  }
  
  async function drainModuleResult<E extends ExecEncoding>(
-@@ -547,3 +574,4 @@ function resumeToAfter(resume: "tail" | "full" | number | undefined) {
+@@ -547,3 +576,4 @@ function resumeToAfter(resume: "tail" | "full" | number | undefined) {
    if (typeof resume === "number") return resume;
    return undefined;
  }
@@ -1491,7 +1653,7 @@ index f39acff..9409ae1 100644
 +  });
  }
 diff --git a/packages/computer/src/shell.ts b/packages/computer/src/shell.ts
-index ce23b6f..f6c9d75 100644
+index ce23b6f..9bebc79 100644
 --- a/packages/computer/src/shell.ts
 +++ b/packages/computer/src/shell.ts
 @@ -38,7 +38,7 @@ export type WorkspaceExecEvent<E extends ExecEncoding = undefined> =
@@ -1503,7 +1665,16 @@ index ce23b6f..f6c9d75 100644
    | {
        status: "pending";
        applied: number;
-@@ -103,9 +103,12 @@ export interface GetExecOptions {
+@@ -63,6 +63,8 @@ export interface CommandExecution {
+ }
+ 
+ export interface ExecOptions {
++  // Local dispatch only; never sent as a native RPC field.
++  legacySource?: string;
+   // Stable id. If omitted the runner mints a UUID. Reusing an id
+   // while a previous run is still active throws EEXEC_BUSY.
+   id?: string;
+@@ -103,9 +105,12 @@ export interface GetExecOptions {
  // skipped read-only entries on the sync outcome.
  export interface Sync {
    push(): Promise<number>;
@@ -1518,7 +1689,7 @@ index ce23b6f..f6c9d75 100644
      backend?: string;
      runtimeId?: string;
      targetCursor?: ChangeCursor;
-@@ -124,7 +127,10 @@ export interface CommandDispatchResult {
+@@ -124,7 +129,11 @@ export interface CommandDispatchResult {
    envelope: ShellExecEnvelope;
  }
  
@@ -1526,32 +1697,39 @@ index ce23b6f..f6c9d75 100644
 +export type CommandDispatch = (
 +  input: ShellExecInput,
 +  beforeDispatch?: () => Promise<void>,
++  legacySource?: string,
 +) => Promise<CommandDispatchResult>;
  export type CommandGetDispatch = (input: ShellGetInput) => Promise<ShellExecEnvelope>;
  
  export class CommandExecutor {
-@@ -152,7 +158,7 @@ export class CommandExecutor {
+@@ -152,7 +161,11 @@ export class CommandExecutor {
    // sees them, then returns the raw event stream and the sync
    // bracket stats. A failed push aborts before shell.exec: running
    // with stale or incomplete workspace contents is not safe.
 -  async exec(source: string, options: ExecOptions = {}): Promise<CommandExecution> {
-+  async exec(source: string, options: ExecOptions = {}, beforeDispatch?: () => Promise<void>): Promise<CommandExecution> {
++  async exec(
++    source: string,
++    options: ExecOptions = {},
++    beforeDispatch?: () => Promise<void>,
++  ): Promise<CommandExecution> {
      assertNotTemplate(source);
      const input: ShellExecInput = {
        source,
-@@ -166,9 +172,10 @@ export class CommandExecutor {
+@@ -166,9 +179,12 @@ export class CommandExecutor {
      let pushed: number;
      let envelope: ShellExecEnvelope;
      if (this.#dispatch !== undefined) {
 -      ({ pushed, envelope } = await this.#dispatch(input));
-+      ({ pushed, envelope } = await this.#dispatch(input, beforeDispatch));
++      ({ pushed, envelope } = await this.#dispatch(input, beforeDispatch, options.legacySource));
      } else {
++      if (options.legacySource !== undefined)
++        throw new Error("Native supervision requires Workspace dispatch");
        pushed = await this.#sync.push();
 +      await beforeDispatch?.();
        envelope = await spawnShell(this.#shell, input, this.#observer);
      }
      // Dispose the RPC envelope when the event stream finishes
-@@ -179,8 +186,8 @@ export class CommandExecutor {
+@@ -179,8 +195,8 @@ export class CommandExecutor {
      const drained = disposeOnDone(envelope.events, () => maybeDispose(envelope));
      const wrapped =
        options.sync === "defer"
@@ -1562,7 +1740,7 @@ index ce23b6f..f6c9d75 100644
      return {
        id: envelope.id,
        runtimeId: envelope.runtimeId,
-@@ -200,7 +207,7 @@ export class CommandExecutor {
+@@ -200,7 +216,7 @@ export class CommandExecutor {
          ? await this.#shell.getExec({ id, after })
          : await this.#getDispatch({ id, after, runtimeId: options.runtimeId });
      const drained = disposeOnDone(envelope.events, () => maybeDispose(envelope));
@@ -1571,7 +1749,7 @@ index ce23b6f..f6c9d75 100644
      return { id, runtimeId: envelope.runtimeId, events: stream, sync: { pushed: 0, outcome } };
    }
  
-@@ -249,8 +256,11 @@ export function withPostPull(
+@@ -249,8 +265,11 @@ export function withPostPull(
    source: ReadableStream<ExecEvent>,
    sync: Sync,
    runtimeId?: string,
@@ -1583,7 +1761,7 @@ index ce23b6f..f6c9d75 100644
    let resolveOutcome!: (outcome: PostPullOutcome) => void;
    const outcome = new Promise<PostPullOutcome>((resolve) => {
      resolveOutcome = resolve;
-@@ -260,12 +270,15 @@ export function withPostPull(
+@@ -260,12 +279,15 @@ export function withPostPull(
        async pull(controller) {
          try {
            const next = await reader.read();
@@ -1600,7 +1778,7 @@ index ce23b6f..f6c9d75 100644
            resolveOutcome(pulled);
            controller.close();
          } catch (error) {
-@@ -284,8 +297,9 @@ export function withPostPull(
+@@ -284,8 +306,9 @@ export function withPostPull(
          }
        },
        async cancel(reason) {
@@ -1611,7 +1789,7 @@ index ce23b6f..f6c9d75 100644
          } finally {
            reader.releaseLock();
            try {
-@@ -308,6 +322,7 @@ export function withDeferredPostPull(
+@@ -308,6 +331,7 @@ export function withDeferredPostPull(
    source: ReadableStream<ExecEvent>,
    sync: Sync,
    runtimeId?: string,
@@ -1619,7 +1797,7 @@ index ce23b6f..f6c9d75 100644
  ): { stream: ReadableStream<ExecEvent>; outcome: Promise<PostPullOutcome> } {
    const reader = source.getReader();
    let resolveOutcome!: (outcome: PostPullOutcome) => void;
-@@ -318,7 +333,7 @@ export function withDeferredPostPull(
+@@ -318,7 +342,7 @@ export function withDeferredPostPull(
      let metadata: Awaited<ReturnType<NonNullable<Sync["onPostExecPending"]>>> = {};
      let error: unknown;
      try {
@@ -1628,7 +1806,7 @@ index ce23b6f..f6c9d75 100644
      } catch (caught) {
        error = caught;
      }
-@@ -392,13 +407,22 @@ export function withDeferredPostPull(
+@@ -392,13 +416,22 @@ export function withDeferredPostPull(
    return { stream, outcome };
  }
  
@@ -1746,7 +1924,7 @@ index a9027ed..0dd284c 100644
      let closes = 0;
      const broken: import("@cloudflare/computer-rpc").SyncRPC = {
 diff --git a/packages/computer/src/workspace.ts b/packages/computer/src/workspace.ts
-index 12820e6..a5fb0ec 100644
+index 12820e6..cf260e7 100644
 --- a/packages/computer/src/workspace.ts
 +++ b/packages/computer/src/workspace.ts
 @@ -13,18 +13,26 @@ import type { ShellRPC } from "@cloudflare/computer-rpc";
@@ -2113,7 +2291,7 @@ index 12820e6..a5fb0ec 100644
          if (!canRetry) {
            throw new WorkspaceTransportError(
              `Workspace backend ${JSON.stringify(id)}: ${operation} transport failed; the command may have started and was not replayed: ${safeErrorMessage(error).slice(0, 240)}`,
-@@ -944,24 +1172,33 @@ export class Workspace {
+@@ -944,24 +1172,34 @@ export class Workspace {
      const cached = this.#commandHandles.get(id);
      if (cached) return cached;
      const shell = this.#shellFor(id);
@@ -2127,6 +2305,7 @@ index 12820e6..a5fb0ec 100644
 +      const envelope = await shell.exec(
 +        input.source,
 +        {
++          legacySource: input.legacySource,
            id: input.id,
            cwd: input.cwd,
            timeoutMs: input.timeoutMs,
@@ -2159,7 +2338,7 @@ index 12820e6..a5fb0ec 100644
        getExec: async ({ id: execId, after, runtimeId }) => {
          const resume = after === undefined ? "full" : after;
          const expectedRuntimeId =
-@@ -1079,19 +1316,9 @@ export class Workspace {
+@@ -1079,19 +1317,9 @@ export class Workspace {
          if (generation !== this.#connectionGeneration) {
            throw new Error(`Workspace closed while backend ${JSON.stringify(id)} was connecting.`);
          }
@@ -2182,7 +2361,7 @@ index 12820e6..a5fb0ec 100644
          this.#handles.set(id, handle);
          // Watch the transport for mid-session loss. Backends without
          // a `closed` promise (in-process fakes) opt out by omitting
-@@ -1139,33 +1366,97 @@ export class Workspace {
+@@ -1139,33 +1367,114 @@ export class Workspace {
    #shellFor(id: string): CommandExecutor {
      const cached = this.#shells.get(id);
      if (cached !== undefined) return cached;
@@ -2215,6 +2394,7 @@ index 12820e6..a5fb0ec 100644
 +    const dispatch = (
 +      input: Parameters<ShellRPC["exec"]>[0],
 +      beforeDispatch?: () => Promise<void>,
++      legacySource?: string,
 +    ) => {
 +      // Once admission starts, its durable outcome may be uncertain even if
 +      // the callback throws. Never re-enter it through automatic reconnect.
@@ -2252,6 +2432,22 @@ index 12820e6..a5fb0ec 100644
 +                epoch: source.epoch,
 +                cursor: readPushCursor(this.#db, id),
 +              };
++            }
++            if (legacySource !== undefined) {
++              const capability = handle.executionSupervision;
++              if (!capability) throw new Error("Native execution supervision was not established");
++              if (capability.version === 0) {
++                executionInput.source = legacySource;
++              } else if (capability.version === 1) {
++                if (executionInput.syncFence?.epoch !== capability.epoch) {
++                  throw new WorkspacePreDispatchTransportError(
++                    "Native supervision belongs to a different database epoch",
++                  );
++                }
++                executionInput.supervision = 1;
++              } else {
++                throw new Error("Unsupported native execution supervision");
++              }
 +            }
 +            if (beforeDispatch) {
 +              admissionEntered = true;
@@ -2306,7 +2502,7 @@ index 12820e6..a5fb0ec 100644
      const getDispatch = (input: Parameters<ShellRPC["getExec"]>[0] & { runtimeId?: string }) =>
        this.#runShellEnvelope(
          id,
-@@ -1188,14 +1479,15 @@ export class Workspace {
+@@ -1188,14 +1497,15 @@ export class Workspace {
        rpc,
        {
          push: () => this.#pushForExecDefault(id),
@@ -2324,7 +2520,7 @@ index 12820e6..a5fb0ec 100644
        },
        this.#observer,
        dispatch,
-@@ -1205,8 +1497,10 @@ export class Workspace {
+@@ -1205,8 +1515,10 @@ export class Workspace {
      return shell;
    }
  
@@ -2337,7 +2533,7 @@ index 12820e6..a5fb0ec 100644
    }
  
    // The exec bracket's pre-command push. Distinct from the public
-@@ -1223,7 +1517,7 @@ export class Workspace {
+@@ -1223,7 +1535,7 @@ export class Workspace {
            if (resolvedId === undefined || this.#moduleBackendsById.has(resolvedId)) return 0;
            return this.#runWithReconnect(resolvedId, "push", async (handle) => {
              if (handle.sync === "none") return 0;
@@ -2346,7 +2542,7 @@ index 12820e6..a5fb0ec 100644
            });
          },
          (span, outcome) => {
-@@ -1233,21 +1527,55 @@ export class Workspace {
+@@ -1233,21 +1545,60 @@ export class Workspace {
      );
    }
  
@@ -2356,26 +2552,31 @@ index 12820e6..a5fb0ec 100644
 +  ): Promise<number> {
 +    const step = await pushBlocks(this.#db, remote, {
 +      backend,
-+      onBlock: (timing, progress) => this.#syncLogger.block({
-+        ...timing,
-+        backend,
-+        direction: "push",
-+        mode: "entries",
-+        purpose: "execution-preparation",
-+        ...(progress ? {
-+          operationId: progress.operationId,
-+          generation: progress.generation,
-+          phase: progress.phase,
-+          checkpoint: progress.checkpoint,
-+          entries: progress.entries,
-+          bytes: progress.bytes,
-+          skipped: progress.skipped,
-+          complete: progress.complete,
-+          cursorRev: progress.cursor.rev,
-+          targetRev: progress.targetCursor.rev,
-+        } : {}),
-+      }),
-+    })[Symbol.asyncIterator]().next();
++      onBlock: (timing, progress) =>
++        this.#syncLogger.block({
++          ...timing,
++          backend,
++          direction: "push",
++          mode: "entries",
++          purpose: "execution-preparation",
++          ...(progress
++            ? {
++                operationId: progress.operationId,
++                generation: progress.generation,
++                phase: progress.phase,
++                checkpoint: progress.checkpoint,
++                entries: progress.entries,
++                bytes: progress.bytes,
++                skipped: progress.skipped,
++                complete: progress.complete,
++                cursorRev: progress.cursor.rev,
++                targetRev: progress.targetCursor.rev,
++              }
++            : {}),
++        }),
++    })
++      [Symbol.asyncIterator]()
++      .next();
 +    if (step.done) throw new Error("sync: missing push progress");
 +    // New writes after a fixed window require another window before dispatch.
 +    if (!step.value.complete || currentRev(this.#db) > step.value.targetCursor.rev) {
@@ -2416,7 +2617,7 @@ index 12820e6..a5fb0ec 100644
      );
    }
  
-@@ -1289,6 +1617,26 @@ export class Workspace {
+@@ -1289,6 +1640,26 @@ export class Workspace {
      });
    }
  
@@ -2443,7 +2644,7 @@ index 12820e6..a5fb0ec 100644
    #executionRuntimeKey(backendId: string, executionId: string): string {
      return JSON.stringify([backendId, executionId]);
    }
-@@ -1344,14 +1692,18 @@ function assertExecutionRuntime(
+@@ -1344,14 +1715,18 @@ function assertExecutionRuntime(
    currentRuntimeId: string | undefined,
  ): void {
    if (expectedRuntimeId === undefined || currentRuntimeId === expectedRuntimeId) return;
@@ -2652,7 +2853,7 @@ index 0000000..7bf2a73
 +  test: { include: ["tests/execution-sync.test.ts"] },
 +});
 diff --git a/packages/computerd/src/cli/computerd.ts b/packages/computerd/src/cli/computerd.ts
-index 03fed77..2ca8ed2 100644
+index 03fed77..4993d31 100644
 --- a/packages/computerd/src/cli/computerd.ts
 +++ b/packages/computerd/src/cli/computerd.ts
 @@ -29,6 +29,7 @@ import {
@@ -2663,7 +2864,15 @@ index 03fed77..2ca8ed2 100644
  
  // The compiled-in default port. esbuild's `define` substitutes the
  // real value at SEA bundle time when COMPUTERD_DEFAULT_PORT is set on
-@@ -591,24 +592,6 @@ function toWebSocketUrl(input: string): string {
+@@ -150,6 +151,7 @@ function dropHeartbeats(stream: ReadableStream<ComputerdExecEvent>): ReadableStr
+ }
+ 
+ interface ComputerdInfo {
++  execution?: { supervision: 1; epoch: string };
+   backend: FUSEBackend;
+   mountPoint: string;
+   port: number;
+@@ -591,24 +593,6 @@ function toWebSocketUrl(input: string): string {
    throw new Error(`unsupported URL scheme: ${input}`);
  }
  
@@ -2688,6 +2897,18 @@ index 03fed77..2ca8ed2 100644
  async function main(): Promise<void> {
    // Install logging + crash handlers first thing so any early throws
    // (parsePort, parseMountPoint, resolveFuseBackend) still land in
+@@ -796,6 +780,11 @@ async function main(): Promise<void> {
+         }
+       : {}),
+   });
++  if (process.platform !== "win32") {
++    const { epoch } = await rpc.sync.watermarks({ settle: false });
++    if (!epoch) throw new Error("Native execution supervision requires a database epoch");
++    info.execution = { supervision: 1, epoch };
++  }
+   const http = createHTTPServer(
+     info,
+     rpc,
 diff --git a/packages/computerd/src/cli/health.test.ts b/packages/computerd/src/cli/health.test.ts
 new file mode 100644
 index 0000000..9f32048
@@ -6219,10 +6440,10 @@ index 0000000..8edf4b1
 +});
 diff --git a/packages/rpc/src/dispatch-fence.test.ts b/packages/rpc/src/dispatch-fence.test.ts
 new file mode 100644
-index 0000000..8af057b
+index 0000000..7d8f09a
 --- /dev/null
 +++ b/packages/rpc/src/dispatch-fence.test.ts
-@@ -0,0 +1,37 @@
+@@ -0,0 +1,41 @@
 +import { expect, it, vi } from "vitest";
 +import { Database, initializeSchema, writeFetchCursor } from "@cloudflare/dofs";
 +import { SQLiteTestStorage } from "@cloudflare/dofs/testing";
@@ -6250,6 +6471,10 @@ index 0000000..8af057b
 +    );
 +    expect(exec).not.toHaveBeenCalled();
 +    writeFetchCursor(db, syncFence.cursor);
++    await expect(
++      rpc.shell.exec({ source: "mutate", syncFence, supervision: 2 as 1 }),
++    ).rejects.toThrow("EEXEC_UNSUPPORTED:");
++    expect(exec).not.toHaveBeenCalled();
 +    await expect(
 +      rpc.shell.exec({ source: "mutate", syncFence: { ...syncFence, epoch: "old-database" } }),
 +    ).rejects.toThrow("ESYNC_PRE_DISPATCH:");
@@ -6580,15 +6805,21 @@ index 0000000..78be9ec
 +  },
 +);
 diff --git a/packages/rpc/src/interface.ts b/packages/rpc/src/interface.ts
-index 8e46173..8415ecf 100644
+index 8e46173..83c17d2 100644
 --- a/packages/rpc/src/interface.ts
 +++ b/packages/rpc/src/interface.ts
-@@ -17,9 +17,29 @@
+@@ -17,9 +17,35 @@
  // WorkspaceRPC, so the wire stub exposes one stable surface while
  // the two halves stay internally separable.
  
 -import type { ChangeCursor, ChangeEntry } from "@cloudflare/dofs";
-+import type { ChangeCursor, ChangeEntry, RetentionScope, ImportReceipt, ImportRequest } from "@cloudflare/dofs";
++import type {
++  ChangeCursor,
++  ChangeEntry,
++  RetentionScope,
++  ImportReceipt,
++  ImportRequest,
++} from "@cloudflare/dofs";
 +
 +export const OBJECT_BATCH_LIMIT = 256;
 +export const OBJECT_BATCH_BYTES = 8 * 1024 * 1024;
@@ -6614,7 +6845,7 @@ index 8e46173..8415ecf 100644
    // DO → container. Stream a coalesced batch of changes. Bytes are
    // not inline: the DO sends ChangeEntry records with chunk hashes,
    // the container calls back via hasObjects / asks for the missing
-@@ -29,10 +49,13 @@ export interface SyncRPC {
+@@ -29,10 +55,13 @@ export interface SyncRPC {
    // settles, and echoes that cursor back as `appliedPushCursor` so
    // the sender can assert applied covers pushed on every response.
    push(input: {
@@ -6628,7 +6859,7 @@ index 8e46173..8415ecf 100644
      rev: number;
      applied?: number;
      appliedPushCursor: ChangeCursor;
-@@ -51,6 +74,9 @@ export interface SyncRPC {
+@@ -51,6 +80,9 @@ export interface SyncRPC {
    //
    // Per-file entries carry (hash, size) chunk lists; no bytes inline.
    fetchChanges(input: {
@@ -6638,7 +6869,7 @@ index 8e46173..8415ecf 100644
      after?: ChangeCursor;
      through?: ChangeCursor;
      ignore?: string[];
-@@ -58,10 +84,12 @@ export interface SyncRPC {
+@@ -58,10 +90,12 @@ export interface SyncRPC {
      currentCursor: ChangeCursor;
      appliedPushCursor: ChangeCursor;
      stream: ReadableStream<ChangeEntry>;
@@ -6653,7 +6884,7 @@ index 8e46173..8415ecf 100644
    // tests, dashboards, and the agent's exec stream when it
    // wants to wait for the wire to drain. The three values are:
    //
-@@ -74,7 +102,11 @@ export interface SyncRPC {
+@@ -74,7 +108,11 @@ export interface SyncRPC {
    // a sync peer. Otherwise they sit at 0. Pass `settle: true` to run
    // the receiver's pre-fetch reconciliation before currentRev is read;
    // deferred command sync uses that as its durable target fence.
@@ -6666,7 +6897,7 @@ index 8e46173..8415ecf 100644
      currentRev: number;
      pushRev: number;
      fetchCursor: ChangeCursor;
-@@ -89,12 +121,12 @@ export interface SyncRPC {
+@@ -89,12 +127,15 @@ export interface SyncRPC {
    // to look up one path.
    readEntry(path: string): Promise<ChangeEntry | null>;
  
@@ -6677,23 +6908,30 @@ index 8e46173..8415ecf 100644
    // set of chunk hashes in request order. Throws EUNKNOWN_HASH if
    // any hash is unknown — callers must dedupe and probe first.
 -  fetchObjects(hashes: Uint8Array[]): ReadableStream<{ hash: Uint8Array; bytes: Uint8Array }>;
-+  fetchObjects(hashes: Uint8Array[], scope?: RetentionScope): ReadableStream<{ hash: Uint8Array; bytes: Uint8Array }>;
++  fetchObjects(
++    hashes: Uint8Array[],
++    scope?: RetentionScope,
++  ): ReadableStream<{ hash: Uint8Array; bytes: Uint8Array }>;
  
    // Bulk pull transport. Same cursor semantics as fetchChanges, but the
    // response is one gzip change pack carrying entries interleaved with
-@@ -136,7 +168,7 @@ export interface SyncRPC {
+@@ -136,7 +177,10 @@ export interface SyncRPC {
    // DO → container direction of object transfer. The DO streams the
    // bytes the container reported missing (via hasObjects) during a
    // push. Pushed objects are addressable immediately by hash.
 -  pushObjects(objects: ReadableStream<{ hash: Uint8Array; bytes: Uint8Array }>): Promise<void>;
-+  pushObjects(objects: ReadableStream<{ hash: Uint8Array; bytes: Uint8Array }>, scope?: RetentionScope): Promise<void>;
++  pushObjects(
++    objects: ReadableStream<{ hash: Uint8Array; bytes: Uint8Array }>,
++    scope?: RetentionScope,
++  ): Promise<void>;
  }
  
  // Process supervision surface. Lives alongside SyncRPC. computerd's
-@@ -148,6 +180,7 @@ export interface ShellRPC {
+@@ -148,6 +192,8 @@ export interface ShellRPC {
    // Capnweb streams handle backpressure end-to-end; consumer-side
    // slowness propagates to the spawned process via the kernel pipe.
    exec(input: {
++    supervision?: 1;
 +    syncFence?: { epoch: string; cursor: ChangeCursor };
      source: string;
      cwd?: string;
@@ -7130,18 +7368,28 @@ index 0000000..234e54c
 +  });
 +});
 diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
-index 4e675c3..9b4c3da 100644
+index 4e675c3..8cdb40e 100644
 --- a/packages/rpc/src/server.ts
 +++ b/packages/rpc/src/server.ts
-@@ -5,10 +5,15 @@
+@@ -5,10 +5,25 @@
  // the DO. Same code on both ends; what differs is who calls whom.
  
  import {
 +  CHUNK_SIZE,
    applyChangesSync,
-+  proveImportedWindow, readImportReceipt, saveImportReceipt, sameImportReceipt,
-+  readPushCursor, writePushCursor, type ImportReceipt, type ImportRequest,
-+  assertRetention, beginRetention, retentionHead, pinBlobs, type RetentionScope,
++  proveImportedWindow,
++  readImportReceipt,
++  saveImportReceipt,
++  sameImportReceipt,
++  readPushCursor,
++  writePushCursor,
++  type ImportReceipt,
++  type ImportRequest,
++  assertRetention,
++  beginRetention,
++  retentionHead,
++  pinBlobs,
++  type RetentionScope,
    type ChangeCursor,
    type ChangeEntry,
 -  coalesceChanges,
@@ -7150,7 +7398,7 @@ index 4e675c3..9b4c3da 100644
    compareChangeCursors,
    currentRev,
    type Database,
-@@ -27,6 +32,7 @@ import { newWebSocketRpcSession, RpcTarget } from "capnweb";
+@@ -27,6 +42,7 @@ import { newWebSocketRpcSession, RpcTarget } from "capnweb";
  
  import { trackStub, untrackStub } from "./debug.js";
  import type { ExecEvent, ShellRPC, SyncRPC, WorkspaceRPC } from "./interface.js";
@@ -7158,12 +7406,24 @@ index 4e675c3..9b4c3da 100644
  
  // Subset of computerd's Runner that the shell server needs. Defining
  // the shape here (instead of importing the concrete class) keeps
-@@ -89,6 +95,13 @@ export interface ServerOptions {
+@@ -36,6 +52,7 @@ export interface RunnerLike {
+   exec(
+     command: string,
+     options?: {
++      supervision?: 1;
+       id?: string;
+       cwd?: string;
+       timeoutMs?: number;
+@@ -89,6 +106,17 @@ export interface ServerOptions {
  }
  
  class SyncRPCServer extends RpcTarget implements SyncRPC {
-+  async retentionHead(slot: string) { return retentionHead(this.db, slot); }
-+  async beginRetention(scope: RetentionScope, expected: string | null) { beginRetention(this.db, scope, expected); }
++  async retentionHead(slot: string) {
++    return retentionHead(this.db, slot);
++  }
++  async beginRetention(scope: RetentionScope, expected: string | null) {
++    beginRetention(this.db, scope, expected);
++  }
 +  private requireRetention(scope: RetentionScope | undefined): RetentionScope {
 +    if (!scope) throw new Error("ESYNC_RETENTION_REQUIRED: upgrade both Computer peers");
 +    assertRetention(this.db, scope);
@@ -7172,7 +7432,7 @@ index 4e675c3..9b4c3da 100644
    constructor(
      private readonly db: Database,
      private readonly options: Required<Pick<ServerOptions, "ignore">> &
-@@ -103,10 +116,12 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -103,10 +131,17 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
    }
  
    async push(input: {
@@ -7182,11 +7442,16 @@ index 4e675c3..9b4c3da 100644
      senderCursor?: ChangeCursor;
      changes: ReadableStream<ChangeEntry>;
 -  }): Promise<{ rev: number; applied?: number; appliedPushCursor: ChangeCursor }> {
-+  }): Promise<{ rev: number; applied?: number; appliedPushCursor: ChangeCursor; importReceipt?: ImportReceipt }> {
++  }): Promise<{
++    rev: number;
++    applied?: number;
++    appliedPushCursor: ChangeCursor;
++    importReceipt?: ImportReceipt;
++  }> {
      const entries: ChangeEntry[] = [];
      const reader = input.changes.getReader();
      try {
-@@ -139,13 +154,50 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -139,13 +174,58 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      // assembly step) rolls back every prior entry. Without this
      // wrapper the receiver could be left with a subset of the
      // pushed entries committed.
@@ -7205,10 +7470,13 @@ index 4e675c3..9b4c3da 100644
 +        if (compareChangeCursors(acknowledged, readPushCursor(this.db)) > 0)
 +          writePushCursor(this.db, acknowledged);
 +        const saved = readImportReceipt(this.db, `receive:${input.scope.slot}`);
-+        if (saved && saved.scope.epoch === input.scope.epoch &&
-+            saved.scope.generation === input.scope.generation &&
-+            saved.sourceEpoch === input.importRequest.sourceEpoch &&
-+            compareChangeCursors(saved.through, readPushCursor(this.db)) > 0) {
++        if (
++          saved &&
++          saved.scope.epoch === input.scope.epoch &&
++          saved.scope.generation === input.scope.generation &&
++          saved.sourceEpoch === input.importRequest.sourceEpoch &&
++          compareChangeCursors(saved.through, readPushCursor(this.db)) > 0
++        ) {
 +          // Resolve the previous durable receipt before consuming another
 +          // block. Replanning after a lost response may select different
 +          // paths if source files changed; that is not a receipt replay.
@@ -7229,9 +7497,14 @@ index 4e675c3..9b4c3da 100644
 +        if (compareChangeCursors(input.importRequest.accepted, readPushCursor(this.db)) === 0) {
 +          const through = proveImportedWindow(this.db, input.importRequest.accepted, entries);
 +          if (through && applied.skipped.length === 0) {
-+            receipt = { id: crypto.randomUUID(), scope: input.scope,
-+              sourceEpoch: input.importRequest.sourceEpoch, sourceCursor: readFetchCursor(this.db),
-+              after: input.importRequest.accepted, through };
++            receipt = {
++              id: crypto.randomUUID(),
++              scope: input.scope,
++              sourceEpoch: input.importRequest.sourceEpoch,
++              sourceCursor: readFetchCursor(this.db),
++              after: input.importRequest.accepted,
++              through,
++            };
 +            saveImportReceipt(this.db, slot, receipt);
 +          }
 +        }
@@ -7240,7 +7513,7 @@ index 4e675c3..9b4c3da 100644
      });
      // Settle the receiver's shim, and let the outcome decide what the
      // caller is told — which differs by who the caller is.
-@@ -157,8 +209,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -157,8 +237,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      // acknowledgment, and only then spawns: acknowledging an
      // unflushed block would retire it and let the command read stale
      // disk. Replay is safe because these entries carry
@@ -7250,7 +7523,7 @@ index 4e675c3..9b4c3da 100644
      //
      // An external push is not replayable. It has no durable cursor to
      // rewind, and its entries are applied as source: "local", which
-@@ -170,7 +221,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -170,7 +249,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      // remove a file some other writer recreated in between. So the
      // failure is logged and the push acknowledged, leaving the shim's
      // periodic reconcile to repair disk.
@@ -7259,14 +7532,15 @@ index 4e675c3..9b4c3da 100644
        if (isPeer) {
          await this.options.afterApply();
        } else {
-@@ -183,12 +234,56 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -183,12 +262,61 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      }
      return {
        rev: currentRev(this.db),
 -      applied: entries.length,
 -      appliedPushCursor: isPeer ? senderCursor : { rev: 0, path: null },
 +      applied: result.applied,
-+      appliedPushCursor: result.receipt?.sourceCursor ?? (isPeer ? senderCursor : { rev: 0, path: null }),
++      appliedPushCursor:
++        result.receipt?.sourceCursor ?? (isPeer ? senderCursor : { rev: 0, path: null }),
 +      ...(result.receipt ? { importReceipt: result.receipt } : {}),
      };
    }
@@ -7275,12 +7549,14 @@ index 4e675c3..9b4c3da 100644
 +    this.db.transactionSync(() => {
 +      this.requireRetention(receipt.scope);
 +      const saved = readImportReceipt(this.db, `receive:${receipt.scope.slot}`);
-+      if (!saved || !sameImportReceipt(saved, receipt)) throw new Error("ESYNC_STALE_IMPORT: receipt changed");
++      if (!saved || !sameImportReceipt(saved, receipt))
++        throw new Error("ESYNC_STALE_IMPORT: receipt changed");
 +      // Keep the last receipt for idempotent ACK retries. The next import
 +      // replaces this bounded slot only after its predecessor is confirmed.
 +      const cursor = readPushCursor(this.db);
 +      if (compareChangeCursors(cursor, receipt.through) >= 0) return;
-+      if (compareChangeCursors(cursor, receipt.after) !== 0) throw new Error("ESYNC_STALE_IMPORT: cursor changed");
++      if (compareChangeCursors(cursor, receipt.after) !== 0)
++        throw new Error("ESYNC_STALE_IMPORT: cursor changed");
 +      writePushCursor(this.db, receipt.through);
 +    });
 +  }
@@ -7293,14 +7569,16 @@ index 4e675c3..9b4c3da 100644
 +    ignore?: string[];
 +  }) {
 +    const scope = this.requireRetention(input.scope);
-+    if (scope.generation !== input.generation) throw new Error("ESYNC_STALE_RETENTION: generation mismatch");
++    if (scope.generation !== input.generation)
++      throw new Error("ESYNC_STALE_RETENTION: generation mismatch");
 +    return prepareChangePlan(this.db, { ...input, ignore: input.ignore ?? this.options.ignore });
 +  }
 +  async discardChanges(generation: string, scope?: RetentionScope) {
 +    if (!scope || scope.generation !== generation) throw new Error("ESYNC_RETENTION_REQUIRED");
 +    return this.db.transactionSync(() => {
 +      const head = retentionHead(this.db, scope.slot);
-+      if (head.epoch !== scope.epoch || head.generation !== generation) throw new Error("ESYNC_STALE_RETENTION");
++      if (head.epoch !== scope.epoch || head.generation !== generation)
++        throw new Error("ESYNC_STALE_RETENTION");
 +      // Closing the generation rejects late writes. Retire its temporary
 +      // references in the same transaction before acknowledging the handoff.
 +      // Physical reclamation belongs to the existing bounded maintenance loop;
@@ -7318,7 +7596,7 @@ index 4e675c3..9b4c3da 100644
      after?: ChangeCursor;
      through?: ChangeCursor;
      ignore?: string[];
-@@ -196,7 +291,11 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -196,7 +324,11 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      currentCursor: ChangeCursor;
      appliedPushCursor: ChangeCursor;
      stream: ReadableStream<ChangeEntry>;
@@ -7330,7 +7608,7 @@ index 4e675c3..9b4c3da 100644
      if (this.options.beforeFetch !== undefined) {
        try {
          await this.options.beforeFetch();
-@@ -215,13 +314,30 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -215,13 +347,30 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
        input.through !== undefined && compareChangeCursors(input.through, snapshotCursor) < 0
          ? input.through
          : snapshotCursor;
@@ -7368,7 +7646,7 @@ index 4e675c3..9b4c3da 100644
    }
  
    // Bulk pull. Plans one block against the same cursor window
-@@ -241,40 +357,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -241,40 +390,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      appliedPushCursor: ChangeCursor;
      stream: ReadableStream<Uint8Array>;
    }> {
@@ -7410,7 +7688,7 @@ index 4e675c3..9b4c3da 100644
    }
  
    // Bulk push receiver. Decode fully before applying anything: a pack
-@@ -294,12 +377,19 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -294,12 +410,19 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      for (const [key, bytes] of decoded.objects) {
        stageBlob(this.db, hexToBytes(key), bytes, Date.now());
      }
@@ -7433,7 +7711,7 @@ index 4e675c3..9b4c3da 100644
      // Mirror push(): settle the receiver's shim so a subsequent
      // shell.exec sees the just-pushed files on disk. Pack mode is
      // selected for exactly the large windows a pre-command push
-@@ -312,7 +402,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -312,7 +435,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      // lets the command read stale disk. Failing the RPC leaves the
      // sender cursor where it was and the next push replans the same
      // block; the entries are already committed here, and applying
@@ -7442,7 +7720,7 @@ index 4e675c3..9b4c3da 100644
      if (this.options.afterApply !== undefined && decoded.entries.length > 0) {
        await this.options.afterApply();
      }
-@@ -327,11 +417,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -327,11 +450,9 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      return materialiseChange(this.db, path);
    }
  
@@ -7451,11 +7729,13 @@ index 4e675c3..9b4c3da 100644
 -    pushRev: number;
 -    fetchCursor: ChangeCursor;
 -  }> {
-+  async watermarks(input: { settle?: boolean; retentionSlot?: string } = {}): ReturnType<SyncRPC["watermarks"]> {
++  async watermarks(
++    input: { settle?: boolean; retentionSlot?: string } = {},
++  ): ReturnType<SyncRPC["watermarks"]> {
      // Deferred command synchronization needs a cursor that includes
      // writes still waiting in the userspace shim. Unlike the ordinary
      // diagnostic read, a settled read propagates hook failures so the
-@@ -339,38 +425,83 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -339,38 +460,101 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      if (input.settle === true && this.options.beforeFetch !== undefined) {
        await this.options.beforeFetch();
      }
@@ -7465,17 +7745,27 @@ index 4e675c3..9b4c3da 100644
 -      fetchCursor: readFetchCursor(this.db),
 -    };
 +    return this.db.transactionSync(() => {
-+      const retention = input.retentionSlot === undefined ? undefined : this.db.one<{ generation: string; closed: number }>(
-+        "SELECT generation,closed FROM _vfs_retention_slots WHERE slot=?", input.retentionSlot,
-+      );
++      const retention =
++        input.retentionSlot === undefined
++          ? undefined
++          : this.db.one<{ generation: string; closed: number }>(
++              "SELECT generation,closed FROM _vfs_retention_slots WHERE slot=?",
++              input.retentionSlot,
++            );
 +      return {
 +        epoch: this.db.scalar<string>("SELECT epoch FROM _vfs_sync_identity WHERE slot='self'")!,
 +        currentRev: currentRev(this.db),
 +        pushRev: readWatermark(this.db, "pushRev"),
 +        fetchCursor: readFetchCursor(this.db),
-+        ...(input.retentionSlot === undefined ? {} : { retention: {
-+          slot: input.retentionSlot, generation: retention?.generation ?? null, closed: retention?.closed === 1,
-+        } }),
++        ...(input.retentionSlot === undefined
++          ? {}
++          : {
++              retention: {
++                slot: input.retentionSlot,
++                generation: retention?.generation ?? null,
++                closed: retention?.closed === 1,
++              },
++            }),
 +      };
 +    });
    }
@@ -7493,16 +7783,21 @@ index 4e675c3..9b4c3da 100644
  
 -  fetchObjects(hashes: Uint8Array[]): ReadableStream<{ hash: Uint8Array; bytes: Uint8Array }> {
 -    return iterableToReadableStream(fetchObjects(this.db, hashes));
-+  fetchObjects(hashes: Uint8Array[], scope?: RetentionScope): ReadableStream<{ hash: Uint8Array; bytes: Uint8Array }> {
++  fetchObjects(
++    hashes: Uint8Array[],
++    scope?: RetentionScope,
++  ): ReadableStream<{ hash: Uint8Array; bytes: Uint8Array }> {
 +    const owner = this.requireRetention(scope);
 +    pinBlobs(this.db, owner.generation, hashes);
 +    const self = this;
-+    return iterableToReadableStream((async function* () {
-+      for await (const object of fetchObjects(self.db, hashes)) {
-+        self.requireRetention(scope);
-+        yield object;
-+      }
-+    })());
++    return iterableToReadableStream(
++      (async function* () {
++        for await (const object of fetchObjects(self.db, hashes)) {
++          self.requireRetention(scope);
++          yield object;
++        }
++      })(),
++    );
    }
  
    async pushObjects(
@@ -7518,7 +7813,8 @@ index 4e675c3..9b4c3da 100644
 +      // original scope after that wait, before accepting any buffered bytes.
 +      this.db.transactionSync(() => {
 +        const owner = this.requireRetention(scope);
-+        for (const object of batch) stageBlob(this.db, object.hash, object.bytes, Date.now(), owner.generation);
++        for (const object of batch)
++          stageBlob(this.db, object.hash, object.bytes, Date.now(), owner.generation);
 +      });
 +      batch = [];
 +      bytes = 0;
@@ -7529,7 +7825,9 @@ index 4e675c3..9b4c3da 100644
          if (done) break;
 -        stageBlob(this.db, value.hash, value.bytes, Date.now());
 +        if (value.bytes.byteLength > CHUNK_SIZE)
-+          throw new Error("sync: object size exceeds the filesystem chunk contract; cursor unchanged");
++          throw new Error(
++            "sync: object size exceeds the filesystem chunk contract; cursor unchanged",
++          );
 +        if (bytes + value.bytes.byteLength > OBJECT_BATCH_BYTES) commitBatch();
 +        batch.push(value);
 +        bytes += value.bytes.byteLength;
@@ -7550,18 +7848,22 @@ index 4e675c3..9b4c3da 100644
      super();
      trackStub(this);
    }
-@@ -380,6 +511,7 @@ class ShellRPCServer extends RpcTarget implements ShellRPC {
+@@ -380,6 +564,8 @@ class ShellRPCServer extends RpcTarget implements ShellRPC {
    }
  
    async exec(input: {
++    supervision?: 1;
 +    syncFence?: { epoch: string; cursor: ChangeCursor };
      source: string;
      cwd?: string;
      id?: string;
-@@ -391,6 +523,17 @@ class ShellRPCServer extends RpcTarget implements ShellRPC {
+@@ -391,7 +577,22 @@ class ShellRPCServer extends RpcTarget implements ShellRPC {
      id: string;
      events: ReadableStream<ExecEvent>;
    }> {
++    if (input.supervision !== undefined && input.supervision !== 1) {
++      throw new Error("EEXEC_UNSUPPORTED: unsupported execution supervision");
++    }
 +    if (
 +      input.syncFence &&
 +      (!this.db ||
@@ -7574,9 +7876,11 @@ index 4e675c3..9b4c3da 100644
 +      throw new Error("ESYNC_PRE_DISPATCH: file database or accepted input cursor changed");
 +    }
      return this.runner.exec(input.source, {
++      supervision: input.supervision,
        id: input.id,
        cwd: input.cwd,
-@@ -472,7 +615,7 @@ export function createWorkspaceServer(
+       timeoutMs: input.timeoutMs,
+@@ -472,7 +673,7 @@ export function createWorkspaceServer(
    runner: RunnerLike,
    options: ServerOptions = {},
  ): WorkspaceRPC {
@@ -9336,3 +9640,668 @@ index 4c83d68..89d0ab0 100644
        cursorRev: 1,
        targetRev: 2,
        cpuLimitMs: 30_000,
+diff --git a/packages/computerd/src/exec/runner.ts b/packages/computerd/src/exec/runner.ts
+index 6904e8d..7cc627c 100644
+--- a/packages/computerd/src/exec/runner.ts
++++ b/packages/computerd/src/exec/runner.ts
+@@ -28,6 +28,7 @@ import { ExecError, type ExecEvent, type ExecOptions, type RunnerOptions } from
+ interface ExecRecord {
+   id: string;
+   child: ChildProcess;
++  processGroup: boolean;
+   log: EventLog;
+   startedAt: number;
+   lastOutputAt?: number;
+@@ -37,6 +38,7 @@ interface ExecRecord {
+   timeoutTimer?: NodeJS.Timeout;
+   killTimer?: NodeJS.Timeout;
+   heartbeatTimer?: NodeJS.Timeout;
++  detachOutput: () => void;
+ }
+ 
+ interface LiveSubscriber {
+@@ -112,6 +114,12 @@ export class Runner {
+ 
+   exec(command: string, options: ExecOptions = {}): ExecHandle {
+     if (this.disposed) throw new Error("runner disposed");
++    if (
++      options.supervision !== undefined &&
++      (options.supervision !== 1 || process.platform === "win32")
++    ) {
++      throw new Error("EEXEC_UNSUPPORTED: unsupported execution supervision");
++    }
+     const id = options.id ?? randomUUID();
+     const existing = this.records.get(id);
+     if (existing?.live) {
+@@ -153,6 +161,7 @@ export class Runner {
+     const wrapped = cwd !== undefined ? `cd ${shellQuote(cwd)} && ${command}` : command;
+     const child = spawn(this.opts.shell, ["-c", wrapped], {
+       env,
++      detached: options.supervision === 1,
+       stdio: [options.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+     });
+     if (options.stdin !== undefined && child.stdin) {
+@@ -169,9 +178,16 @@ export class Runner {
+     const record: ExecRecord = {
+       id,
+       child,
++      processGroup: options.supervision === 1,
+       log,
+       startedAt: this.opts.now(),
+       live: true,
++      detachOutput: () => {
++        child.stdout?.off("data", onStdout);
++        child.stderr?.off("data", onStderr);
++        child.stdout?.destroy();
++        child.stderr?.destroy();
++      },
+     };
+     this.records.set(id, record);
+ 
+@@ -181,8 +197,10 @@ export class Runner {
+       record.lastOutputAt = this.opts.now();
+       record.subscriber?.enqueue({ id, seq, name, value });
+     };
+-    child.stdout?.on("data", onData("stdout"));
+-    child.stderr?.on("data", onData("stderr"));
++    const onStdout = onData("stdout");
++    const onStderr = onData("stderr");
++    child.stdout?.on("data", onStdout);
++    child.stderr?.on("data", onStderr);
+ 
+     if (this.opts.heartbeatIntervalMs > 0) {
+       const scheduleHeartbeat = (): void => {
+@@ -244,13 +262,17 @@ export class Runner {
+       record.subscriber = undefined;
+       this.scheduleSweep();
+     };
+-    child.once("exit", finalise);
+-    child.once("error", (err) => {
++    // Process exit can precede its final pipe data. Only close guarantees
++    // stdout/stderr are drained, so the exit event remains last in the log.
++    child.once("close", (code, signal) => finalise(child.pid === undefined ? -1 : code, signal));
++    child.on("error", (err) => {
+       if (!record.live) return;
+-      const value = new TextEncoder().encode(`spawn failed: ${err.message}\n`);
++      const operation = child.pid === undefined ? "spawn failed" : "process error";
++      const value = new TextEncoder().encode(`${operation}: ${err.message}\n`);
+       const seq = log.append("stderr", value);
+       record.subscriber?.enqueue({ id, seq, name: "stderr", value });
+-      finalise(-1, null);
++      // Spawn failures also emit close. Other errors (for example a failed
++      // signal) do not mean the process or its output has finished.
+     });
+ 
+     const timeoutMs = options.timeoutMs ?? this.opts.defaultTimeoutMs;
+@@ -258,14 +280,14 @@ export class Runner {
+       record.timeoutTimer = setTimeout(() => {
+         if (!record.live) return;
+         try {
+-          child.kill("SIGTERM");
++          signalRecord(record, "SIGTERM");
+         } catch {
+           // Child already gone; finalise will sort it out.
+         }
+         record.killTimer = setTimeout(() => {
+           if (!record.live) return;
+           try {
+-            child.kill("SIGKILL");
++            signalRecord(record, "SIGKILL");
+           } catch {
+             // ignore
+           }
+@@ -299,7 +321,7 @@ export class Runner {
+       throw new ExecError("ENOENT", `no exec record for id ${id}`);
+     }
+     if (!record.live) return;
+-    record.child.kill(signal);
++    signalRecord(record, signal);
+   }
+ 
+   dispose(id: string): void {
+@@ -428,6 +450,7 @@ export class Runner {
+   }
+ 
+   private disposeRecord(record: ExecRecord): void {
++    const wasLive = record.live;
+     record.live = false;
+     if (record.timeoutTimer !== undefined) {
+       clearTimeout(record.timeoutTimer);
+@@ -442,12 +465,15 @@ export class Runner {
+       record.heartbeatTimer = undefined;
+     }
+     try {
+-      if (record.child.exitCode === null && record.child.signalCode === null) {
+-        record.child.kill("SIGKILL");
+-      }
++      // A group can still own the pipes after its original process exits.
++      // Never signal an already closed record during later log retention cleanup.
++      if (wasLive) signalRecord(record, "SIGKILL");
+     } catch {
+       /* */
+     }
++    // Explicit disposal discards output. Stop callbacks before removing the
++    // log; normal completion instead drains the pipes through close above.
++    record.detachOutput();
+     record.subscriber?.close();
+     record.subscriber = undefined;
+     record.log.dispose();
+@@ -494,6 +520,21 @@ export class Runner {
+   }
+ }
+ 
++function signalRecord(record: ExecRecord, signal: NodeJS.Signals): void {
++  if (!record.processGroup) {
++    record.child.kill(signal);
++    return;
++  }
++  if (record.child.pid === undefined) return;
++  try {
++    process.kill(-record.child.pid, signal);
++  } catch (error) {
++    // ESRCH means the entire owned group already ended. Other failures must
++    // retain their diagnostic meaning, rather than claim successful delivery.
++    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
++  }
++}
++
+ // Quote a single argument for /bin/sh -c. Wraps in single quotes
+ // and escapes any embedded single quote as '\''. Used to thread
+ // the spawn cwd into `cd <path> && exec <command>` without giving
+diff --git a/packages/computerd/src/exec/runner.test.ts b/packages/computerd/src/exec/runner.test.ts
+index 4bc6f0d..4bdf889 100644
+--- a/packages/computerd/src/exec/runner.test.ts
++++ b/packages/computerd/src/exec/runner.test.ts
+@@ -1,7 +1,11 @@
++import { spawnSync } from "node:child_process";
+ import { existsSync } from "node:fs";
++import { createRequire } from "node:module";
++import { fileURLToPath } from "node:url";
+ 
+ import { Database, initializeSchema, WorkspaceFilesystem } from "@cloudflare/dofs";
+ import { SQLiteTestStorage } from "@cloudflare/dofs/testing";
++import { buildSync } from "esbuild";
+ import { expect, test } from "vitest";
+ 
+ import { Runner } from "./runner.js";
+@@ -52,6 +56,173 @@ function decode(value: Uint8Array): string {
+   return new TextDecoder().decode(value);
+ }
+ 
++// Isolate the supervisor: an uncaught pipe callback must fail this test as a
++// process crash, and must not terminate the rest of the suite. Bundle source
++// directly so this never tests stale build output.
++function runSupervisor(script: string): void {
++  const require = createRequire(import.meta.url);
++  const runnerSource = buildSync({
++    entryPoints: [fileURLToPath(new URL("./runner.ts", import.meta.url))],
++    bundle: true,
++    platform: "node",
++    format: "cjs",
++    packages: "external",
++    write: false,
++  }).outputFiles[0].text;
++  const result = spawnSync(
++    process.execPath,
++    [
++      "-e",
++      `
++    ${runnerSource}
++    const assert = require("node:assert/strict");
++    const { Database, initializeSchema } = require(${JSON.stringify(require.resolve("@cloudflare/dofs"))});
++    const { SQLiteTestStorage } = require(${JSON.stringify(require.resolve("@cloudflare/dofs/testing"))});
++    const TestRunner = module.exports.Runner;
++    const storage = new SQLiteTestStorage();
++    const db = new Database(storage);
++    initializeSchema(db, Date.now);
++    const runner = new TestRunner({ db });
++    const text = (events, name) => events.filter(e => e.name === name).map(e => Buffer.from(e.value).toString()).join("");
++    (async () => {
++      try {
++        ${script}
++        console.log("supervisor-survived");
++      } finally { runner.disposeAll(); storage.close(); }
++    })().catch(error => { console.error(error); process.exitCode = 1; });
++  `,
++    ],
++    { encoding: "utf8", timeout: 10_000 },
++  );
++  expect(result.error).toBeUndefined();
++  expect(result.status, result.stderr).toBe(0);
++  expect(result.stdout.trim()).toBe("supervisor-survived");
++}
++
++function nodeCommand(script: string): string {
++  const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
++  return `exec ${quote(process.execPath)} -e ${quote(script)}`;
++}
++
++test.each([false, true])("retains late pipe output with observer cancellation: %s", (cancel) => {
++  // A real descendant writes only after its parent has been reaped. Its large
++  // tail also fills the pipe when a subscriber stops reading.
++  const descendant = `
++    const parent = Number(process.argv[1]);
++    function waitForExit() {
++      try { process.kill(parent, 0); setImmediate(waitForExit); }
++      catch (error) {
++        if (error.code !== "ESRCH") throw error;
++        process.stdout.write("x".repeat(256 * 1024));
++        process.stderr.write("tail-err");
++      }
++    }
++    waitForExit();
++  `;
++  const commandScript = `
++    process.stdout.write("head", () => {
++      require("node:child_process").spawn(process.execPath,
++      ["-e", ${JSON.stringify(descendant)}, String(process.pid)],
++      { stdio: ["ignore", 1, 2] }).unref();
++      process.exit(17);
++    });
++  `;
++  runSupervisor(`
++    const handle = runner.exec(${JSON.stringify(nodeCommand(commandScript))}, { id: "late-output" });
++    let stream = handle.events;
++    if (${cancel}) {
++      const reader = stream.getReader();
++      assert.equal((await reader.read()).value.name, "stdout");
++      // Leave this observer paused while another command completes.
++      const other = await Array.fromAsync(runner.exec("printf other").events);
++      assert.equal(text(other, "stdout"), "other");
++      assert.equal(other.at(-1).code, 0);
++      await reader.cancel();
++      stream = runner.get(handle.id).events;
++    }
++    const events = await Array.fromAsync(stream);
++    assert.equal(text(events, "stdout"), "head" + "x".repeat(256 * 1024));
++    assert.equal(text(events, "stderr"), "tail-err");
++    assert.equal(events.at(-1).name, "exit");
++    assert.equal(events.at(-1).code, 17);
++    assert.equal(events.filter(e => e.name === "exit").length, 1);
++    assert.deepEqual(await Array.fromAsync(runner.get(handle.id).events), events);
++  `);
++});
++
++test("disposing a paused command detaches pending output before removing its log", () => {
++  runSupervisor(`
++    const handle = runner.exec(${JSON.stringify(nodeCommand('process.stdout.write("x".repeat(4 * 1024 * 1024))'))}, { id: "disposed" });
++    const reader = handle.events.getReader();
++    assert.equal((await reader.read()).value.name, "stdout");
++    runner.dispose(handle.id);
++    await reader.cancel();
++    assert.throws(() => runner.get(handle.id), error => error.code === "ENOENT");
++    const other = await Array.fromAsync(runner.exec("printf survived").events);
++    assert.equal(text(other, "stdout"), "survived");
++    assert.equal(other.at(-1).code, 0);
++  `);
++});
++
++test("a real spawn failure keeps stderr and exit -1 in the retained log", async () => {
++  const { runner, dispose } = fixture({ shell: "/no-such-computerd-test-shell" });
++  try {
++    const handle = runner.exec("unreachable");
++    const events = await drain(handle.events);
++    expect(decode(events[0].value)).toMatch(/^spawn failed: /);
++    expect(events.at(-1)).toMatchObject({ name: "exit", code: -1 });
++    expect(await drain(runner.get(handle.id).events)).toEqual(events);
++  } finally {
++    dispose();
++  }
++});
++
++test.each(["kill", "timeout", "dispose"])(
++  "supervision v1 can %s the owned group after its main process exits",
++  (action) => {
++    const descendant = `
++    const parent = Number(process.argv[1]);
++    process.on("SIGTERM", () => {});
++    function waitForExit() {
++      try { process.kill(parent, 0); setImmediate(waitForExit); }
++      catch (error) {
++        if (error.code !== "ESRCH") throw error;
++        process.stdout.write("descendant-ready");
++        setInterval(() => {}, 1000);
++      }
++    }
++    waitForExit();
++  `;
++    const command = nodeCommand(`
++    require("node:child_process").spawn(process.execPath,
++      ["-e", ${JSON.stringify(descendant)}, String(process.pid)],
++      { stdio: ["ignore", 1, 2] }).unref();
++    process.exit(17);
++  `);
++    runSupervisor(`
++    const handle = runner.exec(${JSON.stringify(command)}, {
++      id: "owned-group", supervision: 1, timeoutMs: ${action === "timeout" ? 1000 : 0},
++    });
++    const reader = handle.events.getReader();
++    const first = await reader.read();
++    assert.equal(Buffer.from(first.value.value).toString(), "descendant-ready");
++    if (${JSON.stringify(action)} === "dispose") {
++      runner.dispose(handle.id);
++      assert.throws(() => runner.get(handle.id), error => error.code === "ENOENT");
++    } else {
++      if (${JSON.stringify(action)} === "kill") runner.kill(handle.id, "SIGKILL");
++      const events = [];
++      for (;;) { const next = await reader.read(); if (next.done) break; events.push(next.value); }
++      assert.deepEqual(events, [{ id: handle.id, seq: 2, name: "exit", code: 17 }]);
++    }
++    await reader.cancel();
++    const other = await Array.fromAsync(runner.exec("printf alive", { supervision: 1 }).events);
++    assert.equal(text(other, "stdout"), "alive");
++  `);
++  },
++  15_000,
++);
++
+ test("exec captures stdout and propagates exit code", async () => {
+   const { runner, dispose } = fixture();
+   try {
+diff --git a/packages/computerd/src/exec/types.ts b/packages/computerd/src/exec/types.ts
+index 5e22239..64c7f41 100644
+--- a/packages/computerd/src/exec/types.ts
++++ b/packages/computerd/src/exec/types.ts
+@@ -24,6 +24,8 @@ export type ExecEvent =
+   | { id: string; seq: number; name: "heartbeat"; value: HeartbeatValue };
+ 
+ export interface ExecOptions {
++  // Version 1 gives this runner ownership of the command's process group.
++  supervision?: 1;
+   // Caller-supplied id. If omitted the runner mints one. Reusing
+   // an id while a previous run is still active throws.
+   id?: string;
+diff --git a/packages/computer/src/backend.ts b/packages/computer/src/backend.ts
+index 695df4e..6137519 100644
+--- a/packages/computer/src/backend.ts
++++ b/packages/computer/src/backend.ts
+@@ -83,6 +83,8 @@ export interface BackendHandle {
+   // process receives a new id. Backends without process-local state
+   // may omit it.
+   runtimeId?: string;
++  // Authenticated native capability evidence. It expires with this handle.
++  executionSupervision?: import("./backends/container/computerd-info.js").ExecutionSupervision;
+   // Declares whether this backend pairs with an independent
+   // remote store that the Workspace must sync against.
+   //
+diff --git a/packages/computer/src/backends/container/computerd-info.ts b/packages/computer/src/backends/container/computerd-info.ts
+new file mode 100644
+index 0000000..cd63805
+--- /dev/null
++++ b/packages/computer/src/backends/container/computerd-info.ts
+@@ -0,0 +1,38 @@
++// Connection-scoped evidence from the authenticated native information route.
++// A known older response may omit execution support. An unreadable or malformed
++// response must never authorize the legacy command path.
++export type ExecutionSupervision = { version: 0 } | { version: 1; epoch: string };
++
++export async function readComputerdInfo(fetchInfo: () => Promise<Response>): Promise<{
++  body: Record<string, unknown>;
++  executionSupervision: ExecutionSupervision;
++}> {
++  const response = await fetchInfo();
++  if (!response.ok) throw new Error(`computerd info request failed: HTTP ${response.status}`);
++  const body: unknown = await response.json();
++  const record = (value: unknown): value is Record<string, unknown> =>
++    value !== null && typeof value === "object" && !Array.isArray(value);
++  if (
++    !record(body) ||
++    !record(body.backend) ||
++    typeof body.backend.kind !== "string" ||
++    typeof body.mountPoint !== "string" ||
++    !body.mountPoint.startsWith("/") ||
++    !Number.isInteger(body.port) ||
++    !record(body.store) ||
++    typeof body.store.kind !== "string"
++  ) {
++    throw new Error("Malformed computerd info response");
++  }
++  if (!("execution" in body)) return { body, executionSupervision: { version: 0 } };
++  const execution = body.execution;
++  if (
++    !record(execution) ||
++    execution.supervision !== 1 ||
++    typeof execution.epoch !== "string" ||
++    execution.epoch.length === 0
++  ) {
++    throw new Error("Unsupported or malformed computerd execution supervision");
++  }
++  return { body, executionSupervision: { version: 1, epoch: execution.epoch } };
++}
+diff --git a/packages/computer/src/backends/container/computerd-info.test.ts b/packages/computer/src/backends/container/computerd-info.test.ts
+new file mode 100644
+index 0000000..77e9943
+--- /dev/null
++++ b/packages/computer/src/backends/container/computerd-info.test.ts
+@@ -0,0 +1,43 @@
++import { expect, test } from "vitest";
++import { legacyComputerdInfo } from "../../../test-helpers/computerd-info.js";
++import { readComputerdInfo } from "./computerd-info.js";
++
++test("only a known old information response authorizes legacy execution", async () => {
++  expect(
++    (await readComputerdInfo(async () => Response.json(legacyComputerdInfo))).executionSupervision,
++  ).toEqual({ version: 0 });
++  expect(
++    (
++      await readComputerdInfo(async () =>
++        Response.json({
++          ...legacyComputerdInfo,
++          execution: { supervision: 1, epoch: "native-epoch" },
++        }),
++      )
++    ).executionSupervision,
++  ).toEqual({ version: 1, epoch: "native-epoch" });
++});
++
++test.each([
++  null,
++  {},
++  { ...legacyComputerdInfo, execution: null },
++  { ...legacyComputerdInfo, execution: { supervision: 2, epoch: "native-epoch" } },
++  { ...legacyComputerdInfo, execution: { supervision: 1 } },
++  { ...legacyComputerdInfo, execution: { supervision: 1, epoch: "" } },
++])("rejects unreadable capability evidence without taking the legacy path: %j", async (body) => {
++  await expect(readComputerdInfo(async () => Response.json(body))).rejects.toThrow();
++});
++
++test("preserves transport and decoding failures", async () => {
++  await expect(readComputerdInfo(async () => new Response(null, { status: 503 }))).rejects.toThrow(
++    "HTTP 503",
++  );
++  await expect(readComputerdInfo(async () => new Response("bad-json"))).rejects.toThrow();
++  const failure = new Error("connection closed");
++  await expect(
++    readComputerdInfo(async () => {
++      throw failure;
++    }),
++  ).rejects.toBe(failure);
++});
+diff --git a/packages/computer/src/backends/container/container-backend-ignore.test.ts b/packages/computer/src/backends/container/container-backend-ignore.test.ts
+index ffcba6c..26fe6b5 100644
+--- a/packages/computer/src/backends/container/container-backend-ignore.test.ts
++++ b/packages/computer/src/backends/container/container-backend-ignore.test.ts
+@@ -6,6 +6,7 @@
+ // behavior is covered in computerd's cli tests against a real FUSE
+ // mount.
+ import { afterEach, describe, expect, test, vi } from "vitest";
++import { legacyComputerdInfo } from "../../../test-helpers/computerd-info.js";
+ 
+ import { ContainerBackend } from "./container-backend.js";
+ import type { ContainerRuntimeInfo, IWorkspaceContainerAPI } from "./container-host.js";
+@@ -42,6 +43,7 @@ function fakeHost(opts: FakeHostOptions = {}) {
+       if (path === "/__computerd/info") {
+         return new Response(
+           JSON.stringify({
++            ...legacyComputerdInfo,
+             backend: { kind: "fuse" },
+             mountPoint: "/workspace",
+             ...(opts.info === undefined ? {} : { ignore: opts.info }),
+@@ -168,7 +170,12 @@ describe("ContainerBackend ignore check on a full connect", () => {
+           return new Response(null, { status: 200 });
+         }
+         if (path === "/__computerd/info") {
+-          return Response.json({ backend: { kind: "fuse" }, mountPoint: "/workspace", ignore });
++          return Response.json({
++            ...legacyComputerdInfo,
++            backend: { kind: "fuse" },
++            mountPoint: "/workspace",
++            ignore,
++          });
+         }
+         return new Response(null, { status: 404 });
+       },
+diff --git a/packages/computer/test-helpers/computerd-info.ts b/packages/computer/test-helpers/computerd-info.ts
+new file mode 100644
+index 0000000..0af43d3
+--- /dev/null
++++ b/packages/computer/test-helpers/computerd-info.ts
+@@ -0,0 +1,8 @@
++// Captured from the released 0.5.0 native image, with FUSE_MOUNT=none.
++// Paths contain only the disposable image's default configuration.
++export const legacyComputerdInfo = {
++  backend: { kind: "none" },
++  mountPoint: "/computer",
++  port: 8080,
++  store: { kind: "file", path: "/var/lib/computerd/workspace.sqlite", fresh: true },
++};
+diff --git a/packages/computer/src/execution-supervision.test.ts b/packages/computer/src/execution-supervision.test.ts
+new file mode 100644
+index 0000000..ef6486b
+--- /dev/null
++++ b/packages/computer/src/execution-supervision.test.ts
+@@ -0,0 +1,103 @@
++import type { ExecEvent } from "@cloudflare/computer-rpc";
++import { createWorkspaceServer } from "@cloudflare/computer-rpc/server";
++import { Database, initializeSchema } from "@cloudflare/dofs";
++import { SQLiteTestStorage } from "@cloudflare/dofs/testing";
++import { expect, test, vi } from "vitest";
++import type { BackendHandle, WorkspaceBackend } from "./backend.js";
++import { WorkspaceSyncPendingError } from "./sync-pending.js";
++import { Workspace } from "./workspace.js";
++
++test.each(["legacy", "v1", "reconnect", "unknown", "missing"] as const)(
++  "selects execution supervision on the final prepared handle: %s",
++  async (mode) => {
++    const local = new SQLiteTestStorage(),
++      remote = new SQLiteTestStorage();
++    const db = new Database(remote);
++    initializeSchema(db, Date.now);
++    const exec = vi.fn((_source: string, options?: { id?: string; supervision?: 1 }) => {
++      const id = options!.id!;
++      return {
++        id,
++        events: new ReadableStream<ExecEvent>({
++          start(c) {
++            c.enqueue({ id, seq: 1, name: "exit", code: 17 });
++            c.close();
++          },
++        }),
++      };
++    });
++    const rpc = createWorkspaceServer(db, { exec, get: exec, kill() {}, dispose() {} });
++    const { epoch } = await rpc.sync.watermarks();
++    let connects = 0;
++    const close = vi.fn(async () => {});
++    const backend: WorkspaceBackend = {
++      id: "native",
++      type: "container",
++      connect: async () => {
++        connects++;
++        const executionSupervision =
++          mode === "legacy"
++            ? { version: 0 as const }
++            : mode === "missing"
++              ? undefined
++              : mode === "unknown"
++                ? ({ version: 2 } as never)
++                : {
++                    version: 1 as const,
++                    epoch: mode === "reconnect" && connects === 1 ? "replaced" : epoch!,
++                  };
++        return {
++          runtimeId: "native-runtime",
++          sync: "remote",
++          rpc,
++          close,
++          executionSupervision,
++        } satisfies BackendHandle;
++      },
++    };
++    const ws = new Workspace({ storage: local, backends: [backend] });
++    const admit = vi.fn(async () => {});
++    const run = async () => {
++      for (let page = 0; page < 20; page++) {
++        try {
++          return await (
++            await ws.runtime.execWithAdmission(
++              "raw source",
++              {
++                id: "one-command",
++                backend: "native",
++                legacySource: "legacy wrapper",
++                sync: "defer",
++              },
++              admit,
++            )
++          ).result();
++        } catch (error) {
++          if (!(error instanceof WorkspaceSyncPendingError)) throw error;
++        }
++      }
++      throw new Error("preparation did not finish");
++    };
++    try {
++      if (mode === "missing" || mode === "unknown") {
++        await expect(run()).rejects.toThrow(/supervision/);
++        expect(admit).not.toHaveBeenCalled();
++        expect(exec).not.toHaveBeenCalled();
++      } else {
++        expect(await run()).toMatchObject({ exitCode: 17 });
++        expect(exec).toHaveBeenCalledOnce();
++        expect(admit).toHaveBeenCalledOnce();
++        expect(exec.mock.calls[0][0]).toBe(mode === "legacy" ? "legacy wrapper" : "raw source");
++        expect(exec.mock.calls[0][1]?.supervision).toBe(mode === "legacy" ? undefined : 1);
++        if (mode === "reconnect") {
++          expect(connects).toBe(2);
++          expect(close).toHaveBeenCalledOnce();
++        }
++      }
++    } finally {
++      await ws.close();
++      local.close();
++      remote.close();
++    }
++  },
++);
+diff --git a/packages/computer/src/runtime/types.ts b/packages/computer/src/runtime/types.ts
+index 82968ce..126f8e1 100644
+--- a/packages/computer/src/runtime/types.ts
++++ b/packages/computer/src/runtime/types.ts
+@@ -196,6 +196,7 @@ export interface WorkspaceRuntimeResult<E extends ExecEncoding = undefined> {
+ }
+ 
+ export interface WorkspaceRuntimeExecOptions<E extends ExecEncoding = undefined> {
++  legacySource?: string;
+   id?: string;
+   backend?: string;
+   cwd?: string;
+@@ -249,6 +250,7 @@ export interface WorkspaceRuntimeExecHandle<E extends ExecEncoding = undefined>
+ }
+ 
+ export interface ModuleExecutionInput {
++  legacySource?: string;
+   id?: string;
+   source: string;
+   cwd?: string;
+@@ -279,6 +281,10 @@ export interface ModuleExecutionEnvelope {
+ 
+ export interface WorkspaceModuleBackendHandle {
+   exec(input: ModuleExecutionInput): Promise<ModuleExecutionEnvelope>;
++  execWithAdmission?(
++    input: ModuleExecutionInput,
++    beforeDispatch: () => Promise<void>,
++  ): Promise<ModuleExecutionEnvelope>;
+   getExec(input: {
+     id: string;
+     after?: number | "tail";
