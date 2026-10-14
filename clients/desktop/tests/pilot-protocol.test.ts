@@ -151,6 +151,8 @@ it.each([
   ["POST", "projects/connect-declared-path"],
   ["POST", "projects/connections/set-default"],
   ["PUT", "agent-profiles/profile/workspace"],
+  ["GET", "local-agents/claude-code/installation-update"],
+  ["POST", "local-agents/claude-code/installation-update"],
 ])("admits %s %s only for the native account-aligned device and lane", async (method, action) => {
   const cloudRequest = vi.fn(async (_path: string) =>
     Response.json({ status: "cancelled", deviceId: "mac-a" })
@@ -237,7 +239,7 @@ it.each([
     expect(await response.json()).toMatchObject({
       ok: false,
       error: {
-        upstreamCode: "desktop.folder.account_changed",
+        upstreamCode: "desktop.computer.account_changed",
         message: expect.stringContaining("sign-in changed"),
         requestId: expect.any(String),
       },

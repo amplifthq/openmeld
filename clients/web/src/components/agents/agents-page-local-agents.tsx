@@ -404,6 +404,7 @@ function OwnedLocalAgentsCard(input: LocalAgentsCardOwnerProps) {
 			<LocalAgentCatalogList
 				capabilities={{
 					manageInstallations: catalogState.canManageInstallations,
+					updateInstallations: catalogState.canUpdateInstallations,
 					refreshCatalog: canRefreshCatalog,
 					setEnabled: catalogState.canSetEnabled,
 				}}
@@ -641,6 +642,7 @@ type LocalAgentsCatalogNoticeModel = {
 type LocalAgentsCatalogState = {
 	connectionStatus: LocalAgentCatalogRowSummaryStatus | null;
 	canManageInstallations: boolean;
+	canUpdateInstallations: boolean;
 	canRefreshCatalog: boolean;
 	canSetEnabled: boolean;
 	entries: readonly DeviceAgentCatalogEntry[];
@@ -661,9 +663,7 @@ function resolveLocalAgentsCatalogState(input: {
 }): LocalAgentsCatalogState {
 	const target = resolveLocalAgentsCatalogTarget(input);
 	const canConfigure = canConfigureLocalComputer();
-	const controls = canConfigure
-		? (input.controlCapabilities ?? target?.localAgentControl)
-		: undefined;
+	const controls = input.controlCapabilities ?? target?.localAgentControl;
 	const serviceDependency = resolveLocalAgentsServiceDependency(
 		input.replyReadiness
 	);
@@ -697,25 +697,16 @@ function resolveLocalAgentsCatalogState(input: {
 				formatLocalSetupActionLabel("connect_local_agent"))
 			? null
 			: resolvedPrimaryActionLabel;
+	const controlsAvailable =
+		input.hasSelectedEnvironment && !checking && !serviceDependency;
 
 	return {
 		connectionStatus,
-		canManageInstallations:
-			input.hasSelectedEnvironment &&
-			!checking &&
-			!serviceDependency &&
-			controls?.manageInstallations === true &&
-			controls.manageInstallationsSafely === true,
-		canRefreshCatalog:
-			input.hasSelectedEnvironment &&
-			!checking &&
-			!serviceDependency &&
-			controls?.refreshCatalog === true,
-		canSetEnabled:
-			input.hasSelectedEnvironment &&
-			!checking &&
-			!serviceDependency &&
-			controls?.setEnabled === true,
+		...resolveLocalAgentControlCapabilities(
+			controlsAvailable,
+			canConfigure,
+			controls
+		),
 		entries: target?.localAgentCatalog.entries ?? [],
 		notice: checking
 			? {
@@ -732,6 +723,24 @@ function resolveLocalAgentsCatalogState(input: {
 				input.replyReadiness?.status !== "checking"),
 		target,
 		targetStatus: target?.status ?? null,
+	};
+}
+
+function resolveLocalAgentControlCapabilities(
+	available: boolean,
+	canConfigure: boolean,
+	controls: LocalRuntimeExecutionTarget["localAgentControl"] | undefined
+) {
+	return {
+		canUpdateInstallations: available && controls?.updateInstallations === true,
+		canManageInstallations:
+			available &&
+			canConfigure &&
+			controls?.manageInstallations === true &&
+			controls.manageInstallationsSafely === true,
+		canRefreshCatalog:
+			available && canConfigure && controls?.refreshCatalog === true,
+		canSetEnabled: available && canConfigure && controls?.setEnabled === true,
 	};
 }
 
@@ -995,6 +1004,7 @@ function LocalAgentCatalogList(input: {
 	connectionStatus: LocalAgentCatalogRowSummaryStatus | null;
 	capabilities: {
 		manageInstallations: boolean;
+		updateInstallations: boolean;
 		refreshCatalog: boolean;
 		setEnabled: boolean;
 	};
@@ -1156,6 +1166,7 @@ function LocalAgentCatalogList(input: {
 								),
 								canRefreshCatalog: input.capabilities.refreshCatalog,
 								canManageInstallations: input.capabilities.manageInstallations,
+								canUpdateInstallations: input.capabilities.updateInstallations,
 								canSetEnabled: input.capabilities.setEnabled,
 								entry: effectiveEntry,
 								isCheckingAgents: input.isCheckingAgents,
@@ -1251,6 +1262,7 @@ function LocalAgentInstallationSummary(input: {
 function LocalAgentInstallationControl(input: {
 	target: LocalAgentInstallationTarget;
 	canUpdate: boolean;
+	canSelect: boolean;
 	agentId: string;
 	displayName: string;
 	onChanged: () => Promise<unknown>;
@@ -1407,7 +1419,10 @@ function LocalAgentInstallationControl(input: {
 				<div className="w-fit min-w-0 max-w-full sm:max-w-72">
 					{renderLocalAgentInstallationField({
 						currentInstallation,
-						disabled: pendingInstallationId !== null || selectionBlocked,
+						disabled:
+							!input.canSelect ||
+							pendingInstallationId !== null ||
+							selectionBlocked,
 						displayName: input.displayName,
 						installations,
 						isError: installationsQuery.isError,
@@ -1747,6 +1762,7 @@ type BuildLocalAgentCatalogRowInput = {
 	connectionStatus: LocalAgentCatalogRowSummaryStatus | null;
 	accountEmailRevealed: boolean;
 	canManageInstallations: boolean;
+	canUpdateInstallations?: boolean;
 	canRefreshCatalog: boolean;
 	canSetEnabled: boolean;
 	entry: DeviceAgentCatalogEntry;
@@ -2087,13 +2103,12 @@ function renderLocalAgentCatalogRowDetail(input: {
 					detail={versionAdvisory.detail}
 				/>
 			) : null}
-			{input.canChangeInstallation && input.rowInput.target ? (
+			{(input.canChangeInstallation || input.rowInput.canUpdateInstallations) &&
+			input.rowInput.target ? (
 				<LocalAgentInstallationControl
 					agentId={input.rowInput.entry.agentId}
-					canUpdate={
-						input.rowInput.target.localAgentControl?.updateInstallations ===
-						true
-					}
+					canSelect={input.canChangeInstallation}
+					canUpdate={input.rowInput.canUpdateInstallations === true}
 					displayName={input.rowInput.entry.displayName}
 					onChanged={input.rowInput.onRefresh}
 					target={{
