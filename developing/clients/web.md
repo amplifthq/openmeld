@@ -409,7 +409,9 @@ unselected title instead. Selected and unread titles retain foreground emphasis.
 Pinned contains ordinary Spaces, human and Agent direct messages, and Center
 Agent sessions once each. Its shared manual order uses the existing root
 sidebar preference; ordinary pin membership remains Space Index-owned and
-session pins remain in `chats` preferences. Unpin restores the saved group.
+session pins remain in `chats` preferences. New pins appear first without changing
+the existing pinned order, including entries hidden by filters. Dragging still
+uses the chosen drop position. Unpin restores the saved group.
 Spaces, People, and Agents are optional filters. The plus menu offers New message
 and New Space. The adjacent View and filters menu holds separate Conversation
 view and Filter conversations submenus. The Spaces title remains the link to

@@ -25,3 +25,6 @@ focus the revealed field. People options group computer filters in a submenu
 and remove the five-minute activity filter. Sidebar icons and labels align with
 their shared headings. A small Close search icon clears and hides the field;
 Escape does the same and returns focus to the options button.
+
+Newly pinned conversations appear first in Pinned, keeping the existing order
+of other conversations. You can still drag pinned conversations to reorder them.

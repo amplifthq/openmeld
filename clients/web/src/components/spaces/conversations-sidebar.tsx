@@ -426,16 +426,36 @@ export function ConversationsSidebar(
 		}),
 		model.conversations
 	);
-	const move = (sectionId: string, id: string, beforeId?: string) => {
+	const move = (
+		sectionId: string,
+		id: string,
+		beforeId?: string,
+		prepend = false
+	) => {
 		const target = model.sections.find((section) => section.id === sectionId);
 		if (!target) {
 			return Promise.resolve();
 		}
+		const visibleIds = prepend
+			? [
+					...new Set([
+						...target.spaceIds,
+						...model
+							.sort(
+								model.conversations.filter(
+									(item) => model.owner(item) === sectionId
+								),
+								target
+							)
+							.map((item) => item.spaceId),
+					]),
+				]
+			: rows(target).map((item) => item.spaceId);
 		return model.move(
 			sectionId,
 			id,
-			rows(target).map((item) => item.spaceId),
-			beforeId
+			visibleIds,
+			prepend ? visibleIds.find((value) => value !== id) : beforeId
 		);
 	};
 	const newMessage = (groupId?: string, query = "") => {
@@ -909,7 +929,12 @@ export function ConversationsSidebar(
 																: undefined
 														}
 														onMove={(target) =>
-															move(target, item.spaceId).catch(console.error)
+															move(
+																target,
+																item.spaceId,
+																undefined,
+																target === "pinned"
+															).catch(console.error)
 														}
 														onRename={
 															item.kind === "direct-message"
