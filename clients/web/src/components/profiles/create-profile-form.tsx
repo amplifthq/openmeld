@@ -126,6 +126,10 @@ export type AgentProfileLocalAgentEmptyState = {
 };
 
 export type AgentProfileLocalAgentSelectionState = {
+	connectionSetup?: {
+		target: import("@openmeld/schemas/types").PeopleComputerTarget;
+		storageScope: string;
+	};
 	agentId: string;
 	blocksCreation: boolean;
 	canEnable?: boolean;

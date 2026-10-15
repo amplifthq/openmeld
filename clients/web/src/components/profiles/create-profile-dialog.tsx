@@ -2360,7 +2360,9 @@ function resolveSelectedLocalAgentSubmitBlockReason(input: {
 			case "disabled":
 				return `Turn on ${input.localAgentSelectionState.displayName} before creating this Agent.`;
 			case "not_installed":
-				return `Install ${input.localAgentSelectionState.displayName} before creating this Agent.`;
+				return input.localAgentSelectionState.agentId === "grok-bot"
+					? "Connect Grok Bot before creating this Agent."
+					: `Install ${input.localAgentSelectionState.displayName} before creating this Agent.`;
 			default:
 				return `${input.localAgentSelectionState.displayName} isn’t available for Agent creation yet.`;
 		}
@@ -2404,6 +2406,7 @@ function resolveLocalAgentSelectionState(input: {
 		: undefined;
 	const base = {
 		agentId: input.selectedLocalAgentId,
+		...resolveConnectionSetup(input),
 		displayName,
 		guideHref,
 		onRetry: input.onRetry,
@@ -2450,10 +2453,44 @@ function resolveLocalAgentSelectionState(input: {
 	});
 }
 
+function resolveConnectionSetup(input: {
+	selectedLocalAgentId: string;
+	bindingTarget: ReturnType<typeof resolveProfileBindingCatalogExecutionTarget>;
+	recovery: RecoveryController;
+}) {
+	if (
+		input.selectedLocalAgentId !== "grok-bot" ||
+		!input.bindingTarget?.localAgentControl.setupInstallations
+	) {
+		return {};
+	}
+	return {
+		connectionSetup: {
+			target: {
+				deviceId: input.bindingTarget.deviceId,
+				runtimeLane: input.bindingTarget.runtimeLane,
+			},
+			storageScope: input.recovery.storageScope,
+		},
+	};
+}
+
+function requiresConnectionSignIn(agentId: string, status: string | undefined) {
+	return (
+		status === "unauthenticated" ||
+		(agentId === "grok-bot" && status !== "authenticated")
+	);
+}
+
 function resolveLocalAgentSelectionStateForTarget(input: {
 	base: Pick<
 		AgentProfileLocalAgentSelectionState,
-		"agentId" | "displayName" | "guideHref" | "onRetry" | "selectionKey"
+		| "agentId"
+		| "displayName"
+		| "guideHref"
+		| "onRetry"
+		| "selectionKey"
+		| "connectionSetup"
 	>;
 	creationGuidance: ReturnType<typeof resolveLocalAgentCreationGuidance>;
 	isResolvingLocalAgents: boolean;
@@ -2533,11 +2570,11 @@ function resolveLocalAgentSelectionStateForTarget(input: {
 			message: snapshot?.message,
 		};
 	}
-	if (snapshot?.auth?.status === "unauthenticated") {
+	if (requiresConnectionSignIn(base.agentId, snapshot?.auth?.status)) {
 		return {
 			...base,
 			...usage,
-			blocksCreation: false,
+			blocksCreation: base.agentId === "grok-bot",
 			kind: "signed_out",
 			manageHref,
 		};

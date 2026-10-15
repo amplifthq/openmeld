@@ -304,13 +304,14 @@ test("the local fallback publishes shared success for one exact candidate", () =
   }
 });
 
-test("local certification waits for the old hosted publisher before writing status", () => {
+test("local certification waits for the delayed separate publisher before writing status", () => {
   const fixture = createCandidateFixture();
   try {
     const result = runCandidateFixture(fixture, { hostedRunActive: true });
     assert.equal(result.status, 0, result.stderr);
     const log = readFileSync(fixture.ghLogPath, "utf8");
     assert.ok(log.includes("/cancel"));
+    assert.ok(log.includes("final-candidate-result.yml/runs"));
     assert.ok(
       log.indexOf("hosted-final-failure") < log.indexOf("state=pending")
     );
@@ -623,10 +624,21 @@ if (endpoint.includes("/actions/workflows/")) {
   run.head_sha = process.env.TEST_HEAD_SHA;
   run.head_branch = "codex/candidate";
   run.pull_requests = [{ number: 1 }];
+  if (endpoint.includes("final-candidate-result.yml")) {
+    const count = (operationCounts["result-read"] ?? 0) + 1;
+    operationCounts["result-read"] = count;
+    writeFileSync(process.env.TEST_GH_OPERATION_COUNTS, JSON.stringify(operationCounts));
+    run.display_title = "Final Candidate Result " + run.id + ":" + run.run_attempt + " completed";
+    run.status = count < 3 ? "in_progress" : "completed";
+    if (count >= 3) appendFileSync(process.env.TEST_GH_LOG, "hosted-final-failure\\n");
+    process.stdout.write(JSON.stringify(count === 1 ? [{ total_count: 0, workflow_runs: [] }] : [captured]));
+    process.exit(0);
+  }
   const cancelling = process.env.TEST_HOSTED_RUN_ACTIVE === "1" && operationCounts["hosted-read"] === 1;
   run.status = cancelling ? "in_progress" : "completed";
-  if (process.env.TEST_HOSTED_RUN_ACTIVE === "1" && !cancelling) {
-    appendFileSync(process.env.TEST_GH_LOG, "hosted-final-failure\\n");
+  if (process.env.TEST_HOSTED_RUN_ACTIVE === "1") {
+    run.display_title = "Final Candidate PR #1 @ " + run.head_sha + " [standard]";
+    run.created_at = "2026-10-15T00:00:00Z";
   }
   process.stdout.write(JSON.stringify([captured]));
 } else if (endpoint.endsWith("/pulls/1")) {

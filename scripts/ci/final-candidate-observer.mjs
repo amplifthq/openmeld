@@ -305,7 +305,7 @@ function defaultAdapters() {
         "-f",
         `head_sha=${headSha}`,
         "-f",
-        "event=pull_request_target",
+        "event=pull_request",
         "-f",
         "per_page=10",
       ]).workflow_runs;

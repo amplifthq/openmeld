@@ -48,6 +48,7 @@ type CoreRpcMock = {
   listSignals: ReturnType<typeof vi.fn>;
   postSignal: ReturnType<typeof vi.fn>;
   getSpaceDispatchTrace: ReturnType<typeof vi.fn>;
+  getSpaceMessageDetails: ReturnType<typeof vi.fn>;
   getSpaceDispatchLookup: ReturnType<typeof vi.fn>;
   getActiveSpaceWakeProgress: ReturnType<typeof vi.fn>;
   getSpaceWakeProgress: ReturnType<typeof vi.fn>;
@@ -571,6 +572,7 @@ function makeEnv(input?: {
       type: "signal.text",
       data: { text: "hi" },
     })),
+    getSpaceMessageDetails: vi.fn(),
     getSpaceDispatchTrace: vi.fn(async () => ({
       query: {
         spaceId: "demo",
@@ -1119,6 +1121,7 @@ function makeEnv(input?: {
       listSignals: rpc.listSignals,
       postSignal: rpc.postSignal,
       getSpaceDispatchTrace: rpc.getSpaceDispatchTrace,
+      getSpaceMessageDetails: rpc.getSpaceMessageDetails,
       getSpaceDispatchLookup: rpc.getSpaceDispatchLookup,
       getActiveSpaceWakeProgress: rpc.getActiveSpaceWakeProgress,
       getSpaceWakeProgress: rpc.getSpaceWakeProgress,
@@ -2591,6 +2594,44 @@ describe("gateway http forwarding", () => {
       password: "pass-01",
       context: EXPECTED_CORE_CONTEXT,
     });
+  });
+
+  it.each([
+    undefined,
+    "true",
+    "false",
+  ])("forwards only the supported Message Details thread opt-in %s", async (value) => {
+    const { env, rpc } = makeEnv();
+    rpc.getSpaceMessageDetails.mockRejectedValue(
+      createCoreRpcHttpError({
+        code: "space.access_denied",
+        reason: "Access denied",
+        status: 403,
+      })
+    );
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/demo/message-details?signalId=message-1${value === undefined ? "" : `&includeThreadContext=${value}`}`,
+        { headers: { "x-openmeld-space-password": "pass-01" } }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    if (value === "false") {
+      expect(response.status).toBe(400);
+      expect(rpc.getSpaceMessageDetails).not.toHaveBeenCalled();
+      return;
+    }
+    expect(response.status).toBe(403);
+    expect(rpc.getSpaceMessageDetails).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spaceId: "demo",
+        signalId: "message-1",
+        password: "pass-01",
+        includeThreadContext: value === "true" ? true : undefined,
+        context: EXPECTED_CORE_CONTEXT,
+      })
+    );
   });
 
   it("asks Core to resolve exact Remote Agent runtime diagnostics for detailed traces", async () => {

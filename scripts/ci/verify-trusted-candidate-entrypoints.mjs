@@ -10,6 +10,7 @@ import { isFinalCandidateControlPath } from "./final-candidate-control-paths.mjs
 import { projectFinalCandidateControl } from "./final-candidate-control-projection.mjs";
 
 const LINE_SPLIT_PATTERN = /\r?\n/u;
+const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 
 export function verifyTrustedCandidateEntrypoints(input) {
   const result = inspectTrustedCandidateEntrypoints(input);
@@ -29,28 +30,37 @@ export function verifyTrustedCandidateEntrypoints(input) {
 export function inspectTrustedCandidateEntrypoints(input) {
   const trustedRoot = path.resolve(input.trustedRoot);
   const candidateRoot = path.resolve(input.candidateRoot);
-  const paths = input.paths ?? collectControlPaths(trustedRoot, candidateRoot);
+  if (input.candidateRef && !EXACT_SHA_PATTERN.test(input.candidateRef)) {
+    throw new Error("Candidate data requires an exact Git commit SHA.");
+  }
+  const paths =
+    input.paths ??
+    collectControlPaths(trustedRoot, candidateRoot, input.candidateRef);
   const driftedPaths = paths.filter(
     (relativePath) =>
       controlProjection(trustedRoot, relativePath) !==
-      controlProjection(candidateRoot, relativePath)
+      controlProjection(candidateRoot, relativePath, input.candidateRef)
   );
   return { checkedPaths: paths, driftedPaths };
 }
 
-function collectControlPaths(trustedRoot, candidateRoot) {
+function collectControlPaths(trustedRoot, candidateRoot, candidateRef) {
   return [
     ...new Set([
       ".npmrc",
       "pnpm-workspace.yaml",
       ...listTrackedControls(trustedRoot),
-      ...listTrackedControls(candidateRoot),
+      ...listTrackedControls(candidateRoot, candidateRef),
     ]),
   ].toSorted();
 }
 
-function listTrackedControls(root) {
-  return execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8" })
+function listTrackedControls(root, ref) {
+  return execFileSync(
+    "git",
+    ref ? ["ls-tree", "-r", "--name-only", ref] : ["ls-files"],
+    { cwd: root, encoding: "utf8" }
+  )
     .split(LINE_SPLIT_PATTERN)
     .filter(
       (relativePath) =>
@@ -62,7 +72,28 @@ function listTrackedControls(root) {
     );
 }
 
-function controlProjection(root, relativePath) {
+function controlProjection(root, relativePath, ref) {
+  if (ref) {
+    const readBlob = (file) => {
+      const entry = execFileSync("git", ["ls-tree", ref, "--", file], {
+        cwd: root,
+        encoding: "utf8",
+      });
+      return entry
+        ? execFileSync("git", ["show", `${ref}:${file}`], {
+            cwd: root,
+            encoding: "utf8",
+            // Dependency patches can exceed Node's default 1 MiB stdout limit.
+            maxBuffer: 16 * 1024 * 1024,
+          })
+        : null;
+    };
+    return projectFinalCandidateControl(
+      relativePath,
+      readBlob(relativePath),
+      readBlob
+    );
+  }
   const absolutePath = path.join(root, relativePath);
   if (!existsSync(absolutePath)) {
     return projectFinalCandidateControl(relativePath, null);

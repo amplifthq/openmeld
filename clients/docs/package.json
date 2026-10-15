@@ -22,8 +22,8 @@
   },
   "dependencies": {
     "@openmeld/ui": "workspace:*",
-    "@tanstack/react-router": "1.170.32",
-    "@tanstack/react-start": "1.168.49",
+    "@tanstack/react-router": "1.170.44",
+    "@tanstack/react-start": "1.169.2",
     "fumadocs-core": "16.16.2",
     "fumadocs-mdx": "15.4.6",
     "fumadocs-ui": "npm:@fumadocs/base-ui@16.16.2",
@@ -41,8 +41,7 @@
     "@vitejs/plugin-react": "5.2.0",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.9.3",
-    "vite": "7.3.2",
-    "vite-tsconfig-paths": "^5.1.4",
+    "vite": "8.3.4",
     "wrangler": "catalog:"
   }
 }

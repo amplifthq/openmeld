@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-14T15:19:25.437Z",
+  "updatedAt": "2026-10-15T00:17:57.045Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
-      "packageVersion": "0.3.261",
+      "packageVersion": "0.3.262",
       "updatePolicy": "available",
-      "reason": "Bundle internal adapters with the CLI so npm installation does not require unpublished workspace packages; existing command contracts remain compatible."
+      "reason": "Existing CLI commands remain compatible; Grok Bot setup is opt-in."
     },
     "service": {
-      "bundleHash": "4892dd3a344877354af2e86de83aca367c56c83826c4f988203a6140a4aa37e7",
-      "portableBundleHash": "a08030e6b59b0904307a9a695e552fc6e9772a00cde4dbd8d33a1314b9be70e1",
-      "bundleVersion": "0.3.261",
+      "bundleHash": "e38eec42571753953edaba6fe7fddbf642bdfd4084cb4b3446a70a5256f75f7a",
+      "portableBundleHash": "ef6c2d8e617ecb4d30d79ada085be4d65bbcaea7092e2fbc7429633d6fb02cd9",
+      "bundleVersion": "0.3.262",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
       "updatePolicy": "available",
-      "reason": "The packaged Service includes the Grok Bot adapter without changing runtime contracts or requiring existing Services to update."
+      "reason": "Connection setup uses an optional capability; existing Wake and manual BDK installations remain supported."
     },
     "skills": {
       "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",

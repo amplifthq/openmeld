@@ -14,7 +14,7 @@ import {
 } from "vitest";
 
 // Compile the production function with the installed Start compiler, then use
-// its real GET decoder, middleware, error serializer and final H3 Response.
+// its real GET decoder, middleware, error serializer and final Start Response.
 // Only environment values and the outbound Gateway HTTP boundary are fixtures.
 // No database, listener, application backdoor or mock response-header setter.
 const SOURCE_ALIAS = /^#\//;
@@ -205,11 +205,11 @@ beforeAll(async () => {
 		throw new Error("Expected exactly one compiled public Space function");
 	}
 	const serverFnId = functions[0].serverFnMeta.id;
-	const { handleServerAction } = await vite.ssrLoadModule(
+	const { handleServerAction, DeferredResponse } = await vite.ssrLoadModule(
 		path.join(coreRoot, "dist/esm/server-functions-handler.js")
 	);
-	const { requestHandler } = await vite.ssrLoadModule(
-		path.join(coreRoot, "dist/esm/request-response.js")
+	const { withStartRequest, finalizeResponse } = await vite.ssrLoadModule(
+		path.join(coreRoot, "dist/esm/internal-request-response.js")
 	);
 	const { runWithStartContext } = await import(
 		pathToFileURL(path.join(storageRoot, "dist/esm/index.js")).href
@@ -219,20 +219,25 @@ beforeAll(async () => {
 			path.join(clientRoot, "dist/esm/client-rpc/serverFnFetcher.js")
 		).href
 	);
-	const handler = requestHandler((request: Request) =>
-		runWithStartContext(
-			{
-				request,
-				startOptions: {},
-				contextAfterGlobalMiddlewares: {},
-				executedRequestMiddlewares: new Set(),
-				handlerType: "serverFn",
-				getRouter: () => {
-					throw new Error("A function read must not load the router");
+	const handler = withStartRequest(
+		async (request: Request, _options: unknown, event: unknown) => {
+			const result = await runWithStartContext(
+				{
+					request,
+					startOptions: {},
+					contextAfterGlobalMiddlewares: {},
+					executedRequestMiddlewares: new Set(),
+					handlerType: "serverFn",
+					getRouter: () => {
+						throw new Error("A function read must not load the router");
+					},
 				},
-			},
-			() => handleServerAction({ request, context: {}, serverFnId })
-		)
+				() => handleServerAction({ request, context: {}, serverFnId })
+			);
+			return result instanceof DeferredResponse
+				? result.createResponse(event)
+				: finalizeResponse(result, event);
+		}
 	);
 	invoke = async (data) => {
 		let response: Response | undefined;

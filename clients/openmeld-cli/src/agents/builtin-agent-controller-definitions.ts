@@ -137,7 +137,11 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
     },
     conversationOccupancy: { contractVersion: 1, mode: "unsupported" },
     installResolver: {
-      resolveInstalledLaunchCandidates: resolveInstalledGrokBotLaunchCandidates,
+      resolveInstalledLaunchCandidates: (input) =>
+        resolveInstalledGrokBotLaunchCandidates({
+          ...input,
+          managedRoot: resolveOpenMeldRootDir(),
+        }),
       verifyLaunchContract: verifyGrokBotLaunchContract,
     },
     nativeInterface: "local-cli",
@@ -361,3 +365,5 @@ export function resolveBuiltinAgentControllerDefinition(
     (definition) => definition.agentId === agentId
   );
 }
+
+import { resolveOpenMeldRootDir } from "../config/paths";

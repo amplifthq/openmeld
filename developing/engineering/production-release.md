@@ -53,6 +53,12 @@ components are skipped and active exact-source GitHub runs are followed.
 Failed runs stop the command. An uncertain dispatch is reported, never retried
 automatically. Use a current `gh` version that returns the created workflow URL.
 
+Continuation prints elapsed time for each status read and component stage,
+including failed stages. These timings measure work; component receipts still
+decide completion. Status reads refresh remote receipt tips on every invocation,
+reuse exact immutable Git objects already present, and read independent workflow
+histories in batches of four.
+
 The command entry and reusable release controller have separate module
 boundaries. Status readers can import planning contracts without starting a
 release or waiting for a running command to finish. The complete compatibility
@@ -194,6 +200,19 @@ commit and use GitHub instead.
 
 ## Read Remote Release Status
 
+The October 2026 repository cutover preserves the original nine local evidence
+refs and their commit SHAs. `release/repository-migration.json` retains the three
+newer successful hosted runs from `amplifthq/openmeld-private` (repository ID
+1331245823). These are historical facts, not new deployments or new-repository
+Actions runs. Snapshot edits require explicit local control-bootstrap validation.
+The reader requires the destination repository ID 1278926400, validates
+completed successful jobs and their original URLs, and merges them
+with local receipts using the existing completion-time selector. A newer failed
+receipt remains failed; current GitHub history must still be readable. Source
+ancestry and exact candidate validation remain required. No private-repository
+token is needed by the public release workflow. Preserve this snapshot until
+all affected scopes have newer evidence in the public repository.
+
 Use this when choosing scopes, inspecting a backlog, or reconciling uncertain
 evidence. For a known scope, go directly to its guarded preflight instead of
 running this separate history scan first; the preflight performs the same
@@ -224,7 +243,8 @@ final admission: the guarded release entrypoint still refreshes status and
 acquires its lease before any Production mutation.
 
 Read-only GitHub history requests retry a failed page at most twice for HTTP
-500, 502, 503, or 504, retaining pages already read. Exhausted retries,
+500, 502, 503, or 504, EOF, connection reset, or timeout errors, retaining pages
+already read. Exhausted retries,
 permissions failures and malformed collections remain incomplete evidence and
 fail closed; no mutation receives this retry policy.
 
@@ -1550,6 +1570,12 @@ recovery and never bypasses tag, channel, source, lease, or deployment health
 checks.
 
 ## Local Scoped Release
+
+A release containing only Website and/or Docs does not read product database
+receipts, inspect Hyperdrive, or require database inspection credentials. These
+renderers have no product database binding. Mixed trains and explicit database
+maintenance retain PostgreSQL admission. Component credentials, leases, artifact
+identity, deployment checks and completion receipts still apply normally.
 
 The `people-computers-receivers-first` profile recognizes the shared computer
 schema, Core projection, and Gateway endpoint together, or the shared Service
