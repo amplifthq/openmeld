@@ -16,6 +16,16 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+// Git Bash puts GNU tar on PATH, which treats a Windows drive letter as a
+// remote archive host. Use Windows' native tar for native filesystem paths.
+export const NPM_ARTIFACT_TAR =
+  process.platform === "win32"
+    ? join(
+        process.env.SystemRoot ?? process.env.SYSTEMROOT ?? "C:\\Windows",
+        "System32",
+        "tar.exe"
+      )
+    : "tar";
 const LOCAL_DEPENDENCY = /^(?:catalog|workspace|file|link):/iu;
 const RUNTIME_DEPENDENCY_FIELDS = [
   "dependencies",
@@ -68,7 +78,10 @@ export function assertNpmRuntimeDependencies(manifest) {
 
 async function run(command, args, options = {}) {
   const env = options.env ?? process.env;
-  let invocation = { bin: command, args };
+  let invocation = {
+    bin: command === "tar" ? NPM_ARTIFACT_TAR : command,
+    args,
+  };
   if (process.platform === "win32" && command === "npm") {
     // setup-node's Windows distribution includes npm beside node.exe. Invoke
     // its JS entry directly so a clean consumer needs no workspace build.

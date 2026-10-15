@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import {
   inspectNpmCliArtifact,
+  NPM_ARTIFACT_TAR,
   packNpmCliArtifact,
   verifyNpmCliConsumer,
 } from "./npm-cli-artifact.mjs";
@@ -30,7 +31,7 @@ if (mode === "pack") {
     resolve(tmpdir(), "openmeld-unsupported-node-")
   );
   try {
-    execFileSync("tar", ["-xzf", path, "-C", directory]);
+    execFileSync(NPM_ARTIFACT_TAR, ["-xzf", path, "-C", directory]);
     const result = spawnSync(
       process.execPath,
       [resolve(directory, "package/dist/openmeld.js"), "--version"],
