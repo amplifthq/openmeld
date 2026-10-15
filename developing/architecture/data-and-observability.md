@@ -310,6 +310,21 @@ Stop boundary after the Task transaction commits, but no Task row proves that a
 process started, stopped, or completed. Task handoff and completion messages are
 deterministic Space Signals, so retrying a Task operation cannot duplicate the
 visible transition or Agent Wake.
+Task assignment may explicitly request an initial handoff. The assignment,
+reviewer choice, operation receipt, and existing handoff outbox intent commit
+together. The handoff uses the retained assignment event identity, current
+roles, phase, and brief. Unrelated Project or external-issue updates do not
+cancel its retry. A later assignment or reopening event fences the old handoff,
+including reassignment away and back to the same Agent. Cancellation or an
+explicit start also prevents stale initial delivery. Task-owned publications
+use only their explicit Wake targets; neither `listen_all` nor automatic
+one-human/one-agent addressing may add recipients.
+Task context is appended to the dispatch snapshot for both workstation and
+native delivery, not to the public message. It carries the exact Task ID,
+brief, roles, phase, result revision, and explicit start/submit/review commands.
+Review dispatch context reuses the result summary already in the handoff
+message rather than appending another copy.
+It grants no authority and creates no execution-state writer.
 An explicit cancellation may request Stop of each recorded Wake under a narrow
 Task cancellation authority: the same currently active, Auth-verified actor
 must have authored the retained cancellation operation, and the target must

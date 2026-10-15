@@ -26772,6 +26772,8 @@ export type CreateSpaceTaskInput = GetSpaceMetaInput & {
 export type MutateSpaceTaskInput = GetSpaceMetaInput & {
   taskId: string;
   body: MutateSpaceTaskBody;
+  // Internal Core-to-Space projection. The public RPC always recomputes it.
+  representedRequester?: import("@openmeld/schemas/types").SpaceTaskActor;
   taskContractVersion?: 2 | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
 };
 export async function rpcSpaceFilePins(
@@ -26931,7 +26933,40 @@ export async function rpcMutateSpaceTask(
       });
     }
   }
-  const receipt = await stub.rpcMutateTask({ ...input, spaceId, context });
+  const { resolveSpaceTaskRepresentedRequester } = await import(
+    "../space/application/space-task-delegation"
+  );
+  const submissionId = context.agentControllerConversationId;
+  let representedRequester: MutateSpaceTaskInput["representedRequester"];
+  if (
+    context.actorContext.agentControllerRef ===
+      HOSTED_CENTER_AGENT_CONTROLLER_REF &&
+    submissionId &&
+    ["assign", "set_reviewer", "update_brief"].includes(input.body.action)
+  ) {
+    const { authorizeRemoteAgentExecutionAccess } = await import(
+      "../remote-agent/application/remote-agent-execution-access"
+    );
+    await authorizeRemoteAgentExecutionAccess(env, { context, submissionId });
+    const parent = await requireCenterAgentContinuationParent({
+      actorProfileId: context.actorContext.openMeldProfileId ?? "",
+      db: requireCenterAgentDb(env),
+      organizationId: context.activeOrganizationId ?? "",
+      parentSubmissionId: submissionId,
+      destinationNeutralContinuations: true,
+      resumesParent: false,
+    });
+    representedRequester = resolveSpaceTaskRepresentedRequester(
+      parent,
+      spaceId
+    );
+  }
+  const receipt = await stub.rpcMutateTask({
+    ...input,
+    spaceId,
+    context,
+    representedRequester,
+  });
   return projectSpaceTaskReceiptForClient(receipt, input.taskContractVersion);
 }
 
