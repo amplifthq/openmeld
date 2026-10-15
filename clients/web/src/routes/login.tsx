@@ -1,3 +1,4 @@
+import { buildPublicPageHead } from "@openmeld/product-catalog/site";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { toast } from "sonner";
@@ -10,6 +11,13 @@ import { getCurrentRedirectTarget } from "#/lib/auth-redirect";
 import { classifySignInError } from "#/lib/auth-sign-in-error";
 
 export const Route = createFileRoute("/login")({
+	head: () =>
+		buildPublicPageHead({
+			title: "Sign in",
+			description: "Sign in to your OpenMeld account.",
+			robots: "noindex, follow",
+			includeCanonical: false,
+		}),
 	validateSearch: (
 		search: Record<string, unknown>
 	): {

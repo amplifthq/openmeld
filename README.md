@@ -15,7 +15,7 @@
 
 <p align="center">
   Share context, work in parallel, and pick up where anyone left off with your team, cloud agents, and everyone's agents<br>
-  (Codex, Claude Code, Grok Build, OpenCode, Antigravity, and Cursor CLI).
+  (Codex, Claude Code, Grok Bot, Grok Build, OpenCode, Antigravity, and Cursor CLI).
 </p>
 
 <p align="center">
@@ -86,39 +86,44 @@ work, keep files and context with the conversation, and review results with your
 | Feature | OpenMeld | Raft | Multica | Paperclip | Dust | Viktor | OpenHands |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | Run your local agents | Yes | Yes | Yes | Yes | ? | ? | Yes |
-| Built-in team chat | Yes | Yes | No | No | Yes | Via Slack / Teams | ? |
+| Built-in team chat | Yes | Yes | Issue threads | Issue threads | Yes | Via Slack / Teams | ? |
 | Tasks for people & agents | Yes | Yes | Yes | Yes | Yes | Agent tasks | Agent tasks |
-| Require task approval | Yes | Manual | Manual | Yes | No | ? | ? |
-| Files & folders per Space | Yes | Attachments | ? | Issue files | Yes | ? | Workspace |
-| Public sharing links | Yes | Member links | ? | ? | Member links | Pages & apps | ? |
-| Hosted cloud agents | Yes | No | No | No | Yes | Yes | Yes |
+| Require task approval | Configurable | Not enforced | Not enforced | Configurable | No | ? | ? |
+| Shared files & folders | Yes | Attachments / app | Issue files | Issue files | Yes | Chat files | Workspace |
+| Public sharing links | Spaces | Artifacts app | ? | ? | Frames | Pages & apps | Conversations |
+| Hosted cloud agents | Yes | Own compute | Own compute | Cloud waitlist | Yes | Yes | Yes |
 | Free personal cloud computer | Yes | No | No | No | Starter credits | Starter credits | Free cloud tier |
-| Team knowledge base | Yes | Agent files | Skills | Wiki plugin | Yes | Skills | Skills |
-| Memory across chats | Yes | Yes | By runtime | Yes | Yes | Yes | SDK opt-in |
+| Team knowledge base | Yes | Agent files | Skills / projects | Wiki plugin | Yes | Skills | Skills |
+| Memory across chats | Center Agent | Yes | By runtime | Skills / connectors | Memory tool | Yes | SDK opt-in |
 
 <details>
 <summary>More features: local files, Skills, file history, schedules, plugins, and licensing</summary>
 
 | Feature | OpenMeld | Raft | Multica | Paperclip | Dust | Viktor | OpenHands |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| Use your computer’s files | Yes | Yes | Yes | Yes | Yes | No | Yes |
+| Work in your local folders | Yes | Yes | Yes | Yes | Via CLI | No | Yes |
 | Saved instructions (Skills) | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| Previous file versions | Yes | No | Deliverables | Docs only | ? | Pages only | ? |
-| Run tasks on a schedule | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| Apps & plugins | 60+ | — | — | — | 70+ | 27 native; 3,200+ via connectors | — |
-| MIT-licensed core | Yes | No | No | Yes | Yes | No | Yes |
+| Previous file versions | Yes | Artifacts app | Deliverables | Docs / Wiki | Frames | Pages only | ? |
+| Run tasks on a schedule | Yes | Managed agents | Yes | Yes | Yes | Yes | Yes |
+| Apps & plugins | Plugin catalog | App marketplace | Chat / Git / MCP | Connectors / plugins | Connectors / MCP | Native / connectors | Plugins / MCP |
+| Core license | MIT | FSL-1.1-ALv2 | Apache + terms | MIT | MIT | Proprietary | MIT |
 
-Plugin counts refer to public catalog entries, not individual tools or connected
-accounts. Core licensing does not cover every third-party asset or hosted service;
-see [License](#license).
+Integration labels describe available connection methods, not comparable catalog
+sizes. Raft Artifacts requires an installed App. Multica's license adds conditions
+to Apache 2.0. Core licensing does not cover every third-party asset or hosted
+service; see [License](#license).
 
 </details>
 
-Snapshot reviewed October 13, 2026, aligned with the website comparison.
+Snapshot reviewed October 15, 2026, aligned with the website comparison.
 Yes = supported within the defined scope; No = not supported in that scope;
-? = unverified. Text names narrower support; — means no verified comparable count.
+? = unverified. Text names the supported scope, setup, or availability limit.
 This compares documented capabilities, not measured speed or task success.
 See [definitions and first-party sources](clients/website/src/components/landing-page/comparison-sources.md).
+
+Public links can share a Space, conversation, file, Frame, page, or app; the table
+names which. Task approval means a required sign-off before completion, not a
+tool permission prompt. Memory and scheduling can depend on the selected agent.
 
 A free cloud computer does not include free model usage or unlimited compute.
 See the [Cloud Computer guide](https://docs.openmeld.ai/docs/work/cloud-computer).
