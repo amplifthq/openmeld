@@ -50,7 +50,7 @@
     "@openmeld/start": "workspace:*",
     "@openmeld/utils": "workspace:*",
     "entities": "^8.1.0",
-    "hono": "^4.11.7",
+    "hono": "^4.13.13",
     "ipaddr.js": "^2.5.0",
     "protobufjs": "7.6.5",
     "slackify-markdown": "5.0.0",
