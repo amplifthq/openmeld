@@ -4078,6 +4078,38 @@ function isAutomaticContinuation(options) {
   );
 }
 
+export function runLocalRelease(scope, baseSha, trainScopes, input = {}) {
+  const env = input.env ?? process.env;
+  const spawn = input.spawn ?? spawnSync;
+  const result = spawn(
+    process.execPath,
+    [
+      fileURLToPath(new URL("./production-release-cli.mjs", import.meta.url)),
+      "deploy",
+      "--base",
+      baseSha,
+      "--scope",
+      scope,
+    ],
+    {
+      stdio: "inherit",
+      env: {
+        ...env,
+        OPENMELD_PRODUCTION_TRAIN_SCOPES:
+          env.OPENMELD_PRODUCTION_TRAIN_SCOPES ?? trainScopes.join(","),
+      },
+    }
+  );
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `Local ${scope} release failed; inspect its retained attempt.`
+    );
+  }
+}
+
 export async function runProductionRelease(argv) {
   const options = {
     ...parseProductionReleaseArgs(argv),
@@ -4107,26 +4139,21 @@ export async function runProductionRelease(argv) {
         }
         return false;
       },
-      deployScope: async (scope, status) => {
+      deployScope: (scope, status) => {
         assertSourceStillMatches(sourceSha);
+        const trainScopes = [
+          ...new Set([
+            ...status.currentChange.scopes,
+            ...(expandRequestedReleaseScopes(options.scope) ?? []),
+          ]),
+        ];
         if (scope === "cli" || options.lane === "github") {
           if (scope !== "cli") {
             assertHostedProductDatabaseReleaseSupported(process.cwd(), [scope]);
           }
-          runHostedRelease(scope, sourceSha, [
-            ...new Set([
-              ...status.currentChange.scopes,
-              ...(expandRequestedReleaseScopes(options.scope) ?? []),
-            ]),
-          ]);
+          runHostedRelease(scope, sourceSha, trainScopes);
         } else {
-          await runProductionRelease([
-            "deploy",
-            "--base",
-            baseSha,
-            "--scope",
-            scope,
-          ]);
+          runLocalRelease(scope, baseSha, trainScopes);
         }
         assertSourceStillMatches(sourceSha);
       },
