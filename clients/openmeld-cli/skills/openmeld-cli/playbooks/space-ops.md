@@ -251,6 +251,20 @@ Before sending:
    anyone. In the interactive terminal, select the member and relation from the
    picker; manually typing or pasting its visible name creates no recipient.
 
+Recipient flags add the visible `@name`. Do not repeat that address at the start
+of the body. A duplicate leading address is rejected before sending.
+
+Use `--reply-to <signal-id>` to reply in that message's thread.
+Continue or fork only within the original discussion scope. For a new thread
+below a main-conversation reply, use `--reply-to` with `--new-task`. This starts
+a separate task without the original native session history.
+`--continue-from <signal-id>` and `--fork-from <signal-id>` select execution
+history instead. They accept the original Wake request or an Agent reply whose
+message details identify that Agent's Wake. They do not select thread placement.
+An unresolved source fails before publication; use an identified Wake request
+or explicitly choose `--new-task`. Never silently replace a failed continuation
+with a new task.
+
 Example:
 
 ```bash
