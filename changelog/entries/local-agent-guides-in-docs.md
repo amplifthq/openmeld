@@ -4,6 +4,8 @@ title: Find Local Agent setup guides in Docs
 kind: improved
 areas: ["docs", "website"]
 audiences: ["users"]
+publishedAt: 2026-10-14
+evidence: ["pr:1712", "workflow:38587733241", "workflow:38591154751"]
 ---
 
 Local Agent setup guides now sit alongside computer connection and task guides

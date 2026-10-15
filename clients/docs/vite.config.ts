@@ -7,7 +7,6 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
 import { fumadocsMdx } from "fumadocs-mdx/vite";
 import { defineConfig } from "vite";
-import tsconfigPaths from "vite-tsconfig-paths";
 import { prepareSharedPublicAssets } from "../../scripts/vite/shared-public-assets.mjs";
 
 prepareSharedPublicAssets(import.meta.dirname);
@@ -47,6 +46,7 @@ export default defineConfig({
   },
   build: { assetsDir: "_docs/assets" },
   resolve: {
+    tsconfigPaths: true,
     alias: {
       "@openmeld/schemas": path.resolve(
         import.meta.dirname,
@@ -62,7 +62,6 @@ export default defineConfig({
   plugins: [
     cloudflare({ viteEnvironment: { name: "ssr" }, inspectorPort: false }),
     fumadocsMdx(),
-    tsconfigPaths(),
     tanstackStart({
       router: { routeFileIgnorePattern: "\\.(test|spec)\\." },
       client: { base: "/_docs/build" },

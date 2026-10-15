@@ -278,6 +278,15 @@ function isSameSourceGuardedRecovery(source, sourceSha) {
 // Called under the existing production scope leases. The committed import row
 // and existing Worker receipts remain the only completion/publication records.
 export async function admitPostgresqlProductRelease(input) {
+  // These renderers have no product database binding. Keep database admission
+  // for mixed trains and explicit database maintenance, not their publication.
+  if (
+    !(input.snapshot || input.restoreCrons) &&
+    input.scopes.length > 0 &&
+    input.scopes.every((scope) => scope === "website" || scope === "docs")
+  ) {
+    return { mode: "not_required" };
+  }
   const root = input.root ?? process.cwd();
   const registered = await (input.readTarget ?? readCutoverTarget)();
   requireCandidatePostgresqlBindings(root, registered);

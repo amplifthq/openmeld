@@ -6,6 +6,7 @@ import {
   createSpaceMemberHumanSnapshot,
 } from "@openmeld/schemas/testing";
 import type {
+  GetSpaceMessageDetailsResponse,
   OpenDirectMessageSpaceBody,
   OpenDirectMessageSpaceResponse,
 } from "@openmeld/schemas/types";
@@ -220,7 +221,13 @@ describe("space send OpenMeld profile identity", () => {
     });
   });
 
-  it("creates a thread and posts into it when --reply-to has no thread yet", async () => {
+  it.each([
+    "unthreaded",
+    "root",
+    "reply",
+    "unsupported",
+    "denied",
+  ] as const)("resolves --reply-to from canonical message placement (%s)", async (placement) => {
     await withTempHome(async () => {
       await withSilencedStdio(async () => {
         await runInit({
@@ -239,13 +246,22 @@ describe("space send OpenMeld profile identity", () => {
         const isThreadSignals =
           url.includes("/threads/") && url.includes("/signals");
         const isThreads = url.includes("/threads") && !isThreadSignals;
-        if (isThreads && method === "GET") {
-          return Promise.resolve(
-            new Response(JSON.stringify({ threads: [], previews: [] }), {
-              status: 200,
-              headers: { "content-type": "application/json" },
-            })
+        if (url.includes("/message-details") && method === "GET") {
+          expect(new URL(url).searchParams.get("includeThreadContext")).toBe(
+            "true"
           );
+          expect(new URL(url).searchParams.get("signalId")).toBe(
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+          );
+          if (placement === "denied") {
+            return Promise.resolve(
+              Response.json(
+                { error: { code: "forbidden", message: "Access denied" } },
+                { status: 403 }
+              )
+            );
+          }
+          return Promise.resolve(Response.json(replyMessageDetails(placement)));
         }
         if (isThreads && method === "POST") {
           createThreadCalled = true;
@@ -285,6 +301,9 @@ describe("space send OpenMeld profile identity", () => {
           );
         }
         if (isThreadSignals && method === "POST") {
+          expect(url).toContain(
+            "/threads/thr_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/signals"
+          );
           postThreadSignalCalled = true;
           return Promise.resolve(
             new Response(
@@ -317,25 +336,34 @@ describe("space send OpenMeld profile identity", () => {
       });
       vi.stubGlobal("fetch", fetchMock);
 
-      await withCapturedStdio(async () => {
-        await runSend({
-          profile: "mira--reply",
-          openMeldProfile: createOpenMeldProfileInput({
-            openMeldProfileId: "aaaaaaaa-0000-0000-0000-000000000000",
-            profileName: "Mira",
-            profileKind: "human",
-          }),
-          baseUrl: "https://gateway.openmeld.invalid",
-          space: "demo",
-          text: "reply into thread",
-          plainText: true,
-          replyToSignalId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-          view: "agent",
+      const send = () =>
+        withCapturedStdio(async () => {
+          await runSend({
+            profile: "mira--reply",
+            openMeldProfile: createOpenMeldProfileInput({
+              openMeldProfileId: "aaaaaaaa-0000-0000-0000-000000000000",
+              profileName: "Mira",
+              profileKind: "human",
+            }),
+            baseUrl: "https://gateway.openmeld.invalid",
+            space: "demo",
+            text: "reply into thread",
+            plainText: true,
+            replyToSignalId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            view: "agent",
+          });
         });
-      });
-
-      expect(createThreadCalled).toBe(true);
-      expect(postThreadSignalCalled).toBe(true);
+      if (placement === "unsupported" || placement === "denied") {
+        await expect(send()).rejects.toThrow(
+          placement === "unsupported" ? "cannot resolve" : "Access denied"
+        );
+        expect(createThreadCalled).toBe(false);
+        expect(postThreadSignalCalled).toBe(false);
+      } else {
+        await send();
+        expect(createThreadCalled).toBe(placement === "unthreaded");
+        expect(postThreadSignalCalled).toBe(true);
+      }
     });
   });
 
@@ -831,6 +859,71 @@ describe("space send OpenMeld profile identity", () => {
     });
   });
 });
+
+function replyMessageDetails(
+  placement: "unthreaded" | "root" | "reply" | "unsupported"
+): GetSpaceMessageDetailsResponse {
+  const absent = {
+    state: "not_applicable",
+    value: null,
+    source: "none",
+  } as const;
+  const signalId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  return {
+    query: { spaceId: "demo", signalId },
+    message: {
+      signalId,
+      signalType: "signal.text",
+      sentAtMs: 1,
+      actor: {
+        profileId: "aaaaaaaa-0000-0000-0000-000000000000",
+        profileKind: "human",
+        displayName: "Mira",
+        profileName: "Mira",
+        profileHandle: null,
+      },
+    },
+    agentContext: {
+      state: "not_applicable",
+      profileId: absent,
+      profileName: absent,
+      agentControllerRef: absent,
+      agentControllerConversationId: absent,
+      workspacePath: absent,
+      openMeldServiceRuntimeId: absent,
+      bindingId: absent,
+      workspaceFingerprint: absent,
+    },
+    wakeContext: {
+      state: "not_applicable",
+      sourceSignalId: absent,
+      clientMessageId: absent,
+      targets: [],
+    },
+    replyContext: {
+      state: "not_applicable",
+      replyingToSignalId: absent,
+      replyingToAuthor: absent,
+      previewText: absent,
+      resolved: false,
+    },
+    diagnostics: { signalId, traceSelectors: [] },
+    ...(placement === "unsupported"
+      ? {}
+      : {
+          threadContext:
+            placement === "unthreaded"
+              ? null
+              : {
+                  threadId: "thr_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                  rootSignalId:
+                    placement === "root"
+                      ? signalId
+                      : "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                },
+        }),
+  };
+}
 
 function createOpenMeldProfileInput(input: {
   openMeldProfileId: string;

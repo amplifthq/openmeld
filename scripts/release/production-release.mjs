@@ -3867,6 +3867,17 @@ function assertNoAutomaticNativeRollout(status, remaining) {
   }
 }
 
+async function timeReleaseOperation(label, operation, write) {
+  const started = performance.now();
+  try {
+    return await operation();
+  } finally {
+    write(
+      `${label} elapsed: ${((performance.now() - started) / 1000).toFixed(1)}s.`
+    );
+  }
+}
+
 export async function resumeProductionRelease(input) {
   const { collectProductionReleaseStatus } = await import(
     "./production-release-status.mjs"
@@ -3882,9 +3893,14 @@ export async function resumeProductionRelease(input) {
   let scopes;
   let changeScopes;
   for (;;) {
-    const status = await collect({
-      argv: ["--ref", input.sourceSha, "--change-base", input.baseSha],
-    });
+    const status = await timeReleaseOperation(
+      "Release status read",
+      () =>
+        collect({
+          argv: ["--ref", input.sourceSha, "--change-base", input.baseSha],
+        }),
+      write
+    );
     assertContinuationScope(status, input, changeScopes);
     changeScopes ??= [...status.currentChange.scopes];
     scopes ??= input.scopes ?? changeScopes;
@@ -3936,7 +3952,11 @@ export async function resumeProductionRelease(input) {
     attempted.add(next);
     // The existing explicit-scope path owns preflight, leases, mutation and
     // recovery. A process exit alone never advances deployment truth.
-    await input.deployScope(next, status);
+    await timeReleaseOperation(
+      `Release stage ${next}`,
+      () => input.deployScope(next, status),
+      write
+    );
   }
 }
 

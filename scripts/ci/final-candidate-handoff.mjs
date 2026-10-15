@@ -1,9 +1,8 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { runGh, runGhJson } from "./final-candidate-state.mjs";
 
-// Cancellation is asynchronous: an always-running publisher may still write
-// failure after the runner exits. Only the whole workflow's completion hands
-// publication over to local validation. This also works with pre-fix workflows.
+// A completed source run can still enqueue a separate workflow_run publisher.
+// Wait for that exact completed-event workflow, not just an empty active list.
 export async function settleHostedCandidateRuns(input, dependencies = {}) {
   const read = dependencies.read ?? runGhJson;
   const cancel = dependencies.cancel ?? runGh;
@@ -11,30 +10,67 @@ export async function settleHostedCandidateRuns(input, dependencies = {}) {
   const now = dependencies.now ?? Date.now;
   const report =
     dependencies.report ?? ((line) => process.stdout.write(`${line}\n`));
-  const deadline = now() + 180_000;
+  let cancellationDeadline = null;
+  const resultDeadline = now() + 1_200_000;
   const cancelled = new Set();
+  const reportedResults = new Set();
   while (true) {
-    const active = readOwnedActiveRuns(input, read);
+    const runs = readOwnedRuns(input, read);
+    const active = runs.filter((run) => run.status !== "completed");
     if (active.length === 0) {
-      return;
+      cancellationDeadline = null;
+      // Older inline publishers finish with their source workflow. Split
+      // publishers only accept the newest eligible source run for this PR.
+      const source = runs
+        .filter((run) =>
+          run.display_title?.startsWith(
+            `Final Candidate PR #${input.pullRequestNumber} @ ${input.headSha} [`
+          )
+        )
+        .sort(
+          (a, b) =>
+            Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id
+        )[0];
+      if (!source || resultPublicationFinished(input, source, read)) {
+        return;
+      }
+      if (now() >= resultDeadline) {
+        throw new Error(
+          "Hosted Final Candidate result publication has not finished; no local status will be published. Inspect the exact source run and its result workflow."
+        );
+      }
+      const identity = `${source.id}:${source.run_attempt}`;
+      if (!reportedResults.has(identity)) {
+        report(
+          `Waiting for Final Candidate Result ${identity} completed, including delayed event delivery, before local publication.`
+        );
+        reportedResults.add(identity);
+      }
+      await wait();
+      continue;
     }
-    if (now() >= deadline) {
+    cancellationDeadline ??= now() + 180_000;
+    if (now() >= cancellationDeadline) {
       throw new Error(
         "Hosted Final Candidate has not finished cancellation; no local status will be published. Inspect the listed runs before retrying."
       );
     }
-    for (const run of active) {
-      const attempt = `${run.id}:${run.run_attempt}`;
-      if (cancelled.has(attempt)) {
-        continue;
-      }
-      report(
-        `Taking over PR #${input.pullRequestNumber}: cancel hosted run ${run.id} attempt ${run.run_attempt}, then wait for its publisher to finish.`
-      );
-      cancelOwnedRun(input.repository, run, cancel, read);
-      cancelled.add(attempt);
-    }
+    cancelActiveRuns(input, active, { cancelled, report, cancel, read });
     await wait();
+  }
+}
+
+function cancelActiveRuns(input, active, { cancelled, report, cancel, read }) {
+  for (const run of active) {
+    const attempt = `${run.id}:${run.run_attempt}`;
+    if (cancelled.has(attempt)) {
+      continue;
+    }
+    report(
+      `Taking over PR #${input.pullRequestNumber}: cancel hosted run ${run.id} attempt ${run.run_attempt}, then wait for its publisher to finish.`
+    );
+    cancelOwnedRun(input.repository, run, cancel, read);
+    cancelled.add(attempt);
   }
 }
 
@@ -55,7 +91,7 @@ function cancelOwnedRun(repository, run, cancel, read) {
   }
 }
 
-function readOwnedActiveRuns(input, read) {
+function readOwnedRuns(input, read) {
   const pages = read([
     "api",
     "--paginate",
@@ -97,6 +133,19 @@ function readOwnedActiveRuns(input, read) {
     );
   }
   const active = runs.filter((run) => run.status !== "completed");
+  if (
+    runs.some(
+      (run) =>
+        run.display_title?.startsWith("Final Candidate PR ") &&
+        !run.display_title.startsWith(
+          `Final Candidate PR #${input.pullRequestNumber} @ ${input.headSha} [`
+        )
+    )
+  ) {
+    throw new Error(
+      "A separate Final Candidate publisher for this commit is not owned by this PR; no local status will be published."
+    );
+  }
   // Commit statuses are shared by SHA. Never cancel an unrelated PR even
   // when its head happens to be the same commit; refuse the handoff instead.
   if (
@@ -112,5 +161,45 @@ function readOwnedActiveRuns(input, read) {
       "An active Final Candidate for this commit is not owned by this PR; no local status will be published."
     );
   }
-  return active;
+  return runs;
+}
+
+function resultPublicationFinished(input, source, read) {
+  if (!Number.isFinite(Date.parse(source.created_at))) {
+    throw new Error(
+      "Missing source run timestamp; no local status will be published."
+    );
+  }
+  const created = encodeURIComponent(`>=${source.created_at}`);
+  const pages = read([
+    "api",
+    "--paginate",
+    "--slurp",
+    `repos/${input.repository}/actions/workflows/final-candidate-result.yml/runs?event=workflow_run&created=${created}&per_page=100`,
+  ]);
+  if (
+    !Array.isArray(pages) ||
+    pages.length === 0 ||
+    pages.some(
+      (page) =>
+        !Number.isInteger(page.total_count) ||
+        page.total_count >= 1000 ||
+        !Array.isArray(page.workflow_runs)
+    ) ||
+    pages.flatMap((page) => page.workflow_runs).length !== pages[0].total_count
+  ) {
+    throw new Error(
+      "Cannot establish complete Final Candidate result state; no local status will be published."
+    );
+  }
+  const prefix = `Final Candidate Result ${source.id}:${source.run_attempt} `;
+  const results = pages
+    .flatMap((page) => page.workflow_runs)
+    .filter((run) => run.display_title?.startsWith(prefix));
+  // An empty list is not acknowledgement: GitHub may deliver the event later.
+  // A failed/cancelled verifier is settled too; local checks still run afresh.
+  return (
+    results.some((run) => run.display_title === `${prefix}completed`) &&
+    results.every((run) => run.status === "completed")
+  );
 }
