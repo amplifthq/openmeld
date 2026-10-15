@@ -71,6 +71,7 @@ const EMPTY_AGENT_PROFILE_READINESS_PENDING_PROFILE_IDS: ReadonlySet<string> =
 	new Set();
 
 export function PeopleAndAgentsPage(input: {
+	myAgents?: boolean;
 	personId?: string;
 	activityPreview?: boolean;
 	activeAgentView?: AgentWorkspaceView;
@@ -127,7 +128,9 @@ export function PeopleAndAgentsPage(input: {
 			(member.humanProfile?.profileId ?? `member:${member.memberId}`) ===
 			input.personId
 	);
-	const scopedOwnerId = person?.userId ?? null;
+	const scopedOwnerId = input.myAgents
+		? currentUserId
+		: (person?.userId ?? null);
 	const modelCatalogQuery = useQuery(modelCatalogQueryOptions());
 	const handleProfileCreated = (profile: AuthProfileView) => {
 		Promise.all([
@@ -245,6 +248,7 @@ export function PeopleAndAgentsPage(input: {
 				initialSidebarStates={input.initialSidebarStates}
 				isOrganizationContext={isOrganizationContext}
 				modelCatalog={modelCatalogQuery.data ?? null}
+				myAgents={input.myAgents}
 				onCreateAgent={() => {
 					navigate({ to: buildOrganizationAgentCreationPath(orgSlug) }).catch(
 						(error: unknown) => {
@@ -389,6 +393,7 @@ function buildOrganizationAgentProjection(input: {
 }
 
 function AgentsWorkspaceHome(input: {
+	myAgents?: boolean;
 	person?: { id: string; name: string; path: string; agentsPath: string };
 	activeView: AgentWorkspaceView;
 	activityPreview: boolean;
@@ -747,6 +752,7 @@ function AgentsWorkspaceHomeView(input: {
 			}
 			members={workspace.profileDirectoryQuery.data?.members ?? []}
 			modelCatalog={workspace.modelCatalog}
+			myAgents={workspace.myAgents}
 			onCreateAgent={workspace.onCreateAgent}
 			onDeleteProfiles={(profiles) =>
 				deleteAgentProfiles({

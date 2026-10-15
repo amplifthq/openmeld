@@ -21,6 +21,7 @@ import { resolveStatusToneCompactBadgeClassName } from "@openmeld/ui/lib/status-
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ChatCircleTextIcon,
+	RobotIcon,
 	TrayIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
@@ -50,6 +51,7 @@ import {
 } from "#/lib/inbox/attention";
 import {
 	buildOrganizationInboxPath,
+	buildOrganizationMyAgentsPath,
 	buildOrganizationPeoplePath,
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
@@ -105,6 +107,12 @@ export function buildAppRailGroups(input: {
 					attentionTone: input.spacesAttentionTone,
 					to: buildOrganizationSpacesPath(input.orgSlug),
 					icon: <ChatCircleTextIcon aria-hidden="true" className="size-5" />,
+				},
+				{
+					id: "myAgents",
+					label: "My Agents",
+					to: buildOrganizationMyAgentsPath(input.orgSlug),
+					icon: <RobotIcon aria-hidden="true" className="size-5" />,
 				},
 				{
 					id: "people",

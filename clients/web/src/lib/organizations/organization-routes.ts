@@ -174,6 +174,10 @@ export function buildOrganizationAgentActivityPath(orgSlug: string): string {
 	return `${buildOrganizationRootPath(orgSlug)}/agent-activity`;
 }
 
+export function buildOrganizationMyAgentsPath(orgSlug: string): string {
+	return `${buildOrganizationRootPath(orgSlug)}/my-agents`;
+}
+
 export function buildOrganizationAgentActivitySessionsPath(
 	orgSlug: string
 ): string {
@@ -521,6 +525,8 @@ function resolveProductHomeSwitchPath(input: {
 }): string | null {
 	const [section, subsection] = input.pathSegments;
 	switch (section) {
+		case "my-agents":
+			return buildOrganizationMyAgentsPath(input.nextOrgSlug);
 		case "skills":
 			return buildOrganizationSkillsPath(input.nextOrgSlug);
 		case "files":

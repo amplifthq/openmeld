@@ -34,17 +34,39 @@ const DIRECTORY_AGENT_VIEW: AgentListView = {
 	grouping: "controller-provider",
 };
 
+function resolveAgentDirectoryScope(input: AgentProfilesWorkspaceProps) {
+	if (input.myAgents) {
+		return { label: "My Agents", key: "my-agents", center: undefined };
+	}
+	if (input.person) {
+		return {
+			label: `${input.person.name}’s Agents`,
+			key: input.person.id,
+			center: undefined,
+		};
+	}
+	return {
+		label: null,
+		key: null,
+		center: input.directoryProfiles?.find((profile) => profile.isCenterAgent),
+	};
+}
+
 export function AgentDirectoryLists({
 	input,
 }: {
 	input: AgentProfilesWorkspaceProps;
 }) {
 	const { currentOrganization } = useAppOrganization();
+	const scope = resolveAgentDirectoryScope(input);
+	const defaultView = input.myAgents
+		? DEFAULT_AGENT_LIST_VIEW
+		: DIRECTORY_AGENT_VIEW;
 	const viewPreferenceKey = (personId: string) =>
 		`openmeld.agents.presentation:${input.currentUserId}:${currentOrganization.id}:${personId}`;
 	const previewReady = useAgentSidebarPreviewReady();
 	const [search, setSearch] = useState("");
-	const [view, setView] = useState<AgentListView>(DIRECTORY_AGENT_VIEW);
+	const [view, setView] = useState<AgentListView>(defaultView);
 	const items = useMemo(
 		() =>
 			input.profiles.map((profile) => {
@@ -118,9 +140,7 @@ export function AgentDirectoryLists({
 				Create Agent
 			</Button>
 		) : undefined;
-	const center = input.directoryProfiles?.find(
-		(profile) => profile.isCenterAgent
-	);
+	const center = scope.center;
 	const centerItem = center
 		? buildAgentListItem({
 				profile: { ...center, openMeldProfileId: center.profileId },
@@ -136,8 +156,7 @@ export function AgentDirectoryLists({
 		? matchesAgentListItem(centerItem, view.filters, search)
 		: !search &&
 			Object.values(view.filters).every((values) => values.length === 0);
-	const totalCount =
-		items.length + Number(!input.person && Boolean(centerItem));
+	const totalCount = items.length + Number(Boolean(centerItem));
 	const creationRequests = (input.creationRequests ?? []).filter(
 		(request) =>
 			(!("requesterUserId" in request) ||
@@ -158,25 +177,25 @@ export function AgentDirectoryLists({
 			)}
 			<div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1">
 				<AgentListFilterChips
-					defaults={DIRECTORY_AGENT_VIEW}
+					defaults={defaultView}
 					onChange={setView}
 					value={view}
 				/>
 				<DirectorySearch
-					label={input.person ? "Search Agents" : "Search people or Agents"}
+					label={scope.label ? "Search Agents" : "Search people or Agents"}
 					onChange={setSearch}
 					value={search}
 				/>
 				<AgentListControls
 					items={centerItem ? [centerItem, ...items] : items}
 					onChange={setView}
-					resetValue={DIRECTORY_AGENT_VIEW}
+					resetValue={defaultView}
 					value={view}
 				/>
 			</div>
 		</div>
 	);
-	if (input.person) {
+	if (scope.key && scope.label) {
 		return (
 			<div className="space-y-3">
 				{toolbar}
@@ -185,13 +204,13 @@ export function AgentDirectoryLists({
 					emptyAction={create}
 					hideControls
 					items={items}
-					label={`${input.person.name}’s Agents`}
+					label={scope.label}
 					onDelete={
 						input.canCreateAgent !== false ? input.onDeleteProfiles : undefined
 					}
 					renderCard={renderCard}
 					search={search}
-					viewPreferenceKey={viewPreferenceKey(input.person.id)}
+					viewPreferenceKey={viewPreferenceKey(scope.key)}
 				/>
 			</div>
 		);

@@ -15,6 +15,7 @@ import type { ReactNode } from "react";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { TeamHeader } from "#/components/directory/team-header";
 import { TeamPeopleSidebar } from "#/components/directory/team-people-sidebar";
+import { SpaceWindowHeader } from "#/components/spaces/space-header";
 import type { OptimisticAgentProfileCreation } from "#/lib/profiles/agent-profile-creation-requests";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 import { AgentDirectoryLists } from "./agent-directory-lists";
@@ -27,6 +28,7 @@ const AGENT_REQUESTS_DESCRIPTION =
 	"Review Agents you created and finish any setup that needs attention.";
 
 export type AgentProfilesWorkspaceProps = {
+	myAgents?: boolean;
 	onDeleteProfiles?: import("./agent-list-selection").DeleteAgents;
 	directoryProfiles?: OrganizationProfileDirectoryResponse["agentProfiles"];
 	taskActivityAvailable?: boolean;
@@ -76,25 +78,31 @@ export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
 		) ?? null;
 	const selectionMissing =
 		workspaceInput.selectedProfileId !== null && selectedProfile === null;
+	let mainHeader: ReactNode;
+	const createAction = (
+		<Button onClick={input.onCreateAgent} size="sm">
+			<PlusIcon />
+			Create Agent
+		</Button>
+	);
+	if (input.myAgents) {
+		mainHeader = (
+			<SpaceWindowHeader
+				actions={createAction}
+				renderFrame={false}
+				title="My Agents"
+			/>
+		);
+	} else if (!input.person && input.activeView === "agents") {
+		mainHeader = <TeamHeader actions={createAction} active="agents" />;
+	}
 	return (
 		<AppFullWidthLayout
 			contentLayout="flush"
 			defaultModuleSidebarOpen={!!input.person || !!input.selectedProfileId}
 			initialOuterSidebarState={workspaceInput.initialSidebarStates?.outer}
-			mainHeader={
-				!input.person && input.activeView === "agents" ? (
-					<TeamHeader
-						actions={
-							<Button onClick={input.onCreateAgent} size="sm">
-								<PlusIcon />
-								Create Agent
-							</Button>
-						}
-						active="agents"
-					/>
-				) : undefined
-			}
-			mainSidebarContent={<TeamPeopleSidebar />}
+			mainHeader={mainHeader}
+			mainSidebarContent={input.myAgents ? undefined : <TeamPeopleSidebar />}
 			showMainHeader={!input.person && input.activeView === "agents"}
 		>
 			<AgentWorkspaceHeader {...input} />

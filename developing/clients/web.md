@@ -1040,8 +1040,18 @@ change does not retire, redirect, combine, or relocate those products.
 Team is a single link in every rail tier, with no disclosure trigger or nested
 People/Agents children. Old saved Team collapse preferences do not hide it.
 
-The visible destinations resolve in this order: **Inbox**, **Spaces**, and
-**Team**, with **New Agent** in the separate Create action. The product destinations are:
+The visible destinations resolve in this order: **Inbox**, **Spaces**, **My Agents**,
+and **Team**, with **New Agent** in the separate Create action.
+**My Agents** opens `/o/{orgSlug}/my-agents`, showing only the signed-in member's
+ordinary Agent Profiles in the current workspace. It reuses the Agent directory's
+search, filters, cards, and empty/error states without the Team sidebar or tabs.
+Cards start ungrouped so settings are one card selection away; members can
+still choose grouping through the existing view controls.
+Selecting a card opens the canonical person-owned Agent detail, where its existing
+settings controls are available. Team continues to show all visible members and
+Agents. Workspace switching preserves the My Agents destination and reads the
+new workspace's directory; this entry adds no identity or permission authority.
+The product destinations are:
 
 1. **Desk** — renders ordinary Space windows and a greeting on the shared infinite
    React Flow canvas. See **Desk and Chats** below for selection, creation,

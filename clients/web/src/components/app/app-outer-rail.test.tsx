@@ -253,7 +253,7 @@ const FELIX_ACCOUNT_MENU_ITEM_NAME = /Felix.*felix@example\.com/;
 const USER_MENU_PATTERN = /Open user menu for/;
 const INBOX_LINK_NAME_PATTERN = /^Inbox/;
 const CLASS_NAME_SEGMENT_SEPARATOR_PATTERN = /\s+/u;
-const PRIMARY_RAIL_LABELS = ["Inbox", "Spaces", "Team"] as const;
+const PRIMARY_RAIL_LABELS = ["Inbox", "Spaces", "My Agents", "Team"] as const;
 
 describe("AppOuterRail", () => {
 	beforeEach(() => {

@@ -162,9 +162,12 @@ describe("AgentProfilesWorkspace", () => {
 		);
 		expect(screen.getByTestId("agents-main-sidebar").textContent).toBe("");
 	});
-	it("opens details only after selecting a card", () => {
+	it.each([
+		false,
+		true,
+	])("opens details after selecting a card (My Agents: %s)", (myAgents) => {
 		const onSelectProfile = vi.fn();
-		renderWorkspace({ onSelectProfile });
+		renderWorkspace({ onSelectProfile, myAgents });
 		expect(screen.queryByTestId("selected-agent-detail")).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Open Felix Agent" }));
 		expect(onSelectProfile).toHaveBeenCalledWith("agent-current");
@@ -637,10 +640,14 @@ describe("AgentProfilesWorkspace", () => {
 			screen.getByRole("button", { name: "Open Felix Agent" })
 		).toBeTruthy();
 	});
-	it("offers creation when a personal Agent list is empty", () => {
+	it.each([
+		false,
+		true,
+	])("offers creation when an owned Agent list is empty (My Agents: %s)", (myAgents) => {
 		const onCreateAgent = vi.fn();
 		const { rerenderWorkspace } = renderWorkspace({
 			profiles: [],
+			myAgents,
 			onCreateAgent,
 		});
 		expect(screen.getByText("No Agents yet.")).toBeTruthy();
@@ -720,12 +727,16 @@ function renderWorkspace(
 			onCreateAgent={vi.fn()}
 			onSelectProfile={vi.fn()}
 			onViewChange={vi.fn()}
-			person={{
-				id: "person",
-				name: "Felix",
-				path: "/people/person",
-				agentsPath: "/people/person/agents",
-			}}
+			person={
+				nextOverrides.myAgents
+					? undefined
+					: {
+							id: "person",
+							name: "Felix",
+							path: "/people/person",
+							agentsPath: "/people/person/agents",
+						}
+			}
 			profiles={profiles}
 			profilesStatus="ready"
 			readinessByProfileId={new Map([["agent-current", createReadiness()]])}
@@ -751,7 +762,7 @@ function renderWorkspace(
 	const viewSettings = screen.queryByRole("button", {
 		name: "Agent view settings",
 	});
-	if (viewSettings) {
+	if (viewSettings && !overrides.myAgents) {
 		fireEvent.click(viewSettings);
 		fireEvent.click(screen.getByRole("menuitemradio", { name: "None" }));
 	}
