@@ -23,7 +23,7 @@ Node.js below 22 and Node.js 26 or later are unsupported. Use Node.js 24 before 
 By default, npm only warns about unsupported Node.js versions. Installation can fail
 in a native dependency before OpenMeld can show a version message.
 The standalone OpenMeld CLI includes its own runtime and is unaffected by your Node.js version.
-Web setup installs this standalone CLI as a managed binary and shows its command path.
+On supported macOS computers, Web setup installs this standalone CLI as a managed binary and shows its command path.
 
 ```bash
 npm install -g openmeld@latest
