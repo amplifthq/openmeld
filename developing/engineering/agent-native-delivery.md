@@ -423,7 +423,7 @@ The project merge contract requires:
 
 - changes through a pull request;
 - exact `OpenMeld Final Candidate` success;
-- merge queue validation or current-main ancestry and current-base evidence; and
+- merge queue validation or server-enforced strict up-to-date protection; and
 - compliance with live GitHub rules, including the authenticated actor's
   configured review exemptions.
 
@@ -447,8 +447,8 @@ that the authenticated actor needs another reviewer. Check:
 ```sh
 gh api user --jq '{login,id}'
 gh api repos/<owner>/<repo>/rules/branches/main
-# For every applicable ruleset, use its source repository or organization.
-gh api repos/<owner>/<repo>/rulesets/<ruleset-id>
+# Include inherited rulesets when checking the current actor's permission.
+gh api 'repos/<owner>/<repo>/rulesets/<ruleset-id>?includes_parents=true'
 ```
 
 Inspect `current_user_can_bypass`, `bypass_actors`, and `bypass_mode` in each
@@ -456,8 +456,8 @@ applicable ruleset, plus any separate branch protection. The branch rules
 summary alone does not establish actor exemptions. A repository admin role
 alone also does not establish an exemption. Missing permission evidence is
 unknown, not proof that an exemption was removed. For a suspected policy
-change, inspect the ruleset's `/history` and `/history/<version-id>` endpoints
-before claiming who changed it or what changed.
+change, inspect the source repository or organization's ruleset `/history` and
+`/history/<version-id>` endpoints before claiming who changed it or what changed.
 
 When the user has authorized the merge, the current actor has an existing
 exemption covering the unmet review requirement, and all other project and
@@ -468,6 +468,13 @@ change the ruleset or add permissions. Never use it to skip failed or pending
 validation, stale Final Candidate evidence, an unresolved conflict, a required
 merge queue, or review explicitly requested by the user. Do not edit rules or
 add bypass actors to complete a merge task.
+
+The review exemption must not bypass a separate server-enforced freshness rule.
+`--match-head-commit` pins only the PR head, not the base or merge tree. A local
+base check cannot replace strict up-to-date protection or a merge queue because
+another merge can advance `main` between the check and the merge. If the
+exemption would also bypass freshness protection, do not use this CLI path;
+use the protected merge queue or report the missing atomic merge protection.
 
 From an isolated worktree, merge the remote pull request without coupling that
 operation to local branch deletion:
