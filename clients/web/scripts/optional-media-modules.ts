@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import path from "node:path";
 import { normalizePath, type Plugin } from "vite";
 
@@ -17,19 +18,21 @@ export function optionalMediaModules(
 ): Plugin {
 	const modules = [
 		{
-			id: "virtual:openmeld-image-loading-effect-url",
-			file: effectFile,
+			id: "virtual:openmeld-image-loading-effect",
+			file: normalizePath(realpathSync(effectFile)),
 			name: "space-image-loading-effect",
 		},
 		{
-			id: "virtual:openmeld-video-playback-url",
-			file: videoFile,
+			id: "virtual:openmeld-video-playback",
+			file: normalizePath(realpathSync(videoFile)),
 			name: "space-video-playback",
 		},
 	];
 	let building = false;
+	const mediaReferences = new Set<string>();
 	return {
 		name: "openmeld-optional-media-modules",
+		enforce: "pre",
 		configResolved(config) {
 			building = config.command === "build";
 		},
@@ -48,19 +51,41 @@ export function optionalMediaModules(
 				return "export default null;";
 			}
 			if (!building) {
-				return `export default ${JSON.stringify(`/@fs/${normalizePath(module.file)}`)};`;
+				return `export default () => import(/* @vite-ignore */ ${JSON.stringify(`/@fs/${module.file}`)});`;
 			}
 			const reference = this.emitFile({
 				type: "chunk",
 				id: module.file,
 				name: module.name,
 				preserveSignature: "strict",
-				// Media runs only after its requesting application chunk.
-				// It is not a second application entry for Start's client manifest.
-				implicitlyLoadedAfterOneOf: [id],
 			});
-			// Rollup owns hashes and relative URLs, including the Desktop scheme.
+			mediaReferences.add(reference);
 			return `export default import.meta.ROLLUP_FILE_URL_${reference};`;
+		},
+		resolveFileUrl({ referenceId, relativePath }) {
+			if (!mediaReferences.has(referenceId)) {
+				return null;
+			}
+			// Generate the native loader after Vite's preload transform. Vite 8
+			// wraps even @vite-ignore imports in global error recovery.
+			// Bundler-owned relative paths also work with the Desktop URL scheme.
+			return `(() => import(new URL(${JSON.stringify(relativePath)}, import.meta.url).href))`;
+		},
+		generateBundle: {
+			order: "pre",
+			handler(_options, bundle) {
+				// Rolldown emits these URL-loaded modules as entries. They retain
+				// their exports and files, but are not application bootstrap entries.
+				// Classify only our media modules before Start captures its manifest.
+				for (const output of Object.values(bundle)) {
+					if (
+						output.type === "chunk" &&
+						modules.some((module) => output.facadeModuleId === module.file)
+					) {
+						output.isEntry = false;
+					}
+				}
+			},
 		},
 	};
 }

@@ -632,10 +632,10 @@ Editing uses the shared unsaved-changes guard and an Organization/Skill-scoped
 draft paired with its original release/version. Background refresh cannot give
 old content new save expectations or discard a dirty draft. Save completion
 preserves newer input. Team navigation, All Skills, browser history, and
-Organization switching remain guarded. The version-bound
-[`@tanstack/history` patch](../../patches/tanstack-history.md) reverses the actual
-blocked history traversal so cancellation restores the address bar as well as
-the page; retain its regressions when upgrading the dependency.
+Organization switching remain guarded. Upstream `@tanstack/history` reverses
+the actual blocked history traversal so cancellation restores the address bar
+as well as the page. Keep the installed-dependency regressions for single-step
+and multi-step Back and Forward navigation when upgrading the router.
 
 The catalog uses compact rows, one Add skill menu, search and an enabled-state
 filter. Account/Organization-scoped, nonpersistent view state remembers filters

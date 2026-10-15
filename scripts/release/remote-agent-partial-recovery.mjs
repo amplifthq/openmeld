@@ -28,7 +28,10 @@ import {
   resumeRemoteAgentVerification,
 } from "./production-release-receipts.mjs";
 import { runProductionStageAdmission } from "./production-stage-admission.mjs";
-import { describeRemoteContainerConfiguration } from "./remote-agent-container-evidence.mjs";
+import {
+  describeRemoteContainerConfiguration,
+  describeRetainedContainer,
+} from "./remote-agent-container-evidence.mjs";
 import {
   createWorkerDeploymentCapture,
   resolveReceiptWorkerTarget,
@@ -40,12 +43,13 @@ const REMOTE_AGENT = "remote-agent";
 const WORKER_NAME = "openmeld-remote-agent-prod";
 const CONTAINER_NAME = "openmeld-agent-computer";
 const ROLLOUT_TIMEOUT_MS = 10 * 60 * 1000;
+const MAX_RECOVERY_HISTORY_EVENTS = 32;
 const IMAGE_DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const CLOUDFLARE_IMAGE_REF =
   /^registry\.cloudflare\.com\/([0-9a-f]{32})\/openmeld-agent-computer@sha256:[0-9a-f]{64}$/u;
 
 export function assessRemoteAgentPartialRecovery(input) {
-  const { current, started, deployments, container, images } = input;
+  const { current, started, recovery, deployments, container, images } = input;
   const receipt = current?.receipt;
   const startedReceipt = started?.receipt;
   if (
@@ -60,14 +64,17 @@ export function assessRemoteAgentPartialRecovery(input) {
     startedReceipt?.application !== "unknown" ||
     startedReceipt?.attemptId !== receipt.attemptId ||
     startedReceipt?.operationKey !== receipt.operationKey ||
+    startedReceipt?.componentIndex !== receipt.componentIndex ||
     startedReceipt?.startedAt !== receipt.startedAt
   ) {
     throw new Error(
       "The exact failed Remote Agent attempt and start event are not intact."
     );
   }
-  const start = Date.parse(receipt.startedAt);
-  const end = Date.parse(current.recordedAt);
+  const start = Date.parse(recovery?.startedAt ?? receipt.startedAt);
+  const end = Date.parse(
+    recovery?.observedAfterFailure?.observedAt ?? current.recordedAt
+  );
   if (!(Number.isFinite(start) && Number.isFinite(end)) || end <= start) {
     throw new Error("The retained attempt has no bounded deployment window.");
   }
@@ -91,14 +98,20 @@ export function assessRemoteAgentPartialRecovery(input) {
       "Cloudflare does not show one exact active Worker deployment inside the attempt window."
     );
   }
-  const preceding = deployments.filter(
-    (deployment) => Date.parse(deployment.created_on) < start
-  );
+  if (recovery) {
+    assertRecoveryObservation(input, active);
+  }
+  const preceding = deployments
+    .filter((deployment) => Date.parse(deployment.created_on) < start)
+    .toSorted((a, b) => Date.parse(b.created_on) - Date.parse(a.created_on))[0];
   if (
-    preceding.length === 0 ||
-    preceding.toSorted(
-      (a, b) => Date.parse(b.created_on) - Date.parse(a.created_on)
-    )[0].versions?.[0]?.version_id === active.versions[0].version_id
+    !preceding ||
+    preceding.versions?.[0]?.version_id === active.versions[0].version_id ||
+    (recovery &&
+      (preceding.id !== recovery.baseline.workerDeploymentId ||
+        preceding.versions?.length !== 1 ||
+        preceding.versions[0].percentage !== 100 ||
+        preceding.versions[0].version_id !== recovery.baseline.workerVersionId))
   ) {
     throw new Error(
       "The preceding Worker deployment is missing or indistinguishable."
@@ -110,7 +123,8 @@ export function assessRemoteAgentPartialRecovery(input) {
     container.version !== input.expectedContainerVersion ||
     container.configuration?.image !== input.expectedContainerImage ||
     !Number.isFinite(Date.parse(container.updated_at)) ||
-    Date.parse(container.updated_at) >= start ||
+    Date.parse(container.updated_at) >= Date.parse(receipt.startedAt) ||
+    container.active_rollout_id != null ||
     !Array.isArray(container.health?.errors) ||
     container.health.errors.length !== 0 ||
     !Number.isInteger(container.instances) ||
@@ -141,6 +155,39 @@ export function assessRemoteAgentPartialRecovery(input) {
     containerVersion: container.version,
     containerImage: container.configuration.image,
   };
+}
+
+function assertRecoveryObservation(input, active) {
+  const { recovery, container } = input;
+  const observed = recovery.observedAfterFailure;
+  const expected =
+    input.current.receipt.remoteAgent?.container ??
+    recovery.nativeProvenance?.container;
+  const { instances: expectedInstances, ...expectedConfiguration } =
+    expected ?? {};
+  const retained = describeRetainedContainer(container, input.instancesPage);
+  if (
+    observed?.workerDeploymentId !== active.id ||
+    observed.workerVersionId !== active.versions[0].version_id ||
+    recovery.baseline.containerId !== input.expectedContainerId ||
+    observed.containerVersion !== input.expectedContainerVersion ||
+    observed.containerImage !== input.expectedContainerImage ||
+    !expected ||
+    !isDeepStrictEqual(
+      describeRemoteContainerConfiguration(container),
+      expectedConfiguration
+    ) ||
+    expectedInstances?.some(
+      (instance) =>
+        !retained.instances.some(
+          (live) => live.id === instance.id && live.version === instance.version
+        )
+    )
+  ) {
+    throw new Error(
+      "The linked recovery observation or retained Container has changed."
+    );
+  }
 }
 
 export function verifyRecoveredRemoteAgentTarget(input) {
@@ -425,10 +472,131 @@ function readState(cwd, containerId) {
   };
 }
 
-function readStartedEvidence(cwd, evidenceSha) {
-  const parent = run("git", ["rev-parse", `${evidenceSha}^`], cwd);
-  const message = run("git", ["show", "-s", "--format=%B", parent], cwd);
-  return productionReleaseEvidenceSchema.parse(JSON.parse(message));
+function readRecoveryState(cwd, containerId, history) {
+  return {
+    ...readState(cwd, containerId),
+    ...(history.recovery
+      ? {
+          instancesPage: readCloudflare(cwd, [
+            "containers",
+            "instances",
+            containerId,
+            "--per-page",
+            "100",
+            "--json",
+          ]),
+        }
+      : {}),
+  };
+}
+
+function readRecoveryEntry(cwd, evidenceSha, sourceSha) {
+  const metadata = productionReleaseEvidenceSchema.parse(
+    JSON.parse(run("git", ["show", "-s", "--format=%B", evidenceSha], cwd))
+  );
+  if (
+    metadata.scope !== REMOTE_AGENT ||
+    metadata.sourceSha !== sourceSha ||
+    run("git", ["rev-parse", `${evidenceSha}^{tree}`], cwd) !==
+      run("git", ["rev-parse", `${sourceSha}^{tree}`], cwd)
+  ) {
+    throw new Error(
+      "Recovery history does not preserve the original source and scope."
+    );
+  }
+  return {
+    metadata,
+    parents: run("git", ["show", "-s", "--format=%P", evidenceSha], cwd).split(
+      " "
+    ),
+  };
+}
+
+function recoveryObservationBaseline(recovery) {
+  const observed = recovery.observedAfterFailure;
+  return {
+    workerDeploymentId: observed?.workerDeploymentId,
+    workerVersionId: observed?.workerVersionId,
+    containerId: recovery.baseline.containerId,
+    containerVersion: observed?.containerVersion,
+    containerImage: observed?.containerImage,
+  };
+}
+
+// A recovery failure adds a proof parent. Follow only that explicit chronology,
+// never an arbitrary ancestor that happens to contain a matching start event.
+export function readRemoteAgentRecoveryHistory(cwd, current) {
+  let entry = readRecoveryEntry(cwd, current.evidenceSha, current.sha);
+  if (
+    entry.metadata.recordedAt !== current.recordedAt ||
+    !isDeepStrictEqual(entry.metadata.receipt, current.receipt)
+  ) {
+    throw new Error(
+      "Recovery history does not match the latest canonical receipt."
+    );
+  }
+  let latestRecovery;
+  let nextBaseline;
+  for (let depth = 0; depth < MAX_RECOVERY_HISTORY_EVENTS; depth++) {
+    const { metadata, parents } = entry;
+    if (
+      metadata.schemaVersion !== 3 ||
+      metadata.receipt?.status !== "failed" ||
+      metadata.receipt.application !== "unknown" ||
+      !isDeepStrictEqual(metadata.receipt, current.receipt) ||
+      ![1, 2].includes(parents.length)
+    ) {
+      throw new Error(
+        "Recovery history contains a different or unresolved attempt."
+      );
+    }
+    const previous = readRecoveryEntry(cwd, parents[0], current.sha);
+    if (parents.length === 1) {
+      if (
+        previous.metadata.schemaVersion !== 3 ||
+        previous.metadata.receipt?.status !== "started" ||
+        !isDeepStrictEqual(
+          { ...previous.metadata.receipt, status: "failed" },
+          current.receipt
+        ) ||
+        Date.parse(previous.metadata.recordedAt) >
+          Date.parse(metadata.recordedAt)
+      ) {
+        throw new Error("Recovery history has no exact original start event.");
+      }
+      return { started: previous.metadata, recovery: latestRecovery };
+    }
+    const proof = readRecoveryEntry(cwd, parents[1], current.sha);
+    const { recovery, ...receipt } = proof.metadata.receipt;
+    const observed = recovery?.observedAfterFailure;
+    if (
+      proof.metadata.schemaVersion !== 4 ||
+      proof.parents.length !== 1 ||
+      proof.parents[0] !== parents[0] ||
+      recovery?.originalEvidenceSha !== parents[0] ||
+      proof.metadata.recordedAt !== metadata.recordedAt ||
+      !isDeepStrictEqual(receipt, metadata.receipt) ||
+      !observed ||
+      !(
+        Date.parse(previous.metadata.recordedAt) <=
+          Date.parse(recovery.startedAt) &&
+        Date.parse(recovery.startedAt) < Date.parse(observed.observedAt) &&
+        Date.parse(observed.observedAt) <= Date.parse(metadata.recordedAt)
+      ) ||
+      observed.containerVersion !== recovery.baseline.containerVersion ||
+      observed.containerImage !== recovery.baseline.containerImage ||
+      (nextBaseline &&
+        !isDeepStrictEqual(nextBaseline, recoveryObservationBaseline(recovery)))
+    ) {
+      throw new Error(
+        "The linked recovery proof, observation window or baseline is invalid."
+      );
+    }
+    latestRecovery ??= recovery;
+    nextBaseline = recovery.baseline;
+    entry = previous;
+  }
+  throw new Error("Recovery history exceeds the manual reconciliation limit.");
 }
 
 export function readNativeHistoryBaseline(cwd, prior) {
@@ -726,11 +894,15 @@ async function main(argv) {
         );
         return;
       }
-      const started = readStartedEvidence(sourceDir, latest.evidenceSha);
-      const original = readState(sourceDir, options["--container-id"]);
+      const history = readRemoteAgentRecoveryHistory(sourceDir, latest);
+      const original = readRecoveryState(
+        sourceDir,
+        options["--container-id"],
+        history
+      );
       const baseline = assessRemoteAgentPartialRecovery({
         current: latest,
-        started,
+        ...history,
         ...original,
         sourceSha,
         attemptId: options["--attempt"],
@@ -815,10 +987,14 @@ async function main(argv) {
               },
               beforeStep: (_step, state) => {
                 if (state) {
-                  const fresh = readState(sourceDir, baseline.containerId);
+                  const fresh = readRecoveryState(
+                    sourceDir,
+                    baseline.containerId,
+                    history
+                  );
                   const freshBaseline = assessRemoteAgentPartialRecovery({
                     current: latest,
-                    started,
+                    ...history,
                     ...fresh,
                     sourceSha,
                     attemptId: options["--attempt"],

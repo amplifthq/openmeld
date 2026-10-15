@@ -439,6 +439,11 @@ export {
   spaceTraceExecutionIdentityProjectionSchema,
 } from "./daemon/execution-identity";
 export {
+  localAgentSetupOperationSchema,
+  localAgentSetupRequestSchema,
+  localAgentSetupStateSchema,
+} from "./daemon/local-agent-setup";
+export {
   localAgentUpdateOperationSchema,
   localAgentUpdateRequestSchema,
   localAgentUpdateStateSchema,

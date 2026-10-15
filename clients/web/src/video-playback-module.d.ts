@@ -1,4 +1,4 @@
-declare module "virtual:openmeld-video-playback-url" {
-	const url: string | null;
-	export default url;
+declare module "virtual:openmeld-video-playback" {
+	const load: (() => Promise<unknown>) | null;
+	export default load;
 }

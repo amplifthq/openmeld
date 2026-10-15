@@ -14,8 +14,8 @@ const USER_ID = "user-123";
 describe("InboxBrowserNotificationPrompt", () => {
 	let notificationPermissionRef: { value: NotificationPermission };
 	let notificationPermissionStatus: TestPermissionStatus;
-	let permissionsQueryMock: ReturnType<typeof vi.fn>;
-	let requestPermissionMock: ReturnType<typeof vi.fn>;
+	let permissionsQueryMock: import("vitest").Mock;
+	let requestPermissionMock: import("vitest").Mock;
 
 	beforeEach(() => {
 		window.localStorage.clear();
@@ -184,7 +184,7 @@ describe("InboxBrowserNotificationPrompt", () => {
 
 function installNotificationMock(input: {
 	permission: NotificationPermission;
-	requestPermissionMock: ReturnType<typeof vi.fn>;
+	requestPermissionMock: import("vitest").Mock;
 }) {
 	const permissionRef = { value: input.permission };
 	class TestNotification {
