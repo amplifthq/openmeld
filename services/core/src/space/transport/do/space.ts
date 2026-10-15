@@ -2190,6 +2190,7 @@ const readDispatchPlannerContextForSignal = (input: {
 };
 const evaluateDispatchPlannerDecisionsForSignal = (input: {
   automaticWakeEnabled?: boolean;
+  explicitWakeTargetsOnly?: boolean;
   isThreadMessage?: boolean;
   directMessageConvertedAt?: string | null;
   senderProfileId: string;
@@ -2210,16 +2211,19 @@ const evaluateDispatchPlannerDecisionsForSignal = (input: {
   const activeMemberRecords = listSpaceMemberRecords(input.sql, {
     status: "active",
   });
-  const automaticWakeDecisions = buildAutomaticWakeDispatchReadyDecisions({
-    automaticWakeEnabled: input.automaticWakeEnabled,
-    activeMemberRecords,
-    senderProfileId: input.senderProfileId,
-    signal: input.signal,
-    spacePurpose: input.spacePurpose,
-    isThreadMessage: input.isThreadMessage,
-    directMessageConvertedAt: input.directMessageConvertedAt,
-  });
+  const automaticWakeDecisions = input.explicitWakeTargetsOnly
+    ? []
+    : buildAutomaticWakeDispatchReadyDecisions({
+        automaticWakeEnabled: input.automaticWakeEnabled,
+        activeMemberRecords,
+        senderProfileId: input.senderProfileId,
+        signal: input.signal,
+        spacePurpose: input.spacePurpose,
+        isThreadMessage: input.isThreadMessage,
+        directMessageConvertedAt: input.directMessageConvertedAt,
+      });
   const listenAllDecisions =
+    !input.explicitWakeTargetsOnly &&
     input.spaceContract.dispatchPolicy.mode === "listen_all"
       ? buildListenAllDispatchReadyDecisions({
           activeMemberRecords,
@@ -9374,7 +9378,7 @@ export class Space extends DurableObject<CoreBindings> {
       repository: new SpaceTaskRepository(this.ctx.storage.sql),
       runTransaction: (callback) => this.ctx.storage.transactionSync(callback),
       spaceId: this.spaceId,
-      onMutation: (receipt, previous) => {
+      onMutation: (receipt, previous, command) => {
         const repository = new SpaceTaskDeliveryRepository(
           this.ctx.storage.sql
         );
@@ -9383,6 +9387,8 @@ export class Space extends DurableObject<CoreBindings> {
           receipt,
           previous,
           authorizedActor: Boolean(context),
+          wakeAssignee:
+            command?.action === "assign" && command.wakeAssignee === true,
           ...(context
             ? {
                 sourceDispatchChainContext:
@@ -9438,6 +9444,22 @@ export class Space extends DurableObject<CoreBindings> {
     taskContext: SpaceTaskMutationContext
   ): Promise<SpaceTaskMutationReceipt> {
     await this.armSpaceTaskRecovery();
+    let mutationContext = taskContext;
+    if (
+      input.representedRequester &&
+      ["assign", "set_reviewer", "update_brief"].includes(input.body.action)
+    ) {
+      const represented = this.buildSpaceTaskMemberContext(
+        input.representedRequester.profileId,
+        input.representedRequester.ownerUserId
+      );
+      if (represented.actor.profileKind === "human") {
+        mutationContext = {
+          ...taskContext,
+          representedRequester: represented.actor,
+        };
+      }
+    }
     const { assertSpaceTaskClientCanRead } = await import(
       "../../application/space-task-client-compatibility"
     );
@@ -9465,7 +9487,7 @@ export class Space extends DurableObject<CoreBindings> {
     const receipt = this.createSpaceTaskService(context).mutate(
       input.taskId,
       input.body,
-      taskContext
+      mutationContext
     );
     if (receipt.applied) {
       await this.broadcastSpaceTasksChanged(`space.task.${input.body.action}`);
@@ -9535,7 +9557,13 @@ export class Space extends DurableObject<CoreBindings> {
     const current = this.spaceTaskService.read(
       delivery.receipt.task.taskId
     ).task;
-    if (!isSpaceTaskDeliveryCurrent(delivery, current)) {
+    if (
+      !isSpaceTaskDeliveryCurrent(
+        delivery,
+        current,
+        new SpaceTaskRepository(this.ctx.storage.sql)
+      )
+    ) {
       return;
     }
     if (delivery.kind === "inbox_projection") {
@@ -9712,6 +9740,15 @@ export class Space extends DurableObject<CoreBindings> {
     context: SignalPublishContext | undefined,
     dispatches: OpenMeldDaemonDispatchOutboxRecord[]
   ): OpenMeldDaemonDispatchOutboxRecord[] {
+    if (context?.spaceTaskDeliveryId) {
+      const delivery = new SpaceTaskDeliveryRepository(
+        this.ctx.storage.sql
+      ).read(context.spaceTaskDeliveryId);
+      if (!delivery) {
+        throw new Error("Task handoff context is unavailable.");
+      }
+      return withSpaceTaskDispatchContext(delivery.receipt.task, dispatches);
+    }
     if (signal.type !== "signal.text" || !signal.data.taskDraft) {
       return dispatches;
     }
@@ -9766,7 +9803,13 @@ export class Space extends DurableObject<CoreBindings> {
     const current = this.spaceTaskService.read(
       delivery.receipt.task.taskId
     ).task;
-    if (!isSpaceTaskDeliveryCurrent(delivery, current)) {
+    if (
+      !isSpaceTaskDeliveryCurrent(
+        delivery,
+        current,
+        new SpaceTaskRepository(this.ctx.storage.sql)
+      )
+    ) {
       return false;
     }
     if (signal.type === "signal.text") {
@@ -9786,6 +9829,18 @@ export class Space extends DurableObject<CoreBindings> {
       sourceDispatchChainContext,
       id: deliveryId,
     } = delivery;
+    if (receipt.event.type === "assigned" && receipt.task.assignee) {
+      await this.publishSpaceTaskDirectedNotice({
+        actor,
+        eventId: receipt.event.eventId,
+        sourceDispatchChainContext,
+        deliveryId,
+        task: receipt.task,
+        target: receipt.task.assignee,
+        text: `Task assigned: ${receipt.task.title}`,
+      });
+      return;
+    }
     if (
       receipt.event.type === "result_submitted" &&
       receipt.task.phase === "in_review" &&
@@ -22372,6 +22427,9 @@ export class Space extends DurableObject<CoreBindings> {
     const { mergedReadyDecisions, nonReadyDecisions } =
       evaluateDispatchPlannerDecisionsForSignal({
         automaticWakeEnabled,
+        // Task handoffs select their exact recipient; conversation-wide
+        // implicit Wake policies must not expand that retained decision.
+        explicitWakeTargetsOnly: Boolean(signalContext?.spaceTaskDeliveryId),
         isThreadMessage: Boolean(signalContext?.threadContext),
         directMessageConvertedAt: spaceMeta?.directMessage?.convertedAt,
         senderProfileId,
