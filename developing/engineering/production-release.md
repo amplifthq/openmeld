@@ -198,8 +198,9 @@ The October 2026 repository cutover preserves the original nine local evidence
 refs and their commit SHAs. `release/repository-migration.json` retains the three
 newer successful hosted runs from `amplifthq/openmeld-private` (repository ID
 1331245823). These are historical facts, not new deployments or new-repository
-Actions runs. The reader requires the destination repository ID 1278926400,
-validates completed successful jobs and their original URLs, and merges them
+Actions runs. Snapshot edits require explicit local control-bootstrap validation.
+The reader requires the destination repository ID 1278926400, validates
+completed successful jobs and their original URLs, and merges them
 with local receipts using the existing completion-time selector. A newer failed
 receipt remains failed; current GitHub history must still be readable. Source
 ancestry and exact candidate validation remain required. No private-repository

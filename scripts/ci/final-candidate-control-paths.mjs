@@ -7,6 +7,7 @@ const CONTROL_PATH_PATTERNS = [
   /^package\.json$/u,
   /^pnpm-workspace\.yaml$/u,
   /^turbo\.json$/u,
+  /^release\/repository-migration\.json$/u,
   /^scripts\/ci\/final-candidate(?:-[^/]*)?\.(?:mjs|test\.mjs)$/u,
   /^scripts\/ci\/download-prior-final-candidate-evidence(?:\.test\.mjs|\.sh)$/u,
   /^scripts\/ci\/install-isolated-candidate-dependencies(?:\.test\.mjs|\.sh)$/u,

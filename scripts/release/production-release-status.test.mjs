@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-
+import { isFinalCandidateControlPath } from "../ci/final-candidate-control-paths.mjs";
 import {
   assertGuardedLocalEvidenceRepository,
   collectProductionReleaseStatus,
@@ -28,6 +28,10 @@ import { runProductionStageAdmission } from "./production-stage-admission.mjs";
 const SOURCE_SHA = "79178c150dc976b13f05d84a7711465c44447e3c";
 
 test("cutover preserves hosted provenance and rejects another repository or incomplete evidence", () => {
+  assert.equal(
+    isFinalCandidateControlPath("release/repository-migration.json"),
+    true
+  );
   // Captured successful GitHub runs remain evidence owned by the old repo.
   const snapshot = JSON.parse(
     readFileSync(
