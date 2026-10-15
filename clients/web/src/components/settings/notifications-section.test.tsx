@@ -82,7 +82,7 @@ describe("NotificationsSection", () => {
 		);
 		expect(requestPermissionMock).not.toHaveBeenCalled();
 	});
-	let requestPermissionMock: ReturnType<typeof vi.fn>;
+	let requestPermissionMock: import("vitest").Mock;
 
 	beforeEach(() => {
 		getMessagePreferencesMock.mockReset().mockResolvedValue({
@@ -336,9 +336,7 @@ function renderNotificationsSection() {
 	);
 }
 
-function installNotificationMock(
-	requestPermissionMock: ReturnType<typeof vi.fn>
-) {
+function installNotificationMock(requestPermissionMock: import("vitest").Mock) {
 	const permissionRef: { value: NotificationPermission } = { value: "default" };
 	class TestNotification {
 		static get permission(): NotificationPermission {

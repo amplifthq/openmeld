@@ -204,7 +204,9 @@
   "sherif": {
     "ignoreDependency": [
       "better-sqlite3",
-      "vite@8.1.2"
+      "vite@7.3.2",
+      "vite@8.1.2",
+      "vitest@4.1.11"
     ]
   },
   "engines": {
