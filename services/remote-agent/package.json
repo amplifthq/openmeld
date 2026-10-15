@@ -46,7 +46,7 @@
     "agents": "0.22.0",
     "ai": "6.0.219",
     "hono": "^4.11.7",
-    "valibot": "1.4.0",
+    "valibot": "1.4.2",
     "zod": "catalog:"
   },
   "devDependencies": {

@@ -58,7 +58,7 @@
     "better-sqlite3": "^12.6.2",
     "dotenv-cli": "^11.0.0",
     "drizzle-kit": "^0.31.9",
-    "esbuild": "0.27.7",
+    "esbuild": "0.28.2",
     "typescript": "^5.9.3",
     "vitest": "~3.2.0",
     "wrangler": "catalog:"
