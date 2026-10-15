@@ -1782,6 +1782,9 @@ target fails before any upload or message write. Core remains authoritative for
 Context access, requester, discussion scope, and execution eligibility. A valid
 source identity does not guarantee resumability. `--reply-to` independently
 controls thread placement; continuation never creates or selects a thread.
+Continue or fork within the original discussion scope. To start work in a new
+thread below a main-conversation reply, use `--reply-to` with `--new-task`;
+that starts a separate task and does not carry over native session history.
 
 For a new code task, `space send` and its `send` alias accept
 `--project <slug>` and optional `--repository <url>`. The CLI reads the current

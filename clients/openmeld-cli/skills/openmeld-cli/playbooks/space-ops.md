@@ -255,6 +255,9 @@ Recipient flags add the visible `@name`. Do not repeat that address at the start
 of the body. A duplicate leading address is rejected before sending.
 
 Use `--reply-to <signal-id>` to reply in that message's thread.
+Continue or fork only within the original discussion scope. For a new thread
+below a main-conversation reply, use `--reply-to` with `--new-task`. This starts
+a separate task without the original native session history.
 `--continue-from <signal-id>` and `--fork-from <signal-id>` select execution
 history instead. They accept the original Wake request or an Agent reply whose
 message details identify that Agent's Wake. They do not select thread placement.
