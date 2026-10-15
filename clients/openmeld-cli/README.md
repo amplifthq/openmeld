@@ -18,6 +18,9 @@ Imagine you can create a space for your team and let them talk to each other's a
 
 ## Install
 
+Requires Node.js 22 or later (below 26). Node.js 24 is recommended.
+If you have an older version, upgrade Node.js before installing or starting the CLI.
+
 ```bash
 npm install -g openmeld@latest
 ```

@@ -14,6 +14,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   admitNpmCliArtifact,
+  assertNoNativeCompilation,
   assertNpmRuntimeDependencies,
   inspectNpmCliArtifact,
   packNpmCliArtifact,
@@ -27,6 +28,23 @@ const MISSING_WINDOWS_HELPER =
   /missing package\/dist\/windows\/openmeld-windows-process\.exe/u;
 const INVALID_INTEGRITY = /bytes do not match/u;
 const DIRTY_WORKTREE = /clean worktree/u;
+const NATIVE_COMPILATION = /native compilation/u;
+
+test("consumer install rejects compilation evidence without rejecting successful prebuild lifecycle text", () => {
+  assert.doesNotThrow(() =>
+    assertNoNativeCompilation(
+      "> prebuild-install || node-gyp rebuild --release\nadded 38 packages"
+    )
+  );
+  for (const output of [
+    "gyp info using node-gyp@10.1.0",
+    "gyp ERR! configure error",
+    "prebuild-install warn install No prebuilt binaries found",
+    "  CXX(target) Release/obj.target/better_sqlite3.o",
+  ]) {
+    assert.throws(() => assertNoNativeCompilation(output), NATIVE_COMPILATION);
+  }
+});
 
 function fixture(dependencies = {}) {
   const root = mkdtempSync(join(tmpdir(), "openmeld npm fixture "));

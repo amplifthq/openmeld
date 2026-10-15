@@ -277,16 +277,16 @@ ensure_node_runtime() {
     if command_exists brew && confirm "Install Node.js with Homebrew now?"; then
       brew install node < /dev/null || die "Homebrew could not install Node.js. Install a supported release (${supportedNodeRange}), then run this setup command again."
     else
-      die "Install a supported Node.js release (${supportedNodeRange}) from nodejs.org, then run this setup command again."
+      die "Install Node.js 24 (recommended), or another supported release (${supportedNodeRange}), from nodejs.org, then run this setup command again."
     fi
   fi
 
   if ! node_runtime_supported; then
     say "OpenMeld setup found Node.js $(node --version < /dev/null 2>/dev/null || printf 'unknown')."
-    die "Install a supported Node.js release (${supportedNodeRange}) from nodejs.org, then run this setup command again."
+    die "Install Node.js 24 (recommended), or another supported release (${supportedNodeRange}), from nodejs.org, then run this setup command again."
   fi
 
-  command_exists npm || die "OpenMeld setup needs npm. Install a supported Node.js release (${supportedNodeRange}) from nodejs.org, then run this setup command again."
+  command_exists npm || die "OpenMeld setup needs npm. Install Node.js 24 (recommended), or another supported release (${supportedNodeRange}), from nodejs.org, then run this setup command again."
 }
 
 node_runtime_supported() {
@@ -1001,7 +1001,7 @@ function Validate-SetupArgs {
 
 function Ensure-NodeRuntime {
   if (-not (Test-CommandExists 'node')) {
-    Die 'Install a supported Node.js release (${supportedNodeRange}) from nodejs.org, then run this setup command again.'
+    Die 'Install Node.js 24 (recommended), or another supported release (${supportedNodeRange}), from nodejs.org, then run this setup command again.'
   }
 
   $nodeMajorText = (& node -p "Number(process.versions.node.split('.')[0])" 2>$null)
@@ -1009,11 +1009,11 @@ function Ensure-NodeRuntime {
   [void][int]::TryParse([string]$nodeMajorText, [ref]$nodeMajor)
   if ($OpenMeldSetupSupportedNodeMajors -notcontains $nodeMajor) {
     $nodeVersion = (& node --version 2>$null)
-    Die "OpenMeld setup found Node.js $nodeVersion. Install a supported release (${supportedNodeRange}) from nodejs.org, then run this setup command again."
+    Die "OpenMeld setup found Node.js $nodeVersion. Install Node.js 24 (recommended), or another supported release (${supportedNodeRange}), from nodejs.org, then run this setup command again."
   }
 
   if (-not (Test-CommandExists 'npm')) {
-    Die 'OpenMeld setup needs npm. Install a supported Node.js release (${supportedNodeRange}) from nodejs.org, then run this setup command again.'
+    Die 'OpenMeld setup needs npm. Install Node.js 24 (recommended), or another supported release (${supportedNodeRange}), from nodejs.org, then run this setup command again.'
   }
 }
 

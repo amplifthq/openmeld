@@ -28,7 +28,9 @@ const CONSUMER_ENVIRONMENT_KEY =
 const LINE_BREAK = /\r?\n/u;
 const SOURCE_SHA = /^[a-f0-9]{40}$/u;
 const SHA512_INTEGRITY = /^sha512-[A-Za-z0-9+/]{86}==$/u;
-const CACHE_SCHEMA_VERSION = 1;
+const CACHE_SCHEMA_VERSION = 2;
+const NATIVE_COMPILATION_OUTPUT =
+  /\bgyp (?:info|ERR!|verb)|No prebuilt binaries found|\b(?:CC|CXX|SOLINK_MODULE)\(target\)/u;
 const BUILD_ENVIRONMENT_KEY =
   /^(?:cc|cflags|cxx|cxxflags|ldflags|macosx_deployment_target|node_options|npm_config_arch|npm_config_target_arch|sdkroot)$/iu;
 
@@ -87,7 +89,19 @@ async function run(command, args, options = {}) {
       `${command} failed (${result.status ?? "not completed"}): ${result.error?.message ?? result.stderr?.trim() ?? "unknown error"}`
     );
   }
+  options.inspectOutput?.(`${result.stdout}\n${result.stderr}`);
   return result.stdout.trim();
+}
+
+export function assertNoNativeCompilation(output) {
+  // Lifecycle command text can contain "prebuild-install || node-gyp rebuild"
+  // even when a prebuild succeeds. Reject evidence of the fallback actually
+  // running, including an optional dependency whose compilation failure npm hides.
+  if (NATIVE_COMPILATION_OUTPUT.test(output)) {
+    throw new Error(
+      `npm consumer installation fell back to native compilation:\n${output}`
+    );
+  }
 }
 
 export async function readNpmCliArtifact(artifactPath) {
@@ -211,11 +225,17 @@ export async function verifyNpmCliConsumer(
         artifactPath,
         "--registry=https://registry.npmjs.org/",
         "--ignore-scripts=false",
+        "--foreground-scripts",
         "--no-audit",
         "--no-fund",
         "--workspaces=false",
       ],
-      { cwd: root, env, timeout: 300_000 }
+      {
+        cwd: root,
+        env,
+        timeout: 300_000,
+        inspectOutput: assertNoNativeCompilation,
+      }
     );
     const entry = join(root, "node_modules/openmeld/dist/openmeld.js");
     const version = await run(process.execPath, [entry, "--version"], {

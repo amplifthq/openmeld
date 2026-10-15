@@ -88,12 +88,102 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  cli_release:
-    name: Publish CLI And Release Core
+  npm_artifact:
+    name: Build npm Consumer Artifact
     if: >-
       !cancelled() && !inputs.helper_only && github.ref == 'refs/heads/main' &&
       inputs.windows_artifact_run_id != ''
     needs: windows_process_artifact
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    env:
+      RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-pnpm
+      - name: Reuse stamped Windows helper
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WINDOWS_ARTIFACT_RUN_ID: ${{ inputs.windows_artifact_run_id }}
+        run: node scripts/release/reuse-windows-process-artifact.mjs
+      - name: Build and pack the release source
+        run: |
+          pnpm exec turbo run build --filter=openmeld --force
+          node scripts/release/npm-cli-smoke.mjs pack dev-tmp/npm-consumer/openmeld.tgz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-consumer-${{ env.RELEASE_SHA }}
+          path: dev-tmp/npm-consumer/openmeld.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  npm_consumer:
+    name: npm Install / Node ${{ matrix.node }} / ${{ matrix.os }}
+    needs: npm_artifact
+    if: ${{ !cancelled() && needs.npm_artifact.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22.0.0", "24"]
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-consumer-${{ env.RELEASE_SHA }}
+          path: ${{ runner.temp }}/npm-consumer
+      - name: Verify native platform and clean npm installation
+        run: |
+          node -e 'const expected = process.platform === "darwin" ? "arm64" : "x64"; if (process.arch !== expected) throw new Error(`Expected ${expected}, got ${process.arch}`)'
+          node scripts/release/npm-cli-smoke.mjs verify "$RUNNER_TEMP/npm-consumer/openmeld.tgz"
+      - name: Select Node 20 for the upgrade-message check
+        if: matrix.node == '22.0.0'
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20.19.2"
+          package-manager-cache: false
+      - name: Reject Node 20 before loading dependencies
+        if: matrix.node == '22.0.0'
+        shell: bash
+        run: |
+          mkdir "$RUNNER_TEMP/npm-consumer/unsupported"
+          tar -xzf "$RUNNER_TEMP/npm-consumer/openmeld.tgz" -C "$RUNNER_TEMP/npm-consumer/unsupported"
+          set +e
+          output=$(node "$RUNNER_TEMP/npm-consumer/unsupported/package/dist/openmeld.js" --version 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          test "$status" -eq 1
+          case "$output" in
+            *'OpenMeld requires Node.js >=22 <26;'*'Install Node.js 24 (recommended)'*) ;;
+            *) exit 1 ;;
+          esac
+
+  cli_release:
+    name: Publish CLI And Release Core
+    if: >-
+      !cancelled() && !inputs.helper_only && github.ref == 'refs/heads/main' &&
+      inputs.windows_artifact_run_id != '' && needs.npm_consumer.result == 'success'
+    needs: [windows_process_artifact, npm_consumer]
     runs-on: macos-15
     timeout-minutes: 45
     concurrency:

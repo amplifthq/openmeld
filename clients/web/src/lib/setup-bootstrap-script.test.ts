@@ -1687,6 +1687,7 @@ describe("setup-bootstrap-script", () => {
 
 	it.each([
 		19,
+		20,
 		21,
 		26,
 		"unreadable",
@@ -1719,7 +1720,8 @@ describe("setup-bootstrap-script", () => {
 				}
 			);
 			expect(result.status).toBe(1);
-			expect(result.stdout).toContain("20.x || >=22 <26");
+			expect(result.stdout).toContain(">=22 <26");
+			expect(result.stdout).toContain("Node.js 24 (recommended)");
 			expect(existsSync(callsPath)).toBe(false);
 		} finally {
 			rmSync(root, { recursive: true, force: true });

@@ -13,6 +13,32 @@ const workflow = (name) =>
 const toolchain = (job) =>
   job.steps.find((step) => step.uses?.endsWith("/setup-node-pnpm"));
 
+test("CLI publication waits for the same npm tarball to pass the supported consumer matrix", () => {
+  const jobs = workflow("workflows/cli-release.yml").jobs;
+  assert.deepEqual(jobs.npm_consumer.strategy.matrix, {
+    node: ["22.0.0", "24"],
+    os: ["ubuntu-24.04", "macos-15"],
+  });
+  assert.equal(jobs.npm_consumer.needs, "npm_artifact");
+  const upload = jobs.npm_artifact.steps.find((step) =>
+    step.uses?.startsWith("actions/upload-artifact@")
+  );
+  const download = jobs.npm_consumer.steps.find((step) =>
+    step.uses?.startsWith("actions/download-artifact@")
+  );
+  assert.equal(download.with.name, upload.with.name);
+  assert.ok(
+    jobs.npm_consumer.steps.some((step) =>
+      step.run?.includes("npm-cli-smoke.mjs verify")
+    )
+  );
+  assert.ok(jobs.cli_release.needs.includes("npm_consumer"));
+  assert.ok(
+    jobs.cli_release.if.includes("needs.npm_consumer.result == 'success'")
+  );
+  assert.deepEqual(jobs.npm_consumer.permissions, { contents: "read" });
+});
+
 test("coordinated release hands trusted parent outputs to every child and retains standalone admission", () => {
   const parent = workflow("workflows/release-on-main.yml");
   const validation = parent.jobs.validate_release_source;

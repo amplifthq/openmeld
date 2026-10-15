@@ -63,7 +63,7 @@
 > Turn these notes into a three-item agenda: choose a launch date, test signup, and assign the announcement.
 
 Want to use your local agents too? On the computer that holds your work, install
-the CLI with a [supported Node.js version](clients/openmeld-cli/package.json):
+the CLI with Node.js 22 or later (below 26). Node.js 24 is recommended:
 
 ```sh
 npm install -g openmeld@latest

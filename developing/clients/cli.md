@@ -1020,7 +1020,9 @@ missing, looping, or unreadable path is skipped fail-closed. The CLI reads path
 metadata only and never uploads the local path.
 
 Watcher roots that do not exist when the Service starts are retried after the
-provider creates them. The CLI remains startable on its declared Node 20 floor;
+provider creates them. The npm CLI requires Node 22 through 25; Node 24 is recommended.
+The entry checks the shared setup runtime policy before loading business commands.
+Standalone Bun binaries do not depend on the user's Node installation.
 OpenCode SQLite reconciliation is optional capability detection, while the
 managed OpenCode plugin is the low-latency primary path.
 
