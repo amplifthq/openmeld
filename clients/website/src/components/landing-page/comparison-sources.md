@@ -1,232 +1,324 @@
 # Comparison evidence
 
-Reviewed 2026-10-13. This is a capability comparison, not a measured performance
-benchmark. `comparison-section.tsx` owns the displayed snapshot. Keep evidence
-here rather than adding research notes or a symbol legend to the landing page.
-Recheck sources before changing a cell. Public source proves implementation,
-not deployment or hands-on acceptance. An undocumented feature stays unknown.
+Reviewed **2026-10-15**: seven products × 16 features = **112 cells**.
+`comparison-section.tsx` owns the website snapshot; README repeats its values.
+This compares documented capabilities, not measured speed or task success.
 
-## Row scope
+The audit combines direct first-party documentation and public-source review
+with a separate local Grok CLI review (`grok-4.7`, `xhigh`). Final conclusions
+reconcile both reviews against the sources below. Model output is not evidence.
+No paid competitor account or end-to-end competitor workflow was tested.
+Public source proves implementation, not deployment or account entitlement.
+Missing documentation means **unknown**, not **No**.
 
-Rows follow the primary workflow: run local agents, collaborate, assign/review
-tasks, organize Space files, and share work; execution, knowledge, automation,
-integrations, and licensing follow. Local-agent execution retains the verified
-Codex/Claude Code runtime scope; it does not promise every possible agent.
+Keep these notes beside the component rather than adding a research legend to
+the landing page. Recheck first-party evidence before changing a cell.
 
-`Files & folders per Space` means a separate managed file area for a collaboration
-room (or a competitor's comparable object). Raft attachments and Paperclip issue
-files remain explicit narrower alternatives, not full managed folder libraries.
-OpenMeld's Space-owned Files contract is documented in
-`developing/product/space-collaboration.md`; Dust's corresponding surface is
-[Pod Files](https://docs.dust.tt/docs/pods-files).
+## Corrections from the October 13 snapshot
 
-`Public sharing links` means recipients can view intentionally shared work
-without joining the team. OpenMeld's Space access contract supports public
-reading of messages, Threads, files, guide, pins, and Tasks, with optional
-password-protected access. It is not a separate public link for an individual
-private Team/My file. [Raft message links](https://docs.raft.build/features/messaging/messages/)
-and [channel access](https://docs.raft.build/features/messaging/channels/) establish
-member-facing links; exported PNG images are not live public Space links.
-[Dust conversation sharing](https://docs.dust.tt/changelog/private-by-default-conversation-urls)
-establishes workspace-member access, not anonymous public reading.
-[Viktor Pages](https://viktor.com/docs/hosted-pages) and
-[Spaces](https://viktor.com/docs/spaces) support public deliverable links, so their
-narrower scope is named instead of marked absent. Public unauthenticated sharing
-was not established for Multica, Paperclip, or OpenHands; those cells remain
-unknown, not negative. These labels report verified scope, not exhaustive absence
-of other sharing paths.
+| Finding | Previous | Correction |
+| --- | --- | --- |
+| Raft public sharing understated | Member links | Artifacts app supports public links without sign-in. Channels remain member-scoped. |
+| Raft file history false negative | No | Artifacts app retains versions; message attachments are unversioned. |
+| Dust public sharing understated | Member links | Frames support public external links. |
+| Dust version recovery omitted | Unknown | Frames support reverting edits and restoring earlier versions. |
+| OpenHands public sharing omitted | Unknown | Cloud API and viewer support public conversations; source evidence, not account acceptance. |
+| Narrower collaboration hidden | Multica/Paperclip team chat: No | Name their shared Issue threads. |
+| Narrower files omitted | Multica/Viktor: Unknown | Name Issue files and Chat files without implying full folder libraries. |
+| Paperclip history incomplete | Docs only | Docs plus revision history in the optional Wiki plugin. |
+| Integration units inconsistent | Counts for three products; dashes for four | Name connection methods for all products; no comparable count does not mean no integrations. |
+| Optional features looked universal | Approval/memory checkmarks; Raft scheduling checkmark | Configurable approval; named memory mechanisms; managed-agent schedules. |
+| Execution scope unclear | Raft/Multica/Paperclip hosted agents: No | Own compute / Own compute / Cloud waitlist. |
+| License differences hidden | MIT Yes/No | Name actual licenses and additional terms. |
 
-- Native team chat means multiple people can exchange messages with agents
-  inside the product; an issue comment or external Slack route is narrower.
-- Team knowledge means maintained shared reference material. Agent files,
-  Skills, and an optional Wiki plugin are named explicitly when those are the
-  verified mechanisms; they do not imply a separate native knowledge library.
-- Persistent memory means information retained across conversations. Runtime
-  and SDK restrictions remain visible. Memory need not be enabled by default.
-- Reusable Skills includes runtime-provided Skills; it does not promise every
-  product has a central organization-owned skill library.
-- Shared files and folders means a managed team library, not attachments or a
-  coding workspace. Version history excludes Git. Deliverables, documents,
-  and Pages have explicit scope labels.
-- Required task review means a configurable reviewer acceptance gate before
-  completion, not tool permission or a manually editable review status.
-- Coding-agent dispatch means the product starts work through a user's Codex
-  or Claude Code runtime. A CLI calling the product in the reverse direction
-  is not sufficient evidence.
-- Hosted execution means vendor-provided execution, not a control plane that
-  requires the customer to supply a computer or cloud VM.
-- Plugin counts are vendor/service catalog entries, not individual API tools,
-  coding runtimes, connected accounts, or documentation pages. A dash is an
-  unverified comparable total, not zero.
-- MIT concerns core code. It does not assert identical hosted/enterprise terms.
+Raft's Joint Channels do **not** establish anonymous sharing. Server-public
+channels are readable by that server's members; Joint Channels require members
+added across servers. The verified public-link product is the **Artifacts app**:
+private by default, public after a human owner/admin enables it. Comments and
+history have separate controls. Do not confuse live HTML artifact previews
+with public access to a live channel.
 
-## OpenMeld
+## Common row definitions
 
-### Cloud Computer comparison (reviewed 2026-10-13)
+| Feature | Scope |
+| --- | --- |
+| Run your local agents | Launch supported local coding runtimes such as Codex/Claude Code. A local CLI calling a hosted agent in reverse is insufficient. |
+| Built-in team chat | Multi-human/agent messaging inside the product. Name Issue threads and external chat as narrower alternatives. |
+| Tasks for people & agents | Human and agent assignees. Agent-only work is labeled. |
+| Require task approval | Configurable acceptance gate before completion, not tool permission or a freely editable review status. |
+| Shared files & folders | Managed shared file areas; explicitly name attachments, issue/chat files, and coding workspaces as narrower alternatives. |
+| Public sharing links | View intentionally shared work without joining the team. Name the object; an artifact link does not make the workspace public. |
+| Hosted cloud agents | Vendor execution; distinguish customer computers/cloud deployments. |
+| Free personal cloud computer | Free vendor-hosted personal execution. Starter credits/free cloud tiers are narrower offers. No promise of free models, unlimited compute, or an always-running VM. |
+| Work in your local folders | Direct authorized local-folder access; uploads alone do not qualify. |
+| Team knowledge base | Maintained shared references; name Skills, agent files, project context, or optional Wiki where applicable. |
+| Memory across chats | Retained information across conversations; show runtime/setup/SDK limits. |
+| Saved instructions (Skills) | Reusable instructions, including runtime Skills; not necessarily a central team library. |
+| Previous file versions | Retained revisions or restore, excluding Git; name the supported object. |
+| Run tasks on a schedule | Scheduled agent work, subject to runtime availability. |
+| Apps & plugins | Connection methods, not incomparable counts of apps/connectors/tools/accounts. |
+| Core license | Core source license, not every asset or enterprise/hosted-service term. |
 
-The leading row compares a free vendor-hosted personal Computer. It does not
-promise free model tokens, unlimited compute, an always-running VM, or a human
-remote desktop. Local/remote access findings below are retained as research;
-they are not a separate displayed row.
+**Yes** means supported in this scope; **No** is a supported negative in this
+scope; **?** is unresolved. Text identifies support, setup, or availability
+limits. The seven tables below cover every displayed cell.
 
-- OpenMeld: `developing/product/remote-agent-runtime.md`, Personal cloud Computer,
-  defines one default Computer per human account across Organizations, Agents,
-  and conversations. Center, personal Remote, and optional Local Agents use the
-  same operation contract and persistent `/computer` files. The existing
-  homepage offer explicitly includes a free Computer for each user. Local
-  access is optional and authorized, not an automatic move of local work.
-- Raft: [product FAQ](https://raft.build/) defines Computer as a process on the
-  user's machine. [External agents](https://docs.raft.build/features/agents/external/)
-  also run on customer-supplied infrastructure. Free software is not free compute.
-- Multica: [Cloud quickstart](https://multica.ai/docs/cloud-quickstart) requires
-  connecting a computer with installed coding tools; agents execute on those
-  connected computers. Hosted management does not provide a free execution VM.
-- Paperclip: [homepage](https://paperclip.ing/) offers a Cloud waitlist and a
-  local installation, not a currently available free hosted Computer.
-- Dust: [Computer lifecycle](https://dust.tt/academy/computer/chapter/computer)
-  is a Linux VM per conversation, deleted after seven inactive days; output
-  files remain with that conversation. [Pricing](https://dust.tt/home/pricing)
-  offers 500 lifetime starter credits rather than a replenishing compute grant.
-  External callers can work through Dust agents; direct local-agent access to
-  the same VM was not established.
-- Viktor: [Plans and credits](https://viktor.com/docs/plans-and-credits) gives
-  one-time starter credits; work pauses when exhausted.
-  [Public API script runs](https://viktor.com/docs/public-api) execute in the
-  key owner's workspace sandbox and see the same files as chat. A local caller
-  can use that API, but this is not a verified native local-agent integration.
-- OpenHands: [current pricing](https://www.openhands.dev/pricing) advertises a
-  free Individual cloud tier (10 daily conversations); model usage is BYOK or
-  at cost. Do not call this only a trial or mark free cloud access absent.
-  [CloudWorkspace source](https://github.com/OpenHands/software-agent-sdk/blob/main/openhands-workspace/openhands/workspace/cloud/workspace.py)
-  supports starting or resuming a sandbox through the Cloud API from an SDK
-  client. This is not proof of one persistent free personal Computer shared
-  automatically across arbitrary agents; retain `Free cloud tier` in the table.
+## OpenMeld — 16 cells
 
-These are documented product offers and access paths, not hands-on acceptance
-in paid competitor accounts. OpenMeld's personal Computer contract is stronger
-than the narrower alternatives, but those alternatives must remain visible.
+Repository paths refer to this checkout. The repository was verified public
+during this audit; the older anonymous-404 observation is no longer current.
 
-Current product evidence: `clients/docs/content/docs/work/messages.mdx`,
-`work/files.mdx`, `work/tasks.mdx`, `work/memory.mdx`, `work/routines.mdx`,
-`work/cloud-computer.mdx`, `team/knowledge.mdx`, and `team/skills.mdx`.
-These establish native conversations, managed file revisions/Trash, independent
-task review, member/Organization memory, approved knowledge, and versioned Skills.
-When a reviewer is assigned, a new submitted result needs a fresh acceptance.
+| Feature | Value | Evidence and limits |
+| --- | --- | --- |
+| Run your local agents | Yes | `clients/docs/content/docs/local-agents/index.mdx`: supported tools on a connected computer. |
+| Built-in team chat | Yes | `developing/product/space-collaboration.md`: Space messages/Threads for humans and Agents. |
+| Tasks for people & agents | Yes | `clients/docs/content/docs/work/tasks.mdx`: human or Agent assignee. |
+| Require task approval | Configurable | Task guide and `services/core/src/space/application/space-task-workflow.ts`: a reviewer must accept each submitted result when assigned; otherwise submission completes the task. |
+| Shared files & folders | Yes | `developing/product/files.md`: Team, member-private, and Space roots, folders, permissions, revisions, Trash. |
+| Public sharing links | Spaces | Space collaboration owner: public reading without membership and password-protected modes. Not public links for individual private Team/My files. |
+| Hosted cloud agents | Yes | `developing/product/remote-agent-runtime.md`: hosted Center/Remote Agents and personal Computer. |
+| Free personal cloud computer | Yes | Homepage offer and runtime owner: one default Computer per human account, persistent `/computer` files. Processes/packages/browser sessions need not survive recreation; models are billed separately. |
+| Work in your local folders | Yes | Local Agents guide: selected authorized project folder on connected computer. |
+| Team knowledge base | Yes | `clients/docs/content/docs/team/knowledge.mdx`: approved shared knowledge, distinct from attachments. |
+| Memory across chats | Center Agent | `clients/docs/content/docs/work/memory.mdx`: Center Agent member/Organization memory; not universal local-runtime memory. |
+| Saved instructions (Skills) | Yes | `clients/docs/content/docs/team/skills.mdx`: shared versioned instructions. |
+| Previous file versions | Yes | `clients/docs/content/docs/work/files.mdx`: revision history and restore. |
+| Run tasks on a schedule | Yes | `clients/docs/content/docs/work/routines.mdx`: local/remote executors; local computer must be available. |
+| Apps & plugins | Plugin catalog | `packages/product-catalog/src/plugins.ts` and homepage `plugin-catalog.ts`: available catalog entries, not account-specific connection readiness. |
+| Core license | MIT | Root `LICENSE`; third-party/hosted terms remain separate. |
 
-The row explicitly compares public catalog size. It shares `plugin-catalog.ts`
-with the homepage Plugin showcase: entries marked available in the public
-catalog, rounded down to tens. This currently displays 60+. It does not claim
-account-specific connection readiness or successful integration tests.
+## Raft — 16 cells
 
-Earlier normal production UI inspection found 56 Personal and 52 Organization
-Plugin entries, which justified 50+ in the design proposal. Do not sum those
-overlapping sets or confuse account-visible entries with the public catalog.
-The implemented page now uses one explicitly named public-catalog basis in
-both sections, rather than displaying two differently scoped counts.
+Source inspected at `a98ae003246a0360872a77d76dec2fccd0347ef7`.
+The live [Artifacts service][r-artifacts] and [manifest][r-manifest] independently
+document public access and version actions.
 
-The source LICENSE is MIT. The advertised public repository returned 404 to
-anonymous research; resolve public access before publishing an open-source
-availability claim. This remains the existing public-launch condition recorded
-in `developing/clients/website.md`.
+| Feature | Value | Evidence and limits |
+| --- | --- | --- |
+| Run your local agents | Yes | [External agents][r-external], [runtime manual][r-runtime]: coding runtimes on customer computers. |
+| Built-in team chat | Yes | [Servers][r-server]: channels, threads, DMs for people and agents. |
+| Tasks for people & agents | Yes | [Task manual][r-task]: human/agent claims. |
+| Require task approval | Manual | [Task transitions][r-task] permit in-progress directly to done; review/send-back is not mandatory acceptance. |
+| Shared files & folders | Attachments / app | [Files][r-files] collects attachments; [Artifacts][r-attachment] is a separate app, not a native managed folder library. |
+| Public sharing links | Artifacts app | [Manifest][r-manifest]: public without sign-in after human admin enables it. [Joint Channels][r-joint] remain member-scoped. |
+| Hosted cloud agents | Own compute | [Product][r-home]: Computer is a local process; [Computer manual][r-computer] lists Cloud Computer as coming soon. |
+| Free personal cloud computer | No | Same Computer sources: no current vendor execution offer; free software is not free compute. |
+| Work in your local folders | Yes | [Workspace][r-workspace]: local files on connected computer. |
+| Team knowledge base | Agent files | [Workspace][r-workspace]: agent notes/files, not a separate team reference library. |
+| Memory across chats | Yes | [Runtime manual][r-runtime]: persistent memory files; full reset clears them. |
+| Saved instructions (Skills) | Yes | [Runtime manual][r-runtime]: runtime Skills; handling varies by runtime. |
+| Previous file versions | Artifacts app | [Attachment manual][r-attachment]/[manifest][r-manifest]: retained versions, stable/per-version URLs. Message attachments are unversioned. Superseded CI artifact versions have a 24-hour grace period. |
+| Run tasks on a schedule | Managed agents | [Reminders][r-reminders]; [external-agent manual][r-external-manual] rejects external-agent reminders. |
+| Apps & plugins | App marketplace | [Apps][r-apps]: marketplace, private-shared, server-local apps. |
+| Core license | FSL-1.1-ALv2 | [License][r-license]: competing-use restriction and future Apache conversion terms; not MIT. |
 
-## Raft
+[r-home]: https://raft.build/
+[r-server]: https://docs.raft.build/features/server/
+[r-external]: https://docs.raft.build/features/agents/external/
+[r-workspace]: https://docs.raft.build/features/agents/workspace/
+[r-files]: https://docs.raft.build/features/collaboration/files.md
+[r-joint]: https://docs.raft.build/features/messaging/joint-channels/
+[r-reminders]: https://docs.raft.build/features/agents/reminders/
+[r-apps]: https://github.com/botiverse/raft-source/blob/a98ae003246a0360872a77d76dec2fccd0347ef7/manual/agent-knowledge/integration.md
+[r-artifacts]: https://raft-artifacts.com/
+[r-manifest]: https://raft-artifacts.com/.well-known/raft-agent-manifest.json
+[r-runtime]: https://github.com/botiverse/raft-source/blob/a98ae003246a0360872a77d76dec2fccd0347ef7/manual/agent-knowledge/runtime.md
+[r-task]: https://github.com/botiverse/raft-source/blob/a98ae003246a0360872a77d76dec2fccd0347ef7/manual/agent-knowledge/task.md
+[r-computer]: https://github.com/botiverse/raft-source/blob/a98ae003246a0360872a77d76dec2fccd0347ef7/manual/agent-knowledge/computer.md
+[r-attachment]: https://github.com/botiverse/raft-source/blob/a98ae003246a0360872a77d76dec2fccd0347ef7/manual/agent-knowledge/attachment.md
+[r-external-manual]: https://github.com/botiverse/raft-source/blob/a98ae003246a0360872a77d76dec2fccd0347ef7/manual/agent-knowledge/external-agent.md
+[r-license]: https://github.com/botiverse/raft-source/blob/a98ae003246a0360872a77d76dec2fccd0347ef7/LICENSE
 
-- [Native channels and DMs](https://docs.raft.build/features/server/).
-- [Workspace knowledge](https://docs.raft.build/features/agents/workspace/) and
-  [runtime memory/Skills](https://github.com/botiverse/raft-source/blob/main/manual/agent-knowledge/runtime.md).
-- [Immutable uploaded attachments](https://github.com/botiverse/raft-source/blob/main/manual/agent-knowledge/attachment.md)
-  and [attachment routes](https://github.com/botiverse/raft-source/blob/main/packages/server/src/routes/attachments.ts):
-  no native attachment revisions/restore; the Files tab collects chat attachments.
-- [Task transitions](https://github.com/botiverse/raft-source/blob/main/manual/agent-knowledge/task.md):
-  manual review and send-back exist, but work can transition straight to Done.
-- [Customer-connected computers](https://docs.raft.build/features/server/computers/)
-  and [recurring reminders](https://docs.raft.build/features/agents/reminders/).
-  Reminders support built-in agents; external-agent scheduling has limits.
-- [FSL license](https://github.com/botiverse/raft-source/blob/main/LICENSE), not MIT.
+## Multica — 16 cells
 
-## Multica
+| Feature | Value | Evidence and limits |
+| --- | --- | --- |
+| Run your local agents | Yes | [Cloud quickstart][m-cloud], [runtimes][m-runtime]: installed coding tools on connected computers. |
+| Built-in team chat | Issue threads | [Comments][m-comments]: shared issue discussions/mentions. [Chat][m-chat] itself is private one-human/one-agent. |
+| Tasks for people & agents | Yes | [Issues][m-issues]: human and agent assignees. |
+| Require task approval | Manual | [Issues][m-issues]: directly editable states; review status does not establish an enforced gate. |
+| Shared files & folders | Issue files | [Comments][m-comments] and [deliverables][m-deliverables]: attachments/outputs, not managed room folders. |
+| Public sharing links | ? | No anonymous-sharing contract established; public runtimes mean workspace routing access, not anonymous links. |
+| Hosted cloud agents | Own compute | [Cloud quickstart][m-cloud]: hosted management with customer-connected execution. |
+| Free personal cloud computer | No | Same quickstart requires customer computer; no vendor execution VM in this offer. |
+| Work in your local folders | Yes | [Project resources][m-resources]: linked local directory edited in place. |
+| Team knowledge base | Skills / projects | [Skills][m-skills] reference files and [projects][m-projects] shared descriptions/context; not a separate knowledge service. |
+| Memory across chats | By runtime | [Hermes][m-hermes] and [Codex][m-codex] source: runtime-specific persistence; Codex native memory requires opt-in. |
+| Saved instructions (Skills) | Yes | [Skills][m-skills]: workspace and runtime Skills. |
+| Previous file versions | Deliverables | [Grouping][m-deliverables] and [UI][m-versions], source evidence: same filename/type outputs form versions; generic team-file restore unverified. |
+| Run tasks on a schedule | Yes | [Autopilots][m-autopilots]: schedules/webhooks; requires available runtime. |
+| Apps & plugins | Chat / Git / MCP | [CLI][m-cli]: workspace/agent MCP configuration; official docs list chat/Git integrations. |
+| Core license | Apache + terms | [License][m-license]: Apache 2.0 plus commercial conditions, including external-hosting restrictions. |
 
-- [Chat](https://multica.ai/docs/chat) is one person and one agent. Team discussion
-  exists in issues; this is not a claim that Multica lacks collaboration.
-- [Shared Skills](https://multica.ai/docs/skills) carry reference material.
-- [Hermes memory](https://github.com/multica-ai/multica/blob/main/server/internal/daemon/execenv/hermes_memory.go)
-  and [Codex memory policy](https://github.com/multica-ai/multica/blob/main/server/internal/daemon/execenv/codex_memory.go)
-  establish runtime-specific persistence.
-- [Deliverable version UI](https://github.com/multica-ai/multica/blob/main/packages/views/issues/components/deliverables/attachment-versions.tsx)
-  and [version grouping](https://github.com/multica-ai/multica/blob/main/packages/core/attachments/deliverables.ts)
-  retain same-name/type issue outputs; generic team-file restoration is unverified.
-- [Issue states](https://multica.ai/docs/issues#status) allow humans or agents to
-  change state directly. Review is manual, not an enforced independent gate.
-- [Runtimes](https://multica.ai/docs/daemon-runtimes) are customer-connected;
-  [Autopilots](https://multica.ai/docs/autopilots) provide scheduled work.
-- [License](https://multica.ai/licensing) has commercial conditions, not MIT.
+[m-cloud]: https://multica.ai/docs/cloud-quickstart
+[m-runtime]: https://multica.ai/docs/daemon-runtimes
+[m-comments]: https://multica.ai/docs/comments
+[m-chat]: https://multica.ai/docs/chat
+[m-issues]: https://multica.ai/docs/issues
+[m-resources]: https://multica.ai/docs/project-resources
+[m-projects]: https://multica.ai/docs/projects
+[m-skills]: https://multica.ai/docs/skills
+[m-autopilots]: https://multica.ai/docs/autopilots
+[m-cli]: https://multica.ai/docs/cli
+[m-license]: https://multica.ai/licensing
+[m-hermes]: https://github.com/multica-ai/multica/blob/main/server/internal/daemon/execenv/hermes_memory.go
+[m-codex]: https://github.com/multica-ai/multica/blob/main/server/internal/daemon/execenv/codex_memory.go
+[m-deliverables]: https://github.com/multica-ai/multica/blob/main/packages/core/attachments/deliverables.ts
+[m-versions]: https://github.com/multica-ai/multica/blob/main/packages/views/issues/components/deliverables/attachment-versions.tsx
 
-## Paperclip
+## Paperclip — 16 cells
 
-- [Agent Chat](https://docs.paperclip.ing/experimental/agent-chat/) allows its
-  human owner to send while teammates read; shared task discussion also exists.
-- [Official Wiki plugin](https://docs.paperclip.ing/reference/plugins/llm-wiki/)
-  is optional and alpha.
-- [Memory Skill](https://github.com/paperclipai/paperclip/blob/master/skills/para-memory-files/SKILL.md)
-  and [memory connectors](https://docs.paperclip.ing/connectors/memory-connectors/)
-  provide durable knowledge with setup, not automatic universal memory sync.
-- [Skills](https://docs.paperclip.ing/guides/org/skills/),
-  [read-only artifacts](https://docs.paperclip.ing/guides/day-to-day/artifacts/),
-  and [keyed document revisions/restore](https://docs.paperclip.ing/guides/day-to-day/issues/#keyed-documents).
-- [Review policy](https://github.com/paperclipai/paperclip/blob/master/server/src/services/issue-review-policy.ts)
-  enforces configured reviewer rules for approve/reject; default is unrestricted.
-- [Product](https://paperclip.ing/) advertises local/remote agents and a managed
-  Cloud waitlist. [Core source](https://github.com/paperclipai/paperclip) is MIT.
+| Feature | Value | Evidence and limits |
+| --- | --- | --- |
+| Run your local agents | Yes | [Product][p-home]: local coding-agent adapters. |
+| Built-in team chat | Issue threads | [Issues][p-issues] support shared discussion; [Agent Chat][p-chat] allows teammates to read but only owner to send. |
+| Tasks for people & agents | Yes | [Issues][p-issues], [work modes][p-work]: human and agent work assignment. |
+| Require task approval | Configurable | [Execution policy][p-policy]: configured stages intercept completion and route to reviewer/approver; stages are optional. |
+| Shared files & folders | Issue files | [Artifacts][p-artifacts]: attachments, workspace browser, company shelf; not room-owned folder library. |
+| Public sharing links | ? | Artifact/comment deep links do not establish anonymous access. |
+| Hosted cloud agents | Cloud waitlist | [Homepage][p-home]: managed Cloud waitlist; customer-hosted/local execution available. |
+| Free personal cloud computer | No | Same offer: no currently available free vendor computer. |
+| Work in your local folders | Yes | [Artifacts][p-artifacts], [Skills][p-skills]: project workspaces and approved local roots. |
+| Team knowledge base | Wiki plugin | [LLM Wiki][p-wiki]: optional alpha plugin with local Markdown wiki. |
+| Memory across chats | Skills / connectors | [Memory Skill][p-memory-skill], [connectors][p-memory]: explicit setup; not automatic universal sync. |
+| Saved instructions (Skills) | Yes | [Skills][p-skills]: company library and version restore. |
+| Previous file versions | Docs / Wiki | [Keyed documents][p-issues]: revisions/diff/restore; [Wiki][p-wiki]: page revision history. Not every attachment. |
+| Run tasks on a schedule | Yes | [Routines][p-routines]: scheduled work; Wiki routines start paused. |
+| Apps & plugins | Connectors / plugins | [Connectors][p-connectors] and [Wiki][p-wiki]: integrations and plugin runtime. |
+| Core license | MIT | [LICENSE][p-license]; hosted terms separate. |
 
-## Dust
+[p-home]: https://paperclip.ing/
+[p-issues]: https://docs.paperclip.ing/guides/day-to-day/issues/
+[p-work]: https://docs.paperclip.ing/guides/day-to-day/work-modes/
+[p-chat]: https://docs.paperclip.ing/experimental/agent-chat/
+[p-policy]: https://docs.paperclip.ing/guides/power/execution-policy/
+[p-artifacts]: https://docs.paperclip.ing/guides/day-to-day/artifacts/
+[p-skills]: https://docs.paperclip.ing/guides/org/skills/
+[p-wiki]: https://docs.paperclip.ing/reference/plugins/llm-wiki/
+[p-memory]: https://docs.paperclip.ing/connectors/memory-connectors/
+[p-memory-skill]: https://github.com/paperclipai/paperclip/blob/master/skills/para-memory-files/SKILL.md
+[p-routines]: https://docs.paperclip.ing/guides/projects-workflow/routines/
+[p-connectors]: https://docs.paperclip.ing/connectors/
+[p-license]: https://github.com/paperclipai/paperclip/blob/master/LICENSE
 
-- [Pod conversations](https://docs.dust.tt/docs/user-documentation/pods/conversations),
-  [files/folders and searchable knowledge](https://docs.dust.tt/docs/user-documentation/pods/files),
-  [Skills](https://docs.dust.tt/docs/user-documentation/agents/skills/skills-management).
-- [Durable user memory](https://github.com/dust-tt/dust/blob/edc135fec983e32aef526057b682daca57b4bc31/front/lib/api/actions/servers/user_memory/metadata.ts)
-  is shared across the user's agents; not independently exercised in production.
-- [Tasks](https://docs.dust.tt/docs/user-documentation/pods/tasks) and
-  [task schema](https://github.com/dust-tt/dust/blob/edc135fec983e32aef526057b682daca57b4bc31/front/types/project_task.ts)
-  permit direct agent completion, without a native pre-completion reviewer gate.
-- File revision counters provide conflict protection, not proof of history UI.
-  Generic file version recovery remains unverified.
-- [Dust CLI](https://docs.dust.tt/docs/developer-platform/dust-cli/dust-cli)
-  supports local files; reverse dispatch into coding agents remains unverified.
-- [Product](https://dust.tt/) reports 70+ connectors. Hosted Computer and scheduled
-  work are documented; [core source](https://github.com/dust-tt/dust) is MIT.
+## Dust — 16 cells
 
-## Viktor
+| Feature | Value | Evidence and limits |
+| --- | --- | --- |
+| Run your local agents | ? | [CLI][d-cli] and Skills let local agents call Dust; reverse direction does not establish launching local coding agents. |
+| Built-in team chat | Yes | [Pod conversations][d-chat]: members and agents share messages. |
+| Tasks for people & agents | Yes | [Pod tasks][d-tasks]: human and agent assignments. |
+| Require task approval | No | [Tasks][d-tasks]: agents can mark own tasks done; no pre-completion reviewer gate. Tool approval is separate. |
+| Shared files & folders | Yes | [Pod Files][d-files]: folders/uploads/linked company data. |
+| Public sharing links | Frames | [Frames][d-frames]: external links, public sharing on by default, admin controls. Token-bearing URL does not require workspace membership; not public Pod access. |
+| Hosted cloud agents | Yes | [Computer][d-computer]: hosted Linux execution. |
+| Free personal cloud computer | Starter credits | [Pricing][d-pricing]: 500 lifetime credits; [Computer][d-computer] per conversation, deleted after seven inactive days; output files remain. |
+| Work in your local folders | Via CLI | [CLI][d-cli]: local filesystem tools in chat with edit permissions; not merely uploads. |
+| Team knowledge base | Yes | [Pod Files][d-files]: shared searchable references/connected company data. |
+| Memory across chats | Memory tool | [Agent memory][d-memory]: configured persistent memory tool; cross-agent scope disputed between docs/source, so no cross-agent claim. |
+| Saved instructions (Skills) | Yes | [Skills][d-skills]: reusable instructions. |
+| Previous file versions | Frames | [Frames][d-frames]: revert edits/restore earlier versions; generic Pod-file history unverified. |
+| Run tasks on a schedule | Yes | [Schedules][d-schedules]: configured agent runs. |
+| Apps & plugins | Connectors / MCP | [Product][d-home], official [docs index][d-index]: connectors/MCP tools; totals not compared. |
+| Core license | MIT | [LICENSE][d-license]: MIT grant, not identical hosted terms. |
 
-- [Skills](https://viktor.com/docs/skills) and
-  [personalization](https://viktor.com/docs/personalize-viktor) retain personal
-  and shared procedures/preferences across conversations.
-- [Hosted Pages](https://viktor.com/docs/hosted-pages) keep 10 prior versions
-  with preview/restore. Do not extrapolate to general uploaded files.
-- [Chat](https://viktor.com/docs/talk-to-viktor) establishes Slack/Teams team use.
-  Native human group chat and a general team file library remain unverified.
-- [Scheduled tasks](https://viktor.com/docs/scheduled-tasks) establish agent jobs,
-  not a human-assignee board. [Approvals](https://viktor.com/docs/approvals) are
-  action permissions, not established deliverable acceptance.
-- [Local-file limitation](https://viktor.com/blog/viktor-vs-claude-cowork),
-  [hosted workspace API](https://viktor.com/docs/public-api), and
-  [MCP](https://viktor.com/docs/mcp-server). Reverse coding-agent dispatch is unknown.
-- [Integrations](https://viktor.com/integrations): 27 native plus 3,200+ managed
-  connector apps; [license terms](https://viktor.com/legal/license-terms) are proprietary.
-- Web-app and scheduled-task docs conflict about Slack-independent web access;
-  the table deliberately omits that earlier proposed row.
+[d-home]: https://dust.tt/
+[d-index]: https://docs.dust.tt/llms.txt
+[d-chat]: https://docs.dust.tt/docs/user-documentation/pods/conversations
+[d-tasks]: https://docs.dust.tt/docs/user-documentation/pods/tasks
+[d-files]: https://docs.dust.tt/docs/user-documentation/pods/files
+[d-frames]: https://docs.dust.tt/docs/user-documentation/agents/frames/overview
+[d-computer]: https://dust.tt/academy/computer/chapter/computer
+[d-pricing]: https://dust.tt/home/pricing
+[d-cli]: https://docs.dust.tt/docs/developer-platform/dust-cli/dust-cli
+[d-memory]: https://docs.dust.tt/docs/user-documentation/agents/tools/agent-memory
+[d-skills]: https://docs.dust.tt/docs/user-documentation/agents/skills/skills-management
+[d-schedules]: https://docs.dust.tt/docs/user-documentation/agents/triggers/schedules
+[d-license]: https://github.com/dust-tt/dust/blob/main/LICENSE
 
-## OpenHands
+## Viktor — 16 cells
 
-- [ACP agents](https://docs.openhands.dev/openhands/usage/agent-canvas/acp-agents)
-  launch installed Codex/Claude Code runtimes; this is not attachment to any
-  arbitrary running terminal session.
-- [Persistent memory](https://docs.openhands.dev/sdk/guides/persistent-memory)
-  is SDK opt-in and off by default. [Skills](https://docs.openhands.dev/overview/skills)
-  provide repository and procedural knowledge.
-- [Conversations](https://docs.openhands.dev/openhands/usage/agent-canvas/conversations)
-  expose workspace files; a shared team drive and non-Git file history are unknown.
-- Agent tasks, Critic feedback, tool approvals, and GitHub PR review do not prove
-  native human task assignment or a deliverable reviewer gate.
-- [Core source](https://github.com/OpenHands/OpenHands) documents local/cloud
-  execution, automations, and MIT licensing. Plugin bundles exist, but no
-  comparable verified catalog total was established.
+| Feature | Value | Evidence and limits |
+| --- | --- | --- |
+| Run your local agents | ? | [API][v-api]/[MCP][v-mcp] expose hosted execution to callers, not verified local coding-agent dispatch. |
+| Built-in team chat | Via Slack / Teams | [Chat][v-chat]: external team rooms. [Web app][v-web] also has personal chat; no absence claim about web chat. |
+| Tasks for people & agents | Agent tasks | [Tasks][v-tasks]: agent/script jobs; human-assignee board unverified. |
+| Require task approval | ? | [Approvals][v-approvals] are action permissions, not established task acceptance. |
+| Shared files & folders | Chat files | [Files][v-files]: attachments/sandbox files, not verified room folders. |
+| Public sharing links | Pages & apps | [Pages][v-pages]/[Spaces][v-spaces]: intentional public publishing; not whole workspace. |
+| Hosted cloud agents | Yes | [API][v-api]: execution in key owner's workspace sandbox. |
+| Free personal cloud computer | Starter credits | [Plans][v-plans]: one-time credits; work pauses when exhausted. |
+| Work in your local folders | No | [Official comparison][v-local] explicitly distinguishes cloud sandbox from local laptop access; uploads do not qualify. |
+| Team knowledge base | Skills | [Skills][v-skills]/[personalization][v-memory]: shared team facts/instructions, separate personal scope. |
+| Memory across chats | Yes | [Personalization][v-memory]: stored preferences/shared team facts. |
+| Saved instructions (Skills) | Yes | [Skills][v-skills]: personal/shared instruction files. |
+| Previous file versions | Pages only | [Pages][v-pages]: ten previous versions with preview/restore; not general uploads. |
+| Run tasks on a schedule | Yes | [Tasks][v-tasks]: recurring agent/script jobs, subject to credits/spending limits. |
+| Apps & plugins | Native / connectors | [Integrations][v-integrations]: native and managed connector apps; unlike plugin catalog units. |
+| Core license | Proprietary | [Terms][v-license]: proprietary service license; no MIT core established. |
+
+[v-chat]: https://viktor.com/docs/talk-to-viktor
+[v-web]: https://viktor.com/docs/viktor-web-app
+[v-tasks]: https://viktor.com/docs/scheduled-tasks
+[v-approvals]: https://viktor.com/docs/approvals
+[v-files]: https://viktor.com/docs/files-and-email
+[v-pages]: https://viktor.com/docs/hosted-pages
+[v-spaces]: https://viktor.com/docs/spaces
+[v-api]: https://viktor.com/docs/public-api
+[v-mcp]: https://viktor.com/docs/mcp-server
+[v-plans]: https://viktor.com/docs/plans-and-credits
+[v-local]: https://viktor.com/blog/viktor-vs-claude-cowork
+[v-skills]: https://viktor.com/docs/skills
+[v-memory]: https://viktor.com/docs/personalize-viktor
+[v-integrations]: https://viktor.com/integrations
+[v-license]: https://viktor.com/legal/license-terms
+
+## OpenHands — 16 cells
+
+| Feature | Value | Evidence and limits |
+| --- | --- | --- |
+| Run your local agents | Yes | [ACP][o-acp]: launch installed coding runtimes locally; not attach to any running terminal. |
+| Built-in team chat | ? | [Conversations][o-conversations] describes agent sessions, not verified native multi-human chat. |
+| Tasks for people & agents | Agent tasks | [Conversations][o-conversations]/[automations][o-automations]: agent work; human-assignee board unverified. |
+| Require task approval | ? | Tool permissions, Critic feedback, GitHub review do not establish internal task acceptance. |
+| Shared files & folders | Workspace | [Conversations][o-conversations]: workspace tree, not shared team drive. |
+| Public sharing links | Conversations | [Cloud API][o-sharing], [API source][o-source], [viewer][o-viewer]: public conversations accessible to anyone; organization automation access separately authenticated. Source evidence, not deployed-account smoke. |
+| Hosted cloud agents | Yes | [Pricing][o-pricing]/[CloudWorkspace][o-cloud]: vendor sandboxes. |
+| Free personal cloud computer | Free cloud tier | [Pricing][o-pricing]: free Individual tier, BYOK/at-cost models. Not proof of one persistent cross-agent computer; no daily allowance asserted. |
+| Work in your local folders | Yes | [ACP][o-acp]/[process sandbox][o-local]: local workspace execution. |
+| Team knowledge base | Skills | [Skills][o-skills]: repository/project/user instructions/reference files, not separate team knowledge service. |
+| Memory across chats | SDK opt-in | [Memory][o-memory]: `load_memory=True`, off by default. |
+| Saved instructions (Skills) | Yes | [Skills][o-skills]: reusable instructions/repository guidance. |
+| Previous file versions | ? | Non-Git history/restore not established in reviewed workspace docs. |
+| Run tasks on a schedule | Yes | [Automations][o-automations]: scheduled agent conversations. |
+| Apps & plugins | Plugins / MCP | [Plugins][o-plugins]: plugin bundles/MCP; local catalog does not promise identical cloud catalog. |
+| Core license | MIT | [LICENSE][o-license]: core, separate enterprise/hosted terms. |
+
+[o-acp]: https://docs.openhands.dev/openhands/usage/agent-canvas/acp-agents
+[o-conversations]: https://docs.openhands.dev/openhands/usage/agent-canvas/conversations
+[o-automations]: https://docs.openhands.dev/openhands/usage/automations/overview
+[o-sharing]: https://docs.openhands.dev/openhands/usage/cloud/api-reference/sharing/batch-get-shared-conversations
+[o-source]: https://github.com/OpenHands/OpenHands/blob/5958302c1c5dbdc441cbb7d85dc650ffc4d606bd/src/api/cloud/shared-conversation-service.api.ts
+[o-viewer]: https://github.com/OpenHands/OpenHands/blob/5958302c1c5dbdc441cbb7d85dc650ffc4d606bd/src/routes/shared-conversation.tsx
+[o-pricing]: https://www.openhands.dev/pricing
+[o-cloud]: https://github.com/OpenHands/software-agent-sdk/blob/main/openhands-workspace/openhands/workspace/cloud/workspace.py
+[o-local]: https://docs.openhands.dev/openhands/usage/sandboxes/process
+[o-skills]: https://docs.openhands.dev/overview/skills
+[o-memory]: https://docs.openhands.dev/sdk/guides/persistent-memory
+[o-plugins]: https://docs.openhands.dev/openhands/usage/agent-canvas/plugins
+[o-license]: https://github.com/OpenHands/OpenHands/blob/main/LICENSE
+
+## Remaining evidence limits
+
+- Unknown cells stay unknown: Dust/Viktor local coding-agent dispatch;
+  Multica/Paperclip anonymous sharing; Viktor/OpenHands task acceptance;
+  OpenHands native team chat and non-Git file history.
+- Dust's current memory help page says per-agent user memory; the previously
+  reviewed `user_memory/metadata.ts` at `edc135fe` says shared across that user's
+  agents. The table claims the tool, not either disputed sharing scope.
+- Multica deliverable versions and OpenHands anonymous conversations have
+  source evidence, without independent deployed-account acceptance.
+- Failed legacy page fetches are not product limitations. Use current docs,
+  public source, or an explicit unknown rather than inferring absence.
+- Keep optional apps/plugins, configured gates, runtime restrictions, starter
+  offers, and commercial license conditions visible in future updates.
