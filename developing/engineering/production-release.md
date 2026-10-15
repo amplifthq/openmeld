@@ -53,6 +53,12 @@ components are skipped and active exact-source GitHub runs are followed.
 Failed runs stop the command. An uncertain dispatch is reported, never retried
 automatically. Use a current `gh` version that returns the created workflow URL.
 
+Continuation prints elapsed time for each status read and component stage,
+including failed stages. These timings measure work; component receipts still
+decide completion. Status reads refresh remote receipt tips on every invocation,
+reuse exact immutable Git objects already present, and read independent workflow
+histories in batches of four.
+
 The command entry and reusable release controller have separate module
 boundaries. Status readers can import planning contracts without starting a
 release or waiting for a running command to finish. The complete compatibility
@@ -237,7 +243,8 @@ final admission: the guarded release entrypoint still refreshes status and
 acquires its lease before any Production mutation.
 
 Read-only GitHub history requests retry a failed page at most twice for HTTP
-500, 502, 503, or 504, retaining pages already read. Exhausted retries,
+500, 502, 503, or 504, EOF, connection reset, or timeout errors, retaining pages
+already read. Exhausted retries,
 permissions failures and malformed collections remain incomplete evidence and
 fail closed; no mutation receives this retry policy.
 
