@@ -14,7 +14,7 @@ End in this state:
 
 ## Setup From Zero
 
-Before any npm install or recovery, use Node.js 22–25; Node.js 24 is recommended. Node.js below 22 or at least 26 is unsupported. npm engines only warn by default, so upgrade Node.js first. On macOS, prefer a fresh Web setup command, which installs the managed standalone binary with its own runtime.
+Before any npm install or recovery, use Node.js 22–25; Node.js 24 is recommended. Node.js below 22 or at least 26 is unsupported. npm engines only warn by default; native dependencies can fail before OpenMeld runs. Select Node.js 24 before installing. On macOS, prefer a fresh Web setup command, which installs the managed standalone binary with its own runtime.
 
 If OpenMeld Web gives a setup command, run that exact command first. In
 production on supported macOS computers, the Web setup command downloads the
