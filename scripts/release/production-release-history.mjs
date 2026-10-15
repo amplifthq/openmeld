@@ -4,7 +4,9 @@ import { setTimeout as delay } from "node:timers/promises";
 // A safety bound is reported as incomplete, never treated as a complete history.
 const PAGE_SIZE = 100;
 const MAX_PAGES = 100;
-const TRANSIENT_GITHUB_READ = /\bHTTP (?:500|502|503|504)\b/u;
+const TRANSIENT_GITHUB_READ =
+  /\bHTTP (?:500|502|503|504)\b|(?:unexpected |:\s*)EOF\b|\b(?:ECONNRESET|ETIMEDOUT|TLS handshake timeout)\b/u;
+const HISTORY_READ_CONCURRENCY = 4;
 
 async function readGithubPage(endpoint, readJson, wait) {
   for (let attempt = 0; ; attempt += 1) {
@@ -144,34 +146,49 @@ export async function readGithubReleaseRuns(repo, readJson, options = {}) {
   if (!workflows.complete) {
     issues.push({ scopes: RELEASE_SCOPES, detail: workflows.reason });
   }
-  for (const workflow of workflows.items) {
-    const scopes = releaseWorkflowScopes(workflow.name);
-    if (!scopes.length) {
-      continue;
-    }
-    const history = await readGithubCollection({
-      endpoint: `repos/${repo}/actions/workflows/${workflow.id}/runs`,
-      key: "workflow_runs",
-      readJson,
-      ...options,
-    });
-    pagesRead += history.pagesRead;
-    if (!history.complete) {
-      issues.push({ scopes, detail: `${workflow.name}: ${history.reason}` });
-    }
-    for (const run of history.items) {
-      runs.set(run.id, {
-        databaseId: run.id,
-        headSha: run.head_sha,
-        createdAt: run.created_at,
-        updatedAt: run.updated_at,
-        status: run.status,
-        workflowName: workflow.name,
-        displayTitle: run.display_title,
-        url: run.html_url,
-        attempt: run.run_attempt,
-        conclusion: run.conclusion,
-      });
+  const releaseWorkflows = workflows.items.filter(
+    (workflow) => releaseWorkflowScopes(workflow.name).length > 0
+  );
+  for (
+    let offset = 0;
+    offset < releaseWorkflows.length;
+    offset += HISTORY_READ_CONCURRENCY
+  ) {
+    const batch = releaseWorkflows.slice(
+      offset,
+      offset + HISTORY_READ_CONCURRENCY
+    );
+    const histories = await Promise.all(
+      batch.map((workflow) =>
+        readGithubCollection({
+          endpoint: `repos/${repo}/actions/workflows/${workflow.id}/runs`,
+          key: "workflow_runs",
+          readJson,
+          ...options,
+        })
+      )
+    );
+    for (const [index, workflow] of batch.entries()) {
+      const scopes = releaseWorkflowScopes(workflow.name);
+      const history = histories[index];
+      pagesRead += history.pagesRead;
+      if (!history.complete) {
+        issues.push({ scopes, detail: `${workflow.name}: ${history.reason}` });
+      }
+      for (const run of history.items) {
+        runs.set(run.id, {
+          databaseId: run.id,
+          headSha: run.head_sha,
+          createdAt: run.created_at,
+          updatedAt: run.updated_at,
+          status: run.status,
+          workflowName: workflow.name,
+          displayTitle: run.display_title,
+          url: run.html_url,
+          attempt: run.run_attempt,
+          conclusion: run.conclusion,
+        });
+      }
     }
   }
   return {
