@@ -1777,8 +1777,11 @@ boundary; generic send cannot replace a dispatch action.
 
 `--continue-from` and `--fork-from` accept the original Wake request or an Agent
 reply. Before publication, the CLI reads authorized message details and uses
-the recorded Wake source for the selected Agent. An absent source or different
-target fails before any upload or message write. Core remains authoritative for
+the recorded Wake source for the selected Agent. For that Agent's reply, the
+reply link selects its original request even when the reply also Wakes another
+Agent. Ordinary replies from people or other Agents do not select task history.
+An absent source or different target fails before any upload or message write.
+Core remains authoritative for
 Context access, requester, discussion scope, and execution eligibility. A valid
 source identity does not guarantee resumability. `--reply-to` independently
 controls thread placement; continuation never creates or selects a thread.

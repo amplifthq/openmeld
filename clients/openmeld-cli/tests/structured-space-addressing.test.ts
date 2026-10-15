@@ -98,6 +98,10 @@ describe("explicit CLI Space addressing", () => {
     "，",
     "：",
     "。",
+    "、",
+    "—",
+    "–",
+    "…",
   ])("rejects a duplicate leading address followed by %s", async (punctuation) => {
     await expect(
       prepare({

@@ -182,7 +182,7 @@ describe("resolveDispatchFailureHintText", () => {
         targetProfileLabel: 'Agent "ops-bot"',
       })
     ).toBe(
-      "The selected task is not available to continue or fork. Select its original request, or start a new task."
+      "The selected task is not available to continue or fork. Select an available task that you started, or start a new task."
     );
   });
 

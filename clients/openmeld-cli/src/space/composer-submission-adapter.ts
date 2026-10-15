@@ -11,7 +11,7 @@ import {
   SpaceComposerSubmissionError,
 } from "@openmeld/space";
 
-const ADDRESS_BOUNDARY = /[\s,.:;!?，。！？：；]/u;
+const ADDRESS_BOUNDARY = /[\s,.:;!?，。、！？：；—–…]/u;
 
 export type CliSpaceAddressingTarget = {
   agentControllerRef?: string | null;

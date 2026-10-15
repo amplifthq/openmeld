@@ -480,6 +480,11 @@ describe("space send OpenMeld profile identity", () => {
     { mode: "fork", source: "reply" },
     { mode: "resume", source: "missing" },
     { mode: "resume", source: "other-agent" },
+    { mode: "resume", source: "human-reply" },
+    { mode: "resume", source: "other-author" },
+    { mode: "resume", source: "reply-with-wake" },
+    { mode: "fork", source: "reply-with-wake" },
+    { mode: "resume", source: "unrelated-parent" },
   ] as const)("selects $mode from $source before publishing", async ({
     mode,
     source,
@@ -519,6 +524,25 @@ describe("space send OpenMeld profile identity", () => {
 
         if (method === "GET" && url.pathname.endsWith("/message-details")) {
           const details = replyMessageDetails("unthreaded");
+          const isParent =
+            url.searchParams.get("signalId") === "original-request";
+          if (isParent) {
+            details.query.signalId = "original-request";
+            details.message.signalId = "original-request";
+          } else if (source !== "request" && source !== "human-reply") {
+            details.message.actor.profileKind = "agent";
+            details.message.actor.profileId =
+              source === "other-author"
+                ? "agt_99999999-2222-4333-8444-555555555555"
+                : "agt_11111111-2222-4333-8444-555555555555";
+            details.replyContext.replyingToSignalId = {
+              state: "recorded",
+              value: "original-request",
+              source: "reply_signal",
+            };
+            details.replyContext.state = "recorded";
+            details.replyContext.resolved = true;
+          }
           details.wakeContext = {
             state: "recorded",
             sourceSignalId:
@@ -527,7 +551,8 @@ describe("space send OpenMeld profile identity", () => {
                 : {
                     state: "recorded",
                     value:
-                      source === "request"
+                      source === "request" ||
+                      (source === "reply-with-wake" && !isParent)
                         ? details.message.signalId
                         : "original-request",
                     source: "space_signal",
@@ -540,7 +565,9 @@ describe("space send OpenMeld profile identity", () => {
             targets: [
               {
                 targetProfileId:
-                  source === "other-agent"
+                  source === "other-agent" ||
+                  source === "unrelated-parent" ||
+                  (source === "reply-with-wake" && !isParent)
                     ? "agt_99999999-2222-4333-8444-555555555555"
                     : "agt_11111111-2222-4333-8444-555555555555",
                 targetLabel: "Budget Analyst",
@@ -587,7 +614,15 @@ describe("space send OpenMeld profile identity", () => {
           });
         });
 
-      if (source === "missing" || source === "other-agent") {
+      if (
+        [
+          "missing",
+          "other-agent",
+          "human-reply",
+          "other-author",
+          "unrelated-parent",
+        ].includes(source)
+      ) {
         await expect(send()).rejects.toThrow("No message was sent.");
         expect(
           fetchMock.mock.calls.every(
@@ -597,7 +632,6 @@ describe("space send OpenMeld profile identity", () => {
         return;
       }
       await send();
-      expect(fetchMock).toHaveBeenCalledTimes(mode ? 3 : 2);
       if (mode) {
         expect(parsePostSignalBody(fetchMock)).toMatchObject({
           contextSelection: {

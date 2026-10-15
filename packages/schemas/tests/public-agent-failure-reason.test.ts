@@ -79,7 +79,7 @@ describe("public agent failure reason mapping", () => {
       resolvePublicAgentFailureRecovery({ errorCode, targetLabel: "Codex" })
     ).toMatchObject({ kind: "request_ended", recoveryTarget: null });
     expect(resolveMappedPublicAgentFailureReason(errorCode)).toBe(
-      "The selected task is not available to continue or fork. Select its original request, or start a new task."
+      "The selected task is not available to continue or fork. Select an available task that you started, or start a new task."
     );
   });
 
