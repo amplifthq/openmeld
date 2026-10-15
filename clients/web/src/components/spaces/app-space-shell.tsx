@@ -85,7 +85,8 @@ type AppSpaceShellProps = AppSpaceShellBaseProps &
 export function AppSpaceShell(input: AppSpaceShellProps) {
 	return (
 		<SpaceWakeProgressVisibleProjectionProvider
-			key={`${input.currentProfileId ?? ""}:${input.currentSpaceId ?? ""}`}
+			profileId={input.currentProfileId}
+			spaceId={input.currentSpaceId}
 		>
 			<SpaceWindowShell
 				defaultModuleSidebarOpen={

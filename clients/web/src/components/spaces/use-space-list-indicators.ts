@@ -93,7 +93,10 @@ export function useSpaceListIndicators(input: {
 		})
 	);
 	const currentSpaceWakeProgressVisibleProjection =
-		useSpaceWakeProgressVisibleProjection();
+		useSpaceWakeProgressVisibleProjection({
+			profileId: input.currentProfileId,
+			spaceId: input.currentSpaceId,
+		});
 	const activeWakeSummaryBySpaceId = new Map<
 		string,
 		SpaceSidebarActiveWakeSummary

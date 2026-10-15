@@ -89,7 +89,10 @@ vi.mock("./direct-message-preview", async (importOriginal) => {
 function WakeProgressProjectionPublisher(input: {
 	items: readonly WakeProgressItem[];
 }) {
-	usePublishSpaceWakeProgressVisibleProjection(input.items);
+	usePublishSpaceWakeProgressVisibleProjection(input.items, {
+		profileId: "human-1",
+		spaceId: "space-alpha",
+	});
 	return null;
 }
 
@@ -1726,7 +1729,10 @@ describe("ConversationsSidebar", () => {
 			}),
 		];
 		const view = renderSidebar(
-			<SpaceWakeProgressVisibleProjectionProvider>
+			<SpaceWakeProgressVisibleProjectionProvider
+				profileId="human-1"
+				spaceId="space-alpha"
+			>
 				<WakeProgressProjectionPublisher items={runningItems} />
 				<ConversationsSidebar
 					currentProfileId="human-1"
@@ -1743,7 +1749,10 @@ describe("ConversationsSidebar", () => {
 		).toBeTruthy();
 
 		view.rerender(
-			<SpaceWakeProgressVisibleProjectionProvider>
+			<SpaceWakeProgressVisibleProjectionProvider
+				profileId="human-1"
+				spaceId="space-alpha"
+			>
 				<WakeProgressProjectionPublisher items={[]} />
 				<ConversationsSidebar
 					currentProfileId="human-1"
@@ -1768,7 +1777,10 @@ describe("ConversationsSidebar", () => {
 		seedCurrentSpaceWakeRace(queryClient);
 
 		renderSidebar(
-			<SpaceWakeProgressVisibleProjectionProvider>
+			<SpaceWakeProgressVisibleProjectionProvider
+				profileId="human-1"
+				spaceId="space-alpha"
+			>
 				<WakeProgressProjectionPublisher items={[]} />
 				<ConversationsSidebar
 					currentProfileId="human-1"

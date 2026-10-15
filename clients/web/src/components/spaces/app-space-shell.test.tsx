@@ -1,6 +1,6 @@
 import { createWakeProgressItem } from "@openmeld/space";
 import { cleanup, render, screen } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { type ReactNode, StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	OUTER_SIDEBAR_DEFAULT_STATE,
@@ -65,13 +65,37 @@ const RUNNING_WAKE_PROGRESS_ITEMS = [
 ];
 
 function WakeProgressProjectionTestSurface() {
-	usePublishSpaceWakeProgressVisibleProjection(RUNNING_WAKE_PROGRESS_ITEMS);
-	const items = useSpaceWakeProgressVisibleProjection();
+	const scope = { profileId: "human-1", spaceId: "space-1" };
+	usePublishSpaceWakeProgressVisibleProjection(
+		RUNNING_WAKE_PROGRESS_ITEMS,
+		scope
+	);
+	const items = useSpaceWakeProgressVisibleProjection(scope);
 	return (
 		<output data-testid="visible-wake-progress-count">
 			{items?.length ?? 0}
 		</output>
 	);
+}
+
+function ScopedWakeProjection(input: { profileId: string; spaceId: string }) {
+	const items = useSpaceWakeProgressVisibleProjection(input);
+	return (
+		<output data-testid="scoped-projection">
+			{items === null ? "unpublished" : items.length}
+		</output>
+	);
+}
+
+const NO_VISIBLE_WAKE_ITEMS: typeof RUNNING_WAKE_PROGRESS_ITEMS = [];
+
+function MovingWakeProjection(input: {
+	profileId: string;
+	spaceId: string;
+	items: typeof RUNNING_WAKE_PROGRESS_ITEMS;
+}) {
+	usePublishSpaceWakeProgressVisibleProjection(input.items, input);
+	return null;
 }
 
 afterEach(() => {
@@ -169,7 +193,7 @@ describe("AppSpaceShell", () => {
 	});
 
 	it("owns the visible Wake progress projection shared by the conversation and sidebar", () => {
-		render(
+		const view = render(
 			<AppSpaceShell currentProfileId="human-1" currentSpaceId="space-1">
 				<WakeProgressProjectionTestSurface />
 			</AppSpaceShell>
@@ -177,6 +201,82 @@ describe("AppSpaceShell", () => {
 
 		expect(screen.getByTestId("visible-wake-progress-count").textContent).toBe(
 			"1"
+		);
+		const rail = screen.getByTestId("outer-rail");
+		const sidebar = screen.getByTestId("conversations-sidebar");
+		view.rerender(
+			<AppSpaceShell currentProfileId="human-1" currentSpaceId="space-2">
+				<div>Next conversation</div>
+			</AppSpaceShell>
+		);
+		expect(screen.getByTestId("outer-rail")).toBe(rail);
+		expect(screen.getByTestId("conversations-sidebar")).toBe(sidebar);
+	});
+
+	it.each([
+		{ profileId: "human-1", spaceId: "space-2" },
+		{ profileId: "human-2", spaceId: "space-1" },
+	])("does not carry a visible Wake into another scope or a later visit: %j", (next) => {
+		const first = { profileId: "human-1", spaceId: "space-1" };
+		const frame = (scope: typeof first, publish: boolean) => (
+			<AppSpaceShell
+				currentProfileId={scope.profileId}
+				currentSpaceId={scope.spaceId}
+			>
+				{publish ? <WakeProgressProjectionTestSurface /> : null}
+				<ScopedWakeProjection {...scope} />
+			</AppSpaceShell>
+		);
+		const view = render(frame(first, true));
+		expect(screen.getByTestId("scoped-projection").textContent).toBe("1");
+		// A mounted producer for the previous scope cannot publish into the new one.
+		view.rerender(frame(next, true));
+		expect(screen.getByTestId("scoped-projection").textContent).toBe(
+			"unpublished"
+		);
+		view.rerender(frame(first, false));
+		expect(screen.getByTestId("scoped-projection").textContent).toBe(
+			"unpublished"
+		);
+		view.rerender(frame(first, true));
+		expect(screen.getByTestId("scoped-projection").textContent).toBe("1");
+		view.rerender(frame(first, false));
+		expect(screen.getByTestId("scoped-projection").textContent).toBe(
+			"unpublished"
+		);
+	});
+
+	it("keeps the current publication through StrictMode and repeated conversation visits", () => {
+		const frame = (
+			spaceId: string,
+			items: typeof RUNNING_WAKE_PROGRESS_ITEMS | null
+		) => (
+			<StrictMode>
+				<AppSpaceShell currentProfileId="human-1" currentSpaceId={spaceId}>
+					{items === null ? null : (
+						<MovingWakeProjection
+							items={items}
+							profileId="human-1"
+							spaceId={spaceId}
+						/>
+					)}
+					<ScopedWakeProjection profileId="human-1" spaceId={spaceId} />
+				</AppSpaceShell>
+			</StrictMode>
+		);
+		const view = render(frame("space-1", RUNNING_WAKE_PROGRESS_ITEMS));
+		expect(screen.getByTestId("scoped-projection").textContent).toBe("1");
+		view.rerender(frame("space-2", NO_VISIBLE_WAKE_ITEMS));
+		expect(screen.getByTestId("scoped-projection").textContent).toBe("0");
+		view.rerender(frame("space-1", null));
+		expect(screen.getByTestId("scoped-projection").textContent).toBe(
+			"unpublished"
+		);
+		view.rerender(frame("space-1", RUNNING_WAKE_PROGRESS_ITEMS));
+		expect(screen.getByTestId("scoped-projection").textContent).toBe("1");
+		view.rerender(frame("space-2", null));
+		expect(screen.getByTestId("scoped-projection").textContent).toBe(
+			"unpublished"
 		);
 	});
 });
