@@ -17,10 +17,11 @@
       "evidence": [
         "pr:188",
         "pr:190",
+        "pr:193",
         "workflow:38676811108",
         "workflow:38677222696"
       ],
-      "body": "Release checks avoid downloading unchanged deployment receipts and read\nindependent workflow histories concurrently. Automatic continuation reports\ntime spent checking status and running each component, so operators can locate\ndelays without repeating a deployment. Fresh evidence and release checks remain\nrequired."
+      "body": "Release checks avoid downloading unchanged deployment receipts and read\nindependent workflow histories concurrently. Automatic continuation reports\ntime spent checking status and running each component, so operators can locate\ndelays without repeating a deployment. Fresh evidence and release checks remain\nrequired.\n\nCLI publication now requires the exact Windows helper used to prepare the\nrelease manifest. Automatic continuation reports a missing helper pin before\ndeploying another selected component, instead of rebuilding different native\nbytes during publication."
     },
     {
       "id": "scoped-renderer-release-admission",

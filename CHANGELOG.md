@@ -14,7 +14,12 @@ time spent checking status and running each component, so operators can locate
 delays without repeating a deployment. Fresh evidence and release checks remain
 required.
 
-Evidence: pr:188, pr:190, workflow:38676811108, workflow:38677222696
+CLI publication now requires the exact Windows helper used to prepare the
+release manifest. Automatic continuation reports a missing helper pin before
+deploying another selected component, instead of rebuilding different native
+bytes during publication.
+
+Evidence: pr:188, pr:190, pr:193, workflow:38676811108, workflow:38677222696
 
 ### Keep renderer releases within their selected scope
 
