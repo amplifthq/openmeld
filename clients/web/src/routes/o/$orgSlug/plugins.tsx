@@ -2,7 +2,6 @@ import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { appShellStaticData } from "#/components/app/shell-layout";
 import { TeamHeader } from "#/components/directory/team-header";
-import { TeamPeopleSidebar } from "#/components/directory/team-people-sidebar";
 import { prefetchPluginsRouteData } from "#/lib/organizations/app-route-prefetch";
 import { pluginScopeParser } from "#/lib/page-tab-search";
 import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
@@ -44,7 +43,6 @@ function PluginsLayout() {
 			contentLayout="flush"
 			initialOuterSidebarState={sidebarStates.outer}
 			mainHeader={<TeamHeader active="plugins" />}
-			mainSidebarContent={<TeamPeopleSidebar />}
 			showMainHeader
 		>
 			<div className="flex w-full flex-col gap-6 px-[var(--app-page-inline-padding)] py-8">

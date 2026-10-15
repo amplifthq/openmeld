@@ -11,7 +11,7 @@ import { PlusIcon, RobotIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { createContext, type ReactNode, useContext, useState } from "react";
 import { createPortal } from "react-dom";
-import { AppModuleSidebarToggle } from "#/components/app/app-module-sidebar";
+import { AppModuleSidebarHeader } from "#/components/app/app-module-sidebar-header";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
 import { useOrganizationInviteEntry } from "#/components/organizations/use-organization-invite-entry";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -52,12 +52,8 @@ export function TeamSidebarHeader() {
 	);
 	return (
 		<>
-			<div className="mb-2 flex items-center justify-between gap-1 px-1">
-				<div className="flex items-center gap-1">
-					<AppModuleSidebarToggle placement="sidebar" />
-					<h2 className="font-medium text-sm">Team</h2>
-				</div>
-				<div className="flex items-center gap-1">
+			<AppModuleSidebarHeader title="Team">
+				<div className="ml-auto flex shrink-0 items-center gap-1">
 					<DropdownMenu onOpenChange={setOpen} open={open}>
 						<DropdownMenuTrigger
 							render={
@@ -90,7 +86,7 @@ export function TeamSidebarHeader() {
 					</DropdownMenu>
 					<div className="flex items-center" ref={actions?.setSlot} />
 				</div>
-			</div>
+			</AppModuleSidebarHeader>
 			{invitation.dialog}
 		</>
 	);
