@@ -49,6 +49,44 @@ vi.mock("#/lib/profiles/agent-profile-creation-requests", () => ({
 afterEach(cleanup);
 
 it.each([
+	true,
+	false,
+])("does not start an invisible creation without a directory (loading=%s)", (isLoading) => {
+	const client = new QueryClient();
+	render(
+		<QueryClientProvider client={client}>
+			<PeopleAgentPickerDialog
+				candidateGroups={{
+					alreadyJoinedCount: 0,
+					organizationCandidates: [],
+					personGroups: [],
+				}}
+				canSubmit={false}
+				description="Choose members"
+				emptyMessage="No agents"
+				isLoading={isLoading}
+				isSubmitting={false}
+				onAgentCreated={vi.fn()}
+				onClear={vi.fn()}
+				onOpenChange={vi.fn()}
+				onQueryChange={vi.fn()}
+				onSubmit={vi.fn()}
+				onToggle={vi.fn()}
+				open
+				query=""
+				selectedProfileIds={new Set()}
+				submitLabel="Add"
+				title="Add people or agents"
+			/>
+		</QueryClientProvider>
+	);
+	expect(
+		screen.getByRole("button", { name: "New Agent" }).hasAttribute("disabled")
+	).toBe(true);
+	client.clear();
+});
+
+it.each([
 	"selected",
 	"deselected",
 	"failed",
@@ -120,7 +158,8 @@ it.each([
 		expect(screen.getByText("Creation failed")).toBeTruthy();
 		expect(screen.getByText("Connection unavailable")).toBeTruthy();
 		expect(onCreated).not.toHaveBeenCalled();
-		fireEvent.click(row);
+		expect(row.getAttribute("aria-checked")).toBe("false");
+		expect(row.getAttribute("aria-disabled")).toBe("true");
 		fireEvent.click(screen.getByRole("button", { name: "Add" }));
 		expect(onSubmit).toHaveBeenCalledOnce();
 		client.clear();

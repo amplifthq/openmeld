@@ -321,6 +321,7 @@ function SpaceAddMembersCandidateGroup(input: {
 							checked={input.selectedProfileIds.has(candidate.profileId)}
 							data-profile-id={candidate.profileId}
 							description={resolveAgentCandidateDescription(candidate)}
+							disabled={candidate.selectionDisabled}
 							index={selectableIndex}
 							key={candidate.profileId}
 							label={candidate.profileName}

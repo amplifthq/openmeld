@@ -2,7 +2,6 @@ import type { AgentProfileCreationRequest } from "@openmeld/schemas/types";
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import type { OptimisticAgentProfileCreation } from "#/lib/profiles/agent-profile-creation-requests";
-import type { SpaceAddMembersCandidateSummary } from "../spaces/people-agent-picker-model";
 import { CreateProfileDialogStep } from "./create-profile-dialog";
 
 export function PeopleAgentPickerCreateAgent(input: {
@@ -11,7 +10,6 @@ export function PeopleAgentPickerCreateAgent(input: {
 	onStarted: (creation: OptimisticAgentProfileCreation) => void;
 	onFailed: (message: string) => void;
 	onAccepted: (request: AgentProfileCreationRequest) => void;
-	onCreated: (agent: SpaceAddMembersCandidateSummary) => void;
 }) {
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const recovery = useLocalAgentRecoveryController({
@@ -38,15 +36,6 @@ export function PeopleAgentPickerCreateAgent(input: {
 					input.onBack();
 				}
 			}}
-			onProfileCreated={(profile) =>
-				input.onCreated({
-					profileId: profile.openMeldProfileId,
-					profileName: profile.profileName,
-					profileKind: "agent",
-					ownerUserId: profile.ownerUserId ?? currentUserId,
-					searchText: profile.profileName.toLocaleLowerCase(),
-				})
-			}
 			open
 			organizationId={currentOrganization.id}
 			orgSlug={currentOrganization.slug}

@@ -400,7 +400,9 @@ export function createExecutionHostRuntime(input: {
     refreshReports: async () => {
       // A control mutation needs evidence collected after it completed. Even a
       // fresh probe already in flight may have observed the pre-mutation state.
-      await controllerReport;
+      // This is an ordering barrier only. The earlier report retains its own
+      // outcome; its failure must not prevent collecting post-mutation facts.
+      await Promise.allSettled([controllerReport]);
       return reportControllers("fresh");
     },
     invalidate,

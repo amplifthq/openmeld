@@ -927,10 +927,13 @@ function useCreateProfileDialogController(
 				deviceId: bindingTarget.deviceId,
 				runtimeLane: bindingTarget.runtimeLane,
 			});
+			await creationComputerReadiness.refetch({ throwOnError: true });
 		} else {
-			await recovery.refreshAll();
+			await Promise.all([
+				recovery.refreshAll(),
+				creationComputerReadiness.refetch({ throwOnError: true }),
+			]);
 		}
-		await creationComputerReadiness.refetch({ throwOnError: true });
 	};
 	const { computerRecovery, reconnectComputerId } =
 		useAgentCreationComputerRecovery({

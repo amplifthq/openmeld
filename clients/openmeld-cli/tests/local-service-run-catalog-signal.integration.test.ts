@@ -2234,7 +2234,10 @@ describe("local service run catalog signal", () => {
     await sessionPromise;
   });
 
-  it("collects new evidence after a control mutation even when a fresh report is already running", async () => {
+  it.each([
+    "success",
+    "failure",
+  ])("collects new evidence after a control mutation when an earlier fresh report ends in %s", async (outcome) => {
     await withTempHome(async () => {
       const input = buildKeepaliveSessionInput(createMockSocket(), []);
       const ledgerPaths = createLedgerPaths();
@@ -2261,8 +2264,11 @@ describe("local service run catalog signal", () => {
       };
       syncLocalServiceRuntimeAgentControllerReportsMock.mockImplementationOnce(
         () =>
-          new Promise((resolve) => {
-            finishEarlierReport = () => resolve(reportResult);
+          new Promise((resolve, reject) => {
+            finishEarlierReport = () =>
+              outcome === "failure"
+                ? reject(new Error("Earlier inventory unavailable"))
+                : resolve(reportResult);
           })
       );
       const registration = vi
@@ -2276,9 +2282,14 @@ describe("local service run catalog signal", () => {
           status: "updated",
         });
       try {
-        const earlierReport = host.port.call("reportControllers", {
-          probePolicy: "fresh",
-        });
+        const earlierReport = host.port
+          .call("reportControllers", {
+            probePolicy: "fresh",
+          })
+          .then(
+            (value) => value,
+            (error: unknown) => error
+          );
         await flushMicrotasks(() => Boolean(finishEarlierReport));
         const mutation = host.port.call("setEnabled", {
           agentId: "codex",
@@ -2286,7 +2297,12 @@ describe("local service run catalog signal", () => {
         });
         await flushMicrotasks(() => registration.mock.calls.length > 0);
         finishEarlierReport();
-        await earlierReport;
+        const earlierOutcome = await earlierReport;
+        if (outcome === "failure") {
+          expect(earlierOutcome).toEqual(
+            new Error("Earlier inventory unavailable")
+          );
+        }
         expect(await mutation).toMatchObject({ accepted: true });
         expect(
           syncLocalServiceRuntimeAgentControllerReportsMock

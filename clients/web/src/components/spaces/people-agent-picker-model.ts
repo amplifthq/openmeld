@@ -19,6 +19,7 @@ export type SpaceAddMembersCandidateSummary = {
 	profileKind: "agent" | "human";
 	profileName: string;
 	searchText: string;
+	selectionDisabled?: boolean;
 };
 
 export type SpaceAddMembersPersonGroup = {

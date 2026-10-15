@@ -73,7 +73,6 @@ export function PeopleAgentPickerDialog(input: {
 	const {
 		creationProgress,
 		creationError,
-		finishCreation,
 		failCreation,
 		setAcceptedCreation,
 		pendingCreation,
@@ -133,11 +132,6 @@ export function PeopleAgentPickerDialog(input: {
 								onAccepted={setAcceptedCreation}
 								onBack={() => setCreating(false)}
 								onBusyChange={setCreationBusy}
-								onCreated={(agent) => {
-									input.onAgentCreated?.(agent, true);
-									finishCreation();
-									setCreating(false);
-								}}
 								onFailed={failCreation}
 								onStarted={(creation) => {
 									startCreation(creation);
@@ -161,6 +155,8 @@ export function PeopleAgentPickerDialog(input: {
 										data-tutorial-target="create"
 										disabled={
 											isSubmitting ||
+											input.isLoading ||
+											input.candidateGroups.personGroups.length === 0 ||
 											creationBusy ||
 											Boolean(creationProgress) ||
 											input.selectionDisabled
@@ -228,9 +224,12 @@ export function PeopleAgentPickerDialog(input: {
 									}
 									onToggle={(id) => {
 										if (!(input.isSubmitting || input.selectionDisabled)) {
-											if (id === pendingCreation?.id) {
+											if (
+												id === pendingCreation?.id &&
+												pendingCreation.status === "creating"
+											) {
 												setPendingSelected((selected) => !selected);
-											} else {
+											} else if (id !== pendingCreation?.id) {
 												input.onToggle(id);
 											}
 										}
@@ -267,7 +266,9 @@ export function PeopleAgentPickerDialog(input: {
 									disabled={
 										!input.canSubmit ||
 										input.isSubmitting ||
-										Boolean(pendingCreation && pendingSelected)
+										Boolean(
+											pendingCreation?.status === "creating" && pendingSelected
+										)
 									}
 									onClick={input.onSubmit}
 									size="sm"
@@ -354,7 +355,6 @@ function usePickerAgentCreation(
 				? pendingCreation.profileName
 				: null,
 		creationError: pendingCreation?.failureMessage,
-		finishCreation: () => setPendingCreation(null),
 		failCreation: (message: string) =>
 			setPendingCreation((current) =>
 				current
@@ -391,6 +391,7 @@ function withPendingCreation(
 									creation.status === "failed"
 										? "Creation failed"
 										: "Creating…",
+								selectionDisabled: creation.status === "failed",
 							},
 							...group.agentCandidates,
 						],
@@ -404,7 +405,7 @@ function pendingSelectionIds(
 	creation: OptimisticAgentProfileCreation | null,
 	selected: boolean
 ) {
-	return creation && selected ? [creation.id] : [];
+	return creation?.status === "creating" && selected ? [creation.id] : [];
 }
 
 function newAgentVariant(action: string | undefined) {
