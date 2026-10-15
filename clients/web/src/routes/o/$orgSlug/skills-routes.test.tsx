@@ -84,11 +84,11 @@ vi.mock("#/components/app/app-full-width-layout", () => ({
 	AppFullWidthLayout: ({
 		children,
 		mainHeader,
-		mainSidebarContent,
+		mainSidebar,
 	}: ComponentProps<typeof AppFullWidthLayout>) => (
 		<>
 			{mainHeader}
-			{mainSidebarContent}
+			{mainSidebar?.content}
 			<main>{children}</main>
 		</>
 	),
@@ -98,12 +98,6 @@ vi.mock("#/components/spaces/space-header", () => ({
 		navigation,
 	}: ComponentProps<typeof SpaceWindowHeader>) => <header>{navigation}</header>,
 }));
-vi.mock("#/components/directory/team-people-sidebar", () => ({
-	TeamPeopleSidebar: () => (
-		<aside aria-label="Team people">People sidebar</aside>
-	),
-}));
-
 beforeEach(() => {
 	vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
 	Object.defineProperty(Element.prototype, "scrollIntoView", {
@@ -175,13 +169,11 @@ describe("Team Skills routes", () => {
 		const { router } = renderRoutes(url);
 		await screen.findByRole("tab", { name: "Skills", selected: true });
 		expect(screen.getAllByRole("tab")).toEqual(
-			["People", "Agents", "Plugins", "Skills", "Files", "Routines"].map(
-				(name) => screen.getByRole("tab", { name })
+			["People", "Agents", "Files", "Skills", "Plugins"].map((name) =>
+				screen.getByRole("tab", { name })
 			)
 		);
-		expect(
-			screen.getByRole("complementary", { name: "Team people" })
-		).toBeTruthy();
+		expect(screen.queryByRole("complementary")).toBeNull();
 		expect(
 			resolveAppOuterRailDestinationFromMatches(router.state.matches)
 		).toBe("people");
@@ -219,9 +211,7 @@ describe("Team Skills routes", () => {
 		expect(
 			screen.getByRole("tab", { name: "Skills", selected: true })
 		).toBeTruthy();
-		expect(
-			screen.getByRole("complementary", { name: "Team people" })
-		).toBeTruthy();
+		expect(screen.queryByRole("complementary")).toBeNull();
 	});
 
 	it("keeps a route-loader failure inside the Team shell and can retry", async () => {
@@ -252,9 +242,7 @@ describe("Team Skills routes", () => {
 			expect(
 				screen.getByRole("tab", { name: "Skills", selected: true })
 			).toBeTruthy();
-			expect(
-				screen.getByRole("complementary", { name: "Team people" })
-			).toBeTruthy();
+			expect(screen.queryByRole("complementary")).toBeNull();
 		} finally {
 			cleanup();
 			// Let shared UI finish its queued frame cleanup before replacing the

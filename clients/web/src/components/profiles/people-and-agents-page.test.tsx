@@ -1231,9 +1231,19 @@ describe("PeopleAndAgentsPage", () => {
 		});
 	});
 
-	it("opens the canonical person-owned Agent route when its owner is already known", () => {
+	it.each([
+		{ personId: undefined, returnToAgentDirectory: undefined },
+		{
+			personId: "11111111-1111-4111-8111-111111111111",
+			returnToAgentDirectory: true,
+		},
+	])("preserves the Agent directory return route when selecting an Agent: %j", (input) => {
 		render(
-			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId={null}
+				{...input}
+			/>
 		);
 
 		agentProfilesWorkspaceSpy.mock.calls

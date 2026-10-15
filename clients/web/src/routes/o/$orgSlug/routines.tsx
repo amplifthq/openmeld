@@ -1,10 +1,10 @@
+import { TimerIcon } from "@phosphor-icons/react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { z } from "zod/v4";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { appShellStaticData } from "#/components/app/shell-layout";
-import { TeamHeader } from "#/components/directory/team-header";
-import { TeamPeopleSidebar } from "#/components/directory/team-people-sidebar";
 import { RoutinesPage } from "#/components/routines/routines-page";
+import { SpaceWindowHeader } from "#/components/spaces/space-header";
 import { routineScopeParser } from "#/lib/page-tab-search";
 import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
 
@@ -14,7 +14,7 @@ const routineFocusSearch = z.object({
 });
 
 export const Route = createFileRoute("/o/$orgSlug/routines")({
-	staticData: appShellStaticData.people,
+	staticData: appShellStaticData.routines,
 	validateSearch: (
 		search: Record<string, unknown>
 	): { scope?: "personal" | "team"; routineId?: string; runId?: string } => ({
@@ -36,8 +36,15 @@ function RoutinesRoute() {
 		<AppFullWidthLayout
 			contentLayout="flush"
 			initialOuterSidebarState={sidebarStates.outer}
-			mainHeader={<TeamHeader active="routines" />}
-			mainSidebarContent={<TeamPeopleSidebar />}
+			mainHeader={
+				<SpaceWindowHeader
+					leadingControl={
+						<TimerIcon className="size-4 text-muted-foreground" />
+					}
+					renderFrame={false}
+					title="Routines"
+				/>
+			}
 			showMainHeader
 		>
 			<div className="flex w-full flex-1 flex-col px-[var(--app-page-inline-padding)] py-[var(--app-page-block-padding)]">
