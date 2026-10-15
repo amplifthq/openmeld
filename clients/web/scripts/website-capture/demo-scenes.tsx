@@ -12,7 +12,9 @@ import { MessageResponse } from "../../src/components/ai/message-response";
 import type { DirectoryHumanProfileRow } from "../../src/components/directory/directory-human-profile-model";
 import { TeamHeader } from "../../src/components/directory/team-header";
 import type { FileSystemItem } from "../../src/components/extend/file-system";
+import { useTeamFilesView } from "../../src/components/organizations/team-files-navigation";
 import { SpaceDirectory as ProductSpaceDirectory } from "../../src/components/spaces/space-directory";
+import { SpaceWindowHeader } from "../../src/components/spaces/space-header";
 import { demoSkill, demoSpaces } from "./demo-data";
 import { DemoPeople } from "./demo-people";
 
@@ -181,7 +183,14 @@ export function DemoFiles({
 	showcase?: boolean;
 }) {
 	const [file, setFile] = useState<string | null>(null);
-	const [scope, setScope] = useState("team");
+	const [scope] = useTeamFilesView();
+	let title = "Team files";
+	if (team && scope === "my") {
+		title = "My files";
+	}
+	if (team && (scope === "trash" || scope === "trash-my")) {
+		title = "Trash";
+	}
 	return (
 		<Suspense fallback={null}>
 			<FileSystem
@@ -189,23 +198,12 @@ export function DemoFiles({
 				defaultExpandedPaths={showcase ? ["Team Knowledge/"] : undefined}
 				defaultView={showcase ? "list" : "icons"}
 				embedded
-				items={scope === "team" ? files : []}
+				items={!team || scope === "team" || scope === "knowledge" ? files : []}
 				onFileOpen={(item) =>
 					setFile(item.name ?? item.path.split("/").at(-1) ?? null)
 				}
 				reserveBreadcrumbSpace={team && !showcase}
-				title="Team files"
-				toolbarStart={
-					team ? (
-						<Tabs onValueChange={setScope} value={scope}>
-							<TabsList className="w-fit">
-								<TabItem label="Team files" value="team" />
-								<TabItem label="My files" value="my" />
-								<TabItem label="Trash" value="trash" />
-							</TabsList>
-						</Tabs>
-					) : undefined
-				}
+				title={title}
 			/>
 			<DocumentDialog name={file} onClose={() => setFile(null)} />
 		</Suspense>
@@ -258,7 +256,11 @@ export function TeamScene({
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<header className="h-[var(--space-conversation-header-height)] w-full shrink-0 border-border border-b bg-background">
-				<TeamHeader active={tab} />
+				{tab === "routines" ? (
+					<SpaceWindowHeader renderFrame={false} title="Routines" />
+				) : (
+					<TeamHeader active={tab} />
+				)}
 			</header>
 			<div
 				className={`min-h-0 flex-1 overflow-auto p-6 ${tab === "files" ? "flex flex-col" : ""}`}

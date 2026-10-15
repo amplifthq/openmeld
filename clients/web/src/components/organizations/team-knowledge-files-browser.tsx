@@ -80,10 +80,7 @@ function folderBreadcrumb(
 	return result;
 }
 
-export function TeamKnowledgeFilesBrowser(input: {
-	folderId?: string;
-	toolbarTabs: ReactNode;
-}) {
+export function TeamKnowledgeFilesBrowser(input: { folderId?: string }) {
 	const { currentOrganization } = useAppOrganization();
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
@@ -288,7 +285,6 @@ export function TeamKnowledgeFilesBrowser(input: {
 							onSelectionChange={(item) => setSelectedPath(item?.path ?? null)}
 							title={activeFolder?.name ?? "Team Knowledge"}
 							toolbarActions={toolbarActions}
-							toolbarStart={input.toolbarTabs}
 						/>
 					</Suspense>
 				</ContextMenuTrigger>

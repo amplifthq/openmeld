@@ -2,7 +2,6 @@ import { Button } from "@openmeld/ui/components/button";
 import { ArrowLeftIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
-import { TeamPeopleSidebar } from "#/components/directory/team-people-sidebar";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationPeoplePath } from "#/lib/organizations/organization-routes";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
@@ -30,9 +29,7 @@ export function AgentResolutionPage(input: {
 	return (
 		<AppFullWidthLayout
 			contentLayout="flush"
-			defaultModuleSidebarOpen={input.detail}
 			initialOuterSidebarState={input.initialSidebarStates?.outer}
-			mainSidebarContent={<TeamPeopleSidebar />}
 		>
 			<div className="px-[var(--app-page-inline-padding)] pt-5">
 				<Link

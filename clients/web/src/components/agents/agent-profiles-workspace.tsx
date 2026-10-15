@@ -9,12 +9,13 @@ import type {
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
-import { ArrowLeftIcon, PlusIcon } from "@phosphor-icons/react";
+import { ArrowLeftIcon, PlusIcon, RobotIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { AppContextualSidebarNav } from "#/components/app/app-contextual-layout";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
+import { SidebarListSkeleton } from "#/components/app/sidebar-list-skeleton";
 import { TeamHeader } from "#/components/directory/team-header";
-import { TeamPeopleSidebar } from "#/components/directory/team-people-sidebar";
 import type { OptimisticAgentProfileCreation } from "#/lib/profiles/agent-profile-creation-requests";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 import { AgentDirectoryLists } from "./agent-directory-lists";
@@ -80,7 +81,7 @@ export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
 	return (
 		<AppFullWidthLayout
 			contentLayout="flush"
-			defaultModuleSidebarOpen={!!input.person || !!input.selectedProfileId}
+			defaultModuleSidebarOpen={!!input.selectedProfileId}
 			initialOuterSidebarState={workspaceInput.initialSidebarStates?.outer}
 			mainHeader={
 				!input.person && input.activeView === "agents" ? (
@@ -95,7 +96,42 @@ export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
 					/>
 				) : undefined
 			}
-			mainSidebarContent={<TeamPeopleSidebar />}
+			mainSidebar={
+				input.selectedProfileId
+					? {
+							key: "agents",
+							label: "Agents",
+							content: (
+								<AppContextualSidebarNav
+									activeItemId={input.selectedProfileId}
+									ariaLabel="Agents"
+									groups={[
+										{
+											id: "agents",
+											label: input.person
+												? `${input.person.name}’s Agents`
+												: "Agents",
+											ariaLabel: "Agent list",
+											items: input.profiles.map((profile) => ({
+												id: profile.openMeldProfileId,
+												label: profile.profileName,
+												icon: RobotIcon,
+											})),
+										},
+									]}
+									leadingContent={
+										input.profilesStatus === "loading" &&
+										input.profiles.length === 0 ? (
+											<SidebarListSkeleton label="Loading Agent list" />
+										) : null
+									}
+									onActivate={input.onSelectProfile}
+									title="Agents"
+								/>
+							),
+						}
+					: undefined
+			}
 			showMainHeader={!input.person && input.activeView === "agents"}
 		>
 			<AgentWorkspaceHeader {...input} />

@@ -271,13 +271,14 @@ an attachment-open request. Opening a final-message attachment therefore retains
 its selected file revision while switching from Messages to Files.
 
 Web uses three navigation levels: a 64px application rail (52px in Icons only), a contextual
-list inside the inset surface, and the current work area. Inbox, Spaces, and
-Team are the rail's primary destinations, in that order. Hovering Spaces offers
+list inside the inset surface, and the current work area. **Inbox / Spaces /
+Team / Routines** are the rail's primary destinations, in that order. Hovering Spaces offers
 Direct messages and Discover, using the existing Spaces view parameter. Both
 can be pinned; Direct messages appears as DMs in the rail. Personal workspaces
 hide Discover in the popover and pinned list. Hovering Team (or pressing
-Arrow Down/Space on it) offers Agents, Plugins, Skills, Files, and Routines
-with separate pin toggles. A divider separates the creation shortcuts: Spaces
+Arrow Down/Space on it) offers Agents, Files, Skills, and Plugins
+with separate pin toggles. Routines is always a primary destination; old saved
+Routine pins are ignored so it never appears twice. A divider separates the creation shortcuts: Spaces
 offers New message and New Space; Team offers New Agent. These actions cannot be
 pinned. New message shares the rail-owned dialog with command search; New Space
 and New Agent use the existing Organization creation routes.
@@ -363,7 +364,13 @@ narrow, keeping the title and controls on one row. Both layouts share the same
 creation, view, and filter menu contents.
 
 Spaces, direct messages, and Center Agent conversations share the Spaces
-list in the middle column. Team places its member list in that column instead;
+list in the middle column. Team uses content-specific navigation: People owns
+the member list; Agent detail shows the current Agent list, while the Agent
+directory uses its existing cards and filters without a duplicate sidebar.
+Files owns Team files, My files, and Trash navigation, with folders and
+breadcrumbs in the file browser. Skills and Plugins use their catalog search
+and filters without a member sidebar, including detail, loading, and error
+states. Routines keeps Personal/Team scope and list controls in its page.
 Settings retains its own settings navigation. A page without contextual
 navigation does not create an empty middle column or load the Spaces list.
 The contextual title holds the collapse control while the middle list is open;
@@ -565,8 +572,8 @@ No local-component floor or runtime contract bump is required.
 ### Plugins
 
 The external-capability catalog is named **Plugins**. Product routes use
-`/o/<slug>/plugins`, with one service detail route below it. Plugins is the third
-Team tab after People and Agents. Both catalog and detail pages retain the Team
+`/o/<slug>/plugins`, with one service detail route below it. Plugins is the final
+Team tab after People, Agents, Files, and Skills. Both catalog and detail pages retain the Team
 header and active Team rail destination, without mounting Center Agent state.
 Old `/center-agent/plugins` and `/center-agent/apps` links redirect there,
 including service detail links. Web components and navigation helpers use Plugin names.
@@ -612,9 +619,9 @@ settings; a static Plugin definition does not establish sign-in readiness.
 
 ### Organization Skills
 
-Team tabs are **People / Agents / Plugins / Skills**. The Organization Skill
+Team tabs are **People / Agents / Files / Skills / Plugins**. The Organization Skill
 catalog at `/o/{orgSlug}/skills` and detail at `/o/{orgSlug}/skills/{skillId}`
-share Team's header, member sidebar, page padding, and rail highlight. Pending
+share Team's header, page padding, and rail highlight without a member sidebar. Pending
 and error states retain that ownership; neither route mounts Center Agent state.
 All members can discover and browse Skills, while Core-projected permissions
 control editing and management. Personal workspaces use this same model with
@@ -1015,19 +1022,19 @@ disclosure remains independent from Sidebar disclosure.
 
 The rail places the current workspace switcher at the top and has no separate
 OpenMeld brand row or outer-rail account entry. Account management stays nested
-inside the workspace switcher. Its first three entries are flat, fixed
-primary actions and destinations in a flat list:
+inside the workspace switcher. The primary destinations are flat and fixed:
 
-- **New Agent** — opens `/o/{orgSlug}/new-agent`, a standalone creation page
-  with the primary rail and no Agent-list secondary sidebar. It reuses the
-  existing creation flow without loading the organization-wide Agent status
-  overview. Success opens the new Agent's detail; Cancel returns to Agents.
-  Pending teammate requests open Agent requests. Legacy `agents?view=create`
-  links redirect to this route before loading the Agents directory.
-- **Desk** — opens an ordinary Space on the current workspace's canvas.
+- **Inbox** — opens the current workspace's attention feed.
 - **Spaces** — opens the existing chat directory, with Spaces and private
   conversations available in its contextual list.
 - **Team** — opens the people directory. Each person's profile owns their Agent list.
+- **Routines** — opens personal and shared scheduled work and Run history.
+
+**New Agent** remains a contextual creation action. It opens
+`/o/{orgSlug}/new-agent` with the primary rail and no Agent-list sidebar,
+reusing the existing creation flow. Success opens the new Agent's detail;
+Cancel returns to Agents. Pending teammate requests open Agent requests.
+Legacy `agents?view=create` links redirect before loading the directory.
 
 The middle column contains the active module's list. Spaces and Direct messages
 are groups within Spaces, rather than duplicate application-rail links.
@@ -3630,7 +3637,7 @@ current state.
 
 ### Routines
 
-**Team → Routines** at `/o/{orgSlug}/routines` owns personal and Team management
+**Routines** in the primary rail at `/o/{orgSlug}/routines` owns personal and Team management
 for Center, Remote, and Local Agents. Legacy Center URLs redirect with the exact
 Routine/Run selection. There is one page, editor, API/query owner, and Fluid Table.
 Personal and Team tabs filter authorized server results. The empty view uses a

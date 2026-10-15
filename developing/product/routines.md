@@ -37,7 +37,7 @@ changes use the native journal and scoped database release in the
 
 ## Current Implementation Status
 
-Routines is a Team product at `/o/{orgSlug}/routines`. Personal and Team views
+Routines is a primary navigation destination at `/o/{orgSlug}/routines`. Personal and Team views
 share one definition store, minute scheduler, atomic claim, Run history, API,
 and compact editor. Visibility and executor are separate choices:
 
@@ -763,7 +763,8 @@ Trigger.
 
 ## Web, CLI, And Conversation Surfaces
 
-Team → Routines is the canonical entry. Old Center Agent URLs redirect while
+The primary Routines rail entry is canonical. It has its own title and selected
+state, without Team tabs or the member sidebar. Old Center Agent URLs redirect while
 preserving Routine/Run selection. The page uses a shared Fluid Table, Personal
 and Team scope tabs, search, and a centered dashed AppEmptyState. Its segmented
 tabs reuse the same Fluid composition as Team Files. The Team header supplies

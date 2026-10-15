@@ -5,12 +5,6 @@ import { AppFullWidthLayout } from "./app-full-width-layout";
 
 const appOuterRailSpy = vi.hoisted(() => vi.fn());
 
-vi.mock("#/components/directory/team-sidebar-header", () => ({
-	TeamSidebarHeader: () => <h2>Team</h2>,
-	TeamSidebarHeaderActionsProvider: ({ children }: { children: ReactNode }) =>
-		children,
-}));
-
 vi.mock("#/components/app/app-outer-rail", () => ({
 	AppOuterRail: (props: { contextualNavigation?: ReactNode }) => {
 		appOuterRailSpy(props);
@@ -36,16 +30,27 @@ vi.mock("#/components/app/current-computer", () => ({
 afterEach(cleanup);
 
 describe("AppFullWidthLayout", () => {
-	it("places profile lists in the middle column without duplicating application navigation", () => {
+	it.each([
+		"People",
+		"Agents",
+		"Files",
+	])("uses the %s sidebar content and mobile navigation label", (label) => {
 		render(
 			<AppFullWidthLayout
 				defaultModuleSidebarOpen
-				mainSidebarContent={<nav aria-label="People">Members</nav>}
+				mainSidebar={{
+					key: label.toLowerCase(),
+					label,
+					content: <nav aria-label={label}>Content</nav>,
+				}}
 			>
 				<h1>Profile</h1>
 			</AppFullWidthLayout>
 		);
-		const list = screen.getByRole("navigation", { name: "People" });
+		const list = screen.getByRole("navigation", { name: label });
+		expect(
+			screen.getByRole("button", { name: `Open ${label} navigation` })
+		).toBeTruthy();
 		expect(list.closest('[data-testid="app-module-sidebar"]')).toBeTruthy();
 		expect(
 			document.querySelector('[data-slot="app-inline-contextual-navigation"]')

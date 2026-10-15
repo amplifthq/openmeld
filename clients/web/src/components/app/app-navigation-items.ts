@@ -5,6 +5,7 @@ import {
 	buildOrganizationPeoplePath,
 	buildOrganizationProjectsPath,
 	buildOrganizationRootPath,
+	buildOrganizationRoutinesPath,
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
 import type { AppShellSection } from "./shell-layout";
@@ -44,6 +45,11 @@ export function resolveAppNavigationItems(input: {
 			label: "Team",
 			section: "people",
 			to: buildOrganizationPeoplePath(input.orgSlug),
+		},
+		{
+			label: "Routines",
+			section: "routines",
+			to: buildOrganizationRoutinesPath(input.orgSlug),
 		},
 		{
 			label: "Agent Activity",
