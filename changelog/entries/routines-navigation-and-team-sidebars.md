@@ -28,3 +28,5 @@ Escape does the same and returns focus to the options button.
 
 Newly pinned conversations appear first in Pinned, keeping the existing order
 of other conversations. You can still drag pinned conversations to reorder them.
+Smaller pinned avatars and a two-to-five-column grid fit more conversations
+in the sidebar, including Spaces with multiple members.

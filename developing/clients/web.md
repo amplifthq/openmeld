@@ -412,6 +412,10 @@ sidebar preference; ordinary pin membership remains Space Index-owned and
 session pins remain in `chats` preferences. New pins appear first without changing
 the existing pinned order, including entries hidden by filters. Dragging still
 uses the chosen drop position. Unpin restores the saved group.
+Pinned uses 32px avatars for single profiles and member composites, with two to
+five columns based on the available grid width. Tiles target at least 60px of
+width, with 4px gaps. Its compact tiles retain two lines
+for names and expose additional rows through the existing disclosure control.
 Spaces, People, and Agents are optional filters. The plus menu offers New message
 and New Space. The adjacent View and filters menu holds separate Conversation
 view and Filter conversations submenus. The Spaces title remains the link to

@@ -235,7 +235,7 @@ function ConversationSidebarRowContent(
 				isActive={input.selected}
 			>
 				<div
-					className={`relative flex w-full min-w-0 items-center ${pinned ? "min-h-26 flex-col justify-center gap-1.5 px-1 py-2 text-xs" : "min-h-12 gap-1 px-1 py-1.5 text-sm"} ${input.selected ? "font-medium text-sidebar-accent-foreground" : "text-muted-foreground"}`}
+					className={`relative flex w-full min-w-0 items-center ${pinned ? "min-h-22 flex-col justify-center gap-1.5 px-1 py-2 text-xs" : "min-h-12 gap-1 px-1 py-1.5 text-sm"} ${input.selected ? "font-medium text-sidebar-accent-foreground" : "text-muted-foreground"}`}
 					ref={rowAnchor}
 				>
 					<Tooltip>
@@ -578,7 +578,7 @@ function ConversationIcon(input: {
 		return (
 			<ChatIcon
 				chat={input.conversation.chat}
-				size={input.pinned ? "md" : "sidebar"}
+				size={input.pinned ? "pinned" : "sidebar"}
 				summary={input.summary}
 				title={input.title}
 			/>
@@ -589,7 +589,7 @@ function ConversationIcon(input: {
 		return (
 			<SpaceMemberAvatars
 				appearances={input.memberAppearances}
-				compactSize={input.pinned ? 48 : 24}
+				compactSize={input.pinned ? 32 : 24}
 				members={members}
 			/>
 		);
@@ -597,7 +597,7 @@ function ConversationIcon(input: {
 	return (
 		<ChatCircleTextIcon
 			aria-label="Space"
-			className={input.pinned ? "size-12 shrink-0" : "size-6 shrink-0"}
+			className={input.pinned ? "size-8 shrink-0" : "size-6 shrink-0"}
 		/>
 	);
 }
@@ -617,7 +617,7 @@ export function resolvePreviewText(
 export function ChatIcon(input: {
 	chat: Chat;
 	title: string;
-	size?: "sm" | "sidebar" | "card" | "md";
+	size?: "sm" | "sidebar" | "card" | "md" | "pinned";
 	summary?: SpaceSidebarActiveWakeSummary;
 }) {
 	if (input.chat.session) {
@@ -627,7 +627,7 @@ export function ChatIcon(input: {
 				profileId={input.chat.centerAgentProfileId}
 				profileName={input.chat.centerAgentProfileName}
 				size={
-					({ card: 56, sidebar: 28, sm: 24, md: 48 } as const)[
+					({ card: 56, sidebar: 28, sm: 24, md: 48, pinned: 32 } as const)[
 						input.size ?? "sm"
 					]
 				}
