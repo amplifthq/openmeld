@@ -169,7 +169,8 @@ describe("cli commands", () => {
     await writeExecutable(join(binDir, "npm"), "#!/bin/sh\n");
 
     expect(
-      readOpenMeldCliSetupProblem({
+      await readOpenMeldCliSetupProblem({
+        exec: capturingExec({}),
         env: {
           OPENMELD_BIN: "",
           OPENMELD_HOME: join(root, ".openmeld-empty"),

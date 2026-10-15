@@ -23,15 +23,13 @@ const OPENMELD_CLI_PACKAGE_SPEC = `${OPENMELD_CLI_PACKAGE}@latest`;
 const INSTALL_TIMEOUT_MS = 5 * 60_000;
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 
-export function readOpenMeldCliSetupProblem(
+export async function readOpenMeldCliSetupProblem(
   deps: InstallCliDeps = {}
-): CliProblem | null {
+): Promise<CliProblem | null> {
   const env = buildDesktopCommandEnv(deps.env);
-  if (!resolveNodeBin(env)) {
-    return cliSetupProblem(
-      "desktop.node_missing",
-      "Node.js is required before OpenMeld can install OpenMeld CLI. Install the current Node.js LTS release, then try again."
-    );
+  const nodeProblem = await readNodeSetupProblem(deps, env);
+  if (nodeProblem) {
+    return nodeProblem;
   }
   if (!resolveNpmBin(env)) {
     return cliSetupProblem(
@@ -54,14 +52,12 @@ export async function installOpenMeldCli(
   deps: InstallCliDeps = {}
 ): Promise<CliCommandResult> {
   const env = buildDesktopCommandEnv(deps.env);
-  const nodeBin = resolveNodeBin(env);
-  if (!nodeBin) {
-    return Promise.resolve(
-      installFailure(
-        "spawn_failed",
-        "desktop.node_missing",
-        "Node.js is required before OpenMeld can install OpenMeld CLI."
-      )
+  const nodeProblem = await readNodeSetupProblem(deps, env);
+  if (nodeProblem) {
+    return installFailure(
+      "spawn_failed",
+      nodeProblem.code,
+      nodeProblem.message
     );
   }
   const npmBin = resolveNpmBin(env);
@@ -76,25 +72,6 @@ export async function installOpenMeldCli(
   }
 
   const exec = deps.exec ?? (execFile as unknown as ExecFileFn);
-  const runtimeProblem = await new Promise<string | null>((resolve) => {
-    exec(
-      nodeBin,
-      ["--version"],
-      { env, timeout: 10_000, maxBuffer: MAX_BUFFER_BYTES },
-      (error, stdout) => {
-        resolve(
-          unsupportedNodeRuntimeMessage(error ? "unavailable" : stdout.trim())
-        );
-      }
-    );
-  });
-  if (runtimeProblem) {
-    return installFailure(
-      "spawn_failed",
-      "desktop.node_unsupported",
-      runtimeProblem
-    );
-  }
   return new Promise((resolve) => {
     exec(
       npmBin,
@@ -121,6 +98,35 @@ export async function installOpenMeldCli(
       }
     );
   });
+}
+
+async function readNodeSetupProblem(
+  deps: InstallCliDeps,
+  env: NodeJS.ProcessEnv
+): Promise<CliProblem | null> {
+  const nodeBin = resolveNodeBin(env);
+  if (!nodeBin) {
+    return cliSetupProblem(
+      "desktop.node_missing",
+      "Node.js is required before OpenMeld can install OpenMeld CLI. Install the current Node.js LTS release, then try again."
+    );
+  }
+  const exec = deps.exec ?? (execFile as unknown as ExecFileFn);
+  const runtimeProblem = await new Promise<string | null>((resolve) => {
+    exec(
+      nodeBin,
+      ["--version"],
+      { env, timeout: 10_000, maxBuffer: MAX_BUFFER_BYTES },
+      (error, stdout) => {
+        resolve(
+          unsupportedNodeRuntimeMessage(error ? "unavailable" : stdout.trim())
+        );
+      }
+    );
+  });
+  return runtimeProblem
+    ? cliSetupProblem("desktop.node_unsupported", runtimeProblem)
+    : null;
 }
 
 function resolveNodeBin(env: NodeJS.ProcessEnv): string | null {
