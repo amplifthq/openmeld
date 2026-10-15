@@ -31,6 +31,7 @@ const CHECKOUT_SOURCE_REGEX =
 const LINE_SPLIT_REGEX = /\r?\n/u;
 const RELEASE_JOB_BATCH_SIZE = 16;
 const RELEASE_TITLE_SOURCE_REGEX = /@ ([0-9a-f]{40})$/u;
+const MIGRATED_SCOPED_TITLE_REGEX = /^Scoped Production Release ([a-z-]+) @ /u;
 const SCOPED_RELEASE_WORKFLOW_REGEX = /Scoped Production Release/u;
 const EXACT_SOURCE_SHA = /^[0-9a-f]{40}$/u;
 const SUCCESSFUL_JOB_SCOPES = [
@@ -357,7 +358,11 @@ export function migratedHostedReleaseSources(
   const runs = snapshot.runs.map(({ jobs, ...run }) => {
     const createdAt = Date.parse(run.createdAt);
     const updatedAt = Date.parse(run.updatedAt);
-    const workflowScopes = releaseWorkflowScopes(run.workflowName);
+    const workflowScopes = SCOPED_RELEASE_WORKFLOW_REGEX.test(run.workflowName)
+      ? [MIGRATED_SCOPED_TITLE_REGEX.exec(run.displayTitle ?? "")?.[1]].filter(
+          (scope) => RELEASE_SCOPES.includes(scope)
+        )
+      : releaseWorkflowScopes(run.workflowName);
     if (
       !(
         Number.isSafeInteger(run.databaseId) &&

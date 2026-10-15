@@ -74,6 +74,9 @@ test("cutover preserves hosted provenance and rejects another repository or inco
   );
   for (const corrupt of [
     (value) => {
+      value.runs[1].jobs[0].name = "Deploy Core Worker";
+    },
+    (value) => {
       value.source.id = 123;
     },
     (value) => {
