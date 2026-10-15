@@ -1685,6 +1685,54 @@ describe("setup-bootstrap-script", () => {
 		});
 	});
 
+	it.each([20, 21, 26])(
+		"continues standalone setup without calling npm on Node %s",
+		(major) => {
+			const root = mkdtempSync(join(tmpdir(), "openmeld-binary-node-policy-"));
+			const bin = join(root, "bin");
+			const callsPath = join(root, "calls.txt");
+			const npmCalls = join(root, "npm-calls.txt");
+			try {
+				mkdirSync(bin);
+				for (const command of ["curl", "shasum", "uname"]) {
+					linkFakeBootstrapCommand(bin, command);
+				}
+				writeFileSync(
+					join(bin, "node"),
+					`#!/bin/sh\ncase "$2" in *process.versions.node*) printf '%s\\n' '${major}';; *) exec '${process.execPath}' "$@";; esac\n`,
+					{ mode: 0o755 }
+				);
+				writeFileSync(
+					join(bin, "npm"),
+					'#!/bin/sh\nprintf "unexpected npm call\\n" >> "$OPENMELD_TEST_NPM_CALLS"\nexit 1\n',
+					{ mode: 0o755 }
+				);
+				const result = spawnBootstrapScript(
+					root,
+					buildOpenMeldSetupBootstrapScript({ lane: "prod" }),
+					["setup", "--start-session", "fixture", "--ott", "fixture"],
+					{
+						env: {
+							HOME: root,
+							PATH: bootstrapTestPath(bin),
+							OPENMELD_TEST_CALLS_PATH: callsPath,
+							OPENMELD_TEST_NPM_CALLS: npmCalls,
+						},
+					}
+				);
+				expect(result.status).toBe(0);
+				expect(result.stdout).toContain("Skipping the older npm CLI update");
+				expect(result.stdout).toContain('"code":"setup.complete"');
+				expect(readFileSync(callsPath, "utf8")).toBe(
+					"install-self\nsetup --start-session fixture --ott fixture\n"
+				);
+				expect(existsSync(npmCalls)).toBe(false);
+			} finally {
+				rmSync(root, { recursive: true, force: true });
+			}
+		},
+		SHELL_BOOTSTRAP_TEST_TIMEOUT_MS
+	);
 	it.each([
 		19,
 		20,

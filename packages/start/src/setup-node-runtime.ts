@@ -12,7 +12,8 @@ export const OPENMELD_SUPPORTED_NODE_MAJORS: readonly number[] = Object.freeze([
 ]);
 
 export function unsupportedNodeRuntimeMessage(version: string): string | null {
-  const major = Number(version.split(".")[0]);
+  const normalized = version.startsWith("v") ? version.slice(1) : version;
+  const major = Number(normalized.split(".")[0]);
   if (OPENMELD_SUPPORTED_NODE_MAJORS.includes(major)) {
     return null;
   }

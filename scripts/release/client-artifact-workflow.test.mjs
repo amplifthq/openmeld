@@ -13,6 +13,34 @@ const workflow = (name) =>
 const toolchain = (job) =>
   job.steps.find((step) => step.uses?.endsWith("/setup-node-pnpm"));
 
+test("PR npm smoke covers the release matrix without publication credentials", () => {
+  const smoke = workflow("workflows/cli-npm-smoke.yml");
+  const release = workflow("workflows/cli-release.yml");
+  assert.ok(smoke.on.pull_request.paths.includes("clients/openmeld-cli/**"));
+  assert.ok(Object.hasOwn(smoke.on, "workflow_dispatch"));
+  assert.deepEqual(smoke.permissions, { contents: "read" });
+  assert.deepEqual(
+    smoke.jobs.npm_consumer.strategy.matrix,
+    release.jobs.npm_consumer.strategy.matrix
+  );
+  assert.equal(smoke.jobs.npm_artifact.needs, "windows_process_artifact");
+  assert.equal(smoke.jobs.npm_consumer.needs, "npm_artifact");
+  for (const job of Object.values(smoke.jobs)) {
+    assert.equal(job.environment, undefined);
+    assert.equal(job.permissions?.contents === "write", false);
+    assert.equal(JSON.stringify(job).includes("secrets."), false);
+  }
+  const pack = smoke.jobs.npm_artifact.steps.find((step) =>
+    step.run?.includes("npm-cli-smoke.mjs pack")
+  );
+  assert.ok(pack);
+  assert.ok(
+    smoke.jobs.npm_consumer.steps.some((step) =>
+      step.run?.includes("npm-cli-smoke.mjs verify")
+    )
+  );
+});
+
 test("CLI publication waits for the same npm tarball to pass the supported consumer matrix", () => {
   const jobs = workflow("workflows/cli-release.yml").jobs;
   assert.deepEqual(jobs.npm_consumer.strategy.matrix, {

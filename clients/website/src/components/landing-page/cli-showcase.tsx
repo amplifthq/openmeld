@@ -210,7 +210,9 @@ export function CliShowcase() {
 			<div className="meld-cli-setup">
 				<div>
 					<strong>One setup. CLI + Skills.</strong>
-					<p>Install once, then use OpenMeld without opening the app.</p>
+					<p>
+						Requires Node.js 22 or later (below 26). Node.js 24 is recommended.
+					</p>
 				</div>
 				<pre>
 					<code>npm install -g openmeld@latest{"\n"}openmeld setup</code>

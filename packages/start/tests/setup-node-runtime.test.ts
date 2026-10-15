@@ -8,6 +8,8 @@ import {
 describe("npm CLI Node runtime policy", () => {
   it.each([
     "22.0.0",
+    "v22.0.0",
+    "v24.0.0",
     "23.0.0",
     "24.0.0",
     "25.0.0",
@@ -17,6 +19,7 @@ describe("npm CLI Node runtime policy", () => {
   it.each([
     "18.20.0",
     "20.19.2",
+    "v20.19.2",
     "21.7.0",
     "26.0.0",
     "unknown",
