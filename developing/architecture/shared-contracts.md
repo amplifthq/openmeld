@@ -1172,9 +1172,14 @@ Contract impact: the mutation fields are optional and Task/event/read payloads
 are unchanged. Existing CLI, Service, Skills, Gateway, and Web readers remain
 compatible, including setup, Wake, dispatch-owned Task tools, and diagnostics.
 Old Core rejects the new write fields, so deploy Core before the Remote Agent
-caller. No CLI/Service/Skills contract bump, local component release, database
-migration, or runtime lifecycle change is required. Dispatch context uses the
-existing source text snapshot and existing Task tools on both runtime families.
+caller. No CLI/Service/Skills contract bump, database migration, or runtime
+lifecycle change is required. The shared schema is a Service bundle input, so
+the base-aware release owner must rebuild, stamp, and publish an available
+CLI/Service artifact while preserving the existing required floors. Old cloud
+accepts its unchanged local commands, and new cloud accepts the existing local
+Task tools and source snapshot contract. Dispatch context uses that existing
+text snapshot on both runtime families. Follow the Task receiver-first release
+profile with the original pre-feature base through artifact preparation.
 
 `@openmeld/schemas` owns the strict Space Task, actor, result, review, event,
 create, mutation, list, detail, receipt, Project-set, and provider-typed
