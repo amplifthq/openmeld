@@ -362,6 +362,7 @@ export type SpaceApi = {
   ) => Promise<GetSpaceWakeTraceWaterfallResponse>;
   getMessageDetails: (
     input: SpaceRequestInput & {
+      includeThreadContext?: true;
       signalId: string;
       executionContextVersion?: 1;
       delegationVersion?: 1;

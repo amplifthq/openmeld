@@ -1,18 +1,16 @@
-import imageEffectUrl from "virtual:openmeld-image-loading-effect-url";
+import importImageEffect from "virtual:openmeld-image-loading-effect";
 
 type ImageEffectModule = typeof import("./space-image-loading-effect");
 const staticEffect: ImageEffectModule = { default: () => null };
 
 export async function loadSpaceImageEffect(): Promise<ImageEffectModule> {
-	if (imageEffectUrl === null) {
+	if (importImageEffect === null) {
 		return staticEffect;
 	}
 	try {
 		// The build emits this chunk explicitly. Keep the native import so only
 		// this optional module bypasses Vite's global critical-asset recovery.
-		return (await import(
-			/* @vite-ignore */ imageEffectUrl
-		)) as ImageEffectModule;
+		return (await importImageEffect()) as ImageEffectModule;
 	} catch {
 		// Never report an image failure or log a private URL for decoration loss.
 		console.warn(

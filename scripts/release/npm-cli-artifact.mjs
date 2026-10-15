@@ -46,6 +46,11 @@ export function assertNpmRuntimeDependencies(manifest) {
       throw new Error(`The npm package has invalid ${field}.`);
     }
     for (const [name, specifier] of Object.entries(dependencies)) {
+      if (name.startsWith("@openmeld/")) {
+        throw new Error(
+          `The npm package has a non-portable ${field}.${name}. Internal OpenMeld packages must be bundled into the CLI.`
+        );
+      }
       if (
         typeof specifier !== "string" ||
         !specifier.trim() ||

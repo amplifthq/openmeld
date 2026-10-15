@@ -48,7 +48,7 @@ export function requireAcceptedLocalAgentInstallationPayload(
   transportResult: RuntimeTransportManageLocalAgentInstallationResponse
 ) {
   const payload = requireAcceptedInstallationControlPayload(transportResult);
-  if (payload.status === "update_state") {
+  if (payload.status === "update_state" || payload.status === "setup_state") {
     throw createCoreRpcHttpError({
       status: 502,
       code: "local_agent_control.invalid_response",
@@ -72,7 +72,7 @@ export function requireAcceptedLocalAgentUpdatePayload(
   return payload.update;
 }
 
-function requireAcceptedInstallationControlPayload(
+export function requireAcceptedInstallationControlPayload(
   transportResult: RuntimeTransportManageLocalAgentInstallationResponse
 ): Extract<
   RuntimeTransportManageLocalAgentInstallationResponse,

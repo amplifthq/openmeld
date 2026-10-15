@@ -544,9 +544,32 @@ The receipt's first parent retains the original failed event; its second parent
 is a version 4 recovery proof with the baseline and completion observations.
 Old release tooling continues to read the version 3 receipt. On failure, the
 canonical receipt remains `failed/unknown`; a linked diagnostic proof records
-the observed Worker and container state when Cloudflare can be read. Further
-recovery remains blocked for manual reconciliation. Aggregate health and an
-idle instance list do not prove that every dormant instance ran the new image;
+the observed Worker and container state when Cloudflare can be read.
+
+After manually checking that failure, the same recovery entrypoint can continue
+the original attempt. Supply the latest observed Worker selectors and the
+unchanged original Container selectors. The control reads only the canonical
+receipt's linked v4 proof chain back to the exact original start event. Every
+event and proof must preserve the source tree, scope, complete receipt and
+parent links. Each recovery window must follow the previous failed event. The
+next baseline must match the preceding failure observation. Missing proofs,
+observations, inconsistent timestamps or more than 32 failed events require
+manual reconciliation instead of another deployment.
+
+Under the Remote Agent lease, exactly one Worker deployment must match the
+latest recovery window and remain the current 100% deployment. The Container
+must still match its original version, digest and configuration. Complete
+instance evidence must retain the protected instances and show no active
+rollout. The control repeats these checks immediately before deployment. This
+observation admits a new guarded deployment from the original source; it never
+proves the observed Worker's source by itself. Preflight, stage admission,
+native provenance, registry digest and final Worker verification still apply.
+The new receipt and proof append to the latest failed event. They retain the
+original source, attempt, operation key and start time. This is explicit manual
+continuation, not automatic retry, and it never runs user commands.
+
+Aggregate health and an idle instance list do not prove that every dormant
+instance ran the new image;
 authenticated product Smoke remains a separate acceptance step.
 
 When the failed attempt continued a Worker-only release, recovery preserves its
@@ -1528,6 +1551,12 @@ checks.
 
 ## Local Scoped Release
 
+A release containing only Website and/or Docs does not read product database
+receipts, inspect Hyperdrive, or require database inspection credentials. These
+renderers have no product database binding. Mixed trains and explicit database
+maintenance retain PostgreSQL admission. Component credentials, leases, artifact
+identity, deployment checks and completion receipts still apply normally.
+
 The `people-computers-receivers-first` profile recognizes the shared computer
 schema, Core projection, and Gateway endpoint together, or the shared Service
 connection evidence schema with its Core and Gateway receivers. It deploys selected
@@ -2182,8 +2211,12 @@ the same resumable release command at the exact original `release_sha`:
 
 ### npm submission and availability
 
-The CLI release owner packs with pnpm so catalog/workspace references become
-portable dependency versions. A packing-only hook preserves the exact source
+The CLI release owner packs with pnpm so catalog references become portable
+dependency versions. Internal `@openmeld/*` packages belong in the CLI's
+`devDependencies` and are bundled into its executable output. The tarball must
+not declare them in runtime dependency fields, even after pnpm resolves a
+workspace reference to a version. Artifact inspection rejects that leak before
+consumer installation. A packing-only hook preserves the exact source
 `gitHead` without editing the checkout. Before any binary upload or npm attempted
 receipt, the owner checks the actual tarball and installs it with ordinary npm
 outside the workspace, using disposable HOME, OpenMeld state, npm configuration

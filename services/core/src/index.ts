@@ -4422,6 +4422,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcManagePeopleComputerLocalAgentUpdate(this.env, input)
     );
   }
+  managePeopleComputerLocalAgentSetup(
+    input: Parameters<typeof rpcManagePeopleComputerLocalAgentSetup>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcManagePeopleComputerLocalAgentSetup(this.env, input)
+    );
+  }
   refreshPeopleComputerLocalAgentCatalog(
     input: Parameters<typeof rpcRefreshPeopleComputerLocalAgentCatalog>[1]
   ) {
@@ -5571,6 +5578,11 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: Parameters<typeof rpcManagePeopleComputerLocalAgentUpdate>[1]
   ) {
     return super.managePeopleComputerLocalAgentUpdate(input);
+  }
+  managePeopleComputerLocalAgentSetup(
+    input: Parameters<typeof rpcManagePeopleComputerLocalAgentSetup>[1]
+  ) {
+    return super.managePeopleComputerLocalAgentSetup(input);
   }
   refreshPeopleComputerLocalAgentCatalog(
     input: Parameters<typeof rpcRefreshPeopleComputerLocalAgentCatalog>[1]
@@ -6803,4 +6815,5 @@ import {
   rpcAgentSessionHistory,
   rpcCenterAgentSetReplyPlacement,
   rpcComputerSessionHistory,
+  rpcManagePeopleComputerLocalAgentSetup,
 } from "./rpc/methods";

@@ -247,10 +247,8 @@ export async function runSend(input: {
   });
 }
 
-// Post a reply into the thread rooted at replyToSignalId. Finds the existing
-// thread for that root message, or creates one if none exists yet (the CLI is
-// otherwise unable to start a thread — only web did before). Reuses the existing
-// createThread/postThreadSignal API; backend untouched.
+// Space owns message placement. A reply to any member of a thread stays there;
+// only a confirmed unthreaded message can become a new thread root.
 async function postReplyIntoThread(input: {
   contextSelection?: import("@openmeld/schemas/types").ExecutionContextSelection;
   spaceApi: ReturnType<typeof createCliSpaceApi>;
@@ -265,15 +263,19 @@ async function postReplyIntoThread(input: {
   clientMessageId: string;
   files: Awaited<ReturnType<typeof uploadPreparedSpaceFiles>>;
 }) {
-  const threadsResponse = await input.spaceApi.listThreads({
+  const details = await input.spaceApi.getMessageDetails({
     spaceId: input.space,
+    signalId: input.replyToSignalId,
+    includeThreadContext: true,
     requestContext: input.requestContext,
     ...(input.password === undefined ? {} : { spacePassword: input.password }),
   });
-  const existingThread = threadsResponse.threads.find(
-    (thread) => thread.rootSignalId === input.replyToSignalId
-  );
-  let threadId = existingThread?.threadId;
+  if (details.threadContext === undefined) {
+    throw new Error(
+      "This server cannot resolve the message's thread yet. Update Core and Gateway before using --reply-to. No reply was sent."
+    );
+  }
+  let threadId = details.threadContext?.threadId;
   if (!threadId) {
     const created = await input.spaceApi.createThread({
       spaceId: input.space,
