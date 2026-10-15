@@ -56,11 +56,12 @@ Use one useful answer per intent. Keep guide URLs stable.
 
 | User question | Existing answer |
 | --- | --- |
-| What is OpenMeld, and why use it with an agent? | Website product explanation and FAQ |
+| How is OpenMeld different from using an agent directly? | Website FAQ: “How is OpenMeld different from using an agent directly?” |
+| How can my team share an agent's code-review findings? | `/docs/tasks/local-code` and `/docs/team/access` |
 | Can I try it without installing anything? | `/docs/start/quickstart` |
 | How do I use Codex or Claude Code with my team? | Their pages under `/docs/start/local-agents/` |
 | Can I connect my existing Grok Bot? | Grok Bot guide, including shared-conversation and Stop limits |
-| How do Grok Build, OpenCode, Antigravity, and Cursor CLI connect? | Their separate local-agent guides |
+| Can I use my existing coding tool with my team? | `/docs/start/local-agents`, then the guide for the tool already installed |
 | Does my computer need to stay on? | Website FAQ and connect-computer guide |
 | Does local execution keep all data on my computer? | Data-storage and private-information guides |
 | Is open source the same as supported self-hosting? | `/docs/security-and-privacy/self-hosting` |
@@ -83,7 +84,7 @@ Unknown is not zero.
 | Search demand | Impressions, clicks, actual queries; compare equivalent periods |
 | Visit source | Existing referrer or campaign attribution, where available |
 | First value | Sign-ups and first successful task from existing authorized evidence; state attribution gaps |
-| Answer visibility | Exact question, engine, date, answer, cited URL, factual errors |
+| Answer visibility | Exact question, engine/model, date, language/region, signed-in state, search enabled or disabled, answer, cited URL, factual errors |
 | Support friction | First-task failures and repeated setup questions; remove personal data |
 
 Check at launch, after 48 hours, and after one week. These are manual review
@@ -91,17 +92,30 @@ points, not an automatic monitor. Small samples are directional. A citation
 does not prove a user completed a task. Do not add tracking or transmit account
 identifiers just to fill measurement gaps.
 
+Use the same fixed questions and query conditions for each comparison. Start
+each question in a fresh conversation, without project context or prior hints
+about OpenMeld. Record personalization or model settings that cannot be held
+constant. Keep repeat samples separate; do not report one answer as a stable
+ranking.
+
 ## Distribution
 
-Choose a few relevant communities where the product can be tried. Show a real
-working example and present limits. Link to the relevant guide when answering
-a real question. Do not buy links, mass-submit directories, or coordinate votes.
+Choose one primary channel and one channel for reusing the same evidence.
+Show a real working example and present limits. Link to the relevant guide
+when answering a real question. Do not buy links, mass-submit directories,
+or coordinate votes.
 
 For Show HN, confirm visitors can try something useful. The human author must
 write the submission and comments under the current
 [HN guidelines](https://news.ycombinator.com/newsguidelines.html) and
 [Show HN rules](https://news.ycombinator.com/showhn.html). Do not publish generated
 or AI-edited text there. Channel selection is not authorization to post.
+
+Use Show HN as the primary channel only when an unfamiliar visitor can complete
+a first task without help and the human author can answer comments. X can carry
+the same real demonstration. If those conditions are not met, use a small X
+announcement with an accurate recording and current access limits; do not imply
+that an unverified self-service path works or assume an existing audience.
 
 ## References
 

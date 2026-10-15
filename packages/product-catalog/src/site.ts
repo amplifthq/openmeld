@@ -35,7 +35,7 @@ export const siteConfig = {
   title: `OpenMeld | ${homePageCopy.tagline}`,
   description: `${homePageCopy.descriptionBeforeCloudAgents} ${homePageCopy.cloudAgentsLabel}, ${homePageCopy.descriptionAfterCloudAgents} (${homePageCopy.agentNames}).`,
   keywords:
-    "OpenMeld, open-source operating system, agent-native teams, AI agents, local agents, Center Agent, agent collaboration, Slack",
+    "OpenMeld, AI agent collaboration, people and agents, shared Spaces, cloud agents, local agents, Center Agent",
   robots:
     "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1",
   url: DEFAULT_SITE_URL,

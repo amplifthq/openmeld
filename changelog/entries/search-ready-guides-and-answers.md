@@ -8,8 +8,7 @@ audiences: ["users"]
 
 The website now includes answers about working with existing agents and
 self-hosting, with links to the first-task guide and deployment limits. FAQ
-answers are available in the initial page, and the website publishes a sitemap.
+answers are available when the page first loads.
 
-The seven local-agent guides explain what each connection lets your team do.
-Sign-in and account-recovery pages have clear titles and ask search engines
-not to index them.
+The seven local-agent guides explain how to connect each tool and share task
+results. The Codex guide also links to access and tool-permission guidance.
