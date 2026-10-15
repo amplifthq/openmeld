@@ -40,6 +40,7 @@ export function enqueueSpaceTaskDeliveries(input: {
   receipt: SpaceTaskMutationReceipt;
   previous: SpaceTask | null;
   authorizedActor: boolean;
+  wakeAssignee?: boolean;
   sourceDispatchChainContext?: SourceDispatchChainContext;
 }): void {
   const { task, event } = input.receipt;
@@ -75,6 +76,7 @@ export function enqueueSpaceTaskDeliveries(input: {
     enqueue("project_projection");
   }
   if (
+    (event.type === "assigned" && input.wakeAssignee) ||
     (event.type === "result_submitted" && task.phase === "in_review") ||
     event.type === "changes_requested" ||
     event.type === "rework_continued"
@@ -99,7 +101,8 @@ export function enqueueSpaceTaskDeliveries(input: {
 /** Rechecked inside Signal persistence, after asynchronous admission reads. */
 export function isSpaceTaskDeliveryCurrent(
   delivery: SpaceTaskDelivery,
-  current: SpaceTask
+  current: SpaceTask,
+  repository: Pick<SpaceTaskRepository, "listEvents">
 ): boolean {
   const { task, event } = delivery.receipt;
   if (delivery.kind === "completion") {
@@ -129,6 +132,20 @@ export function isSpaceTaskDeliveryCurrent(
     return (
       current.reviewer?.profileId === task.reviewer?.profileId &&
       current.phase === "in_review"
+    );
+  }
+  if (event.type === "assigned") {
+    const latestAssignment = repository
+      .listEvents(task.taskId)
+      .findLast(
+        (candidate) =>
+          candidate.type === "assigned" || candidate.type === "reopened"
+      );
+    return (
+      latestAssignment?.eventId === event.eventId &&
+      current.phase === "to_do" &&
+      current.assignee?.profileId === task.assignee?.profileId &&
+      current.reviewer?.profileId === task.reviewer?.profileId
     );
   }
   return (

@@ -58,6 +58,11 @@ describe("conversation Task tool boundary", () => {
   });
 
   it.each([
+    {
+      action: "delegate",
+      assigneeProfileId: "agt_22222222-2222-4222-8222-222222222222",
+      reviewerProfileId: "agt_33333333-3333-4333-8333-333333333333",
+    },
     { action: "mark_in_progress" },
     { action: "submit_result", summary: "Verified the Task flow." },
     { action: "review", decision: "accepted", expectedResultRevision: 2 },
@@ -80,7 +85,17 @@ describe("conversation Task tool boundary", () => {
       expect.objectContaining({
         spaceId: request.spaceId,
         taskId,
-        body: expect.objectContaining(action),
+        body: expect.objectContaining(
+          action.action === "delegate"
+            ? {
+                action: "assign",
+                assigneeProfileId: action.assigneeProfileId,
+                reviewerProfileId: action.reviewerProfileId,
+                wakeAssignee: true,
+                operationId: `task-delegate:${context.submissionId}:${taskId}:2`,
+              }
+            : action
+        ),
         context: expect.objectContaining({
           actorContext: expect.objectContaining({
             openMeldProfileId: request.agentProfileId,
@@ -88,5 +103,26 @@ describe("conversation Task tool boundary", () => {
         }),
       })
     );
+  });
+
+  it("refuses to delegate without an explicit reviewer decision before any Core mutation", async () => {
+    const { request: _request, ...context } = await fixture("space");
+    const mutateSpaceTask = vi.fn();
+    const tool = getRemoteAgentOpenMeldToolDefinitions({
+      ...context,
+      coreWorker: { mutateSpaceTask },
+    }).find((item) => item.name === "openmeld_manage_space_tasks");
+    if (!tool) {
+      throw new Error("Task tool missing");
+    }
+    await expect(
+      tool.execute({
+        action: "delegate",
+        taskId: "tsk_11111111-1111-4111-8111-111111111111",
+        expectedRevision: 1,
+        assigneeProfileId: "agt_22222222-2222-4222-8222-222222222222",
+      })
+    ).rejects.toThrow("explicit reviewerProfileId");
+    expect(mutateSpaceTask).not.toHaveBeenCalled();
   });
 });
