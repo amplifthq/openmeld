@@ -44,7 +44,7 @@ test("PR npm smoke covers the release matrix without publication credentials", (
 test("CLI publication waits for the same npm tarball to pass the supported consumer matrix", () => {
   const jobs = workflow("workflows/cli-release.yml").jobs;
   assert.deepEqual(jobs.npm_consumer.strategy.matrix, {
-    node: ["22.0.0", "24"],
+    node: ["22.0.0", "24", "25"],
     os: ["ubuntu-24.04", "macos-15", "windows-2025"],
   });
   assert.equal(jobs.npm_consumer.needs, "npm_artifact");

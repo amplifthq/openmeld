@@ -7,7 +7,9 @@ audiences: ["users", "developers"]
 ---
 
 The npm CLI requires Node.js 22 or later, below 26. Node.js 24 is recommended.
-The setup script and CLI startup explain how to upgrade unsupported Node installations.
-Direct npm installation only warns about the required Node.js version by default;
-on Node.js below 22, a native dependency can fail before OpenMeld runs. Upgrade Node.js before installing.
-Standalone downloads include their runtime and are unaffected.
+npm-based setup and CLI startup explain how to select a supported Node.js version.
+Node.js below 22 and Node.js 26 or later are unsupported. Direct npm installation
+only warns by default; native dependency installation can fail before OpenMeld runs.
+Use Node.js 24 before installing the npm CLI.
+The standalone OpenMeld CLI includes its own runtime. Default macOS Web setup
+installs it as a managed binary and does not require a Node.js upgrade.

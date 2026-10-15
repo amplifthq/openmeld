@@ -19,10 +19,11 @@ Imagine you can create a space for your team and let them talk to each other's a
 ## Install
 
 Requires Node.js 22 or later (below 26). Node.js 24 is recommended.
-If you have an older version, upgrade Node.js before installing or starting the CLI.
-By default, npm only warns about the required Node.js version. On Node.js below 22,
-installation can fail in a native dependency before OpenMeld can show an upgrade message.
-Standalone OpenMeld downloads include their runtime and are not affected by your installed Node.js version.
+Node.js below 22 and Node.js 26 or later are unsupported. Use Node.js 24 before installing or starting the npm CLI.
+By default, npm only warns about unsupported Node.js versions. Installation can fail
+in a native dependency before OpenMeld can show a version message.
+The standalone OpenMeld CLI includes its own runtime and is unaffected by your Node.js version.
+Web setup installs this standalone CLI as a managed binary and shows its command path.
 
 ```bash
 npm install -g openmeld@latest
