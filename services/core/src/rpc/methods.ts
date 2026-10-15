@@ -2867,6 +2867,7 @@ export type GetSpaceWakeTraceWaterfallInput = {
   spaceAccess?: SpaceAccessContext;
 };
 export type GetSpaceMessageDetailsInput = {
+  includeThreadContext?: true;
   delegationVersion?: 1;
   delegationCursor?: string;
   spaceId: string;
@@ -22827,6 +22828,7 @@ export async function rpcGetSpaceMessageDetails(
   input: GetSpaceMessageDetailsInput
 ): Promise<GetSpaceMessageDetailsResponse> {
   const parsed = getSpaceMessageDetailsInputSchema.safeParse({
+    includeThreadContext: input.includeThreadContext,
     delegationVersion: input.delegationVersion,
     delegationCursor: input.delegationCursor,
     spaceId: input.spaceId,
@@ -22850,6 +22852,7 @@ export async function rpcGetSpaceMessageDetails(
     parsed.data.spaceId
   );
   const details = await stub.rpcGetMessageDetails({
+    includeThreadContext: parsed.data.includeThreadContext,
     spaceId,
     signalId: parsed.data.signalId,
     ...(parsed.data.executionContextVersion

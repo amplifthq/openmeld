@@ -87,6 +87,14 @@ describe("prepareSpaceImageAttachment", () => {
 	});
 
 	it("reports an unsupported image when the browser cannot decode it", async () => {
+		// Neither browser decoder can read these bytes. Vitest 4 provides
+		// object URLs, but jsdom does not load images or dispatch decode errors.
+		vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:unsupported-image");
+		vi.spyOn(HTMLImageElement.prototype, "src", "set").mockImplementation(
+			function rejectImage(this: HTMLImageElement) {
+				this.dispatchEvent(new Event("error"));
+			}
+		);
 		vi.stubGlobal(
 			"createImageBitmap",
 			vi.fn().mockRejectedValue(new Error("decoder rejected bytes"))
