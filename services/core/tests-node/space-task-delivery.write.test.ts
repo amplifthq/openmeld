@@ -13,6 +13,7 @@ import {
 import { projectSpaceTaskInbox } from "../src/space/application/space-task-inbox-projection";
 import {
   createSpaceTaskForMessage,
+  formatSpaceTaskHandoffContext,
   withSpaceTaskDispatchContext,
 } from "../src/space/application/space-task-message";
 import { SpaceTaskService } from "../src/space/application/space-task-service";
@@ -98,14 +99,20 @@ function createSqlHarness(previousOutboxSchema = false) {
       repository: tasks,
       runTransaction,
       spaceId: "space-1",
-      onMutation: (receipt, previous) => {
+      onMutation: (receipt, previous, command) => {
         enqueueSpaceTaskDeliveries({
           repository: deliveries,
           receipt,
           previous,
           authorizedActor: true,
+          wakeAssignee:
+            command?.action === "assign" && command.wakeAssignee === true,
         });
-        if (failAfterEnqueue && receipt.event.type === "result_submitted") {
+        if (
+          failAfterEnqueue &&
+          (receipt.event.type === "result_submitted" ||
+            receipt.event.type === "assigned")
+        ) {
           throw new Error("interrupted before commit");
         }
       },
@@ -127,6 +134,216 @@ function createSqlHarness(previousOutboxSchema = false) {
 afterEach(() => vi.useRealTimers());
 
 describe("Space Task durable delivery", () => {
+  it("keeps delegation, explicit start, result, rework and review on one Task without inferring execution", () => {
+    const harness = createSqlHarness();
+    const coordinator: SpaceTaskActor = {
+      ...assignee,
+      profileId: "agt_44444444-4444-4444-8444-444444444444",
+      profileName: "Coordinator",
+    };
+    const members = [requester, coordinator, assignee, reviewer];
+    const context = (actor: SpaceTaskActor) => ({
+      actor,
+      isSpaceOwner: false,
+      resolveMember: (id: string) =>
+        members.find((member) => member.profileId === id) ?? null,
+    });
+    try {
+      const created = harness.service().create(
+        {
+          operationId: "create-delegated",
+          title: "Implement and review the PR",
+          assigneeProfileId: coordinator.profileId,
+          sourceSignalId: "original-request",
+          threadId: "original-thread",
+          completionConditions: ["The PR has been reviewed."],
+        },
+        { ...context(coordinator), requestedBy: requester }
+      );
+      const id = created.task.taskId;
+      const command = {
+        action: "assign" as const,
+        operationId: "delegate",
+        expectedRevision: 1,
+        assigneeProfileId: assignee.profileId,
+        reviewerProfileId: reviewer.profileId,
+        wakeAssignee: true,
+      };
+      expect(() =>
+        harness.service().mutate(id, command, context(coordinator))
+      ).toThrow("Only the requester");
+      expect(harness.tasks.readTask(id)?.revision).toBe(1);
+      expect(harness.pendingActions(Date.now())).toEqual([]);
+      for (const reviewerProfileId of [
+        assignee.profileId,
+        "agt_99999999-9999-4999-8999-999999999999",
+      ]) {
+        expect(() =>
+          harness
+            .service()
+            .mutate(
+              id,
+              { ...command, reviewerProfileId },
+              { ...context(coordinator), representedRequester: requester }
+            )
+        ).toThrow();
+      }
+      expect(() =>
+        harness.service(true).mutate(id, command, {
+          ...context(coordinator),
+          representedRequester: requester,
+        })
+      ).toThrow("interrupted before commit");
+      expect(harness.tasks.readTask(id)).toEqual(created.task);
+      expect(harness.pendingActions(Date.now())).toEqual([]);
+      const delegated = harness.service().mutate(id, command, {
+        ...context(coordinator),
+        representedRequester: requester,
+      });
+      expect(delegated.task).toMatchObject({
+        taskId: id,
+        phase: "to_do",
+        assignee,
+        reviewer,
+        sourceSignalId: "original-request",
+        threadId: "original-thread",
+      });
+      const [handoff] = harness.pendingActions(Date.now());
+      expect(handoff).toMatchObject({
+        kind: "handoff",
+        receipt: { task: { taskId: id } },
+      });
+      if (!handoff) {
+        throw new Error("Missing assignment handoff");
+      }
+      expect(isSpaceTaskDeliveryCurrent(handoff, delegated.task)).toBe(true);
+      expect(formatSpaceTaskHandoffContext(delegated.task)).toContain(
+        "start_task"
+      );
+      expect(
+        harness.service().mutate(id, command, {
+          ...context(coordinator),
+          representedRequester: requester,
+        }).applied
+      ).toBe(false);
+      expect(harness.pendingActions(Date.now())).toHaveLength(1);
+      expect(harness.deliveries.wakeRefs(id)).toEqual([]);
+      expect(() =>
+        harness.service().mutate(
+          id,
+          {
+            action: "mark_in_progress",
+            expectedRevision: 2,
+            operationId: "wrong-start",
+          },
+          { ...context(coordinator), representedRequester: requester }
+        )
+      ).toThrow("Only the current assignee");
+      const started = harness.service().mutate(
+        id,
+        {
+          action: "mark_in_progress",
+          expectedRevision: 2,
+          operationId: "start-delegated",
+        },
+        context(assignee)
+      );
+      expect(started.task.phase).toBe("in_progress");
+      expect(isSpaceTaskDeliveryCurrent(handoff, started.task)).toBe(false);
+      harness.deliveries.complete(handoff.id);
+      const submitted = harness.service().mutate(
+        id,
+        {
+          action: "submit_result",
+          expectedRevision: started.task.revision,
+          operationId: "submit-delegated",
+          summary: "PR #123; checks pass.",
+        },
+        context(assignee)
+      );
+      expect(submitted.task.phase).toBe("in_review");
+      expect(harness.pendingActions(Date.now())).toHaveLength(1);
+      const reviewContext = formatSpaceTaskHandoffContext(submitted.task);
+      expect(reviewContext).toContain(id);
+      expect(reviewContext).toContain("PR #123; checks pass.");
+      expect(reviewContext).toContain(
+        `revision ${submitted.task.result?.resultRevision}`
+      );
+      expect(reviewContext).toContain("review_task");
+      if (!submitted.task.result) {
+        throw new Error("Missing submitted result");
+      }
+      const review = {
+        action: "review" as const,
+        expectedRevision: submitted.task.revision,
+        expectedResultRevision: submitted.task.result.resultRevision,
+        operationId: "review-delegated",
+        decision: "changes_requested" as const,
+        feedback: "Fix the missing empty state.",
+      };
+      expect(() =>
+        harness.service().mutate(id, review, {
+          ...context(coordinator),
+          representedRequester: requester,
+        })
+      ).toThrow("Only the current reviewer");
+      const changes = harness.service().mutate(id, review, context(reviewer));
+      expect(changes.task.phase).toBe("in_progress");
+      expect(formatSpaceTaskHandoffContext(changes.task)).toContain(
+        "Fix the missing empty state."
+      );
+      const resubmitted = harness.service().mutate(
+        id,
+        {
+          action: "submit_result",
+          expectedRevision: changes.task.revision,
+          operationId: "resubmit",
+          summary: "Empty state fixed and verified.",
+        },
+        context(assignee)
+      );
+      expect(() =>
+        harness.service().mutate(
+          id,
+          {
+            ...review,
+            expectedRevision: resubmitted.task.revision,
+            operationId: "stale-review",
+            decision: "accepted",
+          },
+          context(reviewer)
+        )
+      ).toThrow("submitted result changed");
+      if (!resubmitted.task.result) {
+        throw new Error("Missing resubmitted result");
+      }
+      const done = harness.service().mutate(
+        id,
+        {
+          ...review,
+          expectedRevision: resubmitted.task.revision,
+          expectedResultRevision: resubmitted.task.result.resultRevision,
+          operationId: "accept",
+          decision: "accepted",
+        },
+        context(reviewer)
+      );
+      expect(done.task.phase).toBe("done");
+      expect(harness.tasks.listTasks()).toHaveLength(1);
+      expect(harness.tasks.listEvents(id).map((event) => event.type)).toEqual([
+        "created",
+        "assigned",
+        "marked_in_progress",
+        "result_submitted",
+        "changes_requested",
+        "result_submitted",
+        "review_accepted",
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
+
   it("recovers Inbox projection after a prolonged outage without dropping its delivery intent", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-10T03:00:00.000Z"));

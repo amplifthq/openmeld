@@ -69,7 +69,8 @@ export class SpaceTaskService {
   private readonly input: {
     onMutation?: (
       receipt: SpaceTaskMutationReceipt,
-      previous: SpaceTask | null
+      previous: SpaceTask | null,
+      command?: MutateSpaceTaskBody
     ) => void;
     repository: SpaceTaskRepositoryPort;
     runTransaction: <T>(callback: () => T) => T;
@@ -79,7 +80,8 @@ export class SpaceTaskService {
   constructor(input: {
     onMutation?: (
       receipt: SpaceTaskMutationReceipt,
-      previous: SpaceTask | null
+      previous: SpaceTask | null,
+      command?: MutateSpaceTaskBody
     ) => void;
     repository: SpaceTaskRepositoryPort;
     runTransaction: <T>(callback: () => T) => T;
@@ -243,7 +245,7 @@ export class SpaceTaskService {
         requestJson,
         receipt,
       });
-      this.input.onMutation?.(receipt, current);
+      this.input.onMutation?.(receipt, current, body);
       return receipt;
     });
   }

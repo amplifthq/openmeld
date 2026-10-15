@@ -1151,6 +1151,31 @@ requires Core and Gateway before Web; no local component upgrade is required.
 
 ## Space Task contracts
 
+`assign` accepts optional `reviewerProfileId` and `wakeAssignee`. Reviewer
+changes require the requester or Space owner; preserving the existing reviewer
+needs no additional authority. `wakeAssignee: true` requires an Agent assignee
+and a To do Task, and queues the initial handoff in the assignment transaction.
+The Remote Agent's `delegate` tool action requires an explicit reviewer choice
+and translates to this mutation with an idempotent operation identity. It does
+not call the generic Wake tool or infer that execution has started.
+
+For assignment, reviewer, and brief mutations only, Core may project a human
+requester from the designated Center Agent's live, authorized native delivery
+in this same Space. This projection is recomputed at the public RPC boundary;
+caller-supplied representation is discarded. Space rechecks current human
+membership and ownership, and only the Task's requester can confer these
+management permissions. Routines, Agent-authored requests, other conversations,
+and unverified senders confer no such permission. Result submission and review
+retain the acting assignee/reviewer identity and cannot use representation.
+
+Contract impact: the mutation fields are optional and Task/event/read payloads
+are unchanged. Existing CLI, Service, Skills, Gateway, and Web readers remain
+compatible, including setup, Wake, dispatch-owned Task tools, and diagnostics.
+Old Core rejects the new write fields, so deploy Core before the Remote Agent
+caller. No CLI/Service/Skills contract bump, local component release, database
+migration, or runtime lifecycle change is required. Dispatch context uses the
+existing source text snapshot and existing Task tools on both runtime families.
+
 `@openmeld/schemas` owns the strict Space Task, actor, result, review, event,
 create, mutation, list, detail, receipt, Project-set, and provider-typed
 `externalWorkItems` contracts. `externalWorkItems` and `projectIds` default to
