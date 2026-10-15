@@ -183,8 +183,9 @@ The capability comparison follows Privacy and Open Source, before the FAQ.
 It presents a static, source-reviewed matrix for six alternatives with concise
 scope labels and explicit unknowns. Its row definitions and first-party evidence
 live beside the component in `comparison-sources.md`, not in public disclosures.
-Its catalog row and the Plugins showcase share the same public catalog count;
-that count does not establish account-specific connection readiness. The table
+Its integrations row names connection methods rather than comparing incompatible
+catalog totals. The Plugins showcase retains its public catalog count; neither
+surface establishes account-specific connection readiness. The table
 composes the shared Table/Fluid ScrollArea and keeps feature names fixed during
 horizontal scrolling on narrow screens.
 
