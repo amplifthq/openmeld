@@ -284,17 +284,33 @@ describe("AppSpaceShell", () => {
 describe("AppDirectMessageShell", () => {
 	it("pairs the conversations sidebar with the shared conversation content", () => {
 		appInnerSidebarSpy.mockReset();
-		render(
+		const view = render(
 			<AppDirectMessageShell
 				currentProfileId="human-1"
-				currentSpaceId="space-dm"
+				currentSpaceId="space-1"
 			>
 				<div>Messages</div>
+				<WakeProgressProjectionTestSurface />
 			</AppDirectMessageShell>
 		);
 
-		expect(screen.getByTestId("conversations-sidebar")).toBeTruthy();
+		const sidebar = screen.getByTestId("conversations-sidebar");
+		expect(screen.getByTestId("visible-wake-progress-count").textContent).toBe(
+			"1"
+		);
 		expect(screen.getByText("Messages")).toBeTruthy();
 		expect(appInnerSidebarSpy).not.toHaveBeenCalled();
+		view.rerender(
+			<AppDirectMessageShell
+				currentProfileId="human-1"
+				currentSpaceId="space-2"
+			>
+				<ScopedWakeProjection profileId="human-1" spaceId="space-2" />
+			</AppDirectMessageShell>
+		);
+		expect(screen.getByTestId("conversations-sidebar")).toBe(sidebar);
+		expect(screen.getByTestId("scoped-projection").textContent).toBe(
+			"unpublished"
+		);
 	});
 });
