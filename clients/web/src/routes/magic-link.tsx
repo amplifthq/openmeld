@@ -1,3 +1,4 @@
+import { buildPublicPageHead } from "@openmeld/product-catalog/site";
 import { createFileRoute } from "@tanstack/react-router";
 import { AuthCard } from "#/components/auth/auth-card";
 import { AuthPageShell } from "#/components/auth/auth-page-shell";
@@ -6,6 +7,13 @@ import { ADD_ACCOUNT_AUTH_INTENT } from "#/lib/auth-intent";
 import { isSocialOAuthCallbackError } from "#/lib/auth-sign-in-error";
 
 export const Route = createFileRoute("/magic-link")({
+	head: () =>
+		buildPublicPageHead({
+			title: "Complete sign-in",
+			description: "Complete your OpenMeld email sign-in.",
+			robots: "noindex, follow",
+			includeCanonical: false,
+		}),
 	validateSearch: (
 		search: Record<string, unknown>
 	): {
