@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID } from "@openmeld/gateway-contract";
+import { buildTargetWakeLifecycleId } from "@openmeld/schemas";
 import {
   createSpaceMemberAgentSnapshot,
   createSpaceMemberHumanSnapshot,
@@ -471,7 +472,17 @@ describe("space send OpenMeld profile identity", () => {
     });
   });
 
-  it("publishes explicit recipient IDs with visible names", async () => {
+  it.each([
+    { mode: undefined, source: "none" },
+    { mode: "resume", source: "request" },
+    { mode: "resume", source: "reply" },
+    { mode: "fork", source: "reply" },
+    { mode: "resume", source: "missing" },
+    { mode: "resume", source: "other-agent" },
+  ] as const)("selects $mode from $source before publishing", async ({
+    mode,
+    source,
+  }) => {
     await withTempHome(async () => {
       const fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
         const url = new URL(String(input));
@@ -505,27 +516,95 @@ describe("space send OpenMeld profile identity", () => {
           return Promise.resolve(createPostSignalResponse());
         }
 
+        if (method === "GET" && url.pathname.endsWith("/message-details")) {
+          const details = replyMessageDetails("unthreaded");
+          details.wakeContext = {
+            state: "recorded",
+            sourceSignalId:
+              source === "missing"
+                ? { state: "not_recorded", value: null, source: "none" }
+                : {
+                    state: "recorded",
+                    value:
+                      source === "request"
+                        ? details.message.signalId
+                        : "original-request",
+                    source: "space_signal",
+                  },
+            clientMessageId: {
+              state: "not_recorded",
+              value: null,
+              source: "none",
+            },
+            targets: [
+              {
+                targetProfileId:
+                  source === "other-agent"
+                    ? "agt_99999999-2222-4333-8444-555555555555"
+                    : "agt_11111111-2222-4333-8444-555555555555",
+                targetLabel: "Budget Analyst",
+              },
+            ],
+          };
+          return Promise.resolve(Response.json(details));
+        }
+
         throw new Error(`unexpected fetch call: ${method} ${url.toString()}`);
       });
       vi.stubGlobal("fetch", fetchMock);
 
-      await withSilencedStdio(async () => {
-        await runSend({
-          openMeldProfile: createOpenMeldProfileInput({
-            openMeldProfileId: "aaaaaaaa-1111-2222-3333-000000000000",
-            profileName: "Mira",
-            profileKind: "human",
-          }),
-          baseUrl: "https://gateway.openmeld.invalid",
-          space: "demo",
-          wakeTargets: ["agt_11111111-2222-4333-8444-555555555555"],
-          mentionTargets: ["bbbbbbbb-1111-2222-3333-000000000000"],
-          text: "Please review the rollout plan.",
-          view: "human",
+      const send = () =>
+        withSilencedStdio(async () => {
+          await runSend({
+            openMeldProfile: createOpenMeldProfileInput({
+              openMeldProfileId: "aaaaaaaa-1111-2222-3333-000000000000",
+              profileName: "Mira",
+              profileKind: "human",
+            }),
+            baseUrl: "https://gateway.openmeld.invalid",
+            space: "demo",
+            wakeTargets: ["agt_11111111-2222-4333-8444-555555555555"],
+            ...(mode
+              ? {
+                  contextSelection: {
+                    mode,
+                    sourceWakeId: "unresolved-message-selection",
+                  },
+                  contextSourceSignalId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                }
+              : {}),
+            mentionTargets: ["bbbbbbbb-1111-2222-3333-000000000000"],
+            text: "Please review the rollout plan.",
+            view: "human",
+          });
         });
-      });
 
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      if (source === "missing" || source === "other-agent") {
+        await expect(send()).rejects.toThrow("No message was sent.");
+        expect(
+          fetchMock.mock.calls.every(
+            ([, init]) => !init?.method || init.method === "GET"
+          )
+        ).toBe(true);
+        return;
+      }
+      await send();
+      expect(fetchMock).toHaveBeenCalledTimes(mode ? 3 : 2);
+      if (mode) {
+        expect(parsePostSignalBody(fetchMock)).toMatchObject({
+          contextSelection: {
+            mode,
+            sourceWakeId: buildTargetWakeLifecycleId({
+              spaceId: "demo",
+              sourceSignalId:
+                source === "request"
+                  ? "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+                  : "original-request",
+              targetProfileId: "agt_11111111-2222-4333-8444-555555555555",
+            }),
+          },
+        });
+      }
       expect(parsePostSignalBody(fetchMock)).toMatchObject({
         text: "@Budget Analyst @Jordan Please review the rollout plan.",
         meta: {

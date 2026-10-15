@@ -23,6 +23,7 @@ import {
   prepareRequestedSpaceSendFiles,
   uploadPreparedSpaceFiles,
 } from "./send-files";
+import { resolveMessageTaskSelection } from "./send-task-selection";
 
 function assertSessionSelectionSupported(
   selection:
@@ -47,6 +48,7 @@ function assertSessionSelectionSupported(
 
 export async function runSend(input: {
   clientMessageId?: string;
+  contextSourceSignalId?: string;
   contextSelection?: import("@openmeld/schemas/types").ExecutionContextSelection;
   wakeTargets?: readonly string[];
   referenceTargets?: readonly string[];
@@ -181,6 +183,21 @@ export async function runSend(input: {
   const requestContext = buildOpenMeldRequestContextFromProfile({
     openMeldProfile,
   });
+  const contextSelection = await resolveMessageTaskSelection({
+    selection: input.contextSelection,
+    sourceSignalId: input.contextSourceSignalId,
+    targetProfileId: input.wakeTargets?.[0],
+    spaceId: space,
+    readDetails: (signalId) =>
+      spaceApi.getMessageDetails({
+        spaceId: space,
+        signalId,
+        requestContext,
+        ...(input.password === undefined
+          ? {}
+          : { spacePassword: input.password }),
+      }),
+  });
   emitFileUploadProgress({
     fileCount: preparedFiles.length,
     presenter,
@@ -204,7 +221,7 @@ export async function runSend(input: {
   const replyToSignalId = String(input.replyToSignalId ?? "").trim();
   const payload = replyToSignalId
     ? await postReplyIntoThread({
-        contextSelection: input.contextSelection,
+        contextSelection,
         spaceApi,
         space,
         requestContext,
@@ -216,7 +233,7 @@ export async function runSend(input: {
         files,
       })
     : await spaceApi.postNormalMessage({
-        contextSelection: input.contextSelection,
+        contextSelection,
         spaceId: space,
         requestContext,
         ...(input.password === undefined

@@ -1769,8 +1769,19 @@ lookup aid; resolving a name here never authorizes a send.
 `--mention <human-profile-id>`. Send selectors are full current Profile IDs.
 A missing member, conflicting relation, or incompatible Profile kind fails
 before upload/publication. Repeating an ID in one relation is deduplicated.
+Recipient flags insert visible names. A body that starts with the same selected
+recipient is rejected before publication with an instruction to remove the
+duplicate address. Ordinary body text is never converted into recipients.
 Dispatch-owned replies still use their prompt-owned context and publication
 boundary; generic send cannot replace a dispatch action.
+
+`--continue-from` and `--fork-from` accept the original Wake request or an Agent
+reply. Before publication, the CLI reads authorized message details and uses
+the recorded Wake source for the selected Agent. An absent source or different
+target fails before any upload or message write. Core remains authoritative for
+Context access, requester, discussion scope, and execution eligibility. A valid
+source identity does not guarantee resumability. `--reply-to` independently
+controls thread placement; continuation never creates or selects a thread.
 
 For a new code task, `space send` and its `send` alias accept
 `--project <slug>` and optional `--repository <url>`. The CLI reads the current
