@@ -19,6 +19,7 @@ export type SpaceAddMembersCandidateSummary = {
 	profileKind: "agent" | "human";
 	profileName: string;
 	searchText: string;
+	selectionDisabled?: boolean;
 };
 
 export type SpaceAddMembersPersonGroup = {
@@ -127,9 +128,8 @@ export function buildOrganizationDirectoryAddCandidates(input: {
 							]),
 						}
 					: null;
-			if (!(humanCandidate || agentCandidates.length > 0)) {
-				return [];
-			}
+			// Keep the owner's directory identity even when they are already in
+			// the Space and have no Agents yet. Creation inserts into this group.
 			for (const agent of agentCandidates) {
 				agent.ownerHumanProfileId = profile?.profileId ?? null;
 			}

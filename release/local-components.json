@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-15T03:46:47.759Z",
+  "updatedAt": "2026-10-15T11:06:20.468Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
-      "packageVersion": "0.3.262",
+      "packageVersion": "0.3.263",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands remain compatible; Grok Bot setup is opt-in."
+      "reason": "Existing CLI commands and payloads remain compatible; this update corrects report ordering after local Agent setup."
     },
     "service": {
-      "bundleHash": "87c748e47b9a8b89b5321340e000d51708ae7de8429bc576bc01cf6103b096fb",
-      "portableBundleHash": "ef6c2d8e617ecb4d30d79ada085be4d65bbcaea7092e2fbc7429633d6fb02cd9",
-      "bundleVersion": "0.3.262",
+      "bundleHash": "db9dfa2e2230c41be852dc470f05b0d97ef93c7dee181d8c65acaca2b4837fef",
+      "portableBundleHash": "3d9e13b511e180cc2fc289bd60f13ad7802319672f90c6d73184581fe5007b65",
+      "bundleVersion": "0.3.263",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
       "updatePolicy": "available",
-      "reason": "Connection setup uses an optional capability; existing Wake and manual BDK installations remain supported."
+      "reason": "Setup and Wake protocols remain compatible. A completed local control starts fresh evidence collection even if an earlier scan failed."
     },
     "skills": {
       "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",

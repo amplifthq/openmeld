@@ -913,19 +913,27 @@ function useCreateProfileDialogController(
 		target: bindingTarget,
 	});
 	const retryCreationConnection = () => {
-		Promise.all([
+		refreshCreationConnection().catch((error: unknown) =>
+			console.error("Could not refresh the computer for Agent creation.", error)
+		);
+	};
+	const refreshCreationConnection = async () => {
+		if (
 			creationGuidance === "set_up_local_agents" &&
 			bindingTarget &&
 			canConfigureLocalComputer()
-				? recovery.refreshLocalAgentCatalog({
-						deviceId: bindingTarget.deviceId,
-						runtimeLane: bindingTarget.runtimeLane,
-					})
-				: recovery.refreshAll(),
-			creationComputerReadiness.refetch(),
-		]).catch((error: unknown) =>
-			console.error("Could not refresh the computer for Agent creation.", error)
-		);
+		) {
+			await recovery.refreshLocalAgentCatalog({
+				deviceId: bindingTarget.deviceId,
+				runtimeLane: bindingTarget.runtimeLane,
+			});
+			await creationComputerReadiness.refetch({ throwOnError: true });
+		} else {
+			await Promise.all([
+				recovery.refreshAll(),
+				creationComputerReadiness.refetch({ throwOnError: true }),
+			]);
+		}
 	};
 	const { computerRecovery, reconnectComputerId } =
 		useAgentCreationComputerRecovery({
@@ -966,6 +974,12 @@ function useCreateProfileDialogController(
 		creationGuidance,
 		isResolvingLocalAgents,
 		onRetry: retryCreationConnection,
+		onSetupChanged: async () => {
+			// Setup owns the local probe. Read its published inventory instead of
+			// starting another all-agent probe and waiting on unrelated providers.
+			await recovery.localRuntimesQuery.refetch({ throwOnError: true });
+			await creationComputerReadiness.refetch({ throwOnError: true });
+		},
 		orgSlug,
 		ownerMode,
 		recovery,
@@ -2382,6 +2396,7 @@ function resolveSelectedLocalAgentSubmitBlockReason(input: {
 }
 
 function resolveLocalAgentSelectionState(input: {
+	onSetupChanged: () => Promise<void>;
 	bindingTarget: ReturnType<typeof resolveProfileBindingCatalogExecutionTarget>;
 	computerRecovery:
 		| import("./agent-creation-computer-recovery").AgentCreationComputerRecovery
@@ -2454,6 +2469,7 @@ function resolveLocalAgentSelectionState(input: {
 }
 
 function resolveConnectionSetup(input: {
+	onSetupChanged: () => Promise<void>;
 	selectedLocalAgentId: string;
 	bindingTarget: ReturnType<typeof resolveProfileBindingCatalogExecutionTarget>;
 	recovery: RecoveryController;
@@ -2466,6 +2482,7 @@ function resolveConnectionSetup(input: {
 	}
 	return {
 		connectionSetup: {
+			onChanged: input.onSetupChanged,
 			target: {
 				deviceId: input.bindingTarget.deviceId,
 				runtimeLane: input.bindingTarget.runtimeLane,
