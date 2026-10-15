@@ -50,6 +50,9 @@ Database, Auth and standalone Core still need the local PostgreSQL release
 environment; the command reports this before dispatching an unsupported stage.
 An interrupted command can be repeated at the same source and base: current
 components are skipped and active exact-source GitHub runs are followed.
+Automatic local stages receive the complete planned train in their child
+environment. An explicitly supplied `OPENMELD_PRODUCTION_TRAIN_SCOPES` remains
+authoritative; continuation does not widen it or change the parent environment.
 Failed runs stop the command. An uncertain dispatch is reported, never retried
 automatically. Use a current `gh` version that returns the created workflow URL.
 
