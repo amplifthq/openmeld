@@ -1,0 +1,31 @@
+---
+title: Self-hosting
+description: What OpenMeld's MIT source provides, and how connecting a local computer differs from hosting the complete system.
+---
+
+OpenMeld publishes its source under the MIT license. A complete standalone
+self-hosting installation is not currently documented or supported. There is no
+supported one-command or Docker Compose installation for the complete system.
+
+## How can I use OpenMeld today?
+
+Use the hosted app and follow the [first-task guide](/docs/start/quickstart).
+You can start with the cloud Center Agent without installing a local agent.
+
+## Does connecting my computer mean I am self-hosting?
+
+No. [Connecting a computer](/docs/start/connect-computer) lets local agents work
+with files and tools on that computer. The shared collaboration services still
+run in OpenMeld's cloud. Shared conversations and published results do not stay
+only on your computer. Read [where data is stored](/docs/security-and-privacy/data-storage)
+before sharing private information.
+
+## What does the source repository provide?
+
+The [public repository](https://github.com/amplifthq/openmeld) provides source for
+the clients and services. Its development and release instructions target the
+maintainers' configured environments. They do not set up an independent
+installation with your own infrastructure, secrets, authentication, and storage.
+
+Read the repository's [self-hosting status](https://github.com/amplifthq/openmeld/blob/main/docs/self-hosting.md)
+for the current limits and how to propose a repeatable installation path.

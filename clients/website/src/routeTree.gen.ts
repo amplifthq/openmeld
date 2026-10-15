@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ChangelogRouteImport } from './routes/changelog'
 import { Route as DownloadsRouteImport } from './routes/downloads'
 import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as GuidesLocalAgentsRouteImport } from './routes/guides/local-agents'
 import { Route as GuidesLocalAgentsAgentIdRouteImport } from './routes/guides/local-agents.$agentId'
@@ -37,6 +38,11 @@ const PrivacyRoute = PrivacyRouteImport.update({
   path: '/privacy',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
@@ -59,6 +65,7 @@ export interface FileRoutesByFullPath {
   '/changelog': typeof ChangelogRoute
   '/downloads': typeof DownloadsRoute
   '/privacy': typeof PrivacyRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
   '/guides/local-agents': typeof GuidesLocalAgentsRouteWithChildren
   '/guides/local-agents/$agentId': typeof GuidesLocalAgentsAgentIdRoute
@@ -68,6 +75,7 @@ export interface FileRoutesByTo {
   '/changelog': typeof ChangelogRoute
   '/downloads': typeof DownloadsRoute
   '/privacy': typeof PrivacyRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
   '/guides/local-agents': typeof GuidesLocalAgentsRouteWithChildren
   '/guides/local-agents/$agentId': typeof GuidesLocalAgentsAgentIdRoute
@@ -78,6 +86,7 @@ export interface FileRoutesById {
   '/changelog': typeof ChangelogRoute
   '/downloads': typeof DownloadsRoute
   '/privacy': typeof PrivacyRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
   '/guides/local-agents': typeof GuidesLocalAgentsRouteWithChildren
   '/guides/local-agents/$agentId': typeof GuidesLocalAgentsAgentIdRoute
@@ -89,6 +98,7 @@ export interface FileRouteTypes {
     | '/changelog'
     | '/downloads'
     | '/privacy'
+    | '/sitemap.xml'
     | '/terms'
     | '/guides/local-agents'
     | '/guides/local-agents/$agentId'
@@ -98,6 +108,7 @@ export interface FileRouteTypes {
     | '/changelog'
     | '/downloads'
     | '/privacy'
+    | '/sitemap.xml'
     | '/terms'
     | '/guides/local-agents'
     | '/guides/local-agents/$agentId'
@@ -107,6 +118,7 @@ export interface FileRouteTypes {
     | '/changelog'
     | '/downloads'
     | '/privacy'
+    | '/sitemap.xml'
     | '/terms'
     | '/guides/local-agents'
     | '/guides/local-agents/$agentId'
@@ -117,6 +129,7 @@ export interface RootRouteChildren {
   ChangelogRoute: typeof ChangelogRoute
   DownloadsRoute: typeof DownloadsRoute
   PrivacyRoute: typeof PrivacyRoute
+  SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   TermsRoute: typeof TermsRoute
   GuidesLocalAgentsRoute: typeof GuidesLocalAgentsRouteWithChildren
 }
@@ -149,6 +162,13 @@ declare module '@tanstack/react-router' {
       path: '/privacy'
       fullPath: '/privacy'
       preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/terms': {
@@ -191,6 +211,7 @@ const rootRouteChildren: RootRouteChildren = {
   ChangelogRoute: ChangelogRoute,
   DownloadsRoute: DownloadsRoute,
   PrivacyRoute: PrivacyRoute,
+  SitemapDotxmlRoute: SitemapDotxmlRoute,
   TermsRoute: TermsRoute,
   GuidesLocalAgentsRoute: GuidesLocalAgentsRouteWithChildren,
 }
