@@ -419,16 +419,19 @@ merge evidence.
 
 ## Merge
 
-Repository protection for `main` requires:
+The project merge contract requires:
 
 - changes through a pull request;
 - exact `OpenMeld Final Candidate` success;
-- merge queue validation or strict up-to-date protection; and
-- human approval count zero.
+- merge queue validation or current-main ancestry and current-base evidence; and
+- compliance with live GitHub rules, including the authenticated actor's
+  configured review exemptions.
 
 Do not pin the status to the GitHub Actions app because the guarded local
-fallback publishes the same context. Review beyond the responsible agent's own
-evaluation is required only when the task explicitly asks for it.
+fallback publishes the same context. Additional review follows the user's
+request and the live rules applicable to the authenticated actor. Do not
+hard-code a zero approval count: a ruleset can require approval by default
+while allowing named actors to merge through a pull request without it.
 
 Immediately before merge, re-read the live head, evidence identity, status,
 mergeability, and active Ruleset. If the head changed, create a new candidate.
@@ -436,11 +439,43 @@ If only `main` changed, let merge queue validate the new merge group or sync and
 run one new current-base candidate. Do not rerun completed checks merely to
 produce ceremonial evidence.
 
+Before reporting an approval blocker, distinguish the PR's default review
+state from the current actor's effective permission. `REVIEW_REQUIRED`,
+`BLOCKED`, and a refusal from ordinary `gh pr merge` are not sufficient proof
+that the authenticated actor needs another reviewer. Check:
+
+```sh
+gh api user --jq '{login,id}'
+gh api repos/<owner>/<repo>/rules/branches/main
+# For every applicable ruleset, use its source repository or organization.
+gh api repos/<owner>/<repo>/rulesets/<ruleset-id>
+```
+
+Inspect `current_user_can_bypass`, `bypass_actors`, and `bypass_mode` in each
+applicable ruleset, plus any separate branch protection. The branch rules
+summary alone does not establish actor exemptions. A repository admin role
+alone also does not establish an exemption. Missing permission evidence is
+unknown, not proof that an exemption was removed. For a suspected policy
+change, inspect the ruleset's `/history` and `/history/<version-id>` endpoints
+before claiming who changed it or what changed.
+
+When the user has authorized the merge, the current actor has an existing
+exemption covering the unmet review requirement, and all other project and
+GitHub requirements are satisfied, use that permission without asking the user
+for approval again. If ordinary `gh pr merge` refuses on that review state,
+the CLI's `--admin` option can exercise the existing exemption. This does not
+change the ruleset or add permissions. Never use it to skip failed or pending
+validation, stale Final Candidate evidence, an unresolved conflict, a required
+merge queue, or review explicitly requested by the user. Do not edit rules or
+add bypass actors to complete a merge task.
+
 From an isolated worktree, merge the remote pull request without coupling that
 operation to local branch deletion:
 
 ```sh
-gh pr merge <pr-number> --merge
+gh pr merge <pr-number> --merge --match-head-commit <verified-head-sha>
+# Only for the verified review-exemption case described above:
+gh pr merge <pr-number> --merge --admin --match-head-commit <verified-head-sha>
 gh pr view <pr-number> --json state,mergedAt,mergeCommit
 ```
 
