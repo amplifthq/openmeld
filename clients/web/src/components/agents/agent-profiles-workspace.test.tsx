@@ -22,11 +22,17 @@ vi.mock("#/components/directory/team-people-sidebar", () => ({
 	TeamPeopleSidebar: () => <nav aria-label="People" />,
 }));
 
+vi.mock("#/components/directory/center-agent-item", () => ({
+	CenterAgentItem: () => <div>Center Agent</div>,
+}));
+
+const organization = vi.hoisted(() => ({ id: "org-test", slug: "test" }));
+
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => ({
 		account: { name: "Current member" },
 		currentUserId: "user-current",
-		currentOrganization: { id: "org-test", slug: "test" },
+		currentOrganization: organization,
 	}),
 }));
 vi.mock("#/components/app/use-sidebar-preferences", () => ({
@@ -128,11 +134,98 @@ const TEST_MODEL_CATALOG: ModelCatalog = {
 
 afterEach(() => {
 	cleanup();
+	window.localStorage.clear();
+	organization.id = "org-test";
 	appFullWidthLayoutSpy.mockReset();
 	appNavigationPresentationSpy.mockClear();
 });
 
 describe("AgentProfilesWorkspace", () => {
+	it.each([
+		"account",
+		"workspace",
+	])("isolates saved Agent views by %s", (scope) => {
+		const { rerenderWorkspace } = renderWorkspace({ person: undefined });
+		fireEvent.click(screen.getByRole("tab", { name: "My Agents" }));
+		fireEvent.click(screen.getByRole("button", { name: "Search Agents" }));
+		fireEvent.change(screen.getByRole("searchbox"), {
+			target: { value: "Felix" },
+		});
+		if (scope === "workspace") {
+			organization.id = "org-other";
+		}
+		rerenderWorkspace({
+			currentUserId: scope === "account" ? "user-other" : CURRENT_USER_ID,
+		});
+		expect(
+			screen
+				.getByRole("tab", { name: "All Agents" })
+				.getAttribute("aria-selected")
+		).toBe("true");
+		expect(screen.queryByRole("searchbox")).toBeNull();
+		organization.id = "org-test";
+		rerenderWorkspace({ currentUserId: CURRENT_USER_ID });
+		expect(
+			screen
+				.getByRole("tab", { name: "My Agents" })
+				.getAttribute("aria-selected")
+		).toBe("true");
+		expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe(
+			"Felix"
+		);
+	});
+	it("switches the directory to owned Agents and restores search and filters after detail navigation", () => {
+		const { rerenderWorkspace } = renderWorkspace({ person: undefined });
+		fireEvent.click(screen.getByRole("tab", { name: "My Agents" }));
+		expect(
+			screen.getByRole("button", { name: "Open Felix Agent" })
+		).toBeTruthy();
+		expect(screen.queryByText("Center Agent")).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Open Other Agent" })
+		).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Search Agents" }));
+		fireEvent.change(screen.getByRole("searchbox"), {
+			target: { value: "Felix" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "Agent view settings" })
+		);
+		fireEvent.click(
+			screen.getByRole("menuitemcheckbox", { name: AVAILABLE_STATUS_NAME })
+		);
+		fireEvent.keyDown(document.activeElement ?? document.body, {
+			key: "Escape",
+		});
+		rerenderWorkspace({ selectedProfileId: "agent-current" });
+		expect(screen.getByTestId("selected-agent-detail").textContent).toBe(
+			"Felix Agent"
+		);
+		rerenderWorkspace({ selectedProfileId: null });
+		expect(
+			screen
+				.getByRole("tab", { name: "My Agents" })
+				.getAttribute("aria-selected")
+		).toBe("true");
+		expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe(
+			"Felix"
+		);
+		expect(
+			screen.getByRole("button", { name: "Remove Available filter" })
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "Open Felix Agent" })
+		).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Close search" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Remove Available filter" })
+		);
+		fireEvent.click(screen.getByRole("tab", { name: "All Agents" }));
+		expect(screen.getByText("Center Agent")).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "Open Other Agent" })
+		).toBeTruthy();
+	});
 	it("keeps only profile groups in the main sidebar", () => {
 		renderWorkspace({ creationAttentionCount: 2 });
 		const sidebar = screen.getByTestId("agents-main-sidebar");
@@ -162,9 +255,18 @@ describe("AgentProfilesWorkspace", () => {
 		);
 		expect(screen.getByTestId("agents-main-sidebar").textContent).toBe("");
 	});
-	it("opens details only after selecting a card", () => {
+	it.each([
+		false,
+		true,
+	])("opens details after selecting a card (My Agents: %s)", (myAgents) => {
 		const onSelectProfile = vi.fn();
-		renderWorkspace({ onSelectProfile });
+		renderWorkspace({
+			onSelectProfile,
+			...(myAgents ? { person: undefined } : {}),
+		});
+		if (myAgents) {
+			fireEvent.click(screen.getByRole("tab", { name: "My Agents" }));
+		}
 		expect(screen.queryByTestId("selected-agent-detail")).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Open Felix Agent" }));
 		expect(onSelectProfile).toHaveBeenCalledWith("agent-current");
@@ -637,12 +739,19 @@ describe("AgentProfilesWorkspace", () => {
 			screen.getByRole("button", { name: "Open Felix Agent" })
 		).toBeTruthy();
 	});
-	it("offers creation when a personal Agent list is empty", () => {
+	it.each([
+		false,
+		true,
+	])("offers creation when an owned Agent list is empty (My Agents: %s)", (myAgents) => {
 		const onCreateAgent = vi.fn();
 		const { rerenderWorkspace } = renderWorkspace({
 			profiles: [],
+			...(myAgents ? { person: undefined } : {}),
 			onCreateAgent,
 		});
+		if (myAgents) {
+			fireEvent.click(screen.getByRole("tab", { name: "My Agents" }));
+		}
 		expect(screen.getByText("No Agents yet.")).toBeTruthy();
 		expect(
 			screen.getByText("Create your first Agent to start working together.")
@@ -656,16 +765,26 @@ describe("AgentProfilesWorkspace", () => {
 		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
 		expect(screen.getByText("No Agents yet.")).toBeTruthy();
 	});
-	it("keeps navigation and a detail-shaped placeholder while the selected Agent is unresolved", () => {
+	it.each([
+		false,
+		true,
+	])("keeps the return destination while loading details (directory: %s)", (fromDirectory) => {
 		const { rerenderWorkspace } = renderWorkspace({
 			profiles: [],
 			profilesStatus: "loading",
 			selectedProfileId: "agent-other",
+			agentListReturn: fromDirectory
+				? { to: "/o/test/agents", label: "Back to Agents" }
+				: undefined,
 		});
 		expect(screen.getByRole("navigation", { name: "People" })).toBeTruthy();
 		expect(
-			screen.getByRole("link", { name: "Felix’s Agents" }).getAttribute("href")
-		).toBe("/people/person/agents");
+			screen
+				.getByRole("link", {
+					name: fromDirectory ? "Back to Agents" : "Felix’s Agents",
+				})
+				.getAttribute("href")
+		).toBe(fromDirectory ? "/o/test/agents" : "/people/person/agents");
 		expect(
 			screen.getByRole("status", { name: "Loading Agent details" })
 		).toBeTruthy();
@@ -716,6 +835,18 @@ function renderWorkspace(
 			creationAttentionCount={0}
 			currentUserId={CURRENT_USER_ID}
 			initialSidebarStates={undefined}
+			members={[
+				[CURRENT_USER_ID, "Felix"],
+				["user-other", "Mira"],
+			].map(([userId = "", name = ""]) => ({
+				humanProfile: null,
+				joinedAt: "2026-08-01T00:00:00.000Z",
+				memberId: userId,
+				organizationId: "org-test",
+				role: "member",
+				userId,
+				user: { id: userId, name, image: null, email: `${userId}@example.com` },
+			}))}
 			modelCatalog={TEST_MODEL_CATALOG}
 			onCreateAgent={vi.fn()}
 			onSelectProfile={vi.fn()}

@@ -27,6 +27,7 @@ const AGENT_REQUESTS_DESCRIPTION =
 	"Review Agents you created and finish any setup that needs attention.";
 
 export type AgentProfilesWorkspaceProps = {
+	agentListReturn?: { to: string; label: string };
 	onDeleteProfiles?: import("./agent-list-selection").DeleteAgents;
 	directoryProfiles?: OrganizationProfileDirectoryResponse["agentProfiles"];
 	taskActivityAvailable?: boolean;
@@ -194,53 +195,48 @@ function AgentRequestsWorkspace(input: { input: AgentProfilesWorkspaceProps }) {
 }
 
 function AgentWorkspaceHeader(input: AgentProfilesWorkspaceProps) {
+	if (!input.person) {
+		return null;
+	}
+	const returnLink =
+		input.agentListReturn ??
+		(input.selectedProfileId
+			? { to: input.person.agentsPath, label: `${input.person.name}’s Agents` }
+			: { to: input.person.path, label: input.person.name });
 	return (
-		<>
-			{input.person ? (
-				<div className="w-full px-[var(--app-page-inline-padding)] pt-5">
-					<Link
-						className="inline-flex items-center gap-2 text-muted-foreground text-sm hover:text-foreground"
-						to={
-							input.selectedProfileId
-								? input.person.agentsPath
-								: input.person.path
-						}
-					>
-						<ArrowLeftIcon aria-hidden="true" />
-						{input.selectedProfileId
-							? `${input.person.name}’s Agents`
-							: input.person.name}
-					</Link>
-					{!input.selectedProfileId && input.activeView === "agents" ? (
-						<header className="mt-5 flex flex-wrap items-center justify-between gap-3">
-							<h1 className="font-medium text-xl">
-								{input.person.name}’s Agents
-							</h1>
-							<div className="flex items-center gap-2">
-								{input.isOrganizationContext &&
-								input.canCreateAgent !== false ? (
-									<Button
-										onClick={() => input.onViewChange("requests")}
-										size="sm"
-										variant="secondary"
-									>
-										Creation history
-										{input.creationAttentionCount > 0
-											? ` · Needs attention: ${input.creationAttentionCount}`
-											: ""}
-									</Button>
-								) : null}
-								{input.canCreateAgent !== false && input.hasAnyProfiles ? (
-									<Button onClick={input.onCreateAgent} size="sm">
-										<PlusIcon aria-hidden="true" />
-										Create Agent
-									</Button>
-								) : null}
-							</div>
-						</header>
-					) : null}
-				</div>
+		<div className="w-full px-[var(--app-page-inline-padding)] pt-5">
+			<Link
+				className="inline-flex items-center gap-2 text-muted-foreground text-sm hover:text-foreground"
+				to={returnLink.to}
+			>
+				<ArrowLeftIcon aria-hidden="true" />
+				{returnLink.label}
+			</Link>
+			{!input.selectedProfileId && input.activeView === "agents" ? (
+				<header className="mt-5 flex flex-wrap items-center justify-between gap-3">
+					<h1 className="font-medium text-xl">{input.person.name}’s Agents</h1>
+					<div className="flex items-center gap-2">
+						{input.isOrganizationContext && input.canCreateAgent !== false ? (
+							<Button
+								onClick={() => input.onViewChange("requests")}
+								size="sm"
+								variant="secondary"
+							>
+								Creation history
+								{input.creationAttentionCount > 0
+									? ` · Needs attention: ${input.creationAttentionCount}`
+									: ""}
+							</Button>
+						) : null}
+						{input.canCreateAgent !== false && input.hasAnyProfiles ? (
+							<Button onClick={input.onCreateAgent} size="sm">
+								<PlusIcon aria-hidden="true" />
+								Create Agent
+							</Button>
+						) : null}
+					</div>
+				</header>
 			) : null}
-		</>
+		</div>
 	);
 }
