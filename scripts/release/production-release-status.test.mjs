@@ -74,6 +74,27 @@ test("cutover preserves hosted provenance and rejects another repository or inco
   );
   for (const corrupt of [
     (value) => {
+      value.source.id = 123;
+    },
+    (value) => {
+      value.source.repository = "other/repository";
+      for (const run of value.runs) {
+        run.url = `https://github.com/other/repository/actions/runs/${run.databaseId}`;
+      }
+    },
+    (value) => {
+      value.runs[0].jobs[0].name = "Deploy Website";
+    },
+    (value) => {
+      value.runs[0].jobs[0].completed_at = "2026-10-15T00:00:00Z";
+    },
+    (value) => {
+      value.runs[0].jobs[0].completed_at = "2026-10-14T00:00:00Z";
+    },
+    (value) => {
+      value.runs[0].updatedAt = "invalid";
+    },
+    (value) => {
       value.runs[0].jobs[0].conclusion = "failure";
     },
     (value) => {

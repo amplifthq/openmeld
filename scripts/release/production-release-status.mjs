@@ -33,7 +33,6 @@ const RELEASE_JOB_BATCH_SIZE = 16;
 const RELEASE_TITLE_SOURCE_REGEX = /@ ([0-9a-f]{40})$/u;
 const SCOPED_RELEASE_WORKFLOW_REGEX = /Scoped Production Release/u;
 const EXACT_SOURCE_SHA = /^[0-9a-f]{40}$/u;
-const REPOSITORY_NAME = /^[\w.-]+\/[\w.-]+$/u;
 const SUCCESSFUL_JOB_SCOPES = [
   {
     patterns: [
@@ -346,7 +345,8 @@ export function migratedHostedReleaseSources(
     snapshot.source.id === repositoryId ||
     !Number.isSafeInteger(snapshot.source.id) ||
     snapshot.source.id <= 0 ||
-    !REPOSITORY_NAME.test(snapshot.source.repository) ||
+    snapshot.source.id !== 1_331_245_823 ||
+    snapshot.source.repository !== "amplifthq/openmeld-private" ||
     !Number.isFinite(Date.parse(snapshot.capturedAt)) ||
     !Array.isArray(snapshot.runs) ||
     snapshot.runs.length === 0
@@ -355,6 +355,9 @@ export function migratedHostedReleaseSources(
   }
   const jobsByRunId = new Map();
   const runs = snapshot.runs.map(({ jobs, ...run }) => {
+    const createdAt = Date.parse(run.createdAt);
+    const updatedAt = Date.parse(run.updatedAt);
+    const workflowScopes = releaseWorkflowScopes(run.workflowName);
     if (
       !(
         Number.isSafeInteger(run.databaseId) &&
@@ -368,7 +371,11 @@ export function migratedHostedReleaseSources(
       !EXACT_SOURCE_SHA.test(run.headSha) ||
       RELEASE_TITLE_SOURCE_REGEX.exec(run.displayTitle ?? "")?.[1] !==
         run.headSha ||
-      !releaseWorkflowScopes(run.workflowName).length ||
+      !workflowScopes.length ||
+      !Number.isFinite(createdAt) ||
+      !Number.isFinite(updatedAt) ||
+      createdAt > updatedAt ||
+      updatedAt > Date.parse(snapshot.capturedAt) ||
       run.url !==
         `https://github.com/${snapshot.source.repository}/actions/runs/${run.databaseId}` ||
       !Array.isArray(jobs) ||
@@ -384,8 +391,12 @@ export function migratedHostedReleaseSources(
         job.status !== "completed" ||
         job.conclusion !== "success" ||
         !releaseJobScopes(job).length ||
+        !releaseJobScopes(job).every((scope) =>
+          workflowScopes.includes(scope)
+        ) ||
         !Number.isFinite(Date.parse(job.completed_at)) ||
-        Date.parse(job.completed_at) > Date.parse(snapshot.capturedAt)
+        Date.parse(job.completed_at) < createdAt ||
+        Date.parse(job.completed_at) > updatedAt
       ) {
         throw new Error("Invalid migrated hosted job evidence.");
       }
@@ -1338,7 +1349,9 @@ function defaultAdapters() {
         const snapshot = JSON.parse(
           runGit(["show", `${sourceSha}:${migrationPath}`])
         );
-        const repositoryId = JSON.parse(runGh(["api", `repos/${repo}`])).id;
+        const repositoryId = JSON.parse(
+          runGh(["api", `repos/${repo}`], 30_000)
+        ).id;
         for (const [scope, source] of migratedHostedReleaseSources(
           snapshot,
           repo,
@@ -1615,8 +1628,9 @@ function readRequiredArgument(argv, index, option) {
   return value;
 }
 
-function runGh(args) {
+function runGh(args, timeout) {
   return execFileSync(resolveCommandBinary("gh"), args, {
+    timeout,
     encoding: "utf8",
     maxBuffer: 1024 * 1024 * 10,
   });
