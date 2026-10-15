@@ -918,7 +918,11 @@ function useCreateProfileDialogController(
 		);
 	};
 	const refreshCreationConnection = async () => {
-		if (bindingTarget && canConfigureLocalComputer()) {
+		if (
+			creationGuidance === "set_up_local_agents" &&
+			bindingTarget &&
+			canConfigureLocalComputer()
+		) {
 			await recovery.refreshLocalAgentCatalog({
 				deviceId: bindingTarget.deviceId,
 				runtimeLane: bindingTarget.runtimeLane,
