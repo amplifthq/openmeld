@@ -231,7 +231,9 @@ export class SpaceTaskService {
         type: transition.eventType,
         actor: context.actor,
         fromPhase: current.phase,
-        detail: transition.detail,
+        detail: context.representedRequester
+          ? `On behalf of ${context.representedRequester.profileName} (${context.representedRequester.profileId}).${transition.detail ? ` ${transition.detail}` : ""}`
+          : transition.detail,
       });
       const receipt = spaceTaskMutationReceiptSchema.parse({
         task: transition.task,

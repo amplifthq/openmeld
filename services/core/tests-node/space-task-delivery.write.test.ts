@@ -134,6 +134,123 @@ function createSqlHarness(previousOutboxSchema = false) {
 afterEach(() => vi.useRealTimers());
 
 describe("Space Task durable delivery", () => {
+  it.each([
+    "reassignment",
+    "reopen",
+  ] as const)("keeps a pending assignment across metadata updates but fences a later %s", (reset) => {
+    const harness = createSqlHarness();
+    const context = {
+      actor: requester,
+      isSpaceOwner: false,
+      resolveMember: (id: string) =>
+        [requester, assignee, reviewer].find(
+          (member) => member.profileId === id
+        ) ?? null,
+    };
+    try {
+      const created = harness.service().create(
+        {
+          operationId: "create-pending",
+          title: "Retry the same assignment",
+          assigneeProfileId: assignee.profileId,
+          reviewerProfileId: reviewer.profileId,
+        },
+        { ...context, requestedBy: requester }
+      );
+      const assigned = harness.service().mutate(
+        created.task.taskId,
+        {
+          action: "assign",
+          operationId: "assign-pending",
+          expectedRevision: created.task.revision,
+          assigneeProfileId: assignee.profileId,
+          wakeAssignee: true,
+        },
+        context
+      );
+      const delivery = harness.deliveries.read(
+        `${assigned.event.eventId}:handoff`
+      );
+      if (!delivery) {
+        throw new Error("Missing initial handoff");
+      }
+      let current = harness.service().mutate(
+        created.task.taskId,
+        {
+          action: "set_projects",
+          operationId: "attach-project",
+          expectedRevision: assigned.task.revision,
+          projectIds: ["project-1"],
+        },
+        context
+      ).task;
+      expect(isSpaceTaskDeliveryCurrent(delivery, current, harness.tasks)).toBe(
+        true
+      );
+      if (reset === "reassignment") {
+        current = harness.service().mutate(
+          current.taskId,
+          {
+            action: "assign",
+            operationId: "assign-away",
+            expectedRevision: current.revision,
+            assigneeProfileId: requester.profileId,
+          },
+          context
+        ).task;
+      } else {
+        current = harness.service().mutate(
+          current.taskId,
+          {
+            action: "cancel",
+            operationId: "cancel-pending",
+            expectedRevision: current.revision,
+            reason: "Cancel the original work",
+          },
+          context
+        ).task;
+        current = harness.service().mutate(
+          current.taskId,
+          {
+            action: "reopen",
+            operationId: "reopen-pending",
+            expectedRevision: current.revision,
+            reason: "Start a new work cycle",
+          },
+          context
+        ).task;
+      }
+      expect(isSpaceTaskDeliveryCurrent(delivery, current, harness.tasks)).toBe(
+        false
+      );
+      const reassigned = harness.service().mutate(
+        current.taskId,
+        {
+          action: "assign",
+          operationId: "assign-back",
+          expectedRevision: current.revision,
+          assigneeProfileId: assignee.profileId,
+          wakeAssignee: true,
+        },
+        context
+      );
+      expect(
+        isSpaceTaskDeliveryCurrent(delivery, reassigned.task, harness.tasks)
+      ).toBe(false);
+      const nextDelivery = harness.deliveries.read(
+        `${reassigned.event.eventId}:handoff`
+      );
+      if (!nextDelivery) {
+        throw new Error("Missing new assignment handoff");
+      }
+      expect(
+        isSpaceTaskDeliveryCurrent(nextDelivery, reassigned.task, harness.tasks)
+      ).toBe(true);
+    } finally {
+      harness.close();
+    }
+  });
+
   it("keeps delegation, explicit start, result, rework and review on one Task without inferring execution", () => {
     const harness = createSqlHarness();
     const coordinator: SpaceTaskActor = {
@@ -200,6 +317,10 @@ describe("Space Task durable delivery", () => {
         ...context(coordinator),
         representedRequester: requester,
       });
+      expect(delegated.event.actor).toEqual(coordinator);
+      expect(delegated.event.detail).toContain(
+        `On behalf of ${requester.profileName} (${requester.profileId})`
+      );
       expect(delegated.task).toMatchObject({
         taskId: id,
         phase: "to_do",
@@ -216,7 +337,9 @@ describe("Space Task durable delivery", () => {
       if (!handoff) {
         throw new Error("Missing assignment handoff");
       }
-      expect(isSpaceTaskDeliveryCurrent(handoff, delegated.task)).toBe(true);
+      expect(
+        isSpaceTaskDeliveryCurrent(handoff, delegated.task, harness.tasks)
+      ).toBe(true);
       expect(formatSpaceTaskHandoffContext(delegated.task)).toContain(
         "start_task"
       );
@@ -249,7 +372,9 @@ describe("Space Task durable delivery", () => {
         context(assignee)
       );
       expect(started.task.phase).toBe("in_progress");
-      expect(isSpaceTaskDeliveryCurrent(handoff, started.task)).toBe(false);
+      expect(
+        isSpaceTaskDeliveryCurrent(handoff, started.task, harness.tasks)
+      ).toBe(false);
       harness.deliveries.complete(handoff.id);
       const submitted = harness.service().mutate(
         id,
@@ -265,7 +390,7 @@ describe("Space Task durable delivery", () => {
       expect(harness.pendingActions(Date.now())).toHaveLength(1);
       const reviewContext = formatSpaceTaskHandoffContext(submitted.task);
       expect(reviewContext).toContain(id);
-      expect(reviewContext).toContain("PR #123; checks pass.");
+      expect(reviewContext).not.toContain("PR #123; checks pass.");
       expect(reviewContext).toContain(
         `revision ${submitted.task.result?.resultRevision}`
       );
@@ -855,7 +980,9 @@ describe("Space Task durable delivery", () => {
         },
         context
       );
-      expect(isSpaceTaskDeliveryCurrent(delivery, reopened.task)).toBe(false);
+      expect(
+        isSpaceTaskDeliveryCurrent(delivery, reopened.task, harness.tasks)
+      ).toBe(false);
       expect(isSpaceTaskStopSuperseded(delivery, harness.tasks)).toBe(true);
       expect(isAuthorizedSpaceTaskStop(authorization)).toBe(false);
       const canceledAgain = harness.service().mutate(
@@ -868,9 +995,9 @@ describe("Space Task durable delivery", () => {
         },
         context
       );
-      expect(isSpaceTaskDeliveryCurrent(delivery, canceledAgain.task)).toBe(
-        true
-      );
+      expect(
+        isSpaceTaskDeliveryCurrent(delivery, canceledAgain.task, harness.tasks)
+      ).toBe(true);
       expect(isAuthorizedSpaceTaskStop(authorization)).toBe(false);
     } finally {
       harness.close();
@@ -1101,7 +1228,8 @@ describe("Space Task durable delivery", () => {
             receipt: submitted,
             actor: assignee,
           },
-          canceled.task
+          canceled.task,
+          harness.tasks
         )
       ).toBe(false);
     } finally {

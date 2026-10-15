@@ -20,7 +20,7 @@ export function formatSpaceTaskHandoffContext(task: SpaceTask): string {
       ? `Done when:\n${task.completionConditions.map((condition) => `- ${condition}`).join("\n")}`
       : null,
     task.result
-      ? `Submitted result (revision ${task.result.resultRevision}):\n${task.result.summary}`
+      ? `Submitted result (revision ${task.result.resultRevision}):\n${task.phase === "in_review" ? "Read the submitted result in the handoff message above." : task.result.summary}`
       : null,
     task.review?.feedback ? `Review feedback:\n${task.review.feedback}` : null,
     action,

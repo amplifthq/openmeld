@@ -4,7 +4,9 @@ import type { SpaceTaskActor } from "@openmeld/schemas/types";
 import { createAuthenticatedSpaceAccessContext } from "@openmeld/space";
 import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
+import { buildDefaultSpaceContract } from "../src/space/application/space-contract-service";
 import type { SpaceTaskService } from "../src/space/application/space-task-service";
+import { upsertSpaceContractRecord } from "../src/space/infrastructure/sql/space-contract-repo";
 import { upsertSpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
 import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
@@ -40,6 +42,7 @@ describe("Space Task handoff delivery", () => {
     ["agent", false, false],
     ["agent", true, false],
     ["agent", true, true],
+    ["agent", true, "retry-after-issue-update"],
   ] as const)("publishes one Task handoff for %s (Thread=%s, assignment=%s)", async (profileKind, inThread, assignment) => {
     const namespace = (
       env as unknown as { OPENMELD_SPACES: DurableObjectNamespace<Space> }
@@ -79,7 +82,20 @@ describe("Space Task handoff delivery", () => {
           createdAt: now,
           updatedAt: now,
         });
-        for (const actor of [requester, reviewer]) {
+        const listener: SpaceTaskActor = {
+          ...reviewer,
+          profileId: "agt_33333333-3333-4333-8333-333333333333",
+          profileKind: "agent",
+          profileName: "Unassigned listener",
+        };
+        upsertSpaceContractRecord(state.storage.sql, {
+          spaceId,
+          contract: {
+            ...buildDefaultSpaceContract(),
+            dispatchPolicy: { mode: "listen_all" },
+          },
+        });
+        for (const actor of [requester, reviewer, listener]) {
           upsertSpaceMemberRecord(state.storage.sql, {
             spaceId,
             profileId: actor.profileId,
@@ -216,6 +232,22 @@ describe("Space Task handoff delivery", () => {
         );
         if (assignment) {
           const bindings = Reflect.get(instance, "bindings") as CoreBindings;
+          const resolveProfileById = vi.fn(async () => ({
+            ok: true,
+            profile: {
+              profileId: requester.profileId,
+              profileKind: "human",
+              profileName: requester.profileName,
+              profileHandle: "avery",
+              ownerUserId: requester.ownerUserId,
+              status: "active",
+            },
+          }));
+          if (assignment === "retry-after-issue-update") {
+            resolveProfileById.mockRejectedValueOnce(
+              new Error("Auth temporarily unavailable")
+            );
+          }
           Reflect.set(instance, "bindings", {
             ...bindings,
             OPENMELD_POSTGRESQL: createProjectionPostgresBinding((query) =>
@@ -224,17 +256,7 @@ describe("Space Task handoff delivery", () => {
                 : []
             ),
             OPENMELD_AUTH_WORKER: {
-              resolveProfileById: async () => ({
-                ok: true,
-                profile: {
-                  profileId: requester.profileId,
-                  profileKind: "human",
-                  profileName: requester.profileName,
-                  profileHandle: "avery",
-                  ownerUserId: requester.ownerUserId,
-                  status: "active",
-                },
-              }),
+              resolveProfileById,
             },
           });
           try {
@@ -253,6 +275,44 @@ describe("Space Task handoff delivery", () => {
             };
             const assigned = await instance.rpcMutateTask(input);
             expect(assigned.task.phase).toBe("to_do");
+            if (assignment === "retry-after-issue-update") {
+              const deliveries = new SpaceTaskDeliveryRepository(
+                state.storage.sql
+              );
+              const pending = deliveries.read(
+                `${assigned.event.eventId}:handoff`
+              );
+              if (!pending) {
+                throw new Error(
+                  "Expected the failed assignment handoff to remain pending"
+                );
+              }
+              expect(deliveries.status(created.task.taskId)).toContainEqual(
+                expect.objectContaining({ kind: "handoff", state: "failed" })
+              );
+              service.mutate(
+                created.task.taskId,
+                {
+                  action: "attach_external_work_item",
+                  expectedRevision: assigned.task.revision,
+                  operationId: "attach-issue-after-delegating",
+                  item: {
+                    ...issue,
+                    number: 1144,
+                    url: "https://github.com/amplifthq/openmeld/issues/1144",
+                  },
+                },
+                {
+                  actor: requester,
+                  isSpaceOwner: false,
+                  resolveMember: (id) =>
+                    [requester, reviewer, listener].find(
+                      (member) => member.profileId === id
+                    ) ?? null,
+                }
+              );
+              await space.deliverSpaceTaskAction(pending);
+            }
             expect((await instance.rpcMutateTask(input)).applied).toBe(false);
             const signalId = `space-task-handoff:${assigned.event.eventId}`;
             const row = state.storage.sql
@@ -357,6 +417,9 @@ describe("Space Task handoff delivery", () => {
           },
         });
         if (signal.type === "signal.text" && profileKind === "agent") {
+          expect(signal.data.text).toContain(
+            delivery.receipt.task.result?.summary
+          );
           expect(signal.data.text).toContain(
             "Wake Reviewer to start the review."
           );

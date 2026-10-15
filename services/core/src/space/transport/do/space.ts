@@ -2190,6 +2190,7 @@ const readDispatchPlannerContextForSignal = (input: {
 };
 const evaluateDispatchPlannerDecisionsForSignal = (input: {
   automaticWakeEnabled?: boolean;
+  explicitWakeTargetsOnly?: boolean;
   isThreadMessage?: boolean;
   directMessageConvertedAt?: string | null;
   senderProfileId: string;
@@ -2210,16 +2211,19 @@ const evaluateDispatchPlannerDecisionsForSignal = (input: {
   const activeMemberRecords = listSpaceMemberRecords(input.sql, {
     status: "active",
   });
-  const automaticWakeDecisions = buildAutomaticWakeDispatchReadyDecisions({
-    automaticWakeEnabled: input.automaticWakeEnabled,
-    activeMemberRecords,
-    senderProfileId: input.senderProfileId,
-    signal: input.signal,
-    spacePurpose: input.spacePurpose,
-    isThreadMessage: input.isThreadMessage,
-    directMessageConvertedAt: input.directMessageConvertedAt,
-  });
+  const automaticWakeDecisions = input.explicitWakeTargetsOnly
+    ? []
+    : buildAutomaticWakeDispatchReadyDecisions({
+        automaticWakeEnabled: input.automaticWakeEnabled,
+        activeMemberRecords,
+        senderProfileId: input.senderProfileId,
+        signal: input.signal,
+        spacePurpose: input.spacePurpose,
+        isThreadMessage: input.isThreadMessage,
+        directMessageConvertedAt: input.directMessageConvertedAt,
+      });
   const listenAllDecisions =
+    !input.explicitWakeTargetsOnly &&
     input.spaceContract.dispatchPolicy.mode === "listen_all"
       ? buildListenAllDispatchReadyDecisions({
           activeMemberRecords,
@@ -9553,7 +9557,13 @@ export class Space extends DurableObject<CoreBindings> {
     const current = this.spaceTaskService.read(
       delivery.receipt.task.taskId
     ).task;
-    if (!isSpaceTaskDeliveryCurrent(delivery, current)) {
+    if (
+      !isSpaceTaskDeliveryCurrent(
+        delivery,
+        current,
+        new SpaceTaskRepository(this.ctx.storage.sql)
+      )
+    ) {
       return;
     }
     if (delivery.kind === "inbox_projection") {
@@ -9793,7 +9803,13 @@ export class Space extends DurableObject<CoreBindings> {
     const current = this.spaceTaskService.read(
       delivery.receipt.task.taskId
     ).task;
-    if (!isSpaceTaskDeliveryCurrent(delivery, current)) {
+    if (
+      !isSpaceTaskDeliveryCurrent(
+        delivery,
+        current,
+        new SpaceTaskRepository(this.ctx.storage.sql)
+      )
+    ) {
       return false;
     }
     if (signal.type === "signal.text") {
@@ -22411,6 +22427,9 @@ export class Space extends DurableObject<CoreBindings> {
     const { mergedReadyDecisions, nonReadyDecisions } =
       evaluateDispatchPlannerDecisionsForSignal({
         automaticWakeEnabled,
+        // Task handoffs select their exact recipient; conversation-wide
+        // implicit Wake policies must not expand that retained decision.
+        explicitWakeTargetsOnly: Boolean(signalContext?.spaceTaskDeliveryId),
         isThreadMessage: Boolean(signalContext?.threadContext),
         directMessageConvertedAt: spaceMeta?.directMessage?.convertedAt,
         senderProfileId,

@@ -1167,6 +1167,9 @@ membership and ownership, and only the Task's requester can confer these
 management permissions. Routines, Agent-authored requests, other conversations,
 and unverified senders confer no such permission. Result submission and review
 retain the acting assignee/reviewer identity and cannot use representation.
+Task activity keeps the Center Agent as the actor and names the represented
+requester's Profile in the existing event detail. Representation failures
+remain fail-closed; they do not retry with the actor's independent permissions.
 
 Contract impact: the mutation fields are optional and Task/event/read payloads
 are unchanged. Existing CLI, Service, Skills, Gateway, and Web readers remain

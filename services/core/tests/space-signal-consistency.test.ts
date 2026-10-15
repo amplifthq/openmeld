@@ -1700,9 +1700,11 @@ describe("space signal consistency matrix", () => {
   });
 
   it.each([
-    "openmeld_dm_space",
-    "ordinary_private_space",
-  ])("automatically addresses a one-human one-agent %s independently of mention policy storage", (purpose) => {
+    ["openmeld_dm_space", false],
+    ["ordinary_private_space", false],
+    ["openmeld_dm_space", true],
+    ["ordinary_private_space", true],
+  ] as const)("uses automatic addressing in a one-human one-agent %s only for ordinary messages (Task=%s)", (purpose, taskHandoff) => {
     const humanProfileId = "human-dm-sender";
     const agentProfileId = "agt-dm-target";
     const signal: SignalEnvelope = {
@@ -1746,9 +1748,14 @@ describe("space signal consistency matrix", () => {
           purpose,
         })),
       },
-      signal
+      signal,
+      taskHandoff ? { spaceTaskDeliveryId: "task-handoff" } : undefined
     );
 
+    if (taskHandoff) {
+      expect(records).toEqual([]);
+      return;
+    }
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({
       dispatchPolicy: "mention_only",
