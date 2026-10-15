@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-15T00:17:57.045Z",
+  "updatedAt": "2026-10-15T03:46:47.759Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
@@ -9,7 +9,7 @@
       "reason": "Existing CLI commands remain compatible; Grok Bot setup is opt-in."
     },
     "service": {
-      "bundleHash": "e38eec42571753953edaba6fe7fddbf642bdfd4084cb4b3446a70a5256f75f7a",
+      "bundleHash": "87c748e47b9a8b89b5321340e000d51708ae7de8429bc576bc01cf6103b096fb",
       "portableBundleHash": "ef6c2d8e617ecb4d30d79ada085be4d65bbcaea7092e2fbc7429633d6fb02cd9",
       "bundleVersion": "0.3.262",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
