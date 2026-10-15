@@ -913,19 +913,20 @@ function useCreateProfileDialogController(
 		target: bindingTarget,
 	});
 	const retryCreationConnection = () => {
-		Promise.all([
-			creationGuidance === "set_up_local_agents" &&
-			bindingTarget &&
-			canConfigureLocalComputer()
-				? recovery.refreshLocalAgentCatalog({
-						deviceId: bindingTarget.deviceId,
-						runtimeLane: bindingTarget.runtimeLane,
-					})
-				: recovery.refreshAll(),
-			creationComputerReadiness.refetch(),
-		]).catch((error: unknown) =>
+		refreshCreationConnection().catch((error: unknown) =>
 			console.error("Could not refresh the computer for Agent creation.", error)
 		);
+	};
+	const refreshCreationConnection = async () => {
+		if (bindingTarget && canConfigureLocalComputer()) {
+			await recovery.refreshLocalAgentCatalog({
+				deviceId: bindingTarget.deviceId,
+				runtimeLane: bindingTarget.runtimeLane,
+			});
+		} else {
+			await recovery.refreshAll();
+		}
+		await creationComputerReadiness.refetch({ throwOnError: true });
 	};
 	const { computerRecovery, reconnectComputerId } =
 		useAgentCreationComputerRecovery({
@@ -966,6 +967,7 @@ function useCreateProfileDialogController(
 		creationGuidance,
 		isResolvingLocalAgents,
 		onRetry: retryCreationConnection,
+		onSetupChanged: refreshCreationConnection,
 		orgSlug,
 		ownerMode,
 		recovery,
@@ -2382,6 +2384,7 @@ function resolveSelectedLocalAgentSubmitBlockReason(input: {
 }
 
 function resolveLocalAgentSelectionState(input: {
+	onSetupChanged: () => Promise<void>;
 	bindingTarget: ReturnType<typeof resolveProfileBindingCatalogExecutionTarget>;
 	computerRecovery:
 		| import("./agent-creation-computer-recovery").AgentCreationComputerRecovery
@@ -2454,6 +2457,7 @@ function resolveLocalAgentSelectionState(input: {
 }
 
 function resolveConnectionSetup(input: {
+	onSetupChanged: () => Promise<void>;
 	selectedLocalAgentId: string;
 	bindingTarget: ReturnType<typeof resolveProfileBindingCatalogExecutionTarget>;
 	recovery: RecoveryController;
@@ -2466,6 +2470,7 @@ function resolveConnectionSetup(input: {
 	}
 	return {
 		connectionSetup: {
+			onChanged: input.onSetupChanged,
 			target: {
 				deviceId: input.bindingTarget.deviceId,
 				runtimeLane: input.bindingTarget.runtimeLane,

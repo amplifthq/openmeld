@@ -20,11 +20,13 @@ import {
 	useRef,
 	useState,
 } from "react";
+import type { OptimisticAgentProfileCreation } from "#/lib/profiles/agent-profile-creation-requests";
 import { agentProfileCreationRequestQueryOptions } from "#/query/profiles/agent-profile-creation-requests";
 import { SpaceAddMembersCandidates } from "./people-agent-picker-candidates";
-import type {
-	SpaceAddMembersCandidateGroups,
-	SpaceAddMembersCandidateSummary,
+import {
+	filterAddMemberGroups,
+	type SpaceAddMembersCandidateGroups,
+	type SpaceAddMembersCandidateSummary,
 } from "./people-agent-picker-model";
 
 const PeopleAgentPickerCreateAgent = lazy(() =>
@@ -57,7 +59,10 @@ export function PeopleAgentPickerDialog(input: {
 	onRetry?: () => void;
 	emptyMessage: string;
 	includeAgentOwners?: boolean;
-	onAgentCreated?: (agent: SpaceAddMembersCandidateSummary) => void;
+	onAgentCreated?: (
+		agent: SpaceAddMembersCandidateSummary,
+		selected: boolean
+	) => void;
 	actions?: ReactNode;
 	notice?: ReactNode;
 	id?: string;
@@ -68,10 +73,22 @@ export function PeopleAgentPickerDialog(input: {
 	const {
 		creationProgress,
 		creationError,
-		setCreationProgress,
-		setCreationError,
+		finishCreation,
+		failCreation,
 		setAcceptedCreation,
+		pendingCreation,
+		pendingSelected,
+		setPendingSelected,
+		startCreation,
 	} = usePickerAgentCreation(input.onAgentCreated);
+	const selectedProfileIds = new Set([
+		...input.selectedProfileIds,
+		...pendingSelectionIds(pendingCreation, pendingSelected),
+	]);
+	const candidateGroups = withPendingCreation(
+		input.candidateGroups,
+		pendingCreation
+	);
 	const isSubmitting = input.isSubmitting;
 	const tutorialAction = pickerTutorialAction(
 		creating,
@@ -117,17 +134,14 @@ export function PeopleAgentPickerDialog(input: {
 								onBack={() => setCreating(false)}
 								onBusyChange={setCreationBusy}
 								onCreated={(agent) => {
-									input.onAgentCreated?.(agent);
-									setCreationProgress(null);
+									input.onAgentCreated?.(agent, true);
+									finishCreation();
 									setCreating(false);
 								}}
-								onFailed={(message) => {
-									setCreationError(message);
-									setCreationProgress(null);
-								}}
-								onStarted={(name) => {
-									setCreationProgress(name);
-									setCreationError(null);
+								onFailed={failCreation}
+								onStarted={(creation) => {
+									startCreation(creation);
+									input.onQueryChange("");
 									setCreating(false);
 								}}
 							/>
@@ -180,11 +194,6 @@ export function PeopleAgentPickerDialog(input: {
 							/>
 						</div>
 						<div aria-live="polite">
-							{creationProgress && (
-								<p className="text-muted-foreground text-sm">
-									Creating {creationProgress}… You can keep choosing members.
-								</p>
-							)}
 							{creationError && (
 								<p className="text-destructive text-sm">{creationError}</p>
 							)}
@@ -207,7 +216,11 @@ export function PeopleAgentPickerDialog(input: {
 						) : (
 							<div data-tutorial-target="select">
 								<SpaceAddMembersCandidates
-									candidateGroups={input.candidateGroups}
+									candidateGroups={filterAddMemberGroups(
+										candidateGroups,
+										input.query.trim().toLocaleLowerCase(),
+										selectedProfileIds
+									)}
 									emptyMessage={input.emptyMessage}
 									includeAgentOwners={input.includeAgentOwners}
 									isSubmitting={
@@ -215,26 +228,33 @@ export function PeopleAgentPickerDialog(input: {
 									}
 									onToggle={(id) => {
 										if (!(input.isSubmitting || input.selectionDisabled)) {
-											input.onToggle(id);
+											if (id === pendingCreation?.id) {
+												setPendingSelected((selected) => !selected);
+											} else {
+												input.onToggle(id);
+											}
 										}
 									}}
 									searchActive={input.query.trim().length > 0}
-									selectedProfileIds={input.selectedProfileIds}
+									selectedProfileIds={selectedProfileIds}
 								/>
 							</div>
 						)}
 						<div className="flex @min-[20rem]:flex-row flex-col @min-[20rem]:items-center items-stretch @min-[20rem]:justify-between gap-2">
 							<span className="@min-[20rem]:w-auto w-full text-muted-foreground text-xs">
-								{input.selectedProfileIds.size === 0
+								{selectedProfileIds.size === 0
 									? (input.emptySelectionLabel ?? "Select people or agents")
-									: `${input.selectedProfileIds.size} selected`}
+									: `${selectedProfileIds.size} selected`}
 							</span>
 							<span className="flex @min-[20rem]:w-auto w-full items-center gap-2">
 								{input.secondaryAction ??
-									(input.selectedProfileIds.size > 0 && (
+									(selectedProfileIds.size > 0 && (
 										<Button
 											disabled={input.isSubmitting || input.selectionDisabled}
-											onClick={input.onClear}
+											onClick={() => {
+												setPendingSelected(false);
+												input.onClear();
+											}}
 											size="xs"
 											variant="secondary"
 										>
@@ -244,7 +264,11 @@ export function PeopleAgentPickerDialog(input: {
 								<Button
 									className="min-w-0 @min-[20rem]:flex-none flex-1"
 									data-tutorial-target="submit"
-									disabled={!input.canSubmit || input.isSubmitting}
+									disabled={
+										!input.canSubmit ||
+										input.isSubmitting ||
+										Boolean(pendingCreation && pendingSelected)
+									}
 									onClick={input.onSubmit}
 									size="sm"
 								>
@@ -260,10 +284,14 @@ export function PeopleAgentPickerDialog(input: {
 }
 
 function usePickerAgentCreation(
-	onCreated?: (agent: SpaceAddMembersCandidateSummary) => void
+	onCreated?: (
+		agent: SpaceAddMembersCandidateSummary,
+		selected: boolean
+	) => void
 ) {
-	const [creationProgress, setCreationProgress] = useState<string | null>(null);
-	const [creationError, setCreationError] = useState<string | null>(null);
+	const [pendingCreation, setPendingCreation] =
+		useState<OptimisticAgentProfileCreation | null>(null);
+	const [pendingSelected, setPendingSelected] = useState(true);
 	const [acceptedCreation, setAcceptedCreation] =
 		useState<AgentProfileCreationRequest | null>(null);
 	const delivered = useRef<string | null>(null);
@@ -281,35 +309,102 @@ function usePickerAgentCreation(
 		}
 		if (request.createdAgentProfileId) {
 			delivered.current = request.id;
-			onCreated?.({
-				profileId: request.createdAgentProfileId,
-				profileName: request.profileName,
-				profileKind: "agent",
-				agentControllerRef: request.configuration.agentControllerRef,
-				ownerUserId: request.targetOwnerUserId,
-				searchText: request.profileName.toLocaleLowerCase(),
-			});
-			setCreationProgress(null);
+			onCreated?.(
+				{
+					profileId: request.createdAgentProfileId,
+					profileName: request.profileName,
+					profileKind: "agent",
+					agentControllerRef: request.configuration.agentControllerRef,
+					ownerUserId: request.targetOwnerUserId,
+					searchText: request.profileName.toLocaleLowerCase(),
+				},
+				pendingSelected
+			);
+			setPendingCreation(null);
 		} else if (
 			request.status === "failed" ||
 			request.status === "declined" ||
 			request.status === "cancelled"
 		) {
 			delivered.current = request.id;
-			setCreationError(
-				request.failureMessage ??
-					"Agent creation did not complete. Check creation history."
+			setPendingCreation((current) =>
+				current
+					? {
+							...current,
+							status: "failed",
+							failureMessage:
+								request.failureMessage ??
+								"Agent creation did not complete. Check creation history.",
+						}
+					: null
 			);
-			setCreationProgress(null);
 		}
-	}, [request, onCreated]);
+	}, [request, onCreated, pendingSelected]);
 	return {
-		creationProgress,
-		creationError,
-		setCreationProgress,
-		setCreationError,
+		pendingCreation,
+		pendingSelected,
+		setPendingSelected,
+		startCreation: (creation: OptimisticAgentProfileCreation) => {
+			setPendingCreation(creation);
+			setPendingSelected(true);
+			setAcceptedCreation(null);
+		},
+		creationProgress:
+			pendingCreation?.status === "creating"
+				? pendingCreation.profileName
+				: null,
+		creationError: pendingCreation?.failureMessage,
+		finishCreation: () => setPendingCreation(null),
+		failCreation: (message: string) =>
+			setPendingCreation((current) =>
+				current
+					? { ...current, status: "failed", failureMessage: message }
+					: null
+			),
 		setAcceptedCreation,
 	};
+}
+
+function withPendingCreation(
+	groups: SpaceAddMembersCandidateGroups,
+	creation: OptimisticAgentProfileCreation | null
+): SpaceAddMembersCandidateGroups {
+	if (!creation) {
+		return groups;
+	}
+	return {
+		...groups,
+		personGroups: groups.personGroups.map((group) =>
+			group.id === creation.targetOwnerUserId
+				? {
+						...group,
+						agentCandidates: [
+							{
+								profileId: creation.id,
+								profileName: creation.profileName,
+								profileKind: "agent",
+								agentControllerRef: creation.configuration.agentControllerRef,
+								ownerUserId: creation.targetOwnerUserId,
+								ownerHumanProfileId: group.humanCandidate?.profileId,
+								searchText: creation.profileName.toLocaleLowerCase(),
+								description:
+									creation.status === "failed"
+										? "Creation failed"
+										: "Creating…",
+							},
+							...group.agentCandidates,
+						],
+					}
+				: group
+		),
+	};
+}
+
+function pendingSelectionIds(
+	creation: OptimisticAgentProfileCreation | null,
+	selected: boolean
+) {
+	return creation && selected ? [creation.id] : [];
 }
 
 function newAgentVariant(action: string | undefined) {

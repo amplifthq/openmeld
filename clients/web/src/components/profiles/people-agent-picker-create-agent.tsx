@@ -1,13 +1,14 @@
 import type { AgentProfileCreationRequest } from "@openmeld/schemas/types";
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
+import type { OptimisticAgentProfileCreation } from "#/lib/profiles/agent-profile-creation-requests";
 import type { SpaceAddMembersCandidateSummary } from "../spaces/people-agent-picker-model";
 import { CreateProfileDialogStep } from "./create-profile-dialog";
 
 export function PeopleAgentPickerCreateAgent(input: {
 	onBack: () => void;
 	onBusyChange: (busy: boolean) => void;
-	onStarted: (name: string) => void;
+	onStarted: (creation: OptimisticAgentProfileCreation) => void;
 	onFailed: (message: string) => void;
 	onAccepted: (request: AgentProfileCreationRequest) => void;
 	onCreated: (agent: SpaceAddMembersCandidateSummary) => void;
@@ -30,9 +31,7 @@ export function PeopleAgentPickerCreateAgent(input: {
 					creation.failureMessage ?? "Couldn't create Agent. Try again."
 				)
 			}
-			onAgentRequestStarted={(creation) =>
-				input.onStarted(creation.profileName)
-			}
+			onAgentRequestStarted={input.onStarted}
 			onBusyChange={input.onBusyChange}
 			onOpenChange={(open) => {
 				if (!open) {
