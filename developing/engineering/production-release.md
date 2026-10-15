@@ -53,6 +53,13 @@ components are skipped and active exact-source GitHub runs are followed.
 Failed runs stop the command. An uncertain dispatch is reported, never retried
 automatically. Use a current `gh` version that returns the created workflow URL.
 
+Continuation prints elapsed time for each status read and component stage,
+including failed stages. These timings measure work; component receipts still
+decide completion. Status reads refresh remote receipt tips on every invocation,
+reuse exact immutable Git objects already present, and read independent workflow
+histories in batches of four. A missing page remains incomplete evidence after
+bounded retries for transient read failures; no deployment is retried this way.
+
 The command entry and reusable release controller have separate module
 boundaries. Status readers can import planning contracts without starting a
 release or waiting for a running command to finish. The complete compatibility
