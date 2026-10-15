@@ -9,7 +9,7 @@ export function LocalAgentSetupControl(input: {
 	target: PeopleComputerTarget;
 	storageScope: string;
 	agentId: string;
-	onChanged?: () => void;
+	onChanged?: () => void | Promise<void>;
 }) {
 	const client = useQueryClient();
 	const refreshed = useRef<string | null>(null);
@@ -47,15 +47,19 @@ export function LocalAgentSetupControl(input: {
 		},
 	});
 	const state = query.data;
+	const refresh = useMutation({
+		mutationFn: async () => {
+			await input.onChanged?.();
+		},
+		retry: false,
+	});
+	const completedSetupId = completedOperationId(state);
 	useEffect(() => {
-		if (
-			state?.operation?.status === "succeeded" &&
-			refreshed.current !== state.operation.operationId
-		) {
-			refreshed.current = state.operation.operationId;
-			input.onChanged?.();
+		if (completedSetupId && refreshed.current !== completedSetupId) {
+			refreshed.current = completedSetupId;
+			refresh.mutate();
 		}
-	}, [state, input.onChanged]);
+	}, [completedSetupId, refresh.mutate]);
 	const running = mutation.isPending || state?.operation?.status === "running";
 	const pendingAction = mutation.isPending
 		? mutation.variables
@@ -74,7 +78,13 @@ export function LocalAgentSetupControl(input: {
 				<div className="grid gap-1">
 					<h3 className="font-medium text-sm">{title}</h3>
 					<p className="text-muted-foreground text-xs">
-						{setupDescription(running, Boolean(state?.installed), unsupported)}
+						{setupDescription(
+							running,
+							Boolean(state?.installed),
+							unsupported,
+							Boolean(state?.signedIn),
+							refresh.isPending
+						)}
 					</p>
 				</div>
 				{state?.signedIn || unsupported ? null : (
@@ -94,26 +104,30 @@ export function LocalAgentSetupControl(input: {
 					</Button>
 				)}
 			</div>
-			{state?.operation && !running ? (
+			{state?.operation &&
+			!running &&
+			state.operation.status !== "succeeded" ? (
 				<output className="text-muted-foreground text-xs">
 					{state.operation.message}
 				</output>
 			) : null}
-			{mutation.isError || query.isError ? (
+			{mutation.isError || query.isError || refresh.isError ? (
 				<p className="text-destructive text-xs" role="alert">
 					{formatMutationError(
-						mutation.error ?? query.error,
+						mutation.error ?? query.error ?? refresh.error,
 						"Couldn’t check connection setup. Try again."
 					)}
 				</p>
 			) : null}
 			{query.isError ||
+			refresh.isError ||
+			(state?.signedIn && !refresh.isPending) ||
 			unsupported ||
 			state?.operation?.status === "outcome_unknown" ? (
 				<Button
 					onClick={async () => {
 						await query.refetch();
-						input.onChanged?.();
+						refresh.mutate();
 					}}
 					size="sm"
 					type="button"
@@ -137,7 +151,9 @@ export function LocalAgentSetupControl(input: {
 function setupDescription(
 	running: boolean,
 	installed: boolean,
-	unsupported: boolean
+	unsupported: boolean,
+	signedIn: boolean,
+	refreshing: boolean
 ) {
 	if (unsupported) {
 		return "Follow the setup guide, then check again.";
@@ -145,10 +161,24 @@ function setupDescription(
 	if (running) {
 		return "You can close this dialog and keep using OpenMeld.";
 	}
+	if (signedIn) {
+		return refreshing
+			? "Refreshing the Agent list on this computer."
+			: "Check status to refresh this computer.";
+	}
 	if (installed) {
 		return "Sign in in the browser on the selected computer.";
 	}
 	return "OpenMeld installs the connection tools on the selected computer.";
+}
+
+function completedOperationId(
+	state: import("@openmeld/schemas/types").LocalAgentSetupState | undefined
+) {
+	if (state?.operation?.status === "succeeded") {
+		return state.operation.operationId;
+	}
+	return state?.signedIn && !state.operation ? "signed-in" : null;
 }
 
 function setupTitle(

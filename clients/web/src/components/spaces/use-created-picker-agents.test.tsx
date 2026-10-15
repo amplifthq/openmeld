@@ -1,3 +1,7 @@
+import {
+	createSpaceMemberHumanSnapshot,
+	createSpaceMembersSnapshot,
+} from "@openmeld/schemas/testing";
 import { act, renderHook } from "@testing-library/react";
 import { expect, it } from "vitest";
 import type { OrganizationSpaceProfileCandidates } from "#/query/organizations/organization-directory";
@@ -7,7 +11,10 @@ import {
 } from "./people-agent-picker-model";
 import { useCreatedPickerAgents } from "./use-created-picker-agents";
 
-it("keeps a confirmed Agent selectable before directory refresh, then retires the receipt and isolates organizations", () => {
+it.each([
+	false,
+	true,
+])("keeps a confirmed Agent selectable before directory refresh, then retires the receipt and isolates organizations (owner already joined=%s)", (alreadyJoined) => {
 	const directory: OrganizationSpaceProfileCandidates = {
 		organizationId: "org",
 		agentProfiles: [],
@@ -36,7 +43,21 @@ it("keeps a confirmed Agent selectable before directory refresh, then retires th
 	const groups = buildOrganizationDirectoryAddCandidates({
 		directory,
 		organizationName: "Team",
-		snapshot: null,
+		snapshot: alreadyJoined
+			? createSpaceMembersSnapshot({
+					humans: [
+						createSpaceMemberHumanSnapshot({
+							profileId: "human",
+							profileName: "Mira",
+						}),
+					],
+				})
+			: null,
+	});
+	expect(groups.personGroups[0]).toMatchObject({
+		id: "owner",
+		name: "Mira",
+		agentCandidates: [],
 	});
 	const { result, rerender } = renderHook(
 		(props) => useCreatedPickerAgents(props),
@@ -47,7 +68,7 @@ it("keeps a confirmed Agent selectable before directory refresh, then retires th
 		expect.objectContaining({
 			profileId: "agent",
 			profileName: "New helper",
-			ownerHumanProfileId: "human",
+			ownerHumanProfileId: alreadyJoined ? null : "human",
 			alreadyMember: false,
 		}),
 	]);
