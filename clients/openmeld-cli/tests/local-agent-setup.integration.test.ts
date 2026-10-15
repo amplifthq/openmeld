@@ -101,6 +101,15 @@ describe("local agent connection setup", () => {
       expect(slots.getAdapterOperationStatus("grok-bot")).toBe("available");
       await setup.start(request);
       expect(installGrokBotTools).toHaveBeenCalledTimes(1);
+      const later = { ...request, operationId: randomUUID() };
+      await setup.start(later);
+      await expect
+        .poll(async () => (await setup.state()).operation?.status)
+        .toBe(fail ? "failed" : "succeeded");
+      expect((await setup.start(request)).operation?.operationId).toBe(
+        request.operationId
+      );
+      expect(installGrokBotTools).toHaveBeenCalledTimes(2);
     });
   });
 

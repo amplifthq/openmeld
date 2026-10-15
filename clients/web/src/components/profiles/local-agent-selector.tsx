@@ -221,7 +221,10 @@ function LocalAgentSelectionStatePanel(input: {
 			</div>
 		);
 	}
-	if (state.connectionSetup && state.kind !== "disabled") {
+	if (
+		state.connectionSetup &&
+		["checking", "not_installed", "signed_out"].includes(state.kind)
+	) {
 		return (
 			<div className={className}>
 				<LocalAgentSetupControl

@@ -62,10 +62,8 @@ export function LocalAgentSetupControl(input: {
 		: state?.operation?.action;
 	const nextAction = state?.installed ? "login" : "install";
 	const action = running ? (pendingAction ?? nextAction) : nextAction;
-	const title =
-		running && action === "install"
-			? "Installing Grok Bot connection tools."
-			: setupTitle(state);
+	const unsupported = state?.supported === false;
+	const title = setupTitle(state, running && action === "install");
 	const labels =
 		action === "install"
 			? ["Install connection tools", "Installing…"]
@@ -76,10 +74,10 @@ export function LocalAgentSetupControl(input: {
 				<div className="grid gap-1">
 					<h3 className="font-medium text-sm">{title}</h3>
 					<p className="text-muted-foreground text-xs">
-						{setupDescription(running, Boolean(state?.installed))}
+						{setupDescription(running, Boolean(state?.installed), unsupported)}
 					</p>
 				</div>
-				{state?.signedIn ? null : (
+				{state?.signedIn || unsupported ? null : (
 					<Button
 						disabled={
 							running ||
@@ -109,9 +107,14 @@ export function LocalAgentSetupControl(input: {
 					)}
 				</p>
 			) : null}
-			{query.isError ? (
+			{query.isError ||
+			unsupported ||
+			state?.operation?.status === "outcome_unknown" ? (
 				<Button
-					onClick={() => query.refetch()}
+					onClick={async () => {
+						await query.refetch();
+						input.onChanged?.();
+					}}
 					size="sm"
 					type="button"
 					variant="ghost"
@@ -131,7 +134,14 @@ export function LocalAgentSetupControl(input: {
 	);
 }
 
-function setupDescription(running: boolean, installed: boolean) {
+function setupDescription(
+	running: boolean,
+	installed: boolean,
+	unsupported: boolean
+) {
+	if (unsupported) {
+		return "Follow the setup guide, then check again.";
+	}
 	if (running) {
 		return "You can close this dialog and keep using OpenMeld.";
 	}
@@ -142,8 +152,17 @@ function setupDescription(running: boolean, installed: boolean) {
 }
 
 function setupTitle(
-	state: { signedIn: boolean; installed: boolean } | undefined
+	state:
+		| { signedIn: boolean; installed: boolean; supported: boolean }
+		| undefined,
+	installing: boolean
 ) {
+	if (state?.supported === false) {
+		return "Set up Grok Bot manually on this computer.";
+	}
+	if (installing) {
+		return "Installing Grok Bot connection tools.";
+	}
 	if (state?.signedIn) {
 		return "Signed in to Grok Bot.";
 	}

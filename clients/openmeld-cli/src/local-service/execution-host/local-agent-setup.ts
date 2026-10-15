@@ -67,8 +67,10 @@ export function createLocalAgentSetup(input: {
     await writeFile(`${receipt}.tmp`, JSON.stringify(records), { mode: 0o600 });
     await rename(`${receipt}.tmp`, receipt);
   }
-  async function state(): Promise<LocalAgentSetupState> {
-    const operation = await read();
+  async function state(
+    recordedOperation?: LocalAgentSetupOperation
+  ): Promise<LocalAgentSetupState> {
+    const operation = recordedOperation ?? (await read());
     const installed = Boolean(await readManagedGrokBotCandidate(input.rootDir));
     return {
       supported: supportsGrokBotSetup(),
@@ -83,7 +85,7 @@ export function createLocalAgentSetup(input: {
               ...operation,
               status: "outcome_unknown",
               message:
-                "Service restarted before setup was confirmed. Check the connection before trying again.",
+                "Setup could not be confirmed after Service restarted. Use manual setup in the guide, then select that installation in Computer settings.",
             }
           : operation,
     };
@@ -101,7 +103,7 @@ export function createLocalAgentSetup(input: {
         if (repeated.action !== request.action) {
           throw new Error("This request belongs to a different setup action.");
         }
-        return state();
+        return state(repeated);
       }
       if (
         existing?.status === "running" ||
