@@ -2,6 +2,47 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "faster-release-status-checks",
+      "title": "Faster release checks with visible stage timings",
+      "kind": "improved",
+      "areas": [
+        "releases"
+      ],
+      "audiences": [
+        "operators",
+        "contributors"
+      ],
+      "publishedAt": "2026-10-15",
+      "release": "v0.3.262",
+      "evidence": [
+        "pr:188",
+        "pr:190",
+        "workflow:38676811108",
+        "workflow:38677222696"
+      ],
+      "body": "Release checks avoid downloading unchanged deployment receipts and read\nindependent workflow histories concurrently. Automatic continuation reports\ntime spent checking status and running each component, so operators can locate\ndelays without repeating a deployment. Fresh evidence and release checks remain\nrequired."
+    },
+    {
+      "id": "scoped-renderer-release-admission",
+      "title": "Keep renderer releases within their selected scope",
+      "kind": "fixed",
+      "areas": [
+        "release",
+        "developer-workflow"
+      ],
+      "audiences": [
+        "operators",
+        "contributors"
+      ],
+      "publishedAt": "2026-10-15",
+      "release": "v0.3.262",
+      "evidence": [
+        "workflow:38675991212",
+        "workflow:38675995265"
+      ],
+      "body": "Website-only and Docs-only releases no longer require product database\ninspection credentials. Nested builds can reserve their actual memory budget\nwithout manually configuring an outer wrapper, provided current capacity and\nmemory pressure allow it."
+    },
+    {
       "id": "responsive-pinned-conversations",
       "title": "A more compact home for pinned conversations",
       "kind": "improved",

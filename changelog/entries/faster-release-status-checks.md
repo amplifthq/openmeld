@@ -4,6 +4,9 @@ title: Faster release checks with visible stage timings
 kind: improved
 areas: ["releases"]
 audiences: ["operators", "contributors"]
+publishedAt: 2026-10-15
+release: v0.3.262
+evidence: ["pr:188", "pr:190", "workflow:38676811108", "workflow:38677222696"]
 ---
 
 Release checks avoid downloading unchanged deployment receipts and read

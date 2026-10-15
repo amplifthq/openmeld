@@ -4,6 +4,9 @@ title: Keep renderer releases within their selected scope
 kind: fixed
 areas: ["release", "developer-workflow"]
 audiences: ["operators", "contributors"]
+publishedAt: 2026-10-15
+release: v0.3.262
+evidence: ["workflow:38675991212", "workflow:38675995265"]
 ---
 
 Website-only and Docs-only releases no longer require product database
