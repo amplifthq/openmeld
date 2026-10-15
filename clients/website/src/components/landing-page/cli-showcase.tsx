@@ -213,6 +213,11 @@ export function CliShowcase() {
 					<p>
 						Requires Node.js 22 or later (below 26). Node.js 24 is recommended.
 					</p>
+					<p>
+						npm only warns about unsupported Node.js versions by default. Below
+						Node.js 22, native dependency installation can fail; upgrade before
+						installing. Node.js 26 and later are also unsupported.
+					</p>
 				</div>
 				<pre>
 					<code>npm install -g openmeld@latest{"\n"}openmeld setup</code>

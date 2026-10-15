@@ -63,7 +63,9 @@
 > Turn these notes into a three-item agenda: choose a launch date, test signup, and assign the announcement.
 
 Want to use your local agents too? On the computer that holds your work, install
-the CLI with Node.js 22 or later (below 26). Node.js 24 is recommended:
+the CLI with Node.js 22–25. Node.js 24 is recommended.
+
+npm only warns about unsupported Node.js versions by default. Below Node.js 22, native dependency installation can fail; upgrade before installing. Node.js 26 and later are also unsupported.
 
 ```sh
 npm install -g openmeld@latest

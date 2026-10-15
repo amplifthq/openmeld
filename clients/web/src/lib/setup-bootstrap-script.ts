@@ -740,10 +740,6 @@ maybe_update_old_global_openmeld_cli_for_binary_setup() {
   fi
   command_exists npm || return 0
   command_exists node || return 0
-  if ! node_runtime_supported; then
-    say "Skipping the older npm CLI update: it requires Node.js ${supportedNodeRange}. Setup will continue with the standalone binary, which includes its runtime."
-    return 0
-  fi
 
   OPENMELD_SETUP_CURRENT_COMMAND_VERSION="$(read_user_facing_openmeld_version || true)"
   if [ "$OPENMELD_SETUP_CURRENT_COMMAND_VERSION" = "$OPENMELD_SETUP_BINARY_VERSION" ]; then
@@ -760,6 +756,11 @@ maybe_update_old_global_openmeld_cli_for_binary_setup() {
   [ -n "$OPENMELD_SETUP_GLOBAL_VERSION" ] || return 0
   OPENMELD_SETUP_VERSION_DIRECTION="$(compare_semver_direction "$OPENMELD_SETUP_GLOBAL_VERSION" "$OPENMELD_SETUP_BINARY_VERSION" 2>/dev/null || printf 'unknown')"
   if [ "$OPENMELD_SETUP_VERSION_DIRECTION" != "upgrade" ]; then
+    return 0
+  fi
+
+  if ! node_runtime_supported; then
+    say "The older global npm CLI v$OPENMELD_SETUP_GLOBAL_VERSION was left unchanged: updating it requires Node.js ${supportedNodeRange} (24 recommended). Use the managed standalone binary in the commands shown below."
     return 0
   fi
 

@@ -45,7 +45,7 @@ test("CLI publication waits for the same npm tarball to pass the supported consu
   const jobs = workflow("workflows/cli-release.yml").jobs;
   assert.deepEqual(jobs.npm_consumer.strategy.matrix, {
     node: ["22.0.0", "24"],
-    os: ["ubuntu-24.04", "macos-15"],
+    os: ["ubuntu-24.04", "macos-15", "windows-2025"],
   });
   assert.equal(jobs.npm_consumer.needs, "npm_artifact");
   const upload = jobs.npm_artifact.steps.find((step) =>

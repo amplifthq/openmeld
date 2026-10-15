@@ -82,7 +82,7 @@ jobs:
       fail-fast: false
       matrix:
         node: ["22.0.0", "24"]
-        os: [ubuntu-24.04, macos-15]
+        os: [ubuntu-24.04, macos-15, windows-2025]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     permissions:
@@ -103,6 +103,7 @@ jobs:
           name: npm-consumer-${{ env.RELEASE_SHA }}
           path: ${{ runner.temp }}/npm-consumer
       - name: Verify native platform and clean npm installation
+        shell: bash
         run: |
           node -e 'const expected = process.platform === "darwin" ? "arm64" : "x64"; if (process.arch !== expected) throw new Error(`Expected ${expected}, got ${process.arch}`)'
           node scripts/release/npm-cli-smoke.mjs verify "$RUNNER_TEMP/npm-consumer/openmeld.tgz"
@@ -116,15 +117,4 @@ jobs:
         if: matrix.node == '22.0.0'
         shell: bash
         run: |
-          mkdir "$RUNNER_TEMP/npm-consumer/unsupported"
-          tar -xzf "$RUNNER_TEMP/npm-consumer/openmeld.tgz" -C "$RUNNER_TEMP/npm-consumer/unsupported"
-          set +e
-          output=$(node "$RUNNER_TEMP/npm-consumer/unsupported/package/dist/openmeld.js" --version 2>&1)
-          status=$?
-          set -e
-          printf '%s\n' "$output"
-          test "$status" -eq 1
-          case "$output" in
-            *'OpenMeld requires Node.js >=22 <26;'*'Install Node.js 24 (recommended)'*) ;;
-            *) exit 1 ;;
-          esac
+          node scripts/release/npm-cli-smoke.mjs reject "$RUNNER_TEMP/npm-consumer/openmeld.tgz"

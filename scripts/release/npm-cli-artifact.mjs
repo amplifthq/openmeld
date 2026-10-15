@@ -68,12 +68,22 @@ export function assertNpmRuntimeDependencies(manifest) {
 
 async function run(command, args, options = {}) {
   const env = options.env ?? process.env;
-  const invocation =
-    process.platform === "win32"
-      ? (
-          await import("../../runtime/adapters/core/dist/process-launch.js")
-        ).resolvePlatformCommand(command, args, env)
-      : { bin: command, args };
+  let invocation = { bin: command, args };
+  if (process.platform === "win32" && command === "npm") {
+    // setup-node's Windows distribution includes npm beside node.exe. Invoke
+    // its JS entry directly so a clean consumer needs no workspace build.
+    invocation = {
+      bin: process.execPath,
+      args: [
+        join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"),
+        ...args,
+      ],
+    };
+  } else if (process.platform === "win32" && command === "pnpm") {
+    invocation = (
+      await import("../../runtime/adapters/core/dist/process-launch.js")
+    ).resolvePlatformCommand(command, args, env);
+  }
   const result = spawnSync(invocation.bin, invocation.args, {
     cwd: options.cwd,
     env,

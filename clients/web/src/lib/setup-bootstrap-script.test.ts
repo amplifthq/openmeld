@@ -1685,13 +1685,28 @@ describe("setup-bootstrap-script", () => {
 		});
 	});
 
-	it.each([20, 21, 26])(
-		"continues standalone setup without calling npm on Node %s",
-		(major) => {
+	it.each([
+		[20, false],
+		[20, true],
+		[21, false],
+		[21, true],
+		[26, false],
+		[26, true],
+	] as const)(
+		"continues standalone setup on Node %s (old npm package: %s)",
+		(major, hasOldPackage) => {
 			const root = mkdtempSync(join(tmpdir(), "openmeld-binary-node-policy-"));
 			const bin = join(root, "bin");
 			const callsPath = join(root, "calls.txt");
 			const npmCalls = join(root, "npm-calls.txt");
+			const npmRoot = join(root, "npm-root");
+			if (hasOldPackage) {
+				mkdirSync(join(npmRoot, "openmeld"), { recursive: true });
+				writeFileSync(
+					join(npmRoot, "openmeld/package.json"),
+					JSON.stringify({ version: "1.0.0" })
+				);
+			}
 			try {
 				mkdirSync(bin);
 				for (const command of ["curl", "shasum", "uname"]) {
@@ -1704,7 +1719,7 @@ describe("setup-bootstrap-script", () => {
 				);
 				writeFileSync(
 					join(bin, "npm"),
-					'#!/bin/sh\nprintf "unexpected npm call\\n" >> "$OPENMELD_TEST_NPM_CALLS"\nexit 1\n',
+					'#!/bin/sh\nprintf "%s\\n" "$*" >> "$OPENMELD_TEST_NPM_CALLS"\n[ "$*" = "root -g" ] || exit 1\nprintf "%s\\n" "$OPENMELD_TEST_NPM_ROOT"\n',
 					{ mode: 0o755 }
 				);
 				const result = spawnBootstrapScript(
@@ -1717,16 +1732,19 @@ describe("setup-bootstrap-script", () => {
 							PATH: bootstrapTestPath(bin),
 							OPENMELD_TEST_CALLS_PATH: callsPath,
 							OPENMELD_TEST_NPM_CALLS: npmCalls,
+							OPENMELD_TEST_NPM_ROOT: npmRoot,
 						},
 					}
 				);
 				expect(result.status).toBe(0);
-				expect(result.stdout).toContain("Skipping the older npm CLI update");
+				expect(result.stdout.includes("was left unchanged")).toBe(
+					hasOldPackage
+				);
 				expect(result.stdout).toContain('"code":"setup.complete"');
 				expect(readFileSync(callsPath, "utf8")).toBe(
 					"install-self\nsetup --start-session fixture --ott fixture\n"
 				);
-				expect(existsSync(npmCalls)).toBe(false);
+				expect(readFileSync(npmCalls, "utf8")).toBe("root -g\n");
 			} finally {
 				rmSync(root, { recursive: true, force: true });
 			}

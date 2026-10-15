@@ -21,8 +21,12 @@ type Sink = { file?: string; args?: readonly string[] };
 
 const tempRoots: string[] = [];
 
-function capturingExec(sink: Sink): ExecFileFn {
+function capturingExec(sink: Sink, nodeVersion = "v24.14.0"): ExecFileFn {
   return (file, args, _options, callback) => {
+    if (args[0] === "--version" && file.endsWith("/node")) {
+      callback(null, `${nodeVersion}\n`, "");
+      return {};
+    }
     sink.file = file;
     sink.args = args;
     callback(null, '{"schemaVersion":1,"type":"ok"}', "");
@@ -91,7 +95,12 @@ describe("cli commands", () => {
     expect(sink.args).toEqual(["upgrade", "--yes", "--view", "agent"]);
   });
 
-  it("installCli installs the official global OpenMeld CLI npm package", async () => {
+  it.each([
+    "v22.0.0",
+    "v23.0.0",
+    "v24.14.0",
+    "v25.0.0",
+  ])("installCli installs the npm CLI on %s", async (version) => {
     const root = await tempRoot();
     const binDir = join(root, "bin");
     const npmBin = join(binDir, "npm");
@@ -105,11 +114,40 @@ describe("cli commands", () => {
         OPENMELD_DESKTOP_DISABLE_COMMON_PATH_DIRS: "1",
         PATH: binDir,
       },
-      exec: capturingExec(sink),
+      exec: capturingExec(sink, version),
     });
 
     expect(sink.file).toBe(npmBin);
     expect(sink.args).toEqual(["install", "--global", "openmeld@latest"]);
+  });
+
+  it.each([
+    "v20.19.2",
+    "v21.7.0",
+    "v26.0.0",
+    "unreadable",
+  ])("installCli rejects %s before npm", async (version) => {
+    const root = await tempRoot();
+    const binDir = join(root, "bin");
+    await writeExecutable(join(binDir, "node"), "#!/bin/sh\n");
+    await writeExecutable(join(binDir, "npm"), "#!/bin/sh\n");
+    const calls: string[] = [];
+    const result = await installCli({
+      env: { OPENMELD_DESKTOP_DISABLE_COMMON_PATH_DIRS: "1", PATH: binDir },
+      exec: (file, _args, _options, callback) => {
+        calls.push(file);
+        callback(null, `${version}\n`, "");
+        return {};
+      },
+    });
+    expect(calls).toEqual([join(binDir, "node")]);
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "desktop.node_unsupported",
+        message: expect.stringContaining("Install Node.js 24 (recommended)"),
+      },
+    });
   });
 
   it("installCli reports missing Node.js before trying npm", async () => {

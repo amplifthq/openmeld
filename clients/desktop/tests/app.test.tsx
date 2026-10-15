@@ -735,6 +735,33 @@ describe("App", () => {
     expect(updateCli).toHaveBeenCalledTimes(1);
   });
 
+  it("offers a Node 24 download for an unsupported npm installation runtime", async () => {
+    const openNodeDownloadPage = vi.fn(() => Promise.resolve());
+    const message =
+      "OpenMeld requires Node.js >=22 <26; found v20.19.2. Install Node.js 24 (recommended) from https://nodejs.org, then run this command again.";
+    render(
+      <App
+        bridge={makeBridge({
+          getServiceStatus: () =>
+            Promise.resolve({
+              ...svc("unknown"),
+              problem: {
+                kind: "spawn_failed",
+                code: "desktop.node_unsupported",
+                message,
+                requestId: null,
+              },
+            }),
+          openNodeDownloadPage,
+        })}
+        skipSplash
+      />
+    );
+    expect(await screen.findByText(message)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Install Node.js 24" }));
+    expect(openNodeDownloadPage).toHaveBeenCalledTimes(1);
+  });
+
   it("opens the Node.js download page when Node.js is missing", async () => {
     const openNodeDownloadPage = vi.fn(() => Promise.resolve());
     render(

@@ -1,4 +1,5 @@
 import { execPlatformFile as execFile } from "@openmeld/adapter-core/process-launch";
+import { unsupportedNodeRuntimeMessage } from "@openmeld/start/node-runtime";
 import type { CliCommandFailure, CliCommandResult } from "../../shared/types";
 import type { CliProblem } from "../../shared/view-types";
 import type { ExecFileError, ExecFileFn } from "./driver";
@@ -49,7 +50,7 @@ export function readOpenMeldCliSetupProblem(
   );
 }
 
-export function installOpenMeldCli(
+export async function installOpenMeldCli(
   deps: InstallCliDeps = {}
 ): Promise<CliCommandResult> {
   const env = buildDesktopCommandEnv(deps.env);
@@ -75,6 +76,25 @@ export function installOpenMeldCli(
   }
 
   const exec = deps.exec ?? (execFile as unknown as ExecFileFn);
+  const runtimeProblem = await new Promise<string | null>((resolve) => {
+    exec(
+      nodeBin,
+      ["--version"],
+      { env, timeout: 10_000, maxBuffer: MAX_BUFFER_BYTES },
+      (error, stdout) => {
+        resolve(
+          unsupportedNodeRuntimeMessage(error ? "unavailable" : stdout.trim())
+        );
+      }
+    );
+  });
+  if (runtimeProblem) {
+    return installFailure(
+      "spawn_failed",
+      "desktop.node_unsupported",
+      runtimeProblem
+    );
+  }
   return new Promise((resolve) => {
     exec(
       npmBin,

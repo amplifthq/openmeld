@@ -772,6 +772,14 @@ function resolveCliSetupIssue(
   if (!problem) {
     return null;
   }
+  if (problem.code === "desktop.node_unsupported") {
+    return {
+      action: "open_node_download",
+      actionLabel: "Install Node.js 24",
+      description: problem.message,
+      title: "This Node.js version is not supported.",
+    };
+  }
   if (problem.code === "desktop.node_missing") {
     return {
       action: "open_node_download",
