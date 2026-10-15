@@ -1242,6 +1242,7 @@ describe("PeopleAndAgentsPage", () => {
 
 		expect(navigateMock).toHaveBeenCalledWith({
 			to: "/o/acme/people/11111111-1111-4111-8111-111111111111/agents/agt_11111111-1111-4111-8111-111111111111",
+			search: { from: "agents" },
 		});
 	});
 
