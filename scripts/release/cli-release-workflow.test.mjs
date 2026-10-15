@@ -161,8 +161,8 @@ test("reuses only a successful helper job from the official main CLI workflow", 
     .split("  cli_release:")[0];
   const macJob = workflow.split("  cli_release:")[1];
   assert.ok(workflow.includes("      helper_only:"));
-  assert.ok(windowsJob.includes("inputs.helper_only ||"));
-  assert.ok(windowsJob.includes("inputs.windows_artifact_run_id == ''"));
+  assert.ok(windowsJob.includes("      inputs.helper_only\n"));
+  assert.ok(!windowsJob.includes("inputs.windows_artifact_run_id == ''"));
   assert.equal(
     windowsJob.match(
       /inputs\.helper_only && github\.sha \|\| inputs\.release_sha \|\| github\.sha/gu
@@ -172,8 +172,12 @@ test("reuses only a successful helper job from the official main CLI workflow", 
   assert.ok(macJob.includes("!inputs.helper_only"));
   assert.ok(!windowsJob.includes("Reuse the stamped Windows process helper"));
   assert.ok(macJob.includes("!cancelled()"));
+  assert.ok(macJob.includes("inputs.windows_artifact_run_id != ''"));
+  assert.ok(!macJob.includes("actions/download-artifact"));
   assert.ok(
-    macJob.includes("needs.windows_process_artifact.result == 'success'")
+    workflow.includes(
+      "(!inputs.helper_only && inputs.windows_artifact_run_id == '')"
+    )
   );
   assert.ok(macJob.includes("Reuse the stamped Windows process helper"));
   assert.ok(
@@ -525,12 +529,10 @@ test("uses the exact release SHA for CLI publication and recovery", () => {
     source.includes("node scripts/release/build-windows-process-helper.mjs")
   );
   assert.ok(
-    source.includes(
-      "node scripts/release/windows-process-artifact.mjs dev-tmp/windows-process-helper"
-    )
+    source.includes("node scripts/release/reuse-windows-process-artifact.mjs")
   );
   assert.ok(
-    source.indexOf("Verify and import Windows process helper") <
+    source.indexOf("Reuse the stamped Windows process helper") <
       source.indexOf(
         "Publish signed and notarized CLI, binary channel, npm package, tag, and Core"
       )

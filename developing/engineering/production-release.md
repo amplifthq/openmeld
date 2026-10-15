@@ -46,6 +46,10 @@ pnpm release:status -- --ref HEAD --change-base <BASE>
 ```
 
 The GitHub lane supports Web, Website, Docs, Gateway, Remote Agent and CLI.
+When CLI publication remains pending, set `WINDOWS_ARTIFACT_RUN_ID` to the
+trusted helper run used to stamp the manifest before starting continuation.
+Missing preparation stops before deploying another component; completed CLI
+receipts and already-running exact-source publishers can still be resumed.
 Database, Auth and standalone Core still need the local PostgreSQL release
 environment; the command reports this before dispatching an unsupported stage.
 An interrupted command can be repeated at the same source and base: current
@@ -2199,9 +2203,10 @@ manifest. The publisher rechecks its provenance and bytes and skips a second
 Windows build. A different run with the same source is not interchangeable.
 When using guarded hosted release continuation, set `WINDOWS_ARTIFACT_RUN_ID`
 to that numeric run ID. The CLI stage validates and forwards it as
-`windows_artifact_run_id`; other scopes ignore it. An omitted or blank value
-preserves the workflow's normal helper-build behavior. Existing active release
-runs are still watched rather than dispatched again.
+`windows_artifact_run_id`; other scopes ignore it. Publication requires this
+pin. An omitted or blank value is rejected instead of rebuilding different
+bytes. `helper_only=true` remains the separate preparation operation. Existing
+active release runs are still watched rather than dispatched again.
 
 Use `release:verify:local -- --scope cli` only when an earlier full go/no-go
 decision or handoff is needed; it is not a default extra gate.
