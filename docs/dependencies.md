@@ -180,7 +180,7 @@ not install packages or query the network. Stage new manifests before running it
 | [drizzle-kit](https://www.npmjs.com/package/drizzle-kit) | <code>^0.31.9</code> | Development | [packages/db](../packages/db/package.json)<br>[services/auth](../services/auth/package.json)<br>[tooling/postgresql](../tooling/postgresql/package.json) |
 | [drizzle-orm](https://www.npmjs.com/package/drizzle-orm) | <code>^0.45.2</code> | Runtime | [packages/auth](../packages/auth/package.json)<br>[packages/db](../packages/db/package.json)<br>[tooling/postgresql](../tooling/postgresql/package.json) |
 | [echarts](https://www.npmjs.com/package/echarts) | <code>^6.1.0</code> | Runtime | [packages/ui](../packages/ui/package.json) |
-| [electron](https://www.npmjs.com/package/electron) | <code>44.3.0</code> | Development | [clients/desktop](../clients/desktop/package.json) |
+| [electron](https://www.npmjs.com/package/electron) | <code>44.7.2</code> | Development | [clients/desktop](../clients/desktop/package.json) |
 | [electron-builder](https://www.npmjs.com/package/electron-builder) | <code>^26.15.3</code> | Development | [clients/desktop](../clients/desktop/package.json) |
 | [electron-updater](https://www.npmjs.com/package/electron-updater) | <code>6.8.9</code> | Runtime | [clients/desktop](../clients/desktop/package.json) |
 | [electron-vite](https://www.npmjs.com/package/electron-vite) | <code>5.0.0</code> | Development | [clients/desktop](../clients/desktop/package.json) |

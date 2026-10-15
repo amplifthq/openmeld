@@ -15,3 +15,6 @@ remain unchanged.
 Update Hono request handling and React rendering across Web, Desktop, Website,
 Docs, and shared UI. Preserve route parameter types in extracted handlers and
 reject missing avatar and organization logo filenames through existing validation.
+
+Update Desktop to Electron 44.7.2, including upstream macOS background-click and
+interrupted-update fixes. Keep the existing login, permissions, and update policy.

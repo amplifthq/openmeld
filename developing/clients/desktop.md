@@ -1163,7 +1163,7 @@ stable, isolated local test profile. Main sets and verifies Electron's
 that directory explicitly to Electron, keeping GUI preferences and credentials
 separate from other worktrees.
 
-Electron 44.3.0 is paired with electron-vite 5.0.0 and Vite 7.3.7. Hydrate the
+Electron 44.7.2 is paired with electron-vite 5.0.0 and Vite 7.3.7. Hydrate the
 native binary with `pnpm --filter @openmeld/desktop exec electron --version`.
 Electron is deliberately separate from the root Worker development stack.
 
