@@ -55,7 +55,7 @@ describe("LocalAgentSelector", () => {
 					message: "Connection check failed.",
 					onRetry: retry,
 					connectionSetup: {
-						target: { deviceId: "computer", runtimeLane: "dev" },
+						target: { deviceId: "computer", runtimeLane: "dev-local" },
 						storageScope: "test",
 					},
 				}}
