@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-15T10:31:56.003Z",
+  "updatedAt": "2026-10-15T10:41:04.967Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
@@ -9,13 +9,13 @@
       "reason": "Existing CLI commands and payloads remain compatible; this update corrects report ordering after local Agent setup."
     },
     "service": {
-      "bundleHash": "1be669f6e171219808320172a182f3f8a34b84f348463be2985cdc66de7d2643",
-      "portableBundleHash": "b161e8fb30591c9d216ec395c3aa5f1616a5769a4b0832339ac6497913374c38",
+      "bundleHash": "79ba667f8bad701f600f8501ba2ef0a295c13014927f776766e792eb0825ebae",
+      "portableBundleHash": "4a8bc677b7f778c0e0c5d08ceca699abbddab0f3664373ce82a787cfca324ffb",
       "bundleVersion": "0.3.263",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
       "updatePolicy": "available",
-      "reason": "Setup and Wake protocols are unchanged. Existing Services remain safe; the update refreshes evidence after a completed local control mutation."
+      "reason": "Setup and Wake protocols remain compatible, including additive Task payload fields from current main. The update refreshes evidence after completed local control mutations."
     },
     "skills": {
       "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",
