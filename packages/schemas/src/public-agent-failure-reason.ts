@@ -1976,7 +1976,6 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       body: "The selected task is not available to continue or fork. Select its original request, or start a new task.",
       kind: "request_ended",
       patterns: ["=execution_context.source_unavailable"],
-      primaryActionId: "check_status",
       preferMappedReasonOverDetail: true,
       recoveryTarget: null,
     },

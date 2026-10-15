@@ -186,7 +186,9 @@ export async function runSend(input: {
   const contextSelection = await resolveMessageTaskSelection({
     selection: input.contextSelection,
     sourceSignalId: input.contextSourceSignalId,
-    targetProfileId: input.wakeTargets?.[0],
+    targetProfileId: resolvedAddressingTargets.find(
+      (target) => target.relation === "wake"
+    )?.profileId,
     spaceId: space,
     readDetails: (signalId) =>
       spaceApi.getMessageDetails({

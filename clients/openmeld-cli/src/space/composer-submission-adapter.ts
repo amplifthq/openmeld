@@ -11,7 +11,7 @@ import {
   SpaceComposerSubmissionError,
 } from "@openmeld/space";
 
-const WHITESPACE = /\s/u;
+const ADDRESS_BOUNDARY = /[\s,.:;!?，。！？：；]/u;
 
 export type CliSpaceAddressingTarget = {
   agentControllerRef?: string | null;
@@ -121,7 +121,8 @@ function assertNoDuplicateLeadingRecipient(
     const label = `@${target.primaryMentionLabel}`;
     if (
       text === label ||
-      (text.startsWith(label) && WHITESPACE.test(text.charAt(label.length)))
+      (text.startsWith(label) &&
+        ADDRESS_BOUNDARY.test(text.charAt(label.length)))
     ) {
       throw new SpaceComposerSubmissionError({
         code: "addressing.duplicate_target",

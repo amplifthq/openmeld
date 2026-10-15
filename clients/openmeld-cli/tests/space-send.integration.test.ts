@@ -476,6 +476,7 @@ describe("space send OpenMeld profile identity", () => {
     { mode: undefined, source: "none" },
     { mode: "resume", source: "request" },
     { mode: "resume", source: "reply" },
+    { mode: "resume", source: "padded-reply" },
     { mode: "fork", source: "reply" },
     { mode: "resume", source: "missing" },
     { mode: "resume", source: "other-agent" },
@@ -563,14 +564,21 @@ describe("space send OpenMeld profile identity", () => {
             }),
             baseUrl: "https://gateway.openmeld.invalid",
             space: "demo",
-            wakeTargets: ["agt_11111111-2222-4333-8444-555555555555"],
+            wakeTargets: [
+              source === "padded-reply"
+                ? " agt_11111111-2222-4333-8444-555555555555 "
+                : "agt_11111111-2222-4333-8444-555555555555",
+            ],
             ...(mode
               ? {
                   contextSelection: {
                     mode,
                     sourceWakeId: "unresolved-message-selection",
                   },
-                  contextSourceSignalId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                  contextSourceSignalId:
+                    source === "padded-reply"
+                      ? " aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa "
+                      : "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
                 }
               : {}),
             mentionTargets: ["bbbbbbbb-1111-2222-3333-000000000000"],

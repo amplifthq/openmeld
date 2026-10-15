@@ -20,14 +20,15 @@ export async function resolveMessageTaskSelection(input: {
   ) {
     return selection;
   }
-  if (!input.sourceSignalId) {
+  const sourceSignalId = input.sourceSignalId?.trim();
+  if (!sourceSignalId) {
     return selection;
   }
-  const details = await input.readDetails(input.sourceSignalId);
+  const details = await input.readDetails(sourceSignalId);
   const source = details.wakeContext.sourceSignalId;
   if (
     details.query.spaceId !== input.spaceId ||
-    details.message.signalId !== input.sourceSignalId ||
+    details.message.signalId !== sourceSignalId ||
     source.state !== "recorded" ||
     !source.value ||
     !input.targetProfileId ||

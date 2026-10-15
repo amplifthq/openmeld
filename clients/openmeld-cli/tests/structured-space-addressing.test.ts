@@ -81,11 +81,30 @@ describe("explicit CLI Space addressing", () => {
     for (const text of [
       'Please ask about "@Review (wake) @ East".',
       "@Review (wake) @ Eastern is mentioned here.",
+      "@Review (wake) @ East-Coast is mentioned here.",
     ]) {
       expect(
         (await prepare({ text, wakeTargets: [agentId] })).outboundText
       ).toBe(`@Review (wake) @ East ${text}`);
     }
+  });
+  it.each([
+    ",",
+    ":",
+    ".",
+    ";",
+    "!",
+    "?",
+    "，",
+    "：",
+    "。",
+  ])("rejects a duplicate leading address followed by %s", async (punctuation) => {
+    await expect(
+      prepare({
+        wakeTargets: [agentId],
+        text: `@Review (wake) @ East${punctuation} Please review.`,
+      })
+    ).rejects.toMatchObject({ code: "addressing.duplicate_target" });
   });
   it("rejects conflicting relations rather than choosing an action", async () => {
     await expect(
