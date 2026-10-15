@@ -6,6 +6,8 @@ import {
   currentLocalAgentInstallationsRouteParamsSchema,
   getCurrentAgentProfileWorkspaceQuerySchema,
   getCurrentAgentProfileWorkspaceResponseSchema,
+  localAgentSetupRequestSchema,
+  localAgentSetupStateSchema,
   localAgentUpdateRequestSchema,
   localAgentUpdateStateSchema,
   localFolderPickerResultSchema,
@@ -42,6 +44,57 @@ export function registerPeopleComputerControlRoutes(
   app: Hono<HonoBindings>
 ): void {
   registerServiceConnectionEvidenceRoutes(app);
+  const setupRoute =
+    "/v1/people-computers/:deviceId/lanes/:runtimeLane/local-agents/:agentId/connection-setup";
+  app.on(["GET", "POST"], setupRoute, async (c) => {
+    c.header("Cache-Control", "no-store");
+    const target = peopleComputerTargetSchema.safeParse({
+      deviceId: c.req.param("deviceId"),
+      runtimeLane: c.req.param("runtimeLane"),
+    });
+    const method = c.req.method === "POST" ? "POST" : "GET";
+    if (!target.success || c.req.param("agentId") !== "grok-bot") {
+      return respondBadRequest({
+        c,
+        route: setupRoute,
+        method,
+        code: "invalid_payload",
+        message: "Invalid computer or Agent.",
+      });
+    }
+    let request:
+      | import("@openmeld/schemas/types").LocalAgentSetupRequest
+      | undefined;
+    if (method === "POST") {
+      const body = await readJsonRequestBody(c.req.raw);
+      const parsed = localAgentSetupRequestSchema.safeParse(
+        body.ok ? body.value : null
+      );
+      if (!parsed.success) {
+        return respondBadRequest({
+          c,
+          route: setupRoute,
+          method,
+          code: "invalid_payload",
+          message: "Invalid connection setup request.",
+        });
+      }
+      request = parsed.data;
+    }
+    return executeRpcRoute({
+      c,
+      route: setupRoute,
+      method,
+      responseSchema: localAgentSetupStateSchema,
+      execute: () =>
+        c.var.coreRpc.managePeopleComputerLocalAgentSetup({
+          ...target.data,
+          agentId: "grok-bot",
+          ...(request ? { request } : {}),
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
   const agentUpdateRoute =
     "/v1/people-computers/:deviceId/lanes/:runtimeLane/local-agents/:agentId/installation-update";
   app.on(["GET", "POST"], agentUpdateRoute, async (c) => {

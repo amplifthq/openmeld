@@ -6,20 +6,28 @@ icon: local-agent:grok-bot
 
 Connect a Bot you already use in Grok Bot. OpenMeld shares its existing conversation, tools, and settings.
 
-## Install and sign in
+If the Bot already has an Agent Profile in OpenMeld, select that Agent when starting a message or adding members to a Space. Reuse the existing Profile instead of connecting the same conversation to another Profile.
 
-1. Follow the [official BDK CLI guide](https://cursor.com/docs/bdk/reference/cli) to install `@cursor/bdk`.
-2. Run `bdk login` and sign in with the account that owns your Bot.
-3. Run `bdk whoami --json` to check that sign-in is complete.
-
-See the [official Grok Bot agent guide](https://cursor.com/docs/bdk/guides/grokbot-agents) for the provider's current requirements.
-
-## Connect to OpenMeld
+## Connect from OpenMeld
 
 1. [Connect this computer](/docs/start/connect-computer).
 2. Create an Agent from **New message**, **Add people or agents**, or Agent settings.
-3. Select **Grok Bot**, choose the computer, and enter the existing Bot conversation ID.
-4. Confirm **Connect bot**. Then message the Agent or add it to a Space.
+3. Select **Grok Bot** and choose the computer.
+4. Select **Install connection tools**. OpenMeld downloads and verifies a private runtime and the official BDK CLI. You do not need to install Node or use a terminal.
+5. Select **Sign in**, then complete the official authorization in the browser on that computer. Use the account that owns your Bot.
+6. Enter the existing Bot conversation ID and confirm **Connect bot**. Then message the Agent or add it to a Space.
+
+Installation and sign-in continue if you close the dialog. You can keep choosing other members, then return to the same computer and Agent to see progress. OpenMeld checks the result automatically. Credentials stay on the selected computer.
+
+Managed installation supports macOS and Linux on Apple silicon/ARM64 and x64. It installs connection tools, not the Grok Bot application, and does not create a Bot. You need an existing Bot.
+
+## Manual setup and recovery
+
+If your Service does not show the installation action, update OpenMeld Service. On other platforms, follow the [official BDK CLI guide](https://cursor.com/docs/bdk/reference/cli), run `bdk login`, then verify with `bdk whoami --json`. Existing manual installations remain supported.
+
+If setup fails, read the message and retry the failed step. If the Service restarts during setup, OpenMeld reports that the outcome is unknown instead of repeating the installation or authorization automatically.
+
+See the [official Grok Bot agent guide](https://cursor.com/docs/bdk/guides/grokbot-agents) for provider requirements.
 
 ## Shared conversation and limits
 
@@ -30,7 +38,7 @@ Grok Bot connects to an existing conversation through BDK. Unlike a separate loc
 - **Replies are not isolated by task.** BDK does not provide reliable task-level reply attribution. Messages sent from the Bot app while an OpenMeld task runs can affect the context and reply returned to that task. Use one task at a time across both apps and all connected Spaces.
 - **Busy conversations must finish first.** OpenMeld rejects a new task when it detects that the Bot is already working. This check does not prevent someone from starting work in the Bot app at the same time. After Stop, wait for the stopped outcome before sending another task.
 - **Settings stay in Grok Bot.** Manage the model, tools, permissions, and working folder there. OpenMeld does not provide a separate project folder or isolated execution context for this connection.
-- **The connected computer must be available.** Its OpenMeld Service runs the BDK connection using that computer's BDK sign-in. Signing in to the Grok Bot app alone does not replace `bdk login`.
+- **The connected computer must be available.** Its OpenMeld Service runs the BDK connection using that computer's authorization. Signing in to the Grok Bot app alone does not authorize this connection.
 
 Reconnecting the same Agent keeps its confirmed conversation. **Grok Build** is a separate ACP integration; it does not connect to your existing Grok Bot.
 

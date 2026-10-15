@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-14T15:19:25.437Z",
+  "updatedAt": "2026-10-14T23:57:41.696Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
       "packageVersion": "0.3.261",
       "updatePolicy": "available",
-      "reason": "Bundle internal adapters with the CLI so npm installation does not require unpublished workspace packages; existing command contracts remain compatible."
+      "reason": "Existing CLI commands remain compatible; Grok Bot setup is opt-in."
     },
     "service": {
       "bundleHash": "4892dd3a344877354af2e86de83aca367c56c83826c4f988203a6140a4aa37e7",
@@ -15,7 +15,7 @@
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
       "updatePolicy": "available",
-      "reason": "The packaged Service includes the Grok Bot adapter without changing runtime contracts or requiring existing Services to update."
+      "reason": "Connection setup uses a new optional capability; existing Wake and manual BDK installations remain supported."
     },
     "skills": {
       "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",

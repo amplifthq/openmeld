@@ -3116,6 +3116,55 @@ export async function rpcManagePeopleComputerLocalAgentUpdate(
     requireAcceptedLocalAgentUpdatePayload(result)
   );
 }
+export async function rpcManagePeopleComputerLocalAgentSetup(
+  env: CoreBindings,
+  input: GetCurrentLocalAgentInstallationsInput &
+    PeopleComputerTarget & {
+      request?: import("@openmeld/schemas/types").LocalAgentSetupRequest;
+    }
+): Promise<import("@openmeld/schemas/types").LocalAgentSetupState> {
+  const target = peopleComputerTargetSchema.parse({
+    deviceId: input.deviceId,
+    runtimeLane: input.runtimeLane,
+  });
+  if (input.agentId !== "grok-bot") {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "This Agent does not support connection setup.",
+    });
+  }
+  const userId = requireAuthenticatedOwnerUserId(input.context);
+  const { currentTarget } = await resolveCurrentLocalAgentControlTarget({
+    capability: "setupInstallations",
+    env,
+    target,
+    userId,
+    unsupportedCode: "local_agent_control.unsupported",
+    unsupportedReason: "Update OpenMeld Service to install connection tools.",
+  });
+  const request = input.request
+    ? localAgentSetupRequestSchema.parse(input.request)
+    : null;
+  const result = await manageRuntimeTransportLocalAgentInstallation({
+    env,
+    ownerUserId: userId,
+    deviceId: currentTarget.deviceId,
+    runtimeLane: currentTarget.runtimeLane,
+    request: request
+      ? { ...request, agentId: "grok-bot", operation: "setup" }
+      : { agentId: "grok-bot", operation: "read_setup" },
+  });
+  const payload = requireAcceptedInstallationControlPayload(result);
+  if (payload.status !== "setup_state") {
+    throw createCoreRpcHttpError({
+      status: 502,
+      code: "local_agent_control.invalid_response",
+      reason: "Unexpected connection setup response.",
+    });
+  }
+  return localAgentSetupStateSchema.parse(payload.setup);
+}
 export function rpcSelectPeopleComputerLocalAgentInstallation(
   env: CoreBindings,
   input: SelectCurrentLocalAgentInstallationInput & PeopleComputerTarget
@@ -27134,3 +27183,9 @@ export async function rpcComputerPowerSettings(
   }
   return result;
 }
+
+import {
+  localAgentSetupRequestSchema,
+  localAgentSetupStateSchema,
+} from "@openmeld/schemas";
+import { requireAcceptedInstallationControlPayload } from "./local-agent-control-policy";
