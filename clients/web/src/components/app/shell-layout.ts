@@ -15,6 +15,7 @@ export type AppShellSection =
 	| "organizations"
 	| "people"
 	| "projects"
+	| "routines"
 	| "settings"
 	| "space"
 	| "start";
@@ -28,6 +29,7 @@ export type AppOuterRailDestination =
 	| "home"
 	| "people"
 	| "projects"
+	| "routines"
 	| "settings"
 	| "spaces";
 type AppShellStaticDataKey = AppShellSection | "documents";
@@ -61,6 +63,7 @@ export const appShellStaticData = {
 	organizations: { appShellSection: "organizations" },
 	people: { appShellSection: "people" },
 	projects: { appShellSection: "projects" },
+	routines: { appShellSection: "routines" },
 	settings: { appShellSection: "settings" },
 	space: { appShellSection: "space" },
 	start: { appShellSection: "start" },
@@ -119,6 +122,7 @@ export function resolveAppOuterRailDestinationFromMatches(
 		case "inbox":
 		case "people":
 		case "projects":
+		case "routines":
 		case "settings":
 			return section;
 		case "centerAgent":

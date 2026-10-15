@@ -18,10 +18,6 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentProfilesWorkspace } from "./agent-profiles-workspace";
 
-vi.mock("#/components/directory/team-people-sidebar", () => ({
-	TeamPeopleSidebar: () => <nav aria-label="People" />,
-}));
-
 vi.mock("#/components/directory/center-agent-item", () => ({
 	CenterAgentItem: () => <div>Center Agent</div>,
 }));
@@ -59,52 +55,20 @@ const { appFullWidthLayoutSpy, appNavigationPresentationSpy } = vi.hoisted(
 vi.mock("#/components/app/app-full-width-layout", () => ({
 	AppFullWidthLayout: ({
 		children,
-		mainSidebarContent,
+		mainSidebar,
 		...props
 	}: {
 		children: ReactNode;
-		mainSidebarContent: ReactNode;
+		mainSidebar?: { content: ReactNode };
 		[key: string]: unknown;
 	}) => (
 		<>
 			{appFullWidthLayoutSpy(props)}
 			<div data-testid="agents-workspace-layout">
-				<aside data-testid="agents-main-sidebar">{mainSidebarContent}</aside>
+				<aside data-testid="agents-main-sidebar">{mainSidebar?.content}</aside>
 				<main>{children}</main>
 			</div>
 		</>
-	),
-}));
-
-vi.mock("#/components/app/app-contextual-layout", () => ({
-	AppContextualSidebarNav: ({
-		activeItemId,
-		groups,
-		leadingContent,
-		title,
-	}: {
-		activeItemId: string | null;
-		groups: readonly {
-			ariaLabel: string;
-			content: ReactNode;
-			id: string;
-			label: string;
-		}[];
-		leadingContent: ReactNode;
-		title: string;
-	}) => (
-		<nav aria-label={title}>
-			<h1>{title}</h1>
-			{leadingContent}
-			{groups.map((group) => (
-				<section aria-label={group.ariaLabel} key={group.id}>
-					<h2>{group.label}</h2>
-					<div data-active-profile-id={activeItemId ?? undefined}>
-						{group.content}
-					</div>
-				</section>
-			))}
-		</nav>
 	),
 }));
 
@@ -226,9 +190,25 @@ describe("AgentProfilesWorkspace", () => {
 			screen.getByRole("button", { name: "Open Other Agent" })
 		).toBeTruthy();
 	});
-	it("keeps only profile groups in the main sidebar", () => {
-		renderWorkspace({ creationAttentionCount: 2 });
+	it("navigates Agent details through the current Agent list instead of people", () => {
+		const onSelectProfile = vi.fn();
+		renderWorkspace({ selectedProfileId: "agent-current", onSelectProfile });
 		const sidebar = screen.getByTestId("agents-main-sidebar");
+		expect(
+			within(sidebar).getByRole("navigation", { name: "Agents" })
+		).toBeTruthy();
+		expect(
+			within(sidebar).queryByRole("navigation", { name: "People" })
+		).toBeNull();
+		expect(
+			within(sidebar)
+				.getByRole("button", { name: "Felix Agent" })
+				.getAttribute("aria-current")
+		).toBe("page");
+		fireEvent.click(
+			within(sidebar).getByRole("button", { name: "Other Agent" })
+		);
+		expect(onSelectProfile).toHaveBeenCalledWith("agent-other");
 		expect(
 			within(sidebar).queryByRole("button", {
 				name: "Create Agent",
@@ -777,7 +757,7 @@ describe("AgentProfilesWorkspace", () => {
 				? { to: "/o/test/agents", label: "Back to Agents" }
 				: undefined,
 		});
-		expect(screen.getByRole("navigation", { name: "People" })).toBeTruthy();
+		expect(screen.getByRole("navigation", { name: "Agents" })).toBeTruthy();
 		expect(
 			screen
 				.getByRole("link", {

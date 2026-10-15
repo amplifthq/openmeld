@@ -41,6 +41,7 @@ import {
 	TeamSidebarHeader,
 	TeamSidebarHeaderActionsProvider,
 } from "../../src/components/directory/team-sidebar-header";
+import { TeamFilesSidebar } from "../../src/components/organizations/team-files-navigation";
 import { ConversationsSidebar } from "../../src/components/spaces/conversations-sidebar";
 import { Bubble } from "../../src/components/spaces/primitives/bubble";
 import {
@@ -309,6 +310,7 @@ function demoConversationTitle(spaceId: string) {
 function demoConversationVisibility(spaceId: string) {
 	return spaceId === "center-agent" ? "Private chat" : "Invite only";
 }
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The preview composes scene-specific navigation and fictional content in the shared shell.
 function Preview() {
 	useDemoCenterAvatar();
 	const conversationState = useDemoConversationState();
@@ -317,16 +319,18 @@ function Preview() {
 	const path = useRouterState({ select: (s) => s.location.pathname });
 	const spaceId = path.split("/").at(-1) ?? "release";
 	const isInbox = path.includes("/inbox");
-	const isTeam = [
-		"people",
-		"agents",
-		"plugins",
-		"skills",
-		"files",
-		"routines",
-	].includes(path.split("/")[3]);
+	const isRoutines = path.split("/")[3] === "routines";
+	const isTeam = ["people", "agents", "plugins", "skills", "files"].includes(
+		path.split("/")[3]
+	);
 	const scene = path.endsWith("/spaces") ? "Spaces" : "Conversation";
-	const activeDestination = isTeam ? "people" : "spaces";
+	let activeDestination: "people" | "routines" | "spaces" = "spaces";
+	if (isTeam) {
+		activeDestination = "people";
+	}
+	if (isRoutines) {
+		activeDestination = "routines";
+	}
 	const [file, setFile] = useState<string | null>(null);
 	const [person, setPerson] = useState<string | null>(null);
 	const [membersOpen, setMembersOpen] = useState(
@@ -387,8 +391,8 @@ function Preview() {
 		title = "Spaces";
 		content = <SpaceDirectory />;
 	}
-	if (isTeam) {
-		title = "Team";
+	if (isTeam || isRoutines) {
+		title = isRoutines ? "Routines" : "Team";
 		content = (
 			<TeamScene
 				onSelectPerson={setPerson}
@@ -399,6 +403,38 @@ function Preview() {
 	}
 	if (isInbox) {
 		content = <DemoInbox />;
+	}
+	const section = path.split("/")[3];
+	let moduleNavigation: ReactNode = null;
+	let moduleNavigationLabel = "Spaces";
+	if (isTeam && section === "files") {
+		moduleNavigation = <TeamFilesSidebar />;
+		moduleNavigationLabel = "Files";
+	} else if (isTeam && section === "people") {
+		moduleNavigationLabel = "People";
+		moduleNavigation = (
+			<TeamSidebarHeaderActionsProvider>
+				<TeamSidebarHeader />
+				<PeopleSidebar
+					activityNowMs={1_791_334_800_000}
+					chatPending={false}
+					computerGroups={[]}
+					error={null}
+					loading={false}
+					members={people}
+					onSelect={(id) => {
+						setPerson(id);
+						navigate({
+							to: "/o/$orgSlug/people",
+							params: { orgSlug: "test" },
+						}).catch(console.error);
+					}}
+					selectedProfileId={person}
+				/>
+			</TeamSidebarHeaderActionsProvider>
+		);
+	} else if (!(isTeam || isInbox || isRoutines)) {
+		moduleNavigation = <ConversationsSidebar showSearch={false} />;
 	}
 
 	return (
@@ -412,34 +448,9 @@ function Preview() {
 								tier: "expanded",
 								width: `${MODULE_SIDEBAR_MIN_WIDTH}px`,
 							}}
-							moduleNavigation={
-								!isInbox &&
-								(isTeam ? (
-									<TeamSidebarHeaderActionsProvider>
-										<TeamSidebarHeader />
-										<PeopleSidebar
-											activityNowMs={1_791_334_800_000}
-											chatPending={false}
-											computerGroups={[]}
-											error={null}
-											loading={false}
-											members={people}
-											onSelect={(id) => {
-												setPerson(id);
-												navigate({
-													to: "/o/$orgSlug/people",
-													params: { orgSlug: "test" },
-												}).catch(console.error);
-											}}
-											selectedProfileId={person}
-										/>
-									</TeamSidebarHeaderActionsProvider>
-								) : (
-									<ConversationsSidebar showSearch={false} />
-								))
-							}
-							moduleNavigationKey={isTeam ? "people" : "conversations"}
-							moduleNavigationLabel={isTeam ? "Team" : "Spaces"}
+							moduleNavigation={moduleNavigation}
+							moduleNavigationKey={isTeam ? section : "conversations"}
+							moduleNavigationLabel={moduleNavigationLabel}
 							outerRail={
 								<aside
 									className={APP_APPLICATION_RAIL_CLASS_NAME}
@@ -476,7 +487,7 @@ function Preview() {
 							}
 						>
 							<section className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-								{!(isTeam || isInbox) && (
+								{!(isTeam || isInbox || isRoutines) && (
 									<SpaceWindowHeader
 										actions={
 											scene === "Conversation" ? (
