@@ -170,6 +170,7 @@ export function NewChatDialog(input: {
 			}
 			isLoading={directory.isPending}
 			isSubmitting={submitting}
+			key={org.id}
 			notice={
 				multiple &&
 				selection.some(

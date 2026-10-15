@@ -1552,6 +1552,7 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 				!input.snapshot || (waitsForDirectory && input.directoryIsPending)
 			}
 			isSubmitting={input.isSubmitting}
+			key={`${input.orgSlug}:${input.spaceId ?? "new"}`}
 			notice={
 				<>
 					{input.usesOrganizationDirectory && input.directoryIsError ? (
