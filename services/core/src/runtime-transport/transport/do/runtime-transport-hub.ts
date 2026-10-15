@@ -11181,11 +11181,16 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.reapExpiredLeases(Date.now());
     const session = this.resolveLocalAgentControlSession({
       ...parsed.data,
-      capability:
-        parsed.data.request.operation === "update" ||
-        parsed.data.request.operation === "read_update"
-          ? "updateInstallations"
-          : "manageInstallationsSafely",
+      capability: (
+        {
+          setup: "setupInstallations",
+          read_setup: "setupInstallations",
+          update: "updateInstallations",
+          read_update: "updateInstallations",
+          list: "manageInstallationsSafely",
+          select: "manageInstallationsSafely",
+        } as const
+      )[parsed.data.request.operation],
       unsupportedMessage:
         "Update OpenMeld Service before choosing a local agent installation from OpenMeld Web.",
       updateRequiredMessage:
@@ -21493,6 +21498,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       | "manageInstallations"
       | "manageInstallationsSafely"
       | "updateInstallations"
+      | "setupInstallations"
       | "refreshCatalog"
       | "setEnabled"
       | "initializeProfileWorkspace"

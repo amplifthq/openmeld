@@ -36,6 +36,7 @@ export function projectPeopleComputerControls(session: Session) {
       manageInstallationsSafely:
         compatible && agents?.manageInstallationsSafely === true,
       updateInstallations: compatible && agents?.updateInstallations === true,
+      setupInstallations: compatible && agents?.setupInstallations === true,
       setProfileWorkspace: compatible && agents?.setProfileWorkspace === true,
     },
     openMeldToolsControl: {

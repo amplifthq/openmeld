@@ -214,3 +214,17 @@ export async function refreshPeopleComputerLocalAgentCatalog(
 		throw toStructuredApiClientFailure(error);
 	}
 }
+export async function managePeopleComputerLocalAgentSetup(
+	input: PeopleComputerTarget & {
+		agentId: string;
+		request?: import("@openmeld/schemas/types").LocalAgentSetupRequest;
+	}
+) {
+	try {
+		return await createCurrentDeviceApi(
+			createUnscopedWebOpenMeldApiFoundation()
+		).managePeopleComputerLocalAgentSetup(input);
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
+}
