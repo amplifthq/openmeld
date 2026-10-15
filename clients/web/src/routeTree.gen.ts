@@ -70,7 +70,6 @@ import { Route as OOrgSlugDirectoryRouteImport } from './routes/o/$orgSlug/direc
 import { Route as OOrgSlugDocumentsRouteImport } from './routes/o/$orgSlug/documents'
 import { Route as OOrgSlugFilesRouteImport } from './routes/o/$orgSlug/files'
 import { Route as OOrgSlugInboxRouteImport } from './routes/o/$orgSlug/inbox'
-import { Route as OOrgSlugMyAgentsRouteImport } from './routes/o/$orgSlug/my-agents'
 import { Route as OOrgSlugNewAgentRouteImport } from './routes/o/$orgSlug/new-agent'
 import { Route as OOrgSlugNewOrganizationRouteImport } from './routes/o/$orgSlug/new-organization'
 import { Route as OOrgSlugNewSpaceRouteImport } from './routes/o/$orgSlug/new-space'
@@ -494,11 +493,6 @@ const OOrgSlugFilesRoute = OOrgSlugFilesRouteImport.update({
 const OOrgSlugInboxRoute = OOrgSlugInboxRouteImport.update({
   id: '/inbox',
   path: '/inbox',
-  getParentRoute: () => OOrgSlugRoute,
-} as any)
-const OOrgSlugMyAgentsRoute = OOrgSlugMyAgentsRouteImport.update({
-  id: '/my-agents',
-  path: '/my-agents',
   getParentRoute: () => OOrgSlugRoute,
 } as any)
 const OOrgSlugNewAgentRoute = OOrgSlugNewAgentRouteImport.update({
@@ -1204,7 +1198,6 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/documents': typeof OOrgSlugDocumentsRouteWithChildren
   '/o/$orgSlug/files': typeof OOrgSlugFilesRoute
   '/o/$orgSlug/inbox': typeof OOrgSlugInboxRouteWithChildren
-  '/o/$orgSlug/my-agents': typeof OOrgSlugMyAgentsRoute
   '/o/$orgSlug/new-agent': typeof OOrgSlugNewAgentRoute
   '/o/$orgSlug/new-organization': typeof OOrgSlugNewOrganizationRoute
   '/o/$orgSlug/new-space': typeof OOrgSlugNewSpaceRoute
@@ -1379,7 +1372,6 @@ export interface FileRoutesByTo {
   '/o/$orgSlug/computers': typeof OOrgSlugComputersRouteWithChildren
   '/o/$orgSlug/connect': typeof OOrgSlugConnectRoute
   '/o/$orgSlug/files': typeof OOrgSlugFilesRoute
-  '/o/$orgSlug/my-agents': typeof OOrgSlugMyAgentsRoute
   '/o/$orgSlug/new-agent': typeof OOrgSlugNewAgentRoute
   '/o/$orgSlug/new-organization': typeof OOrgSlugNewOrganizationRoute
   '/o/$orgSlug/new-space': typeof OOrgSlugNewSpaceRoute
@@ -1553,7 +1545,6 @@ export interface FileRoutesById {
   '/o/$orgSlug/documents': typeof OOrgSlugDocumentsRouteWithChildren
   '/o/$orgSlug/files': typeof OOrgSlugFilesRoute
   '/o/$orgSlug/inbox': typeof OOrgSlugInboxRouteWithChildren
-  '/o/$orgSlug/my-agents': typeof OOrgSlugMyAgentsRoute
   '/o/$orgSlug/new-agent': typeof OOrgSlugNewAgentRoute
   '/o/$orgSlug/new-organization': typeof OOrgSlugNewOrganizationRoute
   '/o/$orgSlug/new-space': typeof OOrgSlugNewSpaceRoute
@@ -1734,7 +1725,6 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/documents'
     | '/o/$orgSlug/files'
     | '/o/$orgSlug/inbox'
-    | '/o/$orgSlug/my-agents'
     | '/o/$orgSlug/new-agent'
     | '/o/$orgSlug/new-organization'
     | '/o/$orgSlug/new-space'
@@ -1909,7 +1899,6 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/computers'
     | '/o/$orgSlug/connect'
     | '/o/$orgSlug/files'
-    | '/o/$orgSlug/my-agents'
     | '/o/$orgSlug/new-agent'
     | '/o/$orgSlug/new-organization'
     | '/o/$orgSlug/new-space'
@@ -2082,7 +2071,6 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/documents'
     | '/o/$orgSlug/files'
     | '/o/$orgSlug/inbox'
-    | '/o/$orgSlug/my-agents'
     | '/o/$orgSlug/new-agent'
     | '/o/$orgSlug/new-organization'
     | '/o/$orgSlug/new-space'
@@ -2692,13 +2680,6 @@ declare module '@tanstack/react-router' {
       path: '/inbox'
       fullPath: '/o/$orgSlug/inbox'
       preLoaderRoute: typeof OOrgSlugInboxRouteImport
-      parentRoute: typeof OOrgSlugRoute
-    }
-    '/o/$orgSlug/my-agents': {
-      id: '/o/$orgSlug/my-agents'
-      path: '/my-agents'
-      fullPath: '/o/$orgSlug/my-agents'
-      preLoaderRoute: typeof OOrgSlugMyAgentsRouteImport
       parentRoute: typeof OOrgSlugRoute
     }
     '/o/$orgSlug/new-agent': {
@@ -3865,7 +3846,6 @@ interface OOrgSlugRouteChildren {
   OOrgSlugDocumentsRoute: typeof OOrgSlugDocumentsRouteWithChildren
   OOrgSlugFilesRoute: typeof OOrgSlugFilesRoute
   OOrgSlugInboxRoute: typeof OOrgSlugInboxRouteWithChildren
-  OOrgSlugMyAgentsRoute: typeof OOrgSlugMyAgentsRoute
   OOrgSlugNewAgentRoute: typeof OOrgSlugNewAgentRoute
   OOrgSlugNewOrganizationRoute: typeof OOrgSlugNewOrganizationRoute
   OOrgSlugNewSpaceRoute: typeof OOrgSlugNewSpaceRoute
@@ -3901,7 +3881,6 @@ const OOrgSlugRouteChildren: OOrgSlugRouteChildren = {
   OOrgSlugDocumentsRoute: OOrgSlugDocumentsRouteWithChildren,
   OOrgSlugFilesRoute: OOrgSlugFilesRoute,
   OOrgSlugInboxRoute: OOrgSlugInboxRouteWithChildren,
-  OOrgSlugMyAgentsRoute: OOrgSlugMyAgentsRoute,
   OOrgSlugNewAgentRoute: OOrgSlugNewAgentRoute,
   OOrgSlugNewOrganizationRoute: OOrgSlugNewOrganizationRoute,
   OOrgSlugNewSpaceRoute: OOrgSlugNewSpaceRoute,

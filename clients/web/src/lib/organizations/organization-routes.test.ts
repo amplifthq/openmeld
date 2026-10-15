@@ -260,7 +260,6 @@ describe("resolveOrganizationSwitchPath", () => {
 		["Direct Messages", "/o/acme/chats", "/o/beta/chats"],
 		["Direct Message detail", "/o/acme/chats/space-acme", "/o/beta/chats"],
 		["People", "/o/acme/people", "/o/beta/people"],
-		["My Agents", "/o/acme/my-agents", "/o/beta/my-agents"],
 		["Agents", "/o/acme/agents", "/o/beta/agents"],
 		["Computers", "/o/acme/computers", "/o/beta/computers"],
 		["Directory root", "/o/acme/directory", "/o/beta/people"],

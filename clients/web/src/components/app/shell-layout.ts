@@ -1,5 +1,4 @@
 export type AppShellSection =
-	| "myAgents"
 	| "plugins"
 	| "skills"
 	| "files"
@@ -20,7 +19,6 @@ export type AppShellSection =
 	| "space"
 	| "start";
 export type AppOuterRailDestination =
-	| "myAgents"
 	| "inbox"
 	| "newAgent"
 	| "agentActivity"
@@ -46,7 +44,6 @@ import { APP_PAGE_FRAME_CLASS_NAME } from "@openmeld/ui/lib/page-frame";
 export const APP_SPACE_FRAME_CLASS_NAME = "max-w-[96rem]";
 
 export const appShellStaticData = {
-	myAgents: { appShellSection: "myAgents" },
 	plugins: { appShellSection: "plugins" },
 	skills: { appShellSection: "skills" },
 	files: { appShellSection: "files" },
@@ -114,7 +111,6 @@ export function resolveAppOuterRailDestinationFromMatches(
 		case "files":
 			return "people";
 		case "newAgent":
-		case "myAgents":
 		case "agentActivity":
 		case "agents":
 		case "computers":

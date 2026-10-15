@@ -727,10 +727,7 @@ describe("PeopleAndAgentsPage", () => {
 		vi.clearAllMocks();
 	});
 
-	it.each([
-		"person",
-		"mine",
-	] as const)("scopes the %s Agent list and detail selection to its owner", (scope) => {
+	it("scopes a person's Agent list and detail selection to that owner", () => {
 		const ownAgent = organizationDirectoryFixture.agentProfiles[0];
 		if (!ownAgent) {
 			throw new Error("Expected an Agent fixture.");
@@ -746,12 +743,7 @@ describe("PeopleAndAgentsPage", () => {
 			<PeopleAndAgentsPage
 				activeSectionId="agents"
 				focusProfileId={otherAgent.profileId}
-				myAgents={scope === "mine"}
-				personId={
-					scope === "person"
-						? "11111111-1111-4111-8111-111111111111"
-						: undefined
-				}
+				personId="11111111-1111-4111-8111-111111111111"
 			/>
 		);
 		const workspace = agentProfilesWorkspaceSpy.mock.calls.at(-1)?.[0];
@@ -1250,6 +1242,7 @@ describe("PeopleAndAgentsPage", () => {
 
 		expect(navigateMock).toHaveBeenCalledWith({
 			to: "/o/acme/people/11111111-1111-4111-8111-111111111111/agents/agt_11111111-1111-4111-8111-111111111111",
+			search: { from: "agents" },
 		});
 	});
 

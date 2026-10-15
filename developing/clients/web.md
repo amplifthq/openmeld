@@ -1040,17 +1040,18 @@ change does not retire, redirect, combine, or relocate those products.
 Team is a single link in every rail tier, with no disclosure trigger or nested
 People/Agents children. Old saved Team collapse preferences do not hide it.
 
-The visible destinations resolve in this order: **Inbox**, **Spaces**, **My Agents**,
-and **Team**, with **New Agent** in the separate Create action.
-**My Agents** opens `/o/{orgSlug}/my-agents`, showing only the signed-in member's
-ordinary Agent Profiles in the current workspace. It reuses the Agent directory's
-search, filters, cards, and empty/error states without the Team sidebar or tabs.
-Cards start ungrouped so settings are one card selection away; members can
-still choose grouping through the existing view controls.
-Selecting a card opens the canonical person-owned Agent detail, where its existing
-settings controls are available. Team continues to show all visible members and
-Agents. Workspace switching preserves the My Agents destination and reads the
-new workspace's directory; this entry adds no identity or permission authority.
+The visible destinations resolve in this order: **Inbox**, **Spaces**, and
+**Team**, with **New Agent** in the separate Create action. Team's existing
+**Agents** page at `/o/{orgSlug}/agents` offers **My Agents / All Agents** views.
+All Agents remains the initial view. My Agents shows only the signed-in member's
+ordinary Local and Remote Agent Profiles in the current workspace, excluding
+managed Center Agents. It starts ungrouped unless the member has chosen a view.
+Both views reuse the existing cards, filters, and canonical person-owned detail
+and settings. A card opened from this directory provides **Back to Agents**.
+The selected scope, search, filters, sorting, and grouping are browser preferences
+scoped to the current account and workspace, so returning from detail restores
+the list. These preferences contain no Profile, permission, or readiness facts.
+My Agents adds no separate navigation destination, identity, or permission owner.
 The product destinations are:
 
 1. **Desk** — renders ordinary Space windows and a greeting on the shared infinite
