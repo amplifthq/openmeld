@@ -230,12 +230,12 @@ function ConversationSidebarRowContent(
 				className={
 					pinned
 						? "h-auto px-1 [&_[data-sidebar=menu-heading]]:pr-0!"
-						: "h-auto"
+						: "h-auto pl-1"
 				}
 				isActive={input.selected}
 			>
 				<div
-					className={`relative flex w-full min-w-0 items-center ${pinned ? "min-h-26 flex-col justify-center gap-1.5 px-1 py-2 text-xs" : "min-h-12 gap-2 px-2 py-1.5 text-sm"} ${input.selected ? "font-medium text-sidebar-accent-foreground" : "text-muted-foreground"}`}
+					className={`relative flex w-full min-w-0 items-center ${pinned ? "min-h-26 flex-col justify-center gap-1.5 px-1 py-2 text-xs" : "min-h-12 gap-1 px-1 py-1.5 text-sm"} ${input.selected ? "font-medium text-sidebar-accent-foreground" : "text-muted-foreground"}`}
 					ref={rowAnchor}
 				>
 					<Tooltip>

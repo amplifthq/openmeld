@@ -39,8 +39,9 @@ export function TeamFilesSidebar() {
 			groups={[
 				{
 					id: "locations",
-					ariaLabel: "Locations",
-					label: "Locations",
+					ariaLabel: "File navigation",
+					label: "Files",
+					contentOnly: true,
 					items: [
 						{ id: "team", label: "Team files", icon: FolderIcon },
 						...(currentOrganization.isPersonal
@@ -59,6 +60,7 @@ export function TeamFilesSidebar() {
 					);
 				}
 			}}
+			placement="module"
 			title="Files"
 		/>
 	);

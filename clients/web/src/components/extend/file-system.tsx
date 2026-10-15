@@ -157,7 +157,7 @@ export type FileSystemProps = {
   embedded?: boolean
   /** Actions supplied by the owning Files location, before shared view controls. */
   toolbarStart?: React.ReactNode
-  /** Location actions displayed alongside shared view controls. */
+  /** Location actions aligned to the trailing edge after shared view controls. */
   toolbarActions?: React.ReactNode
   /** Current location path, shown beneath the toolbar. */
   breadcrumb?: React.ReactNode
@@ -1926,7 +1926,8 @@ export function FileSystem({
     >
       <FileSystemIconSpriteSheet />
       <PageToolbar className={cn("px-2", !embedded && "border-b bg-muted/40")}>
-        <div className="flex min-w-0 items-center gap-0.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+        {!embedded || toolbarStart || (headerLayout !== "minimal" && currentPath) ? <div className="flex min-w-0 items-center gap-0.5">
           {!embedded ? (
             <>
           <button
@@ -1957,11 +1958,8 @@ export function FileSystem({
             </span>
           ) : null}
           {toolbarStart}
-        </div>
-        <div className="ml-auto flex min-w-0 items-center gap-1">
-        {toolbarActions ? (
-          <div className="mr-2 flex shrink-0 items-center gap-1.5">{toolbarActions}</div>
-        ) : null}
+        </div> : null}
+        <div className="flex min-w-0 items-center gap-1">
         {headerLayout !== "full" || isBelowIpadWidth || isToolbarCompact ? (
           <FluidSelect
             value={view}
@@ -2025,6 +2023,10 @@ export function FileSystem({
           />
         </div>
         </div>
+        </div>
+        {toolbarActions ? (
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">{toolbarActions}</div>
+        ) : null}
       </PageToolbar>
       {breadcrumb || reserveBreadcrumbSpace ? (
         <div className="flex min-h-9 shrink-0 items-center gap-1 px-2 text-sm">

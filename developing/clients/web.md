@@ -414,11 +414,31 @@ Spaces, People, and Agents are optional filters. The plus menu offers New messag
 and New Space. The adjacent View and filters menu holds separate Conversation
 view and Filter conversations submenus. The Spaces title remains the link to
 the Your Spaces / Discover directory; there is no separate Browse button.
-The compact search field says "Find a space..." while searching existing
-conversations. When no conversations match, Find someone opens the existing
+Spaces and People hide their sidebar search fields by default. Search in the
+header options menu reveals and focuses the field through the shared sidebar
+search disclosure. The compact Spaces field says "Find a space..." and searches
+existing conversations. In both sidebars, the trailing Close search icon and
+Escape clear the query, hide the field, and return focus to the options trigger.
+The input reserves trailing padding so long queries do not cover that control.
+People options group computer filters in a
+Computer status submenu alongside Search and Groups; there is no five-minute
+activity filter. When no conversations match, Find someone opens the existing
 organization-wide people and Agents picker with the search text prefilled.
-The module sidebar header
-shares the work-area title row's vertical center.
+The module sidebar header shares the work-area title row's vertical center.
+Spaces, People, Agent details, and Files compose `AppModuleSidebarHeader` for
+the same compact title row and collapse control. Product actions remain slots;
+resize, collapse, and peek stay owned by the shared Fluid sidebar. Contextual
+navigation inside a module sidebar uses `placement="module"` rather than nesting
+an inner sidebar header and padding. Files keeps its current folder in the
+`folder` search parameter so choosing a file location returns to its root.
+Module content uses 8 px horizontal padding. Rows align their leading icon
+centers 18 px from that content edge and their labels 36 px from it, matching
+the header toggle and title. Row padding leaves room inside the shared hover
+and selection backgrounds; do not remove it to compensate for outer spacing.
+The header keeps the toggle's full hit target. Avatar sizes
+remain appropriate to each surface; padding and gaps absorb the difference.
+Navigation groups share a 4 px gap between the label box and the first row;
+the label's own height and padding do not change to tighten this gap.
 Team remains the member directory; there is no separate Contacts destination.
 Spaces combines the canonical ordinary Space and chat unread aggregates
 and retains chat action/urgent-update priority in its attention indicator.

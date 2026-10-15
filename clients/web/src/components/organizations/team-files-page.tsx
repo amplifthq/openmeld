@@ -69,6 +69,7 @@ import {
 } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
+import { parseAsString, useQueryState } from "nuqs";
 import {
 	type DragEvent,
 	lazy,
@@ -189,7 +190,7 @@ function TeamFilesBrowser(input: {
 	const { currentOrganization } = input;
 	const navigate = useNavigate();
 	const { location, view } = input;
-	const [parentId, setParentId] = useState<string | null>(null);
+	const [parentId, setParentId] = useQueryState("folder", parseAsString);
 	const [folderDialogOpen, setFolderDialogOpen] = useState(false);
 	const [newTextFileKind, setNewTextFileKind] = useState<
 		"markdown" | "text" | "csv" | null
@@ -364,7 +365,6 @@ function TeamFilesBrowser(input: {
 		nextLocation: FileRootLocation,
 		nextView: "active" | "trash"
 	) => {
-		setParentId(null);
 		setActionError(null);
 		setSelectedId(null);
 		setSelectedKnowledgeFolder(false);

@@ -21,6 +21,8 @@ afterEach(() => {
 
 describe("Files navigation", () => {
 	it.each([
+		["team", "Team files", "team"],
+		["my", "My files", "my"],
 		["team", "My files", "my"],
 		["knowledge", "My files", "my"],
 		["my", "Trash", "trash-my"],

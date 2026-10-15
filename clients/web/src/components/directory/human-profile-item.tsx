@@ -109,7 +109,7 @@ export function HumanProfileItem(input: {
 			aria-description={input.member.computer.label}
 			aria-label={`Open ${input.member.name}'s profile`}
 			className={cn(
-				"h-auto min-w-0 flex-row items-start gap-1.5 py-1 text-left outline-none",
+				"h-auto min-w-0 flex-row items-start gap-2 py-1 text-left outline-none",
 				APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 				APP_NAV_ITEM_TONE_CLASS_NAME,
 				card && "min-h-24 w-full items-center gap-3 p-4 text-foreground",

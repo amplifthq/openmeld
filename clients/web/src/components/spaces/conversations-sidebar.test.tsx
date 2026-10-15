@@ -238,9 +238,28 @@ it("does not present session-only discovery as a complete conversation list", ()
 });
 it("searches both types and applies the nested conversation filter", async () => {
 	mount();
-	const search = screen.getByRole("searchbox", {
+	expect(
+		screen.queryByRole("searchbox", { name: "Search conversations" })
+	).toBeNull();
+	fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
+	fireEvent.click(await screen.findByRole("menuitem", { name: "Search" }));
+	let search = screen.getByRole("searchbox", {
 		name: "Search conversations",
 	});
+	await waitFor(() => expect(document.activeElement).toBe(search));
+	fireEvent.change(search, { target: { value: "No match" } });
+	fireEvent.click(screen.getByRole("button", { name: "Close search" }));
+	expect(
+		screen.queryByRole("searchbox", { name: "Search conversations" })
+	).toBeNull();
+	expect(document.activeElement).toBe(
+		screen.getByRole("button", { name: "View and filters" })
+	);
+	fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
+	fireEvent.click(await screen.findByRole("menuitem", { name: "Search" }));
+	search = screen.getByRole("searchbox", { name: "Search conversations" });
+	expect(search).toHaveProperty("value", "");
+	await waitFor(() => expect(document.activeElement).toBe(search));
 	expect(search.getAttribute("placeholder")).toBe("Find a space...");
 	fireEvent.change(search, { target: { value: "product" } });
 	expect(
@@ -274,6 +293,8 @@ it("keeps the Spaces directory reachable in both views and carries an unmatched 
 		await selectView(view);
 		expect(screen.queryByRole("link", { name: "Browse spaces" })).toBeNull();
 	}
+	fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
+	fireEvent.click(await screen.findByRole("menuitem", { name: "Search" }));
 	fireEvent.change(
 		screen.getByRole("searchbox", { name: "Search conversations" }),
 		{ target: { value: "Unfamiliar teammate" } }

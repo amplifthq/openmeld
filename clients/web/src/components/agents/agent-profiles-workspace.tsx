@@ -126,6 +126,7 @@ export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
 										) : null
 									}
 									onActivate={input.onSelectProfile}
+									placement="module"
 									title="Agents"
 								/>
 							),
