@@ -226,6 +226,8 @@ async function runDaemonSocketSession(
   }
 }
 
+// biome-ignore lint/performance/noNamespaceImport: spy on the registration boundary while exercising the real Host.
+import * as agentRegistry from "../src/agents/registry";
 import { ensureDaemonControlPlaneToken } from "../src/config/daemon-state";
 import {
   acknowledgeDispatchResultOutboxRecord,
@@ -2230,6 +2232,91 @@ describe("local service run catalog signal", () => {
 
     socket.close(1000, "shutdown");
     await sessionPromise;
+  });
+
+  it.each([
+    "success",
+    "failure",
+  ])("collects new evidence after a control mutation when an earlier fresh report ends in %s", async (outcome) => {
+    await withTempHome(async () => {
+      const input = buildKeepaliveSessionInput(createMockSocket(), []);
+      const ledgerPaths = createLedgerPaths();
+      const host = await createInProcessExecutionHost({
+        stateRoot: ledgerPaths.rootDirPath,
+        daemonSessionId: input.daemonSessionId,
+        deviceId: input.deviceId,
+        ownerUserId: input.ownerUserId,
+        profileOwnerName: input.profileOwnerName,
+        presenter: input.presenter,
+        resources: {
+          ...input,
+          ledgerPaths,
+          initialCatalog: input.routeCatalogState,
+        },
+      });
+      let finishEarlierReport!: () => void;
+      const reportResult = {
+        failedCount: 0,
+        reasonCodes: [],
+        reportCount: 1,
+        status: "submitted" as const,
+        submittedCount: 1,
+      };
+      syncLocalServiceRuntimeAgentControllerReportsMock.mockImplementationOnce(
+        () =>
+          new Promise((resolve, reject) => {
+            finishEarlierReport = () =>
+              outcome === "failure"
+                ? reject(new Error("Earlier inventory unavailable"))
+                : resolve(reportResult);
+          })
+      );
+      const registration = vi
+        .spyOn(agentRegistry, "setAgentRegistrationEnabled")
+        .mockResolvedValue({
+          agentControllerRef: "builtin:codex",
+          agentId: "codex",
+          changed: true,
+          displayName: "Codex",
+          enabled: true,
+          status: "updated",
+        });
+      try {
+        const earlierReport = host.port
+          .call("reportControllers", {
+            probePolicy: "fresh",
+          })
+          .then(
+            (value) => value,
+            (error: unknown) => error
+          );
+        await flushMicrotasks(() => Boolean(finishEarlierReport));
+        const mutation = host.port.call("setEnabled", {
+          agentId: "codex",
+          enabled: true,
+        });
+        await flushMicrotasks(() => registration.mock.calls.length > 0);
+        finishEarlierReport();
+        const earlierOutcome = await earlierReport;
+        if (outcome === "failure") {
+          expect(earlierOutcome).toEqual(
+            new Error("Earlier inventory unavailable")
+          );
+        }
+        expect(await mutation).toMatchObject({ accepted: true });
+        expect(
+          syncLocalServiceRuntimeAgentControllerReportsMock
+        ).toHaveBeenCalledTimes(2);
+        expect(
+          syncLocalServiceRuntimeAgentControllerReportsMock
+        ).toHaveBeenLastCalledWith(
+          expect.objectContaining({ probePolicy: "fresh" })
+        );
+      } finally {
+        registration.mockRestore();
+        await host.close();
+      }
+    });
   });
 
   it("waits for a fresh controller report before completing a local agent catalog refresh", async () => {

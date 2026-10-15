@@ -230,7 +230,6 @@ function LocalAgentSelectionStatePanel(input: {
 				<LocalAgentSetupControl
 					{...state.connectionSetup}
 					agentId={state.agentId}
-					onChanged={state.onRetry}
 				/>
 			</div>
 		);

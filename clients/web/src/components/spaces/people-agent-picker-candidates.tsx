@@ -43,8 +43,11 @@ export function SpaceAddMembersCandidates(input: {
 	const [collapsedGroupIds, setCollapsedGroupIds] = useState<
 		ReadonlySet<string>
 	>(() => new Set());
+	const personGroups = input.candidateGroups.personGroups.filter(
+		(group) => group.humanCandidate || group.agentCandidates.length > 0
+	);
 	const candidateCount =
-		input.candidateGroups.personGroups.reduce(
+		personGroups.reduce(
 			(count, group) =>
 				count + group.agentCandidates.length + (group.humanCandidate ? 1 : 0),
 			0
@@ -71,7 +74,7 @@ export function SpaceAddMembersCandidates(input: {
 				selectedProfileIds={input.selectedProfileIds}
 				selectionScope={input.selectionScope}
 			/>
-			{input.candidateGroups.personGroups.length > 0 ? (
+			{personGroups.length > 0 ? (
 				<section aria-labelledby="space-add-members-people-heading">
 					<h3
 						className="px-2 pb-1 font-medium text-[10px] text-muted-foreground uppercase tracking-wider"
@@ -80,7 +83,7 @@ export function SpaceAddMembersCandidates(input: {
 						People &amp; Agents
 					</h3>
 					<div className="flex flex-col gap-1">
-						{input.candidateGroups.personGroups.map((group) => {
+						{personGroups.map((group) => {
 							const expanded =
 								input.searchActive || !collapsedGroupIds.has(group.id);
 							return (
@@ -321,6 +324,7 @@ function SpaceAddMembersCandidateGroup(input: {
 							checked={input.selectedProfileIds.has(candidate.profileId)}
 							data-profile-id={candidate.profileId}
 							description={resolveAgentCandidateDescription(candidate)}
+							disabled={candidate.selectionDisabled}
 							index={selectableIndex}
 							key={candidate.profileId}
 							label={candidate.profileName}
