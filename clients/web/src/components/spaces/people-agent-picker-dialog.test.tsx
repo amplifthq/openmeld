@@ -49,9 +49,10 @@ vi.mock("#/lib/profiles/agent-profile-creation-requests", () => ({
 afterEach(cleanup);
 
 it.each([
-	false,
-	true,
-])("shows a checked pending row in its owner group and preserves deselection=%s on completion", async (deselect) => {
+	"selected",
+	"deselected",
+	"failed",
+])("keeps creation in the owner's list through the %s outcome", async (outcome) => {
 	const onCreated = vi.fn();
 	const onSubmit = vi.fn();
 	const client = new QueryClient({
@@ -112,9 +113,20 @@ it.each([
 	expect(
 		owner?.querySelector("[data-profile-id]")?.getAttribute("data-profile-id")
 	).toBe("optimistic:intent");
-	fireEvent.click(screen.getByRole("button", { name: "Add", exact: true }));
+	fireEvent.click(screen.getByRole("button", { name: "Add" }));
 	expect(onSubmit).not.toHaveBeenCalled();
-	if (deselect) {
+	if (outcome === "failed") {
+		act(() => creation.callbacks?.onFailed("Connection unavailable"));
+		expect(screen.getByText("Creation failed")).toBeTruthy();
+		expect(screen.getByText("Connection unavailable")).toBeTruthy();
+		expect(onCreated).not.toHaveBeenCalled();
+		fireEvent.click(row);
+		fireEvent.click(screen.getByRole("button", { name: "Add" }));
+		expect(onSubmit).toHaveBeenCalledOnce();
+		client.clear();
+		return;
+	}
+	if (outcome === "deselected") {
 		fireEvent.click(row);
 	}
 	const request: AgentProfileCreationRequest = {
@@ -142,7 +154,7 @@ it.each([
 	await waitFor(() =>
 		expect(onCreated).toHaveBeenCalledWith(
 			expect.objectContaining({ profileId: "confirmed", ownerUserId: "owner" }),
-			!deselect
+			outcome === "selected"
 		)
 	);
 	expect(screen.queryByText("Creating…")).toBeNull();

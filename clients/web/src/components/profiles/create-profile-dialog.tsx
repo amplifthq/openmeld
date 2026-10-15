@@ -967,7 +967,12 @@ function useCreateProfileDialogController(
 		creationGuidance,
 		isResolvingLocalAgents,
 		onRetry: retryCreationConnection,
-		onSetupChanged: refreshCreationConnection,
+		onSetupChanged: async () => {
+			// Setup owns the local probe. Read its published inventory instead of
+			// starting another all-agent probe and waiting on unrelated providers.
+			await recovery.localRuntimesQuery.refetch({ throwOnError: true });
+			await creationComputerReadiness.refetch({ throwOnError: true });
+		},
 		orgSlug,
 		ownerMode,
 		recovery,

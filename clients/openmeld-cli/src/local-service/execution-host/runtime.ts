@@ -397,7 +397,12 @@ export function createExecutionHostRuntime(input: {
     localExecutionSlots,
     presenter: input.presenter,
     routeCatalogState,
-    refreshReports: () => reportControllers("fresh"),
+    refreshReports: async () => {
+      // A control mutation needs evidence collected after it completed. Even a
+      // fresh probe already in flight may have observed the pre-mutation state.
+      await controllerReport;
+      return reportControllers("fresh");
+    },
     invalidate,
   });
   const activity = startLocalAgentActivitySyncLoop({

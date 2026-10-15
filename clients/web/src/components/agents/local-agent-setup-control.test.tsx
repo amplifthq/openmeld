@@ -26,7 +26,18 @@ vi.mock("#/lib/connect/local-runtimes", () => ({
 }));
 afterEach(cleanup);
 
-it("keeps catalog refresh failures visible after successful sign-in and retries without another login", async () => {
+it.each([
+	true,
+	false,
+])("recovers catalog refresh after sign-in (setup receipt=%s) without another login", async (hasReceipt) => {
+	signedIn.operation = hasReceipt
+		? {
+				operationId: "e2cc518f-b2be-44e5-92ce-8d3a098c2e2d",
+				action: "login",
+				status: "succeeded",
+				message: "Signed in.",
+			}
+		: null;
 	const refresh = vi
 		.fn()
 		.mockRejectedValueOnce(new Error("Catalog unavailable"))
@@ -45,9 +56,7 @@ it("keeps catalog refresh failures visible after successful sign-in and retries 
 		</QueryClientProvider>
 	);
 	expect(await screen.findByRole("alert")).toBeTruthy();
-	expect(
-		screen.queryByRole("button", { name: "Sign in", exact: true })
-	).toBeNull();
+	expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
 	fireEvent.click(screen.getByRole("button", { name: "Check status" }));
 	await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
 	expect(refresh).toHaveBeenCalledTimes(2);

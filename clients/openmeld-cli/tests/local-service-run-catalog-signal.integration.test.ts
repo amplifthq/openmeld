@@ -226,6 +226,8 @@ async function runDaemonSocketSession(
   }
 }
 
+// biome-ignore lint/performance/noNamespaceImport: spy on the registration boundary while exercising the real Host.
+import * as agentRegistry from "../src/agents/registry";
 import { ensureDaemonControlPlaneToken } from "../src/config/daemon-state";
 import {
   acknowledgeDispatchResultOutboxRecord,
@@ -2230,6 +2232,75 @@ describe("local service run catalog signal", () => {
 
     socket.close(1000, "shutdown");
     await sessionPromise;
+  });
+
+  it("collects new evidence after a control mutation even when a fresh report is already running", async () => {
+    await withTempHome(async () => {
+      const input = buildKeepaliveSessionInput(createMockSocket(), []);
+      const ledgerPaths = createLedgerPaths();
+      const host = await createInProcessExecutionHost({
+        stateRoot: ledgerPaths.rootDirPath,
+        daemonSessionId: input.daemonSessionId,
+        deviceId: input.deviceId,
+        ownerUserId: input.ownerUserId,
+        profileOwnerName: input.profileOwnerName,
+        presenter: input.presenter,
+        resources: {
+          ...input,
+          ledgerPaths,
+          initialCatalog: input.routeCatalogState,
+        },
+      });
+      let finishEarlierReport!: () => void;
+      const reportResult = {
+        failedCount: 0,
+        reasonCodes: [],
+        reportCount: 1,
+        status: "submitted" as const,
+        submittedCount: 1,
+      };
+      syncLocalServiceRuntimeAgentControllerReportsMock.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishEarlierReport = () => resolve(reportResult);
+          })
+      );
+      const registration = vi
+        .spyOn(agentRegistry, "setAgentRegistrationEnabled")
+        .mockResolvedValue({
+          agentControllerRef: "builtin:codex",
+          agentId: "codex",
+          changed: true,
+          displayName: "Codex",
+          enabled: true,
+          status: "updated",
+        });
+      try {
+        const earlierReport = host.port.call("reportControllers", {
+          probePolicy: "fresh",
+        });
+        await flushMicrotasks(() => Boolean(finishEarlierReport));
+        const mutation = host.port.call("setEnabled", {
+          agentId: "codex",
+          enabled: true,
+        });
+        await flushMicrotasks(() => registration.mock.calls.length > 0);
+        finishEarlierReport();
+        await earlierReport;
+        expect(await mutation).toMatchObject({ accepted: true });
+        expect(
+          syncLocalServiceRuntimeAgentControllerReportsMock
+        ).toHaveBeenCalledTimes(2);
+        expect(
+          syncLocalServiceRuntimeAgentControllerReportsMock
+        ).toHaveBeenLastCalledWith(
+          expect.objectContaining({ probePolicy: "fresh" })
+        );
+      } finally {
+        registration.mockRestore();
+        await host.close();
+      }
+    });
   });
 
   it("waits for a fresh controller report before completing a local agent catalog refresh", async () => {

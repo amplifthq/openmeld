@@ -8,5 +8,6 @@ audiences: ["users"]
 
 New Local and Remote Agents appear checked at the top of their owner's list
 while creation finishes. Clearing the selection stays respected when the Agent
-is ready. Grok Bot sign-in refreshes the selected computer before checking
-whether Agent creation can continue.
+is ready. After Grok Bot sign-in, Agent creation updates in the same dialog.
+The Service collects new connection evidence after setup instead of reusing a
+check that started before sign-in finished.
