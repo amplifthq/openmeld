@@ -54,7 +54,7 @@
     "ipaddr.js": "^2.5.0",
     "protobufjs": "7.6.5",
     "slackify-markdown": "5.0.0",
-    "yaml": "2.8.2",
+    "yaml": "2.9.1",
     "zod": "catalog:"
   },
   "devDependencies": {
