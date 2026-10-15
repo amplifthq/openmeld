@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { z } from "zod/v4";
+import { readBrowserPreference } from "#/lib/spaces/browser-preference-storage";
 import { useBrowserPreference } from "#/lib/use-browser-preference";
 import type { AgentListView } from "./agent-list";
 
@@ -26,24 +27,30 @@ const listStateSchema = z.object({
 		.nullable(),
 });
 
+function parseListState(stored: string | null) {
+	try {
+		const parsed = listStateSchema.safeParse(JSON.parse(stored ?? "null"));
+		if (parsed.success) {
+			return parsed.data;
+		}
+	} catch {
+		// An obsolete or malformed preference does not prevent using the list.
+	}
+	return { search: "", view: null };
+}
+
 // Presentation preferences only: never cache Profile, permission or readiness facts.
 export function useAgentListState(key: string) {
-	const [stored, save] = useBrowserPreference(`${key}:filters`);
-	const state = useMemo(() => {
-		try {
-			const parsed = listStateSchema.safeParse(JSON.parse(stored ?? "null"));
-			if (parsed.success) {
-				return parsed.data;
-			}
-		} catch {
-			// An obsolete or malformed preference does not prevent using the list.
-		}
-		return { search: "", view: null };
-	}, [stored]);
+	const storageKey = `${key}:filters`;
+	const [stored, save] = useBrowserPreference(storageKey);
+	const state = useMemo(() => parseListState(stored), [stored]);
+	const update = (patch: Partial<z.infer<typeof listStateSchema>>) => {
+		const latest = parseListState(readBrowserPreference(storageKey));
+		save(JSON.stringify({ ...latest, ...patch }));
+	};
 	return {
 		...state,
-		setSearch: (search: string) => save(JSON.stringify({ ...state, search })),
-		setView: (view: AgentListView | null) =>
-			save(JSON.stringify({ ...state, view })),
+		setSearch: (search: string) => update({ search }),
+		setView: (view: AgentListView | null) => update({ view }),
 	};
 }
