@@ -290,12 +290,35 @@ function assertReceiptGatedStage(
   );
 }
 
+test("hosted CLI refuses an unprepared publication before dispatch", () => {
+  for (const pin of [undefined, "", "  "]) {
+    const commands = [];
+    assert.throws(
+      () =>
+        runHostedRelease("cli", "a".repeat(40), ["cli"], {
+          env: { WINDOWS_ARTIFACT_RUN_ID: pin },
+          capture(args) {
+            commands.push(args);
+            return "[]";
+          },
+          watch() {
+            assert.fail("No unprepared publisher may be watched");
+          },
+        }),
+      {
+        message:
+          "CLI publication requires WINDOWS_ARTIFACT_RUN_ID from the helper used to stamp this release. Prepare a helper_only run and stamp its verified artifact before deploying.",
+      }
+    );
+    assert.equal(commands.length, 1);
+    assert.deepEqual(commands[0].slice(0, 2), ["run", "list"]);
+  }
+});
+
 test("hosted publication waits for the exact run and reuses an active run after interruption", () => {
   const sourceSha = "a".repeat(40);
   for (const { active, artifactRunId } of [
-    { active: false, artifactRunId: undefined },
     { active: true, artifactRunId: undefined },
-    { active: false, artifactRunId: "  " },
     { active: false, artifactRunId: " 38155840353 " },
     { active: true, artifactRunId: "38155840353" },
   ]) {
