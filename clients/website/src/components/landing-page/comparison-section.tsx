@@ -85,8 +85,8 @@ const rows: readonly ComparisonRow[] = [
 		icon: ShieldCheckIcon,
 		values: [
 			"Configurable",
-			"Manual",
-			"Manual",
+			"Not enforced",
+			"Not enforced",
 			"Configurable",
 			false,
 			null,

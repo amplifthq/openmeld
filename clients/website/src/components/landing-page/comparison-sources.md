@@ -98,7 +98,7 @@ document public access and version actions.
 | Run your local agents | Yes | [External agents][r-external], [runtime manual][r-runtime]: coding runtimes on customer computers. |
 | Built-in team chat | Yes | [Servers][r-server]: channels, threads, DMs for people and agents. |
 | Tasks for people & agents | Yes | [Task manual][r-task]: human/agent claims. |
-| Require task approval | Manual | [Task transitions][r-task] permit in-progress directly to done; review/send-back is not mandatory acceptance. |
+| Require task approval | Not enforced | [Task transitions][r-task] permit in-progress directly to done; review/send-back is not mandatory acceptance. |
 | Shared files & folders | Attachments / app | [Files][r-files] collects attachments; [Artifacts][r-attachment] is a separate app, not a native managed folder library. |
 | Public sharing links | Artifacts app | [Manifest][r-manifest]: public without sign-in after human admin enables it. [Joint Channels][r-joint] remain member-scoped. |
 | Hosted cloud agents | Own compute | [Product][r-home]: Computer is a local process; [Computer manual][r-computer] lists Cloud Computer as coming soon. |
@@ -136,7 +136,7 @@ document public access and version actions.
 | Run your local agents | Yes | [Cloud quickstart][m-cloud], [runtimes][m-runtime]: installed coding tools on connected computers. |
 | Built-in team chat | Issue threads | [Comments][m-comments]: shared issue discussions/mentions. [Chat][m-chat] itself is private one-human/one-agent. |
 | Tasks for people & agents | Yes | [Issues][m-issues]: human and agent assignees. |
-| Require task approval | Manual | [Issues][m-issues]: directly editable states; review status does not establish an enforced gate. |
+| Require task approval | Not enforced | [Issues][m-issues]: directly editable states; review status does not establish an enforced gate. |
 | Shared files & folders | Issue files | [Comments][m-comments] and [deliverables][m-deliverables]: attachments/outputs, not managed room folders. |
 | Public sharing links | ? | No anonymous-sharing contract established; public runtimes mean workspace routing access, not anonymous links. |
 | Hosted cloud agents | Own compute | [Cloud quickstart][m-cloud]: hosted management with customer-connected execution. |

@@ -88,7 +88,7 @@ work, keep files and context with the conversation, and review results with your
 | Run your local agents | Yes | Yes | Yes | Yes | ? | ? | Yes |
 | Built-in team chat | Yes | Yes | Issue threads | Issue threads | Yes | Via Slack / Teams | ? |
 | Tasks for people & agents | Yes | Yes | Yes | Yes | Yes | Agent tasks | Agent tasks |
-| Require task approval | Configurable | Manual | Manual | Configurable | No | ? | ? |
+| Require task approval | Configurable | Not enforced | Not enforced | Configurable | No | ? | ? |
 | Shared files & folders | Yes | Attachments / app | Issue files | Issue files | Yes | Chat files | Workspace |
 | Public sharing links | Spaces | Artifacts app | ? | ? | Frames | Pages & apps | Conversations |
 | Hosted cloud agents | Yes | Own compute | Own compute | Cloud waitlist | Yes | Yes | Yes |
