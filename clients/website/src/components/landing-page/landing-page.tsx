@@ -119,7 +119,7 @@ const questions = [
 			label: "Self-hosting status",
 		},
 		answer:
-			"OpenMeld’s source code is available under the MIT license. A complete standalone self-hosting installation is not currently documented or supported. You can use the hosted app today. Connecting a computer runs local agents; it does not host the shared collaboration services.",
+			"Yes. You can self-host OpenMeld using the source code available under the MIT license. For now, you’ll need to work from the repository and configure your own infrastructure. We plan to add complete self-hosting documentation and step-by-step setup guidance. Connecting a computer runs local agents; it does not host the shared collaboration services.",
 	},
 	{
 		question: "What can I try first?",

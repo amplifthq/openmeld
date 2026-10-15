@@ -7,7 +7,7 @@ it("serves useful FAQ answers and guide links before JavaScript runs", () => {
 	const html = renderToStaticMarkup(<LandingPage />);
 	const document = new DOMParser().parseFromString(html, "text/html");
 	expect(document.body.textContent).toContain(
-		"A complete standalone self-hosting installation is not currently documented or supported."
+		"You can self-host OpenMeld using the source code available under the MIT license."
 	);
 	expect(document.body.textContent).toContain(
 		"Your computer must be online and connected for its local agents to work."
@@ -24,7 +24,7 @@ it("serves useful FAQ answers and guide links before JavaScript runs", () => {
 	const answer = Array.from(document.querySelectorAll('[role="region"]')).find(
 		(panel) => panel.getAttribute("aria-labelledby") === trigger?.id
 	);
-	expect(answer?.textContent).toContain("A complete standalone");
+	expect(answer?.textContent).toContain("You can self-host OpenMeld");
 	expect(answer?.hasAttribute("hidden")).toBe(true);
 });
 

@@ -64,7 +64,7 @@ Use one useful answer per intent. Keep guide URLs stable.
 | Can I use my existing coding tool with my team? | `/docs/start/local-agents`, then the guide for the tool already installed |
 | Does my computer need to stay on? | Website FAQ and connect-computer guide |
 | Does local execution keep all data on my computer? | Data-storage and private-information guides |
-| Is open source the same as supported self-hosting? | `/docs/security-and-privacy/self-hosting` |
+| Can I self-host OpenMeld, and what setup guidance is available? | `/docs/security-and-privacy/self-hosting` |
 
 Do not add near-duplicate keyword pages, unsupported comparisons, fabricated
 testimonials, or special schema solely to seek AI citations. Keep machine
