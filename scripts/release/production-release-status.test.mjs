@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import {
   assertGuardedLocalEvidenceRepository,
   collectProductionReleaseStatus,
+  migratedHostedReleaseSources,
   parseProductionReleaseStatusArgs,
   readGuardedReleaseSourcesForStatus,
   readMergedFinalCandidateEvidence,
@@ -25,6 +26,70 @@ import {
 import { runProductionStageAdmission } from "./production-stage-admission.mjs";
 
 const SOURCE_SHA = "79178c150dc976b13f05d84a7711465c44447e3c";
+
+test("cutover preserves hosted provenance and rejects another repository or incomplete evidence", () => {
+  // Captured successful GitHub runs remain evidence owned by the old repo.
+  const snapshot = JSON.parse(
+    readFileSync(
+      new URL("../../release/repository-migration.json", import.meta.url),
+      "utf8"
+    )
+  );
+  const sources = migratedHostedReleaseSources(
+    snapshot,
+    "amplifthq/openmeld",
+    1_278_926_400
+  );
+  assert.deepEqual([...sources.keys()].sort(), [
+    "cli",
+    "core",
+    "docs",
+    "website",
+  ]);
+  assert.equal(sources.get("cli").runId, 38_595_947_657);
+  assert.equal(
+    sources.get("cli").sha,
+    "11d847e4e7c5970ac3e6c83a7279fcb5a02472f6"
+  );
+  assert.equal(sources.get("cli").recordedAt, "2026-10-14T16:24:31Z");
+  assert.equal(
+    sources.get("cli").url,
+    "https://github.com/amplifthq/openmeld-private/actions/runs/38595947657"
+  );
+  assert.equal(sources.get("cli").source, "github");
+  assert.equal(
+    sources.get("cli").receipt,
+    undefined,
+    "migration is not a new local deployment"
+  );
+  assert.throws(() =>
+    migratedHostedReleaseSources(snapshot, "amplifthq/openmeld", 1_331_245_823)
+  );
+  assert.throws(() =>
+    migratedHostedReleaseSources(snapshot, "someone/openmeld", 1_278_926_400)
+  );
+  for (const corrupt of [
+    (value) => {
+      value.runs[0].jobs[0].conclusion = "failure";
+    },
+    (value) => {
+      value.runs[0].jobs[0].completed_at = "invalid";
+    },
+    (value) => {
+      value.runs[0].headSha = "f".repeat(40);
+    },
+    (value) => {
+      value.runs[0].url =
+        "https://github.com/amplifthq/openmeld/actions/runs/38595947657";
+    },
+  ]) {
+    const invalid = structuredClone(snapshot);
+    corrupt(invalid);
+    assert.throws(() =>
+      migratedHostedReleaseSources(invalid, "amplifthq/openmeld", 1_278_926_400)
+    );
+  }
+});
 const CHANGE_BASE_SHA = "06fd4b88b75ef576db88289305a550c9e85efad5";
 const WEB_SHA = "c20057269eba7a1505fe3374d2c8c6e6b903bb00";
 const CORE_SHA = "dabcc83d83747b50c4756c5ceb3190012baf5c69";

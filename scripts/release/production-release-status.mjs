@@ -33,6 +33,7 @@ const RELEASE_JOB_BATCH_SIZE = 16;
 const RELEASE_TITLE_SOURCE_REGEX = /@ ([0-9a-f]{40})$/u;
 const SCOPED_RELEASE_WORKFLOW_REGEX = /Scoped Production Release/u;
 const EXACT_SOURCE_SHA = /^[0-9a-f]{40}$/u;
+const REPOSITORY_NAME = /^[\w.-]+\/[\w.-]+$/u;
 const SUCCESSFUL_JOB_SCOPES = [
   {
     patterns: [
@@ -186,7 +187,7 @@ export async function collectProductionReleaseStatus(input = {}) {
   const localIssues = [];
   try {
     mergeGuardedLocalReleaseSources({
-      localSources: await adapters.readLocalReleaseSources(repo),
+      localSources: await adapters.readLocalReleaseSources(repo, sourceSha),
       sourceIsAncestor: adapters.sourceIsAncestor,
       sourceSha,
       sources: localSources,
@@ -329,6 +330,77 @@ function mergeGuardedLocalReleaseSources(input) {
     }
     selectLatestSource(input.sources, scope, localSource);
   }
+}
+
+// A reviewed cutover snapshot retains hosted evidence without granting the new
+// repository access to the old private repository. Newer receipts still win.
+export function migratedHostedReleaseSources(
+  snapshot,
+  repository,
+  repositoryId
+) {
+  if (
+    snapshot.schemaVersion !== 1 ||
+    snapshot.target.repository !== repository ||
+    snapshot.target.id !== repositoryId ||
+    snapshot.source.id === repositoryId ||
+    !Number.isSafeInteger(snapshot.source.id) ||
+    snapshot.source.id <= 0 ||
+    !REPOSITORY_NAME.test(snapshot.source.repository) ||
+    !Number.isFinite(Date.parse(snapshot.capturedAt)) ||
+    !Array.isArray(snapshot.runs) ||
+    snapshot.runs.length === 0
+  ) {
+    throw new Error("Invalid repository migration evidence identity.");
+  }
+  const jobsByRunId = new Map();
+  const runs = snapshot.runs.map(({ jobs, ...run }) => {
+    if (
+      !(
+        Number.isSafeInteger(run.databaseId) &&
+        Number.isSafeInteger(run.attempt)
+      ) ||
+      jobsByRunId.has(run.databaseId) ||
+      run.databaseId <= 0 ||
+      run.attempt <= 0 ||
+      run.status !== "completed" ||
+      run.conclusion !== "success" ||
+      !EXACT_SOURCE_SHA.test(run.headSha) ||
+      RELEASE_TITLE_SOURCE_REGEX.exec(run.displayTitle ?? "")?.[1] !==
+        run.headSha ||
+      !releaseWorkflowScopes(run.workflowName).length ||
+      run.url !==
+        `https://github.com/${snapshot.source.repository}/actions/runs/${run.databaseId}` ||
+      !Array.isArray(jobs) ||
+      jobs.length === 0
+    ) {
+      throw new Error("Invalid migrated hosted run evidence.");
+    }
+    for (const job of jobs) {
+      if (
+        !Number.isSafeInteger(job.id) ||
+        job.id <= 0 ||
+        job.run_attempt !== run.attempt ||
+        job.status !== "completed" ||
+        job.conclusion !== "success" ||
+        !releaseJobScopes(job).length ||
+        !Number.isFinite(Date.parse(job.completed_at)) ||
+        Date.parse(job.completed_at) > Date.parse(snapshot.capturedAt)
+      ) {
+        throw new Error("Invalid migrated hosted job evidence.");
+      }
+    }
+    jobsByRunId.set(
+      run.databaseId,
+      jobs.map((job) => ({ ...job, releaseSha: run.headSha }))
+    );
+    return run;
+  });
+  return resolveLatestSuccessfulReleaseSources({
+    runs,
+    jobsByRunId,
+    sourceIsAncestor: () => true,
+  });
 }
 
 function readRecordedAt(source, label) {
@@ -1258,9 +1330,24 @@ function defaultAdapters() {
       runGhJsonAsync(["api", `repos/${repo}/commits/${sourceSha}/status`]),
     readGitCommit: (repo, sourceSha) =>
       runGhJsonAsync(["api", `repos/${repo}/git/commits/${sourceSha}`]),
-    readLocalReleaseSources: (repo) => {
+    readLocalReleaseSources: (repo, sourceSha) => {
       assertGuardedLocalEvidenceRepository(repo, resolveCheckoutRepository());
-      return readGuardedReleaseSourcesForStatus({ repo });
+      const sources = readGuardedReleaseSourcesForStatus({ repo });
+      const migrationPath = "release/repository-migration.json";
+      if (runGit(["ls-tree", sourceSha, "--", migrationPath]).trim()) {
+        const snapshot = JSON.parse(
+          runGit(["show", `${sourceSha}:${migrationPath}`])
+        );
+        const repositoryId = JSON.parse(runGh(["api", `repos/${repo}`])).id;
+        for (const [scope, source] of migratedHostedReleaseSources(
+          snapshot,
+          repo,
+          repositoryId
+        )) {
+          selectLatestSource(sources, scope, source);
+        }
+      }
+      return sources;
     },
     readJobReleaseSha: async (job, repo, run) => {
       const titleSource = RELEASE_TITLE_SOURCE_REGEX.exec(
