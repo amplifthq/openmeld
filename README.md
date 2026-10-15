@@ -15,7 +15,7 @@
 
 <p align="center">
   Share context, work in parallel, and pick up where anyone left off with your team, cloud agents, and everyone's agents<br>
-  (Codex, Claude Code, Grok Build, OpenCode, Antigravity, and Cursor CLI).
+  (Codex, Claude Code, Grok Bot, Grok Build, OpenCode, Antigravity, and Cursor CLI).
 </p>
 
 <p align="center">

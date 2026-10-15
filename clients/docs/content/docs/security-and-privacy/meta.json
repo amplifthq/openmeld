@@ -7,6 +7,7 @@
     "permission-modes",
     "private-information",
     "task-context",
-    "data-storage"
+    "data-storage",
+    "self-hosting"
   ]
 }
