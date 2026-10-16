@@ -761,11 +761,23 @@ The shared Usage support matrix declares Antigravity unsupported so historical
 quota cannot become new capacity authority or authorize automatic recovery.
 
 A completed signed-out check is reusable for the same binary within the normal
-15-minute background TTL. It clears account-bound passive usage, does not arm
+one-minute background TTL. It clears account-bound passive usage, does not arm
 failure retries, and expires normally. A fresh user check bypasses this cache
 to discover an external sign-in immediately. Unknown authentication is not
 proof of sign-out, and transient failed checks retain the existing failure
 policy rather than becoming a permanent negative cache.
+
+The Service schedules coalesced native inventory checks every minute, separately
+from transport heartbeat. Explicit checks bypass reuse. This bounds normal
+external sign-in/sign-out discovery without running a provider probe on each
+Wake. Probe failures and disconnection can delay discovery; they do not prove
+sign-out. Core accepts authentication evidence for at most two minutes of native
+observation age. It subtracts the difference between native `checkedAt` and
+publication `observedAtMs` (the same device clock) from its receipt-time budget.
+The stored publication time remains a source-ordering field; the stored expiry
+uses Core time. Republishing the same `checkedAt` cannot extend the stored expiry,
+including concurrent writes. An expired report is not current readiness evidence.
+Usage keeps its own original observation, account binding, and freshness policy.
 
 Provider-access evidence is provider-neutral and carries its provider, stable
 reason code, observation time, and `wake_failure` source. The Service forwards

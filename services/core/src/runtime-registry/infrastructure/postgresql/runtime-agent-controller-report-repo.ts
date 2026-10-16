@@ -137,7 +137,7 @@ async function writeCurrentAgentControllerReport(
   });
   const writeInput = {
     ...input,
-    report: preserveLastKnownUsageLimits({
+    report: preserveObservationEvidence({
       currentReport: existing,
       nextReport: input.report,
     }),
@@ -213,35 +213,50 @@ async function updateNewerCurrentAgentControllerReport(
     db: PostgresDatabase;
   }
 ): Promise<RuntimeAgentControllerReportAcceptanceResult> {
-  const updateResult = await input.db.query({
-    text: `
+  const updateResult = await input.db.query<{ expires_at_ms: number | string }>(
+    {
+      text: `
         UPDATE "openmeld"."openMeldDaemon_runtime_agent_controller_reports"
         SET
           report_status = $1,
           observed_at_ms = $2,
-          expires_at_ms = $3,
+          expires_at_ms = CASE
+            WHEN agent_controller_interface_json::jsonb ->> 'checkedAt'
+              = $5::jsonb ->> 'checkedAt'
+            THEN LEAST(expires_at_ms, $3)
+            ELSE $3
+          END,
           reported_reason_codes_json = $4,
           agent_controller_interface_json = $5,
           accepted_at_ms = $6,
           updated_at_ms = $7
         WHERE openmeld_service_runtime_id = $8 AND agent_controller_ref = $9 AND observed_at_ms < $10
+        RETURNING expires_at_ms
       `,
-    values: [
-      input.report.status,
-      input.report.observedAtMs,
-      input.report.expiresAtMs,
-      JSON.stringify(input.report.reasonCodes),
-      stringifyAgentControllerInterface(input.report.agentControllerInterface),
-      input.nowMs,
-      input.nowMs,
-      input.report.openMeldServiceRuntimeId.value,
-      input.report.agentControllerRef,
-      input.report.observedAtMs,
-    ],
-  });
+      values: [
+        input.report.status,
+        input.report.observedAtMs,
+        input.report.expiresAtMs,
+        JSON.stringify(input.report.reasonCodes),
+        stringifyAgentControllerInterface(
+          input.report.agentControllerInterface
+        ),
+        input.nowMs,
+        input.nowMs,
+        input.report.openMeldServiceRuntimeId.value,
+        input.report.agentControllerRef,
+        input.report.observedAtMs,
+      ],
+    }
+  );
   if (getChangedRows(updateResult) > 0) {
     return {
-      currentReport: input.report,
+      currentReport: {
+        ...input.report,
+        expiresAtMs: Number(
+          updateResult.rows[0]?.expires_at_ms ?? input.report.expiresAtMs
+        ),
+      },
       outcome: "updated",
       status: "accepted",
     };
@@ -260,7 +275,7 @@ async function resolveConcurrentAgentControllerReportWrite(
   });
   const writeInput = {
     ...input,
-    report: preserveLastKnownUsageLimits({
+    report: preserveObservationEvidence({
       currentReport,
       nextReport: input.report,
     }),
@@ -280,15 +295,30 @@ async function resolveConcurrentAgentControllerReportWrite(
     status: "rejected",
   };
 }
-function preserveLastKnownUsageLimits(input: {
+function preserveObservationEvidence(input: {
   currentReport: AcceptedRuntimeAgentControllerReport | null;
   nextReport: AcceptedRuntimeAgentControllerReport;
 }): AcceptedRuntimeAgentControllerReport {
+  let nextReport = input.nextReport;
+  // Republishing the same native observation must not renew its authority.
+  if (
+    input.currentReport?.agentControllerInterface?.checkedAt &&
+    input.currentReport.agentControllerInterface.checkedAt ===
+      input.nextReport.agentControllerInterface?.checkedAt
+  ) {
+    nextReport = {
+      ...nextReport,
+      expiresAtMs: Math.min(
+        input.currentReport.expiresAtMs,
+        nextReport.expiresAtMs
+      ),
+    };
+  }
   const currentLimits =
     input.currentReport?.agentControllerInterface?.usageLimits;
-  const nextSnapshot = input.nextReport.agentControllerInterface;
+  const nextSnapshot = nextReport.agentControllerInterface;
   if (!nextSnapshot) {
-    return input.nextReport;
+    return nextReport;
   }
   const nextLimits = nextSnapshot?.usageLimits;
   const providerReadIsUnavailable =
@@ -300,10 +330,10 @@ function preserveLastKnownUsageLimits(input: {
     (limit) => limit.usedPercent !== null
   );
   if (!(providerReadIsUnavailable && hasKnownCapacity && currentLimits)) {
-    return input.nextReport;
+    return nextReport;
   }
   return {
-    ...input.nextReport,
+    ...nextReport,
     agentControllerInterface: {
       ...nextSnapshot,
       usageLimits: currentLimits.map((limit) =>
