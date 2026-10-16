@@ -1,3 +1,7 @@
+import {
+  supportsExecutionContextSelection,
+  supportsSpaceWorkHandoff,
+} from "@openmeld/agent-runtime";
 import type { Profile, SignalEnvelope } from "@openmeld/protocol";
 import { parseSignalText } from "@openmeld/protocol";
 import {
@@ -30,6 +34,7 @@ export class SpaceSignalAuthoringError extends Error {
     | "space_task.invalid_author"
     | "space_task.invalid_draft"
     | "space.execution_input.invalid"
+    | "space.execution_context.unsupported"
     | typeof SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE
     | typeof SPACE_WAKE_TARGET_INVALID_ERROR_CODE
     | typeof SPACE_WAKE_HANDOFF_SEED_FAILED_ERROR_CODE
@@ -45,6 +50,7 @@ export class SpaceSignalAuthoringError extends Error {
       | "space_task.invalid_author"
       | "space_task.invalid_draft"
       | "space.execution_input.invalid"
+      | "space.execution_context.unsupported"
       | typeof SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE
       | typeof SPACE_WAKE_TARGET_INVALID_ERROR_CODE
       | typeof SPACE_WAKE_HANDOFF_SEED_FAILED_ERROR_CODE
@@ -64,6 +70,57 @@ export class SpaceSignalAuthoringError extends Error {
       input.targetProfileId.trim().length > 0
         ? input.targetProfileId.trim()
         : null;
+  }
+}
+
+/** Call after validating any work handoff and before persisting the message. */
+export function assertSpaceContextSelectionSupported(input: {
+  signal: SignalEnvelope;
+  readControllerRef(profileId: string): string | null | undefined;
+}): void {
+  if (input.signal.type !== "signal.text") {
+    return;
+  }
+  const data = input.signal.data;
+  if (!(data.contextSelection || data.contextSelections)) {
+    return;
+  }
+  const targets = data.messageEnvelope?.activationTargets ?? [];
+  const selectedTargets = data.contextSelection
+    ? targets
+    : Object.keys(data.contextSelections ?? {});
+  for (const profileId of selectedTargets) {
+    const ref = input.readControllerRef(profileId);
+    if (supportsExecutionContextSelection(ref)) {
+      continue;
+    }
+    // A validated material handoff has its own supported contract. For hosted
+    // Agents it prepares selected files in the existing Computer, not a new session.
+    const handoff = data.meta?.workHandoff;
+    if (
+      handoff &&
+      supportsSpaceWorkHandoff({
+        agentControllerRef: ref,
+        hasRepository: handoff.schemaVersion === 2 && Boolean(handoff.code),
+        hasFiles: handoff.files.length > 0,
+      })
+    ) {
+      continue;
+    }
+    throw new SpaceSignalAuthoringError({
+      code: "space.execution_context.unsupported",
+      status: 400,
+      targetProfileId: profileId,
+      message:
+        "This Agent does not support session selection. Remove the session, access and workspace choices, or choose an Agent that supports them. No message or task was created.",
+    });
+  }
+  if (selectedTargets.length === 0) {
+    throw new SpaceSignalAuthoringError({
+      code: "space.execution_context.unsupported",
+      status: 400,
+      message: "Choose a Wake target before selecting its session.",
+    });
   }
 }
 

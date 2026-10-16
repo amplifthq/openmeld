@@ -6,6 +6,7 @@ import { queryOptions } from "@tanstack/react-query";
 import {
 	type OrganizationUsageFailure,
 	readCurrentOrganizationUsageOverview,
+	readOrganizationAiBilling,
 	readOrganizationAiUsage,
 } from "#/lib/organizations/organization-usage";
 import { baseQueryOptions } from "#/query/query-config";
@@ -15,6 +16,21 @@ export const organizationUsageQueryKeys = {
 	overview: (organizationId: string) =>
 		[...organizationUsageQueryKeys.all, organizationId, "overview"] as const,
 };
+
+export function organizationAiBillingQueryOptions(input: {
+	organizationId: string;
+}) {
+	return queryOptions({
+		queryKey: [
+			...organizationUsageQueryKeys.all,
+			input.organizationId,
+			"billing",
+		],
+		queryFn: ({ signal }) => readOrganizationAiBilling({ ...input, signal }),
+		staleTime: 10_000,
+		retry: false,
+	});
+}
 
 export function organizationUsageCalendarPeriod(
 	days: number,

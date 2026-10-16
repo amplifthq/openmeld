@@ -20,6 +20,28 @@ const owner = "src/organizations/account-deletion.ts";
 const AVATAR_CONTRACT_ERROR =
   /@openmeld\/core (?:top-level|env\.prod).*OPENMELD_ACCOUNT_AVATARS/u;
 const POSTGRESQL_CONTRACT_ERROR = /OPENMELD_POSTGRESQL/u;
+const REMOVED_BILLING_ERROR =
+  /unexpected key OPENMELD_INTERNAL_BILLING_ORGANIZATION_ID/u;
+
+function prepareBillingReader(core, scenario) {
+  if (!scenario.endsWith("billing-reader")) {
+    return;
+  }
+  const example = path.join(core, ".dev.vars.example");
+  writeFileSync(
+    example,
+    `${readFileSync(example, "utf8")}\nOPENMELD_INTERNAL_BILLING_ORGANIZATION_ID=\n`
+  );
+  const billing = path.join(core, "src/usage/ai-billing-service.ts");
+  mkdirSync(path.dirname(billing), { recursive: true });
+  // Captured from the pinned 3e882aec release's billing owner.
+  writeFileSync(
+    billing,
+    scenario === "historical-billing-reader"
+      ? "const configured = env.OPENMELD_INTERNAL_BILLING_ORGANIZATION_ID?.trim();\n"
+      : "// The billing exemption was removed.\n"
+  );
+}
 
 for (const scenario of [
   "historical-without-owner",
@@ -27,6 +49,8 @@ for (const scenario of [
   "owner-wrong-bucket",
   "historical-staging",
   "production-missing-postgresql",
+  "historical-billing-reader",
+  "removed-billing-reader",
 ]) {
   test(`current verifier validates production source contracts: ${scenario}`, () => {
     const product = mkdtempSync(
@@ -74,6 +98,7 @@ for (const scenario of [
           path.join(core, owner)
         );
       }
+      prepareBillingReader(core, scenario);
       const config = parseJsoncObject(
         readFileSync(path.join(root, "services/core/wrangler.jsonc"), "utf8")
       );
@@ -84,7 +109,8 @@ for (const scenario of [
           ).bucket_name = "wrong-avatar-bucket";
         } else if (
           scenario !== "historical-staging" &&
-          scenario !== "production-missing-postgresql"
+          scenario !== "production-missing-postgresql" &&
+          !scenario.endsWith("billing-reader")
         ) {
           section.r2_buckets = section.r2_buckets.filter(
             ({ binding }) => binding !== "OPENMELD_ACCOUNT_AVATARS"
@@ -116,13 +142,20 @@ for (const scenario of [
       assert.equal(result.error, undefined);
       assert.equal(
         result.status,
-        ["historical-without-owner", "historical-staging"].includes(scenario)
+        [
+          "historical-without-owner",
+          "historical-staging",
+          "historical-billing-reader",
+        ].includes(scenario)
           ? 0
           : 1,
         result.stderr
       );
       if (scenario.startsWith("owner-")) {
         assert.match(result.stderr, AVATAR_CONTRACT_ERROR);
+      }
+      if (scenario === "removed-billing-reader") {
+        assert.match(result.stderr, REMOVED_BILLING_ERROR);
       }
       if (scenario === "production-missing-postgresql") {
         assert.match(result.stderr, POSTGRESQL_CONTRACT_ERROR);

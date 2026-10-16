@@ -472,6 +472,8 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
       interrupt: z.literal(true).optional(),
       manageInstallations: z.literal(true).optional(),
       manageInstallationsSafely: z.literal(true).optional(),
+      updateInstallations: z.literal(true).optional(),
+      setupInstallations: z.literal(true).optional(),
       forkSession: z.literal(true).optional(),
       refreshCatalog: z.literal(true).optional(),
       resumeControllerConversation: z.literal(true).optional(),
@@ -504,6 +506,7 @@ export const runtimeTransportCapabilitiesSchema =
     localExecutionInput: z.literal(true).optional(),
     spaceWorkHandoff: z.literal(true).optional(),
     sessionHistory: z.literal(true).optional(),
+    computerPower: z.literal(true).optional(),
     computerFileAccess: z
       .strictObject({
         readPolicy: z.literal(true).optional(),
@@ -2371,6 +2374,8 @@ export const runtimeTransportDispatchPreviewEndRequestSchema = z.strictObject({
 });
 
 export const daemonStreamCodeSchema = z.enum([
+  "daemon.computer_power.request",
+  "daemon.computer_power.request_result",
   "daemon.computer_file_access.read_policy",
   "daemon.session_history.request",
   "daemon.session_history.request_result",

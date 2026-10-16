@@ -14,6 +14,14 @@ End in this state:
 
 ## Setup From Zero
 
+In CLI invocation examples, replace only the leading `openmeld` executable with
+the exact command prefix from the latest `setup.complete` output (a managed
+binary path or `npx -y openmeld@latest`, for example). Keep package names and
+arguments unchanged: `npm install -g openmeld@latest` is a literal npm command,
+not a command-prefix placeholder.
+
+Before any npm install or recovery, use Node.js 22, 24, or 25; Node.js 24 is recommended. Node.js 23, versions below 22, and versions 26 or later are unsupported. npm engines only warn by default; native dependencies can fail before OpenMeld runs. Select Node.js 24 before installing. On macOS, prefer a fresh Web setup command, which installs the managed standalone binary with its own runtime.
+
 If OpenMeld Web gives a setup command, run that exact command first. In
 production on supported macOS computers, the Web setup command downloads the
 OpenMeld CLI binary, verifies it, installs it into OpenMeld's managed layout,

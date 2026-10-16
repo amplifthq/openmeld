@@ -1,8 +1,8 @@
 {
   "$schema": "https://www.schemastore.org/package.json",
   "name": "openmeld",
-  "version": "0.3.255",
-  "openMeldReleaseDate": "2026-10-12",
+  "version": "0.3.263",
+  "openMeldReleaseDate": "2026-10-16",
   "description": "OpenMeld CLI - https://openmeld.ai",
   "license": "MIT",
   "type": "module",
@@ -14,7 +14,7 @@
     "access": "public"
   },
   "engines": {
-    "node": "20.x || >=22 <26"
+    "node": "22.x || 24.x || 25.x"
   },
   "files": [
     "README.md",
@@ -58,6 +58,7 @@
     "@openmeld/adapter-codex": "workspace:*",
     "@openmeld/adapter-core": "workspace:*",
     "@openmeld/adapter-cursor": "workspace:*",
+    "@openmeld/adapter-grok-bot": "workspace:*",
     "@openmeld/adapter-grok-build": "workspace:*",
     "@openmeld/adapter-openclaw": "workspace:*",
     "@openmeld/adapter-opencode": "workspace:*",

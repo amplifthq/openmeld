@@ -58,17 +58,17 @@ ownership remain in the existing Web hooks and router.
 One shell and one Settings framework let Web and the Electron GUI reuse shared
 pieces without forcing two clients to keep an obsolete route map. Current Web:
 
-- keeps **Center Agent / Spaces / Team** as the fixed
+- keeps **Inbox / Spaces / Team / Routines** as the fixed
   visible product destinations, temporarily omits **Projects / Documents /
   Agent Activity** without relocating them, separates Settings as a utility,
   and opens the current Computer, Center Agent, and Inbox from the app canvas's
   global toolbar;
 - uses one Settings destination with stable **Personal** and dynamically named
   current Organization groups;
-- orders Team tabs as **People / Agents / Plugins / Skills**. Plugins retain
+- orders Team tabs as **People / Agents / Files / Skills / Plugins**. Plugins retain
   personal and named Organization configuration; Skills use one Organization
   catalog, including in personal workspaces, without a second scope selector;
-- makes Team the people directory, with each person's Computers and Agent list
+- opens Team on its people directory, with each person's Computers and Agent list
   reached through their Human Profile detail;
 - keeps Service preferences capability-gated for hosts that can own local-service
   controls; Service is not a Web top-level sidebar item;
@@ -216,11 +216,11 @@ not a top-level product noun, and local-service controls remain capability-
 gated.
 
 Each domain is a **real route**, not a scroll anchor. Current Web uses the fixed
-ten-destination product rail, separated Settings utility, and **Personal /
+four-destination product rail, separated Settings utility, and **Personal /
 current Organization name** Settings groups from `developing/clients/web.md`.
 App management exists once under **Plugins** in both personal and
-multi-member workspaces. Routines is a Team use-and-creation surface for personal and shared work,
-not a global Settings page or root product peer.
+multi-member workspaces. Routines is a primary use-and-creation destination for
+personal and shared work, with its existing Organization-scoped route and permissions.
 
 `/app/settings/service` remains a real leaf route for future hosts with
 `LOCAL_SERVICE` capability. On plain Web it is gated out and redirects to Account,
@@ -261,8 +261,7 @@ The Web shell is a stable two-layer composition built from the shared
 - **Outer app rail** — always reachable on Home, Spaces, Direct
   Messages, People, Agents, Projects, Documents, Agent Activity, and
   Settings. The selected workspace switcher is its top identity surface. Home
-  contains **Center Agent**, **Spaces**, and **Team**, followed by a separate
-  **New Agent** action. Team opens People;
+  contains **Inbox**, **Spaces**, **Team**, and **Routines**. Team opens People;
   Agents are reached through each person's profile and nested Agent routes.
   Projects, Documents, and Agent Activity routes
   render the same rail without a matching primary destination while their
@@ -290,8 +289,10 @@ Settings and contains Search and theme selection. The workspace switcher contain
 - **Inner contextual sidebar** — optional, rendered inside the inset app
   surface, and owned only by route families that need contextual navigation.
   Spaces, Direct Messages, and Center Agent conversations share the Spaces
-  list in the middle column, with Spaces and Direct messages as groups. Team
-  uses the same member list across People, Agents, Plugins, and Skills, and Settings
+  list in the middle column, with Spaces and Direct messages as groups. People
+  owns the member sidebar, Agent detail owns its Agent list, and Files owns file
+  locations. Agent directories, Skills, Plugins, and Routines use their existing
+  in-page search and filters without a member sidebar. Settings
   retains its own contextual navigation. Team tab content uses the shared page
   inline padding, including the Plugins and Skills catalog and detail pages.
   Skills loading/error states retain Team's header and rail highlight rather
@@ -359,7 +360,15 @@ Settings and contains Search and theme selection. The workspace switcher contain
   active People/Agents picker; creating a sidebar group never creates a group DM.
   Older clients omitting `messages` cannot erase it on a revision-checked save.
   Pin/unpin actions reveal on their row's hover or keyboard focus, including
-  inside Pinned. Unread and work indicators remain visible without hover.
+  inside Pinned through its action menu. Pinned conversations use the shared
+  Fluid navigation hover in a responsive grid with up to two-to-four columns,
+  depending on sidebar width, and 48px avatars with two-line labels. Fewer pins
+  use only the columns they need: one pin fills the row with centered content.
+  Grid hover uses both pointer coordinates. The grid shows two rows until expanded; hidden
+  unread, attention, and active-work states mark the disclosure control. Dragging
+  expands all targets and uses row-major insertion boundaries. Recent and named
+  groups retain list rows and optional message previews.
+  Unread and work indicators remain visible without hover.
   When both are present, the active Wake indicator takes the trailing slot ahead
   of the unread dot and timestamp; unread styling and accessible text remain.
   People reuses the Web-owned section actions, drag mechanics, manual ordering
@@ -555,8 +564,9 @@ a pin toggle. Spaces then offers Direct messages and Discover using the existing
 `view` search parameter.
 The pinned Direct messages label is DMs. Discover is hidden in personal workspaces,
 including saved pins, without deleting the browser preference.
-Agents, Plugins, Skills, Files, and Routines link to the existing
-Team destinations and each has a separate Pin to sidebar toggle. Pins start
+Agents, Files, Skills, and Plugins link to the existing
+Team destinations and each has a separate Pin to sidebar toggle. Routines stays
+in the primary rail; old saved Routine pins do not create a duplicate. Pins start
 empty, persist in this browser in selection order, and resolve against the
 current Organization. A short divider separates pinned entries from the main
 navigation. A pinned current destination owns the selected state instead of

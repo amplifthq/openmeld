@@ -1,4 +1,8 @@
 import { DatabaseSync, type StatementSync } from "node:sqlite";
+import {
+  SPACE_MEMBER_JOIN_NOTICE_PURPOSE,
+  SPACE_MEMBER_REMOVE_NOTICE_PURPOSE,
+} from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import {
   listLatestFormalSignalCandidateEntriesPage,
@@ -76,11 +80,15 @@ describe("space-signal-repo", () => {
     }
   });
 
-  it("detects newer collaboration messages only in the anchor's scope", () => {
+  it.each([
+    SPACE_MEMBER_JOIN_NOTICE_PURPOSE,
+    SPACE_MEMBER_REMOVE_NOTICE_PURPOSE,
+  ])("detects newer collaboration messages without counting %s as unread context", (purpose) => {
     const harness = createObservationSqlHarness();
     try {
       harness.insertSignal("source-main", 1);
       harness.insertSignal("other-thread", 2, "thread-2");
+      harness.insertSignal("membership-main", 2, { purpose });
       expect(
         readAgentReplyObservationState(harness.sql, {
           observedThroughSignalId: "source-main",
@@ -100,6 +108,10 @@ describe("space-signal-repo", () => {
 
       harness.insertSignal("source-thread", 4, "thread-1");
       harness.insertSignal("later-other-thread", 5, "thread-2");
+      harness.insertSignal("membership-thread", 5, {
+        purpose,
+        threadId: "thread-1",
+      });
       expect(
         readAgentReplyObservationState(harness.sql, {
           observedThroughSignalId: "source-thread",

@@ -1,0 +1,144 @@
+name: npm CLI Install Smoke
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/cli-npm-smoke.yml"
+      - ".github/workflows/cli-release.yml"
+      - ".github/actions/setup-node-pnpm/**"
+      - "clients/openmeld-cli/**"
+      - "packages/**"
+      - "runtime/**"
+      - "scripts/release/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+      - ".nvmrc"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-cli-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows_process_artifact:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-pnpm
+        with:
+          dependency_mode: release-tools
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.401
+      - run: node scripts/release/build-windows-process-helper.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-smoke-windows-${{ github.sha }}
+          path: |
+            cli/dist/openmeld-windows-process.exe
+            cli/dist/windows-process-artifact.json
+          if-no-files-found: error
+          retention-days: 7
+
+  npm_artifact:
+    needs: windows_process_artifact
+    outputs:
+      integrity: ${{ steps.pack.outputs.integrity }}
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      RELEASE_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-pnpm
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-smoke-windows-${{ github.sha }}
+          path: ${{ runner.temp }}/windows-helper
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Verify standalone bundled skill completeness
+        run: node --test scripts/release/bundled-skill-embedded.test.mjs
+      - name: Import this run's Windows helper and pack the npm artifact
+        id: pack
+        run: |
+          node scripts/release/windows-process-artifact.mjs "$RUNNER_TEMP/windows-helper"
+          pnpm exec turbo run build --filter=openmeld --force
+          node scripts/release/npm-cli-smoke.mjs pack dev-tmp/npm-consumer/openmeld.tgz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-consumer-${{ github.sha }}
+          path: dev-tmp/npm-consumer/openmeld.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  npm_consumer:
+    name: npm Install / Node ${{ matrix.node }} / ${{ matrix.os }}
+    needs: npm_artifact
+    if: ${{ !cancelled() && needs.npm_artifact.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22.0.0", "24", "25"]
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      RELEASE_SHA: ${{ github.sha }}
+      OPENMELD_NPM_ARTIFACT_INTEGRITY: ${{ needs.npm_artifact.outputs.integrity }}
+      OPENMELD_REQUIRE_VERIFIED_NPM_ARTIFACT: "1"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-consumer-${{ env.RELEASE_SHA }}
+          path: ${{ runner.temp }}/npm-consumer
+      - name: Verify native platform and clean npm installation
+        shell: bash
+        env:
+          OPENMELD_NPM_ARTIFACT_PATH: ${{ runner.temp }}/npm-consumer/openmeld.tgz
+        run: |
+          node -e 'const expected = process.platform === "darwin" ? "arm64" : "x64"; if (process.arch !== expected) throw new Error(`Expected ${expected}, got ${process.arch}`)'
+          node scripts/release/npm-cli-smoke.mjs verify "$RUNNER_TEMP/npm-consumer/openmeld.tgz"
+          node --input-type=module -e 'import { prepareNpmCliArtifact } from "./scripts/release/npm-cli-artifact.mjs"; const artifact = await prepareNpmCliArtifact(); console.log(`Publisher handoff verified: ${artifact.integrity}`); artifact.cleanup();'
+      - name: Select Node 20 for the upgrade-message check
+        if: matrix.node == '22.0.0'
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20.19.2"
+          package-manager-cache: false
+      - name: Reject Node 20 before loading dependencies
+        if: matrix.node == '22.0.0'
+        shell: bash
+        run: |
+          node scripts/release/npm-cli-smoke.mjs reject "$RUNNER_TEMP/npm-consumer/openmeld.tgz"
+      - name: Select Node 23 for the upgrade-message check
+        if: matrix.node == '24'
+        uses: actions/setup-node@v5
+        with:
+          node-version: "23.11.1"
+          package-manager-cache: false
+      - name: Reject Node 23 before loading dependencies
+        if: matrix.node == '24'
+        shell: bash
+        run: |
+          node scripts/release/npm-cli-smoke.mjs reject "$RUNNER_TEMP/npm-consumer/openmeld.tgz"

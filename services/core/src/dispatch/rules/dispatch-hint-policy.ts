@@ -63,6 +63,7 @@ const DISPATCH_HINT_ELIGIBLE_ERROR_CODES = new Set([
   "runtime.reply.metadata_missing.agent_controller_ref",
   "context.rebuild_failed",
   "context_not_found",
+  "execution_context.source_unavailable",
   ...DISPATCH_TARGET_PROFILE_IDENTITY_RETRYABLE_ERROR_CODES,
   ...DISPATCH_TARGET_PROFILE_IDENTITY_NON_RETRYABLE_ERROR_CODES,
 ]);

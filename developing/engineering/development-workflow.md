@@ -174,6 +174,13 @@ directory; separate clones do not. Reading and editing code needs no slot.
 Root `build`, `check`, `test`, `test:integration`, `test:runtime`, and affected
 validation commands share one broad-work slot by default. Nested commands
 inherit their live ancestor's reservation instead of waiting on themselves.
+When a nested build needs a larger heavy-work budget, the resource owner
+rechecks current memory, OS pressure and competing reservations under the
+registry lock, then expands the same reservation. The ancestor retains ownership
+and the larger budget until it exits. Expansion fails immediately when capacity
+is unavailable; it never waits while holding the ancestor's slot or silently
+starts under an undersized reservation. Stack and Web startup budgets retain
+their existing fixed reservation rules.
 For another expensive local command, use `pnpm dev:run -- <command> [args]`.
 Direct package commands, `dev:raw`, and the legacy fixed-port server bypass
 this admission policy. Keep those focused and inspect machine facts first.
@@ -854,14 +861,24 @@ Canonical command families:
 - repository gates: `verify:pre-push:checks`, `verify:release-ready`,
   `verify:pr`, and `verify:pr:full`.
 
-Remote Agent's Flue 2 build uses Vite 8.1.2 and Cloudflare Vite plugin 1.54.6;
-`@flue/vite@2.2.2` requires Vite 8. Web and Desktop retain their independently
-validated Vite 7 builds. Root Sherif configuration allows only those exact
-Remote Agent build dependency versions to differ; it does not disable the
-dependency rule or exempt a package. Reassess these version-specific entries
-when upgrading either build, and remove them when the build versions converge.
-Do not widen a runtime upgrade into a Web/Desktop build migration merely to
-make independently deployed build tools use one version.
+Web, Website, and Docs use TanStack Start 1.169.2 and Vite 8.3.4.
+Remote Agent's Flue 2 build retains Vite 8.1.2, and the native Desktop build
+retains Vite 7.3.7. Desktop's shared Web renderer uses the Web build.
+Root Sherif configuration allows only those exact retained Vite versions to
+differ; it does not disable the dependency rule or exempt a package. The
+Rolldown override covers stable versions below 1.2 and explicitly covers the
+1.0.0-rc.3 dependency used by tsdown, preserving the existing shared-package
+bundler without downgrading Vite 8.3's required bundler. Reassess these entries when
+upgrading either build, and remove them when the build versions converge.
+
+The upstream history fix replaces the former local traversal patch. Keep the
+Start compiler's build-end cleanup patch until upstream releases compiler
+instances at that boundary; a build-start reset does not release the previous
+environment's compiler between client and server builds.
+
+Use Vite's native `resolve.tsconfigPaths` in these three builds instead of the
+former paths plugin. Web and Website use Vitest 4.1.11 for Vite 8 compatibility;
+other test owners retain Vitest 3.2.4. Sherif permits that exact Vitest exception.
 
 The CI/CD procedure and its rationale have one owner:
 [Agent-Native Delivery](agent-native-delivery.md#daily-workflow). It applies to
@@ -920,6 +937,11 @@ If a user-facing path requires hidden context to operate, treat that as a
 product or diagnostics gap.
 
 ## Real-User Smoke Vs Internal Diagnostics
+
+For real Center/Remote Agent model calls in a local lane, use the
+[shared development BYOK smoke key](ai-billing.md#shared-development-byok-smoke-key).
+That procedure owns the Doppler location, safe retrieval, product setup, usage
+verification, and cleanup. Do not request a fresh key for each authorized smoke.
 
 Real-user smoke must use user-accessible entry points and show user-visible
 evidence.
@@ -1311,6 +1333,17 @@ authority; Service reads the canonical route before attempting a native update.
   authorize silently adopting a different installation.
 
 ### Safe Local Agent Installation Selection Contract Impact Audit
+
+Local Agent update extension: publish Core/Gateway/schema readers before a Service
+advertises optional `updateInstallations`. New owner-only GET/POST
+`installation-update` routes reuse the existing installation transport with
+`read_update`/`update` requests and a distinct `update_state` result. Old Services retain
+selection and manual updates; new controls require the new capability. Existing
+list/select responses, Prepare, Wake, Skills, and Space Actions are unchanged.
+Web and Desktop share the Computer UI and API client. No native Desktop bridge,
+database schema, contract floor, or forced update is required. Service/CLI release
+impact is advisory `available`; this feature branch does not stamp release
+artifacts. Rollback must retain readers while new Services advertise the field.
 
 Safe installation selection changes Web behavior, Local Runtimes HTTP/RPC,
 Runtime Transport capabilities and result frames, the OpenMeld Service carrier,

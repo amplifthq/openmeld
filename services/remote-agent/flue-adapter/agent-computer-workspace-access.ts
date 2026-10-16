@@ -82,6 +82,8 @@ export function createAgentComputerWorkspaceAccess(input: {
           Array.isArray(parsed.data) ||
           !("phase" in parsed.data) ||
           parsed.data.phase !== "accepted" ||
+          ("observation" in parsed.data &&
+            parsed.data.observation?.status === "timed_out") ||
           !("reference" in parsed.data) ||
           !parsed.data.reference ||
           Date.now() >= deadline

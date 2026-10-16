@@ -73,6 +73,16 @@ const DETAILED_PROVIDER_FAILURE_SUMMARY_RE =
   /^invalid_value \(invalid_request_error\): Invalid value for reasoning effort\./;
 
 describe("public agent failure reason mapping", () => {
+  it("reports missing task history without inventing a provider outage", () => {
+    const errorCode = "execution_context.source_unavailable";
+    expect(
+      resolvePublicAgentFailureRecovery({ errorCode, targetLabel: "Codex" })
+    ).toMatchObject({ kind: "request_ended", recoveryTarget: null });
+    expect(resolveMappedPublicAgentFailureReason(errorCode)).toBe(
+      "The selected task is not available to continue or fork. Select an available task that you started, or start a new task."
+    );
+  });
+
   it("does not claim an unacknowledged hosted admission never started", () => {
     expect(
       resolveCenterAgentCallbackFailureMessage({

@@ -1,5 +1,12 @@
 import type { z } from "zod/v4";
 
+export type SpaceMessageDelegations = z.infer<
+  typeof import("../../schemas/http/space-message-details")["spaceMessageDelegationsSchema"]
+>;
+export type SpaceMessageDelegatedTask = z.infer<
+  typeof import("../../schemas/http/space-message-details")["spaceMessageDelegatedTaskSchema"]
+>;
+
 type SpaceMessageDetailsFactStateSchema =
   typeof import("../../schemas/http/space-message-details")["spaceMessageDetailsFactStateSchema"];
 type SpaceMessageDetailsFactSourceSchema =

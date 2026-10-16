@@ -512,6 +512,11 @@
 	top: 402px;
 	right: 10%;
 }
+.meld-floating-agent-6 {
+	--agent-size: 48px;
+	top: 110px;
+	left: 27%;
+}
 .meld-open-source {
 	display: grid;
 	justify-items: center;
@@ -548,11 +553,13 @@
 	font-size: clamp(30px, 3.2vw, 44px);
 }
 .meld-channel-options {
-	display: flex !important;
-	flex-direction: column;
-	align-items: stretch !important;
-	gap: 8px !important;
 	width: 100%;
+}
+.meld-channel-options > ul {
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 8px;
 }
 .meld-channel-option {
 	height: auto !important;
@@ -566,16 +573,32 @@
 .meld-channel-option > span {
 	display: grid;
 	gap: 6px;
+	flex: 1;
+	min-width: 0;
+}
+.meld-channel-option[data-active] {
+	--row-gutter: 132px !important;
+	--row-gutter-hover: 132px !important;
 }
 .meld-channel-option strong {
 	font-size: 16px;
 	font-weight: 500;
+	line-height: 24px;
 }
 .meld-channel-option small {
 	font-size: 12px;
 	line-height: 1.5;
 	color: #a1a1aa;
 	white-space: normal;
+}
+.meld-channel-action {
+	top: 16px !important;
+	right: 16px !important;
+	width: auto !important;
+	height: 24px !important;
+	font-size: 12px;
+	line-height: 24px;
+	white-space: nowrap;
 }
 .meld-chat-preview {
 	position: relative;
@@ -946,9 +969,6 @@
 	.meld-channel-controls h2 {
 		font-size: 34px;
 	}
-	.meld-channel-options {
-		flex-direction: row;
-	}
 	.meld-channel-option {
 		min-height: 56px;
 		padding: 10px !important;
@@ -958,6 +978,9 @@
 	}
 	.meld-channel-option strong {
 		font-size: 13px;
+	}
+	.meld-channel-action {
+		right: 10px !important;
 	}
 	.meld-channel-option svg,
 	.meld-channel-option img {

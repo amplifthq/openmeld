@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-10-15T01:22:18.761015+00:00",
+  "source": {
+    "repository": "amplifthq/openmeld-private",
+    "id": 1331245823
+  },
+  "target": {
+    "repository": "amplifthq/openmeld",
+    "id": 1278926400
+  },
+  "runs": [
+    {
+      "databaseId": 38595947657,
+      "headSha": "11d847e4e7c5970ac3e6c83a7279fcb5a02472f6",
+      "createdAt": "2026-10-14T16:11:30Z",
+      "updatedAt": "2026-10-14T16:24:32Z",
+      "status": "completed",
+      "workflowName": "\ud83d\udce6 CLI Release",
+      "displayTitle": "CLI Release @ 11d847e4e7c5970ac3e6c83a7279fcb5a02472f6",
+      "url": "https://github.com/amplifthq/openmeld-private/actions/runs/38595947657",
+      "attempt": 1,
+      "conclusion": "success",
+      "jobs": [
+        {
+          "id": 115962594104,
+          "name": "Publish CLI And Release Core",
+          "run_attempt": 1,
+          "status": "completed",
+          "conclusion": "success",
+          "completed_at": "2026-10-14T16:24:31Z"
+        }
+      ]
+    },
+    {
+      "databaseId": 38596949076,
+      "headSha": "11d847e4e7c5970ac3e6c83a7279fcb5a02472f6",
+      "createdAt": "2026-10-14T16:18:26Z",
+      "updatedAt": "2026-10-14T16:23:15Z",
+      "status": "completed",
+      "workflowName": "\ud83d\ude80 Scoped Production Release",
+      "displayTitle": "Scoped Production Release docs @ 11d847e4e7c5970ac3e6c83a7279fcb5a02472f6",
+      "url": "https://github.com/amplifthq/openmeld-private/actions/runs/38596949076",
+      "attempt": 1,
+      "conclusion": "success",
+      "jobs": [
+        {
+          "id": 115967496224,
+          "name": "Release Docs / \ud83c\udf10 Deploy Docs",
+          "run_attempt": 1,
+          "status": "completed",
+          "conclusion": "success",
+          "completed_at": "2026-10-14T16:23:13Z"
+        }
+      ]
+    },
+    {
+      "databaseId": 38591154751,
+      "headSha": "11d847e4e7c5970ac3e6c83a7279fcb5a02472f6",
+      "createdAt": "2026-10-14T15:38:53Z",
+      "updatedAt": "2026-10-14T15:45:20Z",
+      "status": "completed",
+      "workflowName": "\ud83d\ude80 Scoped Production Release",
+      "displayTitle": "Scoped Production Release website @ 11d847e4e7c5970ac3e6c83a7279fcb5a02472f6",
+      "url": "https://github.com/amplifthq/openmeld-private/actions/runs/38591154751",
+      "attempt": 1,
+      "conclusion": "success",
+      "jobs": [
+        {
+          "id": 115948051323,
+          "name": "Release Website / \ud83c\udf10 Deploy Website",
+          "run_attempt": 1,
+          "status": "completed",
+          "conclusion": "success",
+          "completed_at": "2026-10-14T15:45:19Z"
+        }
+      ]
+    }
+  ]
+}

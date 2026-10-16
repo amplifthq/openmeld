@@ -893,7 +893,7 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		expect(membersRefetch).not.toHaveBeenCalled();
 	});
 
-	it("coalesces Wake progress frames behind a slow refresh and keeps one final refresh", async () => {
+	it("coalesces Wake progress and delegation details behind a slow refresh and keeps one final refresh", async () => {
 		const { queryClient } = renderFeed();
 		await openLatestSocket();
 		await flushMicrotasks();
@@ -922,20 +922,17 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		}
 		await flushMicrotasks();
 
-		expect(invalidateQueries).toHaveBeenCalledTimes(1);
+		expect(invalidateQueries).toHaveBeenCalledTimes(2);
 		await act(async () => {
 			finishFirstRefresh?.();
 			await firstRefresh;
 		});
 		await flushMicrotasks();
 
-		expect(invalidateQueries).toHaveBeenCalledTimes(2);
+		expect(invalidateQueries).toHaveBeenCalledTimes(4);
 		expect(invalidateQueries).toHaveBeenLastCalledWith(
 			{
-				queryKey: spaceQueryKeys.activeWakeProgressSummary(
-					"space-123",
-					"11111111-1111-1111-1111-111111111111"
-				),
+				queryKey: ["spaces", "message-details", "space-123"],
 				refetchType: "active",
 			},
 			{ cancelRefetch: false }
@@ -955,7 +952,7 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		});
 		await flushMicrotasks();
 
-		expect(invalidateQueries).toHaveBeenCalledTimes(2);
+		expect(invalidateQueries).toHaveBeenCalledTimes(4);
 	});
 });
 
@@ -1073,13 +1070,19 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 				// including when no Wake is visible. Keep that real feedback edge here.
 				// biome-ignore lint/correctness/useExhaustiveDependencies: Preserve the controller's timeline-dependent projection in this reduced regression.
 				const visibleWakeItems = useMemo(() => [], [feed.timelineEnvelopes]);
-				usePublishSpaceWakeProgressVisibleProjection(visibleWakeItems);
+				usePublishSpaceWakeProgressVisibleProjection(visibleWakeItems, {
+					profileId: "11111111-1111-1111-1111-111111111111",
+					spaceId: "space-123",
+				});
 				return feed;
 			},
 			{
 				wrapper: ({ children }: { children: ReactNode }) => (
 					<QueryClientProvider client={queryClient}>
-						<SpaceWakeProgressVisibleProjectionProvider>
+						<SpaceWakeProgressVisibleProjectionProvider
+							profileId="11111111-1111-1111-1111-111111111111"
+							spaceId="space-123"
+						>
 							{children}
 						</SpaceWakeProgressVisibleProjectionProvider>
 					</QueryClientProvider>

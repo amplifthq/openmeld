@@ -1,0 +1,188 @@
+{
+  "trace": {
+    "query": {
+      "spaceId": "0000000000000000000000000000000000000000000000000000000000000001",
+      "dispatchId": "00000000-0000-4000-8000-000000000002"
+    },
+    "correlation": {
+      "modelVersion": "openmeld.observability.wake.v1",
+      "selector": {
+        "spaceId": "0000000000000000000000000000000000000000000000000000000000000001",
+        "kind": "dispatch",
+        "dispatchId": "00000000-0000-4000-8000-000000000002"
+      },
+      "spaceId": "0000000000000000000000000000000000000000000000000000000000000001",
+      "clientMessageId": "00000000-0000-4000-8000-000000000003",
+      "sourceSignalId": "00000000-0000-4000-8000-000000000004",
+      "targetProfileId": "agt_00000000-0000-4000-8000-000000000005",
+      "dispatchId": "00000000-0000-4000-8000-000000000002",
+      "runtimeCoordinatorExecutionId": null,
+      "latestAttemptId": "00000000-0000-4000-8000-000000000006",
+      "claimLeaseId": null,
+      "bindingId": "binding_00000000-0000-4000-8000-000000000007",
+      "openMeldServiceRuntimeId": null,
+      "agentControllerRef": "hosted:center-agent",
+      "resultRef": null,
+      "publishedSignalId": null,
+      "replySignalId": "00000000-0000-4000-8000-000000000008",
+      "cloudflare": {
+        "cfRayId": null,
+        "requestId": null,
+        "traceId": null
+      }
+    },
+    "trace": {
+      "dispatch": {
+        "factSource": "dispatch_ledger",
+        "dispatchId": "00000000-0000-4000-8000-000000000002",
+        "idempotencyKey": "36:00000000-0000-4000-8000-000000000004|40:agt_00000000-0000-4000-8000-000000000005",
+        "sourceEventId": "00000000-0000-4000-8000-000000000004",
+        "sourceClientMessageId": "00000000-0000-4000-8000-000000000003",
+        "owner": null,
+        "targetProfileId": "agt_00000000-0000-4000-8000-000000000005",
+        "status": "failed_terminal",
+        "firstSeenAt": "2026-10-13T17:59:19.498Z",
+        "lastAttemptAt": "2026-10-13T18:00:22.016Z",
+        "attemptCount": 1,
+        "latestAttemptId": "00000000-0000-4000-8000-000000000006"
+      },
+      "nativeDelivery": {
+        "factSource": "remote_agent_native_delivery_ledger",
+        "deliveryId": "00000000-0000-4000-8000-000000000009",
+        "dispatchId": "00000000-0000-4000-8000-000000000002",
+        "idempotencyKey": "36:00000000-0000-4000-8000-000000000004|40:agt_00000000-0000-4000-8000-000000000005",
+        "bindingId": "binding_00000000-0000-4000-8000-000000000007",
+        "runtimeFamily": "hosted_center_agent",
+        "status": "failed",
+        "submissionId": "00000000-0000-4000-8000-000000000002",
+        "destination": {
+          "conversationKind": "space",
+          "organizationId": "00000000-0000-4000-8000-00000000000a",
+          "spaceId": "0000000000000000000000000000000000000000000000000000000000000001",
+          "targetProfileId": "agt_00000000-0000-4000-8000-000000000005"
+        },
+        "controllerNormalization": {
+          "factSource": "remote_agent_native_delivery_ledger",
+          "canonicalAgentControllerRef": "hosted:center-agent",
+          "reasonCode": "hosted_runtime_family_controller_canonicalized",
+          "storedAgentControllerRef": "hosted:center-agent",
+          "storedAgentControllerRefStatus": "canonical",
+          "bindingUpdatedAt": "2026-10-13T16:16:33.775Z"
+        },
+        "createdAt": "2026-10-13T17:59:19.498Z",
+        "updatedAt": "2026-10-13T18:00:22.016Z"
+      },
+      "runtimeCoordinatorExecution": null,
+      "runtimeCoordinatorCreationDiagnostics": [],
+      "runtimeCoordinatorEvents": [],
+      "runtimeCoordinatorHeadLifecycle": null,
+      "latestAttempt": {
+        "factSource": "dispatch_attempt",
+        "attemptId": "00000000-0000-4000-8000-000000000006",
+        "dispatchId": "00000000-0000-4000-8000-000000000002",
+        "idempotencyKey": "36:00000000-0000-4000-8000-000000000004|40:agt_00000000-0000-4000-8000-000000000005",
+        "attemptNo": 1,
+        "status": "failed_terminal",
+        "daemonSessionId": null,
+        "connectionGeneration": null,
+        "leaseEpoch": null,
+        "createdAt": "2026-10-13T17:59:19.498Z",
+        "startedAt": "2026-10-13T17:59:22.532Z",
+        "finishedAt": "2026-10-13T18:00:22.016Z",
+        "errorCode": "remote_agent.turn_not_completed",
+        "errorMessage": "The task stopped. Check the saved results before continuing."
+      },
+      "executionIdentity": null,
+      "claimLease": null,
+      "result": null,
+      "resultInbox": null,
+      "recentOpsDecisions": [],
+      "replySignal": {
+        "factSource": "space_signal_recent_window",
+        "signalId": "00000000-0000-4000-8000-000000000008",
+        "profileId": "agt_00000000-0000-4000-8000-000000000005",
+        "profileKind": "agent",
+        "profileName": "Review Agent",
+        "text": "The task stopped. Check the saved results before continuing.",
+        "createdAt": "2026-10-13T18:00:23.800Z"
+      },
+      "finalVisibleMessage": {
+        "factSource": "space_signal_by_published_signal_id",
+        "signalId": "00000000-0000-4000-8000-000000000008",
+        "signalType": "signal.text",
+        "dispatchId": "00000000-0000-4000-8000-000000000002",
+        "targetProfileId": "agt_00000000-0000-4000-8000-000000000005",
+        "profileId": "agt_00000000-0000-4000-8000-000000000005",
+        "profileKind": "agent",
+        "profileName": "Review Agent",
+        "text": "The task stopped. Check the saved results before continuing.",
+        "reasonCode": "remote_agent.turn_not_completed",
+        "noticeType": null,
+        "statusType": null,
+        "createdAt": "2026-10-13T18:00:23.800Z"
+      },
+      "finalVisibleMessageLinkage": {
+        "status": "matched_published_signal",
+        "reasonCode": "final_visible_message.matched_published_signal",
+        "sourceFact": "published_signal_candidate",
+        "candidateSignalIds": ["00000000-0000-4000-8000-000000000008"],
+        "claimSignalId": null,
+        "selectedSignalId": "00000000-0000-4000-8000-000000000008"
+      },
+      "finalVisibleOutcome": {
+        "delivered": true,
+        "publicationErrorCode": null,
+        "publicationKind": "failure_notice",
+        "reasonCode": "remote_agent.turn_not_completed",
+        "signalId": "00000000-0000-4000-8000-000000000008",
+        "sourceFact": "final_visible_message",
+        "sourceReasonCode": "remote_agent.turn_not_completed",
+        "sourceStatus": "signal.text",
+        "status": "visible_failure"
+      },
+      "streaming": null,
+      "runtime": null,
+      "execution": null,
+      "origin": null,
+      "prompt": null,
+      "dispatchExecution": null,
+      "openClawGatewayVisibility": null,
+      "openClawBinding": null,
+      "structuredActionFailure": null
+    }
+  },
+  "signal": {
+    "v": 1,
+    "id": "00000000-0000-4000-8000-000000000008",
+    "spaceId": "0000000000000000000000000000000000000000000000000000000000000001",
+    "ts": 1791914423800,
+    "profile": {
+      "kind": "agent",
+      "profileId": "agt_00000000-0000-4000-8000-000000000005",
+      "profileName": "Review Agent",
+      "agentControllerRef": "hosted:center-agent"
+    },
+    "type": "signal.text",
+    "data": {
+      "text": "The task stopped. Check the saved results before continuing.",
+      "messageEnvelope": {
+        "activationTargets": [],
+        "referenceTargets": [],
+        "replyToSignalId": "00000000-0000-4000-8000-000000000004",
+        "text": "The task stopped. Check the saved results before continuing."
+      },
+      "meta": {
+        "clientMessageId": "00000000-0000-4000-8000-000000000002",
+        "purpose": "remote_agent_failure",
+        "errorCode": "remote_agent.turn_not_completed",
+        "dispatchId": "00000000-0000-4000-8000-000000000002",
+        "targetProfileId": "agt_00000000-0000-4000-8000-000000000005",
+        "targetProfileName": "Review Agent",
+        "coreReadinessFactsChanged": {
+          "agentProfileId": "agt_00000000-0000-4000-8000-000000000005",
+          "kind": "core_readiness_facts_changed"
+        }
+      }
+    }
+  }
+}

@@ -26,7 +26,6 @@ import {
 	FluidDropdownMenuRadioItem,
 	FluidDropdownMenuSubContent,
 } from "@openmeld/ui/fluid/dropdown-menu";
-import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import {
 	ArchiveIcon,
 	ChatCircleTextIcon,
@@ -35,6 +34,7 @@ import {
 	FolderIcon,
 	FunnelSimpleIcon,
 	ListIcon,
+	MagnifyingGlassIcon,
 	PlusIcon,
 	RobotIcon,
 	SlidersHorizontalIcon,
@@ -48,7 +48,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { AppModuleSidebarToggle } from "#/components/app/app-module-sidebar";
+import { AppModuleSidebarHeader } from "#/components/app/app-module-sidebar-header";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
 import { resolveInboxAttentionTone } from "#/lib/inbox/attention";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -63,8 +63,12 @@ import { SidebarDrag, SidebarDropSection } from "../app/sidebar-drag";
 import { moveSidebarGroup } from "../app/sidebar-drop-target";
 import { useSidebarFilter } from "../app/sidebar-filter";
 import { SidebarListSkeleton } from "../app/sidebar-list-skeleton";
-import { SidebarSearchInput } from "../app/sidebar-search-input";
+import {
+	SidebarSearchInput,
+	useSidebarSearchDisclosure,
+} from "../app/sidebar-search-input";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
+import { ConversationSidebarMenu } from "./conversation-sidebar-menu";
 import {
 	type Conversation,
 	type ConversationSection,
@@ -231,19 +235,23 @@ function useConversationReadState(
 }
 
 function ConversationsSidebarSearch(input: {
+	disclosure: ReturnType<typeof useSidebarSearchDisclosure>;
 	visible: boolean;
 	value: string;
 	onValueChange: (value: string) => void;
 }) {
-	if (!input.visible) {
+	if (!(input.visible && input.disclosure.open)) {
 		return null;
 	}
 	return (
 		<div className="mb-2 px-1">
 			<SidebarSearchInput
 				inputClassName="lg:h-7"
+				inputRef={input.disclosure.inputRef}
 				label="Search conversations"
+				onOpenChange={input.disclosure.onOpenChange}
 				onValueChange={input.onValueChange}
+				open={input.disclosure.open}
 				placeholder="Find a space..."
 				value={input.value}
 			/>
@@ -281,6 +289,7 @@ export function ConversationsSidebar(
 	});
 	const { view, setView } = useConversationView(currentUserId, dm.org.id);
 	const [search, setSearch] = useState("");
+	const searchDisclosure = useSidebarSearchDisclosure();
 	const { headerRef, titleRef, actionsRef, compactActions } =
 		useHeaderActionOverflow();
 	const [archived, setArchived] = useState(false);
@@ -417,16 +426,36 @@ export function ConversationsSidebar(
 		}),
 		model.conversations
 	);
-	const move = (sectionId: string, id: string, beforeId?: string) => {
+	const move = (
+		sectionId: string,
+		id: string,
+		beforeId?: string,
+		prepend = false
+	) => {
 		const target = model.sections.find((section) => section.id === sectionId);
 		if (!target) {
 			return Promise.resolve();
 		}
+		const visibleIds = prepend
+			? [
+					...new Set([
+						...target.spaceIds,
+						...model
+							.sort(
+								model.conversations.filter(
+									(item) => model.owner(item) === sectionId
+								),
+								target
+							)
+							.map((item) => item.spaceId),
+					]),
+				]
+			: rows(target).map((item) => item.spaceId);
 		return model.move(
 			sectionId,
 			id,
-			rows(target).map((item) => item.spaceId),
-			beforeId
+			visibleIds,
+			prepend ? visibleIds.find((value) => value !== id) : beforeId
 		);
 	};
 	const newMessage = (groupId?: string, query = "") => {
@@ -508,108 +537,68 @@ export function ConversationsSidebar(
 	);
 	return (
 		<>
-			<div className="mb-2 px-1">
+			<AppModuleSidebarHeader
+				ref={headerRef}
+				title={
+					<SpacesDirectoryLink onNavigate={onNavigate} orgSlug={dm.org.slug} />
+				}
+				titleRef={titleRef}
+			>
 				<div
-					className="relative flex min-w-0 items-center gap-1"
-					ref={headerRef}
+					className={
+						compactActions
+							? "pointer-events-none invisible absolute right-0 flex w-max items-center gap-1"
+							: "ml-auto flex shrink-0 items-center gap-1"
+					}
+					inert={compactActions}
+					ref={actionsRef}
 				>
-					<div className="flex shrink-0 items-center gap-1" ref={titleRef}>
-						<AppModuleSidebarToggle placement="sidebar" />
-						<SpacesDirectoryLink
-							onNavigate={onNavigate}
-							orgSlug={dm.org.slug}
-						/>
-					</div>
-					<div
-						className={
-							compactActions
-								? "pointer-events-none invisible absolute right-0 flex w-max items-center gap-1"
-								: "ml-auto flex shrink-0 items-center gap-1"
-						}
-						inert={compactActions}
-						ref={actionsRef}
-					>
-						<DropdownMenu>
-							<DropdownMenuTrigger
-								render={
-									<Button
-										aria-label="New conversation"
-										size="icon-sm"
-										variant="ghost"
-									/>
-								}
-							>
-								<PlusIcon />
-							</DropdownMenuTrigger>
-							<DropdownMenuContent align="end">
-								{creationMenu}
-							</DropdownMenuContent>
-						</DropdownMenu>
-						<DropdownMenu>
-							<DropdownMenuTrigger
-								render={
-									<Button
-										aria-label="View and filters"
-										size="icon-sm"
-										variant="ghost"
-									/>
-								}
-							>
-								<SlidersHorizontalIcon />
-							</DropdownMenuTrigger>
-							<FluidDropdownMenuContent align="end" className="w-56">
-								<DropdownMenuSub>
-									<DropdownMenuSubTrigger index={0}>
-										<ListIcon aria-hidden="true" />
-										Conversation view
-									</DropdownMenuSubTrigger>
-									<FluidDropdownMenuSubContent className="w-44">
-										{viewMenu}
-									</FluidDropdownMenuSubContent>
-								</DropdownMenuSub>
-								<DropdownMenuSub>
-									<DropdownMenuSubTrigger index={1}>
-										<FunnelSimpleIcon aria-hidden="true" />
-										Filter conversations
-									</DropdownMenuSubTrigger>
-									<FluidDropdownMenuSubContent className="w-60 max-w-[calc(100vw-2rem)]">
-										{filterMenu}
-									</FluidDropdownMenuSubContent>
-								</DropdownMenuSub>
-								{previewMenu}
-							</FluidDropdownMenuContent>
-						</DropdownMenu>
-					</div>
 					<DropdownMenu>
 						<DropdownMenuTrigger
 							render={
 								<Button
-									aria-label="Spaces actions"
-									className="ml-auto hidden shrink-0 data-[compact=true]:inline-flex"
-									data-compact={compactActions}
+									aria-label="New conversation"
 									size="icon-sm"
 									variant="ghost"
 								/>
 							}
 						>
-							<DotsThreeIcon />
+							<PlusIcon />
 						</DropdownMenuTrigger>
-						<FluidDropdownMenuContent align="start" className="w-56">
-							<DropdownMenuSub>
-								<DropdownMenuSubTrigger index={3}>
-									<PlusIcon aria-hidden="true" />
-									New conversation
-								</DropdownMenuSubTrigger>
-								<FluidDropdownMenuSubContent className="w-60">
-									{creationMenu}
-								</FluidDropdownMenuSubContent>
-							</DropdownMenuSub>
+						<DropdownMenuContent align="end">
+							{creationMenu}
+						</DropdownMenuContent>
+					</DropdownMenu>
+					<DropdownMenu>
+						<DropdownMenuTrigger
+							render={
+								<Button
+									aria-label="View and filters"
+									onClick={searchDisclosure.rememberTrigger}
+									size="icon-sm"
+									variant="ghost"
+								/>
+							}
+						>
+							<SlidersHorizontalIcon />
+						</DropdownMenuTrigger>
+						<FluidDropdownMenuContent
+							align="end"
+							className="w-56"
+							finalFocus={searchDisclosure.finalFocus}
+						>
+							<FluidDropdownMenuItem
+								index={3}
+								onClick={searchDisclosure.reveal}
+							>
+								<MagnifyingGlassIcon /> Search
+							</FluidDropdownMenuItem>
 							<DropdownMenuSub>
 								<DropdownMenuSubTrigger index={0}>
 									<ListIcon aria-hidden="true" />
 									Conversation view
 								</DropdownMenuSubTrigger>
-								<FluidDropdownMenuSubContent className="w-60">
+								<FluidDropdownMenuSubContent className="w-44">
 									{viewMenu}
 								</FluidDropdownMenuSubContent>
 							</DropdownMenuSub>
@@ -618,7 +607,7 @@ export function ConversationsSidebar(
 									<FunnelSimpleIcon aria-hidden="true" />
 									Filter conversations
 								</DropdownMenuSubTrigger>
-								<FluidDropdownMenuSubContent className="w-60">
+								<FluidDropdownMenuSubContent className="w-60 max-w-[calc(100vw-2rem)]">
 									{filterMenu}
 								</FluidDropdownMenuSubContent>
 							</DropdownMenuSub>
@@ -626,8 +615,62 @@ export function ConversationsSidebar(
 						</FluidDropdownMenuContent>
 					</DropdownMenu>
 				</div>
-			</div>
+				<DropdownMenu>
+					<DropdownMenuTrigger
+						render={
+							<Button
+								aria-label="Spaces actions"
+								className="ml-auto hidden shrink-0 data-[compact=true]:inline-flex"
+								data-compact={compactActions}
+								onClick={searchDisclosure.rememberTrigger}
+								size="icon-sm"
+								variant="ghost"
+							/>
+						}
+					>
+						<DotsThreeIcon />
+					</DropdownMenuTrigger>
+					<FluidDropdownMenuContent
+						align="start"
+						className="w-56"
+						finalFocus={searchDisclosure.finalFocus}
+					>
+						<FluidDropdownMenuItem index={4} onClick={searchDisclosure.reveal}>
+							<MagnifyingGlassIcon /> Search
+						</FluidDropdownMenuItem>
+						<DropdownMenuSub>
+							<DropdownMenuSubTrigger index={3}>
+								<PlusIcon aria-hidden="true" />
+								New conversation
+							</DropdownMenuSubTrigger>
+							<FluidDropdownMenuSubContent className="w-60">
+								{creationMenu}
+							</FluidDropdownMenuSubContent>
+						</DropdownMenuSub>
+						<DropdownMenuSub>
+							<DropdownMenuSubTrigger index={0}>
+								<ListIcon aria-hidden="true" />
+								Conversation view
+							</DropdownMenuSubTrigger>
+							<FluidDropdownMenuSubContent className="w-60">
+								{viewMenu}
+							</FluidDropdownMenuSubContent>
+						</DropdownMenuSub>
+						<DropdownMenuSub>
+							<DropdownMenuSubTrigger index={1}>
+								<FunnelSimpleIcon aria-hidden="true" />
+								Filter conversations
+							</DropdownMenuSubTrigger>
+							<FluidDropdownMenuSubContent className="w-60">
+								{filterMenu}
+							</FluidDropdownMenuSubContent>
+						</DropdownMenuSub>
+						{previewMenu}
+					</FluidDropdownMenuContent>
+				</DropdownMenu>
+			</AppModuleSidebarHeader>
 			<ConversationsSidebarSearch
+				disclosure={searchDisclosure}
 				onValueChange={setSearch}
 				value={search}
 				visible={input.showSearch !== false}
@@ -818,6 +861,7 @@ export function ConversationsSidebar(
 									content: (
 										<SidebarDropSection
 											ids={rows(section).map((item) => item.spaceId)}
+											layout={section.id === "pinned" ? "grid" : "list"}
 											section={section.id}
 										>
 											<SpaceSidebarEmptyState
@@ -826,10 +870,23 @@ export function ConversationsSidebar(
 												sectionId={section.id}
 												visible={showSpaceEmptyState}
 											/>
-											<FluidNavMenu
+											<ConversationSidebarMenu
 												activeLayoutId="conversation-selection"
 												activeValue={model.selected}
 												aria-label={section.name}
+												pinned={section.id === "pinned"}
+												updateIndices={rows(section).flatMap((item, index) =>
+													(dm.indicators.unreadBySpaceId.get(item.spaceId)
+														?.unreadCount ?? 0) > 0 ||
+													dm.indicators.activeWakeSummaryBySpaceId.has(
+														item.spaceId
+													) ||
+													resolveInboxAttentionTone(
+														dm.attentionById.get(item.spaceId) ?? {}
+													)
+														? [index]
+														: []
+												)}
 											>
 												{rows(section).map((item, index) => (
 													<ConversationSidebarRow
@@ -843,11 +900,7 @@ export function ConversationsSidebar(
 														conversation={item}
 														disabled={model.disabled}
 														dragDisabled={false}
-														groups={model.sections.filter(
-															(target) =>
-																target.kind === "pinned" ||
-																target.kind === item.kind
-														)}
+														groups={model.moveGroups[item.kind]}
 														index={index}
 														key={item.spaceId}
 														memberAppearances={memberAppearances}
@@ -872,7 +925,12 @@ export function ConversationsSidebar(
 																: undefined
 														}
 														onMove={(target) =>
-															move(target, item.spaceId).catch(console.error)
+															move(
+																target,
+																item.spaceId,
+																undefined,
+																target === "pinned"
+															).catch(console.error)
 														}
 														onRename={
 															item.kind === "direct-message"
@@ -897,7 +955,7 @@ export function ConversationsSidebar(
 														url={item.url}
 													/>
 												))}
-											</FluidNavMenu>
+											</ConversationSidebarMenu>
 										</SidebarDropSection>
 									),
 								}))}

@@ -15,6 +15,7 @@ export async function fetchSpaceDispatchTrace(input: {
   space: string;
   dispatchId: string;
   includeRemoteAgentRuntimeDiagnostics?: boolean;
+  includeServiceConnectionDiagnostics?: boolean;
   password?: string;
 }): Promise<SpaceDispatchTraceResponse> {
   const endpoint = toSpaceDispatchTraceUrl(
@@ -24,7 +25,8 @@ export async function fetchSpaceDispatchTrace(input: {
     {
       includeRemoteAgentRuntimeDiagnostics:
         input.includeRemoteAgentRuntimeDiagnostics,
-      includeServiceConnectionDiagnostics: true,
+      includeServiceConnectionDiagnostics:
+        input.includeServiceConnectionDiagnostics ?? true,
     }
   );
   const response = await fetchSpaceRequestWithTimeout({

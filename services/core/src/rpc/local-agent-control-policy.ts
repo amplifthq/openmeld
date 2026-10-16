@@ -46,6 +46,34 @@ export function requireAcceptedLocalAgentControlPayload(
 
 export function requireAcceptedLocalAgentInstallationPayload(
   transportResult: RuntimeTransportManageLocalAgentInstallationResponse
+) {
+  const payload = requireAcceptedInstallationControlPayload(transportResult);
+  if (payload.status === "update_state" || payload.status === "setup_state") {
+    throw createCoreRpcHttpError({
+      status: 502,
+      code: "local_agent_control.invalid_response",
+      reason: "OpenMeld Service returned an unexpected installation response.",
+    });
+  }
+  return payload;
+}
+
+export function requireAcceptedLocalAgentUpdatePayload(
+  transportResult: RuntimeTransportManageLocalAgentInstallationResponse
+) {
+  const payload = requireAcceptedInstallationControlPayload(transportResult);
+  if (payload.status !== "update_state") {
+    throw createCoreRpcHttpError({
+      status: 502,
+      code: "local_agent_control.invalid_response",
+      reason: "OpenMeld Service returned an unexpected update response.",
+    });
+  }
+  return payload.update;
+}
+
+export function requireAcceptedInstallationControlPayload(
+  transportResult: RuntimeTransportManageLocalAgentInstallationResponse
 ): Extract<
   RuntimeTransportManageLocalAgentInstallationResponse,
   { status: "accepted" }

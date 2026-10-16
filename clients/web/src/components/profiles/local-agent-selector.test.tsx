@@ -29,6 +29,43 @@ const CHOICES = [
 afterEach(cleanup);
 
 describe("LocalAgentSelector", () => {
+	it.each([
+		"check_failed",
+		"unavailable",
+	] as const)("keeps %s recovery visible when connection setup is supported", (kind) => {
+		const retry = vi.fn();
+		render(
+			<LocalAgentSelector
+				choices={[
+					{
+						agentId: "grok-bot",
+						description: "Grok Bot on this computer.",
+						label: "Grok Bot",
+						value: "grok-bot",
+					},
+				]}
+				disabled={false}
+				isResolving={false}
+				onChange={vi.fn()}
+				selectionState={{
+					agentId: "grok-bot",
+					displayName: "Grok Bot",
+					blocksCreation: true,
+					kind,
+					message: "Connection check failed.",
+					onRetry: retry,
+					connectionSetup: {
+						target: { deviceId: "computer", runtimeLane: "dev-local" },
+						storageScope: "test",
+					},
+				}}
+				value="grok-bot"
+			/>
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+		expect(retry).toHaveBeenCalledOnce();
+		expect(screen.queryByLabelText("Grok Bot connection setup")).toBeNull();
+	});
 	it("keeps connected discovery visible across background refreshes", () => {
 		const props = {
 			choices: CHOICES,

@@ -60,6 +60,8 @@ export function SpaceComposerAgentOptions(input: {
 	organizationId?: string | null;
 	targetProfileId: string;
 	supportsCurrentFolder: boolean;
+	supportsFork?: boolean;
+	supportsAccessRestrictions?: boolean;
 	projectName?: string | null;
 	sources: readonly SpaceTaskSource[];
 	choice?: SpaceComposerTaskChoice;
@@ -90,7 +92,8 @@ export function SpaceComposerAgentOptions(input: {
 	const accessOptions = fileAccessOptions(
 		hasProject,
 		input.supportsCurrentFolder,
-		workspace
+		workspace,
+		input.supportsAccessRestrictions
 	);
 	const selectedAccess = accessOptions.find(
 		(option) => option.key === accessValue
@@ -108,13 +111,9 @@ export function SpaceComposerAgentOptions(input: {
 						</span>
 					</FluidDropdownMenuSubTrigger>
 					<FluidDropdownMenuSubContent className="w-64">
-						<p className="px-2 py-1 text-muted-foreground text-xs">
-							Automatic continuation keeps an earlier session's restrictions,
-							including Space-only access. Choosing Automatic clears the
-							working-copy, Project, and access choices below. To use the
-							agent's current settings, choose Start new and Access → Use agent
-							settings.
-						</p>
+						<SessionGuidance
+							supportsAccessRestrictions={input.supportsAccessRestrictions}
+						/>
 						<DropdownMenuRadioGroup
 							onValueChange={(value) => {
 								if (value === "auto" || value === "new") {
@@ -152,46 +151,10 @@ export function SpaceComposerAgentOptions(input: {
 							<FluidDropdownMenuRadioItem closeOnClick index={1} value="new">
 								Start new
 							</FluidDropdownMenuRadioItem>
-							{sources.length ? (
-								<>
-									<DropdownMenuSeparator />
-									<p className="px-2 py-1 text-muted-foreground text-xs">
-										Continue previous
-									</p>
-									<FluidDropdownMenuGroup>
-										{sources.map((source, index) => (
-											<FluidDropdownMenuRadioItem
-												closeOnClick
-												index={index}
-												key={source.sourceWakeId}
-												value={`resume:${source.sourceWakeId}`}
-											>
-												<span className="truncate">{source.label}</span>
-											</FluidDropdownMenuRadioItem>
-										))}
-									</FluidDropdownMenuGroup>
-									<DropdownMenuSeparator />
-									<p className="px-2 py-1 text-muted-foreground text-xs">
-										Fork previous
-									</p>
-									<FluidDropdownMenuGroup>
-										{sources.map((source, index) => (
-											<TooltipHint
-												content="Start an independent session with this history."
-												key={source.sourceWakeId}
-											>
-												<FluidDropdownMenuRadioItem
-													closeOnClick
-													index={index}
-													value={`fork:${source.sourceWakeId}`}
-												>
-													<span className="truncate">{source.label}</span>
-												</FluidDropdownMenuRadioItem>
-											</TooltipHint>
-										))}
-									</FluidDropdownMenuGroup>
-								</>
-							) : null}
+							<TaskHistoryChoices
+								sources={sources}
+								supportsFork={input.supportsFork}
+							/>
 						</DropdownMenuRadioGroup>
 					</FluidDropdownMenuSubContent>
 				</DropdownMenuSub>
@@ -339,7 +302,8 @@ function newTaskAccessSelection(
 function fileAccessOptions(
 	hasProject: boolean,
 	supportsCurrentFolder: boolean,
-	workspace: "current" | "isolated"
+	workspace: "current" | "isolated",
+	supportsAccessRestrictions = true
 ) {
 	return [
 		{
@@ -376,7 +340,7 @@ function fileAccessOptions(
 					},
 				]
 			: []),
-	];
+	].filter((option) => supportsAccessRestrictions || option.key === "defaults");
 }
 
 function WorkingCopyMenu(input: {
@@ -453,5 +417,83 @@ function WorkingCopyMenu(input: {
 				)}
 			</FluidDropdownMenuSubContent>
 		</DropdownMenuSub>
+	);
+}
+
+function SessionGuidance({
+	supportsAccessRestrictions,
+}: {
+	supportsAccessRestrictions?: boolean;
+}) {
+	return (
+		<p className="px-2 py-1 text-muted-foreground text-xs">
+			{supportsAccessRestrictions === false ? (
+				"Antigravity ACP supports new and continued sessions using Agent settings. A new session does not restrict file access. History forks and extra access limits are not supported. Select the official ACP installation and sign in first."
+			) : (
+				<>
+					Automatic continuation keeps an earlier session's restrictions,
+					including Space-only access. Choosing Automatic clears the
+					working-copy, Project, and access choices below. To use the agent's
+					current settings, choose Start new and Access → Use agent settings.
+				</>
+			)}
+		</p>
+	);
+}
+
+function TaskHistoryChoices({
+	sources,
+	supportsFork,
+}: {
+	sources: readonly SpaceTaskSource[];
+	supportsFork?: boolean;
+}) {
+	return (
+		<>
+			{sources.length ? (
+				<>
+					<DropdownMenuSeparator />
+					<p className="px-2 py-1 text-muted-foreground text-xs">
+						Continue previous
+					</p>
+					<FluidDropdownMenuGroup>
+						{sources.map((source, index) => (
+							<FluidDropdownMenuRadioItem
+								closeOnClick
+								index={index}
+								key={source.sourceWakeId}
+								value={`resume:${source.sourceWakeId}`}
+							>
+								<span className="truncate">{source.label}</span>
+							</FluidDropdownMenuRadioItem>
+						))}
+					</FluidDropdownMenuGroup>
+					{supportsFork !== false ? (
+						<>
+							<DropdownMenuSeparator />
+							<p className="px-2 py-1 text-muted-foreground text-xs">
+								Fork previous
+							</p>
+							<FluidDropdownMenuGroup>
+								{sources.map((source, index) => (
+									<TooltipHint
+										content="Start an independent session with this history."
+										key={source.sourceWakeId}
+									>
+										<FluidDropdownMenuRadioItem
+											closeOnClick
+											index={index}
+											value={`fork:${source.sourceWakeId}`}
+										>
+											<span className="truncate">{source.label}</span>
+										</FluidDropdownMenuRadioItem>
+									</TooltipHint>
+								))}
+							</FluidDropdownMenuGroup>
+						</>
+					) : null}
+				</>
+			) : null}
+		</>
 	);
 }

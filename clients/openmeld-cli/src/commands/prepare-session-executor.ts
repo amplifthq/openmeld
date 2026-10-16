@@ -401,10 +401,13 @@ async function resolveAgentSelectionAfterServiceConnect(input: {
     return input.snapshot;
   }
   if (input.input.localAgentSelection) {
-    const withLocalAgents = await reportLocalAgentCatalogForSelection(input);
+    const selectionSnapshot =
+      input.input.localAgentSelection.mode === "none"
+        ? input.snapshot
+        : await reportLocalAgentCatalogForSelection(input);
     return await resolveAgentSelection({
       ...input,
-      snapshot: withLocalAgents,
+      snapshot: selectionSnapshot,
     });
   }
   return await writeTerminalAgentSelection({

@@ -152,6 +152,21 @@ export async function selectPeopleComputerLocalAgentInstallation(
 	}
 }
 
+export async function managePeopleComputerLocalAgentUpdate(
+	input: PeopleComputerTarget & {
+		agentId: string;
+		request?: import("@openmeld/schemas/types").LocalAgentUpdateRequest;
+	}
+) {
+	try {
+		return await createCurrentDeviceApi(
+			createUnscopedWebOpenMeldApiFoundation()
+		).managePeopleComputerLocalAgentUpdate(input);
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
+}
+
 export async function requestPeopleComputerOpenMeldToolsUpdate(
 	target: PeopleComputerTarget
 ): Promise<RequestCurrentOpenMeldToolsUpdateResponse> {
@@ -195,6 +210,20 @@ export async function refreshPeopleComputerLocalAgentCatalog(
 		return await createCurrentDeviceApi(
 			createUnscopedWebOpenMeldApiFoundation()
 		).refreshPeopleComputerLocalAgentCatalog(target);
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
+}
+export async function managePeopleComputerLocalAgentSetup(
+	input: PeopleComputerTarget & {
+		agentId: string;
+		request?: import("@openmeld/schemas/types").LocalAgentSetupRequest;
+	}
+) {
+	try {
+		return await createCurrentDeviceApi(
+			createUnscopedWebOpenMeldApiFoundation()
+		).managePeopleComputerLocalAgentSetup(input);
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
 	}

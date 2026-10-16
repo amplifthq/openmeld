@@ -121,6 +121,7 @@ export async function verifyDurableCommandResults(
         connect: () =>
           Promise.resolve({
             sync: "remote" as const,
+            executionSupervision: { version: 0 as const },
             runtimeId:
               expired && syncOutcome === "EEXEC_LOST"
                 ? "replacement"

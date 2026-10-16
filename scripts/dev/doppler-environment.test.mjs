@@ -129,15 +129,21 @@ test("links newcomers to Doppler's official CLI installation guide", () => {
   assert.equal(result.stdout.includes("corepack enable"), true);
 });
 
-test("keeps the root README on the same newcomer workflow", () => {
+test("links the root README to the same newcomer workflow", () => {
   const readme = readFileSync(
     new URL("../../README.md", import.meta.url),
     "utf8"
   );
 
-  assert.equal(readme.includes("pnpm dev:doctor"), true);
-  assert.equal(readme.includes("pnpm dev:postgresql"), true);
+  assert.equal(readme.includes("](docs/development.md)"), true);
+  const guide = readFileSync(
+    new URL("../../docs/development.md", import.meta.url),
+    "utf8"
+  );
+  assert.equal(guide.includes("pnpm dev:doctor"), true);
+  assert.equal(guide.includes("pnpm dev:postgresql"), true);
   assert.equal(readme.includes("Default local endpoints are"), false);
+  assert.equal(guide.includes("Default local endpoints are"), false);
 });
 
 test("turns a missing Doppler executable into one actionable next step", () => {

@@ -136,6 +136,7 @@ export class AcpProcessSession {
   readonly #onClientRequest?: AcpClientRequestHandler;
   readonly #onLifecycleEvent?: (event: AcpProcessLifecycleEvent) => void;
   readonly #onNotification?: AcpNotificationHandler;
+  readonly #consumeNonProtocolLine?: (line: string) => boolean;
   readonly #onProcessControlEvent?: (event: AcpProcessControlEvent) => void;
   readonly #pending = new Map<AcpJsonRpcId, PendingJsonRpcRequest>();
   readonly #processLabel: string;
@@ -160,6 +161,7 @@ export class AcpProcessSession {
   #runtimeProcess: SpawnedAgentControllerProcess | null = null;
   #settledFailure: unknown = null;
   #stderr = "";
+  #stderrLineBuffer = "";
 
   constructor(input: {
     args: readonly string[];
@@ -171,6 +173,7 @@ export class AcpProcessSession {
     onClientRequest?: AcpClientRequestHandler;
     onLifecycleEvent?: (event: AcpProcessLifecycleEvent) => void;
     onNotification?: AcpNotificationHandler;
+    consumeNonProtocolLine?: (line: string) => boolean;
     onProcessControlEvent?: (event: AcpProcessControlEvent) => void;
     processLabel: string;
     timeoutMs: number | null;
@@ -184,6 +187,7 @@ export class AcpProcessSession {
     this.#onClientRequest = input.onClientRequest;
     this.#onLifecycleEvent = input.onLifecycleEvent;
     this.#onNotification = input.onNotification;
+    this.#consumeNonProtocolLine = input.consumeNonProtocolLine;
     this.#onProcessControlEvent = input.onProcessControlEvent;
     this.#processLabel = input.processLabel;
     this.#timeoutMs = input.timeoutMs;
@@ -253,7 +257,31 @@ export class AcpProcessSession {
           tsMs: firstStderrAtMs,
         });
       }
-      this.#stderr = `${this.#stderr}${String(chunk)}`.slice(-MAX_STDERR_CHARS);
+      if (this.#consumeNonProtocolLine) {
+        this.#stderrLineBuffer += String(chunk);
+        let newline = this.#stderrLineBuffer.indexOf("\n");
+        while (newline >= 0) {
+          const line = this.#stderrLineBuffer.slice(0, newline).trim();
+          this.#stderrLineBuffer = this.#stderrLineBuffer.slice(newline + 1);
+          try {
+            if (!this.#consumeNonProtocolLine(line)) {
+              this.#stderr = `${this.#stderr}${line}\n`.slice(
+                -MAX_STDERR_CHARS
+              );
+            }
+          } catch (error) {
+            this.#failAll(error);
+          }
+          newline = this.#stderrLineBuffer.indexOf("\n");
+        }
+        this.#stderrLineBuffer = this.#stderrLineBuffer.slice(
+          -MAX_STDERR_CHARS
+        );
+      } else {
+        this.#stderr = `${this.#stderr}${String(chunk)}`.slice(
+          -MAX_STDERR_CHARS
+        );
+      }
     });
     child.stdin.on("error", (error) => {
       this.#failAll(this.#buildStdinWriteError(error));
@@ -461,6 +489,14 @@ export class AcpProcessSession {
   }
 
   #handleStdoutLine(line: string): void {
+    try {
+      if (this.#consumeNonProtocolLine?.(line)) {
+        return;
+      }
+    } catch (error) {
+      this.#failAll(error);
+      return;
+    }
     let message: AcpJsonRpcMessage;
     try {
       const parsed = JSON.parse(line) as unknown;

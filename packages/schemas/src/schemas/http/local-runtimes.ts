@@ -75,6 +75,8 @@ export const localRuntimeExecutionTargetCapabilitySchema = z
 export const localRuntimeLocalAgentControlSchema = z.strictObject({
   manageInstallations: z.boolean().optional(),
   manageInstallationsSafely: z.boolean().optional(),
+  updateInstallations: z.boolean().optional(),
+  setupInstallations: z.boolean().optional(),
   refreshCatalog: z.boolean(),
   setEnabled: z.boolean(),
   setProfileWorkspace: z.boolean().optional(),

@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Read the documentation
+    url: https://docs.openmeld.ai
+    about: Find setup, collaboration, and troubleshooting guides.
+  - name: Report a security vulnerability
+    url: https://github.com/amplifthq/openmeld/blob/main/SECURITY.md
+    about: Use the private reporting channel in our security policy.
+  - name: Get help with a private account issue
+    url: https://github.com/amplifthq/openmeld/blob/main/SUPPORT.md
+    about: Find the right channel before sharing account information.

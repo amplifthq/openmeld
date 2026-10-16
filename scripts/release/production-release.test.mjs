@@ -41,8 +41,203 @@ import {
   resolveProductionCompatibilityDependencies,
   resumeProductionRelease,
   runHostedRelease,
+  runLocalRelease,
 } from "./production-release.mjs";
 import { assertProductionStageAdmission } from "./production-stage-admission.mjs";
+import { resolveProductionTrain } from "./production-train-artifact-admission.mjs";
+
+const OUTSIDE_TRAIN = /outside the declared train/;
+const LOCAL_RELEASE_FAILED = /Local auth release failed/;
+const SPAWN_FAILED = /spawn failed/;
+
+test("local continuation passes the complete train to the guarded child without changing parent credentials", () => {
+  const env = { PATH: "/usr/bin", CLOUDFLARE_API_TOKEN: "test-only" };
+  runLocalRelease("auth", "b".repeat(40), ["auth", "core", "web"], {
+    env,
+    spawn: (command, args, options) => {
+      assert.equal(command, process.execPath);
+      assert.ok(args[0].endsWith("/production-release-cli.mjs"));
+      assert.deepEqual(args.slice(1), [
+        "deploy",
+        "--base",
+        "b".repeat(40),
+        "--scope",
+        "auth",
+      ]);
+      const train = resolveProductionTrain({
+        sourceSha: "a".repeat(40),
+        selectedScopes: "auth",
+        env: options.env,
+      });
+      assert.deepEqual(new Set(train.scopes), new Set(["auth", "core", "web"]));
+      assert.equal(options.env.CLOUDFLARE_API_TOKEN, "test-only");
+      assert.equal(options.stdio, "inherit");
+      return { status: 0 };
+    },
+  });
+  assert.equal(env.OPENMELD_PRODUCTION_TRAIN_SCOPES, undefined);
+});
+
+test("local continuation retains explicit train restrictions and stops on child failure", () => {
+  const env = { OPENMELD_PRODUCTION_TRAIN_SCOPES: "core" };
+  assert.throws(
+    () =>
+      runLocalRelease("auth", "b".repeat(40), ["auth", "core"], {
+        env,
+        spawn: (_command, _args, options) => {
+          assert.throws(
+            () =>
+              resolveProductionTrain({
+                sourceSha: "a".repeat(40),
+                selectedScopes: "auth",
+                env: options.env,
+              }),
+            OUTSIDE_TRAIN
+          );
+          return { status: 1 };
+        },
+      }),
+    LOCAL_RELEASE_FAILED
+  );
+  assert.equal(env.OPENMELD_PRODUCTION_TRAIN_SCOPES, "core");
+  assert.throws(
+    () =>
+      runLocalRelease("auth", "b".repeat(40), ["auth"], {
+        spawn: () => ({ status: null, error: new Error("spawn failed") }),
+      }),
+    SPAWN_FAILED
+  );
+});
+
+test("patch-only release impact keeps unrelated components out of completion", () => {
+  // Captured from 16f875c -> e2435188; blank context whitespace is normalized.
+  const lockfileDiff = readFileSync(
+    new URL("./fixtures/computer-patch-lock.diff", import.meta.url),
+    "utf8"
+  );
+  const changedPaths = [
+    "changelog/entries/computer-sync-receiver-cost.md",
+    "developing/architecture/data-and-observability.md",
+    "patches/@cloudflare__computer@0.5.0.patch",
+    "pnpm-lock.yaml",
+    "services/remote-agent/computerd/README.md",
+    "services/remote-agent/computerd/upstream.patch",
+  ];
+  const lockfile = {
+    lockfileVersion: "9.0",
+    importers: {
+      ".": {},
+      "services/remote-agent": {
+        dependencies: {
+          "@cloudflare/computer": { specifier: "0.5.0", version: "0.5.0" },
+        },
+      },
+      "clients/openmeld-cli": {},
+    },
+  };
+  const manifests = {
+    "package.json": { name: "@openmeld/root" },
+    "services/remote-agent/package.json": { name: "@openmeld/remote-agent" },
+    "clients/openmeld-cli/package.json": { name: "openmeld" },
+  };
+  const sourceSha = "a".repeat(40);
+  const base = "b".repeat(40);
+  const readGitFile = (ref, file) => {
+    assert.equal(
+      ref,
+      sourceSha,
+      "dependency evidence must come from the target commit"
+    );
+    return JSON.stringify(
+      file === "pnpm-lock.yaml" ? lockfile : manifests[file]
+    );
+  };
+  const input = {
+    base,
+    sourceSha,
+    changedPaths,
+    scope: "auto",
+    readGitFile,
+    readGitDiff: (from, to, file) => {
+      assert.deepEqual([from, to, file], [base, sourceSha, "pnpm-lock.yaml"]);
+      return lockfileDiff;
+    },
+  };
+  for (const build of [
+    buildProductionReleaseImpact,
+    buildProductionReleasePlan,
+  ]) {
+    const result = build(input);
+    assert.deepEqual(result.scopes, ["remote-agent"]);
+    assert.deepEqual(result.changedPaths, changedPaths);
+  }
+  assert.deepEqual(
+    buildProductionReleaseImpact({ ...input, componentScope: "website" })
+      .scopes,
+    []
+  );
+  assert.deepEqual(
+    buildProductionReleaseImpact({ ...input, componentScope: "docs" }).scopes,
+    []
+  );
+
+  // A real local-component consumer must still be selected by the same proof.
+  for (const dependency of ["@cloudflare/computer", "@openmeld/remote-agent"]) {
+    lockfile.importers["clients/openmeld-cli"].devDependencies = {
+      [dependency]: { specifier: "*", version: "fixture" },
+    };
+    assert.deepEqual(buildProductionReleaseImpact(input).scopes, [
+      "cli",
+      "remote-agent",
+    ]);
+  }
+  lockfile.importers["clients/openmeld-cli"].devDependencies = undefined;
+
+  const allRuntimeScopes = [
+    "cli",
+    "auth",
+    "web",
+    "gateway",
+    "core",
+    "remote-agent",
+    "website",
+    "docs",
+  ];
+  for (const override of [
+    {
+      readGitDiff: () => `${lockfileDiff}\n-  unrelated: 1\n+  unrelated: 2\n`,
+    },
+    {
+      readGitDiff: () =>
+        lockfileDiff.replaceAll("@cloudflare/computer", "@other/computer"),
+    },
+    { changedPaths: [...changedPaths, "services/core/src/index.ts"] },
+    { changedPaths: [...changedPaths, "pnpm-workspace.yaml"] },
+    {
+      readGitFile: () => {
+        throw new Error("missing target history");
+      },
+    },
+    {
+      readGitFile: (ref, file) =>
+        file === "pnpm-lock.yaml"
+          ? JSON.stringify({ ...lockfile, lockfileVersion: "unknown" })
+          : readGitFile(ref, file),
+    },
+  ]) {
+    assert.deepEqual(
+      buildProductionReleaseImpact({ ...input, ...override }).scopes,
+      allRuntimeScopes
+    );
+  }
+  lockfile.importers["."].devDependencies = {
+    "@cloudflare/computer": { specifier: "0.5.0", version: "0.5.0" },
+  };
+  assert.deepEqual(
+    buildProductionReleaseImpact(input).scopes,
+    allRuntimeScopes
+  );
+});
 
 function assertReceiptGatedStage(
   scopes,
@@ -95,12 +290,42 @@ function assertReceiptGatedStage(
   );
 }
 
+test("hosted CLI refuses an unprepared publication before dispatch", () => {
+  for (const pin of [undefined, "", "  "]) {
+    const commands = [];
+    assert.throws(
+      () =>
+        runHostedRelease("cli", "a".repeat(40), ["cli"], {
+          env: { WINDOWS_ARTIFACT_RUN_ID: pin },
+          capture(args) {
+            commands.push(args);
+            return "[]";
+          },
+          watch() {
+            assert.fail("No unprepared publisher may be watched");
+          },
+        }),
+      {
+        message:
+          "CLI publication requires WINDOWS_ARTIFACT_RUN_ID from the helper used to stamp this release. Prepare a helper_only run and stamp its verified artifact before deploying.",
+      }
+    );
+    assert.equal(commands.length, 1);
+    assert.deepEqual(commands[0].slice(0, 2), ["run", "list"]);
+  }
+});
+
 test("hosted publication waits for the exact run and reuses an active run after interruption", () => {
   const sourceSha = "a".repeat(40);
-  for (const active of [false, true]) {
+  for (const { active, artifactRunId } of [
+    { active: true, artifactRunId: undefined },
+    { active: false, artifactRunId: " 38155840353 " },
+    { active: true, artifactRunId: "38155840353" },
+  ]) {
     const dispatched = [];
     let watched;
     runHostedRelease("cli", sourceSha, ["cli", "core", "web"], {
+      env: { WINDOWS_ARTIFACT_RUN_ID: artifactRunId },
       capture(args) {
         if (args[0] === "run") {
           return JSON.stringify(
@@ -127,6 +352,21 @@ test("hosted publication waits for the exact run and reuses an active run after 
       assert.ok(dispatched[0].includes(`release_sha=${sourceSha}`));
       assert.ok(dispatched[0].includes("production_train_scopes=cli,core,web"));
       assert.ok(dispatched[0].includes("cli-release.yml"));
+      const pinArgument = dispatched[0].find((arg) =>
+        arg.startsWith("windows_artifact_run_id=")
+      );
+      assert.equal(
+        pinArgument,
+        artifactRunId?.trim()
+          ? `windows_artifact_run_id=${artifactRunId.trim()}`
+          : undefined
+      );
+      if (pinArgument) {
+        assert.equal(
+          dispatched[0][dispatched[0].indexOf(pinArgument) - 1],
+          "--raw-field"
+        );
+      }
     }
     assert.ok(watched.includes("38141004288"));
     assert.ok(watched.includes("--exit-status"));
@@ -152,6 +392,44 @@ test("hosted publication waits for the exact run and reuses an active run after 
         },
       }),
     { message: "release failed" }
+  );
+});
+
+test("hosted CLI artifact pins reject invalid run IDs without dispatching and do not affect other scopes", () => {
+  for (const pin of [
+    "https://github.com/example/repo/actions/runs/123",
+    "12x",
+    "1 2",
+    "0",
+  ]) {
+    assert.throws(
+      () =>
+        runHostedRelease("cli", "a".repeat(40), ["cli"], {
+          env: { WINDOWS_ARTIFACT_RUN_ID: pin },
+          capture: () =>
+            assert.fail("invalid artifact pin must not reach GitHub"),
+          watch: () =>
+            assert.fail("invalid artifact pin must not start waiting"),
+        }),
+      { message: "WINDOWS_ARTIFACT_RUN_ID must be a numeric run ID." }
+    );
+  }
+  const calls = [];
+  runHostedRelease("web", "a".repeat(40), ["web"], {
+    env: { WINDOWS_ARTIFACT_RUN_ID: "unrelated-to-web" },
+    capture(args) {
+      calls.push(args);
+      return args[0] === "run"
+        ? "[]"
+        : "https://github.com/amplifthq/openmeld/actions/runs/38155840353";
+    },
+    watch: () => undefined,
+  });
+  const dispatch = calls.find((args) => args[0] === "workflow");
+  assert.ok(dispatch.includes("scope=web"));
+  assert.equal(
+    dispatch.some((arg) => arg.startsWith("windows_artifact_run_id=")),
+    false
   );
 });
 

@@ -28,7 +28,7 @@ export function buildHumanReplyWorkflowSurfaceNote(input: {
   surface: "result" | "updates";
 }): string {
   return input.surface === "result"
-    ? "`space result` reads archived dispatch results only. Use `openmeld service trace` to inspect Wake execution and the final visible Space outcome."
+    ? "`space result --dispatch` reads archived or published results. Use `openmeld service trace` to inspect execution diagnostics."
     : "`space updates` shows formal execution evidence for this message round. Use `openmeld service trace` to inspect Wake execution and the final visible Space outcome.";
 }
 

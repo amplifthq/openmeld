@@ -2631,7 +2631,7 @@ function buildAgentTraceCompactSummary(input: {
       ...nativeDeliveryEvidence,
       currentState: "delivered",
       delivered: true,
-      nextAction: "none",
+      nextAction: resolveAgentTraceNextAction(trace),
       reasonCode: finalVisibleOutcome.reasonCode,
       visibleOutcome: finalVisibleOutcome.status,
     };
@@ -2816,6 +2816,9 @@ function resolveAgentTraceNextAction(
 ): string {
   if (trace.resultInbox?.publishState === "late_result_available") {
     return "open the Space outcome details and inspect the retained-result evidence; do not retry the Wake";
+  }
+  if (projectSpaceDispatchTraceFinalVisibleOutcome(trace).delivered) {
+    return "none";
   }
   const rootCause = resolveTraceRootCause(trace);
   if (rootCause === "none" || rootCause === "ok") {

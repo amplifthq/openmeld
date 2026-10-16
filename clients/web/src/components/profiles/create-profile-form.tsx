@@ -6,6 +6,7 @@ import {
 	listAgentControllerCollaborationModeOptions,
 	listAgentControllerPermissionModeOptions,
 } from "@openmeld/agent-runtime";
+import { resolveBuiltinAgentControllerConversationCapability } from "@openmeld/schemas";
 import type {
 	AgentControllerCollaborationMode,
 	AgentControllerPermissionMode,
@@ -125,6 +126,11 @@ export type AgentProfileLocalAgentEmptyState = {
 };
 
 export type AgentProfileLocalAgentSelectionState = {
+	connectionSetup?: {
+		onChanged?: () => Promise<void>;
+		target: import("@openmeld/schemas/types").PeopleComputerTarget;
+		storageScope: string;
+	};
 	agentId: string;
 	blocksCreation: boolean;
 	canEnable?: boolean;
@@ -174,6 +180,7 @@ export type CreateProfileFormProps = {
 	agentOwnershipSummary?: string;
 	agentOwnerAvatar?: { userId: string; imageUrl: string | null };
 	agentSessionSlot?: ReactNode;
+	sharedConversationId?: string;
 	agentSessionSummary?: string;
 	availableLocalAgentIds: readonly string[];
 	boundAgentId: string;
@@ -223,6 +230,7 @@ export type CreateProfileFormProps = {
 	onSelectProfileKind: (profileKind: NewProfileKind) => void;
 	onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 	submitLabel?: string;
+	connectionConfirmation?: ReactNode;
 	submittingLabel?: string;
 };
 
@@ -312,6 +320,7 @@ export function CreateProfileForm(input: CreateProfileFormProps) {
 					</SpinnerButton>
 				</div>
 			</div>
+			{input.connectionConfirmation}
 		</form>
 	);
 }
@@ -346,7 +355,11 @@ export function AgentProfileAdvancedFields(input: {
 	input: CreateProfileFormProps;
 }) {
 	const form = input.input;
-	if (!form.boundAgentId) {
+	if (
+		!form.boundAgentId ||
+		resolveBuiltinAgentControllerConversationCapability(form.boundAgentId)
+			?.conversationScope === "account_shared"
+	) {
 		return null;
 	}
 	return (
@@ -435,7 +448,9 @@ export function AgentProfileConfigurationCards(input: {
 					{form.agentOwnershipSlot}
 				</AgentConfigurationCard>
 			) : null}
-			{form.boundAgentId ? (
+			{form.boundAgentId &&
+			resolveBuiltinAgentControllerConversationCapability(form.boundAgentId)
+				?.conversationScope !== "account_shared" ? (
 				<>
 					<AgentConfigurationCard
 						description="Choose the model and how deeply it reasons."
@@ -490,7 +505,13 @@ export function AgentProfileConfigurationCards(input: {
 			) : null}
 			{form.agentSessionSlot ? (
 				<AgentConfigurationCard
-					description="Start fresh or continue existing work."
+					description={
+						resolveBuiltinAgentControllerConversationCapability(
+							form.boundAgentId
+						)?.conversationScope === "account_shared"
+							? "Connect an existing Bot conversation."
+							: "Start fresh or continue existing work."
+					}
 					icon={<WaveformIcon aria-hidden="true" />}
 					itemId="session"
 					{...editorProps("session")}
@@ -500,7 +521,9 @@ export function AgentProfileConfigurationCards(input: {
 					{form.agentSessionSlot}
 				</AgentConfigurationCard>
 			) : null}
-			{form.boundAgentId ? (
+			{form.boundAgentId &&
+			resolveBuiltinAgentControllerConversationCapability(form.boundAgentId)
+				?.conversationScope !== "account_shared" ? (
 				<>
 					<AgentConfigurationCard
 						description="Where this Agent starts work."

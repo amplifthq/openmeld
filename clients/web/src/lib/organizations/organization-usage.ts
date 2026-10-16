@@ -6,10 +6,37 @@ import {
 import type {
 	AiUsageQuery,
 	OrganizationUsageOverviewResponse,
+	UpdateOrganizationAiBilling,
 } from "@openmeld/schemas/types";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export type OrganizationUsageFailure = StructuredApiClientFailure;
+
+export async function readOrganizationAiBilling(input: {
+	organizationId: string;
+	signal?: AbortSignal;
+}) {
+	try {
+		return await createOrganizationUsageApi(
+			createOrganizationScopedWebOpenMeldApiFoundation(input)
+		).readBilling({ signal: input.signal });
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
+}
+
+export async function updateOrganizationAiBilling(input: {
+	organizationId: string;
+	settings: UpdateOrganizationAiBilling;
+}) {
+	try {
+		return await createOrganizationUsageApi(
+			createOrganizationScopedWebOpenMeldApiFoundation(input)
+		).updateBilling({ settings: input.settings });
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
+}
 
 export async function readOrganizationAiUsage(input: {
 	organizationId: string;

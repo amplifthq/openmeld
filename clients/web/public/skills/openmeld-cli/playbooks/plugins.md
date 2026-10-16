@@ -1,5 +1,11 @@
 # Plugins
 
+In CLI invocation examples, replace only the leading `openmeld` executable with
+the exact command prefix from the latest `setup.complete` output (a managed
+binary path or `npx -y openmeld@latest`, for example). Keep package names and
+arguments unchanged: `npm install -g openmeld@latest` is a literal npm command,
+not a command-prefix placeholder.
+
 Use Plugins when the task requires an action in a connected app. First check
 the available service and action; an installed integration does not imply that
 this account may use every action.
@@ -41,7 +47,12 @@ does not authorize changed input or permissions.
 ## Check the outcome
 
 Keep one operation ID for one logical action, including retries after transport
-failure. A repeated operation returns its recorded status without reexecuting.
+failure. A repeated operation without `--replay` returns its recorded status
+without reexecuting. For `outcome_unknown`, only a receipt with
+`replay.allowed=true` permits one explicit `--replay` with the original operation
+ID, account and unchanged input inside the original 24-hour window. Core consumes
+that allowance durably before calling the provider. An expired window, changed
+permissions or a used allowance forbids another write.
 `outcome_unknown` is not proof of failure: check the provider outcome before
 proposing another action; do not force a retry with a new operation ID.
 Preserve completed operation receipts when continuing a task after setup.

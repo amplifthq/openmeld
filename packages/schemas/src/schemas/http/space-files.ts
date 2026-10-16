@@ -16,6 +16,7 @@ const MEDIA_TYPE_PATTERN =
   /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/u;
 const MIME_TYPES_BY_EXTENSION: Readonly<Record<string, string>> = {
   ".csv": "text/csv",
+  ".diff": "text/plain",
   ".gif": "image/gif",
   ".html": "text/html",
   ".jpeg": "image/jpeg",
@@ -28,6 +29,7 @@ const MIME_TYPES_BY_EXTENSION: Readonly<Record<string, string>> = {
   ".mov": "video/quicktime",
   ".webm": "video/webm",
   ".pdf": "application/pdf",
+  ".patch": "text/plain",
   ".png": "image/png",
   ".svg": "image/svg+xml",
   ".txt": "text/plain",
@@ -646,6 +648,72 @@ export function resolveSpaceFileMimeType(input: {
   const extensionStart = fileName.lastIndexOf(".");
   const extension = extensionStart >= 0 ? fileName.slice(extensionStart) : "";
   return MIME_TYPES_BY_EXTENSION[extension] ?? "application/octet-stream";
+}
+
+/** Read eligibility does not grant browser editing or change stored metadata. */
+export function isSpaceFileTextReadable(input: {
+  fileName: string;
+  mimeType: string;
+  // Some stream endpoints omit size. The bounded reader still enforces it.
+  sizeBytes?: number;
+}): boolean {
+  return isSpaceFileTextEditable({
+    mimeType: resolveSpaceFileMimeType({
+      declaredMimeType:
+        input.mimeType === "application/octet-stream"
+          ? undefined
+          : input.mimeType,
+      fileName: input.fileName,
+    }),
+    sizeBytes: input.sizeBytes ?? 0,
+  });
+}
+
+/** A text-compatible name/MIME is a hint, never proof that bytes are text. */
+export function decodeSpaceFileText(bytes: ArrayBuffer): string {
+  if (bytes.byteLength > SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES) {
+    throw new Error("This file exceeds the 1 MiB text read limit.");
+  }
+  const content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  if (content.includes("\0")) {
+    throw new Error(
+      "This file contains binary NUL bytes. Download it instead."
+    );
+  }
+  return content;
+}
+
+export async function readSpaceFileTextStream(
+  stream: ReadableStream<Uint8Array>
+): Promise<string> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) {
+        break;
+      }
+      size += value.byteLength;
+      if (size > SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES) {
+        await reader.cancel();
+        throw new Error(
+          "This file exceeds the 1 MiB text read limit. Download it instead."
+        );
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return decodeSpaceFileText(bytes.buffer);
 }
 
 function hasControlCharacter(value: string): boolean {

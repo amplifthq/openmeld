@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
   mkdirSync,
@@ -11,17 +11,113 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-
+import { fileURLToPath } from "node:url";
+import { isFinalCandidateControlPath } from "../ci/final-candidate-control-paths.mjs";
 import {
   assertGuardedLocalEvidenceRepository,
+  collectProductionReleaseStatus,
+  migratedHostedReleaseSources,
   parseProductionReleaseStatusArgs,
   readGuardedReleaseSourcesForStatus,
   readMergedFinalCandidateEvidence,
   resolveLatestSuccessfulReleaseSources,
   runProductionReleaseStatus,
 } from "./production-release-status.mjs";
+import { runProductionStageAdmission } from "./production-stage-admission.mjs";
 
 const SOURCE_SHA = "79178c150dc976b13f05d84a7711465c44447e3c";
+
+test("cutover preserves hosted provenance and rejects another repository or incomplete evidence", () => {
+  assert.equal(
+    isFinalCandidateControlPath("release/repository-migration.json"),
+    true
+  );
+  // Captured successful GitHub runs remain evidence owned by the old repo.
+  const snapshot = JSON.parse(
+    readFileSync(
+      new URL("../../release/repository-migration.json", import.meta.url),
+      "utf8"
+    )
+  );
+  const sources = migratedHostedReleaseSources(
+    snapshot,
+    "amplifthq/openmeld",
+    1_278_926_400
+  );
+  assert.deepEqual([...sources.keys()].sort(), [
+    "cli",
+    "core",
+    "docs",
+    "website",
+  ]);
+  assert.equal(sources.get("cli").runId, 38_595_947_657);
+  assert.equal(
+    sources.get("cli").sha,
+    "11d847e4e7c5970ac3e6c83a7279fcb5a02472f6"
+  );
+  assert.equal(sources.get("cli").recordedAt, "2026-10-14T16:24:31Z");
+  assert.equal(
+    sources.get("cli").url,
+    "https://github.com/amplifthq/openmeld-private/actions/runs/38595947657"
+  );
+  assert.equal(sources.get("cli").source, "github");
+  assert.equal(
+    sources.get("cli").receipt,
+    undefined,
+    "migration is not a new local deployment"
+  );
+  assert.throws(() =>
+    migratedHostedReleaseSources(snapshot, "amplifthq/openmeld", 1_331_245_823)
+  );
+  assert.throws(() =>
+    migratedHostedReleaseSources(snapshot, "someone/openmeld", 1_278_926_400)
+  );
+  for (const corrupt of [
+    (value) => {
+      value.runs[1].jobs[0].name = "Deploy Core Worker";
+    },
+    (value) => {
+      value.source.id = 123;
+    },
+    (value) => {
+      value.source.repository = "other/repository";
+      for (const run of value.runs) {
+        run.url = `https://github.com/other/repository/actions/runs/${run.databaseId}`;
+      }
+    },
+    (value) => {
+      value.runs[0].jobs[0].name = "Deploy Website";
+    },
+    (value) => {
+      value.runs[0].jobs[0].completed_at = "2026-10-15T00:00:00Z";
+    },
+    (value) => {
+      value.runs[0].jobs[0].completed_at = "2026-10-14T00:00:00Z";
+    },
+    (value) => {
+      value.runs[0].updatedAt = "invalid";
+    },
+    (value) => {
+      value.runs[0].jobs[0].conclusion = "failure";
+    },
+    (value) => {
+      value.runs[0].jobs[0].completed_at = "invalid";
+    },
+    (value) => {
+      value.runs[0].headSha = "f".repeat(40);
+    },
+    (value) => {
+      value.runs[0].url =
+        "https://github.com/amplifthq/openmeld/actions/runs/38595947657";
+    },
+  ]) {
+    const invalid = structuredClone(snapshot);
+    corrupt(invalid);
+    assert.throws(() =>
+      migratedHostedReleaseSources(invalid, "amplifthq/openmeld", 1_278_926_400)
+    );
+  }
+});
 const CHANGE_BASE_SHA = "06fd4b88b75ef576db88289305a550c9e85efad5";
 const WEB_SHA = "c20057269eba7a1505fe3374d2c8c6e6b903bb00";
 const CORE_SHA = "dabcc83d83747b50c4756c5ceb3190012baf5c69";
@@ -61,6 +157,140 @@ const REPOSITORY_MISMATCH_PATTERN =
 const MISSING_EXACT_FINAL_CANDIDATE_PATTERN =
   /no exact successful OpenMeld Final Candidate status/u;
 const HOSTED_RECEIPT_AUTH_FAILURE = /requires a token|workflow repository/u;
+const RECOVERY_UNRESOLVED = /evidence is unresolved/u;
+const RECOVERY_CORE_PENDING = /pending prerequisite core/u;
+const RECOVERY_DRIFT = /no longer matches/u;
+const RECOVERY_BASELINE_MISSING = /verified baseline/u;
+const RECOVERY_SOURCE_BLOCKED = /preflight is blocked/u;
+
+test("lease-proven Remote recovery keeps actual baseline, receiver and source admission", async () => {
+  const current = {
+    sha: SOURCE_SHA,
+    source: "guarded-local",
+    recordedAt: "2026-07-15T21:00:00Z",
+    evidenceSha: "4".repeat(40),
+    receipt: {
+      attemptId: "00000000-0000-4000-8000-000000000001",
+      operationKey: "a".repeat(64),
+      status: "failed",
+      application: "unknown",
+    },
+    verifiedHistoryBaseline: {
+      sha: GATEWAY_REMOTE_SHA,
+      receipt: { status: "verified" },
+    },
+  };
+  const proof = {
+    sourceSha: SOURCE_SHA,
+    evidenceSha: current.evidenceSha,
+    attemptId: current.receipt.attemptId,
+    operationKey: current.receipt.operationKey,
+  };
+  const adapters = releaseStatusAdapters({ pushChecks: [] });
+  const bases = [];
+  let corePending = false;
+  adapters.buildPlan = ({ base }) => {
+    bases.push(base);
+    const scopes = base === CORE_SHA ? [] : ["remote-agent"];
+    if (base === CORE_SHA && corePending) {
+      scopes.push("core");
+    }
+    return {
+      scopes,
+      compatibilityDependencies: [["core", "remote-agent"]],
+    };
+  };
+  const local = new Map([["remote-agent", current]]);
+  adapters.readLocalReleaseSources = async () => local;
+  const input = {
+    adapters,
+    scope: "remote-agent",
+    sourceSha: SOURCE_SHA,
+    write: () => undefined,
+  };
+  await assert.rejects(runProductionStageAdmission(input), RECOVERY_UNRESOLVED);
+  await runProductionStageAdmission({ ...input, remoteAgentRecovery: proof });
+  assert.ok(bases.includes(GATEWAY_REMOTE_SHA));
+  assert.ok(
+    !bases.includes(SOURCE_SHA),
+    "operator source cannot shorten verified history"
+  );
+  const status = await collectProductionReleaseStatus({
+    adapters,
+    argv: ["--ref", SOURCE_SHA],
+    remoteAgentRecovery: proof,
+  });
+  const remote = status.components.find(
+    (entry) => entry.scope === "remote-agent"
+  );
+  assert.equal(remote.state, "pending");
+  assert.equal(remote.receipt.status, "failed");
+  corePending = true;
+  await assert.rejects(
+    runProductionStageAdmission({ ...input, remoteAgentRecovery: proof }),
+    RECOVERY_CORE_PENDING
+  );
+  corePending = false;
+  local.set("core", { ...current });
+  await assert.rejects(
+    runProductionStageAdmission({ ...input, remoteAgentRecovery: proof }),
+    RECOVERY_UNRESOLVED
+  );
+  local.delete("core");
+  current.conflict = true;
+  await assert.rejects(
+    runProductionStageAdmission({ ...input, remoteAgentRecovery: proof }),
+    RECOVERY_UNRESOLVED
+  );
+  current.conflict = undefined;
+  const releaseRuns = adapters.readReleaseRuns;
+  adapters.readReleaseRuns = async () => ({
+    runs: [],
+    history: {
+      complete: false,
+      runCount: 0,
+      pagesRead: 0,
+      issues: [
+        {
+          scopes: ["remote-agent"],
+          detail: "Unresolved newer deployment",
+          recordedAt: "2026-07-15T22:00:00Z",
+        },
+      ],
+    },
+  });
+  await assert.rejects(
+    runProductionStageAdmission({ ...input, remoteAgentRecovery: proof }),
+    RECOVERY_UNRESOLVED
+  );
+  adapters.readReleaseRuns = releaseRuns;
+  for (const field of [
+    "sourceSha",
+    "evidenceSha",
+    "attemptId",
+    "operationKey",
+  ]) {
+    await assert.rejects(
+      runProductionStageAdmission({
+        ...input,
+        remoteAgentRecovery: { ...proof, [field]: "different" },
+      }),
+      RECOVERY_DRIFT
+    );
+  }
+  const prior = current.verifiedHistoryBaseline;
+  current.verifiedHistoryBaseline = undefined;
+  await assert.rejects(
+    runProductionStageAdmission({ ...input, remoteAgentRecovery: proof }),
+    RECOVERY_BASELINE_MISSING
+  );
+  current.verifiedHistoryBaseline = prior;
+  adapters.readAssociatedPullRequests = async () => [];
+  await assert.rejects(
+    runProductionStageAdmission({ ...input, remoteAgentRecovery: proof }),
+    RECOVERY_SOURCE_BLOCKED
+  );
+});
 
 test(
   "hosted status authenticates private Git receipt reads without persisting credentials",
@@ -369,6 +599,80 @@ test("one status read can plan a stage without collecting release history again"
   assert.match(output, PLANNED_WEB_STAGE);
   assert.match(output, PLANNING_ONLY);
 });
+
+test(
+  "the status CLI finishes stage planning from its initial snapshot",
+  {
+    skip:
+      process.platform === "win32" &&
+      "Production release runners use Linux or macOS",
+  },
+  () => {
+    const root = mkdtempSync(path.join(tmpdir(), "openmeld-status-cli-"));
+    const log = path.join(root, "reads.jsonl");
+    try {
+      // These are the documented GitHub collection / gh run-list shapes. All
+      // process boundaries are local fixtures; no release history is requested.
+      const fixtures = {
+        gh: `const {appendFileSync}=require("node:fs");
+const a=process.argv.slice(2); appendFileSync(process.env.STATUS_READ_LOG,JSON.stringify(a)+"\\n");
+if(a[0]==="repo") console.log("fixture/repo");
+else if(a[0]==="api" && a[1].startsWith("repos/fixture/repo/actions/workflows?")) console.log(JSON.stringify({total_count:0,workflows:[]}));
+else if(a[0]==="run" && a[1]==="list") console.log(JSON.stringify([{workflowName:"Historical Push Guard",status:"completed",conclusion:"success",event:"push",createdAt:"2026-07-15T20:00:00Z"}]));
+else throw Error("Unexpected gh request: "+JSON.stringify(a));`,
+        git: `const a=process.argv.slice(2);
+if(a[0]==="rev-parse") console.log(${JSON.stringify(SOURCE_SHA)});
+else if(!["ls-remote","merge-base","ls-tree","diff","show"].includes(a[0])) throw Error("Unexpected Git request: "+JSON.stringify(a));`,
+        pnpm: 'console.log("[]");',
+      };
+      for (const [command, source] of Object.entries(fixtures)) {
+        const file = path.join(root, command);
+        writeFileSync(file, `#!${process.execPath}\n${source}\n`);
+        chmodSync(file, 0o755);
+      }
+      const result = spawnSync(
+        process.execPath,
+        [
+          fileURLToPath(
+            new URL("./production-release-status.mjs", import.meta.url)
+          ),
+          "--ref",
+          SOURCE_SHA,
+          "--repo",
+          "fixture/repo",
+          ...RELEASE_SCOPES_FOR_TEST.flatMap((scope) => [
+            "--deployed",
+            `${scope}=${SOURCE_SHA}`,
+          ]),
+          "--plan-stage",
+          "remote-agent",
+        ],
+        {
+          cwd: root,
+          encoding: "utf8",
+          timeout: 10_000,
+          env: {
+            ...process.env,
+            GITHUB_ACTIONS: "false",
+            PATH: `${root}${path.delimiter}${process.env.PATH}`,
+            STATUS_READ_LOG: log,
+          },
+        }
+      );
+      assert.equal(result.status, 0, result.stderr || result.stdout);
+      assert.equal(result.stderr, "");
+      assert.ok(result.stdout.includes("Selected scopes: remote-agent"));
+      assert.match(result.stdout, PLANNING_ONLY);
+      const reads = readFileSync(log, "utf8")
+        .trim()
+        .split("\n")
+        .map(JSON.parse);
+      assert.equal(reads.filter((args) => args[0] === "api").length, 1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
 
 test("separates the exact current-change scopes from the global deployment backlog", async () => {
   let output = "";
@@ -709,84 +1013,91 @@ test("reports a remote full release as ready when push checks are green", async 
   assert.match(output, FULL_RELEASE_RECOMMENDATION_REGEX);
 });
 
-test("Worker-only receipts remain incomplete and expose only explicit native continuation", async () => {
-  let output = "";
-  const adapters = releaseStatusAdapters({
-    pushChecks: [
-      {
-        conclusion: "success",
-        event: "push",
-        status: "completed",
-        workflowName: "Push Guard",
-      },
-    ],
-  });
-  const identity = {
-    kind: "worker-deployment",
-    workerName: "openmeld-remote-agent-prod",
-    environment: "prod",
-    deploymentId: "deployment",
-    versionId: "version",
-    sourceSha: SOURCE_SHA,
-    proof: "command-output",
-  };
-  adapters.readLocalReleaseSources = async () =>
-    new Map([
-      [
-        "remote-agent",
+for (const phase of ["retained", "rollout"]) {
+  test(`Remote receipt remains incomplete and exposes guarded ${phase} recovery`, async () => {
+    let output = "";
+    const adapters = releaseStatusAdapters({
+      pushChecks: [
         {
-          sha: SOURCE_SHA,
-          source: "guarded-local",
-          recordedAt: "2026-07-15T21:00:00Z",
-          evidenceSha: "4".repeat(40),
-          receipt: {
-            attemptId: "00000000-0000-4000-8000-000000000001",
-            componentIndex: 0,
-            operationKey: "a".repeat(64),
-            startedAt: "2026-07-15T20:00:00Z",
-            status: "applied",
-            application: "applied",
-            identity,
-            remoteAgent: {
-              phase: "retained",
-              workerIdentity: identity,
-              baselineEvidenceSha: "5".repeat(40),
-              baselineSourceSha: GATEWAY_REMOTE_SHA,
-              container: {
-                id: "app",
-                name: "openmeld-agent-computer",
-                version: 124,
-                image: `registry.cloudflare.com/account/openmeld-agent-computer@sha256:${"d".repeat(64)}`,
-                configurationHash: "c".repeat(64),
-                instances: [{ id: "original-instance", version: 124 }],
+          conclusion: "success",
+          event: "push",
+          status: "completed",
+          workflowName: "Push Guard",
+        },
+      ],
+    });
+    const identity = {
+      kind: "worker-deployment",
+      workerName: "openmeld-remote-agent-prod",
+      environment: "prod",
+      deploymentId: "deployment",
+      versionId: "version",
+      sourceSha: SOURCE_SHA,
+      proof: "command-output",
+    };
+    adapters.readLocalReleaseSources = async () =>
+      new Map([
+        [
+          "remote-agent",
+          {
+            sha: SOURCE_SHA,
+            source: "guarded-local",
+            recordedAt: "2026-07-15T21:00:00Z",
+            evidenceSha: "4".repeat(40),
+            receipt: {
+              attemptId: "00000000-0000-4000-8000-000000000001",
+              componentIndex: 0,
+              operationKey: "a".repeat(64),
+              startedAt: "2026-07-15T20:00:00Z",
+              status: "applied",
+              application: "applied",
+              identity,
+              remoteAgent: {
+                phase,
+                workerIdentity: identity,
+                baselineEvidenceSha: "5".repeat(40),
+                baselineSourceSha: GATEWAY_REMOTE_SHA,
+                container: {
+                  id: "app",
+                  name: "openmeld-agent-computer",
+                  version: 124,
+                  image: `registry.cloudflare.com/account/openmeld-agent-computer@sha256:${"d".repeat(64)}`,
+                  configurationHash: "c".repeat(64),
+                  instances: [{ id: "original-instance", version: 124 }],
+                },
               },
             },
           },
-        },
+        ],
+      ]);
+    const code = await runProductionReleaseStatus({
+      adapters,
+      argv: [
+        "--ref",
+        "origin/main",
+        "--change-base",
+        CHANGE_BASE_SHA,
+        "--json",
+        "--check-complete",
       ],
-    ]);
-  const code = await runProductionReleaseStatus({
-    adapters,
-    argv: [
-      "--ref",
-      "origin/main",
-      "--change-base",
-      CHANGE_BASE_SHA,
-      "--json",
-      "--check-complete",
-    ],
-    write: (value) => {
-      output += value;
-    },
+      write: (value) => {
+        output += value;
+      },
+    });
+    const remote = JSON.parse(output).components.find(
+      (component) => component.scope === "remote-agent"
+    );
+    assert.equal(code, 1);
+    assert.equal(remote.state, "unknown");
+    assert.equal(remote.evidence.result, "applied");
+    assert.equal(
+      remote.recovery.kind,
+      phase === "retained"
+        ? "guarded-remote-container-continuation"
+        : "guarded-remote-native-verification"
+    );
   });
-  const remote = JSON.parse(output).components.find(
-    (component) => component.scope === "remote-agent"
-  );
-  assert.equal(code, 1);
-  assert.equal(remote.state, "unknown");
-  assert.equal(remote.evidence.result, "applied");
-  assert.equal(remote.recovery.kind, "guarded-remote-container-continuation");
-});
+}
 
 test("reports component source, version, artifact and result from a verified receipt", async () => {
   let output = "";

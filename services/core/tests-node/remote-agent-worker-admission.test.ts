@@ -17,6 +17,12 @@ import {
 } from "./helpers/postgresql-harness.test-support";
 
 const CENTER_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
+// Funding is verified against native PostgreSQL and provider responses in
+// ai-billing.test.ts. These cases own submission, retry, and generation fences.
+vi.mock("../src/usage/ai-billing-service", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/usage/ai-billing-service")>()),
+  readAiBilling: vi.fn(async () => ({ status: "available", source: "free" })),
+}));
 describe("Remote Agent worker admission", () => {
   it.each([
     "transport",

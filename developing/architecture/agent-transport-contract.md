@@ -20,6 +20,13 @@
   main Web Wake -> RuntimeCoordinator -> local OpenMeld Service -> local Agent ->
   Space visible outcome chain.
 
+Account-shared provider conversations keep this same RuntimeCoordinator and
+dispatch-owned publication path. Their explicit connection acknowledgment
+permits conversation-wide messages and Stop; it does not claim task-exclusive
+provider control. See [Account-shared Bot adapter](local-openmeld-service.md#account-shared-bot-adapter)
+for the Grok Bot delivery and settlement evidence contract. Provider state is
+evidence for the admitted Wake, never a replacement execution authority.
+
 ## Transport Promise
 
 Agent Transport is the closed loop that lets humans and Agents collaborate in a
@@ -986,6 +993,11 @@ pending substate and interrupts the same provider turn. A Service process loss
 may fail the turn; OpenMeld must not claim it can reconstruct a provider process
 from the cloud interaction record.
 
+An interaction delivery acknowledgement must preserve a durably requested Stop,
+including before native control delivery or its ledger projection completes.
+Cancelling a pending question can finish the provider turn first; its accepted
+result still settles through the existing exact-execution Stop publication path.
+
 The optional Computer file access boundary uses the same interaction authority
 only when local admission cannot prove that the selected controller can enforce
 the exact boundary. The request is private to the Computer owner, even when a
@@ -1782,6 +1794,10 @@ still rejects publication if collaboration advanced again. Context review helps
 later-finishing parallel Agents adapt; it does not serialize execution or replace
 explicit Center Agent delegation and Agent Task Coordination when work needs
 planned ownership, completion barriers, or parent synthesis.
+
+Membership join and removal notices are not collaboration updates. The atomic
+publication guard excludes them just as the bounded Space updates reader does;
+it must not demand review of a notice that the reader deliberately omits.
 
 ### Agent Transport Space Action Delivery
 

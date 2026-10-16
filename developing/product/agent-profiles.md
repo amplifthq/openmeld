@@ -2,21 +2,35 @@
 
 ## Agent Context
 
-- Purpose: Define the Agent Profile product model and its relationship to
-  identity, instructions, Space membership, Binding, local controllers,
-  workspace intent, Default Project, readiness, and reply recovery.
-- Read this when: You are changing Agent Profile semantics, Agent Profile
-  Binding behavior, Space agent membership, local-agent selection, workspace
-  behavior, Default Project behavior, readiness, reply recovery, or Agent
-  Profile copy.
-- Update this when: Agent Profile ownership, Binding semantics, readiness
-  interpretation, controller relationship, or user-facing agent lifecycle
-  changes.
-- Do not use this for: Runtime identity ownership, OpenMeld Service lifecycle,
-  RuntimeCoordinator execution truth, Space thread mechanics, endpoint details,
-  test commands, speculative routing models, or low-level schema implementation.
-- Source of truth: This file owns the durable product semantics of Agent
-  Profiles in OpenMeld.
+- Purpose: Define Agent Profile identity, Binding, controller settings, membership, and reply recovery.
+- Read this when: Changing Agent Profiles, local-agent selection, workspace preferences, readiness, or connection behavior.
+- Update this when: Agent Profile ownership, lifecycle, or controller semantics change.
+- Do not use this for: Runtime execution authority, Service lifecycle, Space thread mechanics, or implementation runbooks.
+- Source of truth: This document owns durable Agent Profile product semantics.
+
+## Shared provider conversations
+
+A controller with `conversationScope: account_shared` connects an existing
+provider conversation to an ordinary Agent Profile. The owner supplies the exact
+conversation ID and acknowledges shared messages and conversation-wide Stop once
+when connecting. Grok Bot uses this contract through the official BDK account.
+The existing Profile, membership, DM, Space Wake, queue, Stop and diagnostics
+surfaces remain the product entrances. No separate Bot identity is created.
+
+Model, reasoning, permissions, tools and working directory remain managed by the
+provider. Creation hides these controls and rejects their configuration in the
+shared request contract. Fork, independent contexts and Activity-session import
+are unavailable. A direct Binding write must include the existing conversation
+ID and shared-control acknowledgment. Reconnecting the same Profile and controller
+can omit both fields to retain its already confirmed conversation. Core rejects
+this form when no existing conversation exists. Changing the conversation still
+requires its ID and acknowledgment. The generic controller switcher excludes
+shared-conversation controllers because it cannot collect that connection.
+
+Connection confirmation: “Shares your Grok Bot conversation. Stopping here stops
+the bot’s current work.” Actions: **Connect bot**, **Cancel**. Ordinary sends do
+not repeat this confirmation. Use the Bot's conversation ID from BDK; resolving
+a name through get-or-create is not a connection operation.
 
 ## Product Role And Identity Boundary
 
@@ -160,6 +174,13 @@ key for a different name, Organization, or creator under the same owner fails
 with an explicit conflict. A client-side in-flight guard improves immediate
 feedback, but Auth's durable idempotency boundary remains authoritative when
 rendering, transport, or network retries overlap.
+
+The shared people-and-agents picker presents an in-flight creation immediately
+as a selected row inside the target owner's existing group. This row is UI
+feedback, not a committed Profile, Space membership, or execution readiness.
+The picker keeps the user's selection intent when the committed Profile replaces
+the pending row. A pending selected identity cannot be submitted as a member;
+users can deselect it and continue choosing other members.
 
 Every created Agent Profile keeps immutable creation attribution: the exact
 Profile that acted and the surface that initiated the action (`web`, `cli`,
@@ -934,7 +955,11 @@ Agents using that Project on that computer.
 When the Working folder selector opens, it acquires the saved Default Project
 through the existing account-scoped Auth Profile query and the saved local
 working-folder configuration from the exact owner Service before enabling
-edits or Save. The Service read distinguishes configured, missing, and invalid
+Save. The owner card and editor share an in-memory query scoped to account,
+Organization, Profile, Computer/lane and Binding; private paths are never
+included in browser-persisted or shared Profile snapshots. Cached values can
+display immediately and initialize an editable draft. Fresh reads update an
+untouched draft only; they must not overwrite user input. The Service read distinguishes configured, missing, and invalid
 configuration. It does not migrate configuration, create a managed folder,
 validate its current availability, or substitute an effective Project or
 controller-session directory. Its configuration version identifies the stored
@@ -942,9 +967,8 @@ v1/v2 envelope, not a revision or compare-and-swap precondition. An older Servic
 without the read capability returns an explicit update-required result.
 A pending Auth read started before opening cannot initialize the draft:
 cancel that read, keep the existing display snapshot stale, then acquire the
-authorized snapshot for this opening. Cached display data is not the draft's
-starting preference. A failed read keeps Save disabled and provides retry with
-its diagnostic context.
+authorized snapshot for this opening. A failed read keeps Save disabled and
+provides retry with its diagnostic context, preserving the draft.
 Once acquired, the selector retains its draft, pending save, and error while
 Profile, readiness, or mutation eligibility queries refresh. It keeps the
 original Profile and Binding target; changed or unavailable target evidence
@@ -958,6 +982,13 @@ subsequent Default Project clear verifies that same target inside its existing
 future-work settings admission. These are two ordered writes, not one atomic
 transaction. If the target changes between them, the local save receipt remains
 visible, the Project is not cleared, and setup reports partial failure.
+Retrying an unchanged draft finishes the remaining Project write without
+repeating an acknowledged local save. Recovery distinguishes saved settings
+from Core-confirmed availability; it never restarts a failed task implicitly.
+Managed folder preparation and access checks precede configuration replacement
+under the existing local writer lock. Inspection checks existing managed folders
+and, for lazy creation, the existing parent; dispatch prepares and checks the
+directory without rewriting the saved preference.
 
 Profile settings and Space recovery send their frozen `expectedBindingTarget`
 on the private read and both HTTP writes. Core verifies the same canonical
@@ -1239,6 +1270,15 @@ supported local Agents. CLI sends use `--new-task`, `--continue-from <signal-id>
 or `--fork-from <signal-id>` with one explicit `--wake` target. Source selection
 never copies permissions, active work, or publication authority. Multiple retained
 branches in the same discussion require an explicit source choice.
+
+Official Antigravity ACP supports new and continued Execution Contexts using
+Agent settings, including managed working copies. It does not support history
+forks or extra `space_context`, `read_only`, or bounded `workspace` restrictions.
+The Web Session menu exposes only supported operations and Access offers only
+Use agent settings. A new session separates conversation history, not filesystem
+permissions. Current-folder writers retain the shared writer lock. The legacy
+`agy` installation fails independent work with official ACP setup guidance.
+A lost native session fails continuation; it must not silently start fresh.
 
 Connected harnesses without Execution Context support retain their ordinary
 thread Wake behavior: work for one Profile remains serial through its existing

@@ -6,7 +6,9 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { parseDocument } from "yaml";
 import { readCutoverTarget } from "../../tooling/postgresql/remote-target.mjs";
+import { resolveExplicitAffectedPackages } from "../dev/affected-workspaces.mjs";
 import { hasUnchangedCloudComputerRequests } from "./cloud-computer-request-compatibility.mjs";
 import {
   admitPostgresqlProductRelease,
@@ -51,6 +53,7 @@ const COMPLETION_PROBE_TIMEOUT_MS = 30_000;
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const LINE_SPLIT_REGEX = /\r?\n/u;
 const GITHUB_RUN_URL = /\/actions\/runs\/(\d+)\b/u;
+const GITHUB_RUN_ID = /^[1-9][0-9]*$/u;
 const TEST_FILE_REGEX =
   /(?:^|\/)[^/]+\.(?:integration\.)?(?:spec|test)\.[cm]?[jt]sx?$/u;
 const VITEST_CONFIG_REGEX = /(?:^|\/)vitest\.[^/]+config\.[cm]?[jt]s$/u;
@@ -1222,7 +1225,8 @@ export function resolveAutomaticReleaseScopes(input) {
     input.changedPaths.some(
       (path) =>
         isCliReleasePath(path) ||
-        isServiceReleasePath(path) ||
+        (isServiceReleasePath(path) &&
+          !(path === "pnpm-lock.yaml" && input.scopedPatchLockfile)) ||
         isSkillsReleasePath(path)
     )
   ) {
@@ -1331,7 +1335,7 @@ export function buildProductionVerifyStepSpecs(input) {
 }
 
 export function buildProductionPreflightStepSpecs(input) {
-  const steps = buildCommonReleaseStepSpecs(input.changedPaths);
+  const steps = buildProductionSourcePreflightStepSpecs(input);
   if (!EXACT_SHA_PATTERN.test(String(input.releaseSha ?? ""))) {
     throw new Error(
       "Production preflight requires the exact release SHA for receipt-based train admission."
@@ -1362,7 +1366,15 @@ export function buildProductionPreflightStepSpecs(input) {
     controlPath: "scripts/release/production-stage-admission.mjs",
     label: "Admit receipt-based Production train stage",
   });
-  steps.splice(1, 0, {
+  return steps;
+}
+
+export function buildProductionSourcePreflightStepSpecs(input) {
+  const steps = buildCommonReleaseStepSpecs(input.changedPaths);
+  if (input.databaseCutoverRestoreCrons) {
+    return steps;
+  }
+  steps.unshift({
     args: [
       "scripts/release/production-train-artifact-admission.mjs",
       "--scope",
@@ -1383,7 +1395,7 @@ export function buildProductionPreflightStepSpecs(input) {
     label: "Verify declared Production train artifacts",
   });
   if (input.scopes.includes("web")) {
-    steps.splice(2, 0, {
+    steps.splice(1, 0, {
       args: ["run", "verify:cli-skill"],
       command: "pnpm",
       controlArgs: [],
@@ -3052,15 +3064,17 @@ function resolveProductionReleaseContext(input) {
     sourceSha: input.sourceSha,
   });
   const requested = expandRequestedReleaseScopes(input.scope);
-  const affectedPackages = requested
-    ? []
-    : (input.affectedPackages ?? resolveAffectedPackages(changedPaths));
+  const workspaceImpact = requested
+    ? { affectedPackages: [] }
+    : resolveReleaseWorkspaceImpact({ ...input, changedPaths, sourceSha });
+  const affectedPackages = workspaceImpact.affectedPackages;
   const scopes =
     requested ??
     resolveAutomaticReleaseScopes({
       affectedPackages,
       changedPaths,
       compatibilityContext,
+      scopedPatchLockfile: workspaceImpact.scopedPatchLockfile,
     });
   return {
     affectedPackages,
@@ -3112,8 +3126,7 @@ export function buildProductionReleaseImpact(input) {
     return {
       changedPaths,
       scopes: resolveAutomaticReleaseScopes({
-        affectedPackages:
-          input.affectedPackages ?? resolveAffectedPackages(changedPaths),
+        ...resolveReleaseWorkspaceImpact({ ...input, changedPaths }),
         changedPaths,
       }).filter((scope) => scope === input.componentScope),
       compatibilityDependencies: [],
@@ -3204,6 +3217,15 @@ export function buildProductionReleasePlan(input) {
       releaseSha: sourceSha,
     }),
     preflightSteps: buildProductionPreflightStepSpecs({
+      compatibilityContext,
+      coreCurrentCliProjection,
+      databaseCutoverRestoreCrons: input.databaseCutoverRestoreCrons,
+      changedPaths,
+      releaseSha: sourceSha,
+      scopes,
+      taskInboxRetired,
+    }),
+    sourcePreflightSteps: buildProductionSourcePreflightStepSpecs({
       compatibilityContext,
       coreCurrentCliProjection,
       databaseCutoverRestoreCrons: input.databaseCutoverRestoreCrons,
@@ -3331,6 +3353,98 @@ function resolveAffectedPackages(changedPaths) {
     }
   }
   return [...affectedPackageNames].toSorted();
+}
+
+function resolveReleaseWorkspaceImpact(input) {
+  // One proof controls both workspace selection and the lockfile's broad
+  // Service signal. Keep the original paths on the plan for audit and contracts.
+  const scopedPackages = resolvePatchOnlyReleasePackages(input);
+  return {
+    affectedPackages:
+      scopedPackages ??
+      input.affectedPackages ??
+      resolveAffectedPackages(input.changedPaths),
+    scopedPatchLockfile: scopedPackages !== null,
+  };
+}
+
+function resolvePatchOnlyReleasePackages(input) {
+  if (
+    !input.changedPaths.includes("pnpm-lock.yaml") ||
+    input.changedPaths.some(
+      (file) =>
+        file !== "pnpm-lock.yaml" && GLOBAL_WORKSPACE_RUNTIME_PATHS.has(file)
+    ) ||
+    !(input.base && input.sourceSha)
+  ) {
+    return null;
+  }
+  try {
+    const read =
+      input.readGitFile ?? ((ref, file) => runGit(["show", `${ref}:${file}`]));
+    const document = parseDocument(read(input.sourceSha, "pnpm-lock.yaml"));
+    if (document.errors.length > 0) {
+      return null;
+    }
+    const lockfile = document.toJS();
+    if (!(lockfile?.lockfileVersion === "9.0" && lockfile.importers?.["."])) {
+      return null;
+    }
+    // Read the target graph, including build dependencies and the root, from
+    // Git. A status query can target a different commit from this checkout.
+    const workspacePackages = Object.entries(lockfile.importers).map(
+      ([relativePath, importer]) => {
+        const manifest = JSON.parse(
+          read(
+            input.sourceSha,
+            relativePath === "."
+              ? "package.json"
+              : `${relativePath}/package.json`
+          )
+        );
+        return {
+          name: manifest.name,
+          relativePath,
+          dependencies: Object.keys({
+            ...manifest.peerDependencies,
+            ...importer.dependencies,
+            ...importer.devDependencies,
+            ...importer.optionalDependencies,
+          }),
+        };
+      }
+    );
+    const names = workspacePackages.map((workspace) => workspace.name);
+    if (
+      names.some((name) => typeof name !== "string" || !name) ||
+      new Set(names).size !== names.length
+    ) {
+      return null;
+    }
+    const lockfileDiff = input.readGitDiff
+      ? input.readGitDiff(input.base, input.sourceSha, "pnpm-lock.yaml")
+      : runGit([
+          "diff",
+          `${input.base}...${input.sourceSha}`,
+          "--",
+          "pnpm-lock.yaml",
+        ]);
+    const affectedPackages = resolveExplicitAffectedPackages({
+      changedPaths: input.changedPaths.filter(
+        (file) =>
+          !(file.startsWith("developing/") || file.startsWith("changelog/"))
+      ),
+      lockfileDiff,
+      workspacePackages,
+    });
+    const rootName = workspacePackages.find(
+      (workspace) => workspace.relativePath === "."
+    )?.name;
+    return affectedPackages?.includes(rootName) ? null : affectedPackages;
+  } catch {
+    // Missing history or an unknown lockfile cannot justify narrowing a release.
+    return null;
+  }
 }
 
 function readWorkspacePackages() {
@@ -3476,6 +3590,12 @@ export function assertProductionReleaseSource(input) {
     mainRef: input.mainRef ?? "refs/remotes/origin/main",
     releaseSha: input.sourceSha,
   });
+}
+
+export function runProductionPreflightSteps(steps) {
+  for (const step of steps) {
+    runStep(step);
+  }
 }
 
 function runStep(step) {
@@ -3747,6 +3867,17 @@ function assertNoAutomaticNativeRollout(status, remaining) {
   }
 }
 
+async function timeReleaseOperation(label, operation, write) {
+  const started = performance.now();
+  try {
+    return await operation();
+  } finally {
+    write(
+      `${label} elapsed: ${((performance.now() - started) / 1000).toFixed(1)}s.`
+    );
+  }
+}
+
 export async function resumeProductionRelease(input) {
   const { collectProductionReleaseStatus } = await import(
     "./production-release-status.mjs"
@@ -3762,9 +3893,14 @@ export async function resumeProductionRelease(input) {
   let scopes;
   let changeScopes;
   for (;;) {
-    const status = await collect({
-      argv: ["--ref", input.sourceSha, "--change-base", input.baseSha],
-    });
+    const status = await timeReleaseOperation(
+      "Release status read",
+      () =>
+        collect({
+          argv: ["--ref", input.sourceSha, "--change-base", input.baseSha],
+        }),
+      write
+    );
     assertContinuationScope(status, input, changeScopes);
     changeScopes ??= [...status.currentChange.scopes];
     scopes ??= input.scopes ?? changeScopes;
@@ -3816,11 +3952,35 @@ export async function resumeProductionRelease(input) {
     attempted.add(next);
     // The existing explicit-scope path owns preflight, leases, mutation and
     // recovery. A process exit alone never advances deployment truth.
-    await input.deployScope(next, status);
+    await timeReleaseOperation(
+      `Release stage ${next}`,
+      () => input.deployScope(next, status),
+      write
+    );
   }
 }
 
+function resolveHostedWindowsArtifactRunId(scope, env, required = false) {
+  if (scope !== "cli") {
+    return "";
+  }
+  const windowsArtifactRunId = env.WINDOWS_ARTIFACT_RUN_ID?.trim() ?? "";
+  if (required && !windowsArtifactRunId) {
+    throw new Error(
+      "CLI publication requires WINDOWS_ARTIFACT_RUN_ID from the helper used to stamp this release. Prepare a helper_only run and stamp its verified artifact before deploying."
+    );
+  }
+  if (windowsArtifactRunId && !GITHUB_RUN_ID.test(windowsArtifactRunId)) {
+    throw new Error("WINDOWS_ARTIFACT_RUN_ID must be a numeric run ID.");
+  }
+  return windowsArtifactRunId;
+}
+
 export function runHostedRelease(scope, sourceSha, trainScopes, input = {}) {
+  const windowsArtifactRunId = resolveHostedWindowsArtifactRunId(
+    scope,
+    input.env ?? process.env
+  );
   const capture =
     input.capture ??
     ((args) => execFileSync("gh", args, { encoding: "utf8" }).trim());
@@ -3865,6 +4025,7 @@ export function runHostedRelease(scope, sourceSha, trainScopes, input = {}) {
     return false;
   }
   if (!runId) {
+    resolveHostedWindowsArtifactRunId(scope, input.env ?? process.env, true);
     const output = capture([
       "workflow",
       "run",
@@ -3875,6 +4036,9 @@ export function runHostedRelease(scope, sourceSha, trainScopes, input = {}) {
       `release_sha=${sourceSha}`,
       "--raw-field",
       `production_train_scopes=${trainScopes.join(",")}`,
+      ...(windowsArtifactRunId
+        ? ["--raw-field", `windows_artifact_run_id=${windowsArtifactRunId}`]
+        : []),
       ...(scope === "cli"
         ? []
         : ["--raw-field", `scope=${scope === "db" ? "database" : scope}`]),
@@ -3920,6 +4084,38 @@ function isAutomaticContinuation(options) {
   );
 }
 
+export function runLocalRelease(scope, baseSha, trainScopes, input = {}) {
+  const env = input.env ?? process.env;
+  const spawn = input.spawn ?? spawnSync;
+  const result = spawn(
+    process.execPath,
+    [
+      fileURLToPath(new URL("./production-release-cli.mjs", import.meta.url)),
+      "deploy",
+      "--base",
+      baseSha,
+      "--scope",
+      scope,
+    ],
+    {
+      stdio: "inherit",
+      env: {
+        ...env,
+        OPENMELD_PRODUCTION_TRAIN_SCOPES:
+          env.OPENMELD_PRODUCTION_TRAIN_SCOPES ?? trainScopes.join(","),
+      },
+    }
+  );
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `Local ${scope} release failed; inspect its retained attempt.`
+    );
+  }
+}
+
 export async function runProductionRelease(argv) {
   const options = {
     ...parseProductionReleaseArgs(argv),
@@ -3932,10 +4128,11 @@ export async function runProductionRelease(argv) {
     const sourceSha = readHeadSha();
     const baseSha = runGit(["rev-parse", `${options.base}^{commit}`]).trim();
     assertProductionReleaseSource({ sourceSha });
+    const requestedScopes = expandRequestedReleaseScopes(options.scope);
     await resumeProductionRelease({
       sourceSha,
       baseSha,
-      scopes: expandRequestedReleaseScopes(options.scope),
+      scopes: requestedScopes,
       waitForActiveRelease: (remaining, status) => {
         for (const scope of remaining) {
           if (
@@ -3949,26 +4146,30 @@ export async function runProductionRelease(argv) {
         }
         return false;
       },
-      deployScope: async (scope, status) => {
+      deployScope: (scope, status) => {
         assertSourceStillMatches(sourceSha);
+        const trainScopes = [
+          ...new Set([
+            ...status.currentChange.scopes,
+            ...(requestedScopes ?? []),
+          ]),
+        ];
+        if (
+          (requestedScopes ?? status.currentChange.scopes).includes("cli") &&
+          !status.components.some(
+            (component) =>
+              component.scope === "cli" && component.state === "current"
+          )
+        ) {
+          resolveHostedWindowsArtifactRunId("cli", process.env, true);
+        }
         if (scope === "cli" || options.lane === "github") {
           if (scope !== "cli") {
             assertHostedProductDatabaseReleaseSupported(process.cwd(), [scope]);
           }
-          runHostedRelease(scope, sourceSha, [
-            ...new Set([
-              ...status.currentChange.scopes,
-              ...(expandRequestedReleaseScopes(options.scope) ?? []),
-            ]),
-          ]);
+          runHostedRelease(scope, sourceSha, trainScopes);
         } else {
-          await runProductionRelease([
-            "deploy",
-            "--base",
-            baseSha,
-            "--scope",
-            scope,
-          ]);
+          runLocalRelease(scope, baseSha, trainScopes);
         }
         assertSourceStillMatches(sourceSha);
       },
@@ -4046,9 +4247,7 @@ export async function runProductionRelease(argv) {
   if (options.domainPhase) {
     preparationSteps = buildCommonReleaseStepSpecs([]);
   }
-  for (const step of preparationSteps) {
-    runStep(step);
-  }
+  runProductionPreflightSteps(preparationSteps);
   assertSourceStillMatches(plan.sourceSha);
   if (options.command === "preflight" && options.databaseCutoverSnapshot) {
     await admitPostgresqlProductRelease({

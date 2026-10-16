@@ -274,19 +274,25 @@ validate_setup_args() {
 ensure_node_runtime() {
   if ! command_exists node; then
     say "OpenMeld setup requires Node.js ${supportedNodeRange}."
-    if command_exists brew && confirm "Install Node.js with Homebrew now?"; then
-      brew install node < /dev/null || die "Homebrew could not install Node.js. Install a supported release (${supportedNodeRange}), then run this setup command again."
+    if command_exists brew && confirm "Install Node.js 24 with Homebrew now?"; then
+      brew install node@24 < /dev/null || die "Homebrew could not install Node.js 24. Install a supported release (${supportedNodeRange}), then run this setup command again."
+      OPENMELD_SETUP_NODE_PREFIX="$(brew --prefix node@24 < /dev/null)" || die "Homebrew could not locate Node.js 24. Check your Homebrew installation, then run this setup command again."
+      [ -x "$OPENMELD_SETUP_NODE_PREFIX/bin/node" ] || die "Homebrew did not provide a usable Node.js 24 executable. Check your Homebrew installation, then run this setup command again."
+      PATH="$OPENMELD_SETUP_NODE_PREFIX/bin:$PATH"
+      export PATH
+      say "Using Homebrew Node.js 24 for this setup. For future terminals, add this line to your shell profile:"
+      printf 'export PATH="%s/bin:$PATH"\\n' "$OPENMELD_SETUP_NODE_PREFIX"
     else
-      die "Install a supported Node.js release (${supportedNodeRange}) from nodejs.org, then run this setup command again."
+      die "Install Node.js 24 (recommended), or another supported release (${supportedNodeRange}), from nodejs.org, then run this setup command again."
     fi
   fi
 
   if ! node_runtime_supported; then
     say "OpenMeld setup found Node.js $(node --version < /dev/null 2>/dev/null || printf 'unknown')."
-    die "Install a supported Node.js release (${supportedNodeRange}) from nodejs.org, then run this setup command again."
+    die "Install Node.js 24 (recommended), or another supported release (${supportedNodeRange}), from nodejs.org, then run this setup command again."
   fi
 
-  command_exists npm || die "OpenMeld setup needs npm. Install a supported Node.js release (${supportedNodeRange}) from nodejs.org, then run this setup command again."
+  command_exists npm || die "OpenMeld setup needs npm. Install Node.js 24 (recommended), or another supported release (${supportedNodeRange}), from nodejs.org, then run this setup command again."
 }
 
 node_runtime_supported() {
@@ -759,6 +765,11 @@ maybe_update_old_global_openmeld_cli_for_binary_setup() {
     return 0
   fi
 
+  if ! node_runtime_supported; then
+    say "The older global npm CLI v$OPENMELD_SETUP_GLOBAL_VERSION was left unchanged: updating it requires Node.js ${supportedNodeRange} (24 recommended). Use the managed standalone binary in the commands shown below."
+    return 0
+  fi
+
   OPENMELD_SETUP_BINARY_PACKAGE_SPEC="$OPENMELD_SETUP_PACKAGE_NAME@$OPENMELD_SETUP_BINARY_VERSION"
   say "OpenMeld found an older global CLI: v$OPENMELD_SETUP_GLOBAL_VERSION."
   say "Updating it to v$OPENMELD_SETUP_BINARY_VERSION so openmeld uses the same version in this Terminal..."
@@ -1001,7 +1012,7 @@ function Validate-SetupArgs {
 
 function Ensure-NodeRuntime {
   if (-not (Test-CommandExists 'node')) {
-    Die 'Install a supported Node.js release (${supportedNodeRange}) from nodejs.org, then run this setup command again.'
+    Die 'Install Node.js 24 (recommended), or another supported release (${supportedNodeRange}), from nodejs.org, then run this setup command again.'
   }
 
   $nodeMajorText = (& node -p "Number(process.versions.node.split('.')[0])" 2>$null)
@@ -1009,11 +1020,11 @@ function Ensure-NodeRuntime {
   [void][int]::TryParse([string]$nodeMajorText, [ref]$nodeMajor)
   if ($OpenMeldSetupSupportedNodeMajors -notcontains $nodeMajor) {
     $nodeVersion = (& node --version 2>$null)
-    Die "OpenMeld setup found Node.js $nodeVersion. Install a supported release (${supportedNodeRange}) from nodejs.org, then run this setup command again."
+    Die "OpenMeld setup found Node.js $nodeVersion. Install Node.js 24 (recommended), or another supported release (${supportedNodeRange}), from nodejs.org, then run this setup command again."
   }
 
   if (-not (Test-CommandExists 'npm')) {
-    Die 'OpenMeld setup needs npm. Install a supported Node.js release (${supportedNodeRange}) from nodejs.org, then run this setup command again.'
+    Die 'OpenMeld setup needs npm. Install Node.js 24 (recommended), or another supported release (${supportedNodeRange}), from nodejs.org, then run this setup command again.'
   }
 }
 

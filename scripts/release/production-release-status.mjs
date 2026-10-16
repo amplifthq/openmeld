@@ -31,6 +31,7 @@ const CHECKOUT_SOURCE_REGEX =
 const LINE_SPLIT_REGEX = /\r?\n/u;
 const RELEASE_JOB_BATCH_SIZE = 16;
 const RELEASE_TITLE_SOURCE_REGEX = /@ ([0-9a-f]{40})$/u;
+const MIGRATED_SCOPED_TITLE_REGEX = /^Scoped Production Release ([a-z-]+) @ /u;
 const SCOPED_RELEASE_WORKFLOW_REGEX = /Scoped Production Release/u;
 const EXACT_SOURCE_SHA = /^[0-9a-f]{40}$/u;
 const SUCCESSFUL_JOB_SCOPES = [
@@ -186,7 +187,7 @@ export async function collectProductionReleaseStatus(input = {}) {
   const localIssues = [];
   try {
     mergeGuardedLocalReleaseSources({
-      localSources: await adapters.readLocalReleaseSources(repo),
+      localSources: await adapters.readLocalReleaseSources(repo, sourceSha),
       sourceIsAncestor: adapters.sourceIsAncestor,
       sourceSha,
       sources: localSources,
@@ -224,6 +225,9 @@ export async function collectProductionReleaseStatus(input = {}) {
       continue;
     }
     const releaseSource = sources.get(scope);
+    const remoteAgentRecovery =
+      scope === "remote-agent" ? input.remoteAgentRecovery : undefined;
+    assertRemoteRecoverySource(releaseSource, remoteAgentRecovery, sourceSha);
     const component = describeReleaseComponent({
       releaseSource,
       scope,
@@ -232,6 +236,7 @@ export async function collectProductionReleaseStatus(input = {}) {
       adapters,
       sourceSha,
       webReleaseSource: sources.get("web"),
+      remoteAgentRecovery,
     });
     if (component.state === "unknown") {
       unknownSources.push(scope);
@@ -325,6 +330,93 @@ function mergeGuardedLocalReleaseSources(input) {
     }
     selectLatestSource(input.sources, scope, localSource);
   }
+}
+
+// A reviewed cutover snapshot retains hosted evidence without granting the new
+// repository access to the old private repository. Newer receipts still win.
+export function migratedHostedReleaseSources(
+  snapshot,
+  repository,
+  repositoryId
+) {
+  if (
+    snapshot.schemaVersion !== 1 ||
+    snapshot.target.repository !== repository ||
+    snapshot.target.id !== repositoryId ||
+    snapshot.source.id === repositoryId ||
+    !Number.isSafeInteger(snapshot.source.id) ||
+    snapshot.source.id <= 0 ||
+    snapshot.source.id !== 1_331_245_823 ||
+    snapshot.source.repository !== "amplifthq/openmeld-private" ||
+    !Number.isFinite(Date.parse(snapshot.capturedAt)) ||
+    !Array.isArray(snapshot.runs) ||
+    snapshot.runs.length === 0
+  ) {
+    throw new Error("Invalid repository migration evidence identity.");
+  }
+  const jobsByRunId = new Map();
+  const runs = snapshot.runs.map(({ jobs, ...run }) => {
+    const createdAt = Date.parse(run.createdAt);
+    const updatedAt = Date.parse(run.updatedAt);
+    const workflowScopes = SCOPED_RELEASE_WORKFLOW_REGEX.test(run.workflowName)
+      ? [MIGRATED_SCOPED_TITLE_REGEX.exec(run.displayTitle ?? "")?.[1]].filter(
+          (scope) => RELEASE_SCOPES.includes(scope)
+        )
+      : releaseWorkflowScopes(run.workflowName);
+    if (
+      !(
+        Number.isSafeInteger(run.databaseId) &&
+        Number.isSafeInteger(run.attempt)
+      ) ||
+      jobsByRunId.has(run.databaseId) ||
+      run.databaseId <= 0 ||
+      run.attempt <= 0 ||
+      run.status !== "completed" ||
+      run.conclusion !== "success" ||
+      !EXACT_SOURCE_SHA.test(run.headSha) ||
+      RELEASE_TITLE_SOURCE_REGEX.exec(run.displayTitle ?? "")?.[1] !==
+        run.headSha ||
+      !workflowScopes.length ||
+      !Number.isFinite(createdAt) ||
+      !Number.isFinite(updatedAt) ||
+      createdAt > updatedAt ||
+      updatedAt > Date.parse(snapshot.capturedAt) ||
+      run.url !==
+        `https://github.com/${snapshot.source.repository}/actions/runs/${run.databaseId}` ||
+      !Array.isArray(jobs) ||
+      jobs.length === 0
+    ) {
+      throw new Error("Invalid migrated hosted run evidence.");
+    }
+    for (const job of jobs) {
+      if (
+        !Number.isSafeInteger(job.id) ||
+        job.id <= 0 ||
+        job.run_attempt !== run.attempt ||
+        job.status !== "completed" ||
+        job.conclusion !== "success" ||
+        !releaseJobScopes(job).length ||
+        !releaseJobScopes(job).every((scope) =>
+          workflowScopes.includes(scope)
+        ) ||
+        !Number.isFinite(Date.parse(job.completed_at)) ||
+        Date.parse(job.completed_at) < createdAt ||
+        Date.parse(job.completed_at) > updatedAt
+      ) {
+        throw new Error("Invalid migrated hosted job evidence.");
+      }
+    }
+    jobsByRunId.set(
+      run.databaseId,
+      jobs.map((job) => ({ ...job, releaseSha: run.headSha }))
+    );
+    return run;
+  });
+  return resolveLatestSuccessfulReleaseSources({
+    runs,
+    jobsByRunId,
+    sourceIsAncestor: () => true,
+  });
 }
 
 function readRecordedAt(source, label) {
@@ -503,14 +595,41 @@ function componentImpactCacheKey(sha, scope) {
 }
 
 function recoveryGuidance(recovery) {
+  if (recovery.kind === "guarded-remote-native-verification") {
+    return "Remote Agent native rollout applied; rerun the guarded stage to verify its exact Worker and Container identities and complete the existing receipt without deploying again.";
+  }
   return recovery.kind === "guarded-remote-container-continuation"
     ? "Remote Agent Worker applied; original Containers retained and native rollout pending. Verify original file synchronization before explicitly continuing the full Remote Agent stage."
     : "Retained evidence permits guarded recovery admission. The executor must still verify the exact operation and live deployment before continuing the retained attempt.";
 }
 
+function assertRemoteRecoverySource(current, proof, sourceSha) {
+  if (!proof) {
+    return;
+  }
+  const receipt = current?.receipt;
+  const prior = current?.verifiedHistoryBaseline;
+  if (
+    proof.sourceSha !== sourceSha ||
+    current?.sha !== sourceSha ||
+    !EXACT_SOURCE_SHA.test(String(proof.evidenceSha ?? "")) ||
+    current.evidenceSha !== proof.evidenceSha ||
+    receipt?.attemptId !== proof.attemptId ||
+    receipt?.operationKey !== proof.operationKey ||
+    receipt?.status !== "failed" ||
+    receipt.application !== "unknown" ||
+    receipt.identity ||
+    prior?.receipt?.status !== "verified" ||
+    !EXACT_SOURCE_SHA.test(String(prior?.sha ?? ""))
+  ) {
+    throw new Error(
+      "Remote recovery admission no longer matches its exact retained attempt and verified baseline."
+    );
+  }
+}
+
 function describeReleaseComponent(input) {
-  const { releaseSource, scope, history, plansByBase, adapters, sourceSha } =
-    input;
+  const { releaseSource, scope, history, adapters, sourceSha } = input;
   const unknown = (reason, facts = {}) => ({
     ...releaseSource,
     evidence: describeComponentEvidence(releaseSource),
@@ -543,7 +662,11 @@ function describeReleaseComponent(input) {
       "Conflicting deployment events have the same completion time; reconcile their actual activation order."
     );
   }
-  if (releaseSource.receipt && releaseSource.receipt.status !== "verified") {
+  if (
+    releaseSource.receipt &&
+    releaseSource.receipt.status !== "verified" &&
+    !input.remoteAgentRecovery
+  ) {
     const receipt = releaseSource.receipt;
     const recovery = describeGuardedReceiptRecoveryCandidate(
       releaseSource,
@@ -565,20 +688,30 @@ function describeReleaseComponent(input) {
       `Local release is ${receipt.status}/${receipt.application}; ${guidance}`
     );
   }
-  const impactKey = componentImpactCacheKey(releaseSource.sha, scope);
+  return describeReleaseComponentImpact(input, unknown);
+}
+
+function describeReleaseComponentImpact(input, unknown) {
+  const { releaseSource, scope, plansByBase, adapters, sourceSha } = input;
+  // A lease-proven recovery is pending, never verified. Compute compatibility
+  // from the last verified deployment, not the operator's source-check base.
+  const impactSource = input.remoteAgentRecovery
+    ? releaseSource.verifiedHistoryBaseline
+    : releaseSource;
+  const impactKey = componentImpactCacheKey(impactSource.sha, scope);
   let entry = plansByBase.get(impactKey);
   if (!entry) {
     try {
       entry = {
         plan: adapters.buildImpact({
-          base: releaseSource.sha,
+          base: impactSource.sha,
           sourceSha,
           componentScope: scope,
         }),
       };
     } catch (error) {
       entry = {
-        error: `Source impact from ${releaseSource.sha} failed: ${error.message}`,
+        error: `Source impact from ${impactSource.sha} failed: ${error.message}`,
       };
     }
     plansByBase.set(impactKey, entry);
@@ -602,7 +735,10 @@ function describeReleaseComponent(input) {
     })),
     evidence: describeComponentEvidence(releaseSource),
     scope,
-    state: entry.plan.scopes.includes(scope) ? "pending" : "current",
+    state:
+      input.remoteAgentRecovery || entry.plan.scopes.includes(scope)
+        ? "pending"
+        : "current",
   };
 }
 
@@ -1210,9 +1346,26 @@ function defaultAdapters() {
       runGhJsonAsync(["api", `repos/${repo}/commits/${sourceSha}/status`]),
     readGitCommit: (repo, sourceSha) =>
       runGhJsonAsync(["api", `repos/${repo}/git/commits/${sourceSha}`]),
-    readLocalReleaseSources: (repo) => {
+    readLocalReleaseSources: (repo, sourceSha) => {
       assertGuardedLocalEvidenceRepository(repo, resolveCheckoutRepository());
-      return readGuardedReleaseSourcesForStatus({ repo });
+      const sources = readGuardedReleaseSourcesForStatus({ repo });
+      const migrationPath = "release/repository-migration.json";
+      if (runGit(["ls-tree", sourceSha, "--", migrationPath]).trim()) {
+        const snapshot = JSON.parse(
+          runGit(["show", `${sourceSha}:${migrationPath}`])
+        );
+        const repositoryId = JSON.parse(
+          runGh(["api", `repos/${repo}`], 30_000)
+        ).id;
+        for (const [scope, source] of migratedHostedReleaseSources(
+          snapshot,
+          repo,
+          repositoryId
+        )) {
+          selectLatestSource(sources, scope, source);
+        }
+      }
+      return sources;
     },
     readJobReleaseSha: async (job, repo, run) => {
       const titleSource = RELEASE_TITLE_SOURCE_REGEX.exec(
@@ -1480,8 +1633,9 @@ function readRequiredArgument(argv, index, option) {
   return value;
 }
 
-function runGh(args) {
+function runGh(args, timeout) {
   return execFileSync(resolveCommandBinary("gh"), args, {
+    timeout,
     encoding: "utf8",
     maxBuffer: 1024 * 1024 * 10,
   });

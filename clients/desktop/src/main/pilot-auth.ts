@@ -13,9 +13,18 @@ import {
   createAuthClient,
 } from "better-auth/client";
 import { app, type BrowserWindow } from "electron";
+import { Agent } from "undici";
 import { assertPilotAuthCallback } from "./pilot-auth-callback";
 
 const SPACE_FILE_CONTENT_PATH = /^\/v1\/spaces\/[^/]+\/files\/[^/]+\/content$/u;
+const FOLDER_PICKER_PATH =
+  /^\/v1\/(?:local-runtimes\/current\/folder-picker|people-computers\/[^/]+\/lanes\/[^/]+\/folders\/select)$/u;
+// The helper allows 590s and Core allows 600s. Node fetch otherwise ends
+// the native request at its default 300s response-header timeout.
+const FOLDER_PICKER_TIMEOUT_MS = 610_000;
+const folderPickerDispatcher = new Agent({
+  headersTimeout: FOLDER_PICKER_TIMEOUT_MS,
+});
 
 export function createPilotAuth(
   webOrigin: string,
@@ -24,6 +33,12 @@ export function createPilotAuth(
   installedTarget?: DesktopInstalledTarget
 ) {
   let signInError: string | null = null;
+  let sessionGeneration = 0;
+  let observedUserId: string | null | undefined;
+  const sessionChanged = () => {
+    sessionGeneration += 1;
+    onSessionChanged();
+  };
   const authScheme =
     installedTarget?.authScheme ??
     desktopAuthIdentity(false, undefined, webOrigin).authScheme;
@@ -37,7 +52,7 @@ export function createPilotAuth(
           onSuccess(context) {
             const pathname = new URL(context.request.url).pathname;
             if (pathname === "/api/auth/electron/token") {
-              onSessionChanged();
+              sessionChanged();
             }
           },
         },
@@ -94,7 +109,7 @@ export function createPilotAuth(
       // stale/replayed callback by persisting a verifier or exposing its token.
       signInError =
         "This sign-in could not be completed. Sign in with your browser again.";
-      onSessionChanged();
+      sessionChanged();
     }
   };
   if (app.requestSingleInstanceLock()) {
@@ -157,6 +172,19 @@ export function createPilotAuth(
         retry: 0,
         headers: Object.fromEntries(request.headers),
         body: request.body,
+        ...(request.method === "POST" &&
+        FOLDER_PICKER_PATH.test(new URL(path, webOrigin).pathname)
+          ? {
+              timeout: FOLDER_PICKER_TIMEOUT_MS,
+              customFetchImpl: (
+                url: string | URL | Request,
+                init?: RequestInit
+              ) => {
+                const options = { ...init, dispatcher: folderPickerDispatcher };
+                return fetch(url, options);
+              },
+            }
+          : {}),
         onResponse({ response }) {
           if (
             response.ok &&
@@ -182,7 +210,7 @@ export function createPilotAuth(
       if (raw.status === 401) {
         // Invalidate the existing account fence after SDK cookie handling.
         // The fence rereads identity; an HTTP status is not identity truth.
-        onSessionChanged();
+        sessionChanged();
       }
       return raw;
     },
@@ -201,12 +229,23 @@ export function createPilotAuth(
         );
       }
       const user = result.data?.user;
+      if (
+        observedUserId !== undefined &&
+        observedUserId !== (user?.id ?? null)
+      ) {
+        sessionChanged();
+      }
+      observedUserId = user?.id ?? null;
       return desktopSessionSchema.parse({
         user: user ? { id: user.id, email: user.email, name: user.name } : null,
       });
     },
     cookie: () => client.getCookie(),
+    sessionGeneration: () => sessionGeneration,
     async signOut() {
+      // Fence in-flight local operations as soon as sign-out starts, including
+      // signing back in to the same account before the operation completes.
+      sessionGeneration += 1;
       try {
         const result = await client.signOut();
         if (result.error) {
@@ -215,7 +254,7 @@ export function createPilotAuth(
       } finally {
         // The vendor clears its local cookie before sending sign-out, even
         // if the server request fails. Refresh identity without claiming success.
-        onSessionChanged();
+        sessionChanged();
       }
     },
   };

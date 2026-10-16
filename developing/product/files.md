@@ -14,6 +14,11 @@
 
 Files is one familiar product with several clear locations, not a single list that mixes audiences. Every file has exactly one canonical root and one immutable sequence of content revisions. The navigation name is **Files** in Team and Space. A personal Organization has its own Files entry. A member of a collaborative Organization can also open **My files** in that Organization.
 
+Team Files uses a location sidebar for Team files, My files, and Trash instead
+of the member list. Personal Organizations omit My files. Folder navigation
+stays in the file browser. Changing location clears folder and document
+selection; opening Trash from My files retains the member-private location.
+
 | Location | Canonical tenant and root | Default audience |
 | --- | --- | --- |
 | Team files | Organization, Team root | Current Organization members |
@@ -38,7 +43,7 @@ workspace closes; shared copies in surviving teams remain independent assets.
 - Upload sessions, chunks, checksums, resumability, and retry handling use the shared file transport. A completed upload is not reported before its metadata revision is committed.
 - Team and My files accept files dropped anywhere in the active browser. An empty folder offers the same upload through an accessible browse control; both entries use the ordinary upload transport and show its progress and errors.
 - Folders, file names, metadata, history, Trash, restore, and audit use the same behavior where Team, My, and Space semantics match. Deletion is recoverable until a separate retention policy says otherwise.
-- Team Files presents Trash as a Files tab. The Trash location selector keeps Team and My audiences separate; restoring an item returns it to its owning root.
+- Team Files presents Trash in the Files location sidebar. The Trash location selector keeps Team and My audiences separate; restoring an item returns it to its owning root.
 - Creating a file or folder with an occupied sibling name keeps both items by assigning the new item the next available numbered name in the owning root. The committed response shows that name. Explicit rename and move still report a collision rather than silently renaming an existing item.
 - Ordinary Team members may contribute ordinary files to Team files. My files require the owning member. Space writes continue to use Space policy. Server-side authorization owns every operation; hiding a UI control does not grant or revoke authority.
 - File content and metadata are read through an authenticated, bounded endpoint. A stored object key is never an access token.
@@ -77,6 +82,15 @@ Files can show managed objects, but ordinary file mutations never bypass their o
 Team and Space use the same Finder-style file browser and shared viewer components, with OpenMeld's Fluid controls, tokens, and radius. A file browser fills its owning page rather than adding a second framed application inside it. The initial viewer set is read-only; editors are added only after version, conflict, and save behavior is correct. Viewer availability is separate from Agent read capability.
 
 Space Files includes both chat attachments and manually uploaded files by default. File origin is provenance, not a visibility filter. The file browser does not present the structured work-handoff workflow as a generic send-file action.
+
+Text reads use the shared Files MIME policy and a 1 MiB decoded-input bound.
+Patch and diff attachments are plain text. Existing generic binary MIME metadata
+may use a recognized text filename for read eligibility, but bytes must still
+pass strict UTF-8 and binary NUL-byte validation. ANSI logs and form-feed text
+remain readable. This does not rewrite
+immutable revision metadata, grant browser editing, or change authorization.
+Unknown binary files and explicit non-text MIME types remain unsupported by text
+read tools; authenticated downloads remain available.
 
 Center, Hosted Remote, and Local Agents use the same logical file operations and exact revision references as people. The root service enforces the represented human's authorization at the time of each read or write. A private file may enter a Hosted Agent turn only when the audience and execution path keep it private. A one-to-one conversation alone does not prove that a shared Computer, cache, history, or published output is isolated.
 

@@ -41,17 +41,21 @@ export function baseOptions(): BaseLayoutProps {
       url: import.meta.env.VITE_WEBSITE_URL,
     },
     links: [
+      {
+        type: "custom",
+        children: (
+          <OpenAppButton
+            className="docs-open-app mb-2 w-full"
+            href={import.meta.env.VITE_APP_URL}
+            size="compact"
+          />
+        ),
+      },
       { text: "Guides", url: "/docs" },
       { text: "Downloads", url: "/docs/start/downloads" },
       {
         text: "Changelog",
         url: `${import.meta.env.VITE_WEBSITE_URL}/changelog`,
-      },
-      {
-        type: "custom",
-        children: (
-          <OpenAppButton href={import.meta.env.VITE_APP_URL} size="compact" />
-        ),
       },
     ],
   };

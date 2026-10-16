@@ -3,18 +3,29 @@ import type {
 	AgentProfileCreationRequest,
 	ListAgentProfileCreationRequestsResponse,
 } from "@openmeld/schemas/types";
-import { QueryClient } from "@tanstack/react-query";
-import { describe, expect, it } from "vitest";
+import { QueryClient, useQuery } from "@tanstack/react-query";
+import { renderHook, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	agentProfileCreationRequestQueryKeys,
+	optimisticAgentProfileCreationsQueryOptions,
 	removeOptimisticAgentProfileCreation,
 	upsertAcceptedAgentProfileCreationRequest,
 	upsertOptimisticAgentProfileCreation,
 } from "./agent-profile-creation-requests";
 
 describe("accepted Agent creation request cache", () => {
-	it("keeps client-only creation state separate from server request identities", () => {
+	afterEach(() => vi.restoreAllMocks());
+
+	it("keeps client-only creation state separate from server request identities", async () => {
 		const queryClient = new QueryClient();
+		const consoleError = vi.spyOn(console, "error");
+		const hook = renderHook(() =>
+			useQuery(
+				optimisticAgentProfileCreationsQueryOptions("org-1"),
+				queryClient
+			)
+		);
 		const creation = {
 			configuration: DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
 			failureMessage: null,
@@ -28,6 +39,8 @@ describe("accepted Agent creation request cache", () => {
 			organizationId: "org-1",
 			queryClient,
 		});
+		await waitFor(() => expect(hook.result.current.data).toEqual([creation]));
+		expect(hook.result.current.fetchStatus).toBe("idle");
 
 		expect(
 			queryClient.getQueryData(
@@ -50,6 +63,10 @@ describe("accepted Agent creation request cache", () => {
 				agentProfileCreationRequestQueryKeys.optimisticByOrganization("org-1")
 			)
 		).toEqual([]);
+		await waitFor(() => expect(hook.result.current.data).toEqual([]));
+		hook.unmount();
+		queryClient.clear();
+		expect(consoleError).not.toHaveBeenCalled();
 	});
 
 	it("inserts a new accepted request without inventing an Agent Profile", () => {

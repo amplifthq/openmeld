@@ -96,7 +96,8 @@
             },
             "transportModes": ["local-cli"],
             "capabilityDeclaration": {
-              "executionContextVersion": 2,
+              "executionContextVersion": 5,
+              "executionContextPermissionInheritance": true,
               "streamingCapability": "preview_capable",
               "imageInputCapability": "unsupported",
               "runtimeWorkingDirectoryMode": "spawn_cwd",
@@ -481,8 +482,13 @@
           {
             "adapterId": "grok-build",
             "controllerRefMatcher": {
-              "kind": "contains",
-              "values": ["grok", "grok-build"]
+              "kind": "equals",
+              "values": [
+                "grok",
+                "builtin:grok",
+                "grok-build",
+                "builtin:grok-build"
+              ]
             },
             "transportModes": ["acp"],
             "capabilityDeclaration": {
@@ -901,6 +907,42 @@
         "supported": false,
         "adapters": []
       }
+    },
+    {
+      "id": "grok-bot",
+      "displayName": "Grok Bot",
+      "category": "builtin",
+      "skillsDir": ".grok-bot/skills",
+      "globalSkillsDir": "${HOME}/.config/agent-serve",
+      "detection": {
+        "mode": "any",
+        "checks": [{ "kind": "commandExists", "value": "bdk" }]
+      },
+      "service": { "skillsInstallable": false },
+      "runtime": {
+        "supported": true,
+        "adapters": [
+          {
+            "adapterId": "grok-bot",
+            "controllerRefMatcher": {
+              "kind": "equals",
+              "values": ["grok-bot", "builtin:grok-bot"]
+            },
+            "transportModes": ["local-cli"],
+            "capabilityDeclaration": {
+              "streamingCapability": "final_only",
+              "runtimeWorkingDirectoryMode": "provider_workspace",
+              "preparationRequirement": "none",
+              "continuationCapability": "standard",
+              "workspaceResumeBehavior": "transparent"
+            }
+          }
+        ]
+      },
+      "lifecycle": { "status": "active" },
+      "transportModes": ["local-cli"],
+      "defaultTransportMode": "local-cli",
+      "defaultStreamingMode": "final"
     },
     {
       "id": "openclaw",

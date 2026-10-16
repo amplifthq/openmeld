@@ -17,6 +17,38 @@
 - Source of truth: This file owns the durable architecture boundary for the
   local OpenMeld Service / daemon.
 
+## Account-shared Bot adapter
+
+`@openmeld/adapter-grok-bot` uses the official BDK credential and fixed public
+Grok Bot API host. It only reads, messages and interrupts the existing session
+pinned by the Binding. It never invokes the name-based get-or-create endpoint,
+reads native-app cookies or creates a provider Bot. BDK account identity is an
+Interface observation; Core still owns Wakeability and RuntimeCoordinator owns
+each Wake's lifecycle.
+
+This controller declares `conversationScope: account_shared`. It drains the
+pre-dispatch cursor without publication and refuses a conversation observed busy
+before submission. After submission, only provider-delivered `send-message`
+entries are proposed through the existing dispatch-owned `reply` action. This
+is an explicit shared-conversation delivery contract, not arbitrary stdout or
+reasoning extraction. Concurrent messages in the original app can contribute
+to these replies; there is no claim of task-exclusive attribution. The existing
+action writer and Core publication checks retain authorization and finalization.
+
+The adapter prevents overlapping dispatches to the same session within one
+Service adapter instance. This is not an account-wide provider lock. BDK offers
+no atomic task-specific admission or interrupt. A Stop targets the Bot's current
+conversation, as acknowledged at connection, and the adapter waits for idle
+evidence before returning `runtime.turn.cancelled`. An interrupt HTTP receipt
+alone is not a stopped outcome. A failed read is an explicit failure with a
+warning that provider work may continue, never manufactured settlement.
+
+Independent contexts, local file boundaries and automatic delivery-only repair
+are rejected. The provider keeps its existing tools and permissions. An
+ambiguous message submission is not automatically repeated; stable message IDs
+use the dispatch identity. Per-request network deadlines do not impose a total
+execution timeout.
+
 ## Product Role
 
 Version 2 handoffs can carry a brief alone or exact shared-file revisions without
@@ -129,6 +161,17 @@ adapter capabilities from the Host's reported adapter IDs, not an in-process
 adapter container. Mixed-version cloud negotiation remains a separate contract
 and is not retired by deleting unused local implementation.
 
+The connector retires a failed transport when its existing heartbeat failure
+limit is reached, its PONG deadline expires, or the socket reports an error. It
+releases the current session to the existing reconnect loop without waiting for
+a native close callback. Retirement detaches the Host transport sink, rejects
+pending transport responses, and ignores later frames from that socket. It does not cancel local
+work or acknowledge retained results. The failure reason is logged even when
+the background Service uses a silent presenter; an observed close remains a
+separate transport event.
+Registered-session bootstrap reads and cache persistence yield to that same
+transport exit, so a closed connection cannot remain held by local bootstrap.
+
 The runner starts its control endpoint and registers without waiting for Agent
 inventory. Host initialization, reporting, and execution cross bounded inherited
 IPC; they cannot block the connector's event loop. Host admission is closed until
@@ -199,6 +242,59 @@ file-access behavior, and an actual old-to-new migration require separate
 artifact acceptance; source or IPC fixture success is not that evidence.
 
 ## Ownership Boundary
+
+### Local Agent connection setup
+
+The optional `setupInstallations` capability extends the existing owner-scoped
+installation-control transport with `setup` and `read_setup`. Core requires an
+authenticated owner and explicit Computer/lane; neither URLs, shell commands,
+package names nor credential contents are accepted from clients. The provider
+adapter owns the fixed download, verification, install and official login steps.
+Initially Grok Bot supports managed setup on macOS/Linux x64 and ARM64.
+
+The Execution Host writes lane-local operation receipts before side effects and
+holds the existing adapter idle guard until completion. Closing the Web dialog
+does not stop setup. Request IDs cannot change action or replay a prior action.
+An unfinished receipt after Host loss reports `outcome_unknown`; it is never
+automatically replayed. Installation success requires a runnable CLI; login
+success requires the official account check. Secrets and browser login output
+stay on the Computer. Managed Node, BDK and credentials live under that lane's
+`connection-tools/grok-bot` directory. Existing manual BDK installs remain valid.
+
+Setup progress is not Wakeability. Inventory/report refresh still flows through
+the existing Core projection and RuntimeCoordinator retains execution authority.
+Old Services omit the capability and retain manual setup guidance. New Web does
+not send setup operations to them. Existing update/select/enable operations and
+Wake/Stop contracts remain unchanged; deploy the new receiver before the new Web
+and Service capability. No database migration or mandatory epoch bump is needed.
+
+### Local Agent installation updates
+
+Owner Computer controls can update the selected Local Agent installation through
+the existing installation-control transport. `updateInstallations` is an optional
+capability, separate from installation selection. Core checks the authenticated
+owner and explicit device/lane; clients send only installation and operation IDs.
+The Execution Host rechecks the selected installation and uses its existing
+adapter-operation guard. Active or queued work rejects the request; no update
+queue or automatic retry is added. Accepted updates hold that guard until the
+installer exits and the selected launcher's version has been checked.
+
+The provider adapter owns installer eligibility and invocation. Initially only
+Claude Code's native macOS/Linux managed launcher is supported. Its native
+updater owns channel settings, managed policy, installer locking, and replacement
+of the launcher for future sessions. App bundles, package managers, custom
+launchers, injected arguments, and Windows retain manual maintenance. Advisory
+shell text is never executable authority. npm's latest tag does not describe
+native Claude's configured channel and is not used to label it outdated.
+
+Lane-local operation receipts are written before installer execution. Repeated
+operation IDs read the same receipt; IDs cannot move to another installation.
+Socket loss does not cancel an update. An unfinished receipt after Host loss
+is `outcome_unknown` and does not authorize replay or another automatic update.
+The owner must use the provider's terminal maintenance path in that case.
+Installer exit alone is insufficient: completion also requires the same selected
+launcher and a readable resulting version. Report synchronization remains a
+separate observation. Updates never own Wakeability or RuntimeCoordinator truth.
 
 A retained Service reports the installed managed CLI version, not its own
 carrier version. The CLI installer refreshes the existing local-components
@@ -330,6 +426,12 @@ controller sign-in checks, Skills alignment, diagnostics, and Project discovery
 continue as non-blocking background work. An explicit terminal-side Agent
 selection still prepares and reports the selected controllers before that
 explicit request completes.
+
+An explicit `--local-agents none` request, including ordinary Desktop Connect,
+must skip setup-owned Agent catalog discovery and repair. It still completes
+the same authenticated Service alignment and persists an empty selection.
+Service-owned background controller discovery and reporting remain independent
+of the Prepare catalog used for an explicit Agent selection.
 
 Background controller discovery submits each completed controller check without
 waiting for unrelated controllers to finish. Submission uses the existing
@@ -618,14 +720,34 @@ Only an explicit sign-in action may enter an interactive authorization flow.
 Antigravity's `agy --print /usage` can enter authentication and open browser
 login pages or request Keychain access. Until a provider-owned no-interaction
 contract is verified, both fresh and background ACI checks for the legacy CLI
-run only `--version`. The separately selected official ACP installation uses
-only the credential-free `initialize` handshake during inventory.
-They report authentication as unknown, an explicit warning explaining the
-unavailable checks, and Usage as `unsupported`. They must not claim signed-in
-readiness from installation alone or retain an old numeric quota without current
-account evidence. Status refresh cannot restore Antigravity authentication or
-quota verification in this version; users can inspect them directly in the
-Antigravity client. The legacy CLI execution transport remains available.
+run only `--version`. The legacy CLI reports installed with unknown account
+status, without an actionable warning for an unsupported check.
+
+The separately selected official ACP installation uses `initialize` followed by
+`session/new` to verify native account admission and obtain model config options.
+It never sends a prompt or calls `authenticate` during inventory or Wake. Google
+ACP 1.3.0 can itself attempt login from `session/new` when saved credentials are
+missing or invalid. All ACP entry points therefore use native file credential
+storage, a preflighted successful browser sink, and interception of the native
+login output. A passive login attempt fails as unauthenticated and closes the
+process; it cannot open a browser or request Keychain access. Network, timeout,
+and protocol failures remain incomplete checks, not signed-out evidence.
+
+Only `openmeld agents login antigravity` calls native `authenticate`. It displays
+a validated Google loopback authorization URL for the user to open. Cancel and
+the five-minute deadline close the process. Success requires session admission
+and a second process using the saved native sign-in. No tokens or account cache
+are copied into OpenMeld. Login, inventory and dispatch share the selected
+installation and native `GEMINI_HOME` configuration; they do not create provider
+instances. This file store may need its own explicit sign-in if the standalone
+client uses the system credential store. On Windows the browser sink requires
+Node on PATH and fails before server launch if its preflight cannot run.
+
+Fresh checks bypass the usual keeper TTL; process restarts rebuild account
+evidence from native session admission. A successful native session is local
+ACI evidence, not final Wakeability or proof of available quota. Usage remains
+`unsupported`; neither internal Google quota endpoints nor token-file parsing
+are part of this integration. The legacy CLI execution transport remains available.
 The shared Usage support matrix declares Antigravity unsupported so historical
 quota cannot become new capacity authority or authorize automatic recovery.
 
@@ -1256,15 +1378,23 @@ event; its HTTP inbox receipt alone is insufficient.
 Antigravity ACP uses the official `agy_acp_server.par` or `agy_acp_server.exe`
 installation and its adjacent `localharness_external` executable. It remains
 a separate selectable installation from the legacy `agy` CLI. Explicit execution
-authenticates with the native cached account (default `oauth-personal`, optionally
-`OPENMELD_ANTIGRAVITY_ACP_AUTH_METHOD`), with browser launch disabled and bounded
-authentication admission. Missing credentials produce a sign-in error.
+uses the account selected by explicit `agents login`, with browser launch
+disabled and bounded session admission. Wake never calls `authenticate`. Missing credentials produce a sign-in error.
 The adapter uses native `session/new`, `session/resume`, model configuration,
 advertised modes, dispatch MCP servers, and `session/cancel`. Native choice
 questions and permission requests reuse the current interaction UI; security
 warnings remain visible, and native "always" approval means this session.
 Unsupported modes, reasoning settings, and choices fail explicitly. Installation
 does not imply authenticated model access; background inventory never authenticates.
+
+Antigravity advertises Execution Context v5 and native permission inheritance.
+Core admits new/continued tasks only with `permissionSource: agent_settings`;
+explicit access restrictions and history forks fail before dispatch. The adapter
+also requires official ACP and verifies this scope at execution. Managed
+workspaces, writer admission, context-scoped ledgers, and completion identity
+reuse the Service context owners. Missing native history cannot be rebuilt for
+an assigned context. Old Services lack the permission-inheritance declaration
+and receive the existing update-required outcome.
 
 Provider abort or process exit must release any adapter-local waiter promptly.
 For a Binding with `codex:plan`, the local route resolves a Plan conversation
@@ -3461,9 +3591,26 @@ preserving dedupe for already-owned work. It keeps the current Runtime
 Transport socket connected, continues heartbeats and execution progress,
 waits for active local execution slots, flushes the existing durable dispatch
 result outbox, and waits for Core's durable-acceptance receipts before closing
-the socket. If the socket disappears during that wait, unacknowledged results
-remain in the same durable outbox for the next Service session; lifecycle code
-must not create a second result store.
+the socket. If the socket disappears during that wait, the connector exits
+without waiting for Host drain. The existing Service reconnect loop restores
+transport, and the existing controlled-stop coordinator carries the admitted
+stop cause into the replacement session. The stop caller stays pending until
+that session completes the drain, or the Service loop exits with failure.
+The coordinator observes one Host drain operation across connection replacements;
+repeated disconnects must not accumulate pending Host drain RPCs. A Host drain
+refusal or failure rejects the admitted stop with its original error and clears
+that failed observation so a later stop can check the Host again. Host errors
+from beginning drain or settling results also reject the admitted stop; only
+transport failures retain it for reconnect.
+The same Host retains accepted work and closed admission; unacknowledged results
+remain in the same durable outbox. Lifecycle code must not create a second
+result store or start a replacement execution for that work.
+
+A reply awaiting `accepted` or `review_required` still owns its execution slot:
+a review can require another provider turn in the same task. `retry_later` is
+not completion. Keep transport recovery and heartbeats available during this
+wait, including when a resumed stop skips ordinary session bootstrap. A retired
+connector's drain continuation must not settle or close a replacement connection.
 
 On a new registered connection generation, the same result outbox immediately
 replays each unacknowledged, non-terminal result once rather than waiting for
@@ -3490,9 +3637,9 @@ remain mandatory before any automatic force kill.
 
 The final stopping heartbeat must receive a successful Core acknowledgement.
 A rejected or timed-out heartbeat cannot be reported as a completed controlled
-shutdown. Already accepted work still drains before that failure is returned;
-network failure does not authorize interrupting it or assert that Core observed
-the stop. Core's existing freshness window remains the bound when no stop
+shutdown. A failed connector can retire while the Host still drains; an admitted
+control request remains pending across that reconnect. Network failure does not
+authorize interrupting accepted work or assert that Core observed the stop. Core's existing freshness window remains the bound when no stop
 heartbeat reaches it.
 
 Repeated process-discovery failures are aggregated within a bounded local log
@@ -3867,3 +4014,32 @@ Do not resume, inject, index, or
 copy source transcripts. Core owns caller authentication and verified human
 provenance; local Service enforces owner, reader, Project, and policy scope.
 This capability does not change Wake execution ownership or readiness.
+
+## Computer sleep prevention
+
+Computer power settings belong to the local Service execution host. The
+`computer-power.json` file in the Service data root is the only saved preference.
+It defaults off. The Desktop Personal > Desktop page and the selected Local
+Computer page use the same owner-authorized, explicit device/lane API and UI.
+They never save another preference in Desktop, the browser, or an Agent Profile.
+Writes carry the last observed revision; stale writes fail rather than overwrite.
+Disconnected and unsupported Services are unavailable, not unchecked.
+
+The execution host reconciles the preference with the canonical active execution
+slot count after ownership changes, including release. Queued tasks, observed
+external sessions, remote tasks, and an idle Service do not acquire a request.
+The last active local task ending, disabling the setting, or Service shutdown
+releases it. Cloud socket replacement and Desktop exit do not own the request.
+macOS uses `/usr/bin/caffeinate -i -w <host-pid>`; Windows uses the bundled native
+helper with `ES_CONTINUOUS | ES_SYSTEM_REQUIRED` on one thread until the
+Service-owned input pipe closes. Neither requests display wakefulness or changes
+system power settings. Forced sleep, closing the lid, low battery, and shutdown
+remain operating-system decisions. Linux reports unsupported in this version.
+
+The `x-openmeld-computer-power: 1` handshake negotiates the capability without
+adding unknown fields to older strict registration payloads. Core validates the
+human owner and selected Computer, and the transport resolves the latest exact
+owner/device/lane session. The execution host checks the device again. Read
+responses include saved preference, actual held-request state, and a problem
+when acquisition fails. Both UI entries refresh every five seconds and on focus;
+mutations update the shared account/device/lane query immediately after confirmation.

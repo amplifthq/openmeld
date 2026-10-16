@@ -50,6 +50,7 @@ import type {
 import { createPilotServiceHandlers } from "./pilot-service";
 import { registerOpenMeldIpcHandlers } from "./register-ipc";
 import { assertTrustedRenderer } from "./renderer-trust";
+import { createStartupSettings } from "./startup-settings";
 import {
   createTrayTemplateImage,
   hasTrayUnreadDot,
@@ -127,7 +128,8 @@ type SyncTrayOptions = {
 };
 
 function createMainWindow(
-  initialDestination?: DesktopWindowDestination
+  initialDestination?: DesktopWindowDestination,
+  showOnReady = true
 ): BrowserWindow {
   const appIcon = createAppIcon();
   const options: BrowserWindowConstructorOptions = {
@@ -155,7 +157,11 @@ function createMainWindow(
   }
 
   const window = new BrowserWindow(options);
-  window.maximize();
+  if (showOnReady) {
+    window.maximize();
+  } else {
+    window.once("show", () => window.maximize());
+  }
   pilot?.observeWindow(window.webContents);
 
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -184,7 +190,9 @@ function createMainWindow(
   });
 
   window.once("ready-to-show", () => {
-    window.show();
+    if (showOnReady) {
+      window.show();
+    }
   });
 
   window.on("close", (event) => {
@@ -892,6 +900,7 @@ if (hasSingleInstanceLock) {
 function bootstrapApp(): void {
   runBackgroundTask(
     app.whenReady().then(() => {
+      const startupSettings = createStartupSettings(app);
       pilot?.install(authorizeRenderer);
       const nativeUpdatesEnabled =
         app.isPackaged &&
@@ -941,12 +950,7 @@ function bootstrapApp(): void {
       handlers = createDesktopHandlers({
         commandDeps,
         openExternal: shell.openExternal,
-        desktopSettings: {
-          getOpenAtLogin: () => app.getLoginItemSettings().openAtLogin,
-          setOpenAtLogin: (openAtLogin) => {
-            app.setLoginItemSettings({ openAtLogin });
-          },
-        },
+        desktopSettings: startupSettings,
         desktopUpdate: {
           getStatus: updater.legacyStatus,
           openDownloadPage: async () => {
@@ -973,7 +977,7 @@ function bootstrapApp(): void {
       ipcMain.handle(WINDOW_IPC.enterApp, (event) => {
         authorizeRenderer(event);
         const window = BrowserWindow.fromWebContents(event.sender);
-        if (window && !window.isDestroyed()) {
+        if (window && !window.isDestroyed() && window.isVisible()) {
           window.maximize();
         }
       });
@@ -982,7 +986,15 @@ function bootstrapApp(): void {
         quitDesktop();
       });
       createTray();
-      showStatusWindow();
+      let startInBackground = false;
+      try {
+        startInBackground = startupSettings.shouldStartInBackground();
+      } catch (error) {
+        console.warn("[openmeld.desktop.startup_settings_unavailable]", error);
+      }
+      if (mainWindow === null) {
+        mainWindow = createMainWindow(undefined, !startInBackground);
+      }
       appUpdater.check()?.catch(console.error);
     })
   );

@@ -8,6 +8,11 @@ import {
   type RemoteAgentStorage,
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
+import { normalizeRemoteAgentCompletedAnswer } from "../agent-core/completed-answer";
+import {
+  buildRemoteAgentExecutionIdentity,
+  hasRemoteAgentExecutionStopIntent,
+} from "../agent-core/execution-state";
 import {
   createRemoteAgentTerminalFailureFact,
   type RemoteAgentTerminalFailureFact,
@@ -22,6 +27,20 @@ import type { AgentComputer } from "./computer-workspace";
 const CLEANUP_PREFIX = "openmeld:remote-agent:computer-cleanup:";
 const FINISH_FACTS_PREFIX = "openmeld:remote-agent:computer-finish-facts:";
 const HANDOFF_ATTEMPTS = 8;
+
+// Call after terminal CAS and before publication, including crash recovery.
+// A cancellation can win the CAS after the finish observer last read state.
+export async function retainTerminalComputerStop(input: CleanupInput) {
+  if (
+    input.context &&
+    (await hasRemoteAgentExecutionStopIntent({
+      identity: buildRemoteAgentExecutionIdentity(input.context),
+      storage: input.storage,
+    }))
+  ) {
+    await requestComputerCleanup(input);
+  }
+}
 
 // This is a Stop delivery obligation, not a second process owner. Only the
 // Computer's original receipts establish execution/exit/synchronization.
@@ -219,59 +238,107 @@ export async function listComputerCleanupHandoffs(storage: RemoteAgentStorage) {
  * A newly discovered fact invalidates an unreviewed success, not stored results.
  */
 export async function finishRemoteAgentComputerCommands(
-  input: CleanupInput & { assistantText?: string }
+  input: CleanupInput & { assistantText?: string; requestStop?: boolean }
 ): Promise<RemoteAgentTerminalFailureFact | null> {
-  const cleanup = await requestComputerCleanup(input);
-  if (!cleanup) {
+  const submissionId =
+    input.context?.submissionId ?? input.retained?.submissionId;
+  if (!submissionId) {
     return null;
   }
-  const reviewed = await input.storage.get(
-    FINISH_FACTS_PREFIX + cleanup.submissionId
+  const existing = await input.storage.get<ComputerCleanupHandoff>(
+    CLEANUP_PREFIX + submissionId
   );
+  // Model completion is not Stop authority. Only an explicit failed/cancelled
+  // execution or an existing durable handoff may ask the Computer to stop.
+  const stopRequired = input.requestStop === true || existing !== undefined;
+  const cleanup = stopRequired ? await requestComputerCleanup(input) : null;
+  let state = cleanup?.state ?? null;
+  if (!stopRequired) {
+    try {
+      state = await readComputerFinishState(input);
+    } catch (error) {
+      console.warn("[remote_agent.computer_finish.confirmation_failed]", {
+        submissionId,
+        errorName: error instanceof Error ? error.name : "Error",
+      });
+    }
+  }
+  const reviewed = await input.storage.get(FINISH_FACTS_PREFIX + submissionId);
   // Cleanup progress cannot upgrade an already explained blocked task to
   // success. The model's reviewed disposition belongs to the original turn.
   if (
     !reviewed &&
-    cleanup.accepted &&
-    cleanup.state?.unfinished === 0 &&
-    cleanup.state.pendingResults === 0 &&
-    cleanup.state.unavailable === 0
+    (!stopRequired || cleanup?.accepted) &&
+    state?.unfinished === 0 &&
+    state.pendingResults === 0 &&
+    state.unavailable === 0
   ) {
     return null;
   }
+  let error =
+    "Computer results could not be confirmed. Original command receipts and saved results are retained. Check the command status before continuing.";
+  if (stopRequired) {
+    error = cleanup?.accepted
+      ? "Computer results or process termination could not be confirmed. Original command receipts and saved results are retained."
+      : "Computer cleanup has not acknowledged Stop. Original command receipts and saved results are retained; process termination is unknown.";
+  }
+  const explanationText = computerFailureExplanation(
+    input.assistantText,
+    reviewed
+  );
   return {
     ...createRemoteAgentTerminalFailureFact({
       status: "failed",
-      error: cleanup.accepted
-        ? "Computer results or process termination could not be confirmed. Original command receipts and saved results are retained."
-        : "Computer cleanup has not acknowledged Stop. Original command receipts and saved results are retained; process termination is unknown.",
+      error,
     }),
     code: REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE,
-    // The explanation describes the snapshot delivered to the original model.
-    // Background collection can advance before callback publication; it must
-    // not erase that business result or promote the task to success. Publish
-    // the latest cleanup projection separately from the reviewed explanation.
-    ...(typeof reviewed === "string" && input.assistantText?.trim()
-      ? { explanationText: input.assistantText.trim() }
-      : {}),
+    // Retain canonical answer content independently of execution success.
+    // Recovery can settle that answer without another finish-hook cycle.
+    // Only reviewed facts permit an unqualified explanation; otherwise the
+    // terminal owner labels the saved answer as unverified. Never use a stream.
+    ...(explanationText ? { explanationText } : {}),
     computerCleanup: {
-      stopAccepted: cleanup.accepted,
-      automaticRetryPaused:
-        cleanup.nextAttemptAtMs === null &&
-        (!cleanup.accepted ||
-          (!cleanup.computerName &&
-            !!cleanup.state &&
-            (cleanup.state.unfinished > 0 ||
-              cleanup.state.pendingResults > 0)) ||
-          !!cleanup.state?.commands.some(
-            (command) =>
-              command.collection?.nextAttemptAtMs === null &&
-              !command.resultUnavailable &&
-              !(command.terminationConfirmed && command.filesSynced)
-          )),
-      state: cleanup.state,
+      stopAccepted: cleanup?.accepted ?? false,
+      automaticRetryPaused: isComputerRecoveryPaused(cleanup, state),
+      state,
     },
   };
+}
+
+function computerFailureExplanation(
+  canonicalAnswer: string | undefined,
+  reviewed: unknown
+): string | undefined {
+  const answer = canonicalAnswer?.trim();
+  if (!answer) {
+    return undefined;
+  }
+  return normalizeRemoteAgentCompletedAnswer(
+    typeof reviewed === "string"
+      ? answer
+      : `Computer work is not confirmed complete. The response below was saved before the final check; any completion claims are unverified. Check the original command before repeating an action.\n\n**Agent response before the final Computer check**\n\n${answer}`
+  );
+}
+
+function isComputerRecoveryPaused(
+  cleanup: ComputerCleanupHandoff | null,
+  state: CloudComputerInvocationState | null
+): boolean {
+  return (
+    !!state?.commands.some(
+      (command) =>
+        command.collection?.nextAttemptAtMs === null &&
+        (command.collection.observationExpiresAtMs ?? 0) <= Date.now() &&
+        !command.resultUnavailable &&
+        !(command.terminationConfirmed && command.filesSynced)
+    ) ||
+    (!!cleanup &&
+      cleanup.nextAttemptAtMs === null &&
+      (!cleanup.accepted ||
+        (!cleanup.computerName &&
+          !!state &&
+          (state.unfinished > 0 || state.pendingResults > 0))))
+  );
 }
 
 export async function retryComputerCleanupHandoffs(

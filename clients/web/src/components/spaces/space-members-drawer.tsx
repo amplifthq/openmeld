@@ -86,7 +86,6 @@ import {
 	buildOrganizationDirectoryAddCandidates,
 	buildPersonalAddMemberGroups,
 	buildSelectableAddMemberProfileIds,
-	filterAddMemberGroups,
 	type OrganizationDirectoryAddCandidates,
 	resolveEffectiveAddMemberProfileIds,
 	type SpaceAddMembersCandidateGroups,
@@ -1027,7 +1026,6 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		],
 		[candidateGroups]
 	);
-	const normalizedAddQuery = addQuery.trim().toLocaleLowerCase();
 	useEffect(() => {
 		if (!input.open) {
 			preselectedRun.current = null;
@@ -1082,10 +1080,6 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		activeSpaceId,
 		allCandidates,
 	]);
-	const visibleCandidateGroups = useMemo(
-		() => filterAddMemberGroups(candidateGroups, normalizedAddQuery),
-		[candidateGroups, normalizedAddQuery]
-	);
 	const selectableProfileIds = useMemo(() => {
 		return buildSelectableAddMemberProfileIds(allCandidates);
 	}, [allCandidates]);
@@ -1268,7 +1262,7 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		addQuery,
 		allCandidates,
 		canSubmit,
-		candidateGroups: visibleCandidateGroups,
+		candidateGroups,
 		clearMessages,
 		conversionRequest,
 		directoryQuery,
@@ -1328,12 +1322,14 @@ function SpaceAddProfilesSectionView({
 					model.setSelectedProfileIds(new Set());
 					model.clearMessages();
 				}}
-				onCreated={(agent) => {
+				onCreated={(agent, selected) => {
 					model.onAgentCreated(agent);
 					model.setAddQuery("");
-					model.setSelectedProfileIds(
-						(current) => new Set([...current, agent.profileId])
-					);
+					if (selected) {
+						model.setSelectedProfileIds(
+							(current) => new Set([...current, agent.profileId])
+						);
+					}
 				}}
 				onOpenChange={model.handleOpenChange}
 				onRetryDirectory={() => {
@@ -1411,7 +1407,10 @@ async function executeSpaceAddProfilesMutation(input: {
 }
 
 type SpaceAddProfilesDialogProps = {
-	onCreated: (agent: SpaceAddMembersCandidateSummary) => void;
+	onCreated: (
+		agent: SpaceAddMembersCandidateSummary,
+		selected: boolean
+	) => void;
 	addQuery: string;
 	canSubmit: boolean;
 	candidateGroups: SpaceAddMembersCandidateGroups;
@@ -1553,6 +1552,7 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 				!input.snapshot || (waitsForDirectory && input.directoryIsPending)
 			}
 			isSubmitting={input.isSubmitting}
+			key={`${input.orgSlug}:${input.spaceId ?? "new"}`}
 			notice={
 				<>
 					{input.usesOrganizationDirectory && input.directoryIsError ? (

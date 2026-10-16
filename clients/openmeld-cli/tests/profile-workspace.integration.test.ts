@@ -58,6 +58,65 @@ async function readLocalMetaFile(openMeldProfileId: string): Promise<unknown> {
 }
 
 describe("profile workspace service", () => {
+  it.each([
+    "file",
+    "read_only",
+  ])("preserves the saved choice when managed preparation fails: %s", async (failure) => {
+    await withTempHome(async (home) => {
+      const openMeldProfileId = "agt-managed-preparation";
+      const customWorkspacePath = join(home, "original-folder");
+      await mkdir(customWorkspacePath);
+      await setCustomProfileWorkspace({
+        openMeldProfileId,
+        customWorkspacePath,
+      });
+      const before = await readLocalMetaFile(openMeldProfileId);
+      const managedPath = accountProfileWorkspacePath(
+        FALLBACK_ACCOUNT,
+        openMeldProfileId
+      );
+      await mkdir(dirname(managedPath), { recursive: true });
+      if (failure === "file") {
+        await writeFile(managedPath, "Keep this file");
+      } else {
+        await mkdir(managedPath);
+        await chmod(managedPath, 0o555);
+      }
+      try {
+        await expect(
+          ensureOpenMeldManagedProfileWorkspace({ openMeldProfileId })
+        ).rejects.toThrow();
+        expect(await readLocalMetaFile(openMeldProfileId)).toEqual(before);
+        // Old managed configurations must also fail inspection and dispatch,
+        // rather than advertising a folder that cannot accept work.
+        await writeLocalMetaFile({
+          openMeldProfileId,
+          payload: {
+            v: 2,
+            openMeldProfileId,
+            updatedAt: new Date().toISOString(),
+            workspace: { mode: "openmeld_managed" },
+          },
+        });
+        for (const mode of ["inspect", "dispatch"] as const) {
+          expect(
+            await resolveProfileWorkspaceRuntimeForAccount({
+              account: FALLBACK_ACCOUNT,
+              openMeldProfileId,
+              mode,
+            })
+          ).toMatchObject({
+            status: "invalid",
+            reasonCode: "workspace.invalid",
+          });
+        }
+      } finally {
+        if (failure === "read_only") {
+          await chmod(managedPath, 0o755);
+        }
+      }
+    });
+  });
   it("keeps a native import observation separate from later explicit folder choices", async () => {
     await withTempHome(async (home) => {
       const profileId = "agt-imported-workspace";

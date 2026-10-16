@@ -249,6 +249,27 @@ bundle hashes. Existing saved profile selections remain unchanged.
 
 ### 5.3 Maintenance Workflow
 
+The October 14, 2026 Gemini 4 review adds only captured channel identities:
+Antigravity ACP `gemini-4-argon-medium`, Cursor ACP
+`gemini-4-argon[reasoning_effort=medium]`, OpenCode
+`openrouter/google/gemini-4-argon`, and hosted OpenRouter
+`google/gemini-4-argon`. The first two encode reasoning in the model ID;
+the OpenRouter routes support low, medium, and high. Native inventory and
+OpenRouter capability captures live beside the catalog contract tests.
+Account access remains provider-owned. Google API availability does not prove
+OpenCode Zen/Go or other controller availability. Defaults and the fixed CLI
+offline snapshot are unchanged.
+
+The review account could select Argon through Antigravity ACP 1.3.0, but a
+direct native prompt returned `Requested entity was not found.` as an assistant
+message with `stopReason: end_turn`. The same account failed before publishing
+a Space reply. This is not successful inference evidence or a global model
+withdrawal. Cursor's review account rejected named-model inference because its
+Free plan allows only Auto. OpenRouter routes have captured inventory and
+request/tool-continuation contract coverage; this review does not claim paid
+inference on those routes. Do not turn catalog availability into a promise of
+account entitlement or silently switch a saved model after a provider failure.
+
 1. Edit `release/vendor-models.json` to add or retire a model, change availability,
    defaults, or reasoning options within the supported catalog schema.
 2. Review the PR and validate it against `packages/schemas`. In particular,
@@ -283,6 +304,11 @@ sources and verification hints. OpenClaw and hosted Center Agent policy remain
 out of this collector's scope. Official Markdown documents and release notes
 are captured with their URLs and observation time. Models.dev is discovery-only;
 its provider IDs and reasoning metadata are not harness compatibility proof.
+OpenCode discovery includes the curated OpenCode, OpenCode Go, OpenAI, Meta,
+and OpenRouter providers. Meta and OpenRouter entries are review candidates,
+not automatic catalog additions or proof of account access. Preserve each
+provider's exact model ID, including nested names such as
+`openrouter/meta/muse-wonder`, until authenticated OpenCode verification.
 The configured `discoverySince` excludes historical, never-curated marketplace
 models while retaining metadata for currently cataloged models. Keep this date
 stable so a moving cutoff cannot hide an unreviewed candidate.
@@ -396,6 +422,16 @@ reader, or a controller adapter selects the corresponding additional components.
 
 ### Practical retirement and recovery
 
+The October 14 follow-up review adds Liquid LFM2.5-24B-A2B and Pareto 26.9
+through OpenRouter after successful native OpenCode 1.19.0 probes. Zen Gemini
+and both Cat Jam routes are deferred because of provider credential,
+subscription and free-tier request restrictions; no adapter defect was found.
+Defaults and saved selections do not change. GPT-5.5 still completed
+a native ChatGPT-sign-in probe on its announced retirement date, so its notice
+remains announced, with a refreshed verification time. See
+[the review evidence](../../release/model-catalog-evidence/review-1710.md)
+for account-specific execution results and remaining acceptance limits.
+
 The existing Action's retirement recheck section includes all currently cataloged
 models, independent of the new-model discovery cutoff. It preserves reviewed
 notices and extracts relevant official passages. A reviewer records **stopped,
@@ -508,14 +544,25 @@ is a hosted-runtime policy catalog, not a local Agent Profile controller:
   list; there is no second model catalog. Public catalog callers opt in with
   `personalRemoteAgentDefault=1`; the legacy response omits the new field so
   published strict-schema CLI clients continue to read the catalog.
-- The curated list covers six model vendors: OpenAI (GPT-6 Astra, GPT-6 Sol, GPT-5.6 Sol,
+- The curated list covers seven model vendors: OpenAI (GPT-6 Astra, GPT-6 Sol, GPT-5.6 Sol,
   GPT-6 Astra (Pro mode), GPT-6.1 Sol, GPT-6.1 Sol (Pro mode), GPT-6 Luna,
   GPT-5.6 Terra, and GPT-5.6 Luna), Anthropic (Claude Fable 5.1, Claude Fable 5,
   Claude Opus 5.5, Claude Opus 5, Claude Sonnet 5.5, and Claude Sonnet 5), Google (Gemini 3.8 Flash,
   Gemini 3.5 Flash Lite, and Gemini 3.1 Pro Preview), DeepSeek (V4.1 Flash and
-  V4 Flash), xAI (Grok 4.7, Grok 4.6, and Grok 4.5), and Z.ai (GLM 5.3 Flash). Exact
+  V4 Flash), xAI (Grok 4.7, Grok 4.6, and Grok 4.5), Z.ai (GLM 5.3 Flash), and Meta (Muse Wonder). Exact
   OpenRouter IDs remain in `release/vendor-models.json`; a preview model remains
   labeled Preview.
+- Meta Muse Wonder uses the exact OpenRouter ID `meta/muse-wonder` for both
+  Center Agent and personal Remote Agent. The 2026-10-13 provider capture confirms
+  a 1,048,576-token context, text/image input, and six reasoning efforts from
+  `minimal` through `max`. OpenMeld keeps its 16,384-token output budget and
+  `medium` default. A live gateway probe completed a tool call and its result
+  continuation. Meta currently accepts only automatic tool choice; the hosted
+  adapter retains that behavior. Native OpenCode 1.18.34 also lists
+  `openrouter/meta/muse-wonder` after refreshing its inventory. This confirms
+  the native model ID and variants, not local account credentials or inference.
+  The direct Meta provider remains discovery evidence until the installed
+  native controller exposes it.
 - A hosted model may declare one optional `badgeLabel` as catalog-owned
   selector presentation metadata. Core projects the same label onto the
   explicit model choice and the OpenMeld-default choice when that model is the

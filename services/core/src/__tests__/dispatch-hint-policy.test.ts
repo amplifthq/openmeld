@@ -175,6 +175,17 @@ describe("resolveDispatchFailureHintText", () => {
     ).toBe("@Center Agent no longer exists");
   });
 
+  it("explains missing task history in the published failure receipt", () => {
+    expect(
+      resolveDispatchFailureHintText({
+        errorCode: "execution_context.source_unavailable",
+        targetProfileLabel: 'Agent "ops-bot"',
+      })
+    ).toBe(
+      "The selected task is not available to continue or fork. Select an available task that you started, or start a new task."
+    );
+  });
+
   it("falls back to generic visible copy for codes outside the allowlist", () => {
     expect(
       resolveDispatchFailureHintText({

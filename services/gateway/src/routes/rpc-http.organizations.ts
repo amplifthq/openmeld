@@ -602,6 +602,9 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
       execute: async () =>
         await c.var.coreRpc.readCenterAgentOrganizationMemoryPolicy({
           context: buildCoreRpcContext(c),
+          ...(c.req.query("includeAvailability") === "true"
+            ? { includeAvailability: true }
+            : {}),
         }),
     })
   );

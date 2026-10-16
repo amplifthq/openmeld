@@ -3975,6 +3975,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ["builtin:codex", true],
     ["builtin:claude-code", false],
     ["builtin:claude-code", true],
+    ["builtin:antigravity", false],
+    ["builtin:antigravity", true],
   ] as const)("inherits native settings for %s regardless of requester ownership (%s)", async (agentControllerRef, ownerRequested) => {
     const { hub, storageRecords } = await createContextHarness({
       bindingControllerRef: agentControllerRef,
@@ -4076,26 +4078,34 @@ describe("runtime transport runtime coordinator transport contract", () => {
       | "space_context"
       | undefined
     )[]) {
-      const next = await storage.transaction((transaction) =>
-        prepareExecutionContextAssignment({
-          contextModeActive: true,
-          storage: transaction,
-          record: {
-            ...plan.record,
-            acceptedDispatchSnapshot: {
-              ...firstSnapshot,
-              contextRequest: {
-                ...contextRequest,
-                selection: {
-                  mode: "new",
-                  ...(access ? { access } : { workspace: "isolated" }),
+      const prepareNext = () =>
+        storage.transaction((transaction) =>
+          prepareExecutionContextAssignment({
+            contextModeActive: true,
+            storage: transaction,
+            record: {
+              ...plan.record,
+              acceptedDispatchSnapshot: {
+                ...firstSnapshot,
+                contextRequest: {
+                  ...contextRequest,
+                  selection: {
+                    mode: "new",
+                    ...(access ? { access } : { workspace: "isolated" }),
+                  },
                 },
+                payloadFingerprint: `sha256:${"c".repeat(64)}`,
               },
-              payloadFingerprint: `sha256:${"c".repeat(64)}`,
             },
-          },
-        })
-      );
+          })
+        );
+      if (agentControllerRef === "builtin:antigravity" && access) {
+        await expect(prepareNext()).rejects.toThrow(
+          "controller_access_unsupported"
+        );
+        continue;
+      }
+      const next = await prepareNext();
       expect(
         next.record.acceptedDispatchSnapshot?.executionContext?.permissionSource
       ).toBe(access ? undefined : "agent_settings");
@@ -5340,6 +5350,89 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(sentFrames).not.toContainEqual(
       expect.objectContaining({ code: "daemon.session_history.request" })
     );
+  });
+
+  it("round-trips Computer power through the exact capable Service", async () => {
+    const { hub, sentFrames, socket, state } = await createHarness();
+    configureCompatibleRoute({ socket, state });
+    const session = state.sessionsById.get("daemon-session-1");
+    if (!session) {
+      throw new Error("Expected session");
+    }
+    session.capabilities = { ...session.capabilities, computerPower: true };
+    state.sessionIdBySocket.set(socket, "daemon-session-1");
+    Object.defineProperty(hub, "currentDeviceOperationWaiters", {
+      value: new Map(),
+    });
+    const request = { operation: "update", enabled: true, expectedRevision: 0 };
+    const result = {
+      enabled: true,
+      revision: 1,
+      active: false,
+      supported: true,
+      problem: null,
+    };
+    const responsePromise = fetchRuntimeTransportJson(hub, "/computer-power", {
+      deviceId: "device-1",
+      lane: "dev-local",
+      ownerUserId: "owner-1",
+      requestId: "power-1",
+      request,
+    });
+    await vi.waitFor(() =>
+      expect(sentFrames).toContainEqual(
+        expect.objectContaining({
+          code: "daemon.computer_power.request",
+          payload: { deviceId: "device-1", requestId: "power-1", request },
+        })
+      )
+    );
+    RuntimeTransportHub.prototype.webSocketMessage.call(
+      hub,
+      socket,
+      JSON.stringify({
+        v: 1,
+        code: "daemon.computer_power.request_result",
+        payload: { requestId: "power-1", result },
+      })
+    );
+    await expect((await responsePromise).json()).resolves.toEqual(result);
+  });
+
+  it.each([
+    "unsupported",
+    "other-owner",
+    "other-device",
+    "other-lane",
+  ])("does not send Computer power to %s", async (scenario) => {
+    const { hub, sentFrames, socket, state } = await createHarness();
+    configureCompatibleRoute({ socket, state });
+    const session = state.sessionsById.get("daemon-session-1");
+    if (!session) {
+      throw new Error("Expected session");
+    }
+    if (scenario !== "unsupported") {
+      session.capabilities = { ...session.capabilities, computerPower: true };
+    }
+    const response = await fetchRuntimeTransportJson(hub, "/computer-power", {
+      deviceId: scenario === "other-device" ? "device-2" : "device-1",
+      lane: scenario === "other-lane" ? "canary" : "dev-local",
+      ownerUserId: scenario === "other-owner" ? "owner-2" : "owner-1",
+      requestId: "power-denied",
+      request: { operation: "read" },
+    });
+    await expect(response.json()).resolves.toMatchObject({
+      status: "rejected",
+    });
+    expect(
+      sentFrames.some(
+        (frame) =>
+          typeof frame === "object" &&
+          frame !== null &&
+          "code" in frame &&
+          frame.code === "daemon.computer_power.request"
+      )
+    ).toBe(false);
   });
 
   it("round-trips Computer file access only through a capable exact session", async () => {
@@ -14802,6 +14895,107 @@ describe("runtime transport runtime coordinator transport contract", () => {
       requestId: `wake-stop:${RUNTIME_COORDINATOR_EXECUTION_ID}`,
       reliability: "native_interrupt",
     });
+  });
+
+  it("keeps Wake Stop authoritative when pending-input cancellation finishes before control delivery", async () => {
+    const reportGate = Promise.withResolvers<void>();
+    const reportStarted = Promise.withResolvers<void>();
+    const {
+      hub,
+      recordingPostgres,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+      spaceStub,
+      waitUntilTasks,
+    } = await createHarness({
+      agentControllerReportReadGate: reportGate.promise,
+      agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+      onAgentControllerReportRead: reportStarted.resolve,
+    });
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    enableWakeStopControl(state);
+    enableLocalAgentInteraction(state);
+    const interactionHub = hub as unknown as {
+      handleDispatchInteractionRequestFrame: (
+        socket: WebSocket,
+        payload: unknown
+      ) => Promise<void>;
+      handleDispatchInteractionDeliveredFrame: (
+        socket: WebSocket,
+        payload: unknown
+      ) => Promise<void>;
+      handleDispatchResultFrame: (
+        socket: WebSocket,
+        payload: unknown
+      ) => Promise<void>;
+    };
+    await interactionHub.handleDispatchInteractionRequestFrame(
+      socket,
+      buildInteractionRequest(executionToken)
+    );
+    const stop = requestRuntimeCoordinatorWakeStop(hub);
+    try {
+      await reportStarted.promise;
+      expect(sentFrames).toContainEqual(
+        expect.objectContaining({
+          code: "daemon.dispatch.interaction_response",
+          payload: expect.objectContaining({ response: { kind: "cancel" } }),
+        })
+      );
+      await interactionHub.handleDispatchInteractionDeliveredFrame(
+        socket,
+        buildInteractionDeliveredRequest(executionToken)
+      );
+      expect(
+        findRuntimeCoordinatorRunCommandState(storageRecords)
+      ).toMatchObject({
+        lastCommandReasonCode: "runtime_coordinator.wake_stop_requested",
+        pendingInteraction: null,
+      });
+      const result = buildResultRequest({
+        executionTokenEcho: buildExecutionTokenEcho(executionToken),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        taskResult: buildFailedVisibleTaskResult(),
+      });
+      if (result.taskResult.payload.status !== "failed") {
+        throw new Error("Expected the captured cancellation failure shape.");
+      }
+      result.taskResult.payload.errorCode = "interaction.cancelled";
+      result.taskResult.payload.errorMessage =
+        "The local agent request was cancelled before Codex received an answer.";
+      await interactionHub.handleDispatchResultFrame(socket, result);
+      await Promise.all(waitUntilTasks.splice(0));
+      expect(sentFrames).toContainEqual(
+        expect.objectContaining({
+          code: "daemon.dispatch.accepted",
+          payload: expect.objectContaining({ ok: true }),
+        })
+      );
+      expect(
+        await recordingPostgres.projectionRows.get(
+          RUNTIME_COORDINATOR_EXECUTION_ID
+        )
+      ).toMatchObject({
+        status: "cancelled",
+      });
+      expect(
+        spaceStub.rpcApplyRuntimeCoordinatorWakeStopCommand
+      ).toHaveBeenCalled();
+      expect(
+        spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand
+      ).not.toHaveBeenCalled();
+    } finally {
+      reportGate.resolve();
+      await stop;
+      await Promise.all(waitUntilTasks.splice(0));
+    }
   });
 
   it("suppresses a success reply when it arrives after Wake Stop is requested before reply finalization", async () => {

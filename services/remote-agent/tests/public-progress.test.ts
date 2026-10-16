@@ -3,6 +3,7 @@ import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
   type RemoteAgentCoreWorkerBinding,
+  readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
 import { createHostedPublicProgressTool } from "../flue-adapter/public-progress";
 import { createRemoteAgentStreamPublisher } from "../flue-adapter/streaming";
@@ -12,7 +13,11 @@ import { InMemoryDurableObjectStorage } from "./storage";
 const SUBMISSION_ID = "submission_public_progress";
 
 describe("hosted public progress", () => {
-  it("publishes an explicitly authored update through the transient Space stream", async () => {
+  it.each([
+    "accepted",
+    "duplicate_accepted",
+    "rejected",
+  ] as const)("reports visible progress only for a Core acceptance (%s)", async (status) => {
     const storage = new InMemoryDurableObjectStorage();
     const request = createSubmitTurnRequest();
     await putRemoteAgentCallbackContext(
@@ -31,21 +36,46 @@ describe("hosted public progress", () => {
       })
     );
     const submitRemoteAgentStreamDelta = vi.fn(
-      async (body: { sequence: number }) => ({
-        status: "accepted" as const,
-        lastSequence: body.sequence,
-      })
+      async (body: { kind?: string; sequence: number }) =>
+        body.kind === "progress" && status === "rejected"
+          ? {
+              status,
+              lastSequence: body.sequence,
+              reasonCode: "agent_stream.terminal",
+            }
+          : {
+              status: body.kind === "progress" ? status : ("accepted" as const),
+              lastSequence: body.sequence,
+            }
     );
+    const publisher = createRemoteAgentStreamPublisher();
+    const context = await readRemoteAgentCallbackContext(
+      storage,
+      SUBMISSION_ID
+    );
+    if (!context) {
+      throw new Error("Missing progress callback context");
+    }
+    for (const offset of [0, 1]) {
+      await publisher.push({
+        context,
+        coreWorker: { submitRemoteAgentStreamDelta },
+        storage,
+        kind: "thinking",
+        delta: "Reasoning stays separate. ",
+        observedAtMs: TEST_NOW_MS + offset,
+      });
+    }
     const tool = createHostedPublicProgressTool({
       coreWorker: { submitRemoteAgentStreamDelta },
       storage,
-      streamPublisher: createRemoteAgentStreamPublisher(),
+      streamPublisher: publisher,
       submissionId: SUBMISSION_ID,
     });
 
     await expect(
       tool.execute({ update: "Checking the current Space context." })
-    ).resolves.toEqual({ shown: true });
+    ).resolves.toEqual({ shown: status !== "rejected" });
     expect(submitRemoteAgentStreamDelta).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: "progress",

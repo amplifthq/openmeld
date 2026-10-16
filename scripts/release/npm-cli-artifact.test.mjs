@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,6 +14,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   admitNpmCliArtifact,
+  assertNoNativeCompilation,
   assertNpmRuntimeDependencies,
   inspectNpmCliArtifact,
   packNpmCliArtifact,
@@ -26,6 +28,25 @@ const MISSING_WINDOWS_HELPER =
   /missing package\/dist\/windows\/openmeld-windows-process\.exe/u;
 const INVALID_INTEGRITY = /bytes do not match/u;
 const DIRTY_WORKTREE = /clean worktree/u;
+const NATIVE_COMPILATION = /native compilation/u;
+const VERIFIED_TARBALL = /verified CLI tarball/u;
+const CHANGED_TARBALL = /changed after consumer verification/u;
+
+test("consumer install rejects compilation evidence without rejecting successful prebuild lifecycle text", () => {
+  assert.doesNotThrow(() =>
+    assertNoNativeCompilation(
+      "> prebuild-install || node-gyp rebuild --release\nadded 38 packages"
+    )
+  );
+  for (const output of [
+    "gyp info using node-gyp@10.1.0",
+    "gyp ERR! configure error",
+    "prebuild-install warn install No prebuilt binaries found",
+    "  CXX(target) Release/obj.target/better_sqlite3.o",
+  ]) {
+    assert.throws(() => assertNoNativeCompilation(output), NATIVE_COMPILATION);
+  }
+});
 
 function fixture(dependencies = {}) {
   const root = mkdtempSync(join(tmpdir(), "openmeld npm fixture "));
@@ -39,7 +60,23 @@ function fixture(dependencies = {}) {
     join(root, "pnpm-workspace.yaml"),
     "packages:\n  - clients/*\ncatalog:\n  zod: 4.6.5\n"
   );
-  writeFileSync(join(root, ".gitignore"), "dev-tmp/\n");
+  writeFileSync(join(root, ".gitignore"), "dev-tmp/\nnode_modules/\n");
+  const adapter = join(root, "clients/internal-adapter");
+  mkdirSync(adapter);
+  writeFileSync(
+    join(adapter, "package.json"),
+    JSON.stringify({
+      name: "@openmeld/adapter-fixture",
+      version: "0.0.1",
+      private: true,
+    })
+  );
+  mkdirSync(join(cli, "node_modules/@openmeld"), { recursive: true });
+  symlinkSync(
+    adapter,
+    join(cli, "node_modules/@openmeld/adapter-fixture"),
+    "junction"
+  );
   const manifest = {
     name: "openmeld",
     version: "0.0.1",
@@ -47,11 +84,9 @@ function fixture(dependencies = {}) {
     bin: { openmeld: "dist/openmeld.js" },
     files: ["README.md", "dist"],
     dependencies,
-    devDependencies: { "not-a-runtime-package": "workspace:*" },
+    devDependencies: { "@openmeld/adapter-fixture": "workspace:*" },
     openmeld: { minRequiredCliVersion: "0.0.1" },
   };
-  // Do not resolve synthetic dev workspace dependencies during fixture packing.
-  manifest.devDependencies = undefined;
   writeFileSync(join(cli, "package.json"), JSON.stringify(manifest));
   writeFileSync(join(cli, "README.md"), "Fixture CLI\n");
   mkdirSync(join(cli, "dist/windows"));
@@ -117,11 +152,18 @@ test("rejects development-only references in every installed dependency field, n
         INVALID_DEPENDENCY
       );
     }
+    assert.throws(
+      () =>
+        assertNpmRuntimeDependencies({
+          [field]: { "@openmeld/adapter-fixture": "0.0.1" },
+        }),
+      INVALID_DEPENDENCY
+    );
   }
   assert.doesNotThrow(() =>
     assertNpmRuntimeDependencies({
       dependencies: { zod: "4.6.5" },
-      devDependencies: { internal: "workspace:*" },
+      devDependencies: { "@openmeld/adapter-fixture": "workspace:*" },
     })
   );
 });
@@ -146,6 +188,79 @@ test("packs expanded catalogs and exact source identity without editing source m
       inspectNpmCliArtifact(artifact.path, { gitHead: "a".repeat(40) }),
       INVALID_CONTENT
     );
+  } finally {
+    artifact?.cleanup();
+    source.cleanup();
+  }
+});
+
+test("hosted admission and publication reuse the supplied bytes and reject missing or changed integrity", async () => {
+  const source = fixture();
+  let packed;
+  try {
+    packed = await packNpmCliArtifact({ cwd: source.root });
+    const env = {
+      ...process.env,
+      OPENMELD_REQUIRE_VERIFIED_NPM_ARTIFACT: "1",
+      OPENMELD_NPM_ARTIFACT_PATH: packed.path,
+      OPENMELD_NPM_ARTIFACT_INTEGRITY: packed.integrity,
+    };
+    const dependencies = {
+      packArtifact: () => assert.fail("must not repack the verified artifact"),
+      runReleaseReady: () =>
+        assert.fail("must not rebuild the verified artifact"),
+    };
+    for (const prepare of [admitNpmCliArtifact, prepareNpmCliArtifact]) {
+      const admitted = await prepare({ cwd: source.root, env }, dependencies);
+      assert.equal(admitted.path, packed.path);
+      assert.equal(admitted.integrity, packed.integrity);
+      admitted.cleanup();
+      assert.ok(existsSync(packed.path));
+      await assert.rejects(
+        prepare(
+          {
+            cwd: source.root,
+            env: {
+              ...env,
+              OPENMELD_NPM_ARTIFACT_INTEGRITY: "",
+            },
+          },
+          dependencies
+        ),
+        VERIFIED_TARBALL
+      );
+      await assert.rejects(
+        prepare(
+          {
+            cwd: source.root,
+            env: {
+              ...env,
+              OPENMELD_NPM_ARTIFACT_PATH: "",
+            },
+          },
+          dependencies
+        ),
+        VERIFIED_TARBALL
+      );
+    }
+    writeFileSync(packed.path, "different bytes");
+    await assert.rejects(
+      prepareNpmCliArtifact({ cwd: source.root, env }, dependencies),
+      CHANGED_TARBALL
+    );
+  } finally {
+    packed?.cleanup();
+    source.cleanup();
+  }
+});
+
+test("rejects internal runtime packages after packing resolves workspace versions", async () => {
+  const source = fixture({ "@openmeld/adapter-fixture": "workspace:*" });
+  let artifact;
+  try {
+    await assert.rejects(async () => {
+      artifact = await packNpmCliArtifact({ cwd: source.root });
+    }, INVALID_DEPENDENCY);
   } finally {
     artifact?.cleanup();
     source.cleanup();

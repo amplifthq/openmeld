@@ -3,7 +3,8 @@ import { openAsBlob } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { basename } from "node:path";
 import {
-  isSpaceFileTextEditable,
+  isSpaceFileTextReadable,
+  readSpaceFileTextStream,
   resolveSpaceFileMimeType,
   SPACE_FILE_MAX_SIZE_BYTES,
   SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
@@ -101,7 +102,7 @@ export async function runSpaceFilesRead(
           fileId: input.fileId,
           ...(spacePassword === undefined ? {} : { spacePassword }),
         }),
-        context.spaceApi.downloadFileContent({
+        context.spaceApi.streamFileContent({
           spaceId: input.space,
           requestContext: context.requestContext,
           fileId: input.fileId,
@@ -110,11 +111,12 @@ export async function runSpaceFilesRead(
         }),
       ]);
       if (
-        !isSpaceFileTextEditable({
+        !isSpaceFileTextReadable({
+          fileName: metadata.file.name,
           mimeType: content.mimeType,
-          sizeBytes: content.bytes.byteLength,
         })
       ) {
+        await content.bytes.cancel();
         throw new Error(
           "This file is binary or too large to print. Use `openmeld space files download` instead."
         );
@@ -122,9 +124,7 @@ export async function runSpaceFilesRead(
       return {
         file: metadata.file,
         revision: content.revision,
-        content: new TextDecoder("utf-8", { fatal: true }).decode(
-          content.bytes
-        ),
+        content: await readSpaceFileTextStream(content.bytes),
       };
     },
   });

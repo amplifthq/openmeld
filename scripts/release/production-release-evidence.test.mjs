@@ -36,6 +36,7 @@ import {
 import { readLatestSuccessfulReleaseSources } from "./production-release-status.mjs";
 
 const PARTIAL_RECOVERY_ERROR = /failed partial|original|attempt/iu;
+const PUSH_REJECTION = /atomically:.*fixture receipt push rejected/su;
 const INVALID_RECOVERY_RECEIPT = /receipt|verified|identity/iu;
 const TERMINAL_RECOVERY_ERROR = /backward|terminal|completed/iu;
 const FAILED_UNKNOWN_EVENT = /"status":"failed","application":"unknown"/u;
@@ -43,100 +44,117 @@ const VERIFIED_APPLIED_EVENT = /"status":"verified","application":"applied"/u;
 const UNRESOLVED_DATABASE_ATTEMPT = /unresolved/u;
 const DATABASE_BASELINE_ERROR = /baseline/u;
 
-test("retained native release appends both stages to one correlated receipt history", () => {
-  const fixture = createGitFixture();
-  try {
-    const context = {
-      cwd: fixture.repository,
-      remote: fixture.remote,
-      scopes: ["remote-agent"],
-      sourceSha: fixture.sourceSha,
-    };
-    const worker = {
-      kind: "worker-deployment",
-      workerName: "openmeld-remote-agent-prod",
-      environment: "prod",
-      deploymentId: "worker-deployment",
-      versionId: "worker-version",
-      sourceSha: fixture.sourceSha,
-      proof: "command-output",
-    };
-    const stage = {
-      phase: "worker-only",
-      baselineEvidenceSha: "b".repeat(40),
-      baselineSourceSha: fixture.sourceSha,
-      container: {
-        id: "app",
-        name: "openmeld-agent-computer",
-        version: 124,
-        image: `registry.cloudflare.com/account/openmeld-agent-computer@sha256:${"d".repeat(64)}`,
-        configurationHash: "c".repeat(64),
-        instances: [{ id: "original-instance", version: 124 }],
-      },
-    };
-    const receipt = {
-      attemptId: "00000000-0000-4000-8000-000000000001",
-      componentIndex: 0,
-      operationKey: "a".repeat(64),
-      startedAt: "2026-01-01T00:00:00Z",
-      status: "started",
-      application: "unknown",
-      remoteAgent: stage,
-    };
-    const publish = (value) =>
-      publishGuardedLocalReleaseEvidence({
-        ...context,
-        receipts: { "remote-agent": value },
-      });
-    publish(receipt);
-    const retained = {
-      ...receipt,
-      status: "applied",
-      application: "applied",
-      identity: worker,
-      remoteAgent: { ...stage, phase: "retained", workerIdentity: worker },
-    };
-    publish(retained);
-    assert.throws(() =>
-      publish({
-        ...retained,
+for (const active of [true, false]) {
+  test(`retained native release appends both stages to one correlated receipt history (active=${active})`, () => {
+    const fixture = createGitFixture();
+    try {
+      const context = {
+        cwd: fixture.repository,
+        remote: fixture.remote,
+        scopes: ["remote-agent"],
+        sourceSha: fixture.sourceSha,
+      };
+      const worker = {
+        kind: "worker-deployment",
+        workerName: "openmeld-remote-agent-prod",
+        environment: "prod",
+        deploymentId: "worker-deployment",
+        versionId: "worker-version",
+        sourceSha: fixture.sourceSha,
+        proof: "command-output",
+      };
+      const stage = {
+        phase: "worker-only",
+        baselineEvidenceSha: "b".repeat(40),
+        baselineSourceSha: fixture.sourceSha,
+        container: {
+          id: "app",
+          name: "openmeld-agent-computer",
+          version: 124,
+          image: `registry.cloudflare.com/account/openmeld-agent-computer@sha256:${"d".repeat(64)}`,
+          configurationHash: "c".repeat(64),
+          instances: active ? [{ id: "original-instance", version: 124 }] : [],
+        },
+      };
+      const receipt = {
+        attemptId: "00000000-0000-4000-8000-000000000001",
+        componentIndex: 0,
+        operationKey: "a".repeat(64),
+        startedAt: "2026-01-01T00:00:00Z",
+        status: "started",
+        application: "unknown",
+        remoteAgent: stage,
+      };
+      const publish = (value) =>
+        publishGuardedLocalReleaseEvidence({
+          ...context,
+          receipts: { "remote-agent": value },
+        });
+      publish(receipt);
+      const retained = {
+        ...receipt,
+        status: "applied",
+        application: "applied",
+        identity: worker,
+        remoteAgent: { ...stage, phase: "retained", workerIdentity: worker },
+      };
+      publish(retained);
+      assert.throws(() =>
+        publish({
+          ...retained,
+          status: "verified",
+          remoteAgent: { ...retained.remoteAgent, phase: "complete" },
+        })
+      );
+      assert.throws(() =>
+        publish({ ...retained, status: "verified", remoteAgent: undefined })
+      );
+      const rollout = {
+        ...receipt,
+        remoteAgent: { ...retained.remoteAgent, phase: "rollout" },
+      };
+      publish(rollout);
+      const applied = {
+        ...rollout,
+        status: "applied",
+        application: "applied",
+        identity: {
+          ...worker,
+          versionId: "full-version",
+          deploymentId: "full-deployment",
+        },
+      };
+      publish(applied);
+      const completed = {
+        ...applied,
         status: "verified",
-        remoteAgent: { ...retained.remoteAgent, phase: "complete" },
-      })
-    );
-    assert.throws(() =>
-      publish({ ...retained, status: "verified", remoteAgent: undefined })
-    );
-    const rollout = {
-      ...receipt,
-      remoteAgent: { ...retained.remoteAgent, phase: "rollout" },
-    };
-    publish(rollout);
-    const applied = {
-      ...rollout,
-      status: "applied",
-      application: "applied",
-      identity: {
-        ...worker,
-        versionId: "full-version",
-        deploymentId: "full-deployment",
-      },
-    };
-    publish(applied);
-    publish({
-      ...applied,
-      status: "verified",
-      remoteAgent: { ...applied.remoteAgent, phase: "complete" },
-    });
-    const result = readGuardedLocalReleaseSources(context).get("remote-agent");
-    assert.equal(result.receipt.status, "verified");
-    assert.equal(result.receipt.identity.versionId, "full-version");
-    assert.deepEqual(result.receipt.remoteAgent.container, stage.container);
-    assert.equal(result.receipt.attemptId, receipt.attemptId);
-  } finally {
-    rmSync(fixture.root, { recursive: true, force: true });
-  }
-});
+        remoteAgent: { ...applied.remoteAgent, phase: "complete" },
+      };
+      const rejectPush = path.join(fixture.remote, "hooks", "pre-receive");
+      writeFileSync(
+        rejectPush,
+        "#!/bin/sh\necho 'fixture receipt push rejected' >&2\nexit 1\n",
+        { mode: 0o755 }
+      );
+      assert.throws(() => publish(completed), PUSH_REJECTION);
+      assert.equal(
+        readGuardedLocalReleaseSources(context).get("remote-agent").receipt
+          .status,
+        "applied"
+      );
+      rmSync(rejectPush);
+      publish(completed);
+      const result =
+        readGuardedLocalReleaseSources(context).get("remote-agent");
+      assert.equal(result.receipt.status, "verified");
+      assert.equal(result.receipt.identity.versionId, "full-version");
+      assert.deepEqual(result.receipt.remoteAgent.container, stage.container);
+      assert.equal(result.receipt.attemptId, receipt.attemptId);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+}
 
 test("publishes exact guarded local release sources for later status checks", () => {
   const fixture = createGitFixture();
@@ -176,6 +194,70 @@ test("publishes exact guarded local release sources for later status checks", ()
   }
 });
 
+test("refreshes remote receipts while fetching missing immutable objects only once", () => {
+  const fixture = createGitFixture();
+  try {
+    const publish = (now) =>
+      publishGuardedLocalReleaseEvidence({
+        cwd: fixture.repository,
+        remote: fixture.remote,
+        scopes: ["cli", "core"],
+        sourceSha: fixture.sourceSha,
+        now,
+      });
+    publish("2026-08-30T17:00:00.000Z");
+    const reader = path.join(fixture.root, "reader");
+    execFileSync("git", [
+      "clone",
+      "--quiet",
+      "--no-local",
+      "--single-branch",
+      "--branch",
+      "main",
+      fixture.remote,
+      reader,
+    ]);
+    const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+    const bin = path.join(fixture.root, "bin");
+    const log = path.join(fixture.root, "reads.log");
+    mkdirSync(bin);
+    writeFileSync(log, "");
+    writeFileSync(
+      path.join(bin, "git"),
+      [
+        `#!${process.execPath}`,
+        "const { spawnSync } = require('node:child_process');",
+        "const { appendFileSync } = require('node:fs');",
+        "const args = process.argv.slice(2);",
+        `if (['fetch', 'ls-remote'].includes(args[0])) appendFileSync(${JSON.stringify(log)}, args[0] + '\\n');`,
+        `const result = spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' });`,
+        "process.exit(result.status ?? 1);",
+      ].join("\n"),
+      { mode: 0o755 }
+    );
+    const read = () =>
+      readGuardedLocalReleaseSources({
+        cwd: reader,
+        remote: fixture.remote,
+        environment: {
+          ...process.env,
+          PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+        },
+      });
+    assert.equal(read().size, 2);
+    assert.equal(read().get("core").sha, fixture.sourceSha);
+    assert.equal(readFileSync(log, "utf8"), "ls-remote\nfetch\nls-remote\n");
+    publish("2026-08-30T18:00:00.000Z");
+    assert.equal(read().get("core").recordedAt, "2026-08-30T18:00:00.000Z");
+    assert.equal(
+      readFileSync(log, "utf8"),
+      "ls-remote\nfetch\nls-remote\nls-remote\nfetch\n"
+    );
+  } finally {
+    rmSync(fixture.root, { force: true, recursive: true });
+  }
+});
+
 test("reads hosted receipts with repository-scoped auth when checkout origin omits .git", () => {
   const fixture = createGitFixture();
   const token = "fixture-receipt-token";
@@ -208,7 +290,7 @@ test("reads hosted receipts with repository-scoped auth when checkout origin omi
         "const assert = require('node:assert/strict');",
         `const realGit = ${JSON.stringify(realGit)};`,
         "const args = process.argv.slice(2);",
-        "const index = args[0] === 'ls-remote' ? 2 : args[0] === 'fetch' ? 3 : null;",
+        "const index = args[0] === 'ls-remote' ? 2 : args[0] === 'fetch' ? 4 : null;",
         "if (index !== null) {",
         "  const url = args[index] === 'origin' ? execFileSync(realGit, ['remote', 'get-url', 'origin'], { encoding: 'utf8' }).trim() : args[index];",
         "  const auth = spawnSync(realGit, ['config', '--get-urlmatch', 'http.extraheader', url], { encoding: 'utf8' });",
@@ -1005,6 +1087,28 @@ test("keeps the canonical receipt v3 while linking an immutable recovery proof",
         }),
       PARTIAL_RECOVERY_ERROR
     );
+    assert.throws(
+      () =>
+        publish(verifiedReceipt, "2026-09-20T16:00:03.000Z", {
+          ...verifiedReceipt,
+          remoteAgent: {
+            phase: "complete",
+            container: {
+              id: "container-id",
+              name: "openmeld-agent-computer",
+              version: 99,
+              image: `registry.cloudflare.com/example@sha256:${"a".repeat(64)}`,
+              configurationHash: "b".repeat(64),
+              instances: [],
+            },
+            baselineEvidenceSha: "c".repeat(40),
+            baselineSourceSha: fixture.sourceSha,
+            workerIdentity: identity,
+          },
+          recovery: complete,
+        }),
+      PARTIAL_RECOVERY_ERROR
+    );
     publish(verifiedReceipt, "2026-09-20T16:01:01.000Z", {
       ...verifiedReceipt,
       recovery: complete,
@@ -1445,6 +1549,123 @@ test("PostgreSQL rollback provenance preserves the failed receipt across the new
       ).receipt,
       failed
     );
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("secret reconciliation preserves a verified predecessor and requires immutable proof on every read", () => {
+  const f = createGitFixture();
+  const common = {
+    cwd: f.repository,
+    remote: f.remote,
+    sourceSha: f.sourceSha,
+    scopes: ["core"],
+  };
+  const read = () => readGuardedLocalReleaseSources(common).get("core");
+  const old = {
+    attemptId: "00000000-0000-4000-8000-000000000011",
+    componentIndex: 0,
+    operationKey: "a".repeat(64),
+    startedAt: "2026-01-01T00:00:00.000Z",
+    status: "verified",
+    application: "applied",
+    identity: {
+      kind: "worker-deployment",
+      environment: "prod",
+      workerName: "openmeld-core-prod",
+      sourceSha: f.sourceSha,
+      deploymentId: "old-deployment",
+      versionId: "old-version",
+      projectionTag: "stable-tag",
+      proof: "command-output",
+    },
+  };
+  try {
+    publishGuardedLocalReleaseEvidence({
+      ...common,
+      receipts: { core: old },
+      now: "2026-01-01T00:01:00.000Z",
+    });
+    const prior = read();
+    const identity = {
+      ...old.identity,
+      deploymentId: "new-deployment",
+      versionId: "new-version",
+      proof: "reconciled-secret-addition",
+    };
+    identity.projectionTag = undefined;
+    const receipt = {
+      ...old,
+      attemptId: "00000000-0000-4000-8000-000000000012",
+      operationKey: "b".repeat(64),
+      startedAt: "2026-01-01T00:03:00.000Z",
+      status: "applied",
+      identity,
+    };
+    const proof = {
+      kind: "reconciled-core-secret-addition",
+      controlSha: "c".repeat(40),
+      supersededReceipt: {
+        evidenceSha: prior.evidenceSha,
+        sourceSha: f.sourceSha,
+      },
+      baselineIdentity: old.identity,
+      addedSecret: "ADDED_SECRET",
+      deployedAt: "2026-01-01T00:02:00.000Z",
+      scriptEtag: "d".repeat(64),
+      resourceDigest: "e".repeat(64),
+      inheritedProjectionTag: "stable-tag",
+      tagDroppedBySecretUpdate: true,
+      secretValuesUnobservable: true,
+    };
+    assert.throws(() =>
+      publishGuardedLocalReleaseEvidence({
+        ...common,
+        receipts: { core: receipt },
+        now: receipt.startedAt,
+      })
+    );
+    publishGuardedLocalReleaseEvidence({
+      ...common,
+      receipts: { core: receipt },
+      reconciliation: { core: proof },
+      now: receipt.startedAt,
+    });
+    const applied = read();
+    assert.deepEqual(applied.reconciliation, proof);
+    assert.deepEqual(
+      execFileSync("git", ["show", "-s", "--format=%P", applied.evidenceSha], {
+        cwd: f.repository,
+        encoding: "utf8",
+      })
+        .trim()
+        .split(" "),
+      [prior.evidenceSha, applied.reconciliationEvidenceSha]
+    );
+    for (const [status, now] of [
+      ["failed", "2026-01-01T00:04:00.000Z"],
+      ["verified", "2026-01-01T00:05:00.000Z"],
+    ]) {
+      publishGuardedLocalReleaseEvidence({
+        ...common,
+        receipts: { core: { ...receipt, status } },
+        now,
+      });
+      assert.equal(
+        read().reconciliationEvidenceSha,
+        applied.reconciliationEvidenceSha
+      );
+      assert.equal(read().receipt.status, status);
+    }
+    const original = JSON.parse(
+      execFileSync("git", ["show", "-s", "--format=%B", prior.evidenceSha], {
+        cwd: f.repository,
+        encoding: "utf8",
+      })
+    );
+    assert.equal(original.receipt.status, "verified");
+    assert.equal(original.receipt.identity.versionId, "old-version");
   } finally {
     rmSync(f.root, { recursive: true, force: true });
   }

@@ -10,7 +10,10 @@ import { optionalMediaModules } from "../scripts/optional-media-modules";
 
 const emittedImageEffectPattern = /^space-image-loading-effect-.*\.mjs$/;
 
-it("bundles a lazy optional effect whose failure cannot become a critical Vite preload error", async () => {
+it.each([
+	"/",
+	"./",
+])("bundles an isolated lazy effect with base %s", async (base) => {
 	const root = await mkdtemp(path.join(tmpdir(), "openmeld-image-effect-"));
 	const loader = path.resolve(
 		import.meta.dirname,
@@ -32,6 +35,7 @@ it("bundles a lazy optional effect whose failure cannot become a critical Vite p
 			`export { loadSpaceImageEffect } from ${JSON.stringify(loader)}; export const critical = () => import('./critical');`
 		);
 		await build({
+			base,
 			configFile: false,
 			root,
 			publicDir: false,

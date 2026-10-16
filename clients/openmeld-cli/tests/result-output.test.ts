@@ -179,7 +179,7 @@ describe("result output", () => {
     expect(output).toContain("Reference");
     expect(output).toContain("Read scope");
     expect(output).toContain(
-      "`space result` reads archived dispatch results only."
+      "`space result --dispatch` reads archived or published results."
     );
   });
 

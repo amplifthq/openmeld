@@ -32,6 +32,15 @@ import type {
   ResolveNativeReplyPlacementInput,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
+import { readAiBilling } from "../src/usage/ai-billing-service";
+
+// This suite owns delivery orchestration. Native funding isolation, encryption,
+// balances, and concurrent grants are covered in ai-billing.test.ts.
+vi.mock("../src/usage/ai-billing-service", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/usage/ai-billing-service")>()),
+  readAiBilling: vi.fn(async () => ({ status: "available", source: "free" })),
+}));
+
 import { rpcCenterAgentListAgentActivitySessions } from "../src/agent-activity/activity-center-agent-rpc";
 import {
   claimReadyAgentTaskCompletionSubscription,
@@ -6290,16 +6299,21 @@ describe("Remote Agent native delivery callback service", () => {
       await harness.close();
     }
   });
-  it("rejects a Space admission when its AI allowance is exhausted with a visible UTC reset message", async () => {
+  it("rejects a Space admission when monthly credits are exhausted with a visible recovery message", async () => {
     const harness = await createPostgresHarness();
     await seedRemoteAgentSubmitAuthority(harness);
     const nowMs = Date.parse("2026-07-12T12:00:00.000Z");
-    await harness.query({
-      values: ["org_1", 0, nowMs],
-      text: `
-        INSERT INTO "openmeld"."organization_ai_usage_policies"
-          (organization_id, daily_limit_nano_usd, updated_at_ms) VALUES ($1, $2, $3)
-      `,
+    vi.mocked(readAiBilling).mockResolvedValueOnce({
+      plan: "free",
+      source: "free",
+      policyVersion: "2026-10-v1",
+      monthlyCredits: 5000,
+      usedCredits: 5000,
+      remainingCredits: 0,
+      resetsAt: "2026-08-01T00:00:00.000Z",
+      keySuffix: null,
+      canManage: false,
+      status: "exhausted",
     });
     const workerSubmit = vi.fn();
     const env = buildEnv(harness.db, {
@@ -6327,8 +6341,8 @@ describe("Remote Agent native delivery callback service", () => {
         expect.objectContaining({
           data: expect.objectContaining({
             noticeType: "terminal_failure",
-            reasonCode: "remote_agent.daily_quota_exceeded",
-            text: expect.stringContaining("00:00 UTC"),
+            reasonCode: "ai_usage.monthly_limit_reached",
+            text: expect.stringContaining("monthly reset"),
           }),
           finalOutcomeAuthority: "remote_agent_native_delivery",
         })
@@ -6339,7 +6353,7 @@ describe("Remote Agent native delivery callback service", () => {
           idempotencyKey: "idem_201",
         })
       ).resolves.toMatchObject({
-        failureCode: "remote_agent.daily_quota_exceeded",
+        failureCode: "ai_usage.monthly_limit_reached",
         status: "failed",
       });
       await expect(
@@ -7826,8 +7840,8 @@ describe("Remote Agent native delivery callback service", () => {
       );
       expect(workerSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
-          turnEnvelope: expect.not.objectContaining({
-            memory: expect.anything(),
+          turnEnvelope: expect.objectContaining({
+            memory: { items: [], truncated: false, status: "unavailable" },
           }),
         })
       );
@@ -8154,7 +8168,7 @@ describe("Remote Agent native delivery callback service", () => {
       await harness.close();
     }
   });
-  it("submits native delivery without memory when recall fails", async () => {
+  it("submits native delivery with an unavailable status when recall fails", async () => {
     const harness = await createPostgresHarness();
     await seedRemoteAgentSubmitAuthority(harness);
     const workerSubmit = vi.fn(async () => ({
@@ -8183,8 +8197,8 @@ describe("Remote Agent native delivery callback service", () => {
       ).resolves.toEqual({ shouldAck: true, status: "submitted" });
       expect(workerSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
-          turnEnvelope: expect.not.objectContaining({
-            memory: expect.anything(),
+          turnEnvelope: expect.objectContaining({
+            memory: { items: [], truncated: false, status: "unavailable" },
           }),
         })
       );
@@ -9304,7 +9318,14 @@ describe("Remote Agent native delivery callback service", () => {
     expect(hasLoneSurrogate(truncated)).toBe(false);
     expect(truncated).not.toContain("🙂");
   });
-  it("remembers completed CA-DM turns after callback publication", async () => {
+  it.each([
+    { callbackCount: 1, alreadyPublished: false },
+    { callbackCount: 2, alreadyPublished: false },
+    { callbackCount: 2, alreadyPublished: true },
+  ])("remembers a completed CA-DM turn once with overlapping callbacks: $callbackCount, published: $alreadyPublished", async ({
+    callbackCount,
+    alreadyPublished,
+  }) => {
     const harness = await createPostgresHarness();
     await seedRemoteAgentSubmitAuthority(harness);
     try {
@@ -9324,7 +9345,36 @@ describe("Remote Agent native delivery callback service", () => {
       });
       const pendingWrites: Promise<unknown>[] = [];
       const env = buildEnv(harness.db, { postSignalId: "signal_reply_1" });
-      await expect(
+      // Hold publication until both callbacks have read the accepted delivery.
+      // Space's publication key returns the same signal to both callers.
+      let arrivals = 0;
+      let releasePublication!: () => void;
+      const publicationBarrier = new Promise<void>((resolve) => {
+        releasePublication = resolve;
+      });
+      if (alreadyPublished) {
+        env.__spaceStub.rpcReadFinalReplyClaimSignalId.mockImplementation(
+          async () => {
+            arrivals += 1;
+            if (arrivals === callbackCount) {
+              releasePublication();
+            }
+            await publicationBarrier;
+            return { signalId: "signal_reply_1" };
+          }
+        );
+      }
+      env.__spaceStub.rpcPostSignalOnceByClientMessageId.mockImplementation(
+        async () => {
+          arrivals += 1;
+          if (arrivals === callbackCount) {
+            releasePublication();
+          }
+          await publicationBarrier;
+          return { id: "signal_reply_1" };
+        }
+      );
+      const callbacks = Array.from({ length: callbackCount }, () =>
         completeRemoteAgentNativeDelivery(
           env,
           {
@@ -9343,11 +9393,15 @@ describe("Remote Agent native delivery callback service", () => {
             waitUntil: (promise) => pendingWrites.push(promise),
           }
         )
-      ).resolves.toEqual({
-        status: "accepted",
-        publishedSignalId: "signal_reply_1",
-      });
+      );
+      for (const result of await Promise.all(callbacks)) {
+        expect(result).toEqual({
+          status: "accepted",
+          publishedSignalId: "signal_reply_1",
+        });
+      }
       await Promise.all(pendingWrites);
+      expect(memoryAdapter.addEpisode).toHaveBeenCalledTimes(1);
       expect(memoryAdapter.ensureOrganizationGraph).not.toHaveBeenCalled();
       expect(memoryAdapter.ensureMemberUser).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -13379,7 +13433,9 @@ function createTestMemoryService(
       organizationMemoryOptIn: false,
       updatedByUserId: null,
     })),
-    rememberFactForOrganization: vi.fn(async () => undefined),
+    rememberFactForOrganization: vi.fn(async () => ({
+      status: "processing" as const,
+    })),
     rememberTurn: vi.fn(async () => undefined),
     setOrganizationMemoryPolicy: vi.fn(async (input) => ({
       organizationMemoryOptIn: input.organizationMemoryOptIn,
@@ -13392,7 +13448,10 @@ function createMemoryAdapter(input: {
   searchText: string;
 }): CenterAgentMemoryAdapter {
   return {
-    addEpisode: vi.fn(async () => undefined),
+    addEpisode: vi.fn(async () => ({
+      episodeId: "episode_1",
+      processed: false,
+    })),
     deleteMemberUser: vi.fn(async () => "deleted" as const),
     deleteOrganizationGraph: vi.fn(async () => "deleted" as const),
     ensureMemberUser: vi.fn(async () => undefined),

@@ -9,6 +9,7 @@ export default defineConfig({
   outDir: "dist",
   format: "esm",
   platform: "node",
+  // Keep the entry parseable on Node 20 so it can print the upgrade instruction.
   target: "node20",
   sourcemap: true,
   clean: true,

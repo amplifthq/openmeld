@@ -8,6 +8,7 @@ import {
 	resolveAgentProfileEditCapabilities,
 	resolveNativeAgentControllerCollaborationModeForController,
 } from "@openmeld/agent-runtime";
+import { resolveBuiltinAgentControllerConversationCapability } from "@openmeld/schemas";
 import type {
 	AgentControllerCollaborationMode,
 	AgentControllerPermissionMode,
@@ -77,6 +78,13 @@ export function resolveAgentProfileControllerChangeOptions(
 ): readonly AgentProfileControllerChangeOption[] {
 	const options = new Map<string, AgentProfileControllerChangeOption>();
 	for (const entry of bindableLocalAgentEntriesFromTarget(executionTarget)) {
+		// Shared Bots need an explicit conversation and consent in Agent creation.
+		if (
+			resolveBuiltinAgentControllerConversationCapability(entry.agentId)
+				?.conversationScope === "account_shared"
+		) {
+			continue;
+		}
 		const agentControllerRef = resolveLocalAgentEntryControllerRef(entry);
 		if (!agentControllerRef || options.has(agentControllerRef)) {
 			continue;

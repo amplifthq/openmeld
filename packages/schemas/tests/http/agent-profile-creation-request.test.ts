@@ -1,7 +1,47 @@
 import { describe, expect, it } from "vitest";
-import { agentProfileCreationConfigurationSchema } from "../../src";
+import {
+  agentProfileCreationConfigurationSchema,
+  createAgentProfileCreationRequestBodySchema,
+  DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+} from "../../src";
 
 describe("Agent Profile creation request HTTP schemas", () => {
+  it("requires an acknowledged existing shared conversation and rejects provider-owned settings", () => {
+    const configuration = {
+      ...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+      agentControllerRef: "builtin:grok-bot",
+      targetComputerId: "computer_1",
+      sharedConversation: { conversationId: "123", acknowledged: true },
+    };
+    expect(
+      agentProfileCreationConfigurationSchema.safeParse(configuration).success
+    ).toBe(true);
+    for (const patch of [
+      { sharedConversation: undefined },
+      { sharedConversation: { conversationId: "123", acknowledged: false } },
+      { modelId: "model" },
+      { defaultProjectId: "project" },
+      { agentControllerPermissionMode: "codex:customConfig" },
+    ]) {
+      expect(
+        agentProfileCreationConfigurationSchema.safeParse({
+          ...configuration,
+          ...patch,
+        }).success
+      ).toBe(false);
+    }
+    expect(
+      createAgentProfileCreationRequestBodySchema.safeParse({
+        configuration,
+        idempotencyKey: "request",
+        profileName: "Bot",
+        sessionStrategy: "fork",
+        nativeSessionId: "123",
+        source: "cli",
+        targetOwnerUserId: "owner",
+      }).success
+    ).toBe(false);
+  });
   it("preserves the retired field only as a rolling compatibility boolean", () => {
     const configuration = agentProfileCreationConfigurationSchema.parse({
       agentControllerPermissionMode: "codex:customConfig",
