@@ -797,18 +797,18 @@ function resolveCliSetupIssue(
   if (problem.code === "desktop.node_missing") {
     return {
       action: "open_node_download",
-      actionLabel: "Install Node.js LTS",
+      actionLabel: "Install Node.js 24",
       description:
-        "Install Node.js LTS, return to OpenMeld, then choose Try again. After Node.js and npm are available, OpenMeld will continue CLI and Service setup from this app.",
+        "Install Node.js 24, return to OpenMeld, then choose Try again. After Node.js and npm are available, OpenMeld will continue CLI and Service setup from this app.",
       title: "Node.js is required.",
     };
   }
   if (problem.code === "desktop.npm_missing") {
     return {
       action: "open_node_download",
-      actionLabel: "Install Node.js LTS",
+      actionLabel: "Install Node.js 24",
       description:
-        "npm is required for OpenMeld to install OpenMeld CLI. The current Node.js LTS installer includes npm; install it, return here, then choose Try again.",
+        "npm is required for OpenMeld to install OpenMeld CLI. The Node.js 24 installer includes npm; install it, return here, then choose Try again.",
       title: "npm is required.",
     };
   }

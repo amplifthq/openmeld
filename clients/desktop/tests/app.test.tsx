@@ -830,12 +830,10 @@ describe("App", () => {
     expect(await screen.findByText("Node.js is required.")).toBeTruthy();
     expect(
       screen.getByText(
-        "Install Node.js LTS, return to OpenMeld, then choose Try again. After Node.js and npm are available, OpenMeld will continue CLI and Service setup from this app."
+        "Install Node.js 24, return to OpenMeld, then choose Try again. After Node.js and npm are available, OpenMeld will continue CLI and Service setup from this app."
       )
     ).toBeTruthy();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Install Node.js LTS" })
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Install Node.js 24" }));
 
     expect(openNodeDownloadPage).toHaveBeenCalledTimes(1);
   });
@@ -865,12 +863,10 @@ describe("App", () => {
     expect(await screen.findByText("npm is required.")).toBeTruthy();
     expect(
       screen.getByText(
-        "npm is required for OpenMeld to install OpenMeld CLI. The current Node.js LTS installer includes npm; install it, return here, then choose Try again."
+        "npm is required for OpenMeld to install OpenMeld CLI. The Node.js 24 installer includes npm; install it, return here, then choose Try again."
       )
     ).toBeTruthy();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Install Node.js LTS" })
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Install Node.js 24" }));
 
     expect(openNodeDownloadPage).toHaveBeenCalledTimes(1);
   });

@@ -38,7 +38,7 @@ export async function readOpenMeldCliSetupProblem(
   if (!resolveNpmBin(env)) {
     return cliSetupProblem(
       "desktop.npm_missing",
-      "npm is required before OpenMeld can install OpenMeld CLI. Install the current Node.js LTS release, then try again."
+      "npm is required before OpenMeld can install OpenMeld CLI. Install Node.js 24, then try again."
     );
   }
 
@@ -108,7 +108,7 @@ async function readNodeSetupProblem(
   if (!nodeBin) {
     return cliSetupProblem(
       "desktop.node_missing",
-      "Node.js is required before OpenMeld can install OpenMeld CLI. Install the current Node.js LTS release, then try again."
+      "Node.js is required before OpenMeld can install OpenMeld CLI. Install Node.js 24, then try again."
     );
   }
   const exec = deps.exec ?? (execFile as unknown as ExecFileFn);
