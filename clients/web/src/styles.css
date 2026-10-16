@@ -113,6 +113,12 @@ html[data-space-conversation-layout="full-width"] {
   --space-conversation-inline-padding: 0.5rem;
 }
 
+/* Main conversations share the header gutter, with or without history.
+   Thread panes retain their own spacing. */
+html[data-space-conversation-layout="full-width"] [data-space-history-rail] [data-space-conversation-content-width] {
+  padding-inline: var(--app-page-inline-padding);
+}
+
 /* Desk windows keep their own frame, independently of the page preference. */
 [data-desk-space-window] {
   --space-conversation-inline-padding: 1rem;
@@ -661,13 +667,12 @@ html[data-space-conversation-layout] [data-desk-space-window]
     }
   }
 }
-/* Reserve a lane only for a visible history rail. The preference is restored
-   before hydration, so hidden or unavailable rails do not move messages. */
+/* Centered conversations reserve a lane only for a visible history rail. */
 @media (min-width: 640px) {
   [data-space-history-rail="true"] {
     --space-history-rail-width: 2.25rem;
   }
-  html:not([data-space-history-slider="off"]) [data-space-history-rail="true"] [data-space-conversation-content-width] {
+  html:not([data-space-conversation-layout="full-width"]):not([data-space-history-slider="off"]) [data-space-history-rail="true"] [data-space-conversation-content-width] {
     width: calc(100% - var(--space-history-rail-width));
     margin-inline-start: var(--space-history-rail-width);
   }
@@ -678,7 +683,7 @@ html[data-space-conversation-layout] [data-desk-space-window]
   }
 }
 @media (min-width: 640px) and (pointer: fine) {
-  html:not([data-space-history-slider="off"]) [data-space-history-rail="true"] [data-space-conversation-content-width] {
+  html:not([data-space-conversation-layout="full-width"]):not([data-space-history-slider="off"]) [data-space-history-rail="true"] [data-space-conversation-content-width] {
     padding-inline-start: .25rem;
   }
 }
