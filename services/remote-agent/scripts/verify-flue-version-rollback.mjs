@@ -1,14 +1,14 @@
 // biome-ignore-all lint/suspicious/noMisplacedAssertion: This standalone cross-process verifier uses node:assert to fail its CLI exit status, not a test-runner assertion lifecycle.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 
-// Usage: node scripts/verify-flue-version-rollback.mjs <retained-patched-2.0.3-package>
+// Usage: node scripts/verify-flue-version-rollback.mjs <retained-patched-previous-package>
 // Every database is a disposable copy of the checked-in synthetic old fixture.
 // Separate processes prevent one version's module globals from helping another.
 const script = fileURLToPath(import.meta.url);
@@ -16,21 +16,29 @@ const service = dirname(dirname(script));
 const [previousPackageArgument, stage, directory] = process.argv.slice(2);
 assert.ok(
   previousPackageArgument,
-  "Supply the retained patched Flue 2.0.3 package directory."
+  "Supply the retained patched Flue package directory."
 );
 const previousPackage = resolve(previousPackageArgument);
 const previousMetadata = JSON.parse(
   await readFile(join(previousPackage, "package.json"), "utf8")
 );
 assert.equal(previousMetadata.name, "@flue/runtime");
-assert.equal(previousMetadata.version, "2.0.3");
-const fixture = JSON.parse(
+assert.ok(["2.0.3", "2.2.2"].includes(previousMetadata.version));
+const previousVersion = previousMetadata.version;
+const currentMetadata = JSON.parse(
   await readFile(
-    join(service, "tests/fixtures/flue-2.0.3-continuity.json"),
+    join(service, "node_modules/@flue/runtime/package.json"),
     "utf8"
   )
 );
-assert.equal(fixture.provenance.runtime, "2.0.3");
+const currentVersion = currentMetadata.version;
+const fixture = JSON.parse(
+  await readFile(
+    join(service, `tests/fixtures/flue-${previousVersion}-continuity.json`),
+    "utf8"
+  )
+);
+assert.equal(fixture.provenance.runtime, previousVersion);
 assert.equal(fixture.provenance.synthetic, true);
 
 if (stage) {
@@ -66,7 +74,7 @@ if (stage) {
       );
     }
     console.log(
-      "PASS: real patched 2.0.3 state -> 2.1.0 writes -> patched 2.0.3 recovery."
+      `PASS: patched ${previousVersion} state -> ${currentVersion} writes -> patched ${previousVersion} recovery.`
     );
     console.log(
       "Scope: isolated Node/SQLite processes; not a hosted deployment, Computer, or Core rollback."
@@ -125,7 +133,39 @@ async function runStage(name, temporary) {
   const metadata = JSON.parse(
     await readFile(join(packageDirectory, "package.json"), "utf8")
   );
-  assert.equal(metadata.version, name === "upgrade" ? "2.1.0" : "2.0.3");
+  assert.equal(
+    metadata.version,
+    name === "upgrade" ? currentVersion : previousVersion
+  );
+  const requireRuntime = createRequire(
+    join(await realpath(packageDirectory), "package.json")
+  );
+  let piPackage;
+  let piMetadata;
+  for (const searchPath of requireRuntime.resolve.paths(
+    "@earendil-works/pi-ai"
+  ) ?? []) {
+    try {
+      piPackage = join(searchPath, "@earendil-works/pi-ai");
+      piMetadata = JSON.parse(
+        await readFile(join(piPackage, "package.json"), "utf8")
+      );
+      break;
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+  assert.ok(
+    piMetadata,
+    "The retained runtime must retain its Pi dependency too."
+  );
+  const { fauxAssistantMessage, fauxProvider } = await import(
+    pathToFileURL(
+      join(piPackage, piMetadata.exports["."].import ?? piMetadata.main)
+    ).href
+  );
   const { init, useModel } = await import(
     pathToFileURL(join(packageDirectory, metadata.exports["."].import)).href
   );
@@ -136,7 +176,9 @@ async function runStage(name, temporary) {
   const before = inspectDatabase(database);
   assert.ok(
     before.checkpoints.some(
-      (row) => row.format_version === (name === "upgrade" ? 2 : 3)
+      (row) =>
+        row.format_version ===
+        (name === "upgrade" && previousVersion === "2.0.3" ? 2 : 3)
     )
   );
   // Lease expiry is controlled, not an arbitrary sleep or a state rewrite.
@@ -175,7 +217,10 @@ async function runStage(name, temporary) {
       ...Array.from({ length: 16 }, (_, index) =>
         respond(`Upgrade checkpoint ${index + 1}.`, "Northstar: record-193")
       ),
-      respond("2.1.0 saved: receipt-new-210.", "Save the upgraded receipt."),
+      respond(
+        "Upgraded runtime saved: receipt-new.",
+        "Save the upgraded receipt."
+      ),
       () => {
         reachedModel.resolve();
         return releaseModel.promise;
@@ -183,14 +228,14 @@ async function runStage(name, temporary) {
     ]);
   } else {
     provider.setResponses([
-      respond("After rollback: Cedar, record-807.", "receipt-new-210"),
+      respond("After rollback: Cedar, record-807.", "receipt-new"),
       respond(
         "After rollback: Northstar, record-193.",
         "Recall Northstar after rollback."
       ),
       respond(
         "The upgraded receipt and original choices remain available.",
-        "receipt-new-210"
+        "receipt-new"
       ),
     ]);
   }
@@ -225,7 +270,7 @@ async function runStage(name, temporary) {
       const completed = await agent.dispatch("Save the upgraded receipt.");
       assert.equal(
         (await agent.read(completed)).text,
-        "2.1.0 saved: receipt-new-210."
+        "Upgraded runtime saved: receipt-new."
       );
       const running = await agent.dispatch("Choose Cedar after rollback.");
       await reachedModel.promise;
@@ -249,7 +294,7 @@ async function runStage(name, temporary) {
         JSON.stringify({ completed, running, queued })
       );
       console.log(
-        "UPGRADE: old state recovered; real format-3 checkpoint and completed/running/queued 2.1.0 work persisted."
+        "UPGRADE: old state recovered; real format-3 checkpoint and completed/running/queued upgraded work persisted."
       );
       // Deliberately exit at the controlled provider boundary without stop():
       // the old process must recover durable work, not a graceful completion.
@@ -266,7 +311,7 @@ async function runStage(name, temporary) {
     );
     assert.equal(
       (await agent.read(receipts.completed)).text,
-      "2.1.0 saved: receipt-new-210."
+      "Upgraded runtime saved: receipt-new."
     );
     assert.equal(
       (await agent.read(fixture.receipts.completed)).text,
@@ -288,7 +333,7 @@ async function runStage(name, temporary) {
       "Rollback replayed completed provider work."
     );
     console.log(
-      "ROLLBACK: old patched runtime rebuilt the v3 checkpoint, recovered both pending requests once, read both generations' results, and continued the same conversation."
+      "ROLLBACK: old patched runtime read the upgraded checkpoint, recovered both pending requests once, read both generations' results, and continued the same conversation."
     );
   } finally {
     releaseModel.resolve(fauxAssistantMessage("Verification cleanup."));

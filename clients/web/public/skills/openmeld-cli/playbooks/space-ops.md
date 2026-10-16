@@ -1,5 +1,11 @@
 # Space operations
 
+In CLI invocation examples, replace only the leading `openmeld` executable with
+the exact command prefix from the latest `setup.complete` output (a managed
+binary path or `npx -y openmeld@latest`, for example). Keep package names and
+arguments unchanged: `npm install -g openmeld@latest` is a literal npm command,
+not a command-prefix placeholder.
+
 Use a Space when the task needs an existing conversation, shared work,
 an Agent handoff, or a durable place for requested results. Reuse a suitable
 Space before creating one. For context-only work, use

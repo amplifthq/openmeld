@@ -159,6 +159,16 @@ export function useConversationSidebarFixture() {
 			title: displayTitle(item),
 		})),
 		sections,
+		moveGroups: {
+			space: [
+				{ id: "pinned", name: "Pinned" },
+				{ id: "spaces", name: "Spaces" },
+			],
+			"direct-message": [
+				{ id: "pinned", name: "Pinned" },
+				{ id: "chats", name: "Direct messages" },
+			],
+		},
 		selected: "design",
 		owner,
 		sort,

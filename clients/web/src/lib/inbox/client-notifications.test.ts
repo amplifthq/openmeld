@@ -307,8 +307,8 @@ describe("Inbox browser notifications", () => {
 		expect(notificationConstructorMock).toHaveBeenCalledTimes(2);
 		expect(queueSoundMock).toHaveBeenCalledTimes(2);
 	});
-	let notificationConstructorMock: ReturnType<typeof vi.fn>;
-	let requestPermissionMock: ReturnType<typeof vi.fn>;
+	let notificationConstructorMock: import("vitest").Mock;
+	let requestPermissionMock: import("vitest").Mock;
 
 	beforeEach(() => {
 		desktopPlatformMock.mockReset().mockReturnValue(null);
@@ -1130,9 +1130,9 @@ function createInboxItem(overrides: Partial<InboxItem> = {}): InboxItem {
 }
 
 function installNotificationMock(input: {
-	constructorMock: ReturnType<typeof vi.fn>;
+	constructorMock: import("vitest").Mock;
 	permission: NotificationPermission;
-	requestPermissionMock: ReturnType<typeof vi.fn>;
+	requestPermissionMock: import("vitest").Mock;
 	autoShow?: boolean;
 }) {
 	const permissionRef = { value: input.permission };

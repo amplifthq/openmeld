@@ -17,6 +17,14 @@
   conflicts with an owner doc means one of the two must be fixed in the same
   PR.
 
+2026-10-15: The Web primary rail is **Inbox / Spaces / Team / Routines**.
+Team retains **People / Agents / Files / Skills / Plugins**. Contextual
+sidebars follow their content: members in People, the current Agent list in
+Agent detail, and locations in Files. Skills, Plugins, and Routines use their
+in-page controls without a member sidebar. This supersedes the earlier Team
+tab order and placement of Routines under Team; routes, scope, and authority
+remain unchanged. See `clients/web.md` and `clients/shell-and-settings.md`.
+
 2026-09-26: Plugin setup should be available from an Agent conversation without
 leaving that OpenMeld page. Reuse the existing provider connection and Agent
 access owners across Plugins, Onboarding and the conversation entry; preserve

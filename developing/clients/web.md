@@ -271,13 +271,14 @@ an attachment-open request. Opening a final-message attachment therefore retains
 its selected file revision while switching from Messages to Files.
 
 Web uses three navigation levels: a 64px application rail (52px in Icons only), a contextual
-list inside the inset surface, and the current work area. Inbox, Spaces, and
-Team are the rail's primary destinations, in that order. Hovering Spaces offers
+list inside the inset surface, and the current work area. **Inbox / Spaces /
+Team / Routines** are the rail's primary destinations, in that order. Hovering Spaces offers
 Direct messages and Discover, using the existing Spaces view parameter. Both
 can be pinned; Direct messages appears as DMs in the rail. Personal workspaces
 hide Discover in the popover and pinned list. Hovering Team (or pressing
-Arrow Down/Space on it) offers Agents, Plugins, Skills, Files, and Routines
-with separate pin toggles. A divider separates the creation shortcuts: Spaces
+Arrow Down/Space on it) offers Agents, Files, Skills, and Plugins
+with separate pin toggles. Routines is always a primary destination; old saved
+Routine pins are ignored so it never appears twice. A divider separates the creation shortcuts: Spaces
 offers New message and New Space; Team offers New Agent. These actions cannot be
 pinned. New message shares the rail-owned dialog with command search; New Space
 and New Agent use the existing Organization creation routes.
@@ -363,7 +364,13 @@ narrow, keeping the title and controls on one row. Both layouts share the same
 creation, view, and filter menu contents.
 
 Spaces, direct messages, and Center Agent conversations share the Spaces
-list in the middle column. Team places its member list in that column instead;
+list in the middle column. Team uses content-specific navigation: People owns
+the member list; Agent detail shows the current Agent list, while the Agent
+directory uses its existing cards and filters without a duplicate sidebar.
+Files owns Team files, My files, and Trash navigation, with folders and
+breadcrumbs in the file browser. Skills and Plugins use their catalog search
+and filters without a member sidebar, including detail, loading, and error
+states. Routines keeps Personal/Team scope and list controls in its page.
 Settings retains its own settings navigation. A page without contextual
 navigation does not create an empty middle column or load the Spaces list.
 The contextual title holds the collapse control while the middle list is open;
@@ -402,16 +409,42 @@ unselected title instead. Selected and unread titles retain foreground emphasis.
 Pinned contains ordinary Spaces, human and Agent direct messages, and Center
 Agent sessions once each. Its shared manual order uses the existing root
 sidebar preference; ordinary pin membership remains Space Index-owned and
-session pins remain in `chats` preferences. Unpin restores the saved group.
+session pins remain in `chats` preferences. New pins appear first without changing
+the existing pinned order, including entries hidden by filters. Dragging still
+uses the chosen drop position. Unpin restores the saved group.
+Pinned uses 32px avatars for single profiles and member composites, with two to
+five columns based on the available grid width. Tiles target at least 60px of
+width, with 4px gaps. Its compact tiles retain two lines
+for names and expose additional rows through the existing disclosure control.
 Spaces, People, and Agents are optional filters. The plus menu offers New message
 and New Space. The adjacent View and filters menu holds separate Conversation
 view and Filter conversations submenus. The Spaces title remains the link to
 the Your Spaces / Discover directory; there is no separate Browse button.
-The compact search field says "Find a space..." while searching existing
-conversations. When no conversations match, Find someone opens the existing
+Spaces and People hide their sidebar search fields by default. Search in the
+header options menu reveals and focuses the field through the shared sidebar
+search disclosure. The compact Spaces field says "Find a space..." and searches
+existing conversations. In both sidebars, the trailing Close search icon and
+Escape clear the query, hide the field, and return focus to the options trigger.
+The input reserves trailing padding so long queries do not cover that control.
+People options group computer filters in a
+Computer status submenu alongside Search and Groups; there is no five-minute
+activity filter. When no conversations match, Find someone opens the existing
 organization-wide people and Agents picker with the search text prefilled.
-The module sidebar header
-shares the work-area title row's vertical center.
+The module sidebar header shares the work-area title row's vertical center.
+Spaces, People, Agent details, and Files compose `AppModuleSidebarHeader` for
+the same compact title row and collapse control. Product actions remain slots;
+resize, collapse, and peek stay owned by the shared Fluid sidebar. Contextual
+navigation inside a module sidebar uses `placement="module"` rather than nesting
+an inner sidebar header and padding. Files keeps its current folder in the
+`folder` search parameter so choosing a file location returns to its root.
+Module content uses 8 px horizontal padding. Rows align their leading icon
+centers 18 px from that content edge and their labels 36 px from it, matching
+the header toggle and title. Row padding leaves room inside the shared hover
+and selection backgrounds; do not remove it to compensate for outer spacing.
+The header keeps the toggle's full hit target. Avatar sizes
+remain appropriate to each surface; padding and gaps absorb the difference.
+Navigation groups share a 4 px gap between the label box and the first row;
+the label's own height and padding do not change to tighten this gap.
 Team remains the member directory; there is no separate Contacts destination.
 Spaces combines the canonical ordinary Space and chat unread aggregates
 and retains chat action/urgent-update priority in its attention indicator.
@@ -565,8 +598,8 @@ No local-component floor or runtime contract bump is required.
 ### Plugins
 
 The external-capability catalog is named **Plugins**. Product routes use
-`/o/<slug>/plugins`, with one service detail route below it. Plugins is the third
-Team tab after People and Agents. Both catalog and detail pages retain the Team
+`/o/<slug>/plugins`, with one service detail route below it. Plugins is the final
+Team tab after People, Agents, Files, and Skills. Both catalog and detail pages retain the Team
 header and active Team rail destination, without mounting Center Agent state.
 Old `/center-agent/plugins` and `/center-agent/apps` links redirect there,
 including service detail links. Web components and navigation helpers use Plugin names.
@@ -612,9 +645,9 @@ settings; a static Plugin definition does not establish sign-in readiness.
 
 ### Organization Skills
 
-Team tabs are **People / Agents / Plugins / Skills**. The Organization Skill
+Team tabs are **People / Agents / Files / Skills / Plugins**. The Organization Skill
 catalog at `/o/{orgSlug}/skills` and detail at `/o/{orgSlug}/skills/{skillId}`
-share Team's header, member sidebar, page padding, and rail highlight. Pending
+share Team's header, page padding, and rail highlight without a member sidebar. Pending
 and error states retain that ownership; neither route mounts Center Agent state.
 All members can discover and browse Skills, while Core-projected permissions
 control editing and management. Personal workspaces use this same model with
@@ -632,10 +665,10 @@ Editing uses the shared unsaved-changes guard and an Organization/Skill-scoped
 draft paired with its original release/version. Background refresh cannot give
 old content new save expectations or discard a dirty draft. Save completion
 preserves newer input. Team navigation, All Skills, browser history, and
-Organization switching remain guarded. The version-bound
-[`@tanstack/history` patch](../../patches/tanstack-history.md) reverses the actual
-blocked history traversal so cancellation restores the address bar as well as
-the page; retain its regressions when upgrading the dependency.
+Organization switching remain guarded. Upstream `@tanstack/history` reverses
+the actual blocked history traversal so cancellation restores the address bar
+as well as the page. Keep the installed-dependency regressions for single-step
+and multi-step Back and Forward navigation when upgrading the router.
 
 The catalog uses compact rows, one Add skill menu, search and an enabled-state
 filter. Account/Organization-scoped, nonpersistent view state remembers filters
@@ -1015,19 +1048,19 @@ disclosure remains independent from Sidebar disclosure.
 
 The rail places the current workspace switcher at the top and has no separate
 OpenMeld brand row or outer-rail account entry. Account management stays nested
-inside the workspace switcher. Its first three entries are flat, fixed
-primary actions and destinations in a flat list:
+inside the workspace switcher. The primary destinations are flat and fixed:
 
-- **New Agent** — opens `/o/{orgSlug}/new-agent`, a standalone creation page
-  with the primary rail and no Agent-list secondary sidebar. It reuses the
-  existing creation flow without loading the organization-wide Agent status
-  overview. Success opens the new Agent's detail; Cancel returns to Agents.
-  Pending teammate requests open Agent requests. Legacy `agents?view=create`
-  links redirect to this route before loading the Agents directory.
-- **Desk** — opens an ordinary Space on the current workspace's canvas.
+- **Inbox** — opens the current workspace's attention feed.
 - **Spaces** — opens the existing chat directory, with Spaces and private
   conversations available in its contextual list.
 - **Team** — opens the people directory. Each person's profile owns their Agent list.
+- **Routines** — opens personal and shared scheduled work and Run history.
+
+**New Agent** remains a contextual creation action. It opens
+`/o/{orgSlug}/new-agent` with the primary rail and no Agent-list sidebar,
+reusing the existing creation flow. Success opens the new Agent's detail;
+Cancel returns to Agents. Pending teammate requests open Agent requests.
+Legacy `agents?view=create` links redirect before loading the directory.
 
 The middle column contains the active module's list. Spaces and Direct messages
 are groups within Spaces, rather than duplicate application-rail links.
@@ -1041,7 +1074,18 @@ Team is a single link in every rail tier, with no disclosure trigger or nested
 People/Agents children. Old saved Team collapse preferences do not hide it.
 
 The visible destinations resolve in this order: **Inbox**, **Spaces**, and
-**Team**, with **New Agent** in the separate Create action. The product destinations are:
+**Team**, with **New Agent** in the separate Create action. Team's existing
+**Agents** page at `/o/{orgSlug}/agents` offers **My Agents / All Agents** views.
+All Agents remains the initial view. My Agents shows only the signed-in member's
+ordinary Local and Remote Agent Profiles in the current workspace, excluding
+managed Center Agents. It starts ungrouped unless the member has chosen a view.
+Both views reuse the existing cards, filters, and canonical person-owned detail
+and settings. A card opened from this directory provides **Back to Agents**.
+The selected scope, search, filters, sorting, and grouping are browser preferences
+scoped to the current account and workspace, so returning from detail restores
+the list. These preferences contain no Profile, permission, or readiness facts.
+My Agents adds no separate navigation destination, identity, or permission owner.
+The product destinations are:
 
 1. **Desk** — renders ordinary Space windows and a greeting on the shared infinite
    React Flow canvas. See **Desk and Chats** below for selection, creation,
@@ -3619,7 +3663,7 @@ current state.
 
 ### Routines
 
-**Team → Routines** at `/o/{orgSlug}/routines` owns personal and Team management
+**Routines** in the primary rail at `/o/{orgSlug}/routines` owns personal and Team management
 for Center, Remote, and Local Agents. Legacy Center URLs redirect with the exact
 Routine/Run selection. There is one page, editor, API/query owner, and Fluid Table.
 Personal and Team tabs filter authorized server results. The empty view uses a
@@ -3832,7 +3876,8 @@ reply projections, and transient activity rows retain their display identities
 but cannot become history anchors. Prefer the first visible recorded signal;
 when transient content fills the viewport, retain a nearby recorded signal and
 its offset instead. Existing stored positions are not migrated or invalidated.
-Below 640px, the history rail is not mounted or allocated layout space, while
+The history rail appears only at widths of at least 640px with a primary
+fine pointer that supports hover. Touch layouts do not reserve space for it;
 history loading and reading-position restoration remain available. The
 conversation notification bell also leaves the phone header; its saved
 per-conversation choice remains in Space settings.

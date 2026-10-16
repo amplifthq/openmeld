@@ -17,6 +17,7 @@ import {
   cliBinaryServiceReleaseSchema,
   resolveCliBinaryPlatform,
 } from "../../packages/schemas/src/schemas/http/cli-binary-manifest.ts";
+import { verifyBundledSkillEmbedded } from "./verify-bundled-skill-embedded.mjs";
 import {
   verifyWindowsProcessArtifact,
   WINDOWS_PROCESS_FILE,
@@ -149,6 +150,8 @@ export function buildCliBinary(input = {}) {
     );
   }
   const version = input.version ?? resolveCliPackageVersion();
+  // Both local and hosted publishers must reject an incomplete embedded Skill.
+  verifyBundledSkillEmbedded();
   const outDir = resolveCliBinaryOutDir(input.outDir);
   mkdirSync(outDir, { recursive: true });
   const artifactName = resolveCliBinaryArtifactName({

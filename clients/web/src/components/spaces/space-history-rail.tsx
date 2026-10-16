@@ -1,10 +1,8 @@
-import { Button } from "@openmeld/ui/components/button";
 import {
 	Popover,
 	PopoverContent,
 	PopoverTitle,
 } from "@openmeld/ui/components/popover";
-import { ClockCounterClockwiseIcon } from "@phosphor-icons/react";
 import {
 	type ReactNode,
 	useEffect,
@@ -54,10 +52,7 @@ export function SpaceHistoryRail(input: {
 	useLayoutEffect(() => {
 		const rail = navRef.current;
 		const frame = rail?.parentElement;
-		if (
-			!(rail && frame && input.visible) ||
-			window.matchMedia("(pointer: coarse)").matches
-		) {
+		if (!(rail && frame && input.visible)) {
 			return;
 		}
 		const position = () => {
@@ -109,7 +104,6 @@ export function SpaceHistoryRail(input: {
 		: -1;
 	const activeIndex = selectedIndex < 0 ? null : selectedIndex;
 	const HistoryTarget = input.controller.hrefForSignalId ? "a" : "button";
-	const BrowseHistoryTarget = input.controller.earlierHref ? "a" : "button";
 	const selected =
 		activeSignalId && selectedIndex < 0 ? undefined : entries[activeIndex ?? 0];
 	const closePreview = () => {
@@ -320,19 +314,6 @@ export function SpaceHistoryRail(input: {
 					role="toolbar"
 					style={{ height: Math.min(entries.length * 10, 288) }}
 				>
-					<BrowseHistoryTarget
-						aria-label="Browse history"
-						className="space-history-touch-trigger"
-						href={input.controller.earlierHref}
-						onClick={(event) => {
-							event.preventDefault();
-							selectPreview(activeIndex ?? 0);
-							setOpen(true);
-						}}
-						type={BrowseHistoryTarget === "button" ? "button" : undefined}
-					>
-						<ClockCounterClockwiseIcon size={18} />
-					</BrowseHistoryTarget>
 					{input.controller.directoryPending && (
 						<span className="text-muted-foreground text-xs">…</span>
 					)}
@@ -354,15 +335,7 @@ export function SpaceHistoryRail(input: {
 								key={entry.signalId}
 								onClick={(event) => {
 									event.preventDefault();
-									if (
-										window.matchMedia("(pointer: coarse)").matches &&
-										event.detail !== 0
-									) {
-										selectPreview(index);
-										setOpen(true);
-									} else {
-										jump(entry.signalId);
-									}
+									jump(entry.signalId);
 								}}
 								onFocus={() => {
 									railBounds.current =
@@ -447,30 +420,6 @@ export function SpaceHistoryRail(input: {
 									</span>
 								)}
 							</button>
-							<div className="space-history-preview-stepper flex gap-1">
-								<Button
-									disabled={(activeIndex ?? 0) === 0}
-									onClick={() =>
-										selectPreview(Math.max(0, (activeIndex ?? 0) - 1))
-									}
-									size="sm"
-									variant="ghost"
-								>
-									Earlier
-								</Button>
-								<Button
-									disabled={(activeIndex ?? 0) === entries.length - 1}
-									onClick={() =>
-										selectPreview(
-											Math.min(entries.length - 1, (activeIndex ?? 0) + 1)
-										)
-									}
-									size="sm"
-									variant="ghost"
-								>
-									Later
-								</Button>
-							</div>
 						</div>
 					)}
 				</PopoverContent>

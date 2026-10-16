@@ -174,7 +174,8 @@ describe("SpaceConversationPanel", () => {
 		const matchMedia = createMatchMediaMock();
 		vi.stubGlobal("matchMedia", (query: string) => ({
 			...matchMedia(query),
-			matches: query === "(min-width: 640px)",
+			matches:
+				query === "(min-width: 640px) and (hover: hover) and (pointer: fine)",
 		}));
 		localStorage.setItem(
 			"openmeld.space.history-slider",

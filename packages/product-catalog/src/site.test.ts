@@ -13,7 +13,7 @@ describe("site metadata", () => {
     const head = buildPublicPageHead();
     const title = readTitle(head);
     const description =
-      "Share context, work in parallel, and pick up where anyone left off with your team, cloud agents, and everyone's agents (Codex, Claude Code, Grok Build, OpenCode, Antigravity, and Cursor CLI).";
+      "Share context, work in parallel, and pick up where anyone left off with your team, cloud agents, and everyone's agents (Codex, Claude Code, Grok Build, Grok Bot, OpenCode, Antigravity, and Cursor CLI).";
 
     expect(title).toBe("OpenMeld | The open human-agents collaboration system");
     expect(title).not.toBe("OpenMeld - OpenMeld");

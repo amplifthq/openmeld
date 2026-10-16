@@ -4,6 +4,8 @@ title: Find workspace controls and Task workflows in Docs
 kind: improved
 areas: ["docs"]
 audiences: ["users"]
+publishedAt: 2026-10-14
+evidence: ["pr:1712", "workflow:38587733241"]
 ---
 
 New guides explain App settings, Team tabs, and Center Agent configuration.

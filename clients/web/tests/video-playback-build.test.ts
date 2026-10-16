@@ -8,7 +8,10 @@ import { build } from "vite";
 import { expect, it } from "vitest";
 import { optionalMediaModules } from "../scripts/optional-media-modules";
 
-it("loads the real video adapter lazily and isolates missing media without suppressing critical failures", async () => {
+it.each([
+	"/",
+	"./",
+])("isolates missing video without suppressing critical failures with base %s", async (base) => {
 	const root = await mkdtemp(path.join(tmpdir(), "openmeld-video-module-"));
 	const output = path.join(root, "dist");
 	const player = path.join(root, "player.ts");
@@ -30,6 +33,7 @@ it("loads the real video adapter lazily and isolates missing media without suppr
 			`export { loadSpaceVideoPlayback } from ${JSON.stringify(loader)}; export const critical = () => import('./critical');`
 		);
 		await build({
+			base,
 			configFile: false,
 			root,
 			publicDir: false,

@@ -11,10 +11,6 @@ import { AppMainContent } from "#/components/app/app-main-content";
 import { AppOuterRail } from "#/components/app/app-outer-rail";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { AppSurfaceLayout } from "#/components/app/app-surface-layout";
-import {
-	TeamSidebarHeader,
-	TeamSidebarHeaderActionsProvider,
-} from "#/components/directory/team-sidebar-header";
 import type {
 	InnerSidebarPreferenceKey,
 	SidebarPersistedState,
@@ -28,7 +24,7 @@ export function AppFullWidthLayout(input: {
 	initialOuterSidebarState?: SidebarPersistedState;
 	defaultModuleSidebarOpen?: boolean;
 	mainHeader?: ReactNode;
-	mainSidebarContent?: ReactNode;
+	mainSidebar?: { content: ReactNode; key: string; label: string };
 	mobileSidebarTitle?: string;
 	showMainHeader?: boolean;
 	scroll?: boolean;
@@ -49,16 +45,9 @@ export function AppFullWidthLayout(input: {
 			globalControls={<AppGlobalControls {...input.globalControls} />}
 			initialModuleSidebarState={input.initialOuterSidebarState}
 			mobileSidebarTitle={input.mobileSidebarTitle}
-			moduleNavigation={
-				input.mainSidebarContent ? (
-					<TeamSidebarHeaderActionsProvider>
-						<TeamSidebarHeader />
-						{input.mainSidebarContent}
-					</TeamSidebarHeaderActionsProvider>
-				) : undefined
-			}
-			moduleNavigationKey="people"
-			moduleNavigationLabel="Team"
+			moduleNavigation={input.mainSidebar?.content}
+			moduleNavigationKey={input.mainSidebar?.key}
+			moduleNavigationLabel={input.mainSidebar?.label}
 			outerRail={<AppOuterRail account={account} />}
 			sidebar={
 				input.sidebar && input.sidebarPreferenceKey ? (

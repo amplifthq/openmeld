@@ -16,6 +16,16 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+// Git Bash puts GNU tar on PATH, which treats a Windows drive letter as a
+// remote archive host. Use Windows' native tar for native filesystem paths.
+export const NPM_ARTIFACT_TAR =
+  process.platform === "win32"
+    ? join(
+        process.env.SystemRoot ?? process.env.SYSTEMROOT ?? "C:\\Windows",
+        "System32",
+        "tar.exe"
+      )
+    : "tar";
 const LOCAL_DEPENDENCY = /^(?:catalog|workspace|file|link):/iu;
 const RUNTIME_DEPENDENCY_FIELDS = [
   "dependencies",
@@ -28,7 +38,9 @@ const CONSUMER_ENVIRONMENT_KEY =
 const LINE_BREAK = /\r?\n/u;
 const SOURCE_SHA = /^[a-f0-9]{40}$/u;
 const SHA512_INTEGRITY = /^sha512-[A-Za-z0-9+/]{86}==$/u;
-const CACHE_SCHEMA_VERSION = 1;
+const CACHE_SCHEMA_VERSION = 2;
+const NATIVE_COMPILATION_OUTPUT =
+  /\bgyp (?:info|ERR!|verb)|No prebuilt binaries found|\b(?:CC|CXX|SOLINK_MODULE)\(target\)/u;
 const BUILD_ENVIRONMENT_KEY =
   /^(?:cc|cflags|cxx|cxxflags|ldflags|macosx_deployment_target|node_options|npm_config_arch|npm_config_target_arch|sdkroot)$/iu;
 
@@ -66,12 +78,25 @@ export function assertNpmRuntimeDependencies(manifest) {
 
 async function run(command, args, options = {}) {
   const env = options.env ?? process.env;
-  const invocation =
-    process.platform === "win32"
-      ? (
-          await import("../../runtime/adapters/core/dist/process-launch.js")
-        ).resolvePlatformCommand(command, args, env)
-      : { bin: command, args };
+  let invocation = {
+    bin: command === "tar" ? NPM_ARTIFACT_TAR : command,
+    args,
+  };
+  if (process.platform === "win32" && command === "npm") {
+    // setup-node's Windows distribution includes npm beside node.exe. Invoke
+    // its JS entry directly so a clean consumer needs no workspace build.
+    invocation = {
+      bin: process.execPath,
+      args: [
+        join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"),
+        ...args,
+      ],
+    };
+  } else if (process.platform === "win32" && command === "pnpm") {
+    invocation = (
+      await import("../../runtime/adapters/core/dist/process-launch.js")
+    ).resolvePlatformCommand(command, args, env);
+  }
   const result = spawnSync(invocation.bin, invocation.args, {
     cwd: options.cwd,
     env,
@@ -87,7 +112,19 @@ async function run(command, args, options = {}) {
       `${command} failed (${result.status ?? "not completed"}): ${result.error?.message ?? result.stderr?.trim() ?? "unknown error"}`
     );
   }
+  options.inspectOutput?.(`${result.stdout}\n${result.stderr}`);
   return result.stdout.trim();
+}
+
+export function assertNoNativeCompilation(output) {
+  // Lifecycle command text can contain "prebuild-install || node-gyp rebuild"
+  // even when a prebuild succeeds. Reject evidence of the fallback actually
+  // running, including an optional dependency whose compilation failure npm hides.
+  if (NATIVE_COMPILATION_OUTPUT.test(output)) {
+    throw new Error(
+      `npm consumer installation fell back to native compilation:\n${output}`
+    );
+  }
 }
 
 export async function readNpmCliArtifact(artifactPath) {
@@ -211,11 +248,17 @@ export async function verifyNpmCliConsumer(
         artifactPath,
         "--registry=https://registry.npmjs.org/",
         "--ignore-scripts=false",
+        "--foreground-scripts",
         "--no-audit",
         "--no-fund",
         "--workspaces=false",
       ],
-      { cwd: root, env, timeout: 300_000 }
+      {
+        cwd: root,
+        env,
+        timeout: 300_000,
+        inspectOutput: assertNoNativeCompilation,
+      }
     );
     const entry = join(root, "node_modules/openmeld/dist/openmeld.js");
     const version = await run(process.execPath, [entry, "--version"], {
@@ -314,6 +357,29 @@ async function prepareCachedNpmCliArtifact(input = {}, dependencies = {}) {
     env,
     expectedSourceSha: input.sourceSha,
   });
+  const suppliedPath = env.OPENMELD_NPM_ARTIFACT_PATH;
+  const suppliedIntegrity = env.OPENMELD_NPM_ARTIFACT_INTEGRITY;
+  if (
+    suppliedPath ||
+    suppliedIntegrity ||
+    env.OPENMELD_REQUIRE_VERIFIED_NPM_ARTIFACT === "1"
+  ) {
+    const artifactPath = suppliedPath && resolve(cwd, suppliedPath);
+    verifyPreparedNpmCliArtifact({
+      path: artifactPath,
+      integrity: suppliedIntegrity,
+    });
+    const inspected = await inspectNpmCliArtifact(
+      artifactPath,
+      readExpectedNpmArtifact({ cwd, sourceSha })
+    );
+    if (inspected.integrity !== suppliedIntegrity) {
+      throw new Error(
+        "Downloaded npm artifact integrity changed during admission."
+      );
+    }
+    return persistentArtifact(artifactPath, inspected);
+  }
   const runtime = await resolveToolRuntime({ cwd, env }, dependencies);
   const buildInputs = hashBuildInputs({ env, runtime, sourceSha });
   const cache = resolveNpmArtifactCache({ cwd, buildInputs });

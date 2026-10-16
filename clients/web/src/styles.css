@@ -113,6 +113,12 @@ html[data-space-conversation-layout="full-width"] {
   --space-conversation-inline-padding: 0.5rem;
 }
 
+/* Main conversations share the header gutter, with or without history.
+   Thread panes retain their own spacing. */
+html[data-space-conversation-layout="full-width"] [data-space-conversation-content-width]:not(:where([data-space-conversation-presentation="compact"] *, [data-desk-space-window] *)) {
+  padding-inline: var(--app-page-inline-padding);
+}
+
 /* Desk windows keep their own frame, independently of the page preference. */
 [data-desk-space-window] {
   --space-conversation-inline-padding: 1rem;
@@ -661,13 +667,13 @@ html[data-space-conversation-layout] [data-desk-space-window]
     }
   }
 }
-/* Reserve a lane only for a visible history rail. The preference is restored
-   before hydration, so hidden or unavailable rails do not move messages. */
+/* Centered conversations reserve a lane only for a visible history rail. */
 @media (min-width: 640px) {
   [data-space-history-rail="true"] {
     --space-history-rail-width: 2.25rem;
   }
-  html:not([data-space-history-slider="off"]) [data-space-history-rail="true"] [data-space-conversation-content-width] {
+  html:not([data-space-conversation-layout="full-width"]):not([data-space-history-slider="off"]) [data-space-history-rail="true"] [data-space-conversation-content-width],
+  html[data-space-conversation-layout="full-width"]:not([data-space-history-slider="off"]) :where([data-space-conversation-presentation="compact"], [data-desk-space-window]) [data-space-history-rail="true"] [data-space-conversation-content-width] {
     width: calc(100% - var(--space-history-rail-width));
     margin-inline-start: var(--space-history-rail-width);
   }
@@ -678,7 +684,8 @@ html[data-space-conversation-layout] [data-desk-space-window]
   }
 }
 @media (min-width: 640px) and (pointer: fine) {
-  html:not([data-space-history-slider="off"]) [data-space-history-rail="true"] [data-space-conversation-content-width] {
+  html:not([data-space-conversation-layout="full-width"]):not([data-space-history-slider="off"]) [data-space-history-rail="true"] [data-space-conversation-content-width],
+  html[data-space-conversation-layout="full-width"]:not([data-space-history-slider="off"]) :where([data-space-conversation-presentation="compact"], [data-desk-space-window]) [data-space-history-rail="true"] [data-space-conversation-content-width] {
     padding-inline-start: .25rem;
   }
 }
@@ -703,7 +710,12 @@ html[data-space-conversation-layout] [data-desk-space-window]
 .space-history-tick[data-hovered] .space-history-dash { background: var(--foreground); opacity: 1; }
 .space-history-tick:focus-visible .space-history-dash { opacity: 1; }
 .space-history-preview { max-width: calc(100vw - 5rem); position: relative; }
-.space-history-touch-trigger { display: none; }
+/* Fit pointer targets inside the same gutter without moving the transcript. */
+@media (pointer: fine) {
+  html[data-space-conversation-layout="full-width"] .space-history-navigation:not(:where([data-space-conversation-presentation="compact"] *, [data-desk-space-window] *)) {
+    width: calc(var(--app-page-inline-padding) - .5rem);
+  }
+}
 @media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
   .space-history-dash { transition: transform 125ms cubic-bezier(.23,1,.32,1), opacity 125ms ease; }
 }
@@ -711,15 +723,6 @@ html[data-space-conversation-layout] [data-desk-space-window]
   .space-history-dash { transform: scaleX(.25) !important; }
   .space-history-preview { animation: none !important; }
 }
-@media (pointer: coarse) {
-  [data-space-history-rail="true"] { --space-history-rail-width: 3.25rem; }
-  .space-history-navigation { top: 3.5rem; bottom: auto; height: auto !important; translate: none; }
-  .space-history-touch-trigger { display: grid; place-items: center; width: 44px; height: 44px; }
-  .space-history-ticks { display: none; }
-}
-
-@media (pointer: fine) { .space-history-preview-stepper { display: none; } }
-
 /* Toolbar visibility changes release the main surface's reserved bottom row. */
 [data-toolbar-shortcut][hidden],
 [data-toolbar-shortcut]:has(> .toolbar-shortcut-dismiss:only-child) {

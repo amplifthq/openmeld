@@ -21,6 +21,7 @@ import { resolveStatusToneCompactBadgeClassName } from "@openmeld/ui/lib/status-
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ChatCircleTextIcon,
+	TimerIcon,
 	TrayIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
@@ -51,6 +52,7 @@ import {
 import {
 	buildOrganizationInboxPath,
 	buildOrganizationPeoplePath,
+	buildOrganizationRoutinesPath,
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
 import { SidebarDestinationActionSlot } from "./sidebar-destination-actions";
@@ -111,6 +113,12 @@ export function buildAppRailGroups(input: {
 					label: "Team",
 					to: buildOrganizationPeoplePath(input.orgSlug),
 					icon: <UsersThreeIcon aria-hidden="true" className="size-5" />,
+				},
+				{
+					id: "routines",
+					label: "Routines",
+					to: buildOrganizationRoutinesPath(input.orgSlug),
+					icon: <TimerIcon aria-hidden="true" className="size-5" />,
 				},
 			],
 		},

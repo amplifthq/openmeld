@@ -1,16 +1,52 @@
-diff --git a/dist/agent-coordinator-CgBv-ou1.mjs b/dist/agent-coordinator-CgBv-ou1.mjs
-index c18adb09c558eecd8e9193e77a026501b74fc9d7..c0ae4c1b36cfb6917cd1775e7d134f5644ea5954 100644
---- a/dist/agent-coordinator-CgBv-ou1.mjs
-+++ b/dist/agent-coordinator-CgBv-ou1.mjs
+diff --git a/dist/agent-coordinator-aVoFZ4h5.d.mts b/dist/agent-coordinator-aVoFZ4h5.d.mts
+index 3be05647c..0c3e87ce4 100644
+--- a/dist/agent-coordinator-aVoFZ4h5.d.mts
++++ b/dist/agent-coordinator-aVoFZ4h5.d.mts
+@@ -1,6 +1,23 @@
+ import { t as AttachmentStore } from "./attachment-store-DOXOd7OF.mjs";
+ import { C as FlueContextInternal, W as ConversationStreamStore, g as createAgentSubmissionSessionHandler, r as AgentSubmissionStore } from "./agent-execution-store-TmGF9yZ1.mjs";
+ import { o as SqlStorage } from "./observation-CCQRUQQq.mjs";
++import { n as AgentSubmission } from "./agent-execution-store-TmGF9yZ1.mjs";
++import { Z as PromptUsage } from "./types-B1PuLhZt.mjs";
++export interface AgentSubmissionProjection extends AgentSubmission {
++  /** Recorded consumption for any canonical terminal outcome; never an answer. */
++  readonly terminalMetadata?: {
++    readonly submissionId: string;
++    readonly model?: { readonly id: string; readonly provider?: string };
++    readonly usage?: PromptUsage;
++  };
++  /** Read-only exact-submission result, present only after canonical success. */
++  readonly completedOutput?: {
++    readonly submissionId: string;
++    readonly text: string;
++    readonly model?: { readonly id: string; readonly provider?: string };
++    readonly usage?: PromptUsage;
++  };
++}
+ //#region src/cloudflare/agent-coordinator.d.ts
+ declare const CLOUDFLARE_AGENT_INTERNAL_DISPATCH_PATH = "/__flue/internal/dispatch";
+ declare const CLOUDFLARE_AGENT_INTERNAL_INSTANCE_INFO_PATH = "/__flue/internal/instance-info";
+@@ -56,6 +73,7 @@ interface CloudflareAgentRuntimeOptions {
+   readonly runWithInstanceContext: <T>(instance: CloudflareAgentInstance, agentName: string, callback: () => T) => T;
+ }
+ interface CloudflareAgentRuntime {
++  readSubmission(instance: CloudflareAgentInstance, submissionId: string): Promise<AgentSubmissionProjection | null>;
+   prepare(options: {
+     readonly storage: CloudflareAgentStorage;
+     readonly className: string;
+diff --git a/dist/agent-coordinator-f9gHF-F5.mjs b/dist/agent-coordinator-f9gHF-F5.mjs
+index 28508021b..7d97f9d57 100644
+--- a/dist/agent-coordinator-f9gHF-F5.mjs
++++ b/dist/agent-coordinator-f9gHF-F5.mjs
 @@ -1,7 +1,9 @@
  import { A as SubmissionAbortedError, B as classifyError, H as describeErrorChain, P as SubmissionTimeoutError, U as formatErrorForLog, Z as generateAttemptId, dt as isKeyDerivedSubmissionId, j as SubmissionConflictError, m as InvalidRequestError, n as AgentInstanceNotFoundError, pt as interceptExecution, t as AgentInstanceExistsError } from "./errors-BcRwz-UD.mjs";
- import { S as handleAgentRequest, b as handleAgentConversationRead, et as agentStreamPath, ft as createSessionStorageKey, v as handleAgentAttachmentRead, x as assertAgentDispatchAdmissionInput, y as handleAgentConversationHead } from "./dispatch-BlxCz6iq.mjs";
+ import { S as handleAgentRequest, b as handleAgentConversationRead, et as agentStreamPath, ft as createSessionStorageKey, v as handleAgentAttachmentRead, x as assertAgentDispatchAdmissionInput, y as handleAgentConversationHead } from "./dispatch-t-UmrrMW.mjs";
  import { r as drainGlobalEventDeliveries, t as createCoordinatorEventEmitter } from "./events-BhCLb2HD.mjs";
-+import { readSubmissionTerminalProjection } from "./dispatch-BlxCz6iq.mjs";
- import { n as createMcpConnectionCache } from "./mcp-B5fLKxuW.mjs";
-+import { recordUnreadySubmissionFailure } from "./conversation-stream-store-2-jUriih.mjs";
- import { D as SUBMISSION_HARNESS_NAME, O as SUBMISSION_SESSION_NAME, _ as submissionSyntheticRequest, a as admitInstanceContact, c as createDispatchAgentSubmissionInput, d as isInstanceContactRejection, f as materializeSubmissionAttachments, g as settleUnclaimableSubmission, h as serializeSubmissionError, l as ensureInstanceIdentity, m as reconcileInterruptedSubmission, n as SqliteConversationStreamStore, o as adoptKeyedSubmissionReplay, p as processSubmission, s as createDirectAgentSubmissionInput, u as finalizePendingSettlement, v as unreadySubmissionDeadline } from "./conversation-stream-store-2-jUriih.mjs";
- import { n as ensureSqlAgentExecutionTables, r as ConversationRecordWriter, t as createSqlAgentExecutionStoreFromSql } from "./sql-agent-execution-store-C0vwyWZB.mjs";
++import { readSubmissionTerminalProjection } from "./dispatch-t-UmrrMW.mjs";
+ import { n as createMcpConnectionCache } from "./mcp-CYraeuuF.mjs";
++import { recordUnreadySubmissionFailure } from "./conversation-stream-store-CXrgv-b0.mjs";
+ import { D as SUBMISSION_HARNESS_NAME, O as SUBMISSION_SESSION_NAME, _ as submissionSyntheticRequest, a as admitInstanceContact, c as createDispatchAgentSubmissionInput, d as isInstanceContactRejection, f as materializeSubmissionAttachments, g as settleUnclaimableSubmission, h as serializeSubmissionError, l as ensureInstanceIdentity, m as reconcileInterruptedSubmission, n as SqliteConversationStreamStore, o as adoptKeyedSubmissionReplay, p as processSubmission, s as createDirectAgentSubmissionInput, u as finalizePendingSettlement, v as unreadySubmissionDeadline } from "./conversation-stream-store-CXrgv-b0.mjs";
+ import { n as ensureSqlAgentExecutionTables, r as ConversationRecordWriter, t as createSqlAgentExecutionStoreFromSql } from "./sql-agent-execution-store-LqbFqydc.mjs";
  import { n as SqliteAttachmentStore, r as ensureSqlAttachmentTable } from "./sql-attachment-store-BSCfEKhu.mjs";
 @@ -92,6 +94,9 @@ function createCloudflareAgentRuntime(options) {
  		onRequest(instance, request) {
@@ -90,44 +126,8 @@ index c18adb09c558eecd8e9193e77a026501b74fc9d7..c0ae4c1b36cfb6917cd1775e7d134f56
  	async abortInstance() {
  		const sessionKey = createSessionStorageKey(this.agentName, this.instance.name, SUBMISSION_HARNESS_NAME, SUBMISSION_SESSION_NAME);
  		const affected = await this.submissions.requestSessionAbort(sessionKey);
-diff --git a/dist/agent-coordinator-aVoFZ4h5.d.mts b/dist/agent-coordinator-aVoFZ4h5.d.mts
-index 3be05647c6138cc3ab009e09a328e096bd3e6c0d..0c3e87ce441a60a06185b7b565766598843601a4 100644
---- a/dist/agent-coordinator-aVoFZ4h5.d.mts
-+++ b/dist/agent-coordinator-aVoFZ4h5.d.mts
-@@ -1,6 +1,23 @@
- import { t as AttachmentStore } from "./attachment-store-DOXOd7OF.mjs";
- import { C as FlueContextInternal, W as ConversationStreamStore, g as createAgentSubmissionSessionHandler, r as AgentSubmissionStore } from "./agent-execution-store-TmGF9yZ1.mjs";
- import { o as SqlStorage } from "./observation-CCQRUQQq.mjs";
-+import { n as AgentSubmission } from "./agent-execution-store-TmGF9yZ1.mjs";
-+import { Z as PromptUsage } from "./types-B1PuLhZt.mjs";
-+export interface AgentSubmissionProjection extends AgentSubmission {
-+  /** Recorded consumption for any canonical terminal outcome; never an answer. */
-+  readonly terminalMetadata?: {
-+    readonly submissionId: string;
-+    readonly model?: { readonly id: string; readonly provider?: string };
-+    readonly usage?: PromptUsage;
-+  };
-+  /** Read-only exact-submission result, present only after canonical success. */
-+  readonly completedOutput?: {
-+    readonly submissionId: string;
-+    readonly text: string;
-+    readonly model?: { readonly id: string; readonly provider?: string };
-+    readonly usage?: PromptUsage;
-+  };
-+}
- //#region src/cloudflare/agent-coordinator.d.ts
- declare const CLOUDFLARE_AGENT_INTERNAL_DISPATCH_PATH = "/__flue/internal/dispatch";
- declare const CLOUDFLARE_AGENT_INTERNAL_INSTANCE_INFO_PATH = "/__flue/internal/instance-info";
-@@ -56,6 +73,7 @@ interface CloudflareAgentRuntimeOptions {
-   readonly runWithInstanceContext: <T>(instance: CloudflareAgentInstance, agentName: string, callback: () => T) => T;
- }
- interface CloudflareAgentRuntime {
-+  readSubmission(instance: CloudflareAgentInstance, submissionId: string): Promise<AgentSubmissionProjection | null>;
-   prepare(options: {
-     readonly storage: CloudflareAgentStorage;
-     readonly className: string;
 diff --git a/dist/agent-execution-store-TmGF9yZ1.d.mts b/dist/agent-execution-store-TmGF9yZ1.d.mts
-index d160d0ed1d9dfa11bdc775bd8b04bdd01d19655f..b3658b30e9aa8846052b383e6cf47937aefe0cf1 100644
+index d160d0ed1..b3658b30e 100644
 --- a/dist/agent-execution-store-TmGF9yZ1.d.mts
 +++ b/dist/agent-execution-store-TmGF9yZ1.d.mts
 @@ -1436,6 +1436,16 @@ interface AgentSubmissionStore {
@@ -147,17 +147,17 @@ index d160d0ed1d9dfa11bdc775bd8b04bdd01d19655f..b3658b30e9aa8846052b383e6cf47937
    /**
     * Atomic compare-and-set. Transition the submission from queued to
     * running ONLY when it is currently queued and is the runnable head of
-diff --git a/dist/builtin-providers-CslrifWV.mjs b/dist/builtin-providers-CslrifWV.mjs
-index 15e6e652db7a056ec53c4b6a430a7c33c7126e27..039126621052585bf1ab1d4b3c7d3e6c21d75b26 100644
---- a/dist/builtin-providers-CslrifWV.mjs
-+++ b/dist/builtin-providers-CslrifWV.mjs
+diff --git a/dist/builtin-providers-C5FpT9g1.mjs b/dist/builtin-providers-C5FpT9g1.mjs
+index 63c9b95ea..2902c3fbd 100644
+--- a/dist/builtin-providers-C5FpT9g1.mjs
++++ b/dist/builtin-providers-C5FpT9g1.mjs
 @@ -1,5 +1,6 @@
  import { d as abortErrorFor, p as createCallHandle, r as createCwdSandbox } from "./sandbox-CR3o1Qmd.mjs";
- import { f as getPreparedToolAdapter } from "./result-BWvTzP0z.mjs";
-+import { recordUnreadySubmissionFailure } from "./conversation-stream-store-2-jUriih.mjs";
+ import { f as getPreparedToolAdapter } from "./result-e-IUH4HT.mjs";
++import { recordUnreadySubmissionFailure } from "./conversation-stream-store-CXrgv-b0.mjs";
  import { A as SubmissionAbortedError, B as classifyError, G as normalizeLogAttributes, P as SubmissionTimeoutError, Y as createConversationIdentity, Z as generateAttemptId, at as generateOwnerId, b as RuntimeUnavailableError, dt as isKeyDerivedSubmissionId, j as SubmissionConflictError, w as SessionNotFoundError } from "./errors-BcRwz-UD.mjs";
- import { dt as createActionScopeName, et as agentStreamPath, f as configureFlueRuntime, ft as createSessionStorageKey, g as resetFlueRuntimeForTests, h as getFlueRuntime, l as resolveAgentDurability, o as getRegisteredFlueAgents, pt as createTaskSessionName, s as registerFlueAgents, ut as assertPublicSessionName, vt as createAgentOutputChannel } from "./dispatch-BlxCz6iq.mjs";
- import { c as resolveModel, l as setProvider, r as hasProvider } from "./providers-DnRSdXFS.mjs";
+ import { dt as createActionScopeName, et as agentStreamPath, f as configureFlueRuntime, ft as createSessionStorageKey, g as resetFlueRuntimeForTests, h as getFlueRuntime, l as resolveAgentDurability, o as getRegisteredFlueAgents, pt as createTaskSessionName, s as registerFlueAgents, ut as assertPublicSessionName, vt as createAgentOutputChannel } from "./dispatch-t-UmrrMW.mjs";
+ import { c as resolveModel, l as setProvider, r as hasProvider } from "./providers-DfEK_EsA.mjs";
 @@ -537,6 +538,7 @@ async function initializeRootHarness(agent, config, emitEvent, delivery) {
  	promptContext.setAgentCatalog((durableResources?.baseline ?? initialResources.snapshot).subagents);
  	const agentConfig = {
@@ -174,7 +174,7 @@ index 15e6e652db7a056ec53c4b6a430a7c33c7126e27..039126621052585bf1ab1d4b3c7d3e6c
  		initial: initialResources,
  		...durableResources?.baseline ? { baseline: durableResources.baseline } : {},
  		...durableResources?.narrated ? { narrated: durableResources.narrated } : {},
-@@ -1113,8 +1116,8 @@ function createNodeAgentCoordinator(options) {
+@@ -1116,8 +1119,8 @@ function createNodeAgentCoordinator(options) {
  	* runnable) falls back to the deferral logging so nothing is silently
  	* dropped.
  	*/
@@ -185,7 +185,7 @@ index 15e6e652db7a056ec53c4b6a430a7c33c7126e27..039126621052585bf1ab1d4b3c7d3e6c
  		console.error("[flue:submission-reconciliation]", {
  			submissionId: submission.submissionId,
  			operation: "materialize_submission",
-@@ -1122,7 +1125,15 @@ function createNodeAgentCoordinator(options) {
+@@ -1125,7 +1128,15 @@ function createNodeAgentCoordinator(options) {
  		}, error);
  		return true;
  	}
@@ -202,7 +202,7 @@ index 15e6e652db7a056ec53c4b6a430a7c33c7126e27..039126621052585bf1ab1d4b3c7d3e6c
  		for (const submission of await submissions.listUnreadySubmissions()) {
  			if (submission.abortRequestedAt !== void 0) {
  				await settleUnclaimableSubmission(submissions, submission, "aborted", new SubmissionAbortedError(), coordinatorEventEmitter(submission.input));
-@@ -1130,7 +1141,7 @@ function createNodeAgentCoordinator(options) {
+@@ -1133,7 +1144,7 @@ function createNodeAgentCoordinator(options) {
  			}
  			const agent = agents.find((record) => record.name === submission.input.agent)?.agent;
  			if (!agent) {
@@ -211,7 +211,7 @@ index 15e6e652db7a056ec53c4b6a430a7c33c7126e27..039126621052585bf1ab1d4b3c7d3e6c
  				console.error("[flue:submission-reconciliation]", {
  					submissionId: submission.submissionId,
  					operation: "materialize_submission",
-@@ -1149,7 +1160,7 @@ function createNodeAgentCoordinator(options) {
+@@ -1152,7 +1163,7 @@ function createNodeAgentCoordinator(options) {
  				await materializeSubmissionConversation(submission.input, agent);
  				await submissions.markSubmissionCanonicalReady(submission.submissionId);
  			} catch (error) {
@@ -221,7 +221,7 @@ index 15e6e652db7a056ec53c4b6a430a7c33c7126e27..039126621052585bf1ab1d4b3c7d3e6c
  					submissionId: submission.submissionId,
  					operation: "materialize_submission",
 diff --git a/dist/cloudflare/internal.mjs b/dist/cloudflare/internal.mjs
-index b9ea9262702a928da0151a2f8d1916aaa54dbdf1..b9f0d74ab6ba8331b18c438e4e4ed110f02ca22c 100644
+index 5ebfda2af..6c0735b7f 100644
 --- a/dist/cloudflare/internal.mjs
 +++ b/dist/cloudflare/internal.mjs
 @@ -38,6 +38,9 @@ function createFlueAgentClass(options) {
@@ -234,9 +234,9 @@ index b9ea9262702a928da0151a2f8d1916aaa54dbdf1..b9f0d74ab6ba8331b18c438e4e4ed110
  		/**
  		* The Agents SDK alarm handler dispatches `schedule`/`scheduleEvery`/
  		* `queue` callbacks to methods on this class — including
-diff --git a/dist/conversation-recall.mjs b/dist/conversation-recall.mjs
+diff --git a/dev-tmp/upstream/package/dist/conversation-recall.mjs b/dist/conversation-recall.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..3abc3bc6a00d2fd717fb9093182fc444adf1bf78
+index 000000000..3abc3bc6a
 --- /dev/null
 +++ b/dist/conversation-recall.mjs
 @@ -0,0 +1,54 @@
@@ -294,17 +294,17 @@ index 0000000000000000000000000000000000000000..3abc3bc6a00d2fd717fb9093182fc444
 +    }
 +  };
 +}
-diff --git a/dist/conversation-stream-store-2-jUriih.mjs b/dist/conversation-stream-store-2-jUriih.mjs
-index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce41657919962b47b219 100644
---- a/dist/conversation-stream-store-2-jUriih.mjs
-+++ b/dist/conversation-stream-store-2-jUriih.mjs
+diff --git a/dist/conversation-stream-store-CXrgv-b0.mjs b/dist/conversation-stream-store-CXrgv-b0.mjs
+index 28be2fc98..b45b5f39d 100644
+--- a/dist/conversation-stream-store-CXrgv-b0.mjs
++++ b/dist/conversation-stream-store-CXrgv-b0.mjs
 @@ -1,4 +1,6 @@
  import { c as encodeBase64, d as abortErrorFor, f as composeTimeoutSignal, m as raceToolWithDeadline, p as createCallHandle, r as createCwdSandbox, s as decodeBase64, u as abandonToolOnAbort } from "./sandbox-CR3o1Qmd.mjs";
-+import { buildCanonicalActionEvidence, collectRecordedSubmissionMetadata, projectSubmissionRetryTextPrefix, isOutputLimitedResponse, MAX_OUTPUT_LIMIT_CONTINUATIONS, OUTPUT_LIMIT_FAILURE_REASON } from "./dispatch-BlxCz6iq.mjs";
++import { buildCanonicalActionEvidence, collectRecordedSubmissionMetadata, projectSubmissionRetryTextPrefix, isOutputLimitedResponse, MAX_OUTPUT_LIMIT_CONTINUATIONS, OUTPUT_LIMIT_FAILURE_REASON } from "./dispatch-t-UmrrMW.mjs";
 +import { measureWorkingContext, workingContextBudget } from "./working-context.mjs";
- import { A as createEditTool, D as READ_SKILL_RESOURCE_TOOL_NAME, E as redactObservationDetailImages, F as createTaskTool, I as createWriteTool, L as formatBashResult, M as createGrepTool, N as createPackagedSkillReadTool, O as createActivateSkillTool, P as createReadTool, R as overlayPackagedSkills, S as renderWithFrame, T as redactEventImages, _ as packageSkillDefinition, a as buildPromptText, b as getSkillReferenceDirectory, c as buildWorkspaceSkillPrompt, d as parseSkillMarkdown, f as getPreparedToolAdapter, g as isSkillDefinition, i as buildPackagedSkillPrompt, j as createGlobTool, k as createBashTool, l as createResultTools, n as GIVE_UP_TOOL_NAME, o as buildResultFollowUpPrompt, r as ResultUnavailableError, s as buildSkillByPathlessNamePrompt, t as FINISH_TOOL_NAME, u as prepareResultTool, w as IMAGE_DATA_OMITTED } from "./result-BWvTzP0z.mjs";
+ import { A as createEditTool, D as READ_SKILL_RESOURCE_TOOL_NAME, E as redactObservationDetailImages, F as createTaskTool, I as createWriteTool, L as formatBashResult, M as createGrepTool, N as createPackagedSkillReadTool, O as createActivateSkillTool, P as createReadTool, R as overlayPackagedSkills, S as renderWithFrame, T as redactEventImages, _ as packageSkillDefinition, a as buildPromptText, b as getSkillReferenceDirectory, c as buildWorkspaceSkillPrompt, d as parseSkillMarkdown, f as getPreparedToolAdapter, g as isSkillDefinition, i as buildPackagedSkillPrompt, j as createGlobTool, k as createBashTool, l as createResultTools, n as GIVE_UP_TOOL_NAME, o as buildResultFollowUpPrompt, r as ResultUnavailableError, s as buildSkillByPathlessNamePrompt, t as FINISH_TOOL_NAME, u as prepareResultTool, w as IMAGE_DATA_OMITTED } from "./result-e-IUH4HT.mjs";
  import { A as SubmissionAbortedError, B as classifyError, C as SessionBusyError, E as SkillNotRegisteredError, G as normalizeLogAttributes, I as ToolNameConflictError, M as SubmissionInterruptedError, N as SubmissionRetryExhaustedError, P as SubmissionTimeoutError, Q as generateBlockId, X as deriveKeyedSubmissionId, Y as createConversationIdentity, Z as generateAttemptId, a as AttachmentNotAvailableError, c as ConversationRecordInvariantError, ct as generateTaskId, d as FlueError, et as generateIncarnationId, g as OperationFailedError, it as generateOperationId, j as SubmissionConflictError, k as SubagentNotDeclaredError, l as ConversationStreamStoreError, lt as generateToolCallId, m as InvalidRequestError, n as AgentInstanceNotFoundError, nt as generateInstanceUid, pt as interceptExecution, q as serializeEventError, rt as generateInvocationId, st as generateSubmissionId, t as AgentInstanceExistsError, u as DelegationDepthExceededError, ut as generateTurnId } from "./errors-BcRwz-UD.mjs";
- import { $ as MAX_READ_LIMIT, B as DEFAULT_COMPACTION_SETTINGS, C as DeliveredMessageSchema, Ct as prepareDocumentRequest, Dt as generateConversationEntryId, E as assertDurability, Et as encodeCanonicalId, F as getActiveConversationPathSince, G as prepareCompaction, H as compact, I as getLatestConversationCompaction, J as emptyUsage, K as shouldCompact, L as countConsecutiveRetryableModelErrors, N as aggregateConversationUsageSince, Ot as generateConversationRecordId, P as classifyConversationSubmission, R as findTrailingPartialToolBatch, St as mergeOperationAttachments, Tt as RESERVED_SIGNAL_TYPES, U as deriveCompactionDefaults, V as calculateContextTokens, W as isAssistantContextOverflow, Y as fromProviderUsage, _t as assertAppendMessage, bt as fnv1a64, ct as toolOutcomeKey, d as resolveAgentInitialDataSchema, et as agentStreamPath, ft as createSessionStorageKey, gt as renderSignalMessage, ht as createUserContextMessage, it as buildConversationContextEntries, kt as toolStepRecordId, lt as toolResultEntryId, mt as parseSessionStorageKey, nt as parseOffset, ot as getActiveConversationPath, q as addUsage, rt as buildConversationContext, tt as formatOffset, w as MAX_IMAGE_DATA_LENGTH, wt as toPublicAttachment, xt as isDocumentMimeType, yt as runResponseMetadataHooks, z as isRetryableModelError } from "./dispatch-BlxCz6iq.mjs";
+ import { $ as MAX_READ_LIMIT, B as DEFAULT_COMPACTION_SETTINGS, C as DeliveredMessageSchema, Ct as prepareDocumentRequest, Dt as generateConversationEntryId, E as assertDurability, Et as encodeCanonicalId, F as getActiveConversationPathSince, G as prepareCompaction, H as compact, I as getLatestConversationCompaction, J as emptyUsage, K as shouldCompact, L as countConsecutiveRetryableModelErrors, N as aggregateConversationUsageSince, Ot as generateConversationRecordId, P as classifyConversationSubmission, R as findTrailingPartialToolBatch, St as mergeOperationAttachments, Tt as RESERVED_SIGNAL_TYPES, U as deriveCompactionDefaults, V as calculateContextTokens, W as isAssistantContextOverflow, Y as fromProviderUsage, _t as assertAppendMessage, bt as fnv1a64, ct as toolOutcomeKey, d as resolveAgentInitialDataSchema, et as agentStreamPath, ft as createSessionStorageKey, gt as renderSignalMessage, ht as createUserContextMessage, it as buildConversationContextEntries, kt as toolStepRecordId, lt as toolResultEntryId, mt as parseSessionStorageKey, nt as parseOffset, ot as getActiveConversationPath, q as addUsage, rt as buildConversationContext, tt as formatOffset, w as MAX_IMAGE_DATA_LENGTH, wt as toPublicAttachment, xt as isDocumentMimeType, yt as runResponseMetadataHooks, z as isRetryableModelError } from "./dispatch-t-UmrrMW.mjs";
 @@ -10,6 +12,7 @@ import { r as migrateFlueSqlSchema, s as createAttachmentRef } from "./format-ve
  import { createInitialSystemMessage, getCurrentSystemPrompt, getCurrentTools, toToolDeclaration } from "@earendil-works/pi-ai";
  import * as v from "valibot";
@@ -359,21 +359,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  		if (options?.advance === false) return;
  		this.advanceDelivery?.({
  			kind: "signal",
-@@ -1753,8 +1761,12 @@ var Session = class {
- 				await driveContinuation();
- 				continue;
- 			}
-+			if ((this.outputChannel?.agentFinishes ?? []).length === 0) return;
-+			// The loop only re-renders between turns of one run, never after its
-+			// last turn — re-render here so the hooks' closures and guards observe
-+			// state written during the run (and by earlier cycles' callbacks).
-+			await this.prepareRerenderTurn();
- 			const hooks = this.outputChannel?.agentFinishes ?? [];
--			if (hooks.length === 0) return;
- 			const cycle = await this.countAgentFinishCycles(submissionId);
- 			const toolCalls = await this.collectResponseToolCalls(submissionId);
- 			const before = this.pendingSignalAppends.length;
-@@ -1844,11 +1856,11 @@ var Session = class {
+@@ -1845,11 +1853,11 @@ var Session = class {
  		const entryId = submissionEntryId(input.kind, input.submissionId);
  		if (!await this.conversationWriter.hasConversationEntry(this.conversationId, entryId)) {
  			const parentId = await this.conversationWriter.getConversationLeaf(this.conversationId);
@@ -387,7 +373,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  		await source.finalize(input.submissionId);
  	}
  	/**
-@@ -1860,7 +1872,7 @@ var Session = class {
+@@ -1861,7 +1869,7 @@ var Session = class {
  	async steerJoinedEntry(entryId) {
  		const conversation = await this.requireConversation();
  		const resolved = await this.resolveCanonicalContextAttachments(conversation);
@@ -396,7 +382,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  			const image = resolved.get(attachment.id);
  			if (!image) throw new AttachmentNotAvailableError({ attachmentId: attachment.id });
  			return image;
-@@ -1885,13 +1897,13 @@ var Session = class {
+@@ -1886,13 +1894,13 @@ var Session = class {
  			if (submission.status === "joining") {
  				if (await this.conversationWriter.hasConversationEntry(this.conversationId, entryId)) {
  					this.advanceDelivery?.(input.message);
@@ -412,7 +398,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  		}
  		await this.restoreDeliveryCursor();
  	}
-@@ -2035,6 +2047,7 @@ var Session = class {
+@@ -2036,6 +2044,7 @@ var Session = class {
  	* adopts them instead: the wake hooks ran on the original attempt.
  	*/
  	async beginResponseOutput() {
@@ -420,7 +406,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  		this.responseMessageId = void 0;
  		this.responseHasCompletedStep = false;
  		this.responseUsage = void 0;
-@@ -2211,6 +2224,7 @@ var Session = class {
+@@ -2212,6 +2221,7 @@ var Session = class {
  				thinkingLevel: this.config.thinkingLevel ?? "medium"
  			},
  			streamFn: this.emitTurnRequestAndStream,
@@ -428,7 +414,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  			toolExecution: "parallel",
  			steeringMode: "all",
  			followUpMode: "all",
-@@ -2253,6 +2267,10 @@ var Session = class {
+@@ -2254,6 +2264,10 @@ var Session = class {
  							modelInfo,
  							...isResponseFirstMessage && this.responseStartMetadata ? { responseMetadata: this.responseStartMetadata } : {}
  						}]);
@@ -439,7 +425,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  					}
  					this.emit({
  						type: "message_start",
-@@ -2263,6 +2281,10 @@ var Session = class {
+@@ -2264,6 +2278,10 @@ var Session = class {
  				}
  				case "message_update": {
  					const aEvent = event.assistantMessageEvent;
@@ -450,7 +436,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  					const assistant = this.canonicalAssistant;
  					if (assistant && aEvent.type === "text_start") {
  						const blockId = generateBlockId();
-@@ -2282,6 +2304,8 @@ var Session = class {
+@@ -2283,6 +2301,8 @@ var Session = class {
  					} else if (assistant && aEvent.type === "text_delta") {
  						const block = assistant.blocks.get(aEvent.contentIndex);
  						if (block?.type !== "text") throw new Error("[flue] Canonical text delta has no started block.");
@@ -459,7 +445,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  						this.enqueueCanonical([{
  							...this.canonicalEnvelope("assistant_text_delta"),
  							type: "assistant_text_delta",
-@@ -2291,7 +2315,8 @@ var Session = class {
+@@ -2292,7 +2312,8 @@ var Session = class {
  							delta: aEvent.delta
  						}], () => this.emit({
  							type: "text_delta",
@@ -469,7 +455,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  						}));
  					} else if (assistant && aEvent.type === "text_end") {
  						const block = assistant.blocks.get(aEvent.contentIndex);
-@@ -2567,9 +2592,80 @@ var Session = class {
+@@ -2568,9 +2589,80 @@ var Session = class {
  		return {
  			enabled: true,
  			reserveTokens: cc.reserveTokens ?? defaults.reserveTokens,
@@ -551,7 +537,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  	async initializeCanonicalContext() {
  		await this.rebuildCanonicalContext();
  	}
-@@ -2595,7 +2691,7 @@ var Session = class {
+@@ -2596,7 +2688,7 @@ var Session = class {
  	}
  	processSubmissionInput(input, options) {
  		return createCallHandle(void 0, async (signal) => {
@@ -560,7 +546,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  		});
  	}
  	/**
-@@ -3569,7 +3665,8 @@ var Session = class {
+@@ -3570,7 +3662,8 @@ var Session = class {
  		const activateSkillTool = Object.keys(this.liveSkills).length > 0 ? createActivateSkillTool((name) => this.activateSkillForTool(name)) : void 0;
  		const packagedRead = Object.values(packagedSkills).some((skill) => Object.keys(skill.files).some((path) => path !== "SKILL.md")) ? createPackagedSkillReadTool(packagedSkills) : void 0;
  		const frameworkTools = () => [
@@ -570,7 +556,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  			...activateSkillTool ? [activateSkillTool] : [],
  			...packagedRead ? [packagedRead] : []
  		];
-@@ -3772,7 +3869,7 @@ var Session = class {
+@@ -3773,7 +3866,7 @@ var Session = class {
  			}
  		}
  	}
@@ -579,7 +565,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  		const operationSignal = signal && this.scopeSignal ? AbortSignal.any([signal, this.scopeSignal]) : signal ?? this.scopeSignal;
  		return this.runExclusive(operation, async () => {
  			if (operationSignal?.aborted) throw abortErrorFor(operationSignal);
-@@ -3808,12 +3905,25 @@ var Session = class {
+@@ -3809,12 +3902,25 @@ var Session = class {
  				return result;
  			} catch (error) {
  				const surfaced = operationSignal?.aborted ? abortErrorFor(operationSignal) : error;
@@ -605,7 +591,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  					error: serializeEventError(surfaced)
  				}, operation === "prompt" || operation === "skill" ? {
  					agentInput: this.activeAgentInput,
-@@ -3823,6 +3933,8 @@ var Session = class {
+@@ -3824,6 +3930,8 @@ var Session = class {
  			} finally {
  				operationSignal?.removeEventListener("abort", onAbort);
  				this.emit({ type: "idle" });
@@ -614,7 +600,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  				this.activeOperationId = void 0;
  				this.activeAgentInput = void 0;
  			}
-@@ -3897,7 +4009,7 @@ var Session = class {
+@@ -3898,7 +4006,7 @@ var Session = class {
  	}
  	visibleCanonicalAttachments(conversation) {
  		const available = /* @__PURE__ */ new Map();
@@ -623,7 +609,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  			data: attachment.id,
  			mimeType: attachment.mimeType
  		}) })) {
-@@ -4041,7 +4153,7 @@ var Session = class {
+@@ -4042,7 +4150,7 @@ var Session = class {
  	async rebuildCanonicalContext() {
  		const conversation = await this.requireConversation();
  		const resolved = await this.resolveCanonicalContextAttachments(conversation);
@@ -632,7 +618,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  			const image = resolved.get(attachment.id);
  			if (!image) throw new AttachmentNotAvailableError({ attachmentId: attachment.id });
  			return image;
-@@ -4078,6 +4190,7 @@ var Session = class {
+@@ -4079,6 +4187,7 @@ var Session = class {
  	* caller's `throwIfError` could not surface the failure.
  	*/
  	async runModelTurnWithRecovery(options) {
@@ -640,7 +626,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  		let start = options.start;
  		let assistant = options.resume?.assistant;
  		let turnCompleted = false;
-@@ -4088,12 +4201,17 @@ var Session = class {
+@@ -4089,12 +4198,17 @@ var Session = class {
  		};
  		const throwIfHalted = () => {
  			if (options.signal.aborted) throw abortErrorFor(options.signal);
@@ -660,7 +646,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  				const settledAssistant = assistant ?? this.agentLoop.state.messages.findLast((message) => message.role === "assistant");
  				if (settledAssistant !== void 0) await this.checkCompaction(settledAssistant);
  				if (assistant?.stopReason === "error" || assistant?.stopReason === "aborted") await this.rebuildCanonicalContext();
-@@ -4104,7 +4222,10 @@ var Session = class {
+@@ -4105,7 +4219,10 @@ var Session = class {
  				return;
  			}
  			throwIfHalted();
@@ -672,7 +658,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  				overflowRecoveryAttempted = true;
  				this.internalLog("info", "[flue:compaction] Overflow detected, compacting...");
  				await this.rebuildCanonicalContext();
-@@ -4130,7 +4251,7 @@ var Session = class {
+@@ -4131,7 +4248,7 @@ var Session = class {
  				}
  				start = continueRebuilt;
  			}
@@ -681,7 +667,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  			try {
  				await start();
  				await this.agentLoop.waitForIdle();
-@@ -4144,21 +4265,46 @@ var Session = class {
+@@ -4145,21 +4262,46 @@ var Session = class {
  			assistant = latest?.role === "assistant" ? latest : void 0;
  		}
  	}
@@ -731,7 +717,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  			delayMs,
  			error: assistant.errorMessage
  		});
-@@ -4171,6 +4317,10 @@ var Session = class {
+@@ -4172,6 +4314,10 @@ var Session = class {
  	}
  	async checkCompaction(assistantMessage) {
  		if (assistantMessage.stopReason === "aborted" || assistantMessage.stopReason === "error") return;
@@ -742,7 +728,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  		const model = this.agentLoop.state.model;
  		const settings = this.resolveCompactionSettings(model);
  		if (!settings.enabled) return;
-@@ -4189,6 +4339,7 @@ var Session = class {
+@@ -4190,6 +4336,7 @@ var Session = class {
  	* triggered compaction.
  	*/
  	async runCompaction(reason) {
@@ -750,7 +736,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  		this.compactionAbortController = new AbortController();
  		const messagesBefore = this.agentLoop.state.messages.length;
  		const compactionStartMs = Date.now();
-@@ -4197,30 +4348,51 @@ var Session = class {
+@@ -4198,30 +4345,51 @@ var Session = class {
  			const sessionModel = this.agentLoop.state.model;
  			const settings = this.resolveCompactionSettings(sessionModel);
  			const compactionConfig = this.config.compaction === false ? void 0 : this.config.compaction;
@@ -804,7 +790,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  			this.internalLog("info", `[flue:compaction] Summarizing ${preparation.messagesToSummarize.length} messages` + (preparation.isSplitTurn ? ` (split turn: ${preparation.turnPrefixMessages.length} prefix messages)` : "") + `, keeping messages from index ${preparation.firstKeptIndex}`);
  			const estimatedTokens = preparation.tokensBefore;
  			this.emit({
-@@ -4230,6 +4402,7 @@ var Session = class {
+@@ -4231,6 +4399,7 @@ var Session = class {
  			});
  			terminalPending = true;
  			const result = await compact(preparation, summarizationModel, this.compactionAbortController.signal, {
@@ -812,7 +798,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  				start: (purpose, model, context, options) => {
  					const handle = { turnId: generateTurnId() };
  					this.emitTurnRequest(handle.turnId, purpose, model, context, options);
-@@ -4266,6 +4439,21 @@ var Session = class {
+@@ -4267,6 +4436,21 @@ var Session = class {
  			{
  				const sourceLeafId = (await this.requireConversation()).activeLeafId;
  				if (!sourceLeafId) throw new Error("[flue] Canonical compaction has no source leaf.");
@@ -834,7 +820,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  				await this.rebaselineResources({
  					...this.canonicalEnvelope("compaction"),
  					type: "compaction",
-@@ -4288,11 +4476,13 @@ var Session = class {
+@@ -4289,11 +4473,13 @@ var Session = class {
  				messagesAfter,
  				durationMs: durationSince(compactionStartMs),
  				isError: false,
@@ -848,7 +834,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  			const errorMessage = error instanceof Error ? error.message : String(error);
  			this.internalLog("error", `[flue:compaction] Failed: ${errorMessage}`, { error });
  			if (terminalPending) this.emit({
-@@ -4303,7 +4493,10 @@ var Session = class {
+@@ -4304,7 +4490,10 @@ var Session = class {
  				isError: true,
  				error: serializeEventError(error)
  			}, { errorInfo: classifyError(error) });
@@ -860,7 +846,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  			return false;
  		} finally {
  			this.compactionAbortController = void 0;
-@@ -4574,7 +4767,7 @@ var Session = class {
+@@ -4575,7 +4764,7 @@ var Session = class {
  	resolveSubmissionDurability(startedAt, timeoutAt) {
  		return {
  			maxAttempts: this.config.durability?.maxAttempts ?? 10,
@@ -869,7 +855,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  		};
  	}
  	async runPersistedContextInput(options) {
-@@ -4616,12 +4809,19 @@ var Session = class {
+@@ -4617,12 +4806,19 @@ var Session = class {
  					signal: options.signal
  				});
  				await this.flushResponseOutput();
@@ -890,7 +876,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  				this.activeSubmissionAttemptId = void 0;
  				this.activeJoinSource = void 0;
  				this.activeJoinSignal = void 0;
-@@ -5018,7 +5218,18 @@ async function materializeSubmissionAttachments(input, conversationId, attachmen
+@@ -5019,7 +5215,18 @@ async function materializeSubmissionAttachments(input, conversationId, attachmen
  }
  function createAgentSubmissionSessionHandler(agent, input, execute) {
  	return async (ctx) => {
@@ -910,7 +896,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  	};
  }
  /**
-@@ -5039,10 +5250,26 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -5040,10 +5247,26 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  	const { input } = submission;
  	const attempt = submissionAttemptRef(submission);
  	if (!attempt) return void 0;
@@ -938,7 +924,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  	} catch (renderError) {
  		if (submission.timeoutAt > 0 && Date.now() >= submission.timeoutAt) {
  			await failInterruptedSubmission(submissions, submission, attempt, agent, "exceeded_timeout", () => new SubmissionTimeoutError(), createContext, conversationWriter, emitCoordinatorEvent);
-@@ -5056,7 +5283,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -5057,7 +5280,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  		return;
  	}
  	if (submission.abortRequestedAt !== void 0) {
@@ -947,7 +933,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  		return;
  	}
  	if (submission.attemptCount >= submission.maxAttempts) {
-@@ -5082,6 +5309,16 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -5083,6 +5306,16 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  	}
  	await submissions.requeueSubmission(attempt);
  }
@@ -964,7 +950,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  /**
  * The wall-clock deadline after which a queued submission that never became
  * claimable (materialization permanently failing, agent definition
-@@ -5098,7 +5335,7 @@ function unreadySubmissionDeadline(submission, agent) {
+@@ -5099,7 +5332,7 @@ function unreadySubmissionDeadline(submission, agent) {
  		assertDurability(agent.durability, `[agent "${submission.input.agent}"]`);
  		timeoutMs = agent.durability?.timeoutMs ?? 36e5;
  	} catch {}
@@ -973,7 +959,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  }
  /**
  * Settle a queued submission that can never be claimed — a durable abort on
-@@ -5113,6 +5350,10 @@ function unreadySubmissionDeadline(submission, agent) {
+@@ -5114,6 +5347,10 @@ function unreadySubmissionDeadline(submission, agent) {
  */
  async function settleUnclaimableSubmission(submissions, submission, outcome, error, emitCoordinatorEvent) {
  	if (!await submissions.settleQueuedSubmission(submission.submissionId, outcome, error)) return false;
@@ -984,7 +970,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  	const errorInfo = { errorInfo: classifyError(error) };
  	emitCoordinatorEvent({
  		type: "submission_settled",
-@@ -5126,8 +5367,30 @@ async function settleUnclaimableSubmission(submissions, submission, outcome, err
+@@ -5127,8 +5364,30 @@ async function settleUnclaimableSubmission(submissions, submission, outcome, err
  		kind: submission.kind,
  		operation: "materialize_submission",
  		outcome: "terminated",
@@ -1015,7 +1001,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  	return true;
  }
  /** Synthetic request for the submission's kind: an agent route for direct prompts, the dispatch path for dispatches. */
-@@ -5159,11 +5422,32 @@ async function processSubmission(opts) {
+@@ -5160,11 +5419,32 @@ async function processSubmission(opts) {
  		attemptCount: submission.attemptCount,
  		maxAttempts: submission.maxAttempts
  	});
@@ -1052,7 +1038,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  	};
  	const execute = () => createAgentSubmissionSessionHandler(agent, input, (session) => {
  		const handle = session.processSubmissionInput(input, {
-@@ -5193,17 +5477,7 @@ async function processSubmission(opts) {
+@@ -5194,17 +5474,7 @@ async function processSubmission(opts) {
  		return;
  	}
  	try {
@@ -1071,7 +1057,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  	} catch (error) {
  		if (opts.isShutdownAbort?.(error)) throw error;
  		if (opts.signal?.reason instanceof SubmissionAbortedError) {
-@@ -5223,7 +5497,11 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+@@ -5224,7 +5494,11 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
  	const ctx = createContext(input.submissionId);
  	let interruptedTools;
  	try {
@@ -1084,7 +1070,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  			submissionId: submission.submissionId,
  			kind: submission.kind,
  			reason,
-@@ -5257,10 +5535,10 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+@@ -5258,10 +5532,10 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
  * through the two-phase outbox with `outcome: 'aborted'` — the durable
  * terminal record a reconnecting waiter observes.
  */
@@ -1097,13 +1083,13 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce4165791996
  			submissionId: submission.submissionId,
  			kind: submission.kind,
  			reason: "aborted",
-diff --git a/dist/dispatch-BlxCz6iq.mjs b/dist/dispatch-BlxCz6iq.mjs
-index 94d0dc4e069259c5f321b429e5a086ed724c5158..66da52dfeceea83781ed9a1b4b0c045a3e4d965a 100644
---- a/dist/dispatch-BlxCz6iq.mjs
-+++ b/dist/dispatch-BlxCz6iq.mjs
+diff --git a/dist/dispatch-t-UmrrMW.mjs b/dist/dispatch-t-UmrrMW.mjs
+index 7274a8ed2..b49b001bd 100644
+--- a/dist/dispatch-t-UmrrMW.mjs
++++ b/dist/dispatch-t-UmrrMW.mjs
 @@ -1,9 +1,12 @@
  import { $ as generateEntryId, D as StreamNotFoundError, J as toHttpResponse, K as parseJsonBody, O as StreamOffsetGoneError, V as configureErrorRendering, X as deriveKeyedSubmissionId, a as AttachmentNotAvailableError, c as ConversationRecordInvariantError, f as HistoryCursorNotFoundError, ft as extractTraceCarrier, h as MethodNotAllowedError, m as InvalidRequestError, o as AttachmentNotFoundError, ot as generateRecordId, st as generateSubmissionId, y as RouteNotFoundError } from "./errors-BcRwz-UD.mjs";
- import { n as getRuntimeModels } from "./providers-DnRSdXFS.mjs";
+ import { n as getRuntimeModels } from "./providers-DfEK_EsA.mjs";
 +import { COMPACTION_IMAGE_TOKENS } from "./working-context.mjs";
  import { n as isValibotSchema } from "./schema-DIDpvZZa.mjs";
  import { isContextOverflow } from "@earendil-works/pi-ai";
@@ -1816,7 +1802,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..66da52dfeceea83781ed9a1b4b0c045a
  function assertPositiveInteger(value, label) {
  	if (value === void 0) return;
 diff --git a/dist/index.d.mts b/dist/index.d.mts
-index fc3312a03b5a8550522a8cb2e1ca8a5753cde6f4..810628fa4fbcdf4daa2a56b3792626fb7fb49ab4 100644
+index c69f79a5f..faf5aa971 100644
 --- a/dist/index.d.mts
 +++ b/dist/index.d.mts
 @@ -8,6 +8,7 @@ import { h as ConversationStreamChunk, i as bash, l as isDynamicModel, n as Sand
@@ -1828,21 +1814,21 @@ index fc3312a03b5a8550522a8cb2e1ca8a5753cde6f4..810628fa4fbcdf4daa2a56b3792626fb
  import { Env, Handler, Hono } from "hono";
  import { AgentTool } from "@earendil-works/pi-agent-core";
 diff --git a/dist/internal.d.mts b/dist/internal.d.mts
-index 4ec5f1d3d38a3054638bc84871445db948668217..df0484f314cb4771abd87a9acd79e9cb36a1c411 100644
+index c6f75b5f3..34b91e47f 100644
 --- a/dist/internal.d.mts
 +++ b/dist/internal.d.mts
-@@ -6,6 +6,7 @@ import { F as toHttpResponse, P as configureErrorRendering, m as RuntimeUnavaila
- import { r as agentStreamPath } from "./stream-offsets-sRUtb-M2.mjs";
- import { a as runWithInstrumentationOwner, n as InstrumentationOwner, r as createInstrumentationOwner } from "./instrumentation-AVC-Q5Hv.mjs";
- import { i as createCloudflareAgentRuntime, n as CLOUDFLARE_AGENT_INTERNAL_INSTANCE_INFO_PATH, t as CLOUDFLARE_AGENT_INTERNAL_DISPATCH_PATH } from "./agent-coordinator-aVoFZ4h5.mjs";
-+export type { AgentSubmissionProjection } from "./agent-coordinator-aVoFZ4h5.mjs";
- import { a as configureFlueRuntime, c as RuntimeActivityGate, i as NodeRuntime, l as RuntimeActivityLease, n as CloudflareRuntime, r as FlueRuntime, u as createRuntimeActivityGate } from "./flue-app-NZ3KZYXC.mjs";
- import { a as bashFactoryToSandbox, c as hasProvider, d as resetModelsForTests, f as resolveModel, g as ConversationStreamWireChunk, h as ConversationStreamChunk, m as AgentConversationSnapshot, p as setProvider, u as registerBuiltinProviderModule } from "./sandbox-BSDnM6Na.mjs";
+@@ -11,6 +11,7 @@ import { a as bashFactoryToSandbox, c as hasProvider, d as resetModelsForTests,
  import { c as resetFlueAgentRegistrationForTests, l as resolveAgentIdentity, o as getRegisteredFlueAgents, r as FlueAgentRegistration, s as registerFlueAgents, t as AGENT_IDENTITY_PATTERN, u as resolveAgentInitialDataSchema } from "./registration-BPi7JRaO.mjs";
-diff --git a/dist/sql-agent-execution-store-C0vwyWZB.mjs b/dist/sql-agent-execution-store-C0vwyWZB.mjs
-index 8d022fce823a6e9f9a2bf8a222b309b5fccbcff1..1be99af3cba1e2c6a87e20ef26c451a16e8ec8f8 100644
---- a/dist/sql-agent-execution-store-C0vwyWZB.mjs
-+++ b/dist/sql-agent-execution-store-C0vwyWZB.mjs
+ import { AssistantMessage, Model } from "@earendil-works/pi-ai";
+ import { AgentMessage } from "@earendil-works/pi-agent-core";
++export type { AgentSubmissionProjection } from "./agent-coordinator-aVoFZ4h5.mjs";
+ //#region src/sql-attachment-store.d.ts
+ declare class SqliteAttachmentStore implements AttachmentStore {
+   private readonly sql;
+diff --git a/dist/sql-agent-execution-store-LqbFqydc.mjs b/dist/sql-agent-execution-store-LqbFqydc.mjs
+index 9fdf8f303..b7b341f50 100644
+--- a/dist/sql-agent-execution-store-LqbFqydc.mjs
++++ b/dist/sql-agent-execution-store-LqbFqydc.mjs
 @@ -396,6 +396,21 @@ var AgentSubmissionStoreImpl = class {
  				 RETURNING ${submissionColumns}`, Date.now(), submissionId).toArray()[0];
  		return row ? this.parseSubmission(row) : null;
@@ -1879,7 +1865,7 @@ index 8d022fce823a6e9f9a2bf8a222b309b5fccbcff1..1be99af3cba1e2c6a87e20ef26c451a1
  		return this.sql.exec(`UPDATE flue_agent_submissions
  					 SET status = 'queued', attempt_id = NULL, input_applied_at = NULL, started_at = NULL, owner_id = NULL, lease_expires_at = 0
 diff --git a/dist/types-B1PuLhZt.d.mts b/dist/types-B1PuLhZt.d.mts
-index 8c2299c8ee6225d171cb9fccb53454d5a18b1441..17fa6f2ed03743dae1271f9c1bcbf554f570767a 100644
+index 8c2299c8e..17fa6f2ed 100644
 --- a/dist/types-B1PuLhZt.d.mts
 +++ b/dist/types-B1PuLhZt.d.mts
 @@ -562,6 +562,27 @@ interface FlueFs {
@@ -1988,9 +1974,9 @@ index 8c2299c8ee6225d171cb9fccb53454d5a18b1441..17fa6f2ed03743dae1271f9c1bcbf554
    messagesBefore: number;
    messagesAfter: number;
    durationMs: number;
-diff --git a/dist/working-context.mjs b/dist/working-context.mjs
+diff --git a/dev-tmp/upstream/package/dist/working-context.mjs b/dist/working-context.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..ccf43ca8e69f30ba3176d6b2a7ea1a6175c697c8
+index 000000000..ccf43ca8e
 --- /dev/null
 +++ b/dist/working-context.mjs
 @@ -0,0 +1,28 @@

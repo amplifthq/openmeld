@@ -50,11 +50,11 @@
     "@openmeld/start": "workspace:*",
     "@openmeld/utils": "workspace:*",
     "entities": "^8.1.0",
-    "hono": "^4.11.7",
+    "hono": "^4.13.13",
     "ipaddr.js": "^2.5.0",
-    "protobufjs": "7.5.4",
+    "protobufjs": "7.6.5",
     "slackify-markdown": "5.0.0",
-    "yaml": "2.8.2",
+    "yaml": "2.9.1",
     "zod": "catalog:"
   },
   "devDependencies": {
@@ -64,7 +64,7 @@
     "@vitest/runner": "~3.2.0",
     "@vitest/snapshot": "~3.2.0",
     "dotenv-cli": "^11.0.0",
-    "esbuild": "0.27.7",
+    "esbuild": "0.28.2",
     "tsx": "4.21.0",
     "typescript": "^5.9.3",
     "vitest": "~3.2.0",

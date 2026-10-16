@@ -1,10 +1,10 @@
 import { execPlatformFile as execFile } from "@openmeld/adapter-core/process-launch";
+import { unsupportedNodeRuntimeMessage } from "@openmeld/start/node-runtime";
 import type { CliCommandFailure, CliCommandResult } from "../../shared/types";
 import type { CliProblem } from "../../shared/view-types";
 import type { ExecFileError, ExecFileFn } from "./driver";
 import {
   buildDesktopCommandEnv,
-  canExecute,
   executableNamesForPlatform,
   resolveExecutableOnPath,
 } from "./path-search";
@@ -22,45 +22,42 @@ const OPENMELD_CLI_PACKAGE_SPEC = `${OPENMELD_CLI_PACKAGE}@latest`;
 const INSTALL_TIMEOUT_MS = 5 * 60_000;
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 
-export function readOpenMeldCliSetupProblem(
+export async function readOpenMeldCliSetupProblem(
   deps: InstallCliDeps = {}
-): CliProblem | null {
+): Promise<CliProblem | null> {
   const env = buildDesktopCommandEnv(deps.env);
-  if (!resolveNodeBin(env)) {
-    return cliSetupProblem(
-      "desktop.node_missing",
-      "Node.js is required before OpenMeld can install OpenMeld CLI. Install the current Node.js LTS release, then try again."
-    );
+  // A resolved or explicitly selected carrier owns its runtime. Preserve its
+  // launch failure, including a missing managed binary, instead of diagnosing npm.
+  if (resolveOpenMeldBin({ env, override: deps.openMeldBin }) !== "openmeld") {
+    return null;
+  }
+  const nodeProblem = await readNodeSetupProblem(deps, env);
+  if (nodeProblem) {
+    return nodeProblem;
   }
   if (!resolveNpmBin(env)) {
     return cliSetupProblem(
       "desktop.npm_missing",
-      "npm is required before OpenMeld can install OpenMeld CLI. Install the current Node.js LTS release, then try again."
+      "npm is required before OpenMeld can install OpenMeld CLI. Install Node.js 24, then try again."
     );
   }
 
-  const openMeldBin = resolveOpenMeldBin({ env, override: deps.openMeldBin });
-  if (openMeldBin !== "openmeld" && canExecute(openMeldBin)) {
-    return null;
-  }
   return cliSetupProblem(
     "desktop.openmeld_cli_missing",
     "OpenMeld could not find OpenMeld CLI on this Mac."
   );
 }
 
-export function installOpenMeldCli(
+export async function installOpenMeldCli(
   deps: InstallCliDeps = {}
 ): Promise<CliCommandResult> {
   const env = buildDesktopCommandEnv(deps.env);
-  const nodeBin = resolveNodeBin(env);
-  if (!nodeBin) {
-    return Promise.resolve(
-      installFailure(
-        "spawn_failed",
-        "desktop.node_missing",
-        "Node.js is required before OpenMeld can install OpenMeld CLI."
-      )
+  const nodeProblem = await readNodeSetupProblem(deps, env);
+  if (nodeProblem) {
+    return installFailure(
+      "spawn_failed",
+      nodeProblem.code,
+      nodeProblem.message
     );
   }
   const npmBin = resolveNpmBin(env);
@@ -101,6 +98,35 @@ export function installOpenMeldCli(
       }
     );
   });
+}
+
+async function readNodeSetupProblem(
+  deps: InstallCliDeps,
+  env: NodeJS.ProcessEnv
+): Promise<CliProblem | null> {
+  const nodeBin = resolveNodeBin(env);
+  if (!nodeBin) {
+    return cliSetupProblem(
+      "desktop.node_missing",
+      "Node.js is required before OpenMeld can install OpenMeld CLI. Install Node.js 24, then try again."
+    );
+  }
+  const exec = deps.exec ?? (execFile as unknown as ExecFileFn);
+  const runtimeProblem = await new Promise<string | null>((resolve) => {
+    exec(
+      nodeBin,
+      ["--version"],
+      { env, timeout: 10_000, maxBuffer: MAX_BUFFER_BYTES },
+      (error, stdout) => {
+        resolve(
+          unsupportedNodeRuntimeMessage(error ? "unavailable" : stdout.trim())
+        );
+      }
+    );
+  });
+  return runtimeProblem
+    ? cliSetupProblem("desktop.node_unsupported", runtimeProblem)
+    : null;
 }
 
 function resolveNodeBin(env: NodeJS.ProcessEnv): string | null {

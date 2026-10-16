@@ -194,6 +194,70 @@ test("publishes exact guarded local release sources for later status checks", ()
   }
 });
 
+test("refreshes remote receipts while fetching missing immutable objects only once", () => {
+  const fixture = createGitFixture();
+  try {
+    const publish = (now) =>
+      publishGuardedLocalReleaseEvidence({
+        cwd: fixture.repository,
+        remote: fixture.remote,
+        scopes: ["cli", "core"],
+        sourceSha: fixture.sourceSha,
+        now,
+      });
+    publish("2026-08-30T17:00:00.000Z");
+    const reader = path.join(fixture.root, "reader");
+    execFileSync("git", [
+      "clone",
+      "--quiet",
+      "--no-local",
+      "--single-branch",
+      "--branch",
+      "main",
+      fixture.remote,
+      reader,
+    ]);
+    const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+    const bin = path.join(fixture.root, "bin");
+    const log = path.join(fixture.root, "reads.log");
+    mkdirSync(bin);
+    writeFileSync(log, "");
+    writeFileSync(
+      path.join(bin, "git"),
+      [
+        `#!${process.execPath}`,
+        "const { spawnSync } = require('node:child_process');",
+        "const { appendFileSync } = require('node:fs');",
+        "const args = process.argv.slice(2);",
+        `if (['fetch', 'ls-remote'].includes(args[0])) appendFileSync(${JSON.stringify(log)}, args[0] + '\\n');`,
+        `const result = spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' });`,
+        "process.exit(result.status ?? 1);",
+      ].join("\n"),
+      { mode: 0o755 }
+    );
+    const read = () =>
+      readGuardedLocalReleaseSources({
+        cwd: reader,
+        remote: fixture.remote,
+        environment: {
+          ...process.env,
+          PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+        },
+      });
+    assert.equal(read().size, 2);
+    assert.equal(read().get("core").sha, fixture.sourceSha);
+    assert.equal(readFileSync(log, "utf8"), "ls-remote\nfetch\nls-remote\n");
+    publish("2026-08-30T18:00:00.000Z");
+    assert.equal(read().get("core").recordedAt, "2026-08-30T18:00:00.000Z");
+    assert.equal(
+      readFileSync(log, "utf8"),
+      "ls-remote\nfetch\nls-remote\nls-remote\nfetch\n"
+    );
+  } finally {
+    rmSync(fixture.root, { force: true, recursive: true });
+  }
+});
+
 test("reads hosted receipts with repository-scoped auth when checkout origin omits .git", () => {
   const fixture = createGitFixture();
   const token = "fixture-receipt-token";
@@ -226,7 +290,7 @@ test("reads hosted receipts with repository-scoped auth when checkout origin omi
         "const assert = require('node:assert/strict');",
         `const realGit = ${JSON.stringify(realGit)};`,
         "const args = process.argv.slice(2);",
-        "const index = args[0] === 'ls-remote' ? 2 : args[0] === 'fetch' ? 3 : null;",
+        "const index = args[0] === 'ls-remote' ? 2 : args[0] === 'fetch' ? 4 : null;",
         "if (index !== null) {",
         "  const url = args[index] === 'origin' ? execFileSync(realGit, ['remote', 'get-url', 'origin'], { encoding: 'utf8' }).trim() : args[index];",
         "  const auth = spawnSync(realGit, ['config', '--get-urlmatch', 'http.extraheader', url], { encoding: 'utf8' });",

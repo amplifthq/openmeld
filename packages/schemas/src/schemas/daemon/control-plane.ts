@@ -9,6 +9,10 @@ import { nonEmptyTrimmedStringFromUnknown } from "../protocol/shared";
 import { runtimeTransportModeSchema } from "./controller-contract";
 import { conversationExecutionStateSchema } from "./conversation-execution-state";
 import {
+  localAgentSetupRequestSchema,
+  localAgentSetupStateSchema,
+} from "./local-agent-setup";
+import {
   localAgentUpdateRequestSchema,
   localAgentUpdateStateSchema,
 } from "./local-agent-update";
@@ -128,6 +132,14 @@ export const localAgentInstallationOptionSchema = z.strictObject({
 
 export const openMeldDaemonManageLocalAgentInstallationRequestPayloadSchema =
   z.discriminatedUnion("operation", [
+    z.strictObject({
+      agentId: z.literal("grok-bot"),
+      operation: z.literal("read_setup"),
+    }),
+    localAgentSetupRequestSchema.extend({
+      agentId: z.literal("grok-bot"),
+      operation: z.literal("setup"),
+    }),
     z.strictObject({
       agentId: z.string().trim().min(1).max(256),
       operation: z.literal("list"),
@@ -339,6 +351,12 @@ export const openMeldDaemonSetLocalAgentEnabledPayloadSchema = z.strictObject({
 
 export const openMeldDaemonManageLocalAgentInstallationPayloadSchema =
   z.discriminatedUnion("status", [
+    z.strictObject({
+      accepted: z.literal(true),
+      agentId: z.literal("grok-bot"),
+      status: z.literal("setup_state"),
+      setup: localAgentSetupStateSchema,
+    }),
     z.strictObject({
       accepted: z.literal(true),
       agentId: z.string().trim().min(1).max(256),

@@ -9,24 +9,18 @@ import {
 	buildOrganizationFilesPath,
 	buildOrganizationPeoplePath,
 	buildOrganizationPluginsPath,
-	buildOrganizationRoutinesPath,
 	buildOrganizationSkillsPath,
 } from "#/lib/organizations/organization-routes";
 
 const TEAM_VIEWS = [
 	{ id: "people", label: "People", destination: buildOrganizationPeoplePath },
 	{ id: "agents", label: "Agents", destination: buildOrganizationAgentsPath },
+	{ id: "files", label: "Files", destination: buildOrganizationFilesPath },
+	{ id: "skills", label: "Skills", destination: buildOrganizationSkillsPath },
 	{
 		id: "plugins",
 		label: "Plugins",
 		destination: buildOrganizationPluginsPath,
-	},
-	{ id: "skills", label: "Skills", destination: buildOrganizationSkillsPath },
-	{ id: "files", label: "Files", destination: buildOrganizationFilesPath },
-	{
-		id: "routines",
-		label: "Routines",
-		destination: buildOrganizationRoutinesPath,
 	},
 ] as const;
 

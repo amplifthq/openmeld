@@ -970,7 +970,7 @@ async function resolveGrokBotInterfaceSnapshot(
       status: authenticated ? "ready" : "warning",
       message: authenticated
         ? "Shared conversation. Bot settings and tools are managed in Grok Bot."
-        : "Run bdk login on this computer, then check the connection again.",
+        : "Sign in from Grok Bot connection setup, or run bdk login for a manual installation.",
       usageLimits: createUnsupportedProviderUsageLimits(
         input.baseSnapshot.checkedAt
       ),
