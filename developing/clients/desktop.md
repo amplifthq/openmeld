@@ -1195,6 +1195,13 @@ Electron executable's linker signature does not seal the application resources.
 No post-build signature repair is required or supported. The builder's default
 Electron entitlements support JIT and library loading with Hardened Runtime.
 
+The shared `afterPack` hook verifies each ASAR file against its recorded SHA-256
+before signing. Worktree reuse checks the same archive integrity. An OS signature
+can seal an archive whose file offsets already disagree with its content, so
+signature verification alone does not certify a runnable package. Do not rebuild
+workspace dependencies concurrently with Desktop packaging. A failed archive
+check requires a fresh build, not a new signature on the damaged package.
+
 The existing `unsigned` command and artifact names mean no Developer ID signing.
 Ad-hoc integrity is not Developer ID trust, notarization, or Gatekeeper acceptance.
 Notarization remains disabled for default development artifacts. Before installation

@@ -46,6 +46,7 @@
     "zod": "catalog:"
   },
   "build": {
+    "afterPack": "../../scripts/desktop/verify-archive.mjs",
     "forceCodeSigning": true,
     "appId": "sh.openmeld.desktop.dev",
     "productName": "OpenMeld Dev",
