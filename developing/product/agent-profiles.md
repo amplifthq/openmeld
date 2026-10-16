@@ -619,25 +619,28 @@ is Available, Checking, Offline, or Unavailable.
 Codex app-server versions at or above `0.153.0-alpha.4` can switch the active
 turn's reviewer between Ask for approval and Approve for me. OpenMeld uses
 `turn/settings/update` and requires its `applied` acknowledgement. Full access
-changes the sandbox and approval policy; it remains a next-task setting. A
-running `turn/start` call does not replace that turn's sandbox. OpenMeld does
-not interrupt and replay commands to simulate a live sandbox change. Legacy
-Custom configurations also stay launch-only because their native policy is not
-known from the saved mode name. Claude SDK sessions permit an explicit owner
-switch to bypass permissions after launch, except in repair execution. Cursor
-ACP supports live Default, Ask, and Plan transitions; Auto review and Force
-remain launch-only on this transport.
+changes the sandbox and approval policy. A running `turn/start` call does not
+replace that turn's sandbox, and OpenMeld does not interrupt and replay
+commands to simulate a live sandbox change. Legacy Custom configurations stay
+launch-only because their native policy is not known from the saved mode name.
+Claude SDK sessions permit an explicit owner switch to bypass permissions after
+launch, except in repair execution. Cursor ACP supports live Default, Ask, and
+Plan transitions; Auto review stays launch-only on this transport.
 
-Grok Build reads `--permission-mode` only at launch, and its ACP session
-(verified on grok 1.0.52) offers no permission-mode switch: `session/set_mode`
-is accepted and ignored. When the owner switches a running Grok Build task to
-Bypass permissions, the adapter applies that saved choice itself and
-acknowledges it as applied: it answers each later permission request with
-Grok's own one-time allow option and never selects a persistent rule. This is
-the owner's explicit, confirmed mode choice carried out on the controller's
-own options, not an invented approval. Switching back to the mode the task was
-launched with stops that behavior and restores Grok's native prompts. Every
-other Grok Build change waits for the next Wake.
+Some no-prompt modes have no native live switch: Grok Build Bypass permissions
+(Grok reads `--permission-mode` only at launch, and on grok 1.0.52 its ACP
+`session/set_mode` is accepted and ignored), Cursor Run Everything (an ACP
+launch flag), and Codex Full access (a turn sandbox). When the owner switches a
+running task from an asking mode to one of these, the adapter applies the
+owner's explicit, confirmed choice itself and acknowledges it as applied: it
+answers each later permission request with the controller's own one-time allow
+option and never selects a persistent rule. This is the owner's mode choice
+carried out on the controller's own options, not an invented approval. For
+Codex, the turn keeps its starting sandbox, so commands run with the access
+Codex requests and full sandbox access starts with the next task. Switching
+back to the launch mode stops this and restores the controller's own prompts.
+A task launched in a no-prompt mode keeps that launch policy until the next
+Wake.
 
 The Center Agent may change an Agent Profile's permission mode for its owner
 through the same canonical Binding write, using any mode the profile's
@@ -773,7 +776,8 @@ owner chooses both, OpenMeld answers the current request first so the Wake can
 resume, then saves the controller-native low-interruption mode as a non-blocking
 follow-up. A failed Profile save must not undo or delay the accepted current
 response. When a controller offers a "don't ask again" choice but does not
-honor it itself, as Grok Build's ACP does not, OpenMeld keeps the owner's
+honor it itself, as Grok Build's ACP does not (Claude Code, Codex, Cursor, and
+OpenCode honor theirs natively), OpenMeld keeps the owner's
 choice for that controller conversation and answers later matching requests
 with the same kind of option the controller offers: an allow-always choice
 covers later requests of the same tool kind, and a deny-always choice covers

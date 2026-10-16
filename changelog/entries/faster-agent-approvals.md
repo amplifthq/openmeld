@@ -7,8 +7,9 @@ audiences: ["members"]
 ---
 
 Answering an Agent approval in a Space now clears it right away and moves to
-the next request that still needs you. For Grok Build, "don't ask again"
-choices now hold for the rest of the conversation, and switching a running
-task to Bypass permissions takes effect for its next requests. The Center
-Agent can also list and change the permission modes every local agent
-supports.
+the next request that still needs you. Switching a running Grok Build, Cursor,
+or Codex task to its no-prompt mode (Bypass permissions, Run Everything, or
+Full access) now stops further approval requests in that task, and Grok
+Build's "don't ask again" choices now hold for the rest of the conversation.
+The Center Agent can also list and change the permission modes every local
+agent supports.
