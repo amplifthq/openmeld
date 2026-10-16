@@ -8,10 +8,10 @@
 - Do not use this for: Security advisories, compatibility approval or automatic upgrades.
 - Source of truth: `packages.json` owns scope; workspace importers in `pnpm-lock.yaml` own installed versions.
 
-The workflow checks alternate UTC epoch days at approximately 02:41 UTC.
-It uses a daily cron plus an even-day gate, so month boundaries do not produce
-back-to-back scans. Manual dispatch scans immediately. GitHub schedules can be
-delayed or skipped; this is a maintenance reminder, not a guaranteed 48-hour SLA.
+The workflow scans every Tuesday and Friday at approximately 02:41 UTC
+(10:41 Asia/Taipei), with alternating three- and four-day gaps. Manual dispatch
+scans immediately. GitHub schedules can be delayed or skipped; this is a
+maintenance reminder, not an exact-time guarantee.
 Schedules become active only after the workflow reaches the default branch.
 
 The scan compares actual direct resolutions, including multiple workspace

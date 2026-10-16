@@ -2,8 +2,8 @@ name: Core dependency updates
 
 on:
   schedule:
-    # Daily gate, scanning alternate UTC epoch days (no month-boundary reset).
-    - cron: '41 2 * * *'
+    # Tuesday and Friday at 02:41 UTC (10:41 Asia/Taipei); 3/4-day spacing.
+    - cron: '41 2 * * 2,5'
   workflow_dispatch:
 
 permissions:
@@ -22,39 +22,25 @@ jobs:
       contents: read
       issues: write
     steps:
-      - name: Check scan day
-        id: day
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          if [ "$EVENT_NAME" = workflow_dispatch ] || [ $(( $(date -u +%s) / 86400 % 2 )) -eq 0 ]; then
-            echo 'scan=true' >> "$GITHUB_OUTPUT"
-          fi
       - uses: actions/checkout@v5
-        if: steps.day.outputs.scan == 'true'
         with:
           ref: main
           persist-credentials: false
       - uses: actions/setup-node@v5
-        if: steps.day.outputs.scan == 'true'
         with:
           node-version: '24'
           package-manager-cache: false
       - name: Install locked parser without lifecycle scripts
-        if: steps.day.outputs.scan == 'true'
         run: |
           corepack enable
           pnpm install --frozen-lockfile --ignore-scripts
       - name: Scan stable releases and maintain one review issue
-        if: steps.day.outputs.scan == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/dependency-watch/scan.mjs --publish
       - name: Summarize
-        if: steps.day.outputs.scan == 'true' && success()
         run: cat dev-tmp/core-dependency-watch/report.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
-        if: steps.day.outputs.scan == 'true' && success()
         with:
           name: core-dependency-watch
           path: dev-tmp/core-dependency-watch
