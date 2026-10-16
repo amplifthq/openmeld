@@ -37,6 +37,7 @@ const LOCAL_AGENT_ROW_TEST_ID =
 const toastMock = vi.hoisted(() =>
 	Object.assign(vi.fn(), {
 		error: vi.fn(),
+		info: vi.fn(),
 		success: vi.fn(),
 		warning: vi.fn(),
 	})
@@ -1084,12 +1085,13 @@ describe("LocalAgentsCard", () => {
 
 		await vi.advanceTimersByTimeAsync(12_000);
 		expect(refreshAll.mock.calls.length).toBeGreaterThan(1);
-		expect(toastMock.error).toHaveBeenCalledWith(
-			"OpenMeld is still checking local agents. Check again in a moment."
+		expect(toastMock.error).not.toHaveBeenCalled();
+		expect(toastMock.info).toHaveBeenCalledWith(
+			"Some agent checks have not returned yet. Check their status in a moment."
 		);
 	});
 
-	it("reports success when a slow local agent check updates canonical status", async () => {
+	it("reports refreshed status when enabled observations advance while disabled agents have no check", async () => {
 		const refreshLocalAgentCatalog = vi.fn().mockRejectedValue({
 			code: "local_agent_control.timeout",
 			message: "The current local OpenMeld Service did not respond in time.",
@@ -1102,6 +1104,13 @@ describe("LocalAgentsCard", () => {
 			refreshCatalogSupported: true,
 			refreshLocalAgentCatalog,
 			setEnabledSupported: true,
+		});
+		executionTarget.capabilities.push({
+			agentControllerRef: "builtin:claude-code",
+			agentControllerInterface: null,
+			enabled: false,
+			reasonCodes: ["local_agent_preparation.not_enabled"],
+			status: "not_ready",
 		});
 		refreshAll.mockImplementation(() => {
 			const controller =
@@ -1119,10 +1128,59 @@ describe("LocalAgentsCard", () => {
 
 		await waitFor(() => {
 			expect(toastMock.success).toHaveBeenCalledWith(
-				"Local agent check complete."
+				"Local agent status refreshed."
 			);
 		});
 		expect(toastMock.error).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		"partial",
+		"different_device",
+		"different_lane",
+	])("does not complete a slow check from %s observations", async (scenario) => {
+		vi.useFakeTimers();
+		const refreshAll = vi.fn().mockResolvedValue(undefined);
+		const { executionTarget } = renderLocalAgentsCard({
+			includeAgentControllerInterface: true,
+			refreshAll,
+			refreshCatalogSupported: true,
+			refreshLocalAgentCatalog: vi.fn().mockRejectedValue({
+				code: "local_agent_control.timeout",
+				status: 504,
+			}),
+			setEnabledSupported: true,
+		});
+		const first = executionTarget.capabilities[0];
+		const second = structuredClone(first);
+		second.agentControllerRef = "builtin:claude-code";
+		if (second.agentControllerInterface) {
+			second.agentControllerInterface.agentControllerRef =
+				"builtin:claude-code";
+		}
+		executionTarget.capabilities.push(second);
+		refreshAll.mockImplementation(() => {
+			if (first.agentControllerInterface) {
+				first.agentControllerInterface.checkedAt = "2026-06-28T12:00:01.000Z";
+			}
+			if (scenario !== "partial" && second.agentControllerInterface) {
+				second.agentControllerInterface.checkedAt = "2026-06-28T12:00:01.000Z";
+			}
+			if (scenario === "different_device") {
+				executionTarget.deviceId = "another-device";
+			}
+			if (scenario === "different_lane") {
+				executionTarget.runtimeLane = "canary";
+			}
+			return Promise.resolve();
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "Local agents options" })
+		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Check agents" }));
+		await vi.waitFor(() => expect(refreshAll).toHaveBeenCalled());
+		await vi.advanceTimersByTimeAsync(12_000);
+		expect(toastMock.success).not.toHaveBeenCalled();
 	});
 
 	it("reports a definitive check failure with a toast", async () => {

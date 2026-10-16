@@ -15,6 +15,7 @@ import { withAuthSessionTransitionMutationLock } from "../config/auth-session-tr
 import { readDaemonRuntimeLease } from "../config/daemon-runtime-lease";
 import {
   readDaemonServiceContract,
+  restoreRefusedDaemonStopIntent,
   upsertDaemonServiceContract,
 } from "../config/daemon-service-contract";
 import { withDaemonServiceRunLock } from "../config/daemon-state";
@@ -257,7 +258,7 @@ async function stopReservedService(
     contract.serviceController === "legacy-detached"
       ? null
       : await resolveDaemonServiceManager(contract.serviceController);
-  await requestAccountCheckedServiceStop({ id, manager });
+  await requestAccountCheckedServiceStop({ id, manager, contract });
   const admitted = await readServiceAccountAdmission();
   if (
     admitted?.id !== id ||
@@ -287,14 +288,23 @@ async function stopReservedService(
 export async function requestAccountCheckedServiceStop({
   id,
   manager,
+  contract,
 }: {
   id: string;
+  contract: Contract;
   manager: Pick<
     DaemonServiceManager,
     "status" | "disableAutostart" | "enableAutostart"
   > | null;
 }): Promise<void> {
   const wasEnabled = manager ? (await manager.status()).enabled : false;
+  // Persist intent before contacting the carrier. A timeout is ambiguous and
+  // must leave autostart disabled; only a proven pre-commit refusal can undo it.
+  const stopped = await upsertDaemonServiceContract(
+    { ...contract, desiredState: "stopped", autoStart: false },
+    {},
+    { expectedCurrentContract: contract }
+  );
   if (manager) {
     await manager.disableAutostart();
   }
@@ -313,21 +323,6 @@ export async function requestAccountCheckedServiceStop({
     }
   } catch (error) {
     if (
-      manager &&
-      wasEnabled &&
-      error instanceof LocalDaemonControlPlaneClientError &&
-      error.code === SERVICE_ACCOUNT_STOP_REFUSED_CODE
-    ) {
-      try {
-        await manager.enableAutostart();
-      } catch (restoreError) {
-        throw new AggregateError(
-          [error, restoreError],
-          "Stop was refused and its previous autostart setting could not be restored."
-        );
-      }
-    }
-    if (
       !(
         error instanceof LocalDaemonControlPlaneClientError &&
         error.code === SERVICE_ACCOUNT_STOP_REFUSED_CODE
@@ -337,6 +332,17 @@ export async function requestAccountCheckedServiceStop({
       refused(
         "stop_unconfirmed",
         `Stop may already be in progress. ${manager ? "Autostart remains disabled. " : ""}Check Service status before trying again. ${detail}`
+      );
+    }
+    try {
+      await restoreRefusedDaemonStopIntent({ previous: contract, stopped });
+      if (manager && wasEnabled) {
+        await manager.enableAutostart();
+      }
+    } catch (restoreError) {
+      throw new AggregateError(
+        [error, restoreError],
+        "Stop was refused and its previous autostart setting could not be restored."
       );
     }
     throw error;

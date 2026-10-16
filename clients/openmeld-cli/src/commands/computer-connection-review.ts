@@ -9,7 +9,9 @@ import { resolveServiceAccountIdentity } from "../local-service/lifecycle/servic
 import { readServiceControlCapabilities } from "./service-control-capabilities";
 
 /** Display evidence only. Auth and Service owners validate an existing connection. */
-export async function readComputerConnectionReview() {
+export async function readComputerConnectionReview(
+  options: { includeStopped?: boolean } = {}
+) {
   const session = await getAuthSessionMetadata();
   if (session && !session.user?.id) {
     throw new Error(
@@ -28,7 +30,10 @@ export async function readComputerConnectionReview() {
         contract
       );
       const capabilities = await readServiceControlCapabilities();
-      if (capabilities.stop && capabilities.deviceId === identity.deviceId) {
+      if (
+        (capabilities.stop || (options.includeStopped && capabilities.start)) &&
+        capabilities.deviceId === identity.deviceId
+      ) {
         existingConnection = {
           deviceId: identity.deviceId,
           runtimeLane: identity.lane,

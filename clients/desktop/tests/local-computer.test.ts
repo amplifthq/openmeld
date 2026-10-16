@@ -72,7 +72,9 @@ it.each([
     scenario === "aligned" ? "available" : "unavailable"
   );
   expect(result).not.toHaveProperty("previousSessionIdentity");
-  expect(readComputerConnection).toHaveBeenCalledWith("/test/openmeld", deps);
+  expect(readComputerConnection).toHaveBeenCalledWith("/test/openmeld", deps, {
+    includeStopped: true,
+  });
   if (scenario === "signed out") {
     expect(result).toMatchObject({
       status: "unavailable",

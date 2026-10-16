@@ -27,6 +27,7 @@ import {
   desktopComputerConnectionRequestSchema,
   desktopComputerDisconnectRequestSchema,
   localMachineIssueAgentEventSchema,
+  peopleComputersResponseSchema,
   prepareSessionResponseSchema,
   prepareSessionWithTokenResponseSchema,
   redactPrepareStepDiagnosticsText,
@@ -88,6 +89,7 @@ export function createComputerConnection(input: {
         deps,
         observe,
         {
+          includeStopped: Boolean(intent.connectedComputerId),
           allowBootstrap: !(
             intent.serviceAction === "update_service" &&
             intent.connectedComputerId
@@ -166,6 +168,7 @@ export function createComputerConnection(input: {
         }
         return await response.json();
       };
+      const target = await resolvePrepareComputerTarget(intent, review, cloud);
       const prepare = prepareSessionWithTokenResponseSchema.parse(
         await cloud("/v1/prepare/sessions", "POST", {
           humanProfileId: intent.humanProfileId,
@@ -173,6 +176,7 @@ export function createComputerConnection(input: {
           selectedLocalAgentIds: [],
           sourceNavigationAction: intent.sourceNavigationAction,
           connectedComputerId: intent.connectedComputerId,
+          ...target,
         })
       );
       prepareSessionId = prepare.snapshot.prepareSessionId;
@@ -560,7 +564,7 @@ function assertConnectionEnvironment(env?: NodeJS.ProcessEnv) {
 }
 
 const UNSUPPORTED_CONNECTION_COMMAND =
-  /error: unknown command '(?:computer|connection-review)'/;
+  /error: unknown (?:command '(?:computer|connection-review)'|option '--(?:json|include-stopped)')/;
 
 // Shared by the read-only projection and the explicit Connect bootstrap. Do not
 // interpret authentication failures or malformed review output as missing tools.
@@ -577,12 +581,32 @@ export function isComputerConnectionBootstrapError(error: unknown): boolean {
   );
 }
 
-export async function readComputerConnection(bin: string, deps: CommandDeps) {
-  const result = await promisify(execFile)(
-    bin,
-    ["computer", "connection-review", "--json"],
-    { env: deps.env, timeout: 10_000, maxBuffer: 16_384 }
-  );
+export async function readComputerConnection(
+  bin: string,
+  deps: CommandDeps,
+  options: { includeStopped?: boolean } = {}
+) {
+  const args = ["computer", "connection-review", "--json"];
+  const execute = (commandArgs: string[]) =>
+    promisify(execFile)(bin, commandArgs, {
+      env: deps.env,
+      timeout: 10_000,
+      maxBuffer: 16_384,
+    });
+  const result = await execute(
+    options.includeStopped ? [...args, "--include-stopped"] : args
+  ).catch((error: unknown) => {
+    // Older carriers support only the running-connection review. Retry only
+    // explicit unsupported-command errors, never failed identity checks.
+    if (
+      options.includeStopped &&
+      (error as { code?: unknown })?.code === 1 &&
+      isComputerConnectionBootstrapError(error)
+    ) {
+      return execute(args);
+    }
+    throw error;
+  });
   return computerConnectionReviewSchema.parse(JSON.parse(result.stdout));
 }
 
@@ -597,13 +621,19 @@ async function reviewComputerConnection(
       measurement?: DesktopComputerConnectionProgress["measurement"];
     }
   ) => void,
-  options: { forceInstall?: boolean; allowBootstrap?: boolean } = {}
+  options: {
+    forceInstall?: boolean;
+    allowBootstrap?: boolean;
+    includeStopped?: boolean;
+  } = {}
 ) {
   if (!options.forceInstall) {
     try {
       return {
         bin,
-        review: await readComputerConnection(bin, deps),
+        review: await readComputerConnection(bin, deps, {
+          includeStopped: options.includeStopped,
+        }),
         installedNow: false,
       };
     } catch (error) {
@@ -612,7 +642,7 @@ async function reviewComputerConnection(
       }
       if (options.allowBootstrap === false) {
         throw new Error(
-          "OpenMeld cannot verify this computer. Open Desktop on the selected computer and connect it before updating.",
+          "OpenMeld cannot verify this computer with the installed tools. Run OpenMeld setup on the selected computer, then try again.",
           { cause: error }
         );
       }
@@ -632,7 +662,9 @@ async function reviewComputerConnection(
   });
   return {
     bin: installedBin,
-    review: await readComputerConnection(installedBin, deps),
+    review: await readComputerConnection(installedBin, deps, {
+      includeStopped: options.includeStopped,
+    }),
     installedNow: true,
   };
 }
@@ -659,7 +691,7 @@ async function prepareReviewedComputerTools(input: {
     input.webOrigin,
     input.deps,
     input.observe,
-    { forceInstall: true }
+    { forceInstall: true, includeStopped: true }
   );
   if (
     (updated.review.account?.id ?? null) !==
@@ -669,6 +701,40 @@ async function prepareReviewedComputerTools(input: {
   }
   await input.assertAccount();
   return updated;
+}
+
+// Prepare does not infer a device/lane from a stable Computer ID. Resolve the
+// selected Computer through Core, then bind it to the independently read Mac.
+async function resolvePrepareComputerTarget(
+  intent: DesktopComputerConnectionRequest,
+  review: Awaited<ReturnType<typeof readComputerConnection>>,
+  cloud: (path: string, method: "GET") => Promise<unknown>
+) {
+  if (!intent.connectedComputerId) {
+    return {};
+  }
+  const target = review.existingConnection;
+  if (!target) {
+    throw new Error(
+      "OpenMeld cannot read this Mac's Service identity. Start OpenMeld Service on this Mac, then try again."
+    );
+  }
+  const inventory = peopleComputersResponseSchema.parse(
+    await cloud("/v1/people-computers", "GET")
+  );
+  const computer = inventory.computers.find(
+    (entry) => entry.connectedComputerId === intent.connectedComputerId
+  );
+  if (
+    !computer?.executionTargets.some(
+      (entry) =>
+        entry.deviceId === target.deviceId &&
+        entry.runtimeLane === target.runtimeLane
+    )
+  ) {
+    throw new Error("Open Desktop on the selected computer, then try again.");
+  }
+  return target;
 }
 
 function assertPrepareConnectionTarget(input: {

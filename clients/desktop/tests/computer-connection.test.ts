@@ -7,7 +7,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createComputerConnection,
   createComputerDisconnection,
+  readComputerConnection,
 } from "../src/main/computer-connection";
+// Captured from isolated-lane computer list on 2026-10-16. Identity is
+// anonymized; unrelated controller details are omitted.
+import stoppedComputerInventory from "./fixtures/stopped-computer-inventory.json";
 
 const mocks = vi.hoisted(() => ({
   exec: vi.fn(),
@@ -32,8 +36,45 @@ vi.mock("../src/main/cli/computer-tools", () => ({
 
 describe("Desktop computer connection admission", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     mocks.install.mockResolvedValue("/test-owned/installed/npm/openmeld.js");
+  });
+  it.each([
+    "unsupported command",
+    "unsupported json option",
+    "unsupported stopped option",
+    "authentication failure",
+  ])("retries a stopped-identity probe only for compatibility: %s", async (reason) => {
+    const error = Object.assign(new Error(reason), {
+      code: 1,
+      stderr: {
+        "unsupported command": "error: unknown command 'connection-review'",
+        "unsupported json option": "error: unknown option '--json'",
+        "unsupported stopped option":
+          "error: unknown option '--include-stopped'",
+        "authentication failure": "Authentication expired",
+      }[reason],
+    });
+    mocks.exec.mockRejectedValueOnce(error).mockResolvedValueOnce({
+      stdout: JSON.stringify({
+        protocol: "computer-connection-v1",
+        previousSessionIdentity: "review-session",
+        account: null,
+        existingConnection: null,
+      }),
+    });
+    const result = readComputerConnection(
+      "/test/openmeld",
+      {},
+      { includeStopped: true }
+    );
+    if (reason !== "authentication failure") {
+      await expect(result).resolves.toMatchObject({ existingConnection: null });
+      expect(mocks.exec).toHaveBeenCalledTimes(2);
+    } else {
+      await expect(result).rejects.toBe(error);
+      expect(mocks.exec).toHaveBeenCalledTimes(1);
+    }
   });
   it.each([
     "cancelled",
@@ -157,6 +198,14 @@ describe("Desktop computer connection admission", () => {
     ].includes(scenario);
     if (createsPrepare) {
       cloudRequest.mockRejectedValue(new Error("Prepare requested"));
+      if (scenario === "reconnect_target") {
+        const inventory = structuredClone(stoppedComputerInventory);
+        inventory.computers = inventory.computers.map((computer) => ({
+          ...computer,
+          connectedComputerId: "computer-b",
+        }));
+        cloudRequest.mockResolvedValueOnce(Response.json(inventory));
+      }
     }
     const confirmSwitch = vi.fn(async () => false);
     const onProgress = vi.fn();
@@ -170,9 +219,10 @@ describe("Desktop computer connection admission", () => {
               id: scenario === "cancel_switch" ? "account-old" : "account-a",
               email: "old@example.com",
             },
-        existingConnection: firstConnect
-          ? null
-          : { deviceId: "device-a", runtimeLane: "dev-local" },
+        existingConnection:
+          firstConnect || scenario === "targeted_update_legacy_tools"
+            ? null
+            : { deviceId: "device-a", runtimeLane: "dev-local" },
       } satisfies ReturnType<typeof computerConnectionReviewSchema.parse>),
       stderr: "",
     });
@@ -190,7 +240,9 @@ describe("Desktop computer connection admission", () => {
       const failure = Object.assign(new Error("Command failed"), {
         code: 1,
         stdout: "",
-        stderr: "error: unknown command 'connection-review'",
+        // Captured from the published 0.3.263 command parser: options are
+        // rejected before the absent subcommand is diagnosed.
+        stderr: "error: unknown option '--json'",
       }) satisfies ExecFileException & { stdout: string; stderr: string };
       mocks.exec.mockRejectedValueOnce(failure);
     }
@@ -255,7 +307,9 @@ describe("Desktop computer connection admission", () => {
       );
     } else if (targetedUpdate) {
       await expect(result).rejects.toThrow(
-        "OpenMeld cannot verify this computer. Open Desktop on the selected computer and connect it before updating."
+        scenario === "targeted_update_legacy_tools"
+          ? "OpenMeld cannot read this Mac's Service identity. Start OpenMeld Service on this Mac, then try again."
+          : "OpenMeld cannot verify this computer with the installed tools. Run OpenMeld setup on the selected computer, then try again."
       );
       expect(mocks.grant).not.toHaveBeenCalled();
       expect(spawn).not.toHaveBeenCalled();
@@ -268,11 +322,15 @@ describe("Desktop computer connection admission", () => {
       expect(mocks.exec).not.toHaveBeenCalled();
     }
     if (createsPrepare) {
-      expect(cloudRequest).toHaveBeenCalledOnce();
+      expect(cloudRequest).toHaveBeenCalledTimes(
+        scenario === "reconnect_target" ? 2 : 1
+      );
       if (scenario === "reconnect_target") {
-        const body = cloudRequest.mock.calls[0]?.[1].body;
+        const body = cloudRequest.mock.calls[1]?.[1].body;
         expect(JSON.parse(new TextDecoder().decode(body))).toMatchObject({
           connectedComputerId: "computer-b",
+          deviceId: "device-a",
+          runtimeLane: "dev-local",
         });
       }
     } else {
@@ -387,10 +445,15 @@ describe("Prepare diagnostic continuity", () => {
       }
       return { deviceCode: "device-code", expiresIn: 60 };
     });
-    const cloudRequest = vi
-      .fn()
-      .mockResolvedValueOnce(Response.json(prepare))
-      .mockRejectedValue(new Error("Snapshot unavailable"));
+    const cloudRequest = vi.fn().mockImplementation((path: string) => {
+      if (path === "/v1/people-computers") {
+        return Response.json(stoppedComputerInventory);
+      }
+      if (path === "/v1/prepare/sessions") {
+        return Response.json(prepare);
+      }
+      throw new Error("Snapshot unavailable");
+    });
     if (failure === "update_account_changed") {
       mocks.install.mockImplementationOnce(() => {
         mocks.exec.mockResolvedValue({
@@ -425,6 +488,21 @@ describe("Prepare diagnostic continuity", () => {
       ensureCompatible: async () => undefined,
       confirmSwitch: async () => false,
     });
+    if (failure === "update_wrong_target") {
+      await expect(
+        connect({
+          expectedAccount: "account-a",
+          connectedComputerId: "computer-b",
+          serviceAction: "update_service",
+        })
+      ).rejects.toThrow(
+        "Open Desktop on the selected computer, then try again."
+      );
+      expect(mocks.install).not.toHaveBeenCalled();
+      expect(mocks.grant).not.toHaveBeenCalled();
+      expect(spawn).not.toHaveBeenCalled();
+      return;
+    }
     const result = await connect({
       expectedAccount: "account-a",
       ...(failure === "target_space" || failure === "target_match"
@@ -437,9 +515,6 @@ describe("Prepare diagnostic continuity", () => {
       failure === "target_match" ||
       failure === "service_update"
         ? { connectedComputerId: "computer-a" }
-        : {}),
-      ...(failure === "update_wrong_target"
-        ? { connectedComputerId: "computer-b" }
         : {}),
       ...(failure.startsWith("update_") || failure === "service_update"
         ? { serviceAction: "update_service" }
@@ -457,9 +532,6 @@ describe("Prepare diagnostic continuity", () => {
     ) {
       expect(mocks.grant).not.toHaveBeenCalled();
       expect(spawn).not.toHaveBeenCalled();
-      if (failure === "update_wrong_target") {
-        expect(mocks.install).not.toHaveBeenCalled();
-      }
     } else {
       expect(mocks.grant).toHaveBeenCalledWith(expect.any(Function), {
         clientId: "openmeld-cli-dev",

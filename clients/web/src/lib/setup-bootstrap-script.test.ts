@@ -1832,6 +1832,13 @@ esac
 				script.indexOf("ensure_node_runtime() {"),
 				script.indexOf("run_clean_openmeld_env() {")
 			);
+			// Child processes use the synthetic fixture environment, not Worker bindings.
+			const commandEnv: Record<string, string> = {
+				PATH: bin,
+				NODE_PREFIX: prefix,
+				BREW_CALLS: calls,
+				HOME: root,
+			};
 			const result = spawnSync(
 				"/bin/sh",
 				[
@@ -1850,12 +1857,7 @@ npm --version
 				],
 				{
 					encoding: "utf8",
-					env: {
-						PATH: bin,
-						NODE_PREFIX: prefix,
-						BREW_CALLS: calls,
-						HOME: root,
-					},
+					env: commandEnv as NodeJS.ProcessEnv,
 				}
 			);
 			expect(readFileSync(calls, "utf8")).toBe(

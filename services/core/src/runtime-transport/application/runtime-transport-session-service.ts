@@ -305,7 +305,7 @@ const resolveAcceptedConnectionGeneration = (input: {
   return Math.max(
     1,
     input.requestedConnectionGeneration,
-    input.existingSession?.connectionGeneration ?? 0
+    input.existingSession ? input.existingSession.connectionGeneration + 1 : 0
   );
 };
 

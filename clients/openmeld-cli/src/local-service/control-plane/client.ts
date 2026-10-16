@@ -267,12 +267,11 @@ async function writeControlPlaneRequest(input: {
     let responseBuffer = "";
     let settled = false;
     const cleanup = () => {
-      socket.setTimeout(0);
+      clearTimeout(deadline);
       socket.off("connect", handleConnect);
       socket.off("data", handleData);
       socket.off("end", handleEnd);
       socket.off("error", handleError);
-      socket.off("timeout", handleTimeout);
     };
     const settle = (action: () => void) => {
       if (settled) {
@@ -348,11 +347,12 @@ async function writeControlPlaneRequest(input: {
     };
 
     socket.setEncoding("utf8");
-    socket.setTimeout(input.timeoutMs);
+    // This bounds the caller, not the admitted operation. Progress bytes must
+    // not restart an inactivity timer and keep a stopped CLI waiting forever.
+    const deadline = setTimeout(handleTimeout, input.timeoutMs);
     socket.once("connect", handleConnect);
     socket.on("data", handleData);
     socket.once("end", handleEnd);
     socket.once("error", handleError);
-    socket.once("timeout", handleTimeout);
   });
 }

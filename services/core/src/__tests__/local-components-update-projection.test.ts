@@ -3,9 +3,28 @@ import type {
   LocalComponentsStatus,
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
-import { resolveLocalComponentUpdateProjection } from "../local-components/update-projection";
+import {
+  isServiceAuthFreshnessRequired,
+  resolveLocalComponentUpdateProjection,
+} from "../local-components/update-projection";
 
 describe("local component update projection", () => {
+  it.each([
+    ["0.3.263", false],
+    ["0.3.264", true],
+    ["0.3.265", true],
+  ] as const)("activates native auth freshness only after its Service is published: %s", (version, active) => {
+    const manifest = createReleaseManifest({});
+    manifest.components.service.bundleVersion = version;
+    expect(isServiceAuthFreshnessRequired(manifest)).toBe(active);
+    const projection = resolveLocalComponentUpdateProjection({
+      generatedAt: "2026-10-16T00:00:00.000Z",
+      releaseManifest: manifest,
+      serviceConnected: true,
+      serviceVersion: "0.3.263",
+    });
+    expect(projection.service.wakeBlocked).toBe(active);
+  });
   it.each([
     "restored",
     "needs_help",

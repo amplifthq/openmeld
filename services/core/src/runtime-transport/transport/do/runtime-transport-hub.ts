@@ -115,6 +115,7 @@ import {
   runtimeTransportDispatchPreviewRequestSchema,
   runtimeTransportDispatchProgressRequestSchema,
   runtimeTransportDispatchReasoningRequestSchema,
+  runtimeTransportDispatchReplyRequestSchema,
   runtimeTransportDispatchRuntimeEvidenceRequestSchema,
   runtimeTransportDispatchToolActivityRequestSchema,
   runtimeTransportForkAgentSessionRequestSchema,
@@ -263,6 +264,7 @@ import type {
   RuntimeTransportDispatchPreviewRequest,
   RuntimeTransportDispatchProgressRequest,
   RuntimeTransportDispatchReasoningRequest,
+  RuntimeTransportDispatchReplyRequest,
   RuntimeTransportDispatchRuntimeEvidenceRequest,
   RuntimeTransportDispatchToolActivityRequest,
   RuntimeTransportForkAgentSessionResult,
@@ -707,6 +709,7 @@ import {
   adoptHibernatedSockets,
   persistServiceRuntimeRecords,
   persistServiceRuntimeRecordsNow,
+  readServiceRuntimeConnectionGeneration,
   restoreServiceRuntimeRecords,
 } from "../../infrastructure/runtime-transport-runtime-store";
 import {
@@ -802,12 +805,18 @@ export function resolveLocalAgentControlResponseTimeoutMs(
 }
 function parseRuntimeTransportDispatchLiveActivity(
   payload: unknown,
-  kind: "progress" | "reasoning" | "tool"
+  kind: "progress" | "reasoning" | "reply" | "tool"
 ):
   | RuntimeTransportDispatchProgressRequest
+  | RuntimeTransportDispatchReplyRequest
   | RuntimeTransportDispatchReasoningRequest
   | RuntimeTransportDispatchToolActivityRequest
   | null {
+  if (kind === "reply") {
+    const parsed =
+      runtimeTransportDispatchReplyRequestSchema.safeParse(payload);
+    return parsed.success ? parsed.data : null;
+  }
   if (kind === "reasoning") {
     const parsed =
       runtimeTransportDispatchReasoningRequestSchema.safeParse(payload);
@@ -3496,7 +3505,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   ): void {
     switch (frame.code) {
       case "daemon.session.register": {
-        this.handleRegisterSessionFrame(webSocket, frame.payload);
+        this.ctx.waitUntil(
+          this.ctx.blockConcurrencyWhile(() =>
+            this.handleRegisterSessionFrame(webSocket, frame.payload)
+          )
+        );
         return;
       }
       case "daemon.session.heartbeat": {
@@ -3606,6 +3619,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         });
         return;
       }
+      case "daemon.dispatch.reply":
       case "daemon.dispatch.progress": {
         this.enqueueOrderedDispatchFrame({
           onError: (error) => {
@@ -3623,7 +3637,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
             this.handleDispatchToolActivityFrame(
               webSocket,
               frame.payload,
-              "progress"
+              frame.code === "daemon.dispatch.reply" ? "reply" : "progress"
             ),
         });
         return;
@@ -3856,10 +3870,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.orderedDispatchFrameTails.set(dispatchId, tail);
     this.ctx.waitUntil(tail);
   }
-  private handleRegisterSessionFrame(
+  private async handleRegisterSessionFrame(
     webSocket: WebSocket,
     payload: unknown
-  ): void {
+  ): Promise<void> {
     const parsed =
       runtimeTransportRegisterSessionRequestSchema.safeParse(payload);
     if (!parsed.success) {
@@ -3894,6 +3908,20 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     // verdict. A new or replaced socket flips every carried profile between
     // offline and online, so it keeps the full fan-out.
     const isSameSocketReRegister = sessionBeforeRegister?.socket === webSocket;
+    if (
+      !isSameSocketReRegister &&
+      request.ownerUserId === verifiedOwnerUserId
+    ) {
+      const highWater = await readServiceRuntimeConnectionGeneration(this.ctx, {
+        ownerUserId: verifiedOwnerUserId,
+        deviceId: request.deviceId,
+        lane: request.lane,
+      });
+      request.connectionGeneration = Math.max(
+        request.connectionGeneration,
+        highWater + 1
+      );
+    }
     const response = handleRegisterSession(
       this.state,
       {
@@ -3902,7 +3930,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         webSocket,
       },
       {
-        persistRuntimeRecords: this.persistRuntimeRecords,
+        persistRuntimeRecords: () => undefined,
         cleanupExpiredPendingDispatches: this.cleanupExpiredPendingDispatches,
         recordReapedReadinessProfiles: this.publishReapedReadinessProfiles,
         failPendingDispatchResultWaitersForConnectionGeneration:
@@ -3910,6 +3938,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         closeSocket: safeCloseSocket,
       }
     );
+    // Registration must not acknowledge a fence that only exists in memory.
+    // blockConcurrencyWhile resets this object on failure, withdrawing the
+    // mutated session instead of exposing an uncommitted registration.
+    await persistServiceRuntimeRecordsNow(this.ctx, this.state);
     this.sendFrame(webSocket, {
       code: "daemon.session.register",
       payload: {
@@ -9271,7 +9303,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private async handleDispatchToolActivityFrame(
     webSocket: WebSocket,
     payload: unknown,
-    kind: "progress" | "reasoning" | "tool" = "tool"
+    kind: "progress" | "reasoning" | "reply" | "tool" = "tool"
   ): Promise<void> {
     const activity = parseRuntimeTransportDispatchLiveActivity(payload, kind);
     if (!activity) {
@@ -9365,6 +9397,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     activity:
       | RuntimeTransportDispatchToolActivityRequest
       | RuntimeTransportDispatchProgressRequest
+      | RuntimeTransportDispatchReplyRequest
       | RuntimeTransportDispatchReasoningRequest
   ): Promise<void> {
     const spaceStub = resolveSpaceStub(
@@ -9409,7 +9442,24 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       activity.thinkingSnapshot = "";
     }
     let result: Awaited<ReturnType<typeof spaceStub.rpcApplyAgentStreamDelta>>;
-    if ("thinkingSnapshot" in activity) {
+    if ("textSnapshot" in activity) {
+      // A retraction clears an existing draft; it must not create a destination.
+      if (activity.textSnapshot) {
+        await spaceStub.rpcResolveNativeReplyPlacement({
+          spaceId: pending.spaceId,
+          dispatchId: pending.dispatchId,
+          sourceSignalId: pending.sourceSignalId,
+          profileId: pending.profileId,
+          defaultToThread: true,
+          lock: false,
+          ...(activity.placement ? { placement: activity.placement } : {}),
+        });
+      }
+      result = await spaceStub.rpcApplyAgentStreamDelta({
+        ...streamIdentity,
+        textSnapshot: activity.textSnapshot,
+      });
+    } else if ("thinkingSnapshot" in activity) {
       result = await spaceStub.rpcApplyAgentStreamDelta({
         ...streamIdentity,
         kind: "thinking",
@@ -9442,7 +9492,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
-    if ("thinkingSnapshot" in activity || "progressSnapshot" in activity) {
+    if (
+      "textSnapshot" in activity ||
+      "thinkingSnapshot" in activity ||
+      "progressSnapshot" in activity
+    ) {
       return;
     }
     console.info("[core.runtime_transport.tool_activity_applied]", {
