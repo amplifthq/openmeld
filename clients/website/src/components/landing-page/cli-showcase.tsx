@@ -211,7 +211,13 @@ export function CliShowcase() {
 				<div>
 					<strong>One setup. CLI + Skills.</strong>
 					<p>
-						Requires Node.js 22 or later (below 26). Node.js 24 is recommended.
+						On macOS, open Computers in OpenMeld Web and follow the connection
+						steps. Web setup installs a standalone CLI with its own runtime; no
+						Node.js upgrade is needed.
+					</p>
+					<p>
+						For Windows or a manual npm installation, use Node.js 22–25. Node.js
+						24 is recommended.
 					</p>
 					<p>
 						npm only warns about unsupported Node.js versions by default. Below

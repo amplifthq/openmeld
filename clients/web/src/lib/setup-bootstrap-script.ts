@@ -274,8 +274,14 @@ validate_setup_args() {
 ensure_node_runtime() {
   if ! command_exists node; then
     say "OpenMeld setup requires Node.js ${supportedNodeRange}."
-    if command_exists brew && confirm "Install Node.js with Homebrew now?"; then
-      brew install node < /dev/null || die "Homebrew could not install Node.js. Install a supported release (${supportedNodeRange}), then run this setup command again."
+    if command_exists brew && confirm "Install Node.js 24 with Homebrew now?"; then
+      brew install node@24 < /dev/null || die "Homebrew could not install Node.js 24. Install a supported release (${supportedNodeRange}), then run this setup command again."
+      OPENMELD_SETUP_NODE_PREFIX="$(brew --prefix node@24 < /dev/null)" || die "Homebrew could not locate Node.js 24. Check your Homebrew installation, then run this setup command again."
+      [ -x "$OPENMELD_SETUP_NODE_PREFIX/bin/node" ] || die "Homebrew did not provide a usable Node.js 24 executable. Check your Homebrew installation, then run this setup command again."
+      PATH="$OPENMELD_SETUP_NODE_PREFIX/bin:$PATH"
+      export PATH
+      say "Using Homebrew Node.js 24 for this setup. For future terminals, add this line to your shell profile:"
+      printf 'export PATH="%s/bin:$PATH"\\n' "$OPENMELD_SETUP_NODE_PREFIX"
     else
       die "Install Node.js 24 (recommended), or another supported release (${supportedNodeRange}), from nodejs.org, then run this setup command again."
     fi

@@ -1793,6 +1793,84 @@ describe("setup-bootstrap-script", () => {
 			rmSync(root, { recursive: true, force: true });
 		}
 	});
+	it.each([
+		24, 26,
+	])("selects the keg-only Homebrew runtime and validates major %s", (major) => {
+		const root = mkdtempSync(join(tmpdir(), "openmeld-brew-node-"));
+		try {
+			const bin = join(root, "brew-bin");
+			const prefix = join(root, "node 24 keg");
+			mkdirSync(bin);
+			mkdirSync(join(prefix, "bin"), { recursive: true });
+			const calls = join(root, "brew-calls");
+			writeFileSync(
+				join(bin, "brew"),
+				`#!/bin/sh
+printf '%s\\n' "$*" >> "$BREW_CALLS"
+case "$*" in
+ 'install node@24') /bin/chmod +x "$NODE_PREFIX/bin/node" ;;
+ '--prefix node@24') printf '%s\\n' "$NODE_PREFIX" ;;
+ *) exit 9 ;;
+esac
+`,
+				{ mode: 0o755 }
+			);
+			writeFileSync(
+				join(prefix, "bin/node"),
+				`#!/bin/sh\nprintf '%s\\n' '${major}'\n`,
+				{ mode: 0o644 }
+			);
+			writeFileSync(join(prefix, "bin/npm"), "#!/bin/sh\nnode -p version\n", {
+				mode: 0o755,
+			});
+			const script = buildOpenMeldSetupBootstrapScript({
+				distribution: "npm",
+				lane: "prod",
+			});
+			const functions = script.slice(
+				script.indexOf("ensure_node_runtime() {"),
+				script.indexOf("run_clean_openmeld_env() {")
+			);
+			const result = spawnSync(
+				"/bin/sh",
+				[
+					"-c",
+					`
+say() { printf '%s\\n' "$1"; }
+die() { say "$1"; exit 1; }
+confirm() { say "$1"; return 0; }
+command_exists() {
+ if [ "$1" = node ]; then [ -x "$NODE_PREFIX/bin/node" ]; else command -v "$1" >/dev/null; fi
+}
+${functions}
+ensure_node_runtime
+npm --version
+`,
+				],
+				{
+					encoding: "utf8",
+					env: {
+						PATH: bin,
+						NODE_PREFIX: prefix,
+						BREW_CALLS: calls,
+						HOME: root,
+					},
+				}
+			);
+			expect(readFileSync(calls, "utf8")).toBe(
+				"install node@24\n--prefix node@24\n"
+			);
+			expect(result.status).toBe(major === 24 ? 0 : 1);
+			if (major === 24) {
+				expect(result.stdout).toContain(`export PATH="${prefix}/bin:$PATH"`);
+				expect(result.stdout.trim().endsWith("24")).toBe(true);
+			} else {
+				expect(result.stdout).toContain("Install Node.js 24 (recommended)");
+			}
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
 });
 
 function execBootstrapScript(

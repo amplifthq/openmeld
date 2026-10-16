@@ -47,3 +47,19 @@ it("sends application actions across the App boundary and keeps public guides on
 		screen.getByRole("link", { name: "Setup guide" }).getAttribute("href")
 	).toBe("/guides/local-agents");
 });
+
+it("distinguishes macOS standalone setup from manual npm prerequisites", () => {
+	const html = renderToStaticMarkup(<LandingPage />);
+	const document = new DOMParser().parseFromString(html, "text/html");
+	const setup = document.querySelector(".meld-cli-setup");
+	expect(setup?.textContent).toContain(
+		"On macOS, open Computers in OpenMeld Web"
+	);
+	expect(setup?.textContent).toContain("no Node.js upgrade is needed.");
+	expect(setup?.textContent).toContain(
+		"For Windows or a manual npm installation, use Node.js 22–25."
+	);
+	expect(setup?.querySelector("code")?.textContent).toBe(
+		"npm install -g openmeld@latest\nopenmeld setup"
+	);
+});
