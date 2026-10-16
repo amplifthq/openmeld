@@ -7,9 +7,9 @@ const ACI_BOUNDED_TEXT_SCHEMA = z.string().trim().min(1).max(32_000);
 const ACI_COMMAND_PATH_SCHEMA = z.string().trim().min(1).max(4096);
 const ACI_ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
 
-// Background interface snapshots can be reused for up to 15 minutes. Give the
-// local service one normal refresh interval beyond that before Core marks the
-// provider capacity evidence stale.
+// Authentication and quota are different observations. Native account checks
+// expire after two minutes; quota retains its independent capacity policy.
+export const AGENT_CONTROLLER_AUTH_STALE_AFTER_MS = 2 * 60_000;
 export const AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS = 20 * 60_000;
 
 export const agentControllerUsageLimitStatusSchema = z.enum([

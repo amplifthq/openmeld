@@ -172,6 +172,15 @@ separate transport event.
 Registered-session bootstrap reads and cache persistence yield to that same
 transport exit, so a closed connection cannot remain held by local bootstrap.
 
+Connection generations are independent of reconnect backoff attempts. Core
+retains the accepted generation in the existing durable ServiceRuntime record,
+scoped to owner, device, and lane, even after transient sessions or liveness
+expire. New sockets advance that fence; a catalog registration on the same
+socket retains it. Registration is acknowledged only after the record is
+durable. Delayed writes cannot lower the fence. Legacy device-only records
+migrate using their stored owner and lane, never inferred identity. Old records
+remain fencing evidence, not proof that a Service is online or accepts work.
+
 The runner starts its control endpoint and registers without waiting for Agent
 inventory. Host initialization, reporting, and execution cross bounded inherited
 IPC; they cannot block the connector's event loop. Host admission is closed until
@@ -381,8 +390,11 @@ First enrollment may attach the Core-owned connected Computer ID to an already
 owned runtime without advancing its Service generation, only when every other
 contract field is unchanged. This records the existing account/device/lane
 association rather than replacing the carrier. Replacing an existing enrollment
-or changing any other contract field still advances the generation. Stop continues
-to require the running lease and current contract generations to match.
+or changing another identity or configuration field still advances the generation.
+An explicit Stop may change only desired state to `stopped` and disable autostart
+without advancing generation. The current carrier must retain ownership while it
+drains. Stop still requires matching lease and contract generations. The next
+explicit Start advances generation, so prior startup receipts cannot restart it.
 
 Canonical Service contract writes and clears share the existing lifecycle lock
 for the same resolved Service owner root, including ordinary installation.
@@ -752,11 +764,36 @@ The shared Usage support matrix declares Antigravity unsupported so historical
 quota cannot become new capacity authority or authorize automatic recovery.
 
 A completed signed-out check is reusable for the same binary within the normal
-15-minute background TTL. It clears account-bound passive usage, does not arm
+one-minute background TTL. It clears account-bound passive usage, does not arm
 failure retries, and expires normally. A fresh user check bypasses this cache
 to discover an external sign-in immediately. Unknown authentication is not
 proof of sign-out, and transient failed checks retain the existing failure
 policy rather than becoming a permanent negative cache.
+
+The Service schedules coalesced native inventory checks every minute, separately
+from transport heartbeat. Explicit checks bypass reuse. This bounds normal
+external sign-in/sign-out discovery without running a provider probe on each
+Wake. Probe failures and disconnection can delay discovery; they do not prove
+sign-out. Core accepts authentication evidence for at most two minutes of native
+observation age. It subtracts the difference between native `checkedAt` and
+publication `observedAtMs` (the same device clock) from its receipt-time budget.
+The stored publication time remains a source-ordering field; the stored expiry
+uses Core time. Republishing the same `checkedAt` cannot extend the stored expiry,
+including concurrent writes. An expired report is not current readiness evidence.
+Usage keeps its own original observation, account binding, and freshness policy.
+Expired account evidence projects unknown authentication and a delayed check;
+it must not display the old signed-in or signed-out observation as current.
+Usage windows expire by their own observation and reset times, not merely because
+the faster account report expired.
+
+This policy requires Service 0.3.264 and the
+`openmeld-service-contract-2026-10-auth-freshness-v1` carrier contract. The wire
+payload and Runtime Transport epoch remain compatible. During receiver-first
+deployment, Core keeps the published release manifest and the previous auth
+lifetime. The shorter lifetime and monotonic Service floor activate together
+only when the effective published Service manifest reaches 0.3.264. Old Services
+then show a required update before new Wake admission; accepted work and rescue
+commands remain available. A later optional release must retain that floor.
 
 Provider-access evidence is provider-neutral and carries its provider, stable
 reason code, observation time, and `wake_failure` source. The Service forwards
@@ -3002,10 +3039,21 @@ continue to prevent a stopped Service from restarting.
 
 Stop uses the existing authenticated shutdown payload and releases auth
 protection when the exact carrier accepts the existing controlled stop. Its
-original response still waits for drain. Commit can precede outcome persistence:
+response waits for drain, but the CLI caller has a fixed total request deadline.
+Progress bytes do not extend that deadline. Caller timeout closes only its
+control connection and never cancels admitted drain or accepted work.
+The lifecycle owner persists explicit stopped intent and disabled autostart before
+waiting for the carrier. This is desired state, not proof of completed shutdown.
+An idle Host can settle without a cloud connection; retained results stay in its
+durable outbox for the next explicit start. A missing final offline acknowledgement
+does not justify endless reconnection after local work is quiescent. Active work
+continues to use replacement connections until its existing drain completes.
+Commit can precede outcome persistence:
 a pending record therefore does not prove refusal. Only the coordinator's
 explicit `service.account_admission.stop_refused` response proves pre-commit
-refusal and permits restoring the previous autostart preference. Once commit
+refusal. It permits restoring the exact previous intent and autostart setting only
+while the stopped contract written by this request is still current. This rollback
+preserves the still-running carrier's generation; it is not a new Start. Once commit
 has been reached, a persistence, drain, or transport failure is uncertain;
 autostart remains disabled and the CLI reports `stop_unconfirmed` with the
 underlying diagnostic. The existing coordinator retains drain completion/error
@@ -3019,7 +3067,7 @@ shutdown field; that is not a positive coordinator refusal receipt.
 
 This record owns only local operation admission. It adds no Wakeability,
 RuntimeCoordinator, dispatch, Binding, or final-outcome authority. The persisted
-Service contract remains unchanged. The Desktop pilot exposes only this operation
+Service contract remains the desired-state owner. The Desktop pilot exposes only this operation
 after a separate read-only capability query proves its actual local pair.
 
 `service control-capabilities --json` runs before layout repair or managed CLI
@@ -3210,6 +3258,14 @@ not silently repair, reinstall, stop, start, or mutate runtime state.
 
 Setup and repair exist to restore local infrastructure for the current intended
 account, device, and lane.
+
+An already-running repair may report healthy only after an authenticated local
+control response, a fresh Host control round trip, and the Core-owned current
+device projection agree on the device and lane. The Host must be responsive,
+admitting work, and past startup replay; the runtime contract must be compatible.
+A live PID or an installed supervisor alone is insufficient. Active work does
+not make a healthy Service unhealthy. Missing evidence remains a diagnostic
+failure, not an inferred success. Status reads remain read-only.
 
 On macOS, start inspects the exact lane's launchd job, bootstraps only a missing
 job, and requests a demand start with `kickstart` without `-k`. It does not

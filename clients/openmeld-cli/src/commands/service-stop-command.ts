@@ -1,5 +1,10 @@
 import { confirm } from "@clack/prompts";
 import { toErrorMessage } from "@openmeld/utils";
+import { readDaemonRuntimeLease } from "../config/daemon-runtime-lease";
+import {
+  readDaemonServiceContract,
+  upsertDaemonServiceContract,
+} from "../config/daemon-service-contract";
 import {
   clearDaemonServiceRuntimeState,
   type DaemonServiceRuntimeStatus,
@@ -35,6 +40,29 @@ export const STOP_POLL_INTERVAL_MS = 200;
 export const SERVICE_STOP_CHECK_MS = 3000;
 
 export const SERVICE_STOP_POLL_MS = 200;
+
+async function persistUserStopIntent(pid: number | null): Promise<void> {
+  const contract = await readDaemonServiceContract();
+  if (!contract) {
+    return;
+  }
+  const lease = await readDaemonRuntimeLease();
+  if (
+    !lease ||
+    pid !== lease.pid ||
+    lease.generation !== contract.generation ||
+    lease.bundleId !== contract.bundleId
+  ) {
+    throw new Error(
+      "The Service owner changed. Check Service status before trying Stop again."
+    );
+  }
+  await upsertDaemonServiceContract(
+    { ...contract, desiredState: "stopped", autoStart: false },
+    {},
+    { expectedCurrentContract: contract }
+  );
+}
 
 export type SharedDaemonStopMode = "interactive" | "best_effort";
 
@@ -311,6 +339,36 @@ export async function stopManagedCurrentLaneDaemonService(input: {
   };
 }
 
+async function canRestoreUnsentStopAutostart(
+  error: unknown,
+  wasEnabled: boolean
+): Promise<boolean> {
+  return (
+    wasEnabled &&
+    error instanceof LocalDaemonControlPlaneClientError &&
+    error.code === "daemon.control.endpoint_missing" &&
+    (await readDaemonServiceContract())?.desiredState !== "stopped"
+  );
+}
+
+async function settleFailedStopAutostart(input: {
+  error: unknown;
+  wasEnabled: boolean;
+  serviceManager: NonNullable<DaemonOwnerSnapshot["serviceManager"]>;
+}): Promise<string> {
+  const message = toErrorMessage(input.error);
+  if (!(await canRestoreUnsentStopAutostart(input.error, input.wasEnabled))) {
+    return message;
+  }
+  // A missing socket proves no request was admitted. A timeout does not.
+  try {
+    await input.serviceManager.enableAutostart();
+    return message;
+  } catch (restoreError) {
+    return `${message}; could not restore autostart: ${toErrorMessage(restoreError)}`;
+  }
+}
+
 async function prepareManagedDaemonServiceForStop(input: {
   force?: boolean;
   mode: SharedDaemonStopMode;
@@ -321,11 +379,13 @@ async function prepareManagedDaemonServiceForStop(input: {
     return null;
   }
 
-  const shouldRestoreAutostart =
-    await disableDaemonServiceAutostartIfConfigured({
-      manager: serviceManager,
-      status: input.ownerSnapshot.serviceManagerStatus,
-    });
+  if (input.mode === "interactive") {
+    await persistUserStopIntent(input.ownerSnapshot.runtimeStatus.pid);
+  }
+  const wasEnabled = await disableDaemonServiceAutostartIfConfigured({
+    manager: serviceManager,
+    status: input.ownerSnapshot.serviceManagerStatus,
+  });
   if (input.force === true) {
     return null;
   }
@@ -383,17 +443,14 @@ async function prepareManagedDaemonServiceForStop(input: {
       return null;
     }
 
-    let errorMessage = toErrorMessage(error);
-    if (shouldRestoreAutostart) {
-      try {
-        await serviceManager.enableAutostart();
-      } catch (restoreError) {
-        errorMessage = `${errorMessage}; failed to restore service autostart: ${toErrorMessage(restoreError)}`;
-      }
-    }
+    const errorMessage = await settleFailedStopAutostart({
+      error,
+      wasEnabled,
+      serviceManager,
+    });
     if (input.mode !== "best_effort") {
       throw new Error(
-        `OpenMeld Service stayed running because its final offline status could not be delivered: ${errorMessage}`
+        `Stop is not confirmed and may still be in progress. Check Service status before retrying. ${errorMessage}`
       );
     }
     return buildDaemonStopWarningResult({
@@ -648,6 +705,9 @@ export async function stopCurrentLaneDaemonProcess(input: {
     return {
       status: "cancelled",
     };
+  }
+  if (input.mode === "interactive") {
+    await persistUserStopIntent(daemonPid);
   }
 
   try {

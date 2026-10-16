@@ -43,6 +43,129 @@ const FAILED_UNKNOWN_EVENT = /"status":"failed","application":"unknown"/u;
 const VERIFIED_APPLIED_EVENT = /"status":"verified","application":"applied"/u;
 const UNRESOLVED_DATABASE_ATTEMPT = /unresolved/u;
 const DATABASE_BASELINE_ERROR = /baseline/u;
+const PUSH_FAILURE = /Could not publish guarded local release evidence/u;
+
+for (const scope of [
+  "core",
+  "web",
+  "gateway",
+  "auth",
+  "website",
+  "docs",
+  "remote-agent",
+]) {
+  test(`real receipt writer handles a guarded failed upload transition for ${scope}`, () => {
+    const fixture = createGitFixture();
+    try {
+      const receipt = {
+        attemptId: "00000000-0000-4000-8000-000000000001",
+        componentIndex: 0,
+        operationKey: "a".repeat(64),
+        startedAt: "2026-01-01T00:00:00Z",
+        status: "started",
+        application: "unknown",
+      };
+      const common = {
+        cwd: fixture.repository,
+        remote: fixture.remote,
+        sourceSha: fixture.sourceSha,
+        scopes: [scope],
+      };
+      const publish = (value) =>
+        publishGuardedLocalReleaseEvidence({
+          ...common,
+          receipts: { [scope]: value },
+        });
+      publish(receipt);
+      publish({ ...receipt, status: "failed" });
+      const applied = {
+        ...receipt,
+        status: "applied",
+        application: "applied",
+        identity: {
+          kind: "worker-deployment",
+          workerName: `openmeld-${scope}-prod`,
+          environment: "prod",
+          deploymentId: "new-deployment",
+          versionId: "new-version",
+          sourceSha: fixture.sourceSha,
+          proof: "command-output",
+        },
+      };
+      if (scope === "remote-agent") {
+        assert.throws(() => publish(applied), TERMINAL_RECOVERY_ERROR);
+        assert.equal(
+          readGuardedLocalReleaseSources(common).get(scope).receipt.status,
+          "failed"
+        );
+      } else {
+        publish(applied);
+        publish({ ...applied, status: "verified" });
+        const retained =
+          readGuardedLocalReleaseSources(common).get(scope).receipt;
+        assert.equal(retained.status, "verified");
+        assert.equal(retained.attemptId, receipt.attemptId);
+        assert.equal(retained.startedAt, receipt.startedAt);
+        assert.deepEqual(retained.identity, applied.identity);
+      }
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const outcome of ["accepted", "rejected", "unreadable"]) {
+  test(`receipt push transport failure requires exact remote acknowledgement (${outcome})`, () => {
+    const fixture = createGitFixture();
+    const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+    try {
+      const bin = path.join(fixture.root, "bin");
+      const marker = path.join(fixture.root, "pushed");
+      mkdirSync(bin);
+      writeFileSync(
+        path.join(bin, "git"),
+        [
+          `#!${process.execPath}`,
+          "const { spawnSync } = require('node:child_process');",
+          "const { existsSync, writeFileSync } = require('node:fs');",
+          "const args = process.argv.slice(2);",
+          `const marker = ${JSON.stringify(marker)};`,
+          `const outcome = ${JSON.stringify(outcome)};`,
+          "if (args[0] === 'push' && outcome === 'rejected') process.exit(1);",
+          "if (args[0] === 'ls-remote' && outcome === 'unreadable' && existsSync(marker)) process.exit(1);",
+          `const result = spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' });`,
+          "if (args[0] === 'push' && result.status === 0) { writeFileSync(marker, 'accepted'); process.exit(1); }",
+          "process.exit(result.status ?? 1);",
+        ].join("\n"),
+        { mode: 0o755 }
+      );
+      const publish = () =>
+        publishGuardedLocalReleaseEvidence({
+          cwd: fixture.repository,
+          remote: fixture.remote,
+          sourceSha: fixture.sourceSha,
+          scopes: ["web", "gateway"],
+          environment: {
+            ...process.env,
+            PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+          },
+        });
+      if (outcome === "accepted") {
+        assert.equal(publish().published, true);
+        const retained = readGuardedLocalReleaseSources({
+          cwd: fixture.repository,
+          remote: fixture.remote,
+        });
+        assert.equal(retained.get("web").sha, fixture.sourceSha);
+        assert.equal(retained.get("gateway").sha, fixture.sourceSha);
+      } else {
+        assert.throws(publish, PUSH_FAILURE);
+      }
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+}
 
 for (const active of [true, false]) {
   test(`retained native release appends both stages to one correlated receipt history (active=${active})`, () => {

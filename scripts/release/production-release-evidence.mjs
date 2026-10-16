@@ -14,6 +14,14 @@ const EVIDENCE_REF_PREFIX = "refs/heads/openmeld-production-release-evidence";
 const EVIDENCE_KIND = "openmeld-guarded-local-release-evidence";
 const LINE_SPLIT_PATTERN = /\r?\n/u;
 const WHITESPACE_PATTERN = /\s+/u;
+export const WORKER_UPLOAD_RETRY_SCOPES = new Set([
+  "auth",
+  "core",
+  "gateway",
+  "web",
+  "website",
+  "docs",
+]);
 
 export function publishGuardedLocalReleaseEvidence(input) {
   const context = resolveContext(input);
@@ -83,9 +91,26 @@ export function publishGuardedLocalReleaseEvidence(input) {
   );
   const result = runGit(context, args, { allowFailure: true });
   if (result.status !== 0) {
-    throw new Error(
-      `Could not publish guarded local release evidence atomically: ${redactGitOutput(result.stderr)}`
-    );
+    // A transport error can arrive after the remote accepted the atomic push.
+    // Only the exact commits from this write acknowledge it; never push again.
+    let acknowledged = false;
+    let readFailure = "";
+    try {
+      const observed = readGuardedLocalReleaseEvidence(
+        context,
+        new Set(scopes)
+      );
+      acknowledged = pending.every(
+        (item) => observed.get(item.scope)?.evidenceSha === item.evidenceSha
+      );
+    } catch (error) {
+      readFailure = ` Receipt read-back failed: ${error.message}`;
+    }
+    if (!acknowledged) {
+      throw new Error(
+        `Could not publish guarded local release evidence atomically: ${redactGitOutput(result.stderr)}${readFailure}`
+      );
+    }
   }
   return {
     published: true,
@@ -776,10 +801,10 @@ function validateCorrelationTransition(current, next, recoveryProved) {
   ) {
     return true;
   }
-  // The guarded Core executor proves the previous verified deployment is still
+  // The guarded Worker executor proves the previous verified deployment is still
   // active before retrying, then captures a fresh command-correlated activation.
   if (
-    current.scope === "core" &&
+    WORKER_UPLOAD_RETRY_SCOPES.has(current.scope) &&
     previous.status === "failed" &&
     previous.application === "unknown" &&
     !previous.identity &&

@@ -7,6 +7,7 @@ import {
   expandRequestedReleaseScopes,
   resolveProductionLeaseScopes,
 } from "./production-release.mjs";
+import { WORKER_UPLOAD_RETRY_SCOPES } from "./production-release-evidence.mjs";
 
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const HOSTED_SCOPE_ALIASES = new Map([
@@ -27,8 +28,8 @@ export function isProductionRecoveryCandidate(component, sourceSha) {
         ].includes(component.recovery.kind)) ||
       (component.scope === "db" &&
         component.recovery.kind === "guarded-postgresql-forward-retry") ||
-      (component.scope === "core" &&
-        component.recovery.kind === "guarded-core-upload-retry"))
+      (WORKER_UPLOAD_RETRY_SCOPES.has(component.scope) &&
+        component.recovery.kind === "guarded-worker-upload-retry"))
   );
 }
 

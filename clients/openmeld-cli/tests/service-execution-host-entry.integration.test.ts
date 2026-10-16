@@ -418,6 +418,9 @@ describe("real execution Host entry", () => {
         activeCount: 0,
         pendingCount: 0,
       });
+      expect(await client.call("settleResults", {})).toEqual({
+        status: "acknowledged",
+      });
       await client.call("configureConnection", {
         executionAdmissionConfirmation: true,
         connectionGeneration: 1,

@@ -50,6 +50,7 @@ async function runDaemonReinstallInTempHome(
 }
 
 const {
+  isRunningServiceRepairHealthyMock,
   captureDaemonServiceEvidenceBestEffortMock,
   captureDaemonServiceEvidenceMock,
   resolveDaemonServiceDependencyDiagnosticsMock,
@@ -64,6 +65,7 @@ const {
   runDaemonStartupPreflightMock,
   runDaemonServiceLifecycleMock,
 } = vi.hoisted(() => ({
+  isRunningServiceRepairHealthyMock: vi.fn(),
   captureDaemonServiceEvidenceBestEffortMock: vi.fn(),
   captureDaemonServiceEvidenceMock: vi.fn(),
   resolveDaemonServiceDependencyDiagnosticsMock: vi.fn(),
@@ -77,6 +79,11 @@ const {
   resolveCurrentReplyReadinessSnapshotMock: vi.fn(),
   runDaemonStartupPreflightMock: vi.fn(),
   runDaemonServiceLifecycleMock: vi.fn(),
+}));
+
+vi.mock("../src/local-service/lifecycle/service-repair-readiness", () => ({
+  isRunningServiceRepairHealthy: (...args: unknown[]) =>
+    isRunningServiceRepairHealthyMock(...args),
 }));
 
 vi.mock("../src/local-service/lifecycle/daemon-service-evidence", async () => {
@@ -202,6 +209,7 @@ vi.mock("../src/local-service/lifecycle/daemon-service-lifecycle", async () => {
 
 describe("openmeld service commands", () => {
   beforeEach(() => {
+    isRunningServiceRepairHealthyMock.mockReset().mockResolvedValue(true);
     captureDaemonServiceEvidenceBestEffortMock
       .mockReset()
       .mockResolvedValue(null);
@@ -645,6 +653,7 @@ describe("openmeld service commands", () => {
         },
         {
           daemonVersion: "9.9.9",
+          forceReinstall: true,
           teardown: teardownMock,
           runInstall: runInstallMock,
           runRun: runRunMock,
@@ -1016,6 +1025,7 @@ describe("openmeld service commands", () => {
       },
       {
         daemonVersion: "9.9.9",
+        forceReinstall: true,
         teardown: teardownMock,
         runInstall: runInstallMock,
         runRun: runRunMock,
@@ -1155,7 +1165,36 @@ describe("openmeld service commands", () => {
     expect(resolveCurrentReplyReadinessSnapshotMock).not.toHaveBeenCalled();
   });
 
-  it("does not read reply-readiness snapshot during reinstall verification", async () => {
+  it("does not report repair complete when a running Service cannot confirm readiness", async () => {
+    inspectDaemonServiceInventoryMock.mockResolvedValue(
+      createAlignedRunningDaemonServiceInventory({
+        daemonVersion: "0.2.2",
+        pid: 778,
+      })
+    );
+    isRunningServiceRepairHealthyMock.mockResolvedValue(false);
+    await expect(
+      runDaemonReinstallInTempHome(
+        { view: "agent" },
+        {
+          skipConfirm: true,
+          forceReinstall: true,
+          startAfterInstallMode: "always",
+          verifyWaitMs: 1,
+          runInstall: vi.fn().mockResolvedValue(undefined),
+          runRun: vi.fn().mockResolvedValue({ ok: true, reason: "started" }),
+          readDaemonStatus: vi
+            .fn()
+            .mockResolvedValue({ installed: false, state: null }),
+          withReconcileLock: async <T>(callback: () => Promise<T>) =>
+            await callback(),
+        }
+      )
+    ).rejects.toThrow("repair verification timed out");
+    expect(isRunningServiceRepairHealthyMock).toHaveBeenCalled();
+  });
+
+  it("does not read profile reply-readiness snapshot during reinstall verification", async () => {
     inspectDaemonServiceInventoryMock.mockResolvedValue(
       createAlignedRunningDaemonServiceInventory({
         daemonVersion: "0.2.2",
@@ -4516,6 +4555,21 @@ function createAlignedRunningDaemonServiceInventory(input: {
   pid: number;
 }): DaemonServiceInventory {
   return {
+    serviceContract: {
+      schema: "openmeld-daemon-service-contract-v1",
+      v: 1,
+      lane: "dev-local",
+      daemonVersion: input.daemonVersion,
+      bundleId: "service-bundle",
+      desiredState: "background",
+      serviceController: "launchd",
+      autoStart: true,
+      gatewayUrl: "http://localhost:8787",
+      deviceId: "repair-test-device",
+      heartbeatMs: 15_000,
+      generation: 1,
+      updatedAt: "2026-03-10T00:00:00.000Z",
+    },
     expectedVersion: input.daemonVersion,
     installStatus: {
       installed: true,
