@@ -7,7 +7,7 @@ import {
   expandRequestedReleaseScopes,
   resolveProductionLeaseScopes,
 } from "./production-release.mjs";
-import { WORKER_UPLOAD_RETRY_SCOPES } from "./production-release-receipts.mjs";
+import { WORKER_UPLOAD_RETRY_SCOPES } from "./production-release-evidence.mjs";
 
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const HOSTED_SCOPE_ALIASES = new Map([

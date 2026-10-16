@@ -4,6 +4,7 @@ import { productionComponentReceiptSchema } from "../../packages/schemas/src/sch
 import {
   publishGuardedLocalReleaseEvidence,
   readGuardedLocalReleaseSources,
+  WORKER_UPLOAD_RETRY_SCOPES,
 } from "./production-release-evidence.mjs";
 import {
   readRetainedRemoteContainer,
@@ -17,14 +18,6 @@ import {
 } from "./worker-deployment-evidence.mjs";
 
 const EXACT_SOURCE_SHA = /^[0-9a-f]{40}$/u;
-export const WORKER_UPLOAD_RETRY_SCOPES = new Set([
-  "auth",
-  "core",
-  "gateway",
-  "web",
-  "website",
-  "docs",
-]);
 
 class ReceiptWriteError extends Error {
   constructor(message, options) {

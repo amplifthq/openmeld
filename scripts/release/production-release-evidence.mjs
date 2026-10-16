@@ -14,6 +14,14 @@ const EVIDENCE_REF_PREFIX = "refs/heads/openmeld-production-release-evidence";
 const EVIDENCE_KIND = "openmeld-guarded-local-release-evidence";
 const LINE_SPLIT_PATTERN = /\r?\n/u;
 const WHITESPACE_PATTERN = /\s+/u;
+export const WORKER_UPLOAD_RETRY_SCOPES = new Set([
+  "auth",
+  "core",
+  "gateway",
+  "web",
+  "website",
+  "docs",
+]);
 
 export function publishGuardedLocalReleaseEvidence(input) {
   const context = resolveContext(input);
@@ -793,10 +801,10 @@ function validateCorrelationTransition(current, next, recoveryProved) {
   ) {
     return true;
   }
-  // The guarded Core executor proves the previous verified deployment is still
+  // The guarded Worker executor proves the previous verified deployment is still
   // active before retrying, then captures a fresh command-correlated activation.
   if (
-    current.scope === "core" &&
+    WORKER_UPLOAD_RETRY_SCOPES.has(current.scope) &&
     previous.status === "failed" &&
     previous.application === "unknown" &&
     !previous.identity &&
