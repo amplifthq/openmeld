@@ -13,6 +13,7 @@ import {
   runtimeTransportDispatchPreviewRequestSchema,
   runtimeTransportDispatchProgressRequestSchema,
   runtimeTransportDispatchReasoningRequestSchema,
+  runtimeTransportDispatchReplyRequestSchema,
   runtimeTransportDispatchRuntimeEvidenceRequestSchema,
   runtimeTransportDispatchToolActivityRequestSchema,
   runtimeTransportSubmitTaskResultRequestSchema,
@@ -30,6 +31,7 @@ import type {
   RuntimeTransportDispatchLocalQueueDiagnostics,
   RuntimeTransportDispatchProgressRequest,
   RuntimeTransportDispatchReasoningRequest,
+  RuntimeTransportDispatchReplyRequest,
   RuntimeTransportDispatchRuntimeEvidencePhase,
   RuntimeTransportHeartbeatRequest,
   RuntimeTransportRegisterSessionRequest,
@@ -259,6 +261,19 @@ export function sendDispatchProgressFrame(
     code: "daemon.dispatch.progress",
     payload: parsed.data,
   });
+}
+
+export function sendDispatchReplyFrame(
+  input: Omit<RuntimeTransportDispatchReplyRequest, "v"> & {
+    socket: DaemonFrameSink;
+  }
+): void {
+  const { socket, ...payload } = input;
+  const parsed = runtimeTransportDispatchReplyRequestSchema.parse({
+    ...payload,
+    v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+  });
+  sendDaemonFrame(socket, { code: "daemon.dispatch.reply", payload: parsed });
 }
 
 export function sendDispatchToolActivityFrame(input: {
@@ -681,6 +696,7 @@ function sendDaemonFrame(
       | "daemon.dispatch.tool_activity"
       | "daemon.dispatch.reasoning"
       | "daemon.dispatch.progress"
+      | "daemon.dispatch.reply"
       | "daemon.session.heartbeat"
       | "daemon.session.register";
     payload:

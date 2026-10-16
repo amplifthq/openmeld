@@ -723,6 +723,7 @@ export {
   runtimeTransportDispatchPreviewRequestSchema,
   runtimeTransportDispatchProgressRequestSchema,
   runtimeTransportDispatchReasoningRequestSchema,
+  runtimeTransportDispatchReplyRequestSchema,
   runtimeTransportDispatchRuntimeEvidencePhaseSchema,
   runtimeTransportDispatchRuntimeEvidenceRequestSchema,
   runtimeTransportDispatchSourceSignalSchema,

@@ -471,6 +471,10 @@ export type RuntimeTransportDispatchProgressRequest = import("zod/v4").infer<
   typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportDispatchProgressRequestSchema"]
 >;
 
+export type RuntimeTransportDispatchReplyRequest = import("zod/v4").infer<
+  typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportDispatchReplyRequestSchema"]
+>;
+
 export type RuntimeTransportDispatchInteractionRequest = import("zod/v4").infer<
   typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportDispatchInteractionRequestSchema"]
 >;
