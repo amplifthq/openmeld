@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { installComputerTools } from "../src/main/cli/computer-tools";
+import { installedCommandEnvironment } from "../src/main/installed-environment";
 
 const execute = vi.hoisted(() => vi.fn());
 vi.mock("node:child_process", async () => {
@@ -91,7 +92,11 @@ beforeEach(async () => {
   fetchMock.mockReset();
   fetchMock.mockImplementation((url: string | URL) => {
     const href = String(url);
-    if (href === `${origin}/cli/manifest.json`) {
+    if (
+      href === `${origin}/cli/manifest.json` ||
+      (origin === "https://openmeld.ai" &&
+        href === "https://app.openmeld.ai/cli/manifest.json")
+    ) {
       return Promise.resolve(Response.json(manifest));
     }
     if (href === `${origin}/cli.exe`) {
@@ -117,22 +122,49 @@ afterEach(async () => {
 });
 
 it.each([
-  "prod",
-  "dev-local",
-])("installs the verified bundle from the configured %s distribution", async (preset) => {
+  { preset: "prod", installedOrigin: undefined },
+  { preset: "dev-local", installedOrigin: undefined },
+  { preset: "prod", installedOrigin: "https://app.openmeld.ai" },
+  { preset: "prod", installedOrigin: "https://openmeld.ai" },
+])("installs the verified bundle from $preset / $installedOrigin", async ({
+  preset,
+  installedOrigin,
+}) => {
   const webOrigin =
-    preset === "prod" ? origin : "http://wt-0bb4f2da9c6d.localhost:29728";
+    installedOrigin ??
+    (preset === "prod" ? origin : "http://wt-0bb4f2da9c6d.localhost:29728");
+  if (installedOrigin) {
+    // Captured production manifest on 2026-10-16: both official manifest
+    // endpoints return artifact URLs under https://openmeld.ai/cli/download/.
+    origin = "https://openmeld.ai";
+    manifest = buildManifest();
+  }
   if (preset === "dev-local") {
     origin = "http://127.0.0.1:29732";
     manifest = buildManifest();
   }
   const command = await installComputerTools(webOrigin, {
     env: {
-      OPENMELD_HOME: root,
       OPENMELD_ENV_PRESET: preset,
       PATH: "",
       OPENMELD_CLI_BINARY_MANIFEST_URL: `${origin}/cli/manifest.json`,
       OPENMELD_CLI_BINARY_DEV_PORT: "29732",
+      ...(installedOrigin
+        ? installedCommandEnvironment(
+            {
+              kind: "production",
+              webOrigin: installedOrigin as
+                | "https://app.openmeld.ai"
+                | "https://openmeld.ai",
+              authScheme: "sh.openmeld.desktop",
+              clientId: "openmeld-desktop",
+              appId: "sh.openmeld.desktop",
+              dataDirectory: "OpenMeld Desktop",
+            },
+            root
+          ).env
+        : {}),
+      OPENMELD_HOME: root,
     },
   });
   expect(command).toBe(join(root, "bin", "openmeld.exe"));
@@ -149,6 +181,12 @@ it.each([
 });
 
 it.each([
+  [
+    "prod",
+    "https://app.openmeld.ai",
+    "https://untrusted.invalid/cli/manifest.json",
+  ],
+  ["prod", "https://app.openmeld.ai", "http://openmeld.ai/cli/manifest.json"],
   [
     "prod",
     "http://localhost:29728",

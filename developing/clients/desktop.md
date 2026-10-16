@@ -420,12 +420,16 @@ authorization, account, execution, or snapshot failures retain its diagnostic
 correlation ID.
 
 For ordinary Connect, when the managed CLI is absent or lacks the connection
-contract, main downloads the fixed Web origin's managed binary manifest and the
-Apple silicon or Windows x64 artifact.
+contract, main downloads the managed binary manifest and the Apple silicon or
+Windows x64 artifact. Production App origins `https://app.openmeld.ai` and the
+retained `https://openmeld.ai` both use the fixed public CLI distribution at
+`https://openmeld.ai/cli/manifest.json`. The App hostname does not relocate the
+published artifacts. Other lanes retain their own Web origin.
 The isolated `dev-local` lane may use its configured CLI binary server on
 `127.0.0.1` at `OPENMELD_CLI_BINARY_DEV_PORT`, only when Web also uses a local
-HTTP origin. Production keeps the same-origin requirement. Artifact origins
-must match the selected manifest origin in both cases.
+HTTP origin. Manifest origins must match the selected distribution origin,
+apart from that exact local development exception. Artifact origins must match
+the selected manifest origin in all cases. Redirects remain disabled.
 The shared `@openmeld/local-service/cli-binary-update-artifact` implementation
 verifies transport and executable hashes and the production signing identity.
 The verified binary's `install-self` owns installation. No Node/npm prerequisite,
