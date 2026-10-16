@@ -1,0 +1,48 @@
+name: Core dependency updates
+
+on:
+  schedule:
+    # Tuesday and Friday at 02:41 UTC (10:41 Asia/Taipei); 3/4-day spacing.
+    - cron: '41 2 * * 2,5'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-dependency-watch
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    if: github.repository == 'amplifthq/openmeld' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install locked parser without lifecycle scripts
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile --ignore-scripts
+      - name: Scan stable releases and maintain one review issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/dependency-watch/scan.mjs --publish
+      - name: Summarize
+        run: cat dev-tmp/core-dependency-watch/report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-dependency-watch
+          path: dev-tmp/core-dependency-watch
+          retention-days: 30
