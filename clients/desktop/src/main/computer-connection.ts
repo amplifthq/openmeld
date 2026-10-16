@@ -169,6 +169,38 @@ export function createComputerConnection(input: {
         return await response.json();
       };
       const target = await resolvePrepareComputerTarget(intent, review, cloud);
+      // Finish any existing update before issuing short-lived Prepare and
+      // device authorization. The CLI observes its own Service and worker.
+      const prepared = await prepareUpdateWaitTools({
+        serviceAction: intent.serviceAction,
+        inspected,
+        webOrigin: input.webOrigin,
+        deps,
+        observe,
+        assertAccount,
+      });
+      const { bin } = prepared;
+      await runConnectionSetup(
+        bin,
+        ["computer", "wait-for-update", "--view", "agent"],
+        deps.env,
+        {
+          completedEvent: "computer.update_ready",
+          onProgress: (event) => {
+            if (input.sessionRevision?.() === sessionRevision) {
+              observe(phaseForSetupEvent(event), event.code, {
+                detail: event.message,
+                state: event.state,
+              });
+            }
+          },
+        }
+      );
+      await assertAccount();
+      const setupReview = await readComputerConnection(bin, deps, {
+        includeStopped: true,
+      });
+      assertUpdateWaitIdentity(prepared.review, setupReview, target);
       const prepare = prepareSessionWithTokenResponseSchema.parse(
         await cloud("/v1/prepare/sessions", "POST", {
           humanProfileId: intent.humanProfileId,
@@ -192,20 +224,6 @@ export function createComputerConnection(input: {
               "The computer connection belongs to another account."
             );
           }
-          assertPrepareConnectionTarget({
-            intent,
-            snapshot: prepare.snapshot,
-            review,
-          });
-          const { bin, review: setupReview } =
-            await prepareReviewedComputerTools({
-              serviceAction: intent.serviceAction,
-              inspected,
-              webOrigin: input.webOrigin,
-              deps,
-              observe,
-              assertAccount,
-            });
           assertPrepareConnectionTarget({
             intent,
             snapshot: prepare.snapshot,
@@ -703,6 +721,53 @@ async function prepareReviewedComputerTools(input: {
   return updated;
 }
 
+async function prepareUpdateWaitTools(
+  input: Parameters<typeof prepareReviewedComputerTools>[0]
+) {
+  const prepared = await prepareReviewedComputerTools(input);
+  try {
+    await promisify(execFile)(
+      prepared.bin,
+      ["computer", "wait-for-update", "--help"],
+      {
+        env: input.deps.env,
+        timeout: 10_000,
+        maxBuffer: 16_384,
+      }
+    );
+    return prepared;
+  } catch (error) {
+    if (
+      (error as { code?: unknown })?.code !== 1 ||
+      !String((error as { stderr?: unknown })?.stderr).includes(
+        "unknown command 'wait-for-update'"
+      )
+    ) {
+      throw error;
+    }
+    return await prepareReviewedComputerTools({
+      ...input,
+      serviceAction: "update_service",
+      inspected: { ...prepared, installedNow: false },
+    });
+  }
+}
+
+function assertUpdateWaitIdentity(
+  before: Awaited<ReturnType<typeof readComputerConnection>>,
+  after: Awaited<ReturnType<typeof readComputerConnection>>,
+  target: { deviceId?: string; runtimeLane?: string }
+) {
+  if (
+    before.previousSessionIdentity !== after.previousSessionIdentity ||
+    (target.deviceId &&
+      (after.existingConnection?.deviceId !== target.deviceId ||
+        after.existingConnection?.runtimeLane !== target.runtimeLane))
+  ) {
+    throw new Error("Local sign-in changed. Check the account and try again.");
+  }
+}
+
 // Prepare does not infer a device/lane from a stable Computer ID. Resolve the
 // selected Computer through Core, then bind it to the independently read Mac.
 async function resolvePrepareComputerTarget(
@@ -781,7 +846,10 @@ export async function runConnectionSetup(
   args: string[],
   env?: NodeJS.ProcessEnv,
   options: {
-    completedEvent?: "setup.complete" | "computer.disconnected";
+    completedEvent?:
+      | "setup.complete"
+      | "computer.disconnected"
+      | "computer.update_ready";
     onStarted?(): void;
     onProgress?(progress: {
       code: string;

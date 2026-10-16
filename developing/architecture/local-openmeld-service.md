@@ -3369,6 +3369,14 @@ coordinator. The initiating browser or Terminal is not a lifecycle owner: it
 may close immediately after the durable handoff, and the OS worker must resume
 the same job after its own crash, sign-in, or computer restart.
 
+Setup observers read `service_update_readiness` through the existing local
+control endpoint to distinguish accepted-work drain from installation. A
+required update can remain `updating` while accepted work drains; the durable
+phase alone does not prove that tasks finished. Fresh accepted-work evidence
+renews the setup watchdog. Missing responses and unacknowledged-result-only
+waits do not. This observation neither admits work nor changes Wake truth,
+Service lifecycle, or the durable update job.
+
 When the control endpoint is absent, the update worker delegates to the existing
 locked lifecycle checks rather than waiting forever for an absent Service to
 answer readiness. This does not authorize force-killing a live Service: controlled
