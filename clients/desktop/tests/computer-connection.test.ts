@@ -17,7 +17,8 @@ const mocks = vi.hoisted(() => ({
   exec: vi.fn(),
   help: vi.fn(() =>
     Promise.resolve({
-      stdout: "Usage: openmeld computer wait-for-update [options]\n",
+      stdout:
+        "Usage: /test-owned/bin/openmeld computer wait-for-update [options]\n",
     })
   ),
   install: vi.fn(),
@@ -233,7 +234,7 @@ describe("Desktop computer connection admission", () => {
       // Captured from published 0.3.264: unknown child + --help exits 0.
       mocks.help.mockResolvedValueOnce({
         stdout:
-          "Usage: openmeld computer [options] [command]\n\nInspect and name computers in OpenMeld.\n",
+          "Usage: /test-owned/bin/openmeld computer [options] [command]\n\nInspect and name computers in OpenMeld.\n",
       });
     }
     const onProgress = vi.fn();

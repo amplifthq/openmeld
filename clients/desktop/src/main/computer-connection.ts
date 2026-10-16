@@ -735,13 +735,20 @@ async function prepareUpdateWaitTools(
         maxBuffer: 16_384,
       }
     );
-    if (help.stdout.startsWith("Usage: openmeld computer wait-for-update ")) {
+    const usage = help.stdout.split("\n", 1)[0] ?? "";
+    if (
+      usage.startsWith("Usage: ") &&
+      usage.endsWith(" computer wait-for-update [options]")
+    ) {
       return prepared;
     }
     // Commander can return the parent help with exit 0 for an unknown child.
     // This exact legacy response is not evidence that the command exists.
     if (
-      !help.stdout.startsWith("Usage: openmeld computer [options] [command]")
+      !(
+        usage.startsWith("Usage: ") &&
+        usage.endsWith(" computer [options] [command]")
+      )
     ) {
       throw new Error(
         "OpenMeld could not verify the installed setup command. Try updating OpenMeld Tools."
