@@ -41,14 +41,19 @@ describe("Desktop computer connection admission", () => {
   });
   it.each([
     "unsupported command",
+    "unsupported json option",
+    "unsupported stopped option",
     "authentication failure",
   ])("retries a stopped-identity probe only for compatibility: %s", async (reason) => {
     const error = Object.assign(new Error(reason), {
       code: 1,
-      stderr:
-        reason === "unsupported command"
-          ? "error: unknown command 'connection-review'"
-          : "Authentication expired",
+      stderr: {
+        "unsupported command": "error: unknown command 'connection-review'",
+        "unsupported json option": "error: unknown option '--json'",
+        "unsupported stopped option":
+          "error: unknown option '--include-stopped'",
+        "authentication failure": "Authentication expired",
+      }[reason],
     });
     mocks.exec.mockRejectedValueOnce(error).mockResolvedValueOnce({
       stdout: JSON.stringify({
@@ -63,7 +68,7 @@ describe("Desktop computer connection admission", () => {
       {},
       { includeStopped: true }
     );
-    if (reason === "unsupported command") {
+    if (reason !== "authentication failure") {
       await expect(result).resolves.toMatchObject({ existingConnection: null });
       expect(mocks.exec).toHaveBeenCalledTimes(2);
     } else {
@@ -234,7 +239,9 @@ describe("Desktop computer connection admission", () => {
       const failure = Object.assign(new Error("Command failed"), {
         code: 1,
         stdout: "",
-        stderr: "error: unknown command 'connection-review'",
+        // Captured from the published 0.3.263 command parser: options are
+        // rejected before the absent subcommand is diagnosed.
+        stderr: "error: unknown option '--json'",
       }) satisfies ExecFileException & { stdout: string; stderr: string };
       mocks.exec.mockRejectedValueOnce(failure);
       if (scenario === "targeted_update_legacy_tools") {

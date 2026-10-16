@@ -896,7 +896,9 @@ The explicit flag also admits a stopped, installed, account-aligned Service with
 verified native start capability. Targeted recovery uses the same check. The
 unflagged review still reports only a running connection, so ordinary Connect
 cannot reuse a stopped Service as if it were connected. An older CLI that
-explicitly rejects the command is retried without the flag; authentication and
+explicitly rejects the command or its JSON/stopped options is retried without
+the stopped flag. If the base review is unsupported, explicit Connect can
+install current Tools and recheck identity. Authentication and
 identity failures are never downgraded to compatibility retries.
 Cancellation changes no draft; selecting a folder alone grants no file access,
 connects no Project, and saves no workspace. The existing Service remains the

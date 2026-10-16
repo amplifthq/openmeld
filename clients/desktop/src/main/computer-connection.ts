@@ -564,7 +564,7 @@ function assertConnectionEnvironment(env?: NodeJS.ProcessEnv) {
 }
 
 const UNSUPPORTED_CONNECTION_COMMAND =
-  /error: unknown command '(?:computer|connection-review)'/;
+  /error: unknown (?:command '(?:computer|connection-review)'|option '--(?:json|include-stopped)')/;
 
 // Shared by the read-only projection and the explicit Connect bootstrap. Do not
 // interpret authentication failures or malformed review output as missing tools.
