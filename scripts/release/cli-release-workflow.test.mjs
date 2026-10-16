@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { parse } from "yaml";
 
 import { requireProductionDatabaseCurrent } from "./require-production-db-current.mjs";
 import {
@@ -50,7 +51,15 @@ test("keeps the trusted GitHub release publication-only and focused on CLI and C
 
   assert.ok(!source.includes("      mode:"));
   assert.ok(!source.includes("  verify:"));
-  assert.ok(!source.includes("pnpm run verify:release-ready"));
+  // Build admission belongs to the producer, not a second publisher pack.
+  assert.ok(
+    !source.split("  cli_release:")[1].includes("pnpm run verify:release-ready")
+  );
+  assert.ok(
+    source
+      .split("  npm_consumer:")[0]
+      .includes("pnpm run verify:release-ready -- --force")
+  );
   assert.ok(!source.includes("      rollout:"));
   assert.ok(!source.includes("      bootstrap_routines:"));
   assert.ok(!source.includes("  database:"));
@@ -173,7 +182,13 @@ test("reuses only a successful helper job from the official main CLI workflow", 
   assert.ok(!windowsJob.includes("Reuse the stamped Windows process helper"));
   assert.ok(macJob.includes("!cancelled()"));
   assert.ok(macJob.includes("inputs.windows_artifact_run_id != ''"));
-  assert.ok(!macJob.includes("actions/download-artifact"));
+  const downloads = parse(workflow).jobs.cli_release.steps.filter((step) =>
+    step.uses?.startsWith("actions/download-artifact@")
+  );
+  assert.deepEqual(
+    downloads.map((step) => step.with.name),
+    [`npm-consumer-${GITHUB_EXPRESSION_PREFIX} env.RELEASE_SHA }}`]
+  );
   assert.ok(
     workflow.includes(
       "(!inputs.helper_only && inputs.windows_artifact_run_id == '')"

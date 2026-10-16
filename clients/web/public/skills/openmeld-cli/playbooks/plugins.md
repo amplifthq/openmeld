@@ -41,7 +41,12 @@ does not authorize changed input or permissions.
 ## Check the outcome
 
 Keep one operation ID for one logical action, including retries after transport
-failure. A repeated operation returns its recorded status without reexecuting.
+failure. A repeated operation without `--replay` returns its recorded status
+without reexecuting. For `outcome_unknown`, only a receipt with
+`replay.allowed=true` permits one explicit `--replay` with the original operation
+ID, account and unchanged input inside the original 24-hour window. Core consumes
+that allowance durably before calling the provider. An expired window, changed
+permissions or a used allowance forbids another write.
 `outcome_unknown` is not proof of failure: check the provider outcome before
 proposing another action; do not force a retry with a new operation ID.
 Preserve completed operation receipts when continuing a task after setup.

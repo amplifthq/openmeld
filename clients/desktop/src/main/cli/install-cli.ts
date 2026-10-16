@@ -5,7 +5,6 @@ import type { CliProblem } from "../../shared/view-types";
 import type { ExecFileError, ExecFileFn } from "./driver";
 import {
   buildDesktopCommandEnv,
-  canExecute,
   executableNamesForPlatform,
   resolveExecutableOnPath,
 } from "./path-search";
@@ -27,6 +26,11 @@ export async function readOpenMeldCliSetupProblem(
   deps: InstallCliDeps = {}
 ): Promise<CliProblem | null> {
   const env = buildDesktopCommandEnv(deps.env);
+  // A resolved or explicitly selected carrier owns its runtime. Preserve its
+  // launch failure, including a missing managed binary, instead of diagnosing npm.
+  if (resolveOpenMeldBin({ env, override: deps.openMeldBin }) !== "openmeld") {
+    return null;
+  }
   const nodeProblem = await readNodeSetupProblem(deps, env);
   if (nodeProblem) {
     return nodeProblem;
@@ -38,10 +42,6 @@ export async function readOpenMeldCliSetupProblem(
     );
   }
 
-  const openMeldBin = resolveOpenMeldBin({ env, override: deps.openMeldBin });
-  if (openMeldBin !== "openmeld" && canExecute(openMeldBin)) {
-    return null;
-  }
   return cliSetupProblem(
     "desktop.openmeld_cli_missing",
     "OpenMeld could not find OpenMeld CLI on this Mac."

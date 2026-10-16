@@ -357,6 +357,29 @@ async function prepareCachedNpmCliArtifact(input = {}, dependencies = {}) {
     env,
     expectedSourceSha: input.sourceSha,
   });
+  const suppliedPath = env.OPENMELD_NPM_ARTIFACT_PATH;
+  const suppliedIntegrity = env.OPENMELD_NPM_ARTIFACT_INTEGRITY;
+  if (
+    suppliedPath ||
+    suppliedIntegrity ||
+    env.OPENMELD_REQUIRE_VERIFIED_NPM_ARTIFACT === "1"
+  ) {
+    const artifactPath = suppliedPath && resolve(cwd, suppliedPath);
+    verifyPreparedNpmCliArtifact({
+      path: artifactPath,
+      integrity: suppliedIntegrity,
+    });
+    const inspected = await inspectNpmCliArtifact(
+      artifactPath,
+      readExpectedNpmArtifact({ cwd, sourceSha })
+    );
+    if (inspected.integrity !== suppliedIntegrity) {
+      throw new Error(
+        "Downloaded npm artifact integrity changed during admission."
+      );
+    }
+    return persistentArtifact(artifactPath, inspected);
+  }
   const runtime = await resolveToolRuntime({ cwd, env }, dependencies);
   const buildInputs = hashBuildInputs({ env, runtime, sourceSha });
   const cache = resolveNpmArtifactCache({ cwd, buildInputs });

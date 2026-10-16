@@ -25,6 +25,21 @@ test("PR npm smoke covers the release matrix without publication credentials", (
   );
   assert.equal(smoke.jobs.npm_artifact.needs, "windows_process_artifact");
   assert.equal(smoke.jobs.npm_consumer.needs, "npm_artifact");
+  for (const jobs of [smoke.jobs, release.jobs]) {
+    assert.equal(
+      jobs.npm_consumer.env.OPENMELD_NPM_ARTIFACT_INTEGRITY,
+      expression("needs.npm_artifact.outputs.integrity")
+    );
+    assert.equal(
+      jobs.npm_consumer.env.OPENMELD_REQUIRE_VERIFIED_NPM_ARTIFACT,
+      "1"
+    );
+    assert.ok(
+      jobs.npm_consumer.steps.some((step) =>
+        step.run?.includes("prepareNpmCliArtifact()")
+      )
+    );
+  }
   for (const job of Object.values(smoke.jobs)) {
     assert.equal(job.environment, undefined);
     assert.equal(job.permissions?.contents === "write", false);
@@ -55,6 +70,24 @@ test("CLI publication waits for the same npm tarball to pass the supported consu
     step.uses?.startsWith("actions/download-artifact@")
   );
   assert.equal(download.with.name, upload.with.name);
+  const publisher = jobs.cli_release;
+  const publisherDownload = publisher.steps.find((step) =>
+    step.uses?.startsWith("actions/download-artifact@")
+  );
+  assert.equal(publisherDownload.with.name, upload.with.name);
+  assert.ok(publisher.needs.includes("npm_artifact"));
+  assert.equal(
+    publisher.env.OPENMELD_NPM_ARTIFACT_INTEGRITY,
+    expression("needs.npm_artifact.outputs.integrity")
+  );
+  assert.equal(
+    jobs.npm_artifact.outputs.integrity,
+    expression("steps.pack.outputs.integrity")
+  );
+  assert.equal(
+    publisher.env.OPENMELD_NPM_ARTIFACT_PATH,
+    `${publisherDownload.with.path}/openmeld.tgz`
+  );
   assert.ok(
     jobs.npm_consumer.steps.some((step) =>
       step.run?.includes("npm-cli-smoke.mjs verify")

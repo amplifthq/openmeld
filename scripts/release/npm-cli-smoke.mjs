@@ -1,5 +1,11 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  appendFileSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import {
@@ -22,6 +28,12 @@ if (mode === "pack") {
   try {
     mkdirSync(dirname(path), { recursive: true });
     copyFileSync(artifact.path, path);
+    if (process.env.GITHUB_OUTPUT) {
+      appendFileSync(
+        process.env.GITHUB_OUTPUT,
+        `integrity=${artifact.integrity}\n`
+      );
+    }
     console.log(`Packed ${artifact.manifest.version}: ${artifact.integrity}`);
   } finally {
     artifact.cleanup();

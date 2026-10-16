@@ -49,6 +49,8 @@ jobs:
 
   npm_artifact:
     needs: windows_process_artifact
+    outputs:
+      integrity: ${{ steps.pack.outputs.integrity }}
     runs-on: macos-15
     timeout-minutes: 30
     env:
@@ -63,6 +65,7 @@ jobs:
           name: npm-smoke-windows-${{ github.sha }}
           path: ${{ runner.temp }}/windows-helper
       - name: Import this run's Windows helper and pack the npm artifact
+        id: pack
         run: |
           node scripts/release/windows-process-artifact.mjs "$RUNNER_TEMP/windows-helper"
           pnpm exec turbo run build --filter=openmeld --force
@@ -89,6 +92,9 @@ jobs:
       contents: read
     env:
       RELEASE_SHA: ${{ github.sha }}
+      OPENMELD_NPM_ARTIFACT_PATH: ${{ runner.temp }}/npm-consumer/openmeld.tgz
+      OPENMELD_NPM_ARTIFACT_INTEGRITY: ${{ needs.npm_artifact.outputs.integrity }}
+      OPENMELD_REQUIRE_VERIFIED_NPM_ARTIFACT: "1"
     steps:
       - uses: actions/checkout@v5
         with:
@@ -107,6 +113,7 @@ jobs:
         run: |
           node -e 'const expected = process.platform === "darwin" ? "arm64" : "x64"; if (process.arch !== expected) throw new Error(`Expected ${expected}, got ${process.arch}`)'
           node scripts/release/npm-cli-smoke.mjs verify "$RUNNER_TEMP/npm-consumer/openmeld.tgz"
+          node --input-type=module -e 'import { prepareNpmCliArtifact } from "./scripts/release/npm-cli-artifact.mjs"; const artifact = await prepareNpmCliArtifact(); console.log(`Publisher handoff verified: ${artifact.integrity}`); artifact.cleanup();'
       - name: Select Node 20 for the upgrade-message check
         if: matrix.node == '22.0.0'
         uses: actions/setup-node@v5

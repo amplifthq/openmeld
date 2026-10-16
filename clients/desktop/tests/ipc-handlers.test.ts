@@ -172,6 +172,62 @@ describe("createDesktopHandlers", () => {
   it.each([
     "v20.19.2",
     "v26.0.0",
+  ])("preserves a selected standalone carrier failure on %s without probing Node", async (version) => {
+    const root = await mkdtemp(join(tmpdir(), "openmeld-carrier-status-"));
+    try {
+      const node = join(root, "node");
+      await writeFile(node, "#!/bin/sh\n");
+      await chmod(node, 0o755);
+      const exec = vi.fn((_file, _args, _options, callback) => {
+        callback(null, version, "");
+        return {};
+      });
+      const carrier = join(root, "managed-openmeld");
+      const commands = makeCommands({
+        serviceStatus: async () => ({
+          ok: false,
+          kind: "spawn_failed",
+          error: {
+            code: "ENOENT",
+            message: "Selected standalone CLI failed to launch",
+          },
+          exitCode: 1,
+          rawStdout: "",
+        }),
+      });
+      const handlers = createDesktopHandlers({
+        commands,
+        commandDeps: {
+          openMeldBin: carrier,
+          env: {
+            PATH: root,
+            OPENMELD_HOME: join(root, "home"),
+            OPENMELD_DESKTOP_DISABLE_COMMON_PATH_DIRS: "1",
+          },
+          exec,
+        },
+      });
+      for (const present of [false, true]) {
+        if (present) {
+          await writeFile(carrier, "#!/bin/sh\nexit 1\n");
+          await chmod(carrier, 0o755);
+        }
+        await expect(handlers.getServiceStatus()).resolves.toMatchObject({
+          problem: {
+            code: "ENOENT",
+            message: "Selected standalone CLI failed to launch",
+          },
+        });
+      }
+      expect(exec).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    "v20.19.2",
+    "v26.0.0",
   ])("keeps the Node upgrade problem across install rejection and refresh on %s", async (initialVersion) => {
     const root = await mkdtemp(join(tmpdir(), "openmeld-runtime-status-"));
     try {

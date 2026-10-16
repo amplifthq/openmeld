@@ -90,6 +90,8 @@ jobs:
 
   npm_artifact:
     name: Build npm Consumer Artifact
+    outputs:
+      integrity: ${{ steps.pack.outputs.integrity }}
     if: >-
       !cancelled() && !inputs.helper_only && github.ref == 'refs/heads/main' &&
       inputs.windows_artifact_run_id != ''
@@ -113,8 +115,9 @@ jobs:
           WINDOWS_ARTIFACT_RUN_ID: ${{ inputs.windows_artifact_run_id }}
         run: node scripts/release/reuse-windows-process-artifact.mjs
       - name: Build and pack the release source
+        id: pack
         run: |
-          pnpm exec turbo run build --filter=openmeld --force
+          pnpm run verify:release-ready -- --force
           node scripts/release/npm-cli-smoke.mjs pack dev-tmp/npm-consumer/openmeld.tgz
       - uses: actions/upload-artifact@v4
         with:
@@ -138,6 +141,9 @@ jobs:
       contents: read
     env:
       RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
+      OPENMELD_NPM_ARTIFACT_PATH: ${{ runner.temp }}/npm-consumer/openmeld.tgz
+      OPENMELD_NPM_ARTIFACT_INTEGRITY: ${{ needs.npm_artifact.outputs.integrity }}
+      OPENMELD_REQUIRE_VERIFIED_NPM_ARTIFACT: "1"
     steps:
       - uses: actions/checkout@v5
         with:
@@ -156,6 +162,7 @@ jobs:
         run: |
           node -e 'const expected = process.platform === "darwin" ? "arm64" : "x64"; if (process.arch !== expected) throw new Error(`Expected ${expected}, got ${process.arch}`)'
           node scripts/release/npm-cli-smoke.mjs verify "$RUNNER_TEMP/npm-consumer/openmeld.tgz"
+          node --input-type=module -e 'import { prepareNpmCliArtifact } from "./scripts/release/npm-cli-artifact.mjs"; const artifact = await prepareNpmCliArtifact(); console.log(`Publisher handoff verified: ${artifact.integrity}`); artifact.cleanup();'
       - name: Select Node 20 for the upgrade-message check
         if: matrix.node == '22.0.0'
         uses: actions/setup-node@v5
@@ -173,7 +180,7 @@ jobs:
     if: >-
       !cancelled() && !inputs.helper_only && github.ref == 'refs/heads/main' &&
       inputs.windows_artifact_run_id != '' && needs.npm_consumer.result == 'success'
-    needs: [windows_process_artifact, npm_consumer]
+    needs: [windows_process_artifact, npm_artifact, npm_consumer]
     runs-on: macos-15
     timeout-minutes: 45
     concurrency:
@@ -185,6 +192,8 @@ jobs:
       OPENMELD_PRODUCTION_TRAIN_SCOPES: ${{ inputs.production_train_scopes }}
       RELEASE_PATH: ${{ inputs.release_path }}
       RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
+      OPENMELD_NPM_ARTIFACT_PATH: ${{ runner.temp }}/npm-consumer/openmeld.tgz
+      OPENMELD_NPM_ARTIFACT_INTEGRITY: ${{ needs.npm_artifact.outputs.integrity }}
     steps:
       - name: Validate immutable release inputs
         shell: bash
@@ -240,6 +249,12 @@ jobs:
         with:
           control_directory: release-control
           working_directory: release-source
+
+      - name: Download the consumer-verified npm package
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-consumer-${{ env.RELEASE_SHA }}
+          path: ${{ runner.temp }}/npm-consumer
 
       - name: Reuse the stamped Windows process helper
         env:
