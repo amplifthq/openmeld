@@ -1579,7 +1579,15 @@ async function waitForDaemonHealthyAfterReinstall(input: {
       intent: "reinstall",
       readDaemonStatus: input.readDaemonStatus,
     }).catch(() => null);
-    if (inventory && isDaemonInventoryRunningAndAligned(inventory)) {
+    if (
+      inventory?.serviceContract &&
+      isDaemonInventoryRunningAndAligned(inventory) &&
+      (await isRunningServiceRepairHealthy({
+        deviceId: inventory.serviceContract.deviceId,
+        runtimeLane: inventory.serviceContract.lane,
+        gatewayUrl: inventory.serviceContract.gatewayUrl,
+      }))
+    ) {
       return inventory.runtimeStatus;
     }
     lastRuntime =

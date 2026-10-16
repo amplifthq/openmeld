@@ -511,8 +511,19 @@ function parseAgentControllerInterface(input: {
       reasonCodes: [],
       snapshot: projectUsageLimitFreshness({
         nowMs: input.nowMs,
-        reportExpired: input.reportExpired,
-        snapshot: result.data,
+        snapshot: input.reportExpired
+          ? {
+              ...result.data,
+              auth: { status: "unknown" },
+              check: {
+                status: "failed",
+                lastSucceededAt: result.data.check?.lastSucceededAt ?? null,
+              },
+              status: "warning",
+              message:
+                "Local agent status is out of date. Check the agent again.",
+            }
+          : result.data,
       }),
     };
   } catch {
@@ -524,7 +535,6 @@ function parseAgentControllerInterface(input: {
 }
 function projectUsageLimitFreshness(input: {
   nowMs: number;
-  reportExpired: boolean;
   snapshot: AgentControllerInterfaceSnapshot;
 }): AgentControllerInterfaceSnapshot {
   if (!input.snapshot.usageLimits) {
@@ -546,7 +556,7 @@ function projectUsageLimitFreshness(input: {
         : Number.NaN;
       const resetExpired =
         Number.isFinite(resetsAtMs) && resetsAtMs <= input.nowMs;
-      return input.reportExpired || observationExpired || resetExpired
+      return observationExpired || resetExpired
         ? { ...limit, status: "stale" as const }
         : limit;
     }),
