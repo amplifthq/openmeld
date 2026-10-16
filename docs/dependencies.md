@@ -83,7 +83,7 @@ not install packages or query the network. Stage new manifests before running it
 | [@lucasmarkes/hairline](https://www.npmjs.com/package/@lucasmarkes/hairline) | <code>0.5.0</code> | Runtime | [clients/website](../clients/website/package.json) |
 | [@mariozechner/pi-tui](https://www.npmjs.com/package/@mariozechner/pi-tui) | <code>0.57.1</code> | Runtime | [clients/openmeld-cli](../clients/openmeld-cli/package.json) |
 | [@modelcontextprotocol/client](https://www.npmjs.com/package/@modelcontextprotocol/client) | <code>2.3.1</code> | Runtime | [services/remote-agent](../services/remote-agent/package.json) |
-| [@modelcontextprotocol/sdk](https://www.npmjs.com/package/@modelcontextprotocol/sdk) | <code>1.32.1</code><br><code>^1.29.0</code> | Runtime | [clients/openmeld-cli](../clients/openmeld-cli/package.json)<br>[runtime/adapters/claude-code](../runtime/adapters/claude-code/package.json)<br>[services/remote-agent](../services/remote-agent/package.json) |
+| [@modelcontextprotocol/sdk](https://www.npmjs.com/package/@modelcontextprotocol/sdk) | <code>^1.29.0</code> | Runtime | [clients/openmeld-cli](../clients/openmeld-cli/package.json)<br>[runtime/adapters/claude-code](../runtime/adapters/claude-code/package.json)<br>[services/remote-agent](../services/remote-agent/package.json) |
 | [@modelcontextprotocol/server](https://www.npmjs.com/package/@modelcontextprotocol/server) | <code>2.3.1</code> | Runtime | [services/remote-agent](../services/remote-agent/package.json) |
 | [@next/eslint-plugin-next](https://www.npmjs.com/package/@next/eslint-plugin-next) | <code>^15.5.0</code> | Development | [tooling/eslint-config](../tooling/eslint-config/package.json) |
 | [@opencode-ai/sdk](https://www.npmjs.com/package/@opencode-ai/sdk) | <code>^1.18.34</code> | Runtime | [clients/openmeld-cli](../clients/openmeld-cli/package.json)<br>[runtime/adapters/opencode](../runtime/adapters/opencode/package.json) |
@@ -244,7 +244,7 @@ not install packages or query the network. Stage new manifests before running it
 | [shadcn](https://www.npmjs.com/package/shadcn) | <code>^3.8.5</code> | Development | [clients/desktop](../clients/desktop/package.json)<br>[clients/web](../clients/web/package.json)<br>[clients/website](../clients/website/package.json) |
 | [sherif](https://www.npmjs.com/package/sherif) | <code>1.13.0</code> | Development | [package.json](../package.json) |
 | [slackify-markdown](https://www.npmjs.com/package/slackify-markdown) | <code>5.0.0</code> | Runtime | [services/core](../services/core/package.json) |
-| [smol-toml](https://www.npmjs.com/package/smol-toml) | <code>1.7.0</code> | Runtime | [runtime/adapters/grok-build](../runtime/adapters/grok-build/package.json) |
+| [smol-toml](https://www.npmjs.com/package/smol-toml) | <code>1.9.0</code> | Runtime | [runtime/adapters/grok-build](../runtime/adapters/grok-build/package.json) |
 | [sonner](https://www.npmjs.com/package/sonner) | <code>^2.0.7</code> | Runtime | [clients/web](../clients/web/package.json) |
 | [streamdown](https://www.npmjs.com/package/streamdown) | <code>^2.5.0</code> | Runtime | [clients/web](../clients/web/package.json)<br>[clients/website](../clients/website/package.json) |
 | [string-width](https://www.npmjs.com/package/string-width) | <code>^8.1.0</code> | Runtime | [clients/openmeld-cli](../clients/openmeld-cli/package.json) |
