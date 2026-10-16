@@ -10,6 +10,7 @@ import type { MouseEvent, PointerEvent, ReactElement, ReactNode } from "react";
 import type { ComputerAttentionTone } from "#/lib/computer-summary-status";
 import { AppInnerSidebarHeader } from "./app-inner-sidebar";
 import { AppMainContent } from "./app-main-content";
+import { AppModuleSidebarHeader } from "./app-module-sidebar-header";
 import {
 	APP_NAV_GROUP_CLASS_NAME,
 	APP_NAV_GROUP_LABEL_CLASS_NAME,
@@ -67,7 +68,7 @@ export type AppContextualSidebarNavProps<ItemId extends string> = {
 	leadingContent?: ReactNode;
 	onActivate?: (itemId: ItemId) => void;
 	title: string;
-	placement?: "main" | "secondary";
+	placement?: "main" | "module" | "secondary";
 };
 
 export function AppContextualContentFrame(input: {
@@ -99,22 +100,27 @@ export function AppContextualSidebarNav<ItemId extends string>(
 ) {
 	const { presentation } = useAppNavigationPresentation();
 	const isMain = input.placement === "main";
-	const Content = isMain ? "div" : SidebarContent;
+	const isModule = input.placement === "module";
+	const isEmbedded = isMain || isModule;
+	const Content = isEmbedded ? "div" : SidebarContent;
 	return (
 		<nav
 			aria-label={input.ariaLabel}
 			className={cn(
 				"@container/contextual-sidebar flex w-full min-w-0 flex-col text-sidebar-foreground",
-				!isMain && "h-full min-h-0"
+				!isEmbedded && "h-full min-h-0"
 			)}
 			data-slot="app-contextual-sidebar"
 		>
-			{!isMain && <AppInnerSidebarHeader title={input.title} />}
-			<Content className={isMain ? "min-w-0" : "px-3 pt-[9px] pb-2"}>
+			{isModule && <AppModuleSidebarHeader title={input.title} />}
+			{!isEmbedded && <AppInnerSidebarHeader title={input.title} />}
+			<Content className={isEmbedded ? "min-w-0" : "px-3 pt-[9px] pb-2"}>
 				{input.leadingContent ? (
 					<div
 						className={
-							isMain ? "[&:has(input,p,button,[data-slot=badge])]:pb-1" : "pb-4"
+							isEmbedded
+								? "[&:has(input,p,button,[data-slot=badge])]:pb-1"
+								: "pb-4"
 						}
 						data-slot="app-contextual-sidebar-leading"
 					>
@@ -132,7 +138,7 @@ export function AppContextualSidebarNav<ItemId extends string>(
 							APP_NAV_GROUP_CLASS_NAME,
 							groupIndex > 0 ? APP_NAV_GROUP_SPACING_CLASS_NAME : null
 						)}
-						groupId={isMain ? `${input.ariaLabel}:${group.id}` : group.id}
+						groupId={isEmbedded ? `${input.ariaLabel}:${group.id}` : group.id}
 						key={group.id}
 						label={
 							<CenterTruncatedText
@@ -160,6 +166,7 @@ export function AppContextualSidebarNav<ItemId extends string>(
 										isActive={item.id === input.activeItemId}
 										item={item}
 										key={item.id}
+										moduleSidebar={isModule}
 										onActivate={input.onActivate}
 									/>
 								))}
@@ -176,6 +183,7 @@ export function AppContextualSidebarNav<ItemId extends string>(
 
 function AppContextualSidebarNavItem<ItemId extends string>(input: {
 	index: number;
+	moduleSidebar?: boolean;
 	isActive: boolean;
 	item: AppContextualNavItem<ItemId>;
 	onActivate?: (itemId: ItemId) => void;
@@ -187,6 +195,7 @@ function AppContextualSidebarNavItem<ItemId extends string>(input: {
 			className={cn(
 				"flex min-w-0 items-center border border-transparent",
 				APP_NAV_ITEM_FULL_DENSITY_CLASS_NAME,
+				input.moduleSidebar && "gap-2.5 px-[9px]",
 				APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 				APP_NAV_ITEM_TONE_CLASS_NAME,
 				input.isActive ? "text-sidebar-accent-foreground" : null,

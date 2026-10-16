@@ -38,6 +38,62 @@ const CRITICAL_PATTERN = /critical/u;
 const READY_PATTERN = /become ready/u;
 const ADMISSION_PATTERN = /previous admission/u;
 
+test("nested builds expand one live heavy reservation only when capacity permits", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "openmeld-heavy-expansion-"));
+  const memory = {
+    totalBytes: 16 * 1024 ** 3,
+    availableBytes: 12 * 1024 ** 3,
+    pressure: "normal",
+  };
+  const reservation = await acquireLocalResources({
+    kind: "heavy",
+    gitCommonDir: directory,
+    env: {},
+    readMemory: () => memory,
+  });
+  const readEntries = () =>
+    JSON.parse(
+      readFileSync(join(directory, "openmeld-dev/resources.json"), "utf8")
+    );
+  try {
+    for (const blocked of [
+      { availableBytes: 1024 ** 3 },
+      { pressure: "critical" },
+      { pressure: "warning" },
+    ]) {
+      await assert.rejects(
+        acquireLocalResources({
+          kind: "heavy",
+          gitCommonDir: directory,
+          env: {
+            [RESOURCE_TOKEN]: reservation.token,
+            OPENMELD_LOCAL_HEAVY_GIB: "3",
+          },
+          readMemory: () => ({ ...memory, ...blocked }),
+        })
+      );
+      assert.equal(readEntries()[0].bytes, 2 * 1024 ** 3);
+    }
+    const nested = await acquireLocalResources({
+      kind: "heavy",
+      gitCommonDir: directory,
+      env: {
+        [RESOURCE_TOKEN]: reservation.token,
+        OPENMELD_LOCAL_HEAVY_GIB: "3",
+      },
+      readMemory: () => memory,
+    });
+    assert.equal(nested.token, reservation.token);
+    await nested.release();
+    assert.equal(readEntries().length, 1);
+    assert.equal(readEntries()[0].bytes, 3 * 1024 ** 3);
+  } finally {
+    await reservation.release();
+    assert.deepEqual(readEntries(), []);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("process constraints cannot inflate physical machine capacity", () => {
   const physical = 8 * 1024 ** 3;
   for (const unconstrained of [0, Number(2n ** 64n - 1n)]) {
@@ -152,6 +208,12 @@ test(
     await a.message("acquired");
     a.child.send("nested");
     await a.message("nested-acquired");
+    const expanded = JSON.parse(
+      readFileSync(join(directory, "openmeld-dev/resources.json"), "utf8")
+    );
+    assert.equal(expanded.length, 1);
+    assert.equal(expanded[0].pid, a.child.pid);
+    assert.equal(expanded[0].bytes, 3 * 1024 ** 3);
     const b = startChild(t, "resource", directory);
     await b.message("waiting");
     b.child.send("cancel");

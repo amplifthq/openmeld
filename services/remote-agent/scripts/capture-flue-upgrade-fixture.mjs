@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,8 +14,9 @@ import { defineTool, init, useModel, useTool } from "@flue/runtime";
 import { sqlite, start } from "@flue/runtime/node";
 import { object } from "valibot";
 
-// Run once against the unmodified OpenMeld 2.0.3 dependency baseline. This
+// Run against the specified, unmodified dependency baseline. This
 // records real, synthetic runtime state, not hand-authored vendor rows.
+const expectedVersion = process.argv[2] ?? "2.0.3";
 const service = dirname(dirname(fileURLToPath(import.meta.url)));
 const runtimePackage = JSON.parse(
   await readFile(
@@ -22,13 +24,13 @@ const runtimePackage = JSON.parse(
     "utf8"
   )
 );
-if (runtimePackage.version !== "2.0.3") {
+if (runtimePackage.version !== expectedVersion) {
   throw new Error(
-    "Capture requires the original patched Flue 2.0.3 installation."
+    `Capture requires the original patched Flue ${expectedVersion} installation.`
   );
 }
 const patch = await readFile(
-  join(service, "../../patches/@flue__runtime@2.0.3.patch")
+  join(service, `../../patches/@flue__runtime@${expectedVersion}.patch`)
 );
 const directory = await mkdtemp(join(tmpdir(), "openmeld-flue-fixture-"));
 const database = join(directory, "runtime.sqlite");
@@ -117,9 +119,12 @@ try {
     }
     const fixture = {
       provenance: {
-        runtime: "2.0.3",
-        upstreamSource: "v2.0.3",
-        openmeldSource: "303814dfbde9388cbf0851227efa9b509e7fb007",
+        runtime: expectedVersion,
+        upstreamSource: `v${expectedVersion}`,
+        openmeldSource: execFileSync("git", ["rev-parse", "HEAD"], {
+          cwd: service,
+          encoding: "utf8",
+        }).trim(),
         patchSha256: createHash("sha256").update(patch).digest("hex"),
         capturedAt: new Date().toISOString(),
         generator: "scripts/capture-flue-upgrade-fixture.mjs",
@@ -131,8 +136,13 @@ try {
       receipts: { completed, running, queued },
       tables,
     };
-    const output = join(service, "tests/fixtures/flue-2.0.3-continuity.json");
-    await writeFile(output, `${JSON.stringify(fixture, null, 2)}\n`);
+    const output = join(
+      service,
+      `tests/fixtures/flue-${expectedVersion}-continuity.json`
+    );
+    await writeFile(output, `${JSON.stringify(fixture, null, 2)}\n`, {
+      flag: "wx",
+    });
     console.log(
       JSON.stringify({
         output,

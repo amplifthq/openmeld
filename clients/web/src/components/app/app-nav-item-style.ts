@@ -1,4 +1,4 @@
-export const APP_NAV_GROUP_CLASS_NAME = "gap-2 p-0";
+export const APP_NAV_GROUP_CLASS_NAME = "gap-1 p-0";
 
 export const APP_APPLICATION_RAIL_CLASS_NAME =
 	"flex h-full w-16 shrink-0 flex-col text-sidebar-foreground";

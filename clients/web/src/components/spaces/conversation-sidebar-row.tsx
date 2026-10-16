@@ -32,7 +32,14 @@ import {
 } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import {
+	memo,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
 import { ObjectMenuItems } from "#/components/app/object-menu-items";
 import { useSortableSidebarItem } from "#/components/app/sidebar-drag";
@@ -110,24 +117,75 @@ const CONVERSATION_PREVIEW_CLASS_NAME =
 	"min-h-4 truncate font-normal text-muted-foreground/90 text-xs leading-4 dark:text-muted-foreground/80";
 
 export function ConversationSidebarRow(input: ConversationSidebarRowProps) {
+	const actions = useCommittedRowActions(input);
+	const drag = useSortableSidebarItem({
+		section: input.section,
+		itemId: input.conversation.spaceId,
+		name: input.title,
+		disabled: input.disabled || !!input.dragDisabled,
+	});
 	if (input.conversation.kind === "space") {
-		const item = input.conversation.item;
 		return (
-			<ConversationSidebarRowContent
+			<SpaceConversationSidebarRow
 				{...input}
-				previewSignalId={item.messagePreview?.signalId}
-				previewText={item.messagePreview?.text ?? ""}
-				timestamp={resolveConversationTimestamp(
-					item.messagePreview?.timestamp,
-					item.spaceCreatedAt
-				)}
+				{...actions}
+				conversation={input.conversation}
+				drag={drag}
 			/>
 		);
 	}
-	return <DirectMessageSidebarRow {...input} />;
+	return <DirectMessageSidebarRow {...input} {...actions} drag={drag} />;
 }
 
-function DirectMessageSidebarRow(input: ConversationSidebarRowProps) {
+function useCommittedRowActions(input: ConversationSidebarRowProps) {
+	const latest = useRef(input);
+	useLayoutEffect(() => {
+		latest.current = input;
+	}, [input]);
+	const canArchive = Boolean(input.onArchive);
+	const canRename = Boolean(input.onRename);
+	return useMemo(
+		() => ({
+			onMove: (id: string) => latest.current.onMove(id),
+			onUnpin: () => latest.current.onUnpin(),
+			onArchive: canArchive ? () => latest.current.onArchive?.() : undefined,
+			onRename: canRename ? () => latest.current.onRename?.() : undefined,
+		}),
+		[canArchive, canRename]
+	);
+}
+
+type SortableConversationSidebarRowProps = ConversationSidebarRowProps & {
+	drag: ReturnType<typeof useSortableSidebarItem>;
+};
+
+function SpaceConversationSidebarRow(
+	input: SortableConversationSidebarRowProps & {
+		conversation: Extract<Conversation, { kind: "space" }>;
+	}
+) {
+	const { item, spaceId, title, activity, url, profileId } = input.conversation;
+	// A read-state update replaces one query item. Keep every other row's
+	// presentation input stable without retaining an old item or callback.
+	const conversation = useMemo<Extract<Conversation, { kind: "space" }>>(
+		() => ({ kind: "space", item, spaceId, title, activity, url, profileId }),
+		[item, spaceId, title, activity, url, profileId]
+	);
+	return (
+		<ConversationSidebarRowContent
+			{...input}
+			conversation={conversation}
+			previewSignalId={item.messagePreview?.signalId}
+			previewText={item.messagePreview?.text ?? ""}
+			timestamp={resolveConversationTimestamp(
+				item.messagePreview?.timestamp,
+				item.spaceCreatedAt
+			)}
+		/>
+	);
+}
+
+function DirectMessageSidebarRow(input: SortableConversationSidebarRowProps) {
 	const preview =
 		input.conversation.kind === "direct-message"
 			? input.conversation.preview
@@ -194,138 +252,137 @@ function conversationRowClassName(pinned: boolean, hasPreviewLine: boolean) {
 		: "group/chat relative [&>[data-sidebar=menu-actions]]:top-1/2 [&>[data-sidebar=menu-actions]]:-translate-y-1/2 [&>[data-sidebar=menu-badge]]:top-1/2 [&>[data-sidebar=menu-badge]]:-translate-y-1/2";
 }
 
-function ConversationSidebarRowContent(
-	input: ConversationSidebarRowProps & ConversationRowPreview
-) {
-	const { timestamp, previewText } = input;
-	const pinned = input.section === "pinned";
-	const rowAnchor = useRef<HTMLDivElement>(null);
-	const presentation = input.activeWakeSummary
-		? resolveSpaceActiveWakePresentation(input.activeWakeSummary)
-		: null;
-	const hasUnread = input.unreadCount > 0;
+const ConversationSidebarRowContent = memo(
+	function ConversationSidebarRowContent(
+		input: SortableConversationSidebarRowProps & ConversationRowPreview
+	) {
+		const { timestamp, previewText } = input;
+		const pinned = input.section === "pinned";
+		const rowAnchor = useRef<HTMLDivElement>(null);
+		const presentation = input.activeWakeSummary
+			? resolveSpaceActiveWakePresentation(input.activeWakeSummary)
+			: null;
+		const hasUnread = input.unreadCount > 0;
 
-	const needsInput = input.activeWakeSummary?.statuses?.some(
-		(status) => status.kind === "needs_input"
-	);
-	const hasPreviewLine =
-		needsInput || (input.showMessagePreviews !== false && !!previewText);
-	const drag = useSortableSidebarItem({
-		section: input.section,
-		itemId: input.conversation.spaceId,
-		name: input.title,
-		disabled: input.disabled || !!input.dragDisabled,
-	});
-	const row = (
-		<FluidNavMenuItem
-			className={conversationRowClassName(pinned, !!hasPreviewLine)}
-			index={input.index}
-			ref={drag.ref}
-			style={drag.style}
-			value={input.conversation.spaceId}
-		>
-			<SidebarMenuButton
-				actionLayout="heading"
-				asChild
-				className={
-					pinned
-						? "h-auto px-1 [&_[data-sidebar=menu-heading]]:pr-0!"
-						: "h-auto"
-				}
-				isActive={input.selected}
+		const needsInput = input.activeWakeSummary?.statuses?.some(
+			(status) => status.kind === "needs_input"
+		);
+		const hasPreviewLine =
+			needsInput || (input.showMessagePreviews !== false && !!previewText);
+		const { drag } = input;
+		const row = (
+			<FluidNavMenuItem
+				className={conversationRowClassName(pinned, !!hasPreviewLine)}
+				index={input.index}
+				ref={drag.ref}
+				style={drag.style}
+				value={input.conversation.spaceId}
 			>
-				<div
-					className={`relative flex w-full min-w-0 items-center ${pinned ? "min-h-26 flex-col justify-center gap-1.5 px-1 py-2 text-xs" : "min-h-12 gap-2 px-2 py-1.5 text-sm"} ${input.selected ? "font-medium text-sidebar-accent-foreground" : "text-muted-foreground"}`}
-					ref={rowAnchor}
+				<SidebarMenuButton
+					actionLayout="heading"
+					asChild
+					className={
+						pinned
+							? "h-auto px-1 [&_[data-sidebar=menu-heading]]:pr-0!"
+							: "h-auto pl-1"
+					}
+					isActive={input.selected}
 				>
-					<Tooltip>
-						<TooltipTrigger
-							render={
-								<Link
-									{...drag.rowProps}
-									aria-current={input.selected ? "page" : undefined}
-									aria-label={[
-										input.title,
-										resolveInboxAttentionLabel(input.attentionTone),
-										hasUnread ? "unread updates" : null,
-										presentation?.label,
-									]
-										.filter(Boolean)
-										.join(", ")}
-									className="flex shrink-0 items-center rounded-md outline-none before:absolute before:inset-0 before:rounded-md focus-visible:before:ring-1 focus-visible:before:ring-ring [&_canvas[data-bot-avatar]]:relative"
-									resetScroll={false}
-									{...conversationNavigationTarget(input.url)}
-								/>
-							}
-						>
-							<ConversationIcon
-								conversation={input.conversation}
-								memberAppearances={input.memberAppearances}
-								pinned={pinned}
-								summary={input.activeWakeSummary}
-								title={input.title}
-							/>
-						</TooltipTrigger>
-						<TooltipContent
-							anchor={rowAnchor}
-							className="max-w-sm flex-col items-start whitespace-normal text-left"
-							side="right"
-						>
-							<span>{input.title}</span>
-							{presentation && <span>{presentation.label}</span>}
-						</TooltipContent>
-					</Tooltip>
-					<span className="pointer-events-none contents">
-						<span
-							className={`flex min-w-0 flex-col gap-0.5 ${pinned ? "w-full flex-none text-center" : "flex-1"}`}
-						>
-							<span
-								className="flex min-w-0 items-center gap-2"
-								data-sidebar="menu-heading"
-							>
-								<span className="flex min-w-0 flex-1 items-center gap-1.5">
-									<span
-										className={`min-w-0 flex-1 text-foreground ${pinned ? "line-clamp-2 break-words leading-4" : "truncate"} ${hasUnread ? "font-semibold" : ""}`}
-										data-conversation-title="true"
-									>
-										{input.title}
-									</span>
-									{input.conversation.kind === "space" &&
-										input.conversation.item.deletedAt && <SpaceDeletedLabel />}
-								</span>
-								{!pinned && timestamp !== null && !presentation && (
-									<ConversationSidebarRowTime timestamp={timestamp} />
-								)}
-								{presentation && input.attentionTone && (
-									<span
-										aria-hidden="true"
-										className={`status-dot shrink-0 ${resolveInboxIndicatorClassName(input.attentionTone)}`}
-										data-conversation-unread-indicator="true"
+					<div
+						className={`relative flex w-full min-w-0 items-center ${pinned ? "min-h-22 flex-col justify-center gap-1.5 px-1 py-2 text-xs" : "min-h-12 gap-1 px-1 py-1.5 text-sm"} ${input.selected ? "font-medium text-sidebar-accent-foreground" : "text-muted-foreground"}`}
+						ref={rowAnchor}
+					>
+						<Tooltip>
+							<TooltipTrigger
+								render={
+									<Link
+										{...drag.rowProps}
+										aria-current={input.selected ? "page" : undefined}
+										aria-label={[
+											input.title,
+											resolveInboxAttentionLabel(input.attentionTone),
+											hasUnread ? "unread updates" : null,
+											presentation?.label,
+										]
+											.filter(Boolean)
+											.join(", ")}
+										className="flex shrink-0 items-center rounded-md outline-none before:absolute before:inset-0 before:rounded-md focus-visible:before:ring-1 focus-visible:before:ring-ring [&_canvas[data-bot-avatar]]:relative"
+										resetScroll={false}
+										{...conversationNavigationTarget(input.url)}
 									/>
-								)}
+								}
+							>
+								<ConversationIcon
+									conversation={input.conversation}
+									memberAppearances={input.memberAppearances}
+									pinned={pinned}
+									summary={input.activeWakeSummary}
+									title={input.title}
+								/>
+							</TooltipTrigger>
+							<TooltipContent
+								anchor={rowAnchor}
+								className="max-w-sm flex-col items-start whitespace-normal text-left"
+								side="right"
+							>
+								<span>{input.title}</span>
+								{presentation && <span>{presentation.label}</span>}
+							</TooltipContent>
+						</Tooltip>
+						<span className="pointer-events-none contents">
+							<span
+								className={`flex min-w-0 flex-col gap-0.5 ${pinned ? "w-full flex-none text-center" : "flex-1"}`}
+							>
+								<span
+									className="flex min-w-0 items-center gap-2"
+									data-sidebar="menu-heading"
+								>
+									<span className="flex min-w-0 flex-1 items-center gap-1.5">
+										<span
+											className={`min-w-0 flex-1 text-foreground ${pinned ? "line-clamp-2 break-words leading-4" : "truncate"} ${hasUnread ? "font-semibold" : ""}`}
+											data-conversation-title="true"
+										>
+											{input.title}
+										</span>
+										{input.conversation.kind === "space" &&
+											input.conversation.item.deletedAt && (
+												<SpaceDeletedLabel />
+											)}
+									</span>
+									{!pinned && timestamp !== null && !presentation && (
+										<ConversationSidebarRowTime timestamp={timestamp} />
+									)}
+									{presentation && input.attentionTone && (
+										<span
+											aria-hidden="true"
+											className={`status-dot shrink-0 ${resolveInboxIndicatorClassName(input.attentionTone)}`}
+											data-conversation-unread-indicator="true"
+										/>
+									)}
+								</span>
+								{!pinned &&
+									hasPreviewLine &&
+									renderConversationPreview(
+										input,
+										needsInput,
+										presentation?.label
+									)}
 							</span>
-							{!pinned &&
-								hasPreviewLine &&
-								renderConversationPreview(
-									input,
-									needsInput,
-									presentation?.label
-								)}
 						</span>
-					</span>
-				</div>
-			</SidebarMenuButton>
-			<ConversationRowStatus input={input} presentation={presentation} />
+					</div>
+				</SidebarMenuButton>
+				<ConversationRowStatus input={input} presentation={presentation} />
 
-			<ConversationRowActions {...input} />
-		</FluidNavMenuItem>
-	);
-	return (
-		<FluidContextMenu className="w-56" target={row}>
-			<ConversationRowMenuItems {...input} />
-		</FluidContextMenu>
-	);
-}
+				<ConversationRowActions {...input} />
+			</FluidNavMenuItem>
+		);
+		return (
+			<FluidContextMenu className="w-56" target={row}>
+				<ConversationRowMenuItems {...input} />
+			</FluidContextMenu>
+		);
+	}
+);
 
 function ConversationRowStatus({
 	input,
@@ -578,7 +635,7 @@ function ConversationIcon(input: {
 		return (
 			<ChatIcon
 				chat={input.conversation.chat}
-				size={input.pinned ? "md" : "sidebar"}
+				size={input.pinned ? "pinned" : "sidebar"}
 				summary={input.summary}
 				title={input.title}
 			/>
@@ -589,7 +646,7 @@ function ConversationIcon(input: {
 		return (
 			<SpaceMemberAvatars
 				appearances={input.memberAppearances}
-				compactSize={input.pinned ? 48 : 24}
+				compactSize={input.pinned ? 32 : 24}
 				members={members}
 			/>
 		);
@@ -597,7 +654,7 @@ function ConversationIcon(input: {
 	return (
 		<ChatCircleTextIcon
 			aria-label="Space"
-			className={input.pinned ? "size-12 shrink-0" : "size-6 shrink-0"}
+			className={input.pinned ? "size-8 shrink-0" : "size-6 shrink-0"}
 		/>
 	);
 }
@@ -617,7 +674,7 @@ export function resolvePreviewText(
 export function ChatIcon(input: {
 	chat: Chat;
 	title: string;
-	size?: "sm" | "sidebar" | "card" | "md";
+	size?: "sm" | "sidebar" | "card" | "md" | "pinned";
 	summary?: SpaceSidebarActiveWakeSummary;
 }) {
 	if (input.chat.session) {
@@ -627,7 +684,7 @@ export function ChatIcon(input: {
 				profileId={input.chat.centerAgentProfileId}
 				profileName={input.chat.centerAgentProfileName}
 				size={
-					({ card: 56, sidebar: 28, sm: 24, md: 48 } as const)[
+					({ card: 56, sidebar: 28, sm: 24, md: 48, pinned: 32 } as const)[
 						input.size ?? "sm"
 					]
 				}

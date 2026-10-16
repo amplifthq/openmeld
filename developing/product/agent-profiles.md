@@ -175,6 +175,13 @@ with an explicit conflict. A client-side in-flight guard improves immediate
 feedback, but Auth's durable idempotency boundary remains authoritative when
 rendering, transport, or network retries overlap.
 
+The shared people-and-agents picker presents an in-flight creation immediately
+as a selected row inside the target owner's existing group. This row is UI
+feedback, not a committed Profile, Space membership, or execution readiness.
+The picker keeps the user's selection intent when the committed Profile replaces
+the pending row. A pending selected identity cannot be submitted as a member;
+users can deselect it and continue choosing other members.
+
 Every created Agent Profile keeps immutable creation attribution: the exact
 Profile that acted and the surface that initiated the action (`web`, `cli`,
 `local_agent`, or `center_agent`). The owner and actor are separate facts. A

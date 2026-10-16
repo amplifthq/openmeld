@@ -77,7 +77,11 @@ if (mode === "leaf") {
           process.execPath,
           [import.meta.filename, "resource", directory],
           {
-            env: { ...process.env, [RESOURCE_TOKEN]: reservation.token },
+            env: {
+              ...process.env,
+              [RESOURCE_TOKEN]: reservation.token,
+              OPENMELD_LOCAL_HEAVY_GIB: "3",
+            },
             stdio: ["ignore", "ignore", "inherit", "ipc"],
           }
         );

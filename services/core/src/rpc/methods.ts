@@ -2867,6 +2867,7 @@ export type GetSpaceWakeTraceWaterfallInput = {
   spaceAccess?: SpaceAccessContext;
 };
 export type GetSpaceMessageDetailsInput = {
+  includeThreadContext?: true;
   delegationVersion?: 1;
   delegationCursor?: string;
   spaceId: string;
@@ -3115,6 +3116,55 @@ export async function rpcManagePeopleComputerLocalAgentUpdate(
   return localAgentUpdateStateSchema.parse(
     requireAcceptedLocalAgentUpdatePayload(result)
   );
+}
+export async function rpcManagePeopleComputerLocalAgentSetup(
+  env: CoreBindings,
+  input: GetCurrentLocalAgentInstallationsInput &
+    PeopleComputerTarget & {
+      request?: import("@openmeld/schemas/types").LocalAgentSetupRequest;
+    }
+): Promise<import("@openmeld/schemas/types").LocalAgentSetupState> {
+  const target = peopleComputerTargetSchema.parse({
+    deviceId: input.deviceId,
+    runtimeLane: input.runtimeLane,
+  });
+  if (input.agentId !== "grok-bot") {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "This Agent does not support connection setup.",
+    });
+  }
+  const userId = requireAuthenticatedOwnerUserId(input.context);
+  const { currentTarget } = await resolveCurrentLocalAgentControlTarget({
+    capability: "setupInstallations",
+    env,
+    target,
+    userId,
+    unsupportedCode: "local_agent_control.unsupported",
+    unsupportedReason: "Update OpenMeld Service to install connection tools.",
+  });
+  const request = input.request
+    ? localAgentSetupRequestSchema.parse(input.request)
+    : null;
+  const result = await manageRuntimeTransportLocalAgentInstallation({
+    env,
+    ownerUserId: userId,
+    deviceId: currentTarget.deviceId,
+    runtimeLane: currentTarget.runtimeLane,
+    request: request
+      ? { ...request, agentId: "grok-bot", operation: "setup" }
+      : { agentId: "grok-bot", operation: "read_setup" },
+  });
+  const payload = requireAcceptedInstallationControlPayload(result);
+  if (payload.status !== "setup_state") {
+    throw createCoreRpcHttpError({
+      status: 502,
+      code: "local_agent_control.invalid_response",
+      reason: "Unexpected connection setup response.",
+    });
+  }
+  return localAgentSetupStateSchema.parse(payload.setup);
 }
 export function rpcSelectPeopleComputerLocalAgentInstallation(
   env: CoreBindings,
@@ -22778,6 +22828,7 @@ export async function rpcGetSpaceMessageDetails(
   input: GetSpaceMessageDetailsInput
 ): Promise<GetSpaceMessageDetailsResponse> {
   const parsed = getSpaceMessageDetailsInputSchema.safeParse({
+    includeThreadContext: input.includeThreadContext,
     delegationVersion: input.delegationVersion,
     delegationCursor: input.delegationCursor,
     spaceId: input.spaceId,
@@ -22801,6 +22852,7 @@ export async function rpcGetSpaceMessageDetails(
     parsed.data.spaceId
   );
   const details = await stub.rpcGetMessageDetails({
+    includeThreadContext: parsed.data.includeThreadContext,
     spaceId,
     signalId: parsed.data.signalId,
     ...(parsed.data.executionContextVersion
@@ -26720,6 +26772,8 @@ export type CreateSpaceTaskInput = GetSpaceMetaInput & {
 export type MutateSpaceTaskInput = GetSpaceMetaInput & {
   taskId: string;
   body: MutateSpaceTaskBody;
+  // Internal Core-to-Space projection. The public RPC always recomputes it.
+  representedRequester?: import("@openmeld/schemas/types").SpaceTaskActor;
   taskContractVersion?: 2 | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
 };
 export async function rpcSpaceFilePins(
@@ -26879,7 +26933,40 @@ export async function rpcMutateSpaceTask(
       });
     }
   }
-  const receipt = await stub.rpcMutateTask({ ...input, spaceId, context });
+  const { resolveSpaceTaskRepresentedRequester } = await import(
+    "../space/application/space-task-delegation"
+  );
+  const submissionId = context.agentControllerConversationId;
+  let representedRequester: MutateSpaceTaskInput["representedRequester"];
+  if (
+    context.actorContext.agentControllerRef ===
+      HOSTED_CENTER_AGENT_CONTROLLER_REF &&
+    submissionId &&
+    ["assign", "set_reviewer", "update_brief"].includes(input.body.action)
+  ) {
+    const { authorizeRemoteAgentExecutionAccess } = await import(
+      "../remote-agent/application/remote-agent-execution-access"
+    );
+    await authorizeRemoteAgentExecutionAccess(env, { context, submissionId });
+    const parent = await requireCenterAgentContinuationParent({
+      actorProfileId: context.actorContext.openMeldProfileId ?? "",
+      db: requireCenterAgentDb(env),
+      organizationId: context.activeOrganizationId ?? "",
+      parentSubmissionId: submissionId,
+      destinationNeutralContinuations: true,
+      resumesParent: false,
+    });
+    representedRequester = resolveSpaceTaskRepresentedRequester(
+      parent,
+      spaceId
+    );
+  }
+  const receipt = await stub.rpcMutateTask({
+    ...input,
+    spaceId,
+    context,
+    representedRequester,
+  });
   return projectSpaceTaskReceiptForClient(receipt, input.taskContractVersion);
 }
 
@@ -27134,3 +27221,9 @@ export async function rpcComputerPowerSettings(
   }
   return result;
 }
+
+import {
+  localAgentSetupRequestSchema,
+  localAgentSetupStateSchema,
+} from "@openmeld/schemas";
+import { requireAcceptedInstallationControlPayload } from "./local-agent-control-policy";

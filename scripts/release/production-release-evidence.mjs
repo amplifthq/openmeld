@@ -194,7 +194,7 @@ function readGuardedLocalReleaseEvidence(context, selectedScopes) {
       `Could not read guarded local release evidence: ${redactGitOutput(result.stderr)}`
     );
   }
-  const evidenceByScope = new Map();
+  const refs = [];
   for (const line of result.stdout
     .trim()
     .split(LINE_SPLIT_PATTERN)
@@ -212,7 +212,28 @@ function readGuardedLocalReleaseEvidence(context, selectedScopes) {
       `${scope} guarded local release evidence`,
       shaValue
     );
-    runGit(context, ["fetch", "--quiet", "--no-tags", context.remote, ref]);
+    refs.push({ scope, ref, evidenceSha });
+  }
+  // Always discover current remote tips. Git objects are immutable: an exact
+  // commit already present locally does not need another network transfer.
+  const missing = refs.filter(
+    ({ evidenceSha }) =>
+      runGit(context, ["cat-file", "-e", `${evidenceSha}^{commit}`], {
+        allowFailure: true,
+      }).status !== 0
+  );
+  if (missing.length) {
+    runGit(context, [
+      "fetch",
+      "--quiet",
+      "--no-tags",
+      "--no-write-fetch-head",
+      context.remote,
+      ...missing.map(({ ref }) => ref),
+    ]);
+  }
+  const evidenceByScope = new Map();
+  for (const { scope, ref, evidenceSha } of refs) {
     evidenceByScope.set(scope, {
       ref,
       ...readEvidenceCommit(context, evidenceSha, scope),

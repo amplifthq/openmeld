@@ -21,6 +21,29 @@ function fakeExec(opts: {
 }
 
 describe("runCliJson", () => {
+  it("preserves the CLI startup runtime error instead of reporting a parse failure", async () => {
+    const result = await runCliJson({
+      openMeldBin: "/npm/bin/openmeld",
+      args: ["service", "status"],
+      exec: fakeExec({
+        error: Object.assign(new Error("exit 1"), { code: 1 }),
+        stdout: JSON.stringify({
+          schemaVersion: 1,
+          type: "error",
+          error: {
+            code: "cli.node_unsupported",
+            message: "Install Node.js 24",
+          },
+        }),
+      }),
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      kind: "cli_error",
+      error: { code: "cli.node_unsupported" },
+    });
+  });
+
   it("appends --json to the args and uses the resolved bin", async () => {
     let seenFile = "";
     let seenArgs: readonly string[] = [];

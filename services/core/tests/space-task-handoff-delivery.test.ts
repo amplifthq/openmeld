@@ -3,7 +3,10 @@ import type { SignalEnvelope } from "@openmeld/protocol";
 import type { SpaceTaskActor } from "@openmeld/schemas/types";
 import { createAuthenticatedSpaceAccessContext } from "@openmeld/space";
 import { describe, expect, it, vi } from "vitest";
+import type { CoreBindings } from "../src/lib/bindings";
+import { buildDefaultSpaceContract } from "../src/space/application/space-contract-service";
 import type { SpaceTaskService } from "../src/space/application/space-task-service";
+import { upsertSpaceContractRecord } from "../src/space/infrastructure/sql/space-contract-repo";
 import { upsertSpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
 import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
@@ -17,6 +20,7 @@ import {
   readSpaceThreadSignalPlacementBySignalId,
 } from "../src/space/infrastructure/sql/space-thread-repo";
 import type { Space } from "../src/space/transport/do/space";
+import { createProjectionPostgresBinding } from "../test-support/postgresql-query.test-support";
 
 const requester: SpaceTaskActor = {
   ownerUserId: "user-requester",
@@ -33,11 +37,13 @@ type TaskDeliverySpace = {
 
 describe("Space Task handoff delivery", () => {
   it.each([
-    ["human", false],
-    ["human", true],
-    ["agent", false],
-    ["agent", true],
-  ] as const)("publishes one passive webhook review notice for %s (Thread=%s)", async (profileKind, inThread) => {
+    ["human", false, false],
+    ["human", true, false],
+    ["agent", false, false],
+    ["agent", true, false],
+    ["agent", true, true],
+    ["agent", true, "retry-after-issue-update"],
+  ] as const)("publishes one Task handoff for %s (Thread=%s, assignment=%s)", async (profileKind, inThread, assignment) => {
     const namespace = (
       env as unknown as { OPENMELD_SPACES: DurableObjectNamespace<Space> }
     ).OPENMELD_SPACES;
@@ -76,7 +82,20 @@ describe("Space Task handoff delivery", () => {
           createdAt: now,
           updatedAt: now,
         });
-        for (const actor of [requester, reviewer]) {
+        const listener: SpaceTaskActor = {
+          ...reviewer,
+          profileId: "agt_33333333-3333-4333-8333-333333333333",
+          profileKind: "agent",
+          profileName: "Unassigned listener",
+        };
+        upsertSpaceContractRecord(state.storage.sql, {
+          spaceId,
+          contract: {
+            ...buildDefaultSpaceContract(),
+            dispatchPolicy: { mode: "listen_all" },
+          },
+        });
+        for (const actor of [requester, reviewer, listener]) {
           upsertSpaceMemberRecord(state.storage.sql, {
             spaceId,
             profileId: actor.profileId,
@@ -145,7 +164,9 @@ describe("Space Task handoff delivery", () => {
         }
         // A main message with replies stays in main; only replies belong to the Thread.
         const context = {
+          activeOrganizationId: "org-task-handoff",
           actorContext: {
+            callerPrincipalId: requester.ownerUserId ?? undefined,
             openMeldProfileId: requester.profileId,
             ownerUserId: requester.ownerUserId ?? undefined,
             profileKind: "human" as const,
@@ -195,7 +216,9 @@ describe("Space Task handoff delivery", () => {
             title: "Fix loading state",
             sourceSignalId: source.id,
             threadId,
-            reviewerProfileId: reviewer.profileId,
+            reviewerProfileId: assignment
+              ? requester.profileId
+              : reviewer.profileId,
             externalWorkItems: [issue],
           },
           {
@@ -207,6 +230,136 @@ describe("Space Task handoff delivery", () => {
               null,
           }
         );
+        if (assignment) {
+          const bindings = Reflect.get(instance, "bindings") as CoreBindings;
+          const resolveProfileById = vi.fn(async () => ({
+            ok: true,
+            profile: {
+              profileId: requester.profileId,
+              profileKind: "human",
+              profileName: requester.profileName,
+              profileHandle: "avery",
+              ownerUserId: requester.ownerUserId,
+              status: "active",
+            },
+          }));
+          if (assignment === "retry-after-issue-update") {
+            resolveProfileById.mockRejectedValueOnce(
+              new Error("Auth temporarily unavailable")
+            );
+          }
+          Reflect.set(instance, "bindings", {
+            ...bindings,
+            OPENMELD_POSTGRESQL: createProjectionPostgresBinding((query) =>
+              query.text.includes('FROM "openmeld"."members"')
+                ? [{ id: "requester-membership", role: "member" }]
+                : []
+            ),
+            OPENMELD_AUTH_WORKER: {
+              resolveProfileById,
+            },
+          });
+          try {
+            const input = {
+              spaceId,
+              taskId: created.task.taskId,
+              context,
+              body: {
+                action: "assign" as const,
+                operationId: "initial-handoff",
+                expectedRevision: 1,
+                assigneeProfileId: reviewer.profileId,
+                reviewerProfileId: requester.profileId,
+                wakeAssignee: true,
+              },
+            };
+            const assigned = await instance.rpcMutateTask(input);
+            expect(assigned.task.phase).toBe("to_do");
+            if (assignment === "retry-after-issue-update") {
+              const deliveries = new SpaceTaskDeliveryRepository(
+                state.storage.sql
+              );
+              const pending = deliveries.read(
+                `${assigned.event.eventId}:handoff`
+              );
+              if (!pending) {
+                throw new Error(
+                  "Expected the failed assignment handoff to remain pending"
+                );
+              }
+              expect(deliveries.status(created.task.taskId)).toContainEqual(
+                expect.objectContaining({ kind: "handoff", state: "failed" })
+              );
+              service.mutate(
+                created.task.taskId,
+                {
+                  action: "attach_external_work_item",
+                  expectedRevision: assigned.task.revision,
+                  operationId: "attach-issue-after-delegating",
+                  item: {
+                    ...issue,
+                    number: 1144,
+                    url: "https://github.com/amplifthq/openmeld/issues/1144",
+                  },
+                },
+                {
+                  actor: requester,
+                  isSpaceOwner: false,
+                  resolveMember: (id) =>
+                    [requester, reviewer, listener].find(
+                      (member) => member.profileId === id
+                    ) ?? null,
+                }
+              );
+              await space.deliverSpaceTaskAction(pending);
+            }
+            expect((await instance.rpcMutateTask(input)).applied).toBe(false);
+            const signalId = `space-task-handoff:${assigned.event.eventId}`;
+            const row = state.storage.sql
+              .exec<{ payload_json: string }>(
+                "SELECT payload_json FROM space_signals WHERE id = ?",
+                signalId
+              )
+              .toArray()[0];
+            expect(row).toBeDefined();
+            const signal = JSON.parse(row?.payload_json ?? "{}");
+            expect(signal.data.messageEnvelope.activationTargets).toEqual([
+              reviewer.profileId,
+            ]);
+            expect(signal.data.text).not.toContain("start_task");
+            expect(
+              readSpaceThreadSignalPlacementBySignalId(
+                state.storage.sql,
+                signalId
+              )
+            ).toMatchObject({ threadId, placement: "thread" });
+            const rows = state.storage.sql
+              .exec<{ payload_json: string }>(
+                "SELECT payload_json FROM openMeldDaemon_outbox WHERE source_event_id = ?",
+                signalId
+              )
+              .toArray();
+            expect(rows).toHaveLength(1);
+            const dispatch = JSON.parse(rows[0]?.payload_json ?? "{}");
+            expect(dispatch.sourceSignalSnapshot.text).toContain(
+              created.task.taskId
+            );
+            expect(dispatch.sourceSignalSnapshot.text).toContain("start_task");
+            expect(dispatch.sourceSignalSnapshot.text).toContain(
+              requester.profileId
+            );
+            expect(
+              new SpaceTaskDeliveryRepository(state.storage.sql).wakeRefs(
+                created.task.taskId
+              )
+            ).toEqual([
+              { sourceSignalId: signalId, targetProfileId: reviewer.profileId },
+            ]);
+            return;
+          } finally {
+            Reflect.set(instance, "bindings", bindings);
+          }
+        }
         service.applyGitHubIssueObservation({
           taskId: created.task.taskId,
           identity: issue,
@@ -264,6 +417,9 @@ describe("Space Task handoff delivery", () => {
           },
         });
         if (signal.type === "signal.text" && profileKind === "agent") {
+          expect(signal.data.text).toContain(
+            delivery.receipt.task.result?.summary
+          );
           expect(signal.data.text).toContain(
             "Wake Reviewer to start the review."
           );

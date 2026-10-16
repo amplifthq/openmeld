@@ -142,6 +142,7 @@ function TeamAgentsRoute() {
 	return (
 		<Navigate
 			replace
+			search={profile ? { from: "agents" } : undefined}
 			to={
 				profile
 					? buildOrganizationPersonAgentPath({

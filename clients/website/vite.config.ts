@@ -6,7 +6,6 @@ import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
-import tsconfigPaths from "vite-tsconfig-paths";
 // @ts-expect-error Shared build-only JavaScript helper.
 import { prepareSharedPublicAssets } from "../../scripts/vite/shared-public-assets.mjs";
 
@@ -45,6 +44,7 @@ export default defineConfig({
 	},
 	build: { assetsDir: "_website/assets" },
 	resolve: {
+		tsconfigPaths: true,
 		alias: {
 			"@openmeld/schemas/schemas": path.resolve(
 				import.meta.dirname,
@@ -65,7 +65,6 @@ export default defineConfig({
 	},
 	plugins: [
 		cloudflare({ viteEnvironment: { name: "ssr" }, inspectorPort: false }),
-		tsconfigPaths(),
 		tanstackStart({
 			router: { routeFileIgnorePattern: "\\.(test|spec)\\." },
 			client: { base: "/_website/build" },

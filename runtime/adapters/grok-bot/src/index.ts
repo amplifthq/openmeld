@@ -1,6 +1,19 @@
 // biome-ignore-all lint/performance/noBarrelFile: Runtime adapter public entrypoint.
 import { createHash } from "node:crypto";
 import {
+  readManagedGrokBotCandidate,
+  readManagedGrokBotCredential,
+} from "./setup.js";
+
+export {
+  installGrokBotTools,
+  isManagedGrokBotSignedIn,
+  loginManagedGrokBot,
+  readManagedGrokBotCandidate,
+  supportsGrokBotSetup,
+} from "./setup.js";
+
+import {
   type AdapterDispatchRequest,
   createSharedDispatchShell,
   type InstalledLaunchCandidatesOptions,
@@ -37,19 +50,25 @@ export async function verifyGrokBotLaunchContract(input: {
 }
 
 export async function resolveInstalledGrokBotLaunchCandidates(
-  input?: InstalledLaunchCandidatesOptions
+  input?: InstalledLaunchCandidatesOptions & { managedRoot?: string }
 ) {
+  const managed = input?.managedRoot
+    ? await readManagedGrokBotCandidate(input.managedRoot)
+    : null;
   const result = await resolveInstalledNodeScriptLaunchCandidates({
     commandName: "bdk",
     configuredCommand: process.env.OPENMELD_DAEMON_RUNTIME_GROK_BOT_BIN ?? null,
     displayName: "Grok Bot BDK",
     preferredLaunchContract: input?.preferredLaunchContract,
   });
-  if (!result.ok) {
+  if (!(result.ok || managed)) {
     return result;
   }
   const candidates = await resolveLaunchCandidatesAfterVerification({
-    candidates: result.candidates,
+    candidates: [
+      ...(managed ? [managed] : []),
+      ...(result.ok ? result.candidates : []),
+    ],
     verify: (candidate) =>
       verifyGrokBotLaunchContract({ launchContract: candidate.launchContract }),
   });
@@ -134,6 +153,20 @@ async function publishReply(request: AdapterDispatchRequest, output: string) {
       "OpenMeld could not record the Bot reply. Check the task diagnostics before retrying."
     );
   }
+}
+
+async function readDispatchCredential(request: AdapterDispatchRequest) {
+  if (
+    request.launchContract?.kind === "node_script" &&
+    request.launchContract.scriptPath.endsWith(
+      "/connection-tools/grok-bot/launcher.mjs"
+    )
+  ) {
+    return await readManagedGrokBotCredential(
+      request.launchContract.scriptPath
+    );
+  }
+  return await readGrokBotCredential({ ...process.env, ...request.env });
 }
 
 export function createGrokBotAdapter(
@@ -225,9 +258,7 @@ export function createGrokBotAdapter(
     try {
       const client = options.createClient
         ? await options.createClient(request)
-        : new GrokBotClient(
-            await readGrokBotCredential({ ...process.env, ...request.env })
-          );
+        : new GrokBotClient(await readDispatchCredential(request));
       turn.client = client;
       // Drain history without publishing it. A connection/read never creates a Bot.
       const cursor = await readIdleCursor(client, sessionId);

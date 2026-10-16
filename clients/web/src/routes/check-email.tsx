@@ -1,3 +1,4 @@
+import { buildPublicPageHead } from "@openmeld/product-catalog/site";
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod/v4";
 import { AuthPageShell } from "#/components/auth/auth-page-shell";
@@ -9,6 +10,13 @@ const checkEmailSearchSchema = z.object({
 });
 
 export const Route = createFileRoute("/check-email")({
+	head: () =>
+		buildPublicPageHead({
+			title: "Check your email",
+			description: "Check your email to continue with OpenMeld.",
+			robots: "noindex, follow",
+			includeCanonical: false,
+		}),
 	validateSearch: (search) => {
 		const parsed = checkEmailSearchSchema.safeParse(search);
 		if (!parsed.success) {

@@ -1,7 +1,8 @@
 import { Button } from "@openmeld/ui/components/button";
+import { TabItem, Tabs, TabsList } from "@openmeld/ui/fluid/tabs";
 import { ClockCounterClockwiseIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { CenterAgentItem } from "#/components/directory/center-agent-item";
 import { DirectorySearch } from "#/components/directory/directory-search";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
@@ -11,6 +12,7 @@ import {
 } from "#/lib/dev/agent-sidebar-fixtures";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationPersonPath } from "#/lib/organizations/organization-routes";
+import { useBrowserPreference } from "#/lib/use-browser-preference";
 import { AgentCreationRequestCard } from "./agent-creation-request-card";
 import {
 	AgentList,
@@ -28,11 +30,70 @@ import {
 import type { AgentCardSelection } from "./agent-list-selection";
 import { AgentProfileSidebarItem } from "./agent-profile-sidebar-item";
 import type { AgentProfilesWorkspaceProps } from "./agent-profiles-workspace";
+import { useAgentListState } from "./use-agent-list-state";
 
 const DIRECTORY_AGENT_VIEW: AgentListView = {
 	...DEFAULT_AGENT_LIST_VIEW,
 	grouping: "controller-provider",
 };
+
+function resolveAgentDirectoryScope(
+	input: AgentProfilesWorkspaceProps,
+	savedScope: string | null
+) {
+	if (!input.person && savedScope === "mine") {
+		return {
+			myAgents: true,
+			label: "My Agents",
+			key: "my-agents",
+			center: undefined,
+			profiles: input.profiles.filter(
+				(profile) =>
+					profile.ownerUserId === input.currentUserId && !profile.managedRole
+			),
+			defaultView: DEFAULT_AGENT_LIST_VIEW,
+		};
+	}
+	if (input.person) {
+		return {
+			myAgents: false,
+			label: `${input.person.name}’s Agents`,
+			key: input.person.id,
+			center: undefined,
+			profiles: input.profiles,
+			defaultView: DIRECTORY_AGENT_VIEW,
+		};
+	}
+	return {
+		myAgents: false,
+		label: null,
+		key: null,
+		center: input.directoryProfiles?.find((profile) => profile.isCenterAgent),
+		profiles: input.profiles,
+		defaultView: DIRECTORY_AGENT_VIEW,
+	};
+}
+
+function AgentScopeTabs(input: {
+	person?: AgentProfilesWorkspaceProps["person"];
+	myAgents: boolean;
+	onChange: (value: string) => void;
+}) {
+	if (input.person) {
+		return null;
+	}
+	return (
+		<Tabs
+			onValueChange={input.onChange}
+			value={input.myAgents ? "mine" : "all"}
+		>
+			<TabsList aria-label="Agent scope" className="w-fit max-w-full">
+				<TabItem label="My Agents" value="mine" />
+				<TabItem label="All Agents" value="all" />
+			</TabsList>
+		</Tabs>
+	);
+}
 
 export function AgentDirectoryLists({
 	input,
@@ -40,14 +101,23 @@ export function AgentDirectoryLists({
 	input: AgentProfilesWorkspaceProps;
 }) {
 	const { currentOrganization } = useAppOrganization();
+	const preferenceKey = `openmeld.agents.directory:${input.currentUserId}:${currentOrganization.id}`;
+	const [savedScope, setScope] = useBrowserPreference(`${preferenceKey}:scope`);
+	const scope = resolveAgentDirectoryScope(input, savedScope);
+	const defaultView = scope.defaultView;
 	const viewPreferenceKey = (personId: string) =>
 		`openmeld.agents.presentation:${input.currentUserId}:${currentOrganization.id}:${personId}`;
 	const previewReady = useAgentSidebarPreviewReady();
-	const [search, setSearch] = useState("");
-	const [view, setView] = useState<AgentListView>(DIRECTORY_AGENT_VIEW);
+	const {
+		search,
+		setSearch,
+		view: savedView,
+		setView,
+	} = useAgentListState(`${preferenceKey}:${input.person?.id ?? "directory"}`);
+	const view = savedView ?? defaultView;
 	const items = useMemo(
 		() =>
-			input.profiles.map((profile) => {
+			scope.profiles.map((profile) => {
 				const preview = localAgentSidebarState(
 					profile.openMeldProfileId,
 					previewReady
@@ -67,7 +137,7 @@ export function AgentDirectoryLists({
 				});
 			}),
 		[
-			input.profiles,
+			scope.profiles,
 			input.readinessByProfileId,
 			input.agentControllerRefByProfileId,
 			input.lastTaskActivityByProfileId,
@@ -118,9 +188,7 @@ export function AgentDirectoryLists({
 				Create Agent
 			</Button>
 		) : undefined;
-	const center = input.directoryProfiles?.find(
-		(profile) => profile.isCenterAgent
-	);
+	const center = scope.center;
 	const centerItem = center
 		? buildAgentListItem({
 				profile: { ...center, openMeldProfileId: center.profileId },
@@ -136,8 +204,7 @@ export function AgentDirectoryLists({
 		? matchesAgentListItem(centerItem, view.filters, search)
 		: !search &&
 			Object.values(view.filters).every((values) => values.length === 0);
-	const totalCount =
-		items.length + Number(!input.person && Boolean(centerItem));
+	const totalCount = items.length + Number(Boolean(centerItem));
 	const creationRequests = (input.creationRequests ?? []).filter(
 		(request) =>
 			(!("requesterUserId" in request) ||
@@ -148,6 +215,11 @@ export function AgentDirectoryLists({
 	);
 	const toolbar = (
 		<div className="flex min-h-16 flex-wrap items-center justify-between gap-3 py-3">
+			<AgentScopeTabs
+				myAgents={scope.myAgents}
+				onChange={setScope}
+				person={input.person}
+			/>
 			<p className="shrink-0 text-muted-foreground text-xs">
 				{totalCount} {totalCount === 1 ? "Agent" : "Agents"}
 			</p>
@@ -158,25 +230,25 @@ export function AgentDirectoryLists({
 			)}
 			<div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1">
 				<AgentListFilterChips
-					defaults={DIRECTORY_AGENT_VIEW}
+					defaults={defaultView}
 					onChange={setView}
 					value={view}
 				/>
 				<DirectorySearch
-					label={input.person ? "Search Agents" : "Search people or Agents"}
+					label={scope.label ? "Search Agents" : "Search people or Agents"}
 					onChange={setSearch}
 					value={search}
 				/>
 				<AgentListControls
 					items={centerItem ? [centerItem, ...items] : items}
 					onChange={setView}
-					resetValue={DIRECTORY_AGENT_VIEW}
+					resetValue={defaultView}
 					value={view}
 				/>
 			</div>
 		</div>
 	);
-	if (input.person) {
+	if (scope.key && scope.label) {
 		return (
 			<div className="space-y-3">
 				{toolbar}
@@ -185,13 +257,13 @@ export function AgentDirectoryLists({
 					emptyAction={create}
 					hideControls
 					items={items}
-					label={`${input.person.name}’s Agents`}
+					label={scope.label}
 					onDelete={
 						input.canCreateAgent !== false ? input.onDeleteProfiles : undefined
 					}
 					renderCard={renderCard}
 					search={search}
-					viewPreferenceKey={viewPreferenceKey(input.person.id)}
+					viewPreferenceKey={viewPreferenceKey(scope.key)}
 				/>
 			</div>
 		);

@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-14T15:19:25.437Z",
+  "updatedAt": "2026-10-16T05:50:29.135Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
-      "packageVersion": "0.3.261",
+      "packageVersion": "0.3.263",
       "updatePolicy": "available",
-      "reason": "Bundle internal adapters with the CLI so npm installation does not require unpublished workspace packages; existing command contracts remain compatible."
+      "reason": "Existing wire contracts remain compatible; Node runtime checks and Space addressing resolve existing command inputs before submission."
     },
     "service": {
-      "bundleHash": "4892dd3a344877354af2e86de83aca367c56c83826c4f988203a6140a4aa37e7",
-      "portableBundleHash": "a08030e6b59b0904307a9a695e552fc6e9772a00cde4dbd8d33a1314b9be70e1",
-      "bundleVersion": "0.3.261",
+      "bundleHash": "e8cb0da9f50aa4537a511a24292d8cfae0cd4b9b13fde8f9e60000d52d10411c",
+      "portableBundleHash": "3f899646d585d0590bd862805af5952dcbe4b77f60702335236ffa997ca680f8",
+      "bundleVersion": "0.3.263",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
       "updatePolicy": "available",
-      "reason": "The packaged Service includes the Grok Bot adapter without changing runtime contracts or requiring existing Services to update."
+      "reason": "Setup and Wake contracts remain compatible; local control refresh waits for an earlier report and then collects fresh evidence."
     },
     "skills": {
-      "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",
+      "bundleHash": "77e639d354b9ebf56ffdaa231a469fd0f848ad63c9b6f78662bdf4e698e2946d",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Computer guidance documents existing idempotent commands and optional result references without new runtime authority."
+      "reason": "Guidance clarifies existing command prefixes, addressing, and Computer operations without adding runtime authority."
     }
   }
 }

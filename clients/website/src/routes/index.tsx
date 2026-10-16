@@ -12,7 +12,13 @@ export const Route = createFileRoute("/")({
 function WebsiteHome() {
 	return (
 		<>
-			<main className="hidden min-h-svh items-center justify-center bg-background px-6 py-12 [@media(display-mode:standalone)]:flex">
+			<div className="[@media(display-mode:standalone)]:hidden">
+				<LandingPage />
+			</div>
+			<main
+				className="hidden min-h-svh items-center justify-center bg-background px-6 py-12 [@media(display-mode:standalone)]:flex"
+				data-nosnippet
+			>
 				<div className="w-full max-w-md space-y-4">
 					<h1 className="font-medium text-2xl tracking-tight">
 						OpenMeld has moved
@@ -36,9 +42,6 @@ function WebsiteHome() {
 					</p>
 				</div>
 			</main>
-			<div className="[@media(display-mode:standalone)]:hidden">
-				<LandingPage />
-			</div>
 		</>
 	);
 }

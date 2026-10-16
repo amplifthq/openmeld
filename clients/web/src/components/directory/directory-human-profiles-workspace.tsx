@@ -37,6 +37,10 @@ import { PeopleSidebar } from "./people-sidebar";
 import { TeamHeader } from "./team-header";
 import { TeamHome } from "./team-home";
 import { TeamHomeSkeleton } from "./team-home-skeleton";
+import {
+	TeamSidebarHeader,
+	TeamSidebarHeaderActionsProvider,
+} from "./team-sidebar-header";
 
 type LocalAgentRecoveryController = ReturnType<
 	typeof useLocalAgentRecoveryController
@@ -56,7 +60,6 @@ export type DirectoryHumanProfilesViewState = {
 const DIRECTORY_ACTIVITY_REFRESH_INTERVAL_MS = 30_000;
 
 export function DirectoryHumanProfilesWorkspace(input: {
-	presentation?: "page" | "sidebar";
 	activeBatch: CenterAgentMemberResearchBatch | null;
 	canCreateProfile: boolean;
 	computerGroups: readonly OrganizationComputerGroup[];
@@ -150,10 +153,6 @@ export function DirectoryHumanProfilesWorkspace(input: {
 		!input.selectedProfileId &&
 		input.state.profiles === "ready" &&
 		!input.errorMessage;
-	if (input.presentation === "sidebar") {
-		return sidebar;
-	}
-
 	return (
 		<AppFullWidthLayout
 			contentLayout="flush"
@@ -174,7 +173,16 @@ export function DirectoryHumanProfilesWorkspace(input: {
 					/>
 				)
 			}
-			mainSidebarContent={sidebar}
+			mainSidebar={{
+				key: "people",
+				label: "People",
+				content: (
+					<TeamSidebarHeaderActionsProvider>
+						<TeamSidebarHeader />
+						{sidebar}
+					</TeamSidebarHeaderActionsProvider>
+				),
+			}}
 			showMainHeader={!input.selectedProfileId}
 		>
 			{input.researchErrorMessage ? (

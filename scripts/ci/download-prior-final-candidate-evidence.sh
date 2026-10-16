@@ -19,7 +19,7 @@ run_ids="$(
   gh api -X GET \
     "repos/$CANDIDATE_REPOSITORY/actions/workflows/final-candidate.yml/runs" \
     -f branch="$CANDIDATE_BRANCH" \
-    -f event=pull_request_target \
+    -f event=pull_request \
     -f status=completed \
     -f per_page=20 \
     --jq '.workflow_runs[] | .id' \

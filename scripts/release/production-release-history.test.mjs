@@ -218,7 +218,19 @@ test("reports bounded, denied and malformed history without fabricating complete
 });
 
 test("retries only a transient failed page and preserves incomplete evidence on exhaustion", async () => {
-  for (const status of [500, 502, 503, 504, 403]) {
+  for (const failure of [
+    "HTTP 500",
+    "HTTP 502",
+    "HTTP 503",
+    "HTTP 504",
+    "unexpected EOF",
+    "request: EOF",
+    "ECONNRESET",
+    "ETIMEDOUT",
+    "TLS handshake timeout",
+    "HTTP 403",
+  ]) {
+    const transient = failure !== "HTTP 403";
     for (const recovers of [true, false]) {
       const pages = [];
       const delays = [];
@@ -244,21 +256,49 @@ test("retries only a transient failed page and preserves incomplete evidence on 
           if (!recovers || failedPageCalls === 1) {
             // Sanitized gh stderr captured from the failed production status read.
             throw new Error(
-              `Command failed: gh api ${endpoint}\ngh: Server Error (HTTP ${status})\n`
+              `Command failed: gh api ${endpoint}\ngh: ${failure}\n`
             );
           }
           return { total_count: 101, jobs: [{ id: 101 }] };
         },
       });
-      const recovered = recovers && status !== 403;
+      const recovered = recovers && transient;
       assert.equal(result.complete, recovered);
       assert.equal(result.items.length, recovered ? 101 : 100);
       assert.equal(result.pagesRead, recovered ? 2 : 1);
       assert.equal(pages.filter((page) => page === 1).length, 1);
       const transientCalls = recovers ? 2 : 3;
-      assert.equal(failedPageCalls, status === 403 ? 1 : transientCalls);
+      assert.equal(failedPageCalls, transient ? transientCalls : 1);
       assert.equal(delays.length, failedPageCalls - 1);
       assert.ok(delays.every((delay) => delay > 0 && delay <= 2000));
     }
   }
+});
+
+test("bounds concurrent history reads and retains incomplete evidence", async () => {
+  let active = 0;
+  let peak = 0;
+  const result = await readGithubReleaseRuns("test/repo", async (endpoint) => {
+    if (endpoint.includes("/workflows?")) {
+      return {
+        total_count: 5,
+        workflows: ["Web", "Website", "Docs", "Auth Worker", "Core Worker"].map(
+          (name, index) => ({ id: index + 1, name: `Deploy ${name}` })
+        ),
+      };
+    }
+    active += 1;
+    peak = Math.max(peak, active);
+    await Promise.resolve();
+    active -= 1;
+    if (endpoint.includes("/workflows/2/")) {
+      throw new Error("HTTP 403");
+    }
+    return { total_count: 0, workflow_runs: [] };
+  });
+  assert.equal(peak, 4);
+  assert.equal(result.complete, false);
+  assert.equal(result.pagesRead, 5);
+  assert.equal(result.issues.length, 1);
+  assert.deepEqual(result.issues[0].scopes, ["website"]);
 });

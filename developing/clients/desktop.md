@@ -1163,7 +1163,7 @@ stable, isolated local test profile. Main sets and verifies Electron's
 that directory explicitly to Electron, keeping GUI preferences and credentials
 separate from other worktrees.
 
-Electron 44.3.0 is paired with electron-vite 5.0.0 and Vite 7.3.2. Hydrate the
+Electron 44.7.2 is paired with electron-vite 5.0.0 and Vite 7.3.7. Hydrate the
 native binary with `pnpm --filter @openmeld/desktop exec electron --version`.
 Electron is deliberately separate from the root Worker development stack.
 
@@ -1339,3 +1339,17 @@ Desktop pilot renderer builds reuse the renderer resource and heap owner. The
 pilot defaults to a 5120 MiB heap. `OPENMELD_RENDERER_NODE_HEAP_MB` overrides it
 within the measured machine and heavy-work budget. The reservation ends after
 compilation; it does not remain held for the preview server.
+
+### CLI runtime and launch recovery
+
+The status renderer recognizes `cli.node_unsupported` from the CLI startup JSON
+envelope as well as `desktop.node_unsupported` from npm installation checks. It
+asks the user to install Node.js 24, return, and choose **Try again**. Refreshes
+keep the same recovery while the runtime remains unsupported.
+
+A selected standalone carrier owns its runtime. Its launch error remains visible;
+Desktop must not replace it with a system Node diagnosis. When the carrier cannot
+launch, **Open Web to Repair CLI** opens the existing Web app. The user connects
+this Mac from Computers to acquire a managed CLI, then returns and retries. The
+status renderer does not attempt `setup` on that failed executable or report a
+browser handoff as a completed repair.

@@ -6,6 +6,10 @@
   "description": "OpenMeld - Shared start foundation",
   "license": "MIT",
   "exports": {
+    "./node-runtime": {
+      "types": "./dist/setup-node-runtime.d.ts",
+      "default": "./dist/setup-node-runtime.js"
+    },
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"

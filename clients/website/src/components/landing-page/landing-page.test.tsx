@@ -1,6 +1,32 @@
 import { render, screen } from "@testing-library/react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it } from "vitest";
 import { LandingPage } from "./landing-page";
+
+it("serves useful FAQ answers and guide links before JavaScript runs", () => {
+	const html = renderToStaticMarkup(<LandingPage />);
+	const document = new DOMParser().parseFromString(html, "text/html");
+	expect(document.body.textContent).toContain(
+		"You can self-host OpenMeld using the source code available under the MIT license."
+	);
+	expect(document.body.textContent).toContain(
+		"Your computer must be online and connected for its local agents to work."
+	);
+	expect(
+		document.querySelector(
+			'a[href="https://docs.openmeld.ai/docs/start/quickstart"]'
+		)
+	).not.toBeNull();
+	const trigger = Array.from(document.querySelectorAll("button")).find(
+		(button) => button.textContent === "Can I self-host OpenMeld?"
+	);
+	expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+	const answer = Array.from(document.querySelectorAll('[role="region"]')).find(
+		(panel) => panel.getAttribute("aria-labelledby") === trigger?.id
+	);
+	expect(answer?.textContent).toContain("You can self-host OpenMeld");
+	expect(answer?.hasAttribute("hidden")).toBe(true);
+});
 
 it("sends application actions across the App boundary and keeps public guides on the website", () => {
 	render(<LandingPage />);
@@ -20,4 +46,20 @@ it("sends application actions across the App boundary and keeps public guides on
 	expect(
 		screen.getByRole("link", { name: "Setup guide" }).getAttribute("href")
 	).toBe("/guides/local-agents");
+});
+
+it("distinguishes macOS standalone setup from manual npm prerequisites", () => {
+	const html = renderToStaticMarkup(<LandingPage />);
+	const document = new DOMParser().parseFromString(html, "text/html");
+	const setup = document.querySelector(".meld-cli-setup");
+	expect(setup?.textContent).toContain(
+		"On macOS, open Computers in OpenMeld Web"
+	);
+	expect(setup?.textContent).toContain("no Node.js upgrade is needed.");
+	expect(setup?.textContent).toContain(
+		"For Windows or a manual npm installation, use Node.js 22, 24, or 25."
+	);
+	expect(setup?.querySelector("code")?.textContent).toBe(
+		"npm install -g openmeld@latest\nopenmeld setup"
+	);
 });

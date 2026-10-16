@@ -1973,6 +1973,13 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "computer",
     },
     {
+      body: "The selected task is not available to continue or fork. Select an available task that you started, or start a new task.",
+      kind: "request_ended",
+      patterns: ["=execution_context.source_unavailable"],
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: null,
+    },
+    {
       body: "This Agent cannot fork task history. Continue the original task, or start a new task with no previous history.",
       kind: "local_agent_prepare",
       patterns: ["=execution_context.fork_unsupported"],

@@ -1,10 +1,13 @@
 # Self-hosting status
 
-OpenMeld publishes its source, but a standalone self-hosting installation is not
-yet documented or supported. There is no supported one-command or Docker Compose
-installation for the complete system.
+You can self-host OpenMeld using its MIT-licensed source code. For now, you need
+to work from the repository and configure your own infrastructure. Our official
+documentation does not yet cover the complete setup process.
 
-To use OpenMeld today, start with the [hosted app](https://app.openmeld.ai).
+We plan to add complete self-hosting documentation and step-by-step setup guidance.
+
+To use OpenMeld without setting up your own infrastructure, start with the
+[hosted app](https://app.openmeld.ai).
 Connecting your own computer runs local agents there. It does not host the
 OpenMeld collaboration services.
 

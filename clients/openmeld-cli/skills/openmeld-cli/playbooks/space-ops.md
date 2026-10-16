@@ -1,5 +1,11 @@
 # Space Operations Playbook
 
+In CLI invocation examples, replace only the leading `openmeld` executable with
+the exact command prefix from the latest `setup.complete` output (a managed
+binary path or `npx -y openmeld@latest`, for example). Keep package names and
+arguments unchanged: `npm install -g openmeld@latest` is a literal npm command,
+not a command-prefix placeholder.
+
 Use this when an external user or Agent needs to create, join, read, send, or
 diagnose OpenMeld Space activity with the public `openmeld` CLI.
 
@@ -250,6 +256,20 @@ Before sending:
 5. Pass `--wake <agent-profile-id>` to Wake an Agent. Text alone never Wakes
    anyone. In the interactive terminal, select the member and relation from the
    picker; manually typing or pasting its visible name creates no recipient.
+
+Recipient flags add the visible `@name`. Do not repeat that address at the start
+of the body. A duplicate leading address is rejected before sending.
+
+Use `--reply-to <signal-id>` to reply in that message's thread.
+Continue or fork only within the original discussion scope. For a new thread
+below a main-conversation reply, use `--reply-to` with `--new-task`. This starts
+a separate task without the original native session history.
+`--continue-from <signal-id>` and `--fork-from <signal-id>` select execution
+history instead. They accept the original Wake request or an Agent reply whose
+message details identify that Agent's Wake. They do not select thread placement.
+An unresolved source fails before publication; use an identified Wake request
+or explicitly choose `--new-task`. Never silently replace a failed continuation
+with a new task.
 
 Example:
 

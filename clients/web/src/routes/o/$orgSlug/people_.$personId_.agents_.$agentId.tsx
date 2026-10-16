@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { z } from "zod/v4";
 import { PersonAgentsPage } from "#/components/agents/person-agents-page";
 import { appShellStaticData } from "#/components/app/shell-layout";
 import { prefetchAgentsRouteIdentityData } from "#/lib/organizations/app-route-prefetch";
@@ -8,6 +9,9 @@ export const Route = createFileRoute(
 	"/o/$orgSlug/people_/$personId_/agents_/$agentId"
 )({
 	staticData: appShellStaticData.people,
+	validateSearch: z.object({
+		from: z.literal("agents").optional().catch(undefined),
+	}),
 	loader: async ({ context, location, params }) => {
 		prefetchAgentsRouteIdentityData({
 			organizationSlug: params.orgSlug,
@@ -24,12 +28,14 @@ export const Route = createFileRoute(
 
 function PersonAgentRoute() {
 	const { personId, agentId } = Route.useParams();
+	const { from } = Route.useSearch();
 	const { sidebarStates } = Route.useLoaderData();
 	return (
 		<PersonAgentsPage
 			agentId={agentId}
 			initialSidebarStates={sidebarStates}
 			personId={personId}
+			returnToAgentDirectory={from === "agents"}
 		/>
 	);
 }

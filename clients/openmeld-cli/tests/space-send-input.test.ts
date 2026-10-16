@@ -6,6 +6,18 @@ import {
 } from "../src/space/send-input";
 
 describe("space send input resolver", () => {
+  it.each([
+    "continueFrom",
+    "forkFrom",
+  ] as const)("rejects multiple Wake targets for %s before resolving a task", (sourceFlag) => {
+    expect(() =>
+      resolveSpaceTaskSelection({
+        space: "demo",
+        wakeTargets: ["agent-a", "agent-b"],
+        [sourceFlag]: "source-message",
+      })
+    ).toThrow("Task selection requires exactly one --wake <profile-id>.");
+  });
   it("selects one configured Project repository and freezes it in a new CLI task", () => {
     const project = {
       archivedAtMs: null,

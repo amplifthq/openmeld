@@ -41,8 +41,73 @@ import {
   resolveProductionCompatibilityDependencies,
   resumeProductionRelease,
   runHostedRelease,
+  runLocalRelease,
 } from "./production-release.mjs";
 import { assertProductionStageAdmission } from "./production-stage-admission.mjs";
+import { resolveProductionTrain } from "./production-train-artifact-admission.mjs";
+
+const OUTSIDE_TRAIN = /outside the declared train/;
+const LOCAL_RELEASE_FAILED = /Local auth release failed/;
+const SPAWN_FAILED = /spawn failed/;
+
+test("local continuation passes the complete train to the guarded child without changing parent credentials", () => {
+  const env = { PATH: "/usr/bin", CLOUDFLARE_API_TOKEN: "test-only" };
+  runLocalRelease("auth", "b".repeat(40), ["auth", "core", "web"], {
+    env,
+    spawn: (command, args, options) => {
+      assert.equal(command, process.execPath);
+      assert.ok(args[0].endsWith("/production-release-cli.mjs"));
+      assert.deepEqual(args.slice(1), [
+        "deploy",
+        "--base",
+        "b".repeat(40),
+        "--scope",
+        "auth",
+      ]);
+      const train = resolveProductionTrain({
+        sourceSha: "a".repeat(40),
+        selectedScopes: "auth",
+        env: options.env,
+      });
+      assert.deepEqual(new Set(train.scopes), new Set(["auth", "core", "web"]));
+      assert.equal(options.env.CLOUDFLARE_API_TOKEN, "test-only");
+      assert.equal(options.stdio, "inherit");
+      return { status: 0 };
+    },
+  });
+  assert.equal(env.OPENMELD_PRODUCTION_TRAIN_SCOPES, undefined);
+});
+
+test("local continuation retains explicit train restrictions and stops on child failure", () => {
+  const env = { OPENMELD_PRODUCTION_TRAIN_SCOPES: "core" };
+  assert.throws(
+    () =>
+      runLocalRelease("auth", "b".repeat(40), ["auth", "core"], {
+        env,
+        spawn: (_command, _args, options) => {
+          assert.throws(
+            () =>
+              resolveProductionTrain({
+                sourceSha: "a".repeat(40),
+                selectedScopes: "auth",
+                env: options.env,
+              }),
+            OUTSIDE_TRAIN
+          );
+          return { status: 1 };
+        },
+      }),
+    LOCAL_RELEASE_FAILED
+  );
+  assert.equal(env.OPENMELD_PRODUCTION_TRAIN_SCOPES, "core");
+  assert.throws(
+    () =>
+      runLocalRelease("auth", "b".repeat(40), ["auth"], {
+        spawn: () => ({ status: null, error: new Error("spawn failed") }),
+      }),
+    SPAWN_FAILED
+  );
+});
 
 test("patch-only release impact keeps unrelated components out of completion", () => {
   // Captured from 16f875c -> e2435188; blank context whitespace is normalized.
@@ -225,12 +290,35 @@ function assertReceiptGatedStage(
   );
 }
 
+test("hosted CLI refuses an unprepared publication before dispatch", () => {
+  for (const pin of [undefined, "", "  "]) {
+    const commands = [];
+    assert.throws(
+      () =>
+        runHostedRelease("cli", "a".repeat(40), ["cli"], {
+          env: { WINDOWS_ARTIFACT_RUN_ID: pin },
+          capture(args) {
+            commands.push(args);
+            return "[]";
+          },
+          watch() {
+            assert.fail("No unprepared publisher may be watched");
+          },
+        }),
+      {
+        message:
+          "CLI publication requires WINDOWS_ARTIFACT_RUN_ID from the helper used to stamp this release. Prepare a helper_only run and stamp its verified artifact before deploying.",
+      }
+    );
+    assert.equal(commands.length, 1);
+    assert.deepEqual(commands[0].slice(0, 2), ["run", "list"]);
+  }
+});
+
 test("hosted publication waits for the exact run and reuses an active run after interruption", () => {
   const sourceSha = "a".repeat(40);
   for (const { active, artifactRunId } of [
-    { active: false, artifactRunId: undefined },
     { active: true, artifactRunId: undefined },
-    { active: false, artifactRunId: "  " },
     { active: false, artifactRunId: " 38155840353 " },
     { active: true, artifactRunId: "38155840353" },
   ]) {
