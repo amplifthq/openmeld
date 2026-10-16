@@ -1167,7 +1167,7 @@ async function runRefreshServiceTerminalStep(
       gate.errorMessage ?? "OpenMeld Service is not connected yet."
     );
   }
-  await assertSetupServiceUpdateComplete();
+  await assertSetupServiceUpdateComplete({ presenter: input.input.presenter });
   progress?.detail({
     code: "prepare.session.progress.refresh_service.identity",
     text: "Saving this computer's OpenMeld Service identity...",
