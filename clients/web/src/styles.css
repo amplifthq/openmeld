@@ -672,7 +672,8 @@ html[data-space-conversation-layout] [data-desk-space-window]
   [data-space-history-rail="true"] {
     --space-history-rail-width: 2.25rem;
   }
-  html:not([data-space-conversation-layout="full-width"]):not([data-space-history-slider="off"]) [data-space-history-rail="true"] [data-space-conversation-content-width] {
+  html:not([data-space-conversation-layout="full-width"]):not([data-space-history-slider="off"]) [data-space-history-rail="true"] [data-space-conversation-content-width],
+  html[data-space-conversation-layout="full-width"]:not([data-space-history-slider="off"]) :where([data-space-conversation-presentation="compact"], [data-desk-space-window]) [data-space-history-rail="true"] [data-space-conversation-content-width] {
     width: calc(100% - var(--space-history-rail-width));
     margin-inline-start: var(--space-history-rail-width);
   }
@@ -683,7 +684,8 @@ html[data-space-conversation-layout] [data-desk-space-window]
   }
 }
 @media (min-width: 640px) and (pointer: fine) {
-  html:not([data-space-conversation-layout="full-width"]):not([data-space-history-slider="off"]) [data-space-history-rail="true"] [data-space-conversation-content-width] {
+  html:not([data-space-conversation-layout="full-width"]):not([data-space-history-slider="off"]) [data-space-history-rail="true"] [data-space-conversation-content-width],
+  html[data-space-conversation-layout="full-width"]:not([data-space-history-slider="off"]) :where([data-space-conversation-presentation="compact"], [data-desk-space-window]) [data-space-history-rail="true"] [data-space-conversation-content-width] {
     padding-inline-start: .25rem;
   }
 }
