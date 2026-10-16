@@ -900,11 +900,7 @@ export function ConversationsSidebar(
 														conversation={item}
 														disabled={model.disabled}
 														dragDisabled={false}
-														groups={model.sections.filter(
-															(target) =>
-																target.kind === "pinned" ||
-																target.kind === item.kind
-														)}
+														groups={model.moveGroups[item.kind]}
 														index={index}
 														key={item.spaceId}
 														memberAppearances={memberAppearances}

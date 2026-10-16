@@ -680,8 +680,11 @@ type TestAgentExecutionReadiness = ReturnType<
 	typeof createSpaceMemberAgentExecutionReadiness
 >;
 
-function WakeProgressVisibleProjectionProbe() {
-	const items = useSpaceWakeProgressVisibleProjection();
+function WakeProgressVisibleProjectionProbe(input: {
+	profileId: string;
+	spaceId: string;
+}) {
+	const items = useSpaceWakeProgressVisibleProjection(input);
 	return (
 		<output data-testid="wake-progress-visible-projection">
 			{items === null
@@ -731,9 +734,15 @@ function renderSpaceLanding(
 			: input.organizationScope;
 	const wrap = (ui: ReactNode) => (
 		<TestQueryClientProvider queryClient={queryClient}>
-			<SpaceWakeProgressVisibleProjectionProvider>
+			<SpaceWakeProgressVisibleProjectionProvider
+				profileId={profileId}
+				spaceId={spaceId}
+			>
 				{input.observeVisibleWakeProgress ? (
-					<WakeProgressVisibleProjectionProbe />
+					<WakeProgressVisibleProjectionProbe
+						profileId={profileId}
+						spaceId={spaceId}
+					/>
 				) : null}
 				<AppOrganizationProvider scope={organizationScope}>
 					<StartFlowStateProvider storageScope="test-storage-scope">
