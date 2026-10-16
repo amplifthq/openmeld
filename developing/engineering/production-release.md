@@ -582,11 +582,25 @@ version and digest, have no active rollout, and provide complete instance
 evidence. Under the same lease, the control rechecks configuration and protected
 instances immediately before deployment. It does not infer application from a
 Docker error or change the failed receipt to success without a deployment.
+The active Worker's registry tag must resolve to the selected Container digest
+both at admission and immediately before deployment. Malformed deployment
+timestamps block recovery. The linked proof retains `observedContainer`, a
+configuration and protected-instance observation, to check a subsequent failed
+recovery without granting native image-retention authority. Continue a later
+pre-upload failure with the same explicit mode; use the existing partial mode
+if that recovery uploaded a Worker. Both modes check the linked proof chain.
 This mode performs a full native release: it does not use an older verified
 receipt to retain the observed image. A new command-correlated Worker, new
 Container version, matching registry digest and completed healthy rollout are
 required before the original attempt can be marked verified. Source, attempt,
 operation key, start event and append-only proof ownership remain unchanged.
+Contract audit: `observedContainer` is optional in the release-only version 4
+proof schema. Existing version 3 canonical receipts remain readable by old
+status tooling; older strict version 4 readers reject the new proof. Recovery
+must run from current-main control. CLI, Service, Skills, Core, Gateway and Web
+do not exchange this proof, so setup, Wake, Space actions and diagnostics remain
+compatible in both directions; no runtime contract floor or component stamp
+changes are needed.
 
 After manually checking that failure, the same recovery entrypoint can continue
 the original attempt. Supply the latest observed Worker selectors and the
@@ -598,7 +612,7 @@ next baseline must match the preceding failure observation. Missing proofs,
 observations, inconsistent timestamps or more than 32 failed events require
 manual reconciliation instead of another deployment.
 
-Under the Remote Agent lease, exactly one Worker deployment must match the
+Under the Remote Agent lease, partial recovery requires exactly one Worker deployment to match the
 latest recovery window and remain the current 100% deployment. The Container
 must still match its original version, digest and configuration. Complete
 instance evidence must retain the protected instances and show no active
@@ -606,6 +620,7 @@ rollout. The control repeats these checks immediately before deployment. This
 observation admits a new guarded deployment from the original source; it never
 proves the observed Worker's source by itself. Preflight, stage admission,
 native provenance, registry digest and final Worker verification still apply.
+Pre-upload recovery instead requires zero deployments in that window, as above.
 The new receipt and proof append to the latest failed event. They retain the
 original source, attempt, operation key and start time. This is explicit manual
 continuation, not automatic retry, and it never runs user commands.

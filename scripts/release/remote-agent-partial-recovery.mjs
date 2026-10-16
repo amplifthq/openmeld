@@ -75,6 +75,16 @@ function assertFailedRecoveryAttempt(input) {
 
 function assessRecoveryWorker(input) {
   const { current, recovery, deployments } = input;
+  if (
+    !Array.isArray(deployments) ||
+    deployments.some(
+      (deployment) => !Number.isFinite(Date.parse(deployment.created_on))
+    )
+  ) {
+    throw new Error(
+      "Recovery requires a fully timestamped deployment history."
+    );
+  }
   const receipt = current.receipt;
   const start = Date.parse(recovery?.startedAt ?? receipt.startedAt);
   const end = Date.parse(
@@ -206,6 +216,7 @@ function assertRecoveryObservation(input, active) {
   const { recovery, container } = input;
   const observed = recovery.observedAfterFailure;
   const expected =
+    recovery.observedContainer ??
     input.current.receipt.remoteAgent?.container ??
     recovery.nativeProvenance?.container;
   const { instances: expectedInstances, ...expectedConfiguration } =
@@ -983,7 +994,9 @@ async function main(argv) {
       // A pre-upload recovery performs a full native release. Historical native
       // receipts can describe an older deployment and cannot authorize retaining
       // the currently observed image. Require a new image and completed rollout.
-      const prior = beforeUpload
+      const fullNativeRelease =
+        beforeUpload || Boolean(history.recovery?.observedContainer);
+      const prior = fullNativeRelease
         ? undefined
         : readNativeHistoryBaseline(sourceDir, latest.verifiedHistoryBaseline);
       const nativeProvenance = prior
@@ -1011,9 +1024,15 @@ async function main(argv) {
       if (nativeProvenance) {
         recovery.nativeProvenance = nativeProvenance;
       }
-      const retainedBeforeUpload = beforeUpload
+      const retainedBeforeUpload = fullNativeRelease
         ? describeRetainedContainer(original.container, original.instancesPage)
         : undefined;
+      if (retainedBeforeUpload) {
+        recovery.observedContainer = retainedBeforeUpload;
+      }
+      if (beforeUpload) {
+        await verifyPreUploadImage(sourceDir, baseline);
+      }
       const record = (status, application, identity) =>
         publishRemoteAgentRecoveryEvidence({
           cwd: sourceDir,
@@ -1041,7 +1060,7 @@ async function main(argv) {
               adapters: {
                 runCommand: (input) => readWorkerCommand(sourceDir, input),
               },
-              beforeStep: (_step, state) => {
+              beforeStep: async (_step, state) => {
                 assertCleanSource(sourceDir, sourceSha);
                 if (!state) {
                   return;
@@ -1073,22 +1092,19 @@ async function main(argv) {
                     "Remote Agent state drifted after the recovery lease was acquired."
                   );
                 }
-                if (
-                  nativeProvenance &&
-                  describeRemoteContainerConfiguration(fresh.container)
-                    .configurationHash !==
-                    nativeProvenance.container.configurationHash
-                ) {
-                  throw new Error(
-                    "Native configuration changed before recovery deployment."
-                  );
-                }
+                assertNativeConfigurationUnchanged(
+                  nativeProvenance,
+                  fresh.container
+                );
                 if (retainedBeforeUpload) {
                   assertRetainedPreUploadContainer(
                     retainedBeforeUpload,
                     fresh.container,
                     fresh.instancesPage
                   );
+                  if (beforeUpload) {
+                    await verifyPreUploadImage(sourceDir, baseline);
+                  }
                 }
                 capture.recordDeploymentBaseline(state);
                 assertCleanSource(sourceDir, sourceSha);
@@ -1151,6 +1167,29 @@ export function assertRetainedPreUploadContainer(expected, container, page) {
   ) {
     throw new Error(
       "The pre-upload Container configuration or protected instances changed."
+    );
+  }
+}
+
+function assertNativeConfigurationUnchanged(provenance, container) {
+  if (
+    provenance &&
+    describeRemoteContainerConfiguration(container).configurationHash !==
+      provenance.container.configurationHash
+  ) {
+    throw new Error("Native configuration changed before recovery deployment.");
+  }
+}
+
+async function verifyPreUploadImage(cwd, baseline) {
+  const digest = await readImageDigest(
+    cwd,
+    baseline.containerImage,
+    baseline.workerVersionId
+  );
+  if (baseline.containerImage.split("@")[1] !== digest) {
+    throw new Error(
+      "The active Worker image tag does not match the pre-upload Container digest."
     );
   }
 }

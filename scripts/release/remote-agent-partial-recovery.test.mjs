@@ -338,6 +338,12 @@ test("pre-upload recovery requires an unchanged pre-attempt deployment and compl
     { deployments: [{ ...input.deployments[0], created_on: "invalid" }] },
     {
       deployments: [
+        ...input.deployments,
+        { ...input.deployments[0], id: "unknown", created_on: "invalid" },
+      ],
+    },
+    {
+      deployments: [
         { ...input.deployments[0], created_on: "2026-09-20T16:00:00Z" },
       ],
     },
@@ -392,6 +398,26 @@ test("pre-upload recovery requires an unchanged pre-attempt deployment and compl
     retained,
     input.container,
     input.instancesPage
+  );
+  const baseline = assessRemoteAgentPartialRecovery(input);
+  const retry = {
+    ...input,
+    recovery: {
+      startedAt: "2026-09-20T15:30:00.000Z",
+      baseline,
+      observedContainer: retained,
+      observedAfterFailure: {
+        ...baseline,
+        observedAt: "2026-09-20T15:31:00.000Z",
+      },
+    },
+  };
+  assert.deepEqual(assessRemoteAgentPartialRecovery(retry), baseline);
+  assert.throws(() =>
+    assessRemoteAgentPartialRecovery({
+      ...retry,
+      recovery: { ...retry.recovery, observedContainer: undefined },
+    })
   );
   assert.throws(() =>
     assertRetainedPreUploadContainer(
@@ -935,6 +961,14 @@ for (const mode of [
         originalEvidenceSha: original.evidenceSha,
         startedAt: "2026-09-20T16:00:00.000Z",
         baseline,
+        ...(unchanged || retained
+          ? {}
+          : {
+              observedContainer: {
+                ...describeRemoteContainerConfiguration(fixture().container),
+                instances: [],
+              },
+            }),
       };
       const identity = {
         kind: "worker-deployment",
