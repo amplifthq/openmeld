@@ -422,6 +422,10 @@ correlation ID.
 For ordinary Connect, when the managed CLI is absent or lacks the connection
 contract, main downloads the fixed Web origin's managed binary manifest and the
 Apple silicon or Windows x64 artifact.
+The isolated `dev-local` lane may use its configured CLI binary server on
+`127.0.0.1` at `OPENMELD_CLI_BINARY_DEV_PORT`, only when Web also uses a local
+HTTP origin. Production keeps the same-origin requirement. Artifact origins
+must match the selected manifest origin in both cases.
 The shared `@openmeld/local-service/cli-binary-update-artifact` implementation
 verifies transport and executable hashes and the production signing identity.
 The verified binary's `install-self` owns installation. No Node/npm prerequisite,

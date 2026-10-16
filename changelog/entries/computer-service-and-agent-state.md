@@ -15,4 +15,8 @@ old sign-in information current. Delayed checks report refreshed status without
 claiming that an unconfirmed request completed. Desktop users can update or
 reconnect their current computer through the native connection flow.
 
+Desktop detects damaged application archives before launch. Its connection flow
+shows a stopped Service as disconnected and supports updates from older CLI
+versions that do not recognize the stopped-connection check.
+
 The Service update is required for the shorter account-check freshness window.
