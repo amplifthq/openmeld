@@ -628,7 +628,27 @@ switch to bypass permissions after launch, except in repair execution. Cursor
 ACP supports live Default, Ask, and Plan transitions; Auto review and Force
 remain launch-only on this transport.
 
-Pending approvals remain explicit decisions. On a Service that advertises
+Grok Build reads `--permission-mode` only at launch, and its ACP session
+(verified on grok 1.0.52) offers no permission-mode switch: `session/set_mode`
+is accepted and ignored. When the owner switches a running Grok Build task to
+Bypass permissions, the adapter applies that saved choice itself and
+acknowledges it as applied: it answers each later permission request with
+Grok's own one-time allow option and never selects a persistent rule. This is
+the owner's explicit, confirmed mode choice carried out on the controller's
+own options, not an invented approval. Switching back to the mode the task was
+launched with stops that behavior and restores Grok's native prompts. Every
+other Grok Build change waits for the next Wake.
+
+The Center Agent may change an Agent Profile's permission mode for its owner
+through the same canonical Binding write, using any mode the profile's
+controller offers. It reads the per-controller options, including which ones
+need explicit confirmation, from the shared permission-mode catalog, and it
+chooses a confirmation-required mode only on the owner's explicit request.
+
+Pending approvals remain explicit decisions. In the Space, an answered approval
+leaves the pending-action surface as soon as the owner submits it, and the next
+request that still needs the owner takes its place; a response that fails to
+send returns the request with its error. On a Service that advertises
 permission-mode update sequencing, the owner can choose a mode in the approval
 card; Full access requires explicit confirmation. Web saves the canonical Binding
 before sending the selected approval with the Binding id and saved mode. Service
@@ -752,7 +772,12 @@ persistent rule without a separate explicit choice from the owner. When the
 owner chooses both, OpenMeld answers the current request first so the Wake can
 resume, then saves the controller-native low-interruption mode as a non-blocking
 follow-up. A failed Profile save must not undo or delay the accepted current
-response. Cursor Run Everything keeps its native one-time automatic allow
+response. When a controller offers a "don't ask again" choice but does not
+honor it itself, as Grok Build's ACP does not, OpenMeld keeps the owner's
+choice for that controller conversation and answers later matching requests
+with the same kind of option the controller offers: an allow-always choice
+covers later requests of the same tool kind, and a deny-always choice covers
+the same command. A one-time choice never becomes such a rule. Cursor Run Everything keeps its native one-time automatic allow
 behavior rather than pausing for an approval that the selected mode already
 resolved.
 
