@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-16T14:34:05.044Z",
+  "updatedAt": "2026-10-16T16:25:15.531Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
@@ -9,8 +9,8 @@
       "reason": "Existing CLI commands remain wire-compatible; bounded stop, verified repair and opt-in native recovery improve diagnostics."
     },
     "service": {
-      "bundleHash": "1bf14416c8ff5cdf1fbb62da2141d9f84233d6f207c65a36d3c4e7a8846fffe0",
-      "portableBundleHash": "fcd308bc83fce22eb0a171e2275f1eaee771f939cf3cca9efa8ba7a6774c57d6",
+      "bundleHash": "97aac63c39e1b964ec4324d240d12aca0a85e566208406dcf35fe9deed071864",
+      "portableBundleHash": "66d19be2e93467b33d0b44762b70cd36b25e07caa131a6da3a7882d9836f33fc",
       "bundleVersion": "0.3.264",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-10-auth-freshness-v1",
