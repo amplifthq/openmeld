@@ -781,6 +781,19 @@ The stored publication time remains a source-ordering field; the stored expiry
 uses Core time. Republishing the same `checkedAt` cannot extend the stored expiry,
 including concurrent writes. An expired report is not current readiness evidence.
 Usage keeps its own original observation, account binding, and freshness policy.
+Expired account evidence projects unknown authentication and a delayed check;
+it must not display the old signed-in or signed-out observation as current.
+Usage windows expire by their own observation and reset times, not merely because
+the faster account report expired.
+
+This policy requires Service 0.3.264 and the
+`openmeld-service-contract-2026-10-auth-freshness-v1` carrier contract. The wire
+payload and Runtime Transport epoch remain compatible. During receiver-first
+deployment, Core keeps the published release manifest and the previous auth
+lifetime. The shorter lifetime and monotonic Service floor activate together
+only when the effective published Service manifest reaches 0.3.264. Old Services
+then show a required update before new Wake admission; accepted work and rescue
+commands remain available. A later optional release must retain that floor.
 
 Provider-access evidence is provider-neutral and carries its provider, stable
 reason code, observation time, and `wake_failure` source. The Service forwards

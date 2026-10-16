@@ -7,6 +7,7 @@ import {
 } from "@openmeld/agent-runtime";
 import { AGENT_CONTROLLER_AUTH_STALE_AFTER_MS } from "@openmeld/schemas";
 import type { AgentControllerInterfaceSnapshot } from "@openmeld/schemas/types";
+import { isServiceAuthFreshnessRequired } from "../../local-components/update-projection";
 import {
   lookupRuntime,
   type RuntimeLookupStore,
@@ -237,7 +238,7 @@ function resolveCurrentReport(input: {
 
   let expiresAtMs = input.report.expiresAtMs;
   const checkedAt = input.report.agentControllerInterface?.checkedAt;
-  if (checkedAt) {
+  if (checkedAt && isServiceAuthFreshnessRequired()) {
     // Both source times use the same device clock. Their difference preserves
     // cached observation age without trusting that clock against Core time.
     const ageMs = input.report.observedAtMs - Date.parse(checkedAt);

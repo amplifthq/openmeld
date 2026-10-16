@@ -9,6 +9,7 @@ import {
 import type { PostgresDatabase, QueryResult } from "@openmeld/db/postgresql";
 import { agentControllerInterfaceSnapshotSchema } from "@openmeld/schemas";
 import type { AgentControllerInterfaceSnapshot } from "@openmeld/schemas/types";
+import { isServiceAuthFreshnessRequired } from "../../../local-components/update-projection";
 import type {
   AcceptedRuntimeAgentControllerReport,
   RuntimeAgentControllerReportAcceptanceResult,
@@ -221,7 +222,7 @@ async function updateNewerCurrentAgentControllerReport(
           report_status = $1,
           observed_at_ms = $2,
           expires_at_ms = CASE
-            WHEN agent_controller_interface_json::jsonb ->> 'checkedAt'
+            WHEN $11::boolean AND agent_controller_interface_json::jsonb ->> 'checkedAt'
               = $5::jsonb ->> 'checkedAt'
             THEN LEAST(expires_at_ms, $3)
             ELSE $3
@@ -246,6 +247,7 @@ async function updateNewerCurrentAgentControllerReport(
         input.report.openMeldServiceRuntimeId.value,
         input.report.agentControllerRef,
         input.report.observedAtMs,
+        isServiceAuthFreshnessRequired(),
       ],
     }
   );
@@ -302,6 +304,7 @@ function preserveObservationEvidence(input: {
   let nextReport = input.nextReport;
   // Republishing the same native observation must not renew its authority.
   if (
+    isServiceAuthFreshnessRequired() &&
     input.currentReport?.agentControllerInterface?.checkedAt &&
     input.currentReport.agentControllerInterface.checkedAt ===
       input.nextReport.agentControllerInterface?.checkedAt
