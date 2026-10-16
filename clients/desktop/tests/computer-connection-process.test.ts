@@ -20,7 +20,7 @@ describe("computer setup process outcome", () => {
         bin,
         `#!${process.execPath}
 const fs = require('node:fs');
-if (process.argv.includes('--help')) process.exit(0);
+if (process.argv.includes('--help')) { console.log('Usage: openmeld computer wait-for-update [options]'); process.exit(0); }
 if (process.argv.includes('connection-review')) {
   console.log(JSON.stringify({protocol:'computer-connection-v1',previousSessionIdentity:'reviewed-session',account:{id:'account-a',email:null},existingConnection:{deviceId:'device-a',runtimeLane:'dev-local'}}));
 } else if (process.argv.includes('wait-for-update')) {

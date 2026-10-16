@@ -15,6 +15,11 @@ import stoppedComputerInventory from "./fixtures/stopped-computer-inventory.json
 
 const mocks = vi.hoisted(() => ({
   exec: vi.fn(),
+  help: vi.fn(() =>
+    Promise.resolve({
+      stdout: "Usage: openmeld computer wait-for-update [options]\n",
+    })
+  ),
   install: vi.fn(),
   grant: vi.fn(),
 }));
@@ -25,7 +30,10 @@ vi.mock("node:child_process", async (importOriginal) => {
   const { promisify } = await import("node:util");
   const actual = await importOriginal<typeof import("node:child_process")>();
   return {
-    execFile: Object.assign(vi.fn(), { [promisify.custom]: mocks.exec }),
+    execFile: Object.assign(vi.fn(), {
+      [promisify.custom]: (bin: string, args: string[], options: unknown) =>
+        args.includes("--help") ? mocks.help() : mocks.exec(bin, args, options),
+    }),
     spawn: vi.fn((_bin, args, options) => {
       if (args[1] === "wait-for-update") {
         return actual.spawn(
@@ -194,6 +202,7 @@ describe("Desktop computer connection admission", () => {
     "reconnect_target",
     "space_target",
     "service_update",
+    "legacy_update_wait",
   ] as const)("keeps connection intent and account boundaries: %s", async (scenario) => {
     const cloudRequest = vi.fn();
     const firstConnect = scenario.startsWith("first_connect_");
@@ -204,6 +213,7 @@ describe("Desktop computer connection admission", () => {
       "reconnect_target",
       "space_target",
       "service_update",
+      "legacy_update_wait",
       "first_connect_missing_tools",
       "first_connect_legacy_tools",
     ].includes(scenario);
@@ -219,6 +229,13 @@ describe("Desktop computer connection admission", () => {
       }
     }
     const confirmSwitch = vi.fn(async () => false);
+    if (scenario === "legacy_update_wait") {
+      // Captured from published 0.3.264: unknown child + --help exits 0.
+      mocks.help.mockResolvedValueOnce({
+        stdout:
+          "Usage: openmeld computer [options] [command]\n\nInspect and name computers in OpenMeld.\n",
+      });
+    }
     const onProgress = vi.fn();
     mocks.exec.mockResolvedValue({
       stdout: JSON.stringify({
@@ -287,7 +304,9 @@ describe("Desktop computer connection admission", () => {
     const result = connect({
       expectedAccount: "account-a",
       ...(scenario === "unexpected_field" ? { command: "arbitrary" } : {}),
-      ...(scenario === "fresh_session" ? { resetThisComputer: true } : {}),
+      ...(scenario === "fresh_session" || scenario === "legacy_update_wait"
+        ? { resetThisComputer: true }
+        : {}),
       ...(scenario === "reconnect_target" || targetedUpdate
         ? { connectedComputerId: "computer-b" }
         : {}),
@@ -350,7 +369,8 @@ describe("Desktop computer connection admission", () => {
     if (
       scenario === "missing_tools" ||
       firstConnect ||
-      scenario === "service_update"
+      scenario === "service_update" ||
+      scenario === "legacy_update_wait"
     ) {
       expect(mocks.install).toHaveBeenCalledOnce();
       expect(mocks.exec.mock.calls.at(-1)?.[0]).toBe(

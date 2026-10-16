@@ -726,7 +726,7 @@ async function prepareUpdateWaitTools(
 ) {
   const prepared = await prepareReviewedComputerTools(input);
   try {
-    await promisify(execFile)(
+    const help = await promisify(execFile)(
       prepared.bin,
       ["computer", "wait-for-update", "--help"],
       {
@@ -735,7 +735,18 @@ async function prepareUpdateWaitTools(
         maxBuffer: 16_384,
       }
     );
-    return prepared;
+    if (help.stdout.startsWith("Usage: openmeld computer wait-for-update ")) {
+      return prepared;
+    }
+    // Commander can return the parent help with exit 0 for an unknown child.
+    // This exact legacy response is not evidence that the command exists.
+    if (
+      !help.stdout.startsWith("Usage: openmeld computer [options] [command]")
+    ) {
+      throw new Error(
+        "OpenMeld could not verify the installed setup command. Try updating OpenMeld Tools."
+      );
+    }
   } catch (error) {
     if (
       (error as { code?: unknown })?.code !== 1 ||
@@ -745,12 +756,12 @@ async function prepareUpdateWaitTools(
     ) {
       throw error;
     }
-    return await prepareReviewedComputerTools({
-      ...input,
-      serviceAction: "update_service",
-      inspected: { ...prepared, installedNow: false },
-    });
   }
+  return await prepareReviewedComputerTools({
+    ...input,
+    serviceAction: "update_service",
+    inspected: { ...prepared, installedNow: false },
+  });
 }
 
 function assertUpdateWaitIdentity(
