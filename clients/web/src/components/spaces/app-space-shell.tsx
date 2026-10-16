@@ -85,7 +85,8 @@ type AppSpaceShellProps = AppSpaceShellBaseProps &
 export function AppSpaceShell(input: AppSpaceShellProps) {
 	return (
 		<SpaceWakeProgressVisibleProjectionProvider
-			key={`${input.currentProfileId ?? ""}:${input.currentSpaceId ?? ""}`}
+			profileId={input.currentProfileId}
+			spaceId={input.currentSpaceId}
 		>
 			<SpaceWindowShell
 				defaultModuleSidebarOpen={
@@ -119,19 +120,24 @@ export function AppDirectMessageShell(input: {
 	initialSidebarState?: SidebarPersistedState;
 }) {
 	return (
-		<SpaceWindowShell
-			initialOuterSidebarState={input.initialOuterSidebarState}
-			initialSidebarState={input.initialSidebarState}
-			sidebar={
-				<ConversationsSidebar
-					currentProfileId={input.currentProfileId}
-					currentSpaceId={input.currentSpaceId}
-				/>
-			}
-			sidebarPreferenceKey="direct-messages"
-			sidebarSeparatorLabel="Resize the conversations sidebar"
+		<SpaceWakeProgressVisibleProjectionProvider
+			profileId={input.currentProfileId}
+			spaceId={input.currentSpaceId}
 		>
-			{input.children}
-		</SpaceWindowShell>
+			<SpaceWindowShell
+				initialOuterSidebarState={input.initialOuterSidebarState}
+				initialSidebarState={input.initialSidebarState}
+				sidebar={
+					<ConversationsSidebar
+						currentProfileId={input.currentProfileId}
+						currentSpaceId={input.currentSpaceId}
+					/>
+				}
+				sidebarPreferenceKey="direct-messages"
+				sidebarSeparatorLabel="Resize the conversations sidebar"
+			>
+				{input.children}
+			</SpaceWindowShell>
+		</SpaceWakeProgressVisibleProjectionProvider>
 	);
 }
