@@ -2094,6 +2094,9 @@ The Service observes the shared record writer, so native tools and CLI actions
 have the same behavior. It retries unsent snapshots, replays on reconnect,
 and refreshes a saved snapshot at most once per five seconds because a socket
 send does not acknowledge the downstream Space write.
+Only the initial action or a revised action sends an explicit placement.
+Periodic refreshes, reconnect replays, and draft retractions omit placement so
+they preserve Space's current editable selection.
 
 Explicit `post_message` revisions replace the snapshot on the same attempt
 stream; identical records do not create new messages. The writer serializes

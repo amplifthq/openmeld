@@ -45,12 +45,13 @@ function setup() {
     connection: () => connection,
   });
   cleanups.push(stream.stop);
-  const reply = (text: string) =>
+  const reply = (text: string, placement?: "conversation" | "thread") =>
     writeDispatchSpaceActionRecord({
       context,
       command: "reply",
       action: {
         type: "post_message",
+        ...(placement ? { placement } : {}),
         messageEnvelope: {
           text,
           activationTargets: [],
@@ -75,16 +76,17 @@ describe("durable Space Action reply streaming", () => {
     const { publish, reply, stop } = setup();
     vi.advanceTimersByTime(500);
     expect(publish).not.toHaveBeenCalled();
-    reply("The result is ready.");
+    reply("The result is ready.", "conversation");
     vi.advanceTimersByTime(250);
     expect(publish).toHaveBeenCalledExactlyOnceWith(
       "The result is ready.",
-      undefined
+      "conversation"
     );
     vi.advanceTimersByTime(4750);
     expect(publish).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(250);
     expect(publish).toHaveBeenCalledTimes(2);
+    expect(publish).toHaveBeenLastCalledWith("The result is ready.", undefined);
     stop();
     vi.advanceTimersByTime(1000);
     expect(publish).toHaveBeenCalledTimes(2);
@@ -92,7 +94,7 @@ describe("durable Space Action reply streaming", () => {
 
   it("updates a reviewed proposal in place and replays after reconnect", () => {
     const { context, publish, reply, reconnect, pause, resume } = setup();
-    reply("First proposal.");
+    reply("First proposal.", "conversation");
     vi.advanceTimersByTime(250);
     pause();
     reconnect();
@@ -102,12 +104,12 @@ describe("durable Space Action reply streaming", () => {
     supersedeDispatchSpaceActionRecordForReconsideration({ context });
     vi.advanceTimersByTime(250);
     expect(publish).toHaveBeenLastCalledWith("", undefined);
-    reply("Reviewed proposal.");
+    reply("Reviewed proposal.", "thread");
     vi.advanceTimersByTime(250);
     expect(publish.mock.calls).toEqual([
-      ["First proposal.", undefined],
+      ["First proposal.", "conversation"],
       ["", undefined],
-      ["Reviewed proposal.", undefined],
+      ["Reviewed proposal.", "thread"],
     ]);
     reconnect();
     vi.advanceTimersByTime(250);
@@ -138,9 +140,13 @@ describe("durable Space Action reply streaming", () => {
   it("retains an unsent proposal under transport backpressure", () => {
     const { publish, reply } = setup();
     publish.mockReturnValueOnce(false);
-    reply("Saved while disconnected.");
+    reply("Saved while disconnected.", "conversation");
     vi.advanceTimersByTime(500);
     expect(publish).toHaveBeenCalledTimes(2);
+    expect(publish.mock.calls).toEqual([
+      ["Saved while disconnected.", "conversation"],
+      ["Saved while disconnected.", "conversation"],
+    ]);
     vi.advanceTimersByTime(500);
     expect(publish).toHaveBeenCalledTimes(2);
   });
