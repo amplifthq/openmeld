@@ -305,11 +305,13 @@ export function verifyRecoveredRemoteAgentTarget(input) {
     !IMAGE_DIGEST.test(imageDigest) ||
     container.configuration?.image !== `${imagePrefix}@${imageDigest}` ||
     container.active_rollout_id != null ||
-    !image?.tags?.includes(
-      (unchanged
-        ? input.nativeProvenance.workerVersionId
-        : workerVersionId
-      ).slice(0, 8)
+    !(
+      image?.tags?.includes(
+        (unchanged
+          ? input.nativeProvenance.workerVersionId
+          : workerVersionId
+        ).slice(0, 8)
+      ) || canVerifyUntaggedRollout(input)
     ) ||
     !Array.isArray(container.health?.errors) ||
     container.health.errors.length ||
@@ -388,7 +390,12 @@ export function proveNativeBaseline(input) {
   return provenance;
 }
 
-async function readImageDigest(cwd, imageRef, workerVersionId) {
+async function readImageDigest(
+  cwd,
+  imageRef,
+  workerVersionId,
+  immutableDigest
+) {
   const match = CLOUDFLARE_IMAGE_REF.exec(imageRef);
   if (!match) {
     throw new Error(
@@ -421,7 +428,7 @@ async function readImageDigest(cwd, imageRef, workerVersionId) {
       "Cloudflare did not issue a temporary registry pull credential."
     );
   }
-  const tag = workerVersionId.slice(0, 8);
+  const tag = immutableDigest ?? workerVersionId.slice(0, 8);
   const response = await fetch(
     `https://registry.cloudflare.com/v2/${match[1]}/${CONTAINER_NAME}/manifests/${tag}`,
     {
@@ -757,20 +764,31 @@ export async function waitForRemoteAgentContainer(
   cwd,
   baseline,
   workerVersionId,
-  nativeProvenance
+  nativeProvenance,
+  commandWindow
 ) {
   const deadline = Date.now() + ROLLOUT_TIMEOUT_MS;
   let lastError;
   while (Date.now() < deadline) {
     try {
       const state = readState(cwd, baseline.containerId);
+      const untagged =
+        !state.images
+          .find((item) => item.name === CONTAINER_NAME)
+          ?.tags?.includes(workerVersionId.slice(0, 8)) &&
+        canVerifyUntaggedRollout({
+          baseline,
+          container: state.container,
+          commandWindow,
+        });
       const imageDigest = await readImageDigest(
         cwd,
         baseline.containerImage,
         nativeProvenance &&
           state.container.version === baseline.containerVersion
           ? nativeProvenance.workerVersionId
-          : workerVersionId
+          : workerVersionId,
+        untagged ? state.container.configuration.image.split("@")[1] : undefined
       );
       const instancesPage = readCloudflare(cwd, [
         "containers",
@@ -788,6 +806,7 @@ export async function waitForRemoteAgentContainer(
         imageDigest,
         workerVersionId,
         nativeProvenance,
+        commandWindow,
       });
     } catch (error) {
       lastError = error;
@@ -801,9 +820,14 @@ export async function waitForRemoteAgentContainer(
 
 export async function executeRemoteAgentRecovery(input) {
   try {
+    const startedAt = Date.now();
     await input.runDeploy();
+    const commandWindow = { startedAt, completedAt: Date.now() };
     const identity = await input.verifyWorker();
-    const completed = await input.verifyContainer(identity.versionId);
+    const completed = await input.verifyContainer(
+      identity.versionId,
+      commandWindow
+    );
     await input.verifyWorker(identity);
     input.recovery.completed = completed;
     if (
@@ -974,6 +998,8 @@ async function main(argv) {
         return;
       }
       const history = readRemoteAgentRecoveryHistory(sourceDir, latest);
+      const verifyPreUploadTag =
+        beforeUpload && !history.recovery?.observedContainer;
       const original = readRecoveryState(
         sourceDir,
         options["--container-id"],
@@ -1049,7 +1075,7 @@ async function main(argv) {
       if (retainedBeforeUpload) {
         recovery.observedContainer = retainedBeforeUpload;
       }
-      if (beforeUpload) {
+      if (verifyPreUploadTag) {
         await verifyPreUploadImage(sourceDir, baseline);
       }
       const record = (status, application, identity) =>
@@ -1121,7 +1147,7 @@ async function main(argv) {
                     fresh.container,
                     fresh.instancesPage
                   );
-                  if (beforeUpload) {
+                  if (verifyPreUploadTag) {
                     await verifyPreUploadImage(sourceDir, baseline);
                   }
                 }
@@ -1138,12 +1164,13 @@ async function main(argv) {
               expected: identity ?? capture.read(),
               runCommand: (input) => readWorkerCommand(sourceDir, input),
             }),
-          verifyContainer: (workerVersionId) =>
+          verifyContainer: (workerVersionId, commandWindow) =>
             waitForRemoteAgentContainer(
               sourceDir,
               baseline,
               workerVersionId,
-              nativeProvenance
+              nativeProvenance,
+              commandWindow
             ),
           observeFailure: () => {
             const observed = readState(sourceDir, baseline.containerId);
@@ -1167,6 +1194,21 @@ async function main(argv) {
       }
     },
   });
+}
+
+function canVerifyUntaggedRollout({ baseline, container, commandWindow }) {
+  const updatedAt = Date.parse(container?.updated_at);
+  return Boolean(
+    commandWindow &&
+      Number.isFinite(commandWindow.startedAt) &&
+      Number.isFinite(commandWindow.completedAt) &&
+      commandWindow.completedAt >= commandWindow.startedAt &&
+      Number.isFinite(updatedAt) &&
+      updatedAt >= commandWindow.startedAt &&
+      updatedAt <= commandWindow.completedAt &&
+      container.version > baseline.containerVersion &&
+      IMAGE_DIGEST.test(container.configuration?.image?.split("@")[1] ?? "")
+  );
 }
 
 export function assertRetainedPreUploadContainer(expected, container, page) {
