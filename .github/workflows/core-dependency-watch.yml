@@ -1,0 +1,61 @@
+name: Core dependency updates
+
+on:
+  schedule:
+    # Daily gate, scanning alternate UTC epoch days (no month-boundary reset).
+    - cron: '41 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-dependency-watch
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    if: github.repository == 'amplifthq/openmeld' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Check scan day
+        id: day
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = workflow_dispatch ] || [ $(( $(date -u +%s) / 86400 % 2 )) -eq 0 ]; then
+            echo 'scan=true' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v5
+        if: steps.day.outputs.scan == 'true'
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        if: steps.day.outputs.scan == 'true'
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install locked parser without lifecycle scripts
+        if: steps.day.outputs.scan == 'true'
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile --ignore-scripts
+      - name: Scan stable releases and maintain one review issue
+        if: steps.day.outputs.scan == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/dependency-watch/scan.mjs --publish
+      - name: Summarize
+        if: steps.day.outputs.scan == 'true' && success()
+        run: cat dev-tmp/core-dependency-watch/report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: steps.day.outputs.scan == 'true' && success()
+        with:
+          name: core-dependency-watch
+          path: dev-tmp/core-dependency-watch
+          retention-days: 30
