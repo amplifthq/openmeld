@@ -17171,6 +17171,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
     sentFrames.length = 0;
     for (const [index, textSnapshot] of [
+      "",
       "Saved reply.",
       "Reviewed reply.",
       "",
@@ -17195,6 +17196,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
         triggerMessageId: "signal-1",
         textSnapshot,
       });
+      expect(spaceStub.rpcResolveNativeReplyPlacement).toHaveBeenCalledTimes(
+        Math.min(index, 2)
+      );
     }
     expect(spaceStub.rpcResolveNativeReplyPlacement).toHaveBeenLastCalledWith({
       spaceId: HEX_SPACE_ID,

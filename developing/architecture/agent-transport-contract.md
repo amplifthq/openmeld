@@ -2097,6 +2097,8 @@ send does not acknowledge the downstream Space write.
 Only the initial action or a revised action sends an explicit placement.
 Periodic refreshes, reconnect replays, and draft retractions omit placement so
 they preserve Space's current editable selection.
+Core applies an empty retraction without resolving a default destination, so a
+reply that was never displayed cannot create an empty Thread during recovery.
 
 Explicit `post_message` revisions replace the snapshot on the same attempt
 stream; identical records do not create new messages. The writer serializes

@@ -9420,15 +9420,18 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     let result: Awaited<ReturnType<typeof spaceStub.rpcApplyAgentStreamDelta>>;
     if ("textSnapshot" in activity) {
-      await spaceStub.rpcResolveNativeReplyPlacement({
-        spaceId: pending.spaceId,
-        dispatchId: pending.dispatchId,
-        sourceSignalId: pending.sourceSignalId,
-        profileId: pending.profileId,
-        defaultToThread: true,
-        lock: false,
-        ...(activity.placement ? { placement: activity.placement } : {}),
-      });
+      // A retraction clears an existing draft; it must not create a destination.
+      if (activity.textSnapshot) {
+        await spaceStub.rpcResolveNativeReplyPlacement({
+          spaceId: pending.spaceId,
+          dispatchId: pending.dispatchId,
+          sourceSignalId: pending.sourceSignalId,
+          profileId: pending.profileId,
+          defaultToThread: true,
+          lock: false,
+          ...(activity.placement ? { placement: activity.placement } : {}),
+        });
+      }
       result = await spaceStub.rpcApplyAgentStreamDelta({
         ...streamIdentity,
         textSnapshot: activity.textSnapshot,
