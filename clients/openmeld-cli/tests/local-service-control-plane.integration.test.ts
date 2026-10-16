@@ -350,7 +350,7 @@ describe("local service control-plane", () => {
     });
   });
 
-  it("keeps an admitted shutdown request alive until completion evidence is available", async () => {
+  it("bounds the caller despite admitted shutdown progress without cancelling the drain", async () => {
     await withTempHome(async () => {
       await installDaemon({
         daemonVersion: "0.4.0",
@@ -387,27 +387,15 @@ describe("local service control-plane", () => {
           },
           timeoutMs: 1100,
         });
-        let settled = false;
         const observedShutdown = shutdown.then(
-          (value) => {
-            settled = true;
-            return value;
-          },
-          (error: unknown) => {
-            settled = true;
-            throw error;
-          }
+          (value) => ({ value }),
+          (error: unknown) => ({ error })
         );
         await admitted.promise;
-        await new Promise((resolve) => setTimeout(resolve, 1200));
-        expect(settled).toBe(false);
-        completion.resolve();
-
-        await expect(observedShutdown).resolves.toEqual({
-          accepted: true,
-          gracePeriodMs: 5000,
-          mode: "graceful",
+        await expect(observedShutdown).resolves.toMatchObject({
+          error: { code: "daemon.control.timeout" },
         });
+        completion.resolve();
         expect(phases).toEqual([
           "received",
           "authenticated",
@@ -462,7 +450,7 @@ describe("local service control-plane", () => {
     });
   });
 
-  it("preserves an admitted shutdown error after the timeout boundary", async () => {
+  it("preserves an admitted shutdown error before the caller deadline", async () => {
     await withTempHome(async () => {
       await installDaemon({
         daemonVersion: "0.4.0",
@@ -491,7 +479,6 @@ describe("local service control-plane", () => {
           timeoutMs: 1100,
         });
         await admitted.promise;
-        await new Promise((resolve) => setTimeout(resolve, 1200));
         completion.resolve();
         await expect(shutdown).rejects.toMatchObject({
           code: "service.internal",

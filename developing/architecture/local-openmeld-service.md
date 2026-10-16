@@ -3011,7 +3011,12 @@ continue to prevent a stopped Service from restarting.
 
 Stop uses the existing authenticated shutdown payload and releases auth
 protection when the exact carrier accepts the existing controlled stop. Its
-original response still waits for drain. Commit can precede outcome persistence:
+response waits for drain, but the CLI caller has a fixed total request deadline.
+Progress bytes do not extend that deadline. Caller timeout closes only its
+control connection and never cancels admitted drain or accepted work.
+An idle Host with no retained results can settle without a cloud connection;
+missing transport is not a reason to reconnect forever for an empty outbox.
+Commit can precede outcome persistence:
 a pending record therefore does not prove refusal. Only the coordinator's
 explicit `service.account_admission.stop_refused` response proves pre-commit
 refusal and permits restoring the previous autostart preference. Once commit
