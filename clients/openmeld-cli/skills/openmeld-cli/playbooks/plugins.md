@@ -1,5 +1,11 @@
 # Plugins
 
+In CLI invocation examples, replace only the leading `openmeld` executable with
+the exact command prefix from the latest `setup.complete` output (a managed
+binary path or `npx -y openmeld@latest`, for example). Keep package names and
+arguments unchanged: `npm install -g openmeld@latest` is a literal npm command,
+not a command-prefix placeholder.
+
 Use the signed-in organization and a Local Agent Profile owned by the signed-in
 account. The Profile must have an enabled local OpenMeld Service Binding.
 During a Wake, use the assigned Profile; the CLI forwards its request context.

@@ -7,7 +7,6 @@ export const SIDEBAR_SHORTCUT_IDS = [
 	"plugins",
 	"skills",
 	"files",
-	"routines",
 ] as const;
 export type SidebarShortcutId = (typeof SIDEBAR_SHORTCUT_IDS)[number];
 

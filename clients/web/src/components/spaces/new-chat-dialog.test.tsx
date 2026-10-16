@@ -1,3 +1,4 @@
+import { DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION } from "@openmeld/schemas";
 import type {
 	AuthProfileView,
 	CreateSpaceResponse,
@@ -12,15 +13,18 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { OrganizationSpaceProfileCandidates } from "#/query/organizations/organization-directory";
 import {
 	createTestQueryClient,
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
+import type { PeopleAgentPickerCreateAgent } from "../profiles/people-agent-picker-create-agent";
 import { NewChatDialog } from "./new-chat-dialog";
 
 const mocks = vi.hoisted(() => ({
+	organizationId: "org",
 	navigate: vi.fn(),
 	create: vi.fn(),
 	add: vi.fn(),
@@ -31,6 +35,7 @@ const miraId = "22222222-2222-4222-8222-222222222222";
 const agentId = "agt_33333333-3333-4333-8333-333333333333";
 const centerId = "agt_44444444-4444-4444-8444-444444444444";
 const spaceId = "a".repeat(64);
+const PENDING_HELPER = /Pending helper/;
 const profile: AuthProfileView = {
 	openMeldProfileId: humanId,
 	createdAt: "2026-09-01T00:00:00Z",
@@ -97,7 +102,11 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => ({
-		currentOrganization: { id: "org", slug: "acme", name: "Acme" },
+		currentOrganization: {
+			id: mocks.organizationId,
+			slug: "acme",
+			name: "Acme",
+		},
 		currentUserId: "viewer",
 	}),
 }));
@@ -108,9 +117,13 @@ vi.mock("#/query/organizations/organization-directory", () => ({
 	organizationQueryKeys: {
 		spaces: (id: string) => ["organizations", id, "spaces"],
 	},
-	organizationSpaceProfileCandidatesQueryOptions: () => ({
-		queryKey: ["picker-test"],
-		queryFn: async () => directory,
+	organizationSpaceProfileCandidatesQueryOptions: ({
+		organizationId,
+	}: {
+		organizationId: string;
+	}) => ({
+		queryKey: ["picker-test", organizationId],
+		queryFn: async () => ({ ...directory, organizationId }),
 	}),
 }));
 vi.mock("#/query/spaces/bootstrap", () => ({
@@ -140,6 +153,7 @@ vi.mock("#/lib/spaces/direct-message", () => ({
 }));
 
 beforeEach(() => {
+	mocks.organizationId = "org";
 	vi.clearAllMocks();
 	mocks.navigate.mockResolvedValue(undefined);
 	mocks.create.mockResolvedValue({ spaceId } satisfies CreateSpaceResponse);
@@ -157,6 +171,51 @@ beforeEach(() => {
 	} satisfies OpenDirectMessageSpaceResponse);
 });
 afterEach(cleanup);
+vi.mock("../profiles/people-agent-picker-create-agent", () => ({
+	PeopleAgentPickerCreateAgent: (
+		props: ComponentProps<typeof PeopleAgentPickerCreateAgent>
+	) => (
+		<button
+			onClick={() =>
+				props.onStarted({
+					id: "optimistic:old-org",
+					profileName: "Pending helper",
+					targetOwnerUserId: "mira",
+					configuration: DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+					failureMessage: null,
+					status: "creating",
+				})
+			}
+			type="button"
+		>
+			Create Agent
+		</button>
+	),
+}));
+
+it("drops a pending creation when the mounted New message entry switches organizations", async () => {
+	const client = createTestQueryClient();
+	const ui = () => (
+		<TestQueryClientProvider queryClient={client}>
+			<NewChatDialog onOpenChange={vi.fn()} open />
+		</TestQueryClientProvider>
+	);
+	const view = render(ui());
+	await screen.findByRole("checkbox", { name: "Mira Agent" });
+	fireEvent.click(screen.getByRole("button", { name: "New Agent" }));
+	fireEvent.click(await screen.findByRole("button", { name: "Create Agent" }));
+	expect(
+		(
+			await screen.findByRole("checkbox", { name: PENDING_HELPER })
+		).getAttribute("aria-checked")
+	).toBe("true");
+	mocks.organizationId = "other-org";
+	view.rerender(ui());
+	await screen.findByRole("checkbox", { name: "Mira Agent" });
+	expect(screen.queryByRole("checkbox", { name: PENDING_HELPER })).toBeNull();
+	expect(screen.queryByText("1 selected")).toBeNull();
+	client.clear();
+});
 async function openPicker(initialQuery?: string) {
 	const closed = vi.fn();
 	render(

@@ -211,7 +211,12 @@ the Organization directory, then calls the normal authorized Space reader for
 each candidate. Directory snapshots never grant access. A request visits at
 most four Spaces, with 30 matches per Space and an explicit continuation cursor;
 it does not use the sidebar's limited loaded list or build a second global
-message store. Results are newest-first within each Space, not globally ranked.
+message store. The shared message reader discovers one bounded candidate batch
+and overlaps at most four authorized Space reads. It settles each wave before
+returning and consumes outcomes in Space ID order, so a later speculative error
+cannot replace an earlier matching page. Inner Space continuations read alone;
+discarded speculative results are never cached or used to advance the cursor.
+Results are newest-first within each Space, not globally ranked.
 Inbox search intersects message hits with current recipient/source permissions
 and uncleared canonical Inbox IDs. Non-message activities use a recipient-scoped
 literal title/preview query, paginated at 30 rows. This bounded response contract
@@ -310,6 +315,21 @@ Stop boundary after the Task transaction commits, but no Task row proves that a
 process started, stopped, or completed. Task handoff and completion messages are
 deterministic Space Signals, so retrying a Task operation cannot duplicate the
 visible transition or Agent Wake.
+Task assignment may explicitly request an initial handoff. The assignment,
+reviewer choice, operation receipt, and existing handoff outbox intent commit
+together. The handoff uses the retained assignment event identity, current
+roles, phase, and brief. Unrelated Project or external-issue updates do not
+cancel its retry. A later assignment or reopening event fences the old handoff,
+including reassignment away and back to the same Agent. Cancellation or an
+explicit start also prevents stale initial delivery. Task-owned publications
+use only their explicit Wake targets; neither `listen_all` nor automatic
+one-human/one-agent addressing may add recipients.
+Task context is appended to the dispatch snapshot for both workstation and
+native delivery, not to the public message. It carries the exact Task ID,
+brief, roles, phase, result revision, and explicit start/submit/review commands.
+Review dispatch context reuses the result summary already in the handoff
+message rather than appending another copy.
+It grants no authority and creates no execution-state writer.
 An explicit cancellation may request Stop of each recorded Wake under a narrow
 Task cancellation authority: the same currently active, Auth-verified actor
 must have authored the retained cancellation operation, and the target must

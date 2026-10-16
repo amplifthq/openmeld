@@ -13,7 +13,10 @@ const LARK_PLATFORM_WEBHOOK_SURFACES = ["events", "callbacks"] as const;
 type LarkPlatformProvider = (typeof LARK_PLATFORM_PROVIDERS)[number];
 type LarkPlatformWebhookSurface =
   (typeof LARK_PLATFORM_WEBHOOK_SURFACES)[number];
-type LarkPlatformWebhookContext = Context<HonoBindings>;
+type LarkPlatformWebhookContext = Context<
+  HonoBindings,
+  `/message-channels/${LarkPlatformProvider}/:connectionId/${LarkPlatformWebhookSurface}`
+>;
 
 export function registerLarkPlatformWebhookRoutes(
   app: Hono<HonoBindings>

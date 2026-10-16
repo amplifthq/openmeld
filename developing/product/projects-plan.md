@@ -1604,7 +1604,7 @@ The final package name uses the plural product term. It owns shared Project doma
 
 Do not put cryptographic or business algorithms into the schema package, and do not leave them in CLI.
 
-Use standard Web Crypto `crypto.subtle.digest` so Node 20, browser, and Workers share one async implementation without a new hashing dependency.
+Use standard Web Crypto `crypto.subtle.digest` so supported Node.js releases, browsers, and Workers share one async implementation without a new hashing dependency.
 
 ### Repository Normalization
 

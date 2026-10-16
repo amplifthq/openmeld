@@ -123,7 +123,7 @@ describe("AppContextualSidebarNav", () => {
 		expect(groupLabel.className).toContain("pe-2");
 		expect(groupLabel.className).not.toContain("px-2");
 		expect(groupLabel.className).toContain("text-sidebar-foreground/55");
-		expect(group?.className).toContain("gap-2");
+		expect(group?.className).toContain("gap-1");
 		expect(group?.className).toContain("p-0");
 		expect(
 			screen.getByRole("navigation", { name: "Project navigation" })

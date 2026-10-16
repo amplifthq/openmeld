@@ -62,6 +62,7 @@ import {
 	useAgentListSelection,
 } from "./agent-list-selection";
 import { AgentProfileControllerAvatar } from "./agent-profile-controller-avatar";
+import { useAgentListState } from "./use-agent-list-state";
 
 const SORTS = {
 	recent: "Recent activity",
@@ -433,8 +434,12 @@ export function AgentList(input: {
 	);
 	const expandAll = presentation === "expanded";
 	const contentId = useId();
-	const [override, setOverride] = useState<AgentListView | null>(null);
-	const [search, setSearch] = useState("");
+	const {
+		view: override,
+		setView: setOverride,
+		search,
+		setSearch,
+	} = useAgentListState(input.viewPreferenceKey);
 	const defaults = input.defaults ?? DEFAULT_AGENT_LIST_VIEW;
 	// Section filters only own their additions; page filters stay authoritative.
 	const view = override ?? { ...defaults, filters: EMPTY_AGENT_LIST_FILTERS };

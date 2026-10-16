@@ -4012,11 +4012,11 @@ withSpaceProfileOption(
     )
     .option(
       "--fork-from <signal-id>",
-      "Fork a Codex or Claude Code completed task at this message"
+      "Fork a Codex or Claude Code task from its Wake request or Agent reply"
     )
     .option(
       "--continue-from <signal-id>",
-      "Continue the selected Agent's task from this message"
+      "Continue from the Agent's Wake request or reply; use --reply-to for thread placement"
     )
     .option(
       "--task-access <mode>",
@@ -4040,7 +4040,7 @@ withSpaceProfileOption(
     .option("--text-file <path>", "Read message text from a UTF-8 file")
     .option(
       "--wake <profile-id>",
-      "Wake an Agent Profile (repeatable)",
+      "Wake an Agent Profile; adds @name to the text (repeatable)",
       collectRepeatedOptionValue,
       []
     )
@@ -4104,6 +4104,7 @@ withSpaceProfileOption(
         baseUrl: cliOptions.gatewayUrl,
         space: spaceValue,
         filePaths: Array.isArray(opts.file) ? opts.file.map(String) : [],
+        contextSourceSignalId: opts.forkFrom ?? opts.continueFrom,
         contextSelection: resolveSpaceTaskSelection({
           space: spaceValue,
           wakeTargets: opts.wake,
@@ -4814,11 +4815,11 @@ program
   )
   .option(
     "--fork-from <signal-id>",
-    "Fork a Codex or Claude Code completed task at this message"
+    "Fork a Codex or Claude Code task from its Wake request or Agent reply"
   )
   .option(
     "--continue-from <signal-id>",
-    "Continue the selected Agent's task from this message"
+    "Continue from the Agent's Wake request or reply; does not select a reply thread"
   )
   .option(
     "--task-access <mode>",
@@ -4844,7 +4845,7 @@ program
   .option("--text-file <path>", "Read message text from a UTF-8 file")
   .option(
     "--wake <profile-id>",
-    "Wake an Agent Profile (repeatable)",
+    "Wake an Agent Profile; adds @name to the text (repeatable)",
     collectRepeatedOptionValue,
     []
   )
@@ -4908,6 +4909,7 @@ program
           });
           await runSpaceSend({
             profile: opts.profile,
+            contextSourceSignalId: opts.forkFrom ?? opts.continueFrom,
             contextSelection: resolveSpaceTaskSelection({
               space,
               wakeTargets: opts.wake,

@@ -97,7 +97,6 @@ type LocalAgentRecoveryController = ReturnType<
 >;
 
 type DirectoryMembersOverviewProps = {
-	presentation?: "page" | "sidebar";
 	account: AppShellAccount;
 	currentOrganization: OrganizationSummary;
 	currentUserId: string;
@@ -225,14 +224,6 @@ function resolveHumanProfilesViewState(input: {
 
 export function DirectoryMembersOverview(input: DirectoryMembersOverviewProps) {
 	const model = useDirectoryMembersOverviewModel(input);
-	if (input.presentation === "sidebar") {
-		return (
-			<DirectoryHumanProfilesWorkspace
-				{...model.workspaceProps}
-				presentation="sidebar"
-			/>
-		);
-	}
 	return <DirectoryMembersOverviewView model={model} />;
 }
 
@@ -313,7 +304,7 @@ function useDirectoryMembersOverviewModel(
 		...messageChannelListQueryOptions({
 			organizationId: input.currentOrganization.id,
 		}),
-		enabled: !isPersonalWorkspace && input.presentation !== "sidebar",
+		enabled: !isPersonalWorkspace,
 	});
 	const disconnectConnectedAccountMutation = useMutation({
 		mutationFn: async (identityLinkId: string) =>
@@ -381,10 +372,7 @@ function useDirectoryMembersOverviewModel(
 		latestResearchBatch,
 		memberResearchQuery,
 		researchMutation,
-	} = useDirectoryMemberResearch(
-		input.currentOrganization.id,
-		input.presentation !== "sidebar"
-	);
+	} = useDirectoryMemberResearch(input.currentOrganization.id, true);
 	const researchErrors = resolveMemberResearchErrors({
 		mutationError: researchMutation.error,
 		mutationFailed: researchMutation.isError,

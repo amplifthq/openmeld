@@ -43,6 +43,8 @@ test("removes trusted Git credentials before entering the shared CLI publisher",
       OPENMELD_TRUSTED_GIT_GITHUB_SERVER_URL: "https://github.com",
       OPENMELD_TRUSTED_GIT_GITHUB_TOKEN: "trusted-token",
       RELEASE_SHA: "a".repeat(40),
+      OPENMELD_NPM_ARTIFACT_PATH: "/verified/openmeld.tgz",
+      OPENMELD_NPM_ARTIFACT_INTEGRITY: "sha512-matrix-proof",
     },
   });
 
@@ -52,6 +54,15 @@ test("removes trusted Git credentials before entering the shared CLI publisher",
   assert.equal(calls[0].env.GH_TOKEN, undefined);
   assert.equal(calls[0].env.OPENMELD_PRODUCTION_TRAIN_SCOPES, "cli");
   assert.equal(calls[0].env.RELEASE_SHA, "a".repeat(40));
+  assert.equal(calls[0].env.OPENMELD_REQUIRE_VERIFIED_NPM_ARTIFACT, "1");
+  assert.equal(
+    calls[0].env.OPENMELD_NPM_ARTIFACT_PATH,
+    "/verified/openmeld.tgz"
+  );
+  assert.equal(
+    calls[0].env.OPENMELD_NPM_ARTIFACT_INTEGRITY,
+    "sha512-matrix-proof"
+  );
   await calls[0].adapters.admitProductionStage({
     cwd: "/release-source",
     env: calls[0].env,

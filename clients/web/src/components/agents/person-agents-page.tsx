@@ -11,6 +11,7 @@ import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 export function PersonAgentsPage(input: {
 	personId: string;
 	agentId?: string;
+	returnToAgentDirectory?: boolean;
 	initialSidebarStates?: AppSidebarPersistedStates;
 }) {
 	const { currentOrganization } = useAppOrganization();
@@ -41,6 +42,7 @@ export function PersonAgentsPage(input: {
 				});
 			}}
 			personId={input.personId}
+			returnToAgentDirectory={input.returnToAgentDirectory}
 		/>
 	);
 }

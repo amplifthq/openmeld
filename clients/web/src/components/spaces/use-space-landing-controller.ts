@@ -2416,7 +2416,10 @@ export function useSpaceLandingController(input: {
 		ownSummaryFetchedAfterMount: ownActiveWakeProgressQuery.isFetchedAfterMount,
 		bootstrapFetchedAfterMount: bootstrapQuery.isFetchedAfterMount,
 	});
-	usePublishSpaceWakeProgressVisibleProjection(presentedWakeProgressItems);
+	usePublishSpaceWakeProgressVisibleProjection(presentedWakeProgressItems, {
+		profileId: input.profileId,
+		spaceId: input.spaceId,
+	});
 
 	useWakeProgressPolling({
 		enabled: statusReady,

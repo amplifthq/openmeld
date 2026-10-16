@@ -53,7 +53,6 @@ import {
 	SelectItem,
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
-import { TabItem, Tabs, TabsList } from "@openmeld/ui/fluid/tabs";
 import {
 	ArrowCounterClockwiseIcon,
 	CaretRightIcon,
@@ -70,7 +69,7 @@ import {
 } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { parseAsString, useQueryStates } from "nuqs";
+import { parseAsString, useQueryState } from "nuqs";
 import {
 	type DragEvent,
 	lazy,
@@ -106,9 +105,9 @@ import {
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationFilesPath } from "#/lib/organizations/organization-routes";
-import { fileViewParser } from "#/lib/page-tab-search";
 import { useSelectedHumanProfile } from "#/lib/profiles/use-selected-human-profile";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
+import { useTeamFilesView } from "./team-files-navigation";
 
 const FileSystem = lazy(() =>
 	import("#/components/extend/file-system").then((module) => ({
@@ -127,30 +126,9 @@ const NEW_TEXT_FILE_CONTEXT_LABELS = {
 	csv: "New CSV file",
 } as const;
 
-function useFilesView() {
-	const [search, setSearch] = useQueryStates({
-		view: fileViewParser,
-		folder: parseAsString,
-		create: parseAsString,
-		document: parseAsString,
-		kind: parseAsString,
-		subjectUserId: parseAsString,
-	});
-	const changeView = (view: "team" | "my" | "trash" | "trash-my") =>
-		setSearch({
-			view,
-			folder: null,
-			create: null,
-			document: null,
-			kind: null,
-			subjectUserId: null,
-		});
-	return [search.view, changeView] as const;
-}
-
 export function TeamFilesPage() {
 	const { currentOrganization } = useAppOrganization();
-	const [fileView, changeView] = useFilesView();
+	const [fileView, changeView] = useTeamFilesView();
 	const location = fileView === "my" || fileView === "trash-my" ? "my" : "team";
 	const view =
 		fileView === "trash" || fileView === "trash-my" ? "trash" : "active";
@@ -172,34 +150,8 @@ export function TeamKnowledgeFilesPage(input: {
 	kind?: OrganizationDocumentKind;
 	subjectUserId?: string;
 }) {
-	const { currentOrganization } = useAppOrganization();
-	const [, changeView] = useFilesView();
-	const tabs = (
-		<Tabs
-			className={
-				input.documentId || input.create
-					? "shrink-0 px-[var(--app-page-inline-padding)] py-3"
-					: "shrink-0"
-			}
-			onValueChange={(value) => {
-				if (value === "trash" || value === "team" || value === "my") {
-					changeView(value);
-				}
-			}}
-			value="team"
-		>
-			<TabsList className="w-fit">
-				<TabItem label="Team files" value="team" />
-				{currentOrganization.isPersonal ? null : (
-					<TabItem label="My files" value="my" />
-				)}
-				<TabItem label="Trash" value="trash" />
-			</TabsList>
-		</Tabs>
-	);
 	return (
 		<section className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-			{input.documentId || input.create ? tabs : null}
 			<ScrollArea
 				className="min-h-0 flex-1"
 				contentClassName={
@@ -219,10 +171,7 @@ export function TeamKnowledgeFilesPage(input: {
 					/>
 				) : null}
 				{input.documentId || input.create ? null : (
-					<TeamKnowledgeFilesBrowser
-						folderId={input.folderId}
-						toolbarTabs={tabs}
-					/>
+					<TeamKnowledgeFilesBrowser folderId={input.folderId} />
 				)}
 			</ScrollArea>
 		</section>
@@ -241,7 +190,7 @@ function TeamFilesBrowser(input: {
 	const { currentOrganization } = input;
 	const navigate = useNavigate();
 	const { location, view } = input;
-	const [parentId, setParentId] = useState<string | null>(null);
+	const [parentId, setParentId] = useQueryState("folder", parseAsString);
 	const [folderDialogOpen, setFolderDialogOpen] = useState(false);
 	const [newTextFileKind, setNewTextFileKind] = useState<
 		"markdown" | "text" | "csv" | null
@@ -416,7 +365,6 @@ function TeamFilesBrowser(input: {
 		nextLocation: FileRootLocation,
 		nextView: "active" | "trash"
 	) => {
-		setParentId(null);
 		setActionError(null);
 		setSelectedId(null);
 		setSelectedKnowledgeFolder(false);
@@ -732,27 +680,6 @@ function TeamFilesBrowser(input: {
 								reserveBreadcrumbSpace
 								title={browserTitle}
 								toolbarActions={toolbarActions}
-								toolbarStart={
-									<Tabs
-										onValueChange={(value) => {
-											if (value === "trash") {
-												changeView(location, "trash");
-											}
-											if (value === "team" || value === "my") {
-												changeView(value, "active");
-											}
-										}}
-										value={view === "trash" ? "trash" : location}
-									>
-										<TabsList className="w-fit">
-											<TabItem label="Team files" value="team" />
-											{currentOrganization.isPersonal ? null : (
-												<TabItem label="My files" value="my" />
-											)}
-											<TabItem label="Trash" value="trash" />
-										</TabsList>
-									</Tabs>
-								}
 							/>
 						</Suspense>
 					</ContextMenuTrigger>

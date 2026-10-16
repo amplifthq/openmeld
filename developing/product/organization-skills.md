@@ -331,8 +331,9 @@ stops starting further removals, while already submitted requests may finish.
 ## Web Product
 
 Skills management belongs to **Team**, whose tabs are **People / Agents /
-Plugins / Skills**. The list and detail share Team's header, member sidebar,
+Files / Skills / Plugins**. The list and detail share Team's header,
 page frame, and active rail destination, including loading and error states.
+Skills uses its catalog search and filters without the People sidebar.
 Opening the catalog does not mount or prepare a Center Agent conversation.
 The Center Agent keeps its conversational Skill tools and consumption behavior,
 but has no second Skills management page or primary Skills tab.

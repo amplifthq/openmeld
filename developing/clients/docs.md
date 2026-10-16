@@ -38,7 +38,7 @@ temporary rollout details into the guides.
 
 ## Local Agent setup guides
 
-`content/docs/start/local-agents` owns the setup overview and six Agent guides.
+`content/docs/start/local-agents` owns the setup overview and seven Agent guides.
 Keep installation prose here, not in the shared product catalog or Website.
 Provider-specific installation commands and platform requirements link to official
 guides. OpenMeld connection, detection, and recovery guidance stays in Docs.
@@ -63,7 +63,10 @@ The framework owns routing. `/docs/*` renders MDX. `/api/search` uses
 Fumadocs' built-in search. `/docs/*.md`, `/llms.txt`, and `/llms-full.txt`
 expose only the same public content. Markdown negotiation varies by `Accept`.
 Page titles, descriptions, and canonical URLs come from each page. Public
-pages must not link readers to the private source repository.
+pages may link to the public source repository. Keep private maintainer
+configuration out of public instructions. The public self-hosting page explains
+that published source and a connected computer do not constitute a supported
+standalone installation.
 Build-time crawling prerenders linked HTML pages. Cloudflare removes trailing
 slashes consistently with the router. `/docs` and `/docs/*` run through the
 Worker first to preserve `Accept` negotiation; the root and static assets can

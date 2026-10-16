@@ -3960,11 +3960,16 @@ export async function resumeProductionRelease(input) {
   }
 }
 
-function resolveHostedWindowsArtifactRunId(scope, env) {
+function resolveHostedWindowsArtifactRunId(scope, env, required = false) {
   if (scope !== "cli") {
     return "";
   }
   const windowsArtifactRunId = env.WINDOWS_ARTIFACT_RUN_ID?.trim() ?? "";
+  if (required && !windowsArtifactRunId) {
+    throw new Error(
+      "CLI publication requires WINDOWS_ARTIFACT_RUN_ID from the helper used to stamp this release. Prepare a helper_only run and stamp its verified artifact before deploying."
+    );
+  }
   if (windowsArtifactRunId && !GITHUB_RUN_ID.test(windowsArtifactRunId)) {
     throw new Error("WINDOWS_ARTIFACT_RUN_ID must be a numeric run ID.");
   }
@@ -4020,6 +4025,7 @@ export function runHostedRelease(scope, sourceSha, trainScopes, input = {}) {
     return false;
   }
   if (!runId) {
+    resolveHostedWindowsArtifactRunId(scope, input.env ?? process.env, true);
     const output = capture([
       "workflow",
       "run",
@@ -4078,6 +4084,38 @@ function isAutomaticContinuation(options) {
   );
 }
 
+export function runLocalRelease(scope, baseSha, trainScopes, input = {}) {
+  const env = input.env ?? process.env;
+  const spawn = input.spawn ?? spawnSync;
+  const result = spawn(
+    process.execPath,
+    [
+      fileURLToPath(new URL("./production-release-cli.mjs", import.meta.url)),
+      "deploy",
+      "--base",
+      baseSha,
+      "--scope",
+      scope,
+    ],
+    {
+      stdio: "inherit",
+      env: {
+        ...env,
+        OPENMELD_PRODUCTION_TRAIN_SCOPES:
+          env.OPENMELD_PRODUCTION_TRAIN_SCOPES ?? trainScopes.join(","),
+      },
+    }
+  );
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `Local ${scope} release failed; inspect its retained attempt.`
+    );
+  }
+}
+
 export async function runProductionRelease(argv) {
   const options = {
     ...parseProductionReleaseArgs(argv),
@@ -4090,10 +4128,11 @@ export async function runProductionRelease(argv) {
     const sourceSha = readHeadSha();
     const baseSha = runGit(["rev-parse", `${options.base}^{commit}`]).trim();
     assertProductionReleaseSource({ sourceSha });
+    const requestedScopes = expandRequestedReleaseScopes(options.scope);
     await resumeProductionRelease({
       sourceSha,
       baseSha,
-      scopes: expandRequestedReleaseScopes(options.scope),
+      scopes: requestedScopes,
       waitForActiveRelease: (remaining, status) => {
         for (const scope of remaining) {
           if (
@@ -4107,26 +4146,30 @@ export async function runProductionRelease(argv) {
         }
         return false;
       },
-      deployScope: async (scope, status) => {
+      deployScope: (scope, status) => {
         assertSourceStillMatches(sourceSha);
+        const trainScopes = [
+          ...new Set([
+            ...status.currentChange.scopes,
+            ...(requestedScopes ?? []),
+          ]),
+        ];
+        if (
+          (requestedScopes ?? status.currentChange.scopes).includes("cli") &&
+          !status.components.some(
+            (component) =>
+              component.scope === "cli" && component.state === "current"
+          )
+        ) {
+          resolveHostedWindowsArtifactRunId("cli", process.env, true);
+        }
         if (scope === "cli" || options.lane === "github") {
           if (scope !== "cli") {
             assertHostedProductDatabaseReleaseSupported(process.cwd(), [scope]);
           }
-          runHostedRelease(scope, sourceSha, [
-            ...new Set([
-              ...status.currentChange.scopes,
-              ...(expandRequestedReleaseScopes(options.scope) ?? []),
-            ]),
-          ]);
+          runHostedRelease(scope, sourceSha, trainScopes);
         } else {
-          await runProductionRelease([
-            "deploy",
-            "--base",
-            baseSha,
-            "--scope",
-            scope,
-          ]);
+          runLocalRelease(scope, baseSha, trainScopes);
         }
         assertSourceStillMatches(sourceSha);
       },
