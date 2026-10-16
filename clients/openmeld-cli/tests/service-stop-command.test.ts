@@ -96,7 +96,10 @@ describe("managed OpenMeld Service stop", () => {
     });
   });
 
-  it("keeps fail-closed drain behavior when a Service process is still active", async () => {
+  it.each([
+    "daemon.control.endpoint_missing",
+    "daemon.control.timeout",
+  ] as const)("keeps an active Service safe after %s", async (errorCode) => {
     await withTempHome(async () => {
       const calls: string[] = [];
       const managerStatus = {
@@ -138,8 +141,8 @@ describe("managed OpenMeld Service stop", () => {
       };
       requestLocalDaemonShutdownMock.mockRejectedValueOnce(
         new LocalDaemonControlPlaneClientError(
-          "daemon.control.endpoint_missing",
-          "connect ENOENT /tmp/openmeld-daemon-control.sock"
+          errorCode,
+          "Service stop was not confirmed"
         )
       );
 
@@ -154,7 +157,11 @@ describe("managed OpenMeld Service stop", () => {
         status: "warning",
       });
 
-      expect(calls).toEqual(["disableAutostart", "enableAutostart"]);
+      expect(calls).toEqual(
+        errorCode === "daemon.control.endpoint_missing"
+          ? ["disableAutostart", "enableAutostart"]
+          : ["disableAutostart"]
+      );
     });
   });
 

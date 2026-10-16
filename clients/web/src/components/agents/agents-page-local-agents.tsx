@@ -328,12 +328,20 @@ function OwnedLocalAgentsCard(input: LocalAgentsCardOwnerProps) {
 		</Link>
 	) : null;
 	const checkLocalAgents = async () => {
-		const previousCheckedAtMs = readLatestLocalAgentCheckedAtMs(
-			recoveryRef.current.selectedExecutionTarget
+		const selectedTarget = input.controlTarget ?? catalogState.target;
+		const target = selectedTarget
+			? {
+					deviceId: selectedTarget.deviceId,
+					runtimeLane: selectedTarget.runtimeLane,
+				}
+			: null;
+		const previousChecks = readLocalAgentChecks(
+			recoveryRef.current.selectedExecutionTarget,
+			target
 		);
+		const storageScope = recoveryRef.current.storageScope;
 		setIsCheckingAgents(true);
 		try {
-			const target = input.controlTarget ?? catalogState.target;
 			if (!target) {
 				throw new Error("Choose a computer environment first.");
 			}
@@ -348,13 +356,15 @@ function OwnedLocalAgentsCard(input: LocalAgentsCardOwnerProps) {
 				try {
 					const reconciliation = await reconcileLocalAgentsAfterSlowCheck({
 						getRecovery: () => recoveryRef.current,
-						previousCheckedAtMs,
+						previousChecks,
+						target,
+						storageScope,
 					});
 					if (reconciliation === "updated") {
-						toast.success(LOCAL_AGENT_CHECK_COMPLETE_MESSAGE);
+						toast.success("Local agent status refreshed.");
 					} else {
-						toast.error(
-							"OpenMeld is still checking local agents. Check again in a moment."
+						toast.info(
+							"Some agent checks have not returned yet. Check their status in a moment."
 						);
 					}
 				} catch (reconciliationError) {
@@ -462,7 +472,9 @@ function LocalAgentsCardFrame(input: {
 
 function reconcileLocalAgentsAfterSlowCheck(input: {
 	getRecovery: () => AgentsPageController;
-	previousCheckedAtMs: number | null;
+	previousChecks: ReadonlyMap<string, number | null>;
+	target: PeopleComputerTarget | null;
+	storageScope: AgentsPageController["storageScope"];
 }): Promise<"updated" | "timed_out"> {
 	const deadlineMs = Date.now() + SLOW_LOCAL_AGENT_CHECK_RECONCILE_TIMEOUT_MS;
 	return pollForLocalAgentCheck({ ...input, deadlineMs });
@@ -545,15 +557,28 @@ async function pollForLocalAgentEnabledChange(input: {
 async function pollForLocalAgentCheck(input: {
 	deadlineMs: number;
 	getRecovery: () => AgentsPageController;
-	previousCheckedAtMs: number | null;
+	previousChecks: ReadonlyMap<string, number | null>;
+	target: PeopleComputerTarget | null;
+	storageScope: AgentsPageController["storageScope"];
 }): Promise<"updated" | "timed_out"> {
 	await input.getRecovery().refreshAll();
+	const recovery = input.getRecovery();
+	if (recovery.storageScope !== input.storageScope) {
+		return "timed_out";
+	}
+	const checks = readLocalAgentChecks(
+		recovery.selectedExecutionTarget,
+		input.target
+	);
 	if (
-		isLocalAgentCheckNewer({
-			currentCheckedAtMs: readLatestLocalAgentCheckedAtMs(
-				input.getRecovery().selectedExecutionTarget
-			),
-			previousCheckedAtMs: input.previousCheckedAtMs,
+		input.previousChecks.size > 0 &&
+		[...input.previousChecks].every(([ref, previous]) => {
+			const current = checks.get(ref);
+			return (
+				current !== undefined &&
+				current !== null &&
+				(previous === null || current > previous)
+			);
 		})
 	) {
 		return "updated";
@@ -569,37 +594,31 @@ async function pollForLocalAgentCheck(input: {
 	return pollForLocalAgentCheck(input);
 }
 
-function readLatestLocalAgentCheckedAtMs(
-	target: LocalRuntimeExecutionTarget | null
-): number | null {
-	let latestCheckedAtMs: number | null = null;
+function readLocalAgentChecks(
+	target: LocalRuntimeExecutionTarget | null,
+	requested: PeopleComputerTarget | null
+): Map<string, number | null> {
+	const checks = new Map<string, number | null>();
+	if (
+		!requested ||
+		target?.deviceId !== requested.deviceId ||
+		target.runtimeLane !== requested.runtimeLane
+	) {
+		return checks;
+	}
 	for (const capability of target?.capabilities ?? []) {
-		const checkedAt = capability.agentControllerInterface?.checkedAt;
-		if (!checkedAt) {
+		// Disabled controllers are inventoried but do not run native checks.
+		if (!capability.enabled) {
 			continue;
 		}
-		const checkedAtMs = Date.parse(checkedAt);
-		if (
-			Number.isFinite(checkedAtMs) &&
-			(latestCheckedAtMs === null || checkedAtMs > latestCheckedAtMs)
-		) {
-			latestCheckedAtMs = checkedAtMs;
-		}
+		const checkedAt = capability.agentControllerInterface?.checkedAt;
+		const checkedAtMs = checkedAt ? Date.parse(checkedAt) : Number.NaN;
+		checks.set(
+			capability.agentControllerRef,
+			Number.isFinite(checkedAtMs) ? checkedAtMs : null
+		);
 	}
-	return latestCheckedAtMs;
-}
-
-function isLocalAgentCheckNewer(input: {
-	currentCheckedAtMs: number | null;
-	previousCheckedAtMs: number | null;
-}): boolean {
-	if (input.currentCheckedAtMs === null) {
-		return false;
-	}
-	return (
-		input.previousCheckedAtMs === null ||
-		input.currentCheckedAtMs > input.previousCheckedAtMs
-	);
+	return checks;
 }
 
 function waitForLocalAgentReconciliation(delayMs: number): Promise<void> {

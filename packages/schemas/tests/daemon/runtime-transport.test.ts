@@ -34,6 +34,7 @@ import {
   runtimeTransportDispatchPreviewEndRequestSchema,
   runtimeTransportDispatchPreviewRequestSchema,
   runtimeTransportDispatchProgressRequestSchema,
+  runtimeTransportDispatchReplyRequestSchema,
   runtimeTransportDispatchRuntimeEvidenceRequestSchema,
   runtimeTransportDispatchToolActivityRequestSchema,
   runtimeTransportErrorCodeSchema,
@@ -1870,6 +1871,49 @@ describe("runtime transport schema", () => {
     });
 
     expect(parsed.success).toBe(true);
+  });
+
+  it("requires execution identity and bounds a saved reply snapshot", () => {
+    const frame = {
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      runtimeCoordinatorExecutionId: "rce-space-1-dispatch-1-agent-1",
+      executionTokenEcho: createExecutionTokenEcho(),
+      executionIdentityEcho: createRuntimeEvidenceIdentityEcho(),
+      dispatchId: "dispatch-1",
+      attemptId: "attempt-1",
+      daemonSessionId: "session-1",
+      connectionGeneration: 1,
+      leaseEpoch: 2,
+      sequence: 1,
+      observedAtMs: 1_700_000_000_100,
+      taskId: "task-1",
+      spaceId: "space-1",
+      sourceSignalId: "signal-1",
+      targetProfileId: "agent-1",
+      placement: "thread",
+      textSnapshot: "Saved reply, still running.",
+    };
+    expect(
+      runtimeTransportDispatchReplyRequestSchema.safeParse(frame).success
+    ).toBe(true);
+    expect(
+      runtimeTransportDispatchReplyRequestSchema.safeParse({
+        ...frame,
+        textSnapshot: "",
+      }).success
+    ).toBe(true);
+    for (const patch of [
+      { executionIdentityEcho: undefined },
+      { textSnapshot: "x".repeat(32 * 1024 + 1) },
+      { placement: "private" },
+    ]) {
+      expect(
+        runtimeTransportDispatchReplyRequestSchema.safeParse({
+          ...frame,
+          ...patch,
+        }).success
+      ).toBe(false);
+    }
   });
 
   it("accepts privacy-bounded dispatch tool activity with execution authority echoes", () => {

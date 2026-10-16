@@ -12,6 +12,9 @@ describe("Desktop sign-in errors", () => {
 		"Check your Desktop sign-in before controlling this Service.",
 		"A Service action is still in progress. Check its status before trying again.",
 		"A computer connection is already in progress.",
+		"OpenMeld cannot verify this computer with the installed tools. Run OpenMeld setup on the selected computer, then try again.",
+		"OpenMeld cannot read this Mac's Service identity. Start OpenMeld Service on this Mac, then try again.",
+		"Open Desktop on the selected computer, then try again.",
 		"OpenMeld Tools could not be downloaded. Check your connection and try again.",
 	])("preserves the known recovery instruction without IPC details: %s", (message) => {
 		expect(

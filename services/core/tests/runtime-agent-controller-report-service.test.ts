@@ -26,7 +26,7 @@ describe("runtime agent controller report service", () => {
       permissionModes: true,
       structuredUserInput: false,
     },
-    checkedAt: "2026-06-28T00:00:00.000Z",
+    checkedAt: "1970-01-01T00:00:01.000Z",
     controllerId: "codex",
     displayName: "Codex",
     launch: {
@@ -74,7 +74,7 @@ describe("runtime agent controller report service", () => {
       currentReport: {
         agentControllerRef: "builtin:codex",
         agentControllerInterface: CODEX_AGENT_CONTROLLER_INTERFACE,
-        expiresAtMs: 5000,
+        expiresAtMs: 6000,
         observedAtMs: 1000,
         reasonCodes: ["runtime.agent_controller_report.available"],
         openMeldServiceRuntimeId,
@@ -88,13 +88,55 @@ describe("runtime agent controller report service", () => {
       {
         agentControllerRef: "builtin:codex",
         agentControllerInterface: CODEX_AGENT_CONTROLLER_INTERFACE,
-        expiresAtMs: 5000,
+        expiresAtMs: 6000,
         observedAtMs: 1000,
         reasonCodes: ["runtime.agent_controller_report.available"],
         openMeldServiceRuntimeId,
         status: "ready",
       },
     ]);
+  });
+
+  it.each([
+    -600_000, 0, 600_000,
+  ])("ages native observations independently of device clock offset %s", async (skewMs) => {
+    const nowMs = 1_800_000_000_000;
+    const runtimeLookupInput = createOwnerAccountLookupInput();
+    const openMeldServiceRuntimeId = authorityRuntimeId({
+      lookupInput: runtimeLookupInput,
+      value: "runtime_opaque_1",
+    });
+    const reportStore = createInMemoryRuntimeAgentControllerReportStore();
+    for (const ageMs of [30_000, 180_000]) {
+      const result = await acceptRuntimeAgentControllerReport({
+        nowMs,
+        report: {
+          agentControllerRef: "builtin:codex",
+          agentControllerInterface: {
+            ...CODEX_AGENT_CONTROLLER_INTERFACE,
+            checkedAt: new Date(nowMs + skewMs - ageMs).toISOString(),
+          },
+          observedAtMs: nowMs + skewMs,
+          expiresAtMs: nowMs + skewMs + 600_000,
+          status: "ready",
+        },
+        reportStore,
+        openMeldServiceRuntimeId,
+        runtimeLookupInput,
+        runtimeLookupStore: createFoundRuntimeLookupStore(
+          openMeldServiceRuntimeId
+        ),
+      });
+      if (ageMs === 30_000) {
+        expect(result).toMatchObject({
+          status: "accepted",
+          currentReport: { expiresAtMs: nowMs + 90_000 },
+        });
+      } else {
+        expect(result).toEqual({ status: "rejected", reason: "stale" });
+      }
+    }
+    expect(reportStore.currentReports).toHaveLength(1);
   });
 
   it("rejects a report for a missing Runtime without writing", async () => {

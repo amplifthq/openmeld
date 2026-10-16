@@ -85,6 +85,8 @@ import {
 	getDesktopPlatform,
 	openDesktopWeb,
 } from "#/desktop/platform";
+import { useDesktopComputerConnection } from "#/desktop/use-computer-connection";
+import { useAuthSession } from "#/hooks/auth.hooks";
 import {
 	copyCliEntryCommand,
 	formatWebCliCommand,
@@ -715,6 +717,8 @@ function DesktopComputerRecovery(input: {
 	computer: LocalRuntimeComputer;
 	readiness: CurrentLocalRuntimeReplyReadinessResponse | null;
 }) {
+	const connection = useDesktopComputerConnection();
+	const accountId = useAuthSession().data?.user.id;
 	const [state, setState] = useState<"idle" | "opening" | "opened" | "failed">(
 		"idle"
 	);
@@ -747,6 +751,32 @@ function DesktopComputerRecovery(input: {
 		return null;
 	}
 	const path = input.action.path;
+	const desktop = getDesktopPlatform();
+	const isUpdate = input.action.label === UPDATE_MANUALLY_LABEL;
+	const local = connection.data;
+	const canUseNativeAction =
+		local?.status === "available" &&
+		local.accountId === accountId &&
+		target?.availability === "resolved" &&
+		local.target.deviceId === target.deviceId &&
+		local.target.runtimeLane === target.runtimeLane &&
+		Boolean(isUpdate ? desktop?.updateComputer : desktop?.connectComputer);
+	if (canUseNativeAction) {
+		return (
+			<div className="space-y-2 border-t pt-3">
+				<Link
+					className={buttonVariants({ size: "sm", variant: "outline" })}
+					to={path}
+				>
+					{isUpdate ? "Update OpenMeld" : "Reconnect computer"}
+				</Link>
+				<p className="text-muted-foreground text-xs">
+					Continue in OpenMeld to {isUpdate ? "update" : "reconnect"} this
+					computer.
+				</p>
+			</div>
+		);
+	}
 	const open = async () => {
 		if (opening.current) {
 			return;

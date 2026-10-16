@@ -99,7 +99,10 @@ describe("local service dispatch bootstrap prompt", () => {
     if (action !== "post_status") {
       for (const rule of [
         "tool search or discovery",
-        "It confirms a recorded proposal, not publication.",
+        "It confirms a recorded proposal, not final publication.",
+        "submit the complete revised reply; it updates the same reply",
+        "Private output does not revise the public reply",
+        "Do not change a reply into another final action type",
         "submit no further Space Action",
         "A failed context read or business tool is not a Space Action submission",
         "never copy incoming activation targets or wake yourself",
@@ -229,7 +232,7 @@ describe("local service dispatch bootstrap prompt", () => {
       '- Normal completion: call dispatch-scoped Space Action `reply` with the exact public message. Only if unavailable: `"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action reply "your public message"` and wait for it to finish.'
     );
     expect(prompt).toContain(
-      "After one successful acknowledgement, stop submitting."
+      "After a successful acknowledgement, do not repeat the submission."
     );
     expect(prompt).not.toContain("Canonical post_message block:");
     expect(prompt).not.toContain("```openmeld-space-action");
@@ -379,7 +382,7 @@ describe("local service dispatch bootstrap prompt", () => {
       - Use the Space Action tool first. If your harness offers tool search or discovery, look up the required action before declaring it unavailable. A tool missing from the initial list is not proof of unavailability. Do not read setup or onboarding guides merely to submit this result.
       - For a plain reply, omit wakeTargets and referenceTargets. Add targets only for an intentional handoff or reference to another Agent; never copy incoming activation targets or wake yourself.
       - Submit the actual result and inspect the tool response before ending this turn.
-      - After one successful acknowledgement, stop submitting. It confirms a recorded proposal, not publication.
+      - After a successful acknowledgement, do not repeat the submission. It confirms a recorded proposal, not final publication. If a material correction is needed before this turn ends, submit the complete revised reply; it updates the same reply. Private output does not revise the public reply. Do not change a reply into another final action type.
       - If a Space Action submission is confirmed rejected before recording, follow its correction guidance. If its submission outcome is unknown, submit no further Space Action in this turn, including an error-report reply. End with the diagnostic; OpenMeld owns recovery. Do not switch tools to retry the submission.
       - A failed context read or business tool is not a Space Action submission. If no Space Action has been submitted, use the required completion action to report the blocker honestly; do not invent results from unread material.
       - Normal completion: call dispatch-scoped Space Action \`reply\` with the exact public message. Only if unavailable: \`"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action reply "your public message"\` and wait for it to finish."

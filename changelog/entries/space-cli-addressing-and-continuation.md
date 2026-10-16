@@ -4,6 +4,9 @@ title: Clearer Space addressing and task continuation
 kind: fixed
 areas: ["cli", "spaces", "agents"]
 audiences: ["users", "developers"]
+publishedAt: 2026-10-16
+release: v0.3.263
+evidence: ["commit:682d4fd273675b9dc405456a2c46a68aa24d8f4d", "workflow:38863835438"]
 ---
 
 The CLI catches repeated leading recipient names before sending. Continue or

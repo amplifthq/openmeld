@@ -137,6 +137,69 @@ describe("runtime agent controller report repo write-side", () => {
     });
   });
 
+  it("does not renew a native observation when a later publication arrives", async () => {
+    const runtimeLookupInput = lookupInput();
+    const registeredRuntimeId = openMeldServiceRuntimeId(
+      runtimeLookupInput,
+      "runtime_opaque_1"
+    );
+    await registerRuntimeRegistryRecord({
+      db: harness.db,
+      record: {
+        nowMs: 100,
+        openMeldServiceRuntimeId: registeredRuntimeId,
+        runtimeLookupInput,
+      },
+    });
+    const report = {
+      agentControllerRef: "builtin:codex",
+      agentControllerInterface: CODEX_AGENT_CONTROLLER_INTERFACE,
+      expiresAtMs: 5000,
+      observedAtMs: 1000,
+      reasonCodes: [],
+      openMeldServiceRuntimeId: registeredRuntimeId,
+      status: "ready" as const,
+    };
+    await acceptRuntimeAgentControllerReportRecord({
+      db: harness.db,
+      nowMs: 2000,
+      report,
+    });
+    const repeated = await acceptRuntimeAgentControllerReportRecord({
+      db: harness.db,
+      nowMs: 3000,
+      report: { ...report, observedAtMs: 2000, expiresAtMs: 6000 },
+    });
+    expect(repeated).toMatchObject({
+      status: "accepted",
+      currentReport: { expiresAtMs: 5000 },
+    });
+    expect(
+      await readCurrentRuntimeAgentControllerReport({
+        db: harness.db,
+        agentControllerRef: report.agentControllerRef,
+        openMeldServiceRuntimeId: registeredRuntimeId,
+      })
+    ).toMatchObject({ expiresAtMs: 5000 });
+    const refreshed = await acceptRuntimeAgentControllerReportRecord({
+      db: harness.db,
+      nowMs: 4000,
+      report: {
+        ...report,
+        observedAtMs: 3000,
+        expiresAtMs: 7000,
+        agentControllerInterface: {
+          ...CODEX_AGENT_CONTROLLER_INTERFACE,
+          checkedAt: "2026-06-28T00:01:00.000Z",
+        },
+      },
+    });
+    expect(refreshed).toMatchObject({
+      status: "accepted",
+      currentReport: { expiresAtMs: 7000 },
+    });
+  });
+
   it("rejects a current report for an unregistered Runtime without writing", async () => {
     const runtimeLookupInput = lookupInput();
     const unregisteredRuntimeId = openMeldServiceRuntimeId(

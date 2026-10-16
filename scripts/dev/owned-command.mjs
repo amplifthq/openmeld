@@ -72,9 +72,12 @@ export async function runOwnedCommand(
   try {
     const code = await new Promise((resolve, reject) => {
       child.once("error", reject);
-      child.once("exit", (status, signal) =>
-        resolve(signal ? 1 : (status ?? 1))
-      );
+      child.once("exit", (status, signal) => {
+        if (signal) {
+          console.error(`[owned-command] Child terminated by ${signal}.`);
+        }
+        resolve(signal ? 1 : (status ?? 1));
+      });
       sample();
     });
     if (observationError) {

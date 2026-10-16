@@ -43,7 +43,7 @@ vi.mock("@opencode-ai/sdk/v2", () => ({
   createOpencodeClient: createOpencodeClientMock,
 }));
 
-const KEEPER_TTL_MS = 15 * 60_000;
+const KEEPER_TTL_MS = 60_000;
 
 beforeEach(() => {
   resetAgentControllerInterfaceKeeperForTests();
