@@ -48,8 +48,8 @@ const IMAGE_DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const CLOUDFLARE_IMAGE_REF =
   /^registry\.cloudflare\.com\/([0-9a-f]{32})\/openmeld-agent-computer@sha256:[0-9a-f]{64}$/u;
 
-export function assessRemoteAgentPartialRecovery(input) {
-  const { current, started, recovery, deployments, container, images } = input;
+function assertFailedRecoveryAttempt(input) {
+  const { current, started } = input;
   const receipt = current?.receipt;
   const startedReceipt = started?.receipt;
   if (
@@ -71,6 +71,21 @@ export function assessRemoteAgentPartialRecovery(input) {
       "The exact failed Remote Agent attempt and start event are not intact."
     );
   }
+}
+
+function assessRecoveryWorker(input) {
+  const { current, recovery, deployments } = input;
+  if (
+    !Array.isArray(deployments) ||
+    deployments.some(
+      (deployment) => !Number.isFinite(Date.parse(deployment.created_on))
+    )
+  ) {
+    throw new Error(
+      "Recovery requires a fully timestamped deployment history."
+    );
+  }
+  const receipt = current.receipt;
   const start = Date.parse(recovery?.startedAt ?? receipt.startedAt);
   const end = Date.parse(
     recovery?.observedAfterFailure?.observedAt ?? current.recordedAt
@@ -86,16 +101,18 @@ export function assessRemoteAgentPartialRecovery(input) {
     (a, b) => Date.parse(b.created_on) - Date.parse(a.created_on)
   )[0];
   if (
-    during.length !== 1 ||
+    (input.beforeUpload
+      ? during.length !== 0 || Date.parse(active?.created_on) >= start
+      : during.length !== 1 || active?.id !== during[0].id) ||
     !active ||
-    active.id !== during[0].id ||
+    !Number.isFinite(Date.parse(active.created_on)) ||
     active.id !== input.expectedDeploymentId ||
     active.versions?.length !== 1 ||
     active.versions[0].percentage !== 100 ||
     active.versions[0].version_id !== input.expectedWorkerVersionId
   ) {
     throw new Error(
-      "Cloudflare does not show one exact active Worker deployment inside the attempt window."
+      "Cloudflare does not show the exact active Worker for the selected recovery window."
     );
   }
   if (recovery) {
@@ -106,7 +123,10 @@ export function assessRemoteAgentPartialRecovery(input) {
     .toSorted((a, b) => Date.parse(b.created_on) - Date.parse(a.created_on))[0];
   if (
     !preceding ||
-    preceding.versions?.[0]?.version_id === active.versions[0].version_id ||
+    (input.beforeUpload
+      ? preceding.id !== active.id
+      : preceding.versions?.[0]?.version_id ===
+        active.versions[0].version_id) ||
     (recovery &&
       (preceding.id !== recovery.baseline.workerDeploymentId ||
         preceding.versions?.length !== 1 ||
@@ -117,6 +137,38 @@ export function assessRemoteAgentPartialRecovery(input) {
       "The preceding Worker deployment is missing or indistinguishable."
     );
   }
+  return active;
+}
+
+export function assessRemoteAgentPartialRecovery(input) {
+  assertFailedRecoveryAttempt(input);
+  const active = assessRecoveryWorker(input);
+  const { container, images } = input;
+  assertRecoveryContainer(input);
+  const image = images.find((item) => item.name === CONTAINER_NAME);
+  if (
+    !image ||
+    (!input.beforeUpload &&
+      image.tags.includes(active.versions[0].version_id.slice(0, 8)))
+  ) {
+    throw new Error(
+      "The failed attempt's container image may already exist; inspect its rollout before recovery."
+    );
+  }
+  return {
+    workerDeploymentId: active.id,
+    workerVersionId: active.versions[0].version_id,
+    containerId: container.id,
+    containerVersion: container.version,
+    containerImage: container.configuration.image,
+  };
+}
+
+function assertRecoveryContainer(input) {
+  const {
+    container,
+    current: { receipt },
+  } = input;
   if (
     container?.id !== input.expectedContainerId ||
     container?.name !== CONTAINER_NAME ||
@@ -139,28 +191,32 @@ export function assessRemoteAgentPartialRecovery(input) {
       "The live container no longer matches the pre-attempt target."
     );
   }
-  const image = images.find((item) => item.name === CONTAINER_NAME);
-  if (
-    !image ||
-    image.tags.includes(active.versions[0].version_id.slice(0, 8))
-  ) {
-    throw new Error(
-      "The failed attempt's container image may already exist; inspect its rollout before recovery."
+  if (input.beforeUpload) {
+    describeRetainedContainer(container, input.instancesPage);
+    const page = input.instancesPage;
+    const activeInstances = page.instances.filter(
+      (instance) => instance.state !== "inactive"
     );
+    if (
+      !Number.isInteger(page.result_info?.per_page) ||
+      page.result_info.per_page < page.instances.length ||
+      container.health.instances.active !== activeInstances.length ||
+      ["stopped", "scheduling", "assigned"].some(
+        (state) => container.health.instances[state] !== 0
+      )
+    ) {
+      throw new Error(
+        "Pre-upload recovery requires complete healthy Container counts."
+      );
+    }
   }
-  return {
-    workerDeploymentId: active.id,
-    workerVersionId: active.versions[0].version_id,
-    containerId: container.id,
-    containerVersion: container.version,
-    containerImage: container.configuration.image,
-  };
 }
 
 function assertRecoveryObservation(input, active) {
   const { recovery, container } = input;
   const observed = recovery.observedAfterFailure;
   const expected =
+    recovery.observedContainer ??
     input.current.receipt.remoteAgent?.container ??
     recovery.nativeProvenance?.container;
   const { instances: expectedInstances, ...expectedConfiguration } =
@@ -472,10 +528,10 @@ function readState(cwd, containerId) {
   };
 }
 
-function readRecoveryState(cwd, containerId, history) {
+function readRecoveryState(cwd, containerId, history, beforeUpload) {
   return {
     ...readState(cwd, containerId),
-    ...(history.recovery
+    ...(history.recovery || beforeUpload
       ? {
           instancesPage: readCloudflare(cwd, [
             "containers",
@@ -788,6 +844,7 @@ function parseArgs(argv) {
           "--container-image",
           "--verify-only",
           "--base",
+          "--before-upload",
         ].includes(key) && argv[index + 1]
       ) ||
       options[key]
@@ -799,7 +856,9 @@ function parseArgs(argv) {
     options[key] = argv[index + 1];
   }
   if (
-    Object.keys(options).length !== 9 ||
+    Object.keys(options).length !== (options["--before-upload"] ? 10 : 9) ||
+    (options["--before-upload"] !== undefined &&
+      (options["--before-upload"] !== "true" || options["--verify-only"])) ||
     (options["--verify-only"] !== "true" &&
       !EXACT_SHA.test(options["--base"] ?? "")) ||
     (options["--verify-only"] === "true" && options["--base"] !== undefined) ||
@@ -838,6 +897,7 @@ async function main(argv) {
     );
   }
   const sourceSha = options["--source-sha"];
+  const beforeUpload = options["--before-upload"] === "true";
   assertCleanSource(sourceDir, sourceSha);
   run(
     "git",
@@ -898,10 +958,12 @@ async function main(argv) {
       const original = readRecoveryState(
         sourceDir,
         options["--container-id"],
-        history
+        history,
+        beforeUpload
       );
       const baseline = assessRemoteAgentPartialRecovery({
         current: latest,
+        beforeUpload,
         ...history,
         ...original,
         sourceSha,
@@ -929,10 +991,14 @@ async function main(argv) {
         startedAt: new Date().toISOString(),
         baseline,
       };
-      const prior = readNativeHistoryBaseline(
-        sourceDir,
-        latest.verifiedHistoryBaseline
-      );
+      // A pre-upload recovery performs a full native release. Historical native
+      // receipts can describe an older deployment and cannot authorize retaining
+      // the currently observed image. Require a new image and completed rollout.
+      const fullNativeRelease =
+        beforeUpload || Boolean(history.recovery?.observedContainer);
+      const prior = fullNativeRelease
+        ? undefined
+        : readNativeHistoryBaseline(sourceDir, latest.verifiedHistoryBaseline);
       const nativeProvenance = prior
         ? proveNativeBaseline({
             verifiedHistoryBaseline: prior,
@@ -957,6 +1023,15 @@ async function main(argv) {
         : undefined;
       if (nativeProvenance) {
         recovery.nativeProvenance = nativeProvenance;
+      }
+      const retainedBeforeUpload = fullNativeRelease
+        ? describeRetainedContainer(original.container, original.instancesPage)
+        : undefined;
+      if (retainedBeforeUpload) {
+        recovery.observedContainer = retainedBeforeUpload;
+      }
+      if (beforeUpload) {
+        await verifyPreUploadImage(sourceDir, baseline);
       }
       const record = (status, application, identity) =>
         publishRemoteAgentRecoveryEvidence({
@@ -985,48 +1060,53 @@ async function main(argv) {
               adapters: {
                 runCommand: (input) => readWorkerCommand(sourceDir, input),
               },
-              beforeStep: (_step, state) => {
-                if (state) {
-                  const fresh = readRecoveryState(
-                    sourceDir,
-                    baseline.containerId,
-                    history
-                  );
-                  const freshBaseline = assessRemoteAgentPartialRecovery({
-                    current: latest,
-                    ...history,
-                    ...fresh,
-                    sourceSha,
-                    attemptId: options["--attempt"],
-                    operationKey,
-                    expectedDeploymentId: baseline.workerDeploymentId,
-                    expectedWorkerVersionId: baseline.workerVersionId,
-                    expectedContainerId: baseline.containerId,
-                    expectedContainerVersion: baseline.containerVersion,
-                    expectedContainerImage: baseline.containerImage,
-                  });
-                  if (
-                    JSON.stringify(freshBaseline) !== JSON.stringify(baseline)
-                  ) {
-                    throw new Error(
-                      "Remote Agent state drifted after the recovery lease was acquired."
-                    );
-                  }
-                  if (nativeProvenance) {
-                    const observed = describeRemoteContainerConfiguration(
-                      fresh.container
-                    );
-                    if (
-                      observed.configurationHash !==
-                      nativeProvenance.container.configurationHash
-                    ) {
-                      throw new Error(
-                        "Native configuration changed before recovery deployment."
-                      );
-                    }
-                  }
-                  capture.recordDeploymentBaseline(state);
+              beforeStep: async (_step, state) => {
+                assertCleanSource(sourceDir, sourceSha);
+                if (!state) {
+                  return;
                 }
+                const fresh = readRecoveryState(
+                  sourceDir,
+                  baseline.containerId,
+                  history,
+                  beforeUpload
+                );
+                const freshBaseline = assessRemoteAgentPartialRecovery({
+                  current: latest,
+                  beforeUpload,
+                  ...history,
+                  ...fresh,
+                  sourceSha,
+                  attemptId: options["--attempt"],
+                  operationKey,
+                  expectedDeploymentId: baseline.workerDeploymentId,
+                  expectedWorkerVersionId: baseline.workerVersionId,
+                  expectedContainerId: baseline.containerId,
+                  expectedContainerVersion: baseline.containerVersion,
+                  expectedContainerImage: baseline.containerImage,
+                });
+                if (
+                  JSON.stringify(freshBaseline) !== JSON.stringify(baseline)
+                ) {
+                  throw new Error(
+                    "Remote Agent state drifted after the recovery lease was acquired."
+                  );
+                }
+                assertNativeConfigurationUnchanged(
+                  nativeProvenance,
+                  fresh.container
+                );
+                if (retainedBeforeUpload) {
+                  assertRetainedPreUploadContainer(
+                    retainedBeforeUpload,
+                    fresh.container,
+                    fresh.instancesPage
+                  );
+                  if (beforeUpload) {
+                    await verifyPreUploadImage(sourceDir, baseline);
+                  }
+                }
+                capture.recordDeploymentBaseline(state);
                 assertCleanSource(sourceDir, sourceSha);
               },
               afterStep: () => assertCleanSource(sourceDir, sourceSha),
@@ -1068,6 +1148,50 @@ async function main(argv) {
       }
     },
   });
+}
+
+export function assertRetainedPreUploadContainer(expected, container, page) {
+  const { instances, ...configuration } = describeRetainedContainer(
+    container,
+    page
+  );
+  const { instances: protectedInstances, ...baseline } = expected;
+  if (
+    !isDeepStrictEqual(configuration, baseline) ||
+    protectedInstances.some(
+      (instance) =>
+        !instances.some(
+          (live) => live.id === instance.id && live.version === instance.version
+        )
+    )
+  ) {
+    throw new Error(
+      "The pre-upload Container configuration or protected instances changed."
+    );
+  }
+}
+
+function assertNativeConfigurationUnchanged(provenance, container) {
+  if (
+    provenance &&
+    describeRemoteContainerConfiguration(container).configurationHash !==
+      provenance.container.configurationHash
+  ) {
+    throw new Error("Native configuration changed before recovery deployment.");
+  }
+}
+
+async function verifyPreUploadImage(cwd, baseline) {
+  const digest = await readImageDigest(
+    cwd,
+    baseline.containerImage,
+    baseline.workerVersionId
+  );
+  if (baseline.containerImage.split("@")[1] !== digest) {
+    throw new Error(
+      "The active Worker image tag does not match the pre-upload Container digest."
+    );
+  }
 }
 
 export function assertRemoteVerificationSelectors(latest, options) {
