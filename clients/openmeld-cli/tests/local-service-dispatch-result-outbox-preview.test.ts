@@ -127,6 +127,7 @@ vi.mock("../src/agent-activity/session-inventory-origin-store", () => ({
 }));
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { force: true, recursive: true });
@@ -1790,6 +1791,7 @@ describe("dispatch result outbox around preview teardown", () => {
 
   it("streams a durable CLI reply before native completion without settling the execution", async () => {
     await withTempHome(async () => {
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
       const ledgerPaths = createLedgerPaths();
       let proposalObserved: () => void = () => undefined;
       const proposal = new Promise<void>((resolve) => {
@@ -1799,10 +1801,22 @@ describe("dispatch result outbox around preview teardown", () => {
       const revisedReply = "Revised public answer. ".repeat(2000);
       let reviseReply: (text: string) => void = () => undefined;
       let nativeTurnCompleted = false;
+      let lateReplyCount = 0;
       const settlementSocket = createAcceptedSettlementSocket({
         ledgerPaths,
         presenter,
-        beforeResult: () => expect(nativeTurnCompleted).toBe(true),
+        beforeResult: () => {
+          expect(nativeTurnCompleted).toBe(true);
+          const replyCount = () =>
+            settlementSocket.send.mock.calls.filter(
+              ([raw]) =>
+                JSON.parse(String(raw)).code === "daemon.dispatch.reply"
+            ).length;
+          const countBeforeSubmission = replyCount();
+          currentSocketRef.socket = { ...settlementSocket } as never;
+          vi.advanceTimersByTime(250);
+          lateReplyCount += replyCount() - countBeforeSubmission;
+        },
       });
       const socket = settlementSocket as never;
       const currentSocketRef: CurrentDaemonSocketRef = {
@@ -1917,6 +1931,7 @@ describe("dispatch result outbox around preview teardown", () => {
         finishRuntime(createRuntimeSuccessResult());
       }
       const result = await carrierResult;
+      expect(lateReplyCount).toBe(0);
       expect(currentSocketRef.reasoningPreferenceListeners?.size).toBe(0);
 
       stdoutSpy.mockRestore();

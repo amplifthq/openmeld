@@ -39,12 +39,12 @@ function setup() {
   });
   const publish = vi.fn(() => true);
   let connection = {};
-  const stop = watchSpaceActionReply({
+  const stream = watchSpaceActionReply({
     context,
     publish,
     connection: () => connection,
   });
-  cleanups.push(stop);
+  cleanups.push(stream.stop);
   const reply = (text: string) =>
     writeDispatchSpaceActionRecord({
       context,
@@ -63,7 +63,7 @@ function setup() {
     context,
     publish,
     reply,
-    stop,
+    ...stream,
     reconnect: () => {
       connection = {};
     },
@@ -91,20 +91,28 @@ describe("durable Space Action reply streaming", () => {
   });
 
   it("updates a reviewed proposal in place and replays after reconnect", () => {
-    const { context, publish, reply, reconnect } = setup();
+    const { context, publish, reply, reconnect, pause, resume } = setup();
     reply("First proposal.");
     vi.advanceTimersByTime(250);
+    pause();
+    reconnect();
+    vi.advanceTimersByTime(5250);
+    expect(publish).toHaveBeenCalledTimes(1);
+    resume();
     supersedeDispatchSpaceActionRecordForReconsideration({ context });
+    vi.advanceTimersByTime(250);
+    expect(publish).toHaveBeenLastCalledWith("", undefined);
     reply("Reviewed proposal.");
     vi.advanceTimersByTime(250);
     expect(publish.mock.calls).toEqual([
       ["First proposal.", undefined],
+      ["", undefined],
       ["Reviewed proposal.", undefined],
     ]);
     reconnect();
     vi.advanceTimersByTime(250);
     expect(publish).toHaveBeenLastCalledWith("Reviewed proposal.", undefined);
-    expect(publish).toHaveBeenCalledTimes(3);
+    expect(publish).toHaveBeenCalledTimes(4);
   });
 
   it("retracts an archived proposal during reconsideration and keeps silence on reconnect", () => {
@@ -180,6 +188,9 @@ describe("durable Space Action reply streaming", () => {
     ).toThrow("already been recorded");
     mkdirSync(`${context.actionRecordPath}.lock`);
     expect(() => reply("A concurrent replacement.")).toThrow();
+    expect(() =>
+      supersedeDispatchSpaceActionRecordForReconsideration({ context })
+    ).toThrow();
     expect(readDispatchSpaceActionRecord({ context })).toMatchObject({
       status: "loaded",
       record: {

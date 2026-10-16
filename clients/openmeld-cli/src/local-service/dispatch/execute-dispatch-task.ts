@@ -1033,7 +1033,9 @@ export async function handleDispatchDeliverFrame(input: {
   });
   const runtimeStartedAtMs = Date.now();
   let agentToolActivitySequence = 0;
-  let stopSpaceActionReplyStream: (() => void) | undefined;
+  let spaceActionReplyStream:
+    | ReturnType<typeof watchSpaceActionReply>
+    | undefined;
   const reportPublicProgress = createDispatchPublicProgressReporter({
     publish: (progressSnapshot) => {
       const socket = currentSocketRef.socket;
@@ -1316,7 +1318,7 @@ export async function handleDispatchDeliverFrame(input: {
     });
     dispatchSpaceActionContext =
       spaceActionRuntimeContext.dispatchSpaceActionContext;
-    stopSpaceActionReplyStream = watchSpaceActionReply({
+    spaceActionReplyStream = watchSpaceActionReply({
       context: dispatchSpaceActionContext,
       connection: () => currentSocketRef.socket,
       onSendError: () =>
@@ -2200,6 +2202,7 @@ export async function handleDispatchDeliverFrame(input: {
     const replySettlement = await settleAgentReplyProposals({
       initialResultPayload: resultPayload,
       reconsider: async (agentReplyObservationCursor) => {
+        spaceActionReplyStream?.resume();
         const reconsidered = await resolveRuntimeResultStructuredSpaceAction({
           onInteractionRequest,
           onNativeTurnStarted,
@@ -2232,8 +2235,11 @@ export async function handleDispatchDeliverFrame(input: {
           reconsidered.resolvedSpaceActionProvenance;
         return await buildCurrentResultPayload();
       },
-      submit: (payload) =>
-        sendResultAndSummarize({
+      submit: (payload) => {
+        // Core can retire the token before the settlement acknowledgement.
+        // Keep the draft quiet until Core requests another authoring turn.
+        spaceActionReplyStream?.pause();
+        return sendResultAndSummarize({
           attemptId: parsedTask.attemptId,
           connectionGeneration: input.deliverRequest.connectionGeneration,
           currentSocketRef,
@@ -2252,7 +2258,8 @@ export async function handleDispatchDeliverFrame(input: {
           ledgerPaths: input.ledgerPaths,
           taskId: parsedTask.taskId,
           waitForSettlement: true,
-        }),
+        });
+      },
     });
     resultPayload = replySettlement.resultPayload;
     settledResultSummary = replySettlement.resultSummary;
@@ -2343,7 +2350,7 @@ export async function handleDispatchDeliverFrame(input: {
       },
     });
   } finally {
-    stopSpaceActionReplyStream?.();
+    spaceActionReplyStream?.stop();
     await nativeQuiescence;
     await releaseDispatchTaskWorkspace({
       workspaceUse,

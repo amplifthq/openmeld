@@ -266,17 +266,20 @@ describe("OpenMeld Space Action command", () => {
   it("preserves a superseded action before one bounded reconsideration", async () => {
     const context = createTestContext([]);
     await runSpaceActionReply({ messageParts: ["First answer."] });
+    await runSpaceActionReply({ messageParts: ["Second answer."] });
 
     const superseded = supersedeDispatchSpaceActionRecordForReconsideration({
       context,
     });
     expect(superseded?.record.action).toMatchObject({
       type: "post_message",
-      messageEnvelope: { text: "First answer." },
+      messageEnvelope: { text: "Second answer." },
     });
     expect(readDispatchSpaceActionRecord({ context }).status).toBe("missing");
 
     await runSpaceActionReply({ messageParts: ["Reconsidered answer."] });
+    await runSpaceActionReply({ messageParts: ["First answer."] });
+    await runSpaceActionReply({ messageParts: ["Second answer."] });
     expect(readLoadedActionRecord(context).action).toMatchObject({
       type: "post_message",
       messageEnvelope: { text: "Reconsidered answer." },

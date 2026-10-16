@@ -11,10 +11,14 @@ export function watchSpaceActionReply(input: {
   publish: (text: string, placement?: "conversation" | "thread") => boolean;
   connection: () => unknown;
   onSendError?: () => void;
-}): () => void {
+}): { pause: () => void; resume: () => void; stop: () => void } {
   const context = input.context;
   if (!context) {
-    return () => undefined;
+    return {
+      pause: () => undefined,
+      resume: () => undefined,
+      stop: () => undefined,
+    };
   }
   let previousText: string | null = null;
   let previousPlacement: "conversation" | "thread" | undefined;
@@ -71,6 +75,21 @@ export function watchSpaceActionReply(input: {
       lastSentAtMs = Date.now();
     }
   };
-  const timer = setInterval(tick, 250);
-  return () => clearInterval(timer);
+  let timer: ReturnType<typeof setInterval> | undefined = setInterval(
+    tick,
+    250
+  );
+  const pause = () => {
+    clearInterval(timer);
+    timer = undefined;
+  };
+  return {
+    pause,
+    resume: () => {
+      if (timer === undefined) {
+        timer = setInterval(tick, 250);
+      }
+    },
+    stop: pause,
+  };
 }

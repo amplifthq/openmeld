@@ -2098,7 +2098,9 @@ send does not acknowledge the downstream Space write.
 Explicit `post_message` revisions replace the snapshot on the same attempt
 stream; identical records do not create new messages. The writer serializes
 CLI and native tool writes, atomically replaces the record, and retains up to
-32 prior reply digests so delayed retries cannot restore an older reply.
+32 prior reply digests so delayed retries cannot restore an older reply,
+including across reconsideration. Archiving uses the same writer lock, and the
+latest archive carries the cumulative digest history into the repaired record.
 Changing the final action type is rejected. When approved reconsideration
 archives the action, the observer sends an empty text snapshot to retract the
 old draft. It keeps that draft clear if reconsideration selects silence. An interrupted writer's lock is
@@ -2112,6 +2114,9 @@ existing final-publication path; the new frame does not change that path.
 Both execution-context and legacy runs wait for the actual native result before
 reading the final record. A saved draft must not settle the local ledger early
 or freeze an earlier revision while the controller is still running.
+The observer pauses before result submission and resumes only when Core requests
+reconsideration. It retains its snapshot state so an archived reply is still
+cleared during the repair turn; settlement waits cannot send terminal-late drafts.
 
 ### Local Agent Work Summary Delivery
 
