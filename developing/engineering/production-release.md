@@ -316,13 +316,21 @@ the guarded `deploy` command only after the prior attempt is resolved; that flag
 cannot override an unresolved attempt. A different-source release or rollback
 still follows ordinary source, channel and lease guards.
 
-Core can retry a failed upload under the same source, operation and attempt when
-the previous verified deployment ID and version still serve 100% of traffic.
-The executor verifies that identity under the Core lease before effects and
+Auth, Core, Gateway, Web, Website and Docs can retry an interrupted or failed
+Worker upload under the same source, operation and attempt when the previous
+verified deployment ID and version still serve 100% of traffic. This includes
+a retained `started` receipt whose push acknowledgement was lost before upload.
+The executor verifies that identity under the component lease before effects and
 requires fresh command-correlated activation evidence afterward. PostgreSQL
 admission checks that active baseline's bindings; it does not mark the failed
 attempt successful. An intervening deployment, including a rollback to the same
-version, blocks this retry.
+version, blocks this retry. CLI publication, database mutations and Remote Agent
+native rollout retain their separate recovery rules.
+
+After a receipt push transport error, the publisher reads the remote refs once.
+It accepts the write only when every selected ref points to the exact commit
+prepared by that atomic push. Missing, changed or unreadable refs remain failures;
+the publisher does not repeat the push or create a replacement attempt.
 
 Native PostgreSQL can start a new-source attempt after a failed first migration
 step only when the previous verified database receipt is retained. Current control
