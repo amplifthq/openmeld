@@ -2205,10 +2205,19 @@ export async function runDaemonSocketSession(input: {
       .call("settleResults", {})
       .catch(input.failHostShutdown);
     if (finalHeartbeatError) {
-      throw finalHeartbeatError;
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.controlled_shutdown_offline_unconfirmed",
+        text: "Local work drained. The cloud did not confirm the final offline update.",
+        payload: { errorMessage: toErrorMessage(finalHeartbeatError) },
+      });
     }
     if (result.status === "connection_closed") {
-      return false;
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.controlled_shutdown_results_preserved",
+        text: "Local work drained. Pending results remain on disk for the next Service start.",
+      });
     }
     if (result.status === "timeout") {
       emitRunLine({

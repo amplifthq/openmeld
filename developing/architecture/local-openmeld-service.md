@@ -390,8 +390,11 @@ First enrollment may attach the Core-owned connected Computer ID to an already
 owned runtime without advancing its Service generation, only when every other
 contract field is unchanged. This records the existing account/device/lane
 association rather than replacing the carrier. Replacing an existing enrollment
-or changing any other contract field still advances the generation. Stop continues
-to require the running lease and current contract generations to match.
+or changing another identity or configuration field still advances the generation.
+An explicit Stop may change only desired state to `stopped` and disable autostart
+without advancing generation. The current carrier must retain ownership while it
+drains. Stop still requires matching lease and contract generations. The next
+explicit Start advances generation, so prior startup receipts cannot restart it.
 
 Canonical Service contract writes and clears share the existing lifecycle lock
 for the same resolved Service owner root, including ordinary installation.
@@ -3026,12 +3029,16 @@ protection when the exact carrier accepts the existing controlled stop. Its
 response waits for drain, but the CLI caller has a fixed total request deadline.
 Progress bytes do not extend that deadline. Caller timeout closes only its
 control connection and never cancels admitted drain or accepted work.
-An idle Host with no retained results can settle without a cloud connection;
-missing transport is not a reason to reconnect forever for an empty outbox.
+The lifecycle owner persists explicit stopped intent and disabled autostart before
+waiting for the carrier. This is desired state, not proof of completed shutdown.
+An idle Host can settle without a cloud connection; retained results stay in its
+durable outbox for the next explicit start. A missing final offline acknowledgement
+does not justify endless reconnection after local work is quiescent. Active work
+continues to use replacement connections until its existing drain completes.
 Commit can precede outcome persistence:
 a pending record therefore does not prove refusal. Only the coordinator's
 explicit `service.account_admission.stop_refused` response proves pre-commit
-refusal and permits restoring the previous autostart preference. Once commit
+refusal permits restoring autostart only when the desired state still allows it. Once commit
 has been reached, a persistence, drain, or transport failure is uncertain;
 autostart remains disabled and the CLI reports `stop_unconfirmed` with the
 underlying diagnostic. The existing coordinator retains drain completion/error
@@ -3045,7 +3052,7 @@ shutdown field; that is not a positive coordinator refusal receipt.
 
 This record owns only local operation admission. It adds no Wakeability,
 RuntimeCoordinator, dispatch, Binding, or final-outcome authority. The persisted
-Service contract remains unchanged. The Desktop pilot exposes only this operation
+Service contract remains the desired-state owner. The Desktop pilot exposes only this operation
 after a separate read-only capability query proves its actual local pair.
 
 `service control-capabilities --json` runs before layout repair or managed CLI
@@ -3236,6 +3243,14 @@ not silently repair, reinstall, stop, start, or mutate runtime state.
 
 Setup and repair exist to restore local infrastructure for the current intended
 account, device, and lane.
+
+An already-running repair may report healthy only after an authenticated local
+control response, a fresh Host control round trip, and the Core-owned current
+device projection agree on the device and lane. The Host must be responsive,
+admitting work, and past startup replay; the runtime contract must be compatible.
+A live PID or an installed supervisor alone is insufficient. Active work does
+not make a healthy Service unhealthy. Missing evidence remains a diagnostic
+failure, not an inferred success. Status reads remain read-only.
 
 On macOS, start inspects the exact lane's launchd job, bootstraps only a missing
 job, and requests a demand start with `kickstart` without `-k`. It does not

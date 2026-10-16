@@ -822,6 +822,18 @@ describe("local service contract store", () => {
       expect(second).toEqual(first);
       expect(third.generation).toBe(2);
       expect(third.desiredState).toBe("background");
+      const stopped = await upsertDaemonServiceContract({
+        ...third,
+        desiredState: "stopped",
+        autoStart: false,
+      });
+      expect(stopped.generation).toBe(third.generation);
+      expect((await readDaemonServiceContract())?.desiredState).toBe("stopped");
+      const restarted = await upsertDaemonServiceContract({
+        ...stopped,
+        desiredState: "background",
+      });
+      expect(restarted.generation).toBe(stopped.generation + 1);
     });
   });
 

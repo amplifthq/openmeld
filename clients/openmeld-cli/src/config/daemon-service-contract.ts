@@ -104,7 +104,10 @@ async function writeDaemonServiceContractState(
     ...candidate,
     generation: current
       ? current.generation +
-        (isFirstEnrollmentOfCurrentRuntime(current, candidate) ? 0 : 1)
+        (isFirstEnrollmentOfCurrentRuntime(current, candidate) ||
+        isStopIntentForCurrentRuntime(current, candidate)
+          ? 0
+          : 1)
       : 1,
     updatedAt: new Date().toISOString(),
   };
@@ -115,6 +118,23 @@ async function writeDaemonServiceContractState(
     mode: 0o600,
   });
   return next;
+}
+
+function isStopIntentForCurrentRuntime(
+  current: DaemonServiceContract,
+  candidate: Omit<DaemonServiceContract, "generation" | "updatedAt">
+): boolean {
+  // Stop changes desired state, not the identity of work already being drained.
+  // A subsequent Start still advances the generation and fences old startup receipts.
+  return (
+    candidate.desiredState === "stopped" &&
+    !candidate.autoStart &&
+    isSameContractState(current, {
+      ...candidate,
+      desiredState: current.desiredState,
+      autoStart: current.autoStart,
+    })
+  );
 }
 
 function isFirstEnrollmentOfCurrentRuntime(

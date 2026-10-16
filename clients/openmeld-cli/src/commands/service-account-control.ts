@@ -174,6 +174,15 @@ export async function runServiceAccountControl(
     );
 
     try {
+      if (input.operation === "stop") {
+        // The auth reservation fences credential changes; the lifecycle owner
+        // records intent before waiting for the carrier or releasing this lock.
+        await upsertDaemonServiceContract(
+          { ...contract, desiredState: "stopped", autoStart: false },
+          {},
+          { expectedCurrentContract: contract }
+        );
+      }
       await withAdmittedServiceSession(boundSession, async () => {
         if (input.operation === "stop") {
           await stopReservedService(contract, reservation.id, lease?.pid ?? 0);
@@ -316,7 +325,8 @@ export async function requestAccountCheckedServiceStop({
       manager &&
       wasEnabled &&
       error instanceof LocalDaemonControlPlaneClientError &&
-      error.code === SERVICE_ACCOUNT_STOP_REFUSED_CODE
+      error.code === SERVICE_ACCOUNT_STOP_REFUSED_CODE &&
+      (await readDaemonServiceContract())?.desiredState !== "stopped"
     ) {
       try {
         await manager.enableAutostart();

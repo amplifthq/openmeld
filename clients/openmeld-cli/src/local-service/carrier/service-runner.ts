@@ -461,6 +461,15 @@ export function createControlledShutdownCoordinator(input: {
 
   return {
     failHostShutdown,
+    isDraining: () => shutdownAttempt !== null || input.isStopRequested(),
+    async completeQuiescentStop(): Promise<boolean> {
+      if (!shutdownAttempt || input.hasUndrainedWork()) {
+        return false;
+      }
+      await this.waitForDrain();
+      this.handleSessionCompleted();
+      return true;
+    },
     waitForDrain(): Promise<void> {
       hostDrain ??= input.drainHost().catch((error: unknown) => {
         // A Host refusal/failure is not a transport interruption. Report it to
@@ -692,6 +701,41 @@ async function launchAccountExecutionHost(input: {
   });
 }
 
+async function finishDisconnectedControlledStop(input: {
+  stopRequested: boolean;
+  controlledShutdown: ReturnType<typeof createControlledShutdownCoordinator>;
+  executionHost: Awaited<ReturnType<typeof launchExecutionHost>>;
+  presenter: Presenter;
+}): Promise<boolean> {
+  if (input.stopRequested) {
+    return true;
+  }
+  if (!input.controlledShutdown.isDraining()) {
+    return false;
+  }
+  // Refresh through the Host owner. Accepted work may still require reconnect;
+  // an idle Host can preserve its durable results without another cloud session.
+  try {
+    await input.executionHost.call("health", {});
+  } catch (error) {
+    emitRunLine({
+      presenter: input.presenter,
+      code: "daemon.run.controlled_shutdown_host_unconfirmed",
+      text: `Local work is not confirmed drained: ${toErrorMessage(error)}`,
+    });
+    return false;
+  }
+  if (!(await input.controlledShutdown.completeQuiescentStop())) {
+    return false;
+  }
+  emitRunLine({
+    presenter: input.presenter,
+    code: "daemon.run.controlled_shutdown_offline",
+    text: "Local work drained. Pending results remain on disk for the next Service start.",
+  });
+  return true;
+}
+
 const runAccountBoundDaemonServiceLoop = async (
   input: DaemonServiceRunInput
 ): Promise<void> => {
@@ -867,10 +911,7 @@ const runAccountBoundDaemonServiceLoop = async (
     },
     hasUndrainedWork: () => {
       const observed = executionHost.snapshot();
-      return (
-        !(executionHost.available() && observed?.localQuiescent) ||
-        observed.unacknowledgedResultCount > 0
-      );
+      return !(executionHost.available() && observed?.localQuiescent);
     },
     isStopRequested: () => stopRequested,
     markStopping: () => {
@@ -918,7 +959,7 @@ const runAccountBoundDaemonServiceLoop = async (
       healthPayload: {
         checkedAt: nowIsoString(),
         ...toHealthProjection(
-          stopRequested
+          controlledShutdown.isDraining()
             ? { ...connectionState.get(), state: "stopping" }
             : connectionState.get()
         ),
@@ -1199,7 +1240,14 @@ const runAccountBoundDaemonServiceLoop = async (
       } catch (error) {
         activeSocket = null;
         requestActiveRouteCatalogSync = null;
-        if (stopRequested) {
+        if (
+          await finishDisconnectedControlledStop({
+            stopRequested,
+            controlledShutdown,
+            executionHost,
+            presenter: input.presenter,
+          })
+        ) {
           break;
         }
         recovery ??= { recoveryId: randomUUID(), disconnectedAt: Date.now() };
