@@ -219,9 +219,10 @@ describe("Desktop computer connection admission", () => {
               id: scenario === "cancel_switch" ? "account-old" : "account-a",
               email: "old@example.com",
             },
-        existingConnection: firstConnect
-          ? null
-          : { deviceId: "device-a", runtimeLane: "dev-local" },
+        existingConnection:
+          firstConnect || scenario === "targeted_update_legacy_tools"
+            ? null
+            : { deviceId: "device-a", runtimeLane: "dev-local" },
       } satisfies ReturnType<typeof computerConnectionReviewSchema.parse>),
       stderr: "",
     });
@@ -244,9 +245,6 @@ describe("Desktop computer connection admission", () => {
         stderr: "error: unknown option '--json'",
       }) satisfies ExecFileException & { stdout: string; stderr: string };
       mocks.exec.mockRejectedValueOnce(failure);
-      if (scenario === "targeted_update_legacy_tools") {
-        mocks.exec.mockRejectedValueOnce(failure);
-      }
     }
     const connect = createComputerConnection({
       auth: {
@@ -309,7 +307,9 @@ describe("Desktop computer connection admission", () => {
       );
     } else if (targetedUpdate) {
       await expect(result).rejects.toThrow(
-        "OpenMeld cannot verify this computer. Open Desktop on the selected computer and connect it before updating."
+        scenario === "targeted_update_legacy_tools"
+          ? "OpenMeld cannot read this Mac's Service identity. Start OpenMeld Service on this Mac, then try again."
+          : "OpenMeld cannot verify this computer with the installed tools. Run OpenMeld setup on the selected computer, then try again."
       );
       expect(mocks.grant).not.toHaveBeenCalled();
       expect(spawn).not.toHaveBeenCalled();

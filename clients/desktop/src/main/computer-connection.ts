@@ -642,7 +642,7 @@ async function reviewComputerConnection(
       }
       if (options.allowBootstrap === false) {
         throw new Error(
-          "OpenMeld cannot verify this computer. Open Desktop on the selected computer and connect it before updating.",
+          "OpenMeld cannot verify this computer with the installed tools. Run OpenMeld setup on the selected computer, then try again.",
           { cause: error }
         );
       }
@@ -713,21 +713,23 @@ async function resolvePrepareComputerTarget(
   if (!intent.connectedComputerId) {
     return {};
   }
+  const target = review.existingConnection;
+  if (!target) {
+    throw new Error(
+      "OpenMeld cannot read this Mac's Service identity. Start OpenMeld Service on this Mac, then try again."
+    );
+  }
   const inventory = peopleComputersResponseSchema.parse(
     await cloud("/v1/people-computers", "GET")
   );
-  const target = review.existingConnection;
   const computer = inventory.computers.find(
     (entry) => entry.connectedComputerId === intent.connectedComputerId
   );
   if (
-    !(
-      target &&
-      computer?.executionTargets.some(
-        (entry) =>
-          entry.deviceId === target.deviceId &&
-          entry.runtimeLane === target.runtimeLane
-      )
+    !computer?.executionTargets.some(
+      (entry) =>
+        entry.deviceId === target.deviceId &&
+        entry.runtimeLane === target.runtimeLane
     )
   ) {
     throw new Error("Open Desktop on the selected computer, then try again.");
