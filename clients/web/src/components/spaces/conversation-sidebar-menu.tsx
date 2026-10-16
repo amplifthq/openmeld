@@ -28,14 +28,14 @@ export function ConversationSidebarMenu({
 		if (!(node && pinned)) {
 			return;
 		}
-		const sidebar = node.closest('[data-slot="sidebar"]') ?? node;
 		const measure = () => {
-			const width = sidebar.getBoundingClientRect().width;
-			setColumns(Math.max(2, Math.min(4, Math.floor(width / 80))));
+			const width = node.getBoundingClientRect().width;
+			// Keep at least 60px per tile, plus the 4px gap between columns.
+			setColumns(Math.max(2, Math.min(5, Math.floor((width + 4) / 64))));
 		};
 		measure();
 		const observer = new ResizeObserver(measure);
-		observer.observe(sidebar);
+		observer.observe(node);
 		return () => observer.disconnect();
 	}, [pinned]);
 	const items = Children.toArray(children);
@@ -51,7 +51,7 @@ export function ConversationSidebarMenu({
 				hoverAxis={pinned ? "xy" : "y"}
 				listClassName={
 					pinned
-						? `grid gap-1 ${{ 1: "grid-cols-1", 2: "grid-cols-2", 3: "grid-cols-3", 4: "grid-cols-4" }[visibleColumns]}`
+						? `grid gap-1 ${{ 1: "grid-cols-1", 2: "grid-cols-2", 3: "grid-cols-3", 4: "grid-cols-4", 5: "grid-cols-5" }[visibleColumns]}`
 						: undefined
 				}
 			>

@@ -8,8 +8,11 @@ type Presentation = ReturnType<typeof resolveDirectMessagePresentation>;
 export function DirectMessageAvatar(input: {
 	peer?: Presentation["peer"];
 	participants?: Presentation["participants"];
-	size?: "sm" | "sidebar" | "card" | "md";
+	size?: "sm" | "sidebar" | "card" | "md" | "pinned";
 }) {
+	const compactSize = (
+		{ pinned: 32, md: 48, sm: 24, sidebar: 24, card: 24 } as const
+	)[input.size ?? "sm"];
 	if (input.peer) {
 		return (
 			<SpaceProfileIcon
@@ -27,7 +30,7 @@ export function DirectMessageAvatar(input: {
 						input.participants.map((profile) => [profile.profileId, profile])
 					)
 				}
-				compactSize={input.size === "md" ? 48 : 24}
+				compactSize={compactSize}
 				layout={input.size === "card" ? "grid" : "compact"}
 				members={input.participants}
 			/>
@@ -36,7 +39,8 @@ export function DirectMessageAvatar(input: {
 	return (
 		<ChatCircleTextIcon
 			aria-label="Direct Message"
-			className={input.size === "md" ? "size-12 shrink-0" : "size-6 shrink-0"}
+			className="shrink-0"
+			style={{ width: compactSize, height: compactSize }}
 		/>
 	);
 }

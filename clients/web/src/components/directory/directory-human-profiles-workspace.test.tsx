@@ -21,6 +21,13 @@ import {
 	sortSidebarPeople,
 } from "./people-sidebar-order";
 
+vi.mock("./team-sidebar-header", () => ({
+	TeamSidebarHeader: () => <h2>Team</h2>,
+	TeamSidebarHeaderActionsProvider: ({ children }: { children: ReactNode }) =>
+		children,
+	TeamSidebarHeaderAction: () => null,
+}));
+
 const ENABLED_LOCAL_AGENT_SUMMARY_PATTERN =
 	/Claude Code enabled, Codex enabled, Cursor enabled/;
 const LOCAL_AGENT_LOGO_TEST_ID_PATTERN = /^local-agent-logo-/;
@@ -154,14 +161,14 @@ vi.mock("#/components/app/app-full-width-layout", () => ({
 	AppFullWidthLayout: ({
 		children,
 		showMainHeader,
-		mainSidebarContent,
+		mainSidebar,
 	}: {
 		children: ReactNode;
 		showMainHeader?: boolean;
-		mainSidebarContent?: ReactNode;
+		mainSidebar?: { content: ReactNode };
 	}) => (
 		<div>
-			{mainSidebarContent}
+			{mainSidebar?.content}
 			<main data-show-main-header={showMainHeader ? "true" : "false"}>
 				{children}
 			</main>

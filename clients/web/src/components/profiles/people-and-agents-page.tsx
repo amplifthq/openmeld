@@ -272,7 +272,9 @@ export function PeopleAndAgentsPage(input: {
 					const personId = input.personId ?? resolvedPersonId;
 					navigate({
 						search:
-							!input.personId && personId ? { from: "agents" } : undefined,
+							input.returnToAgentDirectory || (!input.personId && personId)
+								? { from: "agents" }
+								: undefined,
 						to: personId
 							? buildOrganizationPersonAgentPath({
 									orgSlug,
