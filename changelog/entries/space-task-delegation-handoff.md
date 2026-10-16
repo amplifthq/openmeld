@@ -4,6 +4,9 @@ title: Keep delegated work connected to its Task
 kind: fixed
 areas: ["spaces", "center-agent"]
 audiences: ["users"]
+publishedAt: 2026-10-16
+release: v0.3.263
+evidence: ["commit:682d4fd273675b9dc405456a2c46a68aa24d8f4d", "commit:98fb79da6893ac5971c616f6d43161bfbebc6795", "commit:9f1f6f8b4ec2f628288a77593042f33d51bf1d47", "workflow:38863835438"]
 ---
 
 Delegating an existing Space Task records its assignee and reviewer together
