@@ -5,7 +5,9 @@ import {
   type RuntimeAgentControllerReportStatus,
   type RuntimeLookupInput,
 } from "@openmeld/agent-runtime";
+import { AGENT_CONTROLLER_AUTH_STALE_AFTER_MS } from "@openmeld/schemas";
 import type { AgentControllerInterfaceSnapshot } from "@openmeld/schemas/types";
+import { isServiceAuthFreshnessRequired } from "../../local-components/update-projection";
 import {
   lookupRuntime,
   type RuntimeLookupStore,
@@ -133,6 +135,7 @@ export async function acceptRuntimeAgentControllerReport(input: {
   }
 
   const report = resolveCurrentReport({
+    nowMs: input.nowMs,
     report: input.report,
     openMeldServiceRuntimeId: openMeldServiceRuntimeId.value,
   });
@@ -183,6 +186,7 @@ function resolveAuthorityOpenMeldServiceRuntimeId(input: {
 }
 
 function resolveCurrentReport(input: {
+  nowMs: number;
   report: RuntimeAgentControllerReportInput;
   openMeldServiceRuntimeId: AuthorityOpenMeldServiceRuntimeId;
 }):
@@ -232,6 +236,22 @@ function resolveCurrentReport(input: {
     };
   }
 
+  let expiresAtMs = input.report.expiresAtMs;
+  const checkedAt = input.report.agentControllerInterface?.checkedAt;
+  if (checkedAt && isServiceAuthFreshnessRequired()) {
+    // Both source times use the same device clock. Their difference preserves
+    // cached observation age without trusting that clock against Core time.
+    const ageMs = input.report.observedAtMs - Date.parse(checkedAt);
+    if (!Number.isFinite(ageMs) || ageMs < 0) {
+      return { ok: false, reason: "report_time_invalid" };
+    }
+    expiresAtMs =
+      input.nowMs +
+      Math.min(
+        input.report.expiresAtMs - input.report.observedAtMs,
+        AGENT_CONTROLLER_AUTH_STALE_AFTER_MS - ageMs
+      );
+  }
   return {
     ok: true,
     value: {
@@ -239,7 +259,7 @@ function resolveCurrentReport(input: {
       ...(input.report.agentControllerInterface
         ? { agentControllerInterface: input.report.agentControllerInterface }
         : {}),
-      expiresAtMs: input.report.expiresAtMs,
+      expiresAtMs,
       observedAtMs: input.report.observedAtMs,
       reasonCodes: normalizeReasonCodes(input.report.reasonCodes),
       openMeldServiceRuntimeId: input.openMeldServiceRuntimeId,

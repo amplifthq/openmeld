@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 import { desktopAuthIdentity } from "../../packages/schemas/src/desktop-auth-identity.ts";
 import { desktopDevelopmentContextSchema } from "../../packages/schemas/src/desktop-development.ts";
 import { desktopAppName } from "../desktop/app-name.ts";
+import { verifyDesktopArchive } from "../desktop/verify-archive.mjs";
 import { desktopWebBuildIdentity } from "../desktop/web-build-identity.mjs";
 import { runOwnedCommand } from "./owned-command.mjs";
 
@@ -164,6 +165,7 @@ export function inspectMacCallback(scheme) {
 }
 
 export function verifyDesktopBundle(plan) {
+  verifyDesktopArchive(join(plan.appPath, "Contents/Resources/app.asar"));
   const info = JSON.parse(
     execFileSync(
       "plutil",

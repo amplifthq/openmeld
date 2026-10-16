@@ -4,6 +4,9 @@ title: Use Node.js 22, 24, or 25 for the npm CLI
 kind: breaking
 areas: ["cli", "setup"]
 audiences: ["users", "developers"]
+publishedAt: 2026-10-16
+release: v0.3.263
+evidence: ["commit:682d4fd273675b9dc405456a2c46a68aa24d8f4d", "workflow:38863835438"]
 ---
 
 The npm CLI requires Node.js 22, 24, or 25. Node.js 24 is recommended.

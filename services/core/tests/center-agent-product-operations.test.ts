@@ -131,6 +131,51 @@ describe("Center Agent product operations", () => {
     expect(withModels.candidates[0]?.modelOptions).toEqual(modelOptions);
   });
 
+  it("keeps another controller's sign-in failure out of a ready candidate", () => {
+    const peopleComputers = createPeopleComputersResponse();
+    const target = peopleComputers.computers[0]?.executionTargets[0];
+    if (!target) {
+      throw new Error("Missing fixture execution target.");
+    }
+    const authReasons = [
+      "provider_account.access_required",
+      "controller.auth.unauthenticated",
+    ];
+    target.capabilities.push({
+      agentControllerRef: "builtin:claude-code",
+      enabled: true,
+      reasonCodes: authReasons,
+      status: "not_ready",
+    });
+    // Runtime reasons aggregate the enabled controllers, including Claude.
+    target.status = "partial";
+    target.reasonCodes = authReasons;
+    const connectionReasons =
+      peopleComputers.computers[0]?.connection.sessions[0]?.serviceUpdate
+        .reasonCodes ?? [];
+
+    const { candidates } = projectCenterAgentLocalAgentConnectionCandidates({
+      peopleComputers,
+      organizationId: ORGANIZATION_ID,
+    });
+    expect(
+      candidates.find((item) => item.agentControllerRef === "builtin:codex")
+    ).toMatchObject({
+      connectable: true,
+      status: "ready",
+      reasonCodes: connectionReasons,
+    });
+    expect(
+      candidates.find(
+        (item) => item.agentControllerRef === "builtin:claude-code"
+      )
+    ).toMatchObject({
+      connectable: false,
+      status: "not_ready",
+      reasonCodes: [...connectionReasons, ...authReasons],
+    });
+  });
+
   it("projects update and reconnect actions from current computer truth", () => {
     const updateRequired = createPeopleComputersResponse();
     const updateComputer = updateRequired.computers[0];

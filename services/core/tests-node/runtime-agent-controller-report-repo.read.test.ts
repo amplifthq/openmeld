@@ -17,6 +17,48 @@ import {
 import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("runtime agent controller report repo read-side", () => {
+  it("expires account status without discarding independently fresh usage", async () => {
+    const harness = await createPostgresHarness();
+    try {
+      const lookup = lookupInput("owner-1", "device-1");
+      const runtimeId = openMeldServiceRuntimeId(lookup, "runtime_opaque_1");
+      await registerRuntime(harness.db, lookup, runtimeId);
+      await acceptRuntimeAgentControllerReportRecord({
+        db: harness.db,
+        nowMs: 2000,
+        report: {
+          agentControllerRef: "builtin:codex",
+          agentControllerInterface: usageSnapshot(),
+          expiresAtMs: 120_000,
+          observedAtMs: 1000,
+          reasonCodes: [],
+          openMeldServiceRuntimeId: runtimeId,
+          status: "ready",
+        },
+      });
+      const records = await listOwnedDeviceExecutionTargetRecords({
+        db: harness.db,
+        nowMs: 120_000,
+        userId: "owner-1",
+      });
+      expect(records[0]).toMatchObject({
+        capabilityStatus: "stale",
+        agentControllerInterface: {
+          auth: { status: "unknown" },
+          check: { status: "failed" },
+          status: "warning",
+          usageLimits: [
+            { key: "codex:primary", status: "available", usedPercent: 42 },
+            { key: "codex:secondary", status: "exhausted", usedPercent: 100 },
+            { key: "provider-unavailable", status: "unavailable" },
+            { key: "provider", status: "unsupported" },
+          ],
+        },
+      });
+    } finally {
+      await harness.close();
+    }
+  });
   it("reads current reports for one authority Runtime without returning other Runtime facts", async () => {
     const harness = await createPostgresHarness();
 

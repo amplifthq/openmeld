@@ -4,6 +4,9 @@ title: Open Routines directly from the main navigation
 kind: improved
 areas: ["web", "routines", "files"]
 audiences: ["users"]
+publishedAt: 2026-10-16
+release: v0.3.263
+evidence: ["commit:682d4fd273675b9dc405456a2c46a68aa24d8f4d", "commit:e7bcf2f444662ce4acc618d32354e378ce8df3fc"]
 ---
 
 Routines has its own main navigation entry for personal and shared scheduled

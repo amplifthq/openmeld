@@ -418,12 +418,17 @@ describe("Service account admission across processes", () => {
         await expect(
           requestAccountCheckedServiceStop({
             id: stop.id,
+            contract,
             manager: {
               status: () =>
                 Promise.resolve({ installed: true, running: true, enabled }),
-              disableAutostart: () => {
+              disableAutostart: async () => {
+                expect(await readDaemonServiceContract()).toMatchObject({
+                  desiredState: "stopped",
+                  autoStart: false,
+                  generation: contract.generation,
+                });
                 enabled = false;
-                return Promise.resolve();
               },
               enableAutostart: () => {
                 enabled = true;
@@ -438,6 +443,10 @@ describe("Service account admission across processes", () => {
               : "service.account_admission.stop_unconfirmed",
         });
         expect(enabled).toBe(outcome === "refused");
+        expect(await readDaemonServiceContract()).toMatchObject({
+          desiredState: outcome === "refused" ? "background" : "stopped",
+          generation: contract.generation,
+        });
         expect(committed).toBe(outcome !== "refused");
         expect(stopping).toBe(outcome === "commit_write_failure");
         expect((await readServiceAccountAdmission())?.state).toBe(

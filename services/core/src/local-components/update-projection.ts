@@ -48,7 +48,9 @@ const NUMERIC_SEMVER_IDENTIFIER_RE = /^\d+$/u;
 // older unsafe Service eligible for new Wake work again.
 // Execution Context 5 and saved-workspace reads require Service 0.3.251 for new
 // work once that release is available on the stable channel.
-const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.251";
+const AUTH_FRESHNESS_MINIMUM_OPENMELD_SERVICE_VERSION = "0.3.264";
+const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.264";
+const EXECUTION_CONTEXT_MINIMUM_OPENMELD_SERVICE_VERSION = "0.3.251";
 // Preserve the Project-aware runtime and shared-folder capability v4 floor
 // while receivers still project the published 0.3.250 release.
 const PROJECT_RUNTIME_MINIMUM_OPENMELD_SERVICE_VERSION = "0.3.249";
@@ -423,6 +425,7 @@ function resolveMinimumRecoveryTargetVersion(input: {
 }): string | null {
   const activeMinimumVersion = [
     MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION,
+    EXECUTION_CONTEXT_MINIMUM_OPENMELD_SERVICE_VERSION,
     PROJECT_RUNTIME_MINIMUM_OPENMELD_SERVICE_VERSION,
     LAUNCH_CONTRACT_MINIMUM_OPENMELD_SERVICE_VERSION,
     PREVIOUS_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION,
@@ -452,6 +455,20 @@ function resolveMinimumRecoveryTargetVersion(input: {
     return null;
   }
   return activeMinimumVersion;
+}
+
+// Receiver-first deploys retain the published manifest. Activate the shorter
+// native-auth lifetime only once the matching Service is available for recovery.
+export function isServiceAuthFreshnessRequired(
+  manifest: LocalComponentsReleaseManifest | null = resolveCoreLocalComponentsReleaseManifest()
+): boolean {
+  return (
+    manifest !== null &&
+    isLocalComponentVersionAtLeast(
+      manifest.components.service.bundleVersion,
+      AUTH_FRESHNESS_MINIMUM_OPENMELD_SERVICE_VERSION
+    )
+  );
 }
 
 function resolveServiceUpdateDecision(input: {

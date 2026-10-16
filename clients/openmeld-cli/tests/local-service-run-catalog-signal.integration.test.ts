@@ -527,7 +527,7 @@ describe("local service run catalog signal", () => {
     });
   });
 
-  it("rejects controlled shutdown when the socket closes before durable result acknowledgement", async () => {
+  it("finishes a drained shutdown with durable results preserved when the socket closes before acknowledgement", async () => {
     await withTempHome(async () => {
       vi.useFakeTimers();
       loadDaemonRouteCatalogMock.mockResolvedValue({
@@ -582,9 +582,7 @@ describe("local service run catalog signal", () => {
 
       socket.emitClose(1006, "network lost before result acknowledgement");
 
-      await expect(sessionPromise).rejects.toThrow(
-        "daemon stream closed (code=1006, reason=network lost before result acknowledgement)"
-      );
+      await expect(sessionPromise).resolves.toBeUndefined();
       expect(
         listDispatchResultOutboxPendingAcknowledgementKeys({ ledgerPaths })
       ).toEqual(["dispatch-drain-1::attempt-drain-1"]);
@@ -642,7 +640,7 @@ describe("local service run catalog signal", () => {
   it.each([
     "rejected",
     "timeout",
-  ] as const)("does not complete shutdown when the final heartbeat is %s", async (failure) => {
+  ] as const)("finishes local drain and reports unconfirmed offline status when the final heartbeat is %s", async (failure) => {
     vi.useFakeTimers();
     readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
     const lines: Array<{ code: string; text: string }> = [];
@@ -665,11 +663,14 @@ describe("local service run catalog signal", () => {
     await flushMicrotasks(() => socket.heartbeatSendCount > 0);
     shutdown.resolve("user_stop");
     await vi.advanceTimersByTimeAsync(HEARTBEAT_RESPONSE_TIMEOUT_MS + 1);
-    expect(await outcome).toBeInstanceOf(Error);
+    expect(await outcome).toBeNull();
     expect(lines.map((line) => line.code)).not.toContain(
       "daemon.run.controlled_shutdown_final_heartbeat_completed"
     );
-    expect(socket.closeCount).toBe(0);
+    expect(lines.map((line) => line.code)).toContain(
+      "daemon.run.controlled_shutdown_offline_unconfirmed"
+    );
+    expect(socket.closeCount).toBe(1);
   });
 
   it.each([
@@ -1217,7 +1218,9 @@ describe("local service run catalog signal", () => {
       )
     ).toBe(true);
 
-    await vi.advanceTimersByTimeAsync(90_000);
+    // A failed publication must retry within ten seconds, leaving room inside
+    // the two-minute native authentication evidence lifetime.
+    await vi.advanceTimersByTimeAsync(10_000);
 
     expect(
       syncLocalServiceRuntimeAgentControllerReportsMock
