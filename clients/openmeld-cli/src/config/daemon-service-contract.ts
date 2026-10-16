@@ -78,6 +78,37 @@ export async function upsertDaemonServiceContract(
   );
 }
 
+// Only a positive pre-commit Stop refusal permits restoring the previous intent.
+// This is not a new Start: preserve the still-running carrier's generation.
+export async function restoreRefusedDaemonStopIntent(input: {
+  previous: DaemonServiceContract;
+  stopped: DaemonServiceContract;
+}): Promise<void> {
+  assertDaemonServiceContractMutationAllowed({});
+  await withDaemonServiceLifecycleLock(
+    { intent: "upgrade_reconcile", command: "Restore refused Service stop" },
+    async () => {
+      const current = await readDaemonServiceContract();
+      if (
+        !current ||
+        JSON.stringify(current) !== JSON.stringify(input.stopped) ||
+        input.previous.generation !== input.stopped.generation ||
+        !isStopIntentForCurrentRuntime(input.previous, input.stopped)
+      ) {
+        throw new Error(
+          "The Service changed after Stop was refused. Check its status before trying again."
+        );
+      }
+      await writeDaemonLocalStateFile({
+        path: daemonServiceContractPath(),
+        schema: daemonServiceContractSchema,
+        value: { ...input.previous, updatedAt: new Date().toISOString() },
+        mode: 0o600,
+      });
+    }
+  );
+}
+
 async function writeDaemonServiceContractState(
   input: DaemonServiceContractStateInput,
   pathInput: OpenMeldPathResolutionInput,

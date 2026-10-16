@@ -3051,7 +3051,9 @@ continues to use replacement connections until its existing drain completes.
 Commit can precede outcome persistence:
 a pending record therefore does not prove refusal. Only the coordinator's
 explicit `service.account_admission.stop_refused` response proves pre-commit
-refusal permits restoring autostart only when the desired state still allows it. Once commit
+refusal. It permits restoring the exact previous intent and autostart setting only
+while the stopped contract written by this request is still current. This rollback
+preserves the still-running carrier's generation; it is not a new Start. Once commit
 has been reached, a persistence, drain, or transport failure is uncertain;
 autostart remains disabled and the CLI reports `stop_unconfirmed` with the
 underlying diagnostic. The existing coordinator retains drain completion/error

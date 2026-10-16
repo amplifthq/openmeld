@@ -18,6 +18,7 @@ import {
   isDaemonServiceContractIdentityReusable,
   isUnsafeProductionDaemonServiceContractIdentity,
   readDaemonServiceContract,
+  restoreRefusedDaemonStopIntent,
   upsertDaemonServiceContract,
 } from "../src/config/daemon-service-contract";
 import {
@@ -834,6 +835,10 @@ describe("local service contract store", () => {
         desiredState: "background",
       });
       expect(restarted.generation).toBe(stopped.generation + 1);
+      await expect(
+        restoreRefusedDaemonStopIntent({ previous: third, stopped })
+      ).rejects.toThrow("Service changed after Stop was refused");
+      expect(await readDaemonServiceContract()).toEqual(restarted);
     });
   });
 
