@@ -26,6 +26,10 @@ test("PR npm smoke covers the release matrix without publication credentials", (
   assert.equal(smoke.jobs.npm_artifact.needs, "windows_process_artifact");
   assert.equal(smoke.jobs.npm_consumer.needs, "npm_artifact");
   for (const jobs of [smoke.jobs, release.jobs]) {
+    // GitHub does not expose runner context at job-env evaluation time.
+    for (const job of Object.values(jobs)) {
+      assert.equal(JSON.stringify(job.env ?? {}).includes("runner."), false);
+    }
     assert.equal(
       jobs.npm_consumer.env.OPENMELD_NPM_ARTIFACT_INTEGRITY,
       expression("needs.npm_artifact.outputs.integrity")
@@ -85,7 +89,8 @@ test("CLI publication waits for the same npm tarball to pass the supported consu
     expression("steps.pack.outputs.integrity")
   );
   assert.equal(
-    publisher.env.OPENMELD_NPM_ARTIFACT_PATH,
+    publisher.steps.find((step) => step.run?.includes("hosted-cli-release.mjs"))
+      .env.OPENMELD_NPM_ARTIFACT_PATH,
     `${publisherDownload.with.path}/openmeld.tgz`
   );
   assert.ok(

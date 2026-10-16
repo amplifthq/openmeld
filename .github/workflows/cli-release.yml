@@ -141,7 +141,6 @@ jobs:
       contents: read
     env:
       RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
-      OPENMELD_NPM_ARTIFACT_PATH: ${{ runner.temp }}/npm-consumer/openmeld.tgz
       OPENMELD_NPM_ARTIFACT_INTEGRITY: ${{ needs.npm_artifact.outputs.integrity }}
       OPENMELD_REQUIRE_VERIFIED_NPM_ARTIFACT: "1"
     steps:
@@ -159,6 +158,8 @@ jobs:
           path: ${{ runner.temp }}/npm-consumer
       - name: Verify native platform and clean npm installation
         shell: bash
+        env:
+          OPENMELD_NPM_ARTIFACT_PATH: ${{ runner.temp }}/npm-consumer/openmeld.tgz
         run: |
           node -e 'const expected = process.platform === "darwin" ? "arm64" : "x64"; if (process.arch !== expected) throw new Error(`Expected ${expected}, got ${process.arch}`)'
           node scripts/release/npm-cli-smoke.mjs verify "$RUNNER_TEMP/npm-consumer/openmeld.tgz"
@@ -192,7 +193,6 @@ jobs:
       OPENMELD_PRODUCTION_TRAIN_SCOPES: ${{ inputs.production_train_scopes }}
       RELEASE_PATH: ${{ inputs.release_path }}
       RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
-      OPENMELD_NPM_ARTIFACT_PATH: ${{ runner.temp }}/npm-consumer/openmeld.tgz
       OPENMELD_NPM_ARTIFACT_INTEGRITY: ${{ needs.npm_artifact.outputs.integrity }}
     steps:
       - name: Validate immutable release inputs
@@ -327,6 +327,7 @@ jobs:
       - name: Publish signed and notarized CLI, binary channel, npm package, tag, and Core
         shell: bash
         env:
+          OPENMELD_NPM_ARTIFACT_PATH: ${{ runner.temp }}/npm-consumer/openmeld.tgz
           APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
           APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
           APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}

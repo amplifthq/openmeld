@@ -92,7 +92,6 @@ jobs:
       contents: read
     env:
       RELEASE_SHA: ${{ github.sha }}
-      OPENMELD_NPM_ARTIFACT_PATH: ${{ runner.temp }}/npm-consumer/openmeld.tgz
       OPENMELD_NPM_ARTIFACT_INTEGRITY: ${{ needs.npm_artifact.outputs.integrity }}
       OPENMELD_REQUIRE_VERIFIED_NPM_ARTIFACT: "1"
     steps:
@@ -110,6 +109,8 @@ jobs:
           path: ${{ runner.temp }}/npm-consumer
       - name: Verify native platform and clean npm installation
         shell: bash
+        env:
+          OPENMELD_NPM_ARTIFACT_PATH: ${{ runner.temp }}/npm-consumer/openmeld.tgz
         run: |
           node -e 'const expected = process.platform === "darwin" ? "arm64" : "x64"; if (process.arch !== expected) throw new Error(`Expected ${expected}, got ${process.arch}`)'
           node scripts/release/npm-cli-smoke.mjs verify "$RUNNER_TEMP/npm-consumer/openmeld.tgz"
