@@ -11,7 +11,7 @@
 - Source of truth: This plan owns the pending upgrade decision. Runtime behavior
   remains owned by [Remote Agent Runtime](../product/remote-agent-runtime.md).
 
-Status: DRAFT — Agents and Flue candidates implemented; local migration and rollback validated. No merge or deployment.
+Status: IMPLEMENTED — local migration and rollback validated; merge requires current-base Final Candidate success. No deployment authorized.
 Remove this plan when the upgrade ships or is abandoned; retain settled contracts
 in the existing remote-agent owner document.
 
@@ -201,10 +201,20 @@ No application runtime source or durable class migration is changed.
 
 These checks use disposable local state and synthetic providers. They do not
 certify a hosted rollout or live provider credentials. A production release
-must still use the normal candidate and rollout checks. Keep this PR Draft;
-merging and deployment are not authorized in this task.
+must still use the normal candidate and rollout checks. Merge only after current-base Final Candidate and required checks succeed.
+Deployment remains outside this task.
 
 Two local Grok 4.7 xhigh reviewers completed independent patch/migration
 reviews and reported no blocking findings. The primary agent separately
 reviewed the patch delta, baseline failures and actual replay evidence.
 Hosted rollout remains outside this local acceptance scope.
+
+## Current-base merge verification
+
+Synced main `68b81a879` before requesting the final candidate. The five
+workerd failures have identical pre-upgrade outcomes: two usage tests request
+`provider.example`, rejected by the unchanged provider-destination guard;
+three Computer fault-path assertions concern launch readiness and Stop. They
+remain existing limitations, not a claim that those paths are healthy.
+No Flue/Agents regression was found in the recovery, rollback, normal built
+Computer RPC, or provider privacy checks. No failing assertion was weakened.
