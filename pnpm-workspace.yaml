@@ -60,6 +60,13 @@ overrides:
   wrangler: 'catalog:'
 
 packageExtensions:
+  # Flue's generated Worker still uses Agents 0.20.1. Keep its exact MCP peers
+  # separate from the direct Agents 0.28.1 browser integration.
+  '@flue/vite@2.3.0':
+    dependencies:
+      '@modelcontextprotocol/client': 2.0.0
+      '@modelcontextprotocol/server': 2.0.0
+      '@modelcontextprotocol/sdk': 1.30.0
   '@lobehub/icons@5.0.1':
     dependencies:
       es-toolkit: 1.46.0
@@ -68,7 +75,7 @@ patchedDependencies:
   capnweb@0.12.0: services/remote-agent/computerd/capnweb-0.12.0.patch
   '@better-auth/electron@1.6.30': patches/@better-auth__electron@1.6.30.patch
   '@cloudflare/computer@0.5.0': patches/@cloudflare__computer@0.5.0.patch
-  '@flue/runtime@2.2.2': patches/@flue__runtime@2.2.2.patch
+  '@flue/runtime@2.3.0': patches/@flue__runtime@2.3.0.patch
   '@tailwindcss/vite@4.2.1': patches/@tailwindcss__vite.patch
   '@tanstack/start-plugin-core@1.171.53': patches/@tanstack__start-plugin-core.patch
   better-sqlite3@13.0.3: patches/better-sqlite3@13.0.3.patch

@@ -22,18 +22,32 @@ type RuntimeFixture = {
   }>;
 };
 
-it("resumes actual patched 2.0.3 running and queued submissions without replaying completed tools", async () => {
+it.each([
+  {
+    version: "2.0.3",
+    format: 2,
+    patch: "2af016a413c955dd981242765b00945562a3fe7c93d32d9b39d70eee0f7bee49",
+  },
+  {
+    version: "2.2.2",
+    format: 3,
+    patch: "bfce2b14b6f802ef5ed65378328011104d9d35ae4ae28ea1b392893e90ac3a1d",
+  },
+])("resumes patched $version running and queued submissions without replaying completed tools", async ({
+  version,
+  format,
+  patch,
+}) => {
   const fixture: RuntimeFixture = JSON.parse(
     readFileSync(
-      new URL("./fixtures/flue-2.0.3-continuity.json", import.meta.url),
+      new URL(`./fixtures/flue-${version}-continuity.json`, import.meta.url),
       "utf8"
     )
   );
   expect(fixture.provenance).toMatchObject({
-    runtime: "2.0.3",
+    runtime: version,
     synthetic: true,
-    patchSha256:
-      "2af016a413c955dd981242765b00945562a3fe7c93d32d9b39d70eee0f7bee49",
+    patchSha256: patch,
   });
   const directory = await mkdtemp(join(tmpdir(), "flue-version-continuity-"));
   const database = join(directory, "runtime.sqlite");
@@ -52,7 +66,7 @@ it("resumes actual patched 2.0.3 running and queued submissions without replayin
   const checkpoints = sql
     .prepare("SELECT format_version FROM flue_conversation_fold_checkpoints")
     .all();
-  expect(checkpoints).toContainEqual({ format_version: 2 });
+  expect(checkpoints).toContainEqual({ format_version: format });
   const leases = sql
     .prepare("SELECT lease_expires_at FROM flue_agent_submissions")
     .all();
