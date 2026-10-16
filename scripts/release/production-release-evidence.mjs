@@ -83,9 +83,26 @@ export function publishGuardedLocalReleaseEvidence(input) {
   );
   const result = runGit(context, args, { allowFailure: true });
   if (result.status !== 0) {
-    throw new Error(
-      `Could not publish guarded local release evidence atomically: ${redactGitOutput(result.stderr)}`
-    );
+    // A transport error can arrive after the remote accepted the atomic push.
+    // Only the exact commits from this write acknowledge it; never push again.
+    let acknowledged = false;
+    let readFailure = "";
+    try {
+      const observed = readGuardedLocalReleaseEvidence(
+        context,
+        new Set(scopes)
+      );
+      acknowledged = pending.every(
+        (item) => observed.get(item.scope)?.evidenceSha === item.evidenceSha
+      );
+    } catch (error) {
+      readFailure = ` Receipt read-back failed: ${error.message}`;
+    }
+    if (!acknowledged) {
+      throw new Error(
+        `Could not publish guarded local release evidence atomically: ${redactGitOutput(result.stderr)}${readFailure}`
+      );
+    }
   }
   return {
     published: true,

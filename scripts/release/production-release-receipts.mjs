@@ -17,6 +17,14 @@ import {
 } from "./worker-deployment-evidence.mjs";
 
 const EXACT_SOURCE_SHA = /^[0-9a-f]{40}$/u;
+export const WORKER_UPLOAD_RETRY_SCOPES = new Set([
+  "auth",
+  "core",
+  "gateway",
+  "web",
+  "website",
+  "docs",
+]);
 
 class ReceiptWriteError extends Error {
   constructor(message, options) {
@@ -186,12 +194,13 @@ export function describeGuardedReceiptRecoveryCandidate(
   }
   const database = scope === "db" && isDatabaseRecoverySource(source);
   const retry =
-    scope === "core" && readUnchangedCoreRetryBaseline(source, source?.sha);
+    WORKER_UPLOAD_RETRY_SCOPES.has(scope) &&
+    readUnchangedWorkerRetryBaseline(source, source?.sha);
   if (
     !(
       EXACT_SOURCE_SHA.test(source?.sha ?? "") &&
       receipt.success &&
-      ["applied", "failed"].includes(receipt.data.status)
+      (retry || ["applied", "failed"].includes(receipt.data.status))
     ) ||
     (!(retry || database) &&
       (receipt.data.application !== "applied" ||
@@ -204,7 +213,7 @@ export function describeGuardedReceiptRecoveryCandidate(
     admission: "candidate",
     attemptId: receipt.data.attemptId,
     componentIndex: receipt.data.componentIndex,
-    kind: retry ? "guarded-core-upload-retry" : "guarded-health-resume",
+    kind: retry ? "guarded-worker-upload-retry" : "guarded-health-resume",
     operationKey: receipt.data.operationKey,
     sourceSha: source.sha,
   };
@@ -324,19 +333,26 @@ function isNativeDatabaseOperation(group) {
 }
 
 export function readUnchangedCoreRetryBaseline(source, sourceSha) {
+  const baseline = readUnchangedWorkerRetryBaseline(source, sourceSha);
+  return baseline?.receipt.identity.workerName === "openmeld-core-prod"
+    ? baseline
+    : null;
+}
+
+function readUnchangedWorkerRetryBaseline(source, sourceSha) {
   const baseline = source?.verifiedHistoryBaseline;
   const receipt = productionComponentReceiptSchema.safeParse(source?.receipt);
   const prior = productionComponentReceiptSchema.safeParse(baseline?.receipt);
   if (
     source?.sha !== sourceSha ||
     !receipt.success ||
-    receipt.data.status !== "failed" ||
+    !["started", "failed"].includes(receipt.data.status) ||
     receipt.data.application !== "unknown" ||
     receipt.data.identity ||
     !prior.success ||
     prior.data.status !== "verified" ||
     prior.data.identity?.kind !== "worker-deployment" ||
-    prior.data.identity.workerName !== "openmeld-core-prod" ||
+    prior.data.identity.environment !== "prod" ||
     prior.data.identity.sourceSha !== baseline.sha ||
     !(Date.parse(baseline.recordedAt) <= Date.parse(receipt.data.startedAt))
   ) {
@@ -439,11 +455,12 @@ export function selectGuardedReceiptRecovery(input, retained) {
       return { ...previous, databaseRetry: true, databaseBaseline };
     }
     const baseline =
-      input.group.scope === "core" &&
-      readUnchangedCoreRetryBaseline(previous, input.sourceSha);
+      WORKER_UPLOAD_RETRY_SCOPES.has(input.group.scope) &&
+      readUnchangedWorkerRetryBaseline(previous, input.sourceSha);
     if (
       baseline &&
-      input.target?.workerName === "openmeld-core-prod" &&
+      input.target?.workerName === baseline.receipt.identity.workerName &&
+      input.target.environment === baseline.receipt.identity.environment &&
       receipt.operationKey === input.operationKey &&
       !input.redeploy
     ) {

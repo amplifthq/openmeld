@@ -342,54 +342,71 @@ test("records health failure after application without claiming the version was 
   assert.equal(result.latest.has("gateway"), false);
 });
 
-test("retries rejected Core under the original attempt only while the prior deployment is unchanged", async () => {
-  const options = { scopes: ["core"] };
-  const result = fixture(options);
-  await result.run();
-  options.baseline = {
-    sha: SOURCE,
-    recordedAt: "2026-01-01T00:00:00.000Z",
-    receipt: result.latest.get("core"),
-  };
-  const rejected = {
-    ...result.latest.get("core"),
-    status: "failed",
-    application: "unknown",
-    identity: undefined,
-  };
-  result.latest.set("core", rejected);
-  const priorEffects = result.effects.length;
-  for (const override of [
-    { operationKey: "b".repeat(64) },
-    { startedAt: "2025-01-01T00:00:00.000Z" },
-  ]) {
-    result.latest.set("core", { ...rejected, ...override });
-    await assert.rejects(result.run, UNRESOLVED_ERROR);
+for (const [scope, status] of [
+  ["core", "failed"],
+  ["web", "started"],
+  ["gateway", "failed"],
+]) {
+  test(`retries ${scope} ${status} under the original attempt only while the prior deployment is unchanged`, async () => {
+    const options = { scopes: [scope] };
+    const result = fixture(options);
+    await result.run();
+    options.baseline = {
+      sha: SOURCE,
+      recordedAt: "2026-01-01T00:00:00.000Z",
+      receipt: result.latest.get(scope),
+    };
+    const rejected = {
+      ...result.latest.get(scope),
+      status,
+      application: "unknown",
+      identity: undefined,
+    };
+    result.latest.set(scope, rejected);
+    assert.equal(
+      describeGuardedReceiptRecoveryCandidate(
+        {
+          sha: SOURCE,
+          receipt: rejected,
+          verifiedHistoryBaseline: options.baseline,
+        },
+        scope
+      ).kind,
+      "guarded-worker-upload-retry"
+    );
+    const priorEffects = result.effects.length;
+    for (const override of [
+      { operationKey: "b".repeat(64) },
+      { startedAt: "2025-01-01T00:00:00.000Z" },
+    ]) {
+      result.latest.set(scope, { ...rejected, ...override });
+      await assert.rejects(result.run, UNRESOLVED_ERROR);
+      assert.equal(result.effects.length, priorEffects);
+    }
+    result.latest.set(scope, rejected);
+    options.identityFailure = true;
+    await assert.rejects(result.run, IDENTITY_ERROR);
     assert.equal(result.effects.length, priorEffects);
-  }
-  result.latest.set("core", rejected);
-  options.identityFailure = true;
-  await assert.rejects(result.run, IDENTITY_ERROR);
-  assert.equal(result.effects.length, priorEffects);
-  options.identityFailure = false;
-  options.workerVerificationResponses = new Array(20).fill(
-    workerDeploymentResponse({
-      deploymentId: "changed-deployment-even-with-the-same-version",
-    })
-  );
-  await assert.rejects(result.run, IDENTITY_ERROR);
-  assert.equal(result.effects.length, priorEffects);
-  options.workerVerificationResponses = undefined;
-  const priorEvents = result.receipts.length;
-  await result.run();
-  assert.deepEqual(
-    result.receipts.slice(priorEvents).map((e) => e.receipts.core.status),
-    ["applied", "verified"]
-  );
-  assert.equal(result.latest.get("core").attemptId, rejected.attemptId);
-  assert.equal(result.latest.get("core").startedAt, rejected.startedAt);
-  assert.equal(result.latest.get("core").operationKey, rejected.operationKey);
-});
+    options.identityFailure = false;
+    options.workerVerificationResponses = new Array(20).fill(
+      workerDeploymentResponse({
+        deploymentId: "changed-deployment-even-with-the-same-version",
+      })
+    );
+    await assert.rejects(result.run, IDENTITY_ERROR);
+    assert.equal(result.effects.length, priorEffects);
+    options.workerVerificationResponses = undefined;
+    const priorEvents = result.receipts.length;
+    await result.run();
+    assert.deepEqual(
+      result.receipts.slice(priorEvents).map((e) => e.receipts[scope].status),
+      ["applied", "verified"]
+    );
+    assert.equal(result.latest.get(scope).attemptId, rejected.attemptId);
+    assert.equal(result.latest.get(scope).startedAt, rejected.startedAt);
+    assert.equal(result.latest.get(scope).operationKey, rejected.operationKey);
+  });
+}
 
 test("native database recovery verifies the journal and grants without repeating mutations", async () => {
   const options = {
