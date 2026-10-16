@@ -1,7 +1,51 @@
-import { describe, expect, it } from "vitest";
-import { isServiceRepairReadinessCurrent } from "../src/local-service/lifecycle/service-repair-readiness";
+import { describe, expect, it, vi } from "vitest";
+import {
+  isRunningServiceRepairHealthy,
+  isServiceRepairReadinessCurrent,
+} from "../src/local-service/lifecycle/service-repair-readiness";
+
+const probes = vi.hoisted(() => ({
+  health: vi.fn(),
+  readiness: vi.fn(),
+  update: vi.fn(),
+}));
+vi.mock("../src/system/current-local-runtime-reply-readiness", () => ({
+  readCurrentLocalRuntimeReplyReadiness: probes.readiness,
+}));
+vi.mock("../src/local-service/control-plane/client", () => ({
+  sendLocalDaemonControlPlaneRequest: probes.health,
+  requestLocalDaemonServiceUpdateReadiness: probes.update,
+}));
 
 describe("Service repair readiness", () => {
+  it.each([
+    "health",
+    "readiness",
+    "update",
+  ] as const)("keeps repair available when the %s probe fails", async (probe) => {
+    for (const fn of Object.values(probes)) {
+      fn.mockReset().mockResolvedValue(undefined);
+    }
+    probes[probe].mockRejectedValue(new Error("probe unavailable"));
+    const warning = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    try {
+      await expect(
+        isRunningServiceRepairHealthy({
+          deviceId: "device-1",
+          runtimeLane: "dev-local",
+          gatewayUrl: "https://gateway.openmeld.invalid",
+        })
+      ).resolves.toBe(false);
+      expect(warning).toHaveBeenCalledWith(
+        "[openmeld.service.repair_probe_failed]",
+        { error: "probe unavailable" }
+      );
+    } finally {
+      warning.mockRestore();
+    }
+  });
   it.each([
     "ready",
     "busy",
