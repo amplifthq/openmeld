@@ -51,14 +51,14 @@
     "@openmeld/gateway-contract": "workspace:*",
     "@openmeld/schemas": "workspace:*",
     "better-auth": "1.6.30",
-    "hono": "^4.11.7"
+    "hono": "^4.13.13"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
     "better-sqlite3": "^12.6.2",
     "dotenv-cli": "^11.0.0",
     "drizzle-kit": "^0.31.9",
-    "esbuild": "0.27.7",
+    "esbuild": "0.28.2",
     "typescript": "^5.9.3",
     "vitest": "~3.2.0",
     "wrangler": "catalog:"
