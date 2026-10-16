@@ -115,6 +115,7 @@ import {
   runtimeTransportDispatchPreviewRequestSchema,
   runtimeTransportDispatchProgressRequestSchema,
   runtimeTransportDispatchReasoningRequestSchema,
+  runtimeTransportDispatchReplyDraftRequestSchema,
   runtimeTransportDispatchRuntimeEvidenceRequestSchema,
   runtimeTransportDispatchToolActivityRequestSchema,
   runtimeTransportForkAgentSessionRequestSchema,
@@ -263,6 +264,7 @@ import type {
   RuntimeTransportDispatchPreviewRequest,
   RuntimeTransportDispatchProgressRequest,
   RuntimeTransportDispatchReasoningRequest,
+  RuntimeTransportDispatchReplyDraftRequest,
   RuntimeTransportDispatchRuntimeEvidenceRequest,
   RuntimeTransportDispatchToolActivityRequest,
   RuntimeTransportForkAgentSessionResult,
@@ -802,12 +804,18 @@ export function resolveLocalAgentControlResponseTimeoutMs(
 }
 function parseRuntimeTransportDispatchLiveActivity(
   payload: unknown,
-  kind: "progress" | "reasoning" | "tool"
+  kind: "progress" | "reasoning" | "tool" | "reply_draft"
 ):
   | RuntimeTransportDispatchProgressRequest
   | RuntimeTransportDispatchReasoningRequest
   | RuntimeTransportDispatchToolActivityRequest
+  | RuntimeTransportDispatchReplyDraftRequest
   | null {
+  if (kind === "reply_draft") {
+    const parsed =
+      runtimeTransportDispatchReplyDraftRequestSchema.safeParse(payload);
+    return parsed.success ? parsed.data : null;
+  }
   if (kind === "reasoning") {
     const parsed =
       runtimeTransportDispatchReasoningRequestSchema.safeParse(payload);
@@ -3606,6 +3614,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         });
         return;
       }
+      case "daemon.dispatch.reply_draft":
       case "daemon.dispatch.progress": {
         this.enqueueOrderedDispatchFrame({
           onError: (error) => {
@@ -3623,7 +3632,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
             this.handleDispatchToolActivityFrame(
               webSocket,
               frame.payload,
-              "progress"
+              frame.code === "daemon.dispatch.reply_draft"
+                ? "reply_draft"
+                : "progress"
             ),
         });
         return;
@@ -9271,7 +9282,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private async handleDispatchToolActivityFrame(
     webSocket: WebSocket,
     payload: unknown,
-    kind: "progress" | "reasoning" | "tool" = "tool"
+    kind: "progress" | "reasoning" | "tool" | "reply_draft" = "tool"
   ): Promise<void> {
     const activity = parseRuntimeTransportDispatchLiveActivity(payload, kind);
     if (!activity) {
@@ -9364,6 +9375,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     pending: PendingDispatchState,
     activity:
       | RuntimeTransportDispatchToolActivityRequest
+      | RuntimeTransportDispatchReplyDraftRequest
       | RuntimeTransportDispatchProgressRequest
       | RuntimeTransportDispatchReasoningRequest
   ): Promise<void> {
@@ -9409,7 +9421,22 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       activity.thinkingSnapshot = "";
     }
     let result: Awaited<ReturnType<typeof spaceStub.rpcApplyAgentStreamDelta>>;
-    if ("thinkingSnapshot" in activity) {
+    if ("textSnapshot" in activity) {
+      await spaceStub.rpcResolveNativeReplyPlacement({
+        spaceId: pending.spaceId,
+        dispatchId: pending.dispatchId,
+        sourceSignalId: pending.sourceSignalId,
+        profileId: pending.profileId,
+        defaultToThread: true,
+        lock: false,
+        ...(activity.placement ? { placement: activity.placement } : {}),
+      });
+      result = await spaceStub.rpcApplyAgentStreamDelta({
+        ...streamIdentity,
+        kind: "text",
+        textSnapshot: activity.textSnapshot,
+      });
+    } else if ("thinkingSnapshot" in activity) {
       result = await spaceStub.rpcApplyAgentStreamDelta({
         ...streamIdentity,
         kind: "thinking",
@@ -9442,7 +9469,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
-    if ("thinkingSnapshot" in activity || "progressSnapshot" in activity) {
+    if (
+      "textSnapshot" in activity ||
+      "thinkingSnapshot" in activity ||
+      "progressSnapshot" in activity
+    ) {
       return;
     }
     console.info("[core.runtime_transport.tool_activity_applied]", {

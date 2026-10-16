@@ -1,10 +1,11 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
   renameSync,
+  rmdirSync,
   writeFileSync,
 } from "node:fs";
 import { isAbsolute, join } from "node:path";
@@ -128,6 +129,7 @@ export type DispatchSpaceActionRecord = {
   contextId: string;
   createdAtMs: number;
   nonce: string;
+  previousReplyDigests?: string[];
 };
 
 export type DispatchSpaceActionRecordReadResult =
@@ -257,6 +259,27 @@ export function writeDispatchSpaceActionRecord(input: {
   context: DispatchSpaceActionContext;
   nowMs?: number;
 }): DispatchSpaceActionRecord {
+  // Serialize CLI and in-process writers. Never silently break a lock left by
+  // an interrupted writer: the caller must reconcile the existing receipt.
+  const lockPath = `${input.context.actionRecordPath}.lock`;
+  mkdirSync(lockPath, { mode: 0o700 });
+  try {
+    return writeLockedDispatchSpaceActionRecord(input);
+  } finally {
+    rmdirSync(lockPath);
+  }
+}
+
+function replyDigest(action: OpenMeldSpaceEgressAction): string {
+  return createHash("sha256").update(JSON.stringify(action)).digest("hex");
+}
+
+function writeLockedDispatchSpaceActionRecord(input: {
+  action: OpenMeldSpaceEgressAction;
+  command: string;
+  context: DispatchSpaceActionContext;
+  nowMs?: number;
+}): DispatchSpaceActionRecord {
   const parsedAction = openMeldSpaceEgressActionSchema.safeParse(input.action);
   if (!parsedAction.success) {
     throw new DispatchSpaceActionRejectedError(
@@ -283,6 +306,39 @@ export function writeDispatchSpaceActionRecord(input: {
   }
   assertContextActive(input.context, input.nowMs ?? Date.now());
 
+  if (
+    existing.status === "loaded" &&
+    existing.record.action.type === "post_message" &&
+    parsedAction.data.type === "post_message"
+  ) {
+    const previousReplyDigests = existing.record.previousReplyDigests ?? [];
+    if (previousReplyDigests.includes(replyDigest(parsedAction.data))) {
+      return existing.record;
+    }
+    if (previousReplyDigests.length >= 32) {
+      throw new DispatchSpaceActionRejectedError(
+        "space_action.already_recorded",
+        "The reply revision limit has been reached. Read the current receipt."
+      );
+    }
+    const record: DispatchSpaceActionRecord = {
+      version: DISPATCH_SPACE_ACTION_RECORD_VERSION,
+      action: parsedAction.data,
+      command: input.command,
+      contextId: input.context.contextId,
+      createdAtMs: input.nowMs ?? Date.now(),
+      nonce: input.context.nonce,
+      previousReplyDigests: [
+        ...previousReplyDigests,
+        replyDigest(existing.record.action),
+      ],
+    };
+    const temporaryPath = `${input.context.actionRecordPath}.${randomUUID()}.tmp`;
+    writeJsonFileExclusive(temporaryPath, record);
+    renameSync(temporaryPath, input.context.actionRecordPath);
+    return record;
+  }
+
   const record: DispatchSpaceActionRecord = {
     version: DISPATCH_SPACE_ACTION_RECORD_VERSION,
     action: parsedAction.data,
@@ -295,17 +351,6 @@ export function writeDispatchSpaceActionRecord(input: {
     writeJsonFileExclusive(input.context.actionRecordPath, record);
   } catch (error) {
     if (isNodeErrorCode(error, "EEXIST")) {
-      const existing = readDispatchSpaceActionRecord({
-        context: input.context,
-      });
-      // A lost acknowledgement may cause the same proposal to be submitted
-      // again. Acknowledge that record, never replace it or accept a new action.
-      if (
-        existing.status === "loaded" &&
-        isDeepStrictEqual(existing.record.action, parsedAction.data)
-      ) {
-        return existing.record;
-      }
       throw new DispatchSpaceActionRejectedError(
         "space_action.already_recorded",
         "An OpenMeld Space Action has already been recorded for this dispatch. A Wake can only have one final Space action. Recover its receipt with the exact original arguments; do not replace it with a different action."
@@ -531,6 +576,11 @@ function parseDispatchSpaceActionRecord(
     contextId: requiredString(record.contextId, "contextId"),
     createdAtMs: requiredFiniteNumber(record.createdAtMs, "createdAtMs"),
     nonce: requiredString(record.nonce, "nonce"),
+    ...(record.previousReplyDigests === undefined
+      ? {}
+      : {
+          previousReplyDigests: parseStringArray(record.previousReplyDigests),
+        }),
   };
 }
 

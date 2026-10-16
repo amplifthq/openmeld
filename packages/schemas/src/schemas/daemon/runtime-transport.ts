@@ -2188,6 +2188,19 @@ export const runtimeTransportDispatchProgressRequestSchema =
         .max(32 * 1024),
     });
 
+// Public text explicitly submitted through the dispatch action tool. This is
+// a draft, not an execution result, and must not retire the execution token.
+export const runtimeTransportDispatchReplyDraftRequestSchema =
+  runtimeTransportDispatchToolActivityRequestSchema
+    .omit({ part: true })
+    .extend({
+      textSnapshot: z
+        .string()
+        .min(1)
+        .max(32 * 1024),
+      placement: z.enum(["conversation", "thread"]).optional(),
+    });
+
 export const runtimeTransportDispatchInteractionRequestSchema = z.strictObject({
   v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
   runtimeCoordinatorExecutionId:
@@ -2393,6 +2406,7 @@ export const daemonStreamCodeSchema = z.enum([
   "daemon.dispatch.tool_activity",
   "daemon.dispatch.reasoning",
   "daemon.dispatch.progress",
+  "daemon.dispatch.reply_draft",
   "daemon.reasoning.preferences",
   "daemon.dispatch.interaction_request",
   "daemon.dispatch.interaction_response",

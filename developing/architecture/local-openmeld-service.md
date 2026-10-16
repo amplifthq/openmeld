@@ -1776,6 +1776,14 @@ RuntimeCoordinator, Agent Profile readiness, and Wake reporting.
 
 ## Agent Controller Task Lifecycle Callbacks
 
+A saved public reply does not complete the native controller turn. Service
+observes the dispatch action record independently and relays bounded public
+text into the existing Space reply stream. It waits for the actual native
+result before settling the ledger and submitting final usage and execution
+context completion. A slow Stop hook therefore delays final settlement, but
+does not hide an already submitted reply. The relay closes with the native
+turn and never reads private output as public reply text.
+
 The Local OpenMeld Service is the delivery carrier for exact Agent Controller
 task lifecycle callbacks. OpenMeld-managed Codex and Claude Code hooks write
 provider task registrations, completions, and actionable attention callbacks

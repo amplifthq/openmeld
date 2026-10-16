@@ -938,6 +938,9 @@ const createHarness = async (input?: {
         lastSequence: input.sequence,
       })
     ),
+    rpcResolveNativeReplyPlacement: vi.fn(() =>
+      Promise.resolve({ threadContext: null })
+    ),
     rpcCloseAgentStream: vi.fn(() => Promise.resolve(null)),
     rpcApplyRuntimeCoordinatorFailurePublicationCommand: vi.fn(
       (
@@ -17091,7 +17094,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(sentFrames).toEqual([]);
   });
 
-  it("applies authority-bound Local Agent public progress without finalizing the Wake", async () => {
+  it.each([
+    "progress",
+    "reply_draft",
+  ] as const)("applies authority-bound Local Agent %s without finalizing the Wake", async (kind) => {
     const { hub, sentFrames, socket, spaceStub, state } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
@@ -17106,23 +17112,38 @@ describe("runtime transport runtime coordinator transport contract", () => {
         handleDispatchToolActivityFrame: (
           webSocket: WebSocket,
           payload: unknown,
-          kind: "progress"
+          kind: "progress" | "reply_draft"
         ) => Promise<void>;
       }
     ).handleDispatchToolActivityFrame(
       socket,
-      buildProgressRequest({
-        executionTokenEcho: buildExecutionTokenEcho(executionToken),
-      }),
-      "progress"
+      kind === "progress"
+        ? buildProgressRequest({
+            executionTokenEcho: buildExecutionTokenEcho(executionToken),
+          })
+        : (() => {
+            const { part: _part, ...identity } = buildToolActivityRequest({
+              executionTokenEcho: buildExecutionTokenEcho(executionToken),
+            });
+            return {
+              ...identity,
+              textSnapshot: "Confirmed the root cause; starting verification.",
+            };
+          })(),
+      kind
     );
 
     expect(spaceStub.rpcApplyAgentStreamDelta).toHaveBeenCalledWith({
       v: 1,
       dispatchId: "dispatch-1",
-      kind: "progress",
+      kind: kind === "progress" ? "progress" : "text",
       profileId: TARGET_AGENT_PROFILE_ID,
-      progressSnapshot: "Confirmed the root cause; starting verification.",
+      ...(kind === "progress"
+        ? {
+            progressSnapshot:
+              "Confirmed the root cause; starting verification.",
+          }
+        : { textSnapshot: "Confirmed the root cause; starting verification." }),
       sequence: 1,
       spaceId: HEX_SPACE_ID,
       streamId: "local-agent:10.dispatch-1:9.attempt-1",
@@ -18480,6 +18501,49 @@ describe("runtime transport runtime coordinator transport contract", () => {
         ).orderedDispatchFrameTails.size
       ).toBe(0);
     });
+  });
+
+  it.each([
+    "missing",
+    "wrong-source",
+  ] as const)("rejects reply drafts with %s authority", async (invalid) => {
+    const { hub, sentFrames, socket, spaceStub, state } = await createHarness();
+    const token = await issueDeliveryToken({ hub, sentFrames, socket, state });
+    const { part: _part, ...identity } = buildToolActivityRequest({
+      executionTokenEcho: buildExecutionTokenEcho(token),
+    });
+    sentFrames.length = 0;
+    await (
+      hub as unknown as {
+        handleDispatchToolActivityFrame: (
+          socket: WebSocket,
+          payload: unknown,
+          kind: "reply_draft"
+        ) => Promise<void>;
+      }
+    ).handleDispatchToolActivityFrame(
+      socket,
+      {
+        ...identity,
+        ...(invalid === "missing"
+          ? { executionTokenEcho: undefined }
+          : { sourceSignalId: "another-message" }),
+        textSnapshot: "This must not become public.",
+      },
+      "reply_draft"
+    );
+    expect(spaceStub.rpcApplyAgentStreamDelta).not.toHaveBeenCalled();
+    expect(sentFrames).toContainEqual(
+      expect.objectContaining({
+        code: "daemon.error",
+        payload: expect.objectContaining({
+          code:
+            invalid === "missing"
+              ? "execution_token_missing"
+              : "schema.invalid",
+        }),
+      })
+    );
   });
 
   it.each([

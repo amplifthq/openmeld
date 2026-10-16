@@ -18,7 +18,6 @@ import {
 } from "@openmeld/agent-runtime";
 import type { RuntimeTaskResult } from "@openmeld/local-execution";
 import {
-  appendLedgerHistoryEntry,
   assertLegacyAgentContextAssociation,
   buildAgentContextLookupKey,
   buildRuntimeWorkspaceFingerprint,
@@ -28,7 +27,6 @@ import {
   resolveConversationExecutionStateByLookupKey,
   runRuntimeTask,
   seedLegacyAgentContext,
-  settleInflightTask,
   withLedgerStateTransaction,
 } from "@openmeld/local-execution";
 import {
@@ -103,6 +101,7 @@ import {
   supersedeDispatchSpaceActionRecordForReconsideration,
 } from "../../runtime/dispatch-space-action-context";
 import { startDispatchSpaceProgressRelay } from "../../runtime/dispatch-space-progress-relay";
+import { startDispatchSpaceReplyDraft } from "../../runtime/dispatch-space-reply-draft";
 import type { Presenter } from "../../runtime/presenter/types";
 import {
   createDispatchSpaceTools,
@@ -171,7 +170,6 @@ import {
 } from "./execute-dispatch-bootstrap-plan";
 import {
   areSameAgentControllerConversationRef,
-  buildAgentControllerConversationRefFromAgentControllerConversation,
   normalizeOptionalContextId,
   resolveCurrentConversationPolicy,
   resolveDispatchContextDeltaFromRuntimeResult,
@@ -255,6 +253,7 @@ import {
   sendDispatchPreviewFrame,
   sendDispatchProgressFrame,
   sendDispatchReasoningFrame,
+  sendDispatchReplyDraftFrame,
   sendDispatchRuntimeEvidenceFrame,
   sendDispatchToolActivityFrame,
 } from "./send-dispatch-result";
@@ -278,7 +277,6 @@ export const resolveStructuredActionRequirementFailure =
 
 const CLI_SPACE_ACTION_RECORD_POLL_INTERVAL_MS = 25;
 const CLI_SPACE_ACTION_RECORD_RUNTIME_COMPLETION_GRACE_MS = 1500;
-const CLI_SPACE_ACTION_PROVIDER_CONVERSATION_GRACE_MS = 1500;
 const AGENT_CONTROLLER_OCCUPANCY_KEEPALIVE_REASSERT_INTERVALS = 4;
 
 // OPENMELD_SERVICE_THIN_CORE: temporary dispatch execution shell.
@@ -1005,8 +1003,6 @@ export async function handleDispatchDeliverFrame(input: {
   let plannedAgentControllerConversation: AgentControllerConversationRef | null =
     null;
   let observedProviderConversationId: string | null = null;
-  let observedProviderConversation: AgentControllerConversationRef | null =
-    null;
   let runtimePromptPlan: DispatchPromptPlan | null = null;
   let runtimePromptTrace: DispatchPromptTrace | null = null;
   let settledResultSummary: LocalExecutionSlotTaskResult | null = null;
@@ -1037,6 +1033,40 @@ export async function handleDispatchDeliverFrame(input: {
   });
   const runtimeStartedAtMs = Date.now();
   let agentToolActivitySequence = 0;
+  const publishReplyDraft = (
+    textSnapshot: string,
+    placement?: "conversation" | "thread"
+  ): boolean => {
+    const socket = currentSocketRef.socket;
+    if (!socket || (socket.bufferedAmount ?? 0) > 64 * 1024) {
+      return false;
+    }
+    sendDispatchReplyDraftFrame({
+      socket,
+      textSnapshot,
+      ...(placement ? { placement } : {}),
+      observedAtMs: Date.now(),
+      sequence: ++agentToolActivitySequence,
+      attemptId: parsedTask.attemptId,
+      dispatchId: parsedTask.dispatchId,
+      daemonSessionId: input.daemonSessionId,
+      connectionGeneration: resolveCurrentConnectionGeneration({
+        currentSocketRef,
+        fallbackConnectionGeneration: input.deliverRequest.connectionGeneration,
+      }),
+      executionIdentityEcho: toRuntimeTransportRuntimeEvidenceIdentityEcho(
+        input.deliverRequest
+      ),
+      executionTokenEcho: parsedTask.executionTokenEcho,
+      leaseEpoch: input.deliverRequest.leaseEpoch,
+      runtimeCoordinatorExecutionId: parsedTask.runtimeCoordinatorExecutionId,
+      sourceSignalId: parsedTask.sourceEventId,
+      spaceId: parsedTask.spaceId,
+      targetProfileId: parsedTask.targetProfileId,
+      taskId: parsedTask.taskId,
+    });
+    return true;
+  };
   const reportPublicProgress = createDispatchPublicProgressReporter({
     publish: (progressSnapshot) => {
       const socket = currentSocketRef.socket;
@@ -1168,6 +1198,7 @@ export async function handleDispatchDeliverFrame(input: {
     | null = null;
   let dispatchSpaceActionContext: DispatchSpaceActionContext | null = null;
   let nativeQuiescence: Promise<void> | undefined;
+  let replyDraft: ReturnType<typeof startDispatchSpaceReplyDraft> | null = null;
   let workspaceUse: ExecutionContextWorkspaceUse | null = null;
   let claudeProjectRuntime: ClaudeProjectContainerRuntime | null = null;
   const workspaceProcesses = new Map<number | null, boolean>();
@@ -1319,6 +1350,20 @@ export async function handleDispatchDeliverFrame(input: {
     });
     dispatchSpaceActionContext =
       spaceActionRuntimeContext.dispatchSpaceActionContext;
+    replyDraft = startDispatchSpaceReplyDraft({
+      context: dispatchSpaceActionContext,
+      publish: publishReplyDraft,
+      onError: () =>
+        emitRunLine({
+          presenter: input.presenter,
+          code: "daemon.run.reply_draft_send_failed",
+          text: "The public reply draft could not be sent; final delivery remains pending.",
+          payload: {
+            dispatchId: parsedTask.dispatchId,
+            taskId: parsedTask.taskId,
+          },
+        }),
+    });
     runtimeEnvOverrides = spaceActionRuntimeContext.runtimeEnvOverrides;
     runtimeOpenClawGatewayVisibility =
       runtimePreparation.runtimeOpenClawGatewayVisibility;
@@ -1425,7 +1470,6 @@ export async function handleDispatchDeliverFrame(input: {
         agentControllerRef: parsedTask.agentControllerRef,
       });
     observedProviderConversationId = contextIdForDispatch;
-    observedProviderConversation = plannedAgentControllerConversation;
     bootstrapPlan = resolveBootstrapPlan({
       bootstrapTemplateFacts: bootstrapContext.bootstrapTemplateFacts,
       executionState: currentExecutionState,
@@ -1623,14 +1667,7 @@ export async function handleDispatchDeliverFrame(input: {
       if (!agentControllerConversationId) {
         return null;
       }
-      const agentControllerConversation =
-        observation.agentControllerConversation ??
-        buildAgentControllerConversationRefFromAgentControllerConversation({
-          agentControllerConversationId,
-          agentControllerRef: parsedTask.agentControllerRef,
-        });
       observedProviderConversationId = agentControllerConversationId;
-      observedProviderConversation = agentControllerConversation;
       if (recordedOpenMeldCreatedSessionId !== agentControllerConversationId) {
         recordedOpenMeldCreatedSessionId = agentControllerConversationId;
         recordOpenMeldCreatedLocalAgentSession({
@@ -1940,35 +1977,11 @@ export async function handleDispatchDeliverFrame(input: {
       () => undefined
     );
     nativeQuiescence = controllerTurnCompletion;
-    let runtimeResult = await resolveRuntimeResultFromRuntimeOrCliSpaceAction({
-      contextIdForDispatch,
+    let runtimeResult = await applyCliSpaceActionRecordIfPresent({
       dispatchSpaceActionContext,
-      getObservedAgentControllerConversation: () =>
-        observedProviderConversation,
-      getObservedAgentControllerConversationId: () =>
-        observedProviderConversationId,
-      ledgerIo,
-      ledgerPaths: input.ledgerPaths,
-      onRuntimeResultAfterCliSpaceAction: (runtimeResult) => {
-        const runtimeContextDelta =
-          resolveDispatchContextDeltaFromRuntimeResult(
-            runtimeResult.dispatchResult
-          );
-        recordProviderConversationObservation({
-          agentControllerConversation:
-            runtimeResult.contextResolution?.agentControllerConversation ??
-            runtimeContextDelta?.agentControllerConversation ??
-            null,
-          agentControllerConversationId:
-            runtimeResult.contextResolution?.agentControllerConversationId ??
-            runtimeContextDelta?.agentControllerConversationId ??
-            null,
-          source: "runtime_result",
-        });
-      },
       parsedTask,
       presenter: input.presenter,
-      runtimeExecutionPromise,
+      runtimeResult: await runtimeExecutionPromise,
     });
     const structuredSpaceActionOutcome =
       await resolveRuntimeResultStructuredSpaceAction({
@@ -2332,6 +2345,7 @@ export async function handleDispatchDeliverFrame(input: {
     });
   } finally {
     await nativeQuiescence;
+    await replyDraft?.close();
     await releaseDispatchTaskWorkspace({
       workspaceUse,
       parsedTask,
@@ -3281,147 +3295,6 @@ function createDispatchSpaceActionRuntimeContext(input: {
   };
 }
 
-export async function resolveRuntimeResultFromRuntimeOrCliSpaceAction(input: {
-  contextIdForDispatch: string | null;
-  dispatchSpaceActionContext: DispatchSpaceActionContext | null;
-  getObservedAgentControllerConversation?: () => AgentControllerConversationRef | null;
-  getObservedAgentControllerConversationId?: () => string | null;
-  ledgerIo: ReturnType<typeof createLedgerIo>;
-  ledgerPaths: LedgerPaths;
-  onRuntimeResultAfterCliSpaceAction?: (
-    runtimeResult: RuntimeTaskResult
-  ) => Promise<void> | void;
-  parsedTask: ParsedDispatchTask;
-  presenter: Presenter;
-  runtimeExecutionPromise: Promise<RuntimeTaskResult>;
-}): Promise<RuntimeTaskResult> {
-  if (!input.dispatchSpaceActionContext) {
-    return await input.runtimeExecutionPromise;
-  }
-  if (input.parsedTask.executionContext) {
-    return await applyCliSpaceActionRecordIfPresent({
-      dispatchSpaceActionContext: input.dispatchSpaceActionContext,
-      parsedTask: input.parsedTask,
-      presenter: input.presenter,
-      runtimeResult: await input.runtimeExecutionPromise,
-    });
-  }
-
-  const cliSpaceActionAbortController = new AbortController();
-  let completion: DispatchRuntimeCompletion;
-  try {
-    completion = await Promise.race([
-      input.runtimeExecutionPromise.then(
-        (runtimeResult): DispatchRuntimeCompletion => ({
-          kind: "runtime",
-          runtimeResult,
-        })
-      ),
-      waitForCliSpaceActionRecord({
-        dispatchSpaceActionContext: input.dispatchSpaceActionContext,
-        signal: cliSpaceActionAbortController.signal,
-      }),
-    ]);
-  } finally {
-    cliSpaceActionAbortController.abort();
-  }
-
-  if (completion.kind === "runtime") {
-    return await applyCliSpaceActionRecordIfPresent({
-      dispatchSpaceActionContext: input.dispatchSpaceActionContext,
-      parsedTask: input.parsedTask,
-      presenter: input.presenter,
-      runtimeResult: completion.runtimeResult,
-    });
-  }
-
-  if (completion.kind === "cli_space_action_poll_aborted") {
-    return await input.runtimeExecutionPromise;
-  }
-
-  if (completion.kind === "cli_space_action_invalid") {
-    throw new DaemonServiceRunError({
-      code: "dispatch.cli_space_action.invalid",
-      message: completion.errorMessage,
-    });
-  }
-
-  emitRunLine({
-    presenter: input.presenter,
-    code: "daemon.run.cli_space_action_finalized",
-    text: `CLI OpenMeld Space Action finalized task ${input.parsedTask.taskId}`,
-    payload: {
-      command: completion.record.command,
-      dispatchId: input.parsedTask.dispatchId,
-      spaceActionType: completion.record.action.type,
-      targetProfileId: input.parsedTask.targetProfileId,
-      taskId: input.parsedTask.taskId,
-    },
-  });
-
-  const completedRuntimeResult =
-    await resolveAlreadyCompletedRuntimeResultAfterCliSpaceAction({
-      parsedTask: input.parsedTask,
-      presenter: input.presenter,
-      runtimeExecutionPromise: input.runtimeExecutionPromise,
-    });
-  if (completedRuntimeResult) {
-    return applyCliSpaceActionRecordToRuntimeResult({
-      record: completion.record,
-      runtimeResult: completedRuntimeResult,
-    });
-  }
-
-  const postActionCompletion =
-    await resolveRuntimeResultOrObservedProviderConversationAfterCliSpaceAction(
-      {
-        contextIdForDispatch: input.contextIdForDispatch,
-        getObservedAgentControllerConversation:
-          input.getObservedAgentControllerConversation,
-        getObservedAgentControllerConversationId:
-          input.getObservedAgentControllerConversationId,
-        parsedTask: input.parsedTask,
-        runtimeExecutionPromise: input.runtimeExecutionPromise,
-      }
-    );
-  if (postActionCompletion?.kind === "runtime") {
-    return applyCliSpaceActionRecordToRuntimeResult({
-      record: completion.record,
-      runtimeResult: postActionCompletion.runtimeResult,
-    });
-  }
-
-  observeRuntimeResultAfterCliSpaceAction({
-    onRuntimeResultAfterCliSpaceAction:
-      input.onRuntimeResultAfterCliSpaceAction,
-    parsedTask: input.parsedTask,
-    presenter: input.presenter,
-    runtimeExecutionPromise: input.runtimeExecutionPromise,
-  });
-  const observedAgentControllerConversation =
-    postActionCompletion?.kind === "provider_conversation"
-      ? postActionCompletion.agentControllerConversation
-      : resolveObservedProviderConversationForCliSpaceAction({
-          contextIdForDispatch: input.contextIdForDispatch,
-          getObservedAgentControllerConversation:
-            input.getObservedAgentControllerConversation,
-          getObservedAgentControllerConversationId:
-            input.getObservedAgentControllerConversationId,
-          parsedTask: input.parsedTask,
-        });
-
-  return await buildCliSpaceActionRuntimeResult({
-    agentControllerConversation: observedAgentControllerConversation,
-    agentControllerConversationId:
-      observedAgentControllerConversation?.agentControllerConversationId ??
-      null,
-    ledgerIo: input.ledgerIo,
-    ledgerPaths: input.ledgerPaths,
-    parsedTask: input.parsedTask,
-    record: completion.record,
-  });
-}
-
 export function resolveEffectiveAgentControllerConversationId(input: {
   agentControllerConversationId: string | null;
   existingContextId: string | null;
@@ -3433,109 +3306,6 @@ export function resolveEffectiveAgentControllerConversationId(input: {
     return bindingConversationId;
   }
   return normalizeOptionalContextId(input.existingContextId);
-}
-
-type CliSpaceActionPostActionCompletion =
-  | {
-      kind: "provider_conversation";
-      agentControllerConversation: AgentControllerConversationRef;
-    }
-  | {
-      kind: "runtime";
-      runtimeResult: RuntimeTaskResult;
-    };
-
-async function resolveRuntimeResultOrObservedProviderConversationAfterCliSpaceAction(input: {
-  contextIdForDispatch: string | null;
-  getObservedAgentControllerConversation?: () => AgentControllerConversationRef | null;
-  getObservedAgentControllerConversationId?: () => string | null;
-  parsedTask: ParsedDispatchTask;
-  runtimeExecutionPromise: Promise<RuntimeTaskResult>;
-}): Promise<CliSpaceActionPostActionCompletion | null> {
-  const existingConversation =
-    resolveObservedProviderConversationForCliSpaceAction({
-      contextIdForDispatch: input.contextIdForDispatch,
-      getObservedAgentControllerConversation:
-        input.getObservedAgentControllerConversation,
-      getObservedAgentControllerConversationId:
-        input.getObservedAgentControllerConversationId,
-      parsedTask: input.parsedTask,
-    });
-  if (existingConversation) {
-    return {
-      kind: "provider_conversation",
-      agentControllerConversation: existingConversation,
-    };
-  }
-
-  const deadlineMs =
-    Date.now() + CLI_SPACE_ACTION_PROVIDER_CONVERSATION_GRACE_MS;
-  const runtimeCompletion = input.runtimeExecutionPromise.then(
-    (runtimeResult) => ({ runtimeResult, status: "runtime" as const }),
-    (error) => ({ error, status: "runtime_error" as const })
-  );
-
-  while (Date.now() < deadlineMs) {
-    const remainingMs = Math.max(0, deadlineMs - Date.now());
-    const waitMs = Math.min(
-      CLI_SPACE_ACTION_RECORD_POLL_INTERVAL_MS,
-      remainingMs
-    );
-    const result = await Promise.race([
-      runtimeCompletion,
-      delay(waitMs).then(() => ({ status: "pending" as const })),
-    ]);
-
-    if (result.status === "runtime") {
-      return {
-        kind: "runtime",
-        runtimeResult: result.runtimeResult,
-      };
-    }
-    if (result.status === "runtime_error") {
-      return null;
-    }
-
-    const observedConversation =
-      resolveObservedProviderConversationForCliSpaceAction({
-        contextIdForDispatch: input.contextIdForDispatch,
-        getObservedAgentControllerConversation:
-          input.getObservedAgentControllerConversation,
-        getObservedAgentControllerConversationId:
-          input.getObservedAgentControllerConversationId,
-        parsedTask: input.parsedTask,
-      });
-    if (observedConversation) {
-      return {
-        kind: "provider_conversation",
-        agentControllerConversation: observedConversation,
-      };
-    }
-  }
-
-  return null;
-}
-
-function resolveObservedProviderConversationForCliSpaceAction(input: {
-  contextIdForDispatch: string | null;
-  getObservedAgentControllerConversation?: () => AgentControllerConversationRef | null;
-  getObservedAgentControllerConversationId?: () => string | null;
-  parsedTask: ParsedDispatchTask;
-}): AgentControllerConversationRef | null {
-  const observedAgentControllerConversation =
-    input.getObservedAgentControllerConversation?.() ?? null;
-  if (observedAgentControllerConversation) {
-    return observedAgentControllerConversation;
-  }
-
-  const observedAgentControllerConversationId =
-    normalizeOptionalContextId(
-      input.getObservedAgentControllerConversationId?.() ?? null
-    ) ?? input.contextIdForDispatch;
-  return buildAgentControllerConversationRefFromAgentControllerConversation({
-    agentControllerConversationId: observedAgentControllerConversationId,
-    agentControllerRef: input.parsedTask.agentControllerRef,
-  });
 }
 
 async function waitForCliSpaceActionRecord(input: {
@@ -3577,99 +3347,7 @@ async function waitForCliSpaceActionRecord(input: {
   };
 }
 
-async function buildCliSpaceActionRuntimeResult(input: {
-  agentControllerConversation: AgentControllerConversationRef | null;
-  agentControllerConversationId: string | null;
-  ledgerIo: ReturnType<typeof createLedgerIo>;
-  ledgerPaths: LedgerPaths;
-  parsedTask: ParsedDispatchTask;
-  record: DispatchSpaceActionRecord;
-}): Promise<RuntimeTaskResult> {
-  const resultPayload = buildCliSpaceActionSuccessPayload({
-    basePayload: {
-      agentId: input.parsedTask.targetProfileId,
-      attemptId: input.parsedTask.attemptId,
-      deduped: false,
-      sourceEventId: input.parsedTask.sourceEventId,
-      taskId: input.parsedTask.taskId,
-      ...(input.agentControllerConversation
-        ? {
-            agentControllerConversation: input.agentControllerConversation,
-          }
-        : {}),
-      ...(input.agentControllerConversationId
-        ? {
-            agentControllerConversationId: input.agentControllerConversationId,
-          }
-        : {}),
-      ...(input.parsedTask.agentControllerRef
-        ? { agentControllerRef: input.parsedTask.agentControllerRef }
-        : {}),
-      ...(input.parsedTask.transportMode
-        ? { transportMode: input.parsedTask.transportMode }
-        : {}),
-    },
-    record: input.record,
-  });
-  const state = await withLedgerStateTransaction({
-    invalidStateStrategy: "backup_and_reset",
-    io: input.ledgerIo,
-    mutate: (state) => {
-      const nextState = settleInflightTask({
-        state,
-        taskId: input.parsedTask.taskId,
-      });
-      return {
-        nextState,
-        value: nextState,
-      };
-    },
-    paths: input.ledgerPaths,
-  });
-  await appendLedgerHistoryEntry({
-    entry: {
-      message: "task finalized from CLI Space Action",
-      reasonCode: "task.cli_space_action",
-      status: resultPayload.status,
-      taskId: input.parsedTask.taskId,
-      ts: new Date().toISOString(),
-    },
-    io: input.ledgerIo,
-    paths: input.ledgerPaths,
-  });
-
-  return {
-    agentContextLifecycleCounters: state.agentContextLifecycleCounters,
-    deduped: false,
-    dispatchResult: {
-      adapterResult: {
-        ...(input.agentControllerConversationId
-          ? {
-              contextDelta: {
-                ...(input.agentControllerConversation
-                  ? {
-                      agentControllerConversation:
-                        input.agentControllerConversation,
-                    }
-                  : {}),
-                agentControllerConversationId:
-                  input.agentControllerConversationId,
-              },
-            }
-          : {}),
-        output: resultPayload.output,
-        status: "success",
-      },
-      dispatched: true,
-      reason: "dispatched",
-    },
-    resultPayload,
-    runtimeState: "idle",
-    state,
-  };
-}
-
-async function applyCliSpaceActionRecordIfPresent(input: {
+export async function applyCliSpaceActionRecordIfPresent(input: {
   dispatchSpaceActionContext: DispatchSpaceActionContext | null;
   parsedTask: ParsedDispatchTask;
   presenter: Presenter;
@@ -3717,67 +3395,6 @@ async function applyCliSpaceActionRecordIfPresent(input: {
     record: readResult.record,
     runtimeResult: input.runtimeResult,
   });
-}
-
-async function resolveAlreadyCompletedRuntimeResultAfterCliSpaceAction(input: {
-  parsedTask: ParsedDispatchTask;
-  presenter: Presenter;
-  runtimeExecutionPromise: Promise<RuntimeTaskResult>;
-}): Promise<RuntimeTaskResult | null> {
-  try {
-    const result = await Promise.race([
-      input.runtimeExecutionPromise.then((runtimeResult) => ({
-        runtimeResult,
-        status: "runtime" as const,
-      })),
-      delay(0).then(() => ({
-        status: "pending" as const,
-      })),
-    ]);
-    if (result.status === "runtime") {
-      return result.runtimeResult;
-    }
-  } catch (error) {
-    emitRunLine({
-      presenter: input.presenter,
-      code: "daemon.run.runtime_ignored_after_cli_space_action",
-      text: `runtime failed after CLI OpenMeld Space Action finalized task ${input.parsedTask.taskId}`,
-      payload: {
-        dispatchId: input.parsedTask.dispatchId,
-        errorMessage: toErrorMessage(error),
-        targetProfileId: input.parsedTask.targetProfileId,
-        taskId: input.parsedTask.taskId,
-      },
-    });
-  }
-  return null;
-}
-
-function observeRuntimeResultAfterCliSpaceAction(input: {
-  onRuntimeResultAfterCliSpaceAction?: (
-    runtimeResult: RuntimeTaskResult
-  ) => Promise<void> | void;
-  parsedTask: ParsedDispatchTask;
-  presenter: Presenter;
-  runtimeExecutionPromise: Promise<RuntimeTaskResult>;
-}): void {
-  input.runtimeExecutionPromise
-    .then(async (runtimeResult) => {
-      await input.onRuntimeResultAfterCliSpaceAction?.(runtimeResult);
-    })
-    .catch((error) => {
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.runtime_ignored_after_cli_space_action",
-        text: `runtime failed after CLI OpenMeld Space Action finalized task ${input.parsedTask.taskId}`,
-        payload: {
-          dispatchId: input.parsedTask.dispatchId,
-          errorMessage: toErrorMessage(error),
-          targetProfileId: input.parsedTask.targetProfileId,
-          taskId: input.parsedTask.taskId,
-        },
-      });
-    });
 }
 
 function applyCliSpaceActionRecordToRuntimeResult(input: {

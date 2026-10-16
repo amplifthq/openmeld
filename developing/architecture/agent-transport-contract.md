@@ -1801,6 +1801,28 @@ it must not demand review of a notice that the reader deliberately omits.
 
 ### Agent Transport Space Action Delivery
 
+Local Service may prepublish explicitly submitted `post_message` text through
+`daemon.dispatch.reply_draft` while the native controller is still running.
+This is a Space-owned persisted Agent stream snapshot, not an accepted execution
+result or a final reply claim. Core applies the same token, session, lease,
+source, and target checks as other live activity, and Space resolves the reply
+placement. The existing stream sequence and terminal guard deduplicate updates
+and fence late writes. Final publication replaces the stream in the conversation;
+Stop and failure use the existing terminal stream handling.
+
+Only text from the durable dispatch action record may enter this channel.
+Private controller output, tool results, files, and recipient side effects are
+not prepublished. Files and Wake/Mention effects remain part of final action
+acceptance. The current 32 KiB stream limit applies to the preview; larger
+replies retain their complete text on the final-message path. Service retries the latest
+snapshot while the controller runs, and retains final usage, context completion,
+and reply review on the normal controller-completion path.
+
+Within an active turn, a later `post_message` replaces the complete reply
+proposal. Identical retries, including retries of an earlier revision, must not
+roll back the latest reply. Other final action types remain first-write-wins.
+No revision may turn a completed or expired Wake into new work.
+
 `Agent Transport Space Action Delivery` is the canonical delivery boundary from
 an accepted RuntimeCoordinator result to the Space Final Visible Outcome.
 

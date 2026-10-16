@@ -22,6 +22,7 @@ import {
   writeDispatchSpaceActionRecord,
 } from "../src/runtime/dispatch-space-action-context";
 import { startDispatchSpaceProgressRelay } from "../src/runtime/dispatch-space-progress-relay";
+import { startDispatchSpaceReplyDraft } from "../src/runtime/dispatch-space-reply-draft";
 import {
   runSpaceActionHelp,
   runSpaceActionReply,
@@ -239,18 +240,68 @@ describe("OpenMeld Space Action command", () => {
     ).toThrow("would close the current Wake");
   });
 
-  it("keeps final action records first-write-wins", async () => {
-    createTestContext([]);
+  it("revises the same reply and does not roll it back on an earlier retry", async () => {
+    const context = createTestContext([]);
 
     await runSpaceActionReply({
       messageParts: ["First", "answer."],
     });
 
-    expect(() =>
-      runSpaceActionReply({
-        messageParts: ["Second", "answer."],
-      })
-    ).toThrow("already been recorded");
+    await runSpaceActionReply({ messageParts: ["Second", "answer."] });
+    await runSpaceActionReply({ messageParts: ["First", "answer."] });
+    expect(readLoadedActionRecord(context).action).toMatchObject({
+      messageEnvelope: { text: "Second answer." },
+    });
+  });
+
+  it("publishes durable public reply drafts while the controller has not completed", async () => {
+    const context = createTestContext([]);
+    const publish = vi.fn(() => true);
+    const onError = vi.fn();
+    const relay = startDispatchSpaceReplyDraft({ context, publish, onError });
+    try {
+      expect(publish).not.toHaveBeenCalled();
+      await runSpaceActionReply({ messageParts: ["First answer."] });
+      await vi.waitFor(() =>
+        expect(publish).toHaveBeenLastCalledWith("First answer.", undefined)
+      );
+      await runSpaceActionReply({ messageParts: ["Revised complete answer."] });
+      await vi.waitFor(() =>
+        expect(publish).toHaveBeenLastCalledWith(
+          "Revised complete answer.",
+          undefined
+        )
+      );
+      await runSpaceActionReply({ messageParts: ["First answer."] });
+      expect(publish).toHaveBeenCalledTimes(2);
+      expect(onError).not.toHaveBeenCalled();
+    } finally {
+      await relay.close();
+    }
+  });
+
+  it("retries a backpressured preview and preserves the complete final reply", async () => {
+    const context = createTestContext([]);
+    const message = "x".repeat(40 * 1024);
+    const publish = vi.fn().mockReturnValueOnce(false).mockReturnValue(true);
+    const relay = startDispatchSpaceReplyDraft({
+      context,
+      publish,
+      onError: vi.fn(),
+    });
+    try {
+      await runSpaceActionReply({ messageParts: [message] });
+      await vi.waitFor(() => expect(publish).toHaveBeenCalledTimes(2));
+      expect(publish).toHaveBeenLastCalledWith(
+        message.slice(0, 32 * 1024),
+        undefined
+      );
+      expect(readLoadedActionRecord(context).action).toMatchObject({
+        messageEnvelope: { text: message },
+      });
+    } finally {
+      await relay.close();
+    }
   });
 
   it("acknowledges an identical reply retry without replacing the first record", async () => {
