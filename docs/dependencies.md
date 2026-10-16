@@ -50,7 +50,7 @@ not install packages or query the network. Stage new manifests before running it
 | [@dnd-kit/core](https://www.npmjs.com/package/@dnd-kit/core) | <code>6.3.1</code> | Runtime | [clients/web](../clients/web/package.json) |
 | [@dnd-kit/sortable](https://www.npmjs.com/package/@dnd-kit/sortable) | <code>10.0.0</code> | Runtime | [clients/web](../clients/web/package.json) |
 | [@dnd-kit/utilities](https://www.npmjs.com/package/@dnd-kit/utilities) | <code>3.2.2</code> | Runtime | [clients/web](../clients/web/package.json) |
-| [@earendil-works/pi-ai](https://www.npmjs.com/package/@earendil-works/pi-ai) | <code>0.87.1</code> | Runtime | [services/remote-agent](../services/remote-agent/package.json) |
+| [@earendil-works/pi-ai](https://www.npmjs.com/package/@earendil-works/pi-ai) | <code>1.3.0</code> | Runtime | [services/remote-agent](../services/remote-agent/package.json) |
 | [@embedpdf/core](https://www.npmjs.com/package/@embedpdf/core) | <code>^2.15.1</code> | Runtime | [clients/web](../clients/web/package.json) |
 | [@embedpdf/engines](https://www.npmjs.com/package/@embedpdf/engines) | <code>^2.15.1</code> | Runtime | [clients/web](../clients/web/package.json) |
 | [@embedpdf/models](https://www.npmjs.com/package/@embedpdf/models) | <code>^2.15.1</code> | Runtime | [clients/web](../clients/web/package.json) |
@@ -70,9 +70,9 @@ not install packages or query the network. Stage new manifests before running it
 | [@extend-ai/react-docx](https://www.npmjs.com/package/@extend-ai/react-docx) | <code>^0.9.2</code> | Runtime | [clients/web](../clients/web/package.json) |
 | [@extend-ai/react-pptx](https://www.npmjs.com/package/@extend-ai/react-pptx) | <code>0.2.1</code> | Runtime | [clients/web](../clients/web/package.json) |
 | [@extend-ai/react-xlsx](https://www.npmjs.com/package/@extend-ai/react-xlsx) | <code>0.16.4</code> | Runtime | [clients/web](../clients/web/package.json) |
-| [@flue/cli](https://www.npmjs.com/package/@flue/cli) | <code>2.2.2</code> | Development | [services/remote-agent](../services/remote-agent/package.json) |
-| [@flue/runtime](https://www.npmjs.com/package/@flue/runtime) | <code>2.2.2</code> | Runtime | [services/remote-agent](../services/remote-agent/package.json) |
-| [@flue/vite](https://www.npmjs.com/package/@flue/vite) | <code>2.2.2</code> | Development | [services/remote-agent](../services/remote-agent/package.json) |
+| [@flue/cli](https://www.npmjs.com/package/@flue/cli) | <code>2.3.0</code> | Development | [services/remote-agent](../services/remote-agent/package.json) |
+| [@flue/runtime](https://www.npmjs.com/package/@flue/runtime) | <code>2.3.0</code> | Runtime | [services/remote-agent](../services/remote-agent/package.json) |
+| [@flue/vite](https://www.npmjs.com/package/@flue/vite) | <code>2.3.0</code> | Development | [services/remote-agent](../services/remote-agent/package.json) |
 | [@getzep/zep-cloud](https://www.npmjs.com/package/@getzep/zep-cloud) | <code>3.23.0</code> | Runtime | [services/core](../services/core/package.json) |
 | [@glideapps/glide-data-grid](https://www.npmjs.com/package/@glideapps/glide-data-grid) | <code>6.0.4-alpha24</code> | Runtime | [clients/web](../clients/web/package.json) |
 | [@hugeicons/core-free-icons](https://www.npmjs.com/package/@hugeicons/core-free-icons) | <code>^4.1.1</code> | Runtime | [clients/web](../clients/web/package.json) |
