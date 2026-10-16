@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-15T11:06:20.468Z",
+  "updatedAt": "2026-10-16T05:50:29.135Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
       "packageVersion": "0.3.263",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands and payloads remain compatible; this update corrects report ordering after local Agent setup."
+      "reason": "Existing wire contracts remain compatible; Node runtime checks and Space addressing resolve existing command inputs before submission."
     },
     "service": {
-      "bundleHash": "db9dfa2e2230c41be852dc470f05b0d97ef93c7dee181d8c65acaca2b4837fef",
-      "portableBundleHash": "3d9e13b511e180cc2fc289bd60f13ad7802319672f90c6d73184581fe5007b65",
+      "bundleHash": "e8cb0da9f50aa4537a511a24292d8cfae0cd4b9b13fde8f9e60000d52d10411c",
+      "portableBundleHash": "3f899646d585d0590bd862805af5952dcbe4b77f60702335236ffa997ca680f8",
       "bundleVersion": "0.3.263",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
       "updatePolicy": "available",
-      "reason": "Setup and Wake protocols remain compatible. A completed local control starts fresh evidence collection even if an earlier scan failed."
+      "reason": "Setup and Wake contracts remain compatible; local control refresh waits for an earlier report and then collects fresh evidence."
     },
     "skills": {
-      "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",
+      "bundleHash": "77e639d354b9ebf56ffdaa231a469fd0f848ad63c9b6f78662bdf4e698e2946d",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Computer guidance documents existing idempotent commands and optional result references without new runtime authority."
+      "reason": "Guidance clarifies existing command prefixes, addressing, and Computer operations without adding runtime authority."
     }
   }
 }
