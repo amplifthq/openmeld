@@ -8262,6 +8262,96 @@ describe("OpenMeld Core", () => {
       rpcRemoteAgentReadMessages(env as CoreBindings, { ...query, context })
     ).rejects.toThrow("designated Center Agent");
   }, 30_000);
+  it("keeps workspace read order and rechecks access after speculative reads", async () => {
+    const reader = { ownerUserId: randomUUID(), profileId: randomUUID() };
+    const spaces: string[] = [];
+    for (let index = 0; index < 7; index++) {
+      spaces.push(await createSpace({ accessMode: "members_only" }, reader));
+    }
+    spaces.sort();
+    const expected = new Map<string, string>();
+    for (const index of [0, 1, 2, 4, 6]) {
+      const spaceId = spaces[index];
+      if (!spaceId) {
+        throw new Error("Missing search fixture Space");
+      }
+      const text = `ordered-search ${index} ${index === 0 ? "消息🙂".repeat(1000) : "hit"}`;
+      const response = await fetchWithOpenMeldAuth(
+        `${BASE_URL}/v1/spaces/${spaceId}/signals`,
+        {
+          method: "POST",
+          body: JSON.stringify({ type: "signal.text", data: { text } }),
+        },
+        reader
+      );
+      expect(response.status).toBe(200);
+      await response.text();
+      if (index !== 2) {
+        expected.set(spaceId, text);
+      }
+    }
+    const context = createRpcContext({
+      requestId: "ordered-workspace-reader",
+      profileKind: "human",
+      ...reader,
+    });
+    const query = {
+      ...messageReadQuerySchema.parse({
+        q: "ordered-search",
+        mode: "full",
+        maxBytes: 4096,
+      }),
+      context,
+    };
+    const first = await rpcReadMessages(env as CoreBindings, query);
+    expect(first.matches).toHaveLength(1);
+    expect(first.matches[0]?.signal.spaceId).toBe(spaces[0]);
+    expect(first.matches[0]?.content.complete).toBe(false);
+    expect(
+      await rpcReadMessages(env as CoreBindings, {
+        ...query,
+        cursor: first.pageCursor ?? undefined,
+      })
+    ).toEqual(first);
+    // Keep directory discovery stale: the owning Space must reject this read
+    // even though a previous wave could already have read its matching message.
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const revokedSpaceId = spaces[2];
+    if (!revokedSpaceId) {
+      throw new Error("Missing revoked search fixture Space");
+    }
+    await runInDurableObject(
+      namespace.get(namespace.idFromString(revokedSpaceId)),
+      (_instance, state) => {
+        state.storage.sql.exec(
+          "UPDATE space_members SET status = 'removed' WHERE owner_user_id_snapshot = ?",
+          reader.ownerUserId
+        );
+      }
+    );
+    const assembled = new Map<string, string>();
+    let page = first;
+    for (let count = 0; ; count++) {
+      expect(count).toBeLessThan(20);
+      expect(
+        new TextEncoder().encode(JSON.stringify(page)).length
+      ).toBeLessThanOrEqual(query.maxBytes);
+      for (const match of page.matches) {
+        const prior = assembled.get(match.signal.spaceId) ?? "";
+        expect(match.content.offset).toBe(prior.length);
+        assembled.set(match.signal.spaceId, prior + match.signal.data.text);
+      }
+      if (!page.nextCursor) {
+        expect(page.coverage).toBe("complete");
+        break;
+      }
+      page = await rpcReadMessages(env as CoreBindings, {
+        ...query,
+        cursor: page.nextCursor,
+      });
+    }
+    expect([...assembled]).toEqual([...expected]);
+  }, 30_000);
   it("returns an empty anchored page when after-signal uses limit=0", async () => {
     const spaceId = await createSpace();
     const response = await fetchWithOpenMeldAuth(
