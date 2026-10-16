@@ -11,6 +11,7 @@ permissions:
 
 concurrency:
   group: core-dependency-watch
+  queue: max
   cancel-in-progress: false
 
 jobs:
