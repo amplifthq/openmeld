@@ -821,6 +821,27 @@ describe("Agent Profile creation request service", () => {
       })
     );
 
+    // Existing records retain the public checkpoint copy from older Core versions.
+    await repository.transition({
+      expectedStatuses: ["failed"],
+      expectedUpdatedAtMs: Date.parse(created.request.updatedAt),
+      requestId: created.request.id,
+      update: {
+        failureMessage:
+          "OpenMeld created the Agent, but couldn't finish setup. Retry setup to continue safely.",
+        updatedAtMs: Date.parse(created.request.updatedAt) + 1,
+      },
+    });
+    expect(
+      (
+        await service.list({
+          organizationId: "org-1",
+          userId: "user-requester",
+          requestId: created.request.id,
+        })
+      )[0]?.failureMessage
+    ).toBe(created.request.failureMessage);
+
     // Retry is valid once migration 0149+ provides the current request-state contract.
     await expect(
       service.retry({

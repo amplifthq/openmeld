@@ -998,6 +998,13 @@ function toPublicFailureMessage(
   if (PUBLIC_CREATION_FAILURE_MESSAGES.has(message)) {
     return message;
   }
+  // Older Core versions persisted this public checkpoint message without a code.
+  if (
+    message ===
+    "OpenMeld created the Agent, but couldn't finish setup. Retry setup to continue safely."
+  ) {
+    return PUBLIC_CREATION_FAILURE_COPY.checkpointAfterIdentity;
+  }
   // Public copy is reconstructed from its reason, never from unknown prose.
   // This also protects historical plain or truncated transport diagnostics.
   const retainedReason = RETAINED_PUBLIC_REASON_CODE_RE.exec(message)?.[1];
