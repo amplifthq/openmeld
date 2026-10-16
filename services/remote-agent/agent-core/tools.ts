@@ -1,5 +1,7 @@
 import {
   getPersonalRemoteAgentDefaultModelId,
+  listAgentControllerPermissionModeCatalog,
+  PERMISSION_MODE_AGENT_CONTROLLER_REFS,
   resolveCenterAgentContextScopePlan,
 } from "@openmeld/agent-runtime";
 import { OPENMELD_SPACE_FILES_ORIGIN_VERSION } from "@openmeld/gateway-contract";
@@ -8,6 +10,7 @@ import {
   agentActivityOverviewResponseSchema,
   agentActivitySessionInventoryResponseSchema,
   agentControllerCollaborationModeSchema,
+  agentControllerPermissionModeSchema,
   agentProfileCreationConfigurationSchema,
   agentProfileCreationRequestMutationResponseSchema,
   agentReplyPlacementSchema,
@@ -971,19 +974,18 @@ const collaborationModeSchema = optional(
     )
   )
 );
+// Custom is no longer offered in permission pickers; every other mode is.
+const SELECTABLE_PERMISSION_MODES =
+  agentControllerPermissionModeSchema.options.filter(
+    (mode) => mode !== "codex:customConfig"
+  );
 const permissionModeSchema = optional(
-  picklist([
-    "claude-code:default",
-    "claude-code:acceptEdits",
-    "claude-code:plan",
-    "claude-code:auto",
-    "claude-code:dontAsk",
-    "claude-code:bypassPermissions",
-    "codex:askForApproval",
-    "codex:approveForMe",
-    "codex:fullAccess",
-    "codex:customConfig",
-  ])
+  pipe(
+    picklist(SELECTABLE_PERMISSION_MODES),
+    description(
+      "Controller-native permission mode for the profile's local agent. It must belong to that agent's controller; read the exact options with openmeld_list_agent_controller_permission_modes. Choose a mode whose requiresExplicitConfirmation is true only when the member explicitly asked for that level of access."
+    )
+  )
 );
 const agentProfileCreationConfigurationToolInputSchema = strictObject({
   agentControllerCollaborationMode: collaborationModeSchema,
@@ -1673,6 +1675,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_resume_controller_conversation",
   "openmeld_create_space",
   "openmeld_read_agent_profile_creation_defaults",
+  "openmeld_list_agent_controller_permission_modes",
   "openmeld_list_hosted_models",
   "openmeld_create_agent_profile_request",
   "openmeld_list_agent_profile_creation_requests",
@@ -1734,6 +1737,7 @@ export const REMOTE_AGENT_OBSERVATION_TOOL_NAMES = [
   "openmeld_read_space_wake_progress",
   "openmeld_list_projects",
   "openmeld_read_agent_profile_creation_defaults",
+  "openmeld_list_agent_controller_permission_modes",
   "openmeld_list_hosted_models",
   "openmeld_read_ai_usage",
   "openmeld_read_agent_activity",
@@ -5848,6 +5852,37 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           await rpc(toolContext)
         );
       },
+    }),
+    toolDefinition({
+      name: "openmeld_list_agent_controller_permission_modes",
+      description:
+        "List every permission mode each local agent supports (Antigravity, Claude Code, Codex, Cursor, and Grok Build), with what each mode does and whether it needs the member's explicit request. Read this before changing an Agent Profile's permission, then pass the exact value as agentControllerPermissionMode.",
+      input: strictObject({
+        agentControllerRef: optional(
+          pipe(
+            picklist(PERMISSION_MODE_AGENT_CONTROLLER_REFS),
+            description(
+              "Limit the list to one local agent controller, for example builtin:grok-build."
+            )
+          )
+        ),
+      }),
+      execute: (payload) =>
+        Promise.resolve({
+          controllers: listAgentControllerPermissionModeCatalog(
+            typeof payload.agentControllerRef === "string"
+              ? { agentControllerRef: payload.agentControllerRef }
+              : undefined
+          ).map((controller) => ({
+            agentControllerRef: controller.agentControllerRef,
+            modes: controller.modes.map((mode) => ({
+              description: mode.description,
+              label: mode.label,
+              requiresExplicitConfirmation: mode.requiresExplicitConfirmation,
+              value: mode.value,
+            })),
+          })),
+        }),
     }),
     toolDefinition({
       name: "openmeld_list_hosted_models",
