@@ -88,6 +88,7 @@ export function createComputerConnection(input: {
         deps,
         observe,
         {
+          includeStopped: Boolean(intent.connectedComputerId),
           allowBootstrap: !(
             intent.serviceAction === "update_service" &&
             intent.connectedComputerId
@@ -577,12 +578,32 @@ export function isComputerConnectionBootstrapError(error: unknown): boolean {
   );
 }
 
-export async function readComputerConnection(bin: string, deps: CommandDeps) {
-  const result = await promisify(execFile)(
-    bin,
-    ["computer", "connection-review", "--json"],
-    { env: deps.env, timeout: 10_000, maxBuffer: 16_384 }
-  );
+export async function readComputerConnection(
+  bin: string,
+  deps: CommandDeps,
+  options: { includeStopped?: boolean } = {}
+) {
+  const args = ["computer", "connection-review", "--json"];
+  const execute = (commandArgs: string[]) =>
+    promisify(execFile)(bin, commandArgs, {
+      env: deps.env,
+      timeout: 10_000,
+      maxBuffer: 16_384,
+    });
+  const result = await execute(
+    options.includeStopped ? [...args, "--include-stopped"] : args
+  ).catch((error: unknown) => {
+    // Older carriers support only the running-connection review. Retry only
+    // explicit unsupported-command errors, never failed identity checks.
+    if (
+      options.includeStopped &&
+      (error as { code?: unknown })?.code === 1 &&
+      isComputerConnectionBootstrapError(error)
+    ) {
+      return execute(args);
+    }
+    throw error;
+  });
   return computerConnectionReviewSchema.parse(JSON.parse(result.stdout));
 }
 
@@ -597,13 +618,19 @@ async function reviewComputerConnection(
       measurement?: DesktopComputerConnectionProgress["measurement"];
     }
   ) => void,
-  options: { forceInstall?: boolean; allowBootstrap?: boolean } = {}
+  options: {
+    forceInstall?: boolean;
+    allowBootstrap?: boolean;
+    includeStopped?: boolean;
+  } = {}
 ) {
   if (!options.forceInstall) {
     try {
       return {
         bin,
-        review: await readComputerConnection(bin, deps),
+        review: await readComputerConnection(bin, deps, {
+          includeStopped: options.includeStopped,
+        }),
         installedNow: false,
       };
     } catch (error) {
@@ -632,7 +659,9 @@ async function reviewComputerConnection(
   });
   return {
     bin: installedBin,
-    review: await readComputerConnection(installedBin, deps),
+    review: await readComputerConnection(installedBin, deps, {
+      includeStopped: options.includeStopped,
+    }),
     installedNow: true,
   };
 }
@@ -659,7 +688,7 @@ async function prepareReviewedComputerTools(input: {
     input.webOrigin,
     input.deps,
     input.observe,
-    { forceInstall: true }
+    { forceInstall: true, includeStopped: true }
   );
   if (
     (updated.review.account?.id ?? null) !==

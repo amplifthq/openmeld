@@ -37,7 +37,8 @@ export function createLocalComputerReader(
       }
       const review = await readComputerConnection(
         resolveOpenMeldBin({ env: deps.env, override: deps.openMeldBin }),
-        deps
+        deps,
+        { includeStopped: true }
       ).catch((error: unknown) => {
         if (!isComputerConnectionBootstrapError(error)) {
           throw error;

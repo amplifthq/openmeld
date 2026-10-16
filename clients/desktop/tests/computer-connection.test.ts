@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createComputerConnection,
   createComputerDisconnection,
+  readComputerConnection,
 } from "../src/main/computer-connection";
 
 const mocks = vi.hoisted(() => ({
@@ -32,8 +33,40 @@ vi.mock("../src/main/cli/computer-tools", () => ({
 
 describe("Desktop computer connection admission", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     mocks.install.mockResolvedValue("/test-owned/installed/npm/openmeld.js");
+  });
+  it.each([
+    "unsupported command",
+    "authentication failure",
+  ])("retries a stopped-identity probe only for compatibility: %s", async (reason) => {
+    const error = Object.assign(new Error(reason), {
+      code: 1,
+      stderr:
+        reason === "unsupported command"
+          ? "error: unknown command 'connection-review'"
+          : "Authentication expired",
+    });
+    mocks.exec.mockRejectedValueOnce(error).mockResolvedValueOnce({
+      stdout: JSON.stringify({
+        protocol: "computer-connection-v1",
+        previousSessionIdentity: "review-session",
+        account: null,
+        existingConnection: null,
+      }),
+    });
+    const result = readComputerConnection(
+      "/test/openmeld",
+      {},
+      { includeStopped: true }
+    );
+    if (reason === "unsupported command") {
+      await expect(result).resolves.toMatchObject({ existingConnection: null });
+      expect(mocks.exec).toHaveBeenCalledTimes(2);
+    } else {
+      await expect(result).rejects.toBe(error);
+      expect(mocks.exec).toHaveBeenCalledTimes(1);
+    }
   });
   it.each([
     "cancelled",
@@ -193,6 +226,9 @@ describe("Desktop computer connection admission", () => {
         stderr: "error: unknown command 'connection-review'",
       }) satisfies ExecFileException & { stdout: string; stderr: string };
       mocks.exec.mockRejectedValueOnce(failure);
+      if (scenario === "targeted_update_legacy_tools") {
+        mocks.exec.mockRejectedValueOnce(failure);
+      }
     }
     const connect = createComputerConnection({
       auth: {

@@ -878,13 +878,19 @@ admission, vendor execution, and durable results; Desktop has no separate update
 
 Working folder selection and Local Agent updates share one native target check.
 Main reads the existing CLI
-`computer connection-review --json` projection without installing or starting a
+`computer connection-review --json --include-stopped` projection without installing or starting a
 Service and checks its account against the Desktop session before and after the
 read. The shared renderer uses that exact device and lane for folder selection,
 Project discovery, connection, default-folder selection, and workspace saving.
 Main independently rejects a different device or lane before attaching
 credentials. A selected Agent on another Computer is not retargeted. The account's
 current-Computer preference is never a fallback for these Desktop requests.
+The explicit flag also admits a stopped, installed, account-aligned Service with
+verified native start capability. Targeted recovery uses the same check. The
+unflagged review still reports only a running connection, so ordinary Connect
+cannot reuse a stopped Service as if it were connected. An older CLI that
+explicitly rejects the command is retried without the flag; authentication and
+identity failures are never downgraded to compatibility retries.
 Cancellation changes no draft; selecting a folder alone grants no file access,
 connects no Project, and saves no workspace. The existing Service remains the
 only local writer, and paths stay within the existing private control contracts.
