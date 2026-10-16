@@ -29,7 +29,11 @@ const setCurrentOpenMeldToolsMaintenanceMock = vi.hoisted(() => vi.fn());
 const setQueryDataMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
-const desktop = vi.hoisted(() => ({ enabled: false, openWeb: vi.fn() }));
+const desktop = vi.hoisted(() => ({
+	enabled: false,
+	openWeb: vi.fn(),
+	native: false,
+}));
 const copyTextMock = vi.hoisted(() => vi.fn().mockResolvedValue(true));
 vi.mock("#/lib/clipboard", () => ({ copyTextToClipboard: copyTextMock }));
 vi.mock("#/env", () => ({
@@ -44,8 +48,26 @@ vi.mock("#/hooks/auth.hooks", () => ({
 
 vi.mock("#/desktop/platform", () => ({
 	canConfigureLocalComputer: (eligible = true) => eligible && !desktop.enabled,
-	getDesktopPlatform: () => (desktop.enabled ? {} : null),
+	getDesktopPlatform: () => {
+		if (!desktop.enabled) {
+			return null;
+		}
+		return desktop.native
+			? { updateComputer: vi.fn(), connectComputer: vi.fn() }
+			: {};
+	},
 	openDesktopWeb: desktop.openWeb,
+}));
+vi.mock("#/desktop/use-computer-connection", () => ({
+	useDesktopComputerConnection: () => ({
+		data: desktop.native
+			? {
+					status: "available",
+					accountId: "owner-account",
+					target: { deviceId: "device-macbook-pro", runtimeLane: "dev-local" },
+				}
+			: undefined,
+	}),
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -138,6 +160,7 @@ describe("OpenMeldServiceCard", () => {
 	});
 	afterEach(() => {
 		desktop.enabled = false;
+		desktop.native = false;
 		desktop.openWeb.mockReset();
 		cleanup();
 		vi.useRealTimers();
@@ -201,6 +224,35 @@ describe("OpenMeldServiceCard", () => {
 		await waitFor(() => expect(refreshSharedCachesMock).toHaveBeenCalledOnce());
 		expect(requestCurrentOpenMeldToolsUpdateMock).not.toHaveBeenCalled();
 		expect(setCurrentOpenMeldToolsMaintenanceMock).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		false,
+		true,
+	])("routes a verified local Desktop action through native setup (update=%s)", (update) => {
+		desktop.enabled = true;
+		desktop.native = true;
+		const readiness = buildCurrentLocalRuntimeReplyReadiness();
+		if (update) {
+			readiness.localComponents.service.status = "update_required";
+		} else {
+			readiness.service.connected = false;
+		}
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: readiness,
+			replyReadiness: update
+				? SERVICE_UPDATE_REQUIRED_REPLY_READINESS
+				: SERVICE_NOT_CONNECTED_REPLY_READINESS,
+		});
+		const link = screen.getByRole("link", {
+			name: update ? "Update OpenMeld" : "Reconnect computer",
+		});
+		expect(link.getAttribute("href")).toBe(
+			update
+				? "/o/acme/connect?connectedComputerId=computer-macbook-pro&serviceAction=update_service&session=fresh"
+				: "/o/acme/connect?connectedComputerId=computer-macbook-pro&session=fresh"
+		);
+		expect(desktop.openWeb).not.toHaveBeenCalled();
 	});
 
 	it("bounds browser opening and shows a retry after failure", async () => {

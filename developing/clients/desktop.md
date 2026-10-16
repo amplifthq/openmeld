@@ -74,6 +74,14 @@ copying Space pages into a Desktop-only implementation.
 Desktop is a peer client over the same cloud truth. It does not own a second
 account identity, Computer, Agent Profile, Binding, Wakeability projection,
 dispatch queue, synchronization engine, or execution state machine.
+
+Computer Connection update and reconnect actions compare the native CLI-owned
+local Computer projection with the signed-in account and selected device/lane.
+A matching local target opens the existing bundled connection flow, which calls
+`updateComputer` or `connectComputer` and retains native admission and completion
+verification. Remote targets and builds without the required native capability
+keep the browser handoff. The global Web-only configuration capability remains
+unchanged.
 RuntimeCoordinator remains the workstation execution authority, the Space
 durable outbox remains the conveyor, and the Service retains disk/ack recovery.
 

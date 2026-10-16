@@ -25,6 +25,14 @@
 
 ## App and public website boundary
 
+After a timed-out Check agents request, the Local agents card reconciles the
+original account scope, device and lane. Every controller present at request
+time must have a newer native observation before the card reports refreshed
+status. One early controller result cannot complete the group. A refreshed
+projection is not an operation receipt: only the original successful control
+response reports that the check completed. An unknown or partial result keeps
+the still-checking guidance.
+
 Message details offers **Hand off** to continue work from its current readable
 message with another Agent. The current form requires a Project/repository and
 published commit only when **Include a repository** is selected. By default it

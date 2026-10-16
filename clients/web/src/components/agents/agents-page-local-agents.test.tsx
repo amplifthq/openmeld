@@ -1089,7 +1089,7 @@ describe("LocalAgentsCard", () => {
 		);
 	});
 
-	it("reports success when a slow local agent check updates canonical status", async () => {
+	it("reports refreshed status when all slow local agent observations advance", async () => {
 		const refreshLocalAgentCatalog = vi.fn().mockRejectedValue({
 			code: "local_agent_control.timeout",
 			message: "The current local OpenMeld Service did not respond in time.",
@@ -1119,10 +1119,59 @@ describe("LocalAgentsCard", () => {
 
 		await waitFor(() => {
 			expect(toastMock.success).toHaveBeenCalledWith(
-				"Local agent check complete."
+				"Local agent status refreshed."
 			);
 		});
 		expect(toastMock.error).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		"partial",
+		"different_device",
+		"different_lane",
+	])("does not complete a slow check from %s observations", async (scenario) => {
+		vi.useFakeTimers();
+		const refreshAll = vi.fn().mockResolvedValue(undefined);
+		const { executionTarget } = renderLocalAgentsCard({
+			includeAgentControllerInterface: true,
+			refreshAll,
+			refreshCatalogSupported: true,
+			refreshLocalAgentCatalog: vi.fn().mockRejectedValue({
+				code: "local_agent_control.timeout",
+				status: 504,
+			}),
+			setEnabledSupported: true,
+		});
+		const first = executionTarget.capabilities[0];
+		const second = structuredClone(first);
+		second.agentControllerRef = "builtin:claude-code";
+		if (second.agentControllerInterface) {
+			second.agentControllerInterface.agentControllerRef =
+				"builtin:claude-code";
+		}
+		executionTarget.capabilities.push(second);
+		refreshAll.mockImplementation(() => {
+			if (first.agentControllerInterface) {
+				first.agentControllerInterface.checkedAt = "2026-06-28T12:00:01.000Z";
+			}
+			if (scenario !== "partial" && second.agentControllerInterface) {
+				second.agentControllerInterface.checkedAt = "2026-06-28T12:00:01.000Z";
+			}
+			if (scenario === "different_device") {
+				executionTarget.deviceId = "another-device";
+			}
+			if (scenario === "different_lane") {
+				executionTarget.runtimeLane = "canary";
+			}
+			return Promise.resolve();
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "Local agents options" })
+		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Check agents" }));
+		await vi.waitFor(() => expect(refreshAll).toHaveBeenCalled());
+		await vi.advanceTimersByTimeAsync(12_000);
+		expect(toastMock.success).not.toHaveBeenCalled();
 	});
 
 	it("reports a definitive check failure with a toast", async () => {
