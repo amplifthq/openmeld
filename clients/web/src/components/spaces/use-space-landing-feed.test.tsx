@@ -1070,13 +1070,19 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 				// including when no Wake is visible. Keep that real feedback edge here.
 				// biome-ignore lint/correctness/useExhaustiveDependencies: Preserve the controller's timeline-dependent projection in this reduced regression.
 				const visibleWakeItems = useMemo(() => [], [feed.timelineEnvelopes]);
-				usePublishSpaceWakeProgressVisibleProjection(visibleWakeItems);
+				usePublishSpaceWakeProgressVisibleProjection(visibleWakeItems, {
+					profileId: "11111111-1111-1111-1111-111111111111",
+					spaceId: "space-123",
+				});
 				return feed;
 			},
 			{
 				wrapper: ({ children }: { children: ReactNode }) => (
 					<QueryClientProvider client={queryClient}>
-						<SpaceWakeProgressVisibleProjectionProvider>
+						<SpaceWakeProgressVisibleProjectionProvider
+							profileId="11111111-1111-1111-1111-111111111111"
+							spaceId="space-123"
+						>
 							{children}
 						</SpaceWakeProgressVisibleProjectionProvider>
 					</QueryClientProvider>

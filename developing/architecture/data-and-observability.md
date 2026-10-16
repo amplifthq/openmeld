@@ -211,7 +211,12 @@ the Organization directory, then calls the normal authorized Space reader for
 each candidate. Directory snapshots never grant access. A request visits at
 most four Spaces, with 30 matches per Space and an explicit continuation cursor;
 it does not use the sidebar's limited loaded list or build a second global
-message store. Results are newest-first within each Space, not globally ranked.
+message store. The shared message reader discovers one bounded candidate batch
+and overlaps at most four authorized Space reads. It settles each wave before
+returning and consumes outcomes in Space ID order, so a later speculative error
+cannot replace an earlier matching page. Inner Space continuations read alone;
+discarded speculative results are never cached or used to advance the cursor.
+Results are newest-first within each Space, not globally ranked.
 Inbox search intersects message hits with current recipient/source permissions
 and uncleared canonical Inbox IDs. Non-message activities use a recipient-scoped
 literal title/preview query, paginated at 30 rows. This bounded response contract
