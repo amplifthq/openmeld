@@ -363,8 +363,8 @@ function OwnedLocalAgentsCard(input: LocalAgentsCardOwnerProps) {
 					if (reconciliation === "updated") {
 						toast.success("Local agent status refreshed.");
 					} else {
-						toast.error(
-							"OpenMeld is still checking local agents. Check again in a moment."
+						toast.info(
+							"Some agent checks have not returned yet. Check their status in a moment."
 						);
 					}
 				} catch (reconciliationError) {
@@ -607,6 +607,10 @@ function readLocalAgentChecks(
 		return checks;
 	}
 	for (const capability of target?.capabilities ?? []) {
+		// Disabled controllers are inventoried but do not run native checks.
+		if (!capability.enabled) {
+			continue;
+		}
 		const checkedAt = capability.agentControllerInterface?.checkedAt;
 		const checkedAtMs = checkedAt ? Date.parse(checkedAt) : Number.NaN;
 		checks.set(

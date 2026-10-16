@@ -37,6 +37,7 @@ const LOCAL_AGENT_ROW_TEST_ID =
 const toastMock = vi.hoisted(() =>
 	Object.assign(vi.fn(), {
 		error: vi.fn(),
+		info: vi.fn(),
 		success: vi.fn(),
 		warning: vi.fn(),
 	})
@@ -1084,12 +1085,13 @@ describe("LocalAgentsCard", () => {
 
 		await vi.advanceTimersByTimeAsync(12_000);
 		expect(refreshAll.mock.calls.length).toBeGreaterThan(1);
-		expect(toastMock.error).toHaveBeenCalledWith(
-			"OpenMeld is still checking local agents. Check again in a moment."
+		expect(toastMock.error).not.toHaveBeenCalled();
+		expect(toastMock.info).toHaveBeenCalledWith(
+			"Some agent checks have not returned yet. Check their status in a moment."
 		);
 	});
 
-	it("reports refreshed status when all slow local agent observations advance", async () => {
+	it("reports refreshed status when enabled observations advance while disabled agents have no check", async () => {
 		const refreshLocalAgentCatalog = vi.fn().mockRejectedValue({
 			code: "local_agent_control.timeout",
 			message: "The current local OpenMeld Service did not respond in time.",
@@ -1102,6 +1104,13 @@ describe("LocalAgentsCard", () => {
 			refreshCatalogSupported: true,
 			refreshLocalAgentCatalog,
 			setEnabledSupported: true,
+		});
+		executionTarget.capabilities.push({
+			agentControllerRef: "builtin:claude-code",
+			agentControllerInterface: null,
+			enabled: false,
+			reasonCodes: ["local_agent_preparation.not_enabled"],
+			status: "not_ready",
 		});
 		refreshAll.mockImplementation(() => {
 			const controller =
