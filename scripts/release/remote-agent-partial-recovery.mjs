@@ -2,6 +2,7 @@
 
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
@@ -194,7 +195,12 @@ function assertRecoveryContainer(input) {
     container.version !== input.expectedContainerVersion ||
     container.configuration?.image !== input.expectedContainerImage ||
     !Number.isFinite(Date.parse(container.updated_at)) ||
-    Date.parse(container.updated_at) >= Date.parse(receipt.startedAt) ||
+    Date.parse(container.updated_at) >=
+      Date.parse(
+        hasAdvancedNativeObservation(input.recovery)
+          ? input.recovery.observedAfterFailure.observedAt
+          : receipt.startedAt
+      ) ||
     container.active_rollout_id != null ||
     !Array.isArray(container.health?.errors) ||
     container.health.errors.length !== 0 ||
@@ -241,6 +247,7 @@ function assertRecoveryObservation(input, active) {
   const { instances: expectedInstances, ...expectedConfiguration } =
     expected ?? {};
   const retained = describeRetainedContainer(container, input.instancesPage);
+  const advanced = hasAdvancedNativeObservation(recovery);
   if (
     observed?.workerDeploymentId !== active.id ||
     observed.workerVersionId !== active.versions[0].version_id ||
@@ -248,21 +255,37 @@ function assertRecoveryObservation(input, active) {
     observed.containerVersion !== input.expectedContainerVersion ||
     observed.containerImage !== input.expectedContainerImage ||
     !expected ||
-    !isDeepStrictEqual(
-      describeRemoteContainerConfiguration(container),
-      expectedConfiguration
+    !(
+      advanced ||
+      isDeepStrictEqual(
+        describeRemoteContainerConfiguration(container),
+        expectedConfiguration
+      )
     ) ||
-    expectedInstances?.some(
-      (instance) =>
-        !retained.instances.some(
-          (live) => live.id === instance.id && live.version === instance.version
-        )
-    )
+    (!advanced &&
+      expectedInstances?.some(
+        (instance) =>
+          !retained.instances.some(
+            (live) =>
+              live.id === instance.id && live.version === instance.version
+          )
+      ))
   ) {
     throw new Error(
       "The linked recovery observation or retained Container has changed."
     );
   }
+}
+
+function hasAdvancedNativeObservation(recovery) {
+  const observed = recovery?.observedAfterFailure;
+  return Boolean(
+    recovery?.observedContainer &&
+      observed?.containerVersion > recovery.baseline.containerVersion &&
+      IMAGE_DIGEST.test(observed.containerImage.split("@")[1] ?? "") &&
+      observed.containerImage.split("@")[0] ===
+        recovery.baseline.containerImage.split("@")[0]
+  );
 }
 
 export function verifyRecoveredRemoteAgentTarget(input) {
@@ -284,6 +307,25 @@ export function verifyRecoveredRemoteAgentTarget(input) {
   const imagePrefix = baseline.containerImage.split("@")[0];
   const unchanged =
     input.nativeProvenance && container?.version === baseline.containerVersion;
+  if (
+    input.sourceImageDigest &&
+    container?.version === baseline.containerVersion
+  ) {
+    if (
+      input.sourceContainer?.id !== baseline.containerId ||
+      input.sourceContainer?.version !== baseline.containerVersion ||
+      input.sourceContainer?.image !== baseline.containerImage
+    ) {
+      throw new Error(
+        "An unchanged source-built image requires its pre-deploy Container snapshot."
+      );
+    }
+    assertRetainedPreUploadContainer(
+      input.sourceContainer,
+      container,
+      instancesPage
+    );
+  }
   if (unchanged) {
     const observed = describeRemoteContainerConfiguration(container);
     const expected = input.nativeProvenance.container;
@@ -301,8 +343,13 @@ export function verifyRecoveredRemoteAgentTarget(input) {
   if (
     container?.id !== baseline.containerId ||
     container.name !== CONTAINER_NAME ||
-    (!unchanged && container.version <= baseline.containerVersion) ||
+    (!unchanged &&
+      (input.sourceImageDigest
+        ? container.version < baseline.containerVersion
+        : container.version <= baseline.containerVersion)) ||
     !IMAGE_DIGEST.test(imageDigest) ||
+    (input.sourceImageDigest !== undefined &&
+      input.sourceImageDigest !== imageDigest) ||
     container.configuration?.image !== `${imagePrefix}@${imageDigest}` ||
     container.active_rollout_id != null ||
     !(
@@ -311,7 +358,7 @@ export function verifyRecoveredRemoteAgentTarget(input) {
           ? input.nativeProvenance.workerVersionId
           : workerVersionId
         ).slice(0, 8)
-      ) || canVerifyUntaggedRollout(input)
+      ) || input.sourceImageDigest === imageDigest
     ) ||
     !Array.isArray(container.health?.errors) ||
     container.health.errors.length ||
@@ -665,8 +712,9 @@ export function readRemoteAgentRecoveryHistory(cwd, current) {
         Date.parse(recovery.startedAt) < Date.parse(observed.observedAt) &&
         Date.parse(observed.observedAt) <= Date.parse(metadata.recordedAt)
       ) ||
-      observed.containerVersion !== recovery.baseline.containerVersion ||
-      observed.containerImage !== recovery.baseline.containerImage ||
+      (!hasAdvancedNativeObservation(recovery) &&
+        (observed.containerVersion !== recovery.baseline.containerVersion ||
+          observed.containerImage !== recovery.baseline.containerImage)) ||
       (nextBaseline &&
         !isDeepStrictEqual(nextBaseline, recoveryObservationBaseline(recovery)))
     ) {
@@ -765,22 +813,14 @@ export async function waitForRemoteAgentContainer(
   baseline,
   workerVersionId,
   nativeProvenance,
-  commandWindow
+  sourceImageDigest,
+  sourceContainer
 ) {
   const deadline = Date.now() + ROLLOUT_TIMEOUT_MS;
   let lastError;
   while (Date.now() < deadline) {
     try {
       const state = readState(cwd, baseline.containerId);
-      const untagged =
-        !state.images
-          .find((item) => item.name === CONTAINER_NAME)
-          ?.tags?.includes(workerVersionId.slice(0, 8)) &&
-        canVerifyUntaggedRollout({
-          baseline,
-          container: state.container,
-          commandWindow,
-        });
       const imageDigest = await readImageDigest(
         cwd,
         baseline.containerImage,
@@ -788,7 +828,7 @@ export async function waitForRemoteAgentContainer(
           state.container.version === baseline.containerVersion
           ? nativeProvenance.workerVersionId
           : workerVersionId,
-        untagged ? state.container.configuration.image.split("@")[1] : undefined
+        sourceImageDigest
       );
       const instancesPage = readCloudflare(cwd, [
         "containers",
@@ -806,7 +846,8 @@ export async function waitForRemoteAgentContainer(
         imageDigest,
         workerVersionId,
         nativeProvenance,
-        commandWindow,
+        sourceImageDigest,
+        sourceContainer,
       });
     } catch (error) {
       lastError = error;
@@ -820,14 +861,9 @@ export async function waitForRemoteAgentContainer(
 
 export async function executeRemoteAgentRecovery(input) {
   try {
-    const startedAt = Date.now();
     await input.runDeploy();
-    const commandWindow = { startedAt, completedAt: Date.now() };
     const identity = await input.verifyWorker();
-    const completed = await input.verifyContainer(
-      identity.versionId,
-      commandWindow
-    );
+    const completed = await input.verifyContainer(identity.versionId);
     await input.verifyWorker(identity);
     input.recovery.completed = completed;
     if (
@@ -1037,8 +1073,8 @@ async function main(argv) {
         baseline,
       };
       // A pre-upload recovery performs a full native release. Historical native
-      // receipts can describe an older deployment and cannot authorize retaining
-      // the currently observed image. Require a new image and completed rollout.
+      // receipts can describe an older deployment. Rebuild from this source to
+      // establish the expected immutable image independently of registry tags.
       const fullNativeRelease =
         beforeUpload || Boolean(history.recovery?.observedContainer);
       const prior = fullNativeRelease
@@ -1093,7 +1129,12 @@ async function main(argv) {
         operationKey,
         target,
       });
+      let sourceImage;
       try {
+        if (fullNativeRelease) {
+          sourceImage = await buildRecoverySourceImage(sourceDir);
+          assertCleanSource(sourceDir, sourceSha);
+        }
         const result = await executeRemoteAgentRecovery({
           recovery,
           record,
@@ -1164,13 +1205,14 @@ async function main(argv) {
               expected: identity ?? capture.read(),
               runCommand: (input) => readWorkerCommand(sourceDir, input),
             }),
-          verifyContainer: (workerVersionId, commandWindow) =>
+          verifyContainer: (workerVersionId) =>
             waitForRemoteAgentContainer(
               sourceDir,
               baseline,
               workerVersionId,
               nativeProvenance,
-              commandWindow
+              sourceImage?.digest,
+              retainedBeforeUpload
             ),
           observeFailure: () => {
             const observed = readState(sourceDir, baseline.containerId);
@@ -1191,24 +1233,81 @@ async function main(argv) {
         );
       } finally {
         capture.close();
+        sourceImage?.close();
       }
     },
   });
 }
 
-function canVerifyUntaggedRollout({ baseline, container, commandWindow }) {
-  const updatedAt = Date.parse(container?.updated_at);
-  return Boolean(
-    commandWindow &&
-      Number.isFinite(commandWindow.startedAt) &&
-      Number.isFinite(commandWindow.completedAt) &&
-      commandWindow.completedAt >= commandWindow.startedAt &&
-      Number.isFinite(updatedAt) &&
-      updatedAt >= commandWindow.startedAt &&
-      updatedAt <= commandWindow.completedAt &&
-      container.version > baseline.containerVersion &&
-      IMAGE_DIGEST.test(container.configuration?.image?.split("@")[1] ?? "")
+async function buildRecoverySourceImage(cwd) {
+  const require = createRequire(path.join(cwd, "package.json"));
+  const { unstable_readConfig } = await import(
+    pathToFileURL(require.resolve("wrangler")).href
   );
+  const config = unstable_readConfig({
+    config: path.join(cwd, "services/remote-agent/wrangler.jsonc"),
+    env: "prod",
+  });
+  const containers = config.containers;
+  const container = containers?.[0];
+  if (
+    containers?.length !== 1 ||
+    container.name !== CONTAINER_NAME ||
+    container.class_name !== "AgentComputer" ||
+    path.basename(container.image ?? "") !== "Dockerfile" ||
+    container.image_build_context !== path.dirname(container.image) ||
+    Object.keys(container.image_vars ?? {}).length > 0
+  ) {
+    throw new Error(
+      "Source image proof requires the configured single Dockerfile build without custom build arguments."
+    );
+  }
+  const tag = `${CONTAINER_NAME}:release-proof-${randomUUID()}`;
+  const close = () => {
+    const result = spawnSync("docker", ["image", "rm", tag], {
+      encoding: "utf8",
+    });
+    if (result.status !== 0) {
+      process.stderr.write(
+        `Could not remove local recovery image tag ${tag}.\n`
+      );
+    }
+  };
+  try {
+    process.stdout.write(
+      "Building the pinned source image for immutable digest verification.\n"
+    );
+    run(
+      "pnpm",
+      [
+        "exec",
+        "wrangler",
+        "containers",
+        "build",
+        container.image_build_context,
+        "--tag",
+        tag,
+      ],
+      cwd,
+      { timeout: 15 * 60 * 1000 }
+    );
+    const image = JSON.parse(
+      run("docker", ["image", "inspect", "--format", "{{json .}}", tag], cwd)
+    );
+    if (
+      image.Os !== "linux" ||
+      image.Architecture !== "amd64" ||
+      !IMAGE_DIGEST.test(image.Descriptor?.digest ?? "")
+    ) {
+      throw new Error(
+        "Docker did not expose the source-built Linux amd64 immutable manifest digest."
+      );
+    }
+    return { digest: image.Descriptor.digest, close };
+  } catch (error) {
+    close();
+    throw error;
+  }
 }
 
 export function assertRetainedPreUploadContainer(expected, container, page) {

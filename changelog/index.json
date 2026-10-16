@@ -2,6 +2,251 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "search-ready-guides-and-answers",
+      "title": "Clearer setup guides and product answers",
+      "kind": "improved",
+      "areas": [
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-16",
+      "release": "v0.3.263",
+      "evidence": [
+        "commit:682d4fd273675b9dc405456a2c46a68aa24d8f4d",
+        "commit:e7bcf2f444662ce4acc618d32354e378ce8df3fc",
+        "commit:20174364d90f4e71c7e5df5c1dc9611db25bfa9a",
+        "commit:5fd43da87cea6f183f1af29934b66610f8a31def"
+      ],
+      "body": "The website now includes answers about working with existing agents and\nself-hosting, with links to the first-task guide and deployment limits. FAQ\nanswers are available when the page first loads.\n\nThe seven local-agent guides explain how to connect each tool and share task\nresults. The Codex guide also links to access and tool-permission guidance."
+    },
+    {
+      "id": "space-cli-addressing-and-continuation",
+      "title": "Clearer Space addressing and task continuation",
+      "kind": "fixed",
+      "areas": [
+        "cli",
+        "spaces",
+        "agents"
+      ],
+      "audiences": [
+        "users",
+        "developers"
+      ],
+      "publishedAt": "2026-10-16",
+      "release": "v0.3.263",
+      "evidence": [
+        "commit:682d4fd273675b9dc405456a2c46a68aa24d8f4d",
+        "workflow:38863835438"
+      ],
+      "body": "The CLI catches repeated leading recipient names before sending. Continue or\nfork a task from its original request or an Agent reply with recorded task\ndetails. Reply threads remain a separate choice.\n\nWhen a selected task is unavailable, OpenMeld explains how to select another\nsource or start a new task instead of reporting a model-provider outage."
+    },
+    {
+      "id": "agent-directory-views",
+      "title": "Find your Agents in the team directory",
+      "kind": "improved",
+      "areas": [
+        "web",
+        "agents"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-16",
+      "release": "v0.3.263",
+      "evidence": [
+        "commit:682d4fd273675b9dc405456a2c46a68aa24d8f4d",
+        "commit:e7bcf2f444662ce4acc618d32354e378ce8df3fc"
+      ],
+      "body": "Switch between My Agents and All Agents in Team's existing Agents page. Open an\nAgent's profile and settings, then return with your view, search, and filters\npreserved for the current workspace."
+    },
+    {
+      "id": "grok-config-parser-hardening",
+      "title": "Harden Grok configuration parsing",
+      "kind": "security",
+      "areas": [
+        "agents"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-16",
+      "release": "v0.3.263",
+      "evidence": [
+        "commit:682d4fd273675b9dc405456a2c46a68aa24d8f4d",
+        "workflow:38863835438"
+      ],
+      "body": "Grok reply correction uses an updated configuration parser that fixes excessive\nprocessing time for large TOML files. Existing configuration values and permission\nrestrictions remain in effect."
+    },
+    {
+      "id": "space-task-delegation-handoff",
+      "title": "Keep delegated work connected to its Task",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "center-agent"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-16",
+      "release": "v0.3.263",
+      "evidence": [
+        "commit:682d4fd273675b9dc405456a2c46a68aa24d8f4d",
+        "commit:98fb79da6893ac5971c616f6d43161bfbebc6795",
+        "commit:9f1f6f8b4ec2f628288a77593042f33d51bf1d47",
+        "workflow:38863835438"
+      ],
+      "body": "Delegating an existing Space Task records its assignee and reviewer together\nwith the work request. Agents receive the same Task through implementation,\nresult submission, review, and requested changes. Task progress remains separate\nfrom execution status, and a missing reviewer is reported instead of silently\ndropping the requested review.\nHandoffs reach only their intended Agent, including in Spaces using listen-all,\nand unrelated Project or issue updates do not discard a pending work request."
+    },
+    {
+      "id": "space-full-width-message-alignment",
+      "title": "Keep full-width Space messages aligned",
+      "kind": "fixed",
+      "areas": [
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-16",
+      "release": "v0.3.263",
+      "evidence": [
+        "commit:682d4fd273675b9dc405456a2c46a68aa24d8f4d",
+        "commit:e7bcf2f444662ce4acc618d32354e378ce8df3fc"
+      ],
+      "body": "Full-width Spaces keep message avatars and the composer aligned with the header,\nwith consistent side spacing whether the history slider is visible or hidden.\nTouch layouts hide the history slider. Thread spacing is unchanged."
+    },
+    {
+      "id": "routines-navigation-and-team-sidebars",
+      "title": "Open Routines directly from the main navigation",
+      "kind": "improved",
+      "areas": [
+        "web",
+        "routines",
+        "files"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-16",
+      "release": "v0.3.263",
+      "evidence": [
+        "commit:682d4fd273675b9dc405456a2c46a68aa24d8f4d",
+        "commit:e7bcf2f444662ce4acc618d32354e378ce8df3fc"
+      ],
+      "body": "Routines has its own main navigation entry for personal and shared scheduled\nwork. Team keeps People, Agents, Files, Skills, and Plugins together.\n\nSidebars now match the page: People shows members, Agent details show the\ncurrent Agent list, and Files shows file locations. Skills, Plugins, and\nRoutines keep their own search and filters without an unrelated member list.\n\nSpaces and Team sidebars share compact headings and collapse controls. Choosing\na file location returns to its root, and switching Agents preserves the return\npath to the Agent directory.\n\nFiles keeps view, sort, filter, and search controls together on the left, with\nNew on the right. File destinations appear directly below the sidebar heading.\n\nSpaces and People keep search in their sidebar options menu until needed, then\nfocus the revealed field. People options group computer filters in a submenu\nand remove the five-minute activity filter. Sidebar icons and labels align with\ntheir shared headings. A small Close search icon clears and hides the field;\nEscape does the same and returns focus to the options button.\n\nNewly pinned conversations appear first in Pinned, keeping the existing order\nof other conversations. You can still drag pinned conversations to reorder them.\nSmaller pinned avatars and a two-to-five-column grid fit more conversations\nin the sidebar, including Spaces with multiple members."
+    },
+    {
+      "id": "faster-workspace-message-search",
+      "title": "Search messages across Spaces with less waiting",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "web",
+        "desktop",
+        "agents"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-10-16",
+      "release": "v0.3.263",
+      "evidence": [
+        "pr:205",
+        "commit:e7bcf2f444662ce4acc618d32354e378ce8df3fc",
+        "commit:9f1f6f8b4ec2f628288a77593042f33d51bf1d47",
+        "commit:86e97740136af0f3b1ffbbb2ad2165b8892c7b5d"
+      ],
+      "body": "Message searches across many Spaces spend less time waiting for each conversation\nto respond. Web, Desktop, and Agent message reads use the same improved reader,\nwith the existing access checks, result order, and complete pagination."
+    },
+    {
+      "id": "agent-creation-immediate-picker-feedback",
+      "title": "See new Agents in the member picker immediately",
+      "kind": "fixed",
+      "areas": [
+        "agents",
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-16",
+      "release": "v0.3.263",
+      "evidence": [
+        "commit:682d4fd273675b9dc405456a2c46a68aa24d8f4d",
+        "commit:e7bcf2f444662ce4acc618d32354e378ce8df3fc"
+      ],
+      "body": "New Local and Remote Agents appear checked at the top of their owner's list\nwhile creation finishes. Clearing the selection stays respected when the Agent\nis ready. Failed creations no longer block adding other members. After Grok Bot\nsign-in, Agent creation updates in the same dialog.\nThe Service collects new connection evidence after setup instead of reusing a\ncheck that started before sign-in finished."
+    },
+    {
+      "id": "retain-sidebar-between-spaces",
+      "title": "Switch Spaces with less sidebar work",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "web",
+        "desktop"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-10-16",
+      "release": "v0.3.263",
+      "evidence": [
+        "pr:205",
+        "commit:e7bcf2f444662ce4acc618d32354e378ce8df3fc"
+      ],
+      "body": "Switching between Spaces keeps the conversation sidebar in place and avoids\nrebuilding unchanged rows. This reduces navigation delays in Web and Desktop,\nespecially when your sidebar contains many conversations."
+    },
+    {
+      "id": "message-validation-dependency-security",
+      "title": "Update request handling, rendering, and dependency security fixes",
+      "kind": "security",
+      "areas": [
+        "channels",
+        "remote-agents",
+        "spaces",
+        "desktop",
+        "development"
+      ],
+      "audiences": [
+        "admins",
+        "developers"
+      ],
+      "publishedAt": "2026-10-16",
+      "release": "v0.3.263",
+      "evidence": [
+        "commit:682d4fd273675b9dc405456a2c46a68aa24d8f4d",
+        "commit:98fb79da6893ac5971c616f6d43161bfbebc6795",
+        "commit:9f1f6f8b4ec2f628288a77593042f33d51bf1d47",
+        "commit:e7bcf2f444662ce4acc618d32354e378ce8df3fc",
+        "workflow:38863835438"
+      ],
+      "body": "Update the libraries used for Lark message encoding and decoding, Remote Agent\ninput validation, YAML parsing, static HTML previews, and Auth, Core, and Desktop\nbuilds. These updates include upstream security fixes in protobufjs, Valibot,\nyaml, DOMPurify, esbuild, and Vite. Existing message formats and tool inputs\nremain unchanged.\n\nUpdate Hono request handling and React rendering across Web, Desktop, Website,\nDocs, and shared UI. Preserve route parameter types in extracted handlers and\nreject missing avatar and organization logo filenames through existing validation.\n\nUpdate Desktop to Electron 44.7.2, including upstream macOS background-click and\ninterrupted-update fixes. Keep the existing login, permissions, and update policy."
+    },
+    {
+      "id": "cli-node22-minimum",
+      "title": "Use Node.js 22, 24, or 25 for the npm CLI",
+      "kind": "breaking",
+      "areas": [
+        "cli",
+        "setup"
+      ],
+      "audiences": [
+        "users",
+        "developers"
+      ],
+      "publishedAt": "2026-10-16",
+      "release": "v0.3.263",
+      "evidence": [
+        "commit:682d4fd273675b9dc405456a2c46a68aa24d8f4d",
+        "workflow:38863835438"
+      ],
+      "body": "The npm CLI requires Node.js 22, 24, or 25. Node.js 24 is recommended.\nnpm-based setup and CLI startup explain how to select a supported Node.js version.\nNode.js 23, versions below 22, and versions 26 or later are unsupported. Direct npm installation\nonly warns by default; native dependency installation can fail before OpenMeld runs.\nUse Node.js 24 before installing the npm CLI.\nThe standalone OpenMeld CLI includes its own runtime. Default macOS Web setup\ninstalls it as a managed binary and does not require a Node.js upgrade."
+    },
+    {
       "id": "faster-release-status-checks",
       "title": "Faster release checks with visible stage timings",
       "kind": "improved",
