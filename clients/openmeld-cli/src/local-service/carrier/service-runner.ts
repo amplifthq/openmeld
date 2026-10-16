@@ -824,6 +824,7 @@ const runAccountBoundDaemonServiceLoop = async (
   // auth_rejected ladder) before it can observe `stopRequested`.
   const reconnectBackoffDelay = createStopAwareDelay();
   let reconnectAttempt = 0;
+  let connectionGeneration = 0;
   let activeSocket: WsClient | null = null;
   let activeCredentialFingerprint: string | null = null;
   const recoverRuntimeReportingAuthentication =
@@ -1174,6 +1175,7 @@ const runAccountBoundDaemonServiceLoop = async (
             presenter: input.presenter,
             persistRouteCatalogCache: routeCatalogLoader.persist,
             reconnectAttempt,
+            connectionGeneration: ++connectionGeneration,
             routeCatalogState,
             selectLocalFolders: localFolderPicker.selectFolders,
             socket: ws,

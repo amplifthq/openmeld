@@ -172,6 +172,15 @@ separate transport event.
 Registered-session bootstrap reads and cache persistence yield to that same
 transport exit, so a closed connection cannot remain held by local bootstrap.
 
+Connection generations are independent of reconnect backoff attempts. Core
+retains the accepted generation in the existing durable ServiceRuntime record,
+scoped to owner, device, and lane, even after transient sessions or liveness
+expire. New sockets advance that fence; a catalog registration on the same
+socket retains it. Registration is acknowledged only after the record is
+durable. Delayed writes cannot lower the fence. Legacy device-only records
+migrate using their stored owner and lane, never inferred identity. Old records
+remain fencing evidence, not proof that a Service is online or accepts work.
+
 The runner starts its control endpoint and registers without waiting for Agent
 inventory. Host initialization, reporting, and execution cross bounded inherited
 IPC; they cannot block the connector's event loop. Host admission is closed until

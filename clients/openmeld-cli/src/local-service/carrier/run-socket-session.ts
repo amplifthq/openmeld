@@ -435,6 +435,7 @@ export async function runDaemonSocketSession(input: {
   presenter: Presenter;
   persistRouteCatalogCache?: (catalog: RouteCatalog) => Promise<void>;
   reconnectAttempt: number;
+  connectionGeneration?: number;
   routeCatalogState: MutableRouteCatalogState;
   selectLocalFolders?: SelectLocalFolders;
   shutdownRequested?: Promise<RuntimeTransportStopCause>;
@@ -512,7 +513,7 @@ export async function runDaemonSocketSession(input: {
   let currentHeartbeatIntervalMs = normalizeHeartbeatIntervalMs(
     input.heartbeatIntervalMs
   );
-  let activeConnectionGeneration = Math.max(1, input.reconnectAttempt + 1);
+  let activeConnectionGeneration = input.connectionGeneration ?? 1;
   let nextCatalogSyncAtMs = 0;
   let nextProviderConversationProofSyncAtMs = 0;
   let nextRuntimeAgentControllerReportSyncAtMs = 0;
@@ -1181,7 +1182,7 @@ export async function runDaemonSocketSession(input: {
   const registerDaemonSession = async (
     routeCatalog: RouteCatalog
   ): Promise<RuntimeTransportRegisterSessionResponse> => {
-    const connectionGeneration = Math.max(1, input.reconnectAttempt + 1);
+    const connectionGeneration = activeConnectionGeneration;
     const localComponentsStatus = readSessionLocalComponentsStatus();
     const registerPayload =
       runtimeTransportRegisterSessionRequestSchema.safeParse({
