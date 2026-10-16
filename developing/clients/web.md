@@ -3876,7 +3876,8 @@ reply projections, and transient activity rows retain their display identities
 but cannot become history anchors. Prefer the first visible recorded signal;
 when transient content fills the viewport, retain a nearby recorded signal and
 its offset instead. Existing stored positions are not migrated or invalidated.
-Below 640px, the history rail is not mounted or allocated layout space, while
+The history rail appears only at widths of at least 640px with a primary
+fine pointer that supports hover. Touch layouts do not reserve space for it;
 history loading and reading-position restoration remain available. The
 conversation notification bell also leaves the phone header; its saved
 per-conversation choice remains in Space settings.
