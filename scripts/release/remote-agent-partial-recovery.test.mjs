@@ -413,6 +413,30 @@ test("pre-upload recovery requires an unchanged pre-attempt deployment and compl
     },
   };
   assert.deepEqual(assessRemoteAgentPartialRecovery(retry), baseline);
+  const interruptedPartial = { ...retry, beforeUpload: false };
+  assert.deepEqual(
+    assessRemoteAgentPartialRecovery(interruptedPartial),
+    baseline
+  );
+  for (const recovery of [
+    undefined,
+    { ...retry.recovery, observedContainer: undefined },
+    {
+      ...retry.recovery,
+      baseline: { ...baseline, workerDeploymentId: "different" },
+    },
+    {
+      ...retry.recovery,
+      observedAfterFailure: {
+        ...retry.recovery.observedAfterFailure,
+        workerDeploymentId: "different",
+      },
+    },
+  ]) {
+    assert.throws(() =>
+      assessRemoteAgentPartialRecovery({ ...interruptedPartial, recovery })
+    );
+  }
   assert.throws(() =>
     assessRemoteAgentPartialRecovery({
       ...retry,
@@ -783,6 +807,53 @@ test("requires registry tag digest, settled rollout and complete instance observ
     },
   };
   assert.equal(verifyRecoveredRemoteAgentTarget(target).containerVersion, 100);
+  // Wrangler can reuse a registry digest without creating this Worker's tag.
+  // Only a successful current deploy's bounded update can use that digest.
+  const deduplicated = {
+    ...target,
+    images: [{ name: "openmeld-agent-computer", tags: [] }],
+    container: { ...target.container, updated_at: "2026-09-20T16:01:00.000Z" },
+    commandWindow: {
+      startedAt: Date.parse("2026-09-20T16:00:00.000Z"),
+      completedAt: Date.parse("2026-09-20T16:02:00.000Z"),
+    },
+  };
+  assert.equal(
+    verifyRecoveredRemoteAgentTarget(deduplicated).containerVersion,
+    100
+  );
+  for (const changed of [
+    { commandWindow: undefined },
+    {
+      container: {
+        ...deduplicated.container,
+        updated_at: "2026-09-20T15:00:00.000Z",
+      },
+    },
+    {
+      container: {
+        ...deduplicated.container,
+        updated_at: "2026-09-20T17:00:00.000Z",
+      },
+    },
+    {
+      container: {
+        ...deduplicated.container,
+        version: baseline.containerVersion,
+      },
+    },
+    { imageDigest: `sha256:${"b".repeat(64)}` },
+    {
+      commandWindow: {
+        startedAt: Number.NaN,
+        completedAt: Date.parse("2026-09-20T16:02:00.000Z"),
+      },
+    },
+  ]) {
+    assert.throws(() =>
+      verifyRecoveredRemoteAgentTarget({ ...deduplicated, ...changed })
+    );
+  }
   assert.throws(() =>
     verifyRecoveredRemoteAgentTarget({
       ...target,

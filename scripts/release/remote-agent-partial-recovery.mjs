@@ -73,8 +73,20 @@ function assertFailedRecoveryAttempt(input) {
   }
 }
 
+function readRecoveryWindow({ current, recovery }) {
+  const receipt = current.receipt;
+  const start = Date.parse(recovery?.startedAt ?? receipt.startedAt);
+  const end = Date.parse(
+    recovery?.observedAfterFailure?.observedAt ?? current.recordedAt
+  );
+  if (!(Number.isFinite(start) && Number.isFinite(end)) || end <= start) {
+    throw new Error("The retained attempt has no bounded deployment window.");
+  }
+  return { start, end };
+}
+
 function assessRecoveryWorker(input) {
-  const { current, recovery, deployments } = input;
+  const { recovery, deployments } = input;
   if (
     !Array.isArray(deployments) ||
     deployments.some(
@@ -85,14 +97,7 @@ function assessRecoveryWorker(input) {
       "Recovery requires a fully timestamped deployment history."
     );
   }
-  const receipt = current.receipt;
-  const start = Date.parse(recovery?.startedAt ?? receipt.startedAt);
-  const end = Date.parse(
-    recovery?.observedAfterFailure?.observedAt ?? current.recordedAt
-  );
-  if (!(Number.isFinite(start) && Number.isFinite(end)) || end <= start) {
-    throw new Error("The retained attempt has no bounded deployment window.");
-  }
+  const { start, end } = readRecoveryWindow(input);
   const during = deployments.filter((deployment) => {
     const time = Date.parse(deployment.created_on);
     return Number.isFinite(time) && time >= start && time <= end;
@@ -100,8 +105,10 @@ function assessRecoveryWorker(input) {
   const active = deployments.toSorted(
     (a, b) => Date.parse(b.created_on) - Date.parse(a.created_on)
   )[0];
+  const unchangedRecovery = isUnchangedRecoveryWorker(recovery, active);
+  const unchangedWindow = input.beforeUpload || unchangedRecovery;
   if (
-    (input.beforeUpload
+    (unchangedWindow
       ? during.length !== 0 || Date.parse(active?.created_on) >= start
       : during.length !== 1 || active?.id !== during[0].id) ||
     !active ||
@@ -123,7 +130,7 @@ function assessRecoveryWorker(input) {
     .toSorted((a, b) => Date.parse(b.created_on) - Date.parse(a.created_on))[0];
   if (
     !preceding ||
-    (input.beforeUpload
+    (unchangedWindow
       ? preceding.id !== active.id
       : preceding.versions?.[0]?.version_id ===
         active.versions[0].version_id) ||
@@ -137,18 +144,30 @@ function assessRecoveryWorker(input) {
       "The preceding Worker deployment is missing or indistinguishable."
     );
   }
-  return active;
+  return { active, unchangedRecovery };
+}
+
+function isUnchangedRecoveryWorker(recovery, active) {
+  return Boolean(
+    recovery?.observedContainer &&
+      active &&
+      recovery.baseline.workerDeploymentId === active.id &&
+      recovery.baseline.workerVersionId === active.versions?.[0]?.version_id &&
+      recovery.observedAfterFailure?.workerDeploymentId === active.id &&
+      recovery.observedAfterFailure?.workerVersionId ===
+        active.versions?.[0]?.version_id
+  );
 }
 
 export function assessRemoteAgentPartialRecovery(input) {
   assertFailedRecoveryAttempt(input);
-  const active = assessRecoveryWorker(input);
+  const { active, unchangedRecovery } = assessRecoveryWorker(input);
   const { container, images } = input;
   assertRecoveryContainer(input);
   const image = images.find((item) => item.name === CONTAINER_NAME);
   if (
     !image ||
-    (!input.beforeUpload &&
+    (!(input.beforeUpload || unchangedRecovery) &&
       image.tags.includes(active.versions[0].version_id.slice(0, 8)))
   ) {
     throw new Error(
@@ -191,7 +210,7 @@ function assertRecoveryContainer(input) {
       "The live container no longer matches the pre-attempt target."
     );
   }
-  if (input.beforeUpload) {
+  if (input.beforeUpload || input.recovery?.observedContainer) {
     describeRetainedContainer(container, input.instancesPage);
     const page = input.instancesPage;
     const activeInstances = page.instances.filter(
@@ -286,11 +305,13 @@ export function verifyRecoveredRemoteAgentTarget(input) {
     !IMAGE_DIGEST.test(imageDigest) ||
     container.configuration?.image !== `${imagePrefix}@${imageDigest}` ||
     container.active_rollout_id != null ||
-    !image?.tags?.includes(
-      (unchanged
-        ? input.nativeProvenance.workerVersionId
-        : workerVersionId
-      ).slice(0, 8)
+    !(
+      image?.tags?.includes(
+        (unchanged
+          ? input.nativeProvenance.workerVersionId
+          : workerVersionId
+        ).slice(0, 8)
+      ) || canVerifyUntaggedRollout(input)
     ) ||
     !Array.isArray(container.health?.errors) ||
     container.health.errors.length ||
@@ -369,7 +390,12 @@ export function proveNativeBaseline(input) {
   return provenance;
 }
 
-async function readImageDigest(cwd, imageRef, workerVersionId) {
+async function readImageDigest(
+  cwd,
+  imageRef,
+  workerVersionId,
+  immutableDigest
+) {
   const match = CLOUDFLARE_IMAGE_REF.exec(imageRef);
   if (!match) {
     throw new Error(
@@ -402,7 +428,7 @@ async function readImageDigest(cwd, imageRef, workerVersionId) {
       "Cloudflare did not issue a temporary registry pull credential."
     );
   }
-  const tag = workerVersionId.slice(0, 8);
+  const tag = immutableDigest ?? workerVersionId.slice(0, 8);
   const response = await fetch(
     `https://registry.cloudflare.com/v2/${match[1]}/${CONTAINER_NAME}/manifests/${tag}`,
     {
@@ -738,20 +764,31 @@ export async function waitForRemoteAgentContainer(
   cwd,
   baseline,
   workerVersionId,
-  nativeProvenance
+  nativeProvenance,
+  commandWindow
 ) {
   const deadline = Date.now() + ROLLOUT_TIMEOUT_MS;
   let lastError;
   while (Date.now() < deadline) {
     try {
       const state = readState(cwd, baseline.containerId);
+      const untagged =
+        !state.images
+          .find((item) => item.name === CONTAINER_NAME)
+          ?.tags?.includes(workerVersionId.slice(0, 8)) &&
+        canVerifyUntaggedRollout({
+          baseline,
+          container: state.container,
+          commandWindow,
+        });
       const imageDigest = await readImageDigest(
         cwd,
         baseline.containerImage,
         nativeProvenance &&
           state.container.version === baseline.containerVersion
           ? nativeProvenance.workerVersionId
-          : workerVersionId
+          : workerVersionId,
+        untagged ? state.container.configuration.image.split("@")[1] : undefined
       );
       const instancesPage = readCloudflare(cwd, [
         "containers",
@@ -769,6 +806,7 @@ export async function waitForRemoteAgentContainer(
         imageDigest,
         workerVersionId,
         nativeProvenance,
+        commandWindow,
       });
     } catch (error) {
       lastError = error;
@@ -782,9 +820,14 @@ export async function waitForRemoteAgentContainer(
 
 export async function executeRemoteAgentRecovery(input) {
   try {
+    const startedAt = Date.now();
     await input.runDeploy();
+    const commandWindow = { startedAt, completedAt: Date.now() };
     const identity = await input.verifyWorker();
-    const completed = await input.verifyContainer(identity.versionId);
+    const completed = await input.verifyContainer(
+      identity.versionId,
+      commandWindow
+    );
     await input.verifyWorker(identity);
     input.recovery.completed = completed;
     if (
@@ -955,6 +998,8 @@ async function main(argv) {
         return;
       }
       const history = readRemoteAgentRecoveryHistory(sourceDir, latest);
+      const verifyPreUploadTag =
+        beforeUpload && !history.recovery?.observedContainer;
       const original = readRecoveryState(
         sourceDir,
         options["--container-id"],
@@ -1030,7 +1075,7 @@ async function main(argv) {
       if (retainedBeforeUpload) {
         recovery.observedContainer = retainedBeforeUpload;
       }
-      if (beforeUpload) {
+      if (verifyPreUploadTag) {
         await verifyPreUploadImage(sourceDir, baseline);
       }
       const record = (status, application, identity) =>
@@ -1102,7 +1147,7 @@ async function main(argv) {
                     fresh.container,
                     fresh.instancesPage
                   );
-                  if (beforeUpload) {
+                  if (verifyPreUploadTag) {
                     await verifyPreUploadImage(sourceDir, baseline);
                   }
                 }
@@ -1119,12 +1164,13 @@ async function main(argv) {
               expected: identity ?? capture.read(),
               runCommand: (input) => readWorkerCommand(sourceDir, input),
             }),
-          verifyContainer: (workerVersionId) =>
+          verifyContainer: (workerVersionId, commandWindow) =>
             waitForRemoteAgentContainer(
               sourceDir,
               baseline,
               workerVersionId,
-              nativeProvenance
+              nativeProvenance,
+              commandWindow
             ),
           observeFailure: () => {
             const observed = readState(sourceDir, baseline.containerId);
@@ -1148,6 +1194,21 @@ async function main(argv) {
       }
     },
   });
+}
+
+function canVerifyUntaggedRollout({ baseline, container, commandWindow }) {
+  const updatedAt = Date.parse(container?.updated_at);
+  return Boolean(
+    commandWindow &&
+      Number.isFinite(commandWindow.startedAt) &&
+      Number.isFinite(commandWindow.completedAt) &&
+      commandWindow.completedAt >= commandWindow.startedAt &&
+      Number.isFinite(updatedAt) &&
+      updatedAt >= commandWindow.startedAt &&
+      updatedAt <= commandWindow.completedAt &&
+      container.version > baseline.containerVersion &&
+      IMAGE_DIGEST.test(container.configuration?.image?.split("@")[1] ?? "")
+  );
 }
 
 export function assertRetainedPreUploadContainer(expected, container, page) {
