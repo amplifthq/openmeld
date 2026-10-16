@@ -215,7 +215,7 @@ export function registerSpaceRoutes(app: Hono<HonoBindings>) {
   );
 }
 async function handleListSpaceFiles(
-  c: Context<HonoBindings>
+  c: Context<HonoBindings, "/v1/spaces/:spaceId">
 ): Promise<Response> {
   const target = resolveSpaceFilesTarget(c);
   if (!target.ok) {
@@ -247,7 +247,7 @@ async function handleListSpaceFiles(
   }
 }
 async function handleRestoreSpaceFileEntry(
-  c: Context<HonoBindings>
+  c: Context<HonoBindings, "/v1/spaces/:spaceId/files/:entryId">
 ): Promise<Response> {
   const target = resolveSpaceFilesTarget(c);
   if (!target.ok) {
@@ -275,7 +275,10 @@ async function handleRestoreSpaceFileEntry(
   }
 }
 async function handleRestoreSpaceFileRevision(
-  c: Context<HonoBindings>
+  c: Context<
+    HonoBindings,
+    "/v1/spaces/:spaceId/files/:entryId/revisions/:revision/restore"
+  >
 ): Promise<Response> {
   const target = resolveSpaceFilesTarget(c);
   if (!target.ok) {
@@ -310,7 +313,7 @@ async function handleRestoreSpaceFileRevision(
   }
 }
 async function handleCreateSpaceFolder(
-  c: Context<HonoBindings>
+  c: Context<HonoBindings, "/v1/spaces/:spaceId">
 ): Promise<Response> {
   const target = resolveSpaceFilesTarget(c);
   if (!target.ok) {
@@ -333,7 +336,9 @@ async function handleCreateSpaceFolder(
     return mapRpcHttpError(c, error);
   }
 }
-async function handleGetSpaceFile(c: Context<HonoBindings>): Promise<Response> {
+async function handleGetSpaceFile(
+  c: Context<HonoBindings, "/v1/spaces/:spaceId/files/:entryId">
+): Promise<Response> {
   const target = resolveSpaceFilesTarget(c);
   if (!target.ok) {
     return target.response;
@@ -350,7 +355,7 @@ async function handleGetSpaceFile(c: Context<HonoBindings>): Promise<Response> {
   }
 }
 async function handleListSpaceFileRevisions(
-  c: Context<HonoBindings>
+  c: Context<HonoBindings, "/v1/spaces/:spaceId/files/:entryId">
 ): Promise<Response> {
   const target = resolveSpaceFilesTarget(c);
   if (!target.ok) {
@@ -371,7 +376,7 @@ async function handleListSpaceFileRevisions(
   }
 }
 async function handleUpdateSpaceFileEntry(
-  c: Context<HonoBindings>
+  c: Context<HonoBindings, "/v1/spaces/:spaceId/files/:entryId">
 ): Promise<Response> {
   const target = resolveSpaceFilesTarget(c);
   if (!target.ok) {
@@ -399,7 +404,7 @@ async function handleUpdateSpaceFileEntry(
   }
 }
 async function handleTrashSpaceFileEntry(
-  c: Context<HonoBindings>
+  c: Context<HonoBindings, "/v1/spaces/:spaceId/files/:entryId">
 ): Promise<Response> {
   const target = resolveSpaceFilesTarget(c);
   if (!target.ok) {
@@ -423,7 +428,9 @@ async function handleTrashSpaceFileEntry(
     return mapRpcHttpError(c, error);
   }
 }
-function resolveSpaceFilesTarget(c: Context<HonoBindings>):
+function resolveSpaceFilesTarget(
+  c: Context<HonoBindings, "/v1/spaces/:spaceId">
+):
   | {
       ok: true;
       spaceAccess: ReturnType<typeof createAuthenticatedSpaceAccessContext>;
@@ -608,7 +615,9 @@ async function handleWipeCurrentMemberCenterAgentMemory(
     return mapRpcHttpError(c, error);
   }
 }
-function forwardThreadToSpace(c: Context<HonoBindings>): Promise<Response> {
+function forwardThreadToSpace(
+  c: Context<HonoBindings, "/v1/spaces/:spaceId/threads/:threadId">
+): Promise<Response> {
   const threadId = c.req.param("threadId");
   const pathname = new URL(c.req.url).pathname;
   let suffix = "";
@@ -908,7 +917,7 @@ async function readSpaceMetaResponseJson(
   }
 }
 async function forwardPostMembersToSpace(
-  c: Context<HonoBindings>
+  c: Context<HonoBindings, "/v1/spaces/:spaceId">
 ): Promise<Response> {
   const blockedResponse =
     await rejectAdditionalCenterAgentDirectMessageMembers(c);
@@ -918,7 +927,7 @@ async function forwardPostMembersToSpace(
   return await forwardToSpace(c, "/members");
 }
 async function rejectAdditionalCenterAgentDirectMessageMembers(
-  c: Context<HonoBindings>
+  c: Context<HonoBindings, "/v1/spaces/:spaceId">
 ): Promise<Response | null> {
   const spaceId = c.req.param("spaceId");
   if (!isHexSpaceId(spaceId)) {
@@ -1038,7 +1047,10 @@ async function readCenterAgentDesignationForMemberGuard(input: {
     return null;
   }
 }
-async function forwardToSpace(c: Context<HonoBindings>, path: string) {
+async function forwardToSpace(
+  c: Context<HonoBindings, "/v1/spaces/:spaceId">,
+  path: string
+) {
   const spaceId = c.req.param("spaceId");
   if (!isHexSpaceId(spaceId)) {
     return c.json(
@@ -1082,7 +1094,7 @@ async function forwardToSpace(c: Context<HonoBindings>, path: string) {
   return new Response(response.body, response);
 }
 function forwardCursorToSpace(
-  c: Context<HonoBindings>
+  c: Context<HonoBindings, "/v1/spaces/:spaceId/cursors/:profileId">
 ): Response | Promise<Response> {
   const profileIdRaw = c.req.param("profileId");
   const profileId = normalizeProfileId(profileIdRaw);

@@ -376,6 +376,7 @@ export function NeedsAttentionScreen({
   installCliBusy,
   onInstallCli,
   onOpenNodeDownloadPage,
+  onOpenWeb,
   onSetup,
   onRetry,
   onUpdateCli,
@@ -388,6 +389,7 @@ export function NeedsAttentionScreen({
   installCliBusy: boolean;
   onInstallCli: () => void;
   onOpenNodeDownloadPage: () => void;
+  onOpenWeb: () => void;
   onSetup: () => void;
   onRetry: () => void;
   onUpdateCli: () => void;
@@ -407,6 +409,7 @@ export function NeedsAttentionScreen({
     installCliBusy,
     onInstallCli,
     onOpenNodeDownloadPage,
+    onOpenWeb,
     onSetup,
     onUpdateCli,
     onUpdateService,
@@ -423,11 +426,10 @@ export function NeedsAttentionScreen({
     cliIssue?.description ??
     serviceIssue?.description ??
     (cliMissing
-      ? "OpenMeld could not open OpenMeld CLI on this Mac."
+      ? "OpenMeld could not open OpenMeld CLI on this Mac. Open OpenMeld Web, go to Computers, and connect this Mac again to install a fresh managed CLI. Then return here and choose Try again."
       : "OpenMeld could not read the service status. The service may still be running.");
   const rawProblem =
-    service.problem &&
-    !(cliSetupIssue || cliIssue || serviceIssue || cliMissing)
+    service.problem && !(cliSetupIssue || cliIssue || serviceIssue)
       ? service.problem
       : null;
 
@@ -713,6 +715,7 @@ type NeedsAttentionActionInput = {
   installCliBusy: boolean;
   onInstallCli: () => void;
   onOpenNodeDownloadPage: () => void;
+  onOpenWeb: () => void;
   onSetup: () => void;
   onUpdateCli: () => void;
   onUpdateService: () => void;
@@ -741,6 +744,13 @@ function resolveNeedsAttentionAction(input: NeedsAttentionActionInput): {
       onClick: input.onInstallCli,
     };
   }
+  if (input.cliMissing) {
+    return {
+      disabled: input.busy,
+      label: "Open Web to Repair CLI",
+      onClick: input.onOpenWeb,
+    };
+  }
   if (input.cliIssue) {
     return {
       disabled: input.busy,
@@ -761,7 +771,7 @@ function resolveNeedsAttentionAction(input: NeedsAttentionActionInput): {
   }
   return {
     disabled: input.busy,
-    label: input.cliMissing ? "Set Up This Computer" : "Reconnect Computer",
+    label: "Reconnect Computer",
     onClick: input.onSetup,
   };
 }
@@ -772,21 +782,33 @@ function resolveCliSetupIssue(
   if (!problem) {
     return null;
   }
+  if (
+    problem.code === "desktop.node_unsupported" ||
+    problem.code === "cli.node_unsupported"
+  ) {
+    return {
+      action: "open_node_download",
+      actionLabel: "Install Node.js 24",
+      description:
+        "OpenMeld CLI requires Node.js 22, 24, or 25. Install Node.js 24, return to OpenMeld, then choose Try again.",
+      title: "This Node.js version is not supported.",
+    };
+  }
   if (problem.code === "desktop.node_missing") {
     return {
       action: "open_node_download",
-      actionLabel: "Install Node.js LTS",
+      actionLabel: "Install Node.js 24",
       description:
-        "Install Node.js LTS, return to OpenMeld, then choose Try again. After Node.js and npm are available, OpenMeld will continue CLI and Service setup from this app.",
+        "Install Node.js 24, return to OpenMeld, then choose Try again. After Node.js and npm are available, OpenMeld will continue CLI and Service setup from this app.",
       title: "Node.js is required.",
     };
   }
   if (problem.code === "desktop.npm_missing") {
     return {
       action: "open_node_download",
-      actionLabel: "Install Node.js LTS",
+      actionLabel: "Install Node.js 24",
       description:
-        "npm is required for OpenMeld to install OpenMeld CLI. The current Node.js LTS installer includes npm; install it, return here, then choose Try again.",
+        "npm is required for OpenMeld to install OpenMeld CLI. The Node.js 24 installer includes npm; install it, return here, then choose Try again.",
       title: "npm is required.",
     };
   }

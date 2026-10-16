@@ -23,23 +23,16 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 vi.mock("#/components/profiles/people-and-agents-page", () => ({
 	PeopleAndAgentsPage: () => null,
 }));
-vi.mock("#/components/directory/team-people-sidebar", () => ({
-	TeamPeopleSidebar: () => (
-		<nav aria-label="People">
-			<a href="/o/acme/people">Team directory</a>
-		</nav>
-	),
-}));
 vi.mock("#/components/app/app-full-width-layout", () => ({
 	AppFullWidthLayout: ({
 		children,
-		mainSidebarContent,
+		mainSidebar,
 	}: {
 		children: ReactNode;
-		mainSidebarContent: ReactNode;
+		mainSidebar?: { content: ReactNode };
 	}) => (
 		<>
-			{mainSidebarContent}
+			{mainSidebar?.content}
 			<main>{children}</main>
 		</>
 	),
@@ -86,7 +79,7 @@ describe("legacy Agent entry", () => {
 			</QueryClientProvider>
 		);
 		expect(screen.getByRole("link", { name: "Back to Team" })).toBeTruthy();
-		expect(screen.getByRole("navigation", { name: "People" })).toBeTruthy();
+		expect(screen.queryByRole("navigation", { name: "People" })).toBeNull();
 		expect(
 			screen.getByRole("status", { name: "Loading Agent details" })
 		).toBeTruthy();
@@ -103,6 +96,7 @@ describe("legacy Agent entry", () => {
 		await vi.waitFor(() =>
 			expect(state.navigate).toHaveBeenCalledWith({
 				replace: true,
+				search: { from: "agents" },
 				to: "/o/acme/people/member%3Amembership-a/agents/agent-a",
 			})
 		);

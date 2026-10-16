@@ -594,7 +594,9 @@ function SpaceConversationPanelContent(
 		},
 		[readingHeader, registerConversationScrollElement]
 	);
-	const supportsHistoryRail = useMediaQuery("(min-width: 640px)");
+	const supportsHistoryRail = useMediaQuery(
+		"(min-width: 640px) and (hover: hover) and (pointer: fine)"
+	);
 	const historySlider = useHistorySliderPreference();
 	const showHistoryRail =
 		historySlider.enabled &&

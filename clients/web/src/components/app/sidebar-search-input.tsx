@@ -1,7 +1,13 @@
 import { Input } from "@openmeld/ui/components/input";
 import { cn } from "@openmeld/ui/lib/utils";
 import { MagnifyingGlassIcon, XIcon } from "@phosphor-icons/react";
-import { useCallback, useRef, useState } from "react";
+import {
+	type MouseEvent,
+	type RefObject,
+	useCallback,
+	useRef,
+	useState,
+} from "react";
 import {
 	SidebarDestinationAction,
 	useSidebarDestinationActionSlot,
@@ -13,6 +19,7 @@ export function SidebarSearchInput(input: {
 	onOpenChange?: (open: boolean) => void;
 	label: string;
 	inputClassName?: string;
+	inputRef?: RefObject<HTMLInputElement | null>;
 	placeholder?: string;
 	destination?: "people" | "agents" | "spaces" | "home" | "directMessages";
 	value: string;
@@ -23,17 +30,21 @@ export function SidebarSearchInput(input: {
 	);
 	const open = input.open ?? internalOpen;
 	const setOpen = input.onOpenChange ?? setInternalOpen;
+	const closable = Boolean(input.destination || input.onOpenChange);
 	const slot = useSidebarDestinationActionSlot(input.destination);
 	const trigger = useRef<HTMLSpanElement>(null);
 	const searchInput = useRef<HTMLInputElement | null>(null);
 	const focusInput = useCallback(
 		(node: HTMLInputElement | null) => {
 			searchInput.current = node;
+			if (input.inputRef) {
+				input.inputRef.current = node;
+			}
 			if (node && open) {
 				node.focus({ preventScroll: true });
 			}
 		},
-		[open]
+		[open, input.inputRef]
 	);
 	const close = () => {
 		input.onValueChange("");
@@ -73,7 +84,7 @@ export function SidebarSearchInput(input: {
 						)}
 						onChange={(event) => input.onValueChange(event.target.value)}
 						onKeyDown={(event) => {
-							if (event.key === "Escape" && input.destination) {
+							if (event.key === "Escape" && closable) {
 								event.stopPropagation();
 								close();
 							}
@@ -84,7 +95,7 @@ export function SidebarSearchInput(input: {
 						type="search"
 						value={input.value}
 					/>
-					{input.destination && (
+					{closable && (
 						<span className="absolute top-1/2 right-1 -translate-y-1/2">
 							<SidebarRowAction label="Close search" onClick={close}>
 								<XIcon />
@@ -95,4 +106,36 @@ export function SidebarSearchInput(input: {
 			)}
 		</>
 	);
+}
+
+/** A menu can reveal search without restoring focus over the newly opened input. */
+export function useSidebarSearchDisclosure() {
+	const [open, setOpen] = useState(false);
+	const inputRef = useRef<HTMLInputElement | null>(null);
+	const requested = useRef(false);
+	const triggerRef = useRef<HTMLButtonElement | null>(null);
+	return {
+		open,
+		onOpenChange: (nextOpen: boolean) => {
+			setOpen(nextOpen);
+			if (!nextOpen) {
+				triggerRef.current?.focus({ preventScroll: true });
+			}
+		},
+		rememberTrigger: (event: MouseEvent<HTMLButtonElement>) => {
+			triggerRef.current = event.currentTarget;
+		},
+		inputRef,
+		reveal: () => {
+			requested.current = true;
+			setOpen(true);
+		},
+		finalFocus: () => {
+			if (!requested.current) {
+				return true;
+			}
+			requested.current = false;
+			return inputRef.current ?? true;
+		},
+	};
 }

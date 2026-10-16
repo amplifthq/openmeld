@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
 import { resolveAccountSpaceRecency } from "#/lib/spaces/account-spaces";
 import { selectAccountSpaceSections } from "./account-space-sections";
@@ -33,6 +34,21 @@ export function useConversations(input: {
 		indicators,
 	} = directMessages;
 	const preferences = store.preferences;
+	// Menu destinations depend on saved group definitions, not read receipts
+	// or account-item refreshes. Keep the same preference migration rules.
+	const moveGroups = useMemo(() => {
+		const targets = preferences
+			? conversationSections(preferences, mergeChatPreferences(preferences, []))
+			: [];
+		const choices = (kind: "space" | "direct-message") =>
+			targets
+				.filter((target) => target.kind === "pinned" || target.kind === kind)
+				.map(({ id, name }) => ({ id, name }));
+		return {
+			space: choices("space"),
+			"direct-message": choices("direct-message"),
+		};
+	}, [preferences]);
 	useDeletedSpaceNotices(directMessages.spaces.data?.recentlyDeletedItems);
 	const selected = directMessages.selected;
 	const accountSections = selectAccountSpaceSections({
@@ -282,6 +298,7 @@ export function useConversations(input: {
 		directMessages,
 		conversations: [...conversations.values()],
 		sections,
+		moveGroups,
 		selected,
 		owner,
 		sort,

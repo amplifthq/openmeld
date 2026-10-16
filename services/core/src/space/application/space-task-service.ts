@@ -69,7 +69,8 @@ export class SpaceTaskService {
   private readonly input: {
     onMutation?: (
       receipt: SpaceTaskMutationReceipt,
-      previous: SpaceTask | null
+      previous: SpaceTask | null,
+      command?: MutateSpaceTaskBody
     ) => void;
     repository: SpaceTaskRepositoryPort;
     runTransaction: <T>(callback: () => T) => T;
@@ -79,7 +80,8 @@ export class SpaceTaskService {
   constructor(input: {
     onMutation?: (
       receipt: SpaceTaskMutationReceipt,
-      previous: SpaceTask | null
+      previous: SpaceTask | null,
+      command?: MutateSpaceTaskBody
     ) => void;
     repository: SpaceTaskRepositoryPort;
     runTransaction: <T>(callback: () => T) => T;
@@ -229,7 +231,9 @@ export class SpaceTaskService {
         type: transition.eventType,
         actor: context.actor,
         fromPhase: current.phase,
-        detail: transition.detail,
+        detail: context.representedRequester
+          ? `On behalf of ${context.representedRequester.profileName} (${context.representedRequester.profileId}).${transition.detail ? ` ${transition.detail}` : ""}`
+          : transition.detail,
       });
       const receipt = spaceTaskMutationReceiptSchema.parse({
         task: transition.task,
@@ -243,7 +247,7 @@ export class SpaceTaskService {
         requestJson,
         receipt,
       });
-      this.input.onMutation?.(receipt, current);
+      this.input.onMutation?.(receipt, current, body);
       return receipt;
     });
   }

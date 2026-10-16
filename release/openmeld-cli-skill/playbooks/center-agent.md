@@ -1,5 +1,11 @@
 # Center Agent
 
+In CLI invocation examples, replace only the leading `openmeld` executable with
+the exact command prefix from the latest `setup.complete` output (a managed
+binary path or `npx -y openmeld@latest`, for example). Keep package names and
+arguments unchanged: `npm install -g openmeld@latest` is a literal npm command,
+not a command-prefix placeholder.
+
 Use this topic when the task needs Organization knowledge, the user's existing
 Center Agent conversation, or work the user wants the Center Agent to handle.
 The Center Agent is the Organization's cloud agent. It can use authorized

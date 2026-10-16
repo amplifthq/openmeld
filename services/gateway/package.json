@@ -34,7 +34,7 @@
     "@openmeld/schemas": "workspace:*",
     "@openmeld/space": "workspace:*",
     "@openmeld/utils": "workspace:*",
-    "hono": "^4.11.7",
+    "hono": "^4.13.13",
     "zod": "catalog:"
   },
   "devDependencies": {

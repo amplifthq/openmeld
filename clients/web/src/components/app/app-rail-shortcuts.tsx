@@ -20,7 +20,6 @@ import {
 	PushPinIcon,
 	PuzzlePieceIcon,
 	RobotIcon,
-	TimerIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
@@ -36,7 +35,6 @@ import {
 	buildOrganizationNewSpacePath,
 	buildOrganizationPeoplePath,
 	buildOrganizationPluginsPath,
-	buildOrganizationRoutinesPath,
 	buildOrganizationSkillsPath,
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
@@ -73,11 +71,6 @@ const SHORTCUTS = {
 		path: buildOrganizationSkillsPath,
 	},
 	files: { label: "Files", icon: FolderIcon, path: buildOrganizationFilesPath },
-	routines: {
-		label: "Routines",
-		icon: TimerIcon,
-		path: buildOrganizationRoutinesPath,
-	},
 } as const;
 
 export type RailShortcutGroup = "spaces" | "team";
@@ -94,7 +87,7 @@ const SHORTCUT_GROUPS = {
 		primaryLabel: "People",
 		icon: UsersThreeIcon,
 		path: buildOrganizationPeoplePath,
-		ids: ["agents", "plugins", "skills", "files", "routines"],
+		ids: ["agents", "files", "skills", "plugins"],
 	},
 } as const;
 

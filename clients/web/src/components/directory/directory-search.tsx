@@ -18,7 +18,7 @@ export function DirectorySearch(input: {
 		input.onChange("");
 		setOpen(false);
 	};
-	return open ? (
+	return open || input.value ? (
 		<>
 			<Input
 				aria-label={input.label}

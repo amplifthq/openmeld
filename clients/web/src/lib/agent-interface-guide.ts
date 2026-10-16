@@ -56,6 +56,8 @@ If an older OpenMeld CLI is installed, let setup align it. If you are checking m
 openmeld upgrade --yes --view agent
 \`\`\`
 
+Before any npm install or recovery, use Node.js 22, 24, or 25; Node.js 24 is recommended. Node.js 23, versions below 22, and versions 26 or later are unsupported. npm engines only warn by default; native dependencies can fail before OpenMeld runs. Select Node.js 24 before installing. On macOS, prefer a fresh Web setup command, which installs the managed standalone binary with its own runtime.
+
 Use npm only for Windows, explicit \`?dist=npm\`, or manual recovery from an old npm install:
 
 
@@ -245,7 +247,7 @@ Ask for approval before destructive, account-changing, or broad setup actions. R
 
 ## Fallback
 
-If OpenMeld CLI is unavailable, install or run the latest package:
+If OpenMeld CLI is unavailable, prefer a fresh Web setup command on macOS. For npm installation or recovery, use Node.js 22, 24, or 25 (24 recommended); select Node.js 24 first. Then install the latest package:
 
 \`\`\`sh
 npm install -g openmeld@latest

@@ -18,6 +18,18 @@ import {
   messageReadSelection,
 } from "../space/application/message-read";
 
+const WORKSPACE_SCAN_LIMIT = 4;
+const SPACE_READ_CONCURRENCY = 4;
+type WorkspaceCursor = ReturnType<
+  typeof workspaceMessageReadCursorSchema.parse
+>;
+type SpaceCandidate = {
+  space_id: string;
+  space_name: string | null;
+  direct_message: boolean;
+  center_agent: boolean;
+};
+
 export async function rpcRemoteAgentReadMessages(
   env: CoreBindings,
   raw: MessageReadRpcInput
@@ -73,27 +85,6 @@ async function readAuthorizedMessages(
   input: MessageReadRpcInput,
   membership: { organizationId: string; userId: string | null }
 ): Promise<MessageReadPage> {
-  let query = input;
-  // Bound source work while avoiding one model/tool round for every empty Space.
-  for (let scanned = 0; ; scanned++) {
-    const page = await readOneSpacePage(env, query, membership);
-    if (
-      page.matches.length ||
-      page.indexing ||
-      !page.nextCursor ||
-      scanned === 3
-    ) {
-      return page;
-    }
-    query = { ...input, cursor: page.nextCursor };
-  }
-}
-
-async function readOneSpacePage(
-  env: CoreBindings,
-  input: MessageReadRpcInput,
-  membership: { organizationId: string; userId: string | null }
-): Promise<MessageReadPage> {
   const cursor = await resolveWorkspaceCursor(
     input,
     membership.organizationId,
@@ -101,12 +92,7 @@ async function readOneSpacePage(
   );
   const db = getPostgresDatabase(env);
   const agent = input.context.actorContext.profileKind === "agent";
-  const candidates = await db.query<{
-    space_id: string;
-    space_name: string | null;
-    direct_message: boolean;
-    center_agent: boolean;
-  }>({
+  const candidates = await db.query<SpaceCandidate>({
     text: `SELECT s.space_id, s.space_name, (s.direct_message_pair_key IS NOT NULL AND s.direct_message_converted_at_ms IS NULL) AS direct_message,
       EXISTS (SELECT 1 FROM "openmeld"."center_agent_designations" cad JOIN "openmeld"."space_index_memberships" cm ON cm.profile_id = cad.agent_profile_id AND cm.space_id = s.space_id WHERE cad.organization_id = s.organization_id AND cm.status = 'active' AND s.direct_message_pair_key IS NOT NULL AND s.direct_message_converted_at_ms IS NULL) AS center_agent
       FROM "openmeld"."space_index_spaces" s WHERE s.organization_id = $1 AND s.status IN ('active', 'deleted')
@@ -114,7 +100,7 @@ async function readOneSpacePage(
       AND ($2::text IS NULL OR s.space_id = $2)
       AND ($6::text IS NULL OR EXISTS (SELECT 1 FROM "openmeld"."space_index_memberships" r WHERE r.space_id = s.space_id AND r.status = 'active' AND r.owner_user_id_snapshot = $6))
       AND (($4::text IS NOT NULL AND s.space_id >= $4) OR ($4::text IS NULL AND s.space_id > $5))
-      ORDER BY s.space_id LIMIT 2`,
+      ORDER BY s.space_id LIMIT $7`,
     values: [
       membership.organizationId,
       input.spaceId ?? null,
@@ -122,10 +108,10 @@ async function readOneSpacePage(
       cursor.pendingSpaceId,
       cursor.afterSpaceId,
       agent ? membership.userId : null,
+      WORKSPACE_SCAN_LIMIT + 1,
     ],
   });
-  const space = candidates.rows[0];
-  if (!space) {
+  if (!candidates.rows.length) {
     if (input.spaceId) {
       throw createCoreRpcHttpError({
         status: 404,
@@ -135,13 +121,68 @@ async function readOneSpacePage(
     }
     return emptyMessageReadPage(input, JSON.stringify(cursor));
   }
+  const scanCount = Math.min(candidates.rows.length, WORKSPACE_SCAN_LIMIT);
+  for (let start = 0; start < scanCount; ) {
+    const continuingSpace =
+      start === 0 && cursor.pendingSpaceId === candidates.rows[0]?.space_id;
+    const end = Math.min(
+      start + (continuingSpace ? 1 : SPACE_READ_CONCURRENCY),
+      scanCount
+    );
+    // Settle the whole wave before returning: PostgreSQL connections belong to
+    // this request. Consume in directory order, never in completion order.
+    const results = await Promise.allSettled(
+      candidates.rows.slice(start, end).map((space, offset) => {
+        const index = start + offset;
+        const previous = candidates.rows[index - 1];
+        return readOneSpacePage(env, input, membership.userId, space, {
+          cursor: previous
+            ? {
+                ...cursor,
+                afterSpaceId: previous.space_id,
+                pendingSpaceId: null,
+                spaceCursor: null,
+              }
+            : cursor,
+          hasNextSpace: index + 1 < candidates.rows.length,
+        });
+      })
+    );
+    for (const [offset, result] of results.entries()) {
+      if (result.status === "rejected") {
+        throw result.reason;
+      }
+      const { page, hasSpaceContinuation } = result.value;
+      if (
+        page.matches.length ||
+        page.indexing ||
+        !page.nextCursor ||
+        start + offset + 1 === scanCount ||
+        hasSpaceContinuation
+      ) {
+        return page;
+      }
+    }
+    start = end;
+  }
+  throw new Error("Expected at least one message read candidate");
+}
+
+async function readOneSpacePage(
+  env: CoreBindings,
+  input: MessageReadRpcInput,
+  userId: string | null,
+  space: SpaceCandidate,
+  options: { cursor: WorkspaceCursor; hasNextSpace: boolean }
+): Promise<{ page: MessageReadPage; hasSpaceContinuation: boolean }> {
+  const { cursor, hasNextSpace } = options;
   let page: MessageReadPage;
   try {
     const context = await resolveMessageViewer(
       env,
       input.context,
       space.space_id,
-      membership.userId
+      userId
     );
     const result = await rpcListSignals(env, {
       spaceId: space.space_id,
@@ -168,7 +209,7 @@ async function readOneSpacePage(
     }
     page = emptyMessageReadPage(input, null);
   }
-  const hasMore = Boolean(page.nextCursor || candidates.rows.length > 1);
+  const hasMore = Boolean(page.nextCursor || hasNextSpace);
   const nextCursor = hasMore
     ? JSON.stringify({
         ...cursor,
@@ -194,7 +235,7 @@ async function readOneSpacePage(
     coverage: page.indexing ? "indexing" : coverage,
   };
   assertReadResponseBudget(response, input.maxBytes);
-  return response;
+  return { page: response, hasSpaceContinuation: Boolean(page.nextCursor) };
 }
 
 function assertReadResponseBudget(response: MessageReadPage, maxBytes: number) {

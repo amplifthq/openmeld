@@ -4,7 +4,7 @@ import type {
 	ListAgentProfileCreationRequestsResponse,
 } from "@openmeld/schemas/types";
 import type { QueryClient } from "@tanstack/react-query";
-import { queryOptions } from "@tanstack/react-query";
+import { queryOptions, skipToken } from "@tanstack/react-query";
 import {
 	clearAgentCreationIntent,
 	readAgentCreationIntent,
@@ -172,7 +172,7 @@ export function optimisticAgentProfileCreationsQueryOptions(
 	organizationId: string
 ) {
 	return queryOptions<readonly OptimisticAgentProfileCreation[]>({
-		enabled: false,
+		queryFn: skipToken,
 		gcTime: Number.POSITIVE_INFINITY,
 		queryKey:
 			agentProfileCreationRequestQueryKeys.optimisticByOrganization(

@@ -3,7 +3,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { appShellStaticData } from "#/components/app/shell-layout";
 import { TeamHeader } from "#/components/directory/team-header";
-import { TeamPeopleSidebar } from "#/components/directory/team-people-sidebar";
+import { TeamFilesSidebar } from "#/components/organizations/team-files-navigation";
 import {
 	TeamFilesPage,
 	TeamKnowledgeFilesPage,
@@ -75,9 +75,14 @@ function TeamFilesRoute() {
 	return (
 		<AppFullWidthLayout
 			contentLayout="flush"
+			defaultModuleSidebarOpen
 			initialOuterSidebarState={sidebarStates.outer}
 			mainHeader={<TeamHeader active="files" />}
-			mainSidebarContent={<TeamPeopleSidebar />}
+			mainSidebar={{
+				key: "files",
+				label: "Files",
+				content: <TeamFilesSidebar />,
+			}}
 			scroll={false}
 			showMainHeader
 		>

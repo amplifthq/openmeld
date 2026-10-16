@@ -735,6 +735,76 @@ describe("App", () => {
     expect(updateCli).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    "desktop.node_unsupported",
+    "cli.node_unsupported",
+  ])("offers a persistent Node 24 recovery for %s", async (code) => {
+    const openNodeDownloadPage = vi.fn(() => Promise.resolve());
+    const message =
+      "OpenMeld requires Node.js 22.x || 24.x || 25.x; found v20.19.2. Install Node.js 24 (recommended) from https://nodejs.org, then run this command again.";
+    render(
+      <App
+        bridge={makeBridge({
+          getServiceStatus: () =>
+            Promise.resolve({
+              ...svc("unknown"),
+              problem: {
+                kind:
+                  code === "cli.node_unsupported"
+                    ? "cli_error"
+                    : "spawn_failed",
+                code,
+                message,
+                requestId: null,
+              },
+            }),
+          openNodeDownloadPage,
+        })}
+        skipSplash
+      />
+    );
+    const guidance =
+      "OpenMeld CLI requires Node.js 22, 24, or 25. Install Node.js 24, return to OpenMeld, then choose Try again.";
+    expect(await screen.findByText(guidance)).toBeTruthy();
+    expect(screen.queryByText(message)).toBeNull();
+    fireEvent.click(screen.getByText("Try again"));
+    expect(await screen.findByText(guidance)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Install Node.js 24" }));
+    expect(openNodeDownloadPage).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    "ENOENT: managed CLI is missing",
+    "EACCES: managed CLI cannot start",
+  ])("offers Web recovery and preserves the launch error: %s", async (message) => {
+    const openWeb = vi.fn(() => Promise.resolve());
+    const setupComputer = vi.fn();
+    render(
+      <App
+        bridge={makeBridge({
+          getServiceStatus: () =>
+            Promise.resolve({
+              ...svc("unknown"),
+              cliVersion: null,
+              problem: {
+                kind: "spawn_failed",
+                code: "desktop.spawn_failed",
+                message,
+                requestId: null,
+              },
+            }),
+          openWeb,
+          setupComputer,
+        })}
+        skipSplash
+      />
+    );
+    expect(await screen.findByText(message)).toBeTruthy();
+    fireEvent.click(screen.getByText("Open Web to Repair CLI"));
+    expect(openWeb).toHaveBeenCalledTimes(1);
+    expect(setupComputer).not.toHaveBeenCalled();
+  });
+
   it("opens the Node.js download page when Node.js is missing", async () => {
     const openNodeDownloadPage = vi.fn(() => Promise.resolve());
     render(
@@ -760,12 +830,10 @@ describe("App", () => {
     expect(await screen.findByText("Node.js is required.")).toBeTruthy();
     expect(
       screen.getByText(
-        "Install Node.js LTS, return to OpenMeld, then choose Try again. After Node.js and npm are available, OpenMeld will continue CLI and Service setup from this app."
+        "Install Node.js 24, return to OpenMeld, then choose Try again. After Node.js and npm are available, OpenMeld will continue CLI and Service setup from this app."
       )
     ).toBeTruthy();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Install Node.js LTS" })
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Install Node.js 24" }));
 
     expect(openNodeDownloadPage).toHaveBeenCalledTimes(1);
   });
@@ -795,12 +863,10 @@ describe("App", () => {
     expect(await screen.findByText("npm is required.")).toBeTruthy();
     expect(
       screen.getByText(
-        "npm is required for OpenMeld to install OpenMeld CLI. The current Node.js LTS installer includes npm; install it, return here, then choose Try again."
+        "npm is required for OpenMeld to install OpenMeld CLI. The Node.js 24 installer includes npm; install it, return here, then choose Try again."
       )
     ).toBeTruthy();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Install Node.js LTS" })
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Install Node.js 24" }));
 
     expect(openNodeDownloadPage).toHaveBeenCalledTimes(1);
   });
