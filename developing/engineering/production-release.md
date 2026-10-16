@@ -590,9 +590,9 @@ recovery without granting native image-retention authority. Continue a later
 pre-upload failure with the same explicit mode; use the existing partial mode
 if that recovery uploaded a Worker. Both modes check the linked proof chain.
 This mode performs a full native release: it does not use an older verified
-receipt to retain the observed image. A new command-correlated Worker, new
-Container version, matching registry digest and completed healthy rollout are
-required before the original attempt can be marked verified. Source, attempt,
+receipt to retain the observed image. A new command-correlated Worker, a freshly
+source-built image matching the registry and Container, and completed healthy
+rollout evidence are required before the original attempt can be marked verified. Source, attempt,
 operation key, start event and append-only proof ownership remain unchanged.
 Contract audit: `observedContainer` is optional in the release-only version 4
 proof schema. Existing version 3 canonical receipts remain readable by old
@@ -604,7 +604,7 @@ changes are needed.
 
 After manually checking that failure, the same recovery entrypoint can continue
 the original attempt. Supply the latest observed Worker selectors and the
-unchanged original Container selectors. The control reads only the canonical
+latest observed Container selectors. The control reads only the canonical
 receipt's linked v4 proof chain back to the exact original start event. Every
 event and proof must preserve the source tree, scope, complete receipt and
 parent links. Each recovery window must follow the previous failed event. The
@@ -629,15 +629,30 @@ configuration, instance, history-chain and lease checks still apply. This does
 not authorize an unlinked failed attempt or attribute the partial Worker to the
 release source. The continuation still performs and verifies a full new release.
 
-Wrangler can reuse a registry image without creating a tag for the new Worker.
-Fresh guarded recovery can verify that case by the immutable image digest when
-the Container version increased and its update time falls inside the successful
-deployment command's window. The control HEADs that exact registry manifest,
-requires its returned digest to match the Container, and retains the complete
-healthy-instance and final correlated-Worker checks. A missing tag alone is
-never success: old versions, updates outside that command, absent command
-evidence and digest mismatches still fail. Read-only verification without a
-fresh successful deployment retains the existing tag/provenance requirements.
+If a linked failure observed a higher Container version, the unchanged state
+rule applies to that exact observed version and image. The live update must
+predate the failure observation, and its registry repository must match the
+original baseline. This admits only another full guarded deployment; it does
+not prove the previous Worker's source. The new recovery takes a fresh complete
+configuration and protected-instance snapshot under the lease and rechecks it
+immediately before deployment. The history keeps the original version transition.
+
+Wrangler can reuse an image without creating a new Worker tag, and Container
+rollout can finish after the deployment command returns. Full native recovery
+therefore builds the pinned source's configured Dockerfile with that source's
+Wrangler into a unique local tag. Docker's immutable Linux amd64 manifest digest
+is the expected image. The current supported shape is one default Dockerfile,
+its own directory as build context, and no custom image build arguments; other
+shapes fail closed. The local tag is removed after verification.
+After the full deploy succeeds, the control HEADs that exact registry manifest
+and requires the live Container to match it, with no active rollout, complete
+healthy instance evidence, and a final command-correlated Worker check. An
+unchanged Container version also requires the exact pre-deploy configuration
+and protected instances. A lower version or a different image fails. This
+replaces inference from container update time and does not import old command
+output. Read-only verification without a fresh source build and deployment
+retains the existing tag/provenance requirements. No receipt schema or runtime
+contract changes are involved.
 The new receipt and proof append to the latest failed event. They retain the
 original source, attempt, operation key and start time. This is explicit manual
 continuation, not automatic retry, and it never runs user commands.
