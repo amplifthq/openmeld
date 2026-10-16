@@ -23,6 +23,7 @@ import { describeRemoteContainerConfiguration } from "./remote-agent-container-e
 
 import {
   assertRemoteVerificationSelectors,
+  assertRetainedPreUploadContainer,
   assessRemoteAgentPartialRecovery,
   executeRemoteAgentRecovery,
   proveNativeBaseline,
@@ -117,7 +118,8 @@ syncBuiltinESMExports();
       "--container-image",
       OLD_IMAGE,
     ];
-    for (const verifyOnly of [true, false]) {
+    for (const mode of ["verify", "partial", "before-upload"]) {
+      const verifyOnly = mode === "verify";
       writeFileSync(capture, "null");
       const result = spawnSync(
         process.execPath,
@@ -129,6 +131,7 @@ syncBuiltinESMExports();
           ),
           ...selectors,
           ...(verifyOnly ? ["--verify-only", "true"] : ["--base", sourceSha]),
+          ...(mode === "before-upload" ? ["--before-upload", "true"] : []),
         ],
         { cwd: root, encoding: "utf8", timeout: 10_000 }
       );
@@ -304,6 +307,160 @@ test("admits only one active Worker upload in the retained failed attempt window
   }
 });
 
+test("pre-upload recovery requires an unchanged pre-attempt deployment and complete Container evidence", () => {
+  const input = fixture();
+  input.beforeUpload = true;
+  input.container.health.instances = {
+    healthy: 6,
+    active: 1,
+    failed: 0,
+    starting: 0,
+    stopped: 0,
+    scheduling: 0,
+    assigned: 0,
+  };
+  input.deployments = input.deployments.slice(0, 1);
+  input.expectedDeploymentId = input.deployments[0].id;
+  input.expectedWorkerVersionId = input.deployments[0].versions[0].version_id;
+  input.instancesPage = {
+    instances: [{ id: "instance-1", state: "running", version: 99 }],
+    result_info: { per_page: 100, page_token: null, next_page_token: null },
+  };
+  assert.equal(
+    assessRemoteAgentPartialRecovery(input).workerDeploymentId,
+    input.expectedDeploymentId
+  );
+  for (const changed of [
+    { beforeUpload: false },
+    { started: undefined },
+    { expectedWorkerVersionId: VERSION },
+    { deployments: fixture().deployments },
+    { deployments: [{ ...input.deployments[0], created_on: "invalid" }] },
+    {
+      deployments: [
+        ...input.deployments,
+        { ...input.deployments[0], id: "unknown", created_on: "invalid" },
+      ],
+    },
+    {
+      deployments: [
+        { ...input.deployments[0], created_on: "2026-09-20T16:00:00Z" },
+      ],
+    },
+    {
+      deployments: [
+        {
+          ...input.deployments[0],
+          versions: [
+            { version_id: input.expectedWorkerVersionId, percentage: 50 },
+          ],
+        },
+      ],
+    },
+    { container: { ...input.container, updated_at: input.current.recordedAt } },
+    { container: { ...input.container, active_rollout_id: "rollout" } },
+    { instancesPage: undefined },
+    {
+      container: {
+        ...input.container,
+        health: {
+          errors: [],
+          instances: {
+            ...input.container.health.instances,
+            active: 0,
+            healthy: 7,
+          },
+        },
+      },
+    },
+    {
+      instancesPage: {
+        ...input.instancesPage,
+        result_info: { next_page_token: "more", page_token: null },
+      },
+    },
+    {
+      instancesPage: {
+        ...input.instancesPage,
+        instances: [{ id: "instance-1", state: "running", version: 98 }],
+      },
+    },
+  ]) {
+    assert.throws(() =>
+      assessRemoteAgentPartialRecovery({ ...input, ...changed })
+    );
+  }
+  const retained = {
+    ...describeRemoteContainerConfiguration(input.container),
+    instances: [{ id: "instance-1", version: 99 }],
+  };
+  assertRetainedPreUploadContainer(
+    retained,
+    input.container,
+    input.instancesPage
+  );
+  const baseline = assessRemoteAgentPartialRecovery(input);
+  const retry = {
+    ...input,
+    recovery: {
+      startedAt: "2026-09-20T15:30:00.000Z",
+      baseline,
+      observedContainer: retained,
+      observedAfterFailure: {
+        ...baseline,
+        observedAt: "2026-09-20T15:31:00.000Z",
+      },
+    },
+  };
+  assert.deepEqual(assessRemoteAgentPartialRecovery(retry), baseline);
+  const interruptedPartial = { ...retry, beforeUpload: false };
+  assert.deepEqual(
+    assessRemoteAgentPartialRecovery(interruptedPartial),
+    baseline
+  );
+  for (const recovery of [
+    undefined,
+    { ...retry.recovery, observedContainer: undefined },
+    {
+      ...retry.recovery,
+      baseline: { ...baseline, workerDeploymentId: "different" },
+    },
+    {
+      ...retry.recovery,
+      observedAfterFailure: {
+        ...retry.recovery.observedAfterFailure,
+        workerDeploymentId: "different",
+      },
+    },
+  ]) {
+    assert.throws(() =>
+      assessRemoteAgentPartialRecovery({ ...interruptedPartial, recovery })
+    );
+  }
+  assert.throws(() =>
+    assessRemoteAgentPartialRecovery({
+      ...retry,
+      recovery: { ...retry.recovery, observedContainer: undefined },
+    })
+  );
+  assert.throws(() =>
+    assertRetainedPreUploadContainer(
+      retained,
+      {
+        ...input.container,
+        configuration: { ...input.container.configuration, changed: true },
+      },
+      input.instancesPage
+    )
+  );
+  assert.throws(() =>
+    assertRetainedPreUploadContainer(retained, input.container, {
+      ...input.instancesPage,
+      instances: [],
+    })
+  );
+});
+
 test("resumes only the exact linked recovery failure and rejects altered Git evidence or live selectors", () => {
   const root = mkdtempSync(path.join(tmpdir(), "openmeld-recovery-history-"));
   const git = (...args) =>
@@ -424,6 +581,77 @@ test("resumes only the exact linked recovery failure and rejects altered Git evi
       workerDeploymentId: resumed.expectedDeploymentId,
       workerVersionId: resumed.expectedWorkerVersionId,
     });
+    // A real async rollout can complete before the failed verification is
+    // recorded. This observation admits a fresh deploy, never old success.
+    const advancedImage = `${OLD_IMAGE.split("@")[0]}@${NEW_DIGEST}`;
+    const advancedRecovery = {
+      ...recovery,
+      nativeProvenance: undefined,
+      observedContainer: { ...native.container, instances: [] },
+      observedAfterFailure: {
+        ...recovery.observedAfterFailure,
+        containerVersion: 100,
+        containerImage: advancedImage,
+      },
+    };
+    const advancedLatest = makeLatest({
+      ...proof,
+      receipt: { ...failed.receipt, recovery: advancedRecovery },
+    });
+    const advanced = {
+      ...resumed,
+      ...readRemoteAgentRecoveryHistory(root, advancedLatest),
+      current: advancedLatest,
+      expectedContainerVersion: 100,
+      expectedContainerImage: advancedImage,
+      container: {
+        ...input.container,
+        version: 100,
+        updated_at: "2026-09-20T16:00:45.000Z",
+        configuration: { image: advancedImage },
+        health: {
+          errors: [],
+          instances: {
+            healthy: 7,
+            active: 0,
+            failed: 0,
+            starting: 0,
+            stopped: 0,
+            scheduling: 0,
+            assigned: 0,
+          },
+        },
+      },
+      instancesPage: {
+        instances: [{ state: "inactive", version: null }],
+        result_info: { per_page: 100, page_token: null, next_page_token: null },
+      },
+    };
+    assert.equal(
+      assessRemoteAgentPartialRecovery(advanced).containerVersion,
+      100
+    );
+    for (const changed of [
+      { container: { ...advanced.container, version: 101 } },
+      {
+        container: {
+          ...advanced.container,
+          updated_at: "2026-09-20T16:03:00.000Z",
+        },
+      },
+      {
+        container: {
+          ...advanced.container,
+          configuration: { image: OLD_IMAGE },
+        },
+      },
+      { container: { ...advanced.container, active_rollout_id: "unfinished" } },
+      { recovery: { ...advancedRecovery, observedContainer: undefined } },
+    ]) {
+      assert.throws(() =>
+        assessRemoteAgentPartialRecovery({ ...advanced, ...changed })
+      );
+    }
     for (const change of [
       { expectedDeploymentId: DEPLOYMENT },
       { expectedWorkerVersionId: VERSION },
@@ -650,6 +878,70 @@ test("requires registry tag digest, settled rollout and complete instance observ
     },
   };
   assert.equal(verifyRecoveredRemoteAgentTarget(target).containerVersion, 100);
+  // Wrangler can reuse a registry digest without creating this Worker's tag.
+  // A fresh source build proves the digest independently of rollout timing.
+  const deduplicated = {
+    ...target,
+    images: [{ name: "openmeld-agent-computer", tags: [] }],
+    container: { ...target.container, updated_at: "2026-09-20T16:01:00.000Z" },
+    sourceImageDigest: NEW_DIGEST,
+  };
+  assert.equal(
+    verifyRecoveredRemoteAgentTarget(deduplicated).containerVersion,
+    100
+  );
+  for (const changed of [
+    { sourceImageDigest: undefined },
+    { sourceImageDigest: `sha256:${"b".repeat(64)}` },
+    {
+      container: {
+        ...deduplicated.container,
+        version: baseline.containerVersion,
+      },
+    },
+    { imageDigest: `sha256:${"b".repeat(64)}` },
+  ]) {
+    assert.throws(() =>
+      verifyRecoveredRemoteAgentTarget({ ...deduplicated, ...changed })
+    );
+  }
+  const reused = {
+    ...deduplicated,
+    baseline: {
+      ...baseline,
+      containerVersion: 100,
+      containerImage: target.container.configuration.image,
+    },
+    sourceContainer: {
+      ...describeRemoteContainerConfiguration(target.container),
+      instances: [{ id: "instance-1", version: 100 }],
+    },
+    instancesPage: {
+      ...target.instancesPage,
+      instances: [{ id: "instance-1", state: "running", version: 100 }],
+    },
+  };
+  assert.equal(verifyRecoveredRemoteAgentTarget(reused).containerVersion, 100);
+  for (const changed of [
+    { sourceContainer: undefined },
+    {
+      container: {
+        ...reused.container,
+        configuration: { ...reused.container.configuration, changed: true },
+      },
+    },
+    {
+      instancesPage: {
+        ...reused.instancesPage,
+        instances: [{ id: "replacement", state: "running", version: 100 }],
+      },
+    },
+    { baseline: { ...baseline, containerVersion: 101 } },
+  ]) {
+    assert.throws(() =>
+      verifyRecoveredRemoteAgentTarget({ ...reused, ...changed })
+    );
+  }
   assert.throws(() =>
     verifyRecoveredRemoteAgentTarget({
       ...target,
@@ -828,6 +1120,14 @@ for (const mode of [
         originalEvidenceSha: original.evidenceSha,
         startedAt: "2026-09-20T16:00:00.000Z",
         baseline,
+        ...(unchanged || retained
+          ? {}
+          : {
+              observedContainer: {
+                ...describeRemoteContainerConfiguration(fixture().container),
+                instances: [],
+              },
+            }),
       };
       const identity = {
         kind: "worker-deployment",

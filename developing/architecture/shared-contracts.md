@@ -1562,6 +1562,12 @@ is selection evidence, not authorization; Core revalidates the owner inventory
 and current candidate before binding. A missing selected catalog never permits
 falling back to another computer.
 
+Each candidate carries current connection and Service-update reasons plus its
+own controller capability reasons. Execution-target reasons summarize all
+enabled controllers on that Runtime and must not be copied into an individual
+candidate. One controller's sign-in failure does not establish another
+controller's authentication state or override its ready report.
+
 PeopleComputers HTTP/RPC endpoints coexist with supported current-target
 endpoints. New clients must deploy after their receivers. Shared optional fields
 are not assumed safe for an old strict parser: the new inventory has a separate
@@ -7821,6 +7827,19 @@ cloud contract.
 `profile_creation_failed` is reserved for failures that have no committed
 `createdAgentProfileId`; no new strict response enum is required for older CLI
 and cloud readers to understand the payload.
+
+The public failure message for a committed Profile explicitly reports incomplete
+setup and possible usability. Current readiness remains a separate read, not an
+inference from the setup request's failure. Working-folder eligibility errors
+use their exact shared recovery mapping and never imply a provider outage or
+expired login. Historical saved failures use the same safe read projection.
+
+These corrections retain all request, candidate, Service and Wake wire shapes.
+Old CLI, Service, Skills, Gateway and Web readers can consume the corrected Core
+projections. No contract-version bump, local-component stamp, restart or forced
+upgrade is needed. The Center Agent guidance change is advisory and does not
+require coordinated deployment with Core. Setup, Wake, dispatch-owned Space
+actions and diagnostics keep their existing owners and mixed-version behavior.
 
 The failed-request retry body optionally carries `expectedUpdatedAt` and one
 paired `modelSelection` (`modelId`, nullable `reasoningLevel`). Both fields are

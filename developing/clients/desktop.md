@@ -74,6 +74,18 @@ copying Space pages into a Desktop-only implementation.
 Desktop is a peer client over the same cloud truth. It does not own a second
 account identity, Computer, Agent Profile, Binding, Wakeability projection,
 dispatch queue, synchronization engine, or execution state machine.
+
+Computer Connection update and reconnect actions compare the native CLI-owned
+local Computer projection with the signed-in account and selected device/lane.
+A matching local target opens the existing bundled connection flow, which calls
+`updateComputer` or `connectComputer` and retains native admission and completion
+verification. Remote targets and builds without the required native capability
+keep the browser handoff. The global Web-only configuration capability remains
+unchanged.
+Before targeted recovery, Main resolves the selected Computer in Core's
+authenticated inventory and matches its device/lane to the native identity.
+It passes that verified target to Prepare; a new Prepare snapshot does not
+implicitly resolve a device from the stable Computer ID.
 RuntimeCoordinator remains the workstation execution authority, the Space
 durable outbox remains the conveyor, and the Service retains disk/ack recovery.
 
@@ -410,6 +422,10 @@ correlation ID.
 For ordinary Connect, when the managed CLI is absent or lacks the connection
 contract, main downloads the fixed Web origin's managed binary manifest and the
 Apple silicon or Windows x64 artifact.
+The isolated `dev-local` lane may use its configured CLI binary server on
+`127.0.0.1` at `OPENMELD_CLI_BINARY_DEV_PORT`, only when Web also uses a local
+HTTP origin. Production keeps the same-origin requirement. Artifact origins
+must match the selected manifest origin in both cases.
 The shared `@openmeld/local-service/cli-binary-update-artifact` implementation
 verifies transport and executable hashes and the production signing identity.
 The verified binary's `install-self` owns installation. No Node/npm prerequisite,
@@ -488,7 +504,10 @@ The toolbar and account-menu Computer entry use this same native destination
 without a fresh-session request, regardless of browser Computer selection.
 Connection presentation is independent of Disconnect eligibility: embedded flows
 show an existing connection and Continue without running Setup, while an explicit
-reconnect shows Connected and Reconnect this Mac. After confirmed completion, the
+reconnect shows Connected and Reconnect this Mac only while Core reports a live
+session for the exact native device/lane. Native identity availability alone
+does not establish a connection; a stopped Service offers Connect this Mac.
+After confirmed completion, the
 standalone route consumes its one-time fresh-session and Computer-target intent
 and returns to ordinary connection management. Failed or cancelled operations
 retain that intent for recovery.
@@ -870,13 +889,21 @@ admission, vendor execution, and durable results; Desktop has no separate update
 
 Working folder selection and Local Agent updates share one native target check.
 Main reads the existing CLI
-`computer connection-review --json` projection without installing or starting a
+`computer connection-review --json --include-stopped` projection without installing or starting a
 Service and checks its account against the Desktop session before and after the
 read. The shared renderer uses that exact device and lane for folder selection,
 Project discovery, connection, default-folder selection, and workspace saving.
 Main independently rejects a different device or lane before attaching
 credentials. A selected Agent on another Computer is not retargeted. The account's
 current-Computer preference is never a fallback for these Desktop requests.
+The explicit flag also admits a stopped, installed, account-aligned Service with
+verified native start capability. Targeted recovery uses the same check. The
+unflagged review still reports only a running connection, so ordinary Connect
+cannot reuse a stopped Service as if it were connected. An older CLI that
+explicitly rejects the command or its JSON/stopped options is retried without
+the stopped flag. If the base review is unsupported, explicit Connect can
+install current Tools and recheck identity. Authentication and
+identity failures are never downgraded to compatibility retries.
 Cancellation changes no draft; selecting a folder alone grants no file access,
 connects no Project, and saves no workspace. The existing Service remains the
 only local writer, and paths stay within the existing private control contracts.
@@ -1180,6 +1207,13 @@ private targets inherit this policy. Do not set `identity: null`: the original
 Electron executable's linker signature does not seal the application resources.
 No post-build signature repair is required or supported. The builder's default
 Electron entitlements support JIT and library loading with Hardened Runtime.
+
+The shared `afterPack` hook verifies each ASAR file against its recorded SHA-256
+before signing. Worktree reuse checks the same archive integrity. An OS signature
+can seal an archive whose file offsets already disagree with its content, so
+signature verification alone does not certify a runnable package. Do not rebuild
+workspace dependencies concurrently with Desktop packaging. A failed archive
+check requires a fresh build, not a new signature on the damaged package.
 
 The existing `unsigned` command and artifact names mean no Developer ID signing.
 Ad-hoc integrity is not Developer ID trust, notarization, or Gatekeeper acceptance.

@@ -1,0 +1,56 @@
+{
+  "generatedAt": "2026-10-16T15:07:55.321Z",
+  "computers": [
+    {
+      "connectedComputerId": "computer-a",
+      "deviceId": "device-a",
+      "deviceDisplayName": "Test Mac",
+      "deviceDisplayNameSource": "observed",
+      "platformFamily": "macOS",
+      "osVersion": "25.6.0",
+      "deviceType": "laptop",
+      "firstSeenAtMs": 1792159531707,
+      "lastObservedAtMs": 1792161349531,
+      "legacyDeviceIds": ["device-a"],
+      "identityStatus": "enrolled",
+      "connection": {
+        "status": "disconnected",
+        "reasonCodes": ["daemon.session.not_found"],
+        "sessions": []
+      },
+      "executionTargets": [
+        {
+          "deviceId": "device-a",
+          "runtimeLane": "dev-local",
+          "userFacingCommand": "openmeld-dev",
+          "openMeldServiceRuntimeId": {
+            "source": "runtime_registry_authority",
+            "value": "runtime-a"
+          },
+          "status": "stale",
+          "capabilities": [],
+          "localAgentControl": {
+            "refreshCatalog": false,
+            "setEnabled": false,
+            "setProfileWorkspace": false
+          },
+          "localAgentCatalog": {
+            "totalBuiltins": 0,
+            "detectedSupported": 0,
+            "needsChoice": 0,
+            "needsRepair": 0,
+            "detectedNotSupportedYet": 0,
+            "notDetected": 0,
+            "entries": []
+          },
+          "reasonCodes": [
+            "runtime.agent_controller_report.ready",
+            "provider_account.access_required",
+            "controller.auth.unauthenticated"
+          ],
+          "lastObservedAtMs": 1792161652077
+        }
+      ]
+    }
+  ]
+}

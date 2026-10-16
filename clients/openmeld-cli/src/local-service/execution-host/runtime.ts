@@ -795,6 +795,15 @@ export function createExecutionHostRuntime(input: {
           "Local work must drain before result settlement."
         );
       }
+      const recordKeys = listDispatchResultOutboxPendingAcknowledgementKeys({
+        ledgerPaths,
+      });
+      // An idle Host with no retained results needs no cloud connection to
+      // prove settlement. In particular, failed connection setup must not
+      // force an empty drain into an endless reconnect/close cycle.
+      if (recordKeys.length === 0) {
+        return { status: "acknowledged" };
+      }
       if (!(currentSocketRef.socket && connectionAbort)) {
         return { status: "connection_closed" };
       }
@@ -807,9 +816,6 @@ export function createExecutionHostRuntime(input: {
         CONTROLLED_SHUTDOWN_RESULT_ACK_TIMEOUT_MS
       );
       try {
-        const recordKeys = listDispatchResultOutboxPendingAcknowledgementKeys({
-          ledgerPaths,
-        });
         const wait = waitForDispatchResultOutboxAcknowledgement({
           abortSignal: abort.signal,
           ledgerPaths,

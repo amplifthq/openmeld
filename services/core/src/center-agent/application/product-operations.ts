@@ -158,7 +158,8 @@ export function projectCenterAgentLocalAgentConnectionCandidates(input: {
               ...computer.connection.reasonCodes,
               ...(connection?.serviceUpdate.reasonCodes ?? []),
               ...(connectionReady ? [] : ["computer.connection.not_ready"]),
-              ...target.reasonCodes,
+              // Target reasons aggregate all controllers on this Runtime.
+              // Only this capability can establish its controller blockers.
               ...capability.reasonCodes,
             ]),
           ],

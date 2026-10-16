@@ -190,6 +190,7 @@ const remoteAgentRecoverySchema = z.strictObject({
   id: z.uuid(),
   originalEvidenceSha: z.string().regex(/^[0-9a-f]{40}$/u),
   startedAt: z.iso.datetime(),
+  observedContainer: retainedRemoteContainerSchema.optional(),
   nativeProvenance: z
     .strictObject({
       evidenceSha: z.string().regex(/^[0-9a-f]{40}$/u),

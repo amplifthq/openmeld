@@ -104,7 +104,23 @@ export async function installManagedBinary(
     deps.env?.OPENMELD_CLI_BINARY_MANIFEST_URL ?? "/cli/manifest.json",
     webOrigin
   );
-  if (manifestUrl.origin !== new URL(webOrigin).origin) {
+  const webUrl = new URL(webOrigin);
+  const usesLocalDevelopmentServer =
+    deps.env?.OPENMELD_ENV_PRESET === "dev-local" &&
+    webUrl.protocol === "http:" &&
+    (webUrl.hostname === "localhost" ||
+      webUrl.hostname.endsWith(".localhost") ||
+      webUrl.hostname === "127.0.0.1") &&
+    manifestUrl.protocol === "http:" &&
+    manifestUrl.hostname === "127.0.0.1" &&
+    Boolean(manifestUrl.port) &&
+    manifestUrl.port === deps.env.OPENMELD_CLI_BINARY_DEV_PORT &&
+    manifestUrl.pathname === "/cli/manifest.json" &&
+    !manifestUrl.username &&
+    !manifestUrl.password &&
+    !manifestUrl.search &&
+    !manifestUrl.hash;
+  if (manifestUrl.origin !== webUrl.origin && !usesLocalDevelopmentServer) {
     throw new Error("OpenMeld Tools returned an unexpected download location.");
   }
   const response = await fetch(manifestUrl, {

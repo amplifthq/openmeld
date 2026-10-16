@@ -13,11 +13,10 @@ import type {
   RuntimeAgentControllerLaunchContract,
 } from "@openmeld/schemas/types";
 
-// Background report syncs reuse the last successfully probed snapshot for this
-// long before paying for another controller probe. Probes cold-start real
-// controller processes (codex app-server, opencode serve), so the background
-// cadence must stay far cheaper than the 5-minute report sync interval.
-const LAST_GOOD_REUSE_TTL_MS = 15 * 60_000;
+// Reuse only within a short account-observation window. Native checks remain
+// coalesced and separate from heartbeats; installed binaries are fingerprinted
+// independently. A completed signed-out check uses the same bounded window.
+const LAST_GOOD_REUSE_TTL_MS = 60_000;
 
 // An incomplete controller probe makes the current check unavailable, whether
 // or not an older successful snapshot exists. A single delayed re-probe covers

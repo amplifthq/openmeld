@@ -159,6 +159,7 @@ import {
   type LocalServiceDemand,
   resolveLocalServiceDemand,
 } from "../local-service/lifecycle/local-service-demand";
+import { isRunningServiceRepairHealthy } from "../local-service/lifecycle/service-repair-readiness";
 import {
   ensureDaemonRuntimePaths,
   resolveDaemonDeviceId,
@@ -1513,6 +1514,16 @@ async function resolveAlreadyHealthyDaemonRepair(input: {
   ) {
     return null;
   }
+  if (
+    serviceState === "running" &&
+    !(await isRunningServiceRepairHealthy({
+      deviceId: inventory.serviceContract.deviceId,
+      runtimeLane: inventory.serviceContract.lane,
+      gatewayUrl: inventory.serviceContract.gatewayUrl,
+    }))
+  ) {
+    return null;
+  }
   return createDaemonReinstallAlreadyHealthyOutcome({
     desiredState,
     serviceState,
@@ -1568,7 +1579,15 @@ async function waitForDaemonHealthyAfterReinstall(input: {
       intent: "reinstall",
       readDaemonStatus: input.readDaemonStatus,
     }).catch(() => null);
-    if (inventory && isDaemonInventoryRunningAndAligned(inventory)) {
+    if (
+      inventory?.serviceContract &&
+      isDaemonInventoryRunningAndAligned(inventory) &&
+      (await isRunningServiceRepairHealthy({
+        deviceId: inventory.serviceContract.deviceId,
+        runtimeLane: inventory.serviceContract.lane,
+        gatewayUrl: inventory.serviceContract.gatewayUrl,
+      }))
+    ) {
       return inventory.runtimeStatus;
     }
     lastRuntime =
@@ -1711,15 +1730,12 @@ export async function runDaemonStatus(input: DaemonStatusInput): Promise<void> {
       gatewayUrl: input.gatewayUrl,
     });
     const localSnapshot = await resolveDaemonLocalStatusSnapshot();
-    const snapshot = await resolveDaemonStatusSnapshot({
-      localSnapshot,
-      runtime,
-    });
-    const channelAssessment = await assessCliUpdate({ environmentTarget });
+    const [snapshot, channelAssessment, serverAssessment] = await Promise.all([
+      resolveDaemonStatusSnapshot({ localSnapshot, runtime }),
+      assessCliUpdate({ environmentTarget }),
+      assessServerRequiredVersion({ gatewayUrl: environmentTarget.gatewayUrl }),
+    ]);
     const cliVersion = toDaemonStatusCliVersionPayload(channelAssessment);
-    const serverAssessment = await assessServerRequiredVersion({
-      gatewayUrl: environmentTarget.gatewayUrl,
-    });
     emitCliJsonEnvelope(
       buildDaemonStatusJsonPayload({
         cliVersion,

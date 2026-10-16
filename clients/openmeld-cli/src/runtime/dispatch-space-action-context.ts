@@ -1,10 +1,11 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
   renameSync,
+  rmdirSync,
   writeFileSync,
 } from "node:fs";
 import { isAbsolute, join } from "node:path";
@@ -128,6 +129,7 @@ export type DispatchSpaceActionRecord = {
   contextId: string;
   createdAtMs: number;
   nonce: string;
+  previousReplyDigests?: string[];
 };
 
 export type DispatchSpaceActionRecordReadResult =
@@ -257,6 +259,82 @@ export function writeDispatchSpaceActionRecord(input: {
   context: DispatchSpaceActionContext;
   nowMs?: number;
 }): DispatchSpaceActionRecord {
+  return withDispatchSpaceActionRecordLock(input.context, () =>
+    writeLockedDispatchSpaceActionRecord(input)
+  );
+}
+
+function withDispatchSpaceActionRecordLock<T>(
+  context: DispatchSpaceActionContext,
+  mutate: () => T
+): T {
+  // Serialize CLI and in-process writers. Never silently break a lock left by
+  // an interrupted writer: the caller must reconcile the existing receipt.
+  const lockPath = `${context.actionRecordPath}.lock`;
+  mkdirSync(lockPath, { mode: 0o700 });
+  try {
+    return mutate();
+  } finally {
+    rmdirSync(lockPath);
+  }
+}
+
+function replyDigest(action: OpenMeldSpaceEgressAction): string {
+  return createHash("sha256").update(JSON.stringify(action)).digest("hex");
+}
+
+function appendReplyDigest(
+  previousReplyDigests: string[],
+  action: OpenMeldSpaceEgressAction
+): string[] {
+  if (previousReplyDigests.length >= 32) {
+    throw new DispatchSpaceActionRejectedError(
+      "space_action.already_recorded",
+      "The reply revision limit has been reached. Read the current receipt."
+    );
+  }
+  return [...previousReplyDigests, replyDigest(action)];
+}
+
+function readReconsideredReplyHistory(
+  context: DispatchSpaceActionContext,
+  action: OpenMeldSpaceEgressAction
+): string[] {
+  // The latest archive carries cumulative history, but is not an active draft.
+  const archived = readDispatchSpaceActionRecord({
+    context: {
+      ...context,
+      actionRecordPath: `${context.actionRecordPath}.superseded`,
+    },
+  });
+  if (archived.status === "invalid") {
+    throw new Error(archived.errorMessage);
+  }
+  if (archived.status === "missing") {
+    return [];
+  }
+  const previousReplyDigests = archived.record.previousReplyDigests ?? [];
+  if (
+    action.type === "post_message" &&
+    previousReplyDigests.includes(replyDigest(action))
+  ) {
+    throw new DispatchSpaceActionRejectedError(
+      "space_action.already_recorded",
+      "This reply version was already replaced. Read the current receipt."
+    );
+  }
+  return archived.record.action.type === "post_message" &&
+    !isDeepStrictEqual(archived.record.action, action)
+    ? appendReplyDigest(previousReplyDigests, archived.record.action)
+    : previousReplyDigests;
+}
+
+function writeLockedDispatchSpaceActionRecord(input: {
+  action: OpenMeldSpaceEgressAction;
+  command: string;
+  context: DispatchSpaceActionContext;
+  nowMs?: number;
+}): DispatchSpaceActionRecord {
   const parsedAction = openMeldSpaceEgressActionSchema.safeParse(input.action);
   if (!parsedAction.success) {
     throw new DispatchSpaceActionRejectedError(
@@ -283,6 +361,37 @@ export function writeDispatchSpaceActionRecord(input: {
   }
   assertContextActive(input.context, input.nowMs ?? Date.now());
 
+  if (
+    existing.status === "loaded" &&
+    existing.record.action.type === "post_message" &&
+    parsedAction.data.type === "post_message"
+  ) {
+    const previousReplyDigests = existing.record.previousReplyDigests ?? [];
+    if (previousReplyDigests.includes(replyDigest(parsedAction.data))) {
+      return existing.record;
+    }
+    const record: DispatchSpaceActionRecord = {
+      version: DISPATCH_SPACE_ACTION_RECORD_VERSION,
+      action: parsedAction.data,
+      command: input.command,
+      contextId: input.context.contextId,
+      createdAtMs: input.nowMs ?? Date.now(),
+      nonce: input.context.nonce,
+      previousReplyDigests: appendReplyDigest(
+        previousReplyDigests,
+        existing.record.action
+      ),
+    };
+    const temporaryPath = `${input.context.actionRecordPath}.${randomUUID()}.tmp`;
+    writeJsonFileExclusive(temporaryPath, record);
+    renameSync(temporaryPath, input.context.actionRecordPath);
+    return record;
+  }
+
+  const previousReplyDigests =
+    existing.status === "missing"
+      ? readReconsideredReplyHistory(input.context, parsedAction.data)
+      : [];
   const record: DispatchSpaceActionRecord = {
     version: DISPATCH_SPACE_ACTION_RECORD_VERSION,
     action: parsedAction.data,
@@ -290,22 +399,12 @@ export function writeDispatchSpaceActionRecord(input: {
     contextId: input.context.contextId,
     createdAtMs: input.nowMs ?? Date.now(),
     nonce: input.context.nonce,
+    ...(previousReplyDigests.length ? { previousReplyDigests } : {}),
   };
   try {
     writeJsonFileExclusive(input.context.actionRecordPath, record);
   } catch (error) {
     if (isNodeErrorCode(error, "EEXIST")) {
-      const existing = readDispatchSpaceActionRecord({
-        context: input.context,
-      });
-      // A lost acknowledgement may cause the same proposal to be submitted
-      // again. Acknowledge that record, never replace it or accept a new action.
-      if (
-        existing.status === "loaded" &&
-        isDeepStrictEqual(existing.record.action, parsedAction.data)
-      ) {
-        return existing.record;
-      }
       throw new DispatchSpaceActionRejectedError(
         "space_action.already_recorded",
         "An OpenMeld Space Action has already been recorded for this dispatch. A Wake can only have one final Space action. Recover its receipt with the exact original arguments; do not replace it with a different action."
@@ -357,16 +456,18 @@ export function supersedeDispatchSpaceActionRecordForReconsideration(input: {
   context: DispatchSpaceActionContext;
   nowMs?: number;
 }): { archivedPath: string; record: DispatchSpaceActionRecord } | null {
-  const readResult = readDispatchSpaceActionRecord(input);
-  if (readResult.status === "missing") {
-    return null;
-  }
-  if (readResult.status === "invalid") {
-    throw new Error(readResult.errorMessage);
-  }
-  const archivedPath = `${input.context.actionRecordPath}.superseded-${String(input.nowMs ?? Date.now())}-${randomUUID()}`;
-  renameSync(input.context.actionRecordPath, archivedPath);
-  return { archivedPath, record: readResult.record };
+  return withDispatchSpaceActionRecordLock(input.context, () => {
+    const readResult = readDispatchSpaceActionRecord(input);
+    if (readResult.status === "missing") {
+      return null;
+    }
+    if (readResult.status === "invalid") {
+      throw new Error(readResult.errorMessage);
+    }
+    const archivedPath = `${input.context.actionRecordPath}.superseded`;
+    renameSync(input.context.actionRecordPath, archivedPath);
+    return { archivedPath, record: readResult.record };
+  });
 }
 
 function parseDispatchSpaceActionContext(
@@ -531,6 +632,11 @@ function parseDispatchSpaceActionRecord(
     contextId: requiredString(record.contextId, "contextId"),
     createdAtMs: requiredFiniteNumber(record.createdAtMs, "createdAtMs"),
     nonce: requiredString(record.nonce, "nonce"),
+    ...(record.previousReplyDigests === undefined
+      ? {}
+      : {
+          previousReplyDigests: parseStringArray(record.previousReplyDigests),
+        }),
   };
 }
 

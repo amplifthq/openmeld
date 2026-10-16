@@ -12,15 +12,13 @@ import {
 } from "@openmeld/schemas";
 import { resolvePublicAgentFailureReason } from "@openmeld/space-mesh";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { LedgerPaths } from "../src/local-service/core/types";
 import {
+  applyCliSpaceActionRecordIfPresent,
   buildStructuredActionRepairPrompt,
   coerceRuntimeResultToStructuredActionFailure,
-  resolveRuntimeResultFromRuntimeOrCliSpaceAction,
   resolveStructuredActionRepairContinuation,
   resolveStructuredActionRequirementFailure,
 } from "../src/local-service/dispatch/execute-dispatch-task";
-import { createLedgerIo } from "../src/local-service/state/ledger-io";
 import {
   createDispatchSpaceActionContext,
   writeDispatchSpaceActionRecord,
@@ -42,18 +40,6 @@ const createTempDir = (prefix: string): string => {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   tempDirs.push(dir);
   return dir;
-};
-
-const createLedgerPaths = (): LedgerPaths => {
-  const rootDirPath = createTempDir("openmeld-structured-action-ledger-");
-  return {
-    backupStateFilePath: join(rootDirPath, "backup.json"),
-    historyFilePath: join(rootDirPath, "history.ndjson"),
-    historyTempFilePath: join(rootDirPath, "history.tmp.ndjson"),
-    rootDirPath,
-    stateFilePath: join(rootDirPath, "state.json"),
-    stateTempFilePath: join(rootDirPath, "state.tmp.json"),
-  };
 };
 
 const createRuntimeTaskResultFixture = (input: {
@@ -84,7 +70,7 @@ const createRuntimeTaskResultFixture = (input: {
   };
 };
 
-describe("resolveRuntimeResultFromRuntimeOrCliSpaceAction", () => {
+describe("applyCliSpaceActionRecordIfPresent", () => {
   it("accepts a dispatch Space Action record that lands just after runtime completion", async () => {
     const openMeldHome = createTempDir("openmeld-space-action-race-");
     const { context } = createDispatchSpaceActionContext({
@@ -139,11 +125,8 @@ describe("resolveRuntimeResultFromRuntimeOrCliSpaceAction", () => {
       });
     });
 
-    const resolved = await resolveRuntimeResultFromRuntimeOrCliSpaceAction({
-      contextIdForDispatch: "ctx-race-1",
+    const resolved = await applyCliSpaceActionRecordIfPresent({
       dispatchSpaceActionContext: context,
-      ledgerIo: createLedgerIo(),
-      ledgerPaths: createLedgerPaths(),
       parsedTask: {
         attemptId: "attempt-race-1",
         dispatchId: "dispatch-race-1",
@@ -151,7 +134,7 @@ describe("resolveRuntimeResultFromRuntimeOrCliSpaceAction", () => {
         targetProfileId: "agt_race",
         taskId: "task-race-1",
       } as Parameters<
-        typeof resolveRuntimeResultFromRuntimeOrCliSpaceAction
+        typeof applyCliSpaceActionRecordIfPresent
       >[0]["parsedTask"],
       presenter: {
         data: vi.fn(),
@@ -159,7 +142,7 @@ describe("resolveRuntimeResultFromRuntimeOrCliSpaceAction", () => {
         line: vi.fn(),
         view: "agent",
       },
-      runtimeExecutionPromise: Promise.resolve(runtimeResult),
+      runtimeResult,
     });
     await writeRecord;
 
@@ -173,334 +156,6 @@ describe("resolveRuntimeResultFromRuntimeOrCliSpaceAction", () => {
       },
     });
     expect(resolved.resultPayload.spaceActionProvenance).toBe("cli_action");
-  });
-
-  it("finalizes a dispatch Space Action immediately from the observed provider conversation when runtime does not complete", async () => {
-    const openMeldHome = createTempDir("openmeld-space-action-context-race-");
-    const { context } = createDispatchSpaceActionContext({
-      attemptId: "attempt-context-race-1",
-      dispatchId: "dispatch-context-race-1",
-      pathInput: {
-        env: {
-          OPENMELD_HOME: openMeldHome,
-        },
-      },
-      replyToSignalId: "signal-source-context-1",
-      sendTargetReference: {
-        projection: [],
-        referenceLines: [],
-        status: "loaded",
-      },
-      sourceEventId: "signal-source-context-1",
-      spaceContractSnapshot: {
-        allowedActions: ["post_message", "post_status", "stay_silent"],
-        publicationMode: "collaboration",
-      },
-      spaceId: "space-context-race-1",
-      targetProfileId: "agt_context_race",
-      taskId: "task-context-race-1",
-    });
-    writeDispatchSpaceActionRecord({
-      action: {
-        type: "post_message",
-        messageEnvelope: {
-          activationTargets: [],
-          referenceTargets: [],
-          replyToSignalId: "signal-source-context-1",
-          text: "Confirmed from local Codex.",
-        },
-      },
-      command: "openmeld-dev space action reply",
-      context,
-    });
-    const runtimeExecutionPromise = new Promise<RuntimeTaskResult>(
-      () => undefined
-    );
-    const resolved = await Promise.race([
-      resolveRuntimeResultFromRuntimeOrCliSpaceAction({
-        contextIdForDispatch: null,
-        dispatchSpaceActionContext: context,
-        getObservedAgentControllerConversation: () => ({
-          agentControllerConversationId: "thread-app-server-context-race-1",
-          agentControllerConversationKind: "thread",
-          agentControllerRef: "builtin:codex",
-        }),
-        getObservedAgentControllerConversationId: () =>
-          "thread-app-server-context-race-1",
-        ledgerIo: createLedgerIo(),
-        ledgerPaths: createLedgerPaths(),
-        parsedTask: {
-          agentControllerRef: "builtin:codex",
-          attemptId: "attempt-context-race-1",
-          dispatchId: "dispatch-context-race-1",
-          sourceEventId: "signal-source-context-1",
-          targetProfileId: "agt_context_race",
-          taskId: "task-context-race-1",
-          transportMode: "codex-app-server",
-        } as Parameters<
-          typeof resolveRuntimeResultFromRuntimeOrCliSpaceAction
-        >[0]["parsedTask"],
-        presenter: {
-          data: vi.fn(),
-          event: vi.fn(),
-          line: vi.fn(),
-          view: "agent",
-        },
-        runtimeExecutionPromise,
-      }),
-      delay(250).then(() => "timed-out" as const),
-    ]);
-
-    expect(resolved).not.toBe("timed-out");
-    if (resolved === "timed-out") {
-      throw new Error("expected CLI Space Action finalization without runtime");
-    }
-
-    expect(
-      resolved.dispatchResult.dispatched &&
-        resolved.dispatchResult.adapterResult.status === "success"
-        ? resolved.dispatchResult.adapterResult.contextDelta
-            ?.agentControllerConversationId
-        : null
-    ).toBe("thread-app-server-context-race-1");
-    expect(resolved.resultPayload.status).toBe("success");
-    if (resolved.resultPayload.status !== "success") {
-      throw new Error("expected a successful CLI Space Action result");
-    }
-    expect(resolved.resultPayload.agentControllerConversationId).toBe(
-      "thread-app-server-context-race-1"
-    );
-    expect(resolved.resultPayload.agentControllerConversation).toEqual({
-      agentControllerConversationId: "thread-app-server-context-race-1",
-      agentControllerConversationKind: "thread",
-      agentControllerRef: "builtin:codex",
-    });
-    expect(resolved.resultPayload.output).toBe("Confirmed from local Codex.");
-    expect(resolved.resultPayload.spaceAction).toEqual({
-      type: "post_message",
-      messageEnvelope: {
-        activationTargets: [],
-        referenceTargets: [],
-        replyToSignalId: "signal-source-context-1",
-        text: "Confirmed from local Codex.",
-      },
-    });
-    expect(resolved.resultPayload.spaceActionProvenance).toBe("cli_action");
-  });
-
-  it("finalizes a dispatch Space Action with the existing dispatch context when runtime does not complete", async () => {
-    const openMeldHome = createTempDir(
-      "openmeld-space-action-existing-context-"
-    );
-    const { context } = createDispatchSpaceActionContext({
-      attemptId: "attempt-existing-context-1",
-      dispatchId: "dispatch-existing-context-1",
-      pathInput: {
-        env: {
-          OPENMELD_HOME: openMeldHome,
-        },
-      },
-      replyToSignalId: "signal-source-existing-context-1",
-      sendTargetReference: {
-        projection: [],
-        referenceLines: [],
-        status: "loaded",
-      },
-      sourceEventId: "signal-source-existing-context-1",
-      spaceContractSnapshot: {
-        allowedActions: ["post_message", "post_status", "stay_silent"],
-        publicationMode: "collaboration",
-      },
-      spaceId: "space-existing-context-1",
-      targetProfileId: "agt_existing_context",
-      taskId: "task-existing-context-1",
-    });
-    writeDispatchSpaceActionRecord({
-      action: {
-        type: "post_message",
-        messageEnvelope: {
-          activationTargets: [],
-          referenceTargets: [],
-          replyToSignalId: "signal-source-existing-context-1",
-          text: "Confirmed from existing local context.",
-        },
-      },
-      command: "openmeld-dev space action reply",
-      context,
-    });
-    const runtimeExecutionPromise = new Promise<RuntimeTaskResult>(
-      () => undefined
-    );
-
-    const resolved = await Promise.race([
-      resolveRuntimeResultFromRuntimeOrCliSpaceAction({
-        contextIdForDispatch: "thread-existing-local-context-1",
-        dispatchSpaceActionContext: context,
-        ledgerIo: createLedgerIo(),
-        ledgerPaths: createLedgerPaths(),
-        parsedTask: {
-          agentControllerRef: "builtin:codex",
-          attemptId: "attempt-existing-context-1",
-          dispatchId: "dispatch-existing-context-1",
-          sourceEventId: "signal-source-existing-context-1",
-          targetProfileId: "agt_existing_context",
-          taskId: "task-existing-context-1",
-          transportMode: "codex-app-server",
-        } as Parameters<
-          typeof resolveRuntimeResultFromRuntimeOrCliSpaceAction
-        >[0]["parsedTask"],
-        presenter: {
-          data: vi.fn(),
-          event: vi.fn(),
-          line: vi.fn(),
-          view: "agent",
-        },
-        runtimeExecutionPromise,
-      }),
-      delay(250).then(() => "timed-out" as const),
-    ]);
-
-    expect(resolved).not.toBe("timed-out");
-    if (resolved === "timed-out") {
-      throw new Error("expected CLI Space Action finalization without runtime");
-    }
-
-    expect(resolved.resultPayload.status).toBe("success");
-    if (resolved.resultPayload.status !== "success") {
-      throw new Error("expected a successful CLI Space Action result");
-    }
-    expect(resolved.resultPayload.agentControllerConversationId).toBe(
-      "thread-existing-local-context-1"
-    );
-    expect(resolved.resultPayload.agentControllerConversation).toEqual({
-      agentControllerConversationId: "thread-existing-local-context-1",
-      agentControllerConversationKind: "thread",
-      agentControllerRef: "builtin:codex",
-    });
-    expect(resolved.resultPayload.output).toBe(
-      "Confirmed from existing local context."
-    );
-    expect(resolved.resultPayload.spaceActionProvenance).toBe("cli_action");
-  });
-
-  it("waits briefly for provider conversation observation before finalizing a dispatch Space Action", async () => {
-    const openMeldHome = createTempDir(
-      "openmeld-space-action-context-observed-late-"
-    );
-    const { context } = createDispatchSpaceActionContext({
-      attemptId: "attempt-context-observed-late-1",
-      dispatchId: "dispatch-context-observed-late-1",
-      pathInput: {
-        env: {
-          OPENMELD_HOME: openMeldHome,
-        },
-      },
-      replyToSignalId: "signal-source-context-observed-late-1",
-      sendTargetReference: {
-        projection: [],
-        referenceLines: [],
-        status: "loaded",
-      },
-      sourceEventId: "signal-source-context-observed-late-1",
-      spaceContractSnapshot: {
-        allowedActions: ["post_message", "post_status", "stay_silent"],
-        publicationMode: "collaboration",
-      },
-      spaceId: "space-context-observed-late-1",
-      targetProfileId: "agt_context_observed_late",
-      taskId: "task-context-observed-late-1",
-    });
-    writeDispatchSpaceActionRecord({
-      action: {
-        type: "post_message",
-        messageEnvelope: {
-          activationTargets: [],
-          referenceTargets: [],
-          replyToSignalId: "signal-source-context-observed-late-1",
-          text: "Confirmed from late-observed local Codex.",
-        },
-      },
-      command: "openmeld-dev space action reply",
-      context,
-    });
-
-    let observedConversation: {
-      agentControllerConversationId: string;
-      agentControllerConversationKind: "thread";
-      agentControllerRef: string;
-    } | null = null;
-    const observeConversation = delay(50).then(() => {
-      observedConversation = {
-        agentControllerConversationId: "thread-app-server-observed-late-1",
-        agentControllerConversationKind: "thread",
-        agentControllerRef: "builtin:codex",
-      };
-    });
-    const runtimeExecutionPromise = new Promise<RuntimeTaskResult>(
-      () => undefined
-    );
-
-    const resolved = await Promise.race([
-      resolveRuntimeResultFromRuntimeOrCliSpaceAction({
-        contextIdForDispatch: null,
-        dispatchSpaceActionContext: context,
-        getObservedAgentControllerConversation: () => observedConversation,
-        getObservedAgentControllerConversationId: () =>
-          observedConversation?.agentControllerConversationId ?? null,
-        ledgerIo: createLedgerIo(),
-        ledgerPaths: createLedgerPaths(),
-        parsedTask: {
-          agentControllerRef: "builtin:codex",
-          attemptId: "attempt-context-observed-late-1",
-          dispatchId: "dispatch-context-observed-late-1",
-          sourceEventId: "signal-source-context-observed-late-1",
-          targetProfileId: "agt_context_observed_late",
-          taskId: "task-context-observed-late-1",
-          transportMode: "codex-app-server",
-        } as Parameters<
-          typeof resolveRuntimeResultFromRuntimeOrCliSpaceAction
-        >[0]["parsedTask"],
-        presenter: {
-          data: vi.fn(),
-          event: vi.fn(),
-          line: vi.fn(),
-          view: "agent",
-        },
-        runtimeExecutionPromise,
-      }),
-      delay(1000).then(() => "timed-out" as const),
-    ]);
-    await observeConversation;
-
-    expect(resolved).not.toBe("timed-out");
-    if (resolved === "timed-out") {
-      throw new Error(
-        "expected CLI Space Action finalization after provider observation"
-      );
-    }
-
-    expect(
-      resolved.dispatchResult.dispatched &&
-        resolved.dispatchResult.adapterResult.status === "success"
-        ? resolved.dispatchResult.adapterResult.contextDelta
-            ?.agentControllerConversationId
-        : null
-    ).toBe("thread-app-server-observed-late-1");
-    expect(resolved.resultPayload.status).toBe("success");
-    if (resolved.resultPayload.status !== "success") {
-      throw new Error("expected a successful CLI Space Action result");
-    }
-    expect(resolved.resultPayload.agentControllerConversationId).toBe(
-      "thread-app-server-observed-late-1"
-    );
-    expect(resolved.resultPayload.agentControllerConversation).toEqual({
-      agentControllerConversationId: "thread-app-server-observed-late-1",
-      agentControllerConversationKind: "thread",
-      agentControllerRef: "builtin:codex",
-    });
-    expect(resolved.resultPayload.output).toBe(
-      "Confirmed from late-observed local Codex."
-    );
   });
 
   it("converts an empty-output App Server runtime result into the CLI Space Action success while preserving context", async () => {
@@ -571,11 +226,8 @@ describe("resolveRuntimeResultFromRuntimeOrCliSpaceAction", () => {
       },
     });
 
-    const resolved = await resolveRuntimeResultFromRuntimeOrCliSpaceAction({
-      contextIdForDispatch: null,
+    const resolved = await applyCliSpaceActionRecordIfPresent({
       dispatchSpaceActionContext: context,
-      ledgerIo: createLedgerIo(),
-      ledgerPaths: createLedgerPaths(),
       parsedTask: {
         attemptId: "attempt-empty-app-server-1",
         dispatchId: "dispatch-empty-app-server-1",
@@ -583,7 +235,7 @@ describe("resolveRuntimeResultFromRuntimeOrCliSpaceAction", () => {
         targetProfileId: "agt_empty_app_server",
         taskId: "task-empty-app-server-1",
       } as Parameters<
-        typeof resolveRuntimeResultFromRuntimeOrCliSpaceAction
+        typeof applyCliSpaceActionRecordIfPresent
       >[0]["parsedTask"],
       presenter: {
         data: vi.fn(),
@@ -591,7 +243,7 @@ describe("resolveRuntimeResultFromRuntimeOrCliSpaceAction", () => {
         line: vi.fn(),
         view: "agent",
       },
-      runtimeExecutionPromise: Promise.resolve(runtimeResult),
+      runtimeResult,
     });
 
     expect(

@@ -20,7 +20,7 @@ import type {
 import { readRuntimeTransportSocketAttachment } from "./runtime-transport-socket-attachment";
 
 // ServiceRuntime records are the durable self-attestation facts for this
-// account's devices (see docs/architecture/facts.md). One record per device,
+// account's devices. One record per owner, device and lane,
 // written on every register/heartbeat, restored on every cold start. They are
 // what keeps Wake routes alive across Durable Object hibernation, restarts,
 // and deploys — the in-memory session map is just a projection of them plus
@@ -28,8 +28,7 @@ import { readRuntimeTransportSocketAttachment } from "./runtime-transport-socket
 const SERVICE_RUNTIME_RECORD_PREFIX = "serviceruntime.v1.";
 const LEGACY_SNAPSHOT_STORAGE_KEY = "daemonhub.snapshot.v1";
 
-// Records older than this are dead devices; prune lazily on restore so the
-// per-account record set stays bounded without a dedicated sweeper.
+// Old records no longer restore liveness, but retain the connection fence.
 const SERVICE_RUNTIME_RECORD_RETENTION_MS = 24 * 60 * 60 * 1000;
 const PLATFORM_REFERENCE_PATTERN = /reference\s*[:=]\s*([a-z0-9_-]{8,80})/iu;
 
@@ -77,8 +76,50 @@ type ServiceRuntimeRecordV1 = {
   profileLeases: ServiceRuntimeLeaseEntryV1[];
 };
 
-const toServiceRuntimeRecordKey = (deviceId: string): string =>
-  `${SERVICE_RUNTIME_RECORD_PREFIX}${deviceId}`;
+const toServiceRuntimeRecordKey = (
+  identity: Pick<ServiceRuntimeRecordV1, "ownerUserId" | "deviceId" | "lane">
+): string =>
+  `${SERVICE_RUNTIME_RECORD_PREFIX}${JSON.stringify([
+    identity.ownerUserId,
+    identity.deviceId,
+    identity.lane,
+  ])}`;
+
+async function readCurrentServiceRuntimeRecord(
+  storage: Pick<DurableObjectStorage, "get">,
+  identity: Pick<ServiceRuntimeRecordV1, "ownerUserId" | "deviceId" | "lane">
+): Promise<ServiceRuntimeRecordV1 | null> {
+  const records = await Promise.all([
+    storage.get(toServiceRuntimeRecordKey(identity)),
+    storage.get(`${SERVICE_RUNTIME_RECORD_PREFIX}${identity.deviceId}`),
+  ]);
+  return (
+    records
+      .map(parseServiceRuntimeRecord)
+      .filter(
+        (record): record is ServiceRuntimeRecordV1 =>
+          record !== null &&
+          record.ownerUserId === identity.ownerUserId &&
+          record.deviceId === identity.deviceId &&
+          record.lane === identity.lane
+      )
+      .sort(
+        (left, right) =>
+          right.connectionGeneration - left.connectionGeneration ||
+          right.lastHeartbeatMs - left.lastHeartbeatMs
+      )[0] ?? null
+  );
+}
+
+export async function readServiceRuntimeConnectionGeneration(
+  ctx: DurableObjectState,
+  identity: Pick<ServiceRuntimeRecordV1, "ownerUserId" | "deviceId" | "lane">
+): Promise<number> {
+  return (
+    (await readCurrentServiceRuntimeRecord(ctx.storage, identity))
+      ?.connectionGeneration ?? 0
+  );
+}
 
 const buildServiceRuntimeRecord = (
   state: RuntimeTransportMutableState,
@@ -128,7 +169,27 @@ const persistServiceRuntimeRecord = async (
 ): Promise<void> => {
   const record = buildServiceRuntimeRecord(state, session);
   await ctx.storage
-    .put(toServiceRuntimeRecordKey(session.deviceId), record)
+    .transaction(async (storage) => {
+      const previous = await readCurrentServiceRuntimeRecord(storage, record);
+      if (
+        previous &&
+        (previous.connectionGeneration > record.connectionGeneration ||
+          (previous.connectionGeneration === record.connectionGeneration &&
+            previous.lastHeartbeatMs > record.lastHeartbeatMs))
+      ) {
+        return;
+      }
+      await storage.put(toServiceRuntimeRecordKey(record), record);
+      // Migrate only the legacy record whose actual identity matches this lane.
+      const legacyKey = `${SERVICE_RUNTIME_RECORD_PREFIX}${record.deviceId}`;
+      const legacy = parseServiceRuntimeRecord(await storage.get(legacyKey));
+      if (
+        legacy?.ownerUserId === record.ownerUserId &&
+        legacy.lane === record.lane
+      ) {
+        await storage.delete(legacyKey);
+      }
+    })
     .catch((error: unknown) => {
       console.error("[core.runtime_transport.runtime_record.persist_failed]", {
         deviceId: session.deviceId,
@@ -143,14 +204,17 @@ export const persistServiceRuntimeRecordsNow = async (
   ctx: DurableObjectState,
   state: RuntimeTransportMutableState
 ): Promise<void> => {
-  // The durable contract has one record per device. Replacement history must
+  // The durable contract has one record per owner/device/lane. Replacement history must
   // not overwrite its current session merely because it was inserted later.
   const currentByDevice = new Map<string, RuntimeTransportSessionState>();
   for (const session of [...state.sessionsById.values()].sort(
-    compareRuntimeTransportSessionsByFreshness
+    (left, right) =>
+      right.connectionGeneration - left.connectionGeneration ||
+      compareRuntimeTransportSessionsByFreshness(left, right)
   )) {
-    if (!currentByDevice.has(session.deviceId)) {
-      currentByDevice.set(session.deviceId, session);
+    const key = toServiceRuntimeRecordKey(session);
+    if (!currentByDevice.has(key)) {
+      currentByDevice.set(key, session);
     }
   }
   await Promise.all(
@@ -193,11 +257,11 @@ export const restoreServiceRuntimeRecords = async (
   let needsPersist = false;
   for (const [key, raw] of entries) {
     const record = parseServiceRuntimeRecord(raw);
-    if (
-      !record ||
-      nowMs - record.lastHeartbeatMs > SERVICE_RUNTIME_RECORD_RETENTION_MS
-    ) {
+    if (!record) {
       ctx.storage.delete(key).catch(() => undefined);
+      continue;
+    }
+    if (nowMs - record.lastHeartbeatMs > SERVICE_RUNTIME_RECORD_RETENTION_MS) {
       continue;
     }
     const restoredSession = restoreSessionFromRecord(state, record, nowMs);

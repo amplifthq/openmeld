@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-16T05:50:29.135Z",
+  "updatedAt": "2026-10-16T16:25:15.531Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
-      "packageVersion": "0.3.263",
+      "packageVersion": "0.3.264",
       "updatePolicy": "available",
-      "reason": "Existing wire contracts remain compatible; Node runtime checks and Space addressing resolve existing command inputs before submission."
+      "reason": "Existing CLI commands remain wire-compatible; bounded stop, verified repair and opt-in native recovery improve diagnostics."
     },
     "service": {
-      "bundleHash": "e8cb0da9f50aa4537a511a24292d8cfae0cd4b9b13fde8f9e60000d52d10411c",
-      "portableBundleHash": "3f899646d585d0590bd862805af5952dcbe4b77f60702335236ffa997ca680f8",
-      "bundleVersion": "0.3.263",
+      "bundleHash": "97aac63c39e1b964ec4324d240d12aca0a85e566208406dcf35fe9deed071864",
+      "portableBundleHash": "66d19be2e93467b33d0b44762b70cd36b25e07caa131a6da3a7882d9836f33fc",
+      "bundleVersion": "0.3.264",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
-      "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
-      "updatePolicy": "available",
-      "reason": "Setup and Wake contracts remain compatible; local control refresh waits for an earlier report and then collects fresh evidence."
+      "serviceContractVersion": "openmeld-service-contract-2026-10-auth-freshness-v1",
+      "updatePolicy": "required",
+      "reason": "Native account checks must run each minute before Core can enforce the two-minute evidence lifetime; old five-minute carriers cannot satisfy it."
     },
     "skills": {
       "bundleHash": "77e639d354b9ebf56ffdaa231a469fd0f848ad63c9b6f78662bdf4e698e2946d",
