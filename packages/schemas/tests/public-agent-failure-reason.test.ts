@@ -73,6 +73,20 @@ const DETAILED_PROVIDER_FAILURE_SUMMARY_RE =
   /^invalid_value \(invalid_request_error\): Invalid value for reasoning effort\./;
 
 describe("public agent failure reason mapping", () => {
+  it.each([
+    "agent_profile.workspace_change_eligibility_unavailable",
+    "agent_profile.workspace_change_blocked_active_execution",
+  ])("keeps working-folder eligibility failure %s separate from provider health", (errorCode) => {
+    expect(resolvePublicAgentFailureRecovery({ errorCode })).toMatchObject({
+      kind: "system_retry",
+      recoveryTarget: null,
+    });
+    const reason = resolveMappedPublicAgentFailureReason(errorCode);
+    expect(reason).toContain("working folder");
+    expect(reason).not.toContain("provider");
+    expect(reason).not.toContain("login");
+  });
+
   it("reports missing task history without inventing a provider outage", () => {
     const errorCode = "execution_context.source_unavailable";
     expect(
