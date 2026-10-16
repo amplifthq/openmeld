@@ -1095,6 +1095,20 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: null,
     },
     {
+      body: "OpenMeld couldn't confirm whether this Agent is working, so its working folder was not changed. Retry setup in a moment.",
+      kind: "system_retry",
+      patterns: ["=agent_profile.workspace_change_eligibility_unavailable"],
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: null,
+    },
+    {
+      body: "This Agent's working folder cannot change while it is working. Wait for the current Wake to finish, then retry setup.",
+      kind: "system_retry",
+      patterns: ["=agent_profile.workspace_change_blocked_active_execution"],
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: null,
+    },
+    {
       availabilityBadgeLabel: "Working folder missing",
       availabilitySummary: "Connect this Agent’s Project on its Computer.",
       availabilityTooltip: "Project folder is not connected",
