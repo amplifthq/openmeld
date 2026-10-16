@@ -82,6 +82,10 @@ A matching local target opens the existing bundled connection flow, which calls
 verification. Remote targets and builds without the required native capability
 keep the browser handoff. The global Web-only configuration capability remains
 unchanged.
+Before targeted recovery, Main resolves the selected Computer in Core's
+authenticated inventory and matches its device/lane to the native identity.
+It passes that verified target to Prepare; a new Prepare snapshot does not
+implicitly resolve a device from the stable Computer ID.
 RuntimeCoordinator remains the workstation execution authority, the Space
 durable outbox remains the conveyor, and the Service retains disk/ack recovery.
 
@@ -496,7 +500,10 @@ The toolbar and account-menu Computer entry use this same native destination
 without a fresh-session request, regardless of browser Computer selection.
 Connection presentation is independent of Disconnect eligibility: embedded flows
 show an existing connection and Continue without running Setup, while an explicit
-reconnect shows Connected and Reconnect this Mac. After confirmed completion, the
+reconnect shows Connected and Reconnect this Mac only while Core reports a live
+session for the exact native device/lane. Native identity availability alone
+does not establish a connection; a stopped Service offers Connect this Mac.
+After confirmed completion, the
 standalone route consumes its one-time fresh-session and Computer-target intent
 and returns to ordinary connection management. Failed or cancelled operations
 retain that intent for recovery.

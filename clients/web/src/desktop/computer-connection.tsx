@@ -289,7 +289,17 @@ function useComputerConnection(input: ComputerConnectionProps) {
 	);
 	const connected =
 		connection.data?.status === "available" &&
-		connection.data.accountId === expectedAccount;
+		connection.data.accountId === expectedAccount &&
+		setup.localRuntimesQuery.data?.peopleComputers.computers.some(
+			(computer) =>
+				computer.connection.status === "connected" &&
+				computer.connection.sessions.some(
+					(target) =>
+						connection.data?.status === "available" &&
+						target.deviceId === connection.data.target.deviceId &&
+						target.runtimeLane === connection.data.target.runtimeLane
+				)
+		) === true;
 	const isCurrentAction = useCallback(
 		(revision: number) =>
 			active.current && actionRevisionRef.current === revision,

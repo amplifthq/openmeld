@@ -9,6 +9,9 @@ import {
   createComputerDisconnection,
   readComputerConnection,
 } from "../src/main/computer-connection";
+// Captured from isolated-lane computer list on 2026-10-16. Identity is
+// anonymized; unrelated controller details are omitted.
+import stoppedComputerInventory from "./fixtures/stopped-computer-inventory.json";
 
 const mocks = vi.hoisted(() => ({
   exec: vi.fn(),
@@ -190,6 +193,14 @@ describe("Desktop computer connection admission", () => {
     ].includes(scenario);
     if (createsPrepare) {
       cloudRequest.mockRejectedValue(new Error("Prepare requested"));
+      if (scenario === "reconnect_target") {
+        const inventory = structuredClone(stoppedComputerInventory);
+        inventory.computers = inventory.computers.map((computer) => ({
+          ...computer,
+          connectedComputerId: "computer-b",
+        }));
+        cloudRequest.mockResolvedValueOnce(Response.json(inventory));
+      }
     }
     const confirmSwitch = vi.fn(async () => false);
     const onProgress = vi.fn();
@@ -304,11 +315,15 @@ describe("Desktop computer connection admission", () => {
       expect(mocks.exec).not.toHaveBeenCalled();
     }
     if (createsPrepare) {
-      expect(cloudRequest).toHaveBeenCalledOnce();
+      expect(cloudRequest).toHaveBeenCalledTimes(
+        scenario === "reconnect_target" ? 2 : 1
+      );
       if (scenario === "reconnect_target") {
-        const body = cloudRequest.mock.calls[0]?.[1].body;
+        const body = cloudRequest.mock.calls[1]?.[1].body;
         expect(JSON.parse(new TextDecoder().decode(body))).toMatchObject({
           connectedComputerId: "computer-b",
+          deviceId: "device-a",
+          runtimeLane: "dev-local",
         });
       }
     } else {
@@ -423,10 +438,15 @@ describe("Prepare diagnostic continuity", () => {
       }
       return { deviceCode: "device-code", expiresIn: 60 };
     });
-    const cloudRequest = vi
-      .fn()
-      .mockResolvedValueOnce(Response.json(prepare))
-      .mockRejectedValue(new Error("Snapshot unavailable"));
+    const cloudRequest = vi.fn().mockImplementation((path: string) => {
+      if (path === "/v1/people-computers") {
+        return Response.json(stoppedComputerInventory);
+      }
+      if (path === "/v1/prepare/sessions") {
+        return Response.json(prepare);
+      }
+      throw new Error("Snapshot unavailable");
+    });
     if (failure === "update_account_changed") {
       mocks.install.mockImplementationOnce(() => {
         mocks.exec.mockResolvedValue({
@@ -461,6 +481,21 @@ describe("Prepare diagnostic continuity", () => {
       ensureCompatible: async () => undefined,
       confirmSwitch: async () => false,
     });
+    if (failure === "update_wrong_target") {
+      await expect(
+        connect({
+          expectedAccount: "account-a",
+          connectedComputerId: "computer-b",
+          serviceAction: "update_service",
+        })
+      ).rejects.toThrow(
+        "Open Desktop on the selected computer, then try again."
+      );
+      expect(mocks.install).not.toHaveBeenCalled();
+      expect(mocks.grant).not.toHaveBeenCalled();
+      expect(spawn).not.toHaveBeenCalled();
+      return;
+    }
     const result = await connect({
       expectedAccount: "account-a",
       ...(failure === "target_space" || failure === "target_match"
@@ -473,9 +508,6 @@ describe("Prepare diagnostic continuity", () => {
       failure === "target_match" ||
       failure === "service_update"
         ? { connectedComputerId: "computer-a" }
-        : {}),
-      ...(failure === "update_wrong_target"
-        ? { connectedComputerId: "computer-b" }
         : {}),
       ...(failure.startsWith("update_") || failure === "service_update"
         ? { serviceAction: "update_service" }
@@ -493,9 +525,6 @@ describe("Prepare diagnostic continuity", () => {
     ) {
       expect(mocks.grant).not.toHaveBeenCalled();
       expect(spawn).not.toHaveBeenCalled();
-      if (failure === "update_wrong_target") {
-        expect(mocks.install).not.toHaveBeenCalled();
-      }
     } else {
       expect(mocks.grant).toHaveBeenCalledWith(expect.any(Function), {
         clientId: "openmeld-cli-dev",

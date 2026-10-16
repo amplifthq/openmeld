@@ -27,6 +27,7 @@ import {
   desktopComputerConnectionRequestSchema,
   desktopComputerDisconnectRequestSchema,
   localMachineIssueAgentEventSchema,
+  peopleComputersResponseSchema,
   prepareSessionResponseSchema,
   prepareSessionWithTokenResponseSchema,
   redactPrepareStepDiagnosticsText,
@@ -167,6 +168,7 @@ export function createComputerConnection(input: {
         }
         return await response.json();
       };
+      const target = await resolvePrepareComputerTarget(intent, review, cloud);
       const prepare = prepareSessionWithTokenResponseSchema.parse(
         await cloud("/v1/prepare/sessions", "POST", {
           humanProfileId: intent.humanProfileId,
@@ -174,6 +176,7 @@ export function createComputerConnection(input: {
           selectedLocalAgentIds: [],
           sourceNavigationAction: intent.sourceNavigationAction,
           connectedComputerId: intent.connectedComputerId,
+          ...target,
         })
       );
       prepareSessionId = prepare.snapshot.prepareSessionId;
@@ -698,6 +701,38 @@ async function prepareReviewedComputerTools(input: {
   }
   await input.assertAccount();
   return updated;
+}
+
+// Prepare does not infer a device/lane from a stable Computer ID. Resolve the
+// selected Computer through Core, then bind it to the independently read Mac.
+async function resolvePrepareComputerTarget(
+  intent: DesktopComputerConnectionRequest,
+  review: Awaited<ReturnType<typeof readComputerConnection>>,
+  cloud: (path: string, method: "GET") => Promise<unknown>
+) {
+  if (!intent.connectedComputerId) {
+    return {};
+  }
+  const inventory = peopleComputersResponseSchema.parse(
+    await cloud("/v1/people-computers", "GET")
+  );
+  const target = review.existingConnection;
+  const computer = inventory.computers.find(
+    (entry) => entry.connectedComputerId === intent.connectedComputerId
+  );
+  if (
+    !(
+      target &&
+      computer?.executionTargets.some(
+        (entry) =>
+          entry.deviceId === target.deviceId &&
+          entry.runtimeLane === target.runtimeLane
+      )
+    )
+  ) {
+    throw new Error("Open Desktop on the selected computer, then try again.");
+  }
+  return target;
 }
 
 function assertPrepareConnectionTarget(input: {
