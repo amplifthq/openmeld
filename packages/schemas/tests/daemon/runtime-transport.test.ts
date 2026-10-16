@@ -1896,9 +1896,14 @@ describe("runtime transport schema", () => {
     expect(
       runtimeTransportDispatchReplyRequestSchema.safeParse(frame).success
     ).toBe(true);
+    expect(
+      runtimeTransportDispatchReplyRequestSchema.safeParse({
+        ...frame,
+        textSnapshot: "",
+      }).success
+    ).toBe(true);
     for (const patch of [
       { executionIdentityEcho: undefined },
-      { textSnapshot: "" },
       { textSnapshot: "x".repeat(32 * 1024 + 1) },
       { placement: "private" },
     ]) {

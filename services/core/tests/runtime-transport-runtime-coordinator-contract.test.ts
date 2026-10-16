@@ -17173,6 +17173,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     for (const [index, textSnapshot] of [
       "Saved reply.",
       "Reviewed reply.",
+      "",
     ].entries()) {
       await receiver.handleDispatchToolActivityFrame(
         socket,

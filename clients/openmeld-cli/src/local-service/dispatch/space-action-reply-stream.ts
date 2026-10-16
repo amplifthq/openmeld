@@ -23,18 +23,24 @@ export function watchSpaceActionReply(input: {
   let sendErrorReported = false;
   const tick = () => {
     const record = readDispatchSpaceActionRecord({ context });
-    if (
-      record.status !== "loaded" ||
-      record.record.action.type !== "post_message"
-    ) {
+    if (record.status === "invalid") {
       return;
     }
-    const text = record.record.action.messageEnvelope.text.slice(
-      0,
-      AGENT_STREAM_SNAPSHOT_MAX_CHARS
-    );
+    const action = record.status === "loaded" ? record.record.action : null;
+    // Reconsideration archives the prior action before running a repair turn.
+    // Retract its draft immediately, including when the replacement is silence.
+    let text = "";
+    let placement = previousPlacement;
+    if (action?.type === "post_message") {
+      text = action.messageEnvelope.text.slice(
+        0,
+        AGENT_STREAM_SNAPSHOT_MAX_CHARS
+      );
+      placement = action.placement;
+    } else if (previousText === null) {
+      return;
+    }
     const connection = input.connection();
-    const placement = record.record.action.placement;
     if (
       text === previousText &&
       placement === previousPlacement &&

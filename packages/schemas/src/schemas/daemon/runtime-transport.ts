@@ -2196,7 +2196,7 @@ export const runtimeTransportDispatchReplyRequestSchema =
     .omit({ part: true })
     .extend({
       placement: z.enum(["conversation", "thread"]).optional(),
-      textSnapshot: z.string().min(1).max(AGENT_STREAM_SNAPSHOT_MAX_CHARS),
+      textSnapshot: z.string().max(AGENT_STREAM_SNAPSHOT_MAX_CHARS),
     });
 
 export const runtimeTransportDispatchInteractionRequestSchema = z.strictObject({

@@ -107,6 +107,26 @@ describe("durable Space Action reply streaming", () => {
     expect(publish).toHaveBeenCalledTimes(3);
   });
 
+  it("retracts an archived proposal during reconsideration and keeps silence on reconnect", () => {
+    const { context, publish, reply, reconnect } = setup();
+    reply("Retracted proposal.");
+    vi.advanceTimersByTime(250);
+    supersedeDispatchSpaceActionRecordForReconsideration({ context });
+    publish.mockReturnValueOnce(false);
+    vi.advanceTimersByTime(500);
+    expect(publish).toHaveBeenLastCalledWith("", undefined);
+    expect(publish).toHaveBeenCalledTimes(3);
+    writeDispatchSpaceActionRecord({
+      context,
+      command: "silent",
+      action: { type: "stay_silent", reason: "Review found no reply needed." },
+    });
+    reconnect();
+    vi.advanceTimersByTime(250);
+    expect(publish).toHaveBeenLastCalledWith("", undefined);
+    expect(publish).toHaveBeenCalledTimes(4);
+  });
+
   it("retains an unsent proposal under transport backpressure", () => {
     const { publish, reply } = setup();
     publish.mockReturnValueOnce(false);

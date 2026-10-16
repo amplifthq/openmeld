@@ -2099,7 +2099,9 @@ Explicit `post_message` revisions replace the snapshot on the same attempt
 stream; identical records do not create new messages. The writer serializes
 CLI and native tool writes, atomically replaces the record, and retains up to
 32 prior reply digests so delayed retries cannot restore an older reply.
-Changing the final action type is rejected. An interrupted writer's lock is
+Changing the final action type is rejected. When approved reconsideration
+archives the action, the observer sends an empty text snapshot to retract the
+old draft. It keeps that draft clear if reconsideration selects silence. An interrupted writer's lock is
 not automatically broken; the caller must reconcile its receipt. Private controller output after the action
 must never overwrite or append to the public reply. Finalization still owns
 the final Signal, usage, checkpoints, recipient effects, and stream closure.
