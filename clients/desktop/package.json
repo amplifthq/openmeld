@@ -2,7 +2,7 @@
   "$schema": "https://www.schemastore.org/package.json",
   "name": "@openmeld/desktop",
   "productName": "OpenMeld Dev",
-  "version": "0.1.36",
+  "version": "0.1.37",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
@@ -46,6 +46,7 @@
     "zod": "catalog:"
   },
   "build": {
+    "afterPack": "../../scripts/desktop/verify-archive.mjs",
     "forceCodeSigning": true,
     "appId": "sh.openmeld.desktop.dev",
     "productName": "OpenMeld Dev",
@@ -53,6 +54,7 @@
       "output": "dist/release"
     },
     "files": [
+      "!**/.turbo{,/**}",
       "out/**/*",
       "resources/icon.icns",
       "resources/icon.png",

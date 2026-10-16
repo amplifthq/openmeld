@@ -96,7 +96,12 @@ async function applyAdoptedConnectionSettlement(input: {
 }) {
 	if (input.operationState.errorMessage) {
 		input.setFailed(true);
-		input.setMessage(input.operationState.errorMessage);
+		input.setMessage(
+			formatDesktopError(
+				new Error(input.operationState.errorMessage),
+				"This computer could not connect. Try again."
+			)
+		);
 		return;
 	}
 	const result = input.operationState.result;
@@ -289,7 +294,17 @@ function useComputerConnection(input: ComputerConnectionProps) {
 	);
 	const connected =
 		connection.data?.status === "available" &&
-		connection.data.accountId === expectedAccount;
+		connection.data.accountId === expectedAccount &&
+		setup.localRuntimesQuery.data?.peopleComputers.computers.some(
+			(computer) =>
+				computer.connection.status === "connected" &&
+				computer.connection.sessions.some(
+					(target) =>
+						connection.data?.status === "available" &&
+						target.deviceId === connection.data.target.deviceId &&
+						target.runtimeLane === connection.data.target.runtimeLane
+				)
+		) === true;
 	const isCurrentAction = useCallback(
 		(revision: number) =>
 			active.current && actionRevisionRef.current === revision,

@@ -709,6 +709,7 @@ import {
   adoptHibernatedSockets,
   persistServiceRuntimeRecords,
   persistServiceRuntimeRecordsNow,
+  readServiceRuntimeConnectionGeneration,
   restoreServiceRuntimeRecords,
 } from "../../infrastructure/runtime-transport-runtime-store";
 import {
@@ -3504,7 +3505,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   ): void {
     switch (frame.code) {
       case "daemon.session.register": {
-        this.handleRegisterSessionFrame(webSocket, frame.payload);
+        this.ctx.waitUntil(
+          this.ctx.blockConcurrencyWhile(() =>
+            this.handleRegisterSessionFrame(webSocket, frame.payload)
+          )
+        );
         return;
       }
       case "daemon.session.heartbeat": {
@@ -3865,10 +3870,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.orderedDispatchFrameTails.set(dispatchId, tail);
     this.ctx.waitUntil(tail);
   }
-  private handleRegisterSessionFrame(
+  private async handleRegisterSessionFrame(
     webSocket: WebSocket,
     payload: unknown
-  ): void {
+  ): Promise<void> {
     const parsed =
       runtimeTransportRegisterSessionRequestSchema.safeParse(payload);
     if (!parsed.success) {
@@ -3903,6 +3908,20 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     // verdict. A new or replaced socket flips every carried profile between
     // offline and online, so it keeps the full fan-out.
     const isSameSocketReRegister = sessionBeforeRegister?.socket === webSocket;
+    if (
+      !isSameSocketReRegister &&
+      request.ownerUserId === verifiedOwnerUserId
+    ) {
+      const highWater = await readServiceRuntimeConnectionGeneration(this.ctx, {
+        ownerUserId: verifiedOwnerUserId,
+        deviceId: request.deviceId,
+        lane: request.lane,
+      });
+      request.connectionGeneration = Math.max(
+        request.connectionGeneration,
+        highWater + 1
+      );
+    }
     const response = handleRegisterSession(
       this.state,
       {
@@ -3911,7 +3930,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         webSocket,
       },
       {
-        persistRuntimeRecords: this.persistRuntimeRecords,
+        persistRuntimeRecords: () => undefined,
         cleanupExpiredPendingDispatches: this.cleanupExpiredPendingDispatches,
         recordReapedReadinessProfiles: this.publishReapedReadinessProfiles,
         failPendingDispatchResultWaitersForConnectionGeneration:
@@ -3919,6 +3938,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         closeSocket: safeCloseSocket,
       }
     );
+    // Registration must not acknowledge a fence that only exists in memory.
+    // blockConcurrencyWhile resets this object on failure, withdrawing the
+    // mutated session instead of exposing an uncommitted registration.
+    await persistServiceRuntimeRecordsNow(this.ctx, this.state);
     this.sendFrame(webSocket, {
       code: "daemon.session.register",
       payload: {

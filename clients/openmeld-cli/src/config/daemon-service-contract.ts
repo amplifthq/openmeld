@@ -78,6 +78,37 @@ export async function upsertDaemonServiceContract(
   );
 }
 
+// Only a positive pre-commit Stop refusal permits restoring the previous intent.
+// This is not a new Start: preserve the still-running carrier's generation.
+export async function restoreRefusedDaemonStopIntent(input: {
+  previous: DaemonServiceContract;
+  stopped: DaemonServiceContract;
+}): Promise<void> {
+  assertDaemonServiceContractMutationAllowed({});
+  await withDaemonServiceLifecycleLock(
+    { intent: "upgrade_reconcile", command: "Restore refused Service stop" },
+    async () => {
+      const current = await readDaemonServiceContract();
+      if (
+        !current ||
+        JSON.stringify(current) !== JSON.stringify(input.stopped) ||
+        input.previous.generation !== input.stopped.generation ||
+        !isStopIntentForCurrentRuntime(input.previous, input.stopped)
+      ) {
+        throw new Error(
+          "The Service changed after Stop was refused. Check its status before trying again."
+        );
+      }
+      await writeDaemonLocalStateFile({
+        path: daemonServiceContractPath(),
+        schema: daemonServiceContractSchema,
+        value: { ...input.previous, updatedAt: new Date().toISOString() },
+        mode: 0o600,
+      });
+    }
+  );
+}
+
 async function writeDaemonServiceContractState(
   input: DaemonServiceContractStateInput,
   pathInput: OpenMeldPathResolutionInput,
@@ -104,7 +135,10 @@ async function writeDaemonServiceContractState(
     ...candidate,
     generation: current
       ? current.generation +
-        (isFirstEnrollmentOfCurrentRuntime(current, candidate) ? 0 : 1)
+        (isFirstEnrollmentOfCurrentRuntime(current, candidate) ||
+        isStopIntentForCurrentRuntime(current, candidate)
+          ? 0
+          : 1)
       : 1,
     updatedAt: new Date().toISOString(),
   };
@@ -115,6 +149,23 @@ async function writeDaemonServiceContractState(
     mode: 0o600,
   });
   return next;
+}
+
+function isStopIntentForCurrentRuntime(
+  current: DaemonServiceContract,
+  candidate: Omit<DaemonServiceContract, "generation" | "updatedAt">
+): boolean {
+  // Stop changes desired state, not the identity of work already being drained.
+  // A subsequent Start still advances the generation and fences old startup receipts.
+  return (
+    candidate.desiredState === "stopped" &&
+    !candidate.autoStart &&
+    isSameContractState(current, {
+      ...candidate,
+      desiredState: current.desiredState,
+      autoStart: current.autoStart,
+    })
+  );
 }
 
 function isFirstEnrollmentOfCurrentRuntime(

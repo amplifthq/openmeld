@@ -15,8 +15,8 @@ import {
 import { createRuntimeTransportMutableState } from "../runtime-transport/application/runtime-transport-state";
 import {
   adoptHibernatedSockets,
-  persistServiceRuntimeRecords,
   persistServiceRuntimeRecordsNow,
+  readServiceRuntimeConnectionGeneration,
   restoreServiceRuntimeRecords,
 } from "../runtime-transport/infrastructure/runtime-transport-runtime-store";
 
@@ -41,6 +41,16 @@ class ThrowingAttachmentSocket extends FakeSocket {
 class FakeStorage {
   private readonly values = new Map<string, unknown>();
   private readonly pending: Promise<unknown>[] = [];
+
+  get<T>(key: string): Promise<T | undefined> {
+    return Promise.resolve(this.values.get(key) as T | undefined);
+  }
+
+  async transaction<T>(
+    callback: (storage: FakeStorage) => Promise<T>
+  ): Promise<T> {
+    return await callback(this);
+  }
 
   put(key: string, value: unknown): Promise<void> {
     const promise = Promise.resolve().then(() => {
@@ -154,6 +164,68 @@ function createLocalComponentsStatus(input: {
 }
 
 describe("runtime transport session service", () => {
+  it("retains a lane's durable connection fence after lease reaping and a cold start", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    const storage = new FakeStorage();
+    const ctx = { storage } as unknown as DurableObjectState;
+    await putServiceRuntimeRecord(storage, {
+      ownerUserId: "owner-1",
+      deviceId: "device-1",
+      daemonSessionId: "session-1",
+      profileId: "profile-1",
+      heartbeatAtMs: Date.now(),
+    });
+    const state = createRuntimeTransportMutableState();
+    await restoreServiceRuntimeRecords(ctx, state);
+    const session = state.sessionsById.get("session-1");
+    if (!session) {
+      throw new Error("Expected the persisted session to restore");
+    }
+    session.connectionGeneration = 126;
+    await persistServiceRuntimeRecordsNow(ctx, state);
+    vi.advanceTimersByTime(349_000);
+    reapExpiredLeases(state, Date.now(), {
+      persistRuntimeRecords: () => undefined,
+      cleanupExpiredPendingDispatches: () => undefined,
+    });
+    expect(state.sessionsById.size).toBe(0);
+    const identity = {
+      ownerUserId: "owner-1",
+      deviceId: "device-1",
+      lane: "dev-local" as const,
+    };
+    expect(await readServiceRuntimeConnectionGeneration(ctx, identity)).toBe(
+      126
+    );
+    expect(
+      await readServiceRuntimeConnectionGeneration(ctx, {
+        ...identity,
+        lane: "prod",
+      })
+    ).toBe(0);
+    expect(
+      await readServiceRuntimeConnectionGeneration(ctx, {
+        ...identity,
+        ownerUserId: "another-owner",
+      })
+    ).toBe(0);
+    vi.advanceTimersByTime(2 * 24 * 60 * 60_000);
+    const restored = createRuntimeTransportMutableState();
+    await restoreServiceRuntimeRecords(ctx, restored);
+    expect(restored.sessionsById.size).toBe(0);
+    expect(await readServiceRuntimeConnectionGeneration(ctx, identity)).toBe(
+      126
+    );
+    // A delayed write from the retired session must not roll back the fence.
+    session.connectionGeneration = 37;
+    state.sessionsById.set(session.daemonSessionId, session);
+    await persistServiceRuntimeRecordsNow(ctx, state);
+    expect(await readServiceRuntimeConnectionGeneration(ctx, identity)).toBe(
+      126
+    );
+  });
+
   it("keeps the connection start through catalog registration but replaces it for a new socket", () => {
     const state = createRuntimeTransportMutableState();
     const firstSocket = new FakeSocket() as unknown as WebSocket;
@@ -1364,7 +1436,7 @@ describe("runtime transport session service", () => {
       },
       deps
     );
-    persistServiceRuntimeRecords(ctx, originalState);
+    await persistServiceRuntimeRecordsNow(ctx, originalState);
     await storage.flush();
 
     const restoredState = createRuntimeTransportMutableState();
@@ -2012,7 +2084,7 @@ describe("runtime transport session service", () => {
       },
       deps
     );
-    persistServiceRuntimeRecords(ctx, originalState);
+    await persistServiceRuntimeRecordsNow(ctx, originalState);
     await storage.flush();
 
     vi.setSystemTime(restoredAtMs);

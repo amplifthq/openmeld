@@ -35,6 +35,7 @@ const state = vi.hoisted(() => ({
 	progressHandler: null as ((event: unknown) => void) | null,
 	operationHandler: null as ((event: unknown) => void) | null,
 	account: "account-a",
+	coreConnectionStatus: "connected",
 }));
 vi.mock("@tanstack/react-router", () => ({
 	useNavigate: () => state.navigate,
@@ -87,7 +88,24 @@ vi.mock("#/components/connect/bring-agents-setup-context", () => ({
 			state.routeIntent.kind === "space_recovery"
 				? state.routeIntent.spaceId
 				: null,
-		localRuntimesQuery: { refetch: state.localRuntimesRefetch },
+		localRuntimesQuery: {
+			refetch: state.localRuntimesRefetch,
+			data: {
+				peopleComputers: {
+					computers: [
+						{
+							connection: {
+								status: state.coreConnectionStatus,
+								sessions:
+									state.coreConnectionStatus === "connected"
+										? [{ deviceId: "this-mac", runtimeLane: "prod" }]
+										: [],
+							},
+						},
+					],
+				},
+			},
+		},
 		refreshAll: state.localRuntimesRefetch,
 	}),
 }));
@@ -95,6 +113,7 @@ afterEach(() => {
 	cleanup();
 	vi.clearAllMocks();
 	state.account = "account-a";
+	state.coreConnectionStatus = "connected";
 	state.updateAvailable = false;
 	state.update.mockReset();
 	state.feedbackAvailable = false;
@@ -240,6 +259,34 @@ it.each([
 			screen.getByRole("button", { name: buttonName }).hasAttribute("disabled")
 		).toBe(false)
 	);
+	expect(state.connect).not.toHaveBeenCalled();
+});
+
+it.each([
+	{
+		errorMessage:
+			"OpenMeld cannot read this Mac's Service identity. Start OpenMeld Service on this Mac, then try again.",
+		expected:
+			"OpenMeld cannot read this Mac's Service identity. Start OpenMeld Service on this Mac, then try again.",
+	},
+	{
+		errorMessage: "SDK failure token=private",
+		expected: "This computer could not connect. Try again.",
+	},
+])("preserves only safe recovery instructions after remount: $expected", async ({
+	errorMessage,
+	expected,
+}) => {
+	state.currentOperation.mockResolvedValue(
+		desktopOperation({ status: "pending" })
+	);
+	renderConnection(<DesktopComputerConnection />);
+	await waitFor(() => expect(state.operationHandler).not.toBeNull());
+	const settled = { ...desktopOperation({ status: "settled" }), errorMessage };
+	state.currentOperation.mockResolvedValue(settled);
+	state.operationHandler?.(settled);
+	expect(await screen.findByText(expected)).toBeTruthy();
+	expect(screen.queryByText("SDK failure token=private")).toBeNull();
 	expect(state.connect).not.toHaveBeenCalled();
 });
 
@@ -619,8 +666,11 @@ it.each([
 	"ordinary",
 	"embedded",
 	"reconnect",
+	"stopped",
 ] as const)("shows the confirmed connection in the %s flow without offering first-time setup", async (flow) => {
 	state.localComputer.mockResolvedValue(availableComputer());
+	state.coreConnectionStatus =
+		flow === "stopped" ? "disconnected" : "connected";
 	state.routeIntent.resetThisComputer = flow === "reconnect";
 	const onCompleted = vi.fn();
 	renderConnection(
@@ -629,6 +679,14 @@ it.each([
 			onCompleted={onCompleted}
 		/>
 	);
+	if (flow === "stopped") {
+		await screen.findByRole("button", { name: "Connect this Mac" });
+		expect(screen.queryByText("Connected")).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Disconnect this Mac" })
+		).toBeNull();
+		return;
+	}
 	const label = {
 		ordinary: "Disconnect this Mac",
 		embedded: "Continue",

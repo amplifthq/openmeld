@@ -12,7 +12,7 @@ vi.mock("node:child_process", async () => {
 });
 const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
 const originalArch = Object.getOwnPropertyDescriptor(process, "arch");
-const origin = "https://windows-tools-fixture.invalid";
+let origin = "https://windows-tools-fixture.invalid";
 const cli = Buffer.from("synthetic CLI artifact bytes");
 const helper = Buffer.from("synthetic process helper bytes");
 const artifact = (name: string, bytes: Buffer) => ({
@@ -45,6 +45,7 @@ function buildManifest() {
   };
 }
 beforeEach(async () => {
+  origin = "https://windows-tools-fixture.invalid";
   root = await mkdtemp(join(tmpdir(), "openmeld-desktop-tools-"));
   Object.defineProperty(process, "platform", {
     value: "win32",
@@ -115,9 +116,24 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-it("uses the shared signed bundle and installer receipt without Node, npm, or stale PATH rediscovery", async () => {
-  const command = await installComputerTools(origin, {
-    env: { OPENMELD_HOME: root, OPENMELD_ENV_PRESET: "prod", PATH: "" },
+it.each([
+  "prod",
+  "dev-local",
+])("installs the verified bundle from the configured %s distribution", async (preset) => {
+  const webOrigin =
+    preset === "prod" ? origin : "http://wt-0bb4f2da9c6d.localhost:29728";
+  if (preset === "dev-local") {
+    origin = "http://127.0.0.1:29732";
+    manifest = buildManifest();
+  }
+  const command = await installComputerTools(webOrigin, {
+    env: {
+      OPENMELD_HOME: root,
+      OPENMELD_ENV_PRESET: preset,
+      PATH: "",
+      OPENMELD_CLI_BINARY_MANIFEST_URL: `${origin}/cli/manifest.json`,
+      OPENMELD_CLI_BINARY_DEV_PORT: "29732",
+    },
   });
   expect(command).toBe(join(root, "bin", "openmeld.exe"));
   expect(installedBytes).toEqual({
@@ -130,6 +146,42 @@ it("uses the shared signed bundle and installer receipt without Node, npm, or st
     env: { OPENMELD_HOME: root },
     windowsHide: true,
   });
+});
+
+it.each([
+  [
+    "prod",
+    "http://localhost:29728",
+    "http://127.0.0.1:29732/cli/manifest.json",
+  ],
+  [
+    "dev-local",
+    "https://app.example.test",
+    "http://127.0.0.1:29732/cli/manifest.json",
+  ],
+  [
+    "dev-local",
+    "http://localhost:29728",
+    "https://remote.example.test/cli/manifest.json",
+  ],
+  [
+    "dev-local",
+    "http://localhost:29728",
+    "http://127.0.0.1:29733/cli/manifest.json",
+  ],
+])("rejects a distribution outside the selected lane: %s %s %s", async (preset, webOrigin, manifestUrl) => {
+  await expect(
+    installComputerTools(webOrigin, {
+      env: {
+        OPENMELD_HOME: root,
+        OPENMELD_ENV_PRESET: preset,
+        OPENMELD_CLI_BINARY_MANIFEST_URL: manifestUrl,
+        OPENMELD_CLI_BINARY_DEV_PORT: "29732",
+      },
+    })
+  ).rejects.toThrow("unexpected download location");
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(execute).not.toHaveBeenCalled();
 });
 
 it("does not execute the installer after a companion integrity failure", async () => {

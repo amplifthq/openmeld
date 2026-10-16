@@ -5990,7 +5990,8 @@ async function main() {
   }
   const argv = process.argv.map((arg) => (arg === "--h" ? "--help" : arg));
   if (
-    argv.length === 5 &&
+    (argv.length === 5 ||
+      (argv.length === 6 && argv[5] === "--include-stopped")) &&
     argv[2] === "computer" &&
     argv[3] === "connection-review" &&
     argv[4] === "--json"
@@ -5998,7 +5999,13 @@ async function main() {
     const { readComputerConnectionReview } = await import(
       "./commands/computer-connection-review"
     );
-    outLine(JSON.stringify(await readComputerConnectionReview()));
+    outLine(
+      JSON.stringify(
+        await readComputerConnectionReview({
+          includeStopped: argv[5] === "--include-stopped",
+        })
+      )
+    );
     return;
   }
   // Exact read-only probes precede managed delegation and layout repair. The

@@ -82,6 +82,10 @@ export default defineConfig({
 				import.meta.dirname,
 				"../../packages/space-mesh/src/index.ts"
 			),
+			"@openmeld/start/node-runtime": path.resolve(
+				import.meta.dirname,
+				"../../packages/start/src/setup-node-runtime.ts"
+			),
 			"@openmeld/start/testing": path.resolve(
 				import.meta.dirname,
 				"../../packages/start/src/testing/index.ts"
