@@ -210,7 +210,21 @@ export function CliShowcase() {
 			<div className="meld-cli-setup">
 				<div>
 					<strong>One setup. CLI + Skills.</strong>
-					<p>Install once, then use OpenMeld without opening the app.</p>
+					<p>
+						On macOS, open Computers in OpenMeld Web and follow the connection
+						steps. Web setup installs a standalone CLI with its own runtime; no
+						Node.js upgrade is needed.
+					</p>
+					<p>
+						For Windows or a manual npm installation, use Node.js 22, 24, or 25.
+						Node.js 24 is recommended.
+					</p>
+					<p>
+						npm only warns about unsupported Node.js versions by default. On
+						Node.js 23 or versions below 22, native dependency installation can
+						fail. Select Node.js 24 before installing. Node.js 26 and later are
+						also unsupported.
+					</p>
 				</div>
 				<pre>
 					<code>npm install -g openmeld@latest{"\n"}openmeld setup</code>

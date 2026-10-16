@@ -172,6 +172,20 @@ return it to the assignee. Agent-to-Agent handoffs use normal Space Wake
 admission and stop after two automatic rework rounds, then require a human
 requester or Space owner to authorize more work. Task state never substitutes
 for RuntimeCoordinator or native-delivery execution truth.
+An explicit Task delegation assigns the existing Task and records its reviewer
+with the initial Wake intent in one Space transaction. Ordinary assignment still
+does not Wake anyone. Delegation remains **To do** until its assignee explicitly
+starts it; a queued or failed handoff is shown separately. Generic Wake,
+ordinary replies, and execution completion never advance the Task. Every
+initial, review, and rework handoff carries the same Task identity and its
+current brief in the Agent dispatch context.
+When the Center Agent arranges a Task for its verified current human requester,
+Core rechecks the live delivery, Binding, and requester access. The requester
+must still be an active member of this Space and the Task's requester. This
+permits assignment, brief updates, and reviewer selection only; it does not
+permit the Center Agent to start, submit, or accept another Agent's work.
+A requested reviewer must be an active Space member before delegation succeeds.
+An unavailable reviewer is a blocker, not an implicit choice of no review.
 Reviews name the exact submitted result revision the reviewer saw. A concurrent
 result or Task change requires a fresh decision; clients do not replay an old
 acceptance against a refreshed revision. A human Space owner can take over an

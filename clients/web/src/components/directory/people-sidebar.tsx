@@ -2,15 +2,22 @@ import type { PeopleSidebarPreferences } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
-	DropdownMenuCheckboxItem,
+	DropdownMenuSub,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import {
 	FluidDropdownMenuContent,
 	FluidDropdownMenuItem,
+	FluidDropdownMenuSubContent,
+	FluidDropdownMenuSubTrigger,
 } from "@openmeld/ui/fluid/dropdown-menu";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
-import { CheckIcon, SlidersHorizontalIcon } from "@phosphor-icons/react";
+import {
+	CheckIcon,
+	DesktopIcon,
+	MagnifyingGlassIcon,
+	SlidersHorizontalIcon,
+} from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -26,7 +33,10 @@ import { moveSidebarGroup } from "../app/sidebar-drop-target";
 import { useSidebarGroupFilter } from "../app/sidebar-filter";
 import { SidebarFilterBadge } from "../app/sidebar-filter-badge";
 import { SidebarListSkeleton } from "../app/sidebar-list-skeleton";
-import { SidebarSearchInput } from "../app/sidebar-search-input";
+import {
+	SidebarSearchInput,
+	useSidebarSearchDisclosure,
+} from "../app/sidebar-search-input";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarDisclosure } from "../app/use-sidebar-disclosure";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
@@ -77,15 +87,18 @@ export function PeopleSidebar(input: {
 	const loading = input.loading;
 	const [search, setSearch] = useState("");
 	const [filter, setFilter] = useState<PeopleFilter>("all");
-	const [recentlyActive, setRecentlyActive] = useState(false);
-	const groupFilter = useSidebarGroupFilter([
-		{ id: "starred", label: "Starred" },
-		...preferences.groups.map((g) => ({ id: g.id, label: g.name })),
-		{ id: "online", label: "Online" },
-		{ id: "offline", label: "Offline" },
-		{ id: "presence-unknown", label: "People with unknown status" },
-		{ id: "center-agent", label: "Center Agent" },
-	]);
+	const searchDisclosure = useSidebarSearchDisclosure();
+	const groupFilter = useSidebarGroupFilter(
+		[
+			{ id: "starred", label: "Starred" },
+			...preferences.groups.map((g) => ({ id: g.id, label: g.name })),
+			{ id: "online", label: "Online" },
+			{ id: "offline", label: "Offline" },
+			{ id: "presence-unknown", label: "People with unknown status" },
+			{ id: "center-agent", label: "Center Agent" },
+		],
+		2
+	);
 	const { presentation } = useAppNavigationPresentation();
 	const computers = useMemo(
 		() => new Map(input.computerGroups.map((g) => [g.ownerUserId, g])),
@@ -104,14 +117,9 @@ export function PeopleSidebar(input: {
 					`${member.name} ${member.email ?? ""}`
 						.toLocaleLowerCase()
 						.includes(query)) &&
-				(filter === "all" || peopleConnectionFilter(member) === filter) &&
-				(!recentlyActive ||
-					(member.profileStatus === "active" &&
-						member.lastActiveAt !== null &&
-						Date.parse(member.lastActiveAt) <= input.activityNowMs &&
-						input.activityNowMs - Date.parse(member.lastActiveAt) < 300_000))
+				(filter === "all" || peopleConnectionFilter(member) === filter)
 		);
-	}, [input.members, input.activityNowMs, search, filter, recentlyActive]);
+	}, [input.members, search, filter]);
 	const contentReady = !(loading || input.error);
 	const starred = new Set(preferences.starred.itemIds);
 	const sections = resolvePeopleSections(filtered, preferences, {
@@ -138,7 +146,6 @@ export function PeopleSidebar(input: {
 				(!(
 					search.trim() ||
 					filter !== "all" ||
-					recentlyActive ||
 					groupFilter.selected.length > 0
 				) ||
 					section.members.length > 0)
@@ -326,15 +333,20 @@ export function PeopleSidebar(input: {
 					groups={contentReady ? groups : []}
 					leadingContent={
 						<>
-							<div className="mb-2 px-1">
-								<SidebarSearchInput
-									inputClassName="lg:h-7"
-									label="Search people"
-									onValueChange={setSearch}
-									placeholder="Search people..."
-									value={search}
-								/>
-							</div>
+							{searchDisclosure.open && (
+								<div className="mb-2 px-1">
+									<SidebarSearchInput
+										inputClassName="lg:h-7"
+										inputRef={searchDisclosure.inputRef}
+										label="Search people"
+										onOpenChange={searchDisclosure.onOpenChange}
+										onValueChange={setSearch}
+										open={searchDisclosure.open}
+										placeholder="Search people..."
+										value={search}
+									/>
+								</div>
+							)}
 							<TeamSidebarHeaderAction>
 								<DropdownMenu>
 									<DropdownMenuTrigger
@@ -342,12 +354,11 @@ export function PeopleSidebar(input: {
 											<Button
 												aria-label="Filter people"
 												className={
-													filter !== "all" ||
-													recentlyActive ||
-													groupFilter.selected.length > 0
+													filter !== "all" || groupFilter.selected.length > 0
 														? "text-primary"
-														: "text-muted-foreground"
+														: "text-foreground"
 												}
+												onClick={searchDisclosure.rememberTrigger}
 												size="icon-sm"
 												variant="ghost"
 											/>
@@ -359,28 +370,36 @@ export function PeopleSidebar(input: {
 										align="end"
 										aria-label="Filter people"
 										className="w-60 max-w-[calc(100vw-2rem)]"
+										finalFocus={searchDisclosure.finalFocus}
 									>
-										{FILTERS.map(([value, label], index) => (
-											<FluidDropdownMenuItem
-												index={index}
-												key={value}
-												onClick={() => setFilter(value)}
-											>
-												<CheckIcon
-													className={filter === value ? "" : "invisible"}
-												/>
-												{label}
-												{filter === value && (
-													<span className="sr-only">, selected</span>
-												)}
-											</FluidDropdownMenuItem>
-										))}
-										<DropdownMenuCheckboxItem
-											checked={recentlyActive}
-											onCheckedChange={setRecentlyActive}
+										<FluidDropdownMenuItem
+											index={0}
+											onClick={searchDisclosure.reveal}
 										>
-											Active in last 5 minutes
-										</DropdownMenuCheckboxItem>
+											<MagnifyingGlassIcon /> Search
+										</FluidDropdownMenuItem>
+										<DropdownMenuSub>
+											<FluidDropdownMenuSubTrigger index={1}>
+												<DesktopIcon /> Computer status
+											</FluidDropdownMenuSubTrigger>
+											<FluidDropdownMenuSubContent className="w-60">
+												{FILTERS.map(([value, label], index) => (
+													<FluidDropdownMenuItem
+														index={index}
+														key={value}
+														onClick={() => setFilter(value)}
+													>
+														<CheckIcon
+															className={filter === value ? "" : "invisible"}
+														/>
+														{label}
+														{filter === value && (
+															<span className="sr-only">, selected</span>
+														)}
+													</FluidDropdownMenuItem>
+												))}
+											</FluidDropdownMenuSubContent>
+										</DropdownMenuSub>
 										{groupFilter.menu}
 									</FluidDropdownMenuContent>
 								</DropdownMenu>
@@ -396,14 +415,6 @@ export function PeopleSidebar(input: {
 								</div>
 							)}
 							{groupFilter.badges}
-							{recentlyActive && (
-								<div className="px-1 pt-1">
-									<SidebarFilterBadge
-										label="Active in last 5 minutes"
-										onRemove={() => setRecentlyActive(false)}
-									/>
-								</div>
-							)}
 							{sidebar.isError && (
 								<Button
 									onClick={() => sidebar.retry()}
@@ -420,7 +431,6 @@ export function PeopleSidebar(input: {
 								<p className="px-2 py-2 text-muted-foreground text-xs">
 									{search.trim() ||
 									filter !== "all" ||
-									recentlyActive ||
 									groupFilter.selected.length > 0
 										? "No people match your search or filters."
 										: "No people yet."}

@@ -3,6 +3,7 @@ import {
 	DragOverlay,
 	defaultDropAnimationSideEffects,
 	KeyboardSensor,
+	type KeyboardSensorOptions,
 	MouseSensor,
 	TouchSensor,
 	useDndContext,
@@ -35,6 +36,10 @@ import {
 
 const GroupDragContext = createContext<readonly string[]>([]);
 const stationaryStrategy = () => null;
+const mouseSensorOptions = { activationConstraint: { distance: 6 } };
+const touchSensorOptions = {
+	activationConstraint: { delay: 180, tolerance: 5 },
+};
 const nextFrame = () =>
 	new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
@@ -56,6 +61,10 @@ export function SidebarDrag(input: {
 	);
 	const animations = useRef(new Set<Animation>());
 	const keyboardDrag = useRef(false);
+	const canDrop = useRef(input.canDrop);
+	useLayoutEffect(() => {
+		canDrop.current = input.canDrop;
+	}, [input.canDrop]);
 	useEffect(
 		() => () => {
 			for (const animation of animations.current) {
@@ -89,12 +98,8 @@ export function SidebarDrag(input: {
 			}
 		}
 	});
-	const sensors = useSensors(
-		useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
-		useSensor(TouchSensor, {
-			activationConstraint: { delay: 180, tolerance: 5 },
-		}),
-		useSensor(KeyboardSensor, {
+	const keyboardSensorOptions = useMemo<KeyboardSensorOptions>(
+		() => ({
 			coordinateGetter: (event, args) =>
 				sortableKeyboardCoordinates(event, {
 					...args,
@@ -108,7 +113,7 @@ export function SidebarDrag(input: {
 								return (
 									data?.kind === source?.kind &&
 									(source?.kind === "group" ||
-										input.canDrop?.(source?.itemId, data?.section) !== false)
+										canDrop.current?.(source?.itemId, data?.section) !== false)
 								);
 							})
 						),
@@ -119,7 +124,13 @@ export function SidebarDrag(input: {
 				cancel: ["Escape"],
 				end: ["Space", "Enter"],
 			},
-		})
+		}),
+		[]
+	);
+	const sensors = useSensors(
+		useSensor(MouseSensor, mouseSensorOptions),
+		useSensor(TouchSensor, touchSensorOptions),
+		useSensor(KeyboardSensor, keyboardSensorOptions)
 	);
 	const [preview, setPreview] = useState<HTMLElement | null>(null);
 	const [dropping, setDropping] = useState(false);

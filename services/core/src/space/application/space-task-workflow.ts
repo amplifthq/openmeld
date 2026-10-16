@@ -27,6 +27,8 @@ export class SpaceTaskWorkflowError extends Error {
 
 export type SpaceTaskMutationContext = {
   actor: SpaceTaskActor;
+  // Core resolves this from the current Center Agent delivery, never tool input.
+  representedRequester?: SpaceTaskActor;
   isSpaceOwner: boolean;
   resolveMember: (profileId: string) => SpaceTaskActor | null;
 };
@@ -51,6 +53,10 @@ const requireManager = (
   if (
     context.isSpaceOwner ||
     sameActor(task.requestedBy, context.actor.profileId) ||
+    sameActor(
+      task.requestedBy,
+      context.representedRequester?.profileId ?? ""
+    ) ||
     sameActor(task.assignee, context.actor.profileId)
   ) {
     return;
@@ -68,7 +74,8 @@ const requireRequesterOrOwner = (
 ): void => {
   if (
     context.isSpaceOwner ||
-    sameActor(task.requestedBy, context.actor.profileId)
+    sameActor(task.requestedBy, context.actor.profileId) ||
+    sameActor(task.requestedBy, context.representedRequester?.profileId ?? "")
   ) {
     return;
   }
@@ -281,6 +288,28 @@ type CommandHandlerInput<Action extends MutateSpaceTaskBody["action"]> = {
   task: SpaceTask;
 };
 
+function resolveAssignmentReviewer(
+  task: SpaceTask,
+  command: SpaceTaskCommand<"assign">,
+  context: SpaceTaskMutationContext
+): SpaceTaskActor | null {
+  if (command.reviewerProfileId === undefined) {
+    return task.reviewer;
+  }
+  if (command.reviewerProfileId !== (task.reviewer?.profileId ?? null)) {
+    requireRequesterOrOwner(task, context);
+    if (task.phase === "in_review") {
+      fail(
+        "space_task.review_in_progress",
+        "Complete the current review before changing the reviewer."
+      );
+    }
+  }
+  return command.reviewerProfileId
+    ? resolveMember(context, command.reviewerProfileId)
+    : null;
+}
+
 function assignTask({
   command,
   context,
@@ -290,7 +319,21 @@ function assignTask({
   const assignee = command.assigneeProfileId
     ? resolveMember(context, command.assigneeProfileId)
     : null;
-  if (assignee && sameActor(task.reviewer, assignee.profileId)) {
+  const reviewer = resolveAssignmentReviewer(task, command, context);
+  if (command.wakeAssignee && (!assignee || assignee.profileKind !== "agent")) {
+    fail(
+      "space_task.agent_assignee_required",
+      "Choose an Agent assignee before requesting a Task handoff.",
+      400
+    );
+  }
+  if (command.wakeAssignee && task.phase !== "to_do") {
+    fail(
+      "space_task.invalid_transition",
+      "Only a Task in To do can request an initial handoff."
+    );
+  }
+  if (assignee && sameActor(reviewer, assignee.profileId)) {
     fail(
       "space_task.reviewer_must_be_independent",
       "The reviewer must differ from the assignee.",
@@ -303,6 +346,7 @@ function assignTask({
     next: {
       ...task,
       assignee,
+      reviewer,
       phase: assignmentChanged && task.phase !== "to_do" ? "to_do" : task.phase,
       result: assignmentChanged ? null : task.result,
       review: assignmentChanged ? null : task.review,
@@ -310,7 +354,9 @@ function assignTask({
       automaticReworkRounds: assignmentChanged ? 0 : task.automaticReworkRounds,
     },
     eventType: "assigned",
-    detail: assignee?.profileName ?? "Unassigned",
+    detail: command.wakeAssignee
+      ? `Assigned to ${assignee?.profileName}; handoff requested. Reviewer: ${reviewer?.profileName ?? "None"}.`
+      : (assignee?.profileName ?? "Unassigned"),
     now,
   });
 }

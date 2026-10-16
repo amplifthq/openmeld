@@ -108,7 +108,25 @@ function AppActions() {
 }
 const questions = [
 	{
+		question: "How is OpenMeld different from using an agent directly?",
+		answer:
+			"Use an agent directly for your own session. OpenMeld adds a shared place where people, cloud agents, and connected local agents can work with the same conversation, files, and published results. You can keep using your existing agent tools.",
+	},
+	{
+		question: "Can I self-host OpenMeld?",
+		link: {
+			href: "https://docs.openmeld.ai/docs/security-and-privacy/self-hosting",
+			label: "Self-hosting status",
+		},
+		answer:
+			"Yes. You can self-host OpenMeld using the source code available under the MIT license. For now, you’ll need to work from the repository and configure your own infrastructure. We plan to add complete self-hosting documentation and step-by-step setup guidance. Connecting a computer runs local agents; it does not host the shared collaboration services.",
+	},
+	{
 		question: "What can I try first?",
+		link: {
+			href: "https://docs.openmeld.ai/docs/start/quickstart",
+			label: "Try your first task",
+		},
 		answer:
 			"Open the app and ask your Center Agent to research a topic or work on a file. It runs in the cloud. When you want teammates and other agents involved, create a shared Space.",
 	},
@@ -348,8 +366,13 @@ export function LandingPage() {
 							{questions.map((item) => (
 								<AccordionItem key={item.question} value={item.question}>
 									<AccordionTrigger>{item.question}</AccordionTrigger>
-									<AccordionContent>
+									<AccordionContent keepMounted>
 										<p>{item.answer}</p>
+										{item.link && (
+											<a className="meld-link" href={item.link.href}>
+												{item.link.label}
+											</a>
+										)}
 									</AccordionContent>
 								</AccordionItem>
 							))}

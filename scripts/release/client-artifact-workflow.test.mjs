@@ -13,6 +13,98 @@ const workflow = (name) =>
 const toolchain = (job) =>
   job.steps.find((step) => step.uses?.endsWith("/setup-node-pnpm"));
 
+test("PR npm smoke covers the release matrix without publication credentials", () => {
+  const smoke = workflow("workflows/cli-npm-smoke.yml");
+  const release = workflow("workflows/cli-release.yml");
+  assert.ok(smoke.on.pull_request.paths.includes("clients/openmeld-cli/**"));
+  assert.ok(Object.hasOwn(smoke.on, "workflow_dispatch"));
+  assert.deepEqual(smoke.permissions, { contents: "read" });
+  assert.deepEqual(
+    smoke.jobs.npm_consumer.strategy.matrix,
+    release.jobs.npm_consumer.strategy.matrix
+  );
+  assert.equal(smoke.jobs.npm_artifact.needs, "windows_process_artifact");
+  assert.equal(smoke.jobs.npm_consumer.needs, "npm_artifact");
+  for (const jobs of [smoke.jobs, release.jobs]) {
+    // GitHub does not expose runner context at job-env evaluation time.
+    for (const job of Object.values(jobs)) {
+      assert.equal(JSON.stringify(job.env ?? {}).includes("runner."), false);
+    }
+    assert.equal(
+      jobs.npm_consumer.env.OPENMELD_NPM_ARTIFACT_INTEGRITY,
+      expression("needs.npm_artifact.outputs.integrity")
+    );
+    assert.equal(
+      jobs.npm_consumer.env.OPENMELD_REQUIRE_VERIFIED_NPM_ARTIFACT,
+      "1"
+    );
+    assert.ok(
+      jobs.npm_consumer.steps.some((step) =>
+        step.run?.includes("prepareNpmCliArtifact()")
+      )
+    );
+  }
+  for (const job of Object.values(smoke.jobs)) {
+    assert.equal(job.environment, undefined);
+    assert.equal(job.permissions?.contents === "write", false);
+    assert.equal(JSON.stringify(job).includes("secrets."), false);
+  }
+  const pack = smoke.jobs.npm_artifact.steps.find((step) =>
+    step.run?.includes("npm-cli-smoke.mjs pack")
+  );
+  assert.ok(pack);
+  assert.ok(
+    smoke.jobs.npm_consumer.steps.some((step) =>
+      step.run?.includes("npm-cli-smoke.mjs verify")
+    )
+  );
+});
+
+test("CLI publication waits for the same npm tarball to pass the supported consumer matrix", () => {
+  const jobs = workflow("workflows/cli-release.yml").jobs;
+  assert.deepEqual(jobs.npm_consumer.strategy.matrix, {
+    node: ["22.0.0", "24", "25"],
+    os: ["ubuntu-24.04", "macos-15", "windows-2025"],
+  });
+  assert.equal(jobs.npm_consumer.needs, "npm_artifact");
+  const upload = jobs.npm_artifact.steps.find((step) =>
+    step.uses?.startsWith("actions/upload-artifact@")
+  );
+  const download = jobs.npm_consumer.steps.find((step) =>
+    step.uses?.startsWith("actions/download-artifact@")
+  );
+  assert.equal(download.with.name, upload.with.name);
+  const publisher = jobs.cli_release;
+  const publisherDownload = publisher.steps.find((step) =>
+    step.uses?.startsWith("actions/download-artifact@")
+  );
+  assert.equal(publisherDownload.with.name, upload.with.name);
+  assert.ok(publisher.needs.includes("npm_artifact"));
+  assert.equal(
+    publisher.env.OPENMELD_NPM_ARTIFACT_INTEGRITY,
+    expression("needs.npm_artifact.outputs.integrity")
+  );
+  assert.equal(
+    jobs.npm_artifact.outputs.integrity,
+    expression("steps.pack.outputs.integrity")
+  );
+  assert.equal(
+    publisher.steps.find((step) => step.run?.includes("hosted-cli-release.mjs"))
+      .env.OPENMELD_NPM_ARTIFACT_PATH,
+    `${publisherDownload.with.path}/openmeld.tgz`
+  );
+  assert.ok(
+    jobs.npm_consumer.steps.some((step) =>
+      step.run?.includes("npm-cli-smoke.mjs verify")
+    )
+  );
+  assert.ok(jobs.cli_release.needs.includes("npm_consumer"));
+  assert.ok(
+    jobs.cli_release.if.includes("needs.npm_consumer.result == 'success'")
+  );
+  assert.deepEqual(jobs.npm_consumer.permissions, { contents: "read" });
+});
+
 test("coordinated release hands trusted parent outputs to every child and retains standalone admission", () => {
   const parent = workflow("workflows/release-on-main.yml");
   const validation = parent.jobs.validate_release_source;

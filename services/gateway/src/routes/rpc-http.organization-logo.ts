@@ -211,7 +211,7 @@ async function readOrganizationLogo(
   );
   const assetFile = c.req.param("assetFile");
   const assetId = organizationLogoAssetIdSchema.safeParse(
-    assetFile.endsWith(WEBP_FILE_SUFFIX)
+    assetFile?.endsWith(WEBP_FILE_SUFFIX)
       ? assetFile.slice(0, -WEBP_FILE_SUFFIX.length)
       : ""
   );

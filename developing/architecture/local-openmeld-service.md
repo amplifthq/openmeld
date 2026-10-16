@@ -243,6 +243,31 @@ artifact acceptance; source or IPC fixture success is not that evidence.
 
 ## Ownership Boundary
 
+### Local Agent connection setup
+
+The optional `setupInstallations` capability extends the existing owner-scoped
+installation-control transport with `setup` and `read_setup`. Core requires an
+authenticated owner and explicit Computer/lane; neither URLs, shell commands,
+package names nor credential contents are accepted from clients. The provider
+adapter owns the fixed download, verification, install and official login steps.
+Initially Grok Bot supports managed setup on macOS/Linux x64 and ARM64.
+
+The Execution Host writes lane-local operation receipts before side effects and
+holds the existing adapter idle guard until completion. Closing the Web dialog
+does not stop setup. Request IDs cannot change action or replay a prior action.
+An unfinished receipt after Host loss reports `outcome_unknown`; it is never
+automatically replayed. Installation success requires a runnable CLI; login
+success requires the official account check. Secrets and browser login output
+stay on the Computer. Managed Node, BDK and credentials live under that lane's
+`connection-tools/grok-bot` directory. Existing manual BDK installs remain valid.
+
+Setup progress is not Wakeability. Inventory/report refresh still flows through
+the existing Core projection and RuntimeCoordinator retains execution authority.
+Old Services omit the capability and retain manual setup guidance. New Web does
+not send setup operations to them. Existing update/select/enable operations and
+Wake/Stop contracts remain unchanged; deploy the new receiver before the new Web
+and Service capability. No database migration or mandatory epoch bump is needed.
+
 ### Local Agent installation updates
 
 Owner Computer controls can update the selected Local Agent installation through

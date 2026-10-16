@@ -89,7 +89,10 @@ vi.mock("./direct-message-preview", async (importOriginal) => {
 function WakeProgressProjectionPublisher(input: {
 	items: readonly WakeProgressItem[];
 }) {
-	usePublishSpaceWakeProgressVisibleProjection(input.items);
+	usePublishSpaceWakeProgressVisibleProjection(input.items, {
+		profileId: "human-1",
+		spaceId: "space-alpha",
+	});
 	return null;
 }
 
@@ -1726,7 +1729,10 @@ describe("ConversationsSidebar", () => {
 			}),
 		];
 		const view = renderSidebar(
-			<SpaceWakeProgressVisibleProjectionProvider>
+			<SpaceWakeProgressVisibleProjectionProvider
+				profileId="human-1"
+				spaceId="space-alpha"
+			>
 				<WakeProgressProjectionPublisher items={runningItems} />
 				<ConversationsSidebar
 					currentProfileId="human-1"
@@ -1743,7 +1749,10 @@ describe("ConversationsSidebar", () => {
 		).toBeTruthy();
 
 		view.rerender(
-			<SpaceWakeProgressVisibleProjectionProvider>
+			<SpaceWakeProgressVisibleProjectionProvider
+				profileId="human-1"
+				spaceId="space-alpha"
+			>
 				<WakeProgressProjectionPublisher items={[]} />
 				<ConversationsSidebar
 					currentProfileId="human-1"
@@ -1768,7 +1777,10 @@ describe("ConversationsSidebar", () => {
 		seedCurrentSpaceWakeRace(queryClient);
 
 		renderSidebar(
-			<SpaceWakeProgressVisibleProjectionProvider>
+			<SpaceWakeProgressVisibleProjectionProvider
+				profileId="human-1"
+				spaceId="space-alpha"
+			>
 				<WakeProgressProjectionPublisher items={[]} />
 				<ConversationsSidebar
 					currentProfileId="human-1"
@@ -1844,7 +1856,7 @@ describe("ConversationsSidebar", () => {
 		}
 	});
 
-	it("[S29] keeps the orb visible while hover or focus reveals the pin beside it", async () => {
+	it("[S29] keeps the orb visible while hover or focus reveals pinned-row actions", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -1870,14 +1882,14 @@ describe("ConversationsSidebar", () => {
 		const status = within(getConversationRow(link)).getByRole("img", {
 			name: "2 Wakes are active",
 		});
-		const pin = screen.getByRole("button", { name: "Unpin Alpha" });
+		const actions = screen.getByRole("button", { name: "Actions for Alpha" });
 		expect(status.querySelector("canvas")).toBeTruthy();
 		fireEvent.mouseEnter(link);
 		fireEvent.mouseMove(link);
 		expect(status.isConnected).toBe(true);
-		fireEvent.focus(pin);
+		fireEvent.focus(actions);
 		expect(status.isConnected).toBe(true);
-		expect(pin.closest('[data-sidebar="menu-actions"]')).toBeTruthy();
+		expect(actions.closest('[data-sidebar="menu-actions"]')).toBeTruthy();
 		// Pointer visibility and collision are asserted by the companion browser geometry check.
 	});
 
@@ -2030,7 +2042,7 @@ describe("ConversationsSidebar", () => {
 		).toBeNull();
 		for (const name of ["Working", "Unread", "Idle"]) {
 			expect(
-				screen.getByRole("button", { name: `Unpin ${name}` })
+				screen.getByRole("button", { name: `Actions for ${name}` })
 			).toBeTruthy();
 		}
 		fireEvent.click(screen.getByRole("button", { name: "Pinned" }));
@@ -2061,7 +2073,9 @@ describe("ConversationsSidebar", () => {
 				rowButton?.style.getPropertyValue("--row-gutter-hover") ?? ""
 			)
 		).toBeGreaterThan(8);
-		expect(screen.getByRole("button", { name: "Unpin Alpha" })).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "Actions for Alpha" })
+		).toBeTruthy();
 		// S32's hover geometry is verified at real browser widths, not inferred from jsdom.
 	});
 
@@ -2354,7 +2368,14 @@ describe("ConversationsSidebar", () => {
 		await waitFor(() => {
 			expect(getSidebarGroupLabel("Pinned")).toBeTruthy();
 		});
-		expect(screen.getByLabelText("Unpin Alpha")).toBeTruthy();
+		expect(
+			within(screen.getByRole("navigation", { name: "Pinned" })).getByRole(
+				"link",
+				{
+					name: "Alpha",
+				}
+			)
+		).toBeTruthy();
 		expect(setAccountSpaceItemPinnedMock).toHaveBeenCalledWith({
 			pinnedAt: expect.any(String),
 			profileIds: ["human-1"],
@@ -2414,7 +2435,14 @@ describe("ConversationsSidebar", () => {
 			await waitFor(() => {
 				expect(getSidebarGroupLabel("Pinned")).toBeTruthy();
 			});
-			expect(screen.getByLabelText("Unpin Alpha")).toBeTruthy();
+			expect(
+				within(screen.getByRole("navigation", { name: "Pinned" })).getByRole(
+					"link",
+					{
+						name: "Alpha",
+					}
+				)
+			).toBeTruthy();
 			await waitFor(() => {
 				expect(warnSpy).toHaveBeenCalledWith(
 					"Pinned space update is waiting for Space Index.",
@@ -2429,7 +2457,14 @@ describe("ConversationsSidebar", () => {
 			await waitFor(() => {
 				expect(listAccountSpaceItemsMock).toHaveBeenCalledTimes(2);
 			});
-			expect(screen.getByLabelText("Unpin Alpha")).toBeTruthy();
+			expect(
+				within(screen.getByRole("navigation", { name: "Pinned" })).getByRole(
+					"link",
+					{
+						name: "Alpha",
+					}
+				)
+			).toBeTruthy();
 
 			nowSpy.mockReturnValue(overlayStartedAtMs + 60_001);
 			act(() => focusManager.setFocused(false));

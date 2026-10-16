@@ -200,7 +200,7 @@ export function createDesktopHandlers(
   async function readServiceStatus(): Promise<ServiceView> {
     const service = toServiceView(await commands.serviceStatus(commandDeps));
     if (service.problem?.kind === "spawn_failed") {
-      const setupProblem = readOpenMeldCliSetupProblem(commandDeps);
+      const setupProblem = await readOpenMeldCliSetupProblem(commandDeps);
       if (setupProblem) {
         return { ...service, problem: setupProblem };
       }

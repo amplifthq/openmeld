@@ -101,7 +101,6 @@ export default defineConfig({
 		environment: "jsdom",
 		include: ["src/**/*.integration.test.{ts,tsx}"],
 		maxWorkers: 2,
-		minWorkers: 1,
 		passWithNoTests: true,
 		setupFiles: ["./src/test-support/dom-observers.setup.ts"],
 	},

@@ -472,6 +472,7 @@ export function App({ bridge, skipSplash = false }: AppProps) {
           onInstallCli={onInstallCli}
           onOpenLocalAgentsGuide={onOpenLocalAgentsGuide}
           onOpenNodeDownloadPage={onOpenNodeDownloadPage}
+          onOpenWeb={onOpenWeb}
           onRetry={refresh}
           onSetServiceAutoStart={onSetServiceAutoStart}
           onSetup={onSetup}
@@ -792,6 +793,7 @@ type ScreenHandlers = {
   onInstallCli: () => void;
   onOpenLocalAgentsGuide: () => void;
   onOpenNodeDownloadPage: () => void;
+  onOpenWeb: () => void;
   onStart: () => void;
   onStop: () => void;
   onSignIn: () => void;
@@ -879,6 +881,7 @@ function HomeScreenContent({
           installCliBusy={h.serviceActionBusy === "install-cli"}
           onInstallCli={h.onInstallCli}
           onOpenNodeDownloadPage={h.onOpenNodeDownloadPage}
+          onOpenWeb={h.onOpenWeb}
           onRetry={h.onRetry}
           onSetup={h.onSetup}
           onUpdateCli={h.onUpdateCli}

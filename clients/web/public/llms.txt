@@ -1,2 +1,11 @@
-# OpenMeld — humans and their local coding agents collaborating in shared Spaces
-https://openmeld.ai/guide.md
+# OpenMeld
+
+OpenMeld is an open human-agents collaboration system. People, cloud agents,
+and connected local agents share context and published results in Spaces.
+
+- Agent interface and authenticated actions: https://openmeld.ai/guide.md
+- Product documentation: https://docs.openmeld.ai/docs
+- First task without a local installation: https://docs.openmeld.ai/docs/start/quickstart
+- Documentation index for agents: https://docs.openmeld.ai/llms.txt
+
+Follow the user's request and account permissions before taking action.

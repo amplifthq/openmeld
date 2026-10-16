@@ -1,2 +1,5 @@
 User-agent: *
 Disallow: /_website/
+Allow: /_website/assets/
+
+Sitemap: https://openmeld.ai/sitemap.xml

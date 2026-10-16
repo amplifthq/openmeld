@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { parse } from "yaml";
 
 import { requireProductionDatabaseCurrent } from "./require-production-db-current.mjs";
 import {
@@ -50,7 +51,15 @@ test("keeps the trusted GitHub release publication-only and focused on CLI and C
 
   assert.ok(!source.includes("      mode:"));
   assert.ok(!source.includes("  verify:"));
-  assert.ok(!source.includes("pnpm run verify:release-ready"));
+  // Build admission belongs to the producer, not a second publisher pack.
+  assert.ok(
+    !source.split("  cli_release:")[1].includes("pnpm run verify:release-ready")
+  );
+  assert.ok(
+    source
+      .split("  npm_consumer:")[0]
+      .includes("pnpm run verify:release-ready -- --force")
+  );
   assert.ok(!source.includes("      rollout:"));
   assert.ok(!source.includes("      bootstrap_routines:"));
   assert.ok(!source.includes("  database:"));
@@ -161,8 +170,8 @@ test("reuses only a successful helper job from the official main CLI workflow", 
     .split("  cli_release:")[0];
   const macJob = workflow.split("  cli_release:")[1];
   assert.ok(workflow.includes("      helper_only:"));
-  assert.ok(windowsJob.includes("inputs.helper_only ||"));
-  assert.ok(windowsJob.includes("inputs.windows_artifact_run_id == ''"));
+  assert.ok(windowsJob.includes("      inputs.helper_only\n"));
+  assert.ok(!windowsJob.includes("inputs.windows_artifact_run_id == ''"));
   assert.equal(
     windowsJob.match(
       /inputs\.helper_only && github\.sha \|\| inputs\.release_sha \|\| github\.sha/gu
@@ -172,8 +181,18 @@ test("reuses only a successful helper job from the official main CLI workflow", 
   assert.ok(macJob.includes("!inputs.helper_only"));
   assert.ok(!windowsJob.includes("Reuse the stamped Windows process helper"));
   assert.ok(macJob.includes("!cancelled()"));
+  assert.ok(macJob.includes("inputs.windows_artifact_run_id != ''"));
+  const downloads = parse(workflow).jobs.cli_release.steps.filter((step) =>
+    step.uses?.startsWith("actions/download-artifact@")
+  );
+  assert.deepEqual(
+    downloads.map((step) => step.with.name),
+    [`npm-consumer-${GITHUB_EXPRESSION_PREFIX} env.RELEASE_SHA }}`]
+  );
   assert.ok(
-    macJob.includes("needs.windows_process_artifact.result == 'success'")
+    workflow.includes(
+      "(!inputs.helper_only && inputs.windows_artifact_run_id == '')"
+    )
   );
   assert.ok(macJob.includes("Reuse the stamped Windows process helper"));
   assert.ok(
@@ -525,12 +544,10 @@ test("uses the exact release SHA for CLI publication and recovery", () => {
     source.includes("node scripts/release/build-windows-process-helper.mjs")
   );
   assert.ok(
-    source.includes(
-      "node scripts/release/windows-process-artifact.mjs dev-tmp/windows-process-helper"
-    )
+    source.includes("node scripts/release/reuse-windows-process-artifact.mjs")
   );
   assert.ok(
-    source.indexOf("Verify and import Windows process helper") <
+    source.indexOf("Reuse the stamped Windows process helper") <
       source.indexOf(
         "Publish signed and notarized CLI, binary channel, npm package, tag, and Core"
       )

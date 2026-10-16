@@ -27,7 +27,6 @@ import {
 	ShieldCheckIcon,
 	XIcon,
 } from "@phosphor-icons/react";
-import { websitePluginCountLabel } from "./plugin-catalog";
 import "./comparison-section.css";
 
 const products = [
@@ -55,7 +54,7 @@ type ComparisonRow = {
 	];
 };
 
-// Reviewed 2026-10-13. Scope and first-party evidence: comparison-sources.md.
+// Reviewed 2026-10-15. Scope and first-party evidence: comparison-sources.md.
 // Null is unverified, never an inferred absence. Text retains narrower support.
 const rows: readonly ComparisonRow[] = [
 	{
@@ -66,7 +65,15 @@ const rows: readonly ComparisonRow[] = [
 	{
 		feature: "Built-in team chat",
 		icon: ChatCircleTextIcon,
-		values: [true, true, false, false, true, "Via Slack / Teams", null],
+		values: [
+			true,
+			true,
+			"Issue threads",
+			"Issue threads",
+			true,
+			"Via Slack / Teams",
+			null,
+		],
 	},
 	{
 		feature: "Tasks for people & agents",
@@ -76,30 +83,54 @@ const rows: readonly ComparisonRow[] = [
 	{
 		feature: "Require task approval",
 		icon: ShieldCheckIcon,
-		values: [true, "Manual", "Manual", true, false, null, null],
+		values: [
+			"Configurable",
+			"Not enforced",
+			"Not enforced",
+			"Configurable",
+			false,
+			null,
+			null,
+		],
 	},
 	{
-		feature: "Files & folders per Space",
+		feature: "Shared files & folders",
 		icon: FolderIcon,
-		values: [true, "Attachments", null, "Issue files", true, null, "Workspace"],
+		values: [
+			true,
+			"Attachments / app",
+			"Issue files",
+			"Issue files",
+			true,
+			"Chat files",
+			"Workspace",
+		],
 	},
 	{
 		feature: "Public sharing links",
 		icon: ShareNetworkIcon,
 		values: [
-			true,
-			"Member links",
+			"Spaces",
+			"Artifacts app",
 			null,
 			null,
-			"Member links",
+			"Frames",
 			"Pages & apps",
-			null,
+			"Conversations",
 		],
 	},
 	{
 		feature: "Hosted cloud agents",
 		icon: CloudIcon,
-		values: [true, false, false, false, true, true, true],
+		values: [
+			true,
+			"Own compute",
+			"Own compute",
+			"Cloud waitlist",
+			true,
+			true,
+			true,
+		],
 	},
 	{
 		feature: "Free personal cloud computer",
@@ -115,9 +146,9 @@ const rows: readonly ComparisonRow[] = [
 		],
 	},
 	{
-		feature: "Use your computer’s files",
+		feature: "Work in your local folders",
 		icon: LaptopIcon,
-		values: [true, true, true, true, true, false, true],
+		values: [true, true, true, true, "Via CLI", false, true],
 	},
 	{
 		feature: "Team knowledge base",
@@ -125,7 +156,7 @@ const rows: readonly ComparisonRow[] = [
 		values: [
 			true,
 			"Agent files",
-			"Skills",
+			"Skills / projects",
 			"Wiki plugin",
 			true,
 			"Skills",
@@ -135,7 +166,15 @@ const rows: readonly ComparisonRow[] = [
 	{
 		feature: "Memory across chats",
 		icon: BrainIcon,
-		values: [true, true, "By runtime", true, true, true, "SDK opt-in"],
+		values: [
+			"Center Agent",
+			true,
+			"By runtime",
+			"Skills / connectors",
+			"Memory tool",
+			true,
+			"SDK opt-in",
+		],
 	},
 	{
 		feature: "Saved instructions (Skills)",
@@ -147,10 +186,10 @@ const rows: readonly ComparisonRow[] = [
 		icon: GitBranchIcon,
 		values: [
 			true,
-			false,
+			"Artifacts app",
 			"Deliverables",
-			"Docs only",
-			null,
+			"Docs / Wiki",
+			"Frames",
 			"Pages only",
 			null,
 		],
@@ -158,25 +197,33 @@ const rows: readonly ComparisonRow[] = [
 	{
 		feature: "Run tasks on a schedule",
 		icon: CalendarCheckIcon,
-		values: [true, true, true, true, true, true, true],
+		values: [true, "Managed agents", true, true, true, true, true],
 	},
 	{
 		feature: "Apps & plugins",
 		icon: PlugsIcon,
 		values: [
-			websitePluginCountLabel,
-			"—",
-			"—",
-			"—",
-			"70+",
-			"27 native\n3,200+ via connectors",
-			"—",
+			"Plugin catalog",
+			"App marketplace",
+			"Chat / Git / MCP",
+			"Connectors / plugins",
+			"Connectors / MCP",
+			"Native / connectors",
+			"Plugins / MCP",
 		],
 	},
 	{
-		feature: "MIT-licensed core",
+		feature: "Core license",
 		icon: FileCodeIcon,
-		values: [true, false, false, true, true, false, true],
+		values: [
+			"MIT",
+			"FSL-1.1-ALv2",
+			"Apache + terms",
+			"MIT",
+			"MIT",
+			"Proprietary",
+			"MIT",
+		],
 	},
 ];
 

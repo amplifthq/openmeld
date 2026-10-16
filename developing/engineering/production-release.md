@@ -46,12 +46,25 @@ pnpm release:status -- --ref HEAD --change-base <BASE>
 ```
 
 The GitHub lane supports Web, Website, Docs, Gateway, Remote Agent and CLI.
+When CLI publication remains pending, set `WINDOWS_ARTIFACT_RUN_ID` to the
+trusted helper run used to stamp the manifest before starting continuation.
+Missing preparation stops before deploying another component; completed CLI
+receipts and already-running exact-source publishers can still be resumed.
 Database, Auth and standalone Core still need the local PostgreSQL release
 environment; the command reports this before dispatching an unsupported stage.
 An interrupted command can be repeated at the same source and base: current
 components are skipped and active exact-source GitHub runs are followed.
+Automatic local stages receive the complete planned train in their child
+environment. An explicitly supplied `OPENMELD_PRODUCTION_TRAIN_SCOPES` remains
+authoritative; continuation does not widen it or change the parent environment.
 Failed runs stop the command. An uncertain dispatch is reported, never retried
 automatically. Use a current `gh` version that returns the created workflow URL.
+
+Continuation prints elapsed time for each status read and component stage,
+including failed stages. These timings measure work; component receipts still
+decide completion. Status reads refresh remote receipt tips on every invocation,
+reuse exact immutable Git objects already present, and read independent workflow
+histories in batches of four.
 
 The command entry and reusable release controller have separate module
 boundaries. Status readers can import planning contracts without starting a
@@ -194,6 +207,19 @@ commit and use GitHub instead.
 
 ## Read Remote Release Status
 
+The October 2026 repository cutover preserves the original nine local evidence
+refs and their commit SHAs. `release/repository-migration.json` retains the three
+newer successful hosted runs from `amplifthq/openmeld-private` (repository ID
+1331245823). These are historical facts, not new deployments or new-repository
+Actions runs. Snapshot edits require explicit local control-bootstrap validation.
+The reader requires the destination repository ID 1278926400, validates
+completed successful jobs and their original URLs, and merges them
+with local receipts using the existing completion-time selector. A newer failed
+receipt remains failed; current GitHub history must still be readable. Source
+ancestry and exact candidate validation remain required. No private-repository
+token is needed by the public release workflow. Preserve this snapshot until
+all affected scopes have newer evidence in the public repository.
+
 Use this when choosing scopes, inspecting a backlog, or reconciling uncertain
 evidence. For a known scope, go directly to its guarded preflight instead of
 running this separate history scan first; the preflight performs the same
@@ -224,7 +250,8 @@ final admission: the guarded release entrypoint still refreshes status and
 acquires its lease before any Production mutation.
 
 Read-only GitHub history requests retry a failed page at most twice for HTTP
-500, 502, 503, or 504, retaining pages already read. Exhausted retries,
+500, 502, 503, or 504, EOF, connection reset, or timeout errors, retaining pages
+already read. Exhausted retries,
 permissions failures and malformed collections remain incomplete evidence and
 fail closed; no mutation receives this retry policy.
 
@@ -1551,6 +1578,12 @@ checks.
 
 ## Local Scoped Release
 
+A release containing only Website and/or Docs does not read product database
+receipts, inspect Hyperdrive, or require database inspection credentials. These
+renderers have no product database binding. Mixed trains and explicit database
+maintenance retain PostgreSQL admission. Component credentials, leases, artifact
+identity, deployment checks and completion receipts still apply normally.
+
 The `people-computers-receivers-first` profile recognizes the shared computer
 schema, Core projection, and Gateway endpoint together, or the shared Service
 connection evidence schema with its Core and Gateway receivers. It deploys selected
@@ -2170,9 +2203,10 @@ manifest. The publisher rechecks its provenance and bytes and skips a second
 Windows build. A different run with the same source is not interchangeable.
 When using guarded hosted release continuation, set `WINDOWS_ARTIFACT_RUN_ID`
 to that numeric run ID. The CLI stage validates and forwards it as
-`windows_artifact_run_id`; other scopes ignore it. An omitted or blank value
-preserves the workflow's normal helper-build behavior. Existing active release
-runs are still watched rather than dispatched again.
+`windows_artifact_run_id`; other scopes ignore it. Publication requires this
+pin. An omitted or blank value is rejected instead of rebuilding different
+bytes. `helper_only=true` remains the separate preparation operation. Existing
+active release runs are still watched rather than dispatched again.
 
 Use `release:verify:local -- --scope cli` only when an earlier full go/no-go
 decision or handoff is needed; it is not a default extra gate.

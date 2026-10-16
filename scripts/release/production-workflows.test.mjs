@@ -415,7 +415,7 @@ test("keeps Final Candidate execution separate from status publication", () => {
 
   assert.ok(candidate.includes("name: OpenMeld Final Candidate"));
   assert.ok(!candidate.includes("workflow_dispatch"));
-  assert.equal(candidate.match(/^ {4}runs-on: ubuntu-latest$/gmu)?.length, 3);
+  assert.equal(candidate.match(/^ {4}runs-on: ubuntu-latest$/gmu)?.length, 2);
   assert.ok(candidate.includes("github.event.label.name == 'final-candidate'"));
   assert.ok(
     candidate.includes("github.event.label.name == 'final-candidate-full'")
@@ -428,7 +428,10 @@ test("keeps Final Candidate execution separate from status publication", () => {
   assert.ok(candidate.includes('--head "$CANDIDATE_HEAD_SHA"'));
   assert.ok(candidate.includes('--base "$CANDIDATE_BASE_SHA"'));
   assert.ok(!candidate.includes("--publish-status"));
-  assert.ok(candidate.includes("statuses: write"));
+  assert.ok(!candidate.includes("statuses: write"));
+  const result = readRepoFile(".github/workflows/final-candidate-result.yml");
+  assert.ok(result.includes("statuses: write"));
+  assert.ok(result.includes("--output-only true"));
   assert.ok(candidate.includes("if: always()"));
   assert.ok(candidate.includes("actions/upload-artifact@v4"));
   assert.equal(rootPackage.scripts.candidate, undefined);

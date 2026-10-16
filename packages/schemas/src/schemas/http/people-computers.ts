@@ -56,6 +56,7 @@ export const peopleComputerConnectionSchema = z.strictObject({
             manageInstallations: z.boolean(),
             manageInstallationsSafely: z.boolean(),
             updateInstallations: z.boolean().optional(),
+            setupInstallations: z.boolean().optional(),
             setProfileWorkspace: z.boolean(),
           }),
           openMeldToolsControl: z.strictObject({

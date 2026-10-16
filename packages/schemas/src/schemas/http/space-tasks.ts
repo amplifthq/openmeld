@@ -308,6 +308,8 @@ export const mutateSpaceTaskBodySchema = z.discriminatedUnion("action", [
     ...taskMutationBase,
     action: z.literal("assign"),
     assigneeProfileId: openMeldRuntimeProfileIdSchema.nullable(),
+    reviewerProfileId: openMeldRuntimeProfileIdSchema.nullable().optional(),
+    wakeAssignee: z.boolean().optional(),
   }),
   z.strictObject({
     ...taskMutationBase,
