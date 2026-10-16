@@ -118,6 +118,7 @@ export type CommandEntryName =
   | "agents.repair"
   | "agents.disable"
   | "agents.show"
+  | "agents.login"
   | "agents.custom.list"
   | "agents.custom.add"
   | "agents.custom.update"

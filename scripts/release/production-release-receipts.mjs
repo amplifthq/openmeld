@@ -18,7 +18,11 @@ import {
 
 const EXACT_SOURCE_SHA = /^[0-9a-f]{40}$/u;
 
-class ReceiptWriteError extends Error {}
+class ReceiptWriteError extends Error {
+  constructor(message, options) {
+    super(`${message} Cause: ${options.cause.message}`, options);
+  }
+}
 
 // Run the existing deploy/health steps unchanged, adding component receipts while
 // the caller still owns all selected production leases. Never claim batch success.
@@ -149,7 +153,7 @@ export function describeGuardedReceiptRecoveryCandidate(
   const receipt = productionComponentReceiptSchema.safeParse(source?.receipt);
   if (scope === "remote-agent" && receipt.success && receipt.data.remoteAgent) {
     if (
-      receipt.data.remoteAgent.phase !== "retained" ||
+      !["retained", "rollout"].includes(receipt.data.remoteAgent.phase) ||
       receipt.data.status !== "applied" ||
       source.sha !== input.sourceSha
     ) {
@@ -157,7 +161,10 @@ export function describeGuardedReceiptRecoveryCandidate(
     }
     return {
       admission: "candidate",
-      kind: "guarded-remote-container-continuation",
+      kind:
+        receipt.data.remoteAgent.phase === "rollout"
+          ? "guarded-remote-native-verification"
+          : "guarded-remote-container-continuation",
       sourceSha: source.sha,
       operationKey: receipt.data.operationKey,
       attemptId: receipt.data.attemptId,
@@ -351,12 +358,18 @@ function selectRetainedRemoteRecovery(input, previous, workerIdentity) {
     previous.sha === input.sourceSha &&
     receipt.operationKey === input.operationKey &&
     receipt.status === "applied" &&
-    receipt.remoteAgent.phase === "retained" &&
+    ["retained", "rollout"].includes(receipt.remoteAgent.phase) &&
+    receipt.application === "applied" &&
     workerIdentity?.kind === "worker-deployment" &&
     workerIdentity.sourceSha === input.sourceSha &&
     !input.redeploy
   ) {
-    return { ...previous, workerIdentity, retainedRemote: true };
+    return {
+      ...previous,
+      workerIdentity,
+      retainedRemote: receipt.remoteAgent.phase === "retained",
+      remoteVerificationOnly: receipt.remoteAgent.phase === "rollout",
+    };
   }
   throw new Error(
     "Unresolved retained Container release; reconcile its exact Worker and native identities before any deployment."
@@ -551,6 +564,10 @@ async function verifyRetainedComponent(input, previous) {
 
 async function resumeComponent(input) {
   const receipt = input.previous.receipt;
+  if (input.previous.remoteVerificationOnly) {
+    await resumeRemoteAgentVerification(input);
+    return;
+  }
   if (input.previous.retainedRemote) {
     if (input.retainContainers) {
       return;
@@ -629,6 +646,56 @@ async function resumeComponent(input) {
   });
 }
 
+// Call only after Worker and native verification have completed.
+export function completeRemoteAgentReceipt(receipt) {
+  return {
+    ...receipt,
+    status: "verified",
+    ...(receipt.remoteAgent
+      ? { remoteAgent: { ...receipt.remoteAgent, phase: "complete" } }
+      : {}),
+  };
+}
+
+// Both guarded deploy and current-main recovery use this one receipt writer.
+// The caller holds the Remote Agent lease and has selected the exact attempt.
+export async function resumeRemoteAgentVerification(input) {
+  const previous = selectGuardedReceiptRecovery(
+    input,
+    new Map([["remote-agent", input.previous]])
+  );
+  if (!previous?.remoteVerificationOnly) {
+    throw new Error(
+      "Remote Agent verification requires an applied native rollout."
+    );
+  }
+  const receipt = previous.receipt;
+  await verifyWorkerDeployment({ ...input, expected: previous.workerIdentity });
+  await (input.verifyNativeCompletion ?? verifyRemoteAgentNativeCompletion)(
+    input,
+    receipt.remoteAgent.container,
+    previous.workerIdentity
+  );
+  await verifyWorkerDeployment({ ...input, expected: previous.workerIdentity });
+  try {
+    await (input.publishEvidence ?? publishGuardedLocalReleaseEvidence)({
+      cwd: input.cwd,
+      environment: input.env,
+      sourceSha: input.sourceSha,
+      scopes: ["remote-agent"],
+      receipts: {
+        "remote-agent": completeRemoteAgentReceipt(receipt),
+      },
+      ...(input.now ? { now: input.now() } : {}),
+    });
+  } catch (error) {
+    throw new ReceiptWriteError(
+      "Could not persist remote-agent verified evidence. Retry guarded verification of the recorded attempt.",
+      { cause: error }
+    );
+  }
+}
+
 export function groupReleaseSteps(steps) {
   const groups = [];
   let group;
@@ -696,7 +763,7 @@ function recordComponentCompletion(input, record) {
     return record("verified");
   }
   (input.write ?? ((line) => process.stdout.write(`${line}\n`)))(
-    "Remote Agent Worker applied. Original Containers retained; native rollout remains pending. Verify original file synchronization before explicitly continuing the full Remote Agent release."
+    "Remote Agent Worker applied. Container configuration unchanged; native rollout remains pending. Verify original file synchronization before explicitly continuing the full Remote Agent release."
   );
 }
 

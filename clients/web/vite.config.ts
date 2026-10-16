@@ -6,7 +6,6 @@ import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 import { defineConfig, loadEnv } from "vite";
-import tsconfigPaths from "vite-tsconfig-paths";
 import { readInstalledDesktopTarget } from "../../scripts/desktop/installed-target";
 // @ts-expect-error Build-only JavaScript helper.
 import { desktopWebBuildIdentity } from "../../scripts/desktop/web-build-identity.mjs";
@@ -203,7 +202,6 @@ const config = defineConfig(({ command, mode }) => {
 						}
 					: {}),
 			}),
-			tsconfigPaths({ projects: ["./tsconfig.json"] }),
 			tanstackStart({
 				spa: {
 					enabled: desktopRendererBuild,
@@ -221,6 +219,7 @@ const config = defineConfig(({ command, mode }) => {
 			tailwindcss(),
 		],
 		resolve: {
+			tsconfigPaths: true,
 			alias: [
 				{
 					find: lucideIconsPackagePattern,

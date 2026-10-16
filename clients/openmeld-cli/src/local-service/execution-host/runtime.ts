@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import {
   createInflightTaskControlRegistry,
   createLocalAdapterContainer,
@@ -6,6 +7,7 @@ import {
   createPendingAgentInteractionRegistry,
 } from "@openmeld/local-service";
 import {
+  computerPowerRequestFrameSchema,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   SERVICE_EXECUTION_HOST_PROTOCOL,
   type ServiceExecutionHostCatalog,
@@ -42,6 +44,7 @@ import {
 import { sendDispatchInteractionRequestFrame } from "../dispatch/send-dispatch-result";
 import { resolveComputerFileAccessStorePath } from "../file-access/computer-file-access-store";
 import { consumeArmedAgentControllerInterfaceReprobe } from "../inventory/agent-controller-interface-keeper";
+import { createComputerPower } from "../power/computer-power";
 import { syncLocalServiceProviderConversationProofs } from "../reporting/provider-conversation-proof-sync";
 import { syncLocalServiceRuntimeAgentControllerReports } from "../reporting/runtime-agent-controller-report-sync";
 import { createRuntimeReportingAttemptObserver } from "../reporting/runtime-reporting-attempt-observer";
@@ -167,10 +170,22 @@ export function createExecutionHostRuntime(input: {
     localAdapterContainer,
     initialCatalog: emptyCatalog,
   } = input.resources;
+  const power = createComputerPower({
+    path: join(input.runtimePaths.dataRootPath, "computer-power.json"),
+  });
   const localExecutionSlots = createDaemonLocalExecutionSlots({
     limits: input.resources.dispatchLimits,
     presenter: input.presenter,
     onChanged: () => {
+      power
+        .setActiveTasks(localExecutionSlots.getDrainState().activeGlobal)
+        .catch((error) =>
+          emitRunLine({
+            presenter: input.presenter,
+            code: "daemon.power.failed",
+            text: toErrorMessage(error),
+          })
+        );
       input.onWorkStateChange?.(snapshot().localQuiescent);
       invalidate("execution");
     },
@@ -382,7 +397,14 @@ export function createExecutionHostRuntime(input: {
     localExecutionSlots,
     presenter: input.presenter,
     routeCatalogState,
-    refreshReports: () => reportControllers("fresh"),
+    refreshReports: async () => {
+      // A control mutation needs evidence collected after it completed. Even a
+      // fresh probe already in flight may have observed the pre-mutation state.
+      // This is an ordering barrier only. The earlier report retains its own
+      // outcome; its failure must not prevent collecting post-mutation facts.
+      await Promise.allSettled([controllerReport]);
+      return reportControllers("fresh");
+    },
     invalidate,
   });
   const activity = startLocalAgentActivitySyncLoop({
@@ -627,6 +649,37 @@ export function createExecutionHostRuntime(input: {
         executionAdmission.receive(frame.payload);
         return {};
       }
+      if (frame.code === "daemon.computer_power.request") {
+        const parsed = computerPowerRequestFrameSchema.safeParse(frame);
+        if (!parsed.success) {
+          throw new Error("Invalid computer power request.");
+        }
+        await trackControl(async () => {
+          let result:
+            | Awaited<ReturnType<typeof power.request>>
+            | { status: "rejected"; code: string; message: string };
+          try {
+            if (parsed.data.payload.deviceId !== identity.deviceId) {
+              throw new Error("This request targets a different computer.");
+            }
+            result = await power.request(parsed.data.payload.request);
+          } catch (error) {
+            result = {
+              status: "rejected",
+              code: "computer.power.rejected",
+              message: toErrorMessage(error),
+            };
+          }
+          socket.send(
+            JSON.stringify({
+              v: 1,
+              code: "daemon.computer_power.request_result",
+              payload: { requestId: parsed.data.payload.requestId, result },
+            })
+          );
+        });
+        return {};
+      }
       if (isExecutionHostControlFrame(frame)) {
         await trackControl(() => controls.handleFrame(frame, socket));
         return {};
@@ -783,6 +836,7 @@ export function createExecutionHostRuntime(input: {
       const result = await drain();
       await integrations.stop();
       await activity.stop();
+      await power.stop();
       connectionAbort?.abort();
       currentSocketRef.socket = null;
       currentSocketRef.connectionGeneration = null;

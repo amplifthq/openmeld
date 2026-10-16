@@ -9,12 +9,13 @@ import type {
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
-import { ArrowLeftIcon, PlusIcon } from "@phosphor-icons/react";
+import { ArrowLeftIcon, PlusIcon, RobotIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { AppContextualSidebarNav } from "#/components/app/app-contextual-layout";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
+import { SidebarListSkeleton } from "#/components/app/sidebar-list-skeleton";
 import { TeamHeader } from "#/components/directory/team-header";
-import { TeamPeopleSidebar } from "#/components/directory/team-people-sidebar";
 import type { OptimisticAgentProfileCreation } from "#/lib/profiles/agent-profile-creation-requests";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 import { AgentDirectoryLists } from "./agent-directory-lists";
@@ -27,6 +28,7 @@ const AGENT_REQUESTS_DESCRIPTION =
 	"Review Agents you created and finish any setup that needs attention.";
 
 export type AgentProfilesWorkspaceProps = {
+	agentListReturn?: { to: string; label: string };
 	onDeleteProfiles?: import("./agent-list-selection").DeleteAgents;
 	directoryProfiles?: OrganizationProfileDirectoryResponse["agentProfiles"];
 	taskActivityAvailable?: boolean;
@@ -79,7 +81,7 @@ export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
 	return (
 		<AppFullWidthLayout
 			contentLayout="flush"
-			defaultModuleSidebarOpen={!!input.person || !!input.selectedProfileId}
+			defaultModuleSidebarOpen={!!input.selectedProfileId}
 			initialOuterSidebarState={workspaceInput.initialSidebarStates?.outer}
 			mainHeader={
 				!input.person && input.activeView === "agents" ? (
@@ -94,7 +96,43 @@ export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
 					/>
 				) : undefined
 			}
-			mainSidebarContent={<TeamPeopleSidebar />}
+			mainSidebar={
+				input.selectedProfileId
+					? {
+							key: "agents",
+							label: "Agents",
+							content: (
+								<AppContextualSidebarNav
+									activeItemId={input.selectedProfileId}
+									ariaLabel="Agents"
+									groups={[
+										{
+											id: "agents",
+											label: input.person
+												? `${input.person.name}’s Agents`
+												: "Agents",
+											ariaLabel: "Agent list",
+											items: input.profiles.map((profile) => ({
+												id: profile.openMeldProfileId,
+												label: profile.profileName,
+												icon: RobotIcon,
+											})),
+										},
+									]}
+									leadingContent={
+										input.profilesStatus === "loading" &&
+										input.profiles.length === 0 ? (
+											<SidebarListSkeleton label="Loading Agent list" />
+										) : null
+									}
+									onActivate={input.onSelectProfile}
+									placement="module"
+									title="Agents"
+								/>
+							),
+						}
+					: undefined
+			}
 			showMainHeader={!input.person && input.activeView === "agents"}
 		>
 			<AgentWorkspaceHeader {...input} />
@@ -194,53 +232,48 @@ function AgentRequestsWorkspace(input: { input: AgentProfilesWorkspaceProps }) {
 }
 
 function AgentWorkspaceHeader(input: AgentProfilesWorkspaceProps) {
+	if (!input.person) {
+		return null;
+	}
+	const returnLink =
+		input.agentListReturn ??
+		(input.selectedProfileId
+			? { to: input.person.agentsPath, label: `${input.person.name}’s Agents` }
+			: { to: input.person.path, label: input.person.name });
 	return (
-		<>
-			{input.person ? (
-				<div className="w-full px-[var(--app-page-inline-padding)] pt-5">
-					<Link
-						className="inline-flex items-center gap-2 text-muted-foreground text-sm hover:text-foreground"
-						to={
-							input.selectedProfileId
-								? input.person.agentsPath
-								: input.person.path
-						}
-					>
-						<ArrowLeftIcon aria-hidden="true" />
-						{input.selectedProfileId
-							? `${input.person.name}’s Agents`
-							: input.person.name}
-					</Link>
-					{!input.selectedProfileId && input.activeView === "agents" ? (
-						<header className="mt-5 flex flex-wrap items-center justify-between gap-3">
-							<h1 className="font-medium text-xl">
-								{input.person.name}’s Agents
-							</h1>
-							<div className="flex items-center gap-2">
-								{input.isOrganizationContext &&
-								input.canCreateAgent !== false ? (
-									<Button
-										onClick={() => input.onViewChange("requests")}
-										size="sm"
-										variant="secondary"
-									>
-										Creation history
-										{input.creationAttentionCount > 0
-											? ` · Needs attention: ${input.creationAttentionCount}`
-											: ""}
-									</Button>
-								) : null}
-								{input.canCreateAgent !== false && input.hasAnyProfiles ? (
-									<Button onClick={input.onCreateAgent} size="sm">
-										<PlusIcon aria-hidden="true" />
-										Create Agent
-									</Button>
-								) : null}
-							</div>
-						</header>
-					) : null}
-				</div>
+		<div className="w-full px-[var(--app-page-inline-padding)] pt-5">
+			<Link
+				className="inline-flex items-center gap-2 text-muted-foreground text-sm hover:text-foreground"
+				to={returnLink.to}
+			>
+				<ArrowLeftIcon aria-hidden="true" />
+				{returnLink.label}
+			</Link>
+			{!input.selectedProfileId && input.activeView === "agents" ? (
+				<header className="mt-5 flex flex-wrap items-center justify-between gap-3">
+					<h1 className="font-medium text-xl">{input.person.name}’s Agents</h1>
+					<div className="flex items-center gap-2">
+						{input.isOrganizationContext && input.canCreateAgent !== false ? (
+							<Button
+								onClick={() => input.onViewChange("requests")}
+								size="sm"
+								variant="secondary"
+							>
+								Creation history
+								{input.creationAttentionCount > 0
+									? ` · Needs attention: ${input.creationAttentionCount}`
+									: ""}
+							</Button>
+						) : null}
+						{input.canCreateAgent !== false && input.hasAnyProfiles ? (
+							<Button onClick={input.onCreateAgent} size="sm">
+								<PlusIcon aria-hidden="true" />
+								Create Agent
+							</Button>
+						) : null}
+					</div>
+				</header>
 			) : null}
-		</>
+		</div>
 	);
 }

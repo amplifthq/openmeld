@@ -9,7 +9,7 @@ The image records source, dependency lock, patch and binary hashes in
 ## Work and correctness boundaries
 
 Both producers prepare a durable generation through indexed pages of at most
-512 reads. Candidate paths, ancestor traversal, aliases and tombstones resume
+4096 reads. Candidate paths, ancestor traversal, aliases and tombstones resume
 from SQLite, including within one revision. UTF-16 path ordering matches the
 wire cursor. One invocation transfers at most 256 metadata entries, 1 MiB of
 metadata and a streamed object batch of at most 256 objects and 8 MiB. Small
@@ -19,12 +19,36 @@ with more than 8,192 chunks is rejected explicitly
 without advancing its ACK. Pack transport is disabled on this bounded path.
 The legacy whole-window utility is not used by production synchronization.
 
+Recursive path resolution fixes the SQLite join order so each path segment is
+known before looking up its directory entry. This uses the complete existing
+`(parent_inode, name)` primary key instead of scanning all siblings for every
+imported file. The Worker SDK and native patch carry the same query. This changes
+no file, cursor, acknowledgement or recovery semantics; a fresh native mirror
+still requires its accepted input to be synchronized before execution.
+
 Receivers detach a deleted or replaced directory atomically. A durable queue
 reclaims at most 128 child/chunk units per step. Later path recreation and
 external hardlinks survive cleanup. Delayed tombstones cannot overwrite newer
 deletion history. Path resolution checks read-only destinations through symlinks.
 Metadata, deliberate refusals and accepted source cursors commit together.
 ACK loss replays the exact source page without overwriting receiver-local work.
+Push watermarks can include a requested retention slot's generation and closed
+flag in the same read transaction as its epoch and cursors. After reconciliation,
+a matching open generation avoids repeated retention-head and admission calls.
+This projection is not persisted and is not a lease: all pinning and writes
+still validate the original scope. Initial ownership uses the existing
+expected-generation compare-and-set; closed cleanup remains idempotent.
+Import receipts are acknowledged immediately, including the final page.
+
+The object receiver buffers at most 256 objects and 8 MiB per transaction,
+with at most one additional filesystem chunk read ahead to select that boundary.
+It reads the stream outside the transaction, rechecks its original retention
+scope inside each transaction, and commits bytes, pins and maintenance dirtiness
+together. Interrupted streams discard the uncommitted tail; prior complete
+groups can remain staged without advancing metadata or receipt cursors.
+Capacity or commit failures retain their original error. An acknowledged object
+batch still does not authorize execution without the existing metadata ACK.
+
 Preparation exposes an opaque digest of its actual durable traversal position,
 including pending deletion traversal, without revealing file paths. Repeating
 a read without work produces the same checkpoint.
@@ -39,6 +63,9 @@ Every database has a durable epoch. A new peer epoch resets transfer cursors,
 not user files. Before dispatch, native shell execution synchronously checks
 the expected epoch and accepted input cursor. An explicit pre-dispatch rejection
 permits another preparation step; an uncertain dispatch never permits replay.
+Failed and lost sync targets remain diagnostic history. Only active targets
+participate in regression detection, so repeated checks of a replacement peer
+converge without clearing a historical failure or replaying its command.
 
 Each execution pins its accepted start cursor and its own settled output target.
 A shared transfer finishing another command's earlier target is insufficient.
@@ -51,6 +78,107 @@ that maintenance finishes. Pending executions retain their necessary journal.
 
 `MOUNT_IGNORE` is not enabled. Dependencies and user files retain their existing
 storage semantics. Excluding a directory from FUSE is not an equivalent fix.
+
+## Preparation timing
+
+AgentComputer enables the existing SDK `sync.block` log for execution
+preparation as well as public synchronization. Preparation records carry
+`purpose: execution-preparation`, generation, phase, opaque checkpoint,
+block entry/byte counts and accepted revision cursors. Revision values are not
+file counts. Failed blocks omit unconfirmed progress and retain `failedStage`;
+logging failures cannot change the sync result or its original exception.
+
+Each block reports `startedAtMs` and `finishedAtMs` for correlation, monotonic
+`blockMs`, and scalar elapsed intervals: `watermarksMs`, `retentionMs`,
+`prepareMs`, `planMs`, `hasObjectsMs`, `pushObjectsMs`, `pushEntriesMs`,
+`importAckMs`, `cleanupMs` and `localMs`. Counts include `preparationReads`,
+`plannedEntries`, `plannedObjects` and successfully acknowledged `stagedObjects`.
+The existing log owner emits one record per driven block, with no file paths,
+contents, commands, credentials, new durable statistics or RPC fields.
+
+Use one Computer and generation to separate active blocks from gaps between
+blocks, then compare the stage intervals. Keep the platform invocation wall/CPU
+measurements alongside these records. Production Workers timers advance only
+after I/O, so synchronous planning can report zero and its elapsed work can be
+charged to the next I/O interval. These are observations, not SQL CPU profiles
+or isolated network RTTs. CPU headroom is omitted unless the host supplies an
+actual CPU measurement. See the [Workers timer contract](https://developers.cloudflare.com/workers/runtime-apis/performance/).
+Query sampling or missing records prevents an exact gap or total calculation.
+Object-transfer time includes streaming and receiver writes; it does not
+separate native stream waits from individual SQLite commits.
+
+## Imported-file confirmation
+
+An import receipt avoids reverse enumeration only after proving that the
+receiver's entire unacknowledged window equals the source entries. The proof
+runs in the metadata transaction with a shared 4096-unit budget for nodes,
+ancestor/alias lookups and manifest chunks. Partial cursors, extra local files,
+aliases, tombstones, pending removal work and exhausted budgets keep the normal
+bounded transfer. Files retain source mode and modification time as well as
+content; identical bytes alone do not make an incoming metadata update a no-op.
+
+Each receiver slot retains one receipt, bound to both database epochs and the
+existing transfer generation. It returns that receipt only after native flush
+succeeds, including retries with an empty entry stream. The source atomically
+commits its original transfer cursors and one outgoing acknowledgement before
+sending the ACK. The receiver advances its original push cursor only on that
+ACK. An operation cannot close while its ACK is pending. Late local writes lie
+beyond the receipt's fixed end and remain ordinary unsynchronized work.
+Receipt records use the existing maintenance reserve, like transfer cursors;
+reaching the content limit must not block acknowledgement of accepted files.
+
+The next push also carries the source's durable fetch cursor as a real ACK, so
+a window that required normal transfer does not permanently disable receipts.
+That cursor is sent only for its observed peer epoch. A replacement between
+watermark inspection and retention admission rejects the step; the existing
+reconciliation path resets cursors on the next attempt without changing files.
+Older peers without this optional exchange use the existing bounded transfer;
+the mandatory retention and execution fences remain unchanged. Once a receipt
+is pending, its receiver must retain acknowledgement support: rolling back only
+that receiver fails explicitly and preserves the pending receipt. Existing data
+without proof is not retroactively declared synchronized. No new command
+state, replay authority, expiry-based cleanup or directory exclusion is added.
+
+## Command output completion
+
+Native execution appends its final exit event only after the child process's
+`close` event, when stdout and stderr have drained. Process `exit` alone does
+not establish that boundary. Cancelling an observer resumes pipe reads and
+retains output for reattachment; it does not stop the command. Explicit log
+disposal first detaches and destroys the local output pipes, then removes the
+record. Spawn failures retain stderr and exit `-1`; a failed signal must not
+finalize a process that is still running. No new replay, file ACK or recovery
+authority is introduced.
+
+For execution supervision v1, Runner starts the command in its own process
+group and signals that group for Stop, timeout escalation and explicit disposal.
+It can still signal the group after the main process exits while descendants
+hold the output pipes. Container PID 1 uses Tini only to reap orphaned children.
+Commands that deliberately create another process group or session can escape
+this boundary. If an escaped process retains the pipes, normal completion keeps
+waiting for their real closure; it does not discard output or invent an exit.
+
+The authenticated information route advertises v1 with the native database
+epoch. The SDK chooses raw v1 execution or the existing per-command Tini wrapper
+on the final prepared BackendHandle, before admission. A valid older information
+response without the field selects the legacy wrapper; failed or malformed
+information and unknown versions fail closed. The existing native execution
+fence checks that same epoch and accepted input cursor immediately before spawn.
+Closing or replacing the handle invalidates its capability evidence.
+
+Release Worker code first, then the native image. New Worker / old native uses
+the legacy wrapper. Old Worker / new native remains compatible with legacy
+execution, including its existing SIGKILL forwarding limitation; it does not
+gain v1 group termination. Unknown explicit supervision versions are rejected
+before spawn. Database epoch identifies storage, not a process or binary: this
+contract supports the configured ephemeral container disk and replacement, not
+hot binary downgrade while retaining the same SQLite database and connection.
+
+The upstream 0.5.1 runner still finalizes at process `exit`. This correction
+stays on the pinned source while the separately assessed upgrade
+requires the storage and sync compatibility work below. See the official
+[Node child-process close contract](https://nodejs.org/api/child_process.html#event-close)
+and [upstream version comparison](https://github.com/cloudflare/computer/compare/ec39cb693a5be73a735d375e228b4e2adb754abb...ef00c0a790cb87887bf209fa87838cb1a281220b).
 
 ## Deployment boundary
 
@@ -119,6 +247,21 @@ Apply `upstream.patch` to the pinned archive, install its locked workspaces with
 `npm ci --ignore-scripts`, and build `@cloudflare/computer`. Its distribution
 generates `patches/@cloudflare__computer@0.5.0.patch`; do not hand-edit generated
 bundle internals. Run builds and native checks through `pnpm dev:run`.
+
+The optional retention projection interoperates with the previously patched
+0.5.0 protocol in both directions: new clients use the original retention RPCs
+when old servers omit it; old clients use their original RPCs on new servers.
+Object batching changes no wire fields. Metadata/receipt bounds, native dispatch
+fences, file storage and command identities remain unchanged. This does not
+extend compatibility to older unpatched peers without bounded sync support.
+No public OpenMeld CLI, Service, Skills, Core, Gateway or Web contract changes.
+
+The 0.5.1 upgrade was assessed separately. Its deletion/replay and mount-schema
+changes overlap the current ownership patch: applying the existing patch fails
+in nine files across 23 hunks, including receiver apply and sync-engine code.
+Adopting it requires a separate merge and deletion/replay migration check. Its
+object receiver still stages one object at a time and its watermarks have no
+retention projection, so the present bounded cost correction stays on 0.5.0.
 
 Focused source checks cover bounded planning, receiver reclamation, large file
 objects, source replacement, refusal retention, dispatch fencing and execution

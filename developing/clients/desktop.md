@@ -84,6 +84,24 @@ launch-at-login preferences. If unsaved renderer work blocks an ordinary Quit,
 main clears only that ordinary quit intent so the next close hides the window
 again. An accepted updater installation remains a distinct terminal quit intent.
 
+App settings places **Desktop** under Personal, immediately after Notifications,
+only on the native host. **Open at login** reads the operating system's login-item
+state; it does not persist a second enabled flag. **Start in background** is an
+installation-local preference in the native userData directory. It hides only
+login-triggered launches, never ordinary opens, tray actions, or notification
+activation. macOS uses Electron's login launch signal; Windows registers an
+explicit login argument. Existing system login preferences are not changed on
+startup. Reading a missing background preference defaults to off; unreadable
+preferences show a problem, and startup keeps the window visible.
+
+The hidden window still loads the shared application for native notifications.
+This page explains that closing keeps notifications available and quitting stops
+desktop notifications, while Service and accepted local work remain independent.
+Global shortcuts and Service lifecycle controls remain separate. The Desktop
+Power section reuses the Local Computer setting and API. The independent
+Service owns its saved preference and task-scoped sleep prevention; Desktop
+does not hold an Electron power-save blocker.
+
 Window chrome, traffic-light insets, drag regions, tray, and native capabilities
 belong outside the shared content shell. Reuse `packages/ui` for primitives;
 do not move business rules into that package.
@@ -843,7 +861,15 @@ ID; it still rejects `/v1/devices/current/forget`. Forget removes the account's
 record. It is not Service Stop or local CLI sign-out, and this exception grants
 no local configuration capability.
 
-Working folder selection is a narrow exception. Main reads the existing CLI
+Native Local Agent updates are also available in the shared Computer details.
+Desktop retains authorized installation reads and admits the exact
+installation-update GET/POST routes only for its native account-aligned device
+and lane. Installation selection,
+enablement, and catalog refresh remain Web-only. The shared Service updater owns
+admission, vendor execution, and durable results; Desktop has no separate updater.
+
+Working folder selection and Local Agent updates share one native target check.
+Main reads the existing CLI
 `computer connection-review --json` projection without installing or starting a
 Service and checks its account against the Desktop session before and after the
 read. The shared renderer uses that exact device and lane for folder selection,
@@ -1137,7 +1163,7 @@ stable, isolated local test profile. Main sets and verifies Electron's
 that directory explicitly to Electron, keeping GUI preferences and credentials
 separate from other worktrees.
 
-Electron 44.3.0 is paired with electron-vite 5.0.0 and Vite 7.3.2. Hydrate the
+Electron 44.7.2 is paired with electron-vite 5.0.0 and Vite 7.3.7. Hydrate the
 native binary with `pnpm --filter @openmeld/desktop exec electron --version`.
 Electron is deliberately separate from the root Worker development stack.
 
@@ -1313,3 +1339,17 @@ Desktop pilot renderer builds reuse the renderer resource and heap owner. The
 pilot defaults to a 5120 MiB heap. `OPENMELD_RENDERER_NODE_HEAP_MB` overrides it
 within the measured machine and heavy-work budget. The reservation ends after
 compilation; it does not remain held for the preview server.
+
+### CLI runtime and launch recovery
+
+The status renderer recognizes `cli.node_unsupported` from the CLI startup JSON
+envelope as well as `desktop.node_unsupported` from npm installation checks. It
+asks the user to install Node.js 24, return, and choose **Try again**. Refreshes
+keep the same recovery while the runtime remains unsupported.
+
+A selected standalone carrier owns its runtime. Its launch error remains visible;
+Desktop must not replace it with a system Node diagnosis. When the carrier cannot
+launch, **Open Web to Repair CLI** opens the existing Web app. The user connects
+this Mac from Computers to acquire a managed CLI, then returns and retries. The
+status renderer does not attempt `setup` on that failed executable or report a
+browser handoff as a completed repair.

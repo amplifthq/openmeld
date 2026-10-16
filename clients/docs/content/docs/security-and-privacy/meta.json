@@ -1,0 +1,13 @@
+{
+  "title": "Security & Privacy",
+  "defaultOpen": false,
+  "pages": [
+    "index",
+    "organization-security",
+    "permission-modes",
+    "private-information",
+    "task-context",
+    "data-storage",
+    "self-hosting"
+  ]
+}

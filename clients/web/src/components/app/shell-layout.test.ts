@@ -62,6 +62,7 @@ describe("app shell layout", () => {
 		[appShellStaticData.skills, "people"],
 		[appShellStaticData.files, "people"],
 		[appShellStaticData.projects, "projects"],
+		[appShellStaticData.routines, "routines"],
 		[appShellStaticData.settings, "settings"],
 		[appShellStaticData.space, "spaces"],
 	] as const)("maps %j route matches to the %s outer rail item", (staticData, expected) => {

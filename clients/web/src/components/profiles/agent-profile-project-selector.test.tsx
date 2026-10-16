@@ -19,6 +19,9 @@ import { AgentProfileProjectSelector } from "./agent-profile-project-selector";
 const RECOMMENDED_COPY_PATTERN = /Recommended/u;
 const desktopPlatform = vi.hoisted(() => vi.fn());
 const discovery = vi.hoisted(() => vi.fn());
+vi.mock("#/components/app/start-flow-state", () => ({
+	useStartFlowState: () => ({ storageScope: "account-1" }),
+}));
 vi.mock("#/desktop/platform", () => ({ getDesktopPlatform: desktopPlatform }));
 
 const { connectCandidate, connectPath, discoveryController } = vi.hoisted(

@@ -26,6 +26,14 @@ Official references:
 
 ## Rules
 
+Core's hosted AI funding contract adds `OPENROUTER_MANAGEMENT_API_KEY` and
+`OPENMELD_AI_CREDENTIAL_CRYPTO_KEY` as deployment secrets. Public examples are
+empty. All workspaces use Free or BYOK; there is no internal exemption.
+This feature change does not synchronize production values. The authorized
+rollout must provision these settings explicitly before enabling the new
+admission path. See [AI billing](../developing/engineering/ai-billing.md) for
+encryption, deployment order, and safe rollback constraints.
+
 The isolated PostgreSQL foundation probe is a development tool under
 `tooling/postgresql`, not a product Worker package. Its single staging-only
 `wrangler.jsonc` owns the `OPENMELD_POSTGRESQL` Hyperdrive binding and finite

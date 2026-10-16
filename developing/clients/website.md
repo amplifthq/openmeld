@@ -16,11 +16,26 @@ has its own TanStack Start/Vite build and Worker. It imports no Web-private
 modules and reads no session, Organization selection, or App query cache.
 Its homepage remains public even when the visitor has an App session.
 
-The website owns `/`, `/privacy`, `/terms`, `/changelog`, `/downloads`, and
-`/guides/local-agents/*`. Changelog data still comes from the anonymous Gateway
+The website owns `/`, `/privacy`, `/terms`, `/changelog`, and `/downloads`.
+Legacy `/guides/local-agents` and its supported Agent detail URLs return
+permanent redirects to `/docs/start/local-agents` on the Docs origin. Unknown
+Agent IDs remain 404s. Docs owns the guide content; Website has no guide renderer.
+`VITE_DOCS_URL` selects the local override; staging and production builds use
+their matching public Docs origins. Deploy Docs before activating these redirects. Changelog data still comes from the anonymous Gateway
 reader. Brand components, fonts, and assets belong to `@openmeld/ui`; static
 agent metadata and public metadata helpers belong to `@openmeld/product-catalog`.
 Public content is not duplicated in Web.
+
+The website publishes `/sitemap.xml` for its canonical public pages.
+`robots.txt` allows the rendered CSS and JavaScript under `/_website/assets/`
+while excluding other internal Website paths. FAQ answers remain in the
+initial HTML through the shared Accordion panel's `keepMounted` prop.
+The installed-PWA migration notice follows product content and uses
+`data-nosnippet`; its standalone display behavior remains unchanged.
+Nonproduction Worker responses carry `X-Robots-Tag: noindex, nofollow`.
+App forwarding keeps its existing response contract.
+See [search discovery](../engineering/search-discovery.md) for launch checks,
+question coverage, and measurement boundaries.
 
 ### Frozen product demo
 
@@ -93,7 +108,7 @@ or default model. Channels precede Team Knowledge and Routines.
 The Plugins section uses available entries from the public Plugins catalog
 and shared app logos. The logo wall groups connections by brand and divides
 distinct logos evenly between its two rows; its details Sheet lists every
-supported connection. Its headline rounds the available Plugin count down to
+supported connection. Its footer rounds the available Plugin count down to
 the nearest ten and adds `+`: 63 becomes `60+`, and 74 becomes `70+`. The details
 list remains the precise current catalog. Wrapped brand names stay centered within
 their tiles. Channel support does not admit a Plugin.
@@ -163,6 +178,16 @@ does not claim end-to-end encryption or that infrastructure operators cannot
 read stored data. Its source, issue, and pull-request links reuse the homepage's
 repository destination. The open-source copy is prepared for public launch;
 the repository must be public before publishing that claim.
+
+The capability comparison follows Privacy and Open Source, before the FAQ.
+It presents a static, source-reviewed matrix for six alternatives with concise
+scope labels and explicit unknowns. Its row definitions and first-party evidence
+live beside the component in `comparison-sources.md`, not in public disclosures.
+Its integrations row names connection methods rather than comparing incompatible
+catalog totals. The Plugins showcase retains its public catalog count; neither
+surface establishes account-specific connection readiness. The table
+composes the shared Table/Fluid ScrollArea and keeps feature names fixed during
+horizontal scrolling on narrow screens.
 
 Navigation uses ordinary anchors. App links enter the existing App resolver,
 which alone chooses the viewer's Organization and checks access. Website download

@@ -12,6 +12,9 @@ import {
 import { buildDaemonSystemServiceCommandSpec } from "../src/local-service/lifecycle/daemon-service-command-spec";
 
 const ENV_KEYS = [
+  "GEMINI_HOME",
+  "AGENT_SERVE_CONFIG_DIR",
+  "CURSOR_API_KEY_FILE",
   "OPENMELD_DEV_MODE",
   "OPENMELD_ENV_PRESET",
   "OPENMELD_GATEWAY_URL",
@@ -37,12 +40,18 @@ describe("local service system service command spec", () => {
   it("propagates the dev-local lane into the managed system service env", () => {
     process.env.OPENMELD_ENV_PRESET = "dev-local";
     process.env.OPENMELD_USER_FACING_CLI_COMMAND = "openmeld-dev";
+    process.env.GEMINI_HOME = "/test-owned/antigravity-profile";
+    process.env.AGENT_SERVE_CONFIG_DIR = "/test-owned/bdk";
+    process.env.CURSOR_API_KEY_FILE = "/test-owned/bdk-key";
 
     const spec = buildDaemonSystemServiceCommandSpec({
       controller: "launchd",
     });
 
     expect(spec.env.OPENMELD_ENV_PRESET).toBe("dev-local");
+    expect(spec.env.GEMINI_HOME).toBe("/test-owned/antigravity-profile");
+    expect(spec.env.AGENT_SERVE_CONFIG_DIR).toBe("/test-owned/bdk");
+    expect(spec.env.CURSOR_API_KEY_FILE).toBe("/test-owned/bdk-key");
     expect(spec.env.OPENMELD_USER_FACING_CLI_COMMAND).toBe("openmeld-dev");
     expect(spec.executable).toBe("/bin/sh");
     expect(spec.args[0]).toMatch(DEV_SERVICE_WRAPPER_PATH_PATTERN);

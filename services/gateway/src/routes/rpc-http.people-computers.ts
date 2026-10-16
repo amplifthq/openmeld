@@ -1,9 +1,15 @@
 import {
   computerFileAccessPolicyResponseSchema,
+  computerPowerRpcInputSchema,
+  computerPowerStateSchema,
   currentLocalAgentInstallationsResponseSchema,
   currentLocalAgentInstallationsRouteParamsSchema,
   getCurrentAgentProfileWorkspaceQuerySchema,
   getCurrentAgentProfileWorkspaceResponseSchema,
+  localAgentSetupRequestSchema,
+  localAgentSetupStateSchema,
+  localAgentUpdateRequestSchema,
+  localAgentUpdateStateSchema,
   localFolderPickerResultSchema,
   localProjectControlDiscoverProjectsRequestSchema,
   localProjectControlDiscoverProjectsResponseSchema,
@@ -38,6 +44,143 @@ export function registerPeopleComputerControlRoutes(
   app: Hono<HonoBindings>
 ): void {
   registerServiceConnectionEvidenceRoutes(app);
+  const setupRoute =
+    "/v1/people-computers/:deviceId/lanes/:runtimeLane/local-agents/:agentId/connection-setup";
+  app.on(["GET", "POST"], setupRoute, async (c) => {
+    c.header("Cache-Control", "no-store");
+    const target = peopleComputerTargetSchema.safeParse({
+      deviceId: c.req.param("deviceId"),
+      runtimeLane: c.req.param("runtimeLane"),
+    });
+    const method = c.req.method === "POST" ? "POST" : "GET";
+    if (!target.success || c.req.param("agentId") !== "grok-bot") {
+      return respondBadRequest({
+        c,
+        route: setupRoute,
+        method,
+        code: "invalid_payload",
+        message: "Invalid computer or Agent.",
+      });
+    }
+    let request:
+      | import("@openmeld/schemas/types").LocalAgentSetupRequest
+      | undefined;
+    if (method === "POST") {
+      const body = await readJsonRequestBody(c.req.raw);
+      const parsed = localAgentSetupRequestSchema.safeParse(
+        body.ok ? body.value : null
+      );
+      if (!parsed.success) {
+        return respondBadRequest({
+          c,
+          route: setupRoute,
+          method,
+          code: "invalid_payload",
+          message: "Invalid connection setup request.",
+        });
+      }
+      request = parsed.data;
+    }
+    return executeRpcRoute({
+      c,
+      route: setupRoute,
+      method,
+      responseSchema: localAgentSetupStateSchema,
+      execute: () =>
+        c.var.coreRpc.managePeopleComputerLocalAgentSetup({
+          ...target.data,
+          agentId: "grok-bot",
+          ...(request ? { request } : {}),
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
+  const agentUpdateRoute =
+    "/v1/people-computers/:deviceId/lanes/:runtimeLane/local-agents/:agentId/installation-update";
+  app.on(["GET", "POST"], agentUpdateRoute, async (c) => {
+    const target = peopleComputerTargetSchema.safeParse({
+      deviceId: c.req.param("deviceId"),
+      runtimeLane: c.req.param("runtimeLane"),
+    });
+    const agent = currentLocalAgentInstallationsRouteParamsSchema.safeParse({
+      agentId: c.req.param("agentId"),
+    });
+    const method = c.req.method === "POST" ? "POST" : "GET";
+    if (!(target.success && agent.success)) {
+      return respondBadRequest({
+        c,
+        route: agentUpdateRoute,
+        method,
+        code: "invalid_payload",
+        message: "Invalid computer or local agent.",
+      });
+    }
+    let updateRequest:
+      | import("@openmeld/schemas/types").LocalAgentUpdateRequest
+      | undefined;
+    if (method === "POST") {
+      const body = await readJsonRequestBody(c.req.raw);
+      const parsed = localAgentUpdateRequestSchema.safeParse(
+        body.ok ? body.value : null
+      );
+      if (!parsed.success) {
+        return respondBadRequest({
+          c,
+          route: agentUpdateRoute,
+          method,
+          code: "invalid_payload",
+          message: "Invalid local agent update request.",
+        });
+      }
+      updateRequest = parsed.data;
+    }
+    return executeRpcRoute({
+      c,
+      route: agentUpdateRoute,
+      method,
+      responseSchema: localAgentUpdateStateSchema,
+      execute: () =>
+        c.var.coreRpc.managePeopleComputerLocalAgentUpdate({
+          ...target.data,
+          ...agent.data,
+          ...(updateRequest ? { request: updateRequest } : {}),
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
+  const powerRoute =
+    "/v1/people-computers/:deviceId/lanes/:runtimeLane/power-settings";
+  app.use(powerRoute, async (c, next) => {
+    await next();
+    c.header("Cache-Control", "no-store");
+  });
+  app.post(powerRoute, async (c) => {
+    const body = await readJsonRequestBody(c.req.raw);
+    const parsed = body.ok
+      ? computerPowerRpcInputSchema.safeParse({
+          deviceId: c.req.param("deviceId"),
+          runtimeLane: c.req.param("runtimeLane"),
+          context: buildCoreRpcContext(c),
+          request: body.value,
+        })
+      : null;
+    if (!parsed?.success) {
+      return respondBadRequest({
+        c,
+        route: powerRoute,
+        method: "POST",
+        code: "invalid_payload",
+        message: "Invalid sleep prevention request.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: powerRoute,
+      method: "POST",
+      responseSchema: computerPowerStateSchema,
+      execute: () => c.var.coreRpc.computerPowerSettings(parsed.data),
+    });
+  });
   const historyRoute =
     "/v1/people-computers/:deviceId/lanes/:runtimeLane/session-history";
   app.post(historyRoute, async (c) => {

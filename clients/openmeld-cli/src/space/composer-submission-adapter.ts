@@ -11,7 +11,10 @@ import {
   SpaceComposerSubmissionError,
 } from "@openmeld/space";
 
+const ADDRESS_BOUNDARY = /[\s,.:;!?，。、！？：；—–…]/u;
+
 export type CliSpaceAddressingTarget = {
+  agentControllerRef?: string | null;
   primaryMentionLabel: string;
   profileId: string;
   relation: MessageMentionType;
@@ -76,6 +79,7 @@ export async function prepareCliSpaceComposerSubmission(
   }
   const { mentions, prefix, resolvedAddressingTargets } =
     resolveRequestedRecipients(snapshot, requested);
+  assertNoDuplicateLeadingRecipient(input.text, resolvedAddressingTargets);
   const preparedSubmission =
     prefix.length === 0 && input.text.length === 0
       ? prepareSpaceFileOnlySubmission({ replyTo: input.replyTo })
@@ -106,6 +110,27 @@ export async function prepareCliSpaceComposerSubmission(
     preparedSubmission,
     resolvedAddressingTargets,
   };
+}
+
+function assertNoDuplicateLeadingRecipient(
+  body: string,
+  targets: readonly CliSpaceAddressingTarget[]
+): void {
+  const text = body.trimStart();
+  for (const target of targets) {
+    const label = `@${target.primaryMentionLabel}`;
+    if (
+      text === label ||
+      (text.startsWith(label) &&
+        ADDRESS_BOUNDARY.test(text.charAt(label.length)))
+    ) {
+      throw new SpaceComposerSubmissionError({
+        code: "addressing.duplicate_target",
+        message: `Recipient flags already add ${label}. Remove the leading name from the message text and send again. No message was sent.`,
+        targetProfileId: target.profileId,
+      });
+    }
+  }
 }
 
 function resolveRequestedRecipients(
@@ -148,6 +173,7 @@ function resolveRequestedRecipients(
     });
     prefix += `${text} `;
     resolvedAddressingTargets.push({
+      agentControllerRef: target.agentControllerRef,
       primaryMentionLabel: label,
       profileId,
       relation: request.relation,

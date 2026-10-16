@@ -23,6 +23,10 @@ import {
   verifyCursorLaunchContract,
 } from "@openmeld/adapter-cursor";
 import {
+  resolveInstalledGrokBotLaunchCandidates,
+  verifyGrokBotLaunchContract,
+} from "@openmeld/adapter-grok-bot";
+import {
   resolveInstalledGrokBuildLaunchCandidates,
   verifyGrokBuildLaunchContract,
 } from "@openmeld/adapter-grok-build";
@@ -123,6 +127,27 @@ export const EMPTY_AGENT_CONTROLLER_INTERFACE_CAPABILITIES = {
 } satisfies AgentControllerInterfaceCapabilities;
 
 const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
+  {
+    adapterId: "grok-bot",
+    agentId: "grok-bot",
+    capabilities: {
+      ...EMPTY_AGENT_CONTROLLER_INTERFACE_CAPABILITIES,
+      cancel: true,
+      interrupt: true,
+    },
+    conversationOccupancy: { contractVersion: 1, mode: "unsupported" },
+    installResolver: {
+      resolveInstalledLaunchCandidates: (input) =>
+        resolveInstalledGrokBotLaunchCandidates({
+          ...input,
+          managedRoot: resolveOpenMeldRootDir(),
+        }),
+      verifyLaunchContract: verifyGrokBotLaunchContract,
+    },
+    nativeInterface: "local-cli",
+    usageLimitSupport: "unsupported",
+    versionMaintenance: { npmPackageName: "@cursor/bdk" },
+  },
   {
     adapterId: "antigravity",
     agentId: "antigravity",
@@ -340,3 +365,5 @@ export function resolveBuiltinAgentControllerDefinition(
     (definition) => definition.agentId === agentId
   );
 }
+
+import { resolveOpenMeldRootDir } from "../config/paths";

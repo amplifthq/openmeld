@@ -24,9 +24,13 @@ import {
   buildRuntimeCoordinatorExecutionId,
   buildRuntimeCoordinatorFinalizationCommandId,
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
+  COMPUTER_POWER_CAPABILITY_HEADER,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   computerFileAccessDaemonFrameSchema,
   computerFileAccessPolicyResultSchema,
+  computerPowerResultFrameSchema,
+  computerPowerResultSchema,
+  computerPowerTransportSchema,
   daemonStreamFrameSchema,
   LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
@@ -51,6 +55,7 @@ import {
   OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER,
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
+  openMeldDaemonManageLocalAgentInstallationPayloadSchema,
   openMeldDaemonReadProfileWorkspacePayloadSchema,
   openMeldToolsControlResultSchema,
   type PluginConnectionExecutionSourceRequest,
@@ -3736,6 +3741,24 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
       case "daemon.execution_recovery.resume_controller_conversation_result": {
         this.handleExecutionRecoveryResultFrame(webSocket, frame.payload);
+        return;
+      }
+      case "daemon.computer_power.request_result": {
+        const parsed = computerPowerResultFrameSchema.safeParse(frame);
+        if (!parsed.success) {
+          this.rejectInvalidCurrentDeviceOperationResultFrame({
+            frame,
+            message: "Invalid computer power response.",
+            webSocket,
+          });
+          return;
+        }
+        this.resolveCurrentDeviceOperationResultFrame({
+          code: parsed.data.code,
+          payload: parsed.data.payload,
+          invalidMessage: "Invalid computer power response.",
+          webSocket,
+        });
         return;
       }
       case "daemon.computer_file_access.read_policy_result":
@@ -9667,7 +9690,15 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         }
         const next: RuntimeCoordinatorRunCommandState = {
           ...current,
-          lastCommandReasonCode: "runtime_coordinator.interaction_delivered",
+          // A cancelled waiter can finish before the native Stop frame arrives.
+          // Its acknowledgement must not erase the durable Stop intent.
+          lastCommandReasonCode:
+            current.lastCommandReasonCode ===
+              RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE ||
+            current.lastCommandReasonCode ===
+              "runtime_coordinator.wake_stop_delivery_pending"
+              ? current.lastCommandReasonCode
+              : "runtime_coordinator.interaction_delivered",
           interactionResponseReceipts: {
             ...current.interactionResponseReceipts,
             [pendingInteraction.request.interactionId]: {
@@ -10819,6 +10850,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.ctx.acceptWebSocket(server);
     this.state.sessionIdBySocket.set(server, null);
     writeRuntimeTransportSocketAttachment(server, {
+      computerPower:
+        request.headers.get(COMPUTER_POWER_CAPABILITY_HEADER) === "1",
       sessionHistory:
         request.headers.get(SESSION_HISTORY_CAPABILITY_HEADER) ===
         SESSION_HISTORY_RUNTIME_CAPABILITY,
@@ -11148,7 +11181,16 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.reapExpiredLeases(Date.now());
     const session = this.resolveLocalAgentControlSession({
       ...parsed.data,
-      capability: "manageInstallationsSafely",
+      capability: (
+        {
+          setup: "setupInstallations",
+          read_setup: "setupInstallations",
+          update: "updateInstallations",
+          read_update: "updateInstallations",
+          list: "manageInstallationsSafely",
+          select: "manageInstallationsSafely",
+        } as const
+      )[parsed.data.request.operation],
       unsupportedMessage:
         "Update OpenMeld Service before choosing a local agent installation from OpenMeld Web.",
       updateRequiredMessage:
@@ -20073,6 +20115,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         computerFileAccessOperation
       );
     }
+    if (pathname === "/computer-power") {
+      return this.handleComputerPowerRequest(request);
+    }
     if (pathname === "/session-history") {
       return this.handleSessionHistoryRequest(request);
     }
@@ -20785,6 +20830,73 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       webSocket,
     });
   }
+  private async handleComputerPowerRequest(
+    request: Request
+  ): Promise<Response> {
+    const parsed = computerPowerTransportSchema.safeParse(
+      await readJsonBody(request)
+    );
+    if (!parsed.success) {
+      return Response.json(
+        {
+          status: "rejected",
+          code: "computer.power.invalid_request",
+          message: "Invalid computer power request.",
+        },
+        { status: 400 }
+      );
+    }
+    const input = parsed.data;
+    this.reapExpiredLeases(Date.now());
+    const session = [...this.state.sessionsById.values()]
+      .filter(
+        (entry) =>
+          entry.ownerUserId === input.ownerUserId &&
+          entry.deviceId === input.deviceId &&
+          entry.lane === input.lane
+      )
+      .sort(compareRuntimeTransportSessionsByFreshness)[0];
+    if (!session?.socket) {
+      return Response.json(
+        {
+          status: "rejected",
+          code: "computer.power.offline",
+          message:
+            "Reconnect OpenMeld Service on this computer to manage sleep prevention.",
+        },
+        { status: 503 }
+      );
+    }
+    if (
+      !isDaemonExecutionCompatible(session.executionCompatibility) ||
+      session.capabilities.computerPower !== true
+    ) {
+      return Response.json(
+        {
+          status: "rejected",
+          code: "computer.power.unsupported",
+          message:
+            "Update OpenMeld Service on this computer to manage sleep prevention.",
+        },
+        { status: 409 }
+      );
+    }
+    const result = await this.sendCurrentDeviceOperationAndWait({
+      code: "daemon.computer_power.request",
+      expectedResponseCode: "daemon.computer_power.request_result",
+      isExpectedPayload: (value) =>
+        computerPowerResultSchema.safeParse(value).success,
+      payload: {
+        deviceId: input.deviceId,
+        requestId: input.requestId,
+        request: input.request,
+      },
+      requestId: input.requestId,
+      session: session as typeof session & { socket: WebSocket },
+      timeoutMs: CURRENT_DEVICE_CONTROL_RESPONSE_TIMEOUT_MS,
+    });
+    return Response.json(result);
+  }
   private async handleComputerFileAccessRequest(
     request: Request,
     operation: ComputerFileAccessOperation
@@ -21385,6 +21497,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       | "forkSession"
       | "manageInstallations"
       | "manageInstallationsSafely"
+      | "updateInstallations"
+      | "setupInstallations"
       | "refreshCatalog"
       | "setEnabled"
       | "initializeProfileWorkspace"
@@ -21491,7 +21605,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     return await this.sendCurrentDeviceOperationAndWait({
       code: "daemon.local_agent_control.manage_installation",
       expectedResponseCode: "daemon.local_agent_control.result",
-      isExpectedPayload: isOpenMeldDaemonManageLocalAgentInstallationPayload,
+      isExpectedPayload: (value) =>
+        openMeldDaemonManageLocalAgentInstallationPayloadSchema.safeParse(value)
+          .success,
       payload: input.payload as unknown as Record<string, unknown>,
       requestId: input.requestId,
       session: input.session,
@@ -22304,14 +22420,6 @@ const isOpenMeldDaemonSetLocalAgentEnabledPayload = (
   payload !== null &&
   "agentId" in payload &&
   "enabled" in payload;
-const isOpenMeldDaemonManageLocalAgentInstallationPayload = (
-  payload: unknown
-): payload is OpenMeldDaemonManageLocalAgentInstallationPayload =>
-  typeof payload === "object" &&
-  payload !== null &&
-  "agentId" in payload &&
-  "installations" in payload &&
-  "selectedInstallationId" in payload;
 const isOpenMeldDaemonSetProfileWorkspacePayload = (
   payload: unknown
 ): payload is OpenMeldDaemonSetProfileWorkspacePayload =>

@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "controller": "cursor",
-  "observedAt": "2026-10-09T01:15:22.889Z",
-  "fingerprint": "ab87969fbf133c70303ca92d118e6c02add4a7f9d986e03c8130522531922f67",
+  "observedAt": "2026-10-14T01:02:49.048Z",
+  "fingerprint": "eab6e93723053ba7b7c532d51823e643bcc428019459e6e386853d63fe24c4f8",
   "sources": [
     {
       "url": "https://cursor.com/docs/cli/reference/parameters.md",
@@ -1867,6 +1867,42 @@
               "input_audio": 0.75
             },
             "canonical_model_id": "google/gemini-3.8-flash"
+          },
+          "gemini-4-argon": {
+            "id": "gemini-4-argon",
+            "name": "Gemini 4 Argon",
+            "description": "Google's flagship reasoning model for complex software engineering, deep math and science, and long-horizon autonomous agents",
+            "family": "gemini",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["low", "medium", "high"]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "knowledge": "2026-03",
+            "release_date": "2026-10-13",
+            "last_updated": "2026-10-13",
+            "modalities": {
+              "input": ["text", "image", "video", "audio", "pdf"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1048576,
+              "output": 32768
+            },
+            "cost": {
+              "input": 2,
+              "output": 10,
+              "cache_read": 0.1,
+              "input_audio": 2
+            },
+            "canonical_model_id": "google/gemini-4-argon"
           }
         },
         "xai": {

@@ -5,6 +5,12 @@ description: Use OpenMeld when a task needs Organization knowledge or Skills, Ce
 
 # OpenMeld CLI
 
+In CLI invocation examples, replace only the leading `openmeld` executable with
+the exact command prefix from the latest `setup.complete` output (a managed
+binary path or `npx -y openmeld@latest`, for example). Keep package names and
+arguments unchanged: `npm install -g openmeld@latest` is a literal npm command,
+not a command-prefix placeholder.
+
 OpenMeld gives local agents access to an Organization's shared resources,
 cloud Center Agent, and Agents on connected computers. Use it when one of those
 resources helps complete the user's task. Complete self-contained local work

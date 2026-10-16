@@ -40,6 +40,8 @@ export function resolveDaemonCapabilitiesFromAdapterIds(input: {
       interrupt: true,
       manageInstallations: true,
       manageInstallationsSafely: true,
+      updateInstallations: true,
+      setupInstallations: true,
       refreshCatalog: true,
       resumeControllerConversation: true,
       setEnabled: true,

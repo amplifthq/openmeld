@@ -19,6 +19,7 @@ export type SpaceAddMembersCandidateSummary = {
 	profileKind: "agent" | "human";
 	profileName: string;
 	searchText: string;
+	selectionDisabled?: boolean;
 };
 
 export type SpaceAddMembersPersonGroup = {
@@ -127,9 +128,8 @@ export function buildOrganizationDirectoryAddCandidates(input: {
 							]),
 						}
 					: null;
-			if (!(humanCandidate || agentCandidates.length > 0)) {
-				return [];
-			}
+			// Keep the owner's directory identity even when they are already in
+			// the Space and have no Agents yet. Creation inserts into this group.
 			for (const agent of agentCandidates) {
 				agent.ownerHumanProfileId = profile?.profileId ?? null;
 			}
@@ -329,22 +329,27 @@ export function buildPersonalAddMemberGroups(input: {
 
 export function filterAddMemberGroups(
 	groups: SpaceAddMembersCandidateGroups,
-	query: string
+	query: string,
+	selectedProfileIds?: ReadonlySet<string>
 ): SpaceAddMembersCandidateGroups {
 	if (!query) {
 		return groups;
 	}
 	return {
 		...groups,
-		organizationCandidates: groups.organizationCandidates.filter((candidate) =>
-			candidate.searchText.includes(query)
+		organizationCandidates: groups.organizationCandidates.filter(
+			(candidate) =>
+				candidate.searchText.includes(query) ||
+				selectedProfileIds?.has(candidate.profileId)
 		),
 		personGroups: groups.personGroups.flatMap((group) => {
 			if (group.searchText.includes(query)) {
 				return [group];
 			}
-			const agentCandidates = group.agentCandidates.filter((candidate) =>
-				candidate.searchText.includes(query)
+			const agentCandidates = group.agentCandidates.filter(
+				(candidate) =>
+					candidate.searchText.includes(query) ||
+					selectedProfileIds?.has(candidate.profileId)
 			);
 			return agentCandidates.length > 0 ? [{ ...group, agentCandidates }] : [];
 		}),

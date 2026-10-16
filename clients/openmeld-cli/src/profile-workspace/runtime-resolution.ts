@@ -1,3 +1,5 @@
+import { mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
 import { providerDispatchRuntimeContextSchema } from "@openmeld/schemas";
 import type { ProviderDispatchRuntimeContext } from "@openmeld/schemas/types";
 import { resolveCurrentOpenMeldAccountContext } from "../config/account-context";
@@ -10,7 +12,6 @@ import {
   validateCustomProfileWorkspacePath,
 } from "./custom-path";
 import {
-  ensureOpenMeldManagedProfileWorkspace,
   readProfileWorkspaceConfigForAccount,
   resolveConfiguredProfileWorkspacePathForAccount,
 } from "./service";
@@ -121,17 +122,43 @@ export async function resolveProfileWorkspaceRuntimeForAccount(input: {
   }
 
   if (input.mode === "dispatch") {
-    const ensured = await ensureOpenMeldManagedProfileWorkspace({
-      account: input.account,
-      openMeldProfileId,
-      updatedAt: workspaceConfig.updatedAt,
-    });
-    return buildReadyResolution({
+    // Dispatch prepares the saved directory; it must not overwrite a newer
+    // user preference with the configuration read at the start of this call.
+    try {
+      await mkdir(configuredWorkspacePath, { recursive: true });
+    } catch (error) {
+      return {
+        configPath: workspaceConfig.path,
+        configuredWorkspacePath,
+        reasonCode: "workspace.invalid",
+        status: "invalid",
+        workspaceMode: "openmeld_managed",
+        reasonText: `Couldn’t prepare the managed working folder. ${error instanceof Error ? error.message : "Check the folder and its permissions."}`,
+      };
+    }
+  }
+  let pathToCheck = configuredWorkspacePath;
+  let validation = await validateCustomProfileWorkspacePath(pathToCheck);
+  while (
+    input.mode === "inspect" &&
+    validation.status === "invalid" &&
+    validation.reason === "not_found" &&
+    dirname(pathToCheck) !== pathToCheck
+  ) {
+    // Managed directories may be created at dispatch. Check that the existing
+    // parent can support that promise without creating anything during inspection.
+    pathToCheck = dirname(pathToCheck);
+    validation = await validateCustomProfileWorkspacePath(pathToCheck);
+  }
+  if (validation.status === "invalid") {
+    return {
       configPath: workspaceConfig.path,
-      configuredWorkspacePath: ensured.workspacePath,
-      effectiveRuntimeWorkingDirectory: ensured.workspacePath,
+      configuredWorkspacePath,
+      reasonCode: "workspace.invalid",
+      reasonText: describeProfileWorkspacePathValidationFailure(validation),
+      status: "invalid",
       workspaceMode: "openmeld_managed",
-    });
+    };
   }
 
   return buildReadyResolution({

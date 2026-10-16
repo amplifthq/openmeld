@@ -65,7 +65,7 @@ describe("AgentProfileGenerator", () => {
 			/>
 		);
 		expect(screen.queryByRole("textbox", { name: "Agent name" })).toBeNull();
-		expect(screen.getAllByRole("radio")).toHaveLength(6);
+		expect(screen.getAllByRole("radio")).toHaveLength(7);
 		expect(
 			(
 				screen.getByRole("button", {
@@ -371,11 +371,12 @@ describe("AgentProfileGenerator", () => {
 			/>
 		);
 
-		expect(screen.getAllByRole("radio")).toHaveLength(6);
+		expect(screen.getAllByRole("radio")).toHaveLength(7);
 		for (const name of [
 			"Codex",
 			"Claude Code",
 			"Grok Build",
+			"Grok Bot",
 			"OpenCode",
 			"Antigravity",
 			"Cursor",

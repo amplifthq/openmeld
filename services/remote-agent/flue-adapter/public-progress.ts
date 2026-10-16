@@ -11,6 +11,7 @@ import type {
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
+import { getRemoteAgentResponseInputId } from "./execution-context";
 import { remoteAgentStreamPublisher } from "./stream-publisher-instance";
 import {
   isRemoteAgentStreamEligible,
@@ -36,6 +37,7 @@ export function createHostedPublicProgressTool(input: {
       "Share one brief, concrete progress update with everyone who can view this OpenMeld Space conversation. Updates remain visible with a successfully published reply. Use it when you start meaningful work, confirm a finding, change approach, or begin verification. Say what you are doing or what you verified; do not include private reasoning, protected information, raw tool inputs, credentials, file paths, or speculative success. Do not call on a timer or repeat an unchanged update. This is not the final reply.",
     input: publicProgressInputSchema,
     execute: async (payload) => {
+      const responseInputId = getRemoteAgentResponseInputId();
       const context = await resolveRemoteAgentStreamContext({
         storage: input.storage,
         submissionId: input.submissionId,
@@ -55,18 +57,22 @@ export function createHostedPublicProgressTool(input: {
         delta: `${update}\n\n`,
         kind: "progress",
         observedAtMs: Date.now(),
+        responseInputId,
         storage: input.storage,
       });
       const result =
-        pushed.status === "buffered"
-          ? await publisher.flush({
+        "contentKind" in pushed && pushed.contentKind === "progress"
+          ? pushed
+          : await publisher.flush({
               context,
               coreWorker: input.coreWorker,
               observedAtMs: Date.now(),
               storage: input.storage,
-            })
-          : pushed;
-      return { shown: result.status === "published" };
+            });
+      return {
+        shown:
+          result.status === "published" && result.contentKind === "progress",
+      };
     },
   };
 }

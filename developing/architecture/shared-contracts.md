@@ -25,6 +25,37 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
+## Message Details thread opt-in
+
+Message Details also accepts `includeThreadContext: true`. Only this opt-in
+returns `threadContext`: the canonical thread and root IDs for either a root
+or a reply, or `null` for an unthreaded readable message. An omitted field means
+the receiver does not support this projection; callers must not treat omission
+as permission to create a thread. Existing access checks and personal deletion
+visibility apply before resolving placement. This authoring projection does not
+change a running Wake's conversation scope when a thread is opened beneath it.
+
+Deploy Core, then Gateway, before distributing the CLI that consumes this
+opt-in. Old clients keep their unchanged response. New CLI against an old
+receiver fails without posting; old CLI remains usable after the receiver
+upgrade. This is an available CLI fix, not a required Service or Skills update.
+Setup, Wake, Stop, daemon transport and managed Skills contracts are unchanged.
+
+## Message Details delegation opt-in
+
+Message Details accepts optional `delegationVersion: 1` and an opaque
+`delegationCursor`. Only an opted-in response includes `delegations`; its
+children reuse Wake progress, frozen task-context, terminal-outcome, and
+completion-policy schemas. A page has at most ten declared groups. Unreadable
+children cannot carry content, input, or source/result locators.
+
+Older callers receive the unchanged response shape. Older Gateway/Core code
+ignores the new reader opt-in and the new Web accepts an absent projection.
+Update Web and Gateway readers before Core emits the opted-in field. CLI,
+Service, managed Skills, setup, Wake admission, Space mutations, Stop,
+result recovery, and trace contracts are unchanged. No local-component epoch
+or required update is introduced by this read projection.
+
 ## Bounded message reads
 
 `messageReadQuerySchema` and `messageReadPageSchema` own the new
@@ -1119,6 +1150,39 @@ local Service, Desktop, and Agent execution contracts do not change. Delivery
 requires Core and Gateway before Web; no local component upgrade is required.
 
 ## Space Task contracts
+
+`assign` accepts optional `reviewerProfileId` and `wakeAssignee`. Reviewer
+changes require the requester or Space owner; preserving the existing reviewer
+needs no additional authority. `wakeAssignee: true` requires an Agent assignee
+and a To do Task, and queues the initial handoff in the assignment transaction.
+The Remote Agent's `delegate` tool action requires an explicit reviewer choice
+and translates to this mutation with an idempotent operation identity. It does
+not call the generic Wake tool or infer that execution has started.
+
+For assignment, reviewer, and brief mutations only, Core may project a human
+requester from the designated Center Agent's live, authorized native delivery
+in this same Space. This projection is recomputed at the public RPC boundary;
+caller-supplied representation is discarded. Space rechecks current human
+membership and ownership, and only the Task's requester can confer these
+management permissions. Routines, Agent-authored requests, other conversations,
+and unverified senders confer no such permission. Result submission and review
+retain the acting assignee/reviewer identity and cannot use representation.
+Task activity keeps the Center Agent as the actor and names the represented
+requester's Profile in the existing event detail. Representation failures
+remain fail-closed; they do not retry with the actor's independent permissions.
+
+Contract impact: the mutation fields are optional and Task/event/read payloads
+are unchanged. Existing CLI, Service, Skills, Gateway, and Web readers remain
+compatible, including setup, Wake, dispatch-owned Task tools, and diagnostics.
+Old Core rejects the new write fields, so deploy Core before the Remote Agent
+caller. No CLI/Service/Skills contract bump, database migration, or runtime
+lifecycle change is required. The shared schema is a Service bundle input, so
+the base-aware release owner must rebuild, stamp, and publish an available
+CLI/Service artifact while preserving the existing required floors. Old cloud
+accepts its unchanged local commands, and new cloud accepts the existing local
+Task tools and source snapshot contract. Dispatch context uses that existing
+text snapshot on both runtime families. Follow the Task receiver-first release
+profile with the original pre-feature base through artifact preparation.
 
 `@openmeld/schemas` owns the strict Space Task, actor, result, review, event,
 create, mutation, list, detail, receipt, Project-set, and provider-typed
@@ -3457,6 +3521,35 @@ construct only authenticated Gateway download paths; the contract does not
 define a public attachment URL.
 
 ### Space File Contracts
+
+**Published execution-result reads.** `spacePublishedDispatchResultSchema` owns
+the additive CLI result variant for a canonical published message. Existing
+archived-result HTTP/RPC payloads remain unchanged. After a precise missing
+archive response, the CLI reads existing cross-runtime final-publication facts
+and then the exact authorized Space signal. The trace is a read projection,
+not an execution writer or a substitute message body. The result retains the
+canonical signal and visible reply/failure/stopped outcome. No duplicate archive,
+state ledger, or publication path is introduced. A missing or mismatched message
+fails visibly. CLI publication requires normal artifact rebuilding and stamping;
+old Core/Gateway/Service contracts remain interoperable, without an epoch or
+database migration. Old CLIs keep their archive-only behavior.
+
+**Bounded text reads.** The shared Files MIME resolver recognizes `.diff` and
+`.patch` as text. Generic `application/octet-stream` may use the known filename
+mapping, including on existing immutable revisions. Explicit non-text MIME types
+remain authoritative. Read eligibility is separate from browser edit eligibility;
+CLI and hosted readers share strict UTF-8 decoding and reject binary NUL bytes,
+while retaining ANSI logs and form-feed text. Reads retain the 1 MiB bound and original authorization and revision
+checks. There is no stored metadata rewrite or new extension-classification owner.
+
+**Contract Impact Audit — text attachments.** This changes the existing Core and
+CLI read implementations and shared MIME policy, without changing request,
+response, Service, Skills, or execution wire shapes. Old clients and services
+remain interoperable; old readers may still reject historical generic MIME files.
+Deploy Core and publish the updated CLI to enable their respective readers. No
+compatibility epoch or database migration is needed. The packaged CLI must be
+rebuilt and stamped by the normal release process. Rollback restores prior read
+limitations without changing files or command state.
 
 **Revision image geometry.** Revision descriptors and message file references
 may include `imageDimensions: { width, height }`. Both positive integer axes must

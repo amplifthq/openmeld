@@ -270,6 +270,26 @@ git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- wait --p
 Use `wait` for the pending Final Candidate instead of repeatedly polling
 `gh pr checks` for the same unchanged run.
 
+Fork and same-repository candidates run on `pull_request` with read-only job
+permissions and no production environment or secrets. A separate `workflow_run`
+result workflow runs trusted default-branch code. Its read-only verifier identifies the exact source run,
+attempt, PR, and current main through GitHub, then recomputes the control
+disposition and validation plan before accepting evidence from that run.
+The verifier reads candidate source as immutable Git objects without checking
+it out, and treats artifacts as data. It never runs candidate scripts.
+A separate status writer checks live identity and the latest run again and
+never checks out code, installs dependencies, or downloads artifacts.
+Changes to either workflow require the protected local
+bootstrap. Workflow approval for first-time contributors remains a GitHub
+repository policy, separate from PR review approval.
+
+CodeQL uses `.github/workflows/codeql.yml` so fork PRs receive the same
+required `Analyze (javascript-typescript)` check as repository branches.
+Keep GitHub's default setup disabled when this advanced workflow is enabled;
+default setup excludes fork PRs and blocks uploads from advanced workflows.
+The workflow scans Actions and JavaScript/TypeScript with the default query
+suite, without installing dependencies or running repository build scripts.
+
 Use the current-main entrypoint, never candidate-owned package scripts.
 GitHub Actions is the normal compute lane; the guarded local lane below is for
 Actions outages or explicit control bootstrap. A failed check, missing evidence,
@@ -327,13 +347,17 @@ control against the candidate, rechecks identity after validation, posts the
 evidence comment, and publishes the same status. It requires an authenticated
 `gh` session and fails closed when GitHub or network evidence is unavailable.
 Before local checks and again before final publication, it cancels active hosted
-FC runs owned by this PR and exact head, then waits for the entire workflow,
-including its publisher, to complete. Cancellation acceptance is not completion.
-An unverifiable owner, API failure, or three-minute handoff timeout blocks local
-publication. This prevents an older hosted failure from overwriting local
-certification without hiding failures or trusting a previous green status.
-After a handoff timeout, wait until that exact hosted workflow has completed,
-including its publisher, then rerun the same unchanged candidate command.
+FC runs owned by this PR and exact head. It waits for the source workflow and
+the separate completed-event result workflow for that source run and attempt.
+An empty result list means the event may still be pending; it is not completion.
+The result workflow name carries the source run ID, attempt, and event so the
+handoff can wait automatically without guessing from elapsed time or green checks.
+An unverifiable owner, API failure, three-minute cancellation timeout, or
+twenty-minute result timeout blocks local publication. This prevents an older
+hosted failure from overwriting local certification without hiding failures or
+trusting a previous green status. After a timeout, inspect the named source and
+result workflows before retrying. Runs from before result names were introduced
+need a new hosted request before local takeover.
 Do not extend ownership assumptions from an accepted cancellation or publish
 the local status manually.
 Later explicit hosted requests are new validations, not permanently suppressed.
@@ -395,16 +419,19 @@ merge evidence.
 
 ## Merge
 
-Repository protection for `main` requires:
+The project merge contract requires:
 
 - changes through a pull request;
 - exact `OpenMeld Final Candidate` success;
-- merge queue validation or strict up-to-date protection; and
-- human approval count zero.
+- merge queue validation or server-enforced strict up-to-date protection; and
+- compliance with live GitHub rules, including the authenticated actor's
+  configured review exemptions.
 
 Do not pin the status to the GitHub Actions app because the guarded local
-fallback publishes the same context. Review beyond the responsible agent's own
-evaluation is required only when the task explicitly asks for it.
+fallback publishes the same context. Additional review follows the user's
+request and the live rules applicable to the authenticated actor. Do not
+hard-code a zero approval count: a ruleset can require approval by default
+while allowing named actors to merge through a pull request without it.
 
 Immediately before merge, re-read the live head, evidence identity, status,
 mergeability, and active Ruleset. If the head changed, create a new candidate.
@@ -412,11 +439,50 @@ If only `main` changed, let merge queue validate the new merge group or sync and
 run one new current-base candidate. Do not rerun completed checks merely to
 produce ceremonial evidence.
 
+Before reporting an approval blocker, distinguish the PR's default review
+state from the current actor's effective permission. `REVIEW_REQUIRED`,
+`BLOCKED`, and a refusal from ordinary `gh pr merge` are not sufficient proof
+that the authenticated actor needs another reviewer. Check:
+
+```sh
+gh api user --jq '{login,id}'
+gh api repos/<owner>/<repo>/rules/branches/main
+# Include inherited rulesets when checking the current actor's permission.
+gh api 'repos/<owner>/<repo>/rulesets/<ruleset-id>?includes_parents=true'
+```
+
+Inspect `current_user_can_bypass`, `bypass_actors`, and `bypass_mode` in each
+applicable ruleset, plus any separate branch protection. The branch rules
+summary alone does not establish actor exemptions. A repository admin role
+alone also does not establish an exemption. Missing permission evidence is
+unknown, not proof that an exemption was removed. For a suspected policy
+change, inspect the source repository or organization's ruleset `/history` and
+`/history/<version-id>` endpoints before claiming who changed it or what changed.
+
+When the user has authorized the merge, the current actor has an existing
+exemption covering the unmet review requirement, and all other project and
+GitHub requirements are satisfied, use that permission without asking the user
+for approval again. If ordinary `gh pr merge` refuses on that review state,
+the CLI's `--admin` option can exercise the existing exemption. This does not
+change the ruleset or add permissions. Never use it to skip failed or pending
+validation, stale Final Candidate evidence, an unresolved conflict, a required
+merge queue, or review explicitly requested by the user. Do not edit rules or
+add bypass actors to complete a merge task.
+
+The review exemption must not bypass a separate server-enforced freshness rule.
+`--match-head-commit` pins only the PR head, not the base or merge tree. A local
+base check cannot replace strict up-to-date protection or a merge queue because
+another merge can advance `main` between the check and the merge. If the
+exemption would also bypass freshness protection, do not use this CLI path;
+use the protected merge queue or report the missing atomic merge protection.
+
 From an isolated worktree, merge the remote pull request without coupling that
 operation to local branch deletion:
 
 ```sh
-gh pr merge <pr-number> --merge
+gh pr merge <pr-number> --merge --match-head-commit <verified-head-sha>
+# Only for the verified review-exemption case described above:
+gh pr merge <pr-number> --merge --admin --match-head-commit <verified-head-sha>
 gh pr view <pr-number> --json state,mergedAt,mergeCommit
 ```
 
@@ -579,10 +645,11 @@ or fix when available.
 
 ### One report per unresolved problem
 
-Use Felix's authorized Human Profile directly after the checks above. No
-Service startup, Wake, or Agent membership is required. Recording requests a
-handoff; it does not authorize another Agent to implement a fix. Preserve
-existing reports as history; this rule does not authorize deleting them.
+Outside a dispatch-owned runtime, use Felix's authorized Human Profile directly
+after the checks above. No Service startup, Wake, or Agent membership is
+required. Recording requests a handoff; it does not authorize another Agent to
+implement a fix. Preserve existing reports as history; this rule does not
+authorize deleting them.
 
 Start with `[bug]`, `[friction]`, or `[gap]`. Identify the actual Agent, model
 when known, session or thread ID, UTC time, product environment/version, task,
@@ -592,7 +659,22 @@ report brief and continue the main task unless the problem is a real blocker.
 Never include credentials, secrets, private
 transcripts, or unrelated user content.
 
-Use this direct command template:
+Inside a dispatch-owned runtime, `openmeld space send` is intentionally blocked,
+including with a Human Profile. For an eligible problem, hand off brief,
+non-sensitive evidence through the current task's supplied Space Action
+`report_progress` tool when available, or include it in the normal final
+`reply`. State that feedback has not been submitted. These actions remain bound
+to the current task's Space and Agent identity; do not clear the runtime guard
+or switch identities to run the direct command.
+
+An authorized reporter outside that runtime can recheck eligibility and submit
+the report with Felix's Human Profile. Until that happens, keep the evidence in
+the current task and do not claim a feedback post. A structured-action receipt
+does not prove publication in the feedback Space. The separate
+`openmeld feedback` command submits a Feedback Issue to a Feedback Inbox; it
+does not replace this Space handoff.
+
+Outside a dispatch-owned runtime, use this direct command template:
 
 ```bash
 openmeld space send 5020df25e3a4a1ae0e292b664ca0f3726eaa0ec1cc1ceacc5cd18d7eaa6cb378 \

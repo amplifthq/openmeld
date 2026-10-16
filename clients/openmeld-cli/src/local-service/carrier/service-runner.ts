@@ -8,6 +8,7 @@ import {
 import { resolveRouteRegistrationReconcileDecision } from "@openmeld/local-service/service-reconcile-decision";
 import {
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
+  COMPUTER_POWER_CAPABILITY_HEADER,
   daemonServiceLaneSchema,
   LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
@@ -175,6 +176,7 @@ function buildLocalServiceCapabilityHeaders(input: {
   localFolderPickerAvailable: boolean;
 }): Record<string, string> {
   return {
+    [COMPUTER_POWER_CAPABILITY_HEADER]: "1",
     [LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER]: "1",
     ...(process.platform === "darwin"
       ? { [SPACE_WORK_HANDOFF_CAPABILITY_HEADER]: "1" }
@@ -424,6 +426,7 @@ async function buildDaemonStreamRequestHeaders(input: {
 }
 
 export function createControlledShutdownCoordinator(input: {
+  drainHost: () => Promise<void>;
   hasUndrainedWork: () => boolean;
   isStopRequested: () => boolean;
   markStopping: () => void;
@@ -431,7 +434,12 @@ export function createControlledShutdownCoordinator(input: {
   let activeSessionShutdownResolver:
     | ((stopCause: RuntimeTransportStopCause) => void)
     | null = null;
-  let shutdownAttempt: PromiseWithResolvers<void> | null = null;
+  // Drain closes admission for this Host's lifetime. Reconnects observe the
+  // same operation instead of accumulating unbounded pending Host RPCs.
+  let hostDrain: Promise<void> | null = null;
+  let shutdownAttempt:
+    | (PromiseWithResolvers<void> & { stopCause: RuntimeTransportStopCause })
+    | null = null;
 
   const requestServiceStop = (
     stopCause: RuntimeTransportStopCause | Promise<RuntimeTransportStopCause>
@@ -446,11 +454,31 @@ export function createControlledShutdownCoordinator(input: {
     );
   };
 
+  const failHostShutdown = (error: unknown): never => {
+    shutdownAttempt?.reject(error);
+    throw error;
+  };
+
   return {
+    failHostShutdown,
+    waitForDrain(): Promise<void> {
+      hostDrain ??= input.drainHost().catch((error: unknown) => {
+        // A Host refusal/failure is not a transport interruption. Report it to
+        // the admitted caller, and do not cache it as a completed drain.
+        hostDrain = null;
+        return failHostShutdown(error);
+      });
+      return hostDrain;
+    },
     attachSession(
       shutdownResolver: (stopCause: RuntimeTransportStopCause) => void
     ): void {
       activeSessionShutdownResolver = shutdownResolver;
+      // A connector failure does not revoke an admitted stop. The same Host
+      // still owns its work; the replacement connection must finish that drain.
+      if (shutdownAttempt) {
+        shutdownResolver(shutdownAttempt.stopCause);
+      }
     },
     detachSession(
       shutdownResolver: (stopCause: RuntimeTransportStopCause) => void
@@ -472,11 +500,8 @@ export function createControlledShutdownCoordinator(input: {
       if (!shutdownAttempt) {
         return;
       }
-      requestServiceStop("controlled_service_update");
+      requestServiceStop(shutdownAttempt.stopCause);
       shutdownAttempt.resolve();
-    },
-    handleSessionFailure(error: unknown): void {
-      shutdownAttempt?.reject(error);
     },
     requestServiceStop,
     async request(payload: {
@@ -499,7 +524,10 @@ export function createControlledShutdownCoordinator(input: {
             await payload.onAdmission?.(() => undefined);
             await existingAttempt.promise;
           } else if (activeSessionShutdownResolver) {
-            const currentAttempt = Promise.withResolvers<void>();
+            const currentAttempt = {
+              ...Promise.withResolvers<void>(),
+              stopCause,
+            };
             const clearAttempt = () => {
               if (shutdownAttempt === currentAttempt) {
                 shutdownAttempt = null;
@@ -581,18 +609,20 @@ async function withControlledStopRefusalProof<T>(input: {
 
 async function runSocketSessionWithControlledShutdown(input: {
   controlledShutdown: ReturnType<typeof createControlledShutdownCoordinator>;
-  sessionInput: Parameters<typeof runDaemonSocketSession>[0];
+  sessionInput: Omit<
+    Parameters<typeof runDaemonSocketSession>[0],
+    "drainExecutionHost" | "failHostShutdown"
+  >;
 }): Promise<void> {
   const sessionShutdown = Promise.withResolvers<RuntimeTransportStopCause>();
   input.controlledShutdown.attachSession(sessionShutdown.resolve);
   try {
     await runDaemonSocketSession({
       ...input.sessionInput,
+      drainExecutionHost: input.controlledShutdown.waitForDrain,
+      failHostShutdown: input.controlledShutdown.failHostShutdown,
       shutdownRequested: sessionShutdown.promise,
     });
-  } catch (error) {
-    input.controlledShutdown.handleSessionFailure(error);
-    throw error;
   } finally {
     input.controlledShutdown.detachSession(sessionShutdown.resolve);
   }
@@ -831,6 +861,9 @@ const runAccountBoundDaemonServiceLoop = async (
     | ((reason: string) => Promise<RouteCatalogSyncResult>)
     | null = null;
   const controlledShutdown = createControlledShutdownCoordinator({
+    drainHost: async () => {
+      await executionHost.call("drain", {}, { timeoutMs: null });
+    },
     hasUndrainedWork: () => {
       const observed = executionHost.snapshot();
       return (

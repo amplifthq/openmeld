@@ -62,6 +62,12 @@ advances. Replays require the original page budget and current access.
 Concurrent checkpoint updates use conditional storage writes.
 
 Named GitHub writes carry their declared effect into operation admission.
+Every named write accepts the shared confirmation token, including operations
+whose trusted catalog effect is stricter than their static description. The
+catalog and the explicit destructive safety floor decide execution policy;
+descriptions do not promise that confirmation can be skipped. Confirmation
+keeps the same operation ID, account, target and input through Code Mode input
+validation. A token binds an action; it is not human authorization.
 An issue destination that requires Inbox confirmation returns
 `awaiting_confirmation` with the existing operation ID. It has not reached
 GitHub. Only a pending request has this status; rejected, expired or unavailable
@@ -304,6 +310,14 @@ does not rerun completed work. Linux and JavaScript use native retained handles;
 missing handles are explicit failures and never permission to replay a launch.
 Command replies retain the last 50,000 characters per stream and report
 `outputTruncated` when clipped. Agents can redirect large output to a file.
+After confirmed execution loss, polling the original reference reads any saved
+output from that same receipt without reconnecting to the native runtime. The
+reply has `phase: result_unavailable` and `nextAction: inspect`; its status and
+exit code are the last observed facts, not proof of a live process, successful
+exit, or synchronized files. No observed exit remains `exitCode: null`. Output
+that was never collected or was already truncated cannot be recovered this way.
+An unconfirmed launch with a missing native record remains unknown and must not
+be replayed. Existing authorization, output cursors and cleanup ownership apply.
 The API client allows cold startup and 20-second polls. Foreground shell calls
 use their execution timeout plus a transport margin.
 `browser` runs the existing one-shot browser; `preview` inspects a local Linux
@@ -372,7 +386,16 @@ does.
 For ordinary native Git work, use `computer_git_connection` with the explicitly
 selected requester or Organization Plugin account, then run `git clone` or
 `git fetch` through the Computer's container command engine. The tool returns a
-temporary repository URL scoped to this Computer and execution. It does not
+stable `repositoryUrl` and per-command `gitArguments` that map that exact URL to
+a temporary transport scoped to this Computer and execution. Clone the stable
+URL with those arguments so Git retains the stable repository identity in origin.
+Never persist the transport rewrite in repository or global Git configuration.
+Git may record the internal transfer address in `FETCH_HEAD` or command history.
+This is not a provider credential or a durable authorization. Keep it private;
+each transfer still requires the registered Computer grant, an active originating
+execution, current access, and an unexpired grant. The grant is not consumed by
+one command. Its historical address cannot extend its lifetime or authority.
+The legacy `url` field remains readable for existing callers. It does not
 download files or install credentials. The Workspace proxy routes Git's HTTP
 exchanges through the existing Plugin transport, which rechecks current access
 and keeps provider credentials inside OpenConnector. Public Git and accounts
@@ -381,7 +404,10 @@ configured independently inside the Computer need no Plugin transport.
 Native Git preserves upstream history and uses Git's normal transfer protocol.
 The Plugin transport supports reads; existing GitHub write actions remain the
 publication interface. A later execution requests a fresh connection before a
-fetch. The persistent repository remains on the user's Computer.
+fetch. For an older checkout whose origin is a temporary internal URL for the
+same verified repository, change only that origin to the stable URL. Do not
+reset files or move branches. The persistent repository remains on the user's
+Computer; neither refreshing a read grant nor an HTTP 403 authorizes Git push.
 
 Prefer reuse of a verified existing repository before cloning. The suggested
 layout is `/computer/projects/<organization-id>/<project-id>/repo` plus adjacent
@@ -537,6 +563,54 @@ can provide.
 
 ## Center Agent operating control
 
+Interactive member requests in Spaces and Center DMs have a response phase
+before work. The first model call can answer directly or publish an authored
+progress response through Core. Work tools, capability discovery, Code Mode and
+Skill resources become available only after Core accepts that response. The
+phase reads the stream publisher's durable Core acknowledgement for the exact
+canonical input. Text and authored progress use the same acknowledgement owner;
+the response-phase owner also supplies the model instructions and progress-tool
+description. Both explain that work capabilities are temporarily hidden, not
+unavailable: requests needing evidence or tool use first publish their next
+action and then continue with the authorized catalog. A request fully answerable
+from existing context can still receive a direct answer without a tool call.
+Each render reads its live projection, which is restored from SQL after recovery.
+Buffered content retains the input it answers, so an old response cannot unlock
+a later check-in. Generated text, thinking and tool lifecycle parts are not
+response acknowledgements. The installed Flue patch backports the
+[upstream finish-cycle resource refresh](https://github.com/withastro/flue/blob/95a8c86244557e4c257b0fbd7eef2481de2c2150/packages/runtime/src/session.ts)
+from commit `95a8c86244557e4c257b0fbd7eef2481de2c2150`. Remove this backport
+when upgrading beyond stable `2.2.2` to a release that includes that fix.
+An unpublished update cannot unlock work. The first response uses low reasoning
+effort; subsequent work retains the selected model's reasoning setting.
+This phase does not settle the submission, invoke cleanup, create a new task or
+change authorization. Ordinary queued deliveries and exact-execution steering
+retain their existing ingress boundaries. Automated continuations, reply
+recovery and external message channels retain their own publication contracts.
+
+An Agent's blocking `computer` command poll and `computer_command` poll use the
+same wait owner inside the original tool call
+while the Computer still observes work. Each native read remains bounded and
+rechecks access. No model turn is needed for each unchanged poll. The wait keeps
+the original reference and output cursor, includes file synchronization, and
+returns on completion, Stop or an inspection condition. `waitSeconds: 0` remains
+an immediate status read for independent work. The public Computer API and CLI
+retain their bounded polling contract. Waiting does not start a command or own
+cleanup; those remain with the existing Computer receipt and execution lifecycle.
+Both tool waits and finish waits yield at their next bounded observation when
+the exact-execution intake has accepted new user input. Flue applies that input
+under the original execution; its canonical input ID opens a fresh response
+phase without rerunning agent-start effects. The Computer continues running.
+Recovery classifies that input under the same submission owner and considers
+only assistant work after the latest accepted input. An earlier answer cannot
+settle an unanswered check-in. Before writing recovery or resource signals,
+Flue repairs any trailing tool batch: saved outcomes remain intact and unresolved
+non-durable calls retain an explicit unknown outcome without being replayed.
+The installed `2.2.2` patch extends this canonical classification for exact-execution
+steering; it does not change record validation or create another execution owner.
+Normal queued messages still wait by design; the existing Send now action is
+the explicit ingress for same-author Center DM steering.
+
 Long Computer commands use the native retained container execution API through
 `computer_command`; shell backgrounding is not a supported command-session
 mechanism. The runtime persists a dispatch key before spawn, scopes controls to
@@ -642,6 +716,23 @@ alarm reads the next due time from the same receipts; pending Git transfers
 retain their existing alarm cadence. The index adds a write cost to eligible
 receipt updates and an initial build on existing storage; it is not a separate
 queue or execution state.
+Normal model completion only observes these receipts. A paused collection,
+bounded tool observation timeout, or an unavailable observation is not proof
+of command failure. A start/poll observation timeout returns the saved command
+reference, phase, output and preparation checkpoint with an explicit
+`observation.status=timed_out`. These are last-confirmed facts, not fresh
+liveness. It does not reset collection budgets, clear admission, authorize
+replay, or trigger another poll inside the same call. Stop failures still
+require explicit failure reporting rather than a claimed acknowledgement.
+A paused collection,
+expired observation, or unavailable result can produce a reviewed explanation
+of the incomplete task, but cannot create a Stop request. Once that explanation
+has been reviewed, a new observation must not block its publication. The final
+bounded read can update diagnostics without changing the reviewed facts. A later
+authorized request can poll the original reference after the first submission
+settles; it cannot replay the command or revise the first task's published
+outcome. Explicit cancellation, original execution failure intent, and existing
+durable Stop handoffs retain their separate stopping authority.
 The command receipt retains the requested Stop signal and its native delivery
 acknowledgement. After an acquisition timeout, polling and collection continue
 the pending Stop for that same identity. A short native inspection can avoid
@@ -760,10 +851,21 @@ not converted to running state. Start returns a bounded initial output slice.
 When the model ends with unfinished commands, terminal handling requests their
 stop and reports failure rather than claiming the work completed. This is a
 command lifecycle contract, not proof that Computer image updates are safe.
-The retained PID runs Tini with process-group signal forwarding, so cancellation
-reaches shell children and pipelines belonging to that command. Each command
-gets its own process group on the shared Computer. No parallel PID registry is
-introduced. Terminal cleanup still attempts every owned command when output
+With negotiated execution supervision v1, native Runner owns one process group
+per command and sends Stop, timeout and disposal signals to that group, including
+when the main process exited but descendants still hold stdout or stderr.
+Container PID 1 uses Tini to reap orphaned children. An intentional new session
+or process group can escape this boundary; Stop does not promise to terminate
+all such descendants. Normal exit is retained only after both output pipes
+close. Observer cancellation preserves output; explicit disposal discards it.
+The SDK reads execution capability on connect and selects v1 only on the same
+prepared handle and native database epoch used by the execution fence. Valid
+older native information selects the existing Tini wrapper; unreadable,
+malformed or unknown capability evidence fails closed. Deploy Worker first,
+then native. Old Worker / new native retains legacy execution and its existing
+SIGKILL forwarding limitation. Same-database hot binary replacement is not a
+supported capability handoff. No parallel PID registry is introduced.
+Terminal cleanup still attempts every owned command when output
 inspection fails; an output transport error must not strand an active process.
 If an acknowledged or previously observed command is absent from both inspection
 and Stop, its owner records confirmed loss. Before launch acknowledgement,
@@ -799,14 +901,28 @@ not acquire authority to stop another accepted call.
 
 The finish hook can feed pending receipts back once. A second model finish does
 not authorize Stop while the original Computer still observes active work.
-The original unsettled Flue hook waits through bounded receipt reads while the
+The original unsettled Flue hook waits through single-flight receipt reads while the
 existing Computer alarm advances preparation and result collection. It respects
 the hook AbortSignal, explicit Stop and the original turn's authority. It does
 not create repeated model feedback cycles, a replacement task or a total
 execution deadline. Ordinary queued input waits for the current turn; explicit
 Stop can interrupt it. Completion supplies retained result references to the
-model before its final answer. Paused observation, explicit loss or unavailable
-evidence enters the existing recovery-facts and cleanup handoff. The hook
+model before its final answer. A slow read remains one in-flight observation;
+a rejected read retries with bounded backoff under the original turn authority.
+Neither a local observation timeout nor a failed read authorizes Stop. Abort
+ends the local wait without claiming to cancel the underlying read-only RPC.
+Paused collection, explicit loss or unavailable results confirmed by the Computer
+enter the existing recovery-facts and reviewed incomplete-outcome path. These
+facts do not create a Stop handoff. Unknown read state keeps the observer waiting.
+Normal result publication and completed-result reconciliation only confirm
+Computer state; they cannot create a Stop obligation. Explicit cancellation,
+confirmed execution failure and existing Stop handoffs retain cleanup authority.
+The original execution retains a requested safety failure through terminal
+settlement. After the terminal compare-and-set, publication and crash recovery
+deliver any canonical cancellation or safety Stop intent before the callback.
+This closes the race with a late Stop without treating an observation error as
+Stop authority or adding a second execution owner.
+The hook
 persists that disposition with Flue's atomic hook state. Cleanup progress
 cannot upgrade an already blocked task to success.
 
@@ -1742,8 +1858,9 @@ publication does not confirm termination. This does not create another
 continuation, refund unknown writes, or allow later assistant prose or cleanup
 progress to upgrade the task to success.
 
-Long Computer operations retain their command keys and are followed through
-separate bounded `computer_command` polls. Code Mode's 60-second script timeout
+Long Computer operations retain their command keys. Agent command tools wait
+through bounded observations without spending a model turn on each unchanged
+poll. Code Mode's 60-second script timeout
 is not the assignment lifetime. The shared `useAgentFinish` check feeds bounded
 owned-command and recovery facts back to the model; it neither judges arbitrary
 deliverable quality nor waits for downstream publication. Explicit stopping
@@ -2458,6 +2575,22 @@ effort at admission. The Harness reads that frozen route value. Usage remains re
 worker through OpenMeld-owned usage records and Analytics Engine and attributes
 the effective primary model.
 
+Changing a model preference affects newly admitted submissions. An already
+admitted submission, its exact recovery, and its running Computer commands keep
+their frozen route and execution identity. Steering text does not replace that
+route. A later submission in the same conversation uses the new selection and
+the existing canonical history, files, and command references; it must not
+restart completed work to reconstruct context.
+
+Context maintenance must fit the selected model too. When the old history or
+checkpoint exceeds its input capacity, the existing compaction owner reduces
+bounded source slices sequentially and commits only the final checkpoint after
+every slice succeeds. Failure preserves the previous canonical projection.
+Completed old messages may move out of the retained tail at complete message
+and tool-result boundaries. Active user input remains intact; if that input
+and required instructions cannot fit, report the capacity limit without
+promising that repeating the same request will fix it.
+
 The worker accepts legacy version-1 submissions during the mixed-deployment and
 recovery window. Those requests preserve the historical Grok 4.5 route because
 they contain no model route, including the historical image-input capability;
@@ -2693,7 +2826,7 @@ ordinary turns. Core owns only the logical-conversation-to-active-generation
 pointer. That pointer is routing metadata, not transcript, memory, execution,
 or publication truth.
 
-OpenMeld configures compaction with five explicit budgets:
+OpenMeld configures compaction with six explicit budgets:
 
 - model-specific `reserveTokens` starts compaction before the provider context
   limit or a known higher prompt-price band;
@@ -2705,12 +2838,19 @@ OpenMeld configures compaction with five explicit budgets:
 - `workingContextHeadroomTokens = 8,000` (reduced for small models) reserves
   room for new work when selecting the recent tail. Fixed prompt/tool cost
   and checkpoint allowance are deducted first. Indivisible tool pairs can
-  exceed this target; the hard working-context ceiling still applies; and
-- `maxSummaryTokens = 4,096` caps each summary completion independently of the
-  physical model reserve. Reasoning tokens count toward this limit.
+  exceed this target; the hard working-context ceiling still applies;
+- `summaryTargetTokens = 2,048` gives the summarizer an explicit visible
+  checkpoint target. It prioritizes active constraints, confirmed outcomes,
+  unresolved work, and source references instead of listing the full history;
+  and
+- `maxSummaryTokens = 4,096` caps each sequential summary call independently
+  of the physical model reserve. Reasoning tokens also count toward this limit.
+  The visible-text target leaves room to reason and finish; it is not another
+  truncation mechanism or permission to exceed the working-context ceiling.
 
 Working-context compaction produces one checkpoint for earlier history and
-the unfinished turn together, with one summary output budget. Its observation
+the unfinished turn together. Each summary call uses the same output ceiling;
+only the final checkpoint is committed after all calls succeed. Its observation
 reports fixed context, before/after estimates, target and ceiling. This is
 maintenance evidence, not exact vendor tokenization or proof of task progress.
 
@@ -2718,11 +2858,26 @@ The working-context budget uses the shared four-bytes-per-token text estimate
 and Flue's 1,200-token image heuristic, not an exact vendor tokenizer. Base64
 image bytes are preserved for inference and excluded from text estimation;
 the separate final payload-capacity and media-admission guards remain intact.
+Recent-tail selection uses this same UTF-8 and serialized-content projection,
+including opaque provider signatures. Those signatures remain intact in kept
+messages; they cannot count toward admission while being omitted from cut
+planning. Legacy compaction without a working-context budget keeps its existing
+estimate and provider-usage behavior.
 Flue commits its normal compaction checkpoint and
 rebuilds its active projection before inference. The original canonical entries
 remain intact. An incomplete or empty summary cannot replace that projection.
+After such a failure, the next submission prepares context from those same
+canonical entries, including after a runtime restart, with the budget still
+enabled. A valid checkpoint can then commit through the normal Flue path;
+recovering context never replays a completed operation.
 The working checkpoint preserves active constraints, corrections, unresolved
 work and source pointers instead of repeatedly copying every historical fact.
+The summarizer's system instruction treats an earlier checkpoint as source
+material to rewrite, not a draft to expand. Each fact belongs in one section;
+historical inventories become conclusions with source references or recall
+phrases. This keeps the visible-text target meaningful when an older checkpoint
+is already long. It does not raise the generation ceiling or accept a truncated
+checkpoint.
 The summary must not describe omitted evidence as nonexistent. During a tool
 loop, the cut retains the issuing assistant message with its tool results.
 If compaction cannot fit the current request, inference fails explicitly rather
@@ -3873,8 +4028,17 @@ but not trigger.
    Routines and task coordination. The explanation describes the recovery
    snapshot supplied to the original model. Later background cleanup progress
    updates the diagnostic projection, but must not discard that explanation or
-   upgrade the task to success. Without evidence that the model received the
-   recovery facts, its text is not a reviewed failure explanation.
+   upgrade the task to success. Canonical answer retention is independent of
+   that review marker: runtime recovery can settle a saved answer without
+   another finish-hook cycle. Without evidence that the model received the
+   recovery facts, the terminal owner preserves the exact canonical answer
+   under an explicit incomplete-outcome notice and labels any completion
+   claims as unverified. It never reconstructs an answer from streaming text,
+   grants Stop authority, or promotes the task to success. Cancellation,
+   safety failures and execution identity checks still take precedence.
+   The historical `reviewedFailureExplanation` publication field protects
+   this retained failure text from summary replacement; it is not evidence
+   that the model reviewed the latest Computer facts.
    Core maps other known failure codes to
    approved public copy; an unknown code always uses the generic request-failed
    copy, while the worker detail remains diagnostic-only. Failure copy names
@@ -4230,7 +4394,7 @@ Core-owned hosted readiness has exactly two product states in MVP:
 
 "It runs in the cloud, therefore it is always green" is a contract violation.
 
-### Free MVP with operator containment and usage visibility
+### Free credits, workspace keys, and usage visibility
 
 Remote inference usage records distinguish Flue's `agent`, `compaction`, and
 `compaction_prefix` purposes by joining the public turn-request observation to
@@ -4240,15 +4404,15 @@ so existing Usage clients can read totals unchanged; the ledger retains the
 detail for operator cost analysis. Core must accept the added record purposes
 before Remote Agent emits them. No local Service or CLI contract changes.
 
-- The Remote Agent is **free** in MVP. No billing build.
+- Hosted inference uses [workspace AI credits and keys](../engineering/ai-billing.md).
+  Free includes 5,000 credits per UTC month for the creator's first workspace.
+  Workspace BYOK uses a separate key. All workspaces follow the same funding rules.
 - The retired **$50/org/day circuit breaker**, `resting` state, and
   **60 Remote Agent triggers/member/hour** limit are not active product
-  gates. Historical database columns and migrations remain because old rows
-  are durable evidence, but Core no longer reads or writes them.
+  gates. Historical database columns and migrations remain as durable evidence.
 - Operator containment remains a global runtime kill switch and an optional
-  per-organization blocklist. Both are operational controls. An optional
-  Organization daily AI allowance defaults to unlimited and is managed by
-  operators through `scripts/ops/ai-usage-policy.mjs`; members cannot raise it.
+  per-organization blocklist. Both are operational controls. The former daily
+  allowance is retired; OpenRouter's native monthly key limit owns enforcement.
 - Per-turn usage is recorded by the Remote Agent worker from Flue prompt
   usage, emitted to Analytics Engine, and exposed through
   `readUsageDiagnostics`. Core does not add usage fields to the native
@@ -4259,9 +4423,9 @@ before Remote Agent emits them. No local Service or CLI contract changes.
   it never includes prompts, message text, provider response text, or tokens.
   This operational evidence does not decide admission, retry, timeout, native
   delivery, or final result-surface truth.
-- New-turn default route: Cloudflare AI Gateway → OpenRouter BYOK
-  `z-ai/glm-5.3-flash` with the environment-owned BYOK alias (`openrouter` in
-  production). The legacy version-1
+- New-turn requests use Cloudflare AI Gateway → OpenRouter with the current
+  workspace key, or direct OpenRouter when no gateway is configured. A stored
+  official BYOK alias is never a funding fallback. The legacy version-1
   environment fallback remains `x-ai/grok-4.5` for durable recovery
   compatibility (settled; see Implementation Base).
 - Organization-scoped OpenRouter routes retain native prompt-cache capabilities

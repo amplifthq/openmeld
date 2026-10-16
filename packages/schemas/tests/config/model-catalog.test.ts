@@ -9,6 +9,7 @@ import codexGpt6Capture from "../fixtures/codex-gpt-6-sol-luna-2026.09.23.json";
 import sparkWithdrawal from "../fixtures/codex-spark-withdrawal-2026.10.09.json";
 import cursorModelCatalogCapture from "../fixtures/cursor-model-catalog-2026.09.10.json";
 import cursorOctoberReviewCapture from "../fixtures/cursor-model-catalog-2026.10.07.json";
+import gemini4Capture from "../fixtures/gemini-4-native-models-2026.10.14.json";
 import haikuCapture from "../fixtures/haiku-5.5-local-model-catalog-2026.10.08.json";
 import localModelCatalogCapture from "../fixtures/local-model-catalog-2026.09.22.json";
 import octoberModelCatalogCapture from "../fixtures/local-model-catalog-2026.10.01.json";
@@ -18,8 +19,40 @@ import openCodeOctoberCapture from "../fixtures/opencode-model-catalog-1.18.34.j
 import openCodeReviewCapture from "../fixtures/opencode-model-catalog-2026.10.06.json";
 import openCodeLatestReviewCapture from "../fixtures/opencode-model-catalog-2026.10.07.json";
 import openCodeAlignmentCapture from "../fixtures/opencode-model-catalog-2026.10.09.json";
+import openCodeOctober14Capture from "../fixtures/opencode-model-catalog-2026.10.14.json";
+import museWonderCapture from "../fixtures/opencode-muse-wonder-2026.10.13.json";
 
 describe("model catalog schema", () => {
+  it("preserves Gemini 4 native IDs and channel reasoning contracts", () => {
+    const { agentControllers } = modelCatalogSchema.parse(vendorModelCatalog);
+    for (const controller of ["antigravity", "cursor"] as const) {
+      for (const model of gemini4Capture[controller].availableModels) {
+        expect(gemini4Capture[controller].configOptions).toContainEqual({
+          value: model.modelId,
+          name: model.name,
+          ...(controller === "antigravity"
+            ? { description: model.modelId }
+            : {}),
+        });
+        expect(agentControllers[controller]?.models).toContainEqual(
+          expect.objectContaining({
+            id: model.modelId,
+            supportedReasoningLevels: [],
+            unavailable: false,
+          })
+        );
+      }
+    }
+    for (const model of gemini4Capture.opencode.models) {
+      expect(agentControllers.opencode?.models).toContainEqual(
+        expect.objectContaining({
+          id: `${model.providerID}/${model.id}`,
+          supportedReasoningLevels: Object.keys(model.variants),
+          unavailable: false,
+        })
+      );
+    }
+  });
   it.each([
     "gpt-5.4",
     "gpt-5.4-mini",
@@ -145,6 +178,8 @@ describe("model catalog schema", () => {
       ...openCodeReviewCapture.models,
       ...haikuCapture.opencode.models,
       ...openCodeAlignmentCapture.models,
+      ...museWonderCapture.models,
+      ...openCodeOctober14Capture.models,
     ]) {
       expect(agentControllers.opencode?.models).toContainEqual(
         expect.objectContaining({
@@ -214,6 +249,15 @@ describe("model catalog schema", () => {
     ).toEqual(
       [
         "anthropic/claude-haiku-5.5",
+        ...openCodeOctober14Capture.models.map(
+          (model) => `${model.providerID}/${model.id}`
+        ),
+        "gemini-4-argon-medium",
+        "gemini-4-argon[reasoning_effort=medium]",
+        "google/gemini-4-argon",
+        "openrouter/google/gemini-4-argon",
+        "meta/muse-wonder",
+        "openrouter/meta/muse-wonder",
         haikuCapture.claudeCode.modelId,
         ...haikuCapture.cursor.availableModels.map((model) => model.modelId),
         ...haikuCapture.opencode.models.map(
@@ -295,8 +339,8 @@ describe("model catalog schema", () => {
                     authType: "chatgpt",
                   },
                   sourceUrl:
-                    "https://learn.chatgpt.com/docs/models#deprecated-codex-models",
-                  verifiedAt: "2026-10-09T03:16:42Z",
+                    "https://learn.chatgpt.com/docs/models#gpt-55-retirement",
+                  verifiedAt: "2026-10-14T02:04:04Z",
                 },
               }
             : {}),

@@ -290,6 +290,7 @@ export const remoteAgentTurnEnvelopeMemoryItemSchema = z.discriminatedUnion(
 export const remoteAgentTurnEnvelopeMemorySchema = z.strictObject({
   items: z.array(remoteAgentTurnEnvelopeMemoryItemSchema).max(8),
   truncated: z.boolean(),
+  status: z.enum(["partial", "unavailable"]).optional(),
 });
 
 export const remoteAgentTurnEnvelopeSchema = z

@@ -60,7 +60,7 @@ type SpaceMemberAvatarsProps = {
 	appearances?: ReadonlyMap<string, SpaceMemberAppearance>;
 	layout?: "compact" | "horizontal" | "grid";
 	memberCount?: number | null;
-	compactSize?: 20 | 24;
+	compactSize?: 20 | 24 | 32 | 48;
 };
 function visibleGridMembers(total: number, available: number, slots: number) {
 	return Math.min(available, total > slots ? slots - 1 : slots);

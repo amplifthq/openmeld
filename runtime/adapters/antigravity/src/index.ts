@@ -29,6 +29,7 @@ import {
 import { withAntigravityDispatchSpaceAction } from "./transport/antigravity-space-action.js";
 
 export {
+  checkAntigravityAcpAccount,
   invokeAntigravityAcpTransport,
   isAntigravityAcpLaunchContract,
   probeAntigravityAcp,
@@ -132,6 +133,34 @@ export function createAntigravityAdapter(
   };
 }
 
+function assertExecutionContextSupported(
+  request: AdapterDispatchRequest,
+  launchContract: RuntimeAgentControllerLaunchContract
+) {
+  if (request.executionContext) {
+    if (!isAntigravityAcpLaunchContract(launchContract)) {
+      throw new AntigravityCliTransportError({
+        code: "execution_context.antigravity_acp_required",
+        errorType: "config",
+        message:
+          "Select the official Antigravity ACP installation and sign in before starting an independent task.",
+      });
+    }
+    if (
+      request.executionContext.permissionSource !== "agent_settings" ||
+      request.executionContext.access !== "workspace" ||
+      request.executionContext.forkSource
+    ) {
+      throw new AntigravityCliTransportError({
+        code: "execution_context.controller_access_unsupported",
+        errorType: "config",
+        message:
+          "Antigravity tasks use Agent settings. Start a new task without extra access restrictions or a history fork.",
+      });
+    }
+  }
+}
+
 function createDefaultAntigravityInvoke(input: {
   activeTasks: Map<string, ActiveTask>;
   options: AntigravityAdapterOptions;
@@ -156,13 +185,16 @@ function createDefaultAntigravityInvoke(input: {
             "runtime.cancelled_before_start: Antigravity dispatch was canceled before launch",
         });
       }
+      assertExecutionContextSupported(request, launchContract);
       const contextId = normalizeOptionalText(
         request.agentControllerConversationId
       );
       const result = await invokeWithSingleContextHeal({
         contextId,
         contextLossPolicy:
-          request.executionMode === "repair" ? "fail" : "rebuild",
+          request.executionContext || request.executionMode === "repair"
+            ? "fail"
+            : "rebuild",
         createRebuildFailedError: (error) =>
           new AntigravityCliTransportError({
             code: "context.rebuild_failed",

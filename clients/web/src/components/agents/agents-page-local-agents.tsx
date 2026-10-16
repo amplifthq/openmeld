@@ -109,6 +109,7 @@ import {
 	type LocalAgentConsumptionScope,
 } from "./local-agent-consumption";
 import { LocalAgentInstallEmptyState } from "./local-agent-install-empty-state";
+import { LocalAgentUpdateControl } from "./local-agent-update-control";
 
 type AgentsPageController = ReturnType<typeof useLocalAgentRecoveryController>;
 type DeviceAgentCatalogEntry =
@@ -403,6 +404,7 @@ function OwnedLocalAgentsCard(input: LocalAgentsCardOwnerProps) {
 			<LocalAgentCatalogList
 				capabilities={{
 					manageInstallations: catalogState.canManageInstallations,
+					updateInstallations: catalogState.canUpdateInstallations,
 					refreshCatalog: canRefreshCatalog,
 					setEnabled: catalogState.canSetEnabled,
 				}}
@@ -640,6 +642,7 @@ type LocalAgentsCatalogNoticeModel = {
 type LocalAgentsCatalogState = {
 	connectionStatus: LocalAgentCatalogRowSummaryStatus | null;
 	canManageInstallations: boolean;
+	canUpdateInstallations: boolean;
 	canRefreshCatalog: boolean;
 	canSetEnabled: boolean;
 	entries: readonly DeviceAgentCatalogEntry[];
@@ -660,9 +663,7 @@ function resolveLocalAgentsCatalogState(input: {
 }): LocalAgentsCatalogState {
 	const target = resolveLocalAgentsCatalogTarget(input);
 	const canConfigure = canConfigureLocalComputer();
-	const controls = canConfigure
-		? (input.controlCapabilities ?? target?.localAgentControl)
-		: undefined;
+	const controls = input.controlCapabilities ?? target?.localAgentControl;
 	const serviceDependency = resolveLocalAgentsServiceDependency(
 		input.replyReadiness
 	);
@@ -696,25 +697,16 @@ function resolveLocalAgentsCatalogState(input: {
 				formatLocalSetupActionLabel("connect_local_agent"))
 			? null
 			: resolvedPrimaryActionLabel;
+	const controlsAvailable =
+		input.hasSelectedEnvironment && !checking && !serviceDependency;
 
 	return {
 		connectionStatus,
-		canManageInstallations:
-			input.hasSelectedEnvironment &&
-			!checking &&
-			!serviceDependency &&
-			controls?.manageInstallations === true &&
-			controls.manageInstallationsSafely === true,
-		canRefreshCatalog:
-			input.hasSelectedEnvironment &&
-			!checking &&
-			!serviceDependency &&
-			controls?.refreshCatalog === true,
-		canSetEnabled:
-			input.hasSelectedEnvironment &&
-			!checking &&
-			!serviceDependency &&
-			controls?.setEnabled === true,
+		...resolveLocalAgentControlCapabilities(
+			controlsAvailable,
+			canConfigure,
+			controls
+		),
 		entries: target?.localAgentCatalog.entries ?? [],
 		notice: checking
 			? {
@@ -731,6 +723,24 @@ function resolveLocalAgentsCatalogState(input: {
 				input.replyReadiness?.status !== "checking"),
 		target,
 		targetStatus: target?.status ?? null,
+	};
+}
+
+function resolveLocalAgentControlCapabilities(
+	available: boolean,
+	canConfigure: boolean,
+	controls: LocalRuntimeExecutionTarget["localAgentControl"] | undefined
+) {
+	return {
+		canUpdateInstallations: available && controls?.updateInstallations === true,
+		canManageInstallations:
+			available &&
+			canConfigure &&
+			controls?.manageInstallations === true &&
+			controls.manageInstallationsSafely === true,
+		canRefreshCatalog:
+			available && canConfigure && controls?.refreshCatalog === true,
+		canSetEnabled: available && canConfigure && controls?.setEnabled === true,
 	};
 }
 
@@ -994,6 +1004,7 @@ function LocalAgentCatalogList(input: {
 	connectionStatus: LocalAgentCatalogRowSummaryStatus | null;
 	capabilities: {
 		manageInstallations: boolean;
+		updateInstallations: boolean;
 		refreshCatalog: boolean;
 		setEnabled: boolean;
 	};
@@ -1155,6 +1166,7 @@ function LocalAgentCatalogList(input: {
 								),
 								canRefreshCatalog: input.capabilities.refreshCatalog,
 								canManageInstallations: input.capabilities.manageInstallations,
+								canUpdateInstallations: input.capabilities.updateInstallations,
 								canSetEnabled: input.capabilities.setEnabled,
 								entry: effectiveEntry,
 								isCheckingAgents: input.isCheckingAgents,
@@ -1249,6 +1261,8 @@ function LocalAgentInstallationSummary(input: {
 
 function LocalAgentInstallationControl(input: {
 	target: LocalAgentInstallationTarget;
+	canUpdate: boolean;
+	canSelect: boolean;
 	agentId: string;
 	displayName: string;
 	onChanged: () => Promise<unknown>;
@@ -1405,7 +1419,10 @@ function LocalAgentInstallationControl(input: {
 				<div className="w-fit min-w-0 max-w-full sm:max-w-72">
 					{renderLocalAgentInstallationField({
 						currentInstallation,
-						disabled: pendingInstallationId !== null || selectionBlocked,
+						disabled:
+							!input.canSelect ||
+							pendingInstallationId !== null ||
+							selectionBlocked,
 						displayName: input.displayName,
 						installations,
 						isError: installationsQuery.isError,
@@ -1484,6 +1501,19 @@ function LocalAgentInstallationControl(input: {
 				<output className="break-words text-muted-foreground text-sm">
 					{statusMessage}
 				</output>
+			) : null}
+			{currentInstallation && input.canUpdate ? (
+				<LocalAgentUpdateControl
+					agentId={input.agentId}
+					blocked={selectionBlocked || pendingInstallationId !== null}
+					installationId={currentInstallation.installationId}
+					onChanged={async () => {
+						await installationsQuery.refetch();
+						await input.onChanged();
+					}}
+					storageScope={input.target.storageScope}
+					target={input.target}
+				/>
 			) : null}
 		</section>
 	);
@@ -1732,6 +1762,7 @@ type BuildLocalAgentCatalogRowInput = {
 	connectionStatus: LocalAgentCatalogRowSummaryStatus | null;
 	accountEmailRevealed: boolean;
 	canManageInstallations: boolean;
+	canUpdateInstallations?: boolean;
 	canRefreshCatalog: boolean;
 	canSetEnabled: boolean;
 	entry: DeviceAgentCatalogEntry;
@@ -1971,6 +2002,47 @@ function LocalAgentUpdateBanner(input: { command: string; detail: string }) {
 	);
 }
 
+function AntigravitySignIn(
+	input: Pick<
+		BuildLocalAgentCatalogRowInput,
+		"canRefreshCatalog" | "isCheckingAgents" | "onCheckAgents"
+	>
+) {
+	return (
+		<div className="flex flex-col items-start gap-2">
+			<div className="w-full text-muted-foreground text-sm">
+				<AgentControllerIssueDetail
+					canCheckAgain
+					canRefreshCatalog={input.canRefreshCatalog}
+					isCheckingAgents={input.isCheckingAgents}
+					message="Run this command in a terminal on this computer. Open the sign-in link it shows, then select Check again."
+					onCheckAgents={input.onCheckAgents}
+				/>
+			</div>
+			<code className="text-xs">openmeld agents login antigravity</code>
+			<Button
+				onClick={() => {
+					copyCliEntryCommand("openmeld agents login antigravity")
+						.then((copied) => {
+							if (copied) {
+								toast.success("Sign-in command copied.");
+							}
+						})
+						.catch(() =>
+							toast.error(
+								"Could not copy the command. Select and copy it above."
+							)
+						);
+				}}
+				size="sm"
+				variant="outline"
+			>
+				Copy sign-in command
+			</Button>
+		</div>
+	);
+}
+
 function renderLocalAgentConsumption(
 	input: BuildLocalAgentCatalogRowInput,
 	view: "preview" | "detail"
@@ -2005,15 +2077,38 @@ function renderLocalAgentCatalogRowDetail(input: {
 	);
 	return (
 		<div className="space-y-3">
+			{input.snapshot.controllerId === "antigravity" &&
+			input.snapshot.nativeInterface === "acp" &&
+			input.snapshot.auth.status === "unauthenticated" ? (
+				<AntigravitySignIn
+					canRefreshCatalog={input.rowInput.canRefreshCatalog}
+					isCheckingAgents={input.rowInput.isCheckingAgents}
+					onCheckAgents={input.rowInput.onCheckAgents}
+				/>
+			) : null}
+			{input.snapshot.controllerId === "antigravity" &&
+			input.snapshot.nativeInterface === "local-cli" ? (
+				<a
+					className="text-sm underline underline-offset-4"
+					href="https://www.antigravity.google/docs/ide/extensions/xcode"
+					rel="noreferrer"
+					target="_blank"
+				>
+					Install official Antigravity ACP
+				</a>
+			) : null}
 			{versionAdvisory?.updateCommand ? (
 				<LocalAgentUpdateBanner
 					command={versionAdvisory.updateCommand}
 					detail={versionAdvisory.detail}
 				/>
 			) : null}
-			{input.canChangeInstallation && input.rowInput.target ? (
+			{(input.canChangeInstallation || input.rowInput.canUpdateInstallations) &&
+			input.rowInput.target ? (
 				<LocalAgentInstallationControl
 					agentId={input.rowInput.entry.agentId}
+					canSelect={input.canChangeInstallation}
+					canUpdate={input.rowInput.canUpdateInstallations === true}
 					displayName={input.rowInput.entry.displayName}
 					onChanged={input.rowInput.onRefresh}
 					target={{
@@ -2419,6 +2514,13 @@ function resolveAgentControllerInterfaceSummaryStatus(
 		// Signing in is a routine account state, not a computer failure: keep it
 		// quiet (muted row, no red) the same way a switched-off agent reads.
 		return { label: "Not signed in", tone: "muted" };
+	}
+	if (
+		snapshot.controllerId === "antigravity" &&
+		snapshot.auth.status === "unknown" &&
+		snapshot.check?.status === "succeeded"
+	) {
+		return { label: "Installed", tone: "muted" };
 	}
 	if (snapshot.status === "error") {
 		return snapshot.launch.status === "needs_repair"

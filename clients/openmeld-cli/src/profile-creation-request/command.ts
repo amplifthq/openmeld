@@ -44,6 +44,8 @@ export type ProfileCreationRequestCreateInput =
     modelId?: string;
     openCodePermissionInput?: string;
     nativeSessionId?: string;
+    sharedConversationId?: string;
+    acknowledgeSharedConversation?: boolean;
     profileName?: string;
     reasoningLevel?: string;
     reuseSavedDefaultProject?: boolean;
@@ -172,6 +174,14 @@ async function resolveRequestConfiguration(options: {
   });
   return agentProfileCreationConfigurationSchema.parse({
     ...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+    ...(input.sharedConversationId
+      ? {
+          sharedConversation: {
+            conversationId: input.sharedConversationId,
+            acknowledged: input.acknowledgeSharedConversation === true,
+          },
+        }
+      : {}),
     agentControllerCollaborationMode:
       normalizeOptionalText(input.agentControllerCollaborationMode) ?? null,
     agentControllerPermissionMode:
@@ -302,6 +312,7 @@ async function resolveRequestDefaultProjectId(options: {
   }
   if (
     input.reuseSavedDefaultProject === false ||
+    input.sharedConversationId ||
     !agentControllerRef ||
     targetOwnerUserId !== context.callerUserId
   ) {

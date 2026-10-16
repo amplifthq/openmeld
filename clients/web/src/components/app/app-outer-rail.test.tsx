@@ -253,7 +253,7 @@ const FELIX_ACCOUNT_MENU_ITEM_NAME = /Felix.*felix@example\.com/;
 const USER_MENU_PATTERN = /Open user menu for/;
 const INBOX_LINK_NAME_PATTERN = /^Inbox/;
 const CLASS_NAME_SEGMENT_SEPARATOR_PATTERN = /\s+/u;
-const PRIMARY_RAIL_LABELS = ["Inbox", "Spaces", "Team"] as const;
+const PRIMARY_RAIL_LABELS = ["Inbox", "Spaces", "Team", "Routines"] as const;
 
 describe("AppOuterRail", () => {
 	beforeEach(() => {
@@ -1767,12 +1767,40 @@ describe("AppOuterRail", () => {
 			screen.getByRole("link", { name: "Team" }).getAttribute("aria-current")
 		).toBe("page");
 	});
+	it("keeps Routines primary and selected without duplicating an old saved pin", async () => {
+		window.localStorage.setItem(
+			"openmeld.appearance.sidebar-shortcuts",
+			"routines files"
+		);
+		routerLocation = {
+			pathname: "/o/acme/routines",
+			searchStr: "?scope=personal&routineId=routine-a",
+		};
+		appShellSection = "routines";
+		renderRail();
+		const routine = screen.getByRole("link", { name: "Routines" });
+		expect(routine.getAttribute("href")).toBe("/o/acme/routines");
+		expect(routine.getAttribute("aria-current")).toBe("page");
+		expect(
+			screen.getByRole("link", { name: "Team" }).getAttribute("aria-current")
+		).toBeNull();
+		const pins = screen.getByRole("navigation", { name: "Pinned shortcuts" });
+		expect(within(pins).queryByRole("link", { name: "Routines" })).toBeNull();
+		expect(within(pins).getByRole("link", { name: "Files" })).toBeTruthy();
+		fireEvent.keyDown(screen.getByRole("link", { name: "Team" }), {
+			key: "ArrowDown",
+		});
+		await screen.findByRole("button", { name: "Pin Agents to sidebar" });
+		expect(
+			screen.queryByRole("button", { name: "Pin Routines to sidebar" })
+		).toBeNull();
+		expect(screen.getAllByRole("link", { name: "Routines" })).toHaveLength(1);
+	});
 	it.each([
 		["Agents", "/o/acme/agents", "agents", "Team", "Agents"],
 		["Plugins", "/o/acme/plugins", "plugins", "Team", "Plugins"],
 		["Skills", "/o/acme/skills", "skills", "Team", "Skills"],
 		["Files", "/o/acme/files", "files", "Team", "Files"],
-		["Routines", "/o/acme/routines", "people", "Team", "Routines"],
 		[
 			"Direct messages",
 			"/o/acme/spaces?view=messages",

@@ -211,6 +211,8 @@ export type RemoteAgentWorkerBindingRpc = {
 // CloudflareBindings. Gateway typegen imports core source for service RPC
 // typing; using a global env type here causes cross-worker type collisions.
 export type CoreBindings = {
+  OPENROUTER_MANAGEMENT_API_KEY?: string;
+  OPENMELD_AI_CREDENTIAL_CRYPTO_KEY?: string;
   OPENMELD_ACCOUNT_DELETION_GATEWAY?: {
     disconnectAccountConnection(
       input: import("@openmeld/schemas").AccountDeletionConnection

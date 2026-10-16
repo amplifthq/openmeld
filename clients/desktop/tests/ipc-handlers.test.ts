@@ -1,4 +1,8 @@
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { installCli } from "../src/main/cli/commands";
 import {
   createDesktopHandlers,
   type DesktopCommandSet,
@@ -165,6 +169,132 @@ function makeCommands(
 }
 
 describe("createDesktopHandlers", () => {
+  it.each([
+    "v20.19.2",
+    "v26.0.0",
+  ])("preserves a selected standalone carrier failure on %s without probing Node", async (version) => {
+    const root = await mkdtemp(join(tmpdir(), "openmeld-carrier-status-"));
+    try {
+      const node = join(root, "node");
+      await writeFile(node, "#!/bin/sh\n");
+      await chmod(node, 0o755);
+      const exec = vi.fn((_file, _args, _options, callback) => {
+        callback(null, version, "");
+        return {};
+      });
+      const carrier = join(root, "managed-openmeld");
+      const commands = makeCommands({
+        serviceStatus: async () => ({
+          ok: false,
+          kind: "spawn_failed",
+          error: {
+            code: "ENOENT",
+            message: "Selected standalone CLI failed to launch",
+          },
+          exitCode: 1,
+          rawStdout: "",
+        }),
+      });
+      const handlers = createDesktopHandlers({
+        commands,
+        commandDeps: {
+          openMeldBin: carrier,
+          env: {
+            PATH: root,
+            OPENMELD_HOME: join(root, "home"),
+            OPENMELD_DESKTOP_DISABLE_COMMON_PATH_DIRS: "1",
+          },
+          exec,
+        },
+      });
+      for (const present of [false, true]) {
+        if (present) {
+          await writeFile(carrier, "#!/bin/sh\nexit 1\n");
+          await chmod(carrier, 0o755);
+        }
+        await expect(handlers.getServiceStatus()).resolves.toMatchObject({
+          problem: {
+            code: "ENOENT",
+            message: "Selected standalone CLI failed to launch",
+          },
+        });
+      }
+      expect(exec).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    "v20.19.2",
+    "v26.0.0",
+  ])("keeps the Node upgrade problem across install rejection and refresh on %s", async (initialVersion) => {
+    const root = await mkdtemp(join(tmpdir(), "openmeld-runtime-status-"));
+    try {
+      for (const name of ["node", "npm"]) {
+        await writeFile(join(root, name), "#!/bin/sh\n");
+        await chmod(join(root, name), 0o755);
+      }
+      let version = initialVersion;
+      const exec = vi.fn((_file, _args, _options, callback) => {
+        callback(null, `${version}\n`, "");
+        return {};
+      });
+      const handlers = createDesktopHandlers({
+        commandDeps: {
+          env: {
+            OPENMELD_BIN: "",
+            OPENMELD_HOME: join(root, "home"),
+            OPENMELD_DESKTOP_DISABLE_COMMON_PATH_DIRS: "1",
+            PATH: root,
+          },
+          exec,
+        },
+        commands: makeCommands({
+          installCli,
+          serviceStatus: async () => ({
+            ok: false,
+            kind: "spawn_failed",
+            error: { code: "ENOENT", message: "CLI is not installed" },
+            exitCode: 1,
+            rawStdout: "",
+          }),
+        }),
+      });
+      const expected = {
+        problem: {
+          code: "desktop.node_unsupported",
+          message: expect.stringContaining("Install Node.js 24 (recommended)"),
+        },
+      };
+      await expect(handlers.getServiceStatus()).resolves.toMatchObject(
+        expected
+      );
+      await expect(handlers.installCli()).resolves.toMatchObject(expected);
+      // Both periodic polling and focus refresh use this status handler.
+      await expect(handlers.getServiceStatus()).resolves.toMatchObject(
+        expected
+      );
+      await expect(handlers.getServiceStatus()).resolves.toMatchObject(
+        expected
+      );
+      expect(
+        exec.mock.calls.every(
+          ([file, args]) =>
+            file === join(root, "node") && args[0] === "--version"
+        )
+      ).toBe(true);
+
+      // A real runtime change must clear the problem, without sticky UI state.
+      version = "v24.14.0";
+      await expect(handlers.getServiceStatus()).resolves.toMatchObject({
+        problem: { code: "desktop.openmeld_cli_missing" },
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("returns the current service view from the service status projection", async () => {
     const commands = makeCommands({
       serviceStatus: vi.fn(async () => serviceStatus("not_running")),
@@ -708,7 +838,12 @@ describe("createDesktopHandlers", () => {
 
   it("reads and updates the Desktop open-at-login setting through the injected adapter", async () => {
     let openAtLogin = false;
+    let startInBackground = false;
     const desktopSettings = {
+      getStartInBackground: vi.fn(() => startInBackground),
+      setStartInBackground: vi.fn((enabled: boolean) => {
+        startInBackground = enabled;
+      }),
       getOpenAtLogin: vi.fn(() => openAtLogin),
       setOpenAtLogin: vi.fn((enabled: boolean) => {
         openAtLogin = enabled;
@@ -721,20 +856,29 @@ describe("createDesktopHandlers", () => {
 
     await expect(handlers.getDesktopSettings()).resolves.toEqual({
       openAtLogin: false,
+      startInBackground: false,
       problem: null,
     });
     await expect(handlers.setOpenAtLogin(true)).resolves.toEqual({
       openAtLogin: true,
+      startInBackground: false,
       problem: null,
     });
 
     expect(desktopSettings.setOpenAtLogin).toHaveBeenCalledWith(true);
+    await expect(handlers.setStartInBackground(true)).resolves.toEqual({
+      openAtLogin: true,
+      startInBackground: true,
+      problem: null,
+    });
   });
 
   it("returns a read-failed Desktop settings problem when login item settings cannot be read", async () => {
     const handlers = createDesktopHandlers({
       commands: makeCommands(),
       desktopSettings: {
+        getStartInBackground: vi.fn(() => false),
+        setStartInBackground: vi.fn(),
         getOpenAtLogin: vi.fn(() => {
           throw new Error("Electron could not read login item settings.");
         }),
@@ -744,6 +888,7 @@ describe("createDesktopHandlers", () => {
 
     await expect(handlers.getDesktopSettings()).resolves.toEqual({
       openAtLogin: null,
+      startInBackground: null,
       problem: {
         code: "desktop_settings.read_failed",
         message: "Electron could not read login item settings.",
@@ -755,6 +900,8 @@ describe("createDesktopHandlers", () => {
     const handlers = createDesktopHandlers({
       commands: makeCommands(),
       desktopSettings: {
+        getStartInBackground: vi.fn(() => false),
+        setStartInBackground: vi.fn(),
         getOpenAtLogin: vi.fn(() => false),
         setOpenAtLogin: vi.fn(() => {
           throw new Error("Electron could not update login item settings.");
@@ -764,6 +911,7 @@ describe("createDesktopHandlers", () => {
 
     await expect(handlers.setOpenAtLogin(true)).resolves.toEqual({
       openAtLogin: null,
+      startInBackground: null,
       problem: {
         code: "desktop_settings.update_failed",
         message: "Electron could not update login item settings.",
@@ -776,6 +924,7 @@ describe("createDesktopHandlers", () => {
 
     await expect(handlers.getDesktopSettings()).resolves.toMatchObject({
       openAtLogin: null,
+      startInBackground: null,
       problem: { code: "desktop_settings.unavailable" },
     });
   });

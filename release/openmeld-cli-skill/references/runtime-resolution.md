@@ -1,5 +1,11 @@
 # Command Context Reference
 
+In CLI invocation examples, replace only the leading `openmeld` executable with
+the exact command prefix from the latest `setup.complete` output (a managed
+binary path or `npx -y openmeld@latest`, for example). Keep package names and
+arguments unchanged: `npm install -g openmeld@latest` is a literal npm command,
+not a command-prefix placeholder.
+
 Use this file when command behavior depends on sign-in, profile, view mode, or
 saved local settings.
 

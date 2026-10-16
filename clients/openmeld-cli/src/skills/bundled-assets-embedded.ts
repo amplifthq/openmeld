@@ -12,6 +12,12 @@
 import onboarding from "../../skills/openmeld-cli/playbooks/agent-onboarding.md" with {
   type: "file",
 };
+import computer from "../../skills/openmeld-cli/playbooks/computer.md" with {
+  type: "file",
+};
+import plugins from "../../skills/openmeld-cli/playbooks/plugins.md" with {
+  type: "file",
+};
 import spaceOps from "../../skills/openmeld-cli/playbooks/space-ops.md" with {
   type: "file",
 };
@@ -34,6 +40,8 @@ const EMBEDDED_SKILL_FILES: ReadonlyArray<{
   handle: string;
 }> = [
   { relativePath: "README.md", handle: readme },
+  { relativePath: "openmeld-cli/playbooks/plugins.md", handle: plugins },
+  { relativePath: "openmeld-cli/playbooks/computer.md", handle: computer },
   { relativePath: "openmeld-cli/SKILL.md", handle: skill },
   {
     relativePath: "openmeld-cli/playbooks/agent-onboarding.md",

@@ -145,7 +145,7 @@ export function AppModuleSidebar(input: {
 	);
 	const content = (
 		<SidebarContent
-			contentClassName="px-3 pt-2.5 pb-5"
+			contentClassName="px-2 pt-2.5 pb-5"
 			viewportProps={{
 				onScroll: (event) =>
 					scrollPositions.set(input.scrollKey, event.currentTarget.scrollTop),

@@ -145,6 +145,13 @@ selection; one Agent's selection never applies to another Agent. No selection
 is required to send a normal message. A Task is a work record, not an execution
 session. Marking it In progress changes its phase; it does not launch an Agent.
 
+Session selection support comes from the shared Agent Controller policy. Core
+rejects explicit choices for unsupported controllers before publishing the
+message, creating its Task, or enqueueing its Wake. CLI checks the same policy
+before uploading message files. Omitted choices retain normal routing. Validated
+material handoffs keep their separate contract: a hosted recipient uses its
+existing Computer; accepting the handoff does not create a new cloud session.
+
 Composer authoring adds optional `taskDraft` and `contextSelections` fields.
 Task creation and the original message's dispatch commit together. Dispatch
 context names the existing Task, assignee, and reviewer so Agents can update it
@@ -165,6 +172,20 @@ return it to the assignee. Agent-to-Agent handoffs use normal Space Wake
 admission and stop after two automatic rework rounds, then require a human
 requester or Space owner to authorize more work. Task state never substitutes
 for RuntimeCoordinator or native-delivery execution truth.
+An explicit Task delegation assigns the existing Task and records its reviewer
+with the initial Wake intent in one Space transaction. Ordinary assignment still
+does not Wake anyone. Delegation remains **To do** until its assignee explicitly
+starts it; a queued or failed handoff is shown separately. Generic Wake,
+ordinary replies, and execution completion never advance the Task. Every
+initial, review, and rework handoff carries the same Task identity and its
+current brief in the Agent dispatch context.
+When the Center Agent arranges a Task for its verified current human requester,
+Core rechecks the live delivery, Binding, and requester access. The requester
+must still be an active member of this Space and the Task's requester. This
+permits assignment, brief updates, and reviewer selection only; it does not
+permit the Center Agent to start, submit, or accept another Agent's work.
+A requested reviewer must be an active Space member before delegation succeeds.
+An unavailable reviewer is a blocker, not an implicit choice of no review.
 Reviews name the exact submitted result revision the reviewer saw. A concurrent
 result or Task change requires a fresh decision; clients do not replay an old
 acceptance against a refreshed revision. A human Space owner can take over an
@@ -1924,6 +1945,16 @@ UI or derive an alternate final status from component-local state. Live
 progress may enrich this one projection while the Space is open, but it remains
 transient evidence and never replaces Core or RuntimeCoordinator execution
 truth.
+
+An originating Center Agent request also exposes its explicitly declared
+delegation through Message details. Each child has one row with the permitted
+task/context summary, execution or publication state, and authorized source and
+result links. The declared completion policy identifies who owns the follow-up;
+child completion does not imply the original request has its final answer.
+Unreadable children remain unavailable without disclosing their Agent, content,
+locations, or input. A planned fallback is labeled as such and never presented
+as executing. Same-Space Stop reuses the existing exact-Wake control; input and
+recovery links open the child's existing source-message controls.
 
 **Graph** is the Space-wide visual view of those same recorded collaboration
 facts. Messages and Graph are two presentations of one loaded Space

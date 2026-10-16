@@ -76,6 +76,18 @@ export function createAgentControllerInterfaceDisplayRows(
   snapshot: AgentControllerInterfaceSnapshot
 ): AgentControllerInterfaceDisplayRow[] {
   const rows = createAgentControllerInterfaceOperationalDisplayRows(snapshot);
+  if (
+    snapshot.controllerId === "antigravity" &&
+    snapshot.check?.status === "succeeded"
+  ) {
+    const controller = rows.find((row) => row.label === "Controller");
+    if (controller && snapshot.auth.status !== "authenticated") {
+      controller.value =
+        snapshot.auth.status === "unauthenticated"
+          ? "Not signed in"
+          : "Installed";
+    }
+  }
   rows.splice(1, 0, {
     label: "Account",
     value: formatAgentControllerAccount(snapshot),
@@ -130,6 +142,12 @@ export function resolveAgentControllerInterfaceDescription(input: {
     return `${input.snapshot.displayName} check is delayed. OpenMeld will retry automatically.`;
   }
   if (input.snapshot.auth.status === "unauthenticated") {
+    if (
+      input.snapshot.controllerId === "antigravity" &&
+      input.snapshot.nativeInterface === "acp"
+    ) {
+      return "Sign in to Antigravity ACP on this computer, then check again.";
+    }
     const signInCopy = resolvePublicAgentAvailabilityCopy(
       "controller.auth.unauthenticated",
       { agentControllerId: input.snapshot.controllerId }
@@ -144,6 +162,13 @@ export function resolveAgentControllerInterfaceDescription(input: {
   }
   if (input.snapshot.message) {
     return input.snapshot.message;
+  }
+  if (
+    input.snapshot.controllerId === "antigravity" &&
+    input.snapshot.auth.status === "unknown" &&
+    input.snapshot.check?.status === "succeeded"
+  ) {
+    return "Antigravity CLI is installed. Select the official ACP installation to verify sign-in in OpenMeld.";
   }
   if (
     input.snapshot.check?.status === "succeeded" &&

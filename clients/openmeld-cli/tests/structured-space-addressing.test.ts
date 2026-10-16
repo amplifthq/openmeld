@@ -64,6 +64,52 @@ describe("explicit CLI Space addressing", () => {
         .outboundMessageEnvelope?.activationTargets
     ).toEqual([agentId]);
   });
+  it.each([
+    "wakeTargets",
+    "referenceTargets",
+    "mentionTargets",
+  ] as const)("rejects a duplicate leading address for %s without rewriting the body", async (relation) => {
+    const human = relation === "mentionTargets";
+    await expect(
+      prepare({
+        [relation]: [human ? humanId : agentId],
+        text: `@${human ? "Alex (Design)" : "Review (wake) @ East"} Please review.`,
+      })
+    ).rejects.toMatchObject({ code: "addressing.duplicate_target" });
+  });
+  it("preserves names quoted in the body and longer unrelated names", async () => {
+    for (const text of [
+      'Please ask about "@Review (wake) @ East".',
+      "@Review (wake) @ Eastern is mentioned here.",
+      "@Review (wake) @ East-Coast is mentioned here.",
+    ]) {
+      expect(
+        (await prepare({ text, wakeTargets: [agentId] })).outboundText
+      ).toBe(`@Review (wake) @ East ${text}`);
+    }
+  });
+  it.each([
+    ",",
+    ":",
+    ".",
+    ";",
+    "!",
+    "?",
+    "，",
+    "：",
+    "。",
+    "、",
+    "—",
+    "–",
+    "…",
+  ])("rejects a duplicate leading address followed by %s", async (punctuation) => {
+    await expect(
+      prepare({
+        wakeTargets: [agentId],
+        text: `@Review (wake) @ East${punctuation} Please review.`,
+      })
+    ).rejects.toMatchObject({ code: "addressing.duplicate_target" });
+  });
   it("rejects conflicting relations rather than choosing an action", async () => {
     await expect(
       prepare({ wakeTargets: [agentId], referenceTargets: [agentId] })

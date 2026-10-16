@@ -110,7 +110,9 @@ async function createFolder(c: Context<HonoBindings>): Promise<Response> {
   }
 }
 
-async function getFile(c: Context<HonoBindings>): Promise<Response> {
+async function getFile(
+  c: Context<HonoBindings, "/v1/organizations/current/files/:location/:entryId">
+): Promise<Response> {
   const target = resolveTarget(c);
   if (target instanceof Response) {
     return target;
@@ -130,7 +132,9 @@ async function getFile(c: Context<HonoBindings>): Promise<Response> {
   }
 }
 
-async function listRevisions(c: Context<HonoBindings>): Promise<Response> {
+async function listRevisions(
+  c: Context<HonoBindings, "/v1/organizations/current/files/:location/:entryId">
+): Promise<Response> {
   const target = resolveTarget(c);
   if (target instanceof Response) {
     return target;
@@ -152,7 +156,9 @@ async function listRevisions(c: Context<HonoBindings>): Promise<Response> {
   }
 }
 
-async function updateEntry(c: Context<HonoBindings>): Promise<Response> {
+async function updateEntry(
+  c: Context<HonoBindings, "/v1/organizations/current/files/:location/:entryId">
+): Promise<Response> {
   const target = resolveTarget(c);
   if (target instanceof Response) {
     return target;
@@ -175,7 +181,9 @@ async function updateEntry(c: Context<HonoBindings>): Promise<Response> {
   }
 }
 
-async function trashEntry(c: Context<HonoBindings>): Promise<Response> {
+async function trashEntry(
+  c: Context<HonoBindings, "/v1/organizations/current/files/:location/:entryId">
+): Promise<Response> {
   const target = resolveTarget(c);
   if (target instanceof Response) {
     return target;
@@ -197,7 +205,9 @@ async function trashEntry(c: Context<HonoBindings>): Promise<Response> {
   }
 }
 
-async function restoreEntry(c: Context<HonoBindings>): Promise<Response> {
+async function restoreEntry(
+  c: Context<HonoBindings, "/v1/organizations/current/files/:location/:entryId">
+): Promise<Response> {
   const target = resolveTarget(c);
   if (target instanceof Response) {
     return target;
@@ -228,7 +238,7 @@ export function resolveTarget(
 
 export function resolveFileRootTarget(
   c: Context<HonoBindings>,
-  location: string
+  location: string | undefined
 ): FileRootTarget | Response {
   const context = c.var.openMeldRequestContext;
   const organizationId = context.activeOrganizationId;

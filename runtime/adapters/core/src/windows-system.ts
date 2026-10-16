@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { win32 } from "node:path";
 import { promisify } from "node:util";
 import { windowsNativeProcessRequestSchema } from "@openmeld/schemas";
@@ -147,4 +147,21 @@ export function readWindowsProcessStartFileTime(pid: number): string | null {
   } catch {
     return null;
   }
+}
+
+export function startWindowsIdleSleepBlocker() {
+  return spawn(resolveWindowsNativeProcessHelper(), [], {
+    env: {
+      ...process.env,
+      [WINDOWS_NATIVE_PROCESS_REQUEST_ENV]: Buffer.from(
+        JSON.stringify(
+          windowsNativeProcessRequestSchema.parse({
+            operation: "prevent-idle-sleep",
+          })
+        )
+      ).toString("base64"),
+    },
+    windowsHide: true,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
 }

@@ -16,6 +16,7 @@ import {
 	formatMutationError,
 	isLocalAgentControlStillRunningError,
 } from "#/components/agents/agents-page-formatters";
+import { LocalAgentSetupControl } from "#/components/agents/local-agent-setup-control";
 import { ComputerSetupChoiceCard } from "#/components/connect/computer-setup-choice-card";
 import { DesktopAwareLink } from "#/desktop/desktop-aware-link";
 import type { AgentProfileBindingChoice } from "./agent-binding-choice-list";
@@ -220,6 +221,19 @@ function LocalAgentSelectionStatePanel(input: {
 			</div>
 		);
 	}
+	if (
+		state.connectionSetup &&
+		["checking", "not_installed", "signed_out"].includes(state.kind)
+	) {
+		return (
+			<div className={className}>
+				<LocalAgentSetupControl
+					{...state.connectionSetup}
+					agentId={state.agentId}
+				/>
+			</div>
+		);
+	}
 	if (state.kind === "checking") {
 		return (
 			<output
@@ -348,9 +362,14 @@ function resolveSelectionStateContent(
 	switch (state.kind) {
 		case "not_installed":
 			return {
-				title: `Install ${state.displayName} on this computer.`,
+				title:
+					state.agentId === "grok-bot"
+						? "Install Grok Bot connection tools."
+						: `Install ${state.displayName} on this computer.`,
 				description:
-					"Install it, finish its first-run setup, then check again.",
+					state.agentId === "grok-bot"
+						? "Update OpenMeld Service for in-app setup, or follow the setup guide."
+						: "Install it, finish its first-run setup, then check again.",
 			};
 		case "signed_out":
 			return {

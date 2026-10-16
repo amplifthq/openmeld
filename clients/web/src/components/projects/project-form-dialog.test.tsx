@@ -189,7 +189,7 @@ describe("ProjectFormDialog", () => {
 });
 
 function renderDialog(input: {
-	onSubmit: ReturnType<typeof vi.fn>;
+	onSubmit: import("vitest").Mock;
 	project?: Project | null;
 }) {
 	return render(

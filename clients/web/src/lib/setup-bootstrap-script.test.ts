@@ -1686,8 +1686,76 @@ describe("setup-bootstrap-script", () => {
 	});
 
 	it.each([
+		[20, false],
+		[20, true],
+		[21, false],
+		[21, true],
+		[26, false],
+		[26, true],
+	] as const)(
+		"continues standalone setup on Node %s (old npm package: %s)",
+		(major, hasOldPackage) => {
+			const root = mkdtempSync(join(tmpdir(), "openmeld-binary-node-policy-"));
+			const bin = join(root, "bin");
+			const callsPath = join(root, "calls.txt");
+			const npmCalls = join(root, "npm-calls.txt");
+			const npmRoot = join(root, "npm-root");
+			if (hasOldPackage) {
+				mkdirSync(join(npmRoot, "openmeld"), { recursive: true });
+				writeFileSync(
+					join(npmRoot, "openmeld/package.json"),
+					JSON.stringify({ version: "1.0.0" })
+				);
+			}
+			try {
+				mkdirSync(bin);
+				for (const command of ["curl", "shasum", "uname"]) {
+					linkFakeBootstrapCommand(bin, command);
+				}
+				writeFileSync(
+					join(bin, "node"),
+					`#!/bin/sh\ncase "$2" in *process.versions.node*) printf '%s\\n' '${major}';; *) exec '${process.execPath}' "$@";; esac\n`,
+					{ mode: 0o755 }
+				);
+				writeFileSync(
+					join(bin, "npm"),
+					'#!/bin/sh\nprintf "%s\\n" "$*" >> "$OPENMELD_TEST_NPM_CALLS"\n[ "$*" = "root -g" ] || exit 1\nprintf "%s\\n" "$OPENMELD_TEST_NPM_ROOT"\n',
+					{ mode: 0o755 }
+				);
+				const result = spawnBootstrapScript(
+					root,
+					buildOpenMeldSetupBootstrapScript({ lane: "prod" }),
+					["setup", "--start-session", "fixture", "--ott", "fixture"],
+					{
+						env: {
+							HOME: root,
+							PATH: bootstrapTestPath(bin),
+							OPENMELD_TEST_CALLS_PATH: callsPath,
+							OPENMELD_TEST_NPM_CALLS: npmCalls,
+							OPENMELD_TEST_NPM_ROOT: npmRoot,
+						},
+					}
+				);
+				expect(result.status).toBe(0);
+				expect(result.stdout.includes("was left unchanged")).toBe(
+					hasOldPackage
+				);
+				expect(result.stdout).toContain('"code":"setup.complete"');
+				expect(readFileSync(callsPath, "utf8")).toBe(
+					"install-self\nsetup --start-session fixture --ott fixture\n"
+				);
+				expect(readFileSync(npmCalls, "utf8")).toBe("root -g\n");
+			} finally {
+				rmSync(root, { recursive: true, force: true });
+			}
+		},
+		SHELL_BOOTSTRAP_TEST_TIMEOUT_MS
+	);
+	it.each([
 		19,
+		20,
 		21,
+		23,
 		26,
 		"unreadable",
 	])("rejects Node major %s before npm acquisition in the generated shell", (major) => {
@@ -1719,8 +1787,87 @@ describe("setup-bootstrap-script", () => {
 				}
 			);
 			expect(result.status).toBe(1);
-			expect(result.stdout).toContain("20.x || >=22 <26");
+			expect(result.stdout).toContain("22.x || 24.x || 25.x");
+			expect(result.stdout).toContain("Node.js 24 (recommended)");
 			expect(existsSync(callsPath)).toBe(false);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+	it.each([
+		24, 26,
+	])("selects the keg-only Homebrew runtime and validates major %s", (major) => {
+		const root = mkdtempSync(join(tmpdir(), "openmeld-brew-node-"));
+		try {
+			const bin = join(root, "brew-bin");
+			const prefix = join(root, "node 24 keg");
+			mkdirSync(bin);
+			mkdirSync(join(prefix, "bin"), { recursive: true });
+			const calls = join(root, "brew-calls");
+			writeFileSync(
+				join(bin, "brew"),
+				`#!/bin/sh
+printf '%s\\n' "$*" >> "$BREW_CALLS"
+case "$*" in
+ 'install node@24') /bin/chmod +x "$NODE_PREFIX/bin/node" ;;
+ '--prefix node@24') printf '%s\\n' "$NODE_PREFIX" ;;
+ *) exit 9 ;;
+esac
+`,
+				{ mode: 0o755 }
+			);
+			writeFileSync(
+				join(prefix, "bin/node"),
+				`#!/bin/sh\nprintf '%s\\n' '${major}'\n`,
+				{ mode: 0o644 }
+			);
+			writeFileSync(join(prefix, "bin/npm"), "#!/bin/sh\nnode -p version\n", {
+				mode: 0o755,
+			});
+			const script = buildOpenMeldSetupBootstrapScript({
+				distribution: "npm",
+				lane: "prod",
+			});
+			const functions = script.slice(
+				script.indexOf("ensure_node_runtime() {"),
+				script.indexOf("run_clean_openmeld_env() {")
+			);
+			const result = spawnSync(
+				"/bin/sh",
+				[
+					"-c",
+					`
+say() { printf '%s\\n' "$1"; }
+die() { say "$1"; exit 1; }
+confirm() { say "$1"; return 0; }
+command_exists() {
+ if [ "$1" = node ]; then [ -x "$NODE_PREFIX/bin/node" ]; else command -v "$1" >/dev/null; fi
+}
+${functions}
+ensure_node_runtime
+npm --version
+`,
+				],
+				{
+					encoding: "utf8",
+					env: {
+						PATH: bin,
+						NODE_PREFIX: prefix,
+						BREW_CALLS: calls,
+						HOME: root,
+					},
+				}
+			);
+			expect(readFileSync(calls, "utf8")).toBe(
+				"install node@24\n--prefix node@24\n"
+			);
+			expect(result.status).toBe(major === 24 ? 0 : 1);
+			if (major === 24) {
+				expect(result.stdout).toContain(`export PATH="${prefix}/bin:$PATH"`);
+				expect(result.stdout.trim().endsWith("24")).toBe(true);
+			} else {
+				expect(result.stdout).toContain("Install Node.js 24 (recommended)");
+			}
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}

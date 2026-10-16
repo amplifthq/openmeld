@@ -22,13 +22,15 @@ const GITHUB_LINK_NAME = /GitHub/;
 const CANVA_LINK_NAME = /Canva/;
 const GOOGLE_DRIVE_LINK_NAME = /Google Drive/;
 const GOOGLE_SHEETS_LINK_NAME = /Google Sheets/;
-const GMAIL_LINK_NAME = /Gmail/;
+const GMAIL_LINK_NAME = /^Gmail/;
+const ZOOM_LINK_NAME = /^Zoom/;
 const FIGMA_LINK_NAME = /Figma/;
 const NOTION_LINK_NAME = /Notion/;
 const SLACK_LINK_NAME = /Slack/;
 const TEAMS_LINK_NAME = /Microsoft Teams/;
 const TRANSIENT_STATUS_COPY = /checking|updating/i;
 const listAppConnectionsMock = vi.hoisted(() => vi.fn());
+const listProvidersMock = vi.hoisted(() => vi.fn());
 const scopeState = vi.hoisted(() => ({
 	value: "personal" as "personal" | "organization",
 }));
@@ -57,6 +59,7 @@ vi.mock("@tanstack/react-router", () => ({
 
 vi.mock("#/lib/organizations/connector-connections", () => ({
 	listCurrentOrganizationAppConnections: listAppConnectionsMock,
+	listCurrentOrganizationConnectorAppCatalog: listProvidersMock,
 }));
 
 describe("PluginsCatalogPanel", () => {
@@ -67,6 +70,7 @@ describe("PluginsCatalogPanel", () => {
 			currentUserId: "user-1",
 			organizationId: "org-acme",
 		});
+		listProvidersMock.mockReset();
 	});
 
 	afterEach(cleanup);
@@ -91,11 +95,14 @@ describe("PluginsCatalogPanel", () => {
 		expect(screen.queryByText("17TRACK")).toBeNull();
 	});
 
-	it("keeps personal mail, calendars, and meetings out of the organization catalog and retains a cleanup link for older shared connections", async () => {
+	it("discovers personal Plugins through organization search while keeping browsing and connected filtering scoped", async () => {
 		scopeState.value = "organization";
 		listAppConnectionsMock.mockResolvedValue({
 			connections: [
 				{ ...activeConnection("gmail"), scope: "shared", canDisconnect: true },
+				activeConnection("zoom"),
+				{ ...activeConnection("notion"), scope: "shared" },
+				{ ...activeConnection("gmail"), userId: "another-member" },
 			],
 			currentUserId: "user-1",
 			organizationId: "org-acme",
@@ -118,6 +125,42 @@ describe("PluginsCatalogPanel", () => {
 				"href"
 			)
 		).toBe("/o/acme/plugins/gmail?scope=organization");
+
+		fireEvent.change(screen.getByLabelText("Search Plugins"), {
+			target: { value: "zoom" },
+		});
+		const zoom = screen.getByRole("link", { name: ZOOM_LINK_NAME });
+		expect(zoom.getAttribute("href")).toBe(
+			"/o/acme/plugins/zoom?scope=personal"
+		);
+		expect(within(zoom).getByText("Personal")).toBeTruthy();
+		expect(within(zoom).getByText("Connected")).toBeTruthy();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Show connected Plugins" })
+		);
+		expect(screen.queryByTestId("app-logo-zoom")).toBeNull();
+		expect(
+			screen.getByText("No matching connected Plugins in Acme")
+		).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Show connected Plugins" })
+		);
+
+		fireEvent.change(screen.getByLabelText("Search Plugins"), {
+			target: { value: "gmail" },
+		});
+		const gmail = screen.getByRole("link", { name: GMAIL_LINK_NAME });
+		expect(gmail.getAttribute("href")).toBe(
+			"/o/acme/plugins/gmail?scope=personal"
+		);
+		expect(within(gmail).getByText("Not connected")).toBeTruthy();
+
+		fireEvent.change(screen.getByLabelText("Search Plugins"), {
+			target: { value: "  " },
+		});
+		expect(screen.queryByTestId("app-logo-zoom")).toBeNull();
+		expect(screen.queryByTestId("app-logo-gmail")).toBeNull();
 	});
 
 	it("keeps Plugin navigation available while connection status loads", () => {
@@ -153,7 +196,7 @@ describe("PluginsCatalogPanel", () => {
 		const githubLink = screen.getByRole("link", { name: GITHUB_LINK_NAME });
 		expect(catalog.getAttribute("aria-busy")).toBe("true");
 		expect(githubLink.hasAttribute("aria-disabled")).toBe(false);
-		expect(within(githubLink).queryByText("Account connected")).toBeNull();
+		expect(within(githubLink).queryByText("Connected")).toBeNull();
 		expect(
 			within(githubLink).queryByTestId("plugin-connection-status-skeleton")
 		).toBeTruthy();
@@ -181,43 +224,37 @@ describe("PluginsCatalogPanel", () => {
 		const own = screen.getByRole("link", { name: GITHUB_LINK_NAME });
 		const shared = screen.getByRole("link", { name: NOTION_LINK_NAME });
 		expect(
-			await within(scope === "personal" ? own : shared).findByText(
-				"Account connected"
-			)
+			await within(scope === "personal" ? own : shared).findByText("Connected")
 		).toBeTruthy();
 		expect(
-			within(scope === "personal" ? shared : own).queryByText(
-				"Account connected"
-			)
+			within(scope === "personal" ? shared : own).queryByText("Connected")
 		).toBeNull();
 		expect(
 			within(screen.getByRole("link", { name: FIGMA_LINK_NAME })).queryByText(
-				"Account connected"
+				"Connected"
 			)
 		).toBeNull();
 	});
 
-	it("shows Account connected only for real Plugin connections", async () => {
+	it("shows Connected only for real Plugin connections", async () => {
 		renderCatalog();
 
 		const githubLink = screen.getByRole("link", { name: GITHUB_LINK_NAME });
-		expect(
-			await within(githubLink).findByText("Account connected")
-		).toBeTruthy();
+		expect(await within(githubLink).findByText("Connected")).toBeTruthy();
 		expect(screen.queryByText("Available")).toBeNull();
 		expect(
 			within(
 				screen.getByRole("link", { name: GOOGLE_DRIVE_LINK_NAME })
-			).queryByText("Account connected")
+			).queryByText("Connected")
 		).toBeNull();
 		expect(
 			within(screen.getByRole("link", { name: NOTION_LINK_NAME })).getByText(
-				"Account connected"
+				"Connected"
 			)
 		).toBeTruthy();
 		expect(
 			within(screen.getByRole("link", { name: FIGMA_LINK_NAME })).queryByText(
-				"Account connected"
+				"Connected"
 			)
 		).toBeNull();
 		expect(screen.queryByText("Planned")).toBeNull();
@@ -282,14 +319,79 @@ describe("PluginsCatalogPanel", () => {
 			)
 		).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
-		expect(screen.queryByText("Account connected")).toBeNull();
+		expect(screen.queryByText("Connected")).toBeNull();
 		expect(screen.queryByText("Available")).toBeNull();
+		fireEvent.click(screen.getByLabelText("Show connected Plugins"));
+		expect(screen.queryByText("No Plugins found")).toBeNull();
+	});
+
+	it("renders known connections while the provider catalog is still pending", async () => {
+		let releaseProviders!: (value: { providers: unknown[] }) => void;
+		listProvidersMock.mockReturnValue(
+			new Promise((resolve) => {
+				releaseProviders = resolve;
+			})
+		);
+		renderCatalog(createTestQueryClient(), false);
+		expect(screen.getByLabelText("Loading Plugins")).toBeTruthy();
+		expect(
+			await screen.findByRole("link", { name: GITHUB_LINK_NAME })
+		).toBeTruthy();
+		expect(screen.getByLabelText("Loading Plugins")).toBeTruthy();
+		releaseProviders({ providers: capturedProviders.data });
+		expect(
+			await screen.findByRole("link", { name: GOOGLE_DRIVE_LINK_NAME })
+		).toBeTruthy();
+		expect(screen.queryByLabelText("Loading Plugins")).toBeNull();
+	});
+
+	it("filters only the current member's connections, including those needing reconnection", async () => {
+		listAppConnectionsMock.mockResolvedValue({
+			connections: [
+				{
+					...activeConnection("github"),
+					health: { state: "reconnect_required" },
+				},
+				{ ...activeConnection("notion"), userId: "another-user" },
+				{ ...activeConnection("gmail"), scope: "shared" },
+			],
+			currentUserId: "user-1",
+			organizationId: "org-acme",
+		});
+		renderCatalog();
+		await screen.findByText("Reconnect required");
+		const filter = screen.getByLabelText("Show connected Plugins");
+		fireEvent.click(filter);
+		expect(filter.getAttribute("aria-pressed")).toBe("true");
+		expect(screen.getAllByRole("link")).toHaveLength(1);
+		expect(screen.getByRole("link", { name: GITHUB_LINK_NAME })).toBeTruthy();
+		fireEvent.change(screen.getByLabelText("Search Plugins"), {
+			target: { value: "notion" },
+		});
+		expect(screen.queryByRole("link")).toBeNull();
+		fireEvent.click(screen.getByText("Clear filters"));
+		expect(filter.getAttribute("aria-pressed")).toBe("false");
+		expect(screen.getAllByRole("link")).toHaveLength(PLUGINS.length);
+	});
+
+	it("keeps a filtered cold load pending rather than claiming no connections", () => {
+		listAppConnectionsMock.mockReturnValue(new Promise(() => undefined));
+		renderCatalog();
+		fireEvent.click(screen.getByLabelText("Show connected Plugins"));
+		expect(screen.getByLabelText("Loading Plugins")).toBeTruthy();
+		expect(screen.queryByText("No Plugins found")).toBeNull();
+		fireEvent.click(screen.getByLabelText("Show connected Plugins"));
+		expect(screen.getByRole("link", { name: GITHUB_LINK_NAME })).toBeTruthy();
 	});
 });
 
-function renderCatalog(queryClient = createTestQueryClient()) {
+function renderCatalog(
+	queryClient = createTestQueryClient(),
+	seedProviders = true
+) {
 	// Captured vendor contract; these layout cases model configured OAuth clients.
 	if (
+		seedProviders &&
 		!queryClient.getQueryData(
 			organizationPluginConnectionQueryKeys.providers("org-acme")
 		)
@@ -333,7 +435,7 @@ function renderCatalog(queryClient = createTestQueryClient()) {
 	);
 }
 
-function activeConnection(service: "github" | "notion" | "gmail") {
+function activeConnection(service: "github" | "notion" | "gmail" | "zoom") {
 	return {
 		canDisconnect: true,
 		connectionName: `org_aaaaaaaaaaaaaaaaaa__user_bbbbbbbbbbbbbbbbbb__${service}`,

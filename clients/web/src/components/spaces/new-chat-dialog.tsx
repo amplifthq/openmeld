@@ -15,10 +15,7 @@ import { organizationSpaceProfileCandidatesQueryOptions } from "#/query/organiza
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import { useCreateSpace } from "#/query/spaces/space-creation";
 import { PeopleAgentPickerDialog } from "./people-agent-picker-dialog";
-import {
-	buildOrganizationDirectoryAddCandidates,
-	filterAddMemberGroups,
-} from "./people-agent-picker-model";
+import { buildOrganizationDirectoryAddCandidates } from "./people-agent-picker-model";
 import { useCreatedPickerAgents } from "./use-created-picker-agents";
 
 export function NewChatDialog(input: {
@@ -156,10 +153,7 @@ export function NewChatDialog(input: {
 	}
 	return (
 		<PeopleAgentPickerDialog
-			candidateGroups={filterAddMemberGroups(
-				groups,
-				query.trim().toLocaleLowerCase()
-			)}
+			candidateGroups={groups}
 			canSubmit={
 				Boolean(defaultHumanProfile) &&
 				selection.length > 0 &&
@@ -176,6 +170,7 @@ export function NewChatDialog(input: {
 			}
 			isLoading={directory.isPending}
 			isSubmitting={submitting}
+			key={org.id}
 			notice={
 				multiple &&
 				selection.some(
@@ -187,10 +182,12 @@ export function NewChatDialog(input: {
 					</p>
 				)
 			}
-			onAgentCreated={(agent) => {
+			onAgentCreated={(agent, selected) => {
 				createdAgents.onCreated(agent);
 				setQuery("");
-				setSelected((current) => new Set([...current, agent.profileId]));
+				if (selected) {
+					setSelected((current) => new Set([...current, agent.profileId]));
+				}
 				setError(null);
 			}}
 			onClear={() => {

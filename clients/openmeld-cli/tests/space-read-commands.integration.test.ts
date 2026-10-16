@@ -2680,7 +2680,7 @@ describe("space read commands", () => {
       );
       expect(plainStdout).toContain("Status type: done");
       expect(plainStdout).toContain(
-        "`space result` reads archived dispatch results only."
+        "`space result --dispatch` reads archived or published results."
       );
     });
   });
@@ -3814,7 +3814,7 @@ describe("space read commands", () => {
     });
   });
 
-  it("explains that missing dispatch results are a read-scope boundary, not silent breakage", async () => {
+  it("explains that a missing result-ref archive does not prove a failed Wake", async () => {
     await withTempHome(async () => {
       getAuthSessionStateMock.mockResolvedValue(VALID_AUTH_STATE);
       await withSilencedStdio(async () => {
@@ -3849,7 +3849,7 @@ describe("space read commands", () => {
           profile: PROFILE.openMeldProfileId,
           baseUrl: "http://localhost",
           space: VALID_SPACE_ID,
-          dispatchId: "dispatch-missing",
+          resultRef: "result-missing",
           json: false,
           view: "human",
         })
@@ -3862,7 +3862,7 @@ describe("space read commands", () => {
     });
   });
 
-  it("explains missing dispatch results even when the server reports upstream_error", async () => {
+  it("preserves missing result-ref errors from an older upstream receiver", async () => {
     await withTempHome(async () => {
       getAuthSessionStateMock.mockResolvedValue(VALID_AUTH_STATE);
       await withSilencedStdio(async () => {
@@ -3897,7 +3897,7 @@ describe("space read commands", () => {
           profile: PROFILE.openMeldProfileId,
           baseUrl: "http://localhost",
           space: VALID_SPACE_ID,
-          dispatchId: "dispatch-missing",
+          resultRef: "result-missing",
           json: false,
           view: "human",
         })
@@ -3945,7 +3945,7 @@ describe("space read commands", () => {
           profile: PROFILE.openMeldProfileId,
           baseUrl: "http://localhost",
           space: VALID_SPACE_ID,
-          dispatchId: "dispatch-missing",
+          resultRef: "result-missing",
           json: true,
           view: "human",
         })
@@ -3954,7 +3954,7 @@ describe("space read commands", () => {
         requestId: "req-result-agent-404",
         status: 404,
         message: expect.stringContaining(
-          `--dispatch 'dispatch-missing' --profile '${PROFILE.openMeldProfileId}' --gateway-url 'http://localhost' --view agent`
+          `--dispatch <dispatch-id> --profile '${PROFILE.openMeldProfileId}' --gateway-url 'http://localhost' --view agent`
         ),
       });
     });

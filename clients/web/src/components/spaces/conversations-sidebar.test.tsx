@@ -126,7 +126,7 @@ async function selectView(name: "Grouped" | "Recent") {
 it("hides previews by default and remembers an explicit choice after remount", async () => {
 	const mounted = mount();
 	const previewName =
-		"Open preview message in Release planning: The release plan is ready to review.";
+		"Open preview message in Product design: The release plan is ready to review.";
 	expect(screen.queryByRole("link", { name: previewName })).toBeNull();
 	fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
 	fireEvent.click(
@@ -136,6 +136,11 @@ it("hides previews by default and remembers an explicit choice after remount", a
 	);
 	expect(await screen.findByRole("link", { name: previewName })).toBeTruthy();
 	expect(screen.getByRole("link", { name: "Release planning" })).toBeTruthy();
+	expect(
+		screen.queryByRole("link", {
+			name: "Open preview message in Release planning: The release plan is ready to review.",
+		})
+	).toBeNull();
 	mounted.unmount();
 	const remounted = mount();
 	expect(await screen.findByRole("link", { name: previewName })).toBeTruthy();
@@ -165,7 +170,7 @@ it("refreshes row timestamps across midnight and when the window regains focus",
 		)
 	);
 	mount();
-	const link = screen.getByRole("link", { name: "Release planning" });
+	const link = screen.getByRole("link", { name: "Product design" });
 	const time = link.parentElement?.querySelector("time");
 	expect(time?.getAttribute("datetime")).toBe(messageDate.toISOString());
 	expect(time?.classList.contains("hidden")).toBe(false);
@@ -233,9 +238,28 @@ it("does not present session-only discovery as a complete conversation list", ()
 });
 it("searches both types and applies the nested conversation filter", async () => {
 	mount();
-	const search = screen.getByRole("searchbox", {
+	expect(
+		screen.queryByRole("searchbox", { name: "Search conversations" })
+	).toBeNull();
+	fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
+	fireEvent.click(await screen.findByRole("menuitem", { name: "Search" }));
+	let search = screen.getByRole("searchbox", {
 		name: "Search conversations",
 	});
+	await waitFor(() => expect(document.activeElement).toBe(search));
+	fireEvent.change(search, { target: { value: "No match" } });
+	fireEvent.click(screen.getByRole("button", { name: "Close search" }));
+	expect(
+		screen.queryByRole("searchbox", { name: "Search conversations" })
+	).toBeNull();
+	expect(document.activeElement).toBe(
+		screen.getByRole("button", { name: "View and filters" })
+	);
+	fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
+	fireEvent.click(await screen.findByRole("menuitem", { name: "Search" }));
+	search = screen.getByRole("searchbox", { name: "Search conversations" });
+	expect(search).toHaveProperty("value", "");
+	await waitFor(() => expect(document.activeElement).toBe(search));
 	expect(search.getAttribute("placeholder")).toBe("Find a space...");
 	fireEvent.change(search, { target: { value: "product" } });
 	expect(
@@ -269,6 +293,8 @@ it("keeps the Spaces directory reachable in both views and carries an unmatched 
 		await selectView(view);
 		expect(screen.queryByRole("link", { name: "Browse spaces" })).toBeNull();
 	}
+	fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
+	fireEvent.click(await screen.findByRole("menuitem", { name: "Search" }));
 	fireEvent.change(
 		screen.getByRole("searchbox", { name: "Search conversations" }),
 		{ target: { value: "Unfamiliar teammate" } }
@@ -287,7 +313,7 @@ it("keeps the Spaces directory reachable in both views and carries an unmatched 
 		screen.getByRole("textbox", { name: "Search people and agents" })
 	).toHaveProperty("value", "");
 });
-it("pins a Space in Recent and retains its position after switching", async () => {
+it("prepends new pins without changing existing order across views", async () => {
 	mount();
 	await selectView("Recent");
 	fireEvent.click(screen.getByRole("button", { name: "Pin Product design" }));
@@ -303,7 +329,35 @@ it("pins a Space in Recent and retains its position after switching", async () =
 		within(screen.getByRole("region", { name: "Pinned" }))
 			.getAllByRole("link")
 			.filter((link) => !link.getAttribute("href")?.includes("focusSignalId"))
-	).toHaveLength(3);
+			.map((link) => link.getAttribute("aria-label"))
+	).toEqual([
+		expect.stringContaining("Product design"),
+		expect.stringContaining("Release planning"),
+		expect.stringContaining("Felix"),
+	]);
+	fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
+	fireEvent.click(await screen.findByRole("menuitem", { name: "Search" }));
+	fireEvent.change(
+		screen.getByRole("searchbox", { name: "Search conversations" }),
+		{
+			target: { value: "Launch" },
+		}
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Pin Launch checklist" }));
+	fireEvent.click(screen.getByRole("button", { name: "Close search" }));
+	await waitFor(() =>
+		expect(
+			within(screen.getByRole("region", { name: "Pinned" }))
+				.getAllByRole("link")
+				.filter((link) => !link.getAttribute("href")?.includes("focusSignalId"))
+				.map((link) => link.getAttribute("aria-label"))
+		).toEqual([
+			expect.stringContaining("Launch checklist"),
+			expect.stringContaining("Product design"),
+			expect.stringContaining("Release planning"),
+			expect.stringContaining("Felix"),
+		])
+	);
 });
 it("does not offer direct-message rename or archive actions on Spaces", async () => {
 	mount();

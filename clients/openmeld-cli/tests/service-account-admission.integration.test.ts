@@ -368,6 +368,7 @@ describe("Service account admission across processes", () => {
       let enabled = true;
       const authDirectory = join(openMeldRootDir(), "auth");
       const coordinator = createControlledShutdownCoordinator({
+        drainHost: async () => undefined,
         hasUndrainedWork: () => false,
         isStopRequested: () => stopping,
         markStopping: () => {
@@ -379,11 +380,7 @@ describe("Service account admission across processes", () => {
       if (outcome === "drain_failure") {
         coordinator.attachSession(() => {
           committed = true;
-          queueMicrotask(() =>
-            coordinator.handleSessionFailure(
-              new Error("drain failed after commit")
-            )
-          );
+          queueMicrotask(() => coordinator.failOutstanding());
         });
       }
       const server = await startLocalDaemonControlPlaneServer({
@@ -576,6 +573,7 @@ describe("Service account admission across processes", () => {
       );
       let stopping = false;
       const coordinator = createControlledShutdownCoordinator({
+        drainHost: async () => undefined,
         hasUndrainedWork: () => true,
         isStopRequested: () => stopping,
         markStopping: () => {

@@ -1,9 +1,13 @@
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID } from "@openmeld/gateway-contract";
+import { buildTargetWakeLifecycleId } from "@openmeld/schemas";
 import {
   createSpaceMemberAgentSnapshot,
   createSpaceMemberHumanSnapshot,
 } from "@openmeld/schemas/testing";
 import type {
+  GetSpaceMessageDetailsResponse,
   OpenDirectMessageSpaceBody,
   OpenDirectMessageSpaceResponse,
 } from "@openmeld/schemas/types";
@@ -218,7 +222,13 @@ describe("space send OpenMeld profile identity", () => {
     });
   });
 
-  it("creates a thread and posts into it when --reply-to has no thread yet", async () => {
+  it.each([
+    "unthreaded",
+    "root",
+    "reply",
+    "unsupported",
+    "denied",
+  ] as const)("resolves --reply-to from canonical message placement (%s)", async (placement) => {
     await withTempHome(async () => {
       await withSilencedStdio(async () => {
         await runInit({
@@ -237,13 +247,22 @@ describe("space send OpenMeld profile identity", () => {
         const isThreadSignals =
           url.includes("/threads/") && url.includes("/signals");
         const isThreads = url.includes("/threads") && !isThreadSignals;
-        if (isThreads && method === "GET") {
-          return Promise.resolve(
-            new Response(JSON.stringify({ threads: [], previews: [] }), {
-              status: 200,
-              headers: { "content-type": "application/json" },
-            })
+        if (url.includes("/message-details") && method === "GET") {
+          expect(new URL(url).searchParams.get("includeThreadContext")).toBe(
+            "true"
           );
+          expect(new URL(url).searchParams.get("signalId")).toBe(
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+          );
+          if (placement === "denied") {
+            return Promise.resolve(
+              Response.json(
+                { error: { code: "forbidden", message: "Access denied" } },
+                { status: 403 }
+              )
+            );
+          }
+          return Promise.resolve(Response.json(replyMessageDetails(placement)));
         }
         if (isThreads && method === "POST") {
           createThreadCalled = true;
@@ -283,6 +302,9 @@ describe("space send OpenMeld profile identity", () => {
           );
         }
         if (isThreadSignals && method === "POST") {
+          expect(url).toContain(
+            "/threads/thr_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/signals"
+          );
           postThreadSignalCalled = true;
           return Promise.resolve(
             new Response(
@@ -315,25 +337,34 @@ describe("space send OpenMeld profile identity", () => {
       });
       vi.stubGlobal("fetch", fetchMock);
 
-      await withCapturedStdio(async () => {
-        await runSend({
-          profile: "mira--reply",
-          openMeldProfile: createOpenMeldProfileInput({
-            openMeldProfileId: "aaaaaaaa-0000-0000-0000-000000000000",
-            profileName: "Mira",
-            profileKind: "human",
-          }),
-          baseUrl: "https://gateway.openmeld.invalid",
-          space: "demo",
-          text: "reply into thread",
-          plainText: true,
-          replyToSignalId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-          view: "agent",
+      const send = () =>
+        withCapturedStdio(async () => {
+          await runSend({
+            profile: "mira--reply",
+            openMeldProfile: createOpenMeldProfileInput({
+              openMeldProfileId: "aaaaaaaa-0000-0000-0000-000000000000",
+              profileName: "Mira",
+              profileKind: "human",
+            }),
+            baseUrl: "https://gateway.openmeld.invalid",
+            space: "demo",
+            text: "reply into thread",
+            plainText: true,
+            replyToSignalId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            view: "agent",
+          });
         });
-      });
-
-      expect(createThreadCalled).toBe(true);
-      expect(postThreadSignalCalled).toBe(true);
+      if (placement === "unsupported" || placement === "denied") {
+        await expect(send()).rejects.toThrow(
+          placement === "unsupported" ? "cannot resolve" : "Access denied"
+        );
+        expect(createThreadCalled).toBe(false);
+        expect(postThreadSignalCalled).toBe(false);
+      } else {
+        await send();
+        expect(createThreadCalled).toBe(placement === "unthreaded");
+        expect(postThreadSignalCalled).toBe(true);
+      }
     });
   });
 
@@ -441,7 +472,23 @@ describe("space send OpenMeld profile identity", () => {
     });
   });
 
-  it("publishes explicit recipient IDs with visible names", async () => {
+  it.each([
+    { mode: undefined, source: "none" },
+    { mode: "resume", source: "request" },
+    { mode: "resume", source: "reply" },
+    { mode: "resume", source: "padded-reply" },
+    { mode: "fork", source: "reply" },
+    { mode: "resume", source: "missing" },
+    { mode: "resume", source: "other-agent" },
+    { mode: "resume", source: "human-reply" },
+    { mode: "resume", source: "other-author" },
+    { mode: "resume", source: "reply-with-wake" },
+    { mode: "fork", source: "reply-with-wake" },
+    { mode: "resume", source: "unrelated-parent" },
+  ] as const)("selects $mode from $source before publishing", async ({
+    mode,
+    source,
+  }) => {
     await withTempHome(async () => {
       const fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
         const url = new URL(String(input));
@@ -475,27 +522,131 @@ describe("space send OpenMeld profile identity", () => {
           return Promise.resolve(createPostSignalResponse());
         }
 
+        if (method === "GET" && url.pathname.endsWith("/message-details")) {
+          const details = replyMessageDetails("unthreaded");
+          const isParent =
+            url.searchParams.get("signalId") === "original-request";
+          if (isParent) {
+            details.query.signalId = "original-request";
+            details.message.signalId = "original-request";
+          } else if (source !== "request" && source !== "human-reply") {
+            details.message.actor.profileKind = "agent";
+            details.message.actor.profileId =
+              source === "other-author"
+                ? "agt_99999999-2222-4333-8444-555555555555"
+                : "agt_11111111-2222-4333-8444-555555555555";
+            details.replyContext.replyingToSignalId = {
+              state: "recorded",
+              value: "original-request",
+              source: "reply_signal",
+            };
+            details.replyContext.state = "recorded";
+            details.replyContext.resolved = true;
+          }
+          details.wakeContext = {
+            state: "recorded",
+            sourceSignalId:
+              source === "missing"
+                ? { state: "not_recorded", value: null, source: "none" }
+                : {
+                    state: "recorded",
+                    value:
+                      source === "request" ||
+                      (source === "reply-with-wake" && !isParent)
+                        ? details.message.signalId
+                        : "original-request",
+                    source: "space_signal",
+                  },
+            clientMessageId: {
+              state: "not_recorded",
+              value: null,
+              source: "none",
+            },
+            targets: [
+              {
+                targetProfileId:
+                  source === "other-agent" ||
+                  source === "unrelated-parent" ||
+                  (source === "reply-with-wake" && !isParent)
+                    ? "agt_99999999-2222-4333-8444-555555555555"
+                    : "agt_11111111-2222-4333-8444-555555555555",
+                targetLabel: "Budget Analyst",
+              },
+            ],
+          };
+          return Promise.resolve(Response.json(details));
+        }
+
         throw new Error(`unexpected fetch call: ${method} ${url.toString()}`);
       });
       vi.stubGlobal("fetch", fetchMock);
 
-      await withSilencedStdio(async () => {
-        await runSend({
-          openMeldProfile: createOpenMeldProfileInput({
-            openMeldProfileId: "aaaaaaaa-1111-2222-3333-000000000000",
-            profileName: "Mira",
-            profileKind: "human",
-          }),
-          baseUrl: "https://gateway.openmeld.invalid",
-          space: "demo",
-          wakeTargets: ["agt_11111111-2222-4333-8444-555555555555"],
-          mentionTargets: ["bbbbbbbb-1111-2222-3333-000000000000"],
-          text: "Please review the rollout plan.",
-          view: "human",
+      const send = () =>
+        withSilencedStdio(async () => {
+          await runSend({
+            openMeldProfile: createOpenMeldProfileInput({
+              openMeldProfileId: "aaaaaaaa-1111-2222-3333-000000000000",
+              profileName: "Mira",
+              profileKind: "human",
+            }),
+            baseUrl: "https://gateway.openmeld.invalid",
+            space: "demo",
+            wakeTargets: [
+              source === "padded-reply"
+                ? " agt_11111111-2222-4333-8444-555555555555 "
+                : "agt_11111111-2222-4333-8444-555555555555",
+            ],
+            ...(mode
+              ? {
+                  contextSelection: {
+                    mode,
+                    sourceWakeId: "unresolved-message-selection",
+                  },
+                  contextSourceSignalId:
+                    source === "padded-reply"
+                      ? " aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa "
+                      : "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                }
+              : {}),
+            mentionTargets: ["bbbbbbbb-1111-2222-3333-000000000000"],
+            text: "Please review the rollout plan.",
+            view: "human",
+          });
         });
-      });
 
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      if (
+        [
+          "missing",
+          "other-agent",
+          "human-reply",
+          "other-author",
+          "unrelated-parent",
+        ].includes(source)
+      ) {
+        await expect(send()).rejects.toThrow("No message was sent.");
+        expect(
+          fetchMock.mock.calls.every(
+            ([, init]) => !init?.method || init.method === "GET"
+          )
+        ).toBe(true);
+        return;
+      }
+      await send();
+      if (mode) {
+        expect(parsePostSignalBody(fetchMock)).toMatchObject({
+          contextSelection: {
+            mode,
+            sourceWakeId: buildTargetWakeLifecycleId({
+              spaceId: "demo",
+              sourceSignalId:
+                source === "request"
+                  ? "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+                  : "original-request",
+              targetProfileId: "agt_11111111-2222-4333-8444-555555555555",
+            }),
+          },
+        });
+      }
       expect(parsePostSignalBody(fetchMock)).toMatchObject({
         text: "@Budget Analyst @Jordan Please review the rollout plan.",
         meta: {
@@ -511,6 +662,58 @@ describe("space send OpenMeld profile identity", () => {
       expect(
         parsePostSignalBody(fetchMock).meta?.clientMessageId?.trim()
       ).toBeTruthy();
+    });
+  });
+
+  it.each([
+    "hosted:center-agent",
+    "hosted:remote-agent",
+  ])("rejects session selection for %s before any upload or message write", async (agentControllerRef) => {
+    await withTempHome(async (home) => {
+      const filePath = join(home, "review.txt");
+      await writeFile(filePath, "Review evidence");
+      const profileId = "agt_11111111-2222-4333-8444-555555555555";
+      const fetchMock = vi.fn((request: string | URL, init?: RequestInit) => {
+        expect(String(init?.method ?? "GET").toUpperCase()).toBe("GET");
+        expect(new URL(String(request)).pathname.endsWith("/members")).toBe(
+          true
+        );
+        return Promise.resolve(
+          createMembersResponse({
+            humans: [],
+            agents: [
+              {
+                ...createAgentMember({
+                  profileId,
+                  profileName: "Review Agent",
+                  wakeabilityStatus: "ready",
+                }),
+                agentControllerRef,
+              },
+            ],
+          })
+        );
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      await withCapturedStdio(async () => {
+        await expect(
+          runSend({
+            openMeldProfile: createOpenMeldProfileInput({
+              openMeldProfileId: "hum_operator",
+              profileName: "Felix",
+              profileKind: "human",
+            }),
+            baseUrl: "https://gateway.openmeld.invalid",
+            space: "demo",
+            text: "Read the review evidence",
+            wakeTargets: [profileId],
+            contextSelection: { mode: "new" },
+            filePaths: [filePath],
+            view: "agent",
+          })
+        ).rejects.toThrow("does not support session selection");
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
     });
   });
 
@@ -777,6 +980,71 @@ describe("space send OpenMeld profile identity", () => {
     });
   });
 });
+
+function replyMessageDetails(
+  placement: "unthreaded" | "root" | "reply" | "unsupported"
+): GetSpaceMessageDetailsResponse {
+  const absent = {
+    state: "not_applicable",
+    value: null,
+    source: "none",
+  } as const;
+  const signalId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  return {
+    query: { spaceId: "demo", signalId },
+    message: {
+      signalId,
+      signalType: "signal.text",
+      sentAtMs: 1,
+      actor: {
+        profileId: "aaaaaaaa-0000-0000-0000-000000000000",
+        profileKind: "human",
+        displayName: "Mira",
+        profileName: "Mira",
+        profileHandle: null,
+      },
+    },
+    agentContext: {
+      state: "not_applicable",
+      profileId: absent,
+      profileName: absent,
+      agentControllerRef: absent,
+      agentControllerConversationId: absent,
+      workspacePath: absent,
+      openMeldServiceRuntimeId: absent,
+      bindingId: absent,
+      workspaceFingerprint: absent,
+    },
+    wakeContext: {
+      state: "not_applicable",
+      sourceSignalId: absent,
+      clientMessageId: absent,
+      targets: [],
+    },
+    replyContext: {
+      state: "not_applicable",
+      replyingToSignalId: absent,
+      replyingToAuthor: absent,
+      previewText: absent,
+      resolved: false,
+    },
+    diagnostics: { signalId, traceSelectors: [] },
+    ...(placement === "unsupported"
+      ? {}
+      : {
+          threadContext:
+            placement === "unthreaded"
+              ? null
+              : {
+                  threadId: "thr_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                  rootSignalId:
+                    placement === "root"
+                      ? signalId
+                      : "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                },
+        }),
+  };
+}
 
 function createOpenMeldProfileInput(input: {
   openMeldProfileId: string;

@@ -73,6 +73,10 @@ async function saveReusableFixture({
 
 test("artifact evidence rejects a moved HEAD or newly dirty checkout", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "artifact-checkout-"));
+  const previousHeap = process.env.OPENMELD_RENDERER_NODE_HEAP_MB;
+  // This fixture checks artifact admission without building a renderer. Do not
+  // inherit the test runner's Node heap as a renderer memory requirement.
+  process.env.OPENMELD_RENDERER_NODE_HEAP_MB = "512";
   const git = (...args) =>
     execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
   try {
@@ -107,6 +111,11 @@ test("artifact evidence rejects a moved HEAD or newly dirty checkout", async () 
       CHECKOUT_ERROR
     );
   } finally {
+    if (previousHeap === undefined) {
+      Reflect.deleteProperty(process.env, "OPENMELD_RENDERER_NODE_HEAP_MB");
+    } else {
+      process.env.OPENMELD_RENDERER_NODE_HEAP_MB = previousHeap;
+    }
     await rm(root, { recursive: true, force: true });
   }
 });
@@ -213,6 +222,46 @@ test("Docs health checks public HTML without an App login redirect and rejects s
   );
 });
 
+test("Website health verifies permanent guide redirects without following another deployment", async () => {
+  const sourceSha = "a".repeat(40);
+  const html = `<html><head><meta name="openmeld-source-sha" content="${sourceSha}"/><meta name="openmeld-build-id" content="website-build"/><meta name="openmeld-build-dirty" content="false"/></head><body>Website<script src="/assets/a.js"></script></body></html>`;
+  // Captured from the production Website build in Workerd: both guide routes
+  // return 301 with an absolute Docs Location, not an SSR page.
+  const destination = "https://docs.openmeld.ai/docs/start/local-agents";
+  const run = (status = 301, location = destination) =>
+    checkProductionWeb({
+      scope: "website",
+      url: "https://openmeld.ai",
+      sourceSha,
+      expectedBuildId: "website-build",
+      fetchImpl: (url, options) => {
+        assert.equal(url.origin, "https://openmeld.ai");
+        if (url.pathname.startsWith("/guides/local-agents")) {
+          assert.equal(options.redirect, "manual");
+          return new Response(null, {
+            status,
+            headers: {
+              location: `${location}${url.pathname.endsWith("/codex") ? "/codex" : ""}`,
+            },
+          });
+        }
+        return new Response(html, { headers: { "content-type": "text/html" } });
+      },
+    });
+  assert.equal((await run()).buildId, "website-build");
+  for (const [status, location] of [
+    [200, destination],
+    [302, destination],
+    [301, "https://app.openmeld.ai/login"],
+    [301, "https://docs.openmeld.ai/docs"],
+  ]) {
+    await assert.rejects(run(status, location), {
+      message:
+        "Website guide /guides/local-agents must permanently redirect to its Docs page.",
+    });
+  }
+});
+
 test("Web health waits briefly for the deployed SSR page to serve the verified artifact", async () => {
   const sourceSha = "a".repeat(40);
   const page = (sha, buildId) =>
@@ -230,8 +279,16 @@ test("Web health waits briefly for the deployed SSR page to serve the verified a
     },
     retryDelayMs: 1000,
     maxWaitMs: 3000,
-    fetchImpl: () => {
+    fetchImpl: (url) => {
       requests += 1;
+      if (url.pathname.startsWith("/guides/local-agents")) {
+        return new Response(null, {
+          status: 301,
+          headers: {
+            location: `https://docs.openmeld.ai/docs/start/local-agents${url.pathname.endsWith("/codex") ? "/codex" : ""}`,
+          },
+        });
+      }
       return new Response(
         requests === 1
           ? page("b".repeat(40), "old-build")
@@ -246,7 +303,7 @@ test("Web health waits briefly for the deployed SSR page to serve the verified a
     buildId: "verified-build",
     status: 200,
   });
-  assert.equal(requests, 5);
+  assert.equal(requests, 6);
   assert.equal(elapsedMs, 1000);
 
   requests = 0;

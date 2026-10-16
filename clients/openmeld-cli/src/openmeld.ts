@@ -77,6 +77,7 @@ import {
   runAgentsRepair,
   runAgentsShow,
 } from "./commands/agents";
+import { runAgentsLogin } from "./commands/agents-login";
 import {
   runAuthLogin,
   runAuthLogout,
@@ -2072,6 +2073,25 @@ const agentsCmd = program
   .command("agents")
   .description("Find, enable, and review OpenMeld agents on this device.");
 
+agentsCmd
+  .command("login <agent-id>")
+  .description(
+    "Sign in to the selected Antigravity ACP installation and verify a new session."
+  )
+  .option(
+    "--method <id>",
+    "Authentication method offered by Antigravity ACP.",
+    "oauth-personal"
+  )
+  .action(async (agentId: string, opts: { method: string }) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["agents", "login"],
+      view,
+      run: () => runAgentsLogin({ agentId, method: opts.method, view }),
+    });
+  });
+
 agentsCmd.action(async () => {
   const view = getGlobalViewOption();
   await runCommandWithEntryChecks({
@@ -3988,15 +4008,15 @@ withSpaceProfileOption(
     .description("Send one message to a Space.")
     .option(
       "--new-task",
-      `Start an independent task (up to ${AGENT_PROFILE_WORK_CONCURRENCY_LIMIT} per Agent)`
+      `Start an independent task with Codex, Claude Code, or official Antigravity ACP (up to ${AGENT_PROFILE_WORK_CONCURRENCY_LIMIT} per Agent)`
     )
     .option(
       "--fork-from <signal-id>",
-      "Fork the selected Agent's completed task at this message"
+      "Fork a Codex or Claude Code task from its Wake request or Agent reply"
     )
     .option(
       "--continue-from <signal-id>",
-      "Continue the selected Agent's task from this message"
+      "Continue from the Agent's Wake request or reply; use --reply-to for thread placement"
     )
     .option(
       "--task-access <mode>",
@@ -4020,7 +4040,7 @@ withSpaceProfileOption(
     .option("--text-file <path>", "Read message text from a UTF-8 file")
     .option(
       "--wake <profile-id>",
-      "Wake an Agent Profile (repeatable)",
+      "Wake an Agent Profile; adds @name to the text (repeatable)",
       collectRepeatedOptionValue,
       []
     )
@@ -4084,6 +4104,7 @@ withSpaceProfileOption(
         baseUrl: cliOptions.gatewayUrl,
         space: spaceValue,
         filePaths: Array.isArray(opts.file) ? opts.file.map(String) : [],
+        contextSourceSignalId: opts.forkFrom ?? opts.continueFrom,
         contextSelection: resolveSpaceTaskSelection({
           space: spaceValue,
           wakeTargets: opts.wake,
@@ -4790,15 +4811,15 @@ program
   .description("Alias for `openmeld space send`.")
   .option(
     "--new-task",
-    `Start an independent task (up to ${AGENT_PROFILE_WORK_CONCURRENCY_LIMIT} per Agent)`
+    `Start an independent task with Codex, Claude Code, or official Antigravity ACP (up to ${AGENT_PROFILE_WORK_CONCURRENCY_LIMIT} per Agent)`
   )
   .option(
     "--fork-from <signal-id>",
-    "Fork the selected Agent's completed task at this message"
+    "Fork a Codex or Claude Code task from its Wake request or Agent reply"
   )
   .option(
     "--continue-from <signal-id>",
-    "Continue the selected Agent's task from this message"
+    "Continue from the Agent's Wake request or reply; does not select a reply thread"
   )
   .option(
     "--task-access <mode>",
@@ -4824,7 +4845,7 @@ program
   .option("--text-file <path>", "Read message text from a UTF-8 file")
   .option(
     "--wake <profile-id>",
-    "Wake an Agent Profile (repeatable)",
+    "Wake an Agent Profile; adds @name to the text (repeatable)",
     collectRepeatedOptionValue,
     []
   )
@@ -4888,6 +4909,7 @@ program
           });
           await runSpaceSend({
             profile: opts.profile,
+            contextSourceSignalId: opts.forkFrom ?? opts.continueFrom,
             contextSelection: resolveSpaceTaskSelection({
               space,
               wakeTargets: opts.wake,
@@ -5293,6 +5315,15 @@ profileCmd
   )
   .option("--project <projectId>", "Default Project for the new Agent")
   .option(
+    "--shared-conversation <id>",
+    "Connect an existing shared Bot conversation"
+  )
+  .option(
+    "--acknowledge-shared-conversation",
+    "Acknowledge shared messages and stopping the Bot's current work",
+    false
+  )
+  .option(
     "--no-default-project",
     "Let OpenMeld choose the working folder instead of reusing your saved Default Project"
   )
@@ -5367,6 +5398,8 @@ profileCmd
             modelId: opts.model,
             openCodePermissionInput: opts.openCodePermission,
             nativeSessionId: opts.nativeSession,
+            sharedConversationId: opts.sharedConversation,
+            acknowledgeSharedConversation: opts.acknowledgeSharedConversation,
             organization: opts.organization,
             profileName: targetName,
             reasoningLevel: opts.reasoningEffort,
@@ -5415,6 +5448,7 @@ function shouldUseProfileCreationRequest(input: {
   computer?: unknown;
   defaultProject?: unknown;
   nativeSession?: unknown;
+  sharedConversation?: unknown;
   openCodePermission?: unknown;
   organization?: unknown;
   owner?: unknown;
@@ -5433,6 +5467,7 @@ function shouldUseProfileCreationRequest(input: {
     typeof input.agentControllerCollaborationMode === "string" ||
     typeof input.openCodePermission === "string" ||
     typeof input.nativeSession === "string" ||
+    typeof input.sharedConversation === "string" ||
     input.session !== "new"
   );
 }

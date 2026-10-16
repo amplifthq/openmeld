@@ -12,6 +12,7 @@ describe("builtin agent controller brand registry", () => {
       "codex",
       "claude-code",
       "grok-build",
+      "grok-bot",
       "opencode",
       "antigravity",
       "openclaw",

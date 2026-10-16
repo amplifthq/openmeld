@@ -1,0 +1,45 @@
+name: Report a bug
+description: Tell us what failed and how to reproduce it.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For vulnerabilities, follow [Security](https://github.com/amplifthq/openmeld/blob/main/SECURITY.md).
+        Remove tokens, cookies, and private work from all reports.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the actual result and what you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Give the smallest set of steps that shows the problem.
+      placeholder: |
+        1. Open...
+        2. Select...
+        3. Observe...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: For the CLI, run openmeld --version. For the hosted app, enter hosted and the date.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Include the operating system, browser or client, and agent tool if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs or screenshots
+      description: Optional. Remove secrets, account details, and private content.

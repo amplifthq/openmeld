@@ -1,6 +1,6 @@
 # Flue 2 integration boundary
 
-This adapter targets exactly Flue 2.2.2. Vite builds the synchronous
+This adapter targets exactly Flue 2.3.0. Vite builds the synchronous
 `CenterAgentV2` hook function. Asynchronous materialization happens under the
 immutable submission context before rendering; nested operations reuse those
 resources, and concurrent submissions do not share them.
@@ -12,7 +12,7 @@ is not a future release strategy.
 
 ## Retained package adaptations
 
-`patches/@flue__runtime@2.2.2.patch` retains ten explicit contracts:
+`patches/@flue__runtime@2.3.0.patch` retains ten explicit contracts:
 
 1. A zero durability timeout disables total wall-clock expiration. Recovery
    attempts remain bounded; the five-attempt policy includes the initial run.
@@ -23,7 +23,7 @@ is not a future release strategy.
    OpenMeld's execution identity. A late stop cannot abort a subsequent turn.
    The upstream conversation-wide abort remains available to upstream callers.
 3. Persisted submission operations expose their completed text, model, and
-   canonical usage through the existing operation observation. Flue 2.2.2
+   canonical usage through the existing operation observation. Flue 2.3.0
    supplies the text from its inner persisted-input operation, even though the
    outer submission handle returns void. The adaptation enriches that existing
    result with the actual model and recorded usage; it does not emit another
@@ -66,7 +66,7 @@ is not a future release strategy.
    `AgentStatics.projectResourceSignal` extension transforms only reserved
    framework resource/environment signals in model context, never canonical
    records. Live steering, joined inputs, restored histories and compaction
-   share the renderer. Upstream 2.2.2 has no public hook at this provenance
+   share the renderer. Upstream 2.3.0 has no public hook at this provenance
    boundary; a provider-payload string replacement cannot distinguish user
    quotations from framework events. Flue also mounts `task` only with declared
    subagents. OpenMeld registers only its native subset; deferred capabilities
@@ -77,20 +77,33 @@ is not a future release strategy.
    every inference through Pi's public `transformContext` seam. Flue alone
    commits the normal summary checkpoint and updates both its own projection
    and the loop snapshot. Supplier usage does not trigger a redundant summary
-   afterward. `maxSummaryTokens` bounds each completion independently; incomplete
+   afterward. `summaryTargetTokens` gives the model a visible checkpoint target
+   with room to finish below `maxSummaryTokens`, the total generation ceiling
+   including reasoning. That target guides the existing summary request; it
+   does not clip the response or change canonical history. `maxSummaryTokens`
+   bounds each completion independently; incomplete
    or empty summaries fail without replacing history. `recall_conversation`
    reads bounded pages of original user/assistant text from the same canonical
    lineage, excludes hidden reasoning, and cannot cross conversation generations.
    Unused string arguments accept null for strict provider schemas. The
    checkpoint prompt retains active facts and source pointers without growing
-   an exhaustive archive. Mid-tool-loop cuts retain the issuing assistant and
+   an exhaustive archive. Its system instruction requires a fresh rewrite of
+   the previous checkpoint, consolidating repeated facts and replacing old
+   inventories with conclusions and recall/source references within the visible
+   target. The previous checkpoint is source material, not a draft to expand.
+   Mid-tool-loop cuts retain the issuing assistant and
    its paired results, including when the latest entry is a tool result. The
-   public Node-runtime boundary tests are in `working-context.test.ts`; paid supplier
+   public Node-runtime boundary tests are in `working-context.test.ts` and
+   `context-recovery.test.ts`, including recovery after a failed summary and
+   SQLite restart without disabling the budget or replaying completed tools. Paid supplier
    comparisons are opt-in in `live-context-cost.test.ts`. No transcript or
    search index is copied into an application-owned store.
-   Working-context and recent-tail estimates share the native 1,200-token
-   image heuristic; Base64 bytes are not text tokens. Original image bytes
-   remain intact and the provider's physical-capacity guard still runs.
+   Working-context admission and cut planning share the same serialized UTF-8
+   content estimate, including opaque provider signatures, and the native
+   1,200-token image heuristic. Base64 bytes are not text tokens. Kept signatures
+   and image bytes remain intact; the provider's physical-capacity guard still
+   runs. Legacy compaction keeps its original estimator when no working-context
+   budget is configured.
    `workingContextHeadroomTokens` reserves space for new work after deducting
    fixed instructions, tools and checkpoint allowance. The recent tail still
    preserves indivisible tool pairs. One working-context checkpoint summarizes
@@ -132,10 +145,23 @@ is not a future release strategy.
    request metering owner; successful checkpoint usage sums its observed calls.
    `context-recovery.test.ts` exercises these rules through the real runtime.
 
+   Model changes apply at the next admitted submission, not inside a running
+   tool. Summary requests are capacity-bounded even when the new model is
+   smaller than the old history or checkpoint. Sequential intermediate
+   summaries remain ephemeral; only a complete successful reduction may
+   replace the canonical projection. Recent completed messages can be moved
+   into that reduction at valid boundaries. Active input is never truncated.
+   `model-switch-continuity.test.ts` exercises real SQLite restart and file
+   writes, model isolation, summary failure, and single-execution continuity.
+   Its synthetic 8,000-token provider exercises the runtime capacity boundary,
+   not live supplier behavior. The pinned Pi adapter reserves additional space;
+   the current hosted catalog has no such small-window model. Product admission,
+   real inference, and Computer integration require separate smoke evidence.
+
 10. `AgentStatics.modelRetry` configures the existing transient model-error loop.
    Center Agent allows five retries after the initial request, with exponential
    delays capped at 3, 6, 12, 24, and 30 seconds and upstream 75–100% jitter.
-   Upstream 2.2.2 otherwise fixes this loop at three retries. Canonical assistant
+   Upstream 2.3.0 otherwise fixes this loop at three retries. Canonical assistant
    error records own the retry count, including resumed submissions. The patch
    exposes structured waiting, recovered, and exhausted observations, without
    another execution, retry ledger, or tool replay loop. Abort interrupts backoff;
@@ -245,8 +271,8 @@ tool-only steps and empty deltas do not consume it. The first nonempty text
 delta consumes it once, and response cleanup prevents it reaching another
 submission. No new durable state or callback protocol is introduced.
 
-The Flue 2.2.2 integration retains the registration boundary, the trusted
-resource-signal projection, and conditional task mounting. Upstream 2.2.2
+The Flue 2.3.0 integration retains the registration boundary, the trusted
+resource-signal projection, and conditional task mounting. Upstream 2.3.0
 still mounts `task` unconditionally and lacks the signal projection hook, so
 the existing adaptation remains necessary. Provider-side clipping stays removed. Run
 `tool-catalog-contract.test.ts`, `tool-catalog-compaction.test.ts`,

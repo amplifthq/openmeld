@@ -26,6 +26,7 @@ import type {
   WakeProgressItem,
   WakeStopEligibilityReadModel,
 } from "@openmeld/schemas/types";
+import { createDispatchContinuationSpaceAccessContext } from "@openmeld/space";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createProjectionPostgresBinding } from "../../test-support/postgresql-query.test-support";
 import { createFinalOutcomeSql } from "../../test-support/space-final-outcome.test-support";
@@ -35,6 +36,7 @@ import type { CoreBindings } from "../lib/bindings";
 import type { ActiveRemoteAgentNativeDeliveryWakeProgressEvidence } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { buildDefaultSpaceContract } from "../space/application/space-contract-service";
 import {
+  assertSpaceContextSelectionSupported,
   assertWakeDeviceWaitAuthoring,
   buildSignalTextOptions,
   handlePostSignalUseCase,
@@ -43,6 +45,7 @@ import {
   SPACE_WAKE_TARGET_INVALID_ERROR_CODE,
   SpaceSignalAuthoringError,
 } from "../space/application/space-signal-service";
+import { validateSpaceWorkHandoff } from "../space/application/space-work-handoff";
 import { createDispatchOutboxRecord } from "../space/infrastructure/outbox/dispatch-outbox-repo";
 import {
   insertSignalRecord,
@@ -202,6 +205,7 @@ const TEST_MESSAGE_ENVELOPE: MessageEnvelope = {
 };
 
 const createSystemWakePublishingHarness = (input: {
+  targetControllerRef?: string;
   dispatchRuleAllow?: boolean;
   previousOutboxRecord?: ReturnType<typeof createDispatchOutboxRecord>;
   previousSignals?: SignalEnvelope[];
@@ -243,7 +247,8 @@ const createSystemWakePublishingHarness = (input: {
             added_by_display_name_snapshot: null,
             added_by_owner_user_id: null,
             added_by_profile_id: null,
-            controller_ref_snapshot: "builtin:codex",
+            controller_ref_snapshot:
+              input.targetControllerRef ?? "builtin:codex",
             created_at: 1_700_000_000_000,
             first_entered_at: null,
             last_entered_at: null,
@@ -1487,6 +1492,83 @@ async function readActiveWakeProgressForTest(input: {
 }
 
 describe("space signal service", () => {
+  it.each([
+    ["hosted:center-agent", false],
+    ["hosted:remote-agent", true],
+  ] as const)("rejects unsupported session selection before publishing a message or Task (%s)", async (ref, perTarget) => {
+    const harness = createSystemWakePublishingHarness({
+      targetControllerRef: ref,
+    });
+    const target = TEST_MESSAGE_ENVELOPE.activationTargets[0];
+    if (!target) {
+      throw new Error("The fixture requires an activation target.");
+    }
+    const signal = createSignal();
+    signal.data.messageEnvelope = TEST_MESSAGE_ENVELOPE;
+    signal.data.taskDraft = { title: "Review the existing files" };
+    if (perTarget) {
+      signal.data.contextSelections = { [target]: { mode: "new" } };
+    } else {
+      signal.data.contextSelection = { mode: "new" };
+    }
+    const admitTask = vi.fn();
+    Object.defineProperty(harness.space, "admitSpaceTaskSignal", {
+      value: admitTask,
+    });
+    await expect(harness.space.publishTextSignal(signal)).rejects.toMatchObject(
+      {
+        code: "space.execution_context.unsupported",
+        status: 400,
+      }
+    );
+    expect(harness.signalRows.size).toBe(0);
+    expect(harness.outboxRows.size).toBe(0);
+    expect(admitTask).not.toHaveBeenCalled();
+    expect(harness.broadcastSignal).not.toHaveBeenCalled();
+    expect(harness.flushPendingDispatchOutbox).not.toHaveBeenCalled();
+  });
+
+  it("preserves ordinary non-session controllers and validated hosted file handoffs", async () => {
+    const signal = createSignal();
+    const readControllerRef = () => "hosted:remote-agent";
+    expect(() =>
+      assertSpaceContextSelectionSupported({ signal, readControllerRef })
+    ).not.toThrow();
+    signal.data.messageEnvelope = TEST_MESSAGE_ENVELOPE;
+    signal.data.contextSelection = { mode: "new", access: "space_context" };
+    signal.data.files = [
+      {
+        fileId: "file-1",
+        revision: 1,
+        name: "result.txt",
+        mimeType: "text/plain",
+        sizeBytes: 5,
+      },
+    ];
+    signal.data.meta = {
+      clientMessageId: "handoff-message-1",
+      workHandoff: {
+        schemaVersion: 1,
+        files: [{ fileId: "file-1", revision: 1, relativePath: "result.txt" }],
+        skills: [],
+        work: {
+          goal: "Review",
+          completed: "Saved",
+          nextSteps: "Read the file",
+        },
+        requirements: [],
+      },
+    };
+    await validateSpaceWorkHandoff({
+      env: {} as CoreBindings,
+      organizationId: "org-space-1",
+      signal,
+      resolveFiles: (files) => files,
+    });
+    expect(() =>
+      assertSpaceContextSelectionSupported({ signal, readControllerRef })
+    ).not.toThrow();
+  });
   it("builds and validates device waiting from the canonical top-level intent only", () => {
     const wait = {
       bindingId: "binding-1",
@@ -1693,7 +1775,10 @@ describe("space signal service", () => {
     });
   });
 
-  it("returns an execution recovery publication only after Space persistence and reuses the exact notice", async () => {
+  it.each([
+    "password",
+    "dispatch_continuation",
+  ] as const)("persists and deduplicates recovery publications through %s authorization", async (accessKind) => {
     const { signalRows, sql } = createFinalOutcomeSql();
     const broadcastSignal = vi.fn();
     const space = Object.create(Space.prototype) as Space;
@@ -1706,6 +1791,10 @@ describe("space signal service", () => {
       authorizeSpacePasswordAccess: {
         value: vi.fn(async () => ({ ok: true })),
       },
+      authorizeSpaceAccess: {
+        value: vi.fn(async () => ({ ok: true })),
+      },
+      readSpaceMetaRecord: { value: () => null },
       broadcastSignal: { value: broadcastSignal },
       ctx: { value: { storage: { sql } } },
       lastTimestamp: { value: 0, writable: true },
@@ -1754,8 +1843,25 @@ describe("space signal service", () => {
       spaceId: "space-1",
     };
 
-    const first = await space.rpcPostExecutionRecoveryNoticeSignal(input);
-    const repeated = await space.rpcPostExecutionRecoveryNoticeSignal(input);
+    const authorizedInput = {
+      ...input,
+      ...(accessKind === "dispatch_continuation"
+        ? {
+            spaceAccess: createDispatchContinuationSpaceAccessContext({
+              attemptId: "attempt-1",
+              dispatchId: input.data.dispatchId,
+              requestContext: input.context,
+              sourceSignalId: input.data.replyTo.signalId,
+              spaceId: input.spaceId,
+              targetProfileId: input.data.actorProfileId,
+            }),
+          }
+        : {}),
+    };
+    const first =
+      await space.rpcPostExecutionRecoveryNoticeSignal(authorizedInput);
+    const repeated =
+      await space.rpcPostExecutionRecoveryNoticeSignal(authorizedInput);
     for (const conflictingData of [
       {
         ...input.data,
@@ -1775,7 +1881,7 @@ describe("space signal service", () => {
     ]) {
       await expect(
         space.rpcPostExecutionRecoveryNoticeSignal({
-          ...input,
+          ...authorizedInput,
           data: conflictingData,
         })
       ).rejects.toThrow(
@@ -2460,6 +2566,7 @@ describe("space signal service", () => {
       configurable: true,
     });
     Object.defineProperties(space, {
+      readSpaceMetaRecord: { value: () => null },
       persistTextSignalWithOptionalOutbox: {
         value: persistTextSignalWithOptionalOutbox,
       },
@@ -2516,6 +2623,7 @@ describe("space signal service", () => {
     Object.defineProperties(space, {
       broadcastSignal: { value: broadcastSignal },
       ctx: { value: { waitUntil } },
+      readSpaceMetaRecord: { value: () => null },
       flushPendingDispatchOutbox: { value: flushPendingDispatchOutbox },
       persistTextSignalWithOptionalOutbox: {
         value: persistTextSignalWithOptionalOutbox,
@@ -2528,12 +2636,19 @@ describe("space signal service", () => {
     await expect(
       space.publishTextSignal(signal, signalContext)
     ).resolves.toBeUndefined();
+    const publishedContext = {
+      ...signalContext,
+      requestTimeContext: {
+        submittedAtMs: signal.ts,
+        userTime: { observedAtMs: null, source: "utc", timeZone: "UTC" },
+      },
+    };
     expect(persistTextSignalWithOptionalOutbox).toHaveBeenCalledWith(
       signal,
       true,
-      signalContext
+      publishedContext
     );
-    expect(broadcastSignal).toHaveBeenCalledWith(signal, signalContext, {
+    expect(broadcastSignal).toHaveBeenCalledWith(signal, publishedContext, {
       persisted: true,
     });
     expect(flushPendingDispatchOutbox).toHaveBeenCalledTimes(1);
@@ -4853,6 +4968,7 @@ describe("space signal service", () => {
     });
     Object.defineProperties(space, {
       bindings: { value: { OPENMELD_POSTGRESQL: db } },
+      readSourceTextSignalByClientMessageId: { value: () => createSignal() },
       readWakeStopDispatchLookup: {
         value: vi.fn(async () => ({ matches: [lookupMatch] })),
       },
@@ -4876,7 +4992,13 @@ describe("space signal service", () => {
             targetProfileId,
           },
         },
-        {}
+        {
+          actorContext: {
+            ownerUserId: "owner-1",
+            profileKind: "human",
+            openMeldProfileId: "profile-1",
+          },
+        }
       )
     ).resolves.toEqual(preAgentResponse);
     expect(requestPreAgentWakeStop).toHaveBeenCalledOnce();
@@ -5659,6 +5781,7 @@ describe("space signal service", () => {
       clientMessageId: "client-message-hosted-stop-1",
       includeDeviceWait: false,
       includePreviewText: false,
+      includeReplyPlacement: false,
       includeSourceContext: false,
       includeTiming: false,
       includeWaitReason: false,

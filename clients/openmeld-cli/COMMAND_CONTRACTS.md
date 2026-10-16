@@ -177,6 +177,10 @@ envelope and sets exit code 1:
 { "schemaVersion": 1, "type": "error", "error": { "code": "cli.error", "message": "...", "requestId": "..." } }
 ```
 
+Unsupported Node.js startup also emits this envelope under `--json`, with
+`error.code = "cli.node_unsupported"`, before loading the command graph or native
+dependencies. Human invocations keep the upgrade message on stderr.
+
 `requestId` appears only when the underlying error carries one. Shape owned by
 `cliJsonErrorEnvelopeSchema` (`packages/schemas`); built in
 `src/runtime/cli-error-json.ts` (which derives its type from the schema) and

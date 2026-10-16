@@ -33,7 +33,6 @@ import {
   resolveRemoteAgentAiGatewayToken,
   resolveRemoteAgentFlueModelSpecifier,
   resolveRemoteAgentModelDisplayName,
-  resolveRemoteAgentOpenRouterByokAlias,
   resolveRemoteAgentOpenRouterModelId,
 } from "../agent-core/model";
 import {
@@ -55,7 +54,6 @@ import zAiGlm53FlashModel from "./fixtures/openrouter-model-z-ai-glm-5.3-flash.j
 const CONFIGURED_AI_GATEWAY_ENV = {
   OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID: "account_123",
   OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID: "gateway_123",
-  OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS: "openrouter",
 } as const;
 
 describe("remote agent model routing", () => {
@@ -194,6 +192,7 @@ describe("remote agent model routing", () => {
         thinkingLevel: "low",
         workingContextHeadroomTokens: 8000,
         maxSummaryTokens: 4096,
+        summaryTargetTokens: 2048,
         keepRecentTokens: 8000,
         reserveTokens: 40_000,
       },
@@ -230,6 +229,7 @@ describe("remote agent model routing", () => {
         thinkingLevel: "low",
         workingContextHeadroomTokens: 8000,
         maxSummaryTokens: 4096,
+        summaryTargetTokens: 2048,
         keepRecentTokens: 8000,
         reserveTokens: 340_000,
       },
@@ -816,6 +816,7 @@ describe("remote agent model routing", () => {
         thinkingLevel: "low",
         workingContextHeadroomTokens: 8000,
         maxSummaryTokens: 4096,
+        summaryTargetTokens: 2048,
         keepRecentTokens: 8000,
         reserveTokens: 64_000,
       },
@@ -850,6 +851,7 @@ describe("remote agent model routing", () => {
         thinkingLevel: "low",
         workingContextHeadroomTokens: 8000,
         maxSummaryTokens: 4096,
+        summaryTargetTokens: 2048,
         keepRecentTokens: 8000,
         reserveTokens: 64_000,
       },
@@ -983,9 +985,11 @@ describe("remote agent model routing", () => {
   });
 
   it("resolves the Cloudflare AI Gateway OpenRouter endpoint", () => {
-    expect(() => resolveRemoteAgentAiGatewayOpenRouterBaseUrl({})).toThrow(
-      "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID must be configured"
-    );
+    expect(() =>
+      resolveRemoteAgentAiGatewayOpenRouterBaseUrl({
+        OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID: "gateway",
+      })
+    ).toThrow("OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID must be configured");
     expect(
       resolveRemoteAgentAiGatewayOpenRouterBaseUrl({
         OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID: " account_123 ",
@@ -1053,23 +1057,20 @@ describe("remote agent model routing", () => {
     );
   });
 
-  it("requires the environment-owned BYOK alias", () => {
-    expect(() => resolveRemoteAgentOpenRouterByokAlias({})).toThrow(
-      "OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS must be configured"
+  it("supports direct OpenRouter without company gateway credentials", () => {
+    expect(resolveRemoteAgentAiGatewayOpenRouterBaseUrl({})).toBe(
+      "https://openrouter.ai/api/v1"
     );
-    expect(
-      resolveRemoteAgentOpenRouterByokAlias({
-        OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS: " staging ",
-      })
-    ).toBe("staging");
+    expect(buildRemoteAgentAiGatewayHeaders({ env: {} })).toEqual({});
   });
 
-  it("builds Cloudflare AI Gateway BYOK headers without provider Authorization", () => {
+  it("builds gateway metadata without an official credential fallback", () => {
     expect(
       buildRemoteAgentAiGatewayHeaders({
         env: {
           CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "token_123",
-          OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS: "openrouter",
+          OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID: "account_123",
+          OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID: "gateway_123",
         },
         metadata: {
           model: REMOTE_AGENT_OPENROUTER_MODEL_ID,
@@ -1077,9 +1078,7 @@ describe("remote agent model routing", () => {
         },
       })
     ).toEqual({
-      Authorization: null,
       "cf-aig-authorization": "Bearer token_123",
-      "cf-aig-byok-alias": "openrouter",
       "cf-aig-collect-log": "true",
       "cf-aig-collect-log-payload": "false",
       "cf-aig-metadata": JSON.stringify({
@@ -1103,7 +1102,8 @@ describe("remote agent model routing", () => {
     const headers = buildRemoteAgentAiGatewayHeaders({
       env: {
         CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "token_123",
-        OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS: "openrouter",
+        OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID: "account_123",
+        OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID: "gateway_123",
         OPENMELD_WORKER_ENVIRONMENT: environment,
         CLOUDFLARE_OPENMELD_INTERNAL_DIAGNOSTICS_ORGANIZATION_ID:
           "00000000-0000-4000-8000-000000000001",
@@ -1129,7 +1129,8 @@ describe("remote agent model routing", () => {
     const headers = buildRemoteAgentAiGatewayHeaders({
       env: {
         CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "token_123",
-        OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS: "openrouter",
+        OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID: "account_123",
+        OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID: "gateway_123",
         OPENMELD_WORKER_ENVIRONMENT: "prod",
         CLOUDFLARE_OPENMELD_INTERNAL_DIAGNOSTICS_ORGANIZATION_ID:
           configuredOrganizationId,
@@ -1196,6 +1197,7 @@ describe("remote agent model routing", () => {
         thinkingLevel: "low",
         workingContextHeadroomTokens: 8000,
         maxSummaryTokens: 4096,
+        summaryTargetTokens: 2048,
         keepRecentTokens: 8000,
         reserveTokens: 340_000,
       },
@@ -1228,6 +1230,7 @@ describe("remote agent model routing", () => {
         thinkingLevel: "low",
         workingContextHeadroomTokens: 8000,
         maxSummaryTokens: 4096,
+        summaryTargetTokens: 2048,
         keepRecentTokens: 8000,
         reserveTokens: 340_000,
       },
@@ -1262,6 +1265,7 @@ describe("remote agent model routing", () => {
         thinkingLevel: "low",
         workingContextHeadroomTokens: 8000,
         maxSummaryTokens: 4096,
+        summaryTargetTokens: 2048,
         keepRecentTokens: 8000,
         // Compacts before the top provider's 1,048,576-token limit, not the
         // larger catalog context length.
@@ -1313,6 +1317,7 @@ describe("remote agent model routing", () => {
         thinkingLevel: "low",
         workingContextHeadroomTokens: 8000,
         maxSummaryTokens: 4096,
+        summaryTargetTokens: 2048,
         keepRecentTokens: 8000,
         reserveTokens: 50_000,
       },
@@ -1352,6 +1357,7 @@ describe("remote agent model routing", () => {
         thinkingLevel: "low",
         workingContextHeadroomTokens: 8000,
         maxSummaryTokens: 4096,
+        summaryTargetTokens: 2048,
         keepRecentTokens: 8000,
         reserveTokens: 340_000,
       },
@@ -1392,6 +1398,7 @@ describe("remote agent model routing", () => {
         thinkingLevel: "low",
         workingContextHeadroomTokens: 8000,
         maxSummaryTokens: 4096,
+        summaryTargetTokens: 2048,
         keepRecentTokens: 8000,
         reserveTokens: 50_000,
       },
@@ -1481,6 +1488,7 @@ describe("remote agent model routing", () => {
         thinkingLevel: "low",
         workingContextHeadroomTokens: 8000,
         maxSummaryTokens: 4096,
+        summaryTargetTokens: 2048,
         keepRecentTokens: 8000,
         reserveTokens: 40_000,
       },

@@ -1,0 +1,32 @@
+---
+title: Connect Claude Code
+description: Use Claude Code with your team in OpenMeld. Connect a local project and return code-review findings to a shared Space.
+icon: local-agent:claude-code
+---
+
+Connect Claude Code to work on a local project from a shared OpenMeld conversation. Teammates can read its published findings without sharing a terminal session.
+
+Use Claude Code on the computer where your files and tools are available. Your Claude or Console account controls access to the provider.
+
+## Install and sign in
+
+1. Open the [official Claude Code setup guide](https://code.claude.com/docs/en/quickstart).
+2. Follow the official installation instructions for your operating system. Open Terminal or PowerShell, run `claude`, and complete sign-in.
+3. Resolve any installation or account error in the tool before continuing.
+
+Use the official guide for current operating-system requirements and installation commands.
+
+## Connect to OpenMeld
+
+1. [Connect this computer](/docs/start/connect-computer) if you have not already done so.
+2. Open the computer’s details in OpenMeld and check **Local agents**.
+3. Confirm that Claude Code is available, then [create a Local Agent](/docs/work/agents) using that computer and tool.
+4. Select the intended [Project and working folder](/docs/work/projects).
+
+OpenMeld checks for a launchable `claude` command and its version. Run Claude Code once yourself before asking OpenMeld to check again.
+
+## Try a first task
+
+Use the [local code review example](/docs/tasks/local-code). Confirm that the Agent reports the intended repository and returns its findings in the conversation.
+
+If it cannot start, read the reason shown in OpenMeld. For connection problems, use [Computer help](/docs/help/computer). For a missing checkout, use [Working folder unavailable](/docs/help/working-folder).

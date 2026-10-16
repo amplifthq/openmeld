@@ -1,11 +1,13 @@
-import { resolve } from "node:path";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type {
   DesktopInboxAttention,
   DesktopUpdaterState,
 } from "@openmeld/schemas";
 import type { IpcMainInvokeEvent } from "electron";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WINDOW_IPC } from "../src/shared/ipc-contract";
 
 vi.mock("../src/main/tray-image", async (importOriginal) => ({
@@ -115,9 +117,15 @@ const electronMock = vi.hoisted(() => {
       setWindowOpenHandler: ReturnType<typeof vi.fn>;
     };
     show: ReturnType<typeof vi.fn>;
+    isVisible: ReturnType<typeof vi.fn>;
+    once: ReturnType<typeof vi.fn>;
+    loadURL: ReturnType<typeof vi.fn>;
   }> = [];
 
   class MockBrowserWindow {
+    static fromWebContents(contents: unknown) {
+      return windowInstances.find((window) => window.webContents === contents);
+    }
     webContents = {
       mainFrame: {
         url: pathToFileURL(
@@ -135,6 +143,7 @@ const electronMock = vi.hoisted(() => {
     on = vi.fn();
     isDestroyed = vi.fn(() => false);
     isMinimized = vi.fn(() => false);
+    isVisible = vi.fn(() => true);
     restore = vi.fn();
     center = vi.fn();
     show = vi.fn();
@@ -175,6 +184,12 @@ const electronMock = vi.hoisted(() => {
   }
 
   const app = {
+    getPath: vi.fn(),
+    getLoginItemSettings: vi.fn(() => ({
+      openAtLogin: false,
+      wasOpenedAtLogin: false,
+    })),
+    setLoginItemSettings: vi.fn(),
     dock: { setIcon: vi.fn() },
     enableSandbox: vi.fn(),
     getName: vi.fn(() => "OpenMeld"),
@@ -254,6 +269,7 @@ const desktopMock = vi.hoisted(() => {
     getAuthStatus: vi.fn(),
     getAgents: vi.fn(),
     getDesktopSettings: vi.fn(),
+    setStartInBackground: vi.fn(),
     getServiceStatus: vi.fn(),
     installCli: vi.fn(),
     installService: vi.fn(),
@@ -341,6 +357,11 @@ const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(
   process,
   "platform"
 );
+let startupDirectory: string;
+afterEach(() => {
+  rmSync(startupDirectory, { recursive: true, force: true });
+  restoreTestPlatform();
+});
 const originalSystemVersionDescriptor = Object.getOwnPropertyDescriptor(
   process,
   "getSystemVersion"
@@ -381,6 +402,12 @@ async function importMain(): Promise<void> {
 }
 
 beforeEach(() => {
+  startupDirectory = mkdtempSync(join(tmpdir(), "desktop-startup-"));
+  electronMock.app.getPath.mockReturnValue(startupDirectory);
+  electronMock.app.getLoginItemSettings.mockReturnValue({
+    openAtLogin: false,
+    wasOpenedAtLogin: false,
+  });
   inboxTitle.activate.mockReset();
   inboxTitle.initial = null;
   inboxTitle.invalidateScope = null;
@@ -570,6 +597,42 @@ describe("main tray behavior", () => {
 
     expect(window?.show).toHaveBeenCalled();
     expect(window?.focus).toHaveBeenCalled();
+  });
+
+  it("loads the login window without showing or maximizing it, then opens it on explicit activation", async () => {
+    setTestPlatform("darwin");
+    writeFileSync(
+      join(startupDirectory, "startup-settings.json"),
+      JSON.stringify({ startInBackground: true })
+    );
+    electronMock.app.getLoginItemSettings.mockReturnValue({
+      openAtLogin: true,
+      wasOpenedAtLogin: true,
+    });
+    await importMain();
+    const window = electronMock.windowInstances[0];
+    window?.isVisible.mockReturnValue(false);
+    const ready = window?.once.mock.calls.find(
+      ([event]) => event === "ready-to-show"
+    )?.[1];
+    ready?.();
+    expect(window?.loadURL).toHaveBeenCalled();
+    expect(window?.show).not.toHaveBeenCalled();
+    expect(window?.maximize).not.toHaveBeenCalled();
+    const enterApp = electronMock.ipcMain.handle.mock.calls.find(
+      ([channel]) => channel === WINDOW_IPC.enterApp
+    )?.[1];
+    enterApp?.({
+      sender: window?.webContents,
+      senderFrame: window?.webContents.mainFrame,
+    });
+    expect(window?.maximize).not.toHaveBeenCalled();
+    const activate = electronMock.app.on.mock.calls.find(
+      ([event]) => event === "activate"
+    )?.[1];
+    activate?.();
+    expect(window?.show).toHaveBeenCalledOnce();
+    expect(window?.focus).toHaveBeenCalledOnce();
   });
 
   it("opens the Desktop window maximized within the current screen", async () => {

@@ -19,6 +19,19 @@ export function registerMessageDetailsRoutes(app: Hono<HonoBindings>): void {
     const parsed = getSpaceMessageDetailsInputSchema.safeParse({
       spaceId,
       signalId: c.req.query("signalId"),
+      ...(c.req.query("includeThreadContext") === undefined
+        ? {}
+        : {
+            includeThreadContext:
+              c.req.query("includeThreadContext") === "true"
+                ? true
+                : c.req.query("includeThreadContext"),
+          }),
+      delegationVersion:
+        c.req.query("delegationVersion") === undefined
+          ? undefined
+          : Number(c.req.query("delegationVersion")),
+      delegationCursor: c.req.query("delegationCursor"),
       ...(c.req.query("executionContextVersion") === undefined
         ? {}
         : {
@@ -49,6 +62,9 @@ export function registerMessageDetailsRoutes(app: Hono<HonoBindings>): void {
         return await c.var.coreRpc.getSpaceMessageDetails({
           spaceId: parsed.data.spaceId,
           signalId: parsed.data.signalId,
+          includeThreadContext: parsed.data.includeThreadContext,
+          delegationVersion: parsed.data.delegationVersion,
+          delegationCursor: parsed.data.delegationCursor,
           ...(parsed.data.executionContextVersion
             ? { executionContextVersion: parsed.data.executionContextVersion }
             : {}),

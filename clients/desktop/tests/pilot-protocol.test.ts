@@ -151,6 +151,8 @@ it.each([
   ["POST", "projects/connect-declared-path"],
   ["POST", "projects/connections/set-default"],
   ["PUT", "agent-profiles/profile/workspace"],
+  ["GET", "local-agents/claude-code/installation-update"],
+  ["POST", "local-agents/claude-code/installation-update"],
 ])("admits %s %s only for the native account-aligned device and lane", async (method, action) => {
   const cloudRequest = vi.fn(async (_path: string) =>
     Response.json({ status: "cancelled", deviceId: "mac-a" })
@@ -192,18 +194,30 @@ it.each([
   );
 });
 
-it("refuses a sign-in change while admitting a folder request", async () => {
+it.each([
+  "cookie_refresh",
+  "sign_out",
+  "account_switch",
+  "same_account_sign_in",
+])("fences %s while admitting a folder request", async (change) => {
   let cookie = "session-a";
-  const cloudRequest = vi.fn();
+  let generation = 0;
+  const cloudRequest = vi.fn(async () =>
+    Response.json({ status: "cancelled" })
+  );
   const handle = createPilotProtocol({
     assets: "/unused",
     webOrigin: "https://web.example",
     webBuild: "a".repeat(64),
     fetch,
     cookie: () => cookie,
+    sessionGeneration: () => generation,
     cloudRequest,
     readLocalComputer: () => {
       cookie = "session-b";
+      if (change !== "cookie_refresh") {
+        generation += 1;
+      }
       return Promise.resolve({
         status: "available",
         accountId: "owner-b",
@@ -217,11 +231,21 @@ it("refuses a sign-in change while admitting a folder request", async () => {
       { method: "POST" }
     )
   );
-  expect(response.status).toBe(409);
-  expect(await response.json()).toMatchObject({
-    code: "desktop.folder.account_changed",
-  });
-  expect(cloudRequest).not.toHaveBeenCalled();
+  if (change === "cookie_refresh") {
+    expect(response.status).toBe(200);
+    expect(cloudRequest).toHaveBeenCalledOnce();
+  } else {
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      ok: false,
+      error: {
+        upstreamCode: "desktop.computer.account_changed",
+        message: expect.stringContaining("sign-in changed"),
+        requestId: expect.any(String),
+      },
+    });
+    expect(cloudRequest).not.toHaveBeenCalled();
+  }
 });
 
 it("refuses folder operations when native identity is unavailable before attaching credentials", async () => {
@@ -246,7 +270,7 @@ it("refuses folder operations when native identity is unavailable before attachi
     )
   );
   expect(response.status).toBe(409);
-  expect(cookie).toHaveBeenCalledTimes(1);
+  expect(cookie).not.toHaveBeenCalled();
   expect(cloudRequest).not.toHaveBeenCalled();
 });
 

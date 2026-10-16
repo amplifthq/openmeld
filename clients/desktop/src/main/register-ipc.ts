@@ -1,3 +1,4 @@
+import { desktopStartupToggleSchema } from "@openmeld/schemas";
 import { type IpcMainInvokeEvent, ipcMain } from "electron";
 import { OPENMELD_IPC } from "../shared/ipc-contract";
 import {
@@ -48,8 +49,12 @@ export function registerOpenMeldIpcHandlers(
   });
   handle(OPENMELD_IPC.getDesktopSettings, () => handlers.getDesktopSettings());
   handle(OPENMELD_IPC.setOpenAtLogin, (_event, enabled) => {
-    const input = validateOpenAtLoginInput(enabled);
-    return handlers.setOpenAtLogin(input.enabled);
+    return handlers.setOpenAtLogin(desktopStartupToggleSchema.parse(enabled));
+  });
+  handle(OPENMELD_IPC.setStartInBackground, (_event, enabled) => {
+    return handlers.setStartInBackground(
+      desktopStartupToggleSchema.parse(enabled)
+    );
   });
   handle(OPENMELD_IPC.getDesktopUpdateStatus, () =>
     handlers.getDesktopUpdateStatus()
@@ -83,13 +88,6 @@ function validateAgentToggleInput(
     throw new Error("enabled must be a boolean");
   }
   return { agentId, enabled };
-}
-
-function validateOpenAtLoginInput(enabled: unknown): { enabled: boolean } {
-  if (typeof enabled !== "boolean") {
-    throw new Error("enabled must be a boolean");
-  }
-  return { enabled };
 }
 
 function validateServiceAutoStartInput(enabled: unknown): { enabled: boolean } {

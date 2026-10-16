@@ -867,11 +867,85 @@ describe("local service runner dual-write", () => {
     expect(clearDaemonServiceRuntimeStateMock).toHaveBeenCalledTimes(1);
   });
 
+  it("shares one Host drain across repeated connector replacements", async () => {
+    const hostWork = Promise.withResolvers<void>();
+    const drainHost = vi.fn(() => hostWork.promise);
+    const coordinator = createControlledShutdownCoordinator({
+      drainHost,
+      hasUndrainedWork: () => true,
+      isStopRequested: () => false,
+      markStopping: () => undefined,
+    });
+    const wait = coordinator.waitForDrain();
+    for (let connection = 0; connection < 100; connection += 1) {
+      const stop = () => undefined;
+      coordinator.attachSession(stop);
+      expect(coordinator.waitForDrain()).toBe(wait);
+      coordinator.detachSession(stop);
+    }
+    expect(drainHost).toHaveBeenCalledTimes(1);
+    hostWork.resolve();
+    await wait;
+  });
+
+  it.each([
+    "drain",
+    "beginDrain",
+    "settleResults",
+  ] as const)("reports a failed Host %s and allows a later stop", async (failedMethod) => {
+    const failure = new Error(
+      "Host request capacity exhausted; drain was not admitted"
+    );
+    const drainHost = vi
+      .fn()
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValueOnce(undefined);
+    let stopping = false;
+    const coordinator = createControlledShutdownCoordinator({
+      drainHost,
+      hasUndrainedWork: () => true,
+      isStopRequested: () => stopping,
+      markStopping: () => {
+        stopping = true;
+      },
+    });
+    const admitted = Promise.withResolvers<void>();
+    coordinator.attachSession(() => admitted.resolve());
+    const firstStop = coordinator.request({
+      gracePeriodMs: 5000,
+      mode: "graceful",
+    });
+    const rejectedStop = expect(firstStop).rejects.toBe(failure);
+    await admitted.promise;
+    if (failedMethod === "drain") {
+      await expect(coordinator.waitForDrain()).rejects.toBe(failure);
+    } else {
+      expect(() => coordinator.failHostShutdown(failure)).toThrow(failure);
+      drainHost.mockReset().mockResolvedValue(undefined);
+    }
+    await rejectedStop;
+    expect(stopping).toBe(false);
+
+    const readmitted = Promise.withResolvers<void>();
+    coordinator.attachSession(() => readmitted.resolve());
+    const nextStop = coordinator.request({
+      gracePeriodMs: 5000,
+      mode: "graceful",
+    });
+    await readmitted.promise;
+    await coordinator.waitForDrain();
+    coordinator.handleSessionCompleted();
+    await expect(nextStop).resolves.toMatchObject({ accepted: true });
+    expect(drainHost).toHaveBeenCalledTimes(failedMethod === "drain" ? 2 : 1);
+    expect(stopping).toBe(true);
+  });
+
   it("joins repeated controlled shutdown requests to the admitted drain", async () => {
     let stopping = false;
     let shutdownRequestCount = 0;
     const shutdownAdmitted = Promise.withResolvers<void>();
     const coordinator = createControlledShutdownCoordinator({
+      drainHost: async () => undefined,
       hasUndrainedWork: () => false,
       isStopRequested: () => stopping,
       markStopping: () => {
@@ -945,19 +1019,22 @@ describe("local service runner dual-write", () => {
     expect(observedStopCause).toBe("user_stop");
   });
 
-  it("rejects a controlled shutdown when the active socket session fails to drain and reconnects", async () => {
+  it("keeps an admitted stop pending across reconnect and completes it after the replacement session drains", async () => {
     const firstSessionStarted = Promise.withResolvers<void>();
     const secondSessionStarted = Promise.withResolvers<void>();
+    const finishDrain = Promise.withResolvers<void>();
+    const stopCauses: unknown[] = [];
     let sessionCount = 0;
     runDaemonSocketSessionMock.mockReset().mockImplementation(async (input) => {
       sessionCount += 1;
       if (sessionCount === 1) {
         firstSessionStarted.resolve();
-        await input.shutdownRequested;
+        stopCauses.push(await input.shutdownRequested);
         throw new Error("drain heartbeat failed");
       }
+      stopCauses.push(await input.shutdownRequested);
       secondSessionStarted.resolve();
-      await input.shutdownRequested;
+      await finishDrain.promise;
     });
 
     const loop = runDaemonServiceLoop({
@@ -976,15 +1053,24 @@ describe("local service runner dual-write", () => {
     const serverInput =
       startLocalDaemonControlPlaneServerMock.mock.calls[0]?.[0];
     const context = await serverInput.getContext();
-    await expect(
-      context.shutdownHandler({
+    let completed = false;
+    const shutdown = context
+      .shutdownHandler({
         gracePeriodMs: 5000,
         mode: "graceful",
       })
-    ).rejects.toThrow("drain heartbeat failed");
+      .then((result: unknown) => {
+        completed = true;
+        return result;
+      });
     await secondSessionStarted.promise;
-
-    requestServiceSigterm();
+    expect(completed).toBe(false);
+    expect(stopCauses).toEqual([
+      "controlled_service_update",
+      "controlled_service_update",
+    ]);
+    finishDrain.resolve();
+    await expect(shutdown).resolves.toMatchObject({ accepted: true });
     await loop;
 
     expect(runDaemonSocketSessionMock).toHaveBeenCalledTimes(2);

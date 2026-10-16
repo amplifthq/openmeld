@@ -1,9 +1,38 @@
 import { bigint, index, primaryKey, text } from "drizzle-orm/pg-core";
-import { organizations } from "../auth/auth.schema.ts";
+import { organizations, users } from "../auth/auth.schema.ts";
 import { applicationTable } from "../postgresql/schema.ts";
 
-// No row (or a null limit) means unlimited. Keeping policy separate from usage
-// lets later entitlements change the allowance without rewriting consumption.
+// Deleting a workspace does not give its creator another sponsored allowance.
+export const aiFreeGrants = applicationTable("ai_free_grants", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  organizationId: text("organization_id")
+    .unique()
+    .references(() => organizations.id, { onDelete: "set null" }),
+  createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+});
+
+// Presence of a BYOK row is the single source of truth for selecting BYOK.
+// Free and Internal credentials are separate so switching never resets spend
+// or depends on propagation of a changed upstream key limit.
+export const organizationAiCredentials = applicationTable(
+  "organization_ai_credentials",
+  {
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    source: text("source").notNull(),
+    encryptedKey: text("encrypted_key").notNull(),
+    providerKeyHash: text("provider_key_hash"),
+    keySuffix: text("key_suffix").notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.organizationId, table.source] })]
+);
+
+// Historical daily policies remain for data retention; native monthly provider
+// budgets now own admission. Do not write new entitlements to this table.
 export const organizationAiUsagePolicies = applicationTable(
   "organization_ai_usage_policies",
   {

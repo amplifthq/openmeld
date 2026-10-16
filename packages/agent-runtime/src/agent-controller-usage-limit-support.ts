@@ -1,6 +1,6 @@
 import { parseAgentControllerRef } from "./agent-controller-ref";
 
-export const AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION = 6;
+export const AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION = 7;
 
 export type AgentControllerUsageLimitSupport =
   | "native"
@@ -15,6 +15,7 @@ const AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX = {
   codex: "native",
   cursor: "observational",
   "grok-build": "native",
+  "grok-bot": "unsupported",
   opencode: "provider_scoped",
   openclaw: "not_evaluated",
 } as const satisfies Record<string, AgentControllerUsageLimitSupport>;

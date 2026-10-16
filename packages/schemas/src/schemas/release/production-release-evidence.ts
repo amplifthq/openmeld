@@ -101,7 +101,12 @@ export const productionWorkerDeploymentIdentitySchema = z.strictObject({
   versionId: z.string().min(1).max(200),
   sourceSha: z.string().regex(/^[0-9a-f]{40}$/u),
   projectionTag: z.string().min(1).max(200).optional(),
-  proof: z.enum(["command-output", "cli-projection", "reconciled-hosted"]),
+  proof: z.enum([
+    "command-output",
+    "cli-projection",
+    "reconciled-hosted",
+    "reconciled-secret-addition",
+  ]),
 });
 
 export const productionCliReleaseIdentitySchema = z.strictObject({
@@ -126,14 +131,12 @@ export const retainedRemoteContainerSchema = z.strictObject({
   version: z.number().int().nonnegative(),
   image: z.string().regex(/@sha256:[0-9a-f]{64}$/u),
   configurationHash: z.string().regex(/^[0-9a-f]{64}$/u),
-  instances: z
-    .array(
-      z.strictObject({
-        id: z.string().min(1),
-        version: z.number().int().nonnegative(),
-      })
-    )
-    .min(1),
+  instances: z.array(
+    z.strictObject({
+      id: z.string().min(1),
+      version: z.number().int().nonnegative(),
+    })
+  ),
 });
 
 const remoteAgentReleaseStageSchema = z.strictObject({
@@ -187,6 +190,14 @@ const remoteAgentRecoverySchema = z.strictObject({
   id: z.uuid(),
   originalEvidenceSha: z.string().regex(/^[0-9a-f]{40}$/u),
   startedAt: z.iso.datetime(),
+  nativeProvenance: z
+    .strictObject({
+      evidenceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+      sourceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+      workerVersionId: z.string().min(1).max(200),
+      container: retainedRemoteContainerSchema.omit({ instances: true }),
+    })
+    .optional(),
   baseline: z.strictObject({
     workerDeploymentId: z.string().min(1).max(200),
     workerVersionId: z.string().min(1).max(200),
@@ -218,14 +229,9 @@ const remoteAgentRecoverySchema = z.strictObject({
 // The canonical receipt stays v3 for older release readers. This v4 proof is
 // its second Git parent; the first parent preserves the original failed event.
 // The baseline never attributes the partial Worker to the failed command.
-export const recoveredComponentReceiptSchema = z
-  .strictObject({
-    attemptId: z.uuid(),
-    componentIndex: z.number().int().nonnegative(),
-    operationKey: z.string().regex(/^[0-9a-f]{64}$/u),
-    startedAt: z.iso.datetime(),
+export const recoveredComponentReceiptSchema = correlatedComponentReceiptSchema
+  .safeExtend({
     status: z.enum(["verified", "failed"]),
-    application: z.enum(["unknown", "applied"]),
     identity: productionWorkerDeploymentIdentitySchema.optional(),
     recovery: remoteAgentRecoverySchema,
   })
@@ -297,6 +303,23 @@ export const postgresqlRollbackReconciliationSchema = z.strictObject({
   }),
 });
 
+export const coreSecretReconciliationSchema = z.strictObject({
+  kind: z.literal("reconciled-core-secret-addition"),
+  controlSha: z.string().regex(/^[0-9a-f]{40}$/u),
+  supersededReceipt: z.strictObject({
+    evidenceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+    sourceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+  }),
+  baselineIdentity: productionWorkerDeploymentIdentitySchema,
+  addedSecret: z.string().regex(/^[A-Z][A-Z0-9_]+$/u),
+  deployedAt: z.iso.datetime({ offset: true }),
+  scriptEtag: z.string().regex(/^[0-9a-f]{64}$/u),
+  resourceDigest: z.string().regex(/^[0-9a-f]{64}$/u),
+  inheritedProjectionTag: z.string().min(1),
+  tagDroppedBySecretUpdate: z.boolean(),
+  secretValuesUnobservable: z.literal(true),
+});
+
 export const productionReleaseEvidenceSchema = z
   .discriminatedUnion("schemaVersion", [
     z.strictObject({ ...commonEvidenceFields, schemaVersion: z.literal(1) }),
@@ -327,8 +350,37 @@ export const productionReleaseEvidenceSchema = z
       receipt: correlatedComponentReceiptSchema,
       reconciliation: postgresqlRollbackReconciliationSchema,
     }),
+    z.strictObject({
+      ...commonEvidenceFields,
+      schemaVersion: z.literal(7),
+      receipt: correlatedComponentReceiptSchema,
+      reconciliation: coreSecretReconciliationSchema,
+    }),
   ])
   .superRefine((evidence, context) => {
+    if (
+      evidence.schemaVersion === 7 &&
+      (evidence.scope !== "core" ||
+        evidence.receipt.status !== "applied" ||
+        evidence.receipt.application !== "applied" ||
+        evidence.receipt.identity?.kind !== "worker-deployment" ||
+        evidence.receipt.identity.proof !== "reconciled-secret-addition" ||
+        evidence.receipt.identity.workerName !== "openmeld-core-prod" ||
+        evidence.receipt.identity.sourceSha !== evidence.sourceSha ||
+        evidence.receipt.identity.projectionTag !== undefined ||
+        evidence.reconciliation.supersededReceipt.sourceSha !==
+          evidence.sourceSha ||
+        evidence.reconciliation.baselineIdentity.sourceSha !==
+          evidence.sourceSha ||
+        evidence.reconciliation.baselineIdentity.projectionTag !==
+          evidence.reconciliation.inheritedProjectionTag)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Secret reconciliation requires the same-source Core identity and separately proved inherited projection.",
+      });
+    }
     if (
       evidence.schemaVersion === 6 &&
       (evidence.scope !== "db" ||

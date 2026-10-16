@@ -77,6 +77,11 @@ export type ClaudeCodeAdapterOptions = {
 };
 
 export {
+  readClaudeNativeVersion,
+  resolveClaudeNativeUpdateCommand,
+  updateClaudeNativeInstallation,
+} from "./config/claude-native-update.js";
+export {
   resolveClaudeCodeTimeoutMs,
   resolveInstalledClaudeCodeLaunchCandidates,
   resolveInstalledClaudeCodeLaunchContract,

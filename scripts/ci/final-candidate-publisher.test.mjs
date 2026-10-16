@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { FINAL_CANDIDATE_EVIDENCE_VERSION } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
 import { FINAL_CANDIDATE_RUNNER_CHECK_NAME } from "./final-candidate-hosted-disposition.mjs";
@@ -10,6 +12,22 @@ import { assertEvidenceMatchesExecution } from "./final-candidate-publisher.mjs"
 import { selectSkippedCheckRun } from "./final-candidate-state.mjs";
 
 const BASE_SHA = "1".repeat(40);
+const MISSING_BASE_OPTION = /publisher requires --base/u;
+test("publisher CLI accepts the read-only workflow option", () => {
+  const result = spawnSync(
+    process.execPath,
+    [
+      fileURLToPath(
+        new URL("./final-candidate-publisher.mjs", import.meta.url)
+      ),
+      "--output-only",
+      "true",
+    ],
+    { encoding: "utf8" }
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, MISSING_BASE_OPTION);
+});
 const HEAD_SHA = "2".repeat(40);
 const TREE_SHA = "3".repeat(40);
 const EMPTY_EVIDENCE_PATTERN =

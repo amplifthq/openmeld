@@ -6,7 +6,6 @@ import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
-import tsconfigPaths from "vite-tsconfig-paths";
 // @ts-expect-error Shared build-only JavaScript helper.
 import { prepareSharedPublicAssets } from "../../scripts/vite/shared-public-assets.mjs";
 
@@ -15,9 +14,18 @@ const appOrigins: Record<string, string> = {
 	prod: "https://app.openmeld.ai",
 	stg: "https://app.staging.openmeld.ai",
 };
+const docsOrigins: Record<string, string> = {
+	prod: "https://docs.openmeld.ai",
+	stg: "https://docs.staging.openmeld.ai",
+};
 
 export default defineConfig({
 	define: {
+		"import.meta.env.VITE_DOCS_URL": JSON.stringify(
+			process.env.VITE_DOCS_URL ??
+				docsOrigins[process.env.CLOUDFLARE_ENV ?? ""] ??
+				"http://localhost:3600"
+		),
 		__OPENMELD_WEBSITE_BUILD__: JSON.stringify({
 			id: randomUUID(),
 			sha: execFileSync("git", ["rev-parse", "HEAD"], {
@@ -36,6 +44,7 @@ export default defineConfig({
 	},
 	build: { assetsDir: "_website/assets" },
 	resolve: {
+		tsconfigPaths: true,
 		alias: {
 			"@openmeld/schemas/schemas": path.resolve(
 				import.meta.dirname,
@@ -56,7 +65,6 @@ export default defineConfig({
 	},
 	plugins: [
 		cloudflare({ viteEnvironment: { name: "ssr" }, inspectorPort: false }),
-		tsconfigPaths(),
 		tanstackStart({
 			router: { routeFileIgnorePattern: "\\.(test|spec)\\." },
 			client: { base: "/_website/build" },

@@ -135,9 +135,10 @@ Cursor: unsupported, cursor_complete_inventory_unavailable
 OpenCode: sessions=23, titled=23, resume=23, fork=0
 Grok Build: sessions=11, titled=7, resume=11, fork=0
 Total retained Sessions: 2475
+Historical validation (2026-08-20; current npm support starts at Node 22):
 OpenCode SQLite runtime: Node v20.20.2 fresh-install better-sqlite3 12.6.2
 read/prepare/close smoke passed
-Packaged CLI engine: Node 20 and Node 22-25, matching better-sqlite3 12.6.2;
+Packaged CLI engine at that time: Node 20 and Node 22-25, matching better-sqlite3 12.6.2;
 Node 21 and Node 26+ are rejected by the published package contract
 OpenCode standalone runtime: Bun v1.3.14 compiled executable opened the real
 SQLite fixture read-only through bun:sqlite and returned the expected Session

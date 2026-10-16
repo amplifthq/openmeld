@@ -1,0 +1,32 @@
+---
+title: Connect Codex
+description: Connect Codex to a shared OpenMeld Space, review a local repository, and share findings with your team.
+icon: local-agent:codex
+---
+
+Connect Codex to review a local repository from an OpenMeld conversation and share its findings in a Space. Your Codex sign-in stays with the local installation. Review [access and tool permissions](/docs/team/access) before sharing an Agent; connecting it does not grant teammates unrestricted access to your computer.
+
+If you already use ChatGPT on this computer, open it and sign in. OpenMeld can use a compatible bundled Codex installation. You do not need to install a second copy when OpenMeld detects a working one.
+
+## Install and sign in
+
+1. Open the [official Codex setup guide](https://developers.openai.com/codex/cli).
+2. Open Codex once and complete sign-in. If you need a separate CLI installation, follow the official guide for your operating system.
+3. Resolve any installation or account error in the tool before continuing.
+
+Use the official guide for current operating-system requirements and installation commands.
+
+## Connect to OpenMeld
+
+1. [Connect this computer](/docs/start/connect-computer) if you have not already done so.
+2. Open the computer’s details in OpenMeld and check **Local agents**.
+3. Confirm that Codex is available, then [create a Local Agent](/docs/work/agents) using that computer and tool.
+4. Select the intended [Project and working folder](/docs/work/projects).
+
+OpenMeld checks the Codex installations it can control. Check the installation and account shown in the computer’s Local agents list before creating an Agent.
+
+## Try a first task
+
+Use the [local code review example](/docs/tasks/local-code). Confirm that the Agent reports the intended repository and returns its findings in the conversation.
+
+If it cannot start, read the reason shown in OpenMeld. For connection problems, use [Computer help](/docs/help/computer). For a missing checkout, use [Working folder unavailable](/docs/help/working-folder).

@@ -163,6 +163,8 @@ import {
   centerAgentWatchAgentTaskBodySchema,
   centerAgentWatchAgentTaskResponseSchema,
   centerAgentWipeMemberMemoryResponseSchema,
+  computerPowerResultSchema,
+  computerPowerRpcInputSchema,
   connectorAppRequestListResponseSchema,
   connectorAppRequestResponseSchema,
   connectorConnectionNameSchema,
@@ -188,6 +190,7 @@ import {
   type DeleteConversationForMeInput,
   type DeleteConversationForMeResponse,
   daemonServiceLaneSchema,
+  decodeSpaceFileText,
   deleteConversationForMeInputSchema,
   deleteSpaceAttachmentRecordInputSchema,
   deleteSpaceAttachmentRecordResultSchema,
@@ -241,6 +244,7 @@ import {
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
   isHostedAgentControllerRef,
   isSpaceFileTextEditable,
+  isSpaceFileTextReadable,
   type ListCenterAgentSessionsQuery,
   type ListCenterAgentSessionsResponse,
   larkPlatformActiveRegistrationListResponseSchema,
@@ -250,6 +254,8 @@ import {
   listCenterAgentAuditJournalResponseSchema,
   listCenterAgentSessionsQuerySchema,
   listSpaceThreadSignalsQuerySchema,
+  localAgentUpdateRequestSchema,
+  localAgentUpdateStateSchema,
   localRuntimeEnrollmentBodySchema,
   localRuntimeEnrollmentResponseSchema,
   localRuntimesResponseSchema,
@@ -521,6 +527,7 @@ import type {
   ComputerFileAccessPolicyResponse,
   ComputerFileAccessReadRpcInput,
   ComputerFileAccessUpdateRpcInput,
+  ComputerPowerRpcInput,
   ConnectorAppRequestListResponse,
   ConnectorAppRequestResponse,
   ConnectorConnection,
@@ -963,7 +970,10 @@ import {
 import type { CenterAgentWakePublicationCommand } from "../center-agent/infrastructure/postgresql/center-agent-wake-publication-repo";
 import { startCenterAgentMemberResearch } from "../center-agent-member-research/member-research-service";
 import type { CenterAgentMemoryEpisodeOrigin } from "../center-agent-memory/contract";
-import { createCoreCenterAgentMemoryService } from "../center-agent-memory/core-memory-service";
+import {
+  createCoreCenterAgentMemoryService,
+  readCoreOrganizationMemoryAvailability,
+} from "../center-agent-memory/core-memory-service";
 import {
   resolveExplicitMemoryEpisodeOrigin,
   resolveExplicitMemorySourceDeliveryDb,
@@ -1021,6 +1031,7 @@ import {
   type DispatchHistoryEntry,
   listRecentDispatchLedgerEntriesForSpace,
 } from "../dispatch/infrastructure/postgresql/dispatch-ledger-postgresql";
+import { callRuntimeTransportApi as callPowerTransport } from "../dispatch/infrastructure/runtime-transport/runtime-transport-api-client";
 import {
   acquireRuntimeTransportAgentProfileExecutionTargetMutation,
   acquireRuntimeTransportAgentProfileFutureWorkSettingsMutation,
@@ -1384,6 +1395,7 @@ import { createCoreRpcHttpError, readCoreRpcHttpStatus } from "./errors";
 import {
   requireAcceptedLocalAgentControlPayload,
   requireAcceptedLocalAgentInstallationPayload,
+  requireAcceptedLocalAgentUpdatePayload,
 } from "./local-agent-control-policy";
 import { callRequiredAuthWorkerRpc } from "./required-auth-worker-rpc";
 import {
@@ -2855,6 +2867,9 @@ export type GetSpaceWakeTraceWaterfallInput = {
   spaceAccess?: SpaceAccessContext;
 };
 export type GetSpaceMessageDetailsInput = {
+  includeThreadContext?: true;
+  delegationVersion?: 1;
+  delegationCursor?: string;
   spaceId: string;
   signalId: string;
   executionContextVersion?: 1;
@@ -3061,6 +3076,95 @@ export function rpcGetPeopleComputerLocalAgentInstallations(
     });
   }
   return rpcGetCurrentLocalAgentInstallations(env, input, parsed.data);
+}
+export async function rpcManagePeopleComputerLocalAgentUpdate(
+  env: CoreBindings,
+  input: GetCurrentLocalAgentInstallationsInput &
+    PeopleComputerTarget & {
+      request?: import("@openmeld/schemas/types").LocalAgentUpdateRequest;
+    }
+): Promise<import("@openmeld/schemas/types").LocalAgentUpdateState> {
+  const target = peopleComputerTargetSchema.parse({
+    deviceId: input.deviceId,
+    runtimeLane: input.runtimeLane,
+  });
+  const { agentId } = currentLocalAgentInstallationsRouteParamsSchema.parse({
+    agentId: input.agentId,
+  });
+  const userId = requireAuthenticatedOwnerUserId(input.context);
+  const { currentTarget } = await resolveCurrentLocalAgentControlTarget({
+    capability: "updateInstallations",
+    env,
+    target,
+    userId,
+    unsupportedCode: "local_agent_control.unsupported",
+    unsupportedReason:
+      "Update OpenMeld Service to update local agents from OpenMeld.",
+  });
+  const request = input.request
+    ? localAgentUpdateRequestSchema.parse(input.request)
+    : null;
+  const result = await manageRuntimeTransportLocalAgentInstallation({
+    env,
+    ownerUserId: userId,
+    deviceId: currentTarget.deviceId,
+    runtimeLane: currentTarget.runtimeLane,
+    request: request
+      ? { ...request, agentId, operation: "update" }
+      : { agentId, operation: "read_update" },
+  });
+  return localAgentUpdateStateSchema.parse(
+    requireAcceptedLocalAgentUpdatePayload(result)
+  );
+}
+export async function rpcManagePeopleComputerLocalAgentSetup(
+  env: CoreBindings,
+  input: GetCurrentLocalAgentInstallationsInput &
+    PeopleComputerTarget & {
+      request?: import("@openmeld/schemas/types").LocalAgentSetupRequest;
+    }
+): Promise<import("@openmeld/schemas/types").LocalAgentSetupState> {
+  const target = peopleComputerTargetSchema.parse({
+    deviceId: input.deviceId,
+    runtimeLane: input.runtimeLane,
+  });
+  if (input.agentId !== "grok-bot") {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "This Agent does not support connection setup.",
+    });
+  }
+  const userId = requireAuthenticatedOwnerUserId(input.context);
+  const { currentTarget } = await resolveCurrentLocalAgentControlTarget({
+    capability: "setupInstallations",
+    env,
+    target,
+    userId,
+    unsupportedCode: "local_agent_control.unsupported",
+    unsupportedReason: "Update OpenMeld Service to install connection tools.",
+  });
+  const request = input.request
+    ? localAgentSetupRequestSchema.parse(input.request)
+    : null;
+  const result = await manageRuntimeTransportLocalAgentInstallation({
+    env,
+    ownerUserId: userId,
+    deviceId: currentTarget.deviceId,
+    runtimeLane: currentTarget.runtimeLane,
+    request: request
+      ? { ...request, agentId: "grok-bot", operation: "setup" }
+      : { agentId: "grok-bot", operation: "read_setup" },
+  });
+  const payload = requireAcceptedInstallationControlPayload(result);
+  if (payload.status !== "setup_state") {
+    throw createCoreRpcHttpError({
+      status: 502,
+      code: "local_agent_control.invalid_response",
+      reason: "Unexpected connection setup response.",
+    });
+  }
+  return localAgentSetupStateSchema.parse(payload.setup);
 }
 export function rpcSelectPeopleComputerLocalAgentInstallation(
   env: CoreBindings,
@@ -3476,6 +3580,7 @@ export type ListCenterAgentAuditJournalInput =
   };
 export type ReadCenterAgentOrganizationMemoryPolicyInput = {
   context?: CoreRpcContextInput;
+  includeAvailability?: boolean;
 };
 export type SetCenterAgentOrganizationMemoryPolicyInput =
   UpdateCenterAgentOrganizationMemoryPolicyBody & {
@@ -3501,6 +3606,7 @@ export type WipeCurrentMemberCenterAgentMemoryInput = {
 export type CenterAgentRememberForOrganizationInput =
   CenterAgentRememberForOrganizationBody & {
     context?: CoreRpcContextInput;
+    includeStatus?: boolean;
     speakerMember?: {
       memberId: string;
       userId: string;
@@ -11344,6 +11450,14 @@ export async function rpcReadCenterAgentOrganizationMemoryPolicy(
   );
   const policy = await repository.readPolicy(activeOrganization.organizationId);
   return centerAgentOrganizationMemoryPolicyResponseSchema.parse({
+    ...(input.includeAvailability
+      ? {
+          availability: await readCoreOrganizationMemoryAvailability(
+            env,
+            activeOrganization.organizationId
+          ),
+        }
+      : {}),
     organizationId: activeOrganization.organizationId,
     organizationMemoryOptIn: policy.organizationMemoryOptIn,
     provider: "zep_cloud",
@@ -11540,18 +11654,32 @@ export async function rpcCenterAgentRememberForOrganization(
     });
   }
   const memoryService = requireCenterAgentMemoryService(env);
+  let saveStatus: "processing" | "processed";
   try {
     const origin = await requireExplicitMemoryEpisodeOrigin({
       authorization,
       env,
     });
-    await memoryService.rememberFactForOrganization({
+    const receipt = await memoryService.rememberFactForOrganization({
       fact: parsed.data.fact,
       organizationId: authorization.activeOrganization.organizationId,
       origin,
       speakerMember,
     });
+    saveStatus = receipt.status;
   } catch (error) {
+    if (
+      toErrorMessage(error) ===
+        "center_agent_memory.organization_write_timeout" ||
+      toErrorMessage(error) === "center_agent_memory.write_receipt_missing"
+    ) {
+      throw createCoreRpcHttpError({
+        status: 504,
+        reason:
+          "The memory provider did not confirm the save. It may still be processing. Search for the fact before trying to save it again.",
+        code: "center_agent_memory.write_outcome_unknown",
+      });
+    }
     if (
       toErrorMessage(error).includes(
         "center_agent_memory.organization_memory_opt_in_required"
@@ -11560,7 +11688,7 @@ export async function rpcCenterAgentRememberForOrganization(
       throw createCoreRpcHttpError({
         status: 403,
         reason:
-          "Organization memory is off. Ask an Organization owner or admin to turn on organization memory from the Center Agent page (Manage → Memory).",
+          "Organization memory is off. Ask an owner or admin to enable it in Center Agent settings.",
         code: "center_agent_memory.organization_memory_opt_in_required",
       });
     }
@@ -11570,6 +11698,7 @@ export async function rpcCenterAgentRememberForOrganization(
     fact: parsed.data.fact,
     organizationId: authorization.activeOrganization.organizationId,
     saved: true,
+    ...(input.includeStatus ? { status: saveStatus } : {}),
     source: "explicit_tool",
   });
 }
@@ -15365,7 +15494,7 @@ export async function rpcCenterAgentReadSpaceFile(
     env,
     spaceId: request.spaceId,
   });
-  const resolved = await rpcReadSpaceFileContent(env, {
+  const resolved = await rpcStreamSpaceFileContent(env, {
     context: authorization.context,
     content: {
       fileId: request.fileId,
@@ -15375,11 +15504,13 @@ export async function rpcCenterAgentReadSpaceFile(
     spaceId: request.spaceId,
   });
   if (
-    !isSpaceFileTextEditable({
+    !isSpaceFileTextReadable({
+      fileName: resolved.file.name,
       mimeType: resolved.revision.mimeType,
-      sizeBytes: resolved.bytes.byteLength,
+      sizeBytes: resolved.revision.sizeBytes,
     })
   ) {
+    await resolved.bytes.cancel();
     throw createCoreRpcHttpError({
       code: "space_file.type_unsupported",
       reason:
@@ -15388,11 +15519,9 @@ export async function rpcCenterAgentReadSpaceFile(
     });
   }
   let content: string;
+  const bytes = await new Response(resolved.bytes).arrayBuffer();
   try {
-    content = new TextDecoder("utf-8", {
-      fatal: true,
-      ignoreBOM: false,
-    }).decode(resolved.bytes);
+    content = decodeSpaceFileText(bytes);
   } catch {
     throw createCoreRpcHttpError({
       code: "space_file.type_unsupported",
@@ -19208,6 +19337,7 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
 ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
   const { db, request } = await requireAgentProfileWorkspaceScope(env, input);
   const body = ensureAgentProfilePrimaryBindingBodySchema.safeParse({
+    sharedConversationAcknowledged: input.sharedConversationAcknowledged,
     agentControllerRef: input.agentControllerRef,
     agentControllerCollaborationMode: input.agentControllerCollaborationMode,
     agentControllerConversationId: input.agentControllerConversationId,
@@ -22698,6 +22828,9 @@ export async function rpcGetSpaceMessageDetails(
   input: GetSpaceMessageDetailsInput
 ): Promise<GetSpaceMessageDetailsResponse> {
   const parsed = getSpaceMessageDetailsInputSchema.safeParse({
+    includeThreadContext: input.includeThreadContext,
+    delegationVersion: input.delegationVersion,
+    delegationCursor: input.delegationCursor,
     spaceId: input.spaceId,
     signalId: input.signalId,
     ...(input.executionContextVersion
@@ -22718,7 +22851,8 @@ export async function rpcGetSpaceMessageDetails(
     env,
     parsed.data.spaceId
   );
-  return await stub.rpcGetMessageDetails({
+  const details = await stub.rpcGetMessageDetails({
+    includeThreadContext: parsed.data.includeThreadContext,
     spaceId,
     signalId: parsed.data.signalId,
     ...(parsed.data.executionContextVersion
@@ -22726,6 +22860,50 @@ export async function rpcGetSpaceMessageDetails(
       : {}),
     ...access,
   });
+  if (parsed.data.delegationVersion !== 1) {
+    return details;
+  }
+  const { readSpaceMessageDelegations } = await import(
+    "../space/application/space-message-delegations"
+  );
+  const delegations = await readSpaceMessageDelegations({
+    db: requireAgentTaskCoordinationDb(env),
+    details,
+    after: parsed.data.delegationCursor,
+    readTarget: async (childSpaceId, profileId) => {
+      const directory = await rpcGetSpaceIdentityDirectory(env, {
+        spaceId: childSpaceId,
+        ...(childSpaceId === spaceId ? access : { context: access.context }),
+      });
+      return (
+        directory.entries.find(
+          (entry) =>
+            entry.profileId === profileId && entry.profileKind === "agent"
+        )?.profileName ?? null
+      );
+    },
+    readMessage: async (childSpaceId, signalId) => {
+      const child = resolveRpcSpaceStubOrThrow(env, childSpaceId);
+      return await child.stub.rpcGetMessageDetails({
+        spaceId: child.spaceId,
+        signalId,
+        executionContextVersion: 1,
+        // Source-Space passwords and continuation grants never authorize another Space.
+        ...(child.spaceId === spaceId ? access : { context: access.context }),
+      });
+    },
+    readProgress: async (childSpaceId, clientMessageId, targetProfileId) => {
+      return await rpcGetSpaceWakeProgress(env, {
+        spaceId: childSpaceId,
+        clientMessageId,
+        targetProfileId,
+        includeSourceContext: true,
+        includeWakeStopEligibility: true,
+        ...(childSpaceId === spaceId ? access : { context: access.context }),
+      });
+    },
+  });
+  return { ...details, delegations };
 }
 export async function rpcCreateSpaceDiagnosticReport(
   env: CoreBindings,
@@ -26594,6 +26772,8 @@ export type CreateSpaceTaskInput = GetSpaceMetaInput & {
 export type MutateSpaceTaskInput = GetSpaceMetaInput & {
   taskId: string;
   body: MutateSpaceTaskBody;
+  // Internal Core-to-Space projection. The public RPC always recomputes it.
+  representedRequester?: import("@openmeld/schemas/types").SpaceTaskActor;
   taskContractVersion?: 2 | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
 };
 export async function rpcSpaceFilePins(
@@ -26753,7 +26933,40 @@ export async function rpcMutateSpaceTask(
       });
     }
   }
-  const receipt = await stub.rpcMutateTask({ ...input, spaceId, context });
+  const { resolveSpaceTaskRepresentedRequester } = await import(
+    "../space/application/space-task-delegation"
+  );
+  const submissionId = context.agentControllerConversationId;
+  let representedRequester: MutateSpaceTaskInput["representedRequester"];
+  if (
+    context.actorContext.agentControllerRef ===
+      HOSTED_CENTER_AGENT_CONTROLLER_REF &&
+    submissionId &&
+    ["assign", "set_reviewer", "update_brief"].includes(input.body.action)
+  ) {
+    const { authorizeRemoteAgentExecutionAccess } = await import(
+      "../remote-agent/application/remote-agent-execution-access"
+    );
+    await authorizeRemoteAgentExecutionAccess(env, { context, submissionId });
+    const parent = await requireCenterAgentContinuationParent({
+      actorProfileId: context.actorContext.openMeldProfileId ?? "",
+      db: requireCenterAgentDb(env),
+      organizationId: context.activeOrganizationId ?? "",
+      parentSubmissionId: submissionId,
+      destinationNeutralContinuations: true,
+      resumesParent: false,
+    });
+    representedRequester = resolveSpaceTaskRepresentedRequester(
+      parent,
+      spaceId
+    );
+  }
+  const receipt = await stub.rpcMutateTask({
+    ...input,
+    spaceId,
+    context,
+    representedRequester,
+  });
   return projectSpaceTaskReceiptForClient(receipt, input.taskContractVersion);
 }
 
@@ -26956,3 +27169,61 @@ async function resolveSessionHistoryAgentTarget(
 
   return target;
 }
+
+export async function rpcComputerPowerSettings(
+  env: CoreBindings,
+  raw: ComputerPowerRpcInput
+) {
+  const input = computerPowerRpcInputSchema.parse(raw);
+  const ownerUserId = requireAuthenticatedOwnerUserId(input.context);
+  if (
+    input.context.actorContext.profileKind !== "human" ||
+    input.context.actorContext.callerPrincipalId !== ownerUserId
+  ) {
+    throw createCoreRpcHttpError({
+      status: 403,
+      code: "computer.power.denied",
+      reason: "Only the computer owner can manage sleep prevention.",
+    });
+  }
+  const target = { deviceId: input.deviceId, runtimeLane: input.runtimeLane };
+  const { localRuntimes, ownerService } =
+    await resolveCurrentLocalServiceContext({
+      env,
+      userId: ownerUserId,
+      target,
+    });
+  requirePeopleComputerControlSession({
+    target,
+    inventory: localRuntimes,
+    ownerService,
+  });
+  const result = computerPowerResultSchema.parse(
+    await callPowerTransport({
+      env,
+      ownerUserId,
+      path: "/computer-power",
+      body: {
+        ownerUserId,
+        deviceId: target.deviceId,
+        lane: target.runtimeLane,
+        requestId: crypto.randomUUID(),
+        request: input.request,
+      },
+    })
+  );
+  if ("status" in result) {
+    throw createCoreRpcHttpError({
+      status: 409,
+      code: result.code,
+      reason: result.message,
+    });
+  }
+  return result;
+}
+
+import {
+  localAgentSetupRequestSchema,
+  localAgentSetupStateSchema,
+} from "@openmeld/schemas";
+import { requireAcceptedInstallationControlPayload } from "./local-agent-control-policy";

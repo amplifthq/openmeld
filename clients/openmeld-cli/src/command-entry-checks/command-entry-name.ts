@@ -90,6 +90,7 @@ const COMMAND_ENTRY_NAME_BY_ROUTE = {
   "agents disable": "agents.disable",
   "agents unregister": "agents.disable",
   "agents show": "agents.show",
+  "agents login": "agents.login",
   "agents custom list": "agents.custom.list",
   "agents custom ls": "agents.custom.list",
   "agents custom add": "agents.custom.add",

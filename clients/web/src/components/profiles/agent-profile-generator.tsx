@@ -196,6 +196,7 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 					submitBlockReasonId={submitBlockReasonId}
 				/>
 			</div>
+			{form.connectionConfirmation}
 		</form>
 	);
 }

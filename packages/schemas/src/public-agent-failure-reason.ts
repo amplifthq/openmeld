@@ -41,8 +41,11 @@ export const CENTER_AGENT_TEMPORARILY_UNAVAILABLE_PUBLIC_COPY =
   "Center Agent isn't available right now. Try again in a moment.";
 export const CENTER_AGENT_ORGANIZATION_UNAVAILABLE_PUBLIC_COPY =
   "Center Agent is currently turned off for this Organization. Contact OpenMeld support. You can open diagnostics in OpenMeld to share more details.";
+function formatContextCapacityFailure(agentLabel: string): string {
+  return `${agentLabel} couldn't fit the task context into the selected model. Completed actions were not undone. Choose a model with more context capacity or send a shorter follow-up asking it to inspect existing results before continuing.`;
+}
 export const CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY =
-  "This conversation has grown too long for Center Agent to continue in one request. Try again; OpenMeld will shorten older messages before continuing.";
+  formatContextCapacityFailure("Center Agent");
 export const CENTER_AGENT_REQUEST_STOPPED_PUBLIC_COPY =
   "This request was stopped.";
 export const CENTER_AGENT_EXECUTION_IDENTITY_MISMATCH_PUBLIC_COPY =
@@ -587,7 +590,7 @@ export function resolveCenterAgentCallbackFailureMessage(input: {
     case "remote_agent.admission_timeout":
       return `OpenMeld could not confirm whether ${agentLabel} started this request. Open Diagnostics to check its status before starting more work.`;
     case "remote_agent.turn.context_window_exceeded":
-      return `This conversation has grown too long for ${agentLabel} to continue in one request. Try again; OpenMeld will shorten older messages before continuing.`;
+      return formatContextCapacityFailure(agentLabel);
     case "remote_agent.execution_identity_mismatch":
       return `OpenMeld stopped this request because it could not confirm that the reply came from ${agentLabel}. Open Diagnostics in OpenMeld for details.`;
     case "remote_agent.callback_publish_failed":
@@ -1042,6 +1045,24 @@ const buildMissingAgentReplyIdentityCopy = (targetName: string): string =>
 
 const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMapping[] =
   [
+    {
+      body: "OpenRouter could not use this workspace's API key. Check its balance and status, or replace or remove it in AI usage settings. Included credits were not used.",
+      kind: "request_ended",
+      patterns: ["=ai_billing.key_unavailable"],
+      recoveryTarget: null,
+    },
+    {
+      body: "This workspace has used its included AI credits. Add an OpenRouter API key in AI usage settings, or wait for the monthly reset.",
+      kind: "request_ended",
+      patterns: ["=ai_usage.monthly_limit_reached"],
+      recoveryTarget: null,
+    },
+    {
+      body: "AI billing is temporarily unavailable. Try again later or add your own OpenRouter key in AI usage settings.",
+      kind: "request_ended",
+      patterns: ["=ai_billing.unavailable"],
+      recoveryTarget: null,
+    },
     {
       body: (targetName) =>
         `${targetName} couldn't connect to its model provider. Ask your OpenMeld admin to check the provider connection, then wake the agent again.`,
@@ -1931,6 +1952,37 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
         "=claude_delivery_policy.unavailable",
         "=claude_delivery_policy.invalid",
       ],
+      primaryActionId: "review_agent_settings",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
+      body: "Select the official Antigravity ACP installation and sign in on this computer, then start a new task. The legacy Antigravity CLI cannot run independent tasks.",
+      kind: "local_agent_prepare",
+      patterns: ["=execution_context.antigravity_acp_required"],
+      primaryActionId: "manage_local_agent",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
+      body: "This Agent cannot apply the selected task access limits. Start a new task using Agent settings, or choose an Agent that supports these limits.",
+      kind: "local_agent_prepare",
+      patterns: ["=execution_context.controller_access_unsupported"],
+      primaryActionId: "review_agent_settings",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
+      body: "The selected task is not available to continue or fork. Select an available task that you started, or start a new task.",
+      kind: "request_ended",
+      patterns: ["=execution_context.source_unavailable"],
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: null,
+    },
+    {
+      body: "This Agent cannot fork task history. Continue the original task, or start a new task with no previous history.",
+      kind: "local_agent_prepare",
+      patterns: ["=execution_context.fork_unsupported"],
       primaryActionId: "review_agent_settings",
       preferMappedReasonOverDetail: true,
       recoveryTarget: "computer",

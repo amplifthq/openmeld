@@ -1,3 +1,4 @@
+import type { CloudComputerInvocationState } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildRemoteAgentCallbackContextKey,
@@ -18,6 +19,8 @@ import {
   requestRemoteAgentExecutionFailure,
 } from "../agent-core/execution-state";
 import { normalizeFluePromptUsage } from "../agent-core/usage";
+import { bindComputerCommandTarget } from "../flue-adapter/computer-command";
+import { listComputerCleanupHandoffs } from "../flue-adapter/execution-cleanup";
 import {
   reconcileRemoteAgentExecution,
   reconcileSettledRemoteAgentExecutions,
@@ -131,6 +134,10 @@ describe("remote agent execution reconciliation", () => {
   });
   it.each([
     "late_stop",
+    "cas_stop",
+    "cas_failure",
+    "unknown_read",
+    "unconfirmed",
     "safety_failure",
     "wrong_submission",
     "wrong_authority",
@@ -138,6 +145,8 @@ describe("remote agent execution reconciliation", () => {
     const storage = new InMemoryDurableObjectStorage();
     const request = createSubmitTurnRequest();
     const submissionId = "canonical-result-guard";
+    const retainedAnswer =
+      "All done. Saved artifact: /computer/tasks/result.txt";
     const identity = {
       idempotencyKey: request.idempotencyKey,
       organizationId: request.organizationId,
@@ -163,10 +172,104 @@ describe("remote agent execution reconciliation", () => {
       },
     });
     await putRemoteAgentCallbackContext(storage, context);
-    const send = vi.fn().mockResolvedValue({
-      status: "accepted",
-      publishedSignalId: "guard-result",
+    await bindComputerCommandTarget({
+      storage,
+      submissionId,
+      computerName: "personal-computer:canonical-guard",
     });
+    const state: CloudComputerInvocationState = {
+      invocationId: submissionId,
+      total: 1,
+      unfinished: 1,
+      pendingResults: 1,
+      unavailable: 0,
+      commands: [
+        {
+          reference: {
+            invocationId: submissionId,
+            key: "original",
+            id: "original-process",
+            backend: "container",
+          },
+          phase: "running",
+          after: 0,
+          exitCode: null,
+          outputRetained: true,
+          filesSynced: false,
+          stopRequested: false,
+          terminationConfirmed: false,
+          resultUnavailable: false,
+          collection: null,
+        },
+      ],
+    };
+    const stop = vi.fn(async () => state);
+    const env = {
+      AGENT_COMPUTER: {
+        idFromName: (name: string) => name,
+        get: () => ({
+          registerComputerInvocation: async () => undefined,
+          requestComputerCleanup: stop,
+          readComputerInvocation: () => {
+            if (guard === "unknown_read") {
+              return Promise.reject(new Error("Observation disconnected"));
+            }
+            return Promise.resolve(state);
+          },
+        }),
+      },
+    };
+    const requiresStop = [
+      "late_stop",
+      "cas_stop",
+      "cas_failure",
+      "safety_failure",
+    ].includes(guard);
+    const send = vi.fn(async (_body: unknown) => {
+      const handoffs = await listComputerCleanupHandoffs(storage);
+      if (requiresStop) {
+        expect(handoffs).toMatchObject([{ submissionId, accepted: true }]);
+        expect(stop).toHaveBeenCalledWith(submissionId, undefined);
+      } else {
+        expect(handoffs).toEqual([]);
+        expect(stop).not.toHaveBeenCalled();
+      }
+      return { status: "accepted" as const, publishedSignalId: "guard-result" };
+    });
+    if (guard === "unknown_read") {
+      send.mockRejectedValueOnce(new Error("Publication acknowledgement lost"));
+    }
+    let terminalSnapshot: Map<string, unknown> | undefined;
+    if (guard === "cas_stop" || guard === "cas_failure") {
+      const writePair = storage.compareAndSetPair.bind(storage);
+      vi.spyOn(storage, "compareAndSetPair")
+        .mockImplementationOnce(async () => {
+          if (guard === "cas_stop") {
+            await requestRemoteAgentExecutionCancellation({
+              identity,
+              storage,
+              nowMs: TEST_NOW_MS + 50,
+            });
+          } else {
+            await requestRemoteAgentExecutionFailure({
+              identity,
+              storage,
+              failure: {
+                code: "remote_agent.turn_not_completed",
+                reasonCode: "remote_agent.turn_not_completed",
+                detail: "Unconfirmed external effect.",
+              },
+            });
+          }
+          return false;
+        })
+        .mockImplementationOnce(async (first, second) => {
+          const written = await writePair(first, second);
+          // Exact crash boundary: terminal owner won, no cleanup/publication yet.
+          terminalSnapshot = await storage.list();
+          return written;
+        });
+    }
     const readSubmission = async () => {
       // Interleave after the reconciler read a nonterminal execution, not
       // before it started: the final owner CAS must still honor this guard.
@@ -197,11 +300,12 @@ describe("remote agent execution reconciliation", () => {
         completedOutput: {
           submissionId:
             guard === "wrong_submission" ? "another-submission" : submissionId,
-          text: "This answer must not be published.",
+          text: retainedAnswer,
         },
       };
     };
     const recovery = reconcileRemoteAgentExecution({
+      env,
       identity,
       storage,
       readSubmission,
@@ -216,7 +320,12 @@ describe("remote agent execution reconciliation", () => {
       ).toMatchObject({ execution: { status: "pending" } });
     } else {
       await expect(recovery).resolves.toMatchObject({
-        execution: { status: guard === "late_stop" ? "aborted" : "failed" },
+        execution: {
+          status:
+            guard === "late_stop" || guard === "cas_stop"
+              ? "aborted"
+              : "failed",
+        },
       });
       expect(send).toHaveBeenCalledOnce();
       expect(send).toHaveBeenCalledWith(
@@ -225,8 +334,73 @@ describe("remote agent execution reconciliation", () => {
       expect(send).not.toHaveBeenCalledWith(
         expect.objectContaining({ text: expect.any(String) })
       );
+      if (guard === "unknown_read" || guard === "unconfirmed") {
+        const published = send.mock.calls[0]?.[0] as unknown as {
+          explanationText: string;
+          computerCleanup: unknown;
+        };
+        expect(published.explanationText).toContain(
+          "Computer work is not confirmed complete."
+        );
+        expect(published.explanationText).toContain(retainedAnswer);
+        expect(published.explanationText).not.toBe(retainedAnswer);
+        expect(published.computerCleanup).toBeDefined();
+        state.unfinished = 0;
+        state.pendingResults = 0;
+        const restarted = new InMemoryDurableObjectStorage();
+        for (const [key, value] of await storage.list()) {
+          await restarted.put(key, JSON.parse(JSON.stringify(value)));
+        }
+        await expect(
+          reconcileRemoteAgentExecution({
+            env,
+            identity,
+            storage: restarted,
+            readSubmission: () =>
+              Promise.reject(new Error("Settled results must not be reread")),
+            nowMs: () => TEST_NOW_MS + 120_000,
+            coreWorker: { completeRemoteAgentSubmission: send },
+          })
+        ).resolves.toMatchObject({ execution: { status: "failed" } });
+        expect(send).toHaveBeenCalledTimes(guard === "unknown_read" ? 2 : 1);
+        if (guard === "unknown_read") {
+          expect(send.mock.calls[1]?.[0]).toEqual({
+            ...published,
+            callbackAttempt: 2,
+          });
+        }
+      } else {
+        expect(send.mock.calls[0]?.[0]).not.toHaveProperty("explanationText");
+      }
     }
     expect(await listRemoteAgentUsageRecords(storage)).toHaveLength(0);
+    if (guard === "cas_stop" || guard === "cas_failure") {
+      expect(terminalSnapshot).toBeDefined();
+      const restarted = new InMemoryDurableObjectStorage();
+      for (const [key, value] of terminalSnapshot ?? []) {
+        await restarted.put(key, value);
+      }
+      expect(await listComputerCleanupHandoffs(restarted)).toEqual([]);
+      const publishAfterRestart = vi.fn(async () => {
+        expect(await listComputerCleanupHandoffs(restarted)).toMatchObject([
+          { submissionId, accepted: true },
+        ]);
+        return {
+          status: "accepted" as const,
+          publishedSignalId: "after-restart",
+        };
+      });
+      await reconcileRemoteAgentExecution({
+        identity,
+        storage: restarted,
+        env,
+        readSubmission: () =>
+          Promise.reject(new Error("Runtime is unavailable after restart")),
+        nowMs: () => TEST_NOW_MS + 200,
+        coreWorker: { completeRemoteAgentSubmission: publishAfterRestart },
+      });
+      expect(publishAfterRestart).toHaveBeenCalledOnce();
+    }
   });
 
   it("turns a settled pre-model failure into a Core callback without waiting for Core polling", async () => {

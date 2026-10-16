@@ -16,6 +16,40 @@ export const WARNING_OBSERVATION_MS = 30_000;
 const MAX_SAMPLE_GAP_MS = 5000;
 export const RESOURCE_TOKEN = "OPENMELD_LOCAL_RESOURCE_TOKEN";
 
+function expandInheritedReservation({
+  inherited,
+  kind,
+  entries,
+  rows,
+  memory,
+  policy,
+}) {
+  if (inherited.bytes >= policy.costs[kind]) {
+    return;
+  }
+  if (kind !== "heavy") {
+    throw new Error(
+      `The inherited ${kind} reservation is smaller than this command's memory budget. Start the outer command with OPENMELD_LOCAL_${kind.toUpperCase()}_GIB=${policy.costs[kind] / GIB}.`
+    );
+  }
+  // Re-admit under the registry lock. The ancestor retains ownership and
+  // releases the expanded reservation; waiting here would hold its capacity.
+  const reason = admissionReason({
+    kind,
+    entries: entries.filter((entry) => entry !== inherited),
+    rows,
+    availableBytes: memory.availableBytes,
+    pressure: memory.pressure,
+    policy,
+  });
+  if (reason) {
+    throw new Error(
+      `Cannot expand the inherited build reservation: ${reason}. Free capacity and retry the outer command.`
+    );
+  }
+  inherited.bytes = policy.costs[kind];
+}
+
 // Warning is not critical pressure. Require a continuous quiet observation,
 // not a low historical swap total. Missing samples never prove stability.
 export function createMemoryObservation() {
@@ -306,11 +340,14 @@ export async function acquireLocalResources({
           )
       );
       if (inherited) {
-        if (inherited.bytes < policy.costs[kind]) {
-          throw new Error(
-            `The inherited ${kind} reservation is smaller than this command's memory budget. Start the outer command with OPENMELD_LOCAL_${kind.toUpperCase()}_GIB=${policy.costs[kind] / GIB}.`
-          );
-        }
+        expandInheritedReservation({
+          inherited,
+          kind,
+          entries,
+          rows,
+          memory,
+          policy,
+        });
         return { inherited: true, token: inherited.token };
       }
       const reason = admissionReason({

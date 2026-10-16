@@ -7,12 +7,24 @@ import type { SpaceRequestInput } from "./types";
 export async function getSpaceMessageDetails(
   client: OpenMeldApiClientFoundation,
   input: SpaceRequestInput & {
+    includeThreadContext?: true;
     signalId: string;
     executionContextVersion?: 1;
+    delegationVersion?: 1;
+    delegationCursor?: string;
   }
 ): Promise<GetSpaceMessageDetailsResponse> {
   const searchParams = new URLSearchParams();
   searchParams.set("signalId", input.signalId);
+  if (input.includeThreadContext) {
+    searchParams.set("includeThreadContext", "true");
+  }
+  if (input.delegationVersion === 1) {
+    searchParams.set("delegationVersion", "1");
+  }
+  if (input.delegationCursor) {
+    searchParams.set("delegationCursor", input.delegationCursor);
+  }
   if (input.executionContextVersion === 1) {
     searchParams.set("executionContextVersion", "1");
   }

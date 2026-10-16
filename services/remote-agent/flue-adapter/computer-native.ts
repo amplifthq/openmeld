@@ -17,6 +17,7 @@ import {
 } from "valibot";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import type { AgentComputerWorkspaceAccess } from "./agent-computer-workspace-access";
+import { executeAgentComputerCommand } from "./computer-command-wait";
 
 export const COMPUTER_BACKENDS = {
   container: {
@@ -85,6 +86,7 @@ export function createNativeComputerTool(input: {
   workspaceAccess: AgentComputerWorkspaceAccess;
   invocationId: string;
   workingDirectory: string;
+  hasPendingInput?: () => Promise<boolean>;
 }): RemoteAgentToolDefinition {
   const schema = strictObject({
     action: picklist(["describe", "files", "command", "browser", "preview"]),
@@ -122,9 +124,18 @@ export function createNativeComputerTool(input: {
       } else {
         operation = { ...request.input, action: request.action };
       }
-      return await input.workspaceAccess.computerOperation(
-        cloudComputerOperationSchema.parse(operation)
+      const parsed = cloudComputerOperationSchema.parse(operation);
+      const execute = input.workspaceAccess.computerOperation.bind(
+        input.workspaceAccess
       );
+      return parsed.action === "command"
+        ? await executeAgentComputerCommand({
+            operation: parsed,
+            execute,
+            signal: options?.signal,
+            hasPendingInput: input.hasPendingInput,
+          })
+        : await execute(parsed);
     },
   };
 }

@@ -406,6 +406,7 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     profileAction: null,
   },
   "agents.show": { ...DEFAULT_COPY, signInAction: null, profileAction: null },
+  "agents.login": { ...DEFAULT_COPY, signInAction: null, profileAction: null },
   "agents.custom.list": {
     ...DEFAULT_COPY,
     signInAction: null,

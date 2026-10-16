@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { parseCodexModels, prepareUpdate } from "./catalog-update.mjs";
+import {
+  collectSources,
+  parseCodexModels,
+  prepareUpdate,
+} from "./catalog-update.mjs";
 import { combineUpdates } from "./collect-update.mjs";
 import {
   assertAdditionsOnly,
@@ -207,6 +211,58 @@ test("discovery recommendations exclude media models and lead with only new revi
     "tool_call"
   );
   assert.equal(scan(incomplete).changed, false);
+});
+
+test("configured OpenCode discovery hands Meta and OpenRouter Muse Wonder to review without enabling them", async () => {
+  const capture = JSON.parse(
+    await readFile(
+      new URL(
+        "./fixtures/discovery-muse-wonder-2026-10-13.json",
+        import.meta.url
+      ),
+      "utf8"
+    )
+  );
+  const config = JSON.parse(
+    await readFile(new URL("./sources.json", import.meta.url), "utf8")
+  );
+  const current = structuredClone(catalog);
+  current.agentControllers.opencode = {
+    defaultModelId: existing.id,
+    models: [existing],
+  };
+  // Exercise the configured provider scope against captured public responses.
+  // Documentation and release availability are checked by the live collector.
+  const collected = await collectSources(
+    { ...config.opencode, releaseRepository: undefined, documents: [] },
+    "opencode",
+    current,
+    async () => capture.providers
+  );
+  const scan = (previous) =>
+    prepareUpdate({
+      catalog: current,
+      controller: "opencode",
+      ...collected,
+      observedAt: "2026-10-13T00:00:00.000Z",
+      discoverySince: config.opencode.discoverySince,
+      previous,
+    });
+  const first = scan();
+  const batch = combineUpdates(current, [first], config);
+  const review = renderBatchReview(batch.evidence, config, current);
+  const candidates = discoveryCandidates(first.evidence, current).map(
+    (candidate) => candidate.candidateId
+  );
+  for (const id of ["meta/muse-wonder-1.0", "openrouter/meta/muse-wonder"]) {
+    assert.ok(candidates.includes(id), `Missing discovered model: ${id}`);
+    assert.ok(review.includes(id), `Missing review handoff: ${id}`);
+  }
+  assert.equal(publicationDecision({ pulls: [], ...batch }), "create");
+  assert.deepEqual(batch.catalog, current);
+  assert.deepEqual(first.evidence.changes, []);
+  const repeated = combineUpdates(current, [scan(first.evidence)], config);
+  assert.equal(publicationDecision({ pulls: [], ...repeated }), "unchanged");
 });
 
 test("discovery deprecation requests review without disabling selections or recommending deprecated candidates", async () => {

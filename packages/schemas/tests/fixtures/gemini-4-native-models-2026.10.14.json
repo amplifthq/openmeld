@@ -1,0 +1,108 @@
+{
+  "capture": {
+    "observedAt": "2026-10-14",
+    "scope": "Native model inventories; account inference is validated separately."
+  },
+  "antigravity": {
+    "version": "1.3.0",
+    "availableModels": [
+      {
+        "modelId": "gemini-4-argon-medium",
+        "name": "Gemini 4 Argon (Medium)",
+        "description": "gemini-4-argon-medium"
+      }
+    ],
+    "configOptions": [
+      {
+        "value": "gemini-4-argon-medium",
+        "name": "Gemini 4 Argon (Medium)",
+        "description": "gemini-4-argon-medium"
+      }
+    ]
+  },
+  "cursor": {
+    "version": "2026.10.01-e373342",
+    "availableModels": [
+      {
+        "modelId": "gemini-4-argon[reasoning_effort=medium]",
+        "name": "gemini-4-argon"
+      }
+    ],
+    "configOptions": [
+      {
+        "value": "gemini-4-argon[reasoning_effort=medium]",
+        "name": "gemini-4-argon"
+      }
+    ]
+  },
+  "opencode": {
+    "version": "1.19.0",
+    "models": [
+      {
+        "id": "google/gemini-4-argon",
+        "providerID": "openrouter",
+        "name": "Gemini 4 Argon",
+        "family": "gemini",
+        "api": {
+          "id": "google/gemini-4-argon",
+          "url": "https://openrouter.ai/api/v1",
+          "npm": "@openrouter/ai-sdk-provider"
+        },
+        "status": "active",
+        "headers": {},
+        "options": {},
+        "cost": {
+          "input": 2,
+          "output": 10,
+          "cache": {
+            "read": 0.1,
+            "write": 0.1875
+          }
+        },
+        "limit": {
+          "context": 1048576,
+          "output": 65536
+        },
+        "capabilities": {
+          "temperature": true,
+          "reasoning": true,
+          "attachment": true,
+          "toolcall": true,
+          "input": {
+            "text": true,
+            "audio": true,
+            "image": true,
+            "video": true,
+            "pdf": true
+          },
+          "output": {
+            "text": true,
+            "audio": false,
+            "image": false,
+            "video": false,
+            "pdf": false
+          },
+          "interleaved": false
+        },
+        "release_date": "2026-10-13",
+        "variants": {
+          "low": {
+            "reasoning": {
+              "effort": "low"
+            }
+          },
+          "medium": {
+            "reasoning": {
+              "effort": "medium"
+            }
+          },
+          "high": {
+            "reasoning": {
+              "effort": "high"
+            }
+          }
+        }
+      }
+    ]
+  }
+}

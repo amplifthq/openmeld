@@ -57,6 +57,9 @@ const SERVICE_READ_UPDATE_MESSAGE = /update openmeld service to read/i;
 const RETAINED_FOLDER_DRAFT_MESSAGE = /your changes are still here/i;
 
 afterEach(cleanup);
+vi.mock("#/components/app/start-flow-state", () => ({
+	useStartFlowState: () => ({ storageScope: "account-1" }),
+}));
 
 vi.mock("#/lib/agents/agent-execution-readiness", () => ({
 	readAgentExecutionReadinessBatch: readReadinessMock,
@@ -120,7 +123,10 @@ describe("AgentProfileProjectSettingsDialog", () => {
 		listProfilesMock.mockReset().mockResolvedValue([profileFixture()]);
 	});
 
-	it("does not acquire an Auth read that started before the dialog opened", async () => {
+	it.each([
+		false,
+		true,
+	])("acquires fresh settings without overwriting early edits (%s)", async (editWhileLoading) => {
 		const previous = [profileFixture({ defaultProjectId: null })];
 		const oldRead = deferred<readonly AuthProfileView[]>();
 		const freshRead = deferred<readonly AuthProfileView[]>();
@@ -167,14 +173,36 @@ describe("AgentProfileProjectSettingsDialog", () => {
 				.getByRole("button", { name: "Save changes" })
 				.hasAttribute("disabled")
 		).toBe(true);
+		if (editWhileLoading) {
+			await editCustomFolder("/private/early-draft");
+		}
 		await act(async () => {
 			freshRead.resolve([profileFixture()]);
 			await freshRead.promise;
 		});
-		await screen.findByRole("combobox", { name: "Project" });
-		expect(
-			screen.getByRole("combobox", { name: "Project" }).textContent
-		).toContain("OpenMeld");
+		if (editWhileLoading) {
+			expect(
+				(
+					screen.getByLabelText(
+						"Custom working folder path"
+					) as HTMLInputElement
+				).value
+			).toBe("/private/early-draft");
+			selectSource("Let OpenMeld choose");
+			selectSource("On this computer");
+			expect(
+				(
+					screen.getByLabelText(
+						"Custom working folder path"
+					) as HTMLInputElement
+				).value
+			).toBe("/private/early-draft");
+		} else {
+			await screen.findByRole("combobox", { name: "Project" });
+			expect(
+				screen.getByRole("combobox", { name: "Project" }).textContent
+			).toContain("OpenMeld");
+		}
 		expect(queryClient.getQueryData(options.queryKey)).toEqual([
 			profileFixture(),
 		]);
@@ -275,6 +303,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 		fireEvent.click(save);
 		await vi.waitFor(() => {
 			expect(updateWorkspaceMock).toHaveBeenCalledExactlyOnceWith({
+				previousWorkspace: workspaceFixture("openmeld_managed").workspace,
 				actorProfileId: "human-1",
 				organizationId: "organization-1",
 				profileId: "profile-agent",
@@ -325,6 +354,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 
 		await vi.waitFor(() => {
 			expect(updateWorkspaceMock).toHaveBeenCalledWith({
+				previousWorkspace: workspaceFixture("custom").workspace,
 				actorProfileId: "human-1",
 				organizationId: "organization-1",
 				profileId: "profile-agent",
@@ -498,6 +528,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 
 		await vi.waitFor(() => {
 			expect(updateWorkspaceMock).toHaveBeenCalledWith({
+				previousWorkspace: workspaceFixture("custom").workspace,
 				actorProfileId: "human-1",
 				organizationId: "organization-1",
 				profileId: "profile-agent",
@@ -529,7 +560,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
 		await screen.findByText(
-			"The folder was saved on the original Computer, but the Default Project update could not be confirmed. Close and reopen Working folder to check its current settings."
+			"The folder was saved on this computer, but the Default Project update could not be confirmed. Retry to finish applying this choice."
 		);
 		expect(screen.getByRole("dialog")).toBeTruthy();
 		expect(
@@ -537,6 +568,9 @@ describe("AgentProfileProjectSettingsDialog", () => {
 				.value
 		).toBe(draft);
 		expect(onProfileUpdated).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+		await vi.waitFor(() => expect(onProfileUpdated).toHaveBeenCalledOnce());
+		expect(updateWorkspaceMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("allows a future Project choice while blocking local folder changes during work", async () => {
@@ -585,7 +619,13 @@ describe("AgentProfileProjectSettingsDialog", () => {
 		expect(updateWorkspaceMock).not.toHaveBeenCalled();
 	});
 
-	it("does not expose local Project settings for managed or hosted profiles", () => {
+	it("does not expose local Project settings for managed, hosted, or shared Bot profiles", () => {
+		expect(
+			shouldShowAgentProfileProjectSettings({
+				agentControllerRef: "builtin:grok-bot",
+				managedRole: null,
+			})
+		).toBe(false);
 		expect(
 			shouldShowAgentProfileProjectSettings({
 				agentControllerRef: "builtin:codex",

@@ -198,7 +198,7 @@ Grok Build.
 - A fresh provider profile may create its session directory after OpenMeld
   Service starts. Missing watcher roots are retried dynamically; users must not
   need to restart the Service to begin near-real-time observation.
-- The published CLI supports Node 20 and Node 22 through 25. OpenCode's retained
+- The npm CLI supports Node 22 through 25; Node 24 is recommended. OpenCode's retained
   Session reconciliation opens its SQLite store read-only only when the store
   exists: the npm CLI uses `better-sqlite3` only on the Node releases that its
   native package supports, while the standalone Bun binary uses built-in

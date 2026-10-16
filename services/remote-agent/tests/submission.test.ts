@@ -2017,6 +2017,21 @@ describe("remote agent submission", () => {
     );
   });
 
+  it.each([
+    "partial",
+    "unavailable",
+  ] as const)("explains %s recall without claiming memory is empty", (status) => {
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...createSubmitTurnRequest().turnEnvelope,
+        memory: { items: [], truncated: false, status },
+      },
+    });
+    const prompt = buildRemoteAgentPromptMessage(request);
+    expect(prompt).toContain(`[Memory recall: ${status}]`);
+    expect(prompt).toContain("This is not evidence that no memory exists.");
+  });
+
   it("keeps requester continuity private when the same member moves to a shared Slack thread", () => {
     const base = createSubmitTurnRequest();
     const request = createSubmitTurnRequest({

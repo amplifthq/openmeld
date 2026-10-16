@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 import { realpath } from "node:fs/promises";
 import {
+  checkAntigravityAcpAccount,
   isAntigravityAcpLaunchContract,
-  probeAntigravityAcp,
 } from "@openmeld/adapter-antigravity";
 import { probeClaudeCodeUsageLimits } from "@openmeld/adapter-claude-code";
 import {
@@ -26,7 +26,10 @@ import {
   compareAgentControllerVersions,
   isAgentControllerUsageRefreshUnavailable,
 } from "@openmeld/agent-runtime";
-import { resolvePublicAgentAvailabilityCopy } from "@openmeld/schemas";
+import {
+  grokBotAccountSchema,
+  resolvePublicAgentAvailabilityCopy,
+} from "@openmeld/schemas";
 import type {
   AgentControllerInterfaceAuthSnapshot,
   AgentControllerInterfaceLaunchSnapshot,
@@ -104,6 +107,7 @@ const CONTROLLER_INTERFACE_SNAPSHOT_RESOLVERS: Record<
   codex: resolveCodexInterfaceSnapshot,
   cursor: resolveCursorInterfaceSnapshot,
   "grok-build": resolveGrokBuildInterfaceSnapshot,
+  "grok-bot": resolveGrokBotInterfaceSnapshot,
   openclaw: resolveOpenClawInterfaceSnapshot,
   opencode: resolveOpenCodeInterfaceSnapshot,
 };
@@ -113,26 +117,29 @@ async function resolveAntigravityInterfaceSnapshot(
 ): Promise<AgentControllerInterfaceProbeOutcome> {
   if (isAntigravityAcpLaunchContract(input.launchContract)) {
     try {
-      const initialized = await probeAntigravityAcp({
+      const account = await checkAntigravityAcpAccount({
         cwd: input.workingDirectory,
         launchContract: input.launchContract,
-        timeoutMs: PROBE_TIMEOUT_MS,
+        timeoutMs: 15_000,
       });
       return {
         probeCompleted: true,
         snapshot: {
           ...input.baseSnapshot,
           nativeInterface: "acp",
-          version: initialized.agentInfo?.version ?? null,
+          version: account.initialized.agentInfo?.version ?? null,
           capabilities: {
             ...input.baseSnapshot.capabilities,
             approvals: true,
             structuredUserInput: true,
           },
-          auth: { status: "unknown" },
-          status: "warning",
+          auth: { status: account.authStatus },
+          status: account.authStatus === "authenticated" ? "ready" : "warning",
           message:
-            "Antigravity ACP is installed. Sign-in status and usage limits must be checked in Antigravity.",
+            account.authStatus === "authenticated"
+              ? "Antigravity ACP accepted a session. Usage limits are not reported."
+              : "Run openmeld agents login antigravity on this computer, then check again.",
+          models: account.models,
           usageLimits: createUnsupportedProviderUsageLimits(
             input.baseSnapshot.checkedAt
           ),
@@ -166,9 +173,9 @@ async function resolveAntigravityInterfaceSnapshot(
       ...input.baseSnapshot,
       auth: { status: "unknown" },
       message: versionProbe.ok
-        ? "Antigravity is installed. OpenMeld cannot safely check its sign-in status or usage limits. Check them directly in Antigravity."
+        ? "Antigravity CLI is installed. Select the official ACP installation to verify sign-in in OpenMeld."
         : "OpenMeld could not read the Antigravity CLI version.",
-      status: "warning",
+      status: versionProbe.ok ? "unknown" : "warning",
       usageLimits: createUnsupportedProviderUsageLimits(
         input.baseSnapshot.checkedAt
       ),
@@ -519,6 +526,14 @@ async function resolveControllerVersionAdvisory(input: {
   currentVersion: string | null;
   launchContract: RuntimeAgentControllerLaunchContract;
 }): Promise<AgentControllerInterfaceVersionAdvisory | undefined> {
+  // Native Claude owns stable/latest and managed version policy. npm's latest
+  // tag cannot prove that this installation is behind its configured channel.
+  if (
+    input.controllerId === "claude-code" &&
+    (await resolveClaudeNativeUpdateCommand(input.launchContract))
+  ) {
+    return undefined;
+  }
   const definition = resolveBuiltinAgentControllerDefinition(
     input.controllerId
   )?.versionMaintenance;
@@ -923,6 +938,42 @@ async function resolveGrokBuildInterfaceSnapshot(
         currentVersion: version,
         launchContract: input.launchContract,
       }),
+    },
+  };
+}
+
+async function resolveGrokBotInterfaceSnapshot(
+  input: InventoryProbeInput
+): Promise<AgentControllerInterfaceProbeOutcome> {
+  const result = await runLaunchContractCommand({
+    workingDirectory: input.workingDirectory,
+    args: ["whoami", "--json"],
+    launchContract: input.launchContract,
+  });
+  const account = grokBotAccountSchema.safeParse(
+    parseJsonRecord(result.stdout)
+  );
+  const authenticated = result.ok && account.success;
+  return {
+    probeCompleted: authenticated,
+    snapshot: {
+      ...input.baseSnapshot,
+      auth: authenticated
+        ? {
+            status: "authenticated",
+            ...(account.data.email ? { email: account.data.email } : {}),
+            accountKey: account.data.authId,
+          }
+        : { status: "unknown" },
+      models: [],
+      skills: [],
+      status: authenticated ? "ready" : "warning",
+      message: authenticated
+        ? "Shared conversation. Bot settings and tools are managed in Grok Bot."
+        : "Sign in from Grok Bot connection setup, or run bdk login for a manual installation.",
+      usageLimits: createUnsupportedProviderUsageLimits(
+        input.baseSnapshot.checkedAt
+      ),
     },
   };
 }
@@ -1732,3 +1783,5 @@ function toErrorMessage(error: unknown): string {
   const message = String(error ?? "").trim();
   return message.length > 0 ? message : "unknown error";
 }
+
+import { resolveClaudeNativeUpdateCommand } from "@openmeld/adapter-claude-code";

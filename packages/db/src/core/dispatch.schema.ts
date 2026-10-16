@@ -39,7 +39,9 @@ import {
   centerAgentWakePublications,
 } from "./agent-task-coordination.schema.ts";
 import {
+  aiFreeGrants,
   aiUsageRecords,
+  organizationAiCredentials,
   organizationAiUsagePolicies,
 } from "./ai-usage.schema.ts";
 import {
@@ -1771,6 +1773,8 @@ export const coreSchema = {
   userTimeContexts,
   firstWorkExperiences,
   aiUsageRecords,
+  aiFreeGrants,
+  organizationAiCredentials,
   organizationAiUsagePolicies,
   spaceInvitations,
   organizationJoinRequests,

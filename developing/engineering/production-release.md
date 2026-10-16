@@ -46,12 +46,25 @@ pnpm release:status -- --ref HEAD --change-base <BASE>
 ```
 
 The GitHub lane supports Web, Website, Docs, Gateway, Remote Agent and CLI.
+When CLI publication remains pending, set `WINDOWS_ARTIFACT_RUN_ID` to the
+trusted helper run used to stamp the manifest before starting continuation.
+Missing preparation stops before deploying another component; completed CLI
+receipts and already-running exact-source publishers can still be resumed.
 Database, Auth and standalone Core still need the local PostgreSQL release
 environment; the command reports this before dispatching an unsupported stage.
 An interrupted command can be repeated at the same source and base: current
 components are skipped and active exact-source GitHub runs are followed.
+Automatic local stages receive the complete planned train in their child
+environment. An explicitly supplied `OPENMELD_PRODUCTION_TRAIN_SCOPES` remains
+authoritative; continuation does not widen it or change the parent environment.
 Failed runs stop the command. An uncertain dispatch is reported, never retried
 automatically. Use a current `gh` version that returns the created workflow URL.
+
+Continuation prints elapsed time for each status read and component stage,
+including failed stages. These timings measure work; component receipts still
+decide completion. Status reads refresh remote receipt tips on every invocation,
+reuse exact immutable Git objects already present, and read independent workflow
+histories in batches of four.
 
 The command entry and reusable release controller have separate module
 boundaries. Status readers can import planning contracts without starting a
@@ -194,6 +207,19 @@ commit and use GitHub instead.
 
 ## Read Remote Release Status
 
+The October 2026 repository cutover preserves the original nine local evidence
+refs and their commit SHAs. `release/repository-migration.json` retains the three
+newer successful hosted runs from `amplifthq/openmeld-private` (repository ID
+1331245823). These are historical facts, not new deployments or new-repository
+Actions runs. Snapshot edits require explicit local control-bootstrap validation.
+The reader requires the destination repository ID 1278926400, validates
+completed successful jobs and their original URLs, and merges them
+with local receipts using the existing completion-time selector. A newer failed
+receipt remains failed; current GitHub history must still be readable. Source
+ancestry and exact candidate validation remain required. No private-repository
+token is needed by the public release workflow. Preserve this snapshot until
+all affected scopes have newer evidence in the public repository.
+
 Use this when choosing scopes, inspecting a backlog, or reconciling uncertain
 evidence. For a known scope, go directly to its guarded preflight instead of
 running this separate history scan first; the preflight performs the same
@@ -224,7 +250,8 @@ final admission: the guarded release entrypoint still refreshes status and
 acquires its lease before any Production mutation.
 
 Read-only GitHub history requests retry a failed page at most twice for HTTP
-500, 502, 503, or 504, retaining pages already read. Exhausted retries,
+500, 502, 503, or 504, EOF, connection reset, or timeout errors, retaining pages
+already read. Exhausted retries,
 permissions failures and malformed collections remain incomplete evidence and
 fail closed; no mutation receives this retry policy.
 
@@ -385,10 +412,44 @@ Alignment failure retains applied/failed evidence; retry reuses that same
 reconciliation attempt. This command cannot upload or deploy a Cloudflare Worker.
 After completion, rerun release status and CLI stage admission before publication.
 
+### Reconcile an added Core secret
+
+An authorized Core secret addition can create a new Cloudflare deployment even
+though program bytes and non-secret settings are unchanged. If this happened
+after the verified release receipt, do not overwrite that receipt or redeploy
+around admission. Use current-main control to reconcile the direct successor:
+
+```sh
+node /path/to/current-main-control/scripts/release/core-secret-reconciliation.mjs \
+  --release-source /path/to/clean-product-checkout \
+  --deployment <exact-successor-deployment> --version <exact-successor-version> \
+  --added-secret <authorized-added-name> --verify-only
+```
+
+Remove `--verify-only` after verifying the evidence. Writing requires clean
+current-main control and the Core and CLI leases. This command only reads
+Cloudflare and appends release evidence; it cannot deploy or change credentials.
+It accepts one direct, fully active, provider-marked secret successor of a
+verified Core release. The complete script, runtime and non-secret bindings must
+match, and the secret-name set must contain only the declared addition. Keep the
+original owner secret-sync invocation as evidence: provider snapshots expose
+names, not values, and cannot independently prove unchanged existing values.
+Do not use this entrypoint for rotations, deletions or unrelated configuration.
+
+Cloudflare secret updates can omit the version tag. In that case the proof
+records the inherited compiled CLI projection separately; it does not claim an
+active provider tag. The previous actual tag must still match the immutable
+published CLI, with npm/R2 identity and exact Core activation checked before completion.
+The prior receipt remains in history, and an interrupted reconciliation resumes
+its existing attempt. Ordinary deployment and database identity guards stay
+unchanged. Continue the original guarded CLI publication after reconciliation;
+its Core deployment restores the normal tagged projection.
+
 ### Preserve Containers while repairing their Worker
 
-When original files still exist only in a running Computer, the protected local
-Remote Agent stage can deploy a compatible Worker without replacing Containers:
+The protected local Remote Agent stage can deploy a compatible Worker without
+replacing Containers, including when Computers are inactive or original files
+still exist only in a running Computer:
 
 ```sh
 pnpm run deploy -- --base <BASE> --scope remote-agent --containers-rollout=none
@@ -406,14 +467,36 @@ active instance IDs. The previous release receipt remains linked as evidence;
 its source alone is not proof of a Container image's build provenance. Before
 and after the Worker deployment, the application must have no active rollout.
 The recorded configuration and original active instance IDs must remain present
-at the same version. Incomplete instance pagination or drift fails closed.
-Stable instance IDs do not prove that a native process never restarted. Product
-acceptance must verify the original runtime ID/epoch and original sync window.
+at the same version. A complete snapshot may contain no active instances; an
+empty baseline does not require starting a Computer. New instances may appear
+between checks at the unchanged application version. Missing evidence,
+incomplete instance pagination or drift fails closed.
+
+These snapshots prove the observed configuration and baseline instance checks,
+not continuous process survival between reads. An empty baseline does not prove
+that a previously running Computer synchronized its files. Stable instance IDs
+also do not prove that a native process never restarted. Product acceptance must
+verify the original runtime ID/epoch and original sync window.
 
 This stage stops with an `applied` Remote Agent receipt. It never reports the
 whole component as `verified`, and automatic continuation cannot start native
 rollout. Complete the original synchronization and read the retained files from
-canonical storage before explicitly running the full stage at the same source:
+canonical storage before replacing a surviving Computer.
+
+If the original runtime and epoch are confirmed lost, its synchronization
+window may no longer have a source that can acknowledge it. Do not wait for an
+impossible ACK or mark that window synchronized. Before explicit native rollout,
+preserve the original command references, saved output, file reads and unknown
+file outcome, and obtain a fresh, complete inventory proving that no active
+instance remains to protect. An empty inventory alone does not prove runtime
+loss or file durability. Recheck immediately before native effects; concurrent
+work, an active instance with unconfirmed writes, or ambiguous evidence still
+requires preservation and investigation. This continuation does not clear
+markers, replay commands, or relax the existing release identity and lease
+checks.
+
+After establishing the applicable protection condition, explicitly run the full
+stage at the same source:
 
 ```sh
 pnpm run deploy -- --base <BASE> --scope remote-agent
@@ -427,6 +510,49 @@ remains unresolved evidence; it cannot silently replay a native rollout. A
 repeated Worker-only command only verifies its retained evidence and does not
 deploy again. Worker-only code must remain compatible with the retained native
 RPC contract. This mode does not make an unsynchronized Container disk durable.
+
+Release-control compatibility: the shared receipt schema accepts both empty and
+non-empty instance baselines; historical non-empty receipts remain valid.
+Older release-control readers reject empty baselines, so use updated trusted
+control to read or resume these receipts. This change does not alter the
+published CLI, Service, Worker RPC or Computer contracts.
+
+If the full stage has an `applied` receipt in phase `rollout`, a repeated guarded
+stage only verifies the recorded Worker and its native image. It checks the
+Worker again after the native rollout settles and appends `verified` to the
+same attempt. It does not deploy, replay commands, or require the replaced
+Container version to remain active. Failed verification leaves the applied
+receipt unresolved.
+
+When the receipt needs recovery code newer than its pinned source, run the
+existing `scripts/release/remote-agent-partial-recovery.mjs` from a clean current
+main control checkout with `--verify-only true`. Supply its existing eight
+selectors: `--source-dir`, `--source-sha`, `--attempt`, `--expected-deployment`,
+`--expected-worker-version`, `--container-id`, `--container-version`, and
+`--container-image`. Worker selectors refer to the applied deployment; Container
+selectors refer to the original baseline in that receipt. The control checks
+the source, exact selectors and operation under the Remote Agent lease, then
+uses the same verification and receipt writer as guarded deploy. Keep the old
+source checkout intact. Never publish a locally created receipt commit by hand.
+Verification-only recovery does not run deployment preflight: it proves an
+already applied deployment under the existing identity and lease guards and
+introduces no new artifact or receiver; recovery that deploys still requires
+deployment preflight. Its source, artifact, and compatibility checks use the
+current-main owner against the pinned source. After exact receipt and live cloud
+assessment under the lease, train admission treats only that attempt as pending
+recovery and computes dependencies from its last verified deployment. Ordinary
+stage admission, other unresolved scopes, source proof, and receiver ordering
+remain enforced; an operator's `--base` cannot shorten the compatibility history.
+
+Recovery that deploys requires `--base <exact-original-release-base>` in
+addition to the eight selectors. It repeats the full guarded deployment at the
+same source, not user commands. A successful deployment can retain a Container
+version when Wrangler reuses an existing immutable image. This outcome requires
+the prior verified native receipt and its registry digest, unchanged application
+configuration before and after deployment, and complete healthy instance
+evidence with no active rollout. Missing image tags or registry failures never
+prove reuse. The existing recovery proof keeps the native provenance reference
+for subsequent recovery; the canonical receipt remains compatible with v3 readers.
 
 For the specific Remote Agent Worker-first/container-image failure, current-main
 tooling provides `release:recover:remote-agent-partial`. It requires the clean
@@ -445,10 +571,42 @@ The receipt's first parent retains the original failed event; its second parent
 is a version 4 recovery proof with the baseline and completion observations.
 Old release tooling continues to read the version 3 receipt. On failure, the
 canonical receipt remains `failed/unknown`; a linked diagnostic proof records
-the observed Worker and container state when Cloudflare can be read. Further
-recovery remains blocked for manual reconciliation. Aggregate health and an
-idle instance list do not prove that every dormant instance ran the new image;
+the observed Worker and container state when Cloudflare can be read.
+
+After manually checking that failure, the same recovery entrypoint can continue
+the original attempt. Supply the latest observed Worker selectors and the
+unchanged original Container selectors. The control reads only the canonical
+receipt's linked v4 proof chain back to the exact original start event. Every
+event and proof must preserve the source tree, scope, complete receipt and
+parent links. Each recovery window must follow the previous failed event. The
+next baseline must match the preceding failure observation. Missing proofs,
+observations, inconsistent timestamps or more than 32 failed events require
+manual reconciliation instead of another deployment.
+
+Under the Remote Agent lease, exactly one Worker deployment must match the
+latest recovery window and remain the current 100% deployment. The Container
+must still match its original version, digest and configuration. Complete
+instance evidence must retain the protected instances and show no active
+rollout. The control repeats these checks immediately before deployment. This
+observation admits a new guarded deployment from the original source; it never
+proves the observed Worker's source by itself. Preflight, stage admission,
+native provenance, registry digest and final Worker verification still apply.
+The new receipt and proof append to the latest failed event. They retain the
+original source, attempt, operation key and start time. This is explicit manual
+continuation, not automatic retry, and it never runs user commands.
+
+Aggregate health and an idle instance list do not prove that every dormant
+instance ran the new image;
 authenticated product Smoke remains a separate acceptance step.
+
+When the failed attempt continued a Worker-only release, recovery preserves its
+retained Container metadata in both the canonical receipt and linked proof.
+Only successful Worker and native verification changes its phase to `complete`;
+failure preserves the unresolved phase and `failed/unknown` outcome. The recovery
+proof uses the shared receipt contract, including that optional retained stage.
+Existing proofs without the stage remain readable. Use current release control
+to inspect new proofs; older control rejects that optional proof field. This
+does not change Worker RPC, CLI, Service, or user command contracts.
 Version 1 successes and version 2 observations remain readable at their original
 evidence strength; they are not upgraded into correlated identities. Older
 writers cannot downgrade a retained record. All events remain append-only with
@@ -540,6 +698,14 @@ The result keeps two facts separate:
 - `Current-change scopes` are the scopes selected by that exact diff.
 - `Global pending scopes` are older or unrelated deployment backlog visible in
   GitHub history.
+
+For a dependency patch whose lockfile changes only its patch hashes, the planner
+uses the existing affected-workspace proof and reads consumers from the target
+commit's lockfile and package names. That same proof limits both workspace
+impact and the lockfile's broad CLI/Service release signal. The complete changed
+path list stays in the plan. Root-toolchain consumers, mixed dependency changes,
+unknown lockfile shapes and missing history keep the conservative full runtime
+scope; a scope override cannot certify whole-change completion.
 
 The workflow mapping uses the current-change scopes when `--change-base` is
 present. Without it, the mapping is explicitly global-backlog information.
@@ -1412,6 +1578,12 @@ checks.
 
 ## Local Scoped Release
 
+A release containing only Website and/or Docs does not read product database
+receipts, inspect Hyperdrive, or require database inspection credentials. These
+renderers have no product database binding. Mixed trains and explicit database
+maintenance retain PostgreSQL admission. Component credentials, leases, artifact
+identity, deployment checks and completion receipts still apply normally.
+
 The `people-computers-receivers-first` profile recognizes the shared computer
 schema, Core projection, and Gateway endpoint together, or the shared Service
 connection evidence schema with its Core and Gateway receivers. It deploys selected
@@ -2029,6 +2201,12 @@ Windows Native AOT helper bytes can differ across builds of identical source.
 Set `windows_artifact_run_id` to the run used above when publishing the stamped
 manifest. The publisher rechecks its provenance and bytes and skips a second
 Windows build. A different run with the same source is not interchangeable.
+When using guarded hosted release continuation, set `WINDOWS_ARTIFACT_RUN_ID`
+to that numeric run ID. The CLI stage validates and forwards it as
+`windows_artifact_run_id`; other scopes ignore it. Publication requires this
+pin. An omitted or blank value is rejected instead of rebuilding different
+bytes. `helper_only=true` remains the separate preparation operation. Existing
+active release runs are still watched rather than dispatched again.
 
 Use `release:verify:local -- --scope cli` only when an earlier full go/no-go
 decision or handoff is needed; it is not a default extra gate.
@@ -2061,8 +2239,12 @@ the same resumable release command at the exact original `release_sha`:
 
 ### npm submission and availability
 
-The CLI release owner packs with pnpm so catalog/workspace references become
-portable dependency versions. A packing-only hook preserves the exact source
+The CLI release owner packs with pnpm so catalog references become portable
+dependency versions. Internal `@openmeld/*` packages belong in the CLI's
+`devDependencies` and are bundled into its executable output. The tarball must
+not declare them in runtime dependency fields, even after pnpm resolves a
+workspace reference to a version. Artifact inspection rejects that leak before
+consumer installation. A packing-only hook preserves the exact source
 `gitHead` without editing the checkout. Before any binary upload or npm attempted
 receipt, the owner checks the actual tarball and installs it with ordinary npm
 outside the workspace, using disposable HOME, OpenMeld state, npm configuration

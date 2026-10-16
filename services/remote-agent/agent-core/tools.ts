@@ -1929,6 +1929,7 @@ const manageSpaceTasksToolInputSchema = strictObject({
   action: picklist([
     "list",
     "create",
+    "delegate",
     "assign",
     "set_projects",
     "update_brief",
@@ -2012,7 +2013,10 @@ type ManageSpaceTasksToolInput = InferOutput<
   typeof manageSpaceTasksToolInputSchema
 >;
 
-function buildSpaceTaskMutationFromTool(input: ManageSpaceTasksToolInput) {
+function buildSpaceTaskMutationFromTool(
+  input: ManageSpaceTasksToolInput,
+  submissionId: string
+) {
   if (!(input.taskId && input.expectedRevision)) {
     throw new TypeError(
       "Task changes require taskId and the latest expectedRevision."
@@ -2023,6 +2027,20 @@ function buildSpaceTaskMutationFromTool(input: ManageSpaceTasksToolInput) {
     expectedRevision: input.expectedRevision,
   };
   switch (input.action) {
+    case "delegate":
+      if (!input.assigneeProfileId || input.reviewerProfileId === undefined) {
+        throw new TypeError(
+          "Delegation requires an Agent assignee and an explicit reviewerProfileId (null only when no review is requested). Add the requested reviewer to the Space before delegating."
+        );
+      }
+      return mutateSpaceTaskBodySchema.parse({
+        ...base,
+        operationId: `task-delegate:${submissionId}:${input.taskId}:${input.expectedRevision}`,
+        action: "assign",
+        assigneeProfileId: input.assigneeProfileId,
+        reviewerProfileId: input.reviewerProfileId,
+        wakeAssignee: true,
+      });
     case "assign":
       return mutateSpaceTaskBodySchema.parse({
         ...base,
@@ -2195,6 +2213,7 @@ async function executeManageSpaceTasksTool(input: {
     request,
     spaceId: space.id,
     toolContext,
+    submissionId: input.submissionId,
   });
 }
 
@@ -2262,13 +2281,17 @@ async function mutateSpaceTaskFromTool(input: {
   coreWorker: RemoteAgentCoreWorkerBinding;
   request: ManageSpaceTasksToolInput;
   spaceId: string;
+  submissionId: string;
   toolContext: Awaited<ReturnType<typeof buildOpenMeldToolContext>>;
 }) {
   const mutate = requireCoreRpc(
     input.coreWorker.mutateSpaceTask,
     "mutateSpaceTask"
   );
-  const body = buildSpaceTaskMutationFromTool(input.request);
+  const body = buildSpaceTaskMutationFromTool(
+    input.request,
+    input.submissionId
+  );
   return withSpaceTaskGitHubClosePrompt(
     spaceTaskMutationReceiptSchema.parse(
       await mutate({
@@ -4255,6 +4278,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_manage_space_tasks",
       description:
+        "For an existing Task, action=delegate requires its exact taskId, expectedRevision, assigneeProfileId and reviewerProfileId (null only if no review was requested). First list Tasks and reuse the one linked to the request or issue. Add a requested reviewer to the Space before delegating; missing membership is a blocker, not permission to omit review. Delegation atomically assigns the Task, records the reviewer, and queues its initial Wake. It stays To do until the assignee explicitly starts it. A successful receipt confirms assignment and a handoff request, not running execution. Do not also call the generic Wake tool. Update the brief and completion conditions before delegating when the requested deliverable changes. " +
         "Manage durable commitments in the current shared OpenMeld Space. Create a Task when the current message asks for a clear, discrete deliverable that will outlive an immediate conversational answer or needs ownership, progress, review, or later closure. Use projectIds on create or set_projects after an explicit Project decision; a Task may have several Projects, and their order does not choose an external destination. Creating a GitHub issue in this Space records a linked Task only when that GitHub tool result's spaceTask.created is true; use attach_external_work_item or detach_external_work_item for an existing GitHub issue. Use attach_linear_external_work_item with the verified Linear issue UUID, identifier, team UUID and URL, or detach_linear_external_work_item; Linear links are not monitored. When a Task linked to an open GitHub issue is completed or canceled, close that issue with github_update_issue unless the result says it is already closed. Do not create Tasks for questions, tiny same-turn actions, exploratory discussion, acknowledgements, or every Agent tool call. A created Task is assigned to you by default but remains To do; call mark_in_progress when work actually begins, then submit_result with the concrete result and verification. Assignment alone never starts execution. Read the Task before changing it and pass its expectedRevision. Review must also pass the resultRevision you actually read as expectedResultRevision. A conflict requires reading the changed Task and deciding again. The Space delivers review and rework handoffs through the normal Wake path. Do not issue another Wake for those transitions or wake more work when needsHumanDecision is true. Two automatic Agent rework rounds are allowed before a human must decide. This tool is limited to this conversation's conversation and does not control Agent execution truth.",
       input: manageSpaceTasksToolInputSchema,
       execute: async (payload) =>
@@ -4592,6 +4616,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         );
         return centerAgentRememberForOrganizationResponseSchema.parse(
           await rpc({
+            includeStatus: true,
             context: toolContext.context,
             fact: payload.fact,
             speakerMember: resolveVerifiedTurnEnvelopeSpeaker(
@@ -5475,6 +5500,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_wake_agent_profiles_in_space",
       description:
+        "For ownership handoff of an existing Space Task, use openmeld_manage_space_tasks action=delegate instead, so assignment, reviewer and Wake stay linked to that Task. This generic Wake does not assign or advance a Space Task. " +
         "Wake one or more OpenMeld Agent Profiles in a Space by posting a Center Agent-authored Space message with activation targets. This starts real work and is an ordinary external write. The text must be a self-contained delegation brief for nontrivial work: goal; verified facts and source references; current product and execution environment; authority and safety constraints; unresolved questions; exact completion criteria; and every available evidence selector such as a trace ID, URL, path, version, or timestamp. Clearly separate facts from hypotheses, omit secrets and unrelated private transcript, and never assume the child can see this conversation. First decide that another Agent adds meaningful evidence or capability; never wake one merely to demonstrate delegation. Always pass mentionProfileIds with every exact Human Profile ID that should receive Inbox and browser attention, or []; always pass referenceProfileIds with every exact Agent Profile ID that is context only, or []. Human Mention never creates Agent work, and Agent Reference never creates child work. A profile cannot appear in more than one addressing relation. Always choose completionMode explicitly from the user's requested result ownership and continuation barrier. Use child_reports_directly when children publish their own final result and the Center Agent should not continue. Use resume_parent_when_all_terminal to synthesize every result, resume_parent_when_first_success to continue after the first success, resume_parent_on_failure to continue after the first authoritative failure, or resume_parent_on_each_terminal for one continuation per child completion. During a Routine, resume_parent_when_all_terminal is the only supported resume mode and may resume the Center Agent only once. Set fallbackAgentProfileId only when exactly one primary Agent should be tried first; the fallback is not woken unless that primary authoritatively fails. When Computer files are necessary, pass computerFilePaths to copy up to three bounded text files into this Wake as an explicit one-time snapshot; the Local Agent never receives filesystem access or live sync. A pending publicationStatus means Core durably queued the same Wake for event-driven retry; do not call this tool again or report failure.",
       endsTurnAfter: (result, toolInput) => {
         const parsedResult =

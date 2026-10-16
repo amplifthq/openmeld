@@ -1,3 +1,26 @@
+import { unsupportedNodeRuntimeMessage } from "@openmeld/start/node-runtime";
+
+// Check before loading commands or native dependencies. Standalone binaries own
+// their Bun runtime and do not depend on the user's Node installation.
+if (!process.versions.bun) {
+  const message = unsupportedNodeRuntimeMessage(process.versions.node);
+  if (message) {
+    // Keep the machine-readable contract available before loading dependencies.
+    if (process.argv.includes("--json")) {
+      process.stdout.write(
+        `${JSON.stringify({
+          schemaVersion: 1,
+          type: "error",
+          error: { code: "cli.node_unsupported", message },
+        })}\n`
+      );
+    } else {
+      process.stderr.write(`${message}\n`);
+    }
+    process.exit(1);
+  }
+}
+
 // Maintenance must remain loadable when the business command graph cannot start.
 // Both distributions use this entry; normal commands keep their existing parser.
 if (

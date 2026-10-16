@@ -71,6 +71,7 @@ const EMPTY_AGENT_PROFILE_READINESS_PENDING_PROFILE_IDS: ReadonlySet<string> =
 	new Set();
 
 export function PeopleAndAgentsPage(input: {
+	returnToAgentDirectory?: boolean;
 	personId?: string;
 	activityPreview?: boolean;
 	activeAgentView?: AgentWorkspaceView;
@@ -239,6 +240,11 @@ export function PeopleAndAgentsPage(input: {
 			<AgentsWorkspaceHome
 				activeView={activeAgentView}
 				activityPreview={activityPreview}
+				agentListReturn={
+					input.returnToAgentDirectory
+						? { to: profileHomeRoutes.agents, label: "Back to Agents" }
+						: undefined
+				}
 				currentUserId={currentUserId}
 				fallbackOwnerLabel={fallbackOwnerLabel}
 				focusRequestId={input.focusRequestId ?? null}
@@ -265,6 +271,10 @@ export function PeopleAndAgentsPage(input: {
 						: null;
 					const personId = input.personId ?? resolvedPersonId;
 					navigate({
+						search:
+							input.returnToAgentDirectory || (!input.personId && personId)
+								? { from: "agents" }
+								: undefined,
 						to: personId
 							? buildOrganizationPersonAgentPath({
 									orgSlug,
@@ -389,6 +399,7 @@ function buildOrganizationAgentProjection(input: {
 }
 
 function AgentsWorkspaceHome(input: {
+	agentListReturn?: { to: string; label: string };
 	person?: { id: string; name: string; path: string; agentsPath: string };
 	activeView: AgentWorkspaceView;
 	activityPreview: boolean;
@@ -726,6 +737,7 @@ function AgentsWorkspaceHomeView(input: {
 		<AgentProfilesWorkspace
 			activeView={workspace.activeView}
 			agentControllerRefByProfileId={input.agentControllerRefByProfileId}
+			agentListReturn={workspace.agentListReturn}
 			canCreateAgent={
 				!workspace.ownerId || workspace.ownerId === workspace.currentUserId
 			}
