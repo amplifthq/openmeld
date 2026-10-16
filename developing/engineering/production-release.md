@@ -621,6 +621,23 @@ observation admits a new guarded deployment from the original source; it never
 proves the observed Worker's source by itself. Preflight, stage admission,
 native provenance, registry digest and final Worker verification still apply.
 Pre-upload recovery instead requires zero deployments in that window, as above.
+If a linked recovery fails during its pre-deployment checks, continuation may
+also have zero deployments in its latest window. In that case, the current
+Worker must equal both the linked baseline and failure observation, and must
+predate the window. The proof must include `observedContainer`; the same complete
+configuration, instance, history-chain and lease checks still apply. This does
+not authorize an unlinked failed attempt or attribute the partial Worker to the
+release source. The continuation still performs and verifies a full new release.
+
+Wrangler can reuse a registry image without creating a tag for the new Worker.
+Fresh guarded recovery can verify that case by the immutable image digest when
+the Container version increased and its update time falls inside the successful
+deployment command's window. The control HEADs that exact registry manifest,
+requires its returned digest to match the Container, and retains the complete
+healthy-instance and final correlated-Worker checks. A missing tag alone is
+never success: old versions, updates outside that command, absent command
+evidence and digest mismatches still fail. Read-only verification without a
+fresh successful deployment retains the existing tag/provenance requirements.
 The new receipt and proof append to the latest failed event. They retain the
 original source, attempt, operation key and start time. This is explicit manual
 continuation, not automatic retry, and it never runs user commands.
