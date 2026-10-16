@@ -54,6 +54,7 @@
       "output": "dist/release"
     },
     "files": [
+      "!**/.turbo{,/**}",
       "out/**/*",
       "resources/icon.icns",
       "resources/icon.png",
