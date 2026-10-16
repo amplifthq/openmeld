@@ -708,7 +708,6 @@ html[data-space-conversation-layout] [data-desk-space-window]
 .space-history-tick[data-hovered] .space-history-dash { background: var(--foreground); opacity: 1; }
 .space-history-tick:focus-visible .space-history-dash { opacity: 1; }
 .space-history-preview { max-width: calc(100vw - 5rem); position: relative; }
-.space-history-touch-trigger { display: none; }
 /* Fit pointer targets inside the same gutter without moving the transcript. */
 @media (pointer: fine) {
   html[data-space-conversation-layout="full-width"] .space-history-navigation:not(:where([data-space-conversation-presentation="compact"] *, [data-desk-space-window] *)) {
@@ -722,24 +721,6 @@ html[data-space-conversation-layout] [data-desk-space-window]
   .space-history-dash { transform: scaleX(.25) !important; }
   .space-history-preview { animation: none !important; }
 }
-@media (pointer: coarse) {
-  [data-space-history-rail="true"] { --space-history-rail-width: 3.25rem; }
-  .space-history-navigation { top: 3.5rem; bottom: auto; height: auto !important; translate: none; }
-  .space-history-touch-trigger { display: grid; place-items: center; width: 44px; height: 44px; }
-  .space-history-ticks { display: none; }
-  /* Touch needs a full-size target, in its own row rather than over messages. */
-  html[data-space-conversation-layout="full-width"] .space-history-navigation:not(:where([data-space-conversation-presentation="compact"] *, [data-desk-space-window] *)) {
-    position: relative;
-    flex: 0 0 44px;
-    inset-inline-start: var(--app-page-inline-padding);
-    top: auto !important;
-    width: 44px;
-    max-height: none;
-  }
-}
-
-@media (pointer: fine) { .space-history-preview-stepper { display: none; } }
-
 /* Toolbar visibility changes release the main surface's reserved bottom row. */
 [data-toolbar-shortcut][hidden],
 [data-toolbar-shortcut]:has(> .toolbar-shortcut-dismiss:only-child) {
