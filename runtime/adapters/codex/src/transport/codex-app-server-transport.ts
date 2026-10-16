@@ -604,6 +604,28 @@ async function startAndAwaitAppServerTurn(input: {
       }
       const reviewerMode = (mode: AgentControllerPermissionMode) =>
         mode === "codex:askForApproval" || mode === "codex:approveForMe";
+      const canEmulateFullAccess =
+        input.executionMode !== "repair" && reviewerMode(input.permissionMode);
+      if (canEmulateFullAccess && next === "codex:fullAccess") {
+        session.setLiveFullAccess(true);
+        return {
+          status: "applied",
+          effectiveFrom: "subsequent_tool_requests",
+          taskId,
+        };
+      }
+      if (
+        canEmulateFullAccess &&
+        session.liveFullAccess &&
+        next === input.permissionMode
+      ) {
+        session.setLiveFullAccess(false);
+        return {
+          status: "applied",
+          effectiveFrom: "subsequent_tool_requests",
+          taskId,
+        };
+      }
       if (
         !input.supportsLiveReviewer ||
         input.executionMode === "repair" ||
@@ -639,6 +661,7 @@ async function startAndAwaitAppServerTurn(input: {
           reasonCode: "adapter.task_not_active",
         };
       }
+      session.setLiveFullAccess(false);
       return {
         status: "applied",
         effectiveFrom: "subsequent_tool_requests",
@@ -1516,6 +1539,10 @@ class CodexAppServerSession {
   readonly #executionMode?: AdapterDispatchExecutionMode;
   readonly #notifications: JsonRpcMessage[] = [];
   readonly #onInteractionRequest?: AdapterInteractionCallback;
+  // Set when the owner switches this running task to Full access. The turn's
+  // sandbox cannot change, so OpenMeld answers Codex's later permission
+  // requests with its one-time allow; full sandbox access starts next task.
+  #liveFullAccess = false;
   readonly #onProcessControlEvent?: AdapterRuntimeProcessCallback;
   readonly #onRuntimeEvent?: AdapterRuntimeEventCallback;
   readonly #permissionMode?: AgentControllerPermissionMode;
@@ -2664,6 +2691,14 @@ class CodexAppServerSession {
     });
   }
 
+  get liveFullAccess(): boolean {
+    return this.#liveFullAccess;
+  }
+
+  setLiveFullAccess(enabled: boolean): void {
+    this.#liveFullAccess = enabled;
+  }
+
   async #handleServerRequest(message: JsonRpcMessage): Promise<void> {
     const id = message.id;
     if (!(typeof id === "number" || typeof id === "string")) {
@@ -2712,7 +2747,9 @@ class CodexAppServerSession {
               turnId,
             });
           },
-          onInteractionRequest: this.#onInteractionRequest,
+          onInteractionRequest: this.#liveFullAccess
+            ? allowPermissionRequestsOnce(this.#onInteractionRequest)
+            : this.#onInteractionRequest,
           params: message.params,
         })
       : buildServerRequestDeclineResponse(message.method);
@@ -3067,6 +3104,22 @@ async function emitPreviewIfRequested(input: {
   await input.onPreview({
     text: input.output,
   });
+}
+
+function allowPermissionRequestsOnce(
+  onInteractionRequest: AdapterInteractionCallback
+): AdapterInteractionCallback {
+  return (request) => {
+    if (request.kind !== "permission") {
+      return onInteractionRequest(request);
+    }
+    const allowOnce = request.options.find(
+      (option) => option.intent === "allow_once"
+    );
+    return allowOnce
+      ? Promise.resolve({ kind: "permission", optionId: allowOnce.optionId })
+      : onInteractionRequest(request);
+  };
 }
 
 async function resolveCodexServerInteraction(input: {

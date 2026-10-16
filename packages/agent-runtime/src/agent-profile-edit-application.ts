@@ -1,7 +1,7 @@
 import type { AgentControllerPermissionMode } from "@openmeld/schemas/types";
 import { parseAgentControllerRef } from "./agent-controller-ref";
 
-export const AGENT_PROFILE_EDIT_APPLICATION_CAPABILITY_MATRIX_VERSION = 3;
+export const AGENT_PROFILE_EDIT_APPLICATION_CAPABILITY_MATRIX_VERSION = 4;
 
 export type AgentProfileEditApplicationTiming =
   | "applies_now"
@@ -80,10 +80,16 @@ export function resolveAgentProfileEditApplicationTiming(input: {
       parsedRef.id === "codex"
         ? ["codex:askForApproval", "codex:approveForMe"]
         : ["cursor:default", "cursor:ask", "cursor:plan"];
+    // Codex Full access and Cursor Run Everything cannot change a running
+    // session natively. Their adapters stop asking by answering later
+    // permission requests with the controller's one-time allow.
+    const noPromptMode: AgentControllerPermissionMode =
+      parsedRef.id === "codex" ? "codex:fullAccess" : "cursor:force";
     return input.currentPermissionMode &&
       input.nextPermissionMode &&
       liveModes.includes(input.currentPermissionMode) &&
-      liveModes.includes(input.nextPermissionMode)
+      (liveModes.includes(input.nextPermissionMode) ||
+        input.nextPermissionMode === noPromptMode)
       ? "applies_now"
       : APPLIES_TO_NEXT_WAKE;
   }
