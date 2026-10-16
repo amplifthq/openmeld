@@ -262,6 +262,34 @@ it.each([
 	expect(state.connect).not.toHaveBeenCalled();
 });
 
+it.each([
+	{
+		errorMessage:
+			"OpenMeld cannot read this Mac's Service identity. Start OpenMeld Service on this Mac, then try again.",
+		expected:
+			"OpenMeld cannot read this Mac's Service identity. Start OpenMeld Service on this Mac, then try again.",
+	},
+	{
+		errorMessage: "SDK failure token=private",
+		expected: "This computer could not connect. Try again.",
+	},
+])("preserves only safe recovery instructions after remount: $expected", async ({
+	errorMessage,
+	expected,
+}) => {
+	state.currentOperation.mockResolvedValue(
+		desktopOperation({ status: "pending" })
+	);
+	renderConnection(<DesktopComputerConnection />);
+	await waitFor(() => expect(state.operationHandler).not.toBeNull());
+	const settled = { ...desktopOperation({ status: "settled" }), errorMessage };
+	state.currentOperation.mockResolvedValue(settled);
+	state.operationHandler?.(settled);
+	expect(await screen.findByText(expected)).toBeTruthy();
+	expect(screen.queryByText("SDK failure token=private")).toBeNull();
+	expect(state.connect).not.toHaveBeenCalled();
+});
+
 it("does not let late active progress reopen a settled adopted operation", async () => {
 	state.currentOperation.mockResolvedValue(
 		desktopOperation({ status: "pending" })

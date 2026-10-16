@@ -96,7 +96,12 @@ async function applyAdoptedConnectionSettlement(input: {
 }) {
 	if (input.operationState.errorMessage) {
 		input.setFailed(true);
-		input.setMessage(input.operationState.errorMessage);
+		input.setMessage(
+			formatDesktopError(
+				new Error(input.operationState.errorMessage),
+				"This computer could not connect. Try again."
+			)
+		);
 		return;
 	}
 	const result = input.operationState.result;
