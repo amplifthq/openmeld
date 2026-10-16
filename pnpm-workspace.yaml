@@ -60,6 +60,13 @@ overrides:
   wrangler: 'catalog:'
 
 packageExtensions:
+  # Flue's generated Worker still uses Agents 0.20.1. Keep its exact MCP peers
+  # separate from the direct Agents 0.28.1 browser integration.
+  '@flue/vite@2.2.2':
+    dependencies:
+      '@modelcontextprotocol/client': 2.0.0
+      '@modelcontextprotocol/server': 2.0.0
+      '@modelcontextprotocol/sdk': 1.30.0
   '@lobehub/icons@5.0.1':
     dependencies:
       es-toolkit: 1.46.0

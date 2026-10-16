@@ -11,7 +11,7 @@
 - Source of truth: This plan owns the pending upgrade decision. Runtime behavior
   remains owned by [Remote Agent Runtime](../product/remote-agent-runtime.md).
 
-Status: DRAFT — research and migration preparation only.
+Status: DRAFT — direct Agents upgrade validated; Flue migration remains in preparation.
 Remove this plan when the upgrade ships or is abandoned; retain settled contracts
 in the existing remote-agent owner document.
 
@@ -19,8 +19,9 @@ in the existing remote-agent owner document.
 
 Research started on 2026-10-16 from public `origin/main`
 `e9aebdf39f4f723bc2b9cccbc1c6a2ba44a0a5af`, including PR #203.
-No dependency manifest, lockfile, runtime patch, or production state changes in
-this initial research commit.
+The initial research commit changed no dependencies. The first implementation
+batch upgrades direct Agents and its required MCP peers; Flue and Pi versions
+and runtime patches remain unchanged. No production changes.
 
 | Dependency | Current | Candidate | Coupling |
 | --- | --- | --- | --- |
@@ -101,8 +102,8 @@ claiming that the Center Agent's base runtime has changed.
 - [ ] Complete independent review and current-base Final Candidate only after
   implementation is stable. Keep this PR Draft until these gaps are closed.
 
-No merge, deployment, production data migration, or new runtime behavior is
-part of this research-only commit. Better Auth and TypeScript are out of scope.
+No merge, deployment, or production data migration is authorized. Better Auth
+and TypeScript are out of scope.
 
 ## Evidence and official references
 
@@ -115,3 +116,48 @@ The patch check failed as described above; no upgrade tests are claimed passed.
 - [Flue Vite package](https://www.npmjs.com/package/@flue/vite)
 - [Agents 0.28.1 release](https://github.com/cloudflare/agents/releases/tag/agents%400.28.1)
 - [Agents 0.28.0 release](https://github.com/cloudflare/agents/releases/tag/agents%400.28.0)
+
+
+## First batch: direct Agents acceptance
+
+The two independent local Grok 4.7 xhigh planning reviews agreed that direct
+Agents is the smaller first batch. The browser factory still accepts the same
+production options, so no application code change was needed.
+
+- Direct `agents`: 0.22.0 to 0.28.1.
+- Direct MCP client/server: 2.3.1; SDK: 1.32.1. These satisfy the new Agents
+  required peers. A scoped package extension supplies Flue Vite 2.2.2 with its
+  old MCP client/server 2.0.0 and SDK 1.30.0. Installed module resolution confirms
+  the two Agents instances receive their respective versions. Reassess this
+  extension when Flue's Agents dependency changes; do not widen its range.
+- Main Worker bundle gzip grew from 2,292.89 kB to 2,486.72 kB in matched
+  local builds (about 194 kB, 8.5%). This is a measured cost of retaining the
+  two compatible MCP dependency contexts, not a performance improvement.
+- The optional Agents Pi 1.x adapter is not used by this browser integration.
+  Pi remains 0.87.1 for Flue. Its optional peer warning is disclosed, not hidden.
+- Frozen install, 14-task typecheck graph and Remote Agent build passed.
+  The final peer graph passed 48 tests covering Computer tool contracts,
+  preview, actual callback alarms, Flue entrypoints and legacy continuity.
+- Local workerd: six checks passed and three Computer command checks failed.
+  The same three failures reproduce with pre-upgrade dependencies. They are
+  baseline failures, not passing checks or suppressed assertions.
+- A disposable local Worker used the same browser factory options as
+  `AgentComputer`, with the real development Browser binding. Old and new
+  Agents both created a browser target and evaluated `21 * 2` to `42`.
+  The upgraded one-shot path also issued session DELETE after successful
+  execution and after an intentional execution error. This tests the SDK
+  execution seam, not the full signed-in Space-to-Computer authorization path.
+
+Required MCP peers are resolved without warning suppression. Existing workspace
+peer warnings outside this integration are not a claim of full dependency
+compatibility. This PR remains Draft for the Flue batch; no release is implied.
+
+## Flue preparation after the Agents batch
+
+A local adaptation of the existing fixture generator ran against patched
+2.2.2 and captured ten real synthetic runtime tables, fifteen submissions, and
+one executed lookup. Its guard confirmed simultaneous running and queued
+submissions. No production data was used. This is fixture preparation only:
+2.3.0 has not loaded it, and rollback is not yet proven. Preserve the original
+2.0.3 fixture and publish a reproducible 2.2.2 generator/fixture with the Flue
+implementation, after validating provenance and upgrade expectations.
