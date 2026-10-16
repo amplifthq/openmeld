@@ -23,6 +23,7 @@ import { describeRemoteContainerConfiguration } from "./remote-agent-container-e
 
 import {
   assertRemoteVerificationSelectors,
+  assertRetainedPreUploadContainer,
   assessRemoteAgentPartialRecovery,
   executeRemoteAgentRecovery,
   proveNativeBaseline,
@@ -117,7 +118,8 @@ syncBuiltinESMExports();
       "--container-image",
       OLD_IMAGE,
     ];
-    for (const verifyOnly of [true, false]) {
+    for (const mode of ["verify", "partial", "before-upload"]) {
+      const verifyOnly = mode === "verify";
       writeFileSync(capture, "null");
       const result = spawnSync(
         process.execPath,
@@ -129,6 +131,7 @@ syncBuiltinESMExports();
           ),
           ...selectors,
           ...(verifyOnly ? ["--verify-only", "true"] : ["--base", sourceSha]),
+          ...(mode === "before-upload" ? ["--before-upload", "true"] : []),
         ],
         { cwd: root, encoding: "utf8", timeout: 10_000 }
       );
@@ -302,6 +305,110 @@ test("admits only one active Worker upload in the retained failed attempt window
       assessRemoteAgentPartialRecovery({ ...input, ...changed })
     );
   }
+});
+
+test("pre-upload recovery requires an unchanged pre-attempt deployment and complete Container evidence", () => {
+  const input = fixture();
+  input.beforeUpload = true;
+  input.container.health.instances = {
+    healthy: 6,
+    active: 1,
+    failed: 0,
+    starting: 0,
+    stopped: 0,
+    scheduling: 0,
+    assigned: 0,
+  };
+  input.deployments = input.deployments.slice(0, 1);
+  input.expectedDeploymentId = input.deployments[0].id;
+  input.expectedWorkerVersionId = input.deployments[0].versions[0].version_id;
+  input.instancesPage = {
+    instances: [{ id: "instance-1", state: "running", version: 99 }],
+    result_info: { per_page: 100, page_token: null, next_page_token: null },
+  };
+  assert.equal(
+    assessRemoteAgentPartialRecovery(input).workerDeploymentId,
+    input.expectedDeploymentId
+  );
+  for (const changed of [
+    { beforeUpload: false },
+    { started: undefined },
+    { expectedWorkerVersionId: VERSION },
+    { deployments: fixture().deployments },
+    { deployments: [{ ...input.deployments[0], created_on: "invalid" }] },
+    {
+      deployments: [
+        { ...input.deployments[0], created_on: "2026-09-20T16:00:00Z" },
+      ],
+    },
+    {
+      deployments: [
+        {
+          ...input.deployments[0],
+          versions: [
+            { version_id: input.expectedWorkerVersionId, percentage: 50 },
+          ],
+        },
+      ],
+    },
+    { container: { ...input.container, updated_at: input.current.recordedAt } },
+    { container: { ...input.container, active_rollout_id: "rollout" } },
+    { instancesPage: undefined },
+    {
+      container: {
+        ...input.container,
+        health: {
+          errors: [],
+          instances: {
+            ...input.container.health.instances,
+            active: 0,
+            healthy: 7,
+          },
+        },
+      },
+    },
+    {
+      instancesPage: {
+        ...input.instancesPage,
+        result_info: { next_page_token: "more", page_token: null },
+      },
+    },
+    {
+      instancesPage: {
+        ...input.instancesPage,
+        instances: [{ id: "instance-1", state: "running", version: 98 }],
+      },
+    },
+  ]) {
+    assert.throws(() =>
+      assessRemoteAgentPartialRecovery({ ...input, ...changed })
+    );
+  }
+  const retained = {
+    ...describeRemoteContainerConfiguration(input.container),
+    instances: [{ id: "instance-1", version: 99 }],
+  };
+  assertRetainedPreUploadContainer(
+    retained,
+    input.container,
+    input.instancesPage
+  );
+  assert.throws(() =>
+    assertRetainedPreUploadContainer(
+      retained,
+      {
+        ...input.container,
+        configuration: { ...input.container.configuration, changed: true },
+      },
+      input.instancesPage
+    )
+  );
+  assert.throws(() =>
+    assertRetainedPreUploadContainer(retained, input.container, {
+      ...input.instancesPage,
+      instances: [],
+    })
+  );
 });
 
 test("resumes only the exact linked recovery failure and rejects altered Git evidence or live selectors", () => {

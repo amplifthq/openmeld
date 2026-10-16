@@ -573,6 +573,21 @@ Old release tooling continues to read the version 3 receipt. On failure, the
 canonical receipt remains `failed/unknown`; a linked diagnostic proof records
 the observed Worker and container state when Cloudflare can be read.
 
+For an original attempt that failed before Worker upload (for example, Docker
+was unavailable), use the same entrypoint with `--before-upload true` and the
+existing exact selectors and `--base`. This explicit mode requires no deployment
+in the failed window and the current single-version 100% deployment to predate
+that window. The Container must predate the original attempt, match its selected
+version and digest, have no active rollout, and provide complete instance
+evidence. Under the same lease, the control rechecks configuration and protected
+instances immediately before deployment. It does not infer application from a
+Docker error or change the failed receipt to success without a deployment.
+This mode performs a full native release: it does not use an older verified
+receipt to retain the observed image. A new command-correlated Worker, new
+Container version, matching registry digest and completed healthy rollout are
+required before the original attempt can be marked verified. Source, attempt,
+operation key, start event and append-only proof ownership remain unchanged.
+
 After manually checking that failure, the same recovery entrypoint can continue
 the original attempt. Supply the latest observed Worker selectors and the
 unchanged original Container selectors. The control reads only the canonical
