@@ -735,7 +735,10 @@ describe("App", () => {
     expect(updateCli).toHaveBeenCalledTimes(1);
   });
 
-  it("offers a Node 24 download for an unsupported npm installation runtime", async () => {
+  it.each([
+    "desktop.node_unsupported",
+    "cli.node_unsupported",
+  ])("offers a persistent Node 24 recovery for %s", async (code) => {
     const openNodeDownloadPage = vi.fn(() => Promise.resolve());
     const message =
       "OpenMeld requires Node.js >=22 <26; found v20.19.2. Install Node.js 24 (recommended) from https://nodejs.org, then run this command again.";
@@ -746,8 +749,11 @@ describe("App", () => {
             Promise.resolve({
               ...svc("unknown"),
               problem: {
-                kind: "spawn_failed",
-                code: "desktop.node_unsupported",
+                kind:
+                  code === "cli.node_unsupported"
+                    ? "cli_error"
+                    : "spawn_failed",
+                code,
                 message,
                 requestId: null,
               },
@@ -757,9 +763,46 @@ describe("App", () => {
         skipSplash
       />
     );
-    expect(await screen.findByText(message)).toBeTruthy();
+    const guidance =
+      "OpenMeld CLI requires Node.js 22–25. Install Node.js 24, return to OpenMeld, then choose Try again.";
+    expect(await screen.findByText(guidance)).toBeTruthy();
+    expect(screen.queryByText(message)).toBeNull();
+    fireEvent.click(screen.getByText("Try again"));
+    expect(await screen.findByText(guidance)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Install Node.js 24" }));
     expect(openNodeDownloadPage).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    "ENOENT: managed CLI is missing",
+    "EACCES: managed CLI cannot start",
+  ])("offers Web recovery and preserves the launch error: %s", async (message) => {
+    const openWeb = vi.fn(() => Promise.resolve());
+    const setupComputer = vi.fn();
+    render(
+      <App
+        bridge={makeBridge({
+          getServiceStatus: () =>
+            Promise.resolve({
+              ...svc("unknown"),
+              cliVersion: null,
+              problem: {
+                kind: "spawn_failed",
+                code: "desktop.spawn_failed",
+                message,
+                requestId: null,
+              },
+            }),
+          openWeb,
+          setupComputer,
+        })}
+        skipSplash
+      />
+    );
+    expect(await screen.findByText(message)).toBeTruthy();
+    fireEvent.click(screen.getByText("Open Web to Repair CLI"));
+    expect(openWeb).toHaveBeenCalledTimes(1);
+    expect(setupComputer).not.toHaveBeenCalled();
   });
 
   it("opens the Node.js download page when Node.js is missing", async () => {

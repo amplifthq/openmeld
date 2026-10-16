@@ -309,6 +309,10 @@ jobs:
         with:
           bun-version: 1.3.14
 
+      - name: Verify standalone bundled skill completeness
+        run: node --test scripts/release/bundled-skill-embedded.test.mjs
+        working-directory: release-source
+
       - name: Setup npm Trusted Publishing client
         run: |
           npm install --global npm@11.18.0

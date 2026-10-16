@@ -1,5 +1,11 @@
 # Space Reads Playbook
 
+In CLI invocation examples, replace only the leading `openmeld` executable with
+the exact command prefix from the latest `setup.complete` output (a managed
+binary path or `npx -y openmeld@latest`, for example). Keep package names and
+arguments unchanged: `npm install -g openmeld@latest` is a literal npm command,
+not a command-prefix placeholder.
+
 Use this playbook for fast, read-only Space inspection with the public
 `openmeld` CLI. It covers entry resolution, `board`, `members`, `history`,
 `status`, and live Wake progress without changing membership, the selected

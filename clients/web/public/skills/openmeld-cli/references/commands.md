@@ -1,5 +1,11 @@
 # Resource commands
 
+In CLI invocation examples, replace only the leading `openmeld` executable with
+the exact command prefix from the latest `setup.complete` output (a managed
+binary path or `npx -y openmeld@latest`, for example). Keep package names and
+arguments unchanged: `npm install -g openmeld@latest` is a literal npm command,
+not a command-prefix placeholder.
+
 Use the relevant recipe, then `openmeld <command> --help` for additional
 options. Replace placeholders with returned full IDs or user-provided values.
 These are public CLI workflows; a missing command requires a compatible CLI,

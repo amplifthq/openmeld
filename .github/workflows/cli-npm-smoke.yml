@@ -64,6 +64,11 @@ jobs:
         with:
           name: npm-smoke-windows-${{ github.sha }}
           path: ${{ runner.temp }}/windows-helper
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Verify standalone bundled skill completeness
+        run: node --test scripts/release/bundled-skill-embedded.test.mjs
       - name: Import this run's Windows helper and pack the npm artifact
         id: pack
         run: |

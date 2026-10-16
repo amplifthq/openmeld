@@ -58,6 +58,29 @@ if (mode === "pack") {
         `Unsupported Node did not exit with the upgrade instruction: ${result.error ?? result.stderr}`
       );
     }
+    const jsonResult = spawnSync(
+      process.execPath,
+      [
+        resolve(directory, "package/dist/openmeld.js"),
+        "service",
+        "status",
+        "--json",
+      ],
+      { encoding: "utf8" }
+    );
+    const envelope = JSON.parse(jsonResult.stdout || "null");
+    if (
+      jsonResult.status !== 1 ||
+      envelope?.schemaVersion !== 1 ||
+      envelope.type !== "error" ||
+      envelope.error?.code !== "cli.node_unsupported" ||
+      !envelope.error.message.includes("Install Node.js 24")
+    ) {
+      throw new Error(
+        "Unsupported Node did not preserve the desktop JSON error contract"
+      );
+    }
+    console.log("Verified unsupported Node JSON startup error");
     console.log(result.stderr.trim());
   } finally {
     rmSync(directory, { recursive: true, force: true, maxRetries: 3 });

@@ -30,8 +30,8 @@ const CONTENT_FAILURE =
   /Published revisions are immutable|Published Skill signature is invalid|Generated Skill file differs/u;
 const NOT_APPLICABLE = /not applicable/u;
 const HISTORICAL_NOT_APPLICABLE = /not applicable to this historical source/u;
-const PREFIX_PLACEHOLDER =
-  /`openmeld` is a placeholder for the command prefix/u;
+const PREFIX_PLACEHOLDER = /replace only the leading `openmeld` executable/u;
+const PACKAGE_NAMES = /Keep package names and\narguments unchanged/u;
 const SETUP_PREFIX = /latest `setup.complete` output/u;
 const REPLAY_PERMISSION = /replay.allowed=true/u;
 const ORIGINAL_WINDOW = /original 24-hour window/u;
@@ -49,6 +49,19 @@ test("current onboarding and plugin guides retain command-prefix and replay safe
     );
     assert.match(onboarding, PREFIX_PLACEHOLDER);
     assert.match(onboarding, SETUP_PREFIX);
+    assert.match(onboarding, PACKAGE_NAMES);
+    for (const topic of [
+      "playbooks/plugins.md",
+      "playbooks/space-ops.md",
+      "references/commands.md",
+    ]) {
+      const text = readFileSync(
+        path.join(REPOSITORY_ROOT, directory, topic),
+        "utf8"
+      );
+      assert.match(text, PREFIX_PLACEHOLDER);
+      assert.match(text, SETUP_PREFIX);
+    }
     const plugins = readFileSync(
       path.join(REPOSITORY_ROOT, directory, "playbooks/plugins.md"),
       "utf8"

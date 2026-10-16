@@ -1,5 +1,11 @@
 # Space Operations Playbook
 
+In CLI invocation examples, replace only the leading `openmeld` executable with
+the exact command prefix from the latest `setup.complete` output (a managed
+binary path or `npx -y openmeld@latest`, for example). Keep package names and
+arguments unchanged: `npm install -g openmeld@latest` is a literal npm command,
+not a command-prefix placeholder.
+
 Use this when an external user or Agent needs to create, join, read, send, or
 diagnose OpenMeld Space activity with the public `openmeld` CLI.
 
