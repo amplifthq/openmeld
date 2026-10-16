@@ -1,7 +1,7 @@
 import type { AgentControllerPermissionMode } from "@openmeld/schemas/types";
 import { parseAgentControllerRef } from "./agent-controller-ref";
 
-export const AGENT_PROFILE_EDIT_APPLICATION_CAPABILITY_MATRIX_VERSION = 2;
+export const AGENT_PROFILE_EDIT_APPLICATION_CAPABILITY_MATRIX_VERSION = 3;
 
 export type AgentProfileEditApplicationTiming =
   | "applies_now"
@@ -84,6 +84,14 @@ export function resolveAgentProfileEditApplicationTiming(input: {
       input.nextPermissionMode &&
       liveModes.includes(input.currentPermissionMode) &&
       liveModes.includes(input.nextPermissionMode)
+      ? "applies_now"
+      : APPLIES_TO_NEXT_WAKE;
+  }
+  // Grok Build cannot switch a running session natively. Its adapter honors a
+  // switch to Bypass permissions by answering later requests with Grok's own
+  // one-time allow; every other change waits for the next Wake.
+  if (input.field === "permission_mode" && parsedRef.id === "grok-build") {
+    return input.nextPermissionMode === "grok-build:bypassPermissions"
       ? "applies_now"
       : APPLIES_TO_NEXT_WAKE;
   }

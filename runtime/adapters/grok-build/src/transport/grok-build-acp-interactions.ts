@@ -9,6 +9,44 @@ type GrokPermissionOption = {
   optionId: string;
 };
 
+/**
+ * Grok Build offers "don't ask again" choices over ACP but does not remember
+ * them: the next matching request asks again. OpenMeld keeps the owner's
+ * choice for the Grok conversation and answers later matching requests with
+ * the same kind of option Grok offers, so the choice means what it says.
+ */
+export type GrokBuildPermissionMemory = {
+  allowedToolKinds: Set<string>;
+  deniedCommands: Set<string>;
+};
+
+export function createGrokBuildPermissionMemory(): GrokBuildPermissionMemory {
+  return { allowedToolKinds: new Set(), deniedCommands: new Set() };
+}
+
+const MAX_REMEMBERED_GROK_CONVERSATIONS = 256;
+
+/** Holds owner choices for the most recently used Grok conversations. */
+export class GrokBuildPermissionMemoryStore {
+  readonly #memoryBySessionId = new Map<string, GrokBuildPermissionMemory>();
+
+  forSession(sessionId: string): GrokBuildPermissionMemory {
+    const memory =
+      this.#memoryBySessionId.get(sessionId) ??
+      createGrokBuildPermissionMemory();
+    // Re-insert so Map order tracks recency.
+    this.#memoryBySessionId.delete(sessionId);
+    this.#memoryBySessionId.set(sessionId, memory);
+    for (const staleSessionId of this.#memoryBySessionId.keys()) {
+      if (this.#memoryBySessionId.size <= MAX_REMEMBERED_GROK_CONVERSATIONS) {
+        break;
+      }
+      this.#memoryBySessionId.delete(staleSessionId);
+    }
+    return memory;
+  }
+}
+
 type GrokInteractionResult =
   | { handled: false }
   | { handled: true; result: Record<string, unknown> };
@@ -26,6 +64,7 @@ export async function resolveGrokBuildAcpInteraction(input: {
   method: string;
   onInteractionRequest: AdapterInteractionCallback;
   params: unknown;
+  permissionMemory: GrokBuildPermissionMemory;
 }): Promise<GrokInteractionResult> {
   if (input.method === "session/request_permission") {
     return {
@@ -78,12 +117,41 @@ export function readGrokBuildPermissionOptions(
   });
 }
 
+/**
+ * Grok Build has no ACP surface for changing a running session's permission
+ * mode, so a mid-Wake switch to Bypass permissions is honored here: OpenMeld
+ * answers with Grok's own one-time allow option. It never selects a persistent
+ * "always" rule, and it returns null when Grok offered no one-time allow.
+ */
+export function selectGrokBuildBypassPermissionOutcome(
+  params: unknown
+): Record<string, unknown> | null {
+  const allowOnce = readGrokBuildPermissionOptions(params).find(
+    (option) => mapPermissionIntent(option.kind) === "allow_once"
+  );
+  return allowOnce
+    ? { outcome: { optionId: allowOnce.optionId, outcome: "selected" } }
+    : null;
+}
+
 async function resolvePermissionInteraction(input: {
   onInteractionRequest: AdapterInteractionCallback;
   params: unknown;
+  permissionMemory: GrokBuildPermissionMemory;
 }): Promise<Record<string, unknown>> {
   const params = toRecord(input.params);
   const toolCall = toRecord(params?.toolCall);
+  const toolKind = normalizeText(toolCall?.kind);
+  const commandKey = readPermissionCommandKey(toolCall);
+  const remembered = selectRememberedPermissionOutcome({
+    commandKey,
+    params: input.params,
+    permissionMemory: input.permissionMemory,
+    toolKind,
+  });
+  if (remembered) {
+    return remembered;
+  }
   const options = readGrokBuildPermissionOptions(input.params).flatMap(
     (option) => {
       const intent = mapPermissionIntent(option.kind);
@@ -116,6 +184,17 @@ async function resolvePermissionInteraction(input: {
   const selected = options.find(
     ({ request }) => request.optionId === response.optionId
   );
+  if (selected) {
+    rememberPermissionChoice({
+      commandKey,
+      providerKind:
+        readGrokBuildPermissionOptions(input.params).find(
+          (option) => option.optionId === selected.providerOptionId
+        )?.kind ?? null,
+      permissionMemory: input.permissionMemory,
+      toolKind,
+    });
+  }
   return selected
     ? {
         outcome: {
@@ -124,6 +203,64 @@ async function resolvePermissionInteraction(input: {
         },
       }
     : { outcome: { outcome: "cancelled" } };
+}
+
+function readPermissionCommandKey(
+  toolCall: Record<string, unknown> | null
+): string | null {
+  const rawInput = toRecord(toolCall?.rawInput);
+  return (
+    normalizeText(rawInput?.command) ??
+    normalizeText(toolCall?.command) ??
+    normalizeText(toolCall?.title)
+  );
+}
+
+function selectRememberedPermissionOutcome(input: {
+  commandKey: string | null;
+  params: unknown;
+  permissionMemory: GrokBuildPermissionMemory;
+  toolKind: string | null;
+}): Record<string, unknown> | null {
+  const options = readGrokBuildPermissionOptions(input.params);
+  const pick = (kinds: readonly string[]) => {
+    for (const kind of kinds) {
+      const option = options.find((candidate) => candidate.kind === kind);
+      if (option) {
+        return {
+          outcome: { optionId: option.optionId, outcome: "selected" },
+        };
+      }
+    }
+    return null;
+  };
+  if (
+    input.commandKey &&
+    input.permissionMemory.deniedCommands.has(input.commandKey)
+  ) {
+    return pick(["reject_always", "reject_once"]);
+  }
+  if (
+    input.toolKind &&
+    input.permissionMemory.allowedToolKinds.has(input.toolKind)
+  ) {
+    return pick(["allow_always", "allow_once"]);
+  }
+  return null;
+}
+
+function rememberPermissionChoice(input: {
+  commandKey: string | null;
+  permissionMemory: GrokBuildPermissionMemory;
+  providerKind: string | null;
+  toolKind: string | null;
+}): void {
+  if (input.providerKind === "allow_always" && input.toolKind) {
+    input.permissionMemory.allowedToolKinds.add(input.toolKind);
+  }
+  if (input.providerKind === "reject_always" && input.commandKey) {
+    input.permissionMemory.deniedCommands.add(input.commandKey);
+  }
 }
 
 function buildPermissionSubject(

@@ -77,6 +77,29 @@ async function createFixture() {
         process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...message }) + "\\n");
       }
 
+      // Captured from grok 1.0.52 ACP session/request_permission.
+      const realPermissionOptions = [
+        { kind: "allow_always", name: "Yes, and don't ask again for bash commands", optionId: "allow-always" },
+        { kind: "allow_once", name: "Yes, proceed", optionId: "allow-once" },
+        { kind: "reject_once", name: "No, and tell Grok what to do differently", optionId: "reject-once" },
+        { kind: "reject_always", name: "No, and don't ask again for this command", optionId: "reject-always" }
+      ];
+      let permissionQueue = [];
+
+      function sendNextQueuedPermission() {
+        const command = permissionQueue.shift();
+        reverseRequestId += 1;
+        send({
+          id: reverseRequestId,
+          method: "session/request_permission",
+          params: {
+            options: realPermissionOptions,
+            sessionId,
+            toolCall: { kind: "execute", rawInput: { command }, title: "Execute \`" + command + "\`" }
+          }
+        });
+      }
+
       function finishPrompt() {
         for (const thoughtSession of ["unrelated-session", sessionId]) {
           send({ method: "session/update", params: { sessionId: thoughtSession,
@@ -221,6 +244,11 @@ async function createFixture() {
             });
             return;
           }
+          if (scenario === "permission_sequence") {
+            permissionQueue = JSON.parse(process.env.GROK_TEST_COMMANDS || "[]");
+            sendNextQueuedPermission();
+            return;
+          }
           if (scenario === "permission_missing_session") {
             send({
               id: reverseRequestId,
@@ -280,6 +308,10 @@ async function createFixture() {
           if (pendingCloseId !== null) {
             send({ id: pendingCloseId, result: {} });
             pendingCloseId = null;
+            return;
+          }
+          if (permissionQueue.length > 0) {
+            sendNextQueuedPermission();
             return;
           }
           if (pendingPromptId !== null) {
@@ -990,6 +1022,216 @@ test("Grok Build repair fails instead of replacing a missing canonical conversat
         .filter((message) => message.method)
         .map((message) => message.method),
       ["initialize", "authenticate", "session/resume"]
+    );
+  } finally {
+    await rm(fixture.fixtureDir, { force: true, recursive: true });
+  }
+});
+
+function createFixtureAdapter(fixture) {
+  return createGrokBuildAdapter({
+    grokBuildTimeoutMs: 2000,
+    launchContract: {
+      kind: "node_script",
+      nodePath: process.execPath,
+      scriptPath: fixture.scriptPath,
+    },
+  });
+}
+
+function dispatchPermissionSequence(input) {
+  return input.adapter.dispatch({
+    agentControllerPermissionMode: input.permissionMode ?? "grok-build:default",
+    agentId: "grok-build",
+    env: {
+      GROK_TEST_COMMANDS: JSON.stringify(input.commands),
+      GROK_TEST_SCENARIO: "permission_sequence",
+      GROK_TEST_TRANSCRIPT: input.fixture.transcriptPath,
+    },
+    onInteractionRequest: input.onInteractionRequest,
+    prompt: "Run the commands",
+    runtimeContext: {
+      providerRuntimeWorkingDirectory: input.fixture.fixtureDir,
+    },
+    sourceEventId: `source-${input.taskId}`,
+    spaceId: "space-grok-permissions",
+    taskId: input.taskId,
+    transportMode: "acp",
+  });
+}
+
+async function readPermissionResponses(path) {
+  return (await readTranscript(path))
+    .filter((message) => message.reverseResponse)
+    .map((message) => message.reverseResponse.result.outcome);
+}
+
+test("Grok Build keeps an owner's don't-ask-again choice for later bash commands", async () => {
+  const fixture = await createFixture();
+  try {
+    const adapter = createFixtureAdapter(fixture);
+    const asked = [];
+    const result = await dispatchPermissionSequence({
+      adapter,
+      commands: ["git show HEAD:README.md", "git show HEAD:LICENSE"],
+      fixture,
+      onInteractionRequest: (request) => {
+        asked.push(request.subject.command);
+        return { kind: "permission", optionId: "allow-always" };
+      },
+      taskId: "task-grok-allow-always",
+    });
+
+    assert.equal(result.status, "success");
+    assert.deepEqual(asked, ["git show HEAD:README.md"]);
+    assert.deepEqual(await readPermissionResponses(fixture.transcriptPath), [
+      { optionId: "allow-always", outcome: "selected" },
+      { optionId: "allow-always", outcome: "selected" },
+    ]);
+
+    // The choice belongs to the Grok conversation, so the next Wake on the
+    // same conversation does not ask again either.
+    const nextResult = await dispatchPermissionSequence({
+      adapter,
+      commands: ["git log -1"],
+      fixture,
+      onInteractionRequest: (request) => {
+        asked.push(request.subject.command);
+        return { kind: "permission", optionId: "allow-once" };
+      },
+      taskId: "task-grok-allow-always-next",
+    });
+    assert.equal(nextResult.status, "success");
+    assert.deepEqual(asked, ["git show HEAD:README.md"]);
+  } finally {
+    await rm(fixture.fixtureDir, { force: true, recursive: true });
+  }
+});
+
+test("Grok Build keeps a one-time allow and a per-command denial to their own scope", async () => {
+  const fixture = await createFixture();
+  try {
+    const adapter = createFixtureAdapter(fixture);
+    const asked = [];
+    const answers = ["reject-always", "allow-once", "allow-once"];
+    const result = await dispatchPermissionSequence({
+      adapter,
+      commands: ["rm -rf build", "rm -rf build", "ls", "pwd"],
+      fixture,
+      onInteractionRequest: (request) => {
+        asked.push(request.subject.command);
+        return { kind: "permission", optionId: answers.shift() };
+      },
+      taskId: "task-grok-scoped-choices",
+    });
+
+    assert.equal(result.status, "success");
+    assert.deepEqual(asked, ["rm -rf build", "ls", "pwd"]);
+    assert.deepEqual(await readPermissionResponses(fixture.transcriptPath), [
+      { optionId: "reject-always", outcome: "selected" },
+      { optionId: "reject-always", outcome: "selected" },
+      { optionId: "allow-once", outcome: "selected" },
+      { optionId: "allow-once", outcome: "selected" },
+    ]);
+  } finally {
+    await rm(fixture.fixtureDir, { force: true, recursive: true });
+  }
+});
+
+test("Grok Build applies a switch to Bypass permissions to later requests in the running Wake", async () => {
+  const fixture = await createFixture();
+  try {
+    const adapter = createFixtureAdapter(fixture);
+    const asked = [];
+    let updateResult = null;
+    const result = await dispatchPermissionSequence({
+      adapter,
+      commands: ["git status", "git diff", "npm test"],
+      fixture,
+      onInteractionRequest: async (request) => {
+        asked.push(request.subject.command);
+        updateResult = await adapter.updatePermissionMode({
+          agentControllerPermissionMode: "grok-build:bypassPermissions",
+          taskId: "task-grok-live-bypass",
+        });
+        return { kind: "permission", optionId: "allow-once" };
+      },
+      taskId: "task-grok-live-bypass",
+    });
+
+    assert.equal(result.status, "success");
+    assert.deepEqual(updateResult, {
+      effectiveFrom: "subsequent_tool_requests",
+      status: "applied",
+      taskId: "task-grok-live-bypass",
+    });
+    // The waiting request keeps the owner's own answer; later ones are
+    // answered with Grok's one-time allow, never a persistent rule.
+    assert.deepEqual(asked, ["git status"]);
+    assert.deepEqual(await readPermissionResponses(fixture.transcriptPath), [
+      { optionId: "allow-once", outcome: "selected" },
+      { optionId: "allow-once", outcome: "selected" },
+      { optionId: "allow-once", outcome: "selected" },
+    ]);
+  } finally {
+    await rm(fixture.fixtureDir, { force: true, recursive: true });
+  }
+});
+
+test("Grok Build reports live permission changes it cannot honor as not applied", async () => {
+  const fixture = await createFixture();
+  try {
+    const adapter = createFixtureAdapter(fixture);
+    const updates = [];
+    const asked = [];
+    const result = await dispatchPermissionSequence({
+      adapter,
+      commands: ["git status", "git diff"],
+      fixture,
+      onInteractionRequest: async (request) => {
+        asked.push(request.subject.command);
+        if (asked.length === 1) {
+          for (const agentControllerPermissionMode of [
+            "grok-build:acceptEdits",
+            "cursor:default",
+            "grok-build:bypassPermissions",
+            "grok-build:default",
+          ]) {
+            updates.push(
+              await adapter.updatePermissionMode({
+                agentControllerPermissionMode,
+                taskId: "task-grok-live-limits",
+              })
+            );
+          }
+        }
+        return { kind: "permission", optionId: "allow-once" };
+      },
+      taskId: "task-grok-live-limits",
+    });
+
+    assert.equal(result.status, "success");
+    assert.deepEqual(
+      updates.map((update) => update.reasonCode ?? update.status),
+      [
+        "adapter.permission_mode_update_unsupported",
+        "adapter.permission_mode_incompatible",
+        "applied",
+        "applied",
+      ]
+    );
+    // Returning to the launch mode restores Grok's own prompts.
+    assert.deepEqual(asked, ["git status", "git diff"]);
+    assert.deepEqual(
+      await adapter.updatePermissionMode({
+        agentControllerPermissionMode: "grok-build:bypassPermissions",
+        taskId: "task-grok-live-limits",
+      }),
+      {
+        reasonCode: "adapter.task_not_active",
+        status: "not_applied",
+        taskId: "task-grok-live-limits",
+      }
     );
   } finally {
     await rm(fixture.fixtureDir, { force: true, recursive: true });

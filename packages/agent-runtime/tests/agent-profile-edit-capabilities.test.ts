@@ -343,7 +343,7 @@ describe("resolveAgentProfileEditApplicationTiming", () => {
     ).toBe("applies_next_wake");
   });
   it("keeps the provider timing matrix explicit and versioned", () => {
-    expect(AGENT_PROFILE_EDIT_APPLICATION_CAPABILITY_MATRIX_VERSION).toBe(2);
+    expect(AGENT_PROFILE_EDIT_APPLICATION_CAPABILITY_MATRIX_VERSION).toBe(3);
     expect(
       resolveAgentProfileEditApplicationTiming({
         agentControllerRef: "builtin:claude-code",
@@ -362,6 +362,25 @@ describe("resolveAgentProfileEditApplicationTiming", () => {
       resolveAgentProfileEditApplicationTiming({
         agentControllerRef: "builtin:codex",
         field: "permission_mode",
+      })
+    ).toBe("applies_next_wake");
+  });
+
+  it("applies only a Grok Build switch to Bypass permissions in the running Wake", () => {
+    expect(
+      resolveAgentProfileEditApplicationTiming({
+        agentControllerRef: "builtin:grok-build",
+        field: "permission_mode",
+        currentPermissionMode: "grok-build:default",
+        nextPermissionMode: "grok-build:bypassPermissions",
+      })
+    ).toBe("applies_now");
+    expect(
+      resolveAgentProfileEditApplicationTiming({
+        agentControllerRef: "builtin:grok-build",
+        field: "permission_mode",
+        currentPermissionMode: "grok-build:default",
+        nextPermissionMode: "grok-build:acceptEdits",
       })
     ).toBe("applies_next_wake");
   });
