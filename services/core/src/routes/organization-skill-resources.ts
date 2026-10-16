@@ -13,7 +13,9 @@ export function registerOrganizationSkillResourceRoutes(
   app.get(RESOURCE_ROUTE, (c) => readResource(c));
 }
 
-async function readResource(c: Context<HonoBindings>): Promise<Response> {
+async function readResource(
+  c: Context<HonoBindings, typeof RESOURCE_ROUTE>
+): Promise<Response> {
   const path = organizationSkillResourceMetadataSchema.shape.path.safeParse(
     c.req.query("path")
   );

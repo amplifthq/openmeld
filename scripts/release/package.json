@@ -7,6 +7,6 @@
     "@openmeld/schemas": "workspace:*",
     "typescript": "^5.9.3",
     "wrangler": "catalog:",
-    "yaml": "2.8.2"
+    "yaml": "2.9.1"
   }
 }
