@@ -13,6 +13,7 @@ describe("unsupported Node startup", () => {
   });
   it.each([
     "20.19.2",
+    "23.11.1",
     "26.0.0",
   ])("returns a valid error envelope before command loading on Node %s", async (node) => {
     const stdout = vi.fn();

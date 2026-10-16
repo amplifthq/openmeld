@@ -57,7 +57,7 @@ it("distinguishes macOS standalone setup from manual npm prerequisites", () => {
 	);
 	expect(setup?.textContent).toContain("no Node.js upgrade is needed.");
 	expect(setup?.textContent).toContain(
-		"For Windows or a manual npm installation, use Node.js 22–25."
+		"For Windows or a manual npm installation, use Node.js 22, 24, or 25."
 	);
 	expect(setup?.querySelector("code")?.textContent).toBe(
 		"npm install -g openmeld@latest\nopenmeld setup"

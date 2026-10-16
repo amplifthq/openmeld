@@ -97,7 +97,6 @@ describe("cli commands", () => {
 
   it.each([
     "v22.0.0",
-    "v23.0.0",
     "v24.14.0",
     "v25.0.0",
   ])("installCli installs the npm CLI on %s", async (version) => {
@@ -124,6 +123,7 @@ describe("cli commands", () => {
   it.each([
     "v20.19.2",
     "v21.7.0",
+    "v23.11.1",
     "v26.0.0",
     "unreadable",
   ])("installCli rejects %s before npm", async (version) => {

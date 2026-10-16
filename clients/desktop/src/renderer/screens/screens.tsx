@@ -790,7 +790,7 @@ function resolveCliSetupIssue(
       action: "open_node_download",
       actionLabel: "Install Node.js 24",
       description:
-        "OpenMeld CLI requires Node.js 22–25. Install Node.js 24, return to OpenMeld, then choose Try again.",
+        "OpenMeld CLI requires Node.js 22, 24, or 25. Install Node.js 24, return to OpenMeld, then choose Try again.",
       title: "This Node.js version is not supported.",
     };
   }

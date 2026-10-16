@@ -1755,6 +1755,7 @@ describe("setup-bootstrap-script", () => {
 		19,
 		20,
 		21,
+		23,
 		26,
 		"unreadable",
 	])("rejects Node major %s before npm acquisition in the generated shell", (major) => {
@@ -1786,7 +1787,7 @@ describe("setup-bootstrap-script", () => {
 				}
 			);
 			expect(result.status).toBe(1);
-			expect(result.stdout).toContain(">=22 <26");
+			expect(result.stdout).toContain("22.x || 24.x || 25.x");
 			expect(result.stdout).toContain("Node.js 24 (recommended)");
 			expect(existsSync(callsPath)).toBe(false);
 		} finally {

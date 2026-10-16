@@ -139,7 +139,7 @@ describe.skipIf(process.platform !== "win32")(
 		});
 
 		it.each([
-			22, 23, 24, 25,
+			22, 24, 25,
 		])("admits supported Node major %s and does not mistake stderr warnings for failure", (major) => {
 			const result = runBootstrap(major);
 			expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
@@ -150,11 +150,11 @@ describe.skipIf(process.platform !== "win32")(
 		});
 
 		it.each([
-			19, 20, 21, 26,
+			19, 20, 21, 23, 26,
 		])("rejects unsupported Node major %s before invoking npm", (major) => {
 			const result = runBootstrap(major);
 			expect(result.status).toBe(1);
-			expect(result.stdout).toContain(">=22 <26");
+			expect(result.stdout).toContain("22.x || 24.x || 25.x");
 			expect(result.stdout).toContain("Node.js 24 (recommended)");
 			expect(result.calls.every((call) => call.kind === "node")).toBe(true);
 		});

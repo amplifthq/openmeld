@@ -741,7 +741,7 @@ describe("App", () => {
   ])("offers a persistent Node 24 recovery for %s", async (code) => {
     const openNodeDownloadPage = vi.fn(() => Promise.resolve());
     const message =
-      "OpenMeld requires Node.js >=22 <26; found v20.19.2. Install Node.js 24 (recommended) from https://nodejs.org, then run this command again.";
+      "OpenMeld requires Node.js 22.x || 24.x || 25.x; found v20.19.2. Install Node.js 24 (recommended) from https://nodejs.org, then run this command again.";
     render(
       <App
         bridge={makeBridge({
@@ -764,7 +764,7 @@ describe("App", () => {
       />
     );
     const guidance =
-      "OpenMeld CLI requires Node.js 22–25. Install Node.js 24, return to OpenMeld, then choose Try again.";
+      "OpenMeld CLI requires Node.js 22, 24, or 25. Install Node.js 24, return to OpenMeld, then choose Try again.";
     expect(await screen.findByText(guidance)).toBeTruthy();
     expect(screen.queryByText(message)).toBeNull();
     fireEvent.click(screen.getByText("Try again"));

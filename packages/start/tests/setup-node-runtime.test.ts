@@ -10,7 +10,6 @@ describe("npm CLI Node runtime policy", () => {
     "22.0.0",
     "v22.0.0",
     "v24.0.0",
-    "23.0.0",
     "24.0.0",
     "25.0.0",
   ])("accepts supported Node %s", (version) =>
@@ -21,11 +20,12 @@ describe("npm CLI Node runtime policy", () => {
     "20.19.2",
     "v20.19.2",
     "21.7.0",
+    "23.11.1",
     "26.0.0",
     "unknown",
   ])("gives an upgrade instruction for Node %s", (version) => {
     const message = unsupportedNodeRuntimeMessage(version);
-    expect(message).toContain(">=22 <26");
+    expect(message).toContain("22.x || 24.x || 25.x");
     expect(message).toContain(version);
     expect(message).toContain("Install Node.js 24 (recommended)");
   });

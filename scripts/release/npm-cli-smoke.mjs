@@ -51,7 +51,9 @@ if (mode === "pack") {
     );
     if (
       result.status !== 1 ||
-      !result.stderr?.includes("OpenMeld requires Node.js >=22 <26;") ||
+      !result.stderr?.includes(
+        "OpenMeld requires Node.js 22.x || 24.x || 25.x;"
+      ) ||
       !result.stderr.includes("Install Node.js 24 (recommended)")
     ) {
       throw new Error(
