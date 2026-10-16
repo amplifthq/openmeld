@@ -1632,6 +1632,18 @@ Commands require a stable invocationId and key; poll the same invocation to read
   });
 
 computerCmd
+  .command("wait-for-update")
+  .description(
+    "Wait for the existing Service update before requesting a new computer connection. Use --view agent."
+  )
+  .action(async () => {
+    const { runComputerUpdateWait } = await import(
+      "./commands/computer-update-wait"
+    );
+    await runComputerUpdateWait();
+  });
+
+computerCmd
   .command("disconnect")
   .description(
     "Disconnect this computer from its reviewed account without forgetting its record."
@@ -5989,6 +6001,19 @@ async function main() {
     return;
   }
   const argv = process.argv.map((arg) => (arg === "--h" ? "--help" : arg));
+  if (
+    argv.length === 6 &&
+    argv[2] === "computer" &&
+    argv[3] === "wait-for-update" &&
+    argv[4] === "--view" &&
+    argv[5] === "agent"
+  ) {
+    const { runComputerUpdateWait } = await import(
+      "./commands/computer-update-wait"
+    );
+    await runComputerUpdateWait();
+    return;
+  }
   if (
     (argv.length === 5 ||
       (argv.length === 6 && argv[5] === "--include-stopped")) &&

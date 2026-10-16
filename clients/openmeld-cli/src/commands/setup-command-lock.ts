@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import process from "node:process";
 import {
   acquireLock,
@@ -26,14 +27,24 @@ import { errLine, outJsonLine, outLine } from "../ui/io";
 export const SETUP_COMMAND_LOCK_PROFILE = "setup";
 export const SETUP_COMMAND_LOCK_KEY = "setup-command";
 
-// Hard ceiling for a single `openmeld setup` invocation. Step-level waits inside the
+// Watchdog for a single `openmeld setup` invocation. Step-level waits inside the
 // prepare-session executor (terminal step writes, stream settle, and the
 // service gate) block on the WebSocket staying open; if Core/Web never sends a
 // matching snapshot the executor pass can hang indefinitely while the outer
 // reconnect loop never trips (it only reacts to socket close). This deadline is
 // the coarse global backstop: on expiry setup fails cleanly, releases the lock,
 // and exits so a stuck setup can never hold the single-instance lock forever.
+// Fresh Service evidence of accepted work renews it: draining healthy tasks is
+// intentional waiting, not a stuck setup. Missing evidence never renews it.
 export const SETUP_GLOBAL_DEADLINE_MS = 15 * 60 * 1000;
+
+const setupDeadline = new AsyncLocalStorage<{ renew(): void }>();
+
+// Only a fresh Service-owned observation of accepted work may renew this
+// watchdog. A pending update file or failed health read is not that evidence.
+export function reportSetupCurrentWorkWait(): void {
+  setupDeadline.getStore()?.renew();
+}
 
 // A deliberate new Web-issued setup command may ask a still-running holder to
 // stand down. This is the bounded window we wait for the lock to free before
@@ -100,7 +111,7 @@ export async function withSetupCommandLock<T>(input: {
   try {
     return await runWithHeldLock({
       lock,
-      run: input.run,
+      run: () => setupDeadline.run(deadline, input.run),
       releaseContext: {
         openMeldProfileId: SETUP_COMMAND_LOCK_PROFILE,
         component: "setup_command",
@@ -250,11 +261,11 @@ export function createSetupGlobalDeadline(input: {
   clock?: DeadlineClock;
   deadlineMs?: number;
   onExpire: () => void;
-}): { arm(): void; disarm(): void } {
+}): { arm(): void; disarm(): void; renew(): void } {
   const clock = input.clock ?? realDeadlineClock;
   const deadlineMs = input.deadlineMs ?? SETUP_GLOBAL_DEADLINE_MS;
   let handle: DeadlineTimerHandle | null = null;
-  return {
+  const deadline = {
     arm() {
       if (handle !== null) {
         return;
@@ -271,7 +282,12 @@ export function createSetupGlobalDeadline(input: {
       clock.clearTimer(handle);
       handle = null;
     },
+    renew() {
+      deadline.disarm();
+      deadline.arm();
+    },
   };
+  return deadline;
 }
 
 export function handleSetupGlobalDeadlineExpiry(input: {
@@ -285,7 +301,7 @@ export function handleSetupGlobalDeadlineExpiry(input: {
 }): void {
   const deadlineMs = input.deadlineMs ?? SETUP_GLOBAL_DEADLINE_MS;
   const minutes = Math.max(1, Math.round(deadlineMs / 60_000));
-  const message = `OpenMeld setup did not finish within ${minutes} minutes on this computer and was stopped. This computer's setup lock has been released. Return to OpenMeld Web to see the current connection state and recovery action.`;
+  const message = `OpenMeld setup could not confirm progress or current tasks for ${minutes} minutes and was stopped. This computer's setup lock has been released. Check the computer connection and try again.`;
 
   // Release the lock file before exiting: the run promise stays pending (it is
   // hung), so runWithHeldLock's cleanup never runs. Releasing here is what

@@ -20,6 +20,7 @@ import { OPENMELD_VERSION } from "../runtime/version";
 import { runDaemonServiceParticipationGate } from "../system/local-service-participation-gate";
 import { revokePreparedAuthSession } from "./computer-auth-session";
 import { bestEffortStopCurrentLaneDaemonService } from "./service";
+import { createSetupUpdateObserver } from "./setup-update-progress";
 
 const UNUSED_SETUP_SESSION_CLEANUP_SUFFIX =
   " OpenMeld also could not revoke the unused setup session.";
@@ -270,17 +271,8 @@ export async function waitForOpenMeldToolsUpdateBeforeComputerHandoff(input: {
   await waitForExternalOpenMeldToolsUpdate({
     currentOperationId: currentUpdate?.operationId,
     unclaimedTimeoutMs: 60_000,
-    onWaiting: (operation) => {
-      input.presenter.line({
-        code: "setup.openmeld_tools_update.waiting",
-        text: "OpenMeld is finishing an update already in progress. Setup will continue automatically when the update finishes.",
-        data: {
-          operationId: operation.operationId,
-          phase: operation.phase,
-          targetVersion: operation.targetVersion,
-        },
-      });
-    },
+    pollIntervalMs: 2000,
+    onObservation: createSetupUpdateObserver(input.presenter),
   });
 }
 

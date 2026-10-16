@@ -376,6 +376,28 @@ describe("buildSetupLockContentionError", () => {
 });
 
 describe("createSetupGlobalDeadline", () => {
+  it("allows fresh accepted work beyond the deadline, then expires if evidence stops", async () => {
+    vi.useFakeTimers();
+    const onExpire = vi.fn();
+    const deadline = createSetupGlobalDeadline({
+      deadlineMs: 15 * 60_000,
+      onExpire,
+    });
+    try {
+      deadline.arm();
+      for (let elapsed = 0; elapsed < 60; elapsed += 1) {
+        await vi.advanceTimersByTimeAsync(60_000);
+        deadline.renew();
+      }
+      expect(onExpire).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(15 * 60_000);
+      expect(onExpire).toHaveBeenCalledOnce();
+    } finally {
+      deadline.disarm();
+      vi.useRealTimers();
+    }
+  });
+
   function fakeClock() {
     let scheduled: (() => void) | null = null;
     const clearTimer = vi.fn();
