@@ -56,7 +56,9 @@ export function registerFileRootContentRoutes(app: Hono<HonoBindings>): void {
   app.on("HEAD", CONTENT_ROUTE, (c) => read(c));
 }
 
-async function copyToSpace(c: Context<HonoBindings>): Promise<Response> {
+async function copyToSpace(
+  c: Context<HonoBindings, "/v1/spaces/:spaceId/files/copies">
+): Promise<Response> {
   const body = copyFileRootToSpaceBodySchema.safeParse(
     await c.req.json().catch(() => null)
   );
@@ -380,7 +382,12 @@ async function openCopySource(
   };
 }
 
-async function multipartUpload(c: Context<HonoBindings>): Promise<Response> {
+async function multipartUpload(
+  c: Context<
+    HonoBindings,
+    "/v1/organizations/current/files/:location/file-uploads/:uploadId"
+  >
+): Promise<Response> {
   const target = resolveTarget(c);
   if (target instanceof Response) {
     return target;
@@ -474,7 +481,9 @@ async function upload(c: Context<HonoBindings>): Promise<Response> {
   }
 }
 
-async function update(c: Context<HonoBindings>): Promise<Response> {
+async function update(
+  c: Context<HonoBindings, typeof CONTENT_ROUTE>
+): Promise<Response> {
   const target = resolveTarget(c);
   if (target instanceof Response) {
     return target;
@@ -633,7 +642,12 @@ function responseLength(input: {
   return input.sizeBytes;
 }
 
-async function read(c: Context<HonoBindings>): Promise<Response> {
+async function read(
+  c: Context<
+    HonoBindings,
+    "/v1/organizations/current/files/:location/:entryId/content"
+  >
+): Promise<Response> {
   const target = resolveTarget(c);
   if (target instanceof Response) {
     return target;
