@@ -31,7 +31,9 @@ export const CATALOG_SYNC_RETRY_INTERVAL_MS = 5000;
 export const CATALOG_SYNC_SIGNAL_POLL_INTERVAL_MS = 1000;
 export const ROUTE_CATALOG_LOAD_TIMEOUT_MS = 15_000;
 export const RUNTIME_AGENT_CONTROLLER_REPORT_SYNC_INTERVAL_MS = 60_000;
-export const RUNTIME_AGENT_CONTROLLER_REPORT_SYNC_RETRY_INTERVAL_MS = 60_000;
+// Retry publication before the two-minute authentication observation expires.
+// Healthy controllers reuse their snapshot; failed checks keep their own policy.
+export const RUNTIME_AGENT_CONTROLLER_REPORT_SYNC_RETRY_INTERVAL_MS = 5000;
 export const PROVIDER_CONVERSATION_PROOF_SYNC_INTERVAL_MS = 5 * 60_000;
 export const PROVIDER_CONVERSATION_PROOF_SYNC_RETRY_INTERVAL_MS = 60_000;
 export const RUNTIME_STATE_PERSIST_MIN_INTERVAL_MS = 60_000;
