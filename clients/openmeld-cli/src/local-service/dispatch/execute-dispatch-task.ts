@@ -255,10 +255,12 @@ import {
   sendDispatchPreviewFrame,
   sendDispatchProgressFrame,
   sendDispatchReasoningFrame,
+  sendDispatchReplyFrame,
   sendDispatchRuntimeEvidenceFrame,
   sendDispatchToolActivityFrame,
 } from "./send-dispatch-result";
 import { resolveDispatchSendTargetReference } from "./send-target-reference";
+import { watchSpaceActionReply } from "./space-action-reply-stream";
 
 export const markBootstrapInjectedContext =
   markBootstrapInjectedContextInternal;
@@ -1037,6 +1039,7 @@ export async function handleDispatchDeliverFrame(input: {
   });
   const runtimeStartedAtMs = Date.now();
   let agentToolActivitySequence = 0;
+  let stopSpaceActionReplyStream: (() => void) | undefined;
   const reportPublicProgress = createDispatchPublicProgressReporter({
     publish: (progressSnapshot) => {
       const socket = currentSocketRef.socket;
@@ -1319,6 +1322,43 @@ export async function handleDispatchDeliverFrame(input: {
     });
     dispatchSpaceActionContext =
       spaceActionRuntimeContext.dispatchSpaceActionContext;
+    stopSpaceActionReplyStream = watchSpaceActionReply({
+      context: dispatchSpaceActionContext,
+      connection: () => currentSocketRef.socket,
+      publish: (textSnapshot, placement) => {
+        const socket = currentSocketRef.socket;
+        if (!socket || (socket.bufferedAmount ?? 0) > 64 * 1024) {
+          return false;
+        }
+        sendDispatchReplyFrame({
+          socket,
+          textSnapshot,
+          ...(placement ? { placement } : {}),
+          observedAtMs: Date.now(),
+          sequence: ++agentToolActivitySequence,
+          attemptId: parsedTask.attemptId,
+          dispatchId: parsedTask.dispatchId,
+          daemonSessionId: input.daemonSessionId,
+          connectionGeneration: resolveCurrentConnectionGeneration({
+            currentSocketRef,
+            fallbackConnectionGeneration:
+              input.deliverRequest.connectionGeneration,
+          }),
+          executionIdentityEcho: toRuntimeTransportRuntimeEvidenceIdentityEcho(
+            input.deliverRequest
+          ),
+          executionTokenEcho: parsedTask.executionTokenEcho,
+          leaseEpoch: input.deliverRequest.leaseEpoch,
+          runtimeCoordinatorExecutionId:
+            parsedTask.runtimeCoordinatorExecutionId,
+          sourceSignalId: parsedTask.sourceEventId,
+          spaceId: parsedTask.spaceId,
+          targetProfileId: parsedTask.targetProfileId,
+          taskId: parsedTask.taskId,
+        });
+        return true;
+      },
+    });
     runtimeEnvOverrides = spaceActionRuntimeContext.runtimeEnvOverrides;
     runtimeOpenClawGatewayVisibility =
       runtimePreparation.runtimeOpenClawGatewayVisibility;
@@ -2331,6 +2371,7 @@ export async function handleDispatchDeliverFrame(input: {
       },
     });
   } finally {
+    stopSpaceActionReplyStream?.();
     await nativeQuiescence;
     await releaseDispatchTaskWorkspace({
       workspaceUse,

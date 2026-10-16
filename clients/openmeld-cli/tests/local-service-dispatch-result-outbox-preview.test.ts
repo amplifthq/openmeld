@@ -1788,7 +1788,7 @@ describe("dispatch result outbox around preview teardown", () => {
     });
   });
 
-  it("retains a legacy CLI proposal and carrier ownership until the native turn completes", async () => {
+  it("streams a durable CLI reply before native completion without settling the execution", async () => {
     await withTempHome(async () => {
       const ledgerPaths = createLedgerPaths();
       let proposalObserved: () => void = () => undefined;
@@ -1881,6 +1881,22 @@ describe("dispatch result outbox around preview teardown", () => {
       });
       try {
         await proposal;
+        await vi.waitFor(() => {
+          const replies = settlementSocket.send.mock.calls
+            .map(([raw]) => JSON.parse(String(raw)))
+            .filter((frame) => frame.code === "daemon.dispatch.reply");
+          expect(replies).toHaveLength(1);
+          expect(replies[0].payload).toMatchObject({
+            textSnapshot: "CLI action should finalize this Wake.",
+            dispatchId: "dispatch-1",
+          });
+        });
+        expect(nativeTurnCompleted).toBe(false);
+        expect(
+          settlementSocket.send.mock.calls
+            .map(([raw]) => JSON.parse(String(raw)))
+            .some((frame) => frame.code === "daemon.dispatch.result")
+        ).toBe(false);
         expect(carrierReleased).toBe(false);
         expect(currentSocketRef.reasoningPreferenceListeners?.size).toBe(1);
       } finally {

@@ -28,7 +28,10 @@ import {
   agentInteractionRequestSchema,
   agentInteractionResponseSchema,
 } from "../protocol/agent-interaction";
-import { agentStreamToolPartSchema } from "../protocol/agent-stream";
+import {
+  AGENT_STREAM_SNAPSHOT_MAX_CHARS,
+  agentStreamToolPartSchema,
+} from "../protocol/agent-stream";
 import { clientMessageIdSchema } from "../protocol/client-message-id";
 import {
   MAX_PROFILE_NAME_LENGTH,
@@ -2188,6 +2191,14 @@ export const runtimeTransportDispatchProgressRequestSchema =
         .max(32 * 1024),
     });
 
+export const runtimeTransportDispatchReplyRequestSchema =
+  runtimeTransportDispatchToolActivityRequestSchema
+    .omit({ part: true })
+    .extend({
+      placement: z.enum(["conversation", "thread"]).optional(),
+      textSnapshot: z.string().min(1).max(AGENT_STREAM_SNAPSHOT_MAX_CHARS),
+    });
+
 export const runtimeTransportDispatchInteractionRequestSchema = z.strictObject({
   v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
   runtimeCoordinatorExecutionId:
@@ -2393,6 +2404,7 @@ export const daemonStreamCodeSchema = z.enum([
   "daemon.dispatch.tool_activity",
   "daemon.dispatch.reasoning",
   "daemon.dispatch.progress",
+  "daemon.dispatch.reply",
   "daemon.reasoning.preferences",
   "daemon.dispatch.interaction_request",
   "daemon.dispatch.interaction_response",

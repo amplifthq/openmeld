@@ -939,6 +939,7 @@ const createHarness = async (input?: {
       })
     ),
     rpcCloseAgentStream: vi.fn(() => Promise.resolve(null)),
+    rpcResolveNativeReplyPlacement: vi.fn(() => Promise.resolve(null)),
     rpcApplyRuntimeCoordinatorFailurePublicationCommand: vi.fn(
       (
         command: RuntimeCoordinatorFailurePublicationCommand
@@ -17129,6 +17130,82 @@ describe("runtime transport runtime coordinator transport contract", () => {
       triggerMessageId: "signal-1",
     });
     expect(spaceStub.rpcCloseAgentStream).not.toHaveBeenCalled();
+    expect(sentFrames).toEqual([]);
+  });
+
+  it("streams saved replies on one authorized attempt without completing the Wake", async () => {
+    const { hub, sentFrames, socket, spaceStub, state } = await createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    const { part: _part, ...identity } = buildToolActivityRequest({
+      executionTokenEcho: buildExecutionTokenEcho(executionToken),
+    });
+    const receiver = hub as unknown as {
+      handleDispatchToolActivityFrame: (
+        socket: WebSocket,
+        payload: unknown,
+        kind: "reply"
+      ) => Promise<void>;
+    };
+    sentFrames.length = 0;
+    await receiver.handleDispatchToolActivityFrame(
+      socket,
+      {
+        ...identity,
+        executionTokenEcho: undefined,
+        textSnapshot: "Rejected reply.",
+      },
+      "reply"
+    );
+    expect(spaceStub.rpcApplyAgentStreamDelta).not.toHaveBeenCalled();
+    expect(spaceStub.rpcResolveNativeReplyPlacement).not.toHaveBeenCalled();
+    expect(sentFrames).toContainEqual(
+      expect.objectContaining({
+        code: "daemon.error",
+        payload: expect.objectContaining({ code: "execution_token_missing" }),
+      })
+    );
+    sentFrames.length = 0;
+    for (const [index, textSnapshot] of [
+      "Saved reply.",
+      "Reviewed reply.",
+    ].entries()) {
+      await receiver.handleDispatchToolActivityFrame(
+        socket,
+        {
+          ...identity,
+          sequence: index + 1,
+          placement: "thread",
+          textSnapshot,
+        },
+        "reply"
+      );
+      expect(spaceStub.rpcApplyAgentStreamDelta).toHaveBeenLastCalledWith({
+        v: 1,
+        dispatchId: "dispatch-1",
+        profileId: TARGET_AGENT_PROFILE_ID,
+        sequence: index + 1,
+        spaceId: HEX_SPACE_ID,
+        streamId: "local-agent:10.dispatch-1:9.attempt-1",
+        triggerMessageId: "signal-1",
+        textSnapshot,
+      });
+    }
+    expect(spaceStub.rpcResolveNativeReplyPlacement).toHaveBeenLastCalledWith({
+      spaceId: HEX_SPACE_ID,
+      dispatchId: "dispatch-1",
+      sourceSignalId: "signal-1",
+      profileId: TARGET_AGENT_PROFILE_ID,
+      defaultToThread: true,
+      lock: false,
+      placement: "thread",
+    });
+    expect(spaceStub.rpcCloseAgentStream).not.toHaveBeenCalled();
+    expect(state.pendingDispatches.size).toBe(1);
     expect(sentFrames).toEqual([]);
   });
 

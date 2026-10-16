@@ -2084,6 +2084,25 @@ daemon. Neither is a Space publication API. The only publication path for that
 action remains RuntimeCoordinator finalization followed by Agent Transport
 Space Action Delivery.
 
+After that writer persists a public `post_message` action, the local Service
+may send its bounded text through `daemon.dispatch.reply` while the controller
+is still running, including during a Stop hook. Core applies the same current
+execution, token, lease, connection, and Space identity checks as tool activity,
+resolves the requested reply placement, and writes the existing Space text
+snapshot. This is a visible draft, not final publication or execution completion.
+The Service observes the shared record writer, so native tools and CLI actions
+have the same behavior. It retries unsent snapshots and replays on reconnect.
+
+Accepted reconsideration replaces the snapshot on the same attempt stream;
+identical records do not create new messages. The existing one-final-action
+writer contract remains in force. Private controller output after the action
+must never overwrite or append to the public reply. Finalization still owns
+the final Signal, usage, checkpoints, recipient effects, and stream closure.
+Stop and failure retain their existing terminal semantics. The draft is capped
+at 32,768 characters; the final action keeps its original complete content.
+Deploy the Core receiver before the Service sender. Older Services keep the
+existing final-publication path; the new frame does not change that path.
+
 ### Local Agent Work Summary Delivery
 
 A workstation Local Agent may report privacy-bounded tool lifecycle activity
