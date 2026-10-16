@@ -907,7 +907,11 @@ test("requires registry tag digest, settled rollout and complete instance observ
   }
   const reused = {
     ...deduplicated,
-    baseline: { ...baseline, containerVersion: 100 },
+    baseline: {
+      ...baseline,
+      containerVersion: 100,
+      containerImage: target.container.configuration.image,
+    },
     sourceContainer: {
       ...describeRemoteContainerConfiguration(target.container),
       instances: [{ id: "instance-1", version: 100 }],

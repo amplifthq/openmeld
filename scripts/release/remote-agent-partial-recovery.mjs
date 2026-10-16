@@ -311,7 +311,11 @@ export function verifyRecoveredRemoteAgentTarget(input) {
     input.sourceImageDigest &&
     container?.version === baseline.containerVersion
   ) {
-    if (!input.sourceContainer) {
+    if (
+      input.sourceContainer?.id !== baseline.containerId ||
+      input.sourceContainer?.version !== baseline.containerVersion ||
+      input.sourceContainer?.image !== baseline.containerImage
+    ) {
       throw new Error(
         "An unchanged source-built image requires its pre-deploy Container snapshot."
       );
