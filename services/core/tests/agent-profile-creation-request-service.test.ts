@@ -533,7 +533,7 @@ describe("Agent Profile creation request service", () => {
       request: {
         createdAgentProfileId: agentProfileId,
         failureMessage:
-          "OpenMeld lost contact while finishing setup for this Agent. Retry setup to continue safely.",
+          "The Agent was created, but setup is incomplete. It may already be usable. OpenMeld lost contact while finishing setup for this Agent. Retry setup to continue safely.",
         status: "failed",
         statusReason: "profile_created",
       },
@@ -582,7 +582,7 @@ describe("Agent Profile creation request service", () => {
     await expect(retry).resolves.toMatchObject({
       createdAgentProfileId: agentProfileId,
       failureMessage:
-        "OpenMeld lost contact while finishing setup for this Agent. Retry setup to continue safely.",
+        "The Agent was created, but setup is incomplete. It may already be usable. OpenMeld lost contact while finishing setup for this Agent. Retry setup to continue safely.",
       status: "failed",
       statusReason: "profile_created",
     });
@@ -597,6 +597,81 @@ describe("Agent Profile creation request service", () => {
       status: "completed",
     });
     expect(createAgentProfile).toHaveBeenCalledTimes(3);
+  });
+
+  it("reports incomplete setup and retries the committed Profile after an eligibility timeout", async () => {
+    repository.preference = {
+      existingSessionPolicy: "ask_every_time",
+      newSessionPolicy: "automatically_allow",
+    };
+    const agentProfileId = "agt_11111111-1111-4111-8111-111111111111";
+    const reasonCode = "agent_profile.workspace_change_eligibility_unavailable";
+    createAgentProfile.mockRejectedValueOnce(
+      new AgentProfileCreationRequestExecutionError({
+        createdAgentProfileId: agentProfileId,
+        cause: new Error(
+          `HTTP 503: ${JSON.stringify({
+            ok: false,
+            error: {
+              code: reasonCode,
+              message: "Eligibility read unavailable.",
+            },
+          })}`
+        ),
+      })
+    );
+    const service = createService();
+    const { request } = await service.create({
+      actorProfileId: "human-requester",
+      body: requestBody(),
+      organizationId: "org-1",
+      requesterUserId: "user-requester",
+    });
+    expect(request).toMatchObject({
+      createdAgentProfileId: agentProfileId,
+      status: "failed",
+      statusReason: "profile_created",
+    });
+    expect(request.failureMessage).toContain("The Agent was created");
+    expect(request.failureMessage).toContain("may already be usable");
+    expect(request.failureMessage).toContain("working folder");
+    expect(request.failureMessage).not.toContain("provider");
+
+    // Repair the read projection for the historical message captured in #213.
+    await repository.transition({
+      expectedStatuses: ["failed"],
+      expectedUpdatedAtMs: Date.parse(request.updatedAt),
+      requestId: request.id,
+      update: {
+        failureMessage: `The model provider was unreachable. Check provider status or network access, then wake the agent again. Reason: ${reasonCode}.`,
+        updatedAtMs: Date.parse(request.updatedAt) + 1,
+      },
+    });
+    expect(
+      (
+        await service.list({
+          organizationId: "org-1",
+          userId: "user-requester",
+          requestId: request.id,
+        })
+      )[0]?.failureMessage
+    ).toBe(request.failureMessage);
+    await expect(
+      service.retry({
+        organizationId: "org-1",
+        userId: "user-requester",
+        requestId: request.id,
+      })
+    ).resolves.toMatchObject({
+      createdAgentProfileId: agentProfileId,
+      status: "completed",
+      failureMessage: null,
+    });
+    expect(createAgentProfile).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ createdAgentProfileId: agentProfileId }),
+      expect.any(Object)
+    );
   });
 
   it.each([
@@ -644,7 +719,7 @@ describe("Agent Profile creation request service", () => {
 
     expect(result.request).toMatchObject({
       createdAgentProfileId: "agt_11111111-1111-4111-8111-111111111111",
-      failureMessage: publicFailure,
+      failureMessage: `The Agent was created, but setup is incomplete. It may already be usable. ${publicFailure}`,
       status: "failed",
       statusReason: "profile_created",
     });
@@ -669,7 +744,11 @@ describe("Agent Profile creation request service", () => {
         userId: "user-requester",
         requestId: result.request.id,
       })
-    ).toMatchObject([{ failureMessage: publicFailure }]);
+    ).toMatchObject([
+      {
+        failureMessage: `The Agent was created, but setup is incomplete. It may already be usable. ${publicFailure}`,
+      },
+    ]);
     if (failure.startsWith("HTTP ")) {
       // The old writer capped raw diagnostics, which could leave invalid JSON.
       const truncatedFailure = failure
@@ -696,7 +775,7 @@ describe("Agent Profile creation request service", () => {
       ).toMatchObject([
         {
           failureMessage:
-            "OpenMeld couldn't finish Agent setup. Review Agent settings and diagnostics, then retry setup.",
+            "The Agent was created, but setup is incomplete. It may already be usable. OpenMeld couldn't finish Agent setup. Review Agent settings and diagnostics, then retry setup.",
         },
       ]);
     }
@@ -730,7 +809,7 @@ describe("Agent Profile creation request service", () => {
     expect(created.request).toMatchObject({
       createdAgentProfileId: agentProfileId,
       failureMessage:
-        "OpenMeld created the Agent, but couldn't finish setup. Retry setup to continue safely.",
+        "The Agent was created, but setup is incomplete. It may already be usable. OpenMeld couldn't save setup progress. Retry setup to continue safely.",
       status: "failed",
       statusReason: "profile_created",
     });

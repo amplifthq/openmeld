@@ -35,7 +35,7 @@ const PUBLIC_CREATION_FAILURE_COPY = {
   setupContactLost:
     "OpenMeld lost contact while finishing setup for this Agent. Retry setup to continue safely.",
   checkpointAfterIdentity:
-    "OpenMeld created the Agent, but couldn't finish setup. Retry setup to continue safely.",
+    "OpenMeld couldn't save setup progress. Retry setup to continue safely.",
   checkpointBeforeIdentity:
     "OpenMeld couldn't finish creating this Agent. Retry to continue safely.",
   creationFailed: "OpenMeld couldn't finish creating this Agent.",
@@ -933,6 +933,7 @@ function assertSameIntent(
 export function toPublicRequest(
   record: AgentProfileCreationRequestRecord
 ): AgentProfileCreationRequest {
+  const failureMessage = toPublicFailureMessage(record.failureMessage);
   return agentProfileCreationRequestSchema.parse({
     actorProfileId: record.actorProfileId,
     completedAt:
@@ -947,7 +948,10 @@ export function toPublicRequest(
         ? null
         : new Date(record.decidedAtMs).toISOString(),
     id: record.id,
-    failureMessage: toPublicFailureMessage(record.failureMessage),
+    failureMessage:
+      failureMessage && record.createdAgentProfileId
+        ? `The Agent was created, but setup is incomplete. It may already be usable. ${failureMessage}`
+        : failureMessage,
     nativeSessionId: record.nativeSessionId,
     organizationId: record.organizationId,
     profileName: record.profileName,
