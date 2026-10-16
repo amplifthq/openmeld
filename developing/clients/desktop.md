@@ -412,8 +412,10 @@ After review and account-switch approval, main validates the selected Computer
 against authenticated inventory before acquiring the current verified managed
 binary. It joins an existing update with `computer wait-for-update --view agent`
 before creating the short-lived Prepare token and device grant. Older CLIs that
-explicitly reject this command are upgraded through the same verified installer;
-identity and authorization failures never trigger that compatibility branch.
+explicitly reject this command or return the exact parent `computer` help are
+upgraded through the same verified installer. Help can name the lane's absolute
+CLI path. Other unexpected output, identity failures, and authorization failures
+never trigger that compatibility branch.
 Main rechecks native account, local session identity, and selected device/lane
 after waiting. It validates the newly returned Prepare targets before creating
 the grant. It bypasses connection reuse. The CLI owns
