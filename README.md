@@ -62,8 +62,14 @@
 
 > Turn these notes into a three-item agenda: choose a launch date, test signup, and assign the announcement.
 
-Want to use your local agents too? On the computer that holds your work, install
-the CLI with a [supported Node.js version](clients/openmeld-cli/package.json):
+Want to use your local agents too? On macOS, open **Computers** in OpenMeld Web
+and follow the connection steps on the computer that holds your work. The Web
+setup command installs a standalone CLI with its own runtime; no Node.js upgrade
+is needed.
+
+For Windows or a manual npm installation, use Node.js 22, 24, or 25. Node.js 24 is recommended.
+
+npm only warns about unsupported Node.js versions by default. On Node.js 23 or versions below 22, native dependency installation can fail. Select Node.js 24 before installing. Node.js 26 and later are also unsupported.
 
 ```sh
 npm install -g openmeld@latest

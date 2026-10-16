@@ -14,7 +14,7 @@
     "access": "public"
   },
   "engines": {
-    "node": "20.x || >=22 <26"
+    "node": "22.x || 24.x || 25.x"
   },
   "files": [
     "README.md",

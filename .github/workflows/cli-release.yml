@@ -88,12 +88,111 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  cli_release:
-    name: Publish CLI And Release Core
+  npm_artifact:
+    name: Build npm Consumer Artifact
+    outputs:
+      integrity: ${{ steps.pack.outputs.integrity }}
     if: >-
       !cancelled() && !inputs.helper_only && github.ref == 'refs/heads/main' &&
       inputs.windows_artifact_run_id != ''
     needs: windows_process_artifact
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    env:
+      RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-pnpm
+      - name: Reuse stamped Windows helper
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WINDOWS_ARTIFACT_RUN_ID: ${{ inputs.windows_artifact_run_id }}
+        run: node scripts/release/reuse-windows-process-artifact.mjs
+      - name: Build and pack the release source
+        id: pack
+        run: |
+          pnpm run verify:release-ready -- --force
+          node scripts/release/npm-cli-smoke.mjs pack dev-tmp/npm-consumer/openmeld.tgz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-consumer-${{ env.RELEASE_SHA }}
+          path: dev-tmp/npm-consumer/openmeld.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  npm_consumer:
+    name: npm Install / Node ${{ matrix.node }} / ${{ matrix.os }}
+    needs: npm_artifact
+    if: ${{ !cancelled() && needs.npm_artifact.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22.0.0", "24", "25"]
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
+      OPENMELD_NPM_ARTIFACT_INTEGRITY: ${{ needs.npm_artifact.outputs.integrity }}
+      OPENMELD_REQUIRE_VERIFIED_NPM_ARTIFACT: "1"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-consumer-${{ env.RELEASE_SHA }}
+          path: ${{ runner.temp }}/npm-consumer
+      - name: Verify native platform and clean npm installation
+        shell: bash
+        env:
+          OPENMELD_NPM_ARTIFACT_PATH: ${{ runner.temp }}/npm-consumer/openmeld.tgz
+        run: |
+          node -e 'const expected = process.platform === "darwin" ? "arm64" : "x64"; if (process.arch !== expected) throw new Error(`Expected ${expected}, got ${process.arch}`)'
+          node scripts/release/npm-cli-smoke.mjs verify "$RUNNER_TEMP/npm-consumer/openmeld.tgz"
+          node --input-type=module -e 'import { prepareNpmCliArtifact } from "./scripts/release/npm-cli-artifact.mjs"; const artifact = await prepareNpmCliArtifact(); console.log(`Publisher handoff verified: ${artifact.integrity}`); artifact.cleanup();'
+      - name: Select Node 20 for the upgrade-message check
+        if: matrix.node == '22.0.0'
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20.19.2"
+          package-manager-cache: false
+      - name: Reject Node 20 before loading dependencies
+        if: matrix.node == '22.0.0'
+        shell: bash
+        run: |
+          node scripts/release/npm-cli-smoke.mjs reject "$RUNNER_TEMP/npm-consumer/openmeld.tgz"
+      - name: Select Node 23 for the upgrade-message check
+        if: matrix.node == '24'
+        uses: actions/setup-node@v5
+        with:
+          node-version: "23.11.1"
+          package-manager-cache: false
+      - name: Reject Node 23 before loading dependencies
+        if: matrix.node == '24'
+        shell: bash
+        run: |
+          node scripts/release/npm-cli-smoke.mjs reject "$RUNNER_TEMP/npm-consumer/openmeld.tgz"
+
+  cli_release:
+    name: Publish CLI And Release Core
+    if: >-
+      !cancelled() && !inputs.helper_only && github.ref == 'refs/heads/main' &&
+      inputs.windows_artifact_run_id != '' && needs.npm_consumer.result == 'success'
+    needs: [windows_process_artifact, npm_artifact, npm_consumer]
     runs-on: macos-15
     timeout-minutes: 45
     concurrency:
@@ -105,6 +204,7 @@ jobs:
       OPENMELD_PRODUCTION_TRAIN_SCOPES: ${{ inputs.production_train_scopes }}
       RELEASE_PATH: ${{ inputs.release_path }}
       RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
+      OPENMELD_NPM_ARTIFACT_INTEGRITY: ${{ needs.npm_artifact.outputs.integrity }}
     steps:
       - name: Validate immutable release inputs
         shell: bash
@@ -160,6 +260,12 @@ jobs:
         with:
           control_directory: release-control
           working_directory: release-source
+
+      - name: Download the consumer-verified npm package
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-consumer-${{ env.RELEASE_SHA }}
+          path: ${{ runner.temp }}/npm-consumer
 
       - name: Reuse the stamped Windows process helper
         env:
@@ -232,6 +338,7 @@ jobs:
       - name: Publish signed and notarized CLI, binary channel, npm package, tag, and Core
         shell: bash
         env:
+          OPENMELD_NPM_ARTIFACT_PATH: ${{ runner.temp }}/npm-consumer/openmeld.tgz
           APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
           APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
           APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}

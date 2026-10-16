@@ -1,5 +1,11 @@
 # Work on the cloud Computer
 
+In CLI invocation examples, replace only the leading `openmeld` executable with
+the exact command prefix from the latest `setup.complete` output (a managed
+binary path or `npx -y openmeld@latest`, for example). Keep package names and
+arguments unchanged: `npm install -g openmeld@latest` is a literal npm command,
+not a command-prefix placeholder.
+
 A Local Agent uses its already authorized local Project folder or working
 directory for code work by default. Use cloud Computer when the user chooses
 it or a concrete environment or isolation requirement justifies it. Explain

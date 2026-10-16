@@ -54,7 +54,10 @@ export async function runHostedCliRelease(input = {}) {
   if (!EXACT_SHA_PATTERN.test(sourceSha)) {
     throw new Error("Hosted CLI release requires an exact RELEASE_SHA.");
   }
-  const releaseEnvironment = { ...env };
+  const releaseEnvironment = {
+    ...env,
+    OPENMELD_REQUIRE_VERIFIED_NPM_ARTIFACT: "1",
+  };
   Reflect.deleteProperty(
     releaseEnvironment,
     "OPENMELD_TRUSTED_GIT_GITHUB_TOKEN"

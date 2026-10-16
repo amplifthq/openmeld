@@ -12,7 +12,7 @@ const REPO_ROOT = path.resolve(
   ".."
 );
 const CLI_ENTRY_RELATIVE_PATH = "clients/openmeld-cli/dist/openmeld-dev.js";
-const MIN_NODE_MAJOR = 20;
+const MIN_NODE_MAJOR = 22;
 
 export const REQUIRED_FILES = [
   "runtime/local-execution/test/heartbeat-watchdog.low-traffic.test.ts",
