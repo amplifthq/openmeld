@@ -413,6 +413,30 @@ test("pre-upload recovery requires an unchanged pre-attempt deployment and compl
     },
   };
   assert.deepEqual(assessRemoteAgentPartialRecovery(retry), baseline);
+  const interruptedPartial = { ...retry, beforeUpload: false };
+  assert.deepEqual(
+    assessRemoteAgentPartialRecovery(interruptedPartial),
+    baseline
+  );
+  for (const recovery of [
+    undefined,
+    { ...retry.recovery, observedContainer: undefined },
+    {
+      ...retry.recovery,
+      baseline: { ...baseline, workerDeploymentId: "different" },
+    },
+    {
+      ...retry.recovery,
+      observedAfterFailure: {
+        ...retry.recovery.observedAfterFailure,
+        workerDeploymentId: "different",
+      },
+    },
+  ]) {
+    assert.throws(() =>
+      assessRemoteAgentPartialRecovery({ ...interruptedPartial, recovery })
+    );
+  }
   assert.throws(() =>
     assessRemoteAgentPartialRecovery({
       ...retry,

@@ -73,8 +73,20 @@ function assertFailedRecoveryAttempt(input) {
   }
 }
 
+function readRecoveryWindow({ current, recovery }) {
+  const receipt = current.receipt;
+  const start = Date.parse(recovery?.startedAt ?? receipt.startedAt);
+  const end = Date.parse(
+    recovery?.observedAfterFailure?.observedAt ?? current.recordedAt
+  );
+  if (!(Number.isFinite(start) && Number.isFinite(end)) || end <= start) {
+    throw new Error("The retained attempt has no bounded deployment window.");
+  }
+  return { start, end };
+}
+
 function assessRecoveryWorker(input) {
-  const { current, recovery, deployments } = input;
+  const { recovery, deployments } = input;
   if (
     !Array.isArray(deployments) ||
     deployments.some(
@@ -85,14 +97,7 @@ function assessRecoveryWorker(input) {
       "Recovery requires a fully timestamped deployment history."
     );
   }
-  const receipt = current.receipt;
-  const start = Date.parse(recovery?.startedAt ?? receipt.startedAt);
-  const end = Date.parse(
-    recovery?.observedAfterFailure?.observedAt ?? current.recordedAt
-  );
-  if (!(Number.isFinite(start) && Number.isFinite(end)) || end <= start) {
-    throw new Error("The retained attempt has no bounded deployment window.");
-  }
+  const { start, end } = readRecoveryWindow(input);
   const during = deployments.filter((deployment) => {
     const time = Date.parse(deployment.created_on);
     return Number.isFinite(time) && time >= start && time <= end;
@@ -100,8 +105,10 @@ function assessRecoveryWorker(input) {
   const active = deployments.toSorted(
     (a, b) => Date.parse(b.created_on) - Date.parse(a.created_on)
   )[0];
+  const unchangedRecovery = isUnchangedRecoveryWorker(recovery, active);
+  const unchangedWindow = input.beforeUpload || unchangedRecovery;
   if (
-    (input.beforeUpload
+    (unchangedWindow
       ? during.length !== 0 || Date.parse(active?.created_on) >= start
       : during.length !== 1 || active?.id !== during[0].id) ||
     !active ||
@@ -123,7 +130,7 @@ function assessRecoveryWorker(input) {
     .toSorted((a, b) => Date.parse(b.created_on) - Date.parse(a.created_on))[0];
   if (
     !preceding ||
-    (input.beforeUpload
+    (unchangedWindow
       ? preceding.id !== active.id
       : preceding.versions?.[0]?.version_id ===
         active.versions[0].version_id) ||
@@ -137,18 +144,30 @@ function assessRecoveryWorker(input) {
       "The preceding Worker deployment is missing or indistinguishable."
     );
   }
-  return active;
+  return { active, unchangedRecovery };
+}
+
+function isUnchangedRecoveryWorker(recovery, active) {
+  return Boolean(
+    recovery?.observedContainer &&
+      active &&
+      recovery.baseline.workerDeploymentId === active.id &&
+      recovery.baseline.workerVersionId === active.versions?.[0]?.version_id &&
+      recovery.observedAfterFailure?.workerDeploymentId === active.id &&
+      recovery.observedAfterFailure?.workerVersionId ===
+        active.versions?.[0]?.version_id
+  );
 }
 
 export function assessRemoteAgentPartialRecovery(input) {
   assertFailedRecoveryAttempt(input);
-  const active = assessRecoveryWorker(input);
+  const { active, unchangedRecovery } = assessRecoveryWorker(input);
   const { container, images } = input;
   assertRecoveryContainer(input);
   const image = images.find((item) => item.name === CONTAINER_NAME);
   if (
     !image ||
-    (!input.beforeUpload &&
+    (!(input.beforeUpload || unchangedRecovery) &&
       image.tags.includes(active.versions[0].version_id.slice(0, 8)))
   ) {
     throw new Error(
@@ -191,7 +210,7 @@ function assertRecoveryContainer(input) {
       "The live container no longer matches the pre-attempt target."
     );
   }
-  if (input.beforeUpload) {
+  if (input.beforeUpload || input.recovery?.observedContainer) {
     describeRetainedContainer(container, input.instancesPage);
     const page = input.instancesPage;
     const activeInstances = page.instances.filter(
