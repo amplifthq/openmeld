@@ -1776,6 +1776,14 @@ RuntimeCoordinator, Agent Profile readiness, and Wake reporting.
 
 ## Agent Controller Task Lifecycle Callbacks
 
+A saved public reply does not complete the native controller turn. The Service
+relays its text through the existing Space stream while the controller runs.
+Both legacy and execution-context paths wait for the native result before
+settling the local ledger and selecting the latest complete public revision.
+An exception follows the existing failure path; a saved draft is not evidence
+of successful execution. Private controller output cannot revise the public
+reply. RuntimeCoordinator and Space retain finalization and terminal fencing.
+
 The Local OpenMeld Service is the delivery carrier for exact Agent Controller
 task lifecycle callbacks. OpenMeld-managed Codex and Claude Code hooks write
 provider task registrations, completions, and actionable attention callbacks

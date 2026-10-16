@@ -1,9 +1,10 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { watchSpaceActionReply } from "../src/local-service/dispatch/space-action-reply-stream";
 import {
   createDispatchSpaceActionContext,
+  readDispatchSpaceActionRecord,
   supersedeDispatchSpaceActionRecordForReconsideration,
   writeDispatchSpaceActionRecord,
 } from "../src/runtime/dispatch-space-action-context";
@@ -80,11 +81,13 @@ describe("durable Space Action reply streaming", () => {
       "The result is ready.",
       undefined
     );
-    vi.advanceTimersByTime(750_000);
+    vi.advanceTimersByTime(4750);
     expect(publish).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(250);
+    expect(publish).toHaveBeenCalledTimes(2);
     stop();
     vi.advanceTimersByTime(1000);
-    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish).toHaveBeenCalledTimes(2);
   });
 
   it("updates a reviewed proposal in place and replays after reconnect", () => {
@@ -114,6 +117,26 @@ describe("durable Space Action reply streaming", () => {
     expect(publish).toHaveBeenCalledTimes(2);
   });
 
+  it("replaces explicit reply revisions and preserves full text beyond the preview cap", () => {
+    const { context, publish, reply } = setup();
+    reply("First answer.");
+    vi.advanceTimersByTime(250);
+    const complete = "x".repeat(40 * 1024);
+    reply(complete);
+    vi.advanceTimersByTime(250);
+    expect(publish).toHaveBeenLastCalledWith(
+      complete.slice(0, 32 * 1024),
+      undefined
+    );
+    reply("First answer.");
+    vi.advanceTimersByTime(250);
+    expect(publish).toHaveBeenCalledTimes(2);
+    expect(readDispatchSpaceActionRecord({ context })).toMatchObject({
+      status: "loaded",
+      record: { action: { messageEnvelope: { text: complete } } },
+    });
+  });
+
   it("does not publish a silent action as reply text", () => {
     const { context, publish } = setup();
     writeDispatchSpaceActionRecord({
@@ -123,6 +146,26 @@ describe("durable Space Action reply streaming", () => {
     });
     vi.advanceTimersByTime(500);
     expect(publish).not.toHaveBeenCalled();
+  });
+
+  it("does not replace a reply with silence or write through an interrupted writer lock", () => {
+    const { context, reply } = setup();
+    reply("Keep the recorded reply.");
+    expect(() =>
+      writeDispatchSpaceActionRecord({
+        context,
+        command: "silent",
+        action: { type: "stay_silent", reason: "Changed my mind." },
+      })
+    ).toThrow("already been recorded");
+    mkdirSync(`${context.actionRecordPath}.lock`);
+    expect(() => reply("A concurrent replacement.")).toThrow();
+    expect(readDispatchSpaceActionRecord({ context })).toMatchObject({
+      status: "loaded",
+      record: {
+        action: { messageEnvelope: { text: "Keep the recorded reply." } },
+      },
+    });
   });
 
   it("retries a socket that closes during send without crashing the controller", () => {

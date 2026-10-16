@@ -1795,11 +1795,9 @@ describe("dispatch result outbox around preview teardown", () => {
       const proposal = new Promise<void>((resolve) => {
         proposalObserved = resolve;
       });
-      const presenter = createPresenter((line) => {
-        if (line.code === "daemon.run.cli_space_action_finalized") {
-          proposalObserved();
-        }
-      });
+      const presenter = createPresenter();
+      const revisedReply = "Revised public answer. ".repeat(2000);
+      let reviseReply: (text: string) => void = () => undefined;
       let nativeTurnCompleted = false;
       const settlementSocket = createAcceptedSettlementSocket({
         ledgerPaths,
@@ -1832,23 +1830,28 @@ describe("dispatch result outbox around preview teardown", () => {
         finishRuntime = resolve;
       });
       runRuntimeTaskMock.mockImplementationOnce((input) => {
-        const previousContextPath =
-          process.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV];
-        const actionContextPath =
-          input.route.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV];
-        process.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV] = actionContextPath;
-        try {
-          runSpaceActionReply({
-            messageParts: ["CLI action should finalize this Wake."],
-          });
-        } finally {
-          if (previousContextPath === undefined) {
-            delete process.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV];
-          } else {
-            process.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV] =
-              previousContextPath;
+        reviseReply = (text) => {
+          const previousContextPath =
+            process.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV];
+          const actionContextPath =
+            input.route.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV];
+          process.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV] =
+            actionContextPath;
+          try {
+            runSpaceActionReply({
+              messageParts: [text],
+            });
+          } finally {
+            if (previousContextPath === undefined) {
+              delete process.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV];
+            } else {
+              process.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV] =
+                previousContextPath;
+            }
           }
-        }
+        };
+        reviseReply("CLI action should finalize this Wake.");
+        proposalObserved();
         return nativeRuntime;
       });
 
@@ -1899,6 +1902,16 @@ describe("dispatch result outbox around preview teardown", () => {
         ).toBe(false);
         expect(carrierReleased).toBe(false);
         expect(currentSocketRef.reasoningPreferenceListeners?.size).toBe(1);
+        reviseReply(revisedReply);
+        await vi.waitFor(() => {
+          const replies = settlementSocket.send.mock.calls
+            .map(([raw]) => JSON.parse(String(raw)))
+            .filter((frame) => frame.code === "daemon.dispatch.reply");
+          expect(replies).toHaveLength(2);
+          expect(replies[1].payload.textSnapshot).toBe(
+            revisedReply.slice(0, 32 * 1024)
+          );
+        });
       } finally {
         nativeTurnCompleted = true;
         finishRuntime(createRuntimeSuccessResult());
@@ -1915,10 +1928,10 @@ describe("dispatch result outbox around preview teardown", () => {
       expect(readOutboxFile(ledgerPaths).records).toHaveLength(0);
       expect(readSentTaskResultPayload(settlementSocket)).toMatchObject({
         agentControllerConversationId: "ctx-1",
-        output: "CLI action should finalize this Wake.",
+        output: revisedReply.trim(),
         spaceAction: {
           messageEnvelope: {
-            text: "CLI action should finalize this Wake.",
+            text: revisedReply.trim(),
           },
           type: "post_message",
         },
@@ -1928,7 +1941,7 @@ describe("dispatch result outbox around preview teardown", () => {
     });
   });
 
-  it("waits for the active controller turn before reviewing a sibling Agent reply after an ordinary runtime failure", async () => {
+  it("does not turn a saved draft into success after the native controller throws", async () => {
     await withTempHome(async () => {
       const ledgerPaths = createLedgerPaths();
       const presenter = createPresenter();
@@ -1994,6 +2007,7 @@ describe("dispatch result outbox around preview teardown", () => {
             runSpaceActionReply({
               messageParts: ["Original proposal before the sibling reply."],
             });
+            reportSiblingReviewRequired();
           } finally {
             if (previousContextPath === undefined) {
               delete process.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV];
@@ -2056,23 +2070,15 @@ describe("dispatch result outbox around preview teardown", () => {
       const result = await resultPromise;
 
       stdoutSpy.mockRestore();
-      expect(result).toEqual({
-        errorCode: null,
-        errorMessage: null,
-        result: "success",
+      expect(result).toMatchObject({
+        result: "failed",
+        errorCode: "dispatch.execution_failed",
       });
-      expect(runRuntimeTaskMock).toHaveBeenCalledTimes(2);
+      expect(runRuntimeTaskMock).toHaveBeenCalledTimes(1);
       expect(readOutboxFile(ledgerPaths).records).toHaveLength(0);
       expect(readSentTaskResultPayload(settlementSocket)).toMatchObject({
-        output: "Reviewed after the sibling reply.",
-        spaceAction: {
-          messageEnvelope: {
-            text: "Reviewed after the sibling reply.",
-          },
-          observedThroughSignalId: siblingReply.id,
-          type: "post_message",
-        },
-        status: "success",
+        errorCode: "dispatch.execution_failed",
+        status: "failed",
       });
     });
   });
@@ -2155,6 +2161,7 @@ describe("dispatch result outbox around preview teardown", () => {
             runSpaceActionReply({
               messageParts: ["Proposal recorded before the Wake Stop."],
             });
+            reportSiblingReviewRequired();
           } finally {
             if (previousContextPath === undefined) {
               delete process.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV];
@@ -2235,14 +2242,14 @@ describe("dispatch result outbox around preview teardown", () => {
       });
       expect(runRuntimeTaskMock).toHaveBeenCalledTimes(1);
       expect(result).toEqual({
-        errorCode: "dispatch.agent_reply_reconsideration.execution_inactive",
+        errorCode: "dispatch.execution_failed",
         errorMessage: expect.stringContaining(
-          "dispatch.agent_reply_reconsideration.execution_inactive"
+          "controller turn cancelled by Wake Stop"
         ),
         result: "failed",
       });
       expect(readSentTaskResultPayload(settlementSocket)).toMatchObject({
-        errorCode: "dispatch.agent_reply_reconsideration.execution_inactive",
+        errorCode: "dispatch.execution_failed",
         status: "failed",
       });
     });

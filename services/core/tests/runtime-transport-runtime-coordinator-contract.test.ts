@@ -17209,6 +17209,41 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(sentFrames).toEqual([]);
   });
 
+  it.each([
+    { sourceSignalId: "another-source" },
+    { targetProfileId: "another-agent" },
+    { connectionGeneration: 99 },
+  ])("rejects reply snapshots with mismatched authority %j", async (mismatch) => {
+    const { hub, sentFrames, socket, spaceStub, state } = await createHarness();
+    const token = await issueDeliveryToken({ hub, sentFrames, socket, state });
+    const { part: _part, ...identity } = buildToolActivityRequest({
+      executionTokenEcho: buildExecutionTokenEcho(token),
+    });
+    sentFrames.length = 0;
+    await (
+      hub as unknown as {
+        handleDispatchToolActivityFrame: (
+          socket: WebSocket,
+          payload: unknown,
+          kind: "reply"
+        ) => Promise<void>;
+      }
+    ).handleDispatchToolActivityFrame(
+      socket,
+      {
+        ...identity,
+        ...mismatch,
+        textSnapshot: "This must not become public.",
+      },
+      "reply"
+    );
+    expect(spaceStub.rpcApplyAgentStreamDelta).not.toHaveBeenCalled();
+    expect(spaceStub.rpcResolveNativeReplyPlacement).not.toHaveBeenCalled();
+    expect(sentFrames).toContainEqual(
+      expect.objectContaining({ code: "daemon.error" })
+    );
+  });
+
   it("delivers and acknowledges an owner response while the Inbox projection is blocked", async () => {
     const gate = Promise.withResolvers<void>();
     const started = Promise.withResolvers<void>();

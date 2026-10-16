@@ -8,4 +8,5 @@ audiences: ["users"]
 
 Spaces can show a Local Agent's submitted reply while its controller is still
 finishing. A slow Stop hook no longer hides the reply until shutdown completes.
-The same reply becomes final when the run finishes.
+Public reply corrections update the same response. The reply becomes final
+when the run finishes.

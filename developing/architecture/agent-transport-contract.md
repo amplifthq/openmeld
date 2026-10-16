@@ -2091,17 +2091,25 @@ execution, token, lease, connection, and Space identity checks as tool activity,
 resolves the requested reply placement, and writes the existing Space text
 snapshot. This is a visible draft, not final publication or execution completion.
 The Service observes the shared record writer, so native tools and CLI actions
-have the same behavior. It retries unsent snapshots and replays on reconnect.
+have the same behavior. It retries unsent snapshots, replays on reconnect,
+and refreshes a saved snapshot at most once per five seconds because a socket
+send does not acknowledge the downstream Space write.
 
-Accepted reconsideration replaces the snapshot on the same attempt stream;
-identical records do not create new messages. The existing one-final-action
-writer contract remains in force. Private controller output after the action
+Explicit `post_message` revisions replace the snapshot on the same attempt
+stream; identical records do not create new messages. The writer serializes
+CLI and native tool writes, atomically replaces the record, and retains up to
+32 prior reply digests so delayed retries cannot restore an older reply.
+Changing the final action type is rejected. An interrupted writer's lock is
+not automatically broken; the caller must reconcile its receipt. Private controller output after the action
 must never overwrite or append to the public reply. Finalization still owns
 the final Signal, usage, checkpoints, recipient effects, and stream closure.
 Stop and failure retain their existing terminal semantics. The draft is capped
 at 32,768 characters; the final action keeps its original complete content.
 Deploy the Core receiver before the Service sender. Older Services keep the
 existing final-publication path; the new frame does not change that path.
+Both execution-context and legacy runs wait for the actual native result before
+reading the final record. A saved draft must not settle the local ledger early
+or freeze an earlier revision while the controller is still running.
 
 ### Local Agent Work Summary Delivery
 

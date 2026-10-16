@@ -10,6 +10,7 @@ export function watchSpaceActionReply(input: {
   context: DispatchSpaceActionContext | null;
   publish: (text: string, placement?: "conversation" | "thread") => boolean;
   connection: () => unknown;
+  onSendError?: () => void;
 }): () => void {
   const context = input.context;
   if (!context) {
@@ -18,6 +19,8 @@ export function watchSpaceActionReply(input: {
   let previousText: string | null = null;
   let previousPlacement: "conversation" | "thread" | undefined;
   let previousConnection: unknown;
+  let lastSentAtMs = 0;
+  let sendErrorReported = false;
   const tick = () => {
     const record = readDispatchSpaceActionRecord({ context });
     if (
@@ -35,7 +38,8 @@ export function watchSpaceActionReply(input: {
     if (
       text === previousText &&
       placement === previousPlacement &&
-      connection === previousConnection
+      connection === previousConnection &&
+      Date.now() - lastSentAtMs < 5000
     ) {
       return;
     }
@@ -45,12 +49,20 @@ export function watchSpaceActionReply(input: {
     } catch {
       // A socket can close between the availability check and send. Keep the
       // durable proposal pending; transport recovery owns reconnect diagnostics.
+      if (!sendErrorReported) {
+        sendErrorReported = true;
+        input.onSendError?.();
+      }
       return;
     }
     if (sent) {
+      sendErrorReported = false;
       previousText = text;
       previousPlacement = placement;
       previousConnection = connection;
+      // Socket send is not a Space acknowledgement. Periodic snapshots repair
+      // a transient Core/Space write failure without changing the stream identity.
+      lastSentAtMs = Date.now();
     }
   };
   const timer = setInterval(tick, 250);
