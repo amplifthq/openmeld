@@ -1868,7 +1868,10 @@ callbacks, registers the exact request and authority before sending
 turn. On `daemon.dispatch.interaction_response`, it validates the exact
 execution authority, resolves the registered callback, and sends
 `daemon.dispatch.interaction_delivered`. Unanswered requests are replayed after
-heartbeat registration or socket reconnect in request order. Responded requests
+heartbeat registration or socket reconnect in request order. Core treats an
+exact replay as idempotent and re-announces it to open Spaces only when it
+arrives on a new connection, so the heartbeat replay is cheap recovery, not a
+Space refresh signal. Responded requests
 resume locally before acknowledgement; if acknowledgement temporarily lacks a
 current lease, the Service reports that delivery is deferred rather than
 inventing completion.

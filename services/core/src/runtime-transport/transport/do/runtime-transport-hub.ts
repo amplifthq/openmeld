@@ -9590,13 +9590,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           webSocket,
         });
       } else {
-        // A Service replays an unanswered request after reconnecting; an open
-        // Space may have missed the first notice while the socket was down.
-        this.publishWakeProgressChanged({
-          agentProfileId: authority.commandState.targetProfileId,
-          clientMessageId: authority.commandState.sourceClientMessageId,
-          spaceId:
-            authority.commandState.sanitizedDeliveryRequest.payload.spaceId,
+        await this.announceRuntimeCoordinatorInteractionReplayOnNewConnection({
+          commandState: authority.commandState,
+          pending: existing,
+          request: parsed.data,
         });
         await this.tryProjectRuntimeCoordinatorInteractionInboxItem({
           commandState: authority.commandState,
@@ -9632,6 +9629,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       lastWatchdogCheckAtMs: null,
       pendingInteraction: {
         request: interaction,
+        requestConnection: {
+          connectionGeneration: parsed.data.connectionGeneration,
+          daemonSessionId: parsed.data.daemonSessionId,
+        },
         requestReceivedAtMs: nowMs,
         respondedAtMs: null,
         response: null,
@@ -9696,6 +9697,67 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       this.queueHousekeepingAlarmSync();
     }
+  }
+  // The Service replays an unanswered request on every heartbeat. Only a
+  // replay on a new connection re-announces it, so an open Space that missed
+  // the first notice recovers without refetching on every heartbeat.
+  private async announceRuntimeCoordinatorInteractionReplayOnNewConnection(input: {
+    commandState: RuntimeCoordinatorRunCommandState;
+    pending: RuntimeCoordinatorPendingAgentInteractionState;
+    request: RuntimeTransportDispatchInteractionRequest;
+  }): Promise<void> {
+    const previous = input.pending.requestConnection;
+    if (
+      previous?.daemonSessionId === input.request.daemonSessionId &&
+      previous.connectionGeneration === input.request.connectionGeneration
+    ) {
+      return;
+    }
+    // Frame authority was read before async token validation, and an owner
+    // answer can land in between. Re-read inside the write so a replay only
+    // adds its connection to the same still-unanswered request and never
+    // replaces a saved answer with the earlier snapshot.
+    const announced = await this.ctx.storage.transaction(
+      async (transaction) => {
+        const current = await readRuntimeCoordinatorRunCommandStateFromStorage(
+          transaction,
+          input.commandState.runtimeCoordinatorExecutionId
+        );
+        const currentPending = current?.pendingInteraction ?? null;
+        if (
+          !(current && currentPending) ||
+          current.activeRunId !== input.commandState.activeRunId ||
+          currentPending.request.interactionId !==
+            input.pending.request.interactionId ||
+          currentPending.response !== null ||
+          (currentPending.requestConnection?.daemonSessionId ===
+            input.request.daemonSessionId &&
+            currentPending.requestConnection.connectionGeneration ===
+              input.request.connectionGeneration)
+        ) {
+          return false;
+        }
+        await writeRuntimeCoordinatorRunCommandStateInTransaction(transaction, {
+          ...current,
+          pendingInteraction: {
+            ...currentPending,
+            requestConnection: {
+              connectionGeneration: input.request.connectionGeneration,
+              daemonSessionId: input.request.daemonSessionId,
+            },
+          },
+        });
+        return true;
+      }
+    );
+    if (!announced) {
+      return;
+    }
+    this.publishWakeProgressChanged({
+      agentProfileId: input.commandState.targetProfileId,
+      clientMessageId: input.commandState.sourceClientMessageId,
+      spaceId: input.commandState.sanitizedDeliveryRequest.payload.spaceId,
+    });
   }
   private async handleDispatchInteractionDeliveredFrame(
     webSocket: WebSocket,
