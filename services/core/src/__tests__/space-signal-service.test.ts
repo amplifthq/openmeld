@@ -4648,19 +4648,27 @@ describe("space signal service", () => {
     expect(await space.readWakeProgressWakeStopEligibility(trace)).toBeNull();
   });
 
-  it("keeps a running Wake ineligible when its controller report expires", async () => {
+  it.each([
+    { reportStatus: "ready", expiresInMs: -60_000 },
+    { reportStatus: "blocked", expiresInMs: 60_000 },
+  ])("keeps Stop available for running work despite admission readiness: %j", async ({
+    reportStatus,
+    expiresInMs,
+  }) => {
     const eligibility = await readWakeProgressWakeStopEligibilityForTest({
       db: createRuntimeAgentControllerReportDb({
         agentControllerInterface: createAgentControllerInterfaceSnapshot({
           cancel: true,
         }),
-        expiresAtMs: Date.now() - 60_000,
+        expiresAtMs: Date.now() + expiresInMs,
+        reportStatus,
       }),
       trace: createRunningRuntimeCoordinatorTrace(),
     });
     expect(eligibility).toMatchObject({
-      status: "not_eligible",
-      reasonCode: "agent_controller_interface.missing",
+      status: "eligible",
+      controlMode: "cancel",
+      reasonCode: null,
     });
   });
 

@@ -15351,11 +15351,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ).catch(() => null);
     const wakeStopEligibility = resolveWakeStopEligibility({
       agentControllerInterface:
-        agentControllerReport &&
-        agentControllerReport.status === "ready" &&
-        agentControllerReport.expiresAtMs > nowMs
-          ? (agentControllerReport.agentControllerInterface ?? null)
-          : null,
+        agentControllerReport?.agentControllerInterface ?? null,
     });
     if (wakeStopEligibility.status !== "eligible") {
       return buildWakeStopFailureResponse({

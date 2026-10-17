@@ -290,7 +290,7 @@ async function runSetupUnlocked(input: {
     );
   }
 
-  await assertSetupServiceUpdateComplete();
+  await assertSetupServiceUpdateComplete({ presenter });
   const openMeldServiceRuntimeIdentity =
     await syncLocalSetupCurrentDeviceTargetFromServiceContract({
       gatewayUrl,

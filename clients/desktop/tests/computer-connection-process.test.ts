@@ -3,11 +3,80 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  createComputerConnection,
   createComputerDisconnection,
   runConnectionSetup,
 } from "../src/main/computer-connection";
 
 describe("computer setup process outcome", () => {
+  it("waits for current work before issuing expiring Prepare authorization", async () => {
+    const home = await mkdtemp(join(tmpdir(), "desktop-update-wait-"));
+    const marker = join(home, "drained");
+    const bin = join(home, "openmeld");
+    let prepareRequests = 0;
+    let waitingObserved = false;
+    try {
+      await writeFile(
+        bin,
+        `#!${process.execPath}
+const fs = require('node:fs');
+if (process.argv.includes('--help')) { console.log('Usage: openmeld computer wait-for-update [options]'); process.exit(0); }
+if (process.argv.includes('connection-review')) {
+  console.log(JSON.stringify({protocol:'computer-connection-v1',previousSessionIdentity:'reviewed-session',account:{id:'account-a',email:null},existingConnection:{deviceId:'device-a',runtimeLane:'dev-local'}}));
+} else if (process.argv.includes('wait-for-update')) {
+  fs.watch(${JSON.stringify(home)}, () => {
+    if (!fs.existsSync(${JSON.stringify(marker)})) return;
+    console.log(JSON.stringify({type:'line',code:'computer.update_ready',message:'Computer connection can continue.'}));
+    process.exit(0);
+  });
+  console.log(JSON.stringify({type:'line',code:'setup.openmeld_tools_update.waiting',message:'Current tasks are still running.',data:{phase:'waiting_for_current_work',state:'active'}}));
+} else process.exit(2);
+`,
+        { mode: 0o700 }
+      );
+      const connect = createComputerConnection({
+        auth: {
+          session: async () => ({
+            user: { id: "account-a", email: "a@example.test", name: "Test" },
+          }),
+          cloudRequest: async () => {
+            prepareRequests += 1;
+            expect(waitingObserved).toBe(true);
+            expect(await readFile(marker, "utf8")).toBe("drained");
+            throw new Error("Fresh Prepare requested after drain");
+          },
+        },
+        commandDeps: {
+          openMeldBin: bin,
+          env: {
+            ...process.env,
+            OPENMELD_HOME: home,
+            OPENMELD_AUTH_URL: "http://lane.localhost:8788",
+            OPENMELD_GATEWAY_URL: "http://lane.localhost:8080",
+          },
+        },
+        webOrigin: "http://lane.localhost:3000",
+        webBuild: "build",
+        installed: false,
+        ensureCompatible: async () => undefined,
+        confirmSwitch: async () => false,
+        onProgress: async (event) => {
+          if (event.phase !== "waiting_for_current_work") {
+            return;
+          }
+          expect(prepareRequests).toBe(0);
+          waitingObserved = true;
+          await writeFile(marker, "drained");
+        },
+      });
+      await expect(
+        connect({ expectedAccount: "account-a", resetThisComputer: true })
+      ).rejects.toThrow("Fresh Prepare requested after drain");
+      expect(prepareRequests).toBe(1);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
   it.each([
     {
       event: "computer.disconnected",
@@ -246,17 +315,36 @@ if (process.argv.includes('connection-review')) {
     { code: 1, event: "setup.complete", succeeds: false },
     { code: 0, event: "setup.started", succeeds: false },
     { code: 0, event: "setup.complete", succeeds: true, compact: true },
+    {
+      code: 1,
+      event: "computer.update_wait.failed",
+      succeeds: false,
+      failureMessage:
+        "OpenMeld is still waiting for the background update. Current tasks and the update continue. Check their status, then try connecting again.",
+    },
   ])("requires successful exit and completion evidence: $code / $event", async ({
     code,
     event,
     succeeds,
     compact,
+    failureMessage,
   }) => {
+    const completionOutput = compact
+      ? { t: "result", c: event }
+      : { type: "result", code: event };
+    const output = failureMessage
+      ? {
+          type: "line",
+          code: event,
+          text: failureMessage,
+          data: { state: "failed" },
+        }
+      : completionOutput;
     const result = runConnectionSetup(
       process.execPath,
       [
         "-e",
-        `console.log(JSON.stringify(${JSON.stringify(compact ? { t: "result", c: event } : { type: "result", code: event })}));process.exit(${code});`,
+        `console.log(JSON.stringify(${JSON.stringify(output)}));process.exit(${code});`,
       ],
       { ...process.env, OPENMELD_HOME: "/unused-disposable-process-test" }
     );
@@ -267,7 +355,9 @@ if (process.argv.includes('connection-review')) {
         (failure: Error & { diagnosticsPath: string }) => failure
       );
       expect(error).toMatchObject({
-        message: expect.stringContaining("could not finish connecting"),
+        message:
+          failureMessage ??
+          expect.stringContaining("could not finish connecting"),
       });
       if (error) {
         await rm(dirname(error.diagnosticsPath), {

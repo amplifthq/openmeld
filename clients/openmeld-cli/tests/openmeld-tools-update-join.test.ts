@@ -1,5 +1,25 @@
 import type { OpenMeldToolsUpdateAttempt } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
+import { runComputerUpdateWait } from "../src/commands/computer-update-wait";
+import {
+  SETUP_COMMAND_LOCK_KEY,
+  SETUP_COMMAND_LOCK_PROFILE,
+} from "../src/commands/setup-command-lock";
+import {
+  installDaemon,
+  readDaemonControlPlaneToken,
+} from "../src/config/daemon-state";
+import {
+  acquireLock,
+  OpenMeldLockError,
+  releaseLock,
+} from "../src/config/lock";
+import { startLocalDaemonControlPlaneServer } from "../src/local-service/control-plane/server";
+import {
+  completePendingDaemonServiceUpdate,
+  type DaemonServiceUpdateJob,
+  persistPendingDaemonServiceUpdate,
+} from "../src/local-service/lifecycle/daemon-service-update-state";
 import {
   completeOpenMeldToolsUpdateAttempt,
   discardPendingOpenMeldToolsUpdateAttempt,
@@ -10,7 +30,7 @@ import {
   waitForExternalOpenMeldToolsUpdate,
   waitForOpenMeldToolsUpdateCompletion,
 } from "../src/local-service/maintenance/openmeld-tools-update-join";
-import { withTempHome } from "./helpers/fs";
+import { withCapturedStdio, withTempHome } from "./helpers/fs";
 
 const attempt: OpenMeldToolsUpdateAttempt = {
   v: 1,
@@ -28,6 +48,138 @@ const attempt: OpenMeldToolsUpdateAttempt = {
 };
 
 describe("OpenMeld Tools update join", () => {
+  it("observes beside a setup lock and expires without changing the update or releasing that lock", async () => {
+    await withTempHome(async () => {
+      await persistOpenMeldToolsUpdateAttempt(attempt);
+      const lockInput = {
+        openMeldProfileId: SETUP_COMMAND_LOCK_PROFILE,
+        key: SETUP_COMMAND_LOCK_KEY,
+      };
+      const lock = await acquireLock(lockInput);
+      const output: string[] = [];
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        await expect(
+          withCapturedStdio(runComputerUpdateWait, {
+            onStdout: (text) => {
+              output.push(text);
+              if (text.includes("setup.openmeld_tools_update.waiting")) {
+                vi.setSystemTime(Date.now() + 30 * 60_000);
+              }
+            },
+          })
+        ).rejects.toThrow("Current tasks and the update continue");
+        expect(output.join("\n")).toContain(
+          '"code":"computer.update_wait.failed"'
+        );
+        expect(output.join("\n")).toContain('"state":"failed"');
+        await expect(acquireLock(lockInput)).rejects.toBeInstanceOf(
+          OpenMeldLockError
+        );
+        expect(await resolveExternalOpenMeldToolsUpdate()).toMatchObject({
+          operationId: attempt.operation.operationId,
+          phase: "updating",
+        });
+      } finally {
+        vi.useRealTimers();
+        await releaseLock(lock);
+      }
+    });
+  });
+  it("reads accepted work through the Service control socket while the durable phase remains updating", async () => {
+    await withTempHome(async () => {
+      const now = new Date().toISOString();
+      await installDaemon({
+        daemonVersion: "0.3.264",
+        source: "daemon.command.install",
+      });
+      const job: DaemonServiceUpdateJob = {
+        v: 2,
+        schema: "openmeld-daemon-service-update-job-v2",
+        attempts: 1,
+        desiredState: "background",
+        errorMessage: null,
+        jobId: "draining-update",
+        phase: "updating",
+        requestedAt: now,
+        requestSource: "cli",
+        targetVersion: "0.3.264",
+        updatedAt: now,
+        urgency: "required",
+        preparedBundle: {
+          v: 2,
+          schema: "openmeld-daemon-active-bundle-v2",
+          bundleId: "test-bundle",
+          daemonVersion: "0.3.264",
+          entryScriptRelativePath: "openmeld",
+          bundleFormat: "binary_v1",
+          sourceKind: "package_install",
+          sourceEntryScriptPath: "/test-owned/openmeld",
+          sourcePackageRootPath: "/test-owned",
+          sourceDistRootPath: "/test-owned",
+          sourceDistFingerprint: "test",
+          createdAt: now,
+          updatedAt: now,
+        },
+      };
+      await persistPendingDaemonServiceUpdate(job);
+      let acceptedWakeCount = 2;
+      const observed: number[] = [];
+      const server = await startLocalDaemonControlPlaneServer({
+        expectedToken: (await readDaemonControlPlaneToken()) ?? "missing",
+        getContext: () => ({
+          healthPayload: {
+            checkedAt: now,
+            reasonCode: "ok",
+            runtimeState: "healthy",
+            state: "ok",
+          },
+          historyEntries: [],
+          statusPayload: {
+            checkedAt: now,
+            daemonVersion: "0.3.264",
+            installed: true,
+            running: true,
+            runtimeRoot: "/test-owned",
+          },
+          serviceUpdateReadinessHandler: async () => ({
+            acceptedWakeCount,
+            safeToSwitch: acceptedWakeCount === 0,
+            unacknowledgedResultCount: 0,
+          }),
+        }),
+      });
+      let complete: Promise<void> | undefined;
+      try {
+        await waitForOpenMeldToolsUpdateCompletion({
+          pollIntervalMs: 1,
+          onObservation: (operation, readiness) => {
+            // Completion removes the pending job. An observer already inside
+            // its iteration can then have no readiness snapshot to read.
+            if (complete) {
+              return;
+            }
+            expect(operation.phase).toBe("updating");
+            expect(readiness).not.toBeNull();
+            observed.push(readiness?.acceptedWakeCount ?? -1);
+            if (acceptedWakeCount > 0) {
+              acceptedWakeCount = 0;
+            } else {
+              complete ??= completePendingDaemonServiceUpdate({
+                ...job,
+                phase: "updated",
+              });
+            }
+          },
+        });
+        await complete;
+        expect(observed[0]).toBe(2);
+        expect(observed).toContain(0);
+      } finally {
+        await server.close();
+      }
+    });
+  });
   it.each([
     "updated",
     "restored",

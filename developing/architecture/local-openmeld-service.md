@@ -166,7 +166,13 @@ limit is reached, its PONG deadline expires, or the socket reports an error. It
 releases the current session to the existing reconnect loop without waiting for
 a native close callback. Retirement detaches the Host transport sink, rejects
 pending transport responses, and ignores later frames from that socket. It does not cancel local
-work or acknowledge retained results. The failure reason is logged even when
+work or acknowledge retained results. Accepted queued tasks remain owned by the
+Host across transport loss, keep their lifecycle reporting, and recheck the
+current lease and Coordinator admission before starting the provider. Dropping
+the queue on socket loss would leave an accepted execution without its carrier.
+Permanent connector IPC loss instead rejects unconfirmed provider admission;
+unstarted tasks settle through the existing result outbox before Host drain.
+The failure reason is logged even when
 the background Service uses a silent presenter; an observed close remains a
 separate transport event.
 Registered-session bootstrap reads and cache persistence yield to that same
@@ -1172,13 +1178,13 @@ send `thread/resume`, because an ephemeral thread intentionally has no durable
 rollout to load. A missing canonical source rollout remains an explicit context
 failure rather than a provider or network failure.
 
-Control-operation deadlines are risk-specific. Metadata-only resume and
-collaboration-mode lookup keep a short bound so inaccessible history rolls over
-promptly. Fresh thread creation and `turn/start` acknowledgement use a longer,
-still-bounded admission window because controller cold work such as local
-plugin, skill, MCP, and workspace initialization can be delayed by temporary
-host pressure. A fresh thread-start timeout may be retried once because no user
-turn has been accepted and an unobserved thread is not a published side effect.
+Control-operation deadlines are risk-specific. Configuration and managed
+requirements reads, history reads, and collaboration-mode lookup keep a short
+bound. Thread creation/resume and `turn/start` acknowledgement use the bounded
+90-second cold admission window. Plugin, skill, MCP, and workspace initialization
+can be delayed by temporary host pressure. Only the initial controller handshake
+can be retried before thread admission. An unacknowledged thread creation or
+resume fails closed rather than creating another thread.
 OpenMeld must not automatically resubmit `turn/start` after an acknowledgement
 timeout: the controller may already have accepted the turn, so resubmission
 could duplicate user work. Once a turn is accepted, no fixed total wall-clock
@@ -3368,6 +3374,17 @@ Service command, and top-level CLI upgrade must all converge on this one
 coordinator. The initiating browser or Terminal is not a lifecycle owner: it
 may close immediately after the durable handoff, and the OS worker must resume
 the same job after its own crash, sign-in, or computer restart.
+
+Setup observers read `service_update_readiness` through the existing local
+control endpoint to distinguish accepted-work drain from installation. A
+required update can remain `updating` while accepted work drains; the durable
+phase alone does not prove that tasks finished. Accepted-work counts explain
+the wait but never renew a caller deadline. The setup mutation lock has a fixed
+15-minute lifetime. Desktop's read-only pre-authorization observer takes no
+setup lock and stops observing after 30 minutes. Caller expiry never stops a
+Wake or cancels the OS-owned update; it leaves a visible check-and-retry action.
+This observation neither admits work nor changes Wake truth,
+Service lifecycle, or the durable update job.
 
 When the control endpoint is absent, the update worker delegates to the existing
 locked lifecycle checks rather than waiting forever for an absent Service to
