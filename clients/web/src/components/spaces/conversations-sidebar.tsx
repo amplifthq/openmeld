@@ -56,6 +56,7 @@ import {
 	buildOrganizationNewSpacePath,
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
+import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 import { useDelayedPending } from "#/lib/use-delayed-pending";
 import { AppContextualSidebarNav } from "../app/app-contextual-layout";
 import { ControlledSidebarGroupStateProvider } from "../app/app-sidebar-group";
@@ -68,6 +69,7 @@ import {
 	useSidebarSearchDisclosure,
 } from "../app/sidebar-search-input";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
+import { centerAgentEntryTitle } from "./center-agent-sidebar-entry";
 import { ConversationSidebarMenu } from "./conversation-sidebar-menu";
 import {
 	type Conversation,
@@ -259,6 +261,16 @@ function ConversationsSidebarSearch(input: {
 	);
 }
 
+function collapsedEntryTitle(search: string, viewerName?: string) {
+	return search.trim() ? undefined : centerAgentEntryTitle(viewerName);
+}
+
+// The collapsed Center Agent entry stands for several chats, so it has no
+// per-chat rename or archive action.
+function isSingleChat(item: Conversation) {
+	return item.kind === "direct-message" && !item.sessionSpaceIds;
+}
+
 export function ConversationsSidebar(
 	input: {
 		currentProfileId?: string;
@@ -267,7 +279,17 @@ export function ConversationsSidebar(
 		showSearch?: boolean;
 	} = {}
 ) {
-	const model = useConversations(input);
+	const { defaultHumanProfile } = useDefaultHumanProfile();
+	const [search, setSearch] = useState("");
+	// Searching lists each Center Agent chat on its own row, so a match on an
+	// older chat's title opens that chat rather than the entry's latest one.
+	const model = useConversations({
+		...input,
+		centerAgentEntryTitle: collapsedEntryTitle(
+			search,
+			defaultHumanProfile?.profileName
+		),
+	});
 	const { dismiss } = useAppNavigationPresentation();
 	const onNavigate = (event: MouseEvent<HTMLAnchorElement>) => {
 		if (!(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)) {
@@ -288,7 +310,6 @@ export function ConversationsSidebar(
 		unread: dm.indicators.unreadBySpaceId,
 	});
 	const { view, setView } = useConversationView(currentUserId, dm.org.id);
-	const [search, setSearch] = useState("");
 	const searchDisclosure = useSidebarSearchDisclosure();
 	const { headerRef, titleRef, actionsRef, compactActions } =
 		useHeaderActionOverflow();
@@ -909,7 +930,7 @@ export function ConversationsSidebar(
 																?.messageUnreadCount
 														}
 														onArchive={
-															item.kind === "direct-message"
+															isSingleChat(item)
 																? () =>
 																		dm.save({
 																			...dm.preferences,
@@ -933,7 +954,7 @@ export function ConversationsSidebar(
 															).catch(console.error)
 														}
 														onRename={
-															item.kind === "direct-message"
+															isSingleChat(item)
 																? () => {
 																		setRenaming(item);
 																		setName(item.title);

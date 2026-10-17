@@ -9,10 +9,12 @@ import { spaceQueryKeys } from "#/query/spaces/status";
 import {
 	useRemoveAccountAvatar,
 	useUpdateAccountAvatar,
+	useUpdateUserName,
 } from "./account.hooks";
 
 const removeAccountAvatarMock = vi.hoisted(() => vi.fn());
 const updateAccountAvatarMock = vi.hoisted(() => vi.fn());
+const updateUserNameMock = vi.hoisted(() => vi.fn());
 const createObjectUrlMock = vi.fn();
 const revokeObjectUrlMock = vi.fn();
 const queryClients: QueryClient[] = [];
@@ -29,7 +31,7 @@ vi.mock("#/query/auth-query", () => ({
 	setUserPassword: vi.fn(),
 	unlinkAccountProvider: vi.fn(),
 	updateAccountAvatar: updateAccountAvatarMock,
-	updateUserName: vi.fn(),
+	updateUserName: updateUserNameMock,
 }));
 
 describe("account avatar hooks", () => {
@@ -239,6 +241,90 @@ describe("account avatar hooks", () => {
 	});
 });
 
+describe("account display name hook", () => {
+	afterEach(() => {
+		cleanup();
+		for (const client of queryClients.splice(0)) {
+			client.clear();
+		}
+	});
+
+	it("renames the Account and default Human Profile everywhere before the request completes", async () => {
+		let rejectRename!: (reason: unknown) => void;
+		updateUserNameMock.mockReset().mockImplementationOnce(
+			() =>
+				new Promise((_resolve, reject) => {
+					rejectRename = reject;
+				})
+		);
+		const queryClient = createIdentityQueryClient();
+		const profileQueryKey = seedIdentityQueries(queryClient);
+		const wrapper = createWrapper(queryClient);
+		const { result } = renderHook(() => useUpdateUserName(), { wrapper });
+
+		let mutation!: Promise<unknown>;
+		act(() => {
+			mutation = result.current.mutateAsync("Ada King");
+		});
+
+		await waitFor(() => {
+			expect(readNames(queryClient, profileQueryKey)).toEqual({
+				session: "Ada King",
+				profile: "Ada King",
+				directoryUser: "Ada King",
+				directoryProfile: "Ada King",
+				spaceMember: "Ada King",
+				spaceBootstrapMember: "Ada King",
+			});
+		});
+
+		rejectRename(new Error("Rename failed."));
+		await act(async () => {
+			await expect(mutation).rejects.toThrow("Rename failed.");
+		});
+		await waitFor(() => expect(result.current.isError).toBe(true));
+		expect(readNames(queryClient, profileQueryKey)).toEqual({
+			session: "Ada Lovelace",
+			profile: "Ada Lovelace",
+			directoryUser: "Ada Lovelace",
+			directoryProfile: "Ada Lovelace",
+			spaceMember: "Ada Lovelace",
+			spaceBootstrapMember: "Ada Lovelace",
+		});
+	});
+});
+
+function readNames(
+	queryClient: QueryClient,
+	profileQueryKey: ReturnType<typeof startQueryKeys.profilesForStorageScope>
+) {
+	type Human = { profileName?: string };
+	const directory = queryClient.getQueryData<{
+		members: readonly {
+			user: { name: string };
+			humanProfile: { profileName: string } | null;
+		}[];
+	}>(organizationQueryKeys.directory("organization-1"))?.members[0];
+	return {
+		session: queryClient.getQueryData<{ user: { name: string } }>(
+			userQueryKeys.session
+		)?.user.name,
+		profile:
+			queryClient.getQueryData<readonly { profileName: string }[]>(
+				profileQueryKey
+			)?.[0]?.profileName,
+		directoryUser: directory?.user.name,
+		directoryProfile: directory?.humanProfile?.profileName,
+		spaceMember: queryClient.getQueryData<{ humans: readonly Human[] }>(
+			spaceQueryKeys.members("space-1", "human-profile-1")
+		)?.humans[0]?.profileName,
+		spaceBootstrapMember: queryClient.getQueryData<{
+			members: { humans: readonly Human[] };
+		}>(spaceQueryKeys.bootstrap("space-1", "human-profile-1"))?.members
+			.humans[0]?.profileName,
+	};
+}
+
 function createIdentityQueryClient(): QueryClient {
 	const client = new QueryClient({
 		defaultOptions: {
@@ -329,6 +415,7 @@ function seedIdentityQueries(queryClient: QueryClient) {
 			{
 				avatarUrl: "https://example.com/old-avatar.webp",
 				profileId: "human-profile-1",
+				profileName: "Ada Lovelace",
 			},
 		],
 		spaceId: "space-1",

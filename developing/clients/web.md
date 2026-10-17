@@ -467,6 +467,28 @@ the chevron with a short opacity/transform transition. Keyboard focus and touch
 also expose rename, and reduced motion disables the transition. Selecting
 history navigates to the exact Space; a new draft omits the redundant New chat action.
 
+The Spaces list shows the viewer's active private sessions with one Center
+Agent as a single entry titled **{display name}’s Center Agent** (plain
+**Center Agent** without a name). The name is the default Human Profile name,
+which the Account display name keeps paired; renaming updates the session,
+Profile, directory and Space member caches optimistically and restores them if
+the request fails. The Center Agent is Organization-owned, so the
+possessive names only the viewer's private sessions. The entry is the session it
+opens: the one with the newest unread message, otherwise the most recently
+active one, so its id, link and unread jump agree. It sums unread, Wake count,
+Wake statuses, and attention evidence across its sessions. A pin, group, or
+manual position saved for any of its sessions applies to the entry; moving or
+unpinning it drops the other sessions' saved positions. While a search is
+active, each session is listed on its own row so a title match opens that
+session.
+Rename and archive stay on the session's title dropdown and header, not the
+entry. Archived sessions keep their own rows in the Archived view. The session
+title dropdown shows the entry name as a fixed, visually muted prefix before the
+session title, hidden on narrow screens so the session title keeps the room;
+the heading's accessible name stays the session title. Other
+lists that read conversations, such as the command center, keep one row per
+session.
+
 Selecting only Center Agent in New message, or **New chat** in an existing
 Center Agent conversation's title dropdown, opens a local `?draft=new` composer without creating a session or
 waiting for a session-list request. The first send creates the session and

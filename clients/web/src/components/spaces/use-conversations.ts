@@ -2,6 +2,13 @@ import { useMemo } from "react";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
 import { resolveAccountSpaceRecency } from "#/lib/spaces/account-spaces";
 import { selectAccountSpaceSections } from "./account-space-sections";
+import {
+	aliasSpaceIds,
+	collapseCenterAgentSessions,
+	keepOnlyCenterAgentEntryPosition,
+	mergeActiveWakeSummaries,
+	mergeBySidebarEntry,
+} from "./center-agent-sidebar-entry";
 import { mergeChatPreferences } from "./chat-sidebar-model";
 import {
 	type Conversation,
@@ -18,9 +25,12 @@ import { useDeletedSpaceNotices } from "./use-deleted-space-notices";
 export function useConversations(input: {
 	currentProfileId?: string;
 	currentSpaceId?: string;
+	/** Show the viewer's active Center Agent sessions as one entry with this title. */
+	centerAgentEntryTitle?: string;
 }) {
-	const directMessages = useChats({
-		...input,
+	const rawDirectMessages = useChats({
+		currentProfileId: input.currentProfileId,
+		currentSpaceId: input.currentSpaceId,
 		includeSpaceIndicators: true,
 		search: "",
 		archived: false,
@@ -31,8 +41,7 @@ export function useConversations(input: {
 		preferences: chatPreferences,
 		org,
 		profileId,
-		indicators,
-	} = directMessages;
+	} = rawDirectMessages;
 	const preferences = store.preferences;
 	// Menu destinations depend on saved group definitions, not read receipts
 	// or account-item refreshes. Keep the same preference migration rules.
@@ -49,11 +58,13 @@ export function useConversations(input: {
 			"direct-message": choices("direct-message"),
 		};
 	}, [preferences]);
-	useDeletedSpaceNotices(directMessages.spaces.data?.recentlyDeletedItems);
-	const selected = directMessages.selected;
+	useDeletedSpaceNotices(rawDirectMessages.spaces.data?.recentlyDeletedItems);
 	const accountSections = selectAccountSpaceSections({
 		currentOrganizationId: org.id,
-		sections: directMessages.spaces.data ?? { pinnedItems: [], spaceItems: [] },
+		sections: rawDirectMessages.spaces.data ?? {
+			pinnedItems: [],
+			spaceItems: [],
+		},
 	});
 	const conversations = new Map<string, Conversation>();
 	for (const item of [
@@ -74,34 +85,114 @@ export function useConversations(input: {
 			}),
 		});
 	}
-	for (const chat of directMessages.chats) {
-		const preview = directMessages.previews[directMessages.chats.indexOf(chat)];
+	for (const chat of rawDirectMessages.chats) {
+		const preview =
+			rawDirectMessages.previews[rawDirectMessages.chats.indexOf(chat)];
 		conversations.set(chat.spaceId, {
 			kind: "direct-message",
 			chat,
 			preview,
 			spaceId: chat.spaceId,
-			title: directMessages.title(chat),
+			title: rawDirectMessages.title(chat),
 			profileId: chat.viewerProfileId ?? profileId,
 			activity: Math.max(
 				preview?.data?.timestamp ?? 0,
 				Date.parse(chat.createdAt ?? "") || 0
 			),
-			url: directMessages.chatPath(chat),
+			url: rawDirectMessages.chatPath(chat),
 		});
 	}
-	const sections = preferences
-		? conversationSections(preferences, chatPreferences)
-		: [];
+	const collapsed = input.centerAgentEntryTitle
+		? collapseCenterAgentSessions({
+				conversations: [...conversations.values()],
+				archivedIds: chatPreferences.archivedIds,
+				latestUnreadAtBySpaceId: new Map(
+					[...rawDirectMessages.indicators.unreadBySpaceId]
+						.filter(([, value]) => value.unreadCount > 0)
+						.map(([id, value]) => [id, value.latestUnreadOccurredAtMs])
+				),
+				title: input.centerAgentEntryTitle,
+			})
+		: null;
+	const entryIdBySessionId: ReadonlyMap<string, string> =
+		collapsed?.entryIdBySessionId ?? new Map();
+	// A pin, group or manual position saved for any session applies to its entry.
+	const sections = (
+		preferences ? conversationSections(preferences, chatPreferences) : []
+	).map((section) =>
+		collapsed
+			? {
+					...section,
+					spaceIds: aliasSpaceIds(section.spaceIds, entryIdBySessionId),
+				}
+			: section
+	);
+	const chatPins = aliasSpaceIds(
+		chatPreferences.pinned.spaceIds,
+		entryIdBySessionId
+	);
+	const rows = new Map(
+		(collapsed?.conversations ?? [...conversations.values()]).map((item) => [
+			item.spaceId,
+			item,
+		])
+	);
+	// Evidence stays keyed by real Space; the collapsed entry shows the sum.
+	const directMessages = collapsed
+		? {
+				...rawDirectMessages,
+				indicators: {
+					...rawDirectMessages.indicators,
+					unreadBySpaceId: mergeBySidebarEntry(
+						rawDirectMessages.indicators.unreadBySpaceId,
+						entryIdBySessionId,
+						(current, next) => ({
+							unreadCount: current.unreadCount + next.unreadCount,
+							messageUnreadCount:
+								(current.messageUnreadCount ?? 0) +
+								(next.messageUnreadCount ?? 0),
+							latestUnreadOccurredAtMs: Math.max(
+								current.latestUnreadOccurredAtMs ?? 0,
+								next.latestUnreadOccurredAtMs ?? 0
+							),
+						})
+					),
+					activeWakeSummaryBySpaceId: new Map(
+						[
+							...mergeBySidebarEntry(
+								rawDirectMessages.indicators.activeWakeSummaryBySpaceId,
+								entryIdBySessionId,
+								mergeActiveWakeSummaries
+							),
+						].map(([id, summary]) => [id, { ...summary, spaceId: id }])
+					),
+				},
+				attentionById: mergeBySidebarEntry(
+					rawDirectMessages.attentionById,
+					entryIdBySessionId,
+					(current, next) => ({
+						...current,
+						unresolvedActionCount:
+							current.unresolvedActionCount + next.unresolvedActionCount,
+						unreadUrgentUpdateCount:
+							current.unreadUrgentUpdateCount + next.unreadUrgentUpdateCount,
+					})
+				),
+			}
+		: rawDirectMessages;
+	const { indicators } = directMessages;
+	const selected = rawDirectMessages.selected
+		? (entryIdBySessionId.get(rawDirectMessages.selected) ??
+			rawDirectMessages.selected)
+		: rawDirectMessages.selected;
 	const owner = (conversation: Conversation) =>
-		conversationSectionId(
-			conversation,
-			sections,
-			chatPreferences.pinned.spaceIds
-		);
+		conversationSectionId(conversation, sections, chatPins);
 	const attention = resolveSidebarAttentionSpaceIds(
 		indicators.activeWakeSummaryBySpaceId,
-		directMessages.inbox.data?.attention
+		rawDirectMessages.inbox.data?.attention?.map((item) => ({
+			...item,
+			spaceId: entryIdBySessionId.get(item.spaceId) ?? item.spaceId,
+		}))
 	);
 	const unread = new Map(
 		[...indicators.unreadBySpaceId]
@@ -115,7 +206,7 @@ export function useConversations(input: {
 	) => sortConversations(items, section, attention, unread, working);
 	const disabled = !preferences;
 	const canMove = (id: string, sectionId: string) => {
-		const conversation = conversations.get(id);
+		const conversation = rows.get(id);
 		const target = sections.find((section) => section.id === sectionId);
 		return (
 			!disabled &&
@@ -130,7 +221,7 @@ export function useConversations(input: {
 		visibleIds: readonly string[],
 		beforeId?: string
 	) => {
-		const conversation = conversations.get(id);
+		const conversation = rows.get(id);
 		const target = sections.find((section) => section.id === sectionId);
 		if (!(preferences && conversation && target && canMove(id, sectionId))) {
 			return;
@@ -147,7 +238,15 @@ export function useConversations(input: {
 			accountItem
 				? directMessages.pin.setPinned(accountItem, sectionId === "pinned")
 				: Promise.resolve(true),
-			store.updateAsync((current) => {
+			store.updateAsync((latest) => {
+				const current =
+					conversation.kind === "direct-message" && conversation.sessionSpaceIds
+						? keepOnlyCenterAgentEntryPosition(
+								latest,
+								conversation.sessionSpaceIds,
+								conversation.spaceId
+							)
+						: latest;
 				const chats = mergeChatPreferences(
 					current,
 					directMessages.ordinaryAccountItems
@@ -172,6 +271,11 @@ export function useConversations(input: {
 		if (!preferences) {
 			return;
 		}
+		const unpinned = new Set(
+			conversation.kind === "direct-message" && conversation.sessionSpaceIds
+				? conversation.sessionSpaceIds
+				: [conversation.spaceId]
+		);
 		const accountItem =
 			conversation.kind === "space"
 				? conversation.item
@@ -182,7 +286,15 @@ export function useConversations(input: {
 			accountItem
 				? directMessages.pin.setPinned(accountItem, false)
 				: Promise.resolve(true),
-			store.updateAsync((current) => {
+			store.updateAsync((latest) => {
+				const current =
+					conversation.kind === "direct-message" && conversation.sessionSpaceIds
+						? keepOnlyCenterAgentEntryPosition(
+								latest,
+								conversation.sessionSpaceIds,
+								conversation.spaceId
+							)
+						: latest;
 				const chats = mergeChatPreferences(
 					current,
 					directMessages.ordinaryAccountItems
@@ -192,17 +304,13 @@ export function useConversations(input: {
 					messages: undefined,
 					pinned: {
 						...current.pinned,
-						spaceIds: current.pinned.spaceIds.filter(
-							(id) => id !== conversation.spaceId
-						),
+						spaceIds: current.pinned.spaceIds.filter((id) => !unpinned.has(id)),
 					},
 					chats: {
 						...chats,
 						pinned: {
 							...chats.pinned,
-							spaceIds: chats.pinned.spaceIds.filter(
-								(id) => id !== conversation.spaceId
-							),
+							spaceIds: chats.pinned.spaceIds.filter((id) => !unpinned.has(id)),
 						},
 					},
 				};
@@ -296,7 +404,7 @@ export function useConversations(input: {
 	};
 	return {
 		directMessages,
-		conversations: [...conversations.values()],
+		conversations: [...rows.values()],
 		sections,
 		moveGroups,
 		selected,

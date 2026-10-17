@@ -34,6 +34,9 @@ vi.mock("./use-conversations", async () => {
 		},
 	};
 });
+vi.mock("#/lib/profiles/use-default-human-profile", () => ({
+	useDefaultHumanProfile: () => ({ defaultHumanProfile: null }),
+}));
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => ({
 		currentUserId: "viewer",
