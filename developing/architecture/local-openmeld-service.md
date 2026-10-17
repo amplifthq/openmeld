@@ -170,6 +170,8 @@ work or acknowledge retained results. Accepted queued tasks remain owned by the
 Host across transport loss, keep their lifecycle reporting, and recheck the
 current lease and Coordinator admission before starting the provider. Dropping
 the queue on socket loss would leave an accepted execution without its carrier.
+Permanent connector IPC loss instead rejects unconfirmed provider admission;
+unstarted tasks settle through the existing result outbox before Host drain.
 The failure reason is logged even when
 the background Service uses a silent presenter; an observed close remains a
 separate transport event.

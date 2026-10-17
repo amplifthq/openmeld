@@ -167,7 +167,10 @@ describe("local service token-backed execution start", () => {
     vi.resetAllMocks();
   });
 
-  it("retains accepted queued work across transport loss and rechecks admission on reconnect", async () => {
+  it.each([
+    "reconnect",
+    "connector_exit",
+  ])("retains accepted queued work across transport loss and fences provider admission on %s", async (outcome) => {
     const ledgerPaths = createLedgerPaths();
     vi.stubEnv("OPENMELD_HOME", ledgerPaths.rootDirPath);
     const dispatch = vi.fn();
@@ -272,7 +275,9 @@ describe("local service token-backed execution start", () => {
       // The replacement route rejects the first task's admission and revokes the
       // queued task's old lease. Neither task may reach the native provider.
       rejectAdmissions = true;
-      await configure(2, 2);
+      if (outcome === "reconnect") {
+        await configure(2, 2);
+      }
       await host.close();
       vi.unstubAllEnvs();
     }
