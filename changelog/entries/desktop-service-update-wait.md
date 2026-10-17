@@ -7,9 +7,10 @@ audiences: ["users"]
 ---
 
 Computer setup explains when an update is waiting for current tasks and continues
-automatically when they finish. Confirmed running tasks no longer cause setup to
-stop at its 15-minute limit. Desktop waits for an existing update before requesting
-new connection credentials, so that wait does not use up their validity period.
+automatically when they finish. Desktop observes the background update without
+holding the setup lock or requesting connection credentials. Observation ends
+after 30 minutes with a check-and-retry message; tasks and the update continue.
+Setup itself releases its lock at its fixed 15-minute limit.
 
 Running tasks keep their Stop control when the Agent's startup readiness report
 expires or becomes unavailable. OpenMeld still waits for the Agent to confirm

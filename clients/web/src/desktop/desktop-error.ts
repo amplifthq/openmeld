@@ -1,6 +1,7 @@
 // Only known, user-facing native failures may cross into UI copy. IPC
 // wrappers and arbitrary SDK responses can contain implementation or auth data.
 const knownMessages = new Set([
+	"OpenMeld is still waiting for the background update. Current tasks and the update continue. Check their status, then try connecting again.",
 	"Could not connect to OpenMeld. Check your connection and try again.",
 	"This version of OpenMeld is not supported by the server. Check for an app update.",
 	"OpenMeld is unavailable right now. Try again shortly.",

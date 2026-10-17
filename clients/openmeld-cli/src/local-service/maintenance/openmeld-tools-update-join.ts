@@ -19,6 +19,7 @@ const DEFAULT_UPDATE_JOIN_POLL_INTERVAL_MS = 500;
 export async function waitForOpenMeldToolsUpdateCompletion(
   input: {
     operationId?: string;
+    timeoutMs?: number;
     pollIntervalMs?: number;
     onWaiting?: (
       operation: OpenMeldToolsUpdateOperation
@@ -32,6 +33,7 @@ export async function waitForOpenMeldToolsUpdateCompletion(
   let operationId = input.operationId ?? null;
   await waitForExternalOpenMeldToolsUpdate({
     completedServiceUpdateIsIdle: true,
+    timeoutMs: input.timeoutMs,
     pollIntervalMs: input.pollIntervalMs,
     onWaiting: async (operation) => {
       if (operationId !== null && operationId !== operation.operationId) {
@@ -106,6 +108,7 @@ export async function waitForExternalOpenMeldToolsUpdate(
     ) => Promise<void> | void;
     pollIntervalMs?: number;
     unclaimedTimeoutMs?: number;
+    timeoutMs?: number;
     onObservation?: (
       operation: OpenMeldToolsUpdateOperation,
       readiness: OpenMeldDaemonServiceUpdateReadinessPayload | null
@@ -113,12 +116,14 @@ export async function waitForExternalOpenMeldToolsUpdate(
   } = {}
 ): Promise<void> {
   let reportedOperation: string | null = null;
+  const deadline = Date.now() + (input.timeoutMs ?? Number.POSITIVE_INFINITY);
   let unclaimedSince: number | null = null;
   while (true) {
     const operation = await resolveExternalOpenMeldToolsUpdate(input);
     if (!operation) {
       return;
     }
+    assertUpdateObservationActive(deadline);
     if (input.onObservation) {
       // Reuse the Service's public local control projection. Required updates
       // enter `updating` before drain, so the durable phase alone cannot say
@@ -149,6 +154,14 @@ export async function waitForExternalOpenMeldToolsUpdate(
     }
     await sleep(
       Math.max(1, input.pollIntervalMs ?? DEFAULT_UPDATE_JOIN_POLL_INTERVAL_MS)
+    );
+  }
+}
+
+function assertUpdateObservationActive(deadline: number): void {
+  if (Date.now() >= deadline) {
+    throw new Error(
+      "OpenMeld is still waiting for the background update. Current tasks and the update continue. Check their status, then try connecting again."
     );
   }
 }

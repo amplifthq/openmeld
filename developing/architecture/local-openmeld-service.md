@@ -3378,9 +3378,12 @@ the same job after its own crash, sign-in, or computer restart.
 Setup observers read `service_update_readiness` through the existing local
 control endpoint to distinguish accepted-work drain from installation. A
 required update can remain `updating` while accepted work drains; the durable
-phase alone does not prove that tasks finished. Fresh accepted-work evidence
-renews the setup watchdog. Missing responses and unacknowledged-result-only
-waits do not. This observation neither admits work nor changes Wake truth,
+phase alone does not prove that tasks finished. Accepted-work counts explain
+the wait but never renew a caller deadline. The setup mutation lock has a fixed
+15-minute lifetime. Desktop's read-only pre-authorization observer takes no
+setup lock and stops observing after 30 minutes. Caller expiry never stops a
+Wake or cancels the OS-owned update; it leaves a visible check-and-retry action.
+This observation neither admits work nor changes Wake truth,
 Service lifecycle, or the durable update job.
 
 When the control endpoint is absent, the update worker delegates to the existing

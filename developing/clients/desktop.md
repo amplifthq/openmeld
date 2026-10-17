@@ -431,7 +431,10 @@ Waiting progress uses the shared `waiting_for_current_work` phase and the
 Service's `service_update_readiness` accepted-work projection. Desktop displays
 that tasks must finish, setup will continue automatically, and tasks can be
 stopped in their Spaces. It does not infer work from the durable `updating`
-phase, own a second task counter, or impose a GUI timeout on the wait.
+phase or own a second task counter. The CLI observer takes no setup lock and
+has a fixed 30-minute observation limit. At expiry Desktop reports that tasks
+and the background update continue, with a check-and-retry action. No Prepare
+credentials have been acquired and no running task is stopped by that limit.
 
 For ordinary Connect, when the managed CLI is absent or lacks the connection
 contract, main downloads the managed binary manifest and the Apple silicon or

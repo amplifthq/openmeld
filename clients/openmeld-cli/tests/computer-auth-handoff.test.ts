@@ -193,9 +193,7 @@ const presenter = {
 } satisfies Presenter;
 
 describe("Computer authorization handoff", () => {
-  it("emits Desktop-readable progress from Service work, including drain completion", async () => {
-    const setupLock = await import("../src/commands/setup-command-lock");
-    const renew = vi.spyOn(setupLock, "reportSetupCurrentWorkWait");
+  it("emits Desktop-readable progress from Service work, including drain completion", () => {
     const operation: OpenMeldToolsUpdateOperation = {
       operationId: "update-running",
       phase: "updating",
@@ -222,10 +220,7 @@ describe("Computer authorization handoff", () => {
       unacknowledgedResultCount: 0,
     });
     expect(presenter.line).toHaveBeenCalledTimes(2);
-    expect(renew).toHaveBeenCalledTimes(2);
     observe(operation, null);
-    expect(renew).toHaveBeenCalledTimes(2);
-    renew.mockRestore();
     const events = presenter.line.mock.calls.map(([event]) =>
       computerSetupOutputSchema.parse({
         type: "line",

@@ -38,6 +38,27 @@ const attempt: OpenMeldToolsUpdateAttempt = {
 };
 
 describe("OpenMeld Tools update join", () => {
+  it("bounds observation without changing the pending update", async () => {
+    await withTempHome(async () => {
+      await persistOpenMeldToolsUpdateAttempt(attempt);
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        await expect(
+          waitForOpenMeldToolsUpdateCompletion({
+            timeoutMs: 30 * 60_000,
+            pollIntervalMs: 1,
+            onObservation: () => vi.setSystemTime(Date.now() + 30 * 60_000),
+          })
+        ).rejects.toThrow("Current tasks and the update continue");
+        expect(await resolveExternalOpenMeldToolsUpdate()).toMatchObject({
+          operationId: attempt.operation.operationId,
+          phase: "updating",
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
   it("reads accepted work through the Service control socket while the durable phase remains updating", async () => {
     await withTempHome(async () => {
       const now = new Date().toISOString();

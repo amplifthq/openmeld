@@ -3,6 +3,7 @@ import { formatDesktopError } from "./desktop-error";
 
 describe("Desktop sign-in errors", () => {
 	it.each([
+		"OpenMeld is still waiting for the background update. Current tasks and the update continue. Check their status, then try connecting again.",
 		"Could not connect to OpenMeld. Check your connection and try again.",
 		"Could not open your workspace. Check your connection and try again.",
 		"This sign-in could not be completed. Sign in with your browser again.",

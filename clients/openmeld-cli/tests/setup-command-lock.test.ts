@@ -7,7 +7,9 @@ import {
   installSetupStandDownHandler,
   type SetupLockTakeoverDeps,
 } from "../src/commands/setup-command-lock";
+import { createSetupUpdateObserver } from "../src/commands/setup-update-progress";
 import { type OpenMeldLock, OpenMeldLockError } from "../src/config/lock";
+import type { Presenter } from "../src/runtime/presenter";
 import { LocalMachineFailureError } from "../src/system/local-machine-recovery";
 
 const HOLDER_PID = 86_238;
@@ -376,21 +378,37 @@ describe("buildSetupLockContentionError", () => {
 });
 
 describe("createSetupGlobalDeadline", () => {
-  it("allows fresh accepted work beyond the deadline, then expires if evidence stops", async () => {
+  it("expires the setup caller even while accepted work is reported", async () => {
     vi.useFakeTimers();
     const onExpire = vi.fn();
     const deadline = createSetupGlobalDeadline({
       deadlineMs: 15 * 60_000,
       onExpire,
     });
+    const observe = createSetupUpdateObserver({
+      line: vi.fn(),
+    } as unknown as Presenter);
     try {
       deadline.arm();
-      for (let elapsed = 0; elapsed < 60; elapsed += 1) {
+      for (let elapsed = 0; elapsed < 15; elapsed += 1) {
+        observe(
+          {
+            operationId: "waiting-update",
+            phase: "updating",
+            requestSource: "automatic",
+            requestedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            targetVersion: "0.3.264",
+            urgency: "required",
+          },
+          {
+            acceptedWakeCount: 1,
+            unacknowledgedResultCount: 0,
+            safeToSwitch: false,
+          }
+        );
         await vi.advanceTimersByTimeAsync(60_000);
-        deadline.renew();
       }
-      expect(onExpire).not.toHaveBeenCalled();
-      await vi.advanceTimersByTimeAsync(15 * 60_000);
       expect(onExpire).toHaveBeenCalledOnce();
     } finally {
       deadline.disarm();

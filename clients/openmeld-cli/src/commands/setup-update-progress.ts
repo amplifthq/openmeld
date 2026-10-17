@@ -3,7 +3,6 @@ import type {
   OpenMeldToolsUpdateOperation,
 } from "@openmeld/schemas/types";
 import type { Presenter } from "../runtime/presenter";
-import { reportSetupCurrentWorkWait } from "./setup-command-lock";
 
 export function createSetupUpdateObserver(presenter: Presenter) {
   let reportedProgress: string | null = null;
@@ -13,9 +12,6 @@ export function createSetupUpdateObserver(presenter: Presenter) {
   ) => {
     const waitingForWork =
       readiness !== null && readiness.acceptedWakeCount > 0;
-    if (waitingForWork) {
-      reportSetupCurrentWorkWait();
-    }
     const phase = waitingForWork ? "waiting_for_current_work" : "installing";
     const progressKey = `${operation.operationId}:${operation.phase}:${phase}`;
     if (reportedProgress === progressKey) {
