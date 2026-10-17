@@ -17454,6 +17454,28 @@ describe("runtime transport runtime coordinator transport contract", () => {
         spaceId: HEX_SPACE_ID,
       })
     );
+
+    // The Service replays the same unanswered request after reconnecting.
+    spaceStub.rpcBroadcastWakeProgressChanged.mockClear();
+    await (
+      hub as unknown as {
+        handleDispatchInteractionRequestFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchInteractionRequestFrame(
+      socket,
+      buildInteractionRequest(executionToken)
+    );
+    await Promise.all(waitUntilTasks);
+
+    expect(spaceStub.rpcBroadcastWakeProgressChanged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentProfileIds: [TARGET_AGENT_PROFILE_ID],
+        spaceId: HEX_SPACE_ID,
+      })
+    );
   });
 
   it("keeps the pending interaction authoritative when Inbox creation fails", async () => {

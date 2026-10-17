@@ -9590,6 +9590,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           webSocket,
         });
       } else {
+        // A Service replays an unanswered request after reconnecting; an open
+        // Space may have missed the first notice while the socket was down.
+        this.publishWakeProgressChanged({
+          agentProfileId: authority.commandState.targetProfileId,
+          clientMessageId: authority.commandState.sourceClientMessageId,
+          spaceId:
+            authority.commandState.sanitizedDeliveryRequest.payload.spaceId,
+        });
         await this.tryProjectRuntimeCoordinatorInteractionInboxItem({
           commandState: authority.commandState,
           interaction: existing.request,
