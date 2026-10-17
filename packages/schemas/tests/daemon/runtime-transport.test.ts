@@ -2073,10 +2073,18 @@ describe("runtime transport schema", () => {
     expect(
       runtimeTransportRuntimeCoordinatorReadInteractionResponseSchema.safeParse(
         {
+          interactionUpdatedAtMs: 1_700_000_000_200,
           pendingInteraction,
         }
       ).success
     ).toBe(true);
+    expect(
+      runtimeTransportRuntimeCoordinatorReadInteractionResponseSchema.safeParse(
+        {
+          pendingInteraction,
+        }
+      ).success
+    ).toBe(false);
     expect(
       runtimeTransportRuntimeCoordinatorRespondInteractionRequestSchema.safeParse(
         {

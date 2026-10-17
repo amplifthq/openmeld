@@ -388,6 +388,11 @@ export type RuntimeCoordinatorRunLocalProgressState = {
 
 export type RuntimeCoordinatorPendingAgentInteractionState = {
   request: AgentInteractionRequest;
+  /**
+   * Core time the request first reached Core. Optional for interactions
+   * stored before it was recorded; the Service's requestedAtMs stands in.
+   */
+  requestReceivedAtMs?: number;
   respondedAtMs: number | null;
   response: AgentInteractionResponse | null;
 };

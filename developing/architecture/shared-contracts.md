@@ -8891,6 +8891,16 @@ additive field. Space's response HTTP/RPC contract carries only the public Wake
 selector, interaction id, and shared response; Core resolves private execution
 authority and must not accept it from the browser.
 
+RuntimeCoordinator's interaction read also returns `interactionUpdatedAtMs`:
+the Core time of the execution's latest interaction change (the request
+reaching Core, its answer, or its expiry), or null before any interaction.
+Space folds it into every Wake progress item's `updatedAtMs` for that
+execution. A request or answer therefore advances the item revision even when
+the lifecycle record is unchanged, so a client holding an older copy of the
+same lifecycle revision, such as a per-message poll taken before the request,
+cannot outrank the newer interaction state. The Service's `requestedAtMs`
+stays display data and never orders progress.
+
 Provider adapters map native protocols into this contract without creating
 provider-specific approval truth:
 

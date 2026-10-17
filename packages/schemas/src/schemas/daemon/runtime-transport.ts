@@ -2255,6 +2255,10 @@ export const runtimeTransportRuntimeCoordinatorReadInteractionRequestSchema =
 export const runtimeTransportRuntimeCoordinatorReadInteractionResponseSchema =
   z.strictObject({
     pendingInteraction: agentInteractionPendingSummarySchema.nullable(),
+    // Core time of this execution's latest interaction change: a request
+    // reaching Core, an answer, or an expiry. Wake progress revisions include
+    // it so a newer interaction state outranks an older equal-lifecycle copy.
+    interactionUpdatedAtMs: z.number().int().nonnegative().nullable(),
   });
 
 export const runtimeTransportRuntimeCoordinatorRespondInteractionRequestSchema =

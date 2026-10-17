@@ -9632,6 +9632,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       lastWatchdogCheckAtMs: null,
       pendingInteraction: {
         request: interaction,
+        requestReceivedAtMs: nowMs,
         respondedAtMs: null,
         response: null,
       },
@@ -14349,6 +14350,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (!parsed.success) {
       return Response.json(
         {
+          interactionUpdatedAtMs: null,
           pendingInteraction: null,
         } satisfies RuntimeTransportRuntimeCoordinatorReadInteractionResponse,
         { status: 400 }
@@ -14357,11 +14359,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const commandState = await this.readRuntimeCoordinatorRunCommandState(
       parsed.data.runtimeCoordinatorExecutionId
     );
+    const nowMs = Date.now();
     const storedPending = commandState?.pendingInteraction ?? null;
     const pending =
       storedPending &&
       !storedPending.response &&
-      storedPending.request.expiresAtMs > Date.now()
+      storedPending.request.expiresAtMs > nowMs
         ? storedPending
         : null;
     const canRespond =
@@ -14381,6 +14384,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       : null;
     const response =
       runtimeTransportRuntimeCoordinatorReadInteractionResponseSchema.parse({
+        interactionUpdatedAtMs: resolveRuntimeCoordinatorInteractionUpdatedAtMs(
+          { commandState, nowMs }
+        ),
         pendingInteraction,
       });
     return Response.json(response);
@@ -22033,6 +22039,32 @@ const normalizeAgentReadinessInvalidationError = (
     return String(error);
   }
   return undefined;
+};
+// Core time of the execution's latest interaction change: a request reaching
+// Core, its answer, or its expiry. Wake progress folds it into the item
+// revision; otherwise an older copy at the same lifecycle revision can hide a
+// new request, or keep showing an answered one, until the next lifecycle write.
+const resolveRuntimeCoordinatorInteractionUpdatedAtMs = (input: {
+  commandState: RuntimeCoordinatorRunCommandState | null;
+  nowMs: number;
+}): number | null => {
+  const pending = input.commandState?.pendingInteraction ?? null;
+  if (pending) {
+    if (pending.respondedAtMs !== null) {
+      return pending.respondedAtMs;
+    }
+    const receivedAtMs =
+      pending.requestReceivedAtMs ?? pending.request.requestedAtMs;
+    return pending.request.expiresAtMs <= input.nowMs
+      ? Math.max(receivedAtMs, pending.request.expiresAtMs)
+      : receivedAtMs;
+  }
+  const receipts = Object.values(
+    input.commandState?.interactionResponseReceipts ?? {}
+  );
+  return receipts.length > 0
+    ? Math.max(...receipts.map((receipt) => receipt.respondedAtMs))
+    : null;
 };
 const readDispatchIdForFrameOrdering = (payload: unknown): string | null => {
   if (!(payload && typeof payload === "object" && "dispatchId" in payload)) {

@@ -829,7 +829,7 @@ export const readRuntimeTransportRuntimeCoordinatorInteraction = async (input: {
       input.request
     );
   if (!parsedRequest.success) {
-    return { pendingInteraction: null };
+    return { interactionUpdatedAtMs: null, pendingInteraction: null };
   }
   const response = await callRuntimeTransportApi({
     env: input.env,
@@ -841,7 +841,9 @@ export const readRuntimeTransportRuntimeCoordinatorInteraction = async (input: {
     runtimeTransportRuntimeCoordinatorReadInteractionResponseSchema.safeParse(
       response
     );
-  return parsed.success ? parsed.data : { pendingInteraction: null };
+  return parsed.success
+    ? parsed.data
+    : { interactionUpdatedAtMs: null, pendingInteraction: null };
 };
 export const respondToRuntimeTransportRuntimeCoordinatorInteraction =
   async (input: {

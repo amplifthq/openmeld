@@ -507,7 +507,10 @@ const buildWakeProgressItemFromLookupTrace = async (
     ) => Promise<WakeStopEligibilityReadModel | null>;
     readWakeProgressPreAgentWakeStopEligibility: () => Promise<WakeStopEligibilityReadModel | null>;
     readWakeProgressRuntimeDeviceDisplayName: () => Promise<string | null>;
-    readWakeProgressPendingAgentInteraction: () => Promise<null>;
+    readWakeProgressAgentInteraction: () => Promise<{
+      interactionUpdatedAtMs: null;
+      pendingInteraction: null;
+    }>;
   };
   Object.defineProperty(space, "bindings", {
     value: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
@@ -530,8 +533,11 @@ const buildWakeProgressItemFromLookupTrace = async (
     readWakeProgressRuntimeDeviceDisplayName: {
       value: vi.fn(async () => null),
     },
-    readWakeProgressPendingAgentInteraction: {
-      value: vi.fn(async () => null),
+    readWakeProgressAgentInteraction: {
+      value: vi.fn(async () => ({
+        interactionUpdatedAtMs: null,
+        pendingInteraction: null,
+      })),
     },
     readWakeProgressWakeStopEligibility: {
       value: vi.fn(async () => wakeStopEligibility),
@@ -1390,13 +1396,16 @@ async function readActiveWakeProgressForTest(input: {
     sourceSignalId?: string | null;
     targetProfileId?: string;
   }) => Promise<GetSpaceWakeProgressResponse>;
-  readWakeProgressPendingAgentInteraction?: (input: {
+  readWakeProgressAgentInteraction?: (input: {
     actorOwnerUserId?: string | null;
     execution: {
       runtimeCoordinatorExecutionId: string;
       openMeldServiceRuntimeId: { source: string; value: string };
     };
-  }) => Promise<WakeProgressItem["pendingInteraction"]>;
+  }) => Promise<{
+    interactionUpdatedAtMs: number | null;
+    pendingInteraction: WakeProgressItem["pendingInteraction"];
+  }>;
   sourceSignals?: readonly Extract<SignalEnvelope, { type: "signal.text" }>[];
   sourceProfileId?: string;
   targetProfileId?: string;
@@ -1430,8 +1439,8 @@ async function readActiveWakeProgressForTest(input: {
       targetProfileId?: string;
     }) => Promise<GetActiveSpaceWakeProgressResponse>;
     readSpaceWakeProgress: NonNullable<typeof input.readSpaceWakeProgress>;
-    readWakeProgressPendingAgentInteraction: NonNullable<
-      typeof input.readWakeProgressPendingAgentInteraction
+    readWakeProgressAgentInteraction: NonNullable<
+      typeof input.readWakeProgressAgentInteraction
     >;
     spaceId: string;
   };
@@ -1468,9 +1477,9 @@ async function readActiveWakeProgressForTest(input: {
       value: input.readSpaceWakeProgress,
     });
   }
-  if (input.readWakeProgressPendingAgentInteraction) {
-    Object.defineProperty(space, "readWakeProgressPendingAgentInteraction", {
-      value: input.readWakeProgressPendingAgentInteraction,
+  if (input.readWakeProgressAgentInteraction) {
+    Object.defineProperty(space, "readWakeProgressAgentInteraction", {
+      value: input.readWakeProgressAgentInteraction,
     });
   }
 
@@ -5493,32 +5502,37 @@ describe("space signal service", () => {
   });
 
   it("projects a pending local agent interaction only through the authenticated Wake progress view", async () => {
-    const readPendingInteraction = vi.fn(async () => ({
-      canRespond: true,
-      expiresAtMs: Date.now() + 60_000,
-      interactionId: "interaction-1",
-      kind: "permission" as const,
-      request: {
-        description: "The local agent needs permission to run this command.",
+    const executionUpdatedAtMs = Date.UTC(2026, 2, 4, 0, 3, 0);
+    const interactionUpdatedAtMs = executionUpdatedAtMs + 5000;
+    const readAgentInteraction = vi.fn(async () => ({
+      interactionUpdatedAtMs,
+      pendingInteraction: {
+        canRespond: true,
         expiresAtMs: Date.now() + 60_000,
         interactionId: "interaction-1",
         kind: "permission" as const,
-        options: [
-          {
-            intent: "allow_once" as const,
-            label: "Allow once",
-            optionId: "allow-once",
+        request: {
+          description: "The local agent needs permission to run this command.",
+          expiresAtMs: Date.now() + 60_000,
+          interactionId: "interaction-1",
+          kind: "permission" as const,
+          options: [
+            {
+              intent: "allow_once" as const,
+              label: "Allow once",
+              optionId: "allow-once",
+            },
+          ],
+          requestedAtMs: Date.now(),
+          subject: {
+            command: "pnpm check",
+            type: "command" as const,
           },
-        ],
-        requestedAtMs: Date.now(),
-        subject: {
-          command: "pnpm check",
-          type: "command" as const,
+          title: "Allow this command?",
+          v: 1 as const,
         },
-        title: "Allow this command?",
-        v: 1 as const,
+        requestedAtMs: Date.now(),
       },
-      requestedAtMs: Date.now(),
     }));
     const response = await readActiveWakeProgressForTest({
       actorOwnerUserId: "owner-1",
@@ -5529,13 +5543,14 @@ describe("space signal service", () => {
           sourceClientMessageId: "client-message-interaction-1",
           sourceEventId: "signal-interaction-1",
           targetProfileId: "agent-interaction-1",
+          updatedAtMs: executionUpdatedAtMs,
         },
       ],
       outboxRows: [],
-      readWakeProgressPendingAgentInteraction: readPendingInteraction,
+      readWakeProgressAgentInteraction: readAgentInteraction,
     });
 
-    expect(readPendingInteraction).toHaveBeenCalledWith(
+    expect(readAgentInteraction).toHaveBeenCalledWith(
       expect.objectContaining({
         actorOwnerUserId: "owner-1",
         execution: expect.objectContaining({
@@ -5550,6 +5565,9 @@ describe("space signal service", () => {
         kind: "permission",
       },
       runtimeCoordinatorExecutionId: "rce-dispatch-interaction-1",
+      // A new request must outrank an earlier copy of the same lifecycle
+      // revision, such as a per-message poll taken before it arrived.
+      updatedAtMs: interactionUpdatedAtMs,
     });
   });
 
