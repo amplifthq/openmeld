@@ -1,9 +1,19 @@
 import type { OpenMeldToolsUpdateAttempt } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
+import { runComputerUpdateWait } from "../src/commands/computer-update-wait";
+import {
+  SETUP_COMMAND_LOCK_KEY,
+  SETUP_COMMAND_LOCK_PROFILE,
+} from "../src/commands/setup-command-lock";
 import {
   installDaemon,
   readDaemonControlPlaneToken,
 } from "../src/config/daemon-state";
+import {
+  acquireLock,
+  OpenMeldLockError,
+  releaseLock,
+} from "../src/config/lock";
 import { startLocalDaemonControlPlaneServer } from "../src/local-service/control-plane/server";
 import {
   completePendingDaemonServiceUpdate,
@@ -20,7 +30,7 @@ import {
   waitForExternalOpenMeldToolsUpdate,
   waitForOpenMeldToolsUpdateCompletion,
 } from "../src/local-service/maintenance/openmeld-tools-update-join";
-import { withTempHome } from "./helpers/fs";
+import { withCapturedStdio, withTempHome } from "./helpers/fs";
 
 const attempt: OpenMeldToolsUpdateAttempt = {
   v: 1,
@@ -38,24 +48,35 @@ const attempt: OpenMeldToolsUpdateAttempt = {
 };
 
 describe("OpenMeld Tools update join", () => {
-  it("bounds observation without changing the pending update", async () => {
+  it("observes beside a setup lock and expires without changing the update or releasing that lock", async () => {
     await withTempHome(async () => {
       await persistOpenMeldToolsUpdateAttempt(attempt);
+      const lockInput = {
+        openMeldProfileId: SETUP_COMMAND_LOCK_PROFILE,
+        key: SETUP_COMMAND_LOCK_KEY,
+      };
+      const lock = await acquireLock(lockInput);
       vi.useFakeTimers({ toFake: ["Date"] });
       try {
         await expect(
-          waitForOpenMeldToolsUpdateCompletion({
-            timeoutMs: 30 * 60_000,
-            pollIntervalMs: 1,
-            onObservation: () => vi.setSystemTime(Date.now() + 30 * 60_000),
+          withCapturedStdio(runComputerUpdateWait, {
+            onStdout: (text) => {
+              if (text.includes("setup.openmeld_tools_update.waiting")) {
+                vi.setSystemTime(Date.now() + 30 * 60_000);
+              }
+            },
           })
         ).rejects.toThrow("Current tasks and the update continue");
+        await expect(acquireLock(lockInput)).rejects.toBeInstanceOf(
+          OpenMeldLockError
+        );
         expect(await resolveExternalOpenMeldToolsUpdate()).toMatchObject({
           operationId: attempt.operation.operationId,
           phase: "updating",
         });
       } finally {
         vi.useRealTimers();
+        await releaseLock(lock);
       }
     });
   });
@@ -127,6 +148,11 @@ describe("OpenMeld Tools update join", () => {
         await waitForOpenMeldToolsUpdateCompletion({
           pollIntervalMs: 1,
           onObservation: (operation, readiness) => {
+            // Completion removes the pending job. An observer already inside
+            // its iteration can then have no readiness snapshot to read.
+            if (complete) {
+              return;
+            }
             expect(operation.phase).toBe("updating");
             expect(readiness).not.toBeNull();
             observed.push(readiness?.acceptedWakeCount ?? -1);

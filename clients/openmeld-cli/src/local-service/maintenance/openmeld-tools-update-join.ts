@@ -127,7 +127,8 @@ export async function waitForExternalOpenMeldToolsUpdate(
     if (input.onObservation) {
       // Reuse the Service's public local control projection. Required updates
       // enter `updating` before drain, so the durable phase alone cannot say
-      // whether accepted work still owns the wait. Unknown never renews Setup.
+      // whether accepted work still owns the wait. This read never extends
+      // the observer deadline or reserves the setup mutation lock.
       const readiness = await readUpdateWorkReadiness(operation, input);
       input.onObservation(operation, readiness);
     }

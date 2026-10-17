@@ -612,17 +612,13 @@ Each isolated lane owns all of the following:
   are not automatically adopted or removed; retire them separately after
   identifying their owner and finishing its work.
 
-For native Agent smoke that does not exercise a repository, create a disposable
-working folder outside every Git checkout and select it through
-`openmeld profiles update <test-profile> --workspace-mode custom --workspace-path <folder>`
-with the lane's explicit environment. Keep the CLI, Service, account, and
-Desktop home aligned with the registered lane. A managed folder nested under
-the development checkout is not projectless: native controllers can discover
-the parent repository and its primary worktree configuration. On macOS, that
-can also reach privacy-protected paths during configuration loading. Do not
-disable native policy checks or expand filesystem permissions to make a smoke
-pass. Repository-specific smoke must retain its real working folder and report
-any access failure separately.
+Native Agent regression smoke must retain the working folder that produced
+the failure. Keep the CLI, Service, account, and Desktop home aligned with the
+registered lane. A successful run in another folder is comparison evidence,
+not proof that the original failure is fixed. Native controllers can discover
+parent repository configuration, so record the effective working folder and
+selected controller version. Do not disable native policy checks or expand
+filesystem permissions to make a smoke pass.
 
 The shared lane registry lives under the repository's Git common directory so
 all worktrees coordinate allocation. A live owner is never stopped or reclaimed.
