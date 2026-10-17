@@ -1926,6 +1926,12 @@ class CodexAppServerSession {
   }
 
   async supportsSpaceToolPolicy(): Promise<boolean> {
+    // TODO(PR #225): Investigate intermittent macOS config/read stalls promptly.
+    // The same binary and workspace can reply when launched directly, yet time
+    // out after a Service restart. Native samples show blocked file opens; the
+    // exact file and cause remain unknown. Preserve the original workspace and
+    // compare foreground/background launches. A longer timeout or another cwd
+    // did not establish a repair. Keep this policy check fail-closed.
     const configuration = await this.requestControl(
       "config/read",
       { cwd: this.#codexWorkdir, includeLayers: false },
