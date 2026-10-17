@@ -3057,6 +3057,77 @@ test("codex app-server waits for an OpenMeld permission response and resumes the
   }
 });
 
+test("codex restores the owner's reviewer when leaving a live Full access switch", async () => {
+  const { invokeCodexAppServerTransport } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(
+    join(tmpdir(), "codex-full-access-restore-")
+  );
+  const fixturePath = join(fixtureDir, "app-server.mjs");
+  const logPath = join(fixtureDir, "rpc.jsonl");
+  await writeFakeCodexAppServerFixture(fixturePath);
+  let activeTurn;
+  let accepted;
+  const turnAccepted = new Promise((resolve) => {
+    accepted = resolve;
+  });
+  try {
+    const execution = invokeCodexAppServerTransport({
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      codexTimeoutMs: 5000,
+      codexWorkdir: fixtureDir,
+      agentControllerPermissionMode: "codex:askForApproval",
+      env: {
+        OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+        OPENMELD_FAKE_CODEX_APP_SERVER_TURN_DELAY_MS: "60000",
+        OPENMELD_FAKE_CODEX_NATIVE_VERSION: "0.160.1",
+        OPENMELD_FAKE_CODEX_PERMISSION_RECEIPT: "applied",
+      },
+      taskId: "restore-task",
+      threadId: "restore-thread",
+      prompt: "Continue working",
+      onActiveTurn: (turn) => {
+        activeTurn = turn;
+        return () => undefined;
+      },
+      onRuntimeEvent: (event) => {
+        if (event.phase === "provider_turn_accepted") {
+          accepted();
+        }
+      },
+    });
+    await Promise.race([
+      turnAccepted,
+      execution.then(() => assert.fail("Turn ended before admission")),
+    ]);
+    const statuses = [];
+    for (const agentControllerPermissionMode of [
+      "codex:approveForMe",
+      "codex:fullAccess",
+      "codex:askForApproval",
+    ]) {
+      statuses.push(
+        (
+          await activeTurn.updatePermissionMode({
+            taskId: "restore-task",
+            agentControllerPermissionMode,
+          })
+        ).status
+      );
+    }
+    assert.deepEqual(statuses, ["applied", "applied", "applied"]);
+    const reviewers = (await readFakeAppServerMessages(logPath))
+      .filter((message) => message.method === "turn/settings/update")
+      .map((message) => message.params.approvalsReviewer);
+    // Leaving Full access must put Codex back on the owner's reviewer, not
+    // leave the earlier Approve for me reviewer in place.
+    assert.deepEqual(reviewers, ["auto_review", "user"]);
+    await activeTurn.interrupt();
+    await execution;
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+  }
+});
+
 test("codex app-server answers later permission requests after a live switch to Full access", async () => {
   const { invokeCodexAppServerTransport } = await import("../dist/index.js");
   const fixtureDir = await mkdtemp(join(tmpdir(), "codex-live-full-access-"));

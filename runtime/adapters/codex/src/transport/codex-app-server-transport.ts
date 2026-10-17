@@ -579,6 +579,9 @@ async function startAndAwaitAppServerTurn(input: {
     }
   };
 
+  // The reviewer Codex is currently using. A live Full access switch keeps it
+  // underneath, so leaving Full access must restore the owner's chosen one.
+  let appliedReviewerMode = input.permissionMode;
   const unregisterActiveTurn = session.registerActiveTurn({
     updatePermissionMode: async (update) => {
       const next = update.agentControllerPermissionMode;
@@ -617,7 +620,7 @@ async function startAndAwaitAppServerTurn(input: {
       if (
         canEmulateFullAccess &&
         session.liveFullAccess &&
-        next === input.permissionMode
+        next === appliedReviewerMode
       ) {
         session.setLiveFullAccess(false);
         return {
@@ -661,6 +664,7 @@ async function startAndAwaitAppServerTurn(input: {
           reasonCode: "adapter.task_not_active",
         };
       }
+      appliedReviewerMode = next;
       session.setLiveFullAccess(false);
       return {
         status: "applied",

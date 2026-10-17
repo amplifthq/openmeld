@@ -1138,6 +1138,35 @@ test("Grok Build keeps a one-time allow and a per-command denial to their own sc
   }
 });
 
+test("Grok Build does not remember a denial for a request without an exact command", async () => {
+  const fixture = await createFixture();
+  try {
+    const adapter = createFixtureAdapter(fixture);
+    const asked = [];
+    const answers = ["reject-always", "allow-once"];
+    const result = await dispatchPermissionSequence({
+      adapter,
+      // Empty commands make the fixture send only a display title.
+      commands: ["", ""],
+      fixture,
+      onInteractionRequest: (request) => {
+        asked.push(request.title);
+        return { kind: "permission", optionId: answers.shift() };
+      },
+      taskId: "task-grok-title-only-denial",
+    });
+
+    assert.equal(result.status, "success");
+    assert.equal(asked.length, 2);
+    assert.deepEqual(await readPermissionResponses(fixture.transcriptPath), [
+      { optionId: "reject-always", outcome: "selected" },
+      { optionId: "allow-once", outcome: "selected" },
+    ]);
+  } finally {
+    await rm(fixture.fixtureDir, { force: true, recursive: true });
+  }
+});
+
 test("Grok Build applies a switch to Bypass permissions to later requests in the running Wake", async () => {
   const fixture = await createFixture();
   try {
