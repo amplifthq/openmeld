@@ -2,9 +2,11 @@ import type { AccountSidebarPreferences } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import { EMPTY_CHAT_PREFERENCES } from "#/lib/organizations/center-agent-chat-preferences";
 import {
+	aliasSpaceIds,
 	centerAgentEntryTitle,
 	collapseCenterAgentSessions,
 	keepOnlyCenterAgentEntryPosition,
+	mergeActiveWakeSummaries,
 	mergeBySidebarEntry,
 } from "./center-agent-sidebar-entry";
 import {
@@ -59,7 +61,9 @@ describe("centerAgentEntryTitle", () => {
 });
 
 describe("collapseCenterAgentSessions", () => {
-	it("shows active sessions as one entry and keeps other rows", () => {
+	const noUnread = new Map<string, number>();
+
+	it("shows active sessions as one entry that opens the latest one", () => {
 		const result = collapseCenterAgentSessions({
 			conversations: [
 				session("a", 1),
@@ -68,7 +72,7 @@ describe("collapseCenterAgentSessions", () => {
 				session("archived", 9),
 			],
 			archivedIds: ["archived"],
-			sections: [],
+			latestUnreadAtBySpaceId: noUnread,
 			title: "Felix’s Center Agent",
 		});
 		expect(result.conversations.map((item) => item.spaceId)).toEqual([
@@ -76,12 +80,11 @@ describe("collapseCenterAgentSessions", () => {
 			"archived",
 			"b",
 		]);
-		const entry = result.conversations.at(-1);
-		expect(entry).toMatchObject({
+		expect(result.conversations.at(-1)).toMatchObject({
+			spaceId: "b",
 			title: "Felix’s Center Agent",
 			url: "/b",
 			sessionSpaceIds: ["a", "b"],
-			sessionTitles: ["Title a", "Title b"],
 		});
 		expect([...result.entryIdBySessionId]).toEqual([
 			["a", "b"],
@@ -89,38 +92,77 @@ describe("collapseCenterAgentSessions", () => {
 		]);
 	});
 
-	it("keeps the saved position of an older session", () => {
-		const chats = {
-			...EMPTY_CHAT_PREFERENCES,
-			pinned: { sort: "manual" as const, spaceIds: ["a"] },
-		};
+	it("opens the session with the newest unread message", () => {
 		const result = collapseCenterAgentSessions({
-			conversations: [session("a", 1), session("b", 3)],
+			conversations: [session("a", 1), session("b", 3), session("c", 2)],
 			archivedIds: [],
-			sections: conversationSections(
-				{ ...preferences, pinned: { sort: "manual", spaceIds: ["a"] } },
-				chats
-			),
+			latestUnreadAtBySpaceId: new Map([
+				["a", 20],
+				["c", 10],
+			]),
 			title: "Center Agent",
 		});
-		expect(result.conversations).toHaveLength(1);
-		expect(result.conversations[0]).toMatchObject({
-			spaceId: "a",
-			url: "/b",
-		});
+		expect(result.conversations[0]).toMatchObject({ spaceId: "a", url: "/a" });
 	});
 
 	it("keeps separate Center Agents apart", () => {
 		const result = collapseCenterAgentSessions({
 			conversations: [session("a", 1, "one"), session("b", 2, "two")],
 			archivedIds: [],
-			sections: [],
+			latestUnreadAtBySpaceId: noUnread,
 			title: "Center Agent",
 		});
 		expect(result.conversations.map((item) => item.spaceId)).toEqual([
 			"a",
 			"b",
 		]);
+	});
+});
+
+describe("aliasSpaceIds", () => {
+	it("moves an older session's saved position onto its entry", () => {
+		const entries = new Map([
+			["a", "b"],
+			["b", "b"],
+		]);
+		const chats = {
+			...EMPTY_CHAT_PREFERENCES,
+			pinned: { sort: "manual" as const, spaceIds: ["a"] },
+		};
+		const pinned = conversationSections(
+			{ ...preferences, pinned: { sort: "manual", spaceIds: ["x", "a", "b"] } },
+			chats
+		)[0];
+		expect(aliasSpaceIds(pinned?.spaceIds ?? [], entries)).toEqual(["x", "b"]);
+	});
+});
+
+describe("mergeActiveWakeSummaries", () => {
+	it("counts every session's Wakes and keeps their statuses", () => {
+		const merged = mergeActiveWakeSummaries(
+			{
+				spaceId: "a",
+				activeWakeCount: 1,
+				activeTargets: [
+					{ profileId: "center", profileName: "Center", activeWakeCount: 1 },
+				],
+			},
+			{
+				spaceId: "b",
+				activeWakeCount: 2,
+				activeTargets: [
+					{ profileId: "center", profileName: null, activeWakeCount: 2 },
+				],
+				statuses: [{ kind: "needs_input" } as never],
+			}
+		);
+		expect(merged).toMatchObject({
+			activeWakeCount: 3,
+			activeTargets: [
+				{ profileId: "center", profileName: "Center", activeWakeCount: 3 },
+			],
+			statuses: [{ kind: "needs_input" }],
+		});
 	});
 });
 

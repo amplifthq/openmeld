@@ -1,8 +1,6 @@
 import type { AccountSidebarPreferences } from "@openmeld/schemas";
-import type {
-	Conversation,
-	ConversationSection,
-} from "./conversation-sidebar-model";
+import type { Conversation } from "./conversation-sidebar-model";
+import type { SpaceSidebarActiveWakeSummary } from "./space-active-wake-presentation";
 
 // The Center Agent is org-owned; the possessive only names the viewer's own
 // private sessions. The name is the default Human Profile name, which the
@@ -20,12 +18,13 @@ export type CenterAgentSidebarEntries = {
 
 // The viewer's active private Center Agent sessions share one sidebar entry.
 // Archived sessions keep their own rows so the Archived filter still finds them.
-// The entry keeps the session that already owns its saved position, so pins,
-// groups and manual order survive when another session becomes the latest one.
+// The entry is the session it opens: the one with the newest unread message,
+// otherwise the most recently active one. Its id, URL and evidence all agree.
+// Saved positions of any of its sessions apply to it (see aliasSpaceIds).
 export function collapseCenterAgentSessions(input: {
 	conversations: readonly Conversation[];
 	archivedIds: readonly string[];
-	sections: readonly ConversationSection[];
+	latestUnreadAtBySpaceId: ReadonlyMap<string, number>;
 	title: string;
 }): CenterAgentSidebarEntries {
 	const archived = new Set(input.archivedIds);
@@ -46,30 +45,39 @@ export function collapseCenterAgentSessions(input: {
 			conversations.push(conversation);
 		}
 	}
-	const savedOrder = input.sections.flatMap((section) => section.spaceIds);
 	const entryIdBySessionId = new Map<string, string>();
+	const unreadAt = (session: Conversation) =>
+		input.latestUnreadAtBySpaceId.get(session.spaceId) ?? -1;
+	const opensBefore = (candidate: Conversation, current: Conversation) =>
+		unreadAt(candidate) === unreadAt(current)
+			? candidate.activity > current.activity
+			: unreadAt(candidate) > unreadAt(current);
 	for (const sessions of sessionsByAgent.values()) {
-		const latest = sessions.reduce((current, candidate) =>
-			candidate.activity > current.activity ? candidate : current
+		const entry = sessions.reduce((current, candidate) =>
+			opensBefore(candidate, current) ? candidate : current
 		);
-		if (latest.kind !== "direct-message") {
+		if (entry.kind !== "direct-message") {
 			continue;
 		}
 		const sessionIds = sessions.map((session) => session.spaceId);
-		const entryId =
-			savedOrder.find((id) => sessionIds.includes(id)) ?? latest.spaceId;
 		for (const id of sessionIds) {
-			entryIdBySessionId.set(id, entryId);
+			entryIdBySessionId.set(id, entry.spaceId);
 		}
 		conversations.push({
-			...latest,
-			spaceId: entryId,
+			...entry,
 			title: input.title,
 			sessionSpaceIds: sessionIds,
-			sessionTitles: sessions.map((session) => session.title),
 		});
 	}
 	return { conversations, entryIdBySessionId };
+}
+
+/** Rewrites saved session positions onto their entry, keeping the first. */
+export function aliasSpaceIds(
+	ids: readonly string[],
+	entryIdBySessionId: ReadonlyMap<string, string>
+): string[] {
+	return [...new Set(ids.map((id) => entryIdBySessionId.get(id) ?? id))];
 }
 
 /** Combines per-Space evidence so the entry reflects all of its sessions. */
@@ -85,6 +93,39 @@ export function mergeBySidebarEntry<Value>(
 		merged.set(id, current === undefined ? value : merge(current, value));
 	}
 	return merged;
+}
+
+/** Adds the entry's sessions' in-flight Wakes so the orb counts all of them. */
+export function mergeActiveWakeSummaries(
+	current: SpaceSidebarActiveWakeSummary,
+	next: SpaceSidebarActiveWakeSummary
+): SpaceSidebarActiveWakeSummary {
+	const targets = new Map(
+		(current.activeTargets ?? []).map((target) => [target.profileId, target])
+	);
+	for (const target of next.activeTargets ?? []) {
+		const existing = targets.get(target.profileId);
+		targets.set(
+			target.profileId,
+			existing
+				? {
+						...existing,
+						activeWakeCount: existing.activeWakeCount + target.activeWakeCount,
+						profileName: existing.profileName ?? target.profileName,
+					}
+				: target
+		);
+	}
+	const statuses = [...(current.statuses ?? []), ...(next.statuses ?? [])];
+	return {
+		...current,
+		activeWakeCount: current.activeWakeCount + next.activeWakeCount,
+		...(current.activeTargets || next.activeTargets
+			? { activeTargets: [...targets.values()] }
+			: {}),
+		...(statuses.length > 0 ? { statuses } : {}),
+		...(current.hasMore || next.hasMore ? { hasMore: true } : {}),
+	};
 }
 
 type SpaceIdSection = { spaceIds: string[] };

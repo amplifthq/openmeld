@@ -108,11 +108,13 @@ export function CenterAgentChatHistory({
 						    stays fixed and the heading keeps naming this session. */}
 						<span
 							aria-hidden="true"
-							className="shrink-0 text-muted-foreground"
+							className="flex min-w-0 max-w-[50%] shrink text-muted-foreground"
 							data-testid="center-agent-entry-title"
 						>
-							{centerAgentEntryTitle(defaultHumanProfile?.profileName)}
-							<span className="px-1.5">/</span>
+							<span className="truncate">
+								{centerAgentEntryTitle(defaultHumanProfile?.profileName)}
+							</span>
+							<span className="shrink-0 px-1.5">/</span>
 						</span>
 						<span className="truncate">{title}</span>
 						<CaretDownIcon

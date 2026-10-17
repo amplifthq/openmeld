@@ -3,8 +3,10 @@ import { buildOrganizationSpacePath } from "#/lib/organizations/organization-rou
 import { resolveAccountSpaceRecency } from "#/lib/spaces/account-spaces";
 import { selectAccountSpaceSections } from "./account-space-sections";
 import {
+	aliasSpaceIds,
 	collapseCenterAgentSessions,
 	keepOnlyCenterAgentEntryPosition,
+	mergeActiveWakeSummaries,
 	mergeBySidebarEntry,
 } from "./center-agent-sidebar-entry";
 import { mergeChatPreferences } from "./chat-sidebar-model";
@@ -100,19 +102,35 @@ export function useConversations(input: {
 			url: rawDirectMessages.chatPath(chat),
 		});
 	}
-	const sections = preferences
-		? conversationSections(preferences, chatPreferences)
-		: [];
 	const collapsed = input.centerAgentEntryTitle
 		? collapseCenterAgentSessions({
 				conversations: [...conversations.values()],
 				archivedIds: chatPreferences.archivedIds,
-				sections,
+				latestUnreadAtBySpaceId: new Map(
+					[...rawDirectMessages.indicators.unreadBySpaceId]
+						.filter(([, value]) => value.unreadCount > 0)
+						.map(([id, value]) => [id, value.latestUnreadOccurredAtMs])
+				),
 				title: input.centerAgentEntryTitle,
 			})
 		: null;
 	const entryIdBySessionId: ReadonlyMap<string, string> =
 		collapsed?.entryIdBySessionId ?? new Map();
+	// A pin, group or manual position saved for any session applies to its entry.
+	const sections = (
+		preferences ? conversationSections(preferences, chatPreferences) : []
+	).map((section) =>
+		collapsed
+			? {
+					...section,
+					spaceIds: aliasSpaceIds(section.spaceIds, entryIdBySessionId),
+				}
+			: section
+	);
+	const chatPins = aliasSpaceIds(
+		chatPreferences.pinned.spaceIds,
+		entryIdBySessionId
+	);
 	const rows = new Map(
 		(collapsed?.conversations ?? [...conversations.values()]).map((item) => [
 			item.spaceId,
@@ -139,10 +157,14 @@ export function useConversations(input: {
 							),
 						})
 					),
-					activeWakeSummaryBySpaceId: mergeBySidebarEntry(
-						rawDirectMessages.indicators.activeWakeSummaryBySpaceId,
-						entryIdBySessionId,
-						(current) => current
+					activeWakeSummaryBySpaceId: new Map(
+						[
+							...mergeBySidebarEntry(
+								rawDirectMessages.indicators.activeWakeSummaryBySpaceId,
+								entryIdBySessionId,
+								mergeActiveWakeSummaries
+							),
+						].map(([id, summary]) => [id, { ...summary, spaceId: id }])
 					),
 				},
 				attentionById: mergeBySidebarEntry(
@@ -164,11 +186,7 @@ export function useConversations(input: {
 			rawDirectMessages.selected)
 		: rawDirectMessages.selected;
 	const owner = (conversation: Conversation) =>
-		conversationSectionId(
-			conversation,
-			sections,
-			chatPreferences.pinned.spaceIds
-		);
+		conversationSectionId(conversation, sections, chatPins);
 	const attention = resolveSidebarAttentionSpaceIds(
 		indicators.activeWakeSummaryBySpaceId,
 		rawDirectMessages.inbox.data?.attention?.map((item) => ({
@@ -268,7 +286,15 @@ export function useConversations(input: {
 			accountItem
 				? directMessages.pin.setPinned(accountItem, false)
 				: Promise.resolve(true),
-			store.updateAsync((current) => {
+			store.updateAsync((latest) => {
+				const current =
+					conversation.kind === "direct-message" && conversation.sessionSpaceIds
+						? keepOnlyCenterAgentEntryPosition(
+								latest,
+								conversation.sessionSpaceIds,
+								conversation.spaceId
+							)
+						: latest;
 				const chats = mergeChatPreferences(
 					current,
 					directMessages.ordinaryAccountItems

@@ -473,11 +473,14 @@ Agent as a single entry titled **{display name}’s Center Agent** (plain
 which the Account display name keeps paired; renaming updates the session,
 Profile, directory and Space member caches optimistically and restores them if
 the request fails. The Center Agent is Organization-owned, so the
-possessive names only the viewer's private sessions. The entry opens the most
-recent session and sums unread, working, and attention evidence across its
-sessions. It keeps the saved pin, group, and manual position of whichever
-session already owns one; moving or unpinning it drops the other sessions'
-saved positions. Search matches the entry name and every session title.
+possessive names only the viewer's private sessions. The entry is the session it
+opens: the one with the newest unread message, otherwise the most recently
+active one, so its id, link and unread jump agree. It sums unread, Wake count,
+Wake statuses, and attention evidence across its sessions. A pin, group, or
+manual position saved for any of its sessions applies to the entry; moving or
+unpinning it drops the other sessions' saved positions. While a search is
+active, each session is listed on its own row so a title match opens that
+session.
 Rename and archive stay on the session's title dropdown and header, not the
 entry. Archived sessions keep their own rows in the Archived view. The session
 title dropdown shows the entry name as a fixed, visually muted prefix before the
