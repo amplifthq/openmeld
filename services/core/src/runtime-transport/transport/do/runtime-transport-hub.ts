@@ -22048,13 +22048,17 @@ const resolveRuntimeCoordinatorInteractionUpdatedAtMs = (input: {
   commandState: RuntimeCoordinatorRunCommandState | null;
   nowMs: number;
 }): number | null => {
-  const pending = input.commandState?.pendingInteraction ?? null;
-  if (pending) {
+  const commandState = input.commandState;
+  const pending = commandState?.pendingInteraction ?? null;
+  if (commandState && pending) {
     if (pending.respondedAtMs !== null) {
       return pending.respondedAtMs;
     }
+    // A request stored before its arrival was recorded falls back to the
+    // command state's Core write time, never the Service's clock. Later writes
+    // only move it forward, which still orders the request correctly.
     const receivedAtMs =
-      pending.requestReceivedAtMs ?? pending.request.requestedAtMs;
+      pending.requestReceivedAtMs ?? commandState.updatedAtMs;
     return pending.request.expiresAtMs <= input.nowMs
       ? Math.max(receivedAtMs, pending.request.expiresAtMs)
       : receivedAtMs;

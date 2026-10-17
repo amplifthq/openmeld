@@ -390,7 +390,8 @@ export type RuntimeCoordinatorPendingAgentInteractionState = {
   request: AgentInteractionRequest;
   /**
    * Core time the request first reached Core. Optional for interactions
-   * stored before it was recorded; the Service's requestedAtMs stands in.
+   * stored before it was recorded; the command state's Core updatedAtMs
+   * stands in, never the Service's requestedAtMs.
    */
   requestReceivedAtMs?: number;
   respondedAtMs: number | null;
