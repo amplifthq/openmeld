@@ -9338,6 +9338,15 @@ Authenticated membership grants recheck current Organization membership, an
 explicit enabled guest admission, or the Organization-managed Agent identity.
 The same authorization runs for reads, joins, incoming WebSocket messages, and
 live delivery; connection establishment is not a permanent access grant.
+Live delivery checks each session independently. One check covers every message
+already queued for that session before the check started, so no message is
+delivered under a check older than the message. A denied check closes only that
+session with `1008 space_access_changed`. A check that cannot verify access,
+such as a PostgreSQL connect timeout, is not a revocation: Space withholds the
+session's messages, retries once, and then closes only that session with
+`1013 space_access_unverified`. The client reconnects through the full join
+check, and its snapshot read recovers the withheld invalidations. A failure for
+one session never closes or delays another session.
 
 Guest invitations are email-bound and require an authenticated recipient. Their
 acceptance records Space membership and a guest receipt without creating an Auth

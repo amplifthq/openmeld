@@ -437,14 +437,15 @@ const rpcPostTransientSignal = (
   }
 ).rpcPostTransientSignal;
 
-const deliverAuthorizedLiveMessage = (
+const deliverAuthorizedLiveMessages = (
   Space.prototype as unknown as {
-    deliverAuthorizedLiveMessage(
+    deliverAuthorizedLiveMessages(
       this: unknown,
-      message: SignalEnvelope | SpaceLiveSignalFrame
-    ): Promise<void>;
+      target: { session: unknown; webSocket: unknown },
+      messages: readonly (SignalEnvelope | SpaceLiveSignalFrame)[]
+    ): void;
   }
-).deliverAuthorizedLiveMessage;
+).deliverAuthorizedLiveMessages;
 
 const encodeLiveMessageForSession = (
   Space.prototype as unknown as {
@@ -1076,7 +1077,7 @@ const createMessageEnvelope = (input: {
 });
 
 describe("space signal consistency matrix", () => {
-  it("queues pre-hello live signal frames unencoded until session capabilities are known", async () => {
+  it("queues pre-hello live signal frames unencoded until session capabilities are known", () => {
     const session = createPendingSpaceWebSocketSession({
       blocked: [],
     });
@@ -1088,19 +1089,17 @@ describe("space signal consistency matrix", () => {
       },
     };
 
-    await deliverAuthorizedLiveMessage.call(
-      {
-        authorizeLiveSession: async () => true,
-        sessions: new Map([[{}, session]]),
-      },
-      frame
+    deliverAuthorizedLiveMessages.call(
+      { sessions: new Map([[{}, session]]) },
+      { session, webSocket: {} },
+      [frame]
     );
 
     expect(session.blocked).toHaveLength(1);
     expect(session.blocked?.[0]).toBe(frame);
   });
 
-  it("omits live history metadata from thread frames sent to non-capable sessions", async () => {
+  it("omits live history metadata from thread frames sent to non-capable sessions", () => {
     const viewerProfile: SignalEnvelope["profile"] = {
       kind: "human",
       profileId: "hum_viewer",
@@ -1137,17 +1136,23 @@ describe("space signal consistency matrix", () => {
       },
     };
 
-    await deliverAuthorizedLiveMessage.call(
-      {
-        authorizeLiveSession: async () => true,
-        sessions: new Map([
-          [legacySocket, legacySession],
-          [modernSocket, modernSession],
-        ]),
-        encodeLiveMessageForSession,
-        redactSignalForViewer: (signal: SignalEnvelope) => signal,
-      },
-      frame
+    const space = {
+      sessions: new Map([
+        [legacySocket, legacySession],
+        [modernSocket, modernSession],
+      ]),
+      encodeLiveMessageForSession,
+      redactSignalForViewer: (signal: SignalEnvelope) => signal,
+    };
+    deliverAuthorizedLiveMessages.call(
+      space,
+      { session: legacySession, webSocket: legacySocket },
+      [frame]
+    );
+    deliverAuthorizedLiveMessages.call(
+      space,
+      { session: modernSession, webSocket: modernSocket },
+      [frame]
     );
 
     expect(legacySocket.send).toHaveBeenCalledTimes(1);

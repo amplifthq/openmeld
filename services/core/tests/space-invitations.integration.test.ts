@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import { organizationJoinRequest } from "../src/organizations/organization-join-requests";
 import { spaceInvitation } from "../src/organizations/space-invitations";
+import { createCoreRpcHttpError } from "../src/rpc/errors";
 import { upsertSpaceCreatorMember } from "../src/space/application/space-members-service";
 import {
   readSpaceMetaRecordFromSql,
@@ -214,6 +215,133 @@ describe("Organization Space self-join", () => {
       name: "Internal project renamed after departure",
     });
     expect((await passiveClosed).code).toBe(1008);
+  });
+  it("keeps other live sessions open when one access check cannot reach PostgreSQL", async () => {
+    const f = await fixture();
+    await f.joinOrganization();
+    const context = (userId: string, profileId: string) => ({
+      activeOrganizationId: f.organizationId,
+      actorContext: {
+        callerPrincipalId: userId,
+        ownerUserId: userId,
+        openMeldProfileId: profileId,
+        profileKind: "human" as const,
+        profileName: "Morgan Lee",
+        requestId: crypto.randomUUID(),
+      },
+    });
+    const ownerContext = context(f.ownerId, f.ownerProfile);
+    const recipientContext = context(f.recipientId, f.recipientProfile);
+    await runInDurableObject(f.stub, (_instance, state) => {
+      const meta = readSpaceMetaRecordFromSql(state.storage.sql, f.spaceId);
+      if (!meta) {
+        throw new Error("Missing fixture Space");
+      }
+      upsertSpaceMetaRecord(state.storage.sql, {
+        ...meta,
+        visibility: "public",
+      });
+    });
+    await f.stub.rpcPostMembers({
+      spaceId: f.spaceId,
+      context: recipientContext,
+      members: [
+        {
+          profileId: f.recipientProfile,
+          profileKind: "human",
+          profileName: "Morgan Lee",
+          ownerUserId: f.recipientId,
+          ownerName: "Morgan Lee",
+          agentControllerRef: null,
+        },
+      ],
+    });
+    const openLiveSocket = async (
+      requestContext: typeof ownerContext,
+      profileId: string
+    ) => {
+      const headers = new Headers({ Upgrade: "websocket" });
+      applyOpenMeldRequestContextHeaders(headers, { requestContext });
+      const response = await f.stub.fetch(
+        new Request(
+          `https://openmeld-core.internal/stream?space=${f.spaceId}`,
+          { headers }
+        )
+      );
+      const socket = response.webSocket;
+      if (!socket) {
+        throw new Error("Missing accepted WebSocket");
+      }
+      socket.accept();
+      const hello = waitForJsonMessage(
+        socket,
+        (message) => message.type === "system.hello.ack"
+      );
+      socket.send(
+        JSON.stringify({
+          type: "hello",
+          profile: { kind: "human", profileId, profileName: "Morgan Lee" },
+        })
+      );
+      await hello;
+      return socket;
+    };
+    const ownerSocket = await openLiveSocket(ownerContext, f.ownerProfile);
+    const recipientSocket = await openLiveSocket(
+      recipientContext,
+      f.recipientProfile
+    );
+    const ownerClosed = new Promise<CloseEvent>((resolve) =>
+      ownerSocket.addEventListener("close", resolve, { once: true })
+    );
+    const recipientClosed = new Promise<CloseEvent>((resolve) =>
+      recipientSocket.addEventListener("close", resolve, { once: true })
+    );
+    // The recipient's Organization membership lookup now fails the way a
+    // PostgreSQL connect timeout does; nobody's access was revoked.
+    await runInDurableObject(f.stub, (instance) => {
+      const space = instance as unknown as {
+        authorizeSpacePasswordAccess: (input: {
+          context?: { actorContext: { ownerUserId?: string } };
+        }) => Promise<unknown>;
+      };
+      const authorize = space.authorizeSpacePasswordAccess.bind(space);
+      space.authorizeSpacePasswordAccess = (input) =>
+        input.context?.actorContext.ownerUserId === f.recipientId
+          ? Promise.reject(
+              createCoreRpcHttpError({
+                status: 503,
+                code: "organization.context_unavailable",
+                reason: "Organization context could not be verified.",
+              })
+            )
+          : authorize(input);
+    });
+    const ownerInvalidation = waitForJsonMessage(
+      ownerSocket,
+      (message) => message.type === "space.meta.changed",
+      5000
+    );
+    await f.stub.rpcPatchMeta({
+      spaceId: f.spaceId,
+      context: ownerContext,
+      name: "Launch planning, week two",
+    });
+    // Fail closed only for the unverified session, with a retryable close.
+    expect(await recipientClosed).toMatchObject({
+      code: 1013,
+      reason: "space_access_unverified",
+    });
+    await expect(ownerInvalidation).resolves.toMatchObject({
+      type: "space.meta.changed",
+      reason: "space.name.updated",
+    });
+    const ownerOutcome = await Promise.race([
+      ownerClosed.then(() => "closed"),
+      new Promise((resolve) => setTimeout(() => resolve("open"), 50)),
+    ]);
+    expect(ownerOutcome).toBe("open");
+    ownerSocket.close(1000, "test_complete");
   });
 });
 // First-party Auth directory contract; membership decisions use PostgreSQL.
