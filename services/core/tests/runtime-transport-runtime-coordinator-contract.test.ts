@@ -17485,6 +17485,83 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
   });
 
+  it("keeps an owner answer saved while a reconnect replay is being validated", async () => {
+    const { hub, sentFrames, socket, state, waitUntilTasks } =
+      await createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    enableLocalAgentInteraction(state);
+    const requestFrameHub = hub as unknown as {
+      handleDispatchInteractionRequestFrame: (
+        webSocket: WebSocket,
+        payload: unknown
+      ) => Promise<void>;
+      validateRuntimeCoordinatorProgressToken: (
+        input: unknown
+      ) => Promise<unknown>;
+    };
+    await requestFrameHub.handleDispatchInteractionRequestFrame(
+      socket,
+      buildInteractionRequest(executionToken)
+    );
+    await Promise.all(waitUntilTasks);
+
+    const session = state.sessionsById.get("daemon-session-1");
+    if (!session) {
+      throw new Error("Expected live daemon session.");
+    }
+    session.connectionGeneration = 2;
+    // The owner answers while the generation-2 replay awaits token validation.
+    const validate =
+      requestFrameHub.validateRuntimeCoordinatorProgressToken.bind(hub);
+    const answer: { response: Response | null } = { response: null };
+    requestFrameHub.validateRuntimeCoordinatorProgressToken = async (input) => {
+      const result = await validate(input);
+      answer.response ??= await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/interaction/respond",
+        {
+          actorOwnerUserId: "owner-1",
+          interactionId: "interaction-1",
+          response: { kind: "permission", optionId: "allow-once" },
+          runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        }
+      );
+      return result;
+    };
+    await requestFrameHub.handleDispatchInteractionRequestFrame(
+      socket,
+      buildInteractionRequest(executionToken, { connectionGeneration: 2 })
+    );
+    await Promise.all(waitUntilTasks);
+
+    expect(answer.response?.status).toBe(200);
+    // The saved answer survived the replay: the same answer is already
+    // resolved and a different one is rejected, instead of being accepted anew.
+    for (const [optionId, expected] of [
+      ["allow-once", { ok: true, status: "already_resolved" }],
+      ["deny", { ok: false, status: "response_invalid" }],
+    ] as const) {
+      const retry = await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/interaction/respond",
+        {
+          actorOwnerUserId: "owner-1",
+          interactionId: "interaction-1",
+          response: { kind: "permission", optionId },
+          runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        }
+      );
+      await expect(retry.json()).resolves.toMatchObject(expected);
+    }
+  });
+
   it("keeps the pending interaction authoritative when Inbox creation fails", async () => {
     const {
       hub,

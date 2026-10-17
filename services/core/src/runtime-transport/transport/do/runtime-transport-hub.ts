@@ -9713,16 +9713,46 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ) {
       return;
     }
-    await this.writeRuntimeCoordinatorRunCommandState({
-      ...input.commandState,
-      pendingInteraction: {
-        ...input.pending,
-        requestConnection: {
-          connectionGeneration: input.request.connectionGeneration,
-          daemonSessionId: input.request.daemonSessionId,
-        },
-      },
-    });
+    // Frame authority was read before async token validation, and an owner
+    // answer can land in between. Re-read inside the write so a replay only
+    // adds its connection to the same still-unanswered request and never
+    // replaces a saved answer with the earlier snapshot.
+    const announced = await this.ctx.storage.transaction(
+      async (transaction) => {
+        const current = await readRuntimeCoordinatorRunCommandStateFromStorage(
+          transaction,
+          input.commandState.runtimeCoordinatorExecutionId
+        );
+        const currentPending = current?.pendingInteraction ?? null;
+        if (
+          !(current && currentPending) ||
+          current.activeRunId !== input.commandState.activeRunId ||
+          currentPending.request.interactionId !==
+            input.pending.request.interactionId ||
+          currentPending.response !== null ||
+          (currentPending.requestConnection?.daemonSessionId ===
+            input.request.daemonSessionId &&
+            currentPending.requestConnection.connectionGeneration ===
+              input.request.connectionGeneration)
+        ) {
+          return false;
+        }
+        await writeRuntimeCoordinatorRunCommandStateInTransaction(transaction, {
+          ...current,
+          pendingInteraction: {
+            ...currentPending,
+            requestConnection: {
+              connectionGeneration: input.request.connectionGeneration,
+              daemonSessionId: input.request.daemonSessionId,
+            },
+          },
+        });
+        return true;
+      }
+    );
+    if (!announced) {
+      return;
+    }
     this.publishWakeProgressChanged({
       agentProfileId: input.commandState.targetProfileId,
       clientMessageId: input.commandState.sourceClientMessageId,
