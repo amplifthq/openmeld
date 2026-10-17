@@ -69,6 +69,7 @@ import {
   runtimeTransportRuntimeCoordinatorHeadWaitingRequestSchema,
   runtimeTransportRuntimeCoordinatorHeadWaitingResponseSchema,
   runtimeTransportRuntimeCoordinatorReadInteractionResponseSchema,
+  runtimeTransportRuntimeCoordinatorReadInteractionRevisionResponseSchema,
   runtimeTransportRuntimeCoordinatorRespondInteractionRequestSchema,
   runtimeTransportRuntimeCoordinatorWakeStopRequestSchema,
   runtimeTransportRuntimeCoordinatorWakeStopResponseSchema,
@@ -2070,19 +2071,26 @@ describe("runtime transport schema", () => {
       },
     };
 
+    // The frozen read body stays exactly as already-deployed readers expect.
     expect(
       runtimeTransportRuntimeCoordinatorReadInteractionResponseSchema.safeParse(
-        {
-          interactionUpdatedAtMs: 1_700_000_000_200,
-          pendingInteraction,
-        }
+        { pendingInteraction }
       ).success
     ).toBe(true);
     expect(
       runtimeTransportRuntimeCoordinatorReadInteractionResponseSchema.safeParse(
-        {
-          pendingInteraction,
-        }
+        { interactionUpdatedAtMs: 1_700_000_000_200, pendingInteraction }
+      ).success
+    ).toBe(false);
+    // Only the revision read carries the interaction revision.
+    expect(
+      runtimeTransportRuntimeCoordinatorReadInteractionRevisionResponseSchema.safeParse(
+        { interactionUpdatedAtMs: 1_700_000_000_200, pendingInteraction }
+      ).success
+    ).toBe(true);
+    expect(
+      runtimeTransportRuntimeCoordinatorReadInteractionRevisionResponseSchema.safeParse(
+        { pendingInteraction }
       ).success
     ).toBe(false);
     expect(
