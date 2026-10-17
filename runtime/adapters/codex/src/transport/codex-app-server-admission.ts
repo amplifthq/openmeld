@@ -24,8 +24,10 @@ const CONTROL_REQUEST_TIMEOUT_MS_BY_OPERATION: Record<
   number
 > = {
   "command/exec": FAST_METADATA_ADMISSION_TIMEOUT_MS,
-  "config/read": FAST_METADATA_ADMISSION_TIMEOUT_MS,
-  "configRequirements/read": FAST_METADATA_ADMISSION_TIMEOUT_MS,
+  // Codex loads configuration layers and refreshes application network policy
+  // here. These are cold admission checks, not cached metadata reads.
+  "config/read": COLD_CONTROLLER_ADMISSION_TIMEOUT_MS,
+  "configRequirements/read": COLD_CONTROLLER_ADMISSION_TIMEOUT_MS,
   "mcpServerStatus/list": FAST_METADATA_ADMISSION_TIMEOUT_MS,
   "collaborationMode/list": FAST_METADATA_ADMISSION_TIMEOUT_MS,
   "thread/fork": COLD_CONTROLLER_ADMISSION_TIMEOUT_MS,

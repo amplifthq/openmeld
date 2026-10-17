@@ -3971,6 +3971,13 @@ test("codex app-server admission budgets allow cold start and resume", async () 
     "../dist/transport/codex-app-server-admission.js"
   );
 
+  for (const operation of ["config/read", "configRequirements/read"]) {
+    assert.equal(
+      resolveCodexAppServerControlRequestTimeoutMs({ operation }),
+      90_000
+    );
+  }
+
   assert.equal(
     resolveCodexAppServerControlRequestTimeoutMs({
       operation: "thread/resume",
