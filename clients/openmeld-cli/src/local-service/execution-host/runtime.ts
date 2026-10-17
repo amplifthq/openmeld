@@ -623,9 +623,9 @@ export function createExecutionHostRuntime(input: {
         connectionAbort?.abort();
         currentSocketRef.socket = null;
         currentSocketRef.connectionGeneration = null;
-        localExecutionSlots.dropPendingTasks({
-          reason: "daemon.session.unexpected_close",
-        });
+        // The Host owns accepted work independently of the connector. Keep
+        // queued tasks and their lifecycle evidence; admission is confirmed
+        // again with RuntimeCoordinator before a provider can start.
       }
       return snapshot();
     },

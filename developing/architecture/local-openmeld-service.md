@@ -166,7 +166,11 @@ limit is reached, its PONG deadline expires, or the socket reports an error. It
 releases the current session to the existing reconnect loop without waiting for
 a native close callback. Retirement detaches the Host transport sink, rejects
 pending transport responses, and ignores later frames from that socket. It does not cancel local
-work or acknowledge retained results. The failure reason is logged even when
+work or acknowledge retained results. Accepted queued tasks remain owned by the
+Host across transport loss, keep their lifecycle reporting, and recheck the
+current lease and Coordinator admission before starting the provider. Dropping
+the queue on socket loss would leave an accepted execution without its carrier.
+The failure reason is logged even when
 the background Service uses a silent presenter; an observed close remains a
 separate transport event.
 Registered-session bootstrap reads and cache persistence yield to that same

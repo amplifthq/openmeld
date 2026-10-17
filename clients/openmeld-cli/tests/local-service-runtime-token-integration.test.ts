@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createInflightTaskControlRegistry,
+  createLocalAdapterContainer,
   createPendingAgentInteractionRegistry,
 } from "@openmeld/local-service";
 import {
@@ -13,6 +14,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LedgerPaths } from "../src/local-service/core/types";
 import { handleDispatchDeliverFrame } from "../src/local-service/dispatch/execute-dispatch-task";
 import type { Presenter } from "../src/runtime/presenter/types";
+import { createInProcessExecutionHost } from "./helpers/execution-host";
+
+vi.mock("../src/agent-activity/integration-refresh", () => ({
+  createManagedAgentActivityIntegrationRefreshScheduler: () => ({
+    request: () => undefined,
+    stop: async () => undefined,
+  }),
+}));
+vi.mock("../src/agent-activity/local-sync", () => ({
+  startLocalAgentActivitySyncLoop: () => ({
+    requestSync: () => undefined,
+    stop: async () => undefined,
+  }),
+}));
 
 const RUNTIME_COORDINATOR_EXECUTION_ID =
   "rce_space-1_dispatch-1_agent-profile-1";
@@ -150,6 +165,123 @@ function createDeliverRequest() {
 describe("local service token-backed execution start", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+  });
+
+  it("retains accepted queued work across transport loss and rechecks admission on reconnect", async () => {
+    const ledgerPaths = createLedgerPaths();
+    vi.stubEnv("OPENMELD_HOME", ledgerPaths.rootDirPath);
+    const dispatch = vi.fn();
+    const host = await createInProcessExecutionHost({
+      stateRoot: ledgerPaths.rootDirPath,
+      daemonSessionId: "daemon-session-1",
+      deviceId: "device-1",
+      ownerUserId: "user-1",
+      profileOwnerName: null,
+      presenter: createPresenter(),
+      resources: {
+        ledgerPaths,
+        contextStore: new Map(),
+        inflightDispatchMetaByTaskId: new Map(),
+        inflightTaskControlRegistry: createInflightTaskControlRegistry(),
+        pendingAgentInteractionRegistry:
+          createPendingAgentInteractionRegistry(),
+        localAdapterContainer: createLocalAdapterContainer([
+          {
+            adapterId: "codex",
+            transportModes: ["local-cli"],
+            adapter: { adapterId: "codex", dispatch, interrupt: vi.fn() },
+          },
+        ]),
+        initialCatalog: {
+          profileIds: ["agent-profile-1"],
+          routeByProfileId: new Map(),
+          skippedProfiles: [],
+        },
+        dispatchLimits: { globalConcurrency: 1, queueMax: 4 },
+      },
+    });
+    let rejectAdmissions = false;
+    const acknowledgements: Record<string, unknown>[] = [];
+    host.port.onEvent((event) => {
+      if (
+        event.type !== "frame" ||
+        event.frame.code !== "daemon.dispatch.lifecycle"
+      ) {
+        return;
+      }
+      const payload = event.frame.payload as Record<string, unknown>;
+      if (!payload.acknowledgementId) {
+        return;
+      }
+      acknowledgements.push(payload);
+      if (rejectAdmissions) {
+        return host.port.call("handleFrame", {
+          connectionGeneration: 2,
+          frame: {
+            v: 1,
+            code: "daemon.dispatch.lifecycle_acknowledged",
+            payload: {
+              acknowledgementId: payload.acknowledgementId,
+              dispatchId: payload.dispatchId,
+              attemptId: payload.attemptId,
+              connectionGeneration: 2,
+              accepted: false,
+              reasonCode: "runtime_coordinator.execution_not_active",
+              validForMs: 0,
+            },
+          },
+        });
+      }
+    });
+    const configure = (connectionGeneration: number, leaseEpoch: number) =>
+      host.port.call("configureConnection", {
+        connectionGeneration,
+        catalogRevision: 0,
+        executionAdmissionConfirmation: true,
+        leases: [{ profileId: "agent-profile-1", leaseEpoch }],
+      });
+    try {
+      await configure(1, 1);
+      const first = createDeliverRequest();
+      await host.port.call("handleFrame", {
+        connectionGeneration: 1,
+        frame: { v: 1, code: "daemon.dispatch.deliver", payload: first },
+      });
+      await vi.waitFor(() => expect(acknowledgements).toHaveLength(1));
+      const second = {
+        ...first,
+        attemptId: "attempt-2",
+        payload: { ...first.payload, attemptId: "attempt-2", taskId: "task-2" },
+      };
+      await host.port.call("handleFrame", {
+        connectionGeneration: 1,
+        frame: { v: 1, code: "daemon.dispatch.deliver", payload: second },
+      });
+      expect(host.port.snapshot()).toMatchObject({
+        activeCount: 1,
+        pendingCount: 1,
+        localQuiescent: false,
+      });
+      await host.port.call("detachConnection", { connectionGeneration: 1 });
+      expect(host.port.snapshot()).toMatchObject({
+        activeCount: 1,
+        pendingCount: 1,
+        localQuiescent: false,
+      });
+    } finally {
+      // The replacement route rejects the first task's admission and revokes the
+      // queued task's old lease. Neither task may reach the native provider.
+      rejectAdmissions = true;
+      await configure(2, 2);
+      await host.close();
+      vi.unstubAllEnvs();
+    }
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(host.port.snapshot()).toMatchObject({
+      activeCount: 0,
+      pendingCount: 0,
+      localQuiescent: true,
+    });
   });
 
   it("does not use final claim rejection semantics for the current token-backed task", async () => {
