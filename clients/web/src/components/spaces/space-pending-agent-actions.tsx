@@ -20,6 +20,7 @@ import {
 import { PluginActionRequest } from "#/components/inbox/plugin-action-request";
 import {
 	SpaceAgentInteractionCard,
+	type SpaceAgentInteractionFailure,
 	type SpaceAgentInteractionResponseHandler,
 	type SpaceAgentPermissionModeOption,
 	type SpaceAgentPermissionModeUpdateHandler,
@@ -81,6 +82,34 @@ function listPendingActions(input: PendingAgentActionsProps): PendingAction[] {
 	].sort((left, right) => left.requestedAt - right.requestedAt);
 }
 
+// Agents keep a request pending until they actually resume. Treat the owner's
+// answer as done the moment it is sent: skip to the next request that still
+// needs the owner, and show nothing once none do.
+function resolveDisplayedAction(
+	actions: readonly PendingAction[],
+	answeredIdentities: ReadonlySet<string>,
+	selectedIdentity: string | null
+): PendingAction | null {
+	const selectedIndex = actions.findIndex(
+		(action) => action.identity === selectedIdentity
+	);
+	const selected = actions[selectedIndex] ?? null;
+	if (selected && !answeredIdentities.has(selected.identity)) {
+		return selected;
+	}
+	const searchOrder =
+		selectedIndex < 0
+			? actions
+			: [
+					...actions.slice(selectedIndex + 1),
+					...actions.slice(0, selectedIndex),
+				];
+	return (
+		searchOrder.find((action) => !answeredIdentities.has(action.identity)) ??
+		null
+	);
+}
+
 export function SpacePendingAgentActions(input: PendingAgentActionsProps) {
 	const actionableItems = useMemo(
 		() =>
@@ -95,27 +124,48 @@ export function SpacePendingAgentActions(input: PendingAgentActionsProps) {
 	);
 	const [selectedInteractionIdentity, setSelectedInteractionIdentity] =
 		useState<string | null>(input.initialInteractionIdentity ?? null);
+	// Answers in flight or sent. An answer leaves the tray as soon as it is
+	// submitted; a failed send puts the request back with its failure.
+	const [answeredIdentities, setAnsweredIdentities] = useState<
+		ReadonlySet<string>
+	>(() => new Set());
+	const [failuresByIdentity, setFailuresByIdentity] = useState<
+		ReadonlyMap<string, SpaceAgentInteractionFailure>
+	>(() => new Map());
 	const [surfaceElement, setSurfaceElement] = useState<HTMLElement | null>(
 		null
 	);
 	const triggerRef = useRef<HTMLButtonElement>(null);
+	const panelRef = useRef<HTMLFieldSetElement>(null);
+	const focusPanelOnAdvanceRef = useRef(false);
 	const surfaceHasFocusRef = useRef(false);
 	const panelId = useId();
+	const unansweredItems = useMemo(
+		() =>
+			actionableItems.filter((item) => !answeredIdentities.has(item.identity)),
+		[actionableItems, answeredIdentities]
+	);
+	const selectedItem = resolveDisplayedAction(
+		actionableItems,
+		answeredIdentities,
+		selectedInteractionIdentity
+	);
+	const selectedItemIdentity = selectedItem ? selectedItem.identity : null;
 	const selectedIndex = Math.max(
 		0,
-		actionableItems.findIndex(
-			(item) => item.identity === selectedInteractionIdentity
-		)
+		unansweredItems.findIndex((item) => item.identity === selectedItemIdentity)
 	);
-	const selectedItem = actionableItems[selectedIndex] ?? null;
-	const selectedItemIdentity = selectedItem ? selectedItem.identity : null;
 	const actionableInteractionIdentities = useMemo(
 		() => new Set(actionableItems.map((item) => item.identity)),
 		[actionableItems]
 	);
+	// A request the owner just answered may clear before the next one does;
+	// keep the surface open on the next request instead of collapsing it.
 	const selectedInteractionIsActionable =
+		selectedItem !== null &&
 		selectedInteractionIdentity !== null &&
-		actionableInteractionIdentities.has(selectedInteractionIdentity);
+		(actionableInteractionIdentities.has(selectedInteractionIdentity) ||
+			answeredIdentities.has(selectedInteractionIdentity));
 	const isSurfaceOpen = isOpen && selectedInteractionIsActionable;
 
 	useEffect(() => {
@@ -147,6 +197,13 @@ export function SpacePendingAgentActions(input: PendingAgentActionsProps) {
 		};
 	}, [surfaceElement]);
 	useEffect(() => {
+		if (!(focusPanelOnAdvanceRef.current && selectedItemIdentity)) {
+			return;
+		}
+		focusPanelOnAdvanceRef.current = false;
+		panelRef.current?.focus();
+	}, [selectedItemIdentity]);
+	useEffect(() => {
 		if (!(surfaceElement && isSurfaceOpen)) {
 			return;
 		}
@@ -177,11 +234,11 @@ export function SpacePendingAgentActions(input: PendingAgentActionsProps) {
 		) : null;
 	}
 
-	const count = actionableItems.length;
+	const count = unansweredItems.length;
 	const triggerLabel =
 		count === 1 ? "1 action needs you" : `${count} actions need you`;
 	const selectIndex = (nextIndex: number) => {
-		const nextItem = actionableItems[nextIndex];
+		const nextItem = unansweredItems[nextIndex];
 		const nextIdentity = nextItem ? nextItem.identity : null;
 		if (nextIdentity) {
 			setSelectedInteractionIdentity(nextIdentity);
@@ -194,6 +251,34 @@ export function SpacePendingAgentActions(input: PendingAgentActionsProps) {
 			return;
 		}
 		setSelectedInteractionIdentity(selectedItemIdentity);
+		setIsOpen(true);
+	};
+	const markSubmitStarted = (identity: string) => {
+		focusPanelOnAdvanceRef.current = surfaceHasFocusRef.current;
+		setAnsweredIdentities((current) => new Set(current).add(identity));
+		setFailuresByIdentity((current) => {
+			const next = new Map(current);
+			next.delete(identity);
+			return next;
+		});
+		setSelectedInteractionIdentity(identity);
+		// Answering the last request closes the tray, so a later request waits
+		// for the owner to open it instead of popping open on its own.
+		if (unansweredItems.every((item) => item.identity === identity)) {
+			setIsOpen(false);
+		}
+	};
+	const markSubmitFailed = (
+		identity: string,
+		failure: SpaceAgentInteractionFailure
+	) => {
+		setAnsweredIdentities((current) => {
+			const next = new Set(current);
+			next.delete(identity);
+			return next;
+		});
+		setFailuresByIdentity((current) => new Map(current).set(identity, failure));
+		setSelectedInteractionIdentity(identity);
 		setIsOpen(true);
 	};
 
@@ -241,6 +326,8 @@ export function SpacePendingAgentActions(input: PendingAgentActionsProps) {
 					aria-label="Current pending action"
 					className="min-w-0 border-0 border-border border-t p-3"
 					id={panelId}
+					ref={panelRef}
+					tabIndex={-1}
 				>
 					{count > 1 ? (
 						<div className="mb-2 flex items-center justify-between gap-3">
@@ -275,6 +362,11 @@ export function SpacePendingAgentActions(input: PendingAgentActionsProps) {
 						action={selectedItem}
 						input={input}
 						key={selectedItemIdentity}
+						onSubmitFailed={(failure) =>
+							markSubmitFailed(selectedItem.identity, failure)
+						}
+						onSubmitStarted={() => markSubmitStarted(selectedItem.identity)}
+						restoredFailure={failuresByIdentity.get(selectedItem.identity)}
 					/>
 				</fieldset>
 			) : null}
@@ -285,9 +377,15 @@ export function SpacePendingAgentActions(input: PendingAgentActionsProps) {
 function PendingActionContent({
 	action,
 	input,
+	onSubmitFailed,
+	onSubmitStarted,
+	restoredFailure,
 }: {
 	action: PendingAction;
 	input: PendingAgentActionsProps;
+	onSubmitFailed: (failure: SpaceAgentInteractionFailure) => void;
+	onSubmitStarted: () => void;
+	restoredFailure?: SpaceAgentInteractionFailure;
 }) {
 	if (action.kind === "plugin") {
 		if (action.request.sourceThreadId && input.onOpenPluginRequestThread) {
@@ -318,10 +416,13 @@ function PendingActionContent({
 			item={action.item}
 			onPermissionModeUpdate={input.onPermissionModeUpdate}
 			onRespond={input.onRespond}
+			onSubmitFailed={onSubmitFailed}
+			onSubmitStarted={onSubmitStarted}
 			permissionModeOptions={input.permissionModeOptionsByProfileId?.get(
 				action.item.targetProfileId
 			)}
 			presentation="surface"
+			restoredFailure={restoredFailure}
 		/>
 	);
 }

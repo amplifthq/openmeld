@@ -64,7 +64,11 @@ export type CursorAdapterOptions = {
 
 type ActiveCursorAcpTurn = Pick<
   CursorAcpActiveTurnRegistration,
-  "agentControllerPermissionMode" | "cancel" | "sessionId" | "setPermissionMode"
+  | "agentControllerPermissionMode"
+  | "cancel"
+  | "launchPermissionMode"
+  | "sessionId"
+  | "setPermissionMode"
 >;
 
 const CURSOR_CONVERSATION_BRIDGE_SPEC =
@@ -97,6 +101,7 @@ export function createCursorAdapter(
     const turn = {
       agentControllerPermissionMode: registration.agentControllerPermissionMode,
       cancel: registration.cancel,
+      launchPermissionMode: registration.launchPermissionMode,
       setPermissionMode: registration.setPermissionMode,
       sessionId: registration.sessionId,
     };
@@ -156,14 +161,16 @@ async function updateCursorActivePermissionMode(input: {
     };
   }
 
+  // A session launched in an ACP mode can move between ACP modes and to Run
+  // Everything, which OpenMeld honors by answering Cursor's later requests
+  // with its one-time allow. A process launched with --force or
+  // --auto-review keeps that launch policy until the next Wake.
+  const nextPermissionMode = input.request.agentControllerPermissionMode;
   if (
     !(
-      isCursorAcpSessionPermissionMode(
-        activeTurn.agentControllerPermissionMode
-      ) &&
-      isCursorAcpSessionPermissionMode(
-        input.request.agentControllerPermissionMode
-      )
+      isCursorAcpSessionPermissionMode(activeTurn.launchPermissionMode) &&
+      (isCursorAcpSessionPermissionMode(nextPermissionMode) ||
+        nextPermissionMode === "cursor:force")
     )
   ) {
     return {

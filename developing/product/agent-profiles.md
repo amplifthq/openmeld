@@ -619,16 +619,39 @@ is Available, Checking, Offline, or Unavailable.
 Codex app-server versions at or above `0.153.0-alpha.4` can switch the active
 turn's reviewer between Ask for approval and Approve for me. OpenMeld uses
 `turn/settings/update` and requires its `applied` acknowledgement. Full access
-changes the sandbox and approval policy; it remains a next-task setting. A
-running `turn/start` call does not replace that turn's sandbox. OpenMeld does
-not interrupt and replay commands to simulate a live sandbox change. Legacy
-Custom configurations also stay launch-only because their native policy is not
-known from the saved mode name. Claude SDK sessions permit an explicit owner
-switch to bypass permissions after launch, except in repair execution. Cursor
-ACP supports live Default, Ask, and Plan transitions; Auto review and Force
-remain launch-only on this transport.
+changes the sandbox and approval policy. A running `turn/start` call does not
+replace that turn's sandbox, and OpenMeld does not interrupt and replay
+commands to simulate a live sandbox change. Legacy Custom configurations stay
+launch-only because their native policy is not known from the saved mode name.
+Claude SDK sessions permit an explicit owner switch to bypass permissions after
+launch, except in repair execution. Cursor ACP supports live Default, Ask, and
+Plan transitions; Auto review stays launch-only on this transport.
 
-Pending approvals remain explicit decisions. On a Service that advertises
+Some no-prompt modes have no native live switch: Grok Build Bypass permissions
+(Grok reads `--permission-mode` only at launch, and on grok 1.0.52 its ACP
+`session/set_mode` is accepted and ignored), Cursor Run Everything (an ACP
+launch flag), and Codex Full access (a turn sandbox). When the owner switches a
+running task from an asking mode to one of these, the adapter applies the
+owner's explicit, confirmed choice itself and acknowledges it as applied: it
+answers each later permission request with the controller's own one-time allow
+option and never selects a persistent rule. This is the owner's mode choice
+carried out on the controller's own options, not an invented approval. For
+Codex, the turn keeps its starting sandbox, so commands run with the access
+Codex requests and full sandbox access starts with the next task. Switching
+back to the launch mode stops this and restores the controller's own prompts.
+A task launched in a no-prompt mode keeps that launch policy until the next
+Wake.
+
+The Center Agent may change an Agent Profile's permission mode for its owner
+through the same canonical Binding write, using any mode the profile's
+controller offers. It reads the per-controller options, including which ones
+need explicit confirmation, from the shared permission-mode catalog, and it
+chooses a confirmation-required mode only on the owner's explicit request.
+
+Pending approvals remain explicit decisions. In the Space, an answered approval
+leaves the pending-action surface as soon as the owner submits it, and the next
+request that still needs the owner takes its place; a response that fails to
+send returns the request with its error. On a Service that advertises
 permission-mode update sequencing, the owner can choose a mode in the approval
 card; Full access requires explicit confirmation. Web saves the canonical Binding
 before sending the selected approval with the Binding id and saved mode. Service
@@ -752,7 +775,16 @@ persistent rule without a separate explicit choice from the owner. When the
 owner chooses both, OpenMeld answers the current request first so the Wake can
 resume, then saves the controller-native low-interruption mode as a non-blocking
 follow-up. A failed Profile save must not undo or delay the accepted current
-response. Cursor Run Everything keeps its native one-time automatic allow
+response. When a controller offers a "don't ask again" choice but does not
+honor it itself, as Grok Build's ACP does not (Claude Code, Codex, Cursor, and
+OpenCode honor theirs natively), OpenMeld keeps the owner's
+choice for that controller conversation while the OpenMeld Service keeps
+running, and answers later matching requests with the same kind of option the
+controller offers: an allow-always choice covers later requests of the same
+tool kind, and a deny-always choice covers the same exact command. A request
+without an exact command is never denied from memory. These choices are not
+yet persisted, so a Service restart forgets them and the controller asks
+again. A one-time choice never becomes such a rule. Cursor Run Everything keeps its native one-time automatic allow
 behavior rather than pausing for an approval that the selected mode already
 resolved.
 

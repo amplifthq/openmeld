@@ -54,6 +54,8 @@ type CursorAcpSessionDescriptor = {
 
 export type CursorAcpActiveTurnRegistration = {
   agentControllerPermissionMode: AgentControllerPermissionMode;
+  /** The mode the Cursor process was launched with. */
+  launchPermissionMode: AgentControllerPermissionMode;
   cancel: () => Promise<void>;
   setPermissionMode: (
     permissionMode: AgentControllerPermissionMode
@@ -235,6 +237,9 @@ async function runCursorAcpTurn(input: {
     agentControllerPermissionMode: resolveCursorPermissionMode(
       input.input.agentControllerPermissionMode
     ),
+    launchPermissionMode: resolveCursorPermissionMode(
+      input.input.agentControllerPermissionMode
+    ),
     cancel: async () => {
       cancelled = true;
       await input.deliveryScope?.deactivate();
@@ -243,10 +248,15 @@ async function runCursorAcpTurn(input: {
       });
     },
     setPermissionMode: async (permissionMode) => {
-      await input.session.request("session/set_mode", {
-        modeId: resolveCursorAcpMode(permissionMode),
-        sessionId: descriptor.sessionId,
-      });
+      // Run Everything has no ACP session mode; OpenMeld answers Cursor's
+      // later permission requests with its one-time allow instead.
+      if (permissionMode !== "cursor:force") {
+        await input.session.request("session/set_mode", {
+          modeId: resolveCursorAcpMode(permissionMode),
+          sessionId: descriptor.sessionId,
+        });
+      }
+      input.session.applyPermissionMode(permissionMode);
     },
     sessionId: descriptor.sessionId,
     taskId: input.input.taskId,
@@ -453,7 +463,7 @@ async function withCursorAcpSession<T>(
 
 class CursorAcpSession {
   readonly #deliveryOnly: boolean;
-  readonly #agentControllerPermissionMode?: AgentControllerPermissionMode;
+  #agentControllerPermissionMode?: AgentControllerPermissionMode;
   readonly #cursorWorkdir: string;
   readonly #mcpServers: ReturnType<
     typeof buildAcpDispatchSpaceActionMcpServers
@@ -772,6 +782,10 @@ class CursorAcpSession {
         message: `OpenMeld does not support Cursor ACP client method '${message.method}'.`,
       },
     };
+  }
+
+  applyPermissionMode(permissionMode: AgentControllerPermissionMode): void {
+    this.#agentControllerPermissionMode = permissionMode;
   }
 
   #resolvePermissionRequest(params: unknown): AcpClientRequestResponse {

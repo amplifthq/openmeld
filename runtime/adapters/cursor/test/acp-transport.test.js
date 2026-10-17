@@ -123,6 +123,10 @@ async function writeFakeCursorAcp(fixturePath) {
       "      if (process.env.OPENMELD_FAKE_CURSOR_ACP_EXIT_AFTER_INTERACTION === '1') setImmediate(() => process.exit(0));",
       "      return;",
       "    }",
+      "    if (interaction === 'permission_sequence') {",
+      "      write({ jsonrpc: '2.0', id: 'permission-seq-1', method: 'session/request_permission', params: { sessionId: activeSessionId, toolCall: { toolCallId: 'tool-seq-1', title: 'Run first command', kind: 'execute' }, options: [{ optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' }, { optionId: 'allow-always', name: 'Allow always', kind: 'allow_always' }, { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' }] } });",
+      "      return;",
+      "    }",
       "    if (interaction === 'question') {",
       "      write({ jsonrpc: '2.0', id: 'question-1', method: 'cursor/ask_question', params: { toolCallId: 'tool-1', questions: [{ id: 'q1', prompt: 'Choose', options: [{ id: 'a', label: 'A' }] }] } });",
       "      return;",
@@ -139,7 +143,8 @@ async function writeFakeCursorAcp(fixturePath) {
       "    pendingPromptId = null;",
       "    return;",
       "  }",
-      "  if (message.id === 'permission-1' || message.id === 'question-1' || message.id === 'plan-1') { finishPrompt(); return; }",
+      "  if (message.id === 'permission-seq-1') { write({ jsonrpc: '2.0', id: 'permission-seq-2', method: 'session/request_permission', params: { sessionId: activeSessionId, toolCall: { toolCallId: 'tool-seq-2', title: 'Run second command', kind: 'execute' }, options: [{ optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' }, { optionId: 'allow-always', name: 'Allow always', kind: 'allow_always' }, { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' }] } }); return; }",
+      "  if (message.id === 'permission-1' || message.id === 'permission-seq-2' || message.id === 'question-1' || message.id === 'plan-1') { finishPrompt(); return; }",
       "  write({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'unsupported method ' + message.method } });",
       "};",
       "process.stdin.setEncoding('utf8');",
@@ -1124,6 +1129,57 @@ test("Cursor adapter applies a saved permission mode to an active ACP session", 
   });
 });
 
+test("Cursor adapter applies a live switch to Run Everything to later permission requests", async () => {
+  const { createCursorAdapter } = await import("../dist/index.js");
+  await withFixture(async ({ fixtureDir, fixturePath, logPath }) => {
+    const adapter = createCursorAdapter({
+      cursorTimeoutMs: 2000,
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+    });
+    const asked = [];
+    let updateResult = null;
+    const result = await adapter.dispatch({
+      agentControllerPermissionMode: "cursor:default",
+      agentId: "cursor",
+      env: {
+        OPENMELD_FAKE_CURSOR_ACP_INTERACTION: "permission_sequence",
+        OPENMELD_FAKE_CURSOR_ACP_LOG: logPath,
+      },
+      onInteractionRequest: async (request) => {
+        asked.push(request.title);
+        updateResult = await adapter.updatePermissionMode({
+          agentControllerPermissionMode: "cursor:force",
+          taskId: "task-live-run-everything",
+        });
+        return { kind: "permission", optionId: "allow-once" };
+      },
+      prompt: "Run two commands",
+      runtimeContext: createRuntimeContext(fixtureDir),
+      sourceEventId: "source-live-run-everything",
+      spaceId: "space-live-run-everything",
+      taskId: "task-live-run-everything",
+      transportMode: "acp",
+    });
+
+    assert.equal(result.status, "success");
+    assert.deepEqual(updateResult, {
+      effectiveFrom: "subsequent_tool_requests",
+      status: "applied",
+      taskId: "task-live-run-everything",
+    });
+    assert.equal(asked.length, 1);
+    const log = await readLog(logPath);
+    assert.equal(
+      log.filter((entry) => entry.method === "session/set_mode").length,
+      0
+    );
+    assert.deepEqual(
+      log.find((entry) => entry.id === "permission-seq-2")?.result,
+      { outcome: { optionId: "allow-once", outcome: "selected" } }
+    );
+  });
+});
+
 test("Cursor adapter does not claim live updates for launch-only permission modes", async () => {
   const { createCursorAdapter } = await import("../dist/index.js");
   await withFixture(async ({ fixtureDir, fixturePath, logPath }) => {
@@ -1132,7 +1188,7 @@ test("Cursor adapter does not claim live updates for launch-only permission mode
       launchContract: createNodeScriptLaunchContract(fixturePath),
     });
     const dispatchPromise = adapter.dispatch({
-      agentControllerPermissionMode: "cursor:default",
+      agentControllerPermissionMode: "cursor:force",
       agentId: "cursor",
       env: {
         OPENMELD_FAKE_CURSOR_ACP_LOG: logPath,
@@ -1148,16 +1204,22 @@ test("Cursor adapter does not claim live updates for launch-only permission mode
     await waitForLogMethod(logPath, "session/prompt");
 
     try {
-      const result = await adapter.updatePermissionMode({
-        agentControllerPermissionMode: "cursor:force",
-        taskId: "task-launch-only-permission-mode",
-      });
-
-      assert.deepEqual(result, {
-        reasonCode: "adapter.permission_mode_update_unsupported",
-        status: "not_applied",
-        taskId: "task-launch-only-permission-mode",
-      });
+      for (const agentControllerPermissionMode of [
+        "cursor:default",
+        "cursor:autoReview",
+      ]) {
+        assert.deepEqual(
+          await adapter.updatePermissionMode({
+            agentControllerPermissionMode,
+            taskId: "task-launch-only-permission-mode",
+          }),
+          {
+            reasonCode: "adapter.permission_mode_update_unsupported",
+            status: "not_applied",
+            taskId: "task-launch-only-permission-mode",
+          }
+        );
+      }
       assert.equal(
         (await readLog(logPath)).filter(
           (entry) => entry.method === "session/set_mode"

@@ -17438,6 +17438,62 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ]).toEqual([expect.objectContaining({ resolution_status: "resolved" })]);
   });
 
+  it("tells the open Space about a new interaction without waiting for a poll", async () => {
+    const { hub, sentFrames, socket, spaceStub, state, waitUntilTasks } =
+      await createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    enableLocalAgentInteraction(state);
+    spaceStub.rpcBroadcastWakeProgressChanged.mockClear();
+
+    await (
+      hub as unknown as {
+        handleDispatchInteractionRequestFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchInteractionRequestFrame(
+      socket,
+      buildInteractionRequest(executionToken)
+    );
+    await Promise.all(waitUntilTasks);
+
+    expect(spaceStub.rpcBroadcastWakeProgressChanged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentProfileIds: [TARGET_AGENT_PROFILE_ID],
+        reason: "runtime_coordinator.wake_progress_changed",
+        spaceId: HEX_SPACE_ID,
+      })
+    );
+
+    // The Service replays the same unanswered request after reconnecting.
+    spaceStub.rpcBroadcastWakeProgressChanged.mockClear();
+    await (
+      hub as unknown as {
+        handleDispatchInteractionRequestFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchInteractionRequestFrame(
+      socket,
+      buildInteractionRequest(executionToken)
+    );
+    await Promise.all(waitUntilTasks);
+
+    expect(spaceStub.rpcBroadcastWakeProgressChanged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentProfileIds: [TARGET_AGENT_PROFILE_ID],
+        spaceId: HEX_SPACE_ID,
+      })
+    );
+  });
+
   it("keeps the pending interaction authoritative when Inbox creation fails", async () => {
     const {
       hub,

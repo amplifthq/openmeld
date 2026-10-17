@@ -34,6 +34,13 @@ export type SpaceAgentInteractionResponseHandler = (
 
 export type SpaceAgentPermissionModeOption = ActionPermissionModeOption;
 
+type SpaceAgentInteractionSubmission = "continue" | "stop";
+
+/** Why a submitted response did not land, so a remounted card can show it. */
+export type SpaceAgentInteractionFailure =
+	| { errorMessage: string }
+	| { unconfirmedResponse: AgentInteractionResponse };
+
 export type SpaceAgentPermissionModeUpdateHandler = (input: {
 	permissionMode: AgentControllerPermissionMode;
 	profileId: string;
@@ -50,8 +57,11 @@ type SpaceAgentInteractionCardProps = {
 	item: WakeProgressItem;
 	onPermissionModeUpdate?: SpaceAgentPermissionModeUpdateHandler;
 	onRespond?: SpaceAgentInteractionResponseHandler;
+	onSubmitFailed?: (failure: SpaceAgentInteractionFailure) => void;
+	onSubmitStarted?: () => void;
 	permissionModeOptions?: readonly SpaceAgentPermissionModeOption[];
 	presentation?: "surface" | "timeline";
+	restoredFailure?: SpaceAgentInteractionFailure;
 };
 
 export function SpaceAgentInteractionCard(
@@ -67,13 +77,20 @@ export function SpaceAgentInteractionCard(
 
 function SpaceAgentInteractionCardState(input: SpaceAgentInteractionCardProps) {
 	const pendingInteraction = input.item.pendingInteraction;
-	const [errorMessage, setErrorMessage] = useState<string | null>(null);
+	const [errorMessage, setErrorMessage] = useState<string | null>(() =>
+		input.restoredFailure && "errorMessage" in input.restoredFailure
+			? input.restoredFailure.errorMessage
+			: null
+	);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [unconfirmedResponse, setUnconfirmedResponse] =
-		useState<AgentInteractionResponse | null>(null);
-	const [submission, setSubmission] = useState<"continue" | "stop" | null>(
-		null
-	);
+		useState<AgentInteractionResponse | null>(() =>
+			input.restoredFailure && "unconfirmedResponse" in input.restoredFailure
+				? input.restoredFailure.unconfirmedResponse
+				: null
+		);
+	const [submission, setSubmission] =
+		useState<SpaceAgentInteractionSubmission | null>(null);
 
 	if (!pendingInteraction) {
 		return null;
@@ -101,6 +118,7 @@ function SpaceAgentInteractionCardState(input: SpaceAgentInteractionCardProps) {
 
 		setErrorMessage(null);
 		setIsSubmitting(true);
+		input.onSubmitStarted?.();
 		let submittedResponse: AgentInteractionResponse | null = null;
 		try {
 			submittedResponse = await preparePermissionResponse({
@@ -115,23 +133,25 @@ function SpaceAgentInteractionCardState(input: SpaceAgentInteractionCardProps) {
 				runtimeCoordinatorExecutionId,
 			});
 			setUnconfirmedResponse(null);
-			setSubmission(
+			const nextSubmission: SpaceAgentInteractionSubmission =
 				isWorkingFolderRecoveryQuestion(request) &&
-					isWorkingFolderRecoveryDecline(response)
+				isWorkingFolderRecoveryDecline(response)
 					? "stop"
-					: "continue"
-			);
+					: "continue";
+			setSubmission(nextSubmission);
 		} catch (error) {
 			if (submittedResponse && isAgentInteractionResponseUnconfirmed(error)) {
 				setUnconfirmedResponse(submittedResponse);
+				input.onSubmitFailed?.({ unconfirmedResponse: submittedResponse });
 				return;
 			}
-			setUnconfirmedResponse(null);
-			setErrorMessage(
+			const failureMessage =
 				error instanceof Error
 					? error.message
-					: "Couldn't confirm your response. Refresh to check its status before trying again."
-			);
+					: "Couldn't confirm your response. Refresh to check its status before trying again.";
+			setUnconfirmedResponse(null);
+			setErrorMessage(failureMessage);
+			input.onSubmitFailed?.({ errorMessage: failureMessage });
 		} finally {
 			setIsSubmitting(false);
 		}

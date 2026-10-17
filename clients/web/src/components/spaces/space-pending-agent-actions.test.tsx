@@ -21,6 +21,7 @@ import { SpacePendingAgentActions } from "./space-pending-agent-actions";
 
 const APPROVE_ALL_PATTERN = /approve all/i;
 const ACTION_NEEDS_YOU_PATTERN = /action needs you/i;
+const WAITING_TO_CONTINUE_PATTERN = /to continue\./;
 
 describe("SpacePendingAgentActions", () => {
 	it("keeps Plugin Thread requests in the same tray as Local Agent actions", () => {
@@ -327,9 +328,11 @@ describe("SpacePendingAgentActions", () => {
 		};
 		resolveSave(reference);
 
-		expect(
-			await screen.findByText("Waiting for @Runner to continue.")
-		).toBeTruthy();
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("button", { name: ACTION_NEEDS_YOU_PATTERN })
+			).toBeNull();
+		});
 		expect(onRespond).toHaveBeenCalledWith(
 			expect.objectContaining({
 				response: {
@@ -423,19 +426,67 @@ describe("SpacePendingAgentActions", () => {
 		).toBe(false);
 	});
 
-	it("keeps the next request actionable after the previous request was submitted", async () => {
+	it("moves straight to the next request after the previous request was submitted", async () => {
 		const onRespond = vi.fn().mockResolvedValue(undefined);
+		const submittedItem = createPermissionItem({
+			interactionId: "interaction-submitted",
+			title: "Allow the submitted command?",
+		});
+		const nextItem = createPermissionItem({
+			interactionId: "interaction-next",
+			title: "Allow the next command?",
+		});
+		const view = render(
+			<SpacePendingAgentActions
+				items={[submittedItem, nextItem]}
+				onRespond={onRespond}
+			/>
+		);
 
+		fireEvent.click(screen.getByRole("button", { name: "2 actions need you" }));
+		fireEvent.click(screen.getByRole("radio", { name: "Allow once" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Approve and continue" })
+		);
+
+		expect(await screen.findByText("Allow the next command?")).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "1 action needs you" })
+		).toBeTruthy();
+		expect(screen.queryByText("Action 1 of 2")).toBeNull();
+		expect(screen.getByRole("radio", { name: "Allow once" })).toBeTruthy();
+
+		// The answered request clears once its Agent resumes; the surface stays
+		// on the request that still needs the user.
+		view.rerender(
+			<SpacePendingAgentActions items={[nextItem]} onRespond={onRespond} />
+		);
+		expect(screen.getByText("Allow the next command?")).toBeTruthy();
+	});
+
+	it("removes every answered request at once and closes when none remain", async () => {
+		let resolveFirst: () => void = () => undefined;
+		const onRespond = vi
+			.fn()
+			.mockImplementationOnce(
+				() =>
+					new Promise<void>((resolve) => {
+						resolveFirst = resolve;
+					})
+			)
+			.mockResolvedValue(undefined);
 		render(
 			<SpacePendingAgentActions
 				items={[
 					createPermissionItem({
-						interactionId: "interaction-submitted",
-						title: "Allow the submitted command?",
+						interactionId: "interaction-first-answered",
+						targetLabel: "@Runner",
+						title: "Allow the first command?",
 					}),
 					createPermissionItem({
-						interactionId: "interaction-next",
-						title: "Allow the next command?",
+						interactionId: "interaction-second-answered",
+						targetLabel: "@Reviewer",
+						title: "Allow the second command?",
 					}),
 				]}
 				onRespond={onRespond}
@@ -447,13 +498,95 @@ describe("SpacePendingAgentActions", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Approve and continue" })
 		);
-		expect(
-			await screen.findByText("Waiting for @Runner to continue.")
-		).toBeTruthy();
 
-		fireEvent.click(screen.getByRole("button", { name: "Next action" }));
-		expect(screen.getByText("Allow the next command?")).toBeTruthy();
-		expect(screen.getByRole("radio", { name: "Allow once" })).toBeTruthy();
+		// The first answer is still in flight, yet it has already left the tray.
+		expect(await screen.findByText("Allow the second command?")).toBeTruthy();
+		expect(screen.queryByText("Allow the first command?")).toBeNull();
+		expect(screen.queryByText("Sending response…")).toBeNull();
+		resolveFirst();
+
+		fireEvent.click(screen.getByRole("radio", { name: "Allow once" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Approve and continue" })
+		);
+
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("button", { name: ACTION_NEEDS_YOU_PATTERN })
+			).toBeNull();
+		});
+		expect(screen.queryByText(WAITING_TO_CONTINUE_PATTERN)).toBeNull();
+		expect(onRespond).toHaveBeenCalledTimes(2);
+	});
+
+	it("stays closed when a new request arrives after every request was answered", async () => {
+		const onRespond = vi.fn().mockResolvedValue(undefined);
+		const answered = createPermissionItem({
+			interactionId: "interaction-answered-last",
+			title: "Allow the answered command?",
+		});
+		const view = render(
+			<SpacePendingAgentActions items={[answered]} onRespond={onRespond} />
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "1 action needs you" }));
+		fireEvent.click(screen.getByRole("radio", { name: "Allow once" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Approve and continue" })
+		);
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("button", { name: ACTION_NEEDS_YOU_PATTERN })
+			).toBeNull();
+		});
+
+		view.rerender(
+			<SpacePendingAgentActions
+				items={[
+					answered,
+					createPermissionItem({
+						interactionId: "interaction-arrives-later",
+						title: "Allow the later command?",
+					}),
+				]}
+				onRespond={onRespond}
+			/>
+		);
+
+		const trigger = screen.getByRole("button", { name: "1 action needs you" });
+		expect(trigger.getAttribute("aria-expanded")).toBe("false");
+		expect(screen.queryByText("Allow the later command?")).toBeNull();
+	});
+
+	it("puts a request back with its error when the answer fails to send", async () => {
+		const onRespond = vi
+			.fn()
+			.mockRejectedValue(new Error("OpenMeld couldn't reach your computer."));
+		render(
+			<SpacePendingAgentActions
+				items={[
+					createPermissionItem({
+						interactionId: "interaction-send-fails",
+						title: "Allow the failing command?",
+					}),
+				]}
+				onRespond={onRespond}
+			/>
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "1 action needs you" }));
+		fireEvent.click(screen.getByRole("radio", { name: "Allow once" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Approve and continue" })
+		);
+
+		expect((await screen.findByRole("alert")).textContent).toBe(
+			"OpenMeld couldn't reach your computer."
+		);
+		expect(screen.getByText("Allow the failing command?")).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "1 action needs you" })
+		).toBeTruthy();
 	});
 
 	it("returns focus to the supplied fallback when authoritative state clears", async () => {

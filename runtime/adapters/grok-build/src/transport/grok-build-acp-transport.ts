@@ -27,9 +27,12 @@ import {
 } from "@openmeld/adapter-core";
 import { projectGrokBuildUsageLimits } from "../usage/grok-build-usage-limits.js";
 import {
+  type GrokBuildPermissionMemory,
+  GrokBuildPermissionMemoryStore,
   isGrokBuildPlanMethod,
   isGrokBuildQuestionMethod,
   resolveGrokBuildAcpInteraction,
+  selectGrokBuildBypassPermissionOutcome,
 } from "./grok-build-acp-interactions.js";
 import {
   type GrokBuildDeliveryScope,
@@ -64,7 +67,10 @@ type GrokBuildInteractionFailure = {
 
 export type GrokBuildAcpActiveTurnRegistration = {
   cancel: () => Promise<void>;
+  /** The mode the Grok process was launched with; it cannot change natively. */
+  launchPermissionMode: AgentControllerPermissionMode | null;
   sessionId: string;
+  setPermissionMode: (permissionMode: AgentControllerPermissionMode) => void;
   taskId: string;
 };
 
@@ -150,6 +156,8 @@ export async function invokeGrokBuildAcpTransport(input: {
   onPreview?: AdapterPreviewCallback;
   onProcessControlEvent?: AdapterRuntimeProcessCallback;
   onRuntimeEvent?: AdapterRuntimeEventCallback;
+  /** Owner "don't ask again" choices, kept per Grok conversation. */
+  permissionMemoryStore?: GrokBuildPermissionMemoryStore;
   prompt: string;
   sessionId?: string | null;
   streamingMode?: AdapterStreamingMode;
@@ -218,7 +226,10 @@ export async function invokeGrokBuildAcpTransport(input: {
     });
     const unregisterActiveTurn = input.onActiveTurn?.({
       cancel: () => session.cancelAndCloseSession(descriptor.sessionId),
+      launchPermissionMode: input.agentControllerPermissionMode ?? null,
       sessionId: descriptor.sessionId,
+      setPermissionMode: (permissionMode) =>
+        session.setPermissionMode(permissionMode),
       taskId: input.taskId,
     });
     session.beginTurn();
@@ -380,6 +391,8 @@ class GrokBuildAcpSession {
   #initializeModelState: GrokBuildModelState | null = null;
   #interactionFailure: GrokBuildInteractionFailure | null = null;
   #output = "";
+  #permissionMode: AgentControllerPermissionMode | null;
+  #permissionMemoryStore: GrokBuildPermissionMemoryStore | null = null;
   #sessionClosePromise: Promise<void> | null = null;
   #sessionId: string | null = null;
   #supportsClose = false;
@@ -396,10 +409,12 @@ class GrokBuildAcpSession {
     onPreview?: AdapterPreviewCallback;
     onProcessControlEvent?: AdapterRuntimeProcessCallback;
     onRuntimeEvent?: AdapterRuntimeEventCallback;
+    permissionMemoryStore?: GrokBuildPermissionMemoryStore;
     streamingMode?: AdapterStreamingMode;
     workdir: string;
   }) {
     this.#input = input;
+    this.#permissionMode = input.agentControllerPermissionMode ?? null;
     this.#streamingMode = input.streamingMode ?? "final";
     this.#process = new AcpProcessSession({
       args: buildGrokBuildAcpArgs(input.agentControllerPermissionMode),
@@ -683,6 +698,10 @@ class GrokBuildAcpSession {
     });
   }
 
+  setPermissionMode(permissionMode: AgentControllerPermissionMode): void {
+    this.#permissionMode = permissionMode;
+  }
+
   emitProviderConversationObserved(sessionId: string): void {
     this.#emitRuntimeEvent({
       agentControllerConversationId: sessionId,
@@ -765,11 +784,23 @@ class GrokBuildAcpSession {
         },
       };
     }
+    if (
+      request.method === "session/request_permission" &&
+      this.#permissionMode === "grok-build:bypassPermissions"
+    ) {
+      const bypassOutcome = selectGrokBuildBypassPermissionOutcome(
+        request.params
+      );
+      if (bypassOutcome) {
+        return { result: bypassOutcome };
+      }
+    }
     if (this.#input.onInteractionRequest) {
       const interaction = await resolveGrokBuildAcpInteraction({
         method: request.method,
         onInteractionRequest: this.#input.onInteractionRequest,
         params: request.params,
+        permissionMemory: this.#resolvePermissionMemory(requestSessionId),
       });
       if (interaction.handled) {
         return { result: interaction.result };
@@ -850,6 +881,12 @@ class GrokBuildAcpSession {
         }
       );
     }
+  }
+
+  #resolvePermissionMemory(sessionId: string): GrokBuildPermissionMemory {
+    this.#permissionMemoryStore ??=
+      this.#input.permissionMemoryStore ?? new GrokBuildPermissionMemoryStore();
+    return this.#permissionMemoryStore.forSession(sessionId);
   }
 
   #recordInteractionFailure(code: string, message: string): void {
