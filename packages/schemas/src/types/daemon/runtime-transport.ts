@@ -499,6 +499,11 @@ export type RuntimeTransportRuntimeCoordinatorReadInteractionResponse =
     typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportRuntimeCoordinatorReadInteractionResponseSchema"]
   >;
 
+export type RuntimeTransportRuntimeCoordinatorReadInteractionRevisionResponse =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportRuntimeCoordinatorReadInteractionRevisionResponseSchema"]
+  >;
+
 export type RuntimeTransportRuntimeCoordinatorRespondInteractionRequest =
   import("zod/v4").infer<
     typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportRuntimeCoordinatorRespondInteractionRequestSchema"]

@@ -388,6 +388,12 @@ export type RuntimeCoordinatorRunLocalProgressState = {
 
 export type RuntimeCoordinatorPendingAgentInteractionState = {
   request: AgentInteractionRequest;
+  /**
+   * Core time the request first reached Core. Optional for interactions
+   * stored before it was recorded; the command state's Core updatedAtMs
+   * stands in, never the Service's requestedAtMs.
+   */
+  requestReceivedAtMs?: number;
   respondedAtMs: number | null;
   response: AgentInteractionResponse | null;
 };
@@ -1643,7 +1649,10 @@ export const isRuntimeCoordinatorRunCommandState = (
       !(
         agentInteractionRequestSchema.safeParse(pendingInteraction.request)
           .success &&
-        isOptionalNullableNonNegativeNumber(pendingInteraction.respondedAtMs)
+        isOptionalNullableNonNegativeNumber(pendingInteraction.respondedAtMs) &&
+        isOptionalNullableNonNegativeNumber(
+          pendingInteraction.requestReceivedAtMs
+        )
       ) ||
       (pendingInteraction.response !== null &&
         !agentInteractionResponseSchema.safeParse(pendingInteraction.response)

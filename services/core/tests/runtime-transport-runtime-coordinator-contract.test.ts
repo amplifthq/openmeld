@@ -17904,6 +17904,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     enableLocalAgentInteraction(state);
     sentFrames.length = 0;
 
+    const requestReceivedAfterMs = Date.now();
     await (
       hub as unknown as {
         handleDispatchInteractionRequestFrame: (
@@ -17918,6 +17919,23 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
     const ownerReadResponse = await fetchRuntimeTransportJson(
       hub,
+      "/runtime-coordinator/interaction/read-revision",
+      {
+        actorOwnerUserId: "owner-1",
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      }
+    );
+    const ownerRead = (await ownerReadResponse.json()) as {
+      interactionUpdatedAtMs: number | null;
+    };
+    // The revision is the Core arrival time, not the Service's clock.
+    expect(ownerRead.interactionUpdatedAtMs).toBeGreaterThanOrEqual(
+      requestReceivedAfterMs
+    );
+    // The frozen read keeps the exact body already-deployed Spaces parse.
+    const frozenReadResponse = await fetchRuntimeTransportJson(
+      hub,
       "/runtime-coordinator/interaction/read",
       {
         actorOwnerUserId: "owner-1",
@@ -17925,7 +17943,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
         v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
       }
     );
-    await expect(ownerReadResponse.json()).resolves.toMatchObject({
+    const frozenRead = (await frozenReadResponse.json()) as Record<
+      string,
+      unknown
+    >;
+    expect(Object.keys(frozenRead)).toEqual(["pendingInteraction"]);
+    expect(ownerRead).toMatchObject({
       pendingInteraction: {
         canRespond: true,
         interactionId: "interaction-1",
@@ -17969,10 +17992,31 @@ describe("runtime transport runtime coordinator transport contract", () => {
         v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
       }
     );
-    await expect(respondResponse.json()).resolves.toMatchObject({
+    const respondReceipt = (await respondResponse.json()) as {
+      respondedAtMs: number;
+    };
+    expect(respondReceipt).toMatchObject({
       ok: true,
       status: "accepted",
     });
+    const answeredRead = await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/interaction/read-revision",
+      {
+        actorOwnerUserId: "owner-1",
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      }
+    );
+    // The answer advances the revision so the cleared request outranks a
+    // copy that still shows it.
+    await expect(answeredRead.json()).resolves.toEqual({
+      interactionUpdatedAtMs: respondReceipt.respondedAtMs,
+      pendingInteraction: null,
+    });
+    expect(respondReceipt.respondedAtMs).toBeGreaterThanOrEqual(
+      ownerRead.interactionUpdatedAtMs ?? Number.POSITIVE_INFINITY
+    );
     expect(sentFrames).toContainEqual(
       expect.objectContaining({
         code: "daemon.dispatch.interaction_response",
@@ -18037,14 +18081,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
     const replayRead = await fetchRuntimeTransportJson(
       hub,
-      "/runtime-coordinator/interaction/read",
+      "/runtime-coordinator/interaction/read-revision",
       {
         actorOwnerUserId: "owner-1",
         runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
         v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
       }
     );
-    await expect(replayRead.json()).resolves.toMatchObject({
+    await expect(replayRead.json()).resolves.toEqual({
+      interactionUpdatedAtMs: respondReceipt.respondedAtMs,
       pendingInteraction: null,
     });
   });
