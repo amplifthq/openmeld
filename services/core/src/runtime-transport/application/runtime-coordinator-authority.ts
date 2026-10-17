@@ -1648,7 +1648,10 @@ export const isRuntimeCoordinatorRunCommandState = (
       !(
         agentInteractionRequestSchema.safeParse(pendingInteraction.request)
           .success &&
-        isOptionalNullableNonNegativeNumber(pendingInteraction.respondedAtMs)
+        isOptionalNullableNonNegativeNumber(pendingInteraction.respondedAtMs) &&
+        isOptionalNullableNonNegativeNumber(
+          pendingInteraction.requestReceivedAtMs
+        )
       ) ||
       (pendingInteraction.response !== null &&
         !agentInteractionResponseSchema.safeParse(pendingInteraction.response)
