@@ -17423,8 +17423,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("tells the open Space about a new interaction once per Service connection", async () => {
-    const { hub, sentFrames, socket, spaceStub, state, waitUntilTasks } =
-      await createHarness();
+    const {
+      hub,
+      sentFrames,
+      socket,
+      spaceStub,
+      state,
+      storageRecords,
+      waitUntilTasks,
+    } = await createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
       sentFrames,
@@ -17461,9 +17468,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
     // The Service heartbeat replays the unanswered request on the same
     // connection; nothing changed, so open Spaces are not asked to refetch.
-    await sendInteractionRequest();
-    await sendInteractionRequest();
-    expect(spaceStub.rpcBroadcastWakeProgressChanged).not.toHaveBeenCalled();
+    for (let replay = 0; replay < 2; replay += 1) {
+      await sendInteractionRequest();
+      expect(spaceStub.rpcBroadcastWakeProgressChanged).not.toHaveBeenCalled();
+    }
 
     // After a reconnect the replay re-announces the request once.
     const session = state.sessionsById.get("daemon-session-1");
@@ -17478,6 +17486,29 @@ describe("runtime transport runtime coordinator transport contract", () => {
         spaceId: HEX_SPACE_ID,
       })
     );
+    await sendInteractionRequest({ connectionGeneration: 2 });
+    expect(spaceStub.rpcBroadcastWakeProgressChanged).not.toHaveBeenCalled();
+
+    // A request stored before connections were recorded re-announces once.
+    const commandStateKey = [...storageRecords.keys()].find(
+      (key) =>
+        key.startsWith("runtime-coordinator:run-command-state:") &&
+        key !== "runtime-coordinator:run-command-state:index"
+    );
+    if (!commandStateKey) {
+      throw new Error("Expected stored command state.");
+    }
+    const stored = storageRecords.get(commandStateKey) as {
+      pendingInteraction: Record<string, unknown>;
+    };
+    const { requestConnection: _legacy, ...legacyPending } =
+      stored.pendingInteraction;
+    storageRecords.set(commandStateKey, {
+      ...stored,
+      pendingInteraction: legacyPending,
+    });
+    await sendInteractionRequest({ connectionGeneration: 2 });
+    expect(spaceStub.rpcBroadcastWakeProgressChanged).toHaveBeenCalledTimes(1);
     await sendInteractionRequest({ connectionGeneration: 2 });
     expect(spaceStub.rpcBroadcastWakeProgressChanged).not.toHaveBeenCalled();
     expect(sentFrames).not.toContainEqual(
