@@ -2252,7 +2252,17 @@ export const runtimeTransportRuntimeCoordinatorReadInteractionRequestSchema =
         .runtimeCoordinatorExecutionId,
   });
 
+// Frozen: Space and the Runtime Transport Hub are separate Durable Objects and
+// can briefly run different Core builds, so this body never gains a field.
 export const runtimeTransportRuntimeCoordinatorReadInteractionResponseSchema =
+  z.strictObject({
+    pendingInteraction: agentInteractionPendingSummarySchema.nullable(),
+  });
+
+// Served only at the revision read path. A reader that gets anything else
+// (an older Hub answers that path with not_found) falls back to the frozen
+// read above and keeps the lifecycle revision.
+export const runtimeTransportRuntimeCoordinatorReadInteractionRevisionResponseSchema =
   z.strictObject({
     pendingInteraction: agentInteractionPendingSummarySchema.nullable(),
     // Core time of this execution's latest interaction change: a request

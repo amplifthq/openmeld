@@ -241,7 +241,7 @@ import type {
   RuntimeCoordinatorFinalizationCommand,
   RuntimeCoordinatorFinalizationFinalMessageKind,
   RuntimeCoordinatorFinalizationOutcome,
-  RuntimeTransportRuntimeCoordinatorReadInteractionResponse,
+  RuntimeTransportRuntimeCoordinatorReadInteractionRevisionResponse,
   SpaceAccessMode,
   SpaceAgentStreamDeltaFrame,
   SpaceAgentStreamPartFrame,
@@ -16720,7 +16720,7 @@ export class Space extends DurableObject<CoreBindings> {
       RuntimeCoordinatorExecutionRecord,
       "runtimeCoordinatorExecutionId" | "openMeldServiceRuntimeId"
     >;
-  }): Promise<RuntimeTransportRuntimeCoordinatorReadInteractionResponse> {
+  }): Promise<RuntimeTransportRuntimeCoordinatorReadInteractionRevisionResponse> {
     const unavailable = {
       interactionUpdatedAtMs: null,
       pendingInteraction: null,

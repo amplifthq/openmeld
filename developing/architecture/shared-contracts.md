@@ -8891,9 +8891,15 @@ additive field. Space's response HTTP/RPC contract carries only the public Wake
 selector, interaction id, and shared response; Core resolves private execution
 authority and must not accept it from the browser.
 
-RuntimeCoordinator's interaction read also returns `interactionUpdatedAtMs`:
-the Core time of the execution's latest interaction change (the request
-reaching Core, its answer, or its expiry), or null before any interaction.
+RuntimeCoordinator serves `interactionUpdatedAtMs` only from the revision read
+(`/runtime-coordinator/interaction/read-revision`); the original interaction
+read keeps its frozen `{ pendingInteraction }` body. Space and the Runtime
+Transport Hub are separate Durable Objects that can briefly run different
+Core builds, so a reader whose revision read is answered with anything else
+(an earlier Hub returns `not_found`) falls back to the original read, keeps the
+request visible, and leaves the lifecycle revision unchanged. The value is the
+Core time of the execution's latest interaction change (the request reaching
+Core, its answer, or its expiry), or null before any interaction.
 Space folds it into every Wake progress item's `updatedAtMs` for that
 execution. A request or answer therefore advances the item revision even when
 the lifecycle record is unchanged, so a client holding an older copy of the

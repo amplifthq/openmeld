@@ -18018,7 +18018,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
     const ownerReadResponse = await fetchRuntimeTransportJson(
       hub,
-      "/runtime-coordinator/interaction/read",
+      "/runtime-coordinator/interaction/read-revision",
       {
         actorOwnerUserId: "owner-1",
         runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
@@ -18032,6 +18032,21 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(ownerRead.interactionUpdatedAtMs).toBeGreaterThanOrEqual(
       requestReceivedAfterMs
     );
+    // The frozen read keeps the exact body already-deployed Spaces parse.
+    const frozenReadResponse = await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/interaction/read",
+      {
+        actorOwnerUserId: "owner-1",
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      }
+    );
+    const frozenRead = (await frozenReadResponse.json()) as Record<
+      string,
+      unknown
+    >;
+    expect(Object.keys(frozenRead)).toEqual(["pendingInteraction"]);
     expect(ownerRead).toMatchObject({
       pendingInteraction: {
         canRespond: true,
@@ -18085,7 +18100,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
     const answeredRead = await fetchRuntimeTransportJson(
       hub,
-      "/runtime-coordinator/interaction/read",
+      "/runtime-coordinator/interaction/read-revision",
       {
         actorOwnerUserId: "owner-1",
         runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
@@ -18165,7 +18180,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
     const replayRead = await fetchRuntimeTransportJson(
       hub,
-      "/runtime-coordinator/interaction/read",
+      "/runtime-coordinator/interaction/read-revision",
       {
         actorOwnerUserId: "owner-1",
         runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,

@@ -173,6 +173,7 @@ import {
   runtimeTransportRuntimeCoordinatorHeadWaitingResponseSchema,
   runtimeTransportRuntimeCoordinatorReadInteractionRequestSchema,
   runtimeTransportRuntimeCoordinatorReadInteractionResponseSchema,
+  runtimeTransportRuntimeCoordinatorReadInteractionRevisionResponseSchema,
   runtimeTransportRuntimeCoordinatorRespondInteractionRequestSchema,
   runtimeTransportRuntimeCoordinatorRespondInteractionResponseSchema,
   runtimeTransportRuntimeCoordinatorWakeStopRequestSchema,
@@ -10934,7 +10935,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       | ((input: Request) => Promise<Response>)
       | undefined = {
       "/runtime-coordinator/interaction/read": (input: Request) =>
-        this.handleRuntimeCoordinatorReadInteractionRequest(input),
+        this.handleRuntimeCoordinatorReadInteractionRequest(input, {
+          includeRevision: false,
+        }),
+      "/runtime-coordinator/interaction/read-revision": (input: Request) =>
+        this.handleRuntimeCoordinatorReadInteractionRequest(input, {
+          includeRevision: true,
+        }),
       "/runtime-coordinator/execution-input/resolve": (input: Request) =>
         this.handleExecutionInput(input, true),
       "/runtime-coordinator/execution-input": (input: Request) =>
@@ -14403,7 +14410,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }
 
   private async handleRuntimeCoordinatorReadInteractionRequest(
-    request: Request
+    request: Request,
+    options: { includeRevision: boolean }
   ): Promise<Response> {
     const parsed =
       runtimeTransportRuntimeCoordinatorReadInteractionRequestSchema.safeParse(
@@ -14412,7 +14420,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (!parsed.success) {
       return Response.json(
         {
-          interactionUpdatedAtMs: null,
           pendingInteraction: null,
         } satisfies RuntimeTransportRuntimeCoordinatorReadInteractionResponse,
         { status: 400 }
@@ -14444,14 +14451,25 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           requestedAtMs: pending.request.requestedAtMs,
         }
       : null;
-    const response =
-      runtimeTransportRuntimeCoordinatorReadInteractionResponseSchema.parse({
-        interactionUpdatedAtMs: resolveRuntimeCoordinatorInteractionUpdatedAtMs(
-          { commandState, nowMs }
-        ),
-        pendingInteraction,
-      });
-    return Response.json(response);
+    if (!options.includeRevision) {
+      return Response.json(
+        runtimeTransportRuntimeCoordinatorReadInteractionResponseSchema.parse({
+          pendingInteraction,
+        })
+      );
+    }
+    return Response.json(
+      runtimeTransportRuntimeCoordinatorReadInteractionRevisionResponseSchema.parse(
+        {
+          interactionUpdatedAtMs:
+            resolveRuntimeCoordinatorInteractionUpdatedAtMs({
+              commandState,
+              nowMs,
+            }),
+          pendingInteraction,
+        }
+      )
+    );
   }
   private async handleRuntimeCoordinatorRespondInteractionRequest(
     request: Request
