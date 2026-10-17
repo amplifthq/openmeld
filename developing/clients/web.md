@@ -468,8 +468,11 @@ also expose rename, and reduced motion disables the transition. Selecting
 history navigates to the exact Space; a new draft omits the redundant New chat action.
 
 The Spaces list shows the viewer's active private sessions with one Center
-Agent as a single entry titled **{first name}’s Center Agent** (plain
-**Center Agent** without a name). The Center Agent is Organization-owned, so the
+Agent as a single entry titled **{display name}’s Center Agent** (plain
+**Center Agent** without a name). The name is the default Human Profile name,
+which the Account display name keeps paired; renaming updates the session,
+Profile, directory and Space member caches optimistically and restores them if
+the request fails. The Center Agent is Organization-owned, so the
 possessive names only the viewer's private sessions. The entry opens the most
 recent session and sums unread, working, and attention evidence across its
 sessions. It keeps the saved pin, group, and manual position of whichever

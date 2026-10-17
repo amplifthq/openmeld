@@ -13,6 +13,7 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { getFrontendCallbackURL } from "#/lib/auth-redirect";
+import { findActiveDefaultHumanProfile } from "#/lib/profiles/human-profiles";
 import {
 	changeUserPassword,
 	generateOneTimeToken,
@@ -88,12 +89,36 @@ async function invalidateAccountQueries(
 	]);
 }
 
+// The display name is the Account name and the default Human Profile name.
+// Every surface that shows it reads those caches, so rename them together.
 export function useUpdateUserName() {
 	const queryClient = useQueryClient();
 
-	return useMutation({
+	return useMutation<
+		Awaited<ReturnType<typeof updateUserName>>,
+		Error,
+		string,
+		AccountNameUpdateContext
+	>({
 		mutationFn: updateUserName,
-		onSuccess: async () => await invalidateAccountIdentity(queryClient),
+		onMutate: async (name) => {
+			const snapshot = await captureAccountIdentitySnapshot(queryClient);
+			setAccountNameIdentityProjection(queryClient, {
+				name,
+				defaultHumanProfileId: findActiveDefaultHumanProfile(
+					snapshot.profiles.flatMap(([, profiles]) => profiles ?? [])
+				)?.openMeldProfileId,
+			});
+			return { snapshot };
+		},
+		onSuccess: (response) =>
+			setAccountNameIdentityProjection(queryClient, {
+				name: response.displayName,
+				defaultHumanProfileId: response.defaultHumanProfile.openMeldProfileId,
+			}),
+		onError: (_error, _name, context) =>
+			restoreAccountIdentitySnapshot(queryClient, context?.snapshot),
+		onSettled: async () => await invalidateAccountIdentity(queryClient),
 	});
 }
 
@@ -114,11 +139,11 @@ export function useUpdateAccountAvatar(input: {
 			releaseOptimisticAvatarUrl(context?.optimisticAvatarUrl);
 		},
 		onError: (_error, _variables, context) => {
-			restoreAccountAvatarIdentitySnapshot(queryClient, context?.snapshot);
+			restoreAccountIdentitySnapshot(queryClient, context?.snapshot);
 			releaseOptimisticAvatarUrl(context?.optimisticAvatarUrl);
 		},
 		onMutate: async (variables) => {
-			const snapshot = await captureAccountAvatarIdentitySnapshot(queryClient);
+			const snapshot = await captureAccountIdentitySnapshot(queryClient);
 			const optimisticAvatarUrl = createOptimisticAvatarUrl(variables);
 			if (optimisticAvatarUrl) {
 				setAccountAvatarIdentityProjection(queryClient, {
@@ -148,9 +173,9 @@ export function useRemoveAccountAvatar(input: {
 			setAccountAvatarIdentityProjection(queryClient, response);
 		},
 		onError: (_error, _variables, context) =>
-			restoreAccountAvatarIdentitySnapshot(queryClient, context?.snapshot),
+			restoreAccountIdentitySnapshot(queryClient, context?.snapshot),
 		onMutate: async () => {
-			const snapshot = await captureAccountAvatarIdentitySnapshot(queryClient);
+			const snapshot = await captureAccountIdentitySnapshot(queryClient);
 			setAccountAvatarIdentityProjection(queryClient, {
 				avatar: null,
 				defaultHumanProfileId: input.defaultHumanProfileId,
@@ -238,6 +263,75 @@ function setAccountAvatarIdentityProjection(
 	);
 }
 
+type AccountNameIdentityProjection = {
+	name: string;
+	defaultHumanProfileId: string | undefined;
+};
+
+function setAccountNameIdentityProjection(
+	queryClient: QueryClient,
+	projection: AccountNameIdentityProjection
+): void {
+	const { name, defaultHumanProfileId } = projection;
+	queryClient.setQueryData<AccountSession | null>(
+		userQueryKeys.session,
+		(session) =>
+			session ? { ...session, user: { ...session.user, name } } : session
+	);
+	if (!defaultHumanProfileId) {
+		return;
+	}
+	queryClient.setQueriesData<readonly AuthProfileView[]>(
+		{ queryKey: startQueryKeys.allProfiles },
+		(profiles) =>
+			profiles?.map((profile) =>
+				profile.openMeldProfileId === defaultHumanProfileId
+					? { ...profile, profileName: name }
+					: profile
+			)
+	);
+	queryClient.setQueriesData<OrganizationDirectoryResponse>(
+		organizationDirectoryQueryFilters(),
+		(directory) => {
+			if (!directory) {
+				return directory;
+			}
+			const members = directory.members.map((member) =>
+				member.humanProfile?.profileId === defaultHumanProfileId
+					? {
+							...member,
+							user: { ...member.user, name },
+							humanProfile: { ...member.humanProfile, profileName: name },
+						}
+					: member
+			);
+			return { ...directory, members };
+		}
+	);
+	const renameHuman = (members: SpaceMembersSnapshot) => {
+		let changed = false;
+		const humans = members.humans.map((member) => {
+			if (member.profileId !== defaultHumanProfileId) {
+				return member;
+			}
+			changed = true;
+			return { ...member, profileName: name };
+		});
+		return changed ? { ...members, humans } : members;
+	};
+	queryClient.setQueriesData<SpaceMembersSnapshot>(
+		{ queryKey: spaceQueryKeys.allMembers },
+		(members) => (members ? renameHuman(members) : members)
+	);
+	queryClient.setQueriesData<SpaceBootstrapSnapshot>(
+		{ queryKey: spaceQueryKeys.allBootstraps },
+		(bootstrap) =>
+			bootstrap
+				? { ...bootstrap, members: renameHuman(bootstrap.members) }
+				: bootstrap
+	);
+}
+
 async function invalidateAccountIdentity(
 	queryClient: QueryClient
 ): Promise<void> {
@@ -259,7 +353,7 @@ async function invalidateAccountIdentity(
 	]);
 }
 
-type AccountAvatarIdentitySnapshot = {
+type AccountIdentitySnapshot = {
 	accountAvatar: AccountAvatarResponse | undefined;
 	directories: readonly [QueryKey, OrganizationDirectoryResponse | undefined][];
 	profiles: readonly [QueryKey, readonly AuthProfileView[] | undefined][];
@@ -270,16 +364,20 @@ type AccountAvatarIdentitySnapshot = {
 
 type AccountAvatarUpdateContext = {
 	optimisticAvatarUrl: string | null;
-	snapshot: AccountAvatarIdentitySnapshot;
+	snapshot: AccountIdentitySnapshot;
 };
 
 type AccountAvatarRemoveContext = {
-	snapshot: AccountAvatarIdentitySnapshot;
+	snapshot: AccountIdentitySnapshot;
 };
 
-async function captureAccountAvatarIdentitySnapshot(
+type AccountNameUpdateContext = {
+	snapshot: AccountIdentitySnapshot;
+};
+
+async function captureAccountIdentitySnapshot(
 	queryClient: QueryClient
-): Promise<AccountAvatarIdentitySnapshot> {
+): Promise<AccountIdentitySnapshot> {
 	await Promise.all([
 		queryClient.cancelQueries({ queryKey: userQueryKeys.accountAvatar }),
 		queryClient.cancelQueries({ queryKey: userQueryKeys.session }),
@@ -310,9 +408,9 @@ async function captureAccountAvatarIdentitySnapshot(
 	};
 }
 
-function restoreAccountAvatarIdentitySnapshot(
+function restoreAccountIdentitySnapshot(
 	queryClient: QueryClient,
-	snapshot: AccountAvatarIdentitySnapshot | undefined
+	snapshot: AccountIdentitySnapshot | undefined
 ): void {
 	if (!snapshot) {
 		return;

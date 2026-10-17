@@ -49,8 +49,10 @@ const preferences: AccountSidebarPreferences = {
 };
 
 describe("centerAgentEntryTitle", () => {
-	it("names the viewer's private entry by first name", () => {
-		expect(centerAgentEntryTitle("Felix Johnson")).toBe("Felix’s Center Agent");
+	it("names the viewer's private entry by full name", () => {
+		expect(centerAgentEntryTitle(" Felix Johnson ")).toBe(
+			"Felix Johnson’s Center Agent"
+		);
 		expect(centerAgentEntryTitle(" ")).toBe("Center Agent");
 		expect(centerAgentEntryTitle(undefined)).toBe("Center Agent");
 	});

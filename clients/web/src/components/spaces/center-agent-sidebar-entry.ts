@@ -4,12 +4,11 @@ import type {
 	ConversationSection,
 } from "./conversation-sidebar-model";
 
-const WHITESPACE = /\s+/;
-
 // The Center Agent is org-owned; the possessive only names the viewer's own
-// private sessions. A first name keeps the label short enough for the sidebar.
+// private sessions. The name is the default Human Profile name, which the
+// Account display name keeps in sync, so a rename updates it optimistically.
 export function centerAgentEntryTitle(viewerName?: string | null): string {
-	const name = viewerName?.trim().split(WHITESPACE)[0];
+	const name = viewerName?.trim();
 	return name ? `${name}’s Center Agent` : "Center Agent";
 }
 
