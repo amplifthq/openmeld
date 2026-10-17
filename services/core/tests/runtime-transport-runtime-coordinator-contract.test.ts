@@ -17422,7 +17422,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ]).toEqual([expect.objectContaining({ resolution_status: "resolved" })]);
   });
 
-  it("tells the open Space about a new interaction without waiting for a poll", async () => {
+  it("tells the open Space about a new interaction once per Service connection", async () => {
     const { hub, sentFrames, socket, spaceStub, state, waitUntilTasks } =
       await createHarness();
     const executionToken = await issueDeliveryToken({
@@ -17432,21 +17432,25 @@ describe("runtime transport runtime coordinator transport contract", () => {
       state,
     });
     enableLocalAgentInteraction(state);
-    spaceStub.rpcBroadcastWakeProgressChanged.mockClear();
+    const sendInteractionRequest = async (
+      overrides: Partial<RuntimeTransportDispatchInteractionRequest> = {}
+    ) => {
+      spaceStub.rpcBroadcastWakeProgressChanged.mockClear();
+      await (
+        hub as unknown as {
+          handleDispatchInteractionRequestFrame: (
+            webSocket: WebSocket,
+            payload: unknown
+          ) => Promise<void>;
+        }
+      ).handleDispatchInteractionRequestFrame(
+        socket,
+        buildInteractionRequest(executionToken, overrides)
+      );
+      await Promise.all(waitUntilTasks);
+    };
 
-    await (
-      hub as unknown as {
-        handleDispatchInteractionRequestFrame: (
-          webSocket: WebSocket,
-          payload: unknown
-        ) => Promise<void>;
-      }
-    ).handleDispatchInteractionRequestFrame(
-      socket,
-      buildInteractionRequest(executionToken)
-    );
-    await Promise.all(waitUntilTasks);
-
+    await sendInteractionRequest();
     expect(spaceStub.rpcBroadcastWakeProgressChanged).toHaveBeenCalledWith(
       expect.objectContaining({
         agentProfileIds: [TARGET_AGENT_PROFILE_ID],
@@ -17455,26 +17459,29 @@ describe("runtime transport runtime coordinator transport contract", () => {
       })
     );
 
-    // The Service replays the same unanswered request after reconnecting.
-    spaceStub.rpcBroadcastWakeProgressChanged.mockClear();
-    await (
-      hub as unknown as {
-        handleDispatchInteractionRequestFrame: (
-          webSocket: WebSocket,
-          payload: unknown
-        ) => Promise<void>;
-      }
-    ).handleDispatchInteractionRequestFrame(
-      socket,
-      buildInteractionRequest(executionToken)
-    );
-    await Promise.all(waitUntilTasks);
+    // The Service heartbeat replays the unanswered request on the same
+    // connection; nothing changed, so open Spaces are not asked to refetch.
+    await sendInteractionRequest();
+    await sendInteractionRequest();
+    expect(spaceStub.rpcBroadcastWakeProgressChanged).not.toHaveBeenCalled();
 
+    // After a reconnect the replay re-announces the request once.
+    const session = state.sessionsById.get("daemon-session-1");
+    if (!session) {
+      throw new Error("Expected live daemon session.");
+    }
+    session.connectionGeneration = 2;
+    await sendInteractionRequest({ connectionGeneration: 2 });
     expect(spaceStub.rpcBroadcastWakeProgressChanged).toHaveBeenCalledWith(
       expect.objectContaining({
         agentProfileIds: [TARGET_AGENT_PROFILE_ID],
         spaceId: HEX_SPACE_ID,
       })
+    );
+    await sendInteractionRequest({ connectionGeneration: 2 });
+    expect(spaceStub.rpcBroadcastWakeProgressChanged).not.toHaveBeenCalled();
+    expect(sentFrames).not.toContainEqual(
+      expect.objectContaining({ code: "daemon.error" })
     );
   });
 

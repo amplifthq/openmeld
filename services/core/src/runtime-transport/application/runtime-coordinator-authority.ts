@@ -393,6 +393,16 @@ export type RuntimeCoordinatorPendingAgentInteractionState = {
    * stored before it was recorded; the Service's requestedAtMs stands in.
    */
   requestReceivedAtMs?: number;
+  /**
+   * Service connection that last delivered the request. The Service replays
+   * an unanswered request on every heartbeat; Core re-announces it to the
+   * Space only when a replay arrives on a different connection. Optional for
+   * interactions stored before it was recorded.
+   */
+  requestConnection?: {
+    connectionGeneration: number;
+    daemonSessionId: string;
+  };
   respondedAtMs: number | null;
   response: AgentInteractionResponse | null;
 };

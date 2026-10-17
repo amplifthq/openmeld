@@ -971,6 +971,13 @@ idempotently. A conflicting repeat is rejected. Local Service owns one
 process-lifetime pending registry across socket reconnects and serializes
 provider requests so only one is visible per execution at a time.
 
+The Service replays each unanswered request on every heartbeat and after a
+socket reconnect. An exact replay is idempotent: it changes no interaction
+state, and Core asks open Spaces to refresh Wake progress only for a new
+request, an answer, an expiry, or the first replay on a different Service
+connection (daemon session and connection generation). Steady-state heartbeat
+replays on the same connection must not invalidate Space views.
+
 Response acceptance is a RuntimeCoordinator storage transaction. The same
 execution record retains a response fingerprint and acceptance time per
 interaction, including after delivery acknowledgement clears the private pending
