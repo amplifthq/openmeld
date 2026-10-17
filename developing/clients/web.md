@@ -484,7 +484,8 @@ session.
 Rename and archive stay on the session's title dropdown and header, not the
 entry. Archived sessions keep their own rows in the Archived view. The session
 title dropdown shows the entry name as a fixed, visually muted prefix before the
-session title; the heading's accessible name stays the session title. Other
+session title, hidden on narrow screens so the session title keeps the room;
+the heading's accessible name stays the session title. Other
 lists that read conversations, such as the command center, keep one row per
 session.
 

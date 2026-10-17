@@ -108,7 +108,7 @@ export function CenterAgentChatHistory({
 						    stays fixed and the heading keeps naming this session. */}
 						<span
 							aria-hidden="true"
-							className="flex min-w-0 max-w-[50%] shrink text-muted-foreground"
+							className="hidden min-w-0 max-w-[50%] shrink text-muted-foreground sm:flex"
 							data-testid="center-agent-entry-title"
 						>
 							<span className="truncate">
