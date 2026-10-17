@@ -9654,6 +9654,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     } else {
       await this.writeRuntimeCoordinatorRunCommandState(nextCommandState);
     }
+    // An open Space must show the new request now, not on its next poll.
+    this.publishWakeProgressChanged({
+      agentProfileId: nextCommandState.targetProfileId,
+      clientMessageId: nextCommandState.sourceClientMessageId,
+      spaceId: nextCommandState.sanitizedDeliveryRequest.payload.spaceId,
+    });
     if (delivery) {
       await this.tryProjectRuntimeCoordinatorInteractionInboxItem({
         commandState: nextCommandState,
