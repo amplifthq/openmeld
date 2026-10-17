@@ -18,6 +18,3 @@ that the task stopped.
 Tasks already queued on the computer survive a temporary connection loss.
 They keep their execution identity and must pass admission checks again before
 the Agent starts.
-
-Codex configuration checks use the cold-start allowance, so a slow configuration
-or network-policy load does not stop startup at the shorter metadata deadline.

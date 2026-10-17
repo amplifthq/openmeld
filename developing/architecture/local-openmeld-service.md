@@ -1178,13 +1178,11 @@ send `thread/resume`, because an ephemeral thread intentionally has no durable
 rollout to load. A missing canonical source rollout remains an explicit context
 failure rather than a provider or network failure.
 
-Control-operation deadlines are risk-specific. History reads and
-collaboration-mode lookup keep a short bound. Configuration and managed
-requirements reads, thread creation/resume, and `turn/start` acknowledgement use
-the bounded 90-second cold admission window. Codex configuration reads load
-configuration layers and refresh application network policy; they are not
-cached metadata reads. Plugin, skill, MCP, and workspace initialization can also
-be delayed by temporary host pressure. Only the initial controller handshake
+Control-operation deadlines are risk-specific. Configuration and managed
+requirements reads, history reads, and collaboration-mode lookup keep a short
+bound. Thread creation/resume and `turn/start` acknowledgement use the bounded
+90-second cold admission window. Plugin, skill, MCP, and workspace initialization
+can be delayed by temporary host pressure. Only the initial controller handshake
 can be retried before thread admission. An unacknowledged thread creation or
 resume fails closed rather than creating another thread.
 OpenMeld must not automatically resubmit `turn/start` after an acknowledgement
