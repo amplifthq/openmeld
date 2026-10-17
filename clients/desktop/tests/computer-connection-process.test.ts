@@ -315,17 +315,36 @@ if (process.argv.includes('connection-review')) {
     { code: 1, event: "setup.complete", succeeds: false },
     { code: 0, event: "setup.started", succeeds: false },
     { code: 0, event: "setup.complete", succeeds: true, compact: true },
+    {
+      code: 1,
+      event: "computer.update_wait.failed",
+      succeeds: false,
+      failureMessage:
+        "OpenMeld is still waiting for the background update. Current tasks and the update continue. Check their status, then try connecting again.",
+    },
   ])("requires successful exit and completion evidence: $code / $event", async ({
     code,
     event,
     succeeds,
     compact,
+    failureMessage,
   }) => {
+    const completionOutput = compact
+      ? { t: "result", c: event }
+      : { type: "result", code: event };
+    const output = failureMessage
+      ? {
+          type: "line",
+          code: event,
+          text: failureMessage,
+          data: { state: "failed" },
+        }
+      : completionOutput;
     const result = runConnectionSetup(
       process.execPath,
       [
         "-e",
-        `console.log(JSON.stringify(${JSON.stringify(compact ? { t: "result", c: event } : { type: "result", code: event })}));process.exit(${code});`,
+        `console.log(JSON.stringify(${JSON.stringify(output)}));process.exit(${code});`,
       ],
       { ...process.env, OPENMELD_HOME: "/unused-disposable-process-test" }
     );
@@ -336,7 +355,9 @@ if (process.argv.includes('connection-review')) {
         (failure: Error & { diagnosticsPath: string }) => failure
       );
       expect(error).toMatchObject({
-        message: expect.stringContaining("could not finish connecting"),
+        message:
+          failureMessage ??
+          expect.stringContaining("could not finish connecting"),
       });
       if (error) {
         await rm(dirname(error.diagnosticsPath), {

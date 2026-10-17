@@ -56,17 +56,23 @@ describe("OpenMeld Tools update join", () => {
         key: SETUP_COMMAND_LOCK_KEY,
       };
       const lock = await acquireLock(lockInput);
+      const output: string[] = [];
       vi.useFakeTimers({ toFake: ["Date"] });
       try {
         await expect(
           withCapturedStdio(runComputerUpdateWait, {
             onStdout: (text) => {
+              output.push(text);
               if (text.includes("setup.openmeld_tools_update.waiting")) {
                 vi.setSystemTime(Date.now() + 30 * 60_000);
               }
             },
           })
         ).rejects.toThrow("Current tasks and the update continue");
+        expect(output.join("\n")).toContain(
+          '"code":"computer.update_wait.failed"'
+        );
+        expect(output.join("\n")).toContain('"state":"failed"');
         await expect(acquireLock(lockInput)).rejects.toBeInstanceOf(
           OpenMeldLockError
         );
