@@ -930,6 +930,11 @@ import {
   buildReadLedgerStatusFailedHealthReport,
   toRedactedSpaceErrorMessage,
 } from "./space-error-reporting";
+import {
+  SPACE_LIVE_ACCESS_RETRY_DELAY_MS,
+  SpaceLiveDelivery,
+  type SpaceLiveDeliveryClosure,
+} from "./space-live-delivery";
 import { logSpaceOutboxConsoleEvent } from "./space-outbox-console-log-policy";
 import {
   acceptSpaceWebSocketHello,
@@ -2638,7 +2643,19 @@ export class Space extends DurableObject<CoreBindings> {
   private lastTimestamp = 0;
   private lastLiveInvalidationVersion = 0;
   private liveInvalidationVersionUpdate: Promise<void> = Promise.resolve();
-  private liveBroadcastDelivery: Promise<void> = Promise.resolve();
+  private readonly liveDelivery = new SpaceLiveDelivery<
+    Session,
+    Parameters<Space["encodeLiveMessageForSession"]>[0]
+  >({
+    authorize: async (session) =>
+      (await this.authorizeLiveSession(session)) ? "authorized" : "denied",
+    close: (target, closure) => this.closeLiveSession(target, closure),
+    deliver: (target, messages) =>
+      this.deliverAuthorizedLiveMessages(target, messages),
+    isActive: (target) => this.isActiveLiveSession(target),
+    retryDelayMs: SPACE_LIVE_ACCESS_RETRY_DELAY_MS,
+    waitUntil: (promise) => this.ctx.waitUntil(promise),
+  });
   private lastPostCleanupAtMs = 0;
   private lastRetentionWarningAtMs = 0;
   private sessionTitleGenerationPending = false;
@@ -21289,16 +21306,13 @@ export class Space extends DurableObject<CoreBindings> {
     if (this.sessions.size === 0) {
       return;
     }
-    this.liveBroadcastDelivery = this.liveBroadcastDelivery
-      .then(() => this.deliverAuthorizedLiveMessage(message))
-      .catch((error) => {
-        console.error("[core.space.live_access_check_failed]", {
-          spaceId: this.spaceId,
-          error: formatUnknownErrorMessage(error),
-        });
-        this.closeAllSessions("space_access_changed");
-      });
-    this.ctx.waitUntil(this.liveBroadcastDelivery);
+    this.liveDelivery.enqueue(
+      [...this.sessions].map(([webSocket, session]) => ({
+        session,
+        webSocket,
+      })),
+      message
+    );
   }
   private async authorizeLiveSession(session: Session): Promise<boolean> {
     const profile = session.enforcedProfile ?? session.profile;
@@ -21326,55 +21340,65 @@ export class Space extends DurableObject<CoreBindings> {
       );
     return access.ok && !access.organizationPreview;
   }
-  private async deliverAuthorizedLiveMessage(
-    message: Parameters<Space["encodeLiveMessageForSession"]>[0]
-  ): Promise<void> {
-    const quitters: Session[] = [];
-    await Promise.all(
-      [...this.sessions].map(async ([ws, session]) => {
-        if (!(await this.authorizeLiveSession(session))) {
-          removeFailedSpaceWebSocketSession({
-            closeCode: 1008,
-            closeReason: "space_access_changed",
-            session,
-            sessions: this.sessions,
-            webSocket: ws,
-          });
-          return;
-        }
-        if (this.sessions.get(ws) !== session || session.quit) {
-          return;
-        }
-        if (session.profile) {
-          const encoded = this.encodeLiveMessageForSession(message, session);
-          if (encoded === null) {
-            return;
-          }
-          try {
-            ws.send(encoded);
-          } catch {
-            removeFailedSpaceWebSocketSession({
-              closeCode: 1011,
-              closeReason: "broadcast_send_failed",
-              session,
-              sessions: this.sessions,
-              webSocket: ws,
-            });
-            quitters.push(session);
-          }
-          return;
-        }
-        if (!session.blocked) {
-          session.blocked = [];
-        }
-        session.blocked.push(message);
-      })
+  private isActiveLiveSession(target: {
+    session: Session;
+    webSocket: WebSocket;
+  }): boolean {
+    return (
+      this.sessions.get(target.webSocket) === target.session &&
+      !target.session.quit
     );
-    // If any sockets broke while sending, notify remaining members once.
-    for (const quitter of quitters) {
-      if (quitter.profile) {
-        const quitSignal = this.buildPresence("presence.quit", quitter.profile);
+  }
+  private closeLiveSession(
+    target: { session: Session; webSocket: WebSocket },
+    closure: SpaceLiveDeliveryClosure
+  ): void {
+    if (closure.code !== 1008) {
+      console.error("[core.space.live_access_check_failed]", {
+        spaceId: this.spaceId,
+        closeReason: closure.reason,
+        error: formatUnknownErrorMessage(closure.error),
+      });
+    }
+    removeFailedSpaceWebSocketSession({
+      closeCode: closure.code,
+      closeReason: closure.reason,
+      session: target.session,
+      sessions: this.sessions,
+      webSocket: target.webSocket,
+    });
+  }
+  private deliverAuthorizedLiveMessages(
+    target: { session: Session; webSocket: WebSocket },
+    messages: readonly Parameters<Space["encodeLiveMessageForSession"]>[0][]
+  ): void {
+    const { session, webSocket } = target;
+    if (!session.profile) {
+      if (!session.blocked) {
+        session.blocked = [];
+      }
+      session.blocked.push(...messages);
+      return;
+    }
+    for (const message of messages) {
+      const encoded = this.encodeLiveMessageForSession(message, session);
+      if (encoded === null) {
+        continue;
+      }
+      try {
+        webSocket.send(encoded);
+      } catch {
+        removeFailedSpaceWebSocketSession({
+          closeCode: 1011,
+          closeReason: "broadcast_send_failed",
+          session,
+          sessions: this.sessions,
+          webSocket,
+        });
+        // Notify remaining members once that this socket broke.
+        const quitSignal = this.buildPresence("presence.quit", session.profile);
         this.publishPresenceSignal(quitSignal);
+        return;
       }
     }
   }
