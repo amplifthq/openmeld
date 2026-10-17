@@ -56,6 +56,7 @@ import {
 	buildOrganizationNewSpacePath,
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
+import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 import { useDelayedPending } from "#/lib/use-delayed-pending";
 import { AppContextualSidebarNav } from "../app/app-contextual-layout";
 import { ControlledSidebarGroupStateProvider } from "../app/app-sidebar-group";
@@ -68,6 +69,7 @@ import {
 	useSidebarSearchDisclosure,
 } from "../app/sidebar-search-input";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
+import { centerAgentEntryTitle } from "./center-agent-sidebar-entry";
 import { ConversationSidebarMenu } from "./conversation-sidebar-menu";
 import {
 	type Conversation,
@@ -267,7 +269,13 @@ export function ConversationsSidebar(
 		showSearch?: boolean;
 	} = {}
 ) {
-	const model = useConversations(input);
+	const { defaultHumanProfile } = useDefaultHumanProfile();
+	const model = useConversations({
+		...input,
+		centerAgentEntryTitle: centerAgentEntryTitle(
+			defaultHumanProfile?.profileName
+		),
+	});
 	const { dismiss } = useAppNavigationPresentation();
 	const onNavigate = (event: MouseEvent<HTMLAnchorElement>) => {
 		if (!(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)) {
@@ -351,9 +359,12 @@ export function ConversationsSidebar(
 			(item.kind === "direct-message"
 				? dm.preferences.archivedIds.includes(item.spaceId) === archived
 				: !archived) &&
-			item.title
-				.toLocaleLowerCase()
-				.includes(search.trim().toLocaleLowerCase()) &&
+			[
+				item.title,
+				...(item.kind === "direct-message" ? (item.sessionTitles ?? []) : []),
+			].some((title) =>
+				title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())
+			) &&
 			filter.includes(model.owner(item)) &&
 			(statusEvidenceUnavailable ||
 				filter.matchesStatus(
@@ -909,7 +920,8 @@ export function ConversationsSidebar(
 																?.messageUnreadCount
 														}
 														onArchive={
-															item.kind === "direct-message"
+															item.kind === "direct-message" &&
+															!item.sessionSpaceIds
 																? () =>
 																		dm.save({
 																			...dm.preferences,
@@ -933,7 +945,8 @@ export function ConversationsSidebar(
 															).catch(console.error)
 														}
 														onRename={
-															item.kind === "direct-message"
+															item.kind === "direct-message" &&
+															!item.sessionSpaceIds
 																? () => {
 																		setRenaming(item);
 																		setName(item.title);
