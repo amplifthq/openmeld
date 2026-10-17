@@ -1006,6 +1006,19 @@ export function useSpaceLandingFeed(input: {
 					.catch((error) =>
 						console.warn("Failed to refresh Space pins after reconnect.", error)
 					);
+				// Core may withhold invalidations while it cannot verify access and
+				// then close the socket. Re-read every snapshot those frames would
+				// have refreshed, so a reconnect recovers them.
+				refreshLiveInvalidatedSnapshotsAfterReconnect({
+					membersRefetch: input.membersRefetch,
+					membersRefetchTimerRef,
+					openMeldProfileId: input.openMeldProfileId,
+					queryClient,
+					spaceId: input.spaceId,
+					statusRefetch: input.statusRefetch,
+					statusRefetchTimerRef,
+					wakeProgressRefreshScopeRef,
+				});
 			}
 			readySocketAttemptKeyRef.current = socketAttemptKey;
 			markSubscribed();
@@ -1415,6 +1428,56 @@ function handleLiveInvalidationMessage(
 	if (frame.type === "agent.readiness.invalidated") {
 		handleAgentReadinessInvalidation(input, frame);
 	}
+}
+
+const LIVE_RECONNECT_REFRESH_REASON = "space.live.reconnected";
+
+export function refreshLiveInvalidatedSnapshotsAfterReconnect(
+	input: Pick<
+		NonTimelineLiveMessageInput,
+		| "membersRefetch"
+		| "membersRefetchTimerRef"
+		| "openMeldProfileId"
+		| "queryClient"
+		| "spaceId"
+		| "statusRefetch"
+		| "statusRefetchTimerRef"
+		| "wakeProgressRefreshScopeRef"
+	>
+): void {
+	debounceRefetch(input.statusRefetchTimerRef, input.statusRefetch);
+	debounceRefetch(input.membersRefetchTimerRef, input.membersRefetch);
+	input.queryClient
+		.invalidateQueries({
+			queryKey: ["spaces", "entry-resolution", input.spaceId],
+		})
+		.catch((error: unknown) =>
+			console.warn("Failed to refresh Space access.", error)
+		);
+	input.queryClient
+		.invalidateQueries({
+			predicate: (query) =>
+				query.queryKey[0] === "spaces" &&
+				query.queryKey[1] === input.spaceId &&
+				query.queryKey.includes("history-navigation"),
+		})
+		.catch((error) =>
+			console.warn("Failed to refresh history navigation.", error)
+		);
+	input.queryClient
+		.invalidateQueries({ queryKey: spaceTaskQueryKeys.space(input.spaceId) })
+		.catch((error) => console.warn("Failed to refresh Space Tasks.", error));
+	invalidateSpaceMetadata(
+		input.queryClient,
+		input.spaceId,
+		LIVE_RECONNECT_REFRESH_REASON
+	);
+	invalidateSpaceFiles(
+		input.queryClient,
+		input.spaceId,
+		LIVE_RECONNECT_REFRESH_REASON
+	);
+	invalidateWakeProgress(input, LIVE_RECONNECT_REFRESH_REASON);
 }
 
 function invalidateSpaceMetadata(
