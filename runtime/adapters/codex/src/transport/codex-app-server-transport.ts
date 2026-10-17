@@ -3116,11 +3116,23 @@ async function emitPreviewIfRequested(input: {
   });
 }
 
+// Only Codex approval prompts are covered by Full access. An MCP URL step
+// shares the permission shape, but its "allow" means the owner completed a
+// step such as a sign-in, so it must still reach the owner.
+const FULL_ACCESS_APPROVAL_SUBJECTS: ReadonlySet<string> = new Set([
+  "additional_permissions",
+  "command",
+  "file_change",
+]);
+
 function allowPermissionRequestsOnce(
   onInteractionRequest: AdapterInteractionCallback
 ): AdapterInteractionCallback {
   return (request) => {
-    if (request.kind !== "permission") {
+    if (
+      request.kind !== "permission" ||
+      !FULL_ACCESS_APPROVAL_SUBJECTS.has(request.subject.type)
+    ) {
       return onInteractionRequest(request);
     }
     const allowOnce = request.options.find(

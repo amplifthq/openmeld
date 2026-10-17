@@ -3175,6 +3175,17 @@ test("codex app-server answers later permission requests after a live switch to 
               turnId: "turn-1",
             },
           },
+          {
+            method: "mcpServer/elicitation/request",
+            params: {
+              message: "Sign in to continue.",
+              mode: "url",
+              serverName: "Docs",
+              threadId: "thread-existing-1",
+              turnId: "turn-1",
+              url: "https://example.com/oauth",
+            },
+          },
         ]),
       },
       onActiveTurn: (turn) => {
@@ -3182,8 +3193,8 @@ test("codex app-server answers later permission requests after a live switch to 
         return () => undefined;
       },
       onInteractionRequest: async (request) => {
-        asked.push(request.subject.command);
-        updateResult = await activeTurn.updatePermissionMode({
+        asked.push(request.subject.command ?? request.subject.resource);
+        updateResult ??= await activeTurn.updatePermissionMode({
           agentControllerPermissionMode: "codex:fullAccess",
           taskId: "task-live-full-access",
         });
@@ -3205,12 +3216,16 @@ test("codex app-server answers later permission requests after a live switch to 
       status: "applied",
       taskId: "task-live-full-access",
     });
-    assert.deepEqual(asked, ["git push origin feature"]);
+    // Approvals stop, but an MCP sign-in step still goes to the owner.
+    assert.deepEqual(asked, [
+      "git push origin feature",
+      "https://example.com/oauth",
+    ]);
     const responses = (await readFakeAppServerMessages(logPath)).filter(
       (message) => message.method === undefined && message.result
     );
     assert.deepEqual(
-      responses.slice(-3).map((message) => message.result),
+      responses.slice(-4, -1).map((message) => message.result),
       [
         { decision: "accept" },
         { decision: "accept" },
