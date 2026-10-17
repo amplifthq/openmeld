@@ -24973,11 +24973,7 @@ export class Space extends DurableObject<CoreBindings> {
     ).catch(() => null);
     return resolveWakeStopEligibility({
       agentControllerInterface:
-        agentControllerReport &&
-        agentControllerReport.status === "ready" &&
-        agentControllerReport.expiresAtMs > Date.now()
-          ? (agentControllerReport.agentControllerInterface ?? null)
-          : null,
+        agentControllerReport?.agentControllerInterface ?? null,
     });
   }
   private async readWakeProgressPublicationWakeStopEligibility(

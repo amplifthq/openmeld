@@ -612,6 +612,14 @@ Each isolated lane owns all of the following:
   are not automatically adopted or removed; retire them separately after
   identifying their owner and finishing its work.
 
+Native Agent regression smoke must retain the working folder that produced
+the failure. Keep the CLI, Service, account, and Desktop home aligned with the
+registered lane. A successful run in another folder is comparison evidence,
+not proof that the original failure is fixed. Native controllers can discover
+parent repository configuration, so record the effective working folder and
+selected controller version. Do not disable native policy checks or expand
+filesystem permissions to make a smoke pass.
+
 The shared lane registry lives under the repository's Git common directory so
 all worktrees coordinate allocation. A live owner is never stopped or reclaimed.
 The launcher reclaims a lane only after its recorded owner PID is dead, and it

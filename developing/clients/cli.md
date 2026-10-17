@@ -433,8 +433,9 @@ that never dumps raw lock JSON to a human: Human View shows one actionable line
 (holder start time, pid, and how to stop it) and only Agent View retains the
 structured lock diagnostics.
 
-Setup also enforces a coarse global deadline (a hard ceiling on a single
-invocation). Individual step-level waits inside the setup Prepare Session block
+Setup enforces a fixed 15-minute watchdog. Task counts and Service responses
+cannot renew it or extend ownership of the setup mutation lock.
+Individual step-level waits inside the setup Prepare Session block
 on the setup WebSocket staying open, so a single executor pass can hang
 indefinitely if Core or Web stalls without closing the socket; the bounded
 reconnect loop only reacts to a socket close, not to a stalled-but-open stream.
@@ -442,6 +443,17 @@ On the deadline, setup fails cleanly with a support code, releases the setup
 lock, and exits, so no shape of stuck setup can hold the single-instance lock
 forever. This deadline governs the setup process only; it is not a Wake
 execution timeout and does not fail an in-flight Wake.
+
+`computer wait-for-update --view agent` observes an existing Tools/Service
+update before Desktop requests expiring connection authorization. This read-only
+observer never takes the setup lock. It reads the existing update operation and
+Service readiness projection, with a fixed 30-minute observation limit. The
+longer window permits drains beyond the setup limit without leaving a detached
+Desktop observer indefinitely. Expiry ends only observation and reports that
+tasks and the background update continue; the user can check status and retry.
+It does not schedule updates, switch accounts, or stop
+tasks. `computer.update_ready` confirms the observed update completed, or no
+pending update exists; it does not claim connection readiness or Wakeability.
 
 Human recovery never asks the user to run OpenMeld Service in foreground mode
 or copy another setup command as a diagnostic procedure. Setup automatically
