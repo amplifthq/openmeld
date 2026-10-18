@@ -130,7 +130,11 @@ import {
 } from "../src/runtime-transport/application/runtime-transport-state";
 import { listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace } from "../src/runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo";
 import { RuntimeTransportHub } from "../src/runtime-transport/transport/do/runtime-transport-hub";
-import { PUBLISHED_LOCAL_COMPONENTS_MANIFEST } from "../test-support/published-local-components-release";
+import {
+  createPublishedCliReleasesBucket,
+  createPublishedLocalComponentsRelease,
+  PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
+} from "../test-support/published-local-components-release";
 
 const SELECT_QUERY_PATTERN = /^\s*SELECT/u;
 const MUTATION_QUERY_PATTERN = /^\s*(?:INSERT|UPDATE|DELETE)/u;
@@ -1197,6 +1201,11 @@ const createHarness = async (input?: {
       writable: true,
     },
     liveInvalidationFlushTimer: { value: null, writable: true },
+    // Object.create skips the constructor that loads the published release.
+    localComponentsRelease: {
+      value: createPublishedLocalComponentsRelease(),
+      writable: true,
+    },
   });
   Object.defineProperty(hub, "env", {
     value: {
@@ -1204,6 +1213,7 @@ const createHarness = async (input?: {
         resolveProfileById: authResolveProfileById,
       },
       OPENMELD_POSTGRESQL: recordingPostgres.binding,
+      OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
       OPENMELD_DAEMON_DISPATCH_QUEUE: {
         send: queueSend,
       },
