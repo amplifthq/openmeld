@@ -249,6 +249,8 @@ export async function publishCli({
   cwd = process.cwd(),
   env = process.env,
   dryRun = false,
+  collectFacts = collectLocalComponentFacts,
+  readPolicy = readLocalComponentsPolicy,
   platform = createPlatform({
     cwd,
     env,
@@ -278,11 +280,11 @@ export async function publishCli({
     return { status: "current", version };
   }
   platform.buildPackagedCli();
-  const facts = await collectLocalComponentFacts({
+  const facts = await collectFacts({
     repoRoot: cwd,
     requireServiceBundle: true,
   });
-  const policy = await readLocalComponentsPolicy(cwd);
+  const policy = await readPolicy(cwd);
   const { changed, manifest } = planCliPublication({
     facts,
     policy,
@@ -298,7 +300,7 @@ export async function publishCli({
   if (platform.readChannelVersion() === version) {
     log(`Binary channel already serves ${version}.`);
   } else {
-    platform.uploadBinary(manifest);
+    await platform.uploadBinary(manifest);
   }
   if (npm) {
     log(`npm already has openmeld@${version}.`);

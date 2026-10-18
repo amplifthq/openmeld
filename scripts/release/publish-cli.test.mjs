@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -283,6 +284,62 @@ test("detects touched components from pull request paths", () => {
     resolveTouchedLocalComponents(["clients/web/src/routes/login.tsx"]),
     []
   );
+});
+
+test("does not publish npm, a tag, or a release manifest before the binary succeeds", async () => {
+  const cwd = createSource("0.3.265");
+  const git = (...args) =>
+    execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+  try {
+    git("init", "--quiet");
+    git("add", ".");
+    git(
+      "-c",
+      "user.name=Release test",
+      "-c",
+      "user.email=release@example.test",
+      "-c",
+      "commit.gpgsign=false",
+      "commit",
+      "--quiet",
+      "-m",
+      "test: release fixture"
+    );
+    const releaseSha = git("rev-parse", "HEAD");
+    const { platform, calls } = createPlatform({
+      npm: null,
+      published: publishedManifest(),
+    });
+    let rejectBinary;
+    let started;
+    const binaryStarted = new Promise((resolve) => {
+      started = resolve;
+    });
+    platform.uploadBinary = () => {
+      calls.push("binary");
+      started();
+      return new Promise((_resolve, reject) => {
+        rejectBinary = reject;
+      });
+    };
+    const publication = publishCli({
+      cwd,
+      releaseSha,
+      platform,
+      collectFacts: async () => facts(),
+      readPolicy: async () => ({ version: "0.3.265", cli: CLI_POLICY }),
+    });
+    const rejected = assert.rejects(publication, {
+      message: "binary upload failed",
+    });
+    await binaryStarted;
+    assert.deepEqual(calls, ["build", "binary"]);
+    rejectBinary(new Error("binary upload failed"));
+    await rejected;
+    assert.deepEqual(calls, ["build", "binary"]);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
 });
 
 test("defers the decision when a pull request changes components without a version bump", async () => {
