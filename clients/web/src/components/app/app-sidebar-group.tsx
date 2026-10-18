@@ -206,6 +206,7 @@ export function AppSidebarGroup(input: {
 	return (
 		<SidebarGroupRenameContext.Provider value={rename}>
 			<Collapsible.Root
+				className="group/sidebar-section"
 				data-sidebar-group-id={input.groupId}
 				ref={drag.ref}
 				style={drag.style}

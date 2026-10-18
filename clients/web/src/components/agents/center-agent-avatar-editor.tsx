@@ -42,6 +42,7 @@ import {
 	type IdentityImageCropDraft,
 	releaseIdentityImageCropDraft,
 } from "#/lib/images/identity-image-crop";
+import { centerAgentAvatarAppearance } from "#/query/profiles/agent-avatar";
 import { useAgentAvatarProfile } from "#/query/profiles/agent-avatar-context";
 import { AGENT_AVATAR_COLORS } from "./agent-avatar-colors";
 import {
@@ -574,19 +575,10 @@ function currentDraft(
 		palette: options?.palette ?? null,
 	};
 }
-function draftAppearance(draft: Exclude<Draft, { kind: "saved" }>): {
-	avatarStyle: AgentAvatarStyle;
-	avatarOptions: AuthProfileView["avatarOptions"];
-} {
-	if (draft.kind === "bot") {
-		return {
-			avatarStyle: draft.type,
-			avatarOptions:
-				draft.palette === null ? undefined : { palette: draft.palette },
-		};
-	}
-	if (draft.kind === "color") {
-		return { avatarStyle: "fluid", avatarOptions: { color: draft.color } };
-	}
-	return { avatarStyle: "custom", avatarOptions: { imageUrl: draft.dataUrl } };
+function draftAppearance(draft: Exclude<Draft, { kind: "saved" }>) {
+	return centerAgentAvatarAppearance(
+		draft.kind === "bot" && draft.palette === null
+			? { avatarStyle: draft.type }
+			: { avatar: draft }
+	);
 }

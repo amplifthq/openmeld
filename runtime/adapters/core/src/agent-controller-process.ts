@@ -234,6 +234,115 @@ export type SpawnedAgentControllerProcess = {
   terminateRemainingDescendants: () => Promise<AgentControllerProcessCleanupResult>;
 };
 
+// Agent CLI process trees this process launched whose cleanup has not yet
+// completed. A root exit alone does not end a tree: a descendant that kept the
+// process group or supervision marker stays until descendant cleanup finishes.
+const liveAgentControllerProcesses = new Set<SpawnedAgentControllerProcess>();
+
+const LIVE_PROCESS_TERM_GRACE_MS = 1000;
+const LIVE_PROCESS_CLEANUP_TIMEOUT_MS = 3000;
+
+// Set once shutdown cleanup begins. Background work still running then, such as
+// a controller report moving on to its next probe, must not start a tree that
+// the cleanup has already passed and the process exit would orphan.
+let agentControllerLaunchesClosed = false;
+
+function trackLiveAgentControllerProcess(
+  spawned: SpawnedAgentControllerProcess
+): SpawnedAgentControllerProcess {
+  if (spawned.processId === null) {
+    return spawned;
+  }
+  const tracked: SpawnedAgentControllerProcess = {
+    ...spawned,
+    terminateRemainingDescendants: async () => {
+      const result = await spawned.terminateRemainingDescendants();
+      if (result.ok) {
+        liveAgentControllerProcesses.delete(tracked);
+      }
+      return result;
+    },
+  };
+  liveAgentControllerProcesses.add(tracked);
+  return tracked;
+}
+
+/**
+ * Ends every agent CLI process tree launched by this process whose cleanup has
+ * not completed. Only for a process that is ending after its accepted work
+ * drained: whatever remains is abandoned background work, such as a controller
+ * probe. It first closes further launches, so no tree can start behind it.
+ * Roots get SIGTERM and a short grace, then the existing descendant cleanup
+ * force-kills what is left; a tree whose cleanup failed is retried. The whole
+ * call is bounded so the caller still exits promptly.
+ */
+export async function terminateLiveAgentControllerProcesses(
+  input: { graceMs?: number; timeoutMs?: number } = {}
+): Promise<void> {
+  agentControllerLaunchesClosed = true;
+  const graceMs = input.graceMs ?? LIVE_PROCESS_TERM_GRACE_MS;
+  const deadline =
+    Date.now() + graceMs + (input.timeoutMs ?? LIVE_PROCESS_CLEANUP_TIMEOUT_MS);
+  let terminated = false;
+  while (liveAgentControllerProcesses.size > 0 && Date.now() < deadline) {
+    const tracked = [...liveAgentControllerProcesses];
+    if (!terminated) {
+      terminated = true;
+      for (const spawned of tracked) {
+        // An exited root's stored group ID may be reused; the descendant
+        // cleanup below decides what it may still signal.
+        if (hasRootExited(spawned)) {
+          continue;
+        }
+        try {
+          spawned.terminate("SIGTERM");
+        } catch {
+          // A tree that exited meanwhile needs no signal; cleanup still runs.
+        }
+      }
+      await settleWithin(
+        Promise.all(tracked.map(waitForRootExit)),
+        Math.min(graceMs, deadline - Date.now())
+      );
+    }
+    await settleWithin(
+      Promise.allSettled(
+        tracked.map((spawned) => spawned.terminateRemainingDescendants())
+      ),
+      deadline - Date.now()
+    );
+  }
+}
+
+function hasRootExited(spawned: SpawnedAgentControllerProcess): boolean {
+  return spawned.child.exitCode !== null || spawned.child.signalCode !== null;
+}
+
+function waitForRootExit(
+  spawned: SpawnedAgentControllerProcess
+): Promise<void> {
+  if (hasRootExited(spawned)) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    spawned.child.once("exit", () => resolve());
+  });
+}
+
+async function settleWithin(
+  work: Promise<unknown>,
+  timeoutMs: number
+): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  await Promise.race([
+    work.catch(() => undefined),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, timeoutMs);
+    }),
+  ]);
+  clearTimeout(timer);
+}
+
 export function spawnAgentControllerProcess(input: {
   args: string[];
   bin: string;
@@ -242,6 +351,11 @@ export function spawnAgentControllerProcess(input: {
   shell: boolean;
   supervisionId?: string;
 }): SpawnedAgentControllerProcess {
+  if (agentControllerLaunchesClosed) {
+    throw new Error(
+      "Agent CLI launches are closed because this process is shutting down."
+    );
+  }
   const signalTarget = resolveAgentControllerProcessSignalTarget();
   const supervisionId = input.supervisionId ?? randomUUID();
   const env = {
@@ -251,14 +365,14 @@ export function spawnAgentControllerProcess(input: {
   const invocation = resolvePlatformCommand(input.bin, input.args, env);
   if (process.platform === "win32") {
     const job = spawnWindowsJobProcess({ invocation, env, cwd: input.cwd });
-    return {
+    return trackLiveAgentControllerProcess({
       child: job.child,
       processId: job.child.pid ?? null,
       signalTarget,
       supervisionId,
       terminate: job.terminate,
       terminateRemainingDescendants: job.cleanup,
-    };
+    });
   }
   const child = spawn(invocation.bin, invocation.args, {
     cwd: input.cwd,
@@ -275,7 +389,7 @@ export function spawnAgentControllerProcess(input: {
   const processId = typeof child.pid === "number" ? child.pid : null;
   const trackedDescendantProcessIds = new Set<number>();
 
-  return {
+  return trackLiveAgentControllerProcess({
     child,
     processId,
     signalTarget,
@@ -289,12 +403,14 @@ export function spawnAgentControllerProcess(input: {
       }),
     terminateRemainingDescendants: () =>
       terminateRemainingAgentControllerProcesses({
+        isRootExited: () =>
+          child.exitCode !== null || child.signalCode !== null,
         processId,
         signalTarget,
         supervisionId,
         trackedDescendantProcessIds,
       }),
-  };
+  });
 }
 
 export function resolveAgentControllerProcessSignalTarget(
@@ -363,6 +479,8 @@ export function signalAgentControllerProcessTree(input: {
 }
 
 export function terminateRemainingAgentControllerProcesses(input: {
+  /** True once the root was reaped; its PID, and so its group ID, may be reused. */
+  isRootExited?: () => boolean;
   killProcess?: typeof process.kill;
   listSupervisedProcessIds?: ListAgentControllerSupervisedProcessIds;
   processId: number | null;
@@ -377,6 +495,8 @@ export function terminateRemainingAgentControllerProcesses(input: {
 }
 
 async function runRemainingAgentControllerProcessCleanup(input: {
+  /** True once the root was reaped; its PID, and so its group ID, may be reused. */
+  isRootExited?: () => boolean;
   killProcess?: typeof process.kill;
   listSupervisedProcessIds?: ListAgentControllerSupervisedProcessIds;
   processId: number | null;
@@ -397,23 +517,31 @@ async function runRemainingAgentControllerProcessCleanup(input: {
     attempt += 1
   ) {
     let cleanupError: unknown = null;
-    const discoveryError = await collectSupervisedProcessIds({
+    const groupReused = isReusedExitedRootGroup(input);
+    const discovery = await collectSupervisedProcessIds({
       listSupervisedProcessIds: input.listSupervisedProcessIds,
+      markerOnly: groupReused,
       processId: input.processId,
       reportDiscoveryFailure: input.reportDiscoveryFailure,
       signalTarget: input.signalTarget,
       supervisionId: input.supervisionId,
       trackedDescendantProcessIds,
     });
+    const discoveryError = discovery.error;
     try {
       sent =
-        signalAgentControllerProcessTree({
-          killProcess: input.killProcess,
-          processId: input.processId,
-          signal: "SIGKILL",
-          signalTarget: input.signalTarget,
-          trackedDescendantProcessIds,
-        }) || sent;
+        (groupReused
+          ? signalCurrentSupervisedProcesses({
+              killProcess: input.killProcess,
+              processIds: discovery.currentProcessIds,
+            })
+          : signalAgentControllerProcessTree({
+              killProcess: input.killProcess,
+              processId: input.processId,
+              signal: "SIGKILL",
+              signalTarget: input.signalTarget,
+              trackedDescendantProcessIds,
+            })) || sent;
     } catch (error) {
       cleanupError = error;
       reportAgentControllerProcessCleanupFailure({
@@ -444,28 +572,72 @@ async function runRemainingAgentControllerProcessCleanup(input: {
   return { ok: true, signalSent: sent };
 }
 
+// A process group ID stays reserved while the group has members, so the
+// exited root's group is still ours unless a live process now holds that PID.
+// In that case the stored group may be someone else's: signal only processes
+// that a fresh marker-only scan finds carrying this invocation's marker.
+function isReusedExitedRootGroup(input: {
+  isRootExited?: () => boolean;
+  killProcess?: typeof process.kill;
+  processId: number | null;
+  signalTarget: AgentControllerProcessSignalTarget;
+}): boolean {
+  if (
+    input.signalTarget !== "process_group" ||
+    input.processId === null ||
+    input.isRootExited?.() !== true
+  ) {
+    return false;
+  }
+  try {
+    (input.killProcess ?? process.kill)(input.processId, 0);
+    return true;
+  } catch (error) {
+    return !isNoSuchProcessError(error);
+  }
+}
+
+function signalCurrentSupervisedProcesses(input: {
+  killProcess?: typeof process.kill;
+  processIds: readonly number[];
+}): boolean {
+  let sent = false;
+  for (const processId of input.processIds) {
+    sent =
+      signalProcessId({
+        killProcess: input.killProcess,
+        processId,
+        signal: "SIGKILL",
+      }) || sent;
+  }
+  return sent;
+}
+
 async function collectSupervisedProcessIds(input: {
   listSupervisedProcessIds?: ListAgentControllerSupervisedProcessIds;
+  // The root PID may now name another process: find only marked processes
+  // instead of walking that PID's current children.
+  markerOnly?: boolean;
   processId: number | null;
   reportDiscoveryFailure?: ReportAgentControllerProcessDiscoveryFailure;
   signalTarget: AgentControllerProcessSignalTarget;
   supervisionId: string;
   trackedDescendantProcessIds: Set<number>;
-}): Promise<unknown | null> {
+}): Promise<{ currentProcessIds: number[]; error: unknown | null }> {
   if (input.signalTarget !== "process_group" || input.processId === null) {
-    return null;
+    return { currentProcessIds: [], error: null };
   }
   const listSupervisedProcessIds =
     input.listSupervisedProcessIds ?? listAgentControllerSupervisedProcessIds;
   try {
     const supervisedProcessIds = await listSupervisedProcessIds({
-      processId: input.processId,
+      processId: input.markerOnly === true ? null : input.processId,
       supervisionId: input.supervisionId,
     });
     for (const descendantProcessId of supervisedProcessIds) {
       input.trackedDescendantProcessIds.add(descendantProcessId);
     }
-    return null;
+    return { currentProcessIds: [...supervisedProcessIds], error: null };
   } catch (error) {
     reportAgentControllerProcessDiscoveryFailure({
       failure: {
@@ -476,7 +648,7 @@ async function collectSupervisedProcessIds(input: {
       },
       reporter: input.reportDiscoveryFailure,
     });
-    return error;
+    return { currentProcessIds: [], error };
   }
 }
 

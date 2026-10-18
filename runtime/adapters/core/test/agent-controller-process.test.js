@@ -459,3 +459,60 @@ test("waits for the supervised discovery retry before completing cleanup", async
   assert.deepEqual(await cleanup, { ok: true, signalSent: true });
   assert.equal(discoveryAttempts, 2);
 });
+
+test("does not signal an exited root's process group once its PID is reused", async () => {
+  const killCalls = [];
+  const discoveryRequests = [];
+
+  const result = await terminateRemainingAgentControllerProcesses({
+    isRootExited: () => true,
+    killProcess: (processId, signal) => {
+      killCalls.push({ processId, signal });
+      // A live, unrelated process now holds the exited root's PID.
+      return true;
+    },
+    listSupervisedProcessIds: (request) => {
+      discoveryRequests.push(request);
+      return Promise.resolve([5151]);
+    },
+    processId: 4242,
+    signalTarget: "process_group",
+    supervisionId: "supervision-4242",
+    trackedDescendantProcessIds: new Set([4343]),
+  });
+
+  assert.deepEqual(result, { ok: true, signalSent: true });
+  // Discovery must not walk the reused PID's children: marker-only scan.
+  assert.deepEqual(discoveryRequests, [
+    { processId: null, supervisionId: "supervision-4242" },
+  ]);
+  assert.deepEqual(killCalls, [
+    { processId: 4242, signal: 0 },
+    { processId: 5151, signal: "SIGKILL" },
+  ]);
+});
+
+test("still ends an exited root's own process group while its PID is free", async () => {
+  const killCalls = [];
+
+  const result = await terminateRemainingAgentControllerProcesses({
+    isRootExited: () => true,
+    killProcess: (processId, signal) => {
+      killCalls.push({ processId, signal });
+      if (signal === 0) {
+        throw Object.assign(new Error("kill ESRCH"), { code: "ESRCH" });
+      }
+      return true;
+    },
+    listSupervisedProcessIds: async () => [],
+    processId: 4242,
+    signalTarget: "process_group",
+    supervisionId: "supervision-4242",
+  });
+
+  assert.deepEqual(result, { ok: true, signalSent: true });
+  assert.deepEqual(killCalls, [
+    { processId: 4242, signal: 0 },
+    { processId: -4242, signal: "SIGKILL" },
+  ]);
+});

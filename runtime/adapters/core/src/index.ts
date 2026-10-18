@@ -112,6 +112,7 @@ export {
   type SpawnedAgentControllerProcess,
   signalAgentControllerProcessTree,
   spawnAgentControllerProcess,
+  terminateLiveAgentControllerProcesses,
   terminateRemainingAgentControllerProcesses,
   type WaitForAgentControllerProcessDiscoveryRetry,
 } from "./agent-controller-process.js";

@@ -16,7 +16,14 @@ export type Conversation = {
 	memberAgentSessionIds?: readonly string[];
 } & (
 	| { kind: "space"; item: AccountSpaceItem }
-	| { kind: "direct-message"; chat: Chat; preview?: ConversationPreview }
+	| {
+			kind: "direct-message";
+			chat: Chat;
+			preview?: ConversationPreview;
+			/** Present on the single entry that stands for several Center Agent sessions. */
+			sessionSpaceIds?: readonly string[];
+			sessionUrlBySpaceId?: ReadonlyMap<string, string>;
+	  }
 );
 
 export type ConversationPreview = {

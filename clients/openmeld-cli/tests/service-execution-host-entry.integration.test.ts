@@ -443,4 +443,118 @@ describe("real execution Host entry", () => {
       client.dispose();
     }
   }, 20_000);
+
+  it.skipIf(process.platform === "win32")(
+    "exits after stop while a controller report is still probing a slow agent CLI",
+    async () => {
+      // A controller that never answers its probe stands in for the agent CLIs
+      // a startup report launches. It must not hold the Host, and with it the
+      // Service stop, open after the stop protocol completed, and neither it
+      // nor its descendant may outlive the Host.
+      const binDir = join(root, "bin");
+      await mkdir(binDir, { recursive: true });
+      const probeMarker = join(root, "probe-started");
+      const slowController = join(binDir, "claude");
+      await writeFile(
+        slowController,
+        // Ignores SIGTERM and leaves a background descendant behind, like a
+        // CLI that daemonizes a helper.
+        `#!/bin/sh\ntrap '' TERM\n(trap '' TERM; while :; do sleep 1; done) &\ntouch "${probeMarker}"\nwhile :; do sleep 1; done\n`,
+        { mode: 0o755 }
+      );
+      vi.stubEnv("PATH", `${binDir}:/usr/bin:/bin`);
+      vi.stubEnv("OPENMELD_AGENT_DETECTION_PROBE_TIMEOUT_MS", "60000");
+      await setAuthSession({
+        accessToken: "fixture-token",
+        authBaseUrl: origin,
+        clientId: "fixture-client",
+        user: { id: "fixture-owner" },
+      });
+      const candidate = (await getAuthSessionState()).session;
+      const session = candidate
+        ? await withAdmittedServiceSession(
+            candidate,
+            async () => (await getAuthSessionState()).session
+          )
+        : null;
+      if (!session?.user?.id) {
+        throw new Error("Admitted fixture session missing");
+      }
+      const contract = await upsertDaemonServiceContract({
+        ownerUserId: session.user.id,
+        deviceId: "fixture-device",
+        connectedComputerId: "fixture-computer",
+        gatewayUrl: origin,
+        lane: "dev-local",
+        daemonVersion: "0.0.0",
+        bundleId: "fixture-bundle",
+        desiredState: "background",
+        serviceController: "legacy-detached",
+        autoStart: false,
+        heartbeatMs: 5000,
+      });
+      const instance = randomUUID();
+      const running = start(instance);
+      const client = createExecutionHostClient({
+        channel: childExecutionHostChannel(running.child),
+        hostInstanceId: instance,
+      });
+      try {
+        await client.call("initialize", {
+          ownerUserId: session.user.id,
+          deviceId: contract.deviceId,
+          lane: "dev-local",
+          daemonSessionId: "fixture-session",
+          serviceContractGeneration: contract.generation,
+          sessionIdentity: buildStoredAuthSessionIdentity(session),
+          stateRoot: join(root, "state"),
+          authBaseUrl: origin,
+          gatewayBaseUrl: origin,
+          parentPid: process.pid,
+          parentProcessStartedAt:
+            readProcessStartIdentity(process.pid) ??
+            CURRENT_PROCESS_START_IDENTITY,
+        });
+        client
+          .call("reportControllers", { probePolicy: "fresh" })
+          .catch(() => undefined);
+        await expect
+          .poll(
+            async () =>
+              await stat(probeMarker).then(
+                () => true,
+                () => false
+              ),
+            { timeout: 10_000 }
+          )
+          .toBe(true);
+
+        await client.call("beginDrain", {});
+        await client.call("drain", {});
+        await client.call("stop", {}, { timeoutMs: null });
+        const stoppedAt = Date.now();
+        running.child.disconnect();
+        expect(await running.exit, running.stderr()).toBe(0);
+        expect(Date.now() - stoppedAt).toBeLessThan(5000);
+        // The abandoned probe tree, including its SIGTERM-resistant
+        // descendant, ends with the Host instead of being orphaned.
+        await expect
+          .poll(
+            async () =>
+              await promisify(execFile)("pgrep", ["-f", slowController]).then(
+                () => "running",
+                () => "gone"
+              ),
+            { timeout: 3000 }
+          )
+          .toBe("gone");
+      } finally {
+        client.dispose();
+        await promisify(execFile)("pkill", ["-f", slowController]).catch(
+          () => undefined
+        );
+      }
+    },
+    30_000
+  );
 });

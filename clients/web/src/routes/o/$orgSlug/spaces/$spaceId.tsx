@@ -25,7 +25,10 @@ import {
 	SpaceWindowShell,
 } from "#/components/spaces/app-space-shell";
 import { ConversationsSidebar } from "#/components/spaces/conversations-sidebar";
-import { SpaceCreationRoute } from "#/components/spaces/space-creation-conversation";
+import {
+	type SpaceCreationHandoff,
+	SpaceCreationRoute,
+} from "#/components/spaces/space-creation-conversation";
 import { SpaceEntryGate } from "#/components/spaces/space-entry-gate";
 import { SpaceLanding } from "#/components/spaces/space-landing";
 import { SpaceProfileRequiredState } from "#/components/spaces/space-profile-required-state";
@@ -86,6 +89,12 @@ type AppSpaceFocusSearch = Pick<
 
 type AppSpaceFocusInput = AppSpaceFocusSearch & {
 	focusRequestId?: string;
+};
+
+// Only the tab that created the Space has these; every other input to the
+// Space view comes from this route's validation.
+type AppSpaceHandoffInput = {
+	handoff?: SpaceCreationHandoff;
 };
 
 export type AppSpaceNavigationSurface = "directMessages" | "spaces";
@@ -165,20 +174,22 @@ function AppSpaceConversationPendingRoute() {
 	const membersPanel = useSpacePanelWidth({ panel: "members", spaceId });
 	return (
 		<SpaceCreationRoute profileId={search.profileId} spaceId={spaceId}>
-			<SpaceWindowShell
-				initialOuterSidebarState={APP_SIDEBAR_DEFAULT_STATES.outer}
-				initialSidebarState={APP_SIDEBAR_DEFAULT_STATES.inner}
-				sidebar={<ConversationsSidebar />}
-				sidebarPreferenceKey="spaces"
-			>
-				<AppMainContent bodyClassName="flex" showHeader={false}>
-					<SpaceLandingLoadingShell
-						membersPanelWidth={membersPanel.width}
-						spaceId={spaceId}
-						threadOpen={Boolean(search.focusThreadRootSignalId)}
-					/>
-				</AppMainContent>
-			</SpaceWindowShell>
+			{() => (
+				<SpaceWindowShell
+					initialOuterSidebarState={APP_SIDEBAR_DEFAULT_STATES.outer}
+					initialSidebarState={APP_SIDEBAR_DEFAULT_STATES.inner}
+					sidebar={<ConversationsSidebar />}
+					sidebarPreferenceKey="spaces"
+				>
+					<AppMainContent bodyClassName="flex" showHeader={false}>
+						<SpaceLandingLoadingShell
+							membersPanelWidth={membersPanel.width}
+							spaceId={spaceId}
+							threadOpen={Boolean(search.focusThreadRootSignalId)}
+						/>
+					</AppMainContent>
+				</SpaceWindowShell>
+			)}
 		</SpaceCreationRoute>
 	);
 }
@@ -193,16 +204,19 @@ function AppSpaceEntryRoute() {
 
 	return (
 		<SpaceCreationRoute profileId={search.profileId} spaceId={spaceId}>
-			<AppSpaceEntryContent
-				focusInteractionId={search.focusInteractionId}
-				focusRequestId={focusRequestId}
-				focusSignalId={search.focusSignalId}
-				focusThreadRootSignalId={search.focusThreadRootSignalId}
-				initialSidebarStates={sidebarStates}
-				orgSlug={orgSlug}
-				profileId={search.profileId}
-				spaceId={spaceId}
-			/>
+			{(handoff) => (
+				<AppSpaceEntryContent
+					focusInteractionId={search.focusInteractionId}
+					focusRequestId={focusRequestId}
+					focusSignalId={search.focusSignalId}
+					focusThreadRootSignalId={search.focusThreadRootSignalId}
+					handoff={handoff}
+					initialSidebarStates={sidebarStates}
+					orgSlug={orgSlug}
+					profileId={search.profileId}
+					spaceId={spaceId}
+				/>
+			)}
 		</SpaceCreationRoute>
 	);
 }
@@ -214,7 +228,8 @@ export function AppSpaceEntryContent(
 		profileId?: string;
 		initialSidebarStates?: AppSidebarPersistedStates;
 		navigationSurface?: AppSpaceNavigationSurface;
-	} & AppSpaceFocusInput
+	} & AppSpaceFocusInput &
+		AppSpaceHandoffInput
 ) {
 	const navigationSurface = input.navigationSurface ?? "spaces";
 	if (!input.profileId) {
@@ -382,7 +397,8 @@ function ValidatedAppSpaceEntryContent(
 		profileId: string;
 		initialSidebarStates?: AppSidebarPersistedStates;
 		navigationSurface: AppSpaceNavigationSurface;
-	} & AppSpaceFocusInput
+	} & AppSpaceFocusInput &
+		AppSpaceHandoffInput
 ) {
 	const { hasRestored, state, storageScope } = useStartFlowState();
 	const { currentOrganization } = useAppOrganization();
@@ -502,6 +518,7 @@ function ValidatedAppSpaceEntryContent(
 			focusRequestId={input.focusRequestId}
 			focusSignalId={input.focusSignalId}
 			focusThreadRootSignalId={input.focusThreadRootSignalId}
+			handoff={input.handoff}
 			initialSidebarStates={input.initialSidebarStates}
 			isPersonalContext={currentOrganization.isPersonal === true}
 			navigationSurface={input.navigationSurface}
@@ -522,7 +539,8 @@ function ResolvedAppSpaceEntryContent(
 		orgSlug: string;
 		profileId: string;
 		spaceId: string;
-	} & AppSpaceFocusInput
+	} & AppSpaceFocusInput &
+		AppSpaceHandoffInput
 ) {
 	const target = useSpaceThreadTarget(props);
 	const input = {
@@ -571,6 +589,7 @@ function ResolvedAppSpaceEntryContent(
 					}
 				>
 					<SpaceLanding
+						{...input.handoff}
 						accountProfiles={input.accountProfiles}
 						initialFocusInteractionId={input.focusInteractionId}
 						initialFocusRequestId={input.focusRequestId}

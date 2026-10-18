@@ -40,6 +40,14 @@ The sidebar control is a portal from the existing module-sidebar provider, so
 it controls the contextual list (or the existing narrow-window drawer), not
 the application rail. Desktop omits the corresponding work-area header entry;
 browser Web keeps its existing placement and shortcuts.
+Sidebar geometry and explicit visibility choices use the shared Web preference
+codec with the existing local browser-preference storage in Desktop's persistent
+application partition. They do not use `document.cookie`, which cannot persist
+on the custom application scheme. Stable application origin, storage keys, and
+user-data directory retain these choices across reloads, restarts, and updates.
+No visibility preference is written merely by visiting a route: Spaces browsing
+starts collapsed and a Space starts expanded until the user changes visibility.
+
 Pages that supply their own inner sidebar, such as standalone Settings and
 Agent Activity, retain their existing narrow-window drawer opener. The titlebar
 does not take ownership of those sidebars.
@@ -1028,7 +1036,8 @@ storage; it never invokes CLI, Service, login, or a real Wake.
   account query cache before rereading.
 - Read-only `/_serverFn/*` calls are a bounded pilot compatibility dependency
   for remaining Web entry and public-Space handoff loaders.
-  Sidebar geometry reads its local cookie during client navigation.
+  Sidebar geometry reads the existing local browser-preference storage during
+  client navigation, without a server-function call.
   Server-function mutations are refused;
   business writes must use the shared APIs.
 - Generic Auth HTTP endpoints are not exposed to the renderer. Session management

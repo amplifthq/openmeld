@@ -1,5 +1,6 @@
 import type {
 	AuthProfileView,
+	CenterAgentUpdateProfileBody,
 	OrganizationDirectoryResponse,
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
@@ -11,6 +12,33 @@ import {
 	directoryContainsProfile,
 	publishAgentAvatarInvalidation,
 } from "./agent-avatar-invalidation";
+
+export const centerAgentAvatarMutationKey = (
+	organizationId: string,
+	profileId: string
+) => ["center-agent-avatar-update", organizationId, profileId] as const;
+
+export function centerAgentAvatarAppearance(
+	update: Pick<CenterAgentUpdateProfileBody, "avatar" | "avatarStyle">
+): Pick<AuthProfileView, "avatarStyle" | "avatarOptions"> {
+	const avatar = update.avatar;
+	if (avatar?.kind === "bot") {
+		return {
+			avatarStyle: avatar.type,
+			avatarOptions: { palette: avatar.palette },
+		};
+	}
+	if (avatar?.kind === "color") {
+		return { avatarStyle: "fluid", avatarOptions: { color: avatar.color } };
+	}
+	if (avatar?.kind === "image") {
+		return {
+			avatarStyle: "custom",
+			avatarOptions: { imageUrl: avatar.dataUrl },
+		};
+	}
+	return { avatarStyle: update.avatarStyle, avatarOptions: undefined };
+}
 
 // Apply only the successful Auth-owned save. Previews never mutate saved identity.
 export async function applySavedAgentAvatarProfile(

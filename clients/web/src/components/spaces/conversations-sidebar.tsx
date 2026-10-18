@@ -56,6 +56,7 @@ import {
 	buildOrganizationNewSpacePath,
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
+import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 import { useDelayedPending } from "#/lib/use-delayed-pending";
 import { AppContextualSidebarNav } from "../app/app-contextual-layout";
 import { ControlledSidebarGroupStateProvider } from "../app/app-sidebar-group";
@@ -68,6 +69,7 @@ import {
 	useSidebarSearchDisclosure,
 } from "../app/sidebar-search-input";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
+import { centerAgentEntryTitle } from "./center-agent-sidebar-entry";
 import { ConversationSidebarMenu } from "./conversation-sidebar-menu";
 import {
 	type Conversation,
@@ -76,6 +78,7 @@ import {
 } from "./conversation-sidebar-model";
 import { ConversationSidebarRow } from "./conversation-sidebar-row";
 import { NewChatDialog } from "./new-chat-dialog";
+import { PinnedLayoutMenu, usePinnedLayout } from "./pinned-layout-menu";
 import { SpaceCreationSidebar } from "./space-creation-sidebar";
 import { resolveSpaceMemberAppearances } from "./space-member-avatars";
 import { useConversationDisclosure } from "./use-conversation-disclosure";
@@ -93,7 +96,23 @@ function resolveConversationRowIndicators(
 	item: Conversation,
 	dm: ReturnType<typeof useConversations>["directMessages"]
 ) {
-	const spaceIds = item.memberAgentSessionIds ?? [item.spaceId];
+	const sessionIds = item.memberAgentSessionIds;
+	if (!sessionIds) {
+		// Every other row reads its own Space, exactly as before MemberAgents.
+		return {
+			unreadCount:
+				dm.indicators.unreadBySpaceId.get(item.spaceId)?.unreadCount ?? 0,
+			messageUnreadCount: dm.indicators.unreadBySpaceId.get(item.spaceId)
+				?.messageUnreadCount,
+			activeWakeSummary: dm.indicators.activeWakeSummaryBySpaceId.get(
+				item.spaceId
+			),
+			attentionTone: resolveInboxAttentionTone(
+				dm.attentionById.get(item.spaceId) ?? {}
+			),
+		};
+	}
+	const spaceIds = sessionIds;
 	let unreadCount = 0;
 	let messageUnreadCount: number | undefined;
 	for (const spaceId of spaceIds) {
@@ -293,6 +312,22 @@ function ConversationsSidebarSearch(input: {
 	);
 }
 
+function collapsedEntryTitle(search: string, viewerName?: string) {
+	return search.trim() ? undefined : centerAgentEntryTitle(viewerName);
+}
+
+// The collapsed Center Agent entry stands for several chats, so it has no
+// per-chat rename or archive action.
+function isSingleChat(item: Conversation) {
+	// A MemberAgent row stands for several Sessions; their dedicated Session
+	// operations live in the Direct Message header, not personal archive/rename.
+	return (
+		item.kind === "direct-message" &&
+		!item.sessionSpaceIds &&
+		!item.memberAgentId
+	);
+}
+
 export function ConversationsSidebar(
 	input: {
 		currentProfileId?: string;
@@ -301,7 +336,17 @@ export function ConversationsSidebar(
 		showSearch?: boolean;
 	} = {}
 ) {
-	const model = useConversations(input);
+	const { defaultHumanProfile } = useDefaultHumanProfile();
+	const [search, setSearch] = useState("");
+	// Searching lists each Center Agent chat on its own row, so a match on an
+	// older chat's title opens that chat rather than the entry's latest one.
+	const model = useConversations({
+		...input,
+		centerAgentEntryTitle: collapsedEntryTitle(
+			search,
+			defaultHumanProfile?.profileName
+		),
+	});
 	const { dismiss } = useAppNavigationPresentation();
 	const onNavigate = (event: MouseEvent<HTMLAnchorElement>) => {
 		if (!(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)) {
@@ -322,7 +367,6 @@ export function ConversationsSidebar(
 		unread: dm.indicators.unreadBySpaceId,
 	});
 	const { view, setView } = useConversationView(currentUserId, dm.org.id);
-	const [search, setSearch] = useState("");
 	const searchDisclosure = useSidebarSearchDisclosure();
 	const { headerRef, titleRef, actionsRef, compactActions } =
 		useHeaderActionOverflow();
@@ -361,6 +405,10 @@ export function ConversationsSidebar(
 	);
 	const activeSection = active ? model.owner(active) : null;
 	const { showMessagePreviews, setShowMessagePreviews } = useMessagePreviews(
+		dm.profileId,
+		dm.org.id
+	);
+	const { pinnedLayout, setPinnedLayout } = usePinnedLayout(
 		dm.profileId,
 		dm.org.id
 	);
@@ -859,6 +907,12 @@ export function ConversationsSidebar(
 														{unreadCount(section)} unread
 													</span>
 												)}
+											{section.id === "pinned" && (
+												<PinnedLayoutMenu
+													layout={pinnedLayout}
+													onLayoutChange={setPinnedLayout}
+												/>
+											)}
 											{view === "grouped" && section.id !== "pinned" && (
 												<SidebarSectionActions
 													addLabel={
@@ -895,7 +949,7 @@ export function ConversationsSidebar(
 									content: (
 										<SidebarDropSection
 											ids={rows(section).map((item) => item.spaceId)}
-											layout={section.id === "pinned" ? "grid" : "list"}
+											layout={section.id === "pinned" ? pinnedLayout : "list"}
 											section={section.id}
 										>
 											<SpaceSidebarEmptyState
@@ -908,7 +962,7 @@ export function ConversationsSidebar(
 												activeLayoutId="conversation-selection"
 												activeValue={model.selected}
 												aria-label={section.name}
-												pinned={section.id === "pinned"}
+												layout={section.id === "pinned" ? pinnedLayout : "list"}
 												updateIndices={rows(section).flatMap((item, index) => {
 													const indicators = resolveConversationRowIndicators(
 														item,
@@ -937,11 +991,13 @@ export function ConversationsSidebar(
 															groups={model.moveGroups[item.kind]}
 															index={index}
 															key={item.spaceId}
+															layout={
+																section.id === "pinned" ? pinnedLayout : "list"
+															}
 															memberAppearances={memberAppearances}
 															messageUnreadCount={indicators.messageUnreadCount}
 															onArchive={
-																item.kind === "direct-message" &&
-																!item.memberAgentId
+																isSingleChat(item)
 																	? () =>
 																			dm.save({
 																				...dm.preferences,
@@ -965,8 +1021,7 @@ export function ConversationsSidebar(
 																).catch(console.error)
 															}
 															onRename={
-																item.kind === "direct-message" &&
-																!item.memberAgentId
+																isSingleChat(item)
 																	? () => {
 																			setRenaming(item);
 																			setName(item.title);
