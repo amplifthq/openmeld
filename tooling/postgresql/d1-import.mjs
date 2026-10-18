@@ -37,6 +37,7 @@ const postgresqlOnlyTables = [
   { name: "conversation_history_deletions" },
   { name: "ai_free_grants" },
   { name: "organization_ai_credentials" },
+  { name: "member_agents" },
 ];
 
 function csv(value) {
@@ -335,6 +336,13 @@ function nativeColumns(table, targetColumns) {
     columns.push({
       name: "default_project_revision",
       type: "INTEGER",
+      hidden: 0,
+      source: "new_nullable",
+    });
+    // Historical Profiles start unassigned; the MemberAgent backfill groups them.
+    columns.push({
+      name: "member_agent_id",
+      type: "TEXT",
       hidden: 0,
       source: "new_nullable",
     });

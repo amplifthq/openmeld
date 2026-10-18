@@ -39,6 +39,10 @@ import {
 import { registerAccountSessionRoutes } from "./account-session-routes";
 import { registerAccountSidebarRoutes } from "./account-sidebar-routes";
 import { registerBetterAuthRoutes } from "./better-auth-routes";
+import {
+  MEMBER_AGENT_ROUTE_BASE,
+  registerMemberAgentRoutes,
+} from "./member-agent-routes";
 import { registerOrganizationCreationRoutes } from "./organization-creation-routes";
 import { registerOrganizationJoinLinkRoutes } from "./organization-join-link-routes";
 import { registerOrganizationJoinRequestRoutes } from "./organization-join-request-routes";
@@ -94,6 +98,7 @@ export function createHonoApp() {
   // Hono wildcard mounts also match the base path, so a single mount keeps
   // exact `/v1/profiles` requests from resolving the session twice.
   app.use(`${PROFILE_ROUTE_BASE}/*`, authContextMiddleware);
+  app.use(MEMBER_AGENT_ROUTE_BASE, authContextMiddleware);
   for (const path of [
     ACCOUNT_ORGANIZATION_CONTEXT_PATH,
     ACCOUNT_SESSION_PATH,
@@ -126,6 +131,7 @@ export function createHonoApp() {
   registerAccountOrganizationContextRoutes(app);
   registerAccountSessionRoutes(app);
   registerProfileRoutes(app);
+  registerMemberAgentRoutes(app);
   registerPasswordRoutes(app);
   registerWaitlistRoutes(app);
   registerOrganizationCreationRoutes(app);

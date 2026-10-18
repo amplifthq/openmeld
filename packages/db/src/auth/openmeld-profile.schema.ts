@@ -1,6 +1,7 @@
 import { relations, sql } from "drizzle-orm";
 import {
   check,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -16,6 +17,7 @@ import {
   integerBoolean,
 } from "../postgresql/schema-types.ts";
 import { organizations, users } from "./auth.schema.ts";
+import { memberAgents } from "./member-agent.schema.ts";
 
 export const OPENMELD_PROFILE_KINDS = ["human", "agent", "system"] as const;
 export type OpenMeldProfileKind = (typeof OPENMELD_PROFILE_KINDS)[number];
@@ -27,6 +29,7 @@ export const OPENMELD_PROFILE_SOURCES = [
   "local_agent_create",
   "center_agent_create",
   "migration",
+  "auto_detected",
 ] as const;
 export type OpenMeldProfileSource = (typeof OPENMELD_PROFILE_SOURCES)[number];
 
@@ -86,6 +89,8 @@ export const openMeldProfiles = applicationTable(
     source: text("source").$type<OpenMeldProfileSource>().notNull(),
     managedRole: text("managed_role").$type<OpenMeldProfileManagedRole>(),
     creationIdempotencyKey: text("creation_idempotency_key"),
+    // The MemberAgent this Profile belongs to; null while unassigned.
+    memberAgentId: text("member_agent_id"),
     defaultProjectId: text("default_project_id"),
     defaultProjectRevision: integer("default_project_revision"),
     avatarStyle: text("avatar_style"),
@@ -143,6 +148,26 @@ export const openMeldProfiles = applicationTable(
       table.ownerUserId,
       table.status
     ),
+    // Lists a MemberAgent's Profiles and is the target of the MemberAgent
+    // default-Profile reference (migration 0039).
+    uniqueIndex("openmeld_profiles_member_agent_profile_uq_idx").on(
+      table.memberAgentId,
+      table.profileId
+    ),
+    // A Profile and its MemberAgent always share Organization and owner.
+    foreignKey({
+      name: "openmeld_profiles_member_agent_fk",
+      columns: [table.memberAgentId, table.organizationId, table.ownerUserId],
+      foreignColumns: [
+        memberAgents.id,
+        memberAgents.organizationId,
+        memberAgents.ownerUserId,
+      ],
+    }),
+    check(
+      "openmeld_profiles_member_agent_check",
+      sql`"member_agent_id" is null or ("profile_kind" = 'agent' and "managed_role" is null and "organization_id" is not null and "owner_user_id" is not null)`
+    ),
     check(
       "openmeld_profiles_profile_kind_check",
       sql`"profile_kind" in ('human', 'agent', 'system')`
@@ -153,7 +178,7 @@ export const openMeldProfiles = applicationTable(
     ),
     check(
       "openmeld_profiles_source_check",
-      sql`"source" in ('auth_bootstrap', 'web_create', 'cli_create', 'local_agent_create', 'center_agent_create', 'migration')`
+      sql`"source" in ('auth_bootstrap', 'web_create', 'cli_create', 'local_agent_create', 'center_agent_create', 'migration', 'auto_detected')`
     ),
     check(
       "openmeld_profiles_ownership_check",
@@ -202,6 +227,10 @@ export const openMeldProfilesRelations = relations(
     createdBy: one(users, {
       fields: [openMeldProfiles.createdByUserId],
       references: [users.id],
+    }),
+    memberAgent: one(memberAgents, {
+      fields: [openMeldProfiles.memberAgentId],
+      references: [memberAgents.id],
     }),
   })
 );

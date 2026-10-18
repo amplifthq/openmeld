@@ -67,6 +67,14 @@ export {
   OPENMELD_AUTH_HEADER_REQUEST_ID,
   readAuthClaimsHeaders,
 } from "./headers/auth-headers";
+export type {
+  MemberAgentProfileRecord,
+  MemberAgentRecord,
+  MemberAgentRepository,
+  OwnerMemberAgentListing,
+  UnassignedAgentProfileRecord,
+} from "./member-agents/member-agent-repository";
+export { createDrizzleMemberAgentRepository } from "./member-agents/member-agent-repository";
 export type { OrganizationPermissionCheck } from "./organization/access-control";
 export {
   admin as organizationAdminRole,
