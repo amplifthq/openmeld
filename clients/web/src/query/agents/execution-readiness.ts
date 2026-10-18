@@ -172,45 +172,63 @@ export async function refreshWebAgentReadinessSharedCaches(input: {
 	includeLocalRuntimeCaches?: boolean;
 	organizationId: string;
 	queryClient: QueryClient;
+	// A read already in flight may predate the change being recovered, so a
+	// live reconnect recovery restarts it instead of sharing it.
+	restartInFlightReadinessReads?: boolean;
 	storageScope: string;
 }) {
 	const agentProfileIds = normalizeAgentProfileIds(input.agentProfileIds ?? []);
-	const refreshes: Promise<unknown>[] = [
-		input.queryClient.invalidateQueries(
-			{
-				predicate:
-					agentProfileIds.length === 0
-						? undefined
-						: (query) =>
-								agentProfileIds.some((agentProfileId) =>
-									query.queryKey.includes(agentProfileId)
-								),
-				queryKey: agentExecutionReadinessQueryKeys.batchesForOrganization(
-					input.storageScope,
-					input.organizationId
-				),
-				refetchType: "active",
-			},
-			{ cancelRefetch: false }
+	const batchFilters = {
+		predicate:
+			agentProfileIds.length === 0
+				? undefined
+				: (query: { queryKey: readonly unknown[] }) =>
+						agentProfileIds.some((agentProfileId) =>
+							query.queryKey.includes(agentProfileId)
+						),
+		queryKey: agentExecutionReadinessQueryKeys.batchesForOrganization(
+			input.storageScope,
+			input.organizationId
 		),
+	};
+	const restartInFlight = input.restartInFlightReadinessReads === true;
+	// cancelRefetch cannot replace a first read that has no data yet, so a
+	// recovery cancels every in-flight read before invalidating it.
+	// Readiness batches otherwise share an in-flight read so equivalent events
+	// do not cancel each other; the Organization reads keep the default restart.
+	const invalidate = async (
+		filters: Parameters<QueryClient["invalidateQueries"]>[0] & object,
+		options: { shareInFlight: boolean }
+	) => {
+		if (restartInFlight) {
+			await input.queryClient.cancelQueries(filters);
+		}
+		const activeFilters = { ...filters, refetchType: "active" as const };
+		await (restartInFlight || options.shareInFlight
+			? input.queryClient.invalidateQueries(activeFilters, {
+					cancelRefetch: restartInFlight,
+				})
+			: input.queryClient.invalidateQueries(activeFilters));
+	};
+	const refreshes: Promise<unknown>[] = [
+		invalidate(batchFilters, { shareInFlight: true }),
 	];
 	const organizationId = input.organizationId.trim();
 	if (organizationId.length > 0) {
 		refreshes.push(
-			input.queryClient.invalidateQueries({
-				queryKey: organizationQueryKeys.profileDirectory(organizationId),
-				exact: true,
-				refetchType: "active",
-			})
+			invalidate(
+				{
+					queryKey: organizationQueryKeys.profileDirectory(organizationId),
+					exact: true,
+				},
+				{ shareInFlight: false }
+			)
 		);
 		const overviewQueryKey =
 			organizationQueryKeys.agentRuntimeOverview(organizationId);
 		if (agentProfileIds.length === 0) {
 			refreshes.push(
-				input.queryClient.invalidateQueries({
-					queryKey: overviewQueryKey,
-					refetchType: "active",
-				})
+				invalidate({ queryKey: overviewQueryKey }, { shareInFlight: false })
 			);
 		} else {
 			const overviewQuery = input.queryClient
