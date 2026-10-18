@@ -234,6 +234,36 @@ export type SpawnedAgentControllerProcess = {
   terminateRemainingDescendants: () => Promise<AgentControllerProcessCleanupResult>;
 };
 
+// Agent CLI process trees this process launched and has not yet seen exit.
+const liveAgentControllerProcesses = new Set<SpawnedAgentControllerProcess>();
+
+function trackLiveAgentControllerProcess(
+  spawned: SpawnedAgentControllerProcess
+): SpawnedAgentControllerProcess {
+  liveAgentControllerProcesses.add(spawned);
+  const forget = () => liveAgentControllerProcesses.delete(spawned);
+  spawned.child.once("exit", forget);
+  spawned.child.once("close", forget);
+  return spawned;
+}
+
+/**
+ * Signals every agent CLI process tree launched by this process that is still
+ * running. Only for a process that is ending after its accepted work drained:
+ * whatever remains is abandoned background work, such as a controller probe.
+ */
+export function terminateLiveAgentControllerProcesses(
+  signal: NodeJS.Signals
+): void {
+  for (const spawned of liveAgentControllerProcesses) {
+    try {
+      spawned.terminate(signal);
+    } catch {
+      // A tree that exited meanwhile needs no signal; continue with the rest.
+    }
+  }
+}
+
 export function spawnAgentControllerProcess(input: {
   args: string[];
   bin: string;
@@ -251,14 +281,14 @@ export function spawnAgentControllerProcess(input: {
   const invocation = resolvePlatformCommand(input.bin, input.args, env);
   if (process.platform === "win32") {
     const job = spawnWindowsJobProcess({ invocation, env, cwd: input.cwd });
-    return {
+    return trackLiveAgentControllerProcess({
       child: job.child,
       processId: job.child.pid ?? null,
       signalTarget,
       supervisionId,
       terminate: job.terminate,
       terminateRemainingDescendants: job.cleanup,
-    };
+    });
   }
   const child = spawn(invocation.bin, invocation.args, {
     cwd: input.cwd,
@@ -275,7 +305,7 @@ export function spawnAgentControllerProcess(input: {
   const processId = typeof child.pid === "number" ? child.pid : null;
   const trackedDescendantProcessIds = new Set<number>();
 
-  return {
+  return trackLiveAgentControllerProcess({
     child,
     processId,
     signalTarget,
@@ -294,7 +324,7 @@ export function spawnAgentControllerProcess(input: {
         supervisionId,
         trackedDescendantProcessIds,
       }),
-  };
+  });
 }
 
 export function resolveAgentControllerProcessSignalTarget(

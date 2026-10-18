@@ -1,4 +1,8 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { writeDaemonRuntimeLease } from "../src/config/daemon-runtime-lease";
 import { daemonRuntimeRootPath } from "../src/config/daemon-state";
 import { openMeldRootDir } from "../src/config/paths";
 import {
@@ -118,6 +122,62 @@ describe("local service process inventory", () => {
     });
 
     expect(processes).toEqual([]);
+  });
+
+  it("claims the repo-local service named by this custom OPENMELD_HOME runtime lease", async () => {
+    const home = await mkdtemp(join(tmpdir(), "openmeld-leased-lane-"));
+    try {
+      const pathInput = {
+        env: {
+          ...process.env,
+          OPENMELD_ENV_PRESET: "dev-local",
+          OPENMELD_HOME: home,
+        },
+      };
+      const now = new Date().toISOString();
+      await writeDaemonRuntimeLease(
+        {
+          schema: "openmeld-daemon-runtime-lease-v1",
+          v: 1,
+          generation: 1,
+          bundleId: "dev-bundle",
+          pid: 107,
+          mode: "foreground",
+          startedAt: now,
+          updatedAt: now,
+          heartbeatAt: now,
+          serviceController: "unknown",
+          managedBySystemService: false,
+        },
+        pathInput
+      );
+      const command = `node ${openMeldRootDir()}/clients/openmeld-cli/dist/openmeld-dev.js service start --mode foreground --json`;
+
+      const processes = await listDaemonOwnedProcesses({
+        pathInput,
+        listProcesses: async () => [
+          // Another custom lane runs the same repo-local entry; no lease names it.
+          { pid: 106, parentPid: 1, command },
+          { pid: 107, parentPid: 1, command },
+          // A lease PID is not enough for a process that is not a Service run.
+          {
+            pid: 108,
+            parentPid: 1,
+            command: `node ${openMeldRootDir()}/clients/openmeld-cli/dist/openmeld-dev.js service status`,
+          },
+        ],
+      });
+
+      expect(processes).toEqual([
+        expect.objectContaining({
+          pid: 107,
+          ownership: "cli_direct",
+          mode: "foreground",
+        }),
+      ]);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
   });
 
   it("projects equals-style foreground mode for a repo-local service start process", async () => {

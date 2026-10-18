@@ -152,6 +152,15 @@ Execution Host assembles the existing adapters, execution slots, pending human
 interactions, route discovery, controller reporting, and durable result outbox.
 The Host never owns Core readiness, authorization, scheduling, or Space history.
 
+The Host process ends with its supervised session. After Stop has drained
+accepted work and the Host has released ownership, the Host exits and signals
+any agent CLI process tree it launched that is still running. At that point such
+a tree can only be abandoned background evidence work, such as a controller
+report still probing installed agent CLIs. That work must not keep the Host
+alive: the Service waits for actual Host exit before it clears its runtime
+lease, so a lingering probe would stretch every Stop past its bounded wait and
+leave a following Start racing a Service that is still shutting down.
+
 Connector registration, heartbeat responses, and transport errors are handled
 only by `carrier/daemon-frame-transport.ts`. The inherited IPC contract excludes
 those frames from `execution-host/frame-router.ts`; the Host has no connector
@@ -344,6 +353,17 @@ A fresh running lease identifying a system-managed PID likewise takes precedence
 over that same PID's path-based direct/unknown classification. Do not count one
 verified system-managed process as both lifecycle owners; a different direct
 process must still be reported independently.
+
+A repo-local Service started under an explicit `OPENMELD_HOME` carries no lane
+in its command line, so another custom home running the same entry looks
+identical. Process inventory therefore attributes such a direct Service process
+to the current lane only when this lane's runtime lease names its PID; other
+copies of the entry stay unattributed. Without this, a still-running Service in
+that lane, for example one finishing a controlled stop, has no observable entry
+path and Start reports `runtime_bundle_mismatch`, demanding repair. The
+pre-start takeover check reads the same inventory, so attribution belongs there
+rather than in one caller: a live owner it cannot see would be treated as a
+replaceable runtime.
 
 Isolated Service smoke must use the development or Canary entry point, not
 borrow the installed Production binary with a different `OPENMELD_HOME` or
@@ -3831,6 +3851,12 @@ liveness evidence, never elapsed time on a live execution, and a daemon with
 a fresh heartbeat is never force-killed. Heartbeat staleness here is local
 stop-safety evidence only; it must not feed any liveness, readiness, or Wake
 availability projection.
+
+When the bounded wait elapses for a Service that is still alive, its controlled
+stop is still in progress; that is not a failed stop. The warning says so and
+points to Service status before `--force`. A Start that runs meanwhile observes
+that Service as this lane's current owner and reports it as already running; it
+must not classify the live owner as damaged service files that need repair.
 
 A forced stop is never presented as a controlled drain. The command must warn
 before the destructive escalation, and the lifecycle journal must retain the

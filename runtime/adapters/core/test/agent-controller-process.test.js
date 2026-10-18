@@ -9,6 +9,8 @@ import {
   resolveAgentControllerDescendantProcessIds,
   resolveAgentControllerSupervisedProcessIds,
   signalAgentControllerProcessTree,
+  spawnAgentControllerProcess,
+  terminateLiveAgentControllerProcesses,
   terminateRemainingAgentControllerProcesses,
 } from "../dist/index.js";
 
@@ -459,3 +461,32 @@ test("waits for the supervised discovery retry before completing cleanup", async
   assert.deepEqual(await cleanup, { ok: true, signalSent: true });
   assert.equal(discoveryAttempts, 2);
 });
+
+test(
+  "terminates only agent CLI processes that are still running",
+  { skip: process.platform === "win32" },
+  async () => {
+    const finished = spawnAgentControllerProcess({
+      bin: process.execPath,
+      args: ["-e", ""],
+      cwd: process.cwd(),
+      env: process.env,
+      shell: false,
+    });
+    await new Promise((resolve) => finished.child.once("exit", resolve));
+    const lingering = spawnAgentControllerProcess({
+      bin: process.execPath,
+      args: ["-e", "setInterval(() => {}, 1000)"],
+      cwd: process.cwd(),
+      env: process.env,
+      shell: false,
+    });
+    const exited = new Promise((resolve) =>
+      lingering.child.once("exit", (_code, signal) => resolve(signal))
+    );
+
+    terminateLiveAgentControllerProcesses("SIGTERM");
+
+    assert.equal(await exited, "SIGTERM");
+  }
+);

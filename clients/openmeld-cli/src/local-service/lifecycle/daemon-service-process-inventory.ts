@@ -7,6 +7,7 @@ import {
   powerShellEncodedArguments,
   resolveWindowsPowerShellPath,
 } from "@openmeld/adapter-core/windows-system";
+import { readDaemonRuntimeLease } from "../../config/daemon-runtime-lease";
 import { daemonRuntimeRootPath } from "../../config/daemon-state";
 import {
   OPENMELD_HOME_ENV_KEY,
@@ -77,13 +78,18 @@ export async function listDaemonOwnedProcesses(
       (pid): pid is number => Number.isInteger(pid) && pid > 0
     )
   );
-  const processes = await listProcesses();
+  const pathInput = overrides.pathInput ?? {};
+  const [processes, laneRuntimeLeasePid] = await Promise.all([
+    listProcesses(),
+    readLaneRuntimeLeasePid(pathInput),
+  ]);
   const ownedProcesses = processes
     .map((processInfo) =>
       classifyDaemonOwnedProcess(
         processInfo,
         ignoredProcessIds,
-        overrides.pathInput
+        pathInput,
+        laneRuntimeLeasePid
       )
     )
     .filter(
@@ -92,10 +98,24 @@ export async function listDaemonOwnedProcesses(
   return collapseLauncherWrapperProcesses(ownedProcesses);
 }
 
+// A custom OPENMELD_HOME is invisible in a repo-local Service command line, so
+// that command alone cannot be attributed to a lane. This lane's runtime lease
+// names its own Service PID; only that lease can claim such a process.
+async function readLaneRuntimeLeasePid(
+  pathInput: OpenMeldPathResolutionInput
+): Promise<number | null> {
+  if (!hasExplicitOpenMeldHome(pathInput)) {
+    return null;
+  }
+  const lease = await readDaemonRuntimeLease(pathInput).catch(() => null);
+  return lease?.pid ?? null;
+}
+
 function classifyDaemonOwnedProcess(
   processInfo: ListedProcess,
   ignoredProcessIds: ReadonlySet<number>,
-  pathInput: OpenMeldPathResolutionInput = {}
+  pathInput: OpenMeldPathResolutionInput = {},
+  laneRuntimeLeasePid: number | null = null
 ): DaemonOwnedProcess | null {
   if (ignoredProcessIds.has(processInfo.pid)) {
     return null;
@@ -130,13 +150,16 @@ function classifyDaemonOwnedProcess(
   ) {
     return null;
   }
-  if (
-    resolveDaemonCommandLaneScope({
-      launcherPath,
-      normalizedCommand,
-      pathInput,
-    }) !== "current_lane"
-  ) {
+  const laneScope = resolveDaemonCommandLaneScope({
+    launcherPath,
+    normalizedCommand,
+    pathInput,
+  });
+  const isLeasedLaneRuntime =
+    laneScope === "not_openmeld" &&
+    isRuntimeProcess &&
+    processInfo.pid === laneRuntimeLeasePid;
+  if (laneScope !== "current_lane" && !isLeasedLaneRuntime) {
     return null;
   }
   const ownership = resolveDaemonProcessOwnership(

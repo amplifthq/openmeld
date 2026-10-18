@@ -62,6 +62,29 @@ if (
       process.disconnect();
     }
   }
+  // The Host process ends with its supervised session. By now accepted work
+  // has drained and Host ownership is released. A read-only background probe
+  // that is still running, such as a controller report launching agent CLIs,
+  // must not keep this process alive: the Service waits for this exit before
+  // it clears its runtime state, so a lingering probe would stall every stop.
+  // Its agent CLIs end with it instead of outliving the Host.
+  try {
+    const { terminateLiveAgentControllerProcesses } = await import(
+      "@openmeld/adapter-core"
+    );
+    terminateLiveAgentControllerProcesses("SIGTERM");
+  } catch (error) {
+    console.error("[openmeld.execution_host.probe_cleanup_failed]", error);
+  }
+  await Promise.all(
+    [process.stdout, process.stderr].map(
+      (stream) =>
+        new Promise<void>((resolve) => {
+          stream.write("", () => resolve());
+        })
+    )
+  );
+  process.exit();
 } else if (
   args.length === 2 &&
   args[0] === "service" &&
