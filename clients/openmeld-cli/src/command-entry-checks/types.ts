@@ -66,6 +66,8 @@ export type CommandEntryName =
   | "center_agent.pause"
   | "center_agent.resume"
   | "center_agent.audit"
+  | "member_agents.list"
+  | "member_agents.show"
   | "routines.menu"
   | "routines.list"
   | "routines.create"

@@ -5,6 +5,7 @@ type CenterAgentAskCommandModule =
   typeof import("../src/center-agent/ask-command");
 type CenterAgentContextCommandModule =
   typeof import("../src/center-agent/context-command");
+type MemberAgentCommandModule = typeof import("../src/member-agents/command");
 type OrgCommandModule = typeof import("../src/org/command");
 type ProfileCreationRequestCommandModule =
   typeof import("../src/profile-creation-request/command");
@@ -35,6 +36,12 @@ const runMocks = vi.hoisted(() => ({
   runCenterAgentContextReceipt: vi.fn<
     CenterAgentContextCommandModule["runCenterAgentContextReceipt"]
   >(async () => undefined),
+  runAgentList: vi.fn<MemberAgentCommandModule["runAgentList"]>(
+    async () => undefined
+  ),
+  runAgentShow: vi.fn<MemberAgentCommandModule["runAgentShow"]>(
+    async () => undefined
+  ),
   runOrgDirectory: vi.fn<OrgCommandModule["runOrgDirectory"]>(
     async () => undefined
   ),
@@ -172,6 +179,15 @@ vi.mock(
     };
   }
 );
+
+vi.mock("../src/member-agents/command", async (importOriginal) => {
+  const actual = await importOriginal<MemberAgentCommandModule>();
+  return {
+    ...actual,
+    runAgentList: runMocks.runAgentList,
+    runAgentShow: runMocks.runAgentShow,
+  };
+});
 
 vi.mock("../src/org/command", async (importOriginal) => {
   const actual = await importOriginal<OrgCommandModule>();
@@ -784,6 +800,23 @@ describe("command entry CLI wiring", () => {
       sourceSignalId: "signal-source",
       space: "space-alpha",
       targetProfileId: "agt-target",
+      view: "agent",
+    });
+  });
+
+  it("maps agent list and agent show argv to the MemberAgent commands", async () => {
+    await runCli(["agent", "list"], "human");
+    expect(runCommandWithEntryChecksMock.mock.calls.at(-1)?.[0]).toMatchObject({
+      routeTokens: ["agent", "list"],
+    });
+    expect(runMocks.runAgentList).toHaveBeenCalledWith({ view: "human" });
+
+    await runCli(["agent", "show", "codex"]);
+    expect(runCommandWithEntryChecksMock.mock.calls.at(-1)?.[0]).toMatchObject({
+      routeTokens: ["agent", "show"],
+    });
+    expect(runMocks.runAgentShow).toHaveBeenCalledWith({
+      memberAgent: "codex",
       view: "agent",
     });
   });

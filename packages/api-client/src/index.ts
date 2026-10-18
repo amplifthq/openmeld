@@ -197,6 +197,15 @@ export {
   type GetLocalRuntimeExpectedRoutesInput,
   type LocalRuntimeExpectedRoutesApi,
 } from "./local-runtime/api";
+export {
+  createMemberAgentsApi,
+  isMemberAgentsDisabledError,
+} from "./member-agents/api";
+export { buildMemberAgentsPath } from "./member-agents/routes";
+export type {
+  CreateMemberAgentsApi,
+  MemberAgentsApi,
+} from "./member-agents/types";
 export { createOrganizationApi } from "./organization/api";
 export {
   buildAgentProfileCreationApprovalPreferencePath,

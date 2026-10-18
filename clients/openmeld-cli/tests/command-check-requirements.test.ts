@@ -90,6 +90,8 @@ describe("command check requirements", () => {
 
   it("uses shared organization context checks without requiring a local profile", () => {
     for (const entryName of [
+      "member_agents.list",
+      "member_agents.show",
       "routines.list",
       "routines.create",
       "routines.show",

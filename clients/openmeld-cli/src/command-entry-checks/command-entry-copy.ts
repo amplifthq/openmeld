@@ -162,6 +162,18 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     cliUpdateAction: "listing Center Agent audit entries",
     serviceAction: null,
   },
+  "member_agents.list": {
+    signInAction: "listing your Agents",
+    profileAction: null,
+    cliUpdateAction: "listing your Agents",
+    serviceAction: null,
+  },
+  "member_agents.show": {
+    signInAction: "showing an Agent",
+    profileAction: null,
+    cliUpdateAction: "showing an Agent",
+    serviceAction: null,
+  },
   "routines.menu": {
     signInAction: "managing Routines",
     profileAction: null,

@@ -218,13 +218,15 @@ Implementation status: MemberAgent program, PR #236, in progress.
 also print each Profile's parent MemberAgent, or say that the Profile is
 unassigned. A default Agent Profile is created with its MemberAgent from the
 harness catalog report, so `profiles create` creates only additional Profiles,
-each with an explicit short name. Core refuses an update that would move an
-assigned Profile to another harness.
+each with an explicit short name. `profiles create --member-agent <agent>`
+refuses an Agent Controller whose harness differs from the parent's. Core
+refuses an update that would move an assigned Profile to another harness.
 
 `openmeld agent list` prints one row per MemberAgent in the current
 Organization with its derived state, running and queued counts, and latest
-Session. `openmeld agent show <member-agent-id>` prints its Profiles, the
-Computers that provide its harness, and each Profile's Sessions. Session
+Session. `openmeld agent show <agent>` takes a MemberAgent id or harness kind
+and prints its Profiles, the Computers that provide its harness, and each
+Profile's Sessions. Session
 commands list a Profile's Sessions, rename one, and archive one. Agent View
 returns stable ids and the same derived state as Web; neither view stores or
 recomputes MemberAgent state.

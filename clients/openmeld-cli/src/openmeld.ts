@@ -2,6 +2,7 @@ import { AGENT_PROFILE_WORK_CONCURRENCY_LIMIT } from "@openmeld/agent-runtime";
 import {
   computerConnectionIntentSchema,
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+  MEMBER_AGENTS_ENABLED,
   TEAMMATE_AGENT_REQUESTS_ENABLED,
 } from "@openmeld/schemas";
 import { Command, Option } from "commander";
@@ -157,6 +158,11 @@ import {
 } from "./local-components/managed-command-authority";
 import { runPendingDaemonServiceUpdate } from "./local-service/lifecycle/daemon-service-update-coordinator";
 import { runServiceAccountCarrier } from "./local-service/lifecycle/service-account-authorization";
+import {
+  resolveProfileCreateMemberAgentController,
+  runAgentList,
+  runAgentShow,
+} from "./member-agents/command";
 import { emitStartupAgentOverviewForCommand } from "./openmeld-agent-overview";
 import {
   runStartFromCliOptions,
@@ -5238,6 +5244,40 @@ program
     });
   });
 
+// Hidden from help while the MemberAgent release flag is off; running it then
+// prints the not-enabled message without calling Auth.
+const memberAgentCmd = program
+  .command("agent", { hidden: !MEMBER_AGENTS_ENABLED })
+  .description("See your Agents: one per harness, with their Agent Profiles.");
+
+memberAgentCmd
+  .command("list")
+  .alias("ls")
+  .description(
+    "List your Agents in the current organization and any unassigned Agent Profiles."
+  )
+  .action(async () => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["agent", "list"],
+      view,
+      run: () => runAgentList({ view }),
+    });
+  });
+
+memberAgentCmd
+  .command("show")
+  .description("Show one Agent with its Agent Profiles.")
+  .argument("<agent>", "Agent ID, harness (such as codex), or Agent name")
+  .action(async (memberAgent: string) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["agent", "show"],
+      view,
+      run: () => runAgentShow({ memberAgent, view }),
+    });
+  });
+
 const profileCmd = program
   .command("profiles")
   .alias("profile")
@@ -5317,6 +5357,12 @@ profileCmd
     "Confirm a dangerous Agent Controller Permission Mode without prompting",
     false
   )
+  .addOption(
+    new Option(
+      "--member-agent <agent>",
+      "Parent Agent (ID or harness); the new Profile must use its harness"
+    ).hideHelp(!MEMBER_AGENTS_ENABLED)
+  )
   .option(
     "--owner <userId>",
     "Agent owner: self (creating for other members is not available)"
@@ -5382,6 +5428,9 @@ profileCmd
       routeTokens: ["profile", "create"],
       view,
       run: async () => {
+        if (!(await applyProfileCreateMemberAgent(opts, view))) {
+          return;
+        }
         const usesCreationRequest = shouldUseProfileCreationRequest(opts);
         assertSupportedProfileCreationRequestSessionInput({
           agentControllerConversationId: opts.agentControllerConversationId,
@@ -5453,6 +5502,34 @@ profileCmd
       },
     });
   });
+
+// Resolves `--member-agent` into the Agent Controller to create with. Returns
+// false when creation was refused and the reason was already reported.
+async function applyProfileCreateMemberAgent(
+  opts: {
+    agentController?: string;
+    memberAgent?: unknown;
+    organization?: unknown;
+  },
+  view: string | undefined
+): Promise<boolean> {
+  if (typeof opts.memberAgent !== "string") {
+    return true;
+  }
+  const agentController = await resolveProfileCreateMemberAgentController({
+    agentController: opts.agentController,
+    memberAgent: opts.memberAgent,
+    ...(typeof opts.organization === "string"
+      ? { organization: opts.organization }
+      : {}),
+    view,
+  });
+  if (!agentController) {
+    return false;
+  }
+  opts.agentController = agentController;
+  return true;
+}
 
 function shouldUseProfileCreationRequest(input: {
   agentController?: unknown;
