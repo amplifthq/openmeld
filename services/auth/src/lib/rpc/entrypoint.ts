@@ -12,6 +12,8 @@ import {
   createPostgresOrganizationLogoMutationRepository,
   createUnauthenticatedClaims,
   DEFAULT_AUTH_BASE_URL,
+  hasBearerAuthorization,
+  isCliCredentialSessionRecord,
   normalizeAuthHeaderValue,
   type OpenMeldProfileManagedRole,
   type OpenMeldProfileSource,
@@ -2232,6 +2234,10 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
           profileKind: primaryProfile.profileKind,
           ownerIds: [],
           authMethod: headers.has("x-api-key") ? "api_key" : "session",
+          credentialKind: resolveRequestCredentialKind({
+            headers,
+            session: sessionResolution.session,
+          }),
           ...(organizationContext.activeOrganizationId
             ? {
                 activeOrganizationId: organizationContext.activeOrganizationId,
@@ -3157,4 +3163,20 @@ function toSafeRpcErrorLog(error: unknown): {
 }
 function toProfileRpcError(error: unknown): ProfileErrorResponse {
   return toProfileHttpErrorResponse(error).body;
+}
+
+/**
+ * A session is a CLI credential once a CLI held it, when it arrives as a
+ * Bearer token, or for an API key. The Bearer use itself marks the session
+ * (`createCliCredentialPlugin`), so a later cookie use stays a CLI credential.
+ */
+function resolveRequestCredentialKind(input: {
+  headers: Headers;
+  session: unknown;
+}): "cli_credential" | "interactive_session" {
+  return input.headers.has("x-api-key") ||
+    hasBearerAuthorization(input.headers) ||
+    isCliCredentialSessionRecord(input.session)
+    ? "cli_credential"
+    : "interactive_session";
 }
