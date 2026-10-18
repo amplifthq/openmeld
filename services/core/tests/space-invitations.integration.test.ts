@@ -328,6 +328,14 @@ describe("Organization Space self-join", () => {
       (message) => message.type === "space.meta.changed",
       5000
     );
+    const ownerSeesRecipientQuit = waitForJsonMessage(
+      ownerSocket,
+      (message) =>
+        message.type === "presence.quit" &&
+        (message.profile as { profileId?: string } | undefined)?.profileId ===
+          f.recipientProfile,
+      5000
+    );
     await f.stub.rpcPatchMeta({
       spaceId: f.spaceId,
       context: ownerContext,
@@ -341,6 +349,10 @@ describe("Organization Space self-join", () => {
     await expect(ownerInvalidation).resolves.toMatchObject({
       type: "space.meta.changed",
       reason: "space.name.updated",
+    });
+    // The closed session is announced to the sessions that stay open.
+    await expect(ownerSeesRecipientQuit).resolves.toMatchObject({
+      type: "presence.quit",
     });
     const ownerOutcome = await Promise.race([
       ownerClosed.then(() => "closed"),

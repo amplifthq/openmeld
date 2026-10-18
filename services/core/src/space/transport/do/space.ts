@@ -21369,6 +21369,15 @@ export class Space extends DurableObject<CoreBindings> {
       sessions: this.sessions,
       webSocket: target.webSocket,
     });
+    // The session is gone before its socket closes, so webSocketClose cannot
+    // announce the departure; tell the sessions that stay open here.
+    if (target.session.profile) {
+      const quitSignal = this.buildPresence(
+        "presence.quit",
+        target.session.profile
+      );
+      this.publishPresenceSignal(quitSignal);
+    }
   }
   private deliverAuthorizedLiveMessages(
     target: { session: Session; webSocket: WebSocket },
