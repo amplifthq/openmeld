@@ -260,7 +260,10 @@ Target:
   The unique key's conditional insert makes two simultaneous computers safe.
 - **Lazy per organization.** Creation happens when the member opens an
   organization's Agents or DM surface with a connected computer, never as a
-  broadcast to every organization on connect.
+  broadcast to every organization on connect. After that, a catalog update
+  reconciles every organization where the owner already has a non-archived
+  MemberAgent, including migrated ones; owning a MemberAgent there counts as
+  having opened it. No separate surface-open fact is stored.
 - Rewrite the explicit-intent invariant: the default Profile is created with
   the MemberAgent; every other Profile still needs explicit intent. Add
   `auto_detected` to the Profile `source` enum.
@@ -777,6 +780,11 @@ cache; Project redesign.
   active tasks with their roots (Phase 5).
 - Observer widening: read cost of `owner_user_id_snapshot` in the Space DO
   member table (Phase 4).
+- Organization directory overview (`rpcGetCurrentOrganizationAgentRuntimeOverview`,
+  `resolveOrganizationAgentRuntimeOverview` in `services/core/src/rpc/methods.ts`)
+  accepts `includeUsageLimits` and, per 1c's review, may attach `usageLimits`
+  for other members' Profiles. Verify viewer gating against §4.10 (quota
+  numbers owner-only) in Phase 4 and fix if it leaks (pre-existing).
 - Dispatch results report `effectiveRuntimeWorkingDirectory` to Core
   (`send-dispatch-result.ts`, pre-existing). Confirm it is projected to the
   owner only and decide whether it should become a folder id (Phase 3).
@@ -835,3 +843,10 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   with `foldersRevision`); the pre-existing dispatch-result working-directory
   field means "no path reaches the cloud" is true for folders, not for the
   Service as a whole; §4.4 reworded and §13 extended.
+- 2026-10-18, 1c report and its Codex review (gpt-6-astra, high): membership
+  re-check moved into the MemberAgent insert; presence debounce now applies
+  before any history exists; `not_supported_yet` counts as unknown, not
+  uninstalled; accepted reports pair by position; transition read locks the
+  row. Designer decisions: a migrated MemberAgent qualifies its organization
+  for catalog-update reconciliation (§4.5); the directory overview's
+  `includeUsageLimits` exposure is a Phase 4 check (§13).
