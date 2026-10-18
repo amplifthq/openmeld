@@ -202,11 +202,36 @@ test("passes the release SHA to every Worker deploy and maps the release token o
     ["node", "scripts/release/deploy-core-worker.mjs", "--release-sha", TARGET],
   ]);
   const env = releaseEnvironment(
-    { CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN: "token" },
+    {
+      CLOUDFLARE_ACCOUNT_ID: "account",
+      CLOUDFLARE_API_TOKEN: "",
+      CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN: "token",
+    },
     TARGET
   );
   assert.equal(env.CLOUDFLARE_API_TOKEN, "token");
   assert.equal(env.RELEASE_SHA, TARGET);
+});
+
+test("refuses missing production credentials before running component steps", () => {
+  for (const env of [
+    {},
+    { CLOUDFLARE_ACCOUNT_ID: "account" },
+    { CLOUDFLARE_API_TOKEN: "token" },
+  ]) {
+    assert.throws(
+      () => releaseEnvironment(env, TARGET),
+      (error) => {
+        assert.ok(
+          error.message.startsWith(
+            "Production release credentials are missing:"
+          )
+        );
+        assert.ok(!error.message.includes("token."));
+        return true;
+      }
+    );
+  }
 });
 
 const response = (body, init = {}) =>

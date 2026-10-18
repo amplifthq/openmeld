@@ -36,7 +36,16 @@ export function findComponent(name) {
 // release token name. Doppler stores the token once.
 export function releaseEnvironment(env, sha) {
   const token =
-    env.CLOUDFLARE_API_TOKEN ?? env.CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN;
+    env.CLOUDFLARE_API_TOKEN || env.CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN;
+  const missing = [
+    !env.CLOUDFLARE_ACCOUNT_ID && "CLOUDFLARE_ACCOUNT_ID",
+    !token && "CLOUDFLARE_API_TOKEN (or CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN)",
+  ].filter(Boolean);
+  if (missing.length) {
+    throw new Error(
+      `Production release credentials are missing: ${missing.join(", ")}.`
+    );
+  }
   return {
     ...env,
     RELEASE_SHA: sha,
