@@ -802,7 +802,7 @@ describe("CreateProfileDialog", () => {
 	});
 
 	it.each([
-		0, 1, 2, 3, 4,
+		0, 1, 2, 3, 4, 5,
 	])("selects connected computers and same-computer reconnects (scenario %i)", async (scenario) => {
 		const connectedCount = scenario >= 3 ? 1 : scenario;
 		const recovery = buildFakeRecovery();
@@ -909,6 +909,11 @@ describe("CreateProfileDialog", () => {
 				throw new Error("Expected the selected offline Computer.");
 			}
 			offlineComputer.identityStatus = "enrolled";
+		}
+		if (scenario === 5) {
+			// Inventory can arrive before the saved routing preference. Its
+			// pending read is not permission to automatically choose a computer.
+			recovery.deviceId = null;
 		}
 		renderCurrentCreateProfileDialog({ recovery });
 		if (connectedCount === 0) {

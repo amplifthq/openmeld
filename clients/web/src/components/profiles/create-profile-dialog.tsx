@@ -3026,6 +3026,10 @@ function useOnlyCreationComputer(input: {
 		if (
 			!(input.enabled && input.canChooseComputer) ||
 			input.isSubmitting ||
+			!(
+				input.recovery.deviceId ||
+				input.recovery.currentDeviceTargetQuery.isSuccess
+			) ||
 			!target
 		) {
 			return;
