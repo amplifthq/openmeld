@@ -7,6 +7,7 @@ import {
 import type { DesktopInstalledTarget } from "@openmeld/schemas";
 import { WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL } from "@openmeld/schemas";
 import type { CommandDeps } from "./cli/commands";
+import { cliDistributionOrigin } from "./cli/distribution";
 
 declare const __OPENMELD_DESKTOP_COMPUTER_ENVIRONMENT__: {
   home: string;
@@ -63,7 +64,10 @@ export function installedCommandEnvironment(
         internalPreview
           ? WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL
           : "/cli/manifest.json",
-        target.webOrigin
+        cliDistributionOrigin(
+          target.webOrigin,
+          target.kind === "production" ? "prod" : "dev-local"
+        )
       ).href,
       ...(internalPreview ? { OPENMELD_WINDOWS_INTERNAL_PREVIEW: "1" } : {}),
       ...(target.kind === "disposable" && computer

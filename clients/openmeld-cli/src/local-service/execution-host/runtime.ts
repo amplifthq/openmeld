@@ -623,9 +623,9 @@ export function createExecutionHostRuntime(input: {
         connectionAbort?.abort();
         currentSocketRef.socket = null;
         currentSocketRef.connectionGeneration = null;
-        localExecutionSlots.dropPendingTasks({
-          reason: "daemon.session.unexpected_close",
-        });
+        // The Host owns accepted work independently of the connector. Keep
+        // queued tasks and their lifecycle evidence; admission is confirmed
+        // again with RuntimeCoordinator before a provider can start.
       }
       return snapshot();
     },
@@ -857,6 +857,10 @@ export function createExecutionHostRuntime(input: {
     async closeAfterConnectorLoss() {
       if (!disposed) {
         handlers.detachConnection({ connectionGeneration: generation });
+        // IPC loss is permanent for this Host, unlike a cloud socket reconnect.
+        // Settle unstarted work through the normal result outbox instead of
+        // waiting forever for a connector that cannot return.
+        executionAdmission.close();
         await handlers.stop({});
       }
     },

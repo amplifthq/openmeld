@@ -263,6 +263,7 @@ export async function runSetupLocalAgentConnection(input: {
 
   const serviceReadinessResult =
     await maybeCompleteServiceReadinessAfterPreparation({
+      presenter,
       interactive,
       profile: preparedProfile,
       runtime,
@@ -511,7 +512,7 @@ async function runSetupLocalAgentConnectionServiceGate(input: {
   });
 
   if (gateResult.status === "aligned") {
-    await assertSetupServiceUpdateComplete();
+    await assertSetupServiceUpdateComplete({ presenter: input.presenter });
     return "continue";
   }
 
@@ -602,6 +603,7 @@ function assertValidLocalAgentSelectionInput(input: {
 }
 
 async function maybeCompleteServiceReadinessAfterPreparation(input: {
+  presenter: ReturnType<typeof createPresenter>;
   interactive: boolean;
   profile: AgentProfile;
   runtime: Awaited<ReturnType<typeof resolveRuntimeContext>>;
@@ -620,7 +622,7 @@ async function maybeCompleteServiceReadinessAfterPreparation(input: {
   });
   const reasonCodes = collectReadinessReasonCodes(snapshot);
   if (reasonCodes.length === 0) {
-    await assertSetupServiceUpdateComplete();
+    await assertSetupServiceUpdateComplete({ presenter: input.presenter });
     return "completed";
   }
 
@@ -671,11 +673,12 @@ async function maybeCompleteServiceReadinessAfterPreparation(input: {
         `OpenMeld Service refresh did not complete: ${refreshOutcome.result}`
       );
     }
-    await assertSetupServiceUpdateComplete(
-      refreshOutcome.result === "scheduled"
+    await assertSetupServiceUpdateComplete({
+      presenter: input.presenter,
+      ...(refreshOutcome.result === "scheduled"
         ? { operationId: refreshOutcome.jobId }
-        : {}
-    );
+        : {}),
+    });
     return "completed";
   }
 

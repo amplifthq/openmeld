@@ -1,6 +1,13 @@
 import { setTimeout as sleep } from "node:timers/promises";
-import type { OpenMeldToolsUpdateOperation } from "@openmeld/schemas/types";
-import type { OpenMeldPathResolutionInput } from "../../config/paths";
+import type {
+  OpenMeldDaemonServiceUpdateReadinessPayload,
+  OpenMeldToolsUpdateOperation,
+} from "@openmeld/schemas/types";
+import {
+  type OpenMeldPathResolutionInput,
+  resolveOpenMeldRootDir,
+} from "../../config/paths";
+import { requestLocalDaemonServiceUpdateReadiness } from "../control-plane/client";
 import { readPendingDaemonServiceUpdate } from "../lifecycle/daemon-service-update-state";
 import { readPendingOpenMeldToolsUpdateAttempt } from "./openmeld-tools-update-attempt-state";
 import { resolveOpenMeldToolsUpdateOperation } from "./openmeld-tools-update-operation";
@@ -12,15 +19,21 @@ const DEFAULT_UPDATE_JOIN_POLL_INTERVAL_MS = 500;
 export async function waitForOpenMeldToolsUpdateCompletion(
   input: {
     operationId?: string;
+    timeoutMs?: number;
     pollIntervalMs?: number;
     onWaiting?: (
       operation: OpenMeldToolsUpdateOperation
     ) => Promise<void> | void;
+    onObservation?: (
+      operation: OpenMeldToolsUpdateOperation,
+      readiness: OpenMeldDaemonServiceUpdateReadinessPayload | null
+    ) => void;
   } = {}
 ): Promise<OpenMeldToolsUpdateOperation | null> {
   let operationId = input.operationId ?? null;
   await waitForExternalOpenMeldToolsUpdate({
     completedServiceUpdateIsIdle: true,
+    timeoutMs: input.timeoutMs,
     pollIntervalMs: input.pollIntervalMs,
     onWaiting: async (operation) => {
       if (operationId !== null && operationId !== operation.operationId) {
@@ -31,6 +44,7 @@ export async function waitForOpenMeldToolsUpdateCompletion(
       operationId = operation.operationId;
       await input.onWaiting?.(operation);
     },
+    onObservation: input.onObservation,
   });
   const completed = await resolveOpenMeldToolsUpdateOperation();
   if (
@@ -94,14 +108,29 @@ export async function waitForExternalOpenMeldToolsUpdate(
     ) => Promise<void> | void;
     pollIntervalMs?: number;
     unclaimedTimeoutMs?: number;
+    timeoutMs?: number;
+    onObservation?: (
+      operation: OpenMeldToolsUpdateOperation,
+      readiness: OpenMeldDaemonServiceUpdateReadinessPayload | null
+    ) => void;
   } = {}
 ): Promise<void> {
-  let reportedOperationId: string | null = null;
+  let reportedOperation: string | null = null;
+  const deadline = Date.now() + (input.timeoutMs ?? Number.POSITIVE_INFINITY);
   let unclaimedSince: number | null = null;
   while (true) {
     const operation = await resolveExternalOpenMeldToolsUpdate(input);
     if (!operation) {
       return;
+    }
+    assertUpdateObservationActive(deadline);
+    if (input.onObservation) {
+      // Reuse the Service's public local control projection. Required updates
+      // enter `updating` before drain, so the durable phase alone cannot say
+      // whether accepted work still owns the wait. This read never extends
+      // the observer deadline or reserves the setup mutation lock.
+      const readiness = await readUpdateWorkReadiness(operation, input);
+      input.onObservation(operation, readiness);
     }
     if (input.unclaimedTimeoutMs !== undefined) {
       const pending = await readPendingOpenMeldToolsUpdateAttempt(input);
@@ -119,12 +148,42 @@ export async function waitForExternalOpenMeldToolsUpdate(
         unclaimedSince = null;
       }
     }
-    if (reportedOperationId !== operation.operationId) {
-      reportedOperationId = operation.operationId;
+    const observationKey = `${operation.operationId}:${operation.phase}`;
+    if (reportedOperation !== observationKey) {
+      reportedOperation = observationKey;
       await input.onWaiting?.(operation);
     }
     await sleep(
       Math.max(1, input.pollIntervalMs ?? DEFAULT_UPDATE_JOIN_POLL_INTERVAL_MS)
     );
   }
+}
+
+function assertUpdateObservationActive(deadline: number): void {
+  if (Date.now() >= deadline) {
+    throw new Error(
+      "OpenMeld is still waiting for the background update. Current tasks and the update continue. Check their status, then try connecting again."
+    );
+  }
+}
+
+async function readUpdateWorkReadiness(
+  operation: OpenMeldToolsUpdateOperation,
+  input: OpenMeldPathResolutionInput
+) {
+  // The local control client is bound to this process's lane. Never query a
+  // different Service while inspecting another root's durable update files.
+  if (resolveOpenMeldRootDir(input) !== resolveOpenMeldRootDir()) {
+    return null;
+  }
+  const pending = await readPendingDaemonServiceUpdate(input);
+  if (
+    pending?.jobId !== operation.operationId ||
+    (pending.phase !== "updating" && pending.phase !== "waiting_for_work")
+  ) {
+    return null;
+  }
+  return await requestLocalDaemonServiceUpdateReadiness({
+    timeoutMs: 2000,
+  }).catch(() => null);
 }

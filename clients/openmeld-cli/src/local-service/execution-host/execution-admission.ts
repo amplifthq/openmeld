@@ -24,6 +24,7 @@ type AdmissionRequest = Pick<
 export function createExecutionAdmissionConfirmation(
   socketRef: CurrentDaemonSocketRef
 ) {
+  let closed = false;
   const pending = new Map<
     string,
     {
@@ -82,6 +83,9 @@ export function createExecutionAdmissionConfirmation(
   };
   return {
     confirm(request: AdmissionRequest): Promise<void> {
+      if (closed) {
+        return Promise.reject(connectorLostError());
+      }
       return new Promise((resolve, reject) => {
         const id = randomUUID();
         pending.set(id, {
@@ -103,6 +107,13 @@ export function createExecutionAdmissionConfirmation(
       });
     },
     resend,
+    close() {
+      closed = true;
+      for (const waiter of pending.values()) {
+        waiter.reject(connectorLostError());
+      }
+      pending.clear();
+    },
     receive(payload: unknown) {
       const parsed =
         runtimeTransportDispatchLifecycleAcknowledgementSchema.safeParse(
@@ -142,4 +153,11 @@ export function createExecutionAdmissionConfirmation(
       }
     },
   };
+}
+
+function connectorLostError(): ExecutionHostError {
+  return new ExecutionHostError(
+    "host.connector_lost",
+    "The Service connector exited before execution admission could be confirmed; the provider was not started."
+  );
 }

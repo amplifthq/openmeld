@@ -778,10 +778,13 @@ follow-up. A failed Profile save must not undo or delay the accepted current
 response. When a controller offers a "don't ask again" choice but does not
 honor it itself, as Grok Build's ACP does not (Claude Code, Codex, Cursor, and
 OpenCode honor theirs natively), OpenMeld keeps the owner's
-choice for that controller conversation and answers later matching requests
-with the same kind of option the controller offers: an allow-always choice
-covers later requests of the same tool kind, and a deny-always choice covers
-the same command. A one-time choice never becomes such a rule. Cursor Run Everything keeps its native one-time automatic allow
+choice for that controller conversation while the OpenMeld Service keeps
+running, and answers later matching requests with the same kind of option the
+controller offers: an allow-always choice covers later requests of the same
+tool kind, and a deny-always choice covers the same exact command. A request
+without an exact command is never denied from memory. These choices are not
+yet persisted, so a Service restart forgets them and the controller asks
+again. A one-time choice never becomes such a rule. Cursor Run Everything keeps its native one-time automatic allow
 behavior rather than pausing for an approval that the selected mode already
 resolved.
 

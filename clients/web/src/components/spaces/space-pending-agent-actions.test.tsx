@@ -519,6 +519,45 @@ describe("SpacePendingAgentActions", () => {
 		expect(onRespond).toHaveBeenCalledTimes(2);
 	});
 
+	it("stays closed when a new request arrives after every request was answered", async () => {
+		const onRespond = vi.fn().mockResolvedValue(undefined);
+		const answered = createPermissionItem({
+			interactionId: "interaction-answered-last",
+			title: "Allow the answered command?",
+		});
+		const view = render(
+			<SpacePendingAgentActions items={[answered]} onRespond={onRespond} />
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "1 action needs you" }));
+		fireEvent.click(screen.getByRole("radio", { name: "Allow once" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Approve and continue" })
+		);
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("button", { name: ACTION_NEEDS_YOU_PATTERN })
+			).toBeNull();
+		});
+
+		view.rerender(
+			<SpacePendingAgentActions
+				items={[
+					answered,
+					createPermissionItem({
+						interactionId: "interaction-arrives-later",
+						title: "Allow the later command?",
+					}),
+				]}
+				onRespond={onRespond}
+			/>
+		);
+
+		const trigger = screen.getByRole("button", { name: "1 action needs you" });
+		expect(trigger.getAttribute("aria-expanded")).toBe("false");
+		expect(screen.queryByText("Allow the later command?")).toBeNull();
+	});
+
 	it("puts a request back with its error when the answer fails to send", async () => {
 		const onRespond = vi
 			.fn()

@@ -262,6 +262,11 @@ export function SpacePendingAgentActions(input: PendingAgentActionsProps) {
 			return next;
 		});
 		setSelectedInteractionIdentity(identity);
+		// Answering the last request closes the tray, so a later request waits
+		// for the owner to open it instead of popping open on its own.
+		if (unansweredItems.every((item) => item.identity === identity)) {
+			setIsOpen(false);
+		}
 	};
 	const markSubmitFailed = (
 		identity: string,
@@ -273,6 +278,8 @@ export function SpacePendingAgentActions(input: PendingAgentActionsProps) {
 			return next;
 		});
 		setFailuresByIdentity((current) => new Map(current).set(identity, failure));
+		setSelectedInteractionIdentity(identity);
+		setIsOpen(true);
 	};
 
 	return (
