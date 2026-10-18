@@ -7,8 +7,10 @@ import {
   accountProfileLocalMetaPath,
   accountProfileWorkspacePath,
 } from "../src/config/paths";
+import { buildProfileFolderRejection } from "../src/local-service/carrier/manage-profile-folders";
 import {
   applyProfileFolderOperation,
+  ProfileFolderOperationError,
   projectProfileFolderList,
   resolveProfileFolderRuntimeForAccount,
 } from "../src/profile-workspace/folders";
@@ -546,6 +548,29 @@ describe("profile folders", () => {
       ).rejects.toMatchObject({
         reasonCode: "profile_folder.configuration_invalid",
       });
+    });
+  });
+
+  it("reports refused folder changes to Core without a local path", async () => {
+    await withTempHome(async (home) => {
+      const missing = join(home, "private-repo");
+      const refused = await applyProfileFolderOperation({
+        account: ACCOUNT,
+        openMeldProfileId: PROFILE_ID,
+        operation: { operation: "add_custom", path: missing },
+      }).catch((error: unknown) => error);
+      expect(refused).toBeInstanceOf(ProfileFolderOperationError);
+      for (const error of [
+        refused,
+        new Error(`EACCES: permission denied, open '${missing}'`),
+      ]) {
+        const receipt = buildProfileFolderRejection({
+          error,
+          targetProfileId: PROFILE_ID,
+        });
+        expect(receipt.accepted).toBe(false);
+        expect(JSON.stringify(receipt)).not.toContain(home);
+      }
     });
   });
 });

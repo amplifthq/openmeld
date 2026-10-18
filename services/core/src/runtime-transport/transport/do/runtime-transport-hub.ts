@@ -56,6 +56,7 @@ import {
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
   openMeldDaemonManageLocalAgentInstallationPayloadSchema,
+  openMeldDaemonManageProfileFoldersPayloadSchema,
   openMeldDaemonReadProfileWorkspacePayloadSchema,
   openMeldToolsControlResultSchema,
   type PluginConnectionExecutionSourceRequest,
@@ -125,6 +126,7 @@ import {
   runtimeTransportInspectExecutionRecoveryResponseSchema,
   runtimeTransportLocalAgentControlForkSessionFramePayloadSchema,
   runtimeTransportLocalAgentControlManageInstallationFramePayloadSchema,
+  runtimeTransportLocalAgentControlManageProfileFoldersFramePayloadSchema,
   runtimeTransportLocalAgentControlReadProfileWorkspaceFramePayloadSchema,
   runtimeTransportLocalAgentControlRefreshCatalogFramePayloadSchema,
   runtimeTransportLocalAgentControlResultFramePayloadSchema,
@@ -143,12 +145,16 @@ import {
   runtimeTransportLookupRoutesBatchRequestSchema,
   runtimeTransportManageLocalAgentInstallationRequestSchema,
   runtimeTransportManageLocalAgentInstallationResponseSchema,
+  runtimeTransportManageProfileFoldersRequestSchema,
+  runtimeTransportManageProfileFoldersResponseSchema,
   runtimeTransportNotifyRouteCatalogChangedRequestSchema,
   runtimeTransportNotifyRouteCatalogChangedResponseSchema,
   runtimeTransportOpenMeldToolsControlRequestSchema,
   runtimeTransportOpenMeldToolsControlResponseSchema,
   runtimeTransportOpenMeldToolsControlResultFramePayloadSchema,
   runtimeTransportPreExecutionHandoffRequestSchema,
+  runtimeTransportReadProfileFolderProjectionRequestSchema,
+  runtimeTransportReadProfileFolderProjectionResponseSchema,
   runtimeTransportReadProfileWorkspaceRequestSchema,
   runtimeTransportReadProfileWorkspaceResponseSchema,
   runtimeTransportRefreshLocalAgentCatalogRequestSchema,
@@ -451,6 +457,10 @@ import {
   removeLocalAgentStreamClosureRetryEntry,
   upsertLocalAgentStreamClosureRetryEntry,
 } from "../../application/local-agent-stream";
+import {
+  readProfileFolderProjectionRecord,
+  writeProfileFolderProjectionRecord,
+} from "../../application/profile-folder-projection-store";
 import {
   markRuntimeCoordinatorAgentTaskObservationDeliveryProjected,
   type RuntimeCoordinatorAgentTaskObservationDeliveryRecord,
@@ -793,6 +803,7 @@ export type LocalAgentControlResultPayloadKind =
   | "refresh_catalog"
   | "set_profile_workspace"
   | "read_profile_workspace"
+  | "manage_profile_folders"
   | "set_enabled";
 export function resolveLocalAgentControlResponseTimeoutMs(
   expectedPayload: LocalAgentControlResultPayloadKind
@@ -3825,6 +3836,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       case "daemon.local_agent_control.manage_installation":
       case "daemon.local_agent_control.set_enabled":
       case "daemon.local_agent_control.set_profile_workspace":
+      case "daemon.local_agent_control.manage_profile_folders":
       case "daemon.openmeld_tools_control.request":
       case "daemon.execution_recovery.resume_controller_conversation":
       case "daemon.computer_file_access.read_policy":
@@ -10931,6 +10943,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         this.handleSetProfileWorkspaceRequest(input),
       "/local-agent-control/read-profile-workspace": (input: Request) =>
         this.handleReadProfileWorkspaceRequest(input),
+      "/local-agent-control/manage-profile-folders": (input: Request) =>
+        this.handleManageProfileFoldersRequest(input),
+      "/local-agent-control/read-profile-folder-projection": (input: Request) =>
+        this.handleReadProfileFolderProjectionRequest(input),
     }[url.pathname];
     if (localAgentControlHandler) {
       return localAgentControlHandler(request);
@@ -11530,6 +11546,129 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         "OpenMeld could not confirm the saved working-folder settings. Try again."
       );
     }
+  }
+
+  private async handleManageProfileFoldersRequest(
+    request: Request
+  ): Promise<Response> {
+    const reject = (status: number, reasonCode: string, message: string) =>
+      Response.json(
+        {
+          status: "rejected",
+          reasonCode,
+          message,
+        } satisfies import("@openmeld/schemas/types").RuntimeTransportManageProfileFoldersResponse,
+        { status }
+      );
+    const parsed = runtimeTransportManageProfileFoldersRequestSchema.safeParse(
+      await readJsonBody(request)
+    );
+    if (!parsed.success) {
+      return reject(
+        400,
+        "local_agent_control.invalid_request",
+        parsed.error.issues[0]?.message ?? "Invalid folder request."
+      );
+    }
+    this.reapExpiredLeases(Date.now());
+    const session = this.resolveLocalAgentControlSession({
+      ...parsed.data,
+      capability: "manageProfileFolders",
+      unsupportedMessage:
+        "Update OpenMeld Service to manage this Agent’s folders.",
+      updateRequiredMessage:
+        "Update OpenMeld Service to manage this Agent’s folders.",
+    });
+    if (!session.ok) {
+      return reject(409, session.reasonCode, session.message);
+    }
+    const requestId = crypto.randomUUID();
+    const framePayload =
+      runtimeTransportLocalAgentControlManageProfileFoldersFramePayloadSchema.parse(
+        {
+          requestId,
+          payload: {
+            targetProfileId: parsed.data.targetProfileId,
+            operation: parsed.data.operation,
+          },
+        }
+      );
+    let result: import("@openmeld/schemas/types").OpenMeldDaemonManageProfileFoldersPayload;
+    try {
+      result = await this.sendCurrentDeviceOperationAndWait({
+        code: "daemon.local_agent_control.manage_profile_folders",
+        expectedResponseCode: "daemon.local_agent_control.result",
+        isExpectedPayload: (value) =>
+          openMeldDaemonManageProfileFoldersPayloadSchema.safeParse(value)
+            .success,
+        payload: framePayload as unknown as Record<string, unknown>,
+        requestId,
+        session: session.session,
+        timeoutMs: resolveLocalAgentControlResponseTimeoutMs(
+          "manage_profile_folders"
+        ),
+      });
+    } catch (error) {
+      return reject(
+        504,
+        error instanceof CurrentDeviceOperationError &&
+          error.kind === "invalid_response"
+          ? "local_agent_control.invalid_response"
+          : "local_agent_control.timeout",
+        "OpenMeld could not confirm this Agent’s folders. Try again."
+      );
+    }
+    if (result.targetProfileId !== parsed.data.targetProfileId) {
+      return reject(
+        502,
+        "local_agent_control.invalid_response",
+        "OpenMeld Service returned folders for a different Agent."
+      );
+    }
+    if (!result.accepted) {
+      return reject(409, result.reasonCode, result.message);
+    }
+    const record = await writeProfileFolderProjectionRecord({
+      observedAtMs: Date.now(),
+      projection: result.projection,
+      storage: this.ctx.storage,
+      target: parsed.data,
+    });
+    return Response.json(
+      runtimeTransportManageProfileFoldersResponseSchema.parse({
+        status: "accepted",
+        payload: result,
+        record,
+      })
+    );
+  }
+
+  private async handleReadProfileFolderProjectionRequest(
+    request: Request
+  ): Promise<Response> {
+    const parsed =
+      runtimeTransportReadProfileFolderProjectionRequestSchema.safeParse(
+        await readJsonBody(request)
+      );
+    if (!parsed.success) {
+      return Response.json(
+        {
+          status: "rejected",
+          reasonCode: "local_agent_control.invalid_request",
+          message: "Invalid folder projection read.",
+        } satisfies import("@openmeld/schemas/types").RuntimeTransportReadProfileFolderProjectionResponse,
+        { status: 400 }
+      );
+    }
+    const record = await readProfileFolderProjectionRecord({
+      storage: this.ctx.storage,
+      target: parsed.data,
+    });
+    return Response.json(
+      runtimeTransportReadProfileFolderProjectionResponseSchema.parse(
+        record ? { status: "found", record } : { status: "not_recorded" }
+      )
+    );
   }
 
   private async handleSetProfileWorkspaceRequest(
@@ -21729,7 +21868,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       | "setEnabled"
       | "initializeProfileWorkspace"
       | "setProfileWorkspace"
-      | "readProfileWorkspace";
+      | "readProfileWorkspace"
+      | "manageProfileFolders";
     ownerUserId: string;
     deviceId: string;
     lane: string;

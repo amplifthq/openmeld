@@ -546,6 +546,11 @@ export {
   openMeldDaemonMentionDispatchStatusSchema,
 } from "./daemon/mention-dispatch-result";
 export {
+  openMeldDaemonManageProfileFoldersPayloadSchema,
+  openMeldDaemonManageProfileFoldersRequestPayloadSchema,
+  profileFolderProjectionRecordSchema,
+} from "./daemon/profile-folder-control";
+export {
   openMeldActorContextSchema,
   openMeldProfileIdSchema,
   openMeldRequestContextSchema,
@@ -740,6 +745,7 @@ export {
   runtimeTransportLocalAgentControlForkSessionFramePayloadSchema,
   runtimeTransportLocalAgentControlInterruptFramePayloadSchema,
   runtimeTransportLocalAgentControlManageInstallationFramePayloadSchema,
+  runtimeTransportLocalAgentControlManageProfileFoldersFramePayloadSchema,
   runtimeTransportLocalAgentControlReadProfileWorkspaceFramePayloadSchema,
   runtimeTransportLocalAgentControlRefreshCatalogFramePayloadSchema,
   runtimeTransportLocalAgentControlResultFramePayloadSchema,
@@ -753,6 +759,8 @@ export {
   runtimeTransportLookupRoutesBatchResponseSchema,
   runtimeTransportManageLocalAgentInstallationRequestSchema,
   runtimeTransportManageLocalAgentInstallationResponseSchema,
+  runtimeTransportManageProfileFoldersRequestSchema,
+  runtimeTransportManageProfileFoldersResponseSchema,
   runtimeTransportNotifyRouteCatalogChangedRequestSchema,
   runtimeTransportNotifyRouteCatalogChangedResponseSchema,
   runtimeTransportOpenMeldToolsControlFramePayloadSchema,
@@ -762,6 +770,8 @@ export {
   runtimeTransportPreExecutionHandoffReasonCodeSchema,
   runtimeTransportPreExecutionHandoffRequestSchema,
   runtimeTransportPreExecutionHandoffResponseSchema,
+  runtimeTransportReadProfileFolderProjectionRequestSchema,
+  runtimeTransportReadProfileFolderProjectionResponseSchema,
   runtimeTransportReadProfileWorkspaceRequestSchema,
   runtimeTransportReadProfileWorkspaceResponseSchema,
   runtimeTransportRefreshLocalAgentCatalogRequestSchema,
@@ -1103,6 +1113,10 @@ export {
   runtimeTransportAgentProfileExecutionModeRequestSchema,
   updateAgentProfileExecutionModeBodySchema,
 } from "./http/agent-profile-execution-mode";
+export {
+  getAgentProfileFoldersResponseSchema,
+  getAgentProfileFoldersRouteParamsSchema,
+} from "./http/agent-profile-folders";
 export {
   RECONCILE_DELETED_AGENT_PROFILE_MAX_SPACES,
   reconcileDeletedAgentProfileRequestSchema,

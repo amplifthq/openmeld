@@ -300,6 +300,7 @@ export { createProfilesApi } from "./profiles/api";
 export { buildProfileRoute } from "./profiles/routes";
 export type {
   CreateProfilesApi,
+  GetAgentProfileFoldersInput,
   ProfilesApi,
   RenameProfileInput,
   UpdateAgentProfileDefaultProjectInput,

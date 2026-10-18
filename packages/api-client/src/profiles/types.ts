@@ -1,5 +1,6 @@
 import type {
   AgentProfileBindingTarget,
+  GetAgentProfileFoldersResponse,
   OpenMeldRequestContext,
   UpdateAgentProfileDefaultProjectResponse,
   UpdateProfileResponse,
@@ -26,7 +27,16 @@ export type UpdateAgentProfileDefaultProjectInput = {
   requestContext?: OpenMeldRequestContext;
 };
 
+export type GetAgentProfileFoldersInput = {
+  profileId: string;
+  requestContext?: OpenMeldRequestContext;
+};
+
 export type ProfilesApi = {
+  /** Owner-only folder list of the Agent's Computer: ids and names, no paths. */
+  getFolders: (
+    input: GetAgentProfileFoldersInput
+  ) => Promise<GetAgentProfileFoldersResponse>;
   rename: (input: RenameProfileInput) => Promise<UpdateProfileResponse>;
   updateAgentAvatar: (
     input: UpdateAgentAvatarInput

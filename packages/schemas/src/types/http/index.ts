@@ -163,6 +163,7 @@ export type {
   SetAgentProfileCreationApprovalPreferenceBody,
   SetAgentProfileCreationApprovalPreferenceResponse,
 } from "./agent-profile-creation-request";
+export type { GetAgentProfileFoldersResponse } from "./agent-profile-folders";
 export type {
   ReconcileDeletedAgentProfileRequest,
   ReconcileDeletedAgentProfileResponse,
