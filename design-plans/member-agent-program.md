@@ -322,7 +322,12 @@ Agent, Agent, …]`. Written by the server at Wake time; Agents cannot write or
 edit it; propagation only appends. It is the projection of the existing
 delegation chain plus the root, not a second store, and replaces
 `onBehalfOf`. Stored on the Execution Context **assignment**, not in the scope
-key. Maximum depth is enforced; a chain that repeats an Agent is rejected.
+key. A maximum depth is enforced, never stricter than the existing
+`autoRelayDepth` thresholds. Repeat rejection applies only to **delegated
+work** (`agent_delegate_task`, Center Agent delegation): an Agent cannot
+re-enter a chain that delegated to it. Conversational Space auto-relay Wakes
+keep the human root, append to the chain and are never hard-blocked, per the
+Auto-Relay Loop Policy in `developing/architecture/agent-transport-contract.md`.
 
 **Three situations.**
 
@@ -643,7 +648,8 @@ exercise.
 
 3a → `requestChain` on the assignment; producers
 (`accepted-dispatch-snapshot.ts:49`, `space.ts:5488`, plugin callers,
-Routines, delegate inheritance); depth and repeat checks; 3b → sensitive
+Routines, delegate inheritance); depth cap and delegation re-entry check
+(conversational auto-relay is never blocked); 3b → sensitive
 operations check the root (matrix §6); 3c → Inbox producer `urgent` for
 non-owner roots with per-`contextId` coalescing; advisor counter switches to
 the root. Acceptance: Tali's Center Agent cannot change Felix's Profile and
@@ -774,3 +780,9 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   management operations; Phase 2 needed a non-owner stripping basis before
   Phase 3; Phase 5 needed the risk-window contract as a package; rollback
   needed persisted compatibility. Nothing was rejected.
+- 2026-10-18, P0 session (owner document rewrites) reported that the repeat
+  rejection in §4.6 contradicted the Auto-Relay Loop Policy in
+  `agent-transport-contract.md` (loops are prompt-governed, never hard-blocked,
+  since 2026-06). Verified and applied: repeat rejection is scoped to
+  delegated work; conversational auto-relay keeps the root and appends; the
+  depth cap is not stricter than the existing thresholds.
