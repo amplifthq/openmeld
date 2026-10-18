@@ -50,9 +50,10 @@ export const agentAccessRequests = applicationTable(
     agentProfileId: text("agent_profile_id")
       .notNull()
       .references(() => openMeldProfiles.profileId, { onDelete: "cascade" }),
-    memberAgentId: text("member_agent_id")
-      .notNull()
-      .references(() => memberAgents.id, { onDelete: "cascade" }),
+    // Null for a personal Agent Profile not yet assigned to a MemberAgent.
+    memberAgentId: text("member_agent_id").references(() => memberAgents.id, {
+      onDelete: "cascade",
+    }),
     ownerUserId: text("owner_user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),

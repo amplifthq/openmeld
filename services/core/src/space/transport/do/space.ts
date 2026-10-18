@@ -853,6 +853,7 @@ import {
   hasUnsyncedSpaceAgentAccessHolds,
   insertSpaceAgentAccessHold,
   listHeldSpaceAgentAccessHoldsForSignal,
+  listOwnerApprovedJoinProfileIds,
   listUnsyncedSpaceAgentAccessHolds,
   markSpaceAgentAccessHoldSynced,
   readHeldDirectMessageAgentAccessHold,
@@ -14426,62 +14427,72 @@ export class Space extends DurableObject<CoreBindings> {
       return { ok: false, response: this.deletedSpaceWriteResponse() };
     }
     const requestContext = getSpaceAccessRequestContext(spaceAccess);
-    const ownerUserId = normalizeOptionalText(
-      requestContext?.actorContext.ownerUserId
-    );
-    const profileId = normalizeOptionalText(
-      requestContext?.actorContext.openMeldProfileId
-    );
-    const meta = this.readSpaceMetaRecord();
-    const activeMembers = listSpaceMemberRecords(this.ctx.storage.sql, {
-      status: "active",
-    });
-    const isCurrentDirectMessage = isDirectMessageSpace({
-      purpose: meta?.purpose,
-      directMessageConvertedAt: meta?.directMessage?.convertedAt,
-    });
-    const isActiveProfile = Boolean(
-      profileId &&
-        activeMembers.some((member) => member.profileId === profileId)
-    );
-    // An Agent owner who is not a member observes: reads, never writes.
-    // MemberAgents widen this from a Direct Message to any Space that
-    // contains their Agent or a pending request for one.
-    const ownsAgentHere = Boolean(
-      ownerUserId &&
-        (activeMembers.some(
-          (member) =>
-            member.profileKindSnapshot === "agent" &&
-            member.ownerUserIdSnapshot === ownerUserId
-        ) ||
-          (isMemberAgentsEnabled() &&
-            hasHeldSpaceJoinHoldForOwner(this.ctx.storage.sql, ownerUserId)))
-    );
-    const isAgentOwnerObserver = Boolean(
-      (isCurrentDirectMessage || isMemberAgentsEnabled()) &&
-        requestContext?.actorContext.profileKind === "human" &&
-        ownerUserId &&
-        !isActiveProfile &&
-        !activeMembers.some(
-          (member) =>
-            member.profileKindSnapshot === "human" &&
-            member.ownerUserIdSnapshot === ownerUserId
-        ) &&
-        ownsAgentHere
-    );
-    if (!isAgentOwnerObserver) {
+    if (!this.isAgentOwnerObserver(requestContext?.actorContext)) {
       return accessResult;
     }
+    const meta = this.readSpaceMetaRecord();
     return {
       ok: false,
       response: this.forbiddenResponse(
         requestContext?.actorContext.requestId ?? "space-agent-owner-observer",
         "space.access.read_only",
-        isCurrentDirectMessage
+        isDirectMessageSpace({
+          purpose: meta?.purpose,
+          directMessageConvertedAt: meta?.directMessage?.convertedAt,
+        })
           ? "Agent owners can view this Direct Message, but must join before participating."
           : "You can view this Space because it has your Agent or a request for it. Join to participate."
       ),
     };
+  }
+  /**
+   * An Agent owner who is not a member observes: reads, never writes, and
+   * never becomes a member by reading. MemberAgents widen this from a
+   * Direct Message to any Space that contains their Agent or a pending
+   * request for one.
+   */
+  private isAgentOwnerObserver(
+    actor:
+      | Pick<
+          CoreRpcContextInput["actorContext"],
+          "openMeldProfileId" | "ownerUserId" | "profileKind"
+        >
+      | undefined
+  ): boolean {
+    const ownerUserId = normalizeOptionalText(actor?.ownerUserId);
+    const profileId = normalizeOptionalText(actor?.openMeldProfileId);
+    if (!(ownerUserId && actor?.profileKind === "human")) {
+      return false;
+    }
+    const meta = this.readSpaceMetaRecord();
+    const isCurrentDirectMessage = isDirectMessageSpace({
+      purpose: meta?.purpose,
+      directMessageConvertedAt: meta?.directMessage?.convertedAt,
+    });
+    if (!(isCurrentDirectMessage || isMemberAgentsEnabled())) {
+      return false;
+    }
+    const activeMembers = listSpaceMemberRecords(this.ctx.storage.sql, {
+      status: "active",
+    });
+    const isMember = activeMembers.some(
+      (member) =>
+        member.profileId === profileId ||
+        (member.profileKindSnapshot === "human" &&
+          member.ownerUserIdSnapshot === ownerUserId)
+    );
+    if (isMember) {
+      return false;
+    }
+    return (
+      activeMembers.some(
+        (member) =>
+          member.profileKindSnapshot === "agent" &&
+          member.ownerUserIdSnapshot === ownerUserId
+      ) ||
+      (isMemberAgentsEnabled() &&
+        hasHeldSpaceJoinHoldForOwner(this.ctx.storage.sql, ownerUserId))
+    );
   }
   private async dispatchCursorRequest(
     request: Request,
@@ -17632,6 +17643,23 @@ export class Space extends DurableObject<CoreBindings> {
             webSocket.close(1008, "Invalid hello state");
             return;
           }
+          if (
+            isMemberAgentsEnabled() &&
+            this.isAgentOwnerObserver({
+              openMeldProfileId: session.viewerProfileId ?? profile.profileId,
+              ownerUserId: session.viewerOwnerUserId,
+              profileKind: profile.kind,
+            })
+          ) {
+            // An observer's socket reads only; posting needs the write check.
+            emitWebSocketErrorFrame(webSocket, {
+              error:
+                "You can view this Space because it has your Agent or a request for it. Join to participate.",
+              requestId: resolveRequestId(),
+              clientMessageId: resolveWebSocketClientMessageId(payload),
+            });
+            return;
+          }
           await handleWebSocketTextSignal({
             webSocket,
             session,
@@ -17703,7 +17731,12 @@ export class Space extends DurableObject<CoreBindings> {
       viewerCreatorProfileIdsByProfileId,
       resolved.context.actorContext.ownerName,
       resolved.spacePassword,
-      resolved.context.actorContext.callerPrincipalId
+      resolved.context.actorContext.callerPrincipalId,
+      // An observer's stream reads only; it never joins them.
+      !(
+        isMemberAgentsEnabled() &&
+        this.isAgentOwnerObserver(resolved.context.actorContext)
+      )
     );
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
@@ -17715,19 +17748,22 @@ export class Space extends DurableObject<CoreBindings> {
     viewerCreatorProfileIdsByProfileId?: Record<string, string | null>,
     ownerName?: string,
     spacePassword?: string,
-    callerPrincipalId?: string
+    callerPrincipalId?: string,
+    joinAsMember = true
   ): void {
     this.ctx.acceptWebSocket(webSocket);
-    upsertJoinedSpaceMember({
-      sql: this.ctx.storage.sql,
-      spaceId: this.spaceId,
-      profile: enforcedProfile,
-      ownerUserId: viewerOwnerUserId,
-      ownerName,
-    });
-    this.ctx.waitUntil(
-      this.projectCurrentSpaceIndexSnapshot("space.members_updated")
-    );
+    if (joinAsMember) {
+      upsertJoinedSpaceMember({
+        sql: this.ctx.storage.sql,
+        spaceId: this.spaceId,
+        profile: enforcedProfile,
+        ownerUserId: viewerOwnerUserId,
+        ownerName,
+      });
+      this.ctx.waitUntil(
+        this.projectCurrentSpaceIndexSnapshot("space.members_updated")
+      );
+    }
     const blocked: NonNullable<Session["blocked"]> = [];
     const session = createPendingSpaceWebSocketSession({
       blocked,
@@ -19138,9 +19174,13 @@ export class Space extends DurableObject<CoreBindings> {
         .map((member) => normalizeOptionalText(member.ownerUserIdSnapshot))
         .filter((ownerUserId): ownerUserId is string => Boolean(ownerUserId))
     );
+    // An Agent its owner let join on someone else's request keeps its
+    // owner as an observer; this repair never adds them.
+    const ownerApprovedJoins = listOwnerApprovedJoinProfileIds(sql);
     const agentCandidates = activeMembers.filter(
       (member) =>
         member.profileKindSnapshot === "agent" &&
+        !ownerApprovedJoins.has(member.profileId) &&
         Boolean(
           member.ownerUserIdSnapshot &&
             !representedOwnerUserIds.has(member.ownerUserIdSnapshot)
@@ -23400,7 +23440,7 @@ export class Space extends DurableObject<CoreBindings> {
     signalId?: string;
     spaceId: string;
     target: {
-      memberAgentId: string;
+      memberAgentId: string | null;
       ownerUserId: string;
       profileId: string;
     };

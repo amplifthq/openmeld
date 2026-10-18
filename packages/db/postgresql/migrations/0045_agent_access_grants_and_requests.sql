@@ -5,7 +5,7 @@ CREATE TABLE "openmeld"."agent_access_requests" (
 	"space_id" text NOT NULL,
 	"source_signal_id" text,
 	"agent_profile_id" text NOT NULL,
-	"member_agent_id" text NOT NULL,
+	"member_agent_id" text,
 	"owner_user_id" text NOT NULL,
 	"requester_user_id" text NOT NULL,
 	"requester_profile_id" text NOT NULL,

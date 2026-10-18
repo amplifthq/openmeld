@@ -16,6 +16,7 @@ import {
   markAgentAccessRequestApplied,
   readAgentAccessRequest,
   readAgentAccessRequestNames,
+  revokeVoidedRequestOnceGrants,
   transitionPendingAgentAccessRequest,
   voidUnappliedAgentAccessRequest,
 } from "../infrastructure/postgresql/agent-access-repo";
@@ -105,7 +106,9 @@ export async function decideAgentAccessRequest(input: {
       request,
     });
     if (request.status !== "pending") {
-      if (request.status === status && request.appliedAtMs === null) {
+      // A retry of the same answer (a lost response, or a Space that did
+      // not apply it yet) returns it so the Space can apply it again.
+      if (request.status === status) {
         return { request, transitioned: false };
       }
       throw requestClosedError(request);
@@ -277,6 +280,11 @@ export async function voidAgentAccessRequest(input: {
   requestId: string;
 }): Promise<AgentAccessRequestRecord | null> {
   const voided = await voidUnappliedAgentAccessRequest({
+    db: asQueryable(input.db),
+    nowMs: input.nowMs,
+    requestId: input.requestId,
+  });
+  await revokeVoidedRequestOnceGrants({
     db: asQueryable(input.db),
     nowMs: input.nowMs,
     requestId: input.requestId,

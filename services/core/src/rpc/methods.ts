@@ -19594,6 +19594,18 @@ export async function rpcConvertDirectMessageToSpace(
         return resolved;
       })
   );
+  if (isMemberAgentsEnabled()) {
+    // Agents already in the Direct Message were consented to; a new one
+    // is asked for like any other addition.
+    await rejectNonOwnerPersonalAgentAdditions({
+      db,
+      members: members.filter(
+        (member) => !currentMemberProfileIds.has(member.profileId)
+      ),
+      organizationId: activeOrganization.organizationId,
+      rootUserId: normalizeOptionalText(context.actorContext.ownerUserId),
+    });
+  }
   const membersWithAgentOwners = await resolveSpaceMembersWithAgentOwners({
     context,
     env,

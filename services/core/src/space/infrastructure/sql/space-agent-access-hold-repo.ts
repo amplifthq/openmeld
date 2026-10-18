@@ -23,7 +23,7 @@ export type SpaceAgentAccessHold = {
   kind: AgentAccessRequestKind;
   signalId: string | null;
   targetProfileId: string;
-  memberAgentId: string;
+  memberAgentId: string | null;
   ownerUserId: string;
   requesterProfileId: string;
   requesterUserId: string;
@@ -50,7 +50,7 @@ export function ensureSpaceAgentAccessHoldTable(sql: SqlStorage): void {
     kind TEXT NOT NULL,
     signal_id TEXT,
     target_profile_id TEXT NOT NULL,
-    member_agent_id TEXT NOT NULL,
+    member_agent_id TEXT,
     owner_user_id TEXT NOT NULL,
     requester_profile_id TEXT NOT NULL,
     requester_user_id TEXT NOT NULL,
@@ -159,6 +159,22 @@ export function hasHeldSpaceJoinHoldForOwner(
         ownerUserId
       )
       .toArray().length > 0
+  );
+}
+
+/** Agents that joined because their owner let them; the owner observes. */
+export function listOwnerApprovedJoinProfileIds(
+  sql: SqlStorage
+): ReadonlySet<string> {
+  return new Set(
+    sql
+      .exec<{ profileId: string }>(
+        `SELECT DISTINCT target_profile_id AS profileId
+         FROM space_agent_access_holds
+         WHERE kind = 'space_join' AND state = 'released'`
+      )
+      .toArray()
+      .map((row) => row.profileId)
   );
 }
 

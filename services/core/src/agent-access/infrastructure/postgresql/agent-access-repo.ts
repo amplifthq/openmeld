@@ -22,7 +22,8 @@ export type Queryable = {
 export type AgentAccessTarget = {
   profileId: string;
   profileName: string;
-  memberAgentId: string;
+  // Null for a personal Profile not assigned to a MemberAgent yet.
+  memberAgentId: string | null;
   organizationId: string;
   ownerUserId: string;
   ownerName: string;
@@ -42,7 +43,7 @@ export type AgentAccessRequestRecord = {
   spaceId: string;
   sourceSignalId: string | null;
   agentProfileId: string;
-  memberAgentId: string;
+  memberAgentId: string | null;
   ownerUserId: string;
   requesterUserId: string;
   requesterProfileId: string;
@@ -86,7 +87,7 @@ type RequestRow = {
   space_id: string;
   source_signal_id: string | null;
   agent_profile_id: string;
-  member_agent_id: string;
+  member_agent_id: string | null;
   owner_user_id: string;
   requester_user_id: string;
   requester_profile_id: string;
@@ -120,8 +121,8 @@ function toRequestRecord(row: RequestRow): AgentAccessRequestRecord {
 }
 
 /**
- * The personal Agents among `profileIds`: active Agent Profiles of a
- * MemberAgent with an owner, never a managed or Center Agent.
+ * The personal Agents among `profileIds`: active Agent Profiles with an
+ * owner, assigned to a MemberAgent or not, never a managed or Center Agent.
  */
 export async function readAgentAccessTargets(input: {
   db: Queryable;
@@ -135,20 +136,20 @@ export async function readAgentAccessTargets(input: {
   const result = await input.db.query<{
     profile_id: string;
     profile_name: string;
-    member_agent_id: string;
+    member_agent_id: string | null;
     organization_id: string;
     owner_user_id: string;
     owner_name: string | null;
   }>({
     text: `SELECT profile.profile_id, profile.profile_name,
         member_agent.id AS member_agent_id, profile.organization_id,
-        member_agent.owner_user_id, owner.name AS owner_name
+        profile.owner_user_id, owner.name AS owner_name
       FROM "openmeld"."openmeld_profiles" AS profile
-      INNER JOIN "openmeld"."member_agents" AS member_agent
+      LEFT JOIN "openmeld"."member_agents" AS member_agent
         ON member_agent.id = profile.member_agent_id
         AND member_agent.organization_id = profile.organization_id
         AND member_agent.owner_user_id = profile.owner_user_id
-      INNER JOIN "openmeld"."users" AS owner ON owner.id = member_agent.owner_user_id
+      INNER JOIN "openmeld"."users" AS owner ON owner.id = profile.owner_user_id
       LEFT JOIN "openmeld"."center_agent_designations" AS designation
         ON designation.organization_id = profile.organization_id
         AND designation.agent_profile_id = profile.profile_id
@@ -393,6 +394,27 @@ export async function voidUnappliedAgentAccessRequest(input: {
   });
   const row = result.rows[0];
   return row ? toRequestRecord(row) : null;
+}
+
+/**
+ * A void request was never applied, so the one-time consent given for it
+ * must not cover the next message. A standing grant is about the person,
+ * not the message, and stays.
+ */
+export async function revokeVoidedRequestOnceGrants(input: {
+  db: Queryable;
+  requestId: string;
+  nowMs: number;
+}): Promise<void> {
+  await input.db.query({
+    text: `UPDATE "openmeld"."agent_profile_access_grants" AS grant_row
+      SET revoked_at_ms = GREATEST($2, grant_row.granted_at_ms)
+      FROM "openmeld"."agent_access_requests" AS request
+      WHERE grant_row.request_id = $1 AND request.id = grant_row.request_id
+        AND request.status = 'voided' AND grant_row.scope = 'once'
+        AND grant_row.revoked_at_ms IS NULL`,
+    values: [input.requestId, input.nowMs],
+  });
 }
 
 export async function markAgentAccessRequestApplied(input: {

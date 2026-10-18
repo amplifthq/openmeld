@@ -145,6 +145,9 @@ type ConsentSpace = {
   rpcApplyAgentAccessDecision: Space["rpcApplyAgentAccessDecision"];
   rpcRequestAgentForSpace: Space["rpcRequestAgentForSpace"];
   rpcMutateSpaceMessage: Space["rpcMutateSpaceMessage"];
+  isAgentOwnerObserver(actor: OpenMeldRequestContext["actorContext"]): boolean;
+  ensureAgentOwnerMembershipPolicy(meta: unknown): Promise<void>;
+  readSpaceMetaRecord(): unknown;
 };
 
 type SpaceHarness = {
@@ -698,6 +701,116 @@ describe("Colleague use of an Agent (Phase 4)", () => {
           { kind: "human", profileId: f.tali.profileId },
           { kind: "agent", profileId: f.agentProfileId },
         ]);
+        // The one-time owner-participation repair never adds the observer.
+        await space.instance.ensureAgentOwnerMembershipPolicy(
+          space.instance.readSpaceMetaRecord()
+        );
+        expect(
+          readSpaceMemberRecord(space.state.storage.sql, f.felix.profileId)
+        ).toBeNull();
+        // The same observer check refuses posts over the live stream and
+        // keeps the stream from joining them as a member.
+        expect(
+          space.instance.isAgentOwnerObserver(
+            space.context(f.felix).actorContext
+          )
+        ).toBe(true);
+        expect(
+          space.instance.isAgentOwnerObserver(
+            space.context(f.tali).actorContext
+          )
+        ).toBe(false);
+        expect(
+          readSpaceMemberRecord(space.state.storage.sql, f.felix.profileId)
+        ).toBeNull();
+      }
+    );
+  });
+
+  it("asks before a personal Agent that has no MemberAgent yet", async () => {
+    const f = await seed();
+    await getPostgresDatabase(env).query({
+      text: `UPDATE "openmeld"."openmeld_profiles" SET member_agent_id = NULL WHERE profile_id = $1`,
+      values: [f.agentProfileId],
+    });
+    await withSpace(
+      f,
+      { directMessage: true, humans: [f.tali], agentMember: true },
+      async (space) => {
+        const message = await space.post(f.tali, "Can you help?");
+        expect(space.outbox(message)).toHaveLength(0);
+        const hold = readHeldDirectMessageAgentAccessHold(
+          space.state.storage.sql,
+          { requesterUserId: f.tali.userId, targetProfileId: f.agentProfileId }
+        );
+        expect(hold).toMatchObject({ memberAgentId: null, state: "held" });
+        expect(
+          await readAgentAccessRequest({
+            db: asQueryable(getPostgresDatabase(env)),
+            requestId: hold?.requestId ?? "",
+          })
+        ).toMatchObject({ memberAgentId: null, status: "pending" });
+      }
+    );
+  });
+
+  it("does not let a voided allow-once cover the next message, and retries are idempotent", async () => {
+    const f = await seed();
+    await withSpace(
+      f,
+      { directMessage: true, humans: [f.tali], agentMember: true },
+      async (space) => {
+        const first = await space.post(f.tali, "First ask");
+        const hold = readHeldDirectMessageAgentAccessHold(
+          space.state.storage.sql,
+          { requesterUserId: f.tali.userId, targetProfileId: f.agentProfileId }
+        );
+        const requestId = hold?.requestId ?? "";
+        const db = getPostgresDatabase(env);
+        const decision = {
+          db,
+          decision: "allow_once" as const,
+          deciderUserId: f.felix.userId,
+          nowMs: Date.now(),
+          organizationId: f.organizationId,
+          requestId,
+        };
+        // Core records the answer, but the message changes before the
+        // Space applies it.
+        await decideAgentAccessRequest(decision);
+        await expect(decideAgentAccessRequest(decision)).resolves.toMatchObject(
+          { transitioned: false }
+        );
+        await space.instance.rpcMutateSpaceMessage({
+          body: { action: "edit", expectedRevision: 0, text: "Changed ask" },
+          signalId: first.id,
+          spaceAccess: createAuthenticatedSpaceAccessContext({
+            requestContext: space.context(f.tali),
+            spaceId: space.spaceId,
+          }),
+          spaceId: space.spaceId,
+        } as Parameters<ConsentSpace["rpcMutateSpaceMessage"]>[0]);
+        while (vi.mocked(space.state.waitUntil).mock.calls.length > 0) {
+          await Promise.all(
+            vi
+              .mocked(space.state.waitUntil)
+              .mock.calls.splice(0)
+              .map(([work]) => work)
+          );
+        }
+        await expect(
+          space.instance.rpcApplyAgentAccessDecision({
+            decidedByProfileId: f.felix.profileId,
+            decidedByUserId: f.felix.userId,
+            organizationId: f.organizationId,
+            requestId,
+            spaceId: space.spaceId,
+            status: "allowed",
+          })
+        ).resolves.toEqual({ outcome: "voided" });
+        expect(space.outbox(first)).toHaveLength(0);
+        const next = await space.post(f.tali, "A different ask");
+        expect(space.outbox(next)).toHaveLength(0);
       }
     );
   });

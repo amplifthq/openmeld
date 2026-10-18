@@ -129,14 +129,67 @@ export async function rpcListAgentAccessRequests(
     ...(query.data.role ? { role: query.data.role } : {}),
     ...(query.data.spaceId ? { spaceId: query.data.spaceId } : {}),
   });
+  const current = await repairUnappliedDecisions(env, caller, requests);
   return {
     organizationId: caller.organizationId,
     requests: await readAgentAccessRequestViews({
       db: caller.db,
-      requests,
+      requests: current,
       viewerUserId: caller.userId,
     }),
   };
+}
+
+const REPAIR_AFTER_MS = 5000;
+const REPAIR_LIMIT = 5;
+
+/**
+ * A decision Core recorded but its Space never applied (the Space call
+ * failed) is applied again when the owner or the requester reads it, so a
+ * lost call never leaves a message held or an observer in place. Only the
+ * owner's own read adds an Agent, so the join keeps the owner's attribution.
+ */
+async function repairUnappliedDecisions(
+  env: CoreBindings,
+  caller: AgentAccessCaller,
+  requests: readonly AgentAccessRequestRecord[]
+): Promise<AgentAccessRequestRecord[]> {
+  const nowMs = Date.now();
+  const stale = requests
+    .filter(
+      (request) =>
+        request.status !== "pending" &&
+        request.status !== "voided" &&
+        request.appliedAtMs === null &&
+        request.decidedAtMs !== null &&
+        nowMs - request.decidedAtMs > REPAIR_AFTER_MS &&
+        (request.status !== "joined" || request.ownerUserId === caller.userId)
+    )
+    .slice(0, REPAIR_LIMIT);
+  const repaired = new Map<string, AgentAccessRequestRecord>();
+  for (const request of stale) {
+    try {
+      const agentMember =
+        request.status === "joined"
+          ? await requireRequestedAgentMember(caller, request)
+          : undefined;
+      repaired.set(
+        request.id,
+        await applyDecisionInSpace(
+          env,
+          caller,
+          { request, transitioned: false },
+          agentMember
+        )
+      );
+    } catch (error) {
+      console.warn("[core.agent_access.decision_repair_failed]", {
+        error: error instanceof Error ? error.message : String(error),
+        requestId: request.id,
+      });
+    }
+  }
+  return requests.map((request) => repaired.get(request.id) ?? request);
 }
 
 export async function rpcGetAgentAccessRequest(
@@ -144,7 +197,7 @@ export async function rpcGetAgentAccessRequest(
   input: { context?: CoreRpcContextInput; requestId: string }
 ): Promise<GetAgentAccessRequestResponse> {
   const caller = await requireAgentAccessCaller(env, input.context);
-  const request = requireAgentAccessRequestViewer({
+  const stored = requireAgentAccessRequestViewer({
     organizationId: caller.organizationId,
     request: await readAgentAccessRequest({
       db: asQueryable(caller.db),
@@ -152,6 +205,9 @@ export async function rpcGetAgentAccessRequest(
     }),
     viewerUserId: caller.userId,
   });
+  const [request = stored] = await repairUnappliedDecisions(env, caller, [
+    stored,
+  ]);
   return {
     request: await readAgentAccessRequestView({
       db: caller.db,
