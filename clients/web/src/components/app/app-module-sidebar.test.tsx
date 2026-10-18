@@ -298,3 +298,24 @@ it("renders the mobile list despite a saved collapsed desktop preference", () =>
 	).toBeTruthy();
 	expect(screen.queryByRole("separator")).toBeNull();
 });
+
+it("keeps route defaults after resizing without changing visibility", () => {
+	rememberClientSidebarState("outer", OUTER_SIDEBAR_DEFAULT_STATE);
+	const view = mount(undefined, undefined, true);
+	fireEvent.keyDown(
+		screen.getByRole("separator", { name: "Resize app sidebar" }),
+		{ key: "ArrowRight" }
+	);
+	const width = screen.getByTestId("app-module-sidebar").style.width;
+	view.unmount();
+	const directory = mount();
+	expect(
+		screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+	).toBe("hidden");
+	directory.unmount();
+	mount(undefined, undefined, true);
+	expect(
+		screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+	).toBe("expanded");
+	expect(screen.getByTestId("app-module-sidebar").style.width).toBe(width);
+});

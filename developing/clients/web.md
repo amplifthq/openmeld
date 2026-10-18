@@ -409,7 +409,13 @@ remain single-line and use an ellipsis when space is limited. A 32px hover-inten
 strip along the content edge reveals a floating preview.
 The preview keeps the same title toggle, which restores the full column even on
 detail pages without a work-area header. The existing outer-sidebar cookie
-now stores middle-column geometry, with a 308px default; legacy icon mode maps
+stores middle-column geometry on Web, with a 308px default. Desktop uses the
+existing browser-preference local storage under the same stable keys because
+its custom application scheme cannot save document cookies. An untouched
+visibility preference follows the route: closed in the Spaces browser, open
+in a Space. Explicit open/close choices override that default across pages and
+reloads; resizing without changing visibility and collapsing groups preserve
+the automatic rule. Legacy icon mode maps
 to a collapsed list. Scroll positions are isolated by account, Organization,
 and list family. Mobile presents application and contextual navigation in
 mutually exclusive drawers; a collapsed desktop preference never hides the
