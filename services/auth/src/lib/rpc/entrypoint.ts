@@ -2088,6 +2088,33 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
       });
     });
   }
+  /**
+   * The credential kind from the database, never the cookie cache: a cached
+   * session can predate the CLI marker (member-agent-program.md §4.7). Only
+   * sensitive operations ask, so ordinary requests keep the cached path.
+   */
+  async resolveRequestCredentialKind(input: {
+    headers?: Record<string, string>;
+  }): Promise<{ credentialKind: "cli_credential" | "interactive_session" }> {
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const headers = toHeaders(input.headers);
+      const sessionResolution = await resolveSessionFromHeaders({
+        auth: await this.getAuth(),
+        disableCookieCache: true,
+        headers,
+      });
+      // Anything short of an authoritative session cannot prove a Web or App session.
+      return {
+        credentialKind:
+          sessionResolution.status === "authenticated"
+            ? resolveRequestCredentialKind({
+                headers,
+                session: sessionResolution.session,
+              })
+            : "cli_credential",
+      };
+    });
+  }
   // One round trip for the gateway hot path: request auth + profile
   // resolution in a single RPC. Pure orchestration of the two existing
   // methods, so auth/profile semantics cannot drift. When the request is

@@ -6287,14 +6287,29 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.listAgentDirectMessageSessions(input);
   }
   updateAgentDirectMessageSession(
-    input: UpdateAgentDirectMessageSessionInput
+    input: UpdateAgentDirectMessageSessionInput & GatewaySensitiveCredential
   ): Promise<UpdateAgentDirectMessageSessionResponse> {
-    return super.updateAgentDirectMessageSession(input);
+    const { requestCredential: _credential, ...update } = input;
+    // Archiving removes a Session from view (§4.6); renaming does not.
+    return input.update.operation === "archive"
+      ? runGatewaySensitiveOperation(
+          this.env,
+          input,
+          { agentProfileId: null, operation: "session_archive" },
+          (operationInput) =>
+            super.updateAgentDirectMessageSession(operationInput)
+        )
+      : super.updateAgentDirectMessageSession(update);
   }
   deleteAgentDirectMessageSession(
-    input: DeleteAgentDirectMessageSessionInput
+    input: DeleteAgentDirectMessageSessionInput & GatewaySensitiveCredential
   ): Promise<DeleteAgentDirectMessageSessionResponse> {
-    return super.deleteAgentDirectMessageSession(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      { agentProfileId: null, operation: "session_delete" },
+      (operationInput) => super.deleteAgentDirectMessageSession(operationInput)
+    );
   }
   createCenterAgentContextManifest(
     input: CreateCenterAgentContextManifestInput

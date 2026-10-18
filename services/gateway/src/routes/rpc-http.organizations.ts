@@ -833,7 +833,7 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
       c,
       execute: async () =>
         await c.var.coreRpc.setAgentProfileCreationDefaults({
-          requestCredential: buildCoreRpcCredential(c),
+          requestCredential: await buildCoreRpcCredential(c),
           ...body.data,
           agentControllerRef,
           context: buildCoreRpcContext(c),

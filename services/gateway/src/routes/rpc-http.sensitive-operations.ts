@@ -84,12 +84,12 @@ export function registerSensitiveOperationRoutes(
       route: CREDENTIAL_CONFIRMATION_DECISION_ROUTE,
       method: "POST",
       responseSchema: decideCredentialConfirmationResponseSchema,
-      execute: () =>
+      execute: async () =>
         c.var.coreRpc.decideCredentialConfirmation({
           body: body.data,
           confirmationId: params.data.confirmationId,
           context: buildCoreRpcContext(c),
-          requestCredential: buildCoreRpcCredential(c),
+          requestCredential: await buildCoreRpcCredential(c),
         }),
     });
   });

@@ -83,6 +83,7 @@ type CoreRpcMock = {
 
 type AuthRpcMock = {
   ping: ReturnType<typeof vi.fn>;
+  resolveRequestCredentialKind?: ReturnType<typeof vi.fn>;
   inspectDbState: ReturnType<typeof vi.fn>;
   resolveRequestAuth: ReturnType<typeof vi.fn>;
   resolveProfile: ReturnType<typeof vi.fn>;
@@ -3196,7 +3197,7 @@ describe("gateway http forwarding", () => {
       runtimeCoordinatorExecutionId: "rcx-1",
       tokenFingerprint: `etfp_v1_${"c".repeat(32)}`,
     };
-    const { env, rpc } = makeEnv({
+    const { authRpc, env, rpc } = makeEnv({
       authOverrides: {
         resolveRequestAuth: vi.fn(async () => ({
           ok: true,
@@ -3209,6 +3210,9 @@ describe("gateway http forwarding", () => {
             authMethod: "session",
             credentialKind: "interactive_session",
           },
+        })),
+        resolveRequestCredentialKind: vi.fn(async () => ({
+          credentialKind: "interactive_session" as const,
         })),
       },
       coreOverrides: {
@@ -3254,6 +3258,16 @@ describe("gateway http forwarding", () => {
       taskCredential,
     });
     expect(JSON.stringify(forwarded.context)).not.toContain("rcet_v1_");
+
+    // A cached session that a CLI has held since is re-read and demoted.
+    vi.mocked(rpc.respondToSpaceAgentInteraction).mockClear();
+    authRpc.resolveRequestCredentialKind?.mockResolvedValueOnce({
+      credentialKind: "cli_credential",
+    });
+    expect((await send({})).status).toBe(200);
+    const [demoted] = vi.mocked(rpc.respondToSpaceAgentInteraction).mock
+      .calls[0] as [Record<string, unknown>];
+    expect(demoted.requestCredential).toEqual({ kind: "cli_credential" });
 
     vi.mocked(rpc.respondToSpaceAgentInteraction).mockClear();
     const malformed = await send({ "x-openmeld-task-credential": "%%%" });

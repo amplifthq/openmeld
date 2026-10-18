@@ -260,7 +260,7 @@ export function registerMembersRoutes(app: Hono<HonoBindings>): void {
         });
 
         return await c.var.coreRpc.addSpaceMembers({
-          requestCredential: buildCoreRpcCredential(c),
+          requestCredential: await buildCoreRpcCredential(c),
           spaceId,
           members,
           ...(password === undefined ? {} : { password }),

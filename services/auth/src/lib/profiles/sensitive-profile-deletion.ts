@@ -2,6 +2,7 @@ import {
   hasBearerAuthorization,
   isCliCredentialSessionRecord,
 } from "@openmeld/auth/server";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   readCredentialConfirmationHeader,
   readTaskCredentialHeader,
@@ -53,7 +54,10 @@ export async function guardAgentProfileDeletion(
     return NO_GUARD;
   }
   const core = c.env.OPENMELD_CORE_WORKER;
-  const credential = readRequestCredential(c);
+  const credential = await confirmInteractiveSession(
+    c,
+    readRequestCredential(c)
+  );
   if (!(core && credential)) {
     return c.json(
       {
@@ -115,6 +119,34 @@ export async function guardAgentProfileDeletion(
       }
     },
   };
+}
+
+/**
+ * The cookie cache can predate the CLI marker, so an interactive session is
+ * re-read from the database before it counts as one.
+ */
+async function confirmInteractiveSession(
+  c: Context<AppContext>,
+  credential: RequestCredential | null
+): Promise<RequestCredential | null> {
+  if (credential?.kind !== "interactive_session") {
+    return credential;
+  }
+  const sessionId = c.var.session?.id;
+  if (!sessionId) {
+    return { ...credential, kind: "cli_credential" };
+  }
+  const unmarked = await getPostgresDatabase(c.env)
+    .query<{ cli_credential_at: string | number | null }>({
+      text: `SELECT cli_credential_at FROM "openmeld"."sessions" WHERE id = $1`,
+      values: [sessionId],
+    })
+    .then(
+      (result) =>
+        result.rows.length === 1 && result.rows[0]?.cli_credential_at === null
+    )
+    .catch(() => false);
+  return unmarked ? credential : { ...credential, kind: "cli_credential" };
 }
 
 /** The same classification the Gateway receives from Auth's claims. */

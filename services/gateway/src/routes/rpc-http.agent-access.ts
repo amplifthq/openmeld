@@ -122,9 +122,9 @@ export function registerAgentAccessRoutes(app: Hono<HonoBindings>): void {
       route: AGENT_ACCESS_REQUEST_DECISION_ROUTE,
       method: "POST",
       responseSchema: decideAgentAccessRequestResponseSchema,
-      execute: () =>
+      execute: async () =>
         c.var.coreRpc.decideAgentAccessRequest({
-          requestCredential: buildCoreRpcCredential(c),
+          requestCredential: await buildCoreRpcCredential(c),
           context: buildCoreRpcContext(c),
           decision: body.data.decision,
           requestId: params.data.requestId,
@@ -235,9 +235,9 @@ export function registerAgentAccessRoutes(app: Hono<HonoBindings>): void {
       route: AGENT_PROFILE_ACCESS_GRANT_REVOKE_ROUTE,
       method: "POST",
       responseSchema: revokeAgentProfileAccessGrantResponseSchema,
-      execute: () =>
+      execute: async () =>
         c.var.coreRpc.revokeAgentProfileAccessGrant({
-          requestCredential: buildCoreRpcCredential(c),
+          requestCredential: await buildCoreRpcCredential(c),
           agentProfileId: params.data.agentProfileId,
           context: buildCoreRpcContext(c),
           grantId: params.data.grantId,

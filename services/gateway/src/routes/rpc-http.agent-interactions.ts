@@ -55,7 +55,7 @@ export function registerAgentInteractionRoutes(app: Hono<HonoBindings>): void {
       responseSchema: respondToSpaceAgentInteractionResponseSchema,
       execute: async () => {
         return await c.var.coreRpc.respondToSpaceAgentInteraction({
-          requestCredential: buildCoreRpcCredential(c),
+          requestCredential: await buildCoreRpcCredential(c),
           body: parsed.data,
           context: buildCoreRpcContext(c),
           ...(password === undefined ? {} : { password }),

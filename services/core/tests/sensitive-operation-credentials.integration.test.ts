@@ -670,6 +670,11 @@ describe("sensitive operation credentials", () => {
       ["decideAgentAccessRequest", { requestId: "request-1" }],
       ["revokeAgentProfileAccessGrant", { grantId: "grant-1" }],
       [
+        "updateAgentDirectMessageSession",
+        { spaceId: "space-1", update: { operation: "archive" } },
+      ],
+      ["deleteAgentDirectMessageSession", { spaceId: "space-2" }],
+      [
         "addSpaceMembers",
         {
           members: [

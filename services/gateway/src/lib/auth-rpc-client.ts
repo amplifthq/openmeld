@@ -1,5 +1,6 @@
 import { OPENMELD_HEADER_SPACE_PASSWORD } from "@openmeld/gateway-contract";
 import {
+  authRpcCredentialKindSchema,
   authRpcResolveProfileResultSchema,
   authRpcResolveRequestAuthResultSchema,
   authRpcResolveRequestAuthWithProfileResultSchema,
@@ -42,6 +43,20 @@ export async function resolveRequestAuth(input: {
     });
   });
   return authRpcResolveRequestAuthResultSchema.parse(result);
+}
+
+/** Database-backed credential kind for a sensitive operation (§4.7). */
+export async function resolveRequestCredentialKind(input: {
+  authRpc: AuthRpc;
+  headers: Headers;
+}): Promise<"cli_credential" | "interactive_session"> {
+  const result = await withUpstreamRetry(
+    async () =>
+      await input.authRpc.resolveRequestCredentialKind({
+        headers: sanitizeHeadersForAuthRpc(input.headers),
+      })
+  );
+  return authRpcCredentialKindSchema.parse(result.credentialKind);
 }
 
 export type GatewayResolveRequestAuthWithProfileResult =

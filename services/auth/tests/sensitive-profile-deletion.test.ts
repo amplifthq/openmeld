@@ -8,6 +8,17 @@ vi.mock("@openmeld/schemas", async (importActual) => ({
   MEMBER_AGENTS_ENABLED: true,
 }));
 
+const database = vi.hoisted(() => ({
+  cliCredentialAt: null as number | null,
+}));
+vi.mock("@openmeld/db/postgresql", () => ({
+  getPostgresDatabase: () => ({
+    query: async () => ({
+      rows: [{ cli_credential_at: database.cliCredentialAt }],
+    }),
+  }),
+}));
+
 const { guardAgentProfileDeletion } = await import(
   "../src/lib/profiles/sensitive-profile-deletion"
 );
@@ -106,6 +117,21 @@ describe("Agent Profile deletion guard", () => {
     await expect((response as Response).json()).resolves.toMatchObject({
       code: "credential_confirmation.required",
     });
+  });
+
+  it("re-reads the marker because the cookie cache can predate it", async () => {
+    database.cliCredentialAt = 1_700_000_000_000;
+    const { c, core } = context({
+      authorize: { decision: DECISION, status: "allowed" },
+    });
+    await guardAgentProfileDeletion(c as never, {
+      profileId: "agt_1",
+      userId: "user-1",
+    });
+    database.cliCredentialAt = null;
+    expect(core.authorizeSensitiveOperation).toHaveBeenCalledWith(
+      expect.objectContaining({ credential: { kind: "cli_credential" } })
+    );
   });
 
   it("treats a session a CLI held as the CLI credential", async () => {

@@ -51,7 +51,7 @@ export function registerDeleteSpaceRoute(app: Hono<HonoBindings>): void {
             meta,
           });
         const deleted = await c.var.coreRpc.deleteSpace({
-          requestCredential: buildCoreRpcCredential(c),
+          requestCredential: await buildCoreRpcCredential(c),
           spaceId,
           ...(approvedAgentCreatorProfileId
             ? { approvedAgentCreatorProfileId }

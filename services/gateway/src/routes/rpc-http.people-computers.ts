@@ -283,13 +283,13 @@ export function registerPeopleComputerControlRoutes(
       route: workspaceRoute,
       method: "PUT",
       responseSchema: setCurrentAgentProfileWorkspaceResponseSchema,
-      execute: () => {
+      execute: async () => {
         const request = {
           ...target.data,
           ...profile.data,
           ...parsed.data,
           context: buildCoreRpcContext(c),
-          requestCredential: buildCoreRpcCredential(c),
+          requestCredential: await buildCoreRpcCredential(c),
         };
         // A named required receiver prevents older Core from discarding the
         // precondition. Never fall back to an unguarded explicit-target write.

@@ -818,7 +818,7 @@ async function handleCurrentAgentProfileWorkspaceWrite(
     responseSchema: setCurrentAgentProfileWorkspaceResponseSchema,
     execute: async () =>
       await c.var.coreRpc.setCurrentAgentProfileWorkspace({
-        requestCredential: buildCoreRpcCredential(c),
+        requestCredential: await buildCoreRpcCredential(c),
         agentProfileId: routeParams.data.agentProfileId,
         workspaceMode: parsedBody.data.workspaceMode,
         ...(parsedBody.data.workspacePath === undefined

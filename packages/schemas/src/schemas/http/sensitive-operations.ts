@@ -75,6 +75,8 @@ export const sensitiveOperationSchema = z.enum([
   "agent_access_decision",
   "agent_access_grant_revoke",
   "profile_delete",
+  "session_archive",
+  "session_delete",
 ]);
 export type SensitiveOperation = z.infer<typeof sensitiveOperationSchema>;
 

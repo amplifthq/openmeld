@@ -360,6 +360,28 @@ describe("auth session resolution", () => {
     ).resolves.toBe("cli_credential");
   });
 
+  it("re-reads the credential kind without the cookie cache for sensitive operations", async () => {
+    const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
+    authMock.api.getSession.mockResolvedValueOnce({
+      session: { id: "session-123", cliCredentialAt: 1_700_000_000_000 },
+      user: { id: "user-123", name: "Felix", email: "felix@openmeld.invalid" },
+    });
+    await expect(
+      rpc.resolveRequestCredentialKind({
+        headers: { cookie: "better-auth.session_token=signed" },
+      })
+    ).resolves.toEqual({ credentialKind: "cli_credential" });
+    expect(authMock.api.getSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        query: expect.objectContaining({ disableCookieCache: true }),
+      })
+    );
+    authMock.api.getSession.mockResolvedValueOnce(null);
+    await expect(
+      rpc.resolveRequestCredentialKind({ headers: {} })
+    ).resolves.toEqual({ credentialKind: "cli_credential" });
+  });
+
   it("uses a requested Organization only after verifying current-user membership", async () => {
     authMock.api.getSession.mockResolvedValue({
       session: {

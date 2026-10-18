@@ -107,9 +107,9 @@ export function registerAgentProfileBindingRoutes(
       route: executionModeRoute,
       method: c.req.method as "GET" | "PATCH",
       responseSchema: agentProfileExecutionModeResponseSchema,
-      execute: () =>
+      execute: async () =>
         c.var.coreRpc.agentProfileExecutionMode({
-          requestCredential: buildCoreRpcCredential(c),
+          requestCredential: await buildCoreRpcCredential(c),
           agentProfileId: params.data.agentProfileId,
           body,
           context: buildCoreRpcContext(c),
@@ -192,7 +192,7 @@ export function registerAgentProfileBindingRoutes(
       responseSchema: executeAgentProfileWorkRecoveryResponseSchema,
       execute: async () =>
         await c.var.coreRpc.executeAgentProfileWorkRecovery({
-          requestCredential: buildCoreRpcCredential(c),
+          requestCredential: await buildCoreRpcCredential(c),
           agentProfileId: routeParams.value.agentProfileId,
           body: body.data,
           context: buildCoreRpcContext(c),
@@ -281,12 +281,12 @@ export function registerAgentProfileBindingRoutes(
       route: AGENT_PROFILE_DEFAULT_PROJECT_ROUTE,
       method: "PATCH",
       responseSchema: updateAgentProfileDefaultProjectResponseSchema,
-      execute: () => {
+      execute: async () => {
         const request = {
           ...parsedBody.data,
           agentProfileId: routeParams.data.agentProfileId,
           context: buildCoreRpcContext(c),
-          requestCredential: buildCoreRpcCredential(c),
+          requestCredential: await buildCoreRpcCredential(c),
         };
         return parsedBody.data.expectedBindingTarget
           ? c.var.coreRpc.updateBoundAgentProfileDefaultProject(request)
@@ -370,7 +370,7 @@ export function registerAgentProfileBindingRoutes(
       responseSchema: disableAgentProfilePrimaryBindingResponseSchema,
       execute: async () =>
         await c.var.coreRpc.disableAgentProfilePrimaryBinding({
-          requestCredential: buildCoreRpcCredential(c),
+          requestCredential: await buildCoreRpcCredential(c),
           agentProfileId: routeParams.value.agentProfileId,
           context: buildCoreRpcContext(c),
         }),
@@ -494,7 +494,7 @@ export function registerAgentProfileBindingRoutes(
       responseSchema: ensureAgentProfilePrimaryBindingResponseSchema,
       execute: async () =>
         await c.var.coreRpc.ensureAgentProfilePrimaryBinding({
-          requestCredential: buildCoreRpcCredential(c),
+          requestCredential: await buildCoreRpcCredential(c),
           agentProfileId: routeParams.value.agentProfileId,
           agentControllerRef: parsedBody.data.agentControllerRef,
           agentControllerConversationId:
@@ -589,7 +589,7 @@ export function registerAgentProfileBindingRoutes(
         execute: async () =>
           await c.var.coreRpc.updateAgentProfilePrimaryBindingAgentControllerCollaborationMode(
             {
-              requestCredential: buildCoreRpcCredential(c),
+              requestCredential: await buildCoreRpcCredential(c),
               agentProfileId: routeParams.value.agentProfileId,
               agentControllerCollaborationMode:
                 parsedBody.data.agentControllerCollaborationMode,
@@ -651,7 +651,7 @@ export function registerAgentProfileBindingRoutes(
         execute: async () =>
           await c.var.coreRpc.updateAgentProfilePrimaryBindingAgentControllerPermissionMode(
             {
-              requestCredential: buildCoreRpcCredential(c),
+              requestCredential: await buildCoreRpcCredential(c),
               agentProfileId: routeParams.value.agentProfileId,
               agentControllerPermissionMode:
                 parsedBody.data.agentControllerPermissionMode,
@@ -710,7 +710,7 @@ export function registerAgentProfileBindingRoutes(
       responseSchema: ensureAgentProfilePrimaryBindingResponseSchema,
       execute: async () =>
         await c.var.coreRpc.updateAgentProfilePrimaryBindingOpenCodePermission({
-          requestCredential: buildCoreRpcCredential(c),
+          requestCredential: await buildCoreRpcCredential(c),
           agentProfileId: routeParams.value.agentProfileId,
           context: buildCoreRpcContext(c),
           openCodePermission: parsedBody.data.openCodePermission,
@@ -766,7 +766,7 @@ export function registerAgentProfileBindingRoutes(
       responseSchema: ensureAgentProfilePrimaryBindingResponseSchema,
       execute: async () =>
         await c.var.coreRpc.updateAgentProfilePrimaryBindingModelSelection({
-          requestCredential: buildCoreRpcCredential(c),
+          requestCredential: await buildCoreRpcCredential(c),
           agentProfileId: routeParams.value.agentProfileId,
           context: buildCoreRpcContext(c),
           modelId: parsedBody.data.modelId,
