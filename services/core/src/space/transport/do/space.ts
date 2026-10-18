@@ -17289,8 +17289,12 @@ export class Space extends DurableObject<CoreBindings> {
     webSocket.send(JSON.stringify({ type: "system.hello.ack", profile }));
     await this.replayActiveReplyingSignalsToSession(webSocket, session);
     await this.replayAgentRecovery(webSocket, session);
-    const joinSignal = this.buildPresence("presence.join", profile);
-    this.publishPresenceSignal(joinSignal);
+    // A live access check may have closed this session during the replays and
+    // already announced its departure; do not announce it again as joined.
+    if (this.isActiveLiveSession({ session, webSocket })) {
+      const joinSignal = this.buildPresence("presence.join", profile);
+      this.publishPresenceSignal(joinSignal);
+    }
     this.ctx.waitUntil(this.flushPendingDispatchOutbox());
   }
   async webSocketMessage(webSocket: WebSocket, msg: string | ArrayBuffer) {

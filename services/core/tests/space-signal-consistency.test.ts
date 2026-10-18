@@ -447,6 +447,23 @@ const deliverAuthorizedLiveMessages = (
   }
 ).deliverAuthorizedLiveMessages;
 
+const handleWebSocketHello = (
+  Space.prototype as unknown as {
+    handleWebSocketHello(
+      this: unknown,
+      webSocket: unknown,
+      session: unknown,
+      payload: Record<string, unknown>
+    ): Promise<void>;
+  }
+).handleWebSocketHello;
+
+const isActiveLiveSession = (
+  Space.prototype as unknown as {
+    isActiveLiveSession(this: unknown, target: unknown): boolean;
+  }
+).isActiveLiveSession;
+
 const encodeLiveMessageForSession = (
   Space.prototype as unknown as {
     encodeLiveMessageForSession(
@@ -1077,6 +1094,51 @@ const createMessageEnvelope = (input: {
 });
 
 describe("space signal consistency matrix", () => {
+  it.each([
+    false,
+    true,
+  ])("announces a hello session as joined only while it is still live (closed during replay: %s)", async (closedDuringReplay) => {
+    const session = createPendingSpaceWebSocketSession({});
+    const webSocket = {
+      close: vi.fn(),
+      send: vi.fn(),
+      serializeAttachment: vi.fn(),
+    };
+    const sessions = new Map<unknown, unknown>([[webSocket, session]]);
+    const publishPresenceSignal = vi.fn();
+    const space = {
+      sessions,
+      isActiveLiveSession,
+      buildPresence: (type: string, profile: unknown) => ({ type, profile }),
+      publishPresenceSignal,
+      replayActiveReplyingSignalsToSession: async () => {
+        await Promise.resolve();
+        if (closedDuringReplay) {
+          // A live access check closed the session while replay awaited.
+          session.quit = true;
+          sessions.delete(webSocket);
+        }
+      },
+      replayAgentRecovery: async () => undefined,
+      flushPendingDispatchOutbox: async () => undefined,
+      ctx: { waitUntil: vi.fn() },
+    };
+
+    await handleWebSocketHello.call(space, webSocket, session, {
+      type: "hello",
+      profile: {
+        kind: "human",
+        profileId: "hum_viewer",
+        profileName: "Viewer",
+      },
+    });
+
+    const joins = publishPresenceSignal.mock.calls.filter(
+      ([signal]) => (signal as { type: string }).type === "presence.join"
+    );
+    expect(joins).toHaveLength(closedDuringReplay ? 0 : 1);
+  });
+
   it("queues pre-hello live signal frames unencoded until session capabilities are known", () => {
     const session = createPendingSpaceWebSocketSession({
       blocked: [],
