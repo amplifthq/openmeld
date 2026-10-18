@@ -342,6 +342,7 @@ function readInboxTargetScope(target: InboxSourceCandidate["sourceTarget"]): {
     case "agent_profile":
     case "agent_profile_creation_request":
     case "agent_access_request":
+    case "credential_confirmation":
     case "organization_join_request":
     case "message_channel":
     case "organization_document":

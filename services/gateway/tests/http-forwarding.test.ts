@@ -1,4 +1,5 @@
 import {
+  encodeTaskCredentialHeader,
   OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
   OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION,
   OPENMELD_SPACE_ADDRESSING_VERSION,
@@ -82,6 +83,7 @@ type CoreRpcMock = {
 
 type AuthRpcMock = {
   ping: ReturnType<typeof vi.fn>;
+  resolveRequestCredentialKind?: ReturnType<typeof vi.fn>;
   inspectDbState: ReturnType<typeof vi.fn>;
   resolveRequestAuth: ReturnType<typeof vi.fn>;
   resolveProfile: ReturnType<typeof vi.fn>;
@@ -3180,11 +3182,97 @@ describe("gateway http forwarding", () => {
       status: "accepted",
     });
     expect(rpc.respondToSpaceAgentInteraction).toHaveBeenCalledWith({
+      requestCredential: { kind: "cli_credential" },
       body: requestBody,
       context: EXPECTED_CORE_CONTEXT,
       password: "pass-interaction",
       spaceId: "demo",
     });
+  });
+
+  it("passes credential facts to a sensitive operation only, never in the request context", async () => {
+    const taskCredential = {
+      executionToken: `rcet_v1_${"a".repeat(64)}`,
+      runId: "run-1",
+      runtimeCoordinatorExecutionId: "rcx-1",
+      tokenFingerprint: `etfp_v1_${"c".repeat(32)}`,
+    };
+    const { authRpc, env, rpc } = makeEnv({
+      authOverrides: {
+        resolveRequestAuth: vi.fn(async () => ({
+          ok: true,
+          claims: {
+            authenticated: true,
+            requestId: "req-test",
+            profileId: "11111111-1111-4111-8111-111111111111",
+            profileKind: "human",
+            ownerIds: [],
+            authMethod: "session",
+            credentialKind: "interactive_session",
+          },
+        })),
+        resolveRequestCredentialKind: vi.fn(async () => ({
+          credentialKind: "interactive_session" as const,
+        })),
+      },
+      coreOverrides: {
+        respondToSpaceAgentInteraction: vi.fn(async () => ({
+          ok: true,
+          respondedAtMs: 1_805_000_000_000,
+          status: "accepted",
+        })),
+      },
+    });
+    const send = (headers: Record<string, string>) =>
+      app.fetch(
+        new Request("http://local/v1/spaces/demo/agent-interactions/respond", {
+          body: JSON.stringify({
+            interactionId: "interaction-1",
+            response: {
+              kind: "question",
+              answers: [{ questionId: "scope", values: ["workspace"] }],
+            },
+            runtimeCoordinatorExecutionId: "rce-1",
+          }),
+          headers: { "content-type": "application/json", ...headers },
+          method: "POST",
+        }),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+
+    expect(
+      (
+        await send({
+          "x-openmeld-credential-confirmation": "c".repeat(32),
+          "x-openmeld-task-credential":
+            encodeTaskCredentialHeader(taskCredential),
+        })
+      ).status
+    ).toBe(200);
+    const [forwarded] = vi.mocked(rpc.respondToSpaceAgentInteraction).mock
+      .calls[0] as [Record<string, unknown>];
+    expect(forwarded.requestCredential).toEqual({
+      confirmationId: "c".repeat(32),
+      kind: "interactive_session",
+      taskCredential,
+    });
+    expect(JSON.stringify(forwarded.context)).not.toContain("rcet_v1_");
+
+    // A cached session that a CLI has held since is re-read and demoted.
+    vi.mocked(rpc.respondToSpaceAgentInteraction).mockClear();
+    authRpc.resolveRequestCredentialKind?.mockResolvedValueOnce({
+      credentialKind: "cli_credential",
+    });
+    expect((await send({})).status).toBe(200);
+    const [demoted] = vi.mocked(rpc.respondToSpaceAgentInteraction).mock
+      .calls[0] as [Record<string, unknown>];
+    expect(demoted.requestCredential).toEqual({ kind: "cli_credential" });
+
+    vi.mocked(rpc.respondToSpaceAgentInteraction).mockClear();
+    const malformed = await send({ "x-openmeld-task-credential": "%%%" });
+    expect(malformed.status).toBe(400);
+    expect(rpc.respondToSpaceAgentInteraction).not.toHaveBeenCalled();
   });
 
   it("preserves active Wake progress store errors from core RPC", async () => {
@@ -3425,6 +3513,7 @@ describe("gateway http forwarding", () => {
       })
     );
     expect(rpc.addSpaceMembers).toHaveBeenCalledWith({
+      requestCredential: { kind: "cli_credential" },
       spaceId: "demo",
       members: [
         {
@@ -3546,6 +3635,7 @@ describe("gateway http forwarding", () => {
     const response = await app.fetch(request, env, TEST_EXECUTION_CONTEXT);
     expect(response.status).toBe(200);
     expect(rpc.addSpaceMembers).toHaveBeenCalledWith({
+      requestCredential: { kind: "cli_credential" },
       spaceId: "demo",
       members: [
         {
@@ -3618,6 +3708,7 @@ describe("gateway http forwarding", () => {
     const response = await app.fetch(request, env, TEST_EXECUTION_CONTEXT);
     expect(response.status).toBe(200);
     expect(rpc.addSpaceMembers).toHaveBeenCalledWith({
+      requestCredential: { kind: "cli_credential" },
       spaceId: "demo",
       members: [
         {
@@ -4069,6 +4160,7 @@ describe("gateway http forwarding", () => {
       context: EXPECTED_CORE_CONTEXT,
     });
     expect(rpc.deleteSpace).toHaveBeenCalledWith({
+      requestCredential: { kind: "cli_credential" },
       spaceId: "demo",
       context: EXPECTED_CORE_CONTEXT,
     });
@@ -4140,6 +4232,7 @@ describe("gateway http forwarding", () => {
       context: EXPECTED_CORE_CONTEXT,
     });
     expect(rpc.deleteSpace).toHaveBeenCalledWith({
+      requestCredential: { kind: "cli_credential" },
       spaceId: "demo",
       password: "pass-for-delete",
       context: EXPECTED_CORE_CONTEXT,
@@ -4333,6 +4426,7 @@ describe("gateway http forwarding", () => {
     const response = await app.fetch(request, env, TEST_EXECUTION_CONTEXT);
     expect(response.status).toBe(200);
     expect(rpc.deleteSpace).toHaveBeenCalledWith({
+      requestCredential: { kind: "cli_credential" },
       spaceId: "demo",
       approvedAgentCreatorProfileId: agentCreatorProfileId,
       password: "secret-for-space-only",
@@ -4410,6 +4504,7 @@ describe("gateway http forwarding", () => {
     const response = await app.fetch(request, env, TEST_EXECUTION_CONTEXT);
     expect(response.status).toBe(403);
     expect(rpc.deleteSpace).toHaveBeenCalledWith({
+      requestCredential: { kind: "cli_credential" },
       spaceId: "demo",
       context: EXPECTED_CORE_CONTEXT,
     });

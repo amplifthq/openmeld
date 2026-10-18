@@ -18,6 +18,7 @@ import { resolveAuthenticatedOrganizationContext } from "../organization/authent
 import { reconcileDeletedAgentProfileMemberships } from "../profiles/deleted-profile-reconcile";
 import { toProfileHttpErrorResponse } from "../profiles/profile-error-response";
 import { toProfileView } from "../profiles/profile-view";
+import { guardAgentProfileDeletion } from "../profiles/sensitive-profile-deletion";
 import { requireAuthenticatedUser } from "./authenticated-user";
 
 type ResolveProfileRequestBody = {
@@ -104,12 +105,29 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
       if (!authenticated.ok) {
         return authenticated.response;
       }
+      const guard = await guardAgentProfileDeletion(c, {
+        profileId: c.req.param("openMeldProfileId"),
+        user: authenticated.user,
+      });
+      if (guard instanceof Response) {
+        return guard;
+      }
+      let profile: Awaited<
+        ReturnType<typeof c.var.profileService.deleteProfileForOwner>
+      >;
       try {
-        const profile = await c.var.profileService.deleteProfileForOwner({
+        profile = await c.var.profileService.deleteProfileForOwner({
           ownerUserId: String(authenticated.user.id),
           profileId: c.req.param("openMeldProfileId"),
           expectedProfileKind: "agent",
         });
+      } catch (error) {
+        const failure = toProfileHttpErrorResponse(error);
+        await guard.record("failed", failure.body.code);
+        return c.json(failure.body, failure.status);
+      }
+      await guard.record("succeeded");
+      try {
         await reconcileDeletedAgentProfileMemberships(c.env, profile);
         return c.json({
           ok: true,
@@ -333,11 +351,28 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
       return authenticated.response;
     }
     const openMeldProfileId = c.req.param("openMeldProfileId");
+    const guard = await guardAgentProfileDeletion(c, {
+      profileId: openMeldProfileId,
+      user: authenticated.user,
+    });
+    if (guard instanceof Response) {
+      return guard;
+    }
+    let profile: Awaited<
+      ReturnType<typeof c.var.profileService.deleteProfileForOwner>
+    >;
     try {
-      const profile = await c.var.profileService.deleteProfileForOwner({
+      profile = await c.var.profileService.deleteProfileForOwner({
         ownerUserId: String(authenticated.user.id),
         profileId: openMeldProfileId,
       });
+    } catch (error) {
+      const failure = toProfileHttpErrorResponse(error);
+      await guard.record("failed", failure.body.code);
+      return c.json(failure.body, failure.status);
+    }
+    await guard.record("succeeded");
+    try {
       await reconcileDeletedAgentProfileMemberships(c.env, profile);
       return c.json({
         ok: true,

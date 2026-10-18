@@ -9,6 +9,7 @@ import type { Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
 import {
   buildCoreRpcContext,
+  buildCoreRpcCredential,
   executeRpcRoute,
   parseJsonBody,
   respondBadRequest,
@@ -71,6 +72,7 @@ export function registerDirectMessageSessionRoutes(
       responseSchema: updateAgentDirectMessageSessionResponseSchema,
       execute: async () =>
         await c.var.coreRpc.updateAgentDirectMessageSession({
+          requestCredential: await buildCoreRpcCredential(c),
           spaceId,
           update: parsed.data,
           context: buildCoreRpcContext(c),
@@ -88,6 +90,7 @@ export function registerDirectMessageSessionRoutes(
       responseSchema: deleteAgentDirectMessageSessionResponseSchema,
       execute: async () =>
         await c.var.coreRpc.deleteAgentDirectMessageSession({
+          requestCredential: await buildCoreRpcCredential(c),
           spaceId,
           context: buildCoreRpcContext(c),
         }),

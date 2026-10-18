@@ -581,6 +581,7 @@ function InboxKindIcon(input: { item: InboxItem }): ReactNode {
 			);
 		case "system_issue":
 		case "computer_connection":
+		case "credential_confirmation":
 			return <WarningCircleIcon aria-hidden="true" className="size-4" />;
 		case "desktop_update":
 			return <CheckCircleIcon aria-hidden="true" className="size-4" />;

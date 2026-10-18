@@ -33,6 +33,7 @@ import type { Context } from "hono";
 import type { z } from "zod/v4";
 import type { CoreRpcContextInput } from "../../../core/src/rpc/methods";
 import { logAuditEvent } from "../audit";
+import { resolveRequestCredentialKind } from "../lib/auth-rpc-client";
 import type { HonoBindings } from "../lib/bindings";
 import { readSpacePasswordHeader as readSpacePasswordHeaderValue } from "../lib/space-password-header";
 import { withUpstreamRetry } from "../lib/upstream-retry";
@@ -578,6 +579,26 @@ export function buildCoreRpcContext(
   c: Context<HonoBindings>
 ): CoreRpcContextInput {
   return c.var.openMeldRequestContext;
+}
+
+/**
+ * For sensitive operations only (design-plans/member-agent-program.md §4.7).
+ * The claims' credential kind can come from Auth's cookie cache, which may
+ * predate the CLI marker, so an interactive session is re-checked against
+ * the database here; anything else stays the CLI credential.
+ */
+export async function buildCoreRpcCredential(
+  c: Context<HonoBindings>
+): Promise<HonoBindings["Variables"]["requestCredential"]> {
+  const credential = c.var.requestCredential;
+  if (credential.kind !== "interactive_session") {
+    return credential;
+  }
+  const kind = await resolveRequestCredentialKind({
+    authRpc: c.var.authRpc,
+    headers: c.req.raw.headers,
+  }).catch(() => "cli_credential" as const);
+  return { ...credential, kind };
 }
 
 function mapCoreRpcError(input: CoreRpcErrorInput): Response {

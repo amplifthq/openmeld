@@ -12,6 +12,8 @@ import {
   createPostgresOrganizationLogoMutationRepository,
   createUnauthenticatedClaims,
   DEFAULT_AUTH_BASE_URL,
+  hasBearerAuthorization,
+  isCliCredentialSessionRecord,
   normalizeAuthHeaderValue,
   type OpenMeldProfileManagedRole,
   type OpenMeldProfileSource,
@@ -2086,6 +2088,33 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
       });
     });
   }
+  /**
+   * The credential kind from the database, never the cookie cache: a cached
+   * session can predate the CLI marker (member-agent-program.md §4.7). Only
+   * sensitive operations ask, so ordinary requests keep the cached path.
+   */
+  async resolveRequestCredentialKind(input: {
+    headers?: Record<string, string>;
+  }): Promise<{ credentialKind: "cli_credential" | "interactive_session" }> {
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const headers = toHeaders(input.headers);
+      const sessionResolution = await resolveSessionFromHeaders({
+        auth: await this.getAuth(),
+        disableCookieCache: true,
+        headers,
+      });
+      // Anything short of an authoritative session cannot prove a Web or App session.
+      return {
+        credentialKind:
+          sessionResolution.status === "authenticated"
+            ? resolveRequestCredentialKind({
+                headers,
+                session: sessionResolution.session,
+              })
+            : "cli_credential",
+      };
+    });
+  }
   // One round trip for the gateway hot path: request auth + profile
   // resolution in a single RPC. Pure orchestration of the two existing
   // methods, so auth/profile semantics cannot drift. When the request is
@@ -2232,6 +2261,10 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
           profileKind: primaryProfile.profileKind,
           ownerIds: [],
           authMethod: headers.has("x-api-key") ? "api_key" : "session",
+          credentialKind: resolveRequestCredentialKind({
+            headers,
+            session: sessionResolution.session,
+          }),
           ...(organizationContext.activeOrganizationId
             ? {
                 activeOrganizationId: organizationContext.activeOrganizationId,
@@ -3157,4 +3190,20 @@ function toSafeRpcErrorLog(error: unknown): {
 }
 function toProfileRpcError(error: unknown): ProfileErrorResponse {
   return toProfileHttpErrorResponse(error).body;
+}
+
+/**
+ * A session is a CLI credential once a CLI held it, when it arrives as a
+ * Bearer token, or for an API key. The Bearer use itself marks the session
+ * (`createCliCredentialPlugin`), so a later cookie use stays a CLI credential.
+ */
+function resolveRequestCredentialKind(input: {
+  headers: Headers;
+  session: unknown;
+}): "cli_credential" | "interactive_session" {
+  return input.headers.has("x-api-key") ||
+    hasBearerAuthorization(input.headers) ||
+    isCliCredentialSessionRecord(input.session)
+    ? "cli_credential"
+    : "interactive_session";
 }

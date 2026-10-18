@@ -130,6 +130,12 @@ export {
 export { isPersonalOrganization } from "./organization/personal-organization";
 export { requireSpaceOwnershipHandoff } from "./organization/space-owner-departure";
 export {
+  CLI_CREDENTIAL_SESSION_FIELD,
+  hasBearerAuthorization,
+  INTERACTIVE_SESSION_REQUIRED_CODE,
+  isCliCredentialSessionRecord,
+} from "./plugins/cli-credential";
+export {
   AdditionalHumanProfileCreationDisabledError,
   PrimaryHumanProfileDeleteForbiddenError,
   ProfileCreationIdempotencyConflictError,

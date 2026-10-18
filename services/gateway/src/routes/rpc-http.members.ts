@@ -21,6 +21,7 @@ import type { HonoBindings } from "../lib/bindings";
 import { buildGatewaySpaceAccessContext } from "../lib/space-access-context";
 import {
   buildCoreRpcContext,
+  buildCoreRpcCredential,
   executeRpcRoute,
   formatAuditValue,
   readSpacePasswordHeader,
@@ -259,6 +260,7 @@ export function registerMembersRoutes(app: Hono<HonoBindings>): void {
         });
 
         return await c.var.coreRpc.addSpaceMembers({
+          requestCredential: await buildCoreRpcCredential(c),
           spaceId,
           members,
           ...(password === undefined ? {} : { password }),

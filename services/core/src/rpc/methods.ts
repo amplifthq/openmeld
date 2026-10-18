@@ -1314,6 +1314,7 @@ import { notifyAgentProfileWorkUsageRecoveryAvailable } from "../runtime-transpo
 import { selectCurrentOwnerServiceSessionsByDeviceLane } from "../runtime-transport/application/current-owner-service-sessions";
 import { resolveProjectedDefaultFolder } from "../runtime-transport/application/profile-folder-projection-store";
 import { listActiveRuntimeCoordinatorExecutionTargetsBySpaceIds } from "../runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo";
+import { recordSensitiveOperationOutcome } from "../sensitive-operations/application/sensitive-operation-gate";
 import {
   parseRpcErrorPayload,
   readSafeRpcFailureReasonCode,
@@ -13308,6 +13309,13 @@ async function updateCenterAgentProfileRuntimeSettings(
         : { token: permissionModeConfirmationToken }),
     });
     if (decision.status === "confirmation_required") {
+      await auditCenterAgentRuntimeSettings(env, {
+        authorization,
+        outcome: "confirmation_required",
+        owner,
+        reasonCode: "center_agent.permission_mode_confirmation_required",
+        agentProfileId: request.agentProfileId,
+      });
       return centerAgentUpdateAgentProfileRuntimeSettingsResponseSchema.parse({
         agentProfileId: request.agentProfileId,
         canReply: false,
@@ -13331,10 +13339,34 @@ async function updateCenterAgentProfileRuntimeSettings(
       });
     }
   }
-  const response = await updateAgentProfileRuntimeSettingsOperation({
-    deps: buildCenterAgentProductOperationDeps(env, authorization, owner),
-    organizationId: authorization.activeOrganization.organizationId,
-    request,
+  let response: Awaited<
+    ReturnType<typeof updateAgentProfileRuntimeSettingsOperation>
+  >;
+  try {
+    response = await updateAgentProfileRuntimeSettingsOperation({
+      deps: buildCenterAgentProductOperationDeps(env, authorization, owner),
+      organizationId: authorization.activeOrganization.organizationId,
+      request,
+    });
+  } catch (error) {
+    await auditCenterAgentRuntimeSettings(env, {
+      authorization,
+      outcome: "failed",
+      owner,
+      reasonCode:
+        typeof (error as { code?: unknown } | null)?.code === "string"
+          ? String((error as { code: string }).code)
+          : "operation_failed",
+      agentProfileId: request.agentProfileId,
+    });
+    throw error;
+  }
+  await auditCenterAgentRuntimeSettings(env, {
+    authorization,
+    outcome: response.status === "blocked" ? "failed" : "succeeded",
+    owner,
+    reasonCode: response.status === "blocked" ? "center_agent.blocked" : null,
+    agentProfileId: request.agentProfileId,
   });
   const validated =
     centerAgentUpdateAgentProfileRuntimeSettingsResponseSchema.safeParse(
@@ -13346,6 +13378,45 @@ async function updateCenterAgentProfileRuntimeSettings(
     );
   }
   return validated.data;
+}
+/**
+ * Center Agent settings changes are sensitive operations (§6): their root is
+ * checked at the tool boundary above, and each decision is audited here.
+ */
+async function auditCenterAgentRuntimeSettings(
+  env: CoreBindings,
+  input: {
+    agentProfileId: string;
+    authorization: Awaited<
+      ReturnType<typeof requireCurrentDesignatedCenterAgentCaller>
+    >;
+    outcome: "confirmation_required" | "failed" | "succeeded";
+    owner: Awaited<ReturnType<typeof resolveCenterAgentProductOperationOwner>>;
+    reasonCode: string | null;
+  }
+): Promise<void> {
+  if (!isRequestChainEnforced()) {
+    return;
+  }
+  await recordSensitiveOperationOutcome(env, {
+    caller: {
+      humanProfileId: input.owner.representedProfileId,
+      organizationId: input.authorization.activeOrganization.organizationId,
+      userId: input.owner.representedUserId,
+    },
+    decision: {
+      chainRootProfileId: input.owner.representedProfileId,
+      confirmationId: null,
+      sourceKind: "center_agent",
+      taskExecutionId: null,
+    },
+    outcome: input.outcome,
+    reasonCode: input.reasonCode,
+    request: {
+      agentProfileId: input.agentProfileId,
+      operation: "runtime_settings_write",
+    },
+  });
 }
 export async function rpcCenterAgentCheckAgentProfileReadiness(
   env: CoreBindings,

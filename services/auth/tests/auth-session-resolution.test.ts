@@ -85,8 +85,13 @@ vi.mock("@openmeld/auth/server", async () => {
     await vi.importActual<typeof import("@openmeld/db/auth")>(
       "@openmeld/db/auth"
     );
+  const cliCredential = await vi.importActual<
+    typeof import("../../../packages/auth/src/plugins/cli-credential")
+  >("../../../packages/auth/src/plugins/cli-credential");
   return {
     createAuthDatabase,
+    hasBearerAuthorization: cliCredential.hasBearerAuthorization,
+    isCliCredentialSessionRecord: cliCredential.isCliCredentialSessionRecord,
     AUTH_SERVICE_NAME: "openmeld-auth",
     AdditionalHumanProfileCreationDisabledError:
       profileErrorsActual.AdditionalHumanProfileCreationDisabledError,
@@ -307,6 +312,74 @@ describe("auth session resolution", () => {
         profileKind: "human",
       }),
     });
+  });
+
+  it("tells an interactive session from a CLI-held one (member-agent-program.md §4.7)", async () => {
+    profileServiceMock.ensurePrimaryHumanProfile.mockResolvedValue({
+      profileId: "11111111-1111-4111-8111-111111111111",
+      profileName: "Felix",
+      profileKind: "human",
+    });
+    const user = {
+      id: "user-123",
+      name: "Felix",
+      email: "felix@openmeld.invalid",
+    };
+    const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
+    const credentialKind = async (input: {
+      cliCredentialAt: number | null;
+      headers: Record<string, string>;
+    }) => {
+      authMock.api.getSession.mockResolvedValueOnce({
+        session: { id: "session-123", cliCredentialAt: input.cliCredentialAt },
+        user,
+      });
+      const result = await rpc.resolveRequestAuth({ headers: input.headers });
+      return result.ok ? result.claims.credentialKind : null;
+    };
+
+    await expect(
+      credentialKind({
+        cliCredentialAt: null,
+        headers: { cookie: "better-auth.session_token=signed" },
+      })
+    ).resolves.toBe("interactive_session");
+    // A CLI sends its token as Bearer.
+    await expect(
+      credentialKind({
+        cliCredentialAt: null,
+        headers: { authorization: "Bearer session-token" },
+      })
+    ).resolves.toBe("cli_credential");
+    // A session a CLI once held stays a CLI credential, even as a cookie.
+    await expect(
+      credentialKind({
+        cliCredentialAt: 1_700_000_000_000,
+        headers: { cookie: "better-auth.session_token=signed" },
+      })
+    ).resolves.toBe("cli_credential");
+  });
+
+  it("re-reads the credential kind without the cookie cache for sensitive operations", async () => {
+    const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
+    authMock.api.getSession.mockResolvedValueOnce({
+      session: { id: "session-123", cliCredentialAt: 1_700_000_000_000 },
+      user: { id: "user-123", name: "Felix", email: "felix@openmeld.invalid" },
+    });
+    await expect(
+      rpc.resolveRequestCredentialKind({
+        headers: { cookie: "better-auth.session_token=signed" },
+      })
+    ).resolves.toEqual({ credentialKind: "cli_credential" });
+    expect(authMock.api.getSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        query: expect.objectContaining({ disableCookieCache: true }),
+      })
+    );
+    authMock.api.getSession.mockResolvedValueOnce(null);
+    await expect(
+      rpc.resolveRequestCredentialKind({ headers: {} })
+    ).resolves.toEqual({ credentialKind: "cli_credential" });
   });
 
   it("uses a requested Organization only after verifying current-user membership", async () => {

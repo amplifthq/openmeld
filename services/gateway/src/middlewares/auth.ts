@@ -1,7 +1,9 @@
 import {
   jsonErrorResponse,
   OPENMELD_HEADER_PROFILE_ID,
+  readCredentialConfirmationHeader,
   readOpenMeldRequestedOrganizationSelector,
+  readTaskCredentialHeader,
   readUserTimeZoneObservationHeaders,
 } from "@openmeld/gateway-contract";
 import {
@@ -132,7 +134,7 @@ export const gatewayAuthMiddleware = createMiddleware<HonoBindings>(
       });
     }
 
-    const profileResolution = await resolveGatewayProfile(c, {
+    const profileResolution = await resolveGatewayIdentity(c, {
       anonymousReadRoute,
       claims,
       combinedProfileResult: authResolution.combinedProfileResult,
@@ -146,9 +148,10 @@ export const gatewayAuthMiddleware = createMiddleware<HonoBindings>(
       return;
     }
 
-    const { resolvedProfile } = profileResolution;
+    const { requestCredential, resolvedProfile } = profileResolution;
     c.set("authClaims", claims);
     c.set("resolvedProfile", resolvedProfile);
+    c.set("requestCredential", requestCredential);
     const openMeldRequestContext = buildOpenMeldRequestContext({
       userTimeZoneObservation:
         readUserTimeZoneObservationHeaders(c.req.raw.headers) ?? undefined,
@@ -178,6 +181,62 @@ export const gatewayAuthMiddleware = createMiddleware<HonoBindings>(
     await next();
   }
 );
+
+/** The caller's Profile and, once it is resolved, its credential facts. */
+async function resolveGatewayIdentity(
+  c: Context<HonoBindings>,
+  input: Parameters<typeof resolveGatewayProfile>[1]
+): Promise<
+  | Response
+  | { anonymousRead: true }
+  | {
+      anonymousRead: false;
+      requestCredential: HonoBindings["Variables"]["requestCredential"];
+      resolvedProfile: Extract<
+        GatewayProfileResolution,
+        { anonymousRead: false }
+      >["resolvedProfile"];
+    }
+> {
+  const profileResolution = await resolveGatewayProfile(c, input);
+  if (
+    profileResolution instanceof Response ||
+    profileResolution.anonymousRead
+  ) {
+    return profileResolution;
+  }
+  const requestCredential = readRequestCredential(c, input.claims);
+  return requestCredential instanceof Response
+    ? requestCredential
+    : { ...profileResolution, requestCredential };
+}
+
+/**
+ * Credential facts for sensitive operations (member-agent-program.md §4.7).
+ * Without Auth's positive answer the caller is not an interactive session.
+ */
+function readRequestCredential(
+  c: Context<HonoBindings>,
+  claims: GatewayAuthClaims
+): HonoBindings["Variables"]["requestCredential"] | Response {
+  const taskCredential = readTaskCredentialHeader(c.req.raw.headers);
+  if (taskCredential.status === "invalid") {
+    return jsonErrorResponse({
+      status: 400,
+      code: "bad_request",
+      message: "The task credential is malformed.",
+      requestId: claims.requestId,
+    });
+  }
+  const confirmationId = readCredentialConfirmationHeader(c.req.raw.headers);
+  return {
+    kind: claims.credentialKind ?? "cli_credential",
+    ...(taskCredential.status === "present"
+      ? { taskCredential: taskCredential.taskCredential }
+      : {}),
+    ...(confirmationId ? { confirmationId } : {}),
+  };
+}
 
 function readRequestedOrganization(c: Context<HonoBindings>) {
   const headerSelector = readOpenMeldRequestedOrganizationSelector(

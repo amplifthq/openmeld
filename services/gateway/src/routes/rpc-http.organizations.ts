@@ -48,6 +48,7 @@ import type { Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
 import {
   buildCoreRpcContext,
+  buildCoreRpcCredential,
   executeRpcRoute,
   respondBadRequest,
 } from "./rpc-http.helpers";
@@ -832,6 +833,7 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
       c,
       execute: async () =>
         await c.var.coreRpc.setAgentProfileCreationDefaults({
+          requestCredential: await buildCoreRpcCredential(c),
           ...body.data,
           agentControllerRef,
           context: buildCoreRpcContext(c),

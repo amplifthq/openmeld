@@ -15,6 +15,7 @@ import type {
 } from "@openmeld/protocol";
 import type {
   GetMemberAgentPresenceResponse,
+  RequestCredential,
   SpacePreferencesRpc,
   SyncMemberAgentsResponse,
 } from "@openmeld/schemas";
@@ -1236,6 +1237,14 @@ import {
   rpcRemoteAgentReadMessages,
 } from "./search/message-read";
 import { rpcSearchMessages } from "./search/message-search";
+import { runGatewaySensitiveOperation } from "./sensitive-operations/application/sensitive-operation-gate";
+import {
+  rpcAuthorizeSensitiveOperation,
+  rpcDecideCredentialConfirmation,
+  rpcGetCredentialConfirmation,
+  rpcListMemberAgentSensitiveOperationAudit,
+  rpcRecordSensitiveOperationOutcome,
+} from "./sensitive-operations/sensitive-operation-rpc";
 import { emitCoreCloudflareRuntimeEvidence } from "./shared/observability/cloudflare-runtime-evidence";
 import { handleCoreQueueBatch } from "./shared/queue/core-queue-router";
 import { verifyGitHubAppWebhook } from "./space/application/github-app-webhook-service";
@@ -1258,6 +1267,17 @@ import {
 // fan-out. Kept separate from GatewayRpcEntrypoint so auth only gets the
 // reconcile surface instead of the whole gateway RPC surface.
 export class ProfileLifecycleEntrypoint extends WorkerEntrypoint<CoreBindings> {
+  /** Auth's Agent Profile deletion asks the sensitive operation gate first. */
+  authorizeSensitiveOperation(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcAuthorizeSensitiveOperation(this.env, input)
+    );
+  }
+  recordSensitiveOperationOutcome(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRecordSensitiveOperationOutcome(this.env, input)
+    );
+  }
   organizationJoinRequest(
     input: import("@openmeld/schemas").OrganizationJoinRequestRpcInput
   ) {
@@ -4673,7 +4693,31 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 }
 // Gateway-specific RPC entrypoint. Kept as a dedicated subclass to preserve an
 // extension point for future gateway-aware overrides.
+/** Credential facts the Gateway adds to a sensitive operation's input only. */
+type GatewaySensitiveCredential = { requestCredential?: RequestCredential };
+
 export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
+  getCredentialConfirmation(
+    input: Parameters<typeof rpcGetCredentialConfirmation>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCredentialConfirmation(this.env, input)
+    );
+  }
+  decideCredentialConfirmation(
+    input: Parameters<typeof rpcDecideCredentialConfirmation>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDecideCredentialConfirmation(this.env, input)
+    );
+  }
+  listMemberAgentSensitiveOperationAudit(
+    input: Parameters<typeof rpcListMemberAgentSensitiveOperationAudit>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListMemberAgentSensitiveOperationAudit(this.env, input)
+    );
+  }
   readOrganizationAiBilling(input: OrganizationAiBillingRpcInput) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcReadAiBilling(this.env, input)
@@ -4790,14 +4834,31 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.updateProject(input);
   }
   updateAgentProfileDefaultProject(
-    input: UpdateAgentProfileDefaultProjectInput
+    input: UpdateAgentProfileDefaultProjectInput & GatewaySensitiveCredential
   ) {
-    return super.updateAgentProfileDefaultProject(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "default_project_write",
+      },
+      (operationInput) => super.updateAgentProfileDefaultProject(operationInput)
+    );
   }
   updateBoundAgentProfileDefaultProject(
-    input: UpdateAgentProfileDefaultProjectInput
+    input: UpdateAgentProfileDefaultProjectInput & GatewaySensitiveCredential
   ) {
-    return super.updateBoundAgentProfileDefaultProject(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "default_project_write",
+      },
+      (operationInput) =>
+        super.updateBoundAgentProfileDefaultProject(operationInput)
+    );
   }
   archiveProject(input: ArchiveProjectInput) {
     return super.archiveProject(input);
@@ -4823,15 +4884,35 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   }
   setPeopleComputerAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput &
-      import("@openmeld/schemas/types").PeopleComputerTarget
+      import("@openmeld/schemas/types").PeopleComputerTarget &
+      GatewaySensitiveCredential
   ) {
-    return super.setPeopleComputerAgentProfileWorkspace(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "working_folder_write",
+      },
+      (operationInput) =>
+        super.setPeopleComputerAgentProfileWorkspace(operationInput)
+    );
   }
   setBoundPeopleComputerAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput &
-      import("@openmeld/schemas/types").PeopleComputerTarget
+      import("@openmeld/schemas/types").PeopleComputerTarget &
+      GatewaySensitiveCredential
   ) {
-    return super.setBoundPeopleComputerAgentProfileWorkspace(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "working_folder_write",
+      },
+      (operationInput) =>
+        super.setBoundPeopleComputerAgentProfileWorkspace(operationInput)
+    );
   }
   connectPeopleComputerProjectPath(
     input: Parameters<typeof rpcConnectPeopleComputerProjectPath>[1]
@@ -5475,9 +5556,14 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.postSpaceWakeStop(input);
   }
   respondToSpaceAgentInteraction(
-    input: RespondToSpaceAgentInteractionInput
+    input: RespondToSpaceAgentInteractionInput & GatewaySensitiveCredential
   ): Promise<RespondToSpaceAgentInteractionResponse> {
-    return super.respondToSpaceAgentInteraction(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      { agentProfileId: null, operation: "agent_interaction_answer" },
+      (operationInput) => super.respondToSpaceAgentInteraction(operationInput)
+    );
   }
   getSpaceWakeTraceWaterfall(
     input: GetSpaceWakeTraceWaterfallInput
@@ -5504,9 +5590,28 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.createSpaceDiagnosticReport(input);
   }
   addSpaceMembers(
-    input: AddSpaceMembersInput
+    input: AddSpaceMembersInput & GatewaySensitiveCredential
   ): Promise<PostSpaceMembersResponse> {
-    return super.addSpaceMembers(input);
+    const { requestCredential: _credential, ...members } = input;
+    // Adding the caller's own Agent is sensitive (§4.6); another owner's
+    // Agent goes through that owner's request instead.
+    const ownAgent = input.members.find(
+      (member) =>
+        member.profileKind === "agent" &&
+        member.ownerUserId !== null &&
+        member.ownerUserId === input.context?.actorContext.callerPrincipalId
+    );
+    return ownAgent
+      ? runGatewaySensitiveOperation(
+          this.env,
+          input,
+          {
+            agentProfileId: ownAgent.profileId,
+            operation: "space_members_add_agent",
+          },
+          (operationInput) => super.addSpaceMembers(operationInput)
+        )
+      : super.addSpaceMembers(members);
   }
   removeSpaceMembers(
     input: RemoveSpaceMembersInput
@@ -5624,8 +5729,15 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       spaceImageGeometryVersion
     );
   }
-  deleteSpace(input: DeleteSpaceInput): Promise<DeleteSpaceResult> {
-    return super.deleteSpace(input);
+  deleteSpace(
+    input: DeleteSpaceInput & GatewaySensitiveCredential
+  ): Promise<DeleteSpaceResult> {
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      { agentProfileId: null, operation: "space_delete" },
+      (operationInput) => super.deleteSpace(operationInput)
+    );
   }
   deleteConversationForMe(
     input: import("@openmeld/schemas").DeleteConversationForMeInput
@@ -5772,9 +5884,17 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.getAgentProfileFolders(input);
   }
   setCurrentAgentProfileWorkspace(
-    input: SetCurrentAgentProfileWorkspaceInput
+    input: SetCurrentAgentProfileWorkspaceInput & GatewaySensitiveCredential
   ): Promise<SetCurrentAgentProfileWorkspaceResponse> {
-    return super.setCurrentAgentProfileWorkspace(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "working_folder_write",
+      },
+      (operationInput) => super.setCurrentAgentProfileWorkspace(operationInput)
+    );
   }
   refreshCurrentLocalAgentCatalog(
     input: RefreshCurrentLocalAgentCatalogInput
@@ -5845,14 +5965,31 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.getCurrentAgentProfileSession(input);
   }
   executeAgentProfileWorkRecovery(
-    input: ExecuteAgentProfileWorkRecoveryInput
+    input: ExecuteAgentProfileWorkRecoveryInput & GatewaySensitiveCredential
   ): Promise<ExecuteAgentProfileWorkRecoveryResponse> {
-    return super.executeAgentProfileWorkRecovery(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      { agentProfileId: input.agentProfileId, operation: "work_recovery" },
+      (operationInput) => super.executeAgentProfileWorkRecovery(operationInput)
+    );
   }
   agentProfileExecutionMode(
-    input: AgentProfileExecutionModeInput
+    input: AgentProfileExecutionModeInput & GatewaySensitiveCredential
   ): Promise<AgentProfileExecutionModeResponse> {
-    return super.agentProfileExecutionMode(input);
+    const { requestCredential: _credential, ...read } = input;
+    // Reading the mode is not sensitive; changing it is (concurrency, §4.6).
+    return input.body
+      ? runGatewaySensitiveOperation(
+          this.env,
+          input,
+          {
+            agentProfileId: input.agentProfileId,
+            operation: "execution_mode_write",
+          },
+          (operationInput) => super.agentProfileExecutionMode(operationInput)
+        )
+      : super.agentProfileExecutionMode(read);
   }
   getAgentProfileControllerChangeEligibility(
     input: GetAgentProfileControllerChangeEligibilityInput
@@ -5875,38 +6012,89 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.getAgentExecutionReadinessBatch(input);
   }
   ensureAgentProfilePrimaryBinding(
-    input: EnsureAgentProfilePrimaryBindingInput
+    input: EnsureAgentProfilePrimaryBindingInput & GatewaySensitiveCredential
   ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-    return super.ensureAgentProfilePrimaryBinding(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      { agentProfileId: input.agentProfileId, operation: "binding_ensure" },
+      (operationInput) => super.ensureAgentProfilePrimaryBinding(operationInput)
+    );
   }
   updateAgentProfilePrimaryBindingModelSelection(
-    input: UpdateAgentProfilePrimaryBindingModelSelectionInput
+    input: UpdateAgentProfilePrimaryBindingModelSelectionInput &
+      GatewaySensitiveCredential
   ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-    return super.updateAgentProfilePrimaryBindingModelSelection(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "binding_model_selection",
+      },
+      (operationInput) =>
+        super.updateAgentProfilePrimaryBindingModelSelection(operationInput)
+    );
   }
   updateAgentProfilePrimaryBindingAgentControllerCollaborationMode(
-    input: UpdateAgentProfilePrimaryBindingAgentControllerCollaborationModeInput
+    input: UpdateAgentProfilePrimaryBindingAgentControllerCollaborationModeInput &
+      GatewaySensitiveCredential
   ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-    return super.updateAgentProfilePrimaryBindingAgentControllerCollaborationMode(
-      input
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "binding_collaboration_mode",
+      },
+      (operationInput) =>
+        super.updateAgentProfilePrimaryBindingAgentControllerCollaborationMode(
+          operationInput
+        )
     );
   }
   updateAgentProfilePrimaryBindingAgentControllerPermissionMode(
-    input: UpdateAgentProfilePrimaryBindingAgentControllerPermissionModeInput
+    input: UpdateAgentProfilePrimaryBindingAgentControllerPermissionModeInput &
+      GatewaySensitiveCredential
   ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-    return super.updateAgentProfilePrimaryBindingAgentControllerPermissionMode(
-      input
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "binding_permission_mode",
+      },
+      (operationInput) =>
+        super.updateAgentProfilePrimaryBindingAgentControllerPermissionMode(
+          operationInput
+        )
     );
   }
   updateAgentProfilePrimaryBindingOpenCodePermission(
-    input: UpdateAgentProfilePrimaryBindingOpenCodePermissionInput
+    input: UpdateAgentProfilePrimaryBindingOpenCodePermissionInput &
+      GatewaySensitiveCredential
   ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-    return super.updateAgentProfilePrimaryBindingOpenCodePermission(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "binding_opencode_permission",
+      },
+      (operationInput) =>
+        super.updateAgentProfilePrimaryBindingOpenCodePermission(operationInput)
+    );
   }
   disableAgentProfilePrimaryBinding(
-    input: DisableAgentProfilePrimaryBindingInput
+    input: DisableAgentProfilePrimaryBindingInput & GatewaySensitiveCredential
   ): Promise<DisableAgentProfilePrimaryBindingResponse> {
-    return super.disableAgentProfilePrimaryBinding(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      { agentProfileId: input.agentProfileId, operation: "binding_disable" },
+      (operationInput) =>
+        super.disableAgentProfilePrimaryBinding(operationInput)
+    );
   }
   getAgentProfileCreationDefaults(
     input: GetAgentProfileCreationDefaultsInput
@@ -5914,9 +6102,14 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.getAgentProfileCreationDefaults(input);
   }
   setAgentProfileCreationDefaults(
-    input: SetAgentProfileCreationDefaultsInput
+    input: SetAgentProfileCreationDefaultsInput & GatewaySensitiveCredential
   ): Promise<SetAgentProfileCreationDefaultsResponse> {
-    return super.setAgentProfileCreationDefaults(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      { agentProfileId: null, operation: "creation_defaults_write" },
+      (operationInput) => super.setAgentProfileCreationDefaults(operationInput)
+    );
   }
   createAgentProfileCreationRequest(
     input: CreateAgentProfileCreationRequestRpcInput
@@ -6094,14 +6287,29 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.listAgentDirectMessageSessions(input);
   }
   updateAgentDirectMessageSession(
-    input: UpdateAgentDirectMessageSessionInput
+    input: UpdateAgentDirectMessageSessionInput & GatewaySensitiveCredential
   ): Promise<UpdateAgentDirectMessageSessionResponse> {
-    return super.updateAgentDirectMessageSession(input);
+    const { requestCredential: _credential, ...update } = input;
+    // Archiving removes a Session from view (§4.6); renaming does not.
+    return input.update.operation === "archive"
+      ? runGatewaySensitiveOperation(
+          this.env,
+          input,
+          { agentProfileId: null, operation: "session_archive" },
+          (operationInput) =>
+            super.updateAgentDirectMessageSession(operationInput)
+        )
+      : super.updateAgentDirectMessageSession(update);
   }
   deleteAgentDirectMessageSession(
-    input: DeleteAgentDirectMessageSessionInput
+    input: DeleteAgentDirectMessageSessionInput & GatewaySensitiveCredential
   ): Promise<DeleteAgentDirectMessageSessionResponse> {
-    return super.deleteAgentDirectMessageSession(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      { agentProfileId: null, operation: "session_delete" },
+      (operationInput) => super.deleteAgentDirectMessageSession(operationInput)
+    );
   }
   createCenterAgentContextManifest(
     input: CreateCenterAgentContextManifestInput
@@ -6468,9 +6676,15 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.getAgentAccessRequest(input);
   }
   decideAgentAccessRequest(
-    input: Parameters<typeof rpcDecideAgentAccessRequest>[1]
+    input: Parameters<typeof rpcDecideAgentAccessRequest>[1] &
+      GatewaySensitiveCredential
   ) {
-    return super.decideAgentAccessRequest(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      { agentProfileId: null, operation: "agent_access_decision" },
+      (operationInput) => super.decideAgentAccessRequest(operationInput)
+    );
   }
   withdrawAgentAccessRequest(
     input: Parameters<typeof rpcWithdrawAgentAccessRequest>[1]
@@ -6488,9 +6702,18 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.listAgentProfileAccessGrants(input);
   }
   revokeAgentProfileAccessGrant(
-    input: Parameters<typeof rpcRevokeAgentProfileAccessGrant>[1]
+    input: Parameters<typeof rpcRevokeAgentProfileAccessGrant>[1] &
+      GatewaySensitiveCredential
   ) {
-    return super.revokeAgentProfileAccessGrant(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "agent_access_grant_revoke",
+      },
+      (operationInput) => super.revokeAgentProfileAccessGrant(operationInput)
+    );
   }
   submitAgentControllerTaskLifecycleEvents(
     input: SubmitAgentControllerTaskLifecycleEventsInput

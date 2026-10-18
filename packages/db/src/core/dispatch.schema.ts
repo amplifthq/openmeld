@@ -159,6 +159,10 @@ import { routineRuns, routines } from "./routine.schema.ts";
 import { openMeldDaemonRuntimeAgentControllerReports } from "./runtime-agent-controller-report.schema.ts";
 import { openMeldDaemonRuntimeHarnessPresence } from "./runtime-harness-presence.schema.ts";
 import { openMeldDaemonRuntimeRegistryRecords } from "./runtime-registry.schema.ts";
+import {
+  sensitiveOperationAuditEvents,
+  sensitiveOperationConfirmations,
+} from "./sensitive-operation.schema.ts";
 import { serviceConnectionIncidents } from "./service-connection-evidence.schema.ts";
 import { spaceAttachments } from "./space-attachment.schema.ts";
 import {
@@ -1822,6 +1826,8 @@ export const coreSchema = {
   centerAgentPermissionModeConfirmations,
   agentAccessRequests,
   agentProfileAccessGrants,
+  sensitiveOperationAuditEvents,
+  sensitiveOperationConfirmations,
   centerAgentProjectOperations,
   centerAgentProjectRemoveConfirmations,
   projects,
