@@ -158,9 +158,11 @@ CLI process tree it launched whose cleanup has not completed, then exits. At
 that point such a tree can only be abandoned background evidence work, such as
 a controller report still probing installed agent CLIs. A tree stays tracked
 after its root exits until its descendant cleanup finishes, so a helper that
-outlives its CLI is still covered. The Host sends SIGTERM, allows a short grace,
-then runs the existing descendant cleanup, which force-kills what remains; the
-whole step is bounded to a few seconds. That work must not keep the Host
+outlives its CLI is still covered. Cleanup first closes further agent CLI
+launches in the Host, so background work still running, such as a report moving
+on to its next probe, cannot start a tree behind it. The Host then sends
+SIGTERM, allows a short grace, and runs the existing descendant cleanup, which
+force-kills what remains; the whole step is bounded to a few seconds. That work must not keep the Host
 alive: the Service waits for actual Host exit before it clears its runtime
 lease, so a lingering probe would stretch every Stop past its bounded wait and
 leave a following Start racing a Service that is still shutting down.

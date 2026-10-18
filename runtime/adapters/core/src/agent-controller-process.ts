@@ -242,6 +242,11 @@ const liveAgentControllerProcesses = new Set<SpawnedAgentControllerProcess>();
 const LIVE_PROCESS_TERM_GRACE_MS = 1000;
 const LIVE_PROCESS_CLEANUP_TIMEOUT_MS = 3000;
 
+// Set once shutdown cleanup begins. Background work still running then, such as
+// a controller report moving on to its next probe, must not start a tree that
+// the cleanup has already passed and the process exit would orphan.
+let agentControllerLaunchesClosed = false;
+
 function trackLiveAgentControllerProcess(
   spawned: SpawnedAgentControllerProcess
 ): SpawnedAgentControllerProcess {
@@ -266,34 +271,42 @@ function trackLiveAgentControllerProcess(
  * Ends every agent CLI process tree launched by this process whose cleanup has
  * not completed. Only for a process that is ending after its accepted work
  * drained: whatever remains is abandoned background work, such as a controller
- * probe. Roots get SIGTERM and a short grace, then the existing descendant
- * cleanup force-kills what is left. The whole call is bounded so the caller
- * still exits promptly.
+ * probe. It first closes further launches, so no tree can start behind it.
+ * Roots get SIGTERM and a short grace, then the existing descendant cleanup
+ * force-kills what is left; a tree whose cleanup failed is retried. The whole
+ * call is bounded so the caller still exits promptly.
  */
 export async function terminateLiveAgentControllerProcesses(
   input: { graceMs?: number; timeoutMs?: number } = {}
 ): Promise<void> {
-  const tracked = [...liveAgentControllerProcesses];
-  if (tracked.length === 0) {
-    return;
-  }
-  for (const spawned of tracked) {
-    try {
-      spawned.terminate("SIGTERM");
-    } catch {
-      // A tree that exited meanwhile needs no signal; cleanup still runs.
+  agentControllerLaunchesClosed = true;
+  const graceMs = input.graceMs ?? LIVE_PROCESS_TERM_GRACE_MS;
+  const deadline =
+    Date.now() + graceMs + (input.timeoutMs ?? LIVE_PROCESS_CLEANUP_TIMEOUT_MS);
+  let terminated = false;
+  while (liveAgentControllerProcesses.size > 0 && Date.now() < deadline) {
+    const tracked = [...liveAgentControllerProcesses];
+    if (!terminated) {
+      terminated = true;
+      for (const spawned of tracked) {
+        try {
+          spawned.terminate("SIGTERM");
+        } catch {
+          // A tree that exited meanwhile needs no signal; cleanup still runs.
+        }
+      }
+      await settleWithin(
+        Promise.all(tracked.map(waitForRootExit)),
+        Math.min(graceMs, deadline - Date.now())
+      );
     }
+    await settleWithin(
+      Promise.allSettled(
+        tracked.map((spawned) => spawned.terminateRemainingDescendants())
+      ),
+      deadline - Date.now()
+    );
   }
-  await settleWithin(
-    Promise.all(tracked.map(waitForRootExit)),
-    input.graceMs ?? LIVE_PROCESS_TERM_GRACE_MS
-  );
-  await settleWithin(
-    Promise.allSettled(
-      tracked.map((spawned) => spawned.terminateRemainingDescendants())
-    ),
-    input.timeoutMs ?? LIVE_PROCESS_CLEANUP_TIMEOUT_MS
-  );
 }
 
 function waitForRootExit(
@@ -329,6 +342,11 @@ export function spawnAgentControllerProcess(input: {
   shell: boolean;
   supervisionId?: string;
 }): SpawnedAgentControllerProcess {
+  if (agentControllerLaunchesClosed) {
+    throw new Error(
+      "Agent CLI launches are closed because this process is shutting down."
+    );
+  }
   const signalTarget = resolveAgentControllerProcessSignalTarget();
   const supervisionId = input.supervisionId ?? randomUUID();
   const env = {
