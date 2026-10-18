@@ -2,6 +2,7 @@ import * as z from "zod/v4";
 import { agentProfileIdSchema } from "../protocol/profile";
 import { accountSpaceIndexItemSchema } from "./account-space-index";
 import { centerAgentSessionSelectorSchema } from "./center-agent-direct-message-space";
+import { MAX_SPACE_NAME_LENGTH, spaceNameSchema } from "./space-name";
 
 // Agent Direct Message Sessions (developing/product/space-collaboration.md):
 // one Session is one Direct Message Space; New Chat creates another Space for
@@ -11,7 +12,9 @@ import { centerAgentSessionSelectorSchema } from "./center-agent-direct-message-
 const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
 
-export const AGENT_DIRECT_MESSAGE_SESSION_NAME_MAX_LENGTH = 160;
+// A Session is a Space; its name follows the Space name contract.
+export const AGENT_DIRECT_MESSAGE_SESSION_NAME_MAX_LENGTH =
+  MAX_SPACE_NAME_LENGTH;
 
 export const agentDirectMessageSessionSelectorSchema =
   centerAgentSessionSelectorSchema;
@@ -58,11 +61,7 @@ export const listAgentDirectMessageSessionsResponseSchema = z.strictObject({
 export const updateAgentDirectMessageSessionBodySchema = z.union([
   z.strictObject({
     operation: z.literal("rename"),
-    name: z
-      .string()
-      .trim()
-      .min(1)
-      .max(AGENT_DIRECT_MESSAGE_SESSION_NAME_MAX_LENGTH),
+    name: spaceNameSchema,
   }),
   z.strictObject({ operation: z.literal("archive") }),
   z.strictObject({ operation: z.literal("unarchive") }),

@@ -85,6 +85,40 @@ import { useMessagePreviews } from "./use-message-previews";
 import { useSpaceDirectoryFilters } from "./use-space-directory-filters";
 import { useUnreadHistoryPrefetch } from "./use-unread-history-prefetch";
 
+/**
+ * Indicators of one sidebar row. A MemberAgent row stands for several
+ * Session Spaces, so it shows their combined unread, work and attention.
+ */
+function resolveConversationRowIndicators(
+	item: Conversation,
+	dm: ReturnType<typeof useConversations>["directMessages"]
+) {
+	const spaceIds = item.memberAgentSessionIds ?? [item.spaceId];
+	let unreadCount = 0;
+	let messageUnreadCount: number | undefined;
+	for (const spaceId of spaceIds) {
+		const unread = dm.indicators.unreadBySpaceId.get(spaceId);
+		unreadCount += unread?.unreadCount ?? 0;
+		if (unread?.messageUnreadCount !== undefined) {
+			messageUnreadCount =
+				(messageUnreadCount ?? 0) + unread.messageUnreadCount;
+		}
+	}
+	return {
+		unreadCount,
+		messageUnreadCount,
+		activeWakeSummary: spaceIds
+			.map((spaceId) => dm.indicators.activeWakeSummaryBySpaceId.get(spaceId))
+			.find((summary) => summary !== undefined),
+		attentionTone:
+			spaceIds
+				.map((spaceId) =>
+					resolveInboxAttentionTone(dm.attentionById.get(spaceId) ?? {})
+				)
+				.find((tone) => tone !== null) ?? null,
+	};
+}
+
 function isSpaceEmptyStateVisible(
 	view: string,
 	unavailable: boolean,
@@ -875,88 +909,83 @@ export function ConversationsSidebar(
 												activeValue={model.selected}
 												aria-label={section.name}
 												pinned={section.id === "pinned"}
-												updateIndices={rows(section).flatMap((item, index) =>
-													(dm.indicators.unreadBySpaceId.get(item.spaceId)
-														?.unreadCount ?? 0) > 0 ||
-													dm.indicators.activeWakeSummaryBySpaceId.has(
-														item.spaceId
-													) ||
-													resolveInboxAttentionTone(
-														dm.attentionById.get(item.spaceId) ?? {}
-													)
+												updateIndices={rows(section).flatMap((item, index) => {
+													const indicators = resolveConversationRowIndicators(
+														item,
+														dm
+													);
+													return indicators.unreadCount > 0 ||
+														indicators.activeWakeSummary ||
+														indicators.attentionTone
 														? [index]
-														: []
-												)}
+														: [];
+												})}
 											>
-												{rows(section).map((item, index) => (
-													<ConversationSidebarRow
-														activeWakeSummary={dm.indicators.activeWakeSummaryBySpaceId.get(
-															item.spaceId
-														)}
-														archived={archived}
-														attentionTone={resolveInboxAttentionTone(
-															dm.attentionById.get(item.spaceId) ?? {}
-														)}
-														conversation={item}
-														disabled={model.disabled}
-														dragDisabled={false}
-														groups={model.moveGroups[item.kind]}
-														index={index}
-														key={item.spaceId}
-														memberAppearances={memberAppearances}
-														messageUnreadCount={
-															dm.indicators.unreadBySpaceId.get(item.spaceId)
-																?.messageUnreadCount
-														}
-														onArchive={
-															item.kind === "direct-message" &&
-															!item.memberAgentId
-																? () =>
-																		dm.save({
-																			...dm.preferences,
-																			archivedIds: archived
-																				? dm.preferences.archivedIds.filter(
-																						(id) => id !== item.spaceId
-																					)
-																				: [
-																						...dm.preferences.archivedIds,
-																						item.spaceId,
-																					],
-																		})
-																: undefined
-														}
-														onMove={(target) =>
-															move(
-																target,
-																item.spaceId,
-																undefined,
-																target === "pinned"
-															).catch(console.error)
-														}
-														onRename={
-															item.kind === "direct-message" &&
-															!item.memberAgentId
-																? () => {
-																		setRenaming(item);
-																		setName(item.title);
-																	}
-																: undefined
-														}
-														onUnpin={() =>
-															model.unpin(item).catch(console.error)
-														}
-														profileId={item.profileId}
-														section={section.id}
-														selected={model.selected === item.spaceId}
-														showMessagePreviews={showMessagePreviews}
-														title={item.title}
-														unreadCount={
-															dm.indicators.unreadBySpaceId.get(item.spaceId)
-																?.unreadCount ?? 0
-														}
-														url={item.url}
-													/>
-												))}
+												{rows(section).map((item, index) => {
+													const indicators = resolveConversationRowIndicators(
+														item,
+														dm
+													);
+													return (
+														<ConversationSidebarRow
+															activeWakeSummary={indicators.activeWakeSummary}
+															archived={archived}
+															attentionTone={indicators.attentionTone}
+															conversation={item}
+															disabled={model.disabled}
+															dragDisabled={false}
+															groups={model.moveGroups[item.kind]}
+															index={index}
+															key={item.spaceId}
+															memberAppearances={memberAppearances}
+															messageUnreadCount={indicators.messageUnreadCount}
+															onArchive={
+																item.kind === "direct-message" &&
+																!item.memberAgentId
+																	? () =>
+																			dm.save({
+																				...dm.preferences,
+																				archivedIds: archived
+																					? dm.preferences.archivedIds.filter(
+																							(id) => id !== item.spaceId
+																						)
+																					: [
+																							...dm.preferences.archivedIds,
+																							item.spaceId,
+																						],
+																			})
+																	: undefined
+															}
+															onMove={(target) =>
+																move(
+																	target,
+																	item.spaceId,
+																	undefined,
+																	target === "pinned"
+																).catch(console.error)
+															}
+															onRename={
+																item.kind === "direct-message" &&
+																!item.memberAgentId
+																	? () => {
+																			setRenaming(item);
+																			setName(item.title);
+																		}
+																	: undefined
+															}
+															onUnpin={() =>
+																model.unpin(item).catch(console.error)
+															}
+															profileId={item.profileId}
+															section={section.id}
+															selected={model.selected === item.spaceId}
+															showMessagePreviews={showMessagePreviews}
+															title={item.title}
+															unreadCount={indicators.unreadCount}
+															url={item.url}
+														/>
+													);
+												})}
 											</ConversationSidebarMenu>
 										</SidebarDropSection>
 									),

@@ -1,4 +1,11 @@
-import type { ModelCatalog } from "@openmeld/schemas/types";
+import {
+	getAgentControllerPermissionModeDisplayMetadata,
+	isAskFirstAgentControllerPermissionMode,
+} from "@openmeld/agent-runtime";
+import type {
+	ModelCatalog,
+	SpaceMembersSnapshot,
+} from "@openmeld/schemas/types";
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
 import {
 	CheckCircleIcon,
@@ -7,8 +14,12 @@ import {
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { resolveAgentProfileModel } from "#/lib/profiles/agent-profile-model-display";
-import type { DirectMessageMemberAgent } from "./member-agent-chat-history";
+import {
+	type DirectMessageMemberAgent,
+	resolveDirectMessageMemberAgent,
+} from "./member-agent-chat-history";
 import { HarnessLogo } from "./member-agent-directory-section";
+import { useMemberAgentIndex } from "./use-member-agents";
 
 export const MEMBER_AGENT_PERMISSION_MODE_LINE =
 	"Permission mode is Ask first, good for personal use; I can switch it later if colleagues use this Agent.";
@@ -18,7 +29,7 @@ export type MemberAgentDirectMessageCardModel =
 			kind: "welcome";
 			title: string;
 			details: readonly { label: string; value: string }[];
-			note: string;
+			note: string | null;
 	  }
 	| {
 			kind: "checking" | "offline" | "repair";
@@ -69,7 +80,7 @@ export function resolveMemberAgentDirectMessageCard(input: {
 				kind: "welcome",
 				title: `${input.memberAgentName} is ready`,
 				details,
-				note: MEMBER_AGENT_PERMISSION_MODE_LINE,
+				note: resolvePermissionModeNote(entry),
 			};
 		}
 		case "offline":
@@ -95,6 +106,27 @@ export function resolveMemberAgentDirectMessageCard(input: {
 				description: "OpenMeld is checking whether this Agent can start work.",
 			};
 	}
+}
+
+/**
+ * The welcome card's permission line. The program's sentence applies only to
+ * the harness's Ask-first default; any other mode is named as it is, and an
+ * unknown mode says nothing rather than promise approval prompts.
+ */
+function resolvePermissionModeNote(
+	entry: SpaceMemberDirectoryEntry
+): string | null {
+	const mode = entry.agentControllerPermissionMode;
+	if (!mode) {
+		return null;
+	}
+	if (isAskFirstAgentControllerPermissionMode(mode)) {
+		return MEMBER_AGENT_PERMISSION_MODE_LINE;
+	}
+	const { label } = getAgentControllerPermissionModeDisplayMetadata(mode, {
+		agentControllerRef: entry.agentControllerRef,
+	});
+	return `Permission mode is ${label}.`;
 }
 
 const CARD_ICON = {
@@ -142,13 +174,62 @@ export function MemberAgentDirectMessageCard(input: {
 							</div>
 						))}
 					</dl>
-					<p className="mt-3 text-muted-foreground text-xs">
-						{input.model.note}
-					</p>
+					{input.model.note ? (
+						<p className="mt-3 text-muted-foreground text-xs">
+							{input.model.note}
+						</p>
+					) : null}
 				</>
 			) : (
 				<p className="mt-2 text-muted-foreground">{input.model.description}</p>
 			)}
 		</section>
 	);
+}
+
+export type MemberAgentDirectMessageCardState = {
+	current: DirectMessageMemberAgent;
+	model: MemberAgentDirectMessageCardModel;
+};
+
+/**
+ * The card for the signed-in member's current MemberAgent Direct Message, or
+ * null. Callers render nothing (and keep their own empty-state guidance)
+ * when this is null.
+ */
+export function useMemberAgentDirectMessageCard(input: {
+	isDirectMessage: boolean;
+	isCenterAgentDirectMessage: boolean;
+	/** Observers (for example an Agent owner watching) get no card. */
+	readOnly?: boolean;
+	hasMessages: boolean;
+	membersSnapshot: SpaceMembersSnapshot | null;
+	modelCatalog: ModelCatalog | null;
+	profileEntriesById: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
+}): MemberAgentDirectMessageCardState | null {
+	const memberAgents = useMemberAgentIndex();
+	if (!memberAgents.ready || input.readOnly === true) {
+		return null;
+	}
+	const current = resolveDirectMessageMemberAgent({
+		index: memberAgents.index,
+		isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
+		isDirectMessage: input.isDirectMessage,
+		snapshot: input.membersSnapshot,
+	});
+	const entry = current
+		? input.profileEntriesById.get(current.agentProfileId)
+		: undefined;
+	if (!(current && entry)) {
+		return null;
+	}
+	const model = resolveMemberAgentDirectMessageCard({
+		entry,
+		memberAgentName: current.memberAgent.displayName,
+		modelCatalog: input.modelCatalog,
+	});
+	// The welcome card belongs to an empty Session; repair cards stay.
+	return model.kind === "welcome" && input.hasMessages
+		? null
+		: { current, model };
 }

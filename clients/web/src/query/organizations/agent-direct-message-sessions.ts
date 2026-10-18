@@ -24,6 +24,10 @@ export function createAgentDirectMessageSessionApi(organizationId: string) {
 	);
 }
 
+// Bounds one read to 2,000 Sessions per Profile; `nextCursor` stays set when
+// more exist so a caller can say the list is incomplete.
+const MAX_SESSION_PAGES = 20;
+
 /** One agent Profile's Direct Message Sessions with the signed-in Human. */
 export function agentDirectMessageSessionsQueryOptions(input: {
 	organizationId: string;
@@ -39,13 +43,30 @@ export function agentDirectMessageSessionsQueryOptions(input: {
 			archived,
 		}),
 		enabled: input.enabled,
-		queryFn: ({ signal }) =>
-			createAgentDirectMessageSessionApi(input.organizationId).listSessions({
+		queryFn: async ({ signal }) => {
+			// Session selectors list every Session; read each page in order.
+			const api = createAgentDirectMessageSessionApi(input.organizationId);
+			const first = await api.listSessions({
 				agentProfileId: input.agentProfileId,
 				archived,
 				limit: 100,
 				signal,
-			}),
+			});
+			const sessions = [...first.sessions];
+			let cursor = first.nextCursor;
+			for (let page = 1; cursor && page < MAX_SESSION_PAGES; page += 1) {
+				const next = await api.listSessions({
+					agentProfileId: input.agentProfileId,
+					archived,
+					cursor,
+					limit: 100,
+					signal,
+				});
+				sessions.push(...next.sessions);
+				cursor = next.nextCursor;
+			}
+			return { ...first, sessions, nextCursor: cursor };
+		},
 		staleTime: 30_000,
 		gcTime: DISPLAY_REVISIT_GC_TIME_MS,
 	});

@@ -44,6 +44,8 @@ export function CenterAgentChatHistory({
 	// MemberAgent program: Center Agent sessions gain the dedicated Session
 	// operations too.
 	const sessionActions = useDirectMessageSessionActions({
+		// Center chats keep their existing personal archive in the chat menu.
+		archived: null,
 		spaceId: spaceId ?? "",
 		title,
 		onLeave: () =>

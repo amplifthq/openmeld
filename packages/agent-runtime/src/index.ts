@@ -33,6 +33,7 @@ export {
   DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE,
   getAgentControllerPermissionModeDisplayMetadata,
   getAgentControllerPermissionModeFieldLabel,
+  isAskFirstAgentControllerPermissionMode,
   listAgentControllerPermissionModeCatalog,
   listAgentControllerPermissionModeOptions,
   PERMISSION_MODE_AGENT_CONTROLLER_REFS,

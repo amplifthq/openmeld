@@ -54,6 +54,7 @@ export function groupMemberAgentConversations(input: {
 		return {
 			...representative,
 			memberAgentId: entry.groupOf,
+			memberAgentSessionIds: sessions.map((session) => session.spaceId),
 			title:
 				input.index.byId.get(entry.groupOf)?.displayName ??
 				representative.title,

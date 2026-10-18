@@ -85,6 +85,12 @@ describe("MemberAgent Direct Message rows", () => {
 			["center-1", "center-1"],
 		]);
 		expect(rows[0]?.activity).toBe(30);
+		// The row carries every Session so it can show their combined unread.
+		expect(rows[0]?.memberAgentSessionIds).toEqual([
+			"dm-claude-1",
+			"dm-claude-2",
+			"dm-reviewer",
+		]);
 	});
 
 	it("opens the selected Session when it belongs to the MemberAgent", () => {

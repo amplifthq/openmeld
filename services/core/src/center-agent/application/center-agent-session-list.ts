@@ -4,6 +4,7 @@ import {
   type ListCenterAgentSessionsResponse,
   listCenterAgentSessionsResponseSchema,
 } from "@openmeld/schemas";
+import { isMemberAgentsEnabled } from "../../member-agents/member-agents-feature";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 import { readConversationDeletionDates } from "../../space/application/conversation-history";
 import {
@@ -51,6 +52,9 @@ export async function listAuthorizedCenterAgentSessions(input: {
     organizationId: input.organizationId,
     pairKey: input.pairKey,
     limit: input.limit + 1,
+    // Session archive is a MemberAgent-program operation; with the flag off
+    // the Center Agent chat list keeps its previous contents.
+    ...(isMemberAgentsEnabled() ? { archived: false } : {}),
     ...(before ? { before } : {}),
   });
   const page = rows.slice(0, input.limit);

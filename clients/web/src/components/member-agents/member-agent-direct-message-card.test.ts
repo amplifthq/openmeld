@@ -25,7 +25,10 @@ describe("MemberAgent Direct Message card", () => {
 	it("welcomes with computer, model, folder when known, and the permission line", () => {
 		expect(
 			resolveMemberAgentDirectMessageCard({
-				entry: entry({ workingDirectory: "~/code/openmeld" }),
+				entry: entry({
+					agentControllerPermissionMode: "claude-code:default",
+					workingDirectory: "~/code/openmeld",
+				}),
 				memberAgentName,
 				modelCatalog: null,
 			})
@@ -53,5 +56,28 @@ describe("MemberAgent Direct Message card", () => {
 				modelCatalog: null,
 			})
 		).toMatchObject({ kind, title });
+	});
+
+	it("names a non-default permission mode instead of promising prompts", () => {
+		expect(
+			resolveMemberAgentDirectMessageCard({
+				entry: entry({
+					agentControllerRef: "builtin:codex",
+					agentControllerPermissionMode: "codex:fullAccess",
+				}),
+				memberAgentName: "Felix Lu’s Codex",
+				modelCatalog: null,
+			})
+		).toMatchObject({
+			kind: "welcome",
+			note: "Permission mode is Full access.",
+		});
+		expect(
+			resolveMemberAgentDirectMessageCard({
+				entry: entry({ agentControllerPermissionMode: null }),
+				memberAgentName,
+				modelCatalog: null,
+			})
+		).toMatchObject({ kind: "welcome", note: null });
 	});
 });

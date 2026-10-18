@@ -671,7 +671,14 @@ describe("space index AccountSpaces read model", () => {
         organizationId: "org-1",
         pairKey: "agt_33333333-3333-4333-8333-333333333333:human-1",
         limit: 10,
+        archived: false,
       };
+      expect(
+        await listDirectMessageSessionIndexRows({
+          ...sessionPair,
+          archived: undefined,
+        })
+      ).toHaveLength(1);
       expect(await listDirectMessageSessionIndexRows(sessionPair)).toEqual([]);
       expect(
         await listDirectMessageSessionIndexRows({

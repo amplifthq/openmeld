@@ -12,6 +12,8 @@ export type Conversation = {
 	profileId: string;
 	/** Set on the one row that stands for all Sessions of a MemberAgent. */
 	memberAgentId?: string;
+	/** Every Session Space the MemberAgent row stands for. */
+	memberAgentSessionIds?: readonly string[];
 } & (
 	| { kind: "space"; item: AccountSpaceItem }
 	| { kind: "direct-message"; chat: Chat; preview?: ConversationPreview }

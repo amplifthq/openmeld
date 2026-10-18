@@ -29,6 +29,10 @@ import type {
 	IndexedMemberAgent,
 	MemberAgentIndex,
 } from "./member-agent-index";
+import {
+	useArchivedMemberAgentSessionIds,
+	useMemberAgentIndex,
+} from "./use-member-agents";
 
 export type DirectMessageMemberAgent = {
 	memberAgent: IndexedMemberAgent;
@@ -98,7 +102,10 @@ export function MemberAgentChatHistory(input: {
 			spaceId,
 			search: { profileId: humanProfileId },
 		});
+	const memberAgents = useMemberAgentIndex();
+	const archivedSessionIds = useArchivedMemberAgentSessionIds(memberAgents);
 	const sessionActions = useDirectMessageSessionActions({
+		archived: archivedSessionIds.has(input.spaceId),
 		spaceId: input.spaceId,
 		title: input.title,
 		onLeave: () =>

@@ -1,3 +1,4 @@
+import { AGENT_DIRECT_MESSAGE_SESSION_NAME_MAX_LENGTH } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	Dialog,
@@ -12,12 +13,14 @@ import { DialogContent } from "@openmeld/ui/fluid/dialog";
 import { FluidDropdownMenuItem } from "@openmeld/ui/fluid/dropdown-menu";
 import {
 	ArchiveIcon,
+	ArrowCounterClockwiseIcon,
 	PencilSimpleIcon,
 	TrashIcon,
 } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
+import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	agentDirectMessageSessionQueryKeys,
@@ -39,12 +42,18 @@ export function useDirectMessageSessionActions(input: {
 	extraRefresh?: () => Promise<unknown>;
 	/** False renders no controls (feature off or no current Session). */
 	enabled?: boolean;
+	/**
+	 * Archive state of the current Session; null offers no archive control
+	 * (Center Agent chats keep their existing personal archive).
+	 */
+	archived: boolean | null;
 }) {
 	const { currentOrganization: organization } = useAppOrganization();
 	const queryClient = useQueryClient();
 	const [dialog, setDialog] = useState<SessionDialog>(null);
 	const [name, setName] = useState("");
 	const [pending, setPending] = useState(false);
+	const sidebar = useSidebarPreferences(organization.id);
 	const sessionApi = createAgentDirectMessageSessionApi(organization.id);
 	const refresh = async () => {
 		await Promise.all([
@@ -73,6 +82,21 @@ export function useDirectMessageSessionActions(input: {
 			setPending(false);
 		}
 	};
+	// A Session rename is the chat's name for everyone in it; drop an older
+	// personal title so it no longer hides the new name.
+	const clearPersonalTitle = async () => {
+		const titles = sidebar.preferences?.chats?.titles;
+		if (!titles?.[input.spaceId]) {
+			return;
+		}
+		await sidebar.updateAsync((current) => {
+			if (!current.chats?.titles[input.spaceId]) {
+				return current;
+			}
+			const { [input.spaceId]: _removed, ...rest } = current.chats.titles;
+			return { ...current, chats: { ...current.chats, titles: rest } };
+		});
+	};
 	const enabled = input.enabled !== false;
 	const renderMenuItems = (startIndex: number) =>
 		enabled ? (
@@ -89,14 +113,36 @@ export function useDirectMessageSessionActions(input: {
 					<PencilSimpleIcon aria-hidden="true" />
 					Rename chat
 				</FluidDropdownMenuItem>
-				<FluidDropdownMenuItem
-					className="px-3 text-sm"
-					index={startIndex + 1}
-					onClick={() => setDialog("archive")}
-				>
-					<ArchiveIcon aria-hidden="true" />
-					Archive chat
-				</FluidDropdownMenuItem>
+				{input.archived === false ? (
+					<FluidDropdownMenuItem
+						className="px-3 text-sm"
+						index={startIndex + 1}
+						onClick={() => setDialog("archive")}
+					>
+						<ArchiveIcon aria-hidden="true" />
+						Archive chat
+					</FluidDropdownMenuItem>
+				) : null}
+				{input.archived === true ? (
+					<FluidDropdownMenuItem
+						className="px-3 text-sm"
+						disabled={pending}
+						index={startIndex + 1}
+						onClick={() => {
+							run(
+								() =>
+									sessionApi.updateSession({
+										spaceId: input.spaceId,
+										update: { operation: "unarchive" },
+									}),
+								"Couldn’t restore this chat. Try again."
+							).catch(console.error);
+						}}
+					>
+						<ArrowCounterClockwiseIcon aria-hidden="true" />
+						Restore chat
+					</FluidDropdownMenuItem>
+				) : null}
 				<FluidDropdownMenuItem
 					className="px-3 text-destructive text-sm"
 					index={startIndex + 2}
@@ -127,7 +173,8 @@ export function useDirectMessageSessionActions(input: {
 										spaceId: input.spaceId,
 										update: { operation: "rename", name: name.trim() },
 									}),
-								"Couldn’t rename this chat. Try again."
+								"Couldn’t rename this chat. Try again.",
+								clearPersonalTitle
 							).catch(console.error);
 						}}
 					>
@@ -137,7 +184,7 @@ export function useDirectMessageSessionActions(input: {
 						<Input
 							aria-label="Chat name"
 							autoFocus
-							maxLength={160}
+							maxLength={AGENT_DIRECT_MESSAGE_SESSION_NAME_MAX_LENGTH}
 							onChange={(event) => setName(event.target.value)}
 							value={name}
 						/>
@@ -153,8 +200,8 @@ export function useDirectMessageSessionActions(input: {
 						<DialogHeader>
 							<DialogTitle>Archive this chat?</DialogTitle>
 							<DialogDescription>
-								It moves to Archived chats. Its messages are kept, and you can
-								restore it later.
+								It leaves your chat list. Its messages are kept, and you can
+								restore it from the Archived tab on this Agent’s page.
 							</DialogDescription>
 						</DialogHeader>
 						<DialogFooter>

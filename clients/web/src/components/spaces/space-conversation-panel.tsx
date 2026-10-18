@@ -30,12 +30,11 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { resolveDirectMessageMemberAgent } from "#/components/member-agents/member-agent-chat-history";
 import {
 	MemberAgentDirectMessageCard,
-	resolveMemberAgentDirectMessageCard,
+	type MemberAgentDirectMessageCardState,
+	useMemberAgentDirectMessageCard,
 } from "#/components/member-agents/member-agent-direct-message-card";
-import { useMemberAgentIndex } from "#/components/member-agents/use-member-agents";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 import { useSpaceConversationOpenPaint } from "#/lib/observability/use-space-open-paint";
 import { getSpaceConversationHistorySignalId } from "#/lib/space-conversation-position";
@@ -614,8 +613,19 @@ function SpaceConversationPanelContent(
 		hasConversationEntries: entries.length > 0,
 		renderSetupGuidance: input.renderSetupGuidance,
 	});
+	const memberAgentCard = useMemberAgentDirectMessageCard({
+		isCenterAgentDirectMessage:
+			presentation.messageStateTuningVisibility.isCenterAgentDirectMessage,
+		isDirectMessage: input.isDirectMessage,
+		readOnly: input.readOnly,
+		hasMessages: entries.length > 0,
+		membersSnapshot: input.membersSnapshot,
+		modelCatalog: input.modelCatalog,
+		profileEntriesById: presentation.profileEntriesById,
+	});
 	const conversationBody = renderPanelConversationBody({
 		emptyStateActions: setupGuidance.emptyStateActions,
+		memberAgentCard,
 		input,
 		navigation,
 		presentation,
@@ -924,6 +934,7 @@ function SpaceHistoryErrorBanner({
 
 function renderPanelConversationBody(input: {
 	emptyStateActions: ReactNode;
+	memberAgentCard: MemberAgentDirectMessageCardState | null;
 	input: SpaceConversationPanelResolvedProps;
 	navigation: ReturnType<typeof useSpaceConversationNavigationController>;
 	presentation: ReturnType<typeof useSpaceConversationPresentationController>;
@@ -932,6 +943,7 @@ function renderPanelConversationBody(input: {
 	const navigation = input.navigation;
 	const presentation = input.presentation;
 	return renderConversationBody({
+		memberAgentCard: input.memberAgentCard,
 		threadStreamsByRootSignalId: presentation.threadStreamsByRootSignalId,
 		agentRecoveryPlansByProfileId: panel.agentRecoveryPlansByProfileId,
 		anchoredOutcomeNoticesBySourceSignalId:
@@ -2085,6 +2097,7 @@ function ComposerError(input: { panel: SpaceConversationPanelResolvedProps }) {
 
 function renderConversationBody(input: {
 	isDirectMessage: boolean;
+	memberAgentCard: MemberAgentDirectMessageCardState | null;
 	threadStreamsByRootSignalId: ReadonlyMap<
 		string,
 		readonly SpaceConversationVisibleStreamProjection[]
@@ -2219,17 +2232,18 @@ function renderConversationBody(input: {
 		);
 	}
 
-	const memberAgentCardItem =
-		input.isDirectMessage &&
-		!input.isCenterAgentDirectMessage &&
-		!input.readOnly ? (
-			<MemberAgentDirectMessageCardItem
-				hasMessages={input.entries.length > 0}
-				membersSnapshot={input.membersSnapshot}
-				modelCatalog={input.modelCatalog}
-				profileEntriesById={input.profileEntriesById}
+	// A MemberAgent welcome or repair card: presentation, never a message.
+	const memberAgentCardItem = input.memberAgentCard ? (
+		<MessageScrollerItem
+			className="[content-visibility:visible]"
+			messageId="member-agent-card"
+		>
+			<MemberAgentDirectMessageCard
+				current={input.memberAgentCard.current}
+				model={input.memberAgentCard.model}
 			/>
-		) : null;
+		</MessageScrollerItem>
+	) : null;
 	if (input.entries.length === 0) {
 		if (centerAgentDirectMessageIntroItem) {
 			return centerAgentDirectMessageIntroItem;
@@ -2706,50 +2720,5 @@ function resolveDirectMessageTargetName(
 			(member) =>
 				member.status === "active" && member.profileId !== input.selfProfileId
 		)?.profileName ?? null
-	);
-}
-
-/**
- * Welcome or repair card of a MemberAgent Direct Message: a presentation
- * surface like the Center Agent introduction, never a published message.
- * The welcome card shows only before the first message; a repair card stays
- * at the top until the Agent is available again.
- */
-function MemberAgentDirectMessageCardItem(input: {
-	hasMessages: boolean;
-	membersSnapshot: SpaceMembersSnapshot | null;
-	modelCatalog: ModelCatalog | null;
-	profileEntriesById: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
-}) {
-	const memberAgents = useMemberAgentIndex();
-	const current = memberAgents.ready
-		? resolveDirectMessageMemberAgent({
-				index: memberAgents.index,
-				isCenterAgentDirectMessage: false,
-				isDirectMessage: true,
-				snapshot: input.membersSnapshot,
-			})
-		: null;
-	const entry = current
-		? input.profileEntriesById.get(current.agentProfileId)
-		: undefined;
-	if (!(current && entry)) {
-		return null;
-	}
-	const model = resolveMemberAgentDirectMessageCard({
-		entry,
-		memberAgentName: current.memberAgent.displayName,
-		modelCatalog: input.modelCatalog,
-	});
-	if (model.kind === "welcome" && input.hasMessages) {
-		return null;
-	}
-	return (
-		<MessageScrollerItem
-			className="[content-visibility:visible]"
-			messageId="member-agent-card"
-		>
-			<MemberAgentDirectMessageCard current={current} model={model} />
-		</MessageScrollerItem>
 	);
 }

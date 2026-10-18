@@ -1280,6 +1280,7 @@ export async function listDirectMessageSessionIndexRows(input: {
   organizationId: string;
   pairKey: string;
   limit: number;
+  /** True: archived only; false: active only; omitted: both. */
   archived?: boolean;
   before?: {
     createdAtMs: number;
@@ -1297,10 +1298,12 @@ export async function listDirectMessageSessionIndexRows(input: {
   const beforeClause = input.before
     ? "AND (COALESCE(s.space_created_at_ms, 0), s.space_id) < ($5, $6)"
     : "";
-  const archivedClause =
-    input.archived === true
-      ? "AND st.archived_at_ms IS NOT NULL"
-      : "AND st.archived_at_ms IS NULL";
+  let archivedClause = "";
+  if (input.archived === true) {
+    archivedClause = "AND st.archived_at_ms IS NOT NULL";
+  } else if (input.archived === false) {
+    archivedClause = "AND st.archived_at_ms IS NULL";
+  }
   const rows = await input.db.query<{
     space_id: string;
     space_name: string | null;
