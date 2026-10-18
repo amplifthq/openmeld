@@ -1036,7 +1036,8 @@ storage; it never invokes CLI, Service, login, or a real Wake.
   account query cache before rereading.
 - Read-only `/_serverFn/*` calls are a bounded pilot compatibility dependency
   for remaining Web entry and public-Space handoff loaders.
-  Sidebar geometry reads its local cookie during client navigation.
+  Sidebar geometry reads the existing local browser-preference storage during
+  client navigation, without a server-function call.
   Server-function mutations are refused;
   business writes must use the shared APIs.
 - Generic Auth HTTP endpoints are not exposed to the renderer. Session management

@@ -19,7 +19,9 @@ import {
  * document cookies. Both stores use the same serialized state and defaults.
  *
  * The pure parse/serialize/read helpers are isomorphic and unit-testable; the
- * client write goes through `document.cookie`; the SSR read goes through a
+ * Web client write goes through `document.cookie`; Desktop uses the existing
+ * browser-preference storage wrapper. Cookie-named exports retain their existing
+ * caller contract across both clients. The SSR read goes through a
  * `createServerFn` that reads the request cookie header (mirrors the
  * protected-space-access cookie pattern in this repo).
  */
@@ -411,8 +413,8 @@ function readCookieValueFromHeader(
 
 /**
  * Persist sidebar state from the client (best-effort). Written on every resize
- * / collapse through the Sidebar controlled seam. Not HttpOnly — it
- * is a non-sensitive layout preference the client both reads and writes.
+ * / collapse through the Sidebar controlled seam. Web cookies are not HttpOnly;
+ * Desktop uses local storage. These are non-sensitive client layout preferences.
  */
 export function writeOuterSidebarStateCookie(
 	state: SidebarPersistedState

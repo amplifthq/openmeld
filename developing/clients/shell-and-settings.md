@@ -662,9 +662,11 @@ that has not yet written its independent preference. New inner-sidebar writes
 must never update that legacy global value.
 
 `packages/ui` must stay pure: no router, Electron, `document.cookie`,
-`localStorage`, or `sessionStorage` access. Desktop should inject its own storage
-adapter later (for example electron-store) against the same controlled
-`width`/`open` callbacks.
+`localStorage`, or `sessionStorage` access. The application storage owner uses
+SSR-readable cookies on Web and the existing local browser-preference storage
+on Desktop, against the same controlled geometry callbacks and serialized state.
+Desktop uses its persistent application partition; visibility stays automatic
+until an explicit show/hide choice.
 
 Fallbacks only (not adopted): `react-resizable-panels` (shadcn's official
 Resizable engine, %-based; for a plain non-Sidebar split) and `allotment`
