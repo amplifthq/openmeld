@@ -2117,7 +2117,7 @@ const registerCompatibleRoute = (input: {
 
 const createContextHarness = async (
   input?: Parameters<typeof createHarness>[0] & {
-    contextVersion?: 1 | 2 | 3 | 4 | 5 | null;
+    contextVersion?: 1 | 2 | 3 | 4 | 5 | 6 | null;
   }
 ) => {
   const harness = await createHarness(input);
@@ -4304,6 +4304,148 @@ describe("runtime transport runtime coordinator transport contract", () => {
     if (materials === "brief") {
       expect(accepted.executionContext).not.toHaveProperty("projectWork");
     }
+  });
+
+  it("keeps an owner's folder choice, inherits it on fork, and forks into another folder", async () => {
+    const folderA = "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11";
+    const folderB = "3c2e8f8a-6b55-4b8e-9a43-0f3f2c9d7e21";
+    const request = buildRuntimeCoordinatorHeadAcceptRequest({
+      acceptedDispatchSnapshot: {
+        ...buildAcceptedDispatchSnapshot({ fingerprint: "7" }),
+        contextRequest: {
+          required: true,
+          scope: {
+            organizationId: "org",
+            requesterProfileId: "human",
+            spaceId: HEX_SPACE_ID,
+            targetProfileId: TARGET_AGENT_PROFILE_ID,
+            threadId: null,
+          },
+          selection: { mode: "new", workspace: "current", folderId: folderA },
+        },
+      },
+    });
+    // An older Service would run the task in its default folder instead.
+    const olderService = await createContextHarness({ contextVersion: 5 });
+    expect(
+      await (
+        await fetchRuntimeTransportJson(
+          olderService.hub,
+          "/runtime-coordinator/head/accept",
+          request
+        )
+      ).json()
+    ).toMatchObject({ ok: false, reasonCode: "service.update_required" });
+
+    const { hub, storageRecords } = await createContextHarness({
+      contextVersion: 6,
+    });
+    const response = (await (
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        request
+      )
+    ).json()) as { executionContext: { id: string; folderId?: string } };
+    expect(response.executionContext.folderId).toBe(folderA);
+    const key = buildRuntimeCoordinatorHeadLifecycleStorageKey(
+      request.targetWakeLifecycleIdentity.targetWakeLifecycleId
+    );
+    const original = storageRecords.get(
+      key
+    ) as RuntimeCoordinatorHeadLifecycleRecord;
+    const storage = (
+      hub as unknown as { ctx: { storage: DurableObjectStorage } }
+    ).ctx.storage;
+    await writeRuntimeCoordinatorHeadLifecycleWithAdmission({
+      blockForExecutionTargetMutation: false,
+      nowMs: Date.now(),
+      storage,
+      record: {
+        ...original,
+        executionLinkedAtMs: Date.now(),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        status: "execution_linked",
+      },
+    });
+    await recordExecutionContextCompletion({
+      storage,
+      headId: original.targetWakeLifecycleId,
+      dispatchId: original.primaryDispatchId,
+      runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      contextId: response.executionContext.id,
+      completion: {
+        contextId: response.executionContext.id,
+        nativeConversationId: "native-parent",
+        runtimeWorkspaceFingerprint: "sha256:workspace",
+        completedHistoryId: "completed-turn-1",
+      },
+    });
+    storageRecords.delete(key);
+    const originalSnapshot = request.acceptedDispatchSnapshot;
+    if (!originalSnapshot?.contextRequest) {
+      throw new Error("Expected source context request");
+    }
+    const sourceRequest = originalSnapshot.contextRequest;
+    const nextIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-next",
+      dispatchId: "dispatch-next",
+      sourceSignalId: "source-next",
+      spaceId: HEX_SPACE_ID,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    const plan = (
+      selection: NonNullable<
+        typeof originalSnapshot.contextRequest
+      >["selection"]
+    ) =>
+      storage.transaction((transaction) =>
+        prepareExecutionContextAssignment({
+          contextModeActive: true,
+          storage: transaction,
+          record: {
+            ...original,
+            primaryDispatchId: "dispatch-next",
+            targetWakeLifecycleId: nextIdentity.targetWakeLifecycleId,
+            targetWakeLifecycleIdentity: nextIdentity,
+            acceptedDispatchSnapshot: {
+              ...originalSnapshot,
+              contextRequest: { ...sourceRequest, selection },
+            },
+          },
+        })
+      );
+    const sourceWakeId = original.targetWakeLifecycleId;
+    // Forking without a choice inherits the source Session's folder.
+    expect(
+      (await plan({ mode: "fork", sourceWakeId })).record
+        .acceptedDispatchSnapshot?.executionContext
+    ).toMatchObject({
+      folderId: folderA,
+      forkSource: {
+        contextId: response.executionContext.id,
+        folderId: folderA,
+      },
+    });
+    // "Continue in another folder" is a fork with a new folderId.
+    expect(
+      (await plan({ mode: "fork", sourceWakeId, folderId: folderB })).record
+        .acceptedDispatchSnapshot?.executionContext
+    ).toMatchObject({
+      folderId: folderB,
+      forkSource: { folderId: folderA },
+    });
+    // Resuming keeps the Session's folder; changing it needs a new task.
+    expect(
+      (await plan({ mode: "resume", sourceWakeId })).record
+        .acceptedDispatchSnapshot?.executionContext?.folderId
+    ).toBe(folderA);
+    await expect(plan({ mode: "auto", folderId: folderB })).rejects.toThrow(
+      "folder_changed_requires_new_task"
+    );
+    await expect(
+      plan({ mode: "new", access: "space_context", folderId: folderB })
+    ).rejects.toThrow("folder_requires_workspace_access");
   });
 
   it.each([

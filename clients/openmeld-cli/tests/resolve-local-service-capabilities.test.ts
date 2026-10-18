@@ -50,7 +50,7 @@ describe("resolve local service capabilities", () => {
           adapterId: "codex",
           capabilityDeclaration: {
             continuationCapability: "standard",
-            executionContextVersion: 5,
+            executionContextVersion: 6,
             executionContextPermissionInheritance: true,
             imageInputCapability: "local_file_path",
             preparationRequirement: "none",

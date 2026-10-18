@@ -8,6 +8,8 @@ import type { CoreBindings } from "../../lib/bindings";
 import { readActiveRepresentedHumanSender } from "../../remote-agent/application/turn-envelope";
 
 export async function buildAcceptedDispatchSnapshot(input: {
+  /** The message's selection after Core policy, such as folder stripping. */
+  contextSelection?: OpenMeldDaemonDispatchQueueMessage["contextSelection"];
   message: OpenMeldDaemonDispatchQueueMessage;
   openMeldServiceRuntimeId?: string | null;
   runtimeKind?:
@@ -51,9 +53,10 @@ export async function buildAcceptedDispatchSnapshot(input: {
               targetProfileId: input.message.targetProfileId,
               threadId: input.message.threadContext?.threadId ?? null,
             },
-            selection: input.message.contextSelection ?? {
-              mode: "auto" as const,
-            },
+            selection: input.contextSelection ??
+              input.message.contextSelection ?? {
+                mode: "auto" as const,
+              },
           },
         }
       : {}),
@@ -195,4 +198,81 @@ function stableJson(value: unknown): string {
     .sort()
     .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
     .join(",")}}`;
+}
+
+/**
+ * The requester whose ownership decides whether a folder choice is kept.
+ * Phase 2 of the MemberAgent program uses the one-hop requester, the message
+ * author. Phase 3 switches this to the request chain's root requester.
+ */
+export function resolveFolderSelectionRequesterProfileId(
+  message: OpenMeldDaemonDispatchQueueMessage
+): string | null {
+  return message.sourceSignalSnapshot?.profileId ?? null;
+}
+
+/**
+ * Only the Profile owner chooses a folder; everyone else uses the default.
+ * A folder id from anyone else is removed, never rejected, so the work still
+ * runs in the default folder. Missing ownership evidence removes it too.
+ */
+export async function applyFolderSelectionPolicy(input: {
+  env?: CoreBindings;
+  message: OpenMeldDaemonDispatchQueueMessage;
+  readRequesterOwnerUserId?: typeof readActiveProfileOwnerUserId;
+  targetOwnerUserId: string;
+}): Promise<OpenMeldDaemonDispatchQueueMessage["contextSelection"]> {
+  const selection = input.message.contextSelection;
+  if (!selection || selection.mode === "resume" || !selection.folderId) {
+    return selection;
+  }
+  const requesterProfileId = resolveFolderSelectionRequesterProfileId(
+    input.message
+  );
+  const organizationId = input.message.organizationId;
+  let ownerUserId: string | null = null;
+  if (requesterProfileId && organizationId) {
+    try {
+      ownerUserId = await (
+        input.readRequesterOwnerUserId ?? readActiveProfileOwnerUserId
+      )({
+        env: input.env,
+        organizationId,
+        profileId: requesterProfileId,
+      });
+    } catch (error) {
+      console.warn("[core.dispatch.folder_selection_owner_unverified]", {
+        dispatchId: input.message.dispatchId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  if (ownerUserId === input.targetOwnerUserId) {
+    return selection;
+  }
+  const { folderId: _notOwner, ...withoutFolder } = selection;
+  return withoutFolder;
+}
+
+async function readActiveProfileOwnerUserId(input: {
+  env?: CoreBindings;
+  organizationId: string;
+  profileId: string;
+}): Promise<string | null> {
+  const db = input.env ? getPostgresDatabase(input.env) : null;
+  if (!db) {
+    return null;
+  }
+  const result = await db.query<{ owner_user_id: string | null }>({
+    text: `
+      SELECT owner_user_id
+      FROM "openmeld"."openmeld_profiles"
+      WHERE profile_id = $1
+        AND organization_id = $2
+        AND status = 'active'
+      LIMIT 1
+    `,
+    values: [input.profileId, input.organizationId],
+  });
+  return result.rows[0]?.owner_user_id ?? null;
 }

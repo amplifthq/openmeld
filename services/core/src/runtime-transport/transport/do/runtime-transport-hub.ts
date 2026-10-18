@@ -1573,7 +1573,13 @@ function parseStoredAutomaticToolsUpdateUnavailableRetry(
 
 function requiredExecutionContextVersion(
   record: RuntimeCoordinatorHeadLifecycleRecord
-): 2 | 3 | 4 | 5 {
+): 2 | 3 | 4 | 5 | 6 {
+  // A selected folder needs a Service that resolves folder ids; an older one
+  // would otherwise run in its default folder.
+  const executionContext = record.acceptedDispatchSnapshot?.executionContext;
+  if (executionContext?.folderId || executionContext?.forkSource?.folderId) {
+    return 6;
+  }
   if (
     record.acceptedDispatchSnapshot?.executionContext?.projectWork?.commit ||
     record.acceptedDispatchSnapshot?.workHandoffVersion === 2
@@ -2661,7 +2667,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ownerUserId: string;
     targetProfileId: string;
     agentControllerRef: string;
-    requiredContextVersion?: 2 | 3 | 4 | 5;
+    requiredContextVersion?: 2 | 3 | 4 | 5 | 6;
     requirePermissionInheritance?: boolean;
   }): string | null {
     const route = lookupRoute(

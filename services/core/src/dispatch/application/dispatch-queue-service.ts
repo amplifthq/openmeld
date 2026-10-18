@@ -136,6 +136,7 @@ import {
 } from "../rules/replying-hint-lifecycle";
 import {
   applyAcceptedDispatchSnapshotToMessage,
+  applyFolderSelectionPolicy,
   buildAcceptedDispatchSnapshot,
 } from "./accepted-dispatch-snapshot";
 import { emitDispatchActivitySignal } from "./dispatch-activity-signal";
@@ -1982,6 +1983,11 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
     return { status: "skip_duplicate" };
   }
   const acceptedDispatchSnapshot = await buildAcceptedDispatchSnapshot({
+    contextSelection: await applyFolderSelectionPolicy({
+      env: input.env,
+      message: input.dispatchMessage,
+      targetOwnerUserId: input.targetOwnerUserId,
+    }),
     message: input.dispatchMessage,
     openMeldServiceRuntimeId: input.openMeldServiceRuntimeId,
     runtimeKind: input.runtimeKind,

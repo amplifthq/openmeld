@@ -1309,6 +1309,11 @@ function assertDaemonRouteExecutionContextCapable(input: {
   )?.id;
   let requiredExecutionContextVersion = 1;
   if (
+    input.message.executionContext.folderId ||
+    input.message.executionContext.forkSource?.folderId
+  ) {
+    requiredExecutionContextVersion = 6;
+  } else if (
     input.message.executionContext.projectWork?.commit ||
     input.message.sourceSignalSnapshot?.workHandoff?.schemaVersion === 2
   ) {
@@ -3490,8 +3495,10 @@ function canAdmitContextWithUnavailableDefaultFolder(input: {
   if (
     !(
       (input.message.executionContext?.projectWork ||
+        input.message.executionContext?.folderId ||
         input.message.executionContext?.access === "space_context" ||
         (selection?.mode === "new" && selection.projectWork) ||
+        (selection?.mode === "new" && selection.folderId) ||
         (selection?.mode === "new" && selection.access === "space_context") ||
         selection?.mode === "resume" ||
         selection?.mode === "fork") &&
