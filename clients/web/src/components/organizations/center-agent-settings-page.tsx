@@ -70,7 +70,10 @@ import {
 	organizationQueryKeys,
 } from "#/query/organizations/organization-directory";
 import { organizationDocumentsQueryOptions } from "#/query/organizations/organization-documents";
-import { applySavedAgentAvatarProfile } from "#/query/profiles/agent-avatar";
+import {
+	applySavedAgentAvatarProfile,
+	centerAgentAvatarMutationKey,
+} from "#/query/profiles/agent-avatar";
 import { useAgentAvatarInvalidationScope } from "#/query/profiles/agent-avatar-context";
 import { CenterAgentAuditJournalPanel } from "./center-agent-audit-journal-panel";
 import { CenterAgentModelSection } from "./center-agent-model-section";
@@ -330,6 +333,10 @@ export function CenterAgentSettingsContent(input: {
 		},
 	});
 	const updateProfileMutation = useMutation({
+		mutationKey: centerAgentAvatarMutationKey(
+			input.organizationId,
+			designation?.agentProfileId ?? ""
+		),
 		mutationFn: async (variables: CenterAgentUpdateProfileBody) =>
 			await updateCurrentCenterAgentProfile({
 				organizationId: input.organizationId,

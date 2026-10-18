@@ -542,7 +542,11 @@ The app shell provides one read of the existing Organization
 Profile Directory to every avatar entrance. Saved preferences are applied to
 loaded profile caches and invalidated after a successful save. Idle and read-only
 editors use the same saved Profile; only an unsaved user selection is a preview.
-Failed saves discard that preview and return to the current saved identity.
+Center Agent's welcome area also uses this Profile avatar instead of the brand
+logo, with the shared playful click animation and nearby pointer tracking.
+After Save, shell avatars derive an optimistic view from the pending
+Organization/Profile-scoped mutation; the confirmed directory cache stays intact.
+Failed saves remove that pending view and return to the current saved identity.
 Successful saves also send an account/Organization/Profile-scoped browser refresh
 hint. Other tabs re-read their own authorized directory; the hint carries no
 avatar data and does not add directories to browser persistence. Model saves
@@ -569,9 +573,11 @@ The Website demo
 starts with Original to match the hero; the product keeps its existing Soft default.
 The regular renderer includes an SVG first frame using the vendor's shape and
 face placement in server HTML, then replaces it with the rendered canvas on mount.
-Space/sidebar avatars play one small hop on an explicit click without following
-the pointer; popover opening and navigation still belong to their existing
-controls. Profile popovers use the shared Bot's explicit `playful` interaction:
+Space avatars play one small hop on an explicit click. Center Agent sidebar
+avatars use the shared Bot's `pointer` interaction: nearby mouse tracking with
+no click motion, while real working state keeps its animation. Popover opening
+and navigation still belong to their existing controls. Profile popovers use
+the shared Bot's explicit `playful` interaction:
 natural idle gaze, fine-pointer following, and the library's full click spin.
 Avatar editors use the same simulation and rendering path, with saved identity
 and draft identity remaining separate. The Team Center Agent card has a

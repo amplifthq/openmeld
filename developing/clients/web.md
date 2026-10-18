@@ -412,7 +412,8 @@ Conversation rows leave the preview blank when no message exists, preserving its
 line height so titles and action controls stay aligned. Preview text
 is quieter than the title: dark mode slightly reduces its muted color opacity;
 light mode preserves readable preview contrast and slightly strengthens the
-unselected title instead. Selected and unread titles retain foreground emphasis.
+unselected title instead. Selection uses the row background without changing
+title size or weight, including pinned tiles. Only unread titles use heavier type.
 
 Pinned contains ordinary Spaces, human and Agent direct messages, and Center
 Agent sessions once each. Its shared manual order uses the existing root
@@ -486,9 +487,9 @@ active, each session is listed on its own row so a title match opens that
 session.
 Rename and archive stay on the session's title dropdown and header, not the
 entry. Archived sessions keep their own rows in the Archived view. The session
-title dropdown shows the entry name as a fixed, visually muted prefix before the
-session title, hidden on narrow screens so the session title keeps the room;
-the heading's accessible name stays the session title. Other
+title dropdown shows only the session title; the sidebar and Center Agent avatar
+provide its identity. The title uses the available header width and truncates
+before the actions. The heading's accessible name stays the session title. Other
 lists that read conversations, such as the command center, keep one row per
 session.
 

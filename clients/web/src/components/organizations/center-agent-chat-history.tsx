@@ -19,7 +19,6 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationCenterAgentChatPath } from "#/lib/organizations/organization-routes";
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 import { centerAgentSessionsQueryOptions } from "#/query/organizations/center-agent-sessions";
-import { centerAgentEntryTitle } from "../spaces/center-agent-sidebar-entry";
 
 export function CenterAgentChatHistory({
 	title,
@@ -84,7 +83,7 @@ export function CenterAgentChatHistory({
 		<h1
 			className={cn(
 				buttonVariants({ variant: "ghost" }),
-				"group/chat-title relative ml-[var(--space-title-control-inline-offset,0px)] h-auto min-w-0 max-w-[28rem] shrink gap-0 rounded-full border-0 p-0 text-lg transition-none hover:shadow-sm",
+				"group/chat-title relative ml-[var(--space-title-control-inline-offset,0px)] h-auto min-w-0 max-w-full shrink gap-0 rounded-full border-0 p-0 text-lg transition-none hover:shadow-sm",
 				open && "bg-muted shadow-sm"
 			)}
 		>
@@ -104,18 +103,6 @@ export function CenterAgentChatHistory({
 						className="flex min-w-0 items-center rounded-full px-2 py-1 text-lg outline-none focus-visible:ring-1 focus-visible:ring-ring/50 disabled:opacity-50"
 						disabled={disabled}
 					>
-						{/* Every session sits under the same sidebar entry, so the entry name
-						    stays fixed and the heading keeps naming this session. */}
-						<span
-							aria-hidden="true"
-							className="hidden min-w-0 max-w-[50%] shrink text-muted-foreground sm:flex"
-							data-testid="center-agent-entry-title"
-						>
-							<span className="truncate">
-								{centerAgentEntryTitle(defaultHumanProfile?.profileName)}
-							</span>
-							<span className="shrink-0 px-1.5">/</span>
-						</span>
 						<span className="truncate">{title}</span>
 						<CaretDownIcon
 							aria-hidden="true"

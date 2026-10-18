@@ -289,7 +289,7 @@ const ConversationSidebarRowContent = memo(
 					isActive={input.selected}
 				>
 					<div
-						className={`relative flex w-full min-w-0 items-center ${pinned ? "min-h-22 flex-col justify-center gap-1.5 px-1 py-2 text-xs" : "min-h-12 gap-1 px-1 py-1.5 text-sm"} ${input.selected ? "font-medium text-sidebar-accent-foreground" : "text-muted-foreground"}`}
+						className={`relative flex w-full min-w-0 items-center ${pinned ? "min-h-22 flex-col justify-center gap-1.5 px-1 py-2 text-xs" : "min-h-12 gap-1 px-1 py-1.5 text-sm"} ${input.selected ? "text-sidebar-accent-foreground" : "text-muted-foreground"}`}
 						ref={rowAnchor}
 					>
 						<Tooltip>
@@ -339,7 +339,7 @@ const ConversationSidebarRowContent = memo(
 								>
 									<span className="flex min-w-0 flex-1 items-center gap-1.5">
 										<span
-											className={`min-w-0 flex-1 text-foreground ${pinned ? "line-clamp-2 break-words leading-4" : "truncate"} ${hasUnread ? "font-semibold" : ""}`}
+											className={`min-w-0 flex-1 text-foreground ${pinned ? "line-clamp-2 break-words leading-4" : "truncate"} ${hasUnread ? "font-semibold" : "font-normal"}`}
 											data-conversation-title="true"
 										>
 											{input.title}
@@ -642,6 +642,7 @@ function ConversationIcon(input: {
 		return (
 			<ChatIcon
 				chat={input.conversation.chat}
+				pointerOnly
 				size={input.pinned ? "pinned" : "sidebar"}
 				summary={input.summary}
 				title={input.title}
@@ -679,6 +680,7 @@ export function resolvePreviewText(
 }
 
 export function ChatIcon(input: {
+	pointerOnly?: boolean;
 	chat: Chat;
 	title: string;
 	size?: "sm" | "sidebar" | "card" | "md" | "pinned";
@@ -688,6 +690,7 @@ export function ChatIcon(input: {
 		return (
 			<CenterAgentChatAvatar
 				avatarStyle={input.chat.centerAgentAvatarStyle}
+				botInteraction={input.pointerOnly ? "pointer" : undefined}
 				profileId={input.chat.centerAgentProfileId}
 				profileName={input.chat.centerAgentProfileName}
 				size={
