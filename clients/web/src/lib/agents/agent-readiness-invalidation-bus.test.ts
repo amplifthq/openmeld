@@ -2,6 +2,7 @@ import { BroadcastChannel as NativeBroadcastChannel } from "node:worker_threads"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	publishAgentReadinessInvalidationFrame,
+	publishAgentReadinessRecovery,
 	subscribeAgentReadinessInvalidations,
 } from "./agent-readiness-invalidation-bus";
 
@@ -77,6 +78,7 @@ describe("agent readiness invalidation bus", () => {
 				...scope,
 				agentProfileIds: ["agt_1", "agt_2"],
 				reason: "route_changed",
+				refreshAll: false,
 				spaceId: "space_1",
 				version: 7,
 			},
@@ -105,6 +107,54 @@ describe("agent readiness invalidation bus", () => {
 
 		expect(received).toEqual([]);
 
+		unsubscribe();
+	});
+
+	it("delivers a scoped reconnect recovery to every listener regardless of Space version", () => {
+		vi.stubGlobal("BroadcastChannel", undefined);
+		const received: unknown[] = [];
+		const unsubscribe = subscribeAgentReadinessInvalidations((message) => {
+			received.push(message);
+		}, scope);
+		publishAgentReadinessInvalidationFrame(
+			{
+				agentProfileIds: ["agt_1"],
+				spaceId: "space_1",
+				type: "agent.readiness.invalidated",
+				version: 7,
+			},
+			scope
+		);
+		received.length = 0;
+
+		const recover = (recoveryScope = scope) =>
+			publishAgentReadinessRecovery({
+				...recoveryScope,
+				reason: "space.live.reconnected",
+				spaceId: "space_1",
+			});
+		recover({ ...scope, organizationId: "other-org" });
+		recover();
+		recover();
+
+		expect(received).toEqual([
+			{
+				...scope,
+				agentProfileIds: [],
+				reason: "space.live.reconnected",
+				refreshAll: true,
+				spaceId: "space_1",
+				version: 0,
+			},
+			{
+				...scope,
+				agentProfileIds: [],
+				reason: "space.live.reconnected",
+				refreshAll: true,
+				spaceId: "space_1",
+				version: 0,
+			},
+		]);
 		unsubscribe();
 	});
 });

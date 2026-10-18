@@ -7,7 +7,7 @@ import type {
   SpaceInvitationRpcInput,
   SpaceInvitationRpcResult,
 } from "@openmeld/schemas";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import { organizationJoinRequest } from "../src/organizations/organization-join-requests";
 import { spaceInvitation } from "../src/organizations/space-invitations";
@@ -322,6 +322,7 @@ describe("Organization Space self-join", () => {
     const loggedErrors = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
+    onTestFinished(() => loggedErrors.mockRestore());
     const ownerInvalidation = waitForJsonMessage(
       ownerSocket,
       (message) => message.type === "space.meta.changed",

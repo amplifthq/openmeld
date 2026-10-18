@@ -22,7 +22,10 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { publishAgentReadinessInvalidationFrame } from "#/lib/agents/agent-readiness-invalidation-bus";
+import {
+	publishAgentReadinessInvalidationFrame,
+	publishAgentReadinessRecovery,
+} from "#/lib/agents/agent-readiness-invalidation-bus";
 import { recordReactUpdate } from "#/lib/observability/react-update-trace";
 import {
 	parseSpaceLiveMessage,
@@ -1498,6 +1501,13 @@ function refreshLiveInvalidatedSnapshotsAfterReconnect(
 		}).catch((error: unknown) =>
 			console.warn("Failed to refresh Agent readiness after reconnect.", error)
 		);
+		// Other tabs learn about readiness only through the shared bus.
+		publishAgentReadinessRecovery({
+			organizationId: input.readinessScope.organizationId,
+			reason: LIVE_RECONNECT_REFRESH_REASON,
+			spaceId: input.spaceId,
+			storageScope: input.readinessScope.storageScope,
+		});
 	}
 }
 

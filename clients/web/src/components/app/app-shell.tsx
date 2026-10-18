@@ -147,12 +147,17 @@ function AppReadinessInvalidationListener(input: {
 }) {
 	const queryClient = useQueryClient();
 	const pendingProfileIdsRef = useRef(new Set<string>());
+	const pendingRefreshAllRef = useRef(false);
 	const refreshTimerRef = useRef<number | null>(null);
 
 	useEffect(() => {
 		const flush = () => {
 			refreshTimerRef.current = null;
-			const agentProfileIds = [...pendingProfileIdsRef.current];
+			// No Agent Profile IDs refreshes every shared readiness projection.
+			const agentProfileIds = pendingRefreshAllRef.current
+				? []
+				: [...pendingProfileIdsRef.current];
+			pendingRefreshAllRef.current = false;
 			pendingProfileIdsRef.current.clear();
 			refreshWebAgentReadinessSharedCaches({
 				agentProfileIds,
@@ -170,6 +175,9 @@ function AppReadinessInvalidationListener(input: {
 		};
 		const unsubscribe = subscribeAgentReadinessInvalidations(
 			(message) => {
+				if (message.refreshAll) {
+					pendingRefreshAllRef.current = true;
+				}
 				for (const agentProfileId of message.agentProfileIds) {
 					pendingProfileIdsRef.current.add(agentProfileId);
 				}
@@ -187,6 +195,7 @@ function AppReadinessInvalidationListener(input: {
 				refreshTimerRef.current = null;
 			}
 			pendingProfileIdsRef.current.clear();
+			pendingRefreshAllRef.current = false;
 		};
 	}, [input.organizationId, input.storageScope, queryClient]);
 

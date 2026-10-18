@@ -1387,6 +1387,12 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 	});
 
 	it("re-reads mounted Tasks, files, readiness, and chat titles after an accepted reconnect", async () => {
+		vi.stubGlobal("BroadcastChannel", undefined);
+		const onAgentReadinessInvalidated = vi.fn();
+		const unsubscribeReadiness = subscribeAgentReadinessInvalidations(
+			onAgentReadinessInvalidated,
+			{ organizationId: "org-1", storageScope: "account-1" }
+		);
 		const { queryClient } = renderFeed();
 		await openLatestSocket();
 		let version = 1;
@@ -1457,6 +1463,16 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		expect(mounted.result.current.chatTitles.data).toBe("titles-v2");
 		expect(readReadiness).toHaveBeenCalledTimes(2);
 		expect(readChatTitles).toHaveBeenCalledTimes(2);
+		// Other tabs learn about readiness only through the shared bus.
+		expect(onAgentReadinessInvalidated).toHaveBeenCalledWith(
+			expect.objectContaining({
+				agentProfileIds: [],
+				reason: "space.live.reconnected",
+				refreshAll: true,
+				spaceId: "space-123",
+			})
+		);
+		unsubscribeReadiness();
 	});
 
 	it.each([
