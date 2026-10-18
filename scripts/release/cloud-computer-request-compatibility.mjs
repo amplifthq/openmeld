@@ -1,7 +1,7 @@
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 // biome-ignore lint/performance/noNamespaceImport: Node-only inspection uses the installed TypeScript parser.
-import * as ts from "typescript";
+import * as ts from "@typescript/typescript6";
 import { parseDocument } from "yaml";
 
 const SCHEMA = "packages/schemas/src/schemas/runtime/cloud-computer.ts";

@@ -17,7 +17,7 @@ import {
   ScriptKind,
   ScriptTarget,
   SyntaxKind,
-} from "typescript";
+} from "@typescript/typescript6";
 import { parseDocument } from "yaml";
 
 const CORE_INDEX = "services/core/src/index.ts";

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import ts from "typescript";
+import ts from "@typescript/typescript6";
 
 const WORKER_RUNTIME_ROOTS = [
   "packages/schemas/src",

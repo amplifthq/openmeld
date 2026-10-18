@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 // biome-ignore lint/performance/noNamespaceImport: This Node-only validator calls the installed TypeScript syntax API.
-import * as ts from "typescript";
+import * as ts from "@typescript/typescript6";
 import { parseDocument } from "yaml";
 import { parseUnambiguousConfig } from "./remote-ai-usage-compatibility.mjs";
 

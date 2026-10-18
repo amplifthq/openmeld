@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
-import { parseConfigFileTextToJson } from "typescript";
+import { parseConfigFileTextToJson } from "@typescript/typescript6";
 import { compareGitPathContents } from "./production-release-status.mjs";
 import { compareRemoteAiUsageReceiver } from "./remote-ai-usage-compatibility.mjs";
 

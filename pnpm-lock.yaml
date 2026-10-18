@@ -70,12 +70,15 @@ importers:
 
   .:
     devDependencies:
-      '@biomejs/biome':
+      "@biomejs/biome":
         specifier: 2.3.13
         version: 2.3.13
-      '@larksuiteoapi/node-sdk':
+      "@larksuiteoapi/node-sdk":
         specifier: 1.71.1
         version: 1.71.1
+      "@typescript/typescript6":
+        specifier: 6.0.2
+        version: 6.0.2
       husky:
         specifier: ^9.1.7
         version: 9.1.7
@@ -1137,7 +1140,7 @@ importers:
 
   packages/db:
     dependencies:
-      '@openmeld/schemas':
+      "@openmeld/schemas":
         specifier: workspace:*
         version: link:../schemas
       better-sqlite3:
@@ -1150,15 +1153,18 @@ importers:
         specifier: 8.23.1
         version: 8.23.1
     devDependencies:
-      '@types/better-sqlite3':
+      "@types/better-sqlite3":
         specifier: ^7.6.13
         version: 7.6.13
-      '@types/node':
+      "@types/node":
         specifier: ^24.3.0
         version: 24.10.13
-      '@types/pg':
+      "@types/pg":
         specifier: 8.15.6
         version: 8.15.6
+      "@typescript/typescript6":
+        specifier: 6.0.2
+        version: 6.0.2
       drizzle-kit:
         specifier: ^0.31.9
         version: 0.31.9
@@ -1681,12 +1687,12 @@ importers:
 
   scripts/release:
     dependencies:
-      '@openmeld/schemas':
+      "@openmeld/schemas":
         specifier: workspace:*
         version: link:../../packages/schemas
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
+      "@typescript/typescript6":
+        specifier: 6.0.2
+        version: 6.0.2
       wrangler:
         specifier: 4.147.0
         version: 4.147.0(@cloudflare/workers-types@5.20261001.1)(@types/node@24.10.13)
@@ -15586,6 +15592,21 @@ packages:
 
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
+
+  '@typescript/typescript6@6.0.2':
+    resolution:
+      {
+        integrity: sha512-mbCddXd+jm7hfx7w2YU64/Av4/NqqeG3GoRZgxPcgoTxYjhrcfJRw9ULch71SS4G+Q3bOXFhRvPqjguN0Hyp5w==,
+      }
+    hasBin: true
+
+  typescript@6.0.3:
+    resolution:
+      {
+        integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==,
+      }
+    engines: { node: ">=14.17" }
+    hasBin: true
 
 snapshots:
 
@@ -30749,3 +30770,9 @@ snapshots:
       use-sync-external-store: 1.6.0(react@19.3.1)
 
   zwitch@2.0.4: {}
+
+  '@typescript/typescript6@6.0.2':
+    dependencies:
+      "@typescript/old": typescript@6.0.3
+
+  typescript@6.0.3: {}
