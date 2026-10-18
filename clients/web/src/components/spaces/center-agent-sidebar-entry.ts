@@ -19,7 +19,8 @@ export type CenterAgentSidebarEntries = {
 // The viewer's active private Center Agent sessions share one sidebar entry.
 // Archived sessions keep their own rows so the Archived filter still finds them.
 // The entry is the session it opens: the one with the newest unread message,
-// otherwise the most recently active one. Its id, URL and evidence all agree.
+// otherwise the most recently active one. Its id, URL and evidence all agree;
+// it sorts by the latest activity across its sessions.
 // Saved positions of any of its sessions apply to it (see aliasSpaceIds).
 export function collapseCenterAgentSessions(input: {
 	conversations: readonly Conversation[];
@@ -66,7 +67,11 @@ export function collapseCenterAgentSessions(input: {
 		conversations.push({
 			...entry,
 			title: input.title,
+			activity: Math.max(...sessions.map((session) => session.activity)),
 			sessionSpaceIds: sessionIds,
+			sessionUrlBySpaceId: new Map(
+				sessions.map((session) => [session.spaceId, session.url])
+			),
 		});
 	}
 	return { conversations, entryIdBySessionId };
@@ -117,8 +122,11 @@ export function mergeActiveWakeSummaries(
 		);
 	}
 	const statuses = [...(current.statuses ?? []), ...(next.statuses ?? [])];
+	// The summary keeps the Space (and focus) of the session whose work the
+	// indicator opens: one waiting on the viewer first, otherwise the first.
+	const lead = !awaitsViewer(current) && awaitsViewer(next) ? next : current;
 	return {
-		...current,
+		...lead,
 		activeWakeCount: current.activeWakeCount + next.activeWakeCount,
 		...(current.activeTargets || next.activeTargets
 			? { activeTargets: [...targets.values()] }
@@ -126,6 +134,15 @@ export function mergeActiveWakeSummaries(
 		...(statuses.length > 0 ? { statuses } : {}),
 		...(current.hasMore || next.hasMore ? { hasMore: true } : {}),
 	};
+}
+
+function awaitsViewer(summary: SpaceSidebarActiveWakeSummary): boolean {
+	return (
+		summary.statuses?.some(
+			(status) =>
+				status.kind === "needs_input" || status.kind === "waiting_for_owner"
+		) ?? false
+	);
 }
 
 type SpaceIdSection = { spaceIds: string[] };

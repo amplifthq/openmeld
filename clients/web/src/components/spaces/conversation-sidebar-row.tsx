@@ -391,15 +391,22 @@ function ConversationRowStatus({
 	input: ConversationSidebarRowProps;
 	presentation: SpaceActiveWakePresentation | null;
 }) {
+	// A collapsed Center Agent entry opens the session whose work is shown.
+	const { conversation, activeWakeSummary } = input;
+	const workSpaceId = activeWakeSummary?.spaceId ?? conversation.spaceId;
+	const workUrl =
+		conversation.kind === "direct-message"
+			? conversation.sessionUrlBySpaceId?.get(workSpaceId)
+			: undefined;
 	return presentation ? (
 		<SidebarMenuBadge className="p-0">
 			<ConversationActivityIndicator
-				focusSignalId={input.activeWakeSummary?.focusSignalId}
+				focusSignalId={activeWakeSummary?.focusSignalId}
 				presentation={presentation}
 				profileId={input.profileId}
-				spaceId={input.conversation.spaceId}
+				spaceId={workUrl ? workSpaceId : conversation.spaceId}
 				title={input.title}
-				url={input.url}
+				url={workUrl ?? input.url}
 			/>
 		</SidebarMenuBadge>
 	) : (

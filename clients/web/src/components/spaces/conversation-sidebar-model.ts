@@ -18,6 +18,7 @@ export type Conversation = {
 			preview?: ConversationPreview;
 			/** Present on the single entry that stands for several Center Agent sessions. */
 			sessionSpaceIds?: readonly string[];
+			sessionUrlBySpaceId?: ReadonlyMap<string, string>;
 	  }
 );
 

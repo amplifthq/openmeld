@@ -103,21 +103,34 @@ export function useUpdateUserName() {
 		mutationFn: updateUserName,
 		onMutate: async (name) => {
 			const snapshot = await captureAccountIdentitySnapshot(queryClient);
+			const defaultHumanProfile = findActiveDefaultHumanProfile(
+				snapshot.profiles.flatMap(([, profiles]) => profiles ?? [])
+			);
+			const defaultHumanProfileId = defaultHumanProfile?.openMeldProfileId;
 			setAccountNameIdentityProjection(queryClient, {
 				name,
-				defaultHumanProfileId: findActiveDefaultHumanProfile(
-					snapshot.profiles.flatMap(([, profiles]) => profiles ?? [])
-				)?.openMeldProfileId,
+				defaultHumanProfileId,
 			});
-			return { snapshot };
+			const previousName =
+				snapshot.session?.user.name ?? defaultHumanProfile?.profileName;
+			return {
+				previous:
+					previousName === undefined
+						? undefined
+						: { name: previousName, defaultHumanProfileId },
+			};
 		},
 		onSuccess: (response) =>
 			setAccountNameIdentityProjection(queryClient, {
 				name: response.displayName,
 				defaultHumanProfileId: response.defaultHumanProfile.openMeldProfileId,
 			}),
-		onError: (_error, _name, context) =>
-			restoreAccountIdentitySnapshot(queryClient, context?.snapshot),
+		// Put back only the name, so an avatar change that landed meanwhile stays.
+		onError: (_error, _name, context) => {
+			if (context?.previous) {
+				setAccountNameIdentityProjection(queryClient, context.previous);
+			}
+		},
 		onSettled: async () => await invalidateAccountIdentity(queryClient),
 	});
 }
@@ -372,7 +385,7 @@ type AccountAvatarRemoveContext = {
 };
 
 type AccountNameUpdateContext = {
-	snapshot: AccountIdentitySnapshot;
+	previous: AccountNameIdentityProjection | undefined;
 };
 
 async function captureAccountIdentitySnapshot(

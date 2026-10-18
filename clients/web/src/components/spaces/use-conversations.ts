@@ -148,23 +148,23 @@ export function useConversations(input: {
 						entryIdBySessionId,
 						(current, next) => ({
 							unreadCount: current.unreadCount + next.unreadCount,
+							// An unknown count stays unknown so the badge falls back to the total.
 							messageUnreadCount:
-								(current.messageUnreadCount ?? 0) +
-								(next.messageUnreadCount ?? 0),
+								current.messageUnreadCount === undefined ||
+								next.messageUnreadCount === undefined
+									? undefined
+									: current.messageUnreadCount + next.messageUnreadCount,
 							latestUnreadOccurredAtMs: Math.max(
 								current.latestUnreadOccurredAtMs ?? 0,
 								next.latestUnreadOccurredAtMs ?? 0
 							),
 						})
 					),
-					activeWakeSummaryBySpaceId: new Map(
-						[
-							...mergeBySidebarEntry(
-								rawDirectMessages.indicators.activeWakeSummaryBySpaceId,
-								entryIdBySessionId,
-								mergeActiveWakeSummaries
-							),
-						].map(([id, summary]) => [id, { ...summary, spaceId: id }])
+					// Keyed by entry; each summary keeps the session Space that owns its work.
+					activeWakeSummaryBySpaceId: mergeBySidebarEntry(
+						rawDirectMessages.indicators.activeWakeSummaryBySpaceId,
+						entryIdBySessionId,
+						mergeActiveWakeSummaries
 					),
 				},
 				attentionById: mergeBySidebarEntry(
