@@ -976,7 +976,11 @@ socket reconnect. An exact replay is idempotent: it changes no interaction
 state, and Core asks open Spaces to refresh Wake progress only for a new
 request, an answer, an expiry, or the first replay on a different Service
 connection (daemon session and connection generation). Steady-state heartbeat
-replays on the same connection must not invalidate Space views.
+replays on the same connection must not invalidate Space views. Because the
+connection is recorded before the coalesced Space broadcast runs, a failed
+broadcast is retried a bounded number of times instead of waiting for a later
+replay. A replay that finds the owner's answer saved while it was being
+validated leaves the request answered and does not reopen its Inbox item.
 
 Response acceptance is a RuntimeCoordinator storage transaction. The same
 execution record retains a response fingerprint and acceptance time per

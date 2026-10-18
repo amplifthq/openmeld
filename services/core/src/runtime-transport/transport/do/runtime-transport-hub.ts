@@ -762,6 +762,10 @@ const SERVER_ROUTE_RECONCILIATION_REASON = "server_route_reconciliation";
 // ms, so hundreds of per-space broadcasts pile up. Buffering by reason for a
 // short window collapses each storm into one deduplicated publish per reason.
 const LIVE_INVALIDATION_COALESCE_WINDOW_MS = 200;
+// A Service replay records its connection before the coalesced broadcast
+// runs, so later replays on that connection no longer re-announce. A failed
+// broadcast is retried a few times instead of relying on those replays.
+const WAKE_PROGRESS_INVALIDATION_MAX_ATTEMPTS = 3;
 const AGENT_READINESS_INVALIDATION_DEFAULT_REASON =
   "agent.readiness.invalidated";
 const EXPECTED_ROUTE_RECONCILIATION_READ_CACHE_MAX_AGE_MS = 5 * 60_000;
@@ -1609,6 +1613,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     {
       agentProfileIds: Set<string>;
       clientMessageIds: Set<string>;
+      failedAttempts: number;
     }
   >();
   private readonly expectedRouteReconciliationReadCacheBySessionKey = new Map<
@@ -9558,50 +9563,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return;
     }
     if (existing) {
-      const incomingWithAuthoritativeTimestamps = {
-        ...parsed.data.interaction,
-        expiresAtMs: existing.request.expiresAtMs,
-        requestedAtMs: existing.request.requestedAtMs,
-      };
-      if (
-        existing.request.interactionId !==
-          parsed.data.interaction.interactionId ||
-        !hasSameSerializedValue(
-          existing.request,
-          incomingWithAuthoritativeTimestamps
-        )
-      ) {
-        this.sendErrorFrame(webSocket, {
-          code: "schema.invalid",
-          message: "another local agent interaction is already pending",
-        });
-        return;
-      }
-      if (existing.response && existing.respondedAtMs !== null) {
-        await this.tryResolveRuntimeCoordinatorInteractionInboxItem({
-          commandState: authority.commandState,
-          interaction: existing.request,
-          resolvedAtMs: existing.respondedAtMs,
-        });
-        this.sendRuntimeCoordinatorInteractionResponse({
-          commandState: authority.commandState,
-          interactionId: existing.request.interactionId,
-          respondedAtMs: existing.respondedAtMs,
-          response: existing.response,
-          webSocket,
-        });
-      } else {
-        await this.announceRuntimeCoordinatorInteractionReplayOnNewConnection({
-          commandState: authority.commandState,
-          pending: existing,
-          request: parsed.data,
-        });
-        await this.tryProjectRuntimeCoordinatorInteractionInboxItem({
-          commandState: authority.commandState,
-          interaction: existing.request,
-          nowMs,
-        });
-      }
+      await this.handleReplayedDispatchInteractionRequest({
+        commandState: authority.commandState,
+        existing,
+        nowMs,
+        request: parsed.data,
+        webSocket,
+      });
       return;
     }
     const interaction = {
@@ -9702,29 +9670,95 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   // The Service replays an unanswered request on every heartbeat. Only a
   // replay on a new connection re-announces it, so an open Space that missed
   // the first notice recovers without refetching on every heartbeat.
+  private async handleReplayedDispatchInteractionRequest(input: {
+    commandState: RuntimeCoordinatorRunCommandState;
+    existing: RuntimeCoordinatorPendingAgentInteractionState;
+    nowMs: number;
+    request: RuntimeTransportDispatchInteractionRequest;
+    webSocket: WebSocket;
+  }): Promise<void> {
+    const incomingWithAuthoritativeTimestamps = {
+      ...input.request.interaction,
+      expiresAtMs: input.existing.request.expiresAtMs,
+      requestedAtMs: input.existing.request.requestedAtMs,
+    };
+    if (
+      input.existing.request.interactionId !==
+        input.request.interaction.interactionId ||
+      !hasSameSerializedValue(
+        input.existing.request,
+        incomingWithAuthoritativeTimestamps
+      )
+    ) {
+      this.sendErrorFrame(input.webSocket, {
+        code: "schema.invalid",
+        message: "another local agent interaction is already pending",
+      });
+      return;
+    }
+    if (input.existing.response && input.existing.respondedAtMs !== null) {
+      await this.tryResolveRuntimeCoordinatorInteractionInboxItem({
+        commandState: input.commandState,
+        interaction: input.existing.request,
+        resolvedAtMs: input.existing.respondedAtMs,
+      });
+      this.sendRuntimeCoordinatorInteractionResponse({
+        commandState: input.commandState,
+        interactionId: input.existing.request.interactionId,
+        respondedAtMs: input.existing.respondedAtMs,
+        response: input.existing.response,
+        webSocket: input.webSocket,
+      });
+    } else {
+      const replay =
+        await this.announceRuntimeCoordinatorInteractionReplayOnNewConnection({
+          commandState: input.commandState,
+          pending: input.existing,
+          request: input.request,
+        });
+      // An answer saved during validation already resolved the Inbox item;
+      // projecting the earlier snapshot would reopen it.
+      if (replay !== "answered") {
+        await this.tryProjectRuntimeCoordinatorInteractionInboxItem({
+          commandState: input.commandState,
+          interaction: input.existing.request,
+          nowMs: input.nowMs,
+        });
+      }
+    }
+  }
   private async announceRuntimeCoordinatorInteractionReplayOnNewConnection(input: {
     commandState: RuntimeCoordinatorRunCommandState;
     pending: RuntimeCoordinatorPendingAgentInteractionState;
     request: RuntimeTransportDispatchInteractionRequest;
-  }): Promise<void> {
+  }): Promise<"announced" | "answered" | "unchanged"> {
     const previous = input.pending.requestConnection;
     if (
       previous?.daemonSessionId === input.request.daemonSessionId &&
       previous.connectionGeneration === input.request.connectionGeneration
     ) {
-      return;
+      return "unchanged";
     }
     // Frame authority was read before async token validation, and an owner
     // answer can land in between. Re-read inside the write so a replay only
     // adds its connection to the same still-unanswered request and never
     // replaces a saved answer with the earlier snapshot.
-    const announced = await this.ctx.storage.transaction(
-      async (transaction) => {
+    const outcome = await this.ctx.storage.transaction(
+      async (transaction): Promise<"announced" | "answered" | "unchanged"> => {
         const current = await readRuntimeCoordinatorRunCommandStateFromStorage(
           transaction,
           input.commandState.runtimeCoordinatorExecutionId
         );
         const currentPending = current?.pendingInteraction ?? null;
+        if (
+          !(current && currentPending) ||
+          current.activeRunId !== input.commandState.activeRunId ||
+          currentPending.request.interactionId !==
+            input.pending.request.interactionId ||
+          currentPending.response !== null
+        ) {
+          return "answered";
+        }
         // A replay validated while the Service reconnected belongs to a
         // superseded connection; it must not move the marker backward.
         const liveSession = this.state.sessionsById.get(
@@ -9735,22 +9769,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           liveSession?.connectionGeneration !==
             input.request.connectionGeneration ||
           (recorded?.daemonSessionId === input.request.daemonSessionId &&
-            recorded.connectionGeneration > input.request.connectionGeneration)
-        ) {
-          return false;
-        }
-        if (
-          !(current && currentPending) ||
-          current.activeRunId !== input.commandState.activeRunId ||
-          currentPending.request.interactionId !==
-            input.pending.request.interactionId ||
-          currentPending.response !== null ||
-          (currentPending.requestConnection?.daemonSessionId ===
-            input.request.daemonSessionId &&
-            currentPending.requestConnection.connectionGeneration ===
+            recorded.connectionGeneration >
+              input.request.connectionGeneration) ||
+          (recorded?.daemonSessionId === input.request.daemonSessionId &&
+            recorded.connectionGeneration ===
               input.request.connectionGeneration)
         ) {
-          return false;
+          return "unchanged";
         }
         await writeRuntimeCoordinatorRunCommandStateInTransaction(transaction, {
           ...current,
@@ -9762,17 +9787,17 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
             },
           },
         });
-        return true;
+        return "announced";
       }
     );
-    if (!announced) {
-      return;
+    if (outcome === "announced") {
+      this.publishWakeProgressChanged({
+        agentProfileId: input.commandState.targetProfileId,
+        clientMessageId: input.commandState.sourceClientMessageId,
+        spaceId: input.commandState.sanitizedDeliveryRequest.payload.spaceId,
+      });
     }
-    this.publishWakeProgressChanged({
-      agentProfileId: input.commandState.targetProfileId,
-      clientMessageId: input.commandState.sourceClientMessageId,
-      spaceId: input.commandState.sanitizedDeliveryRequest.payload.spaceId,
-    });
+    return outcome;
   }
   private async handleDispatchInteractionDeliveredFrame(
     webSocket: WebSocket,
@@ -18775,6 +18800,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ) ?? {
       agentProfileIds: new Set<string>(),
       clientMessageIds: new Set<string>(),
+      failedAttempts: 0,
     };
     if (agentProfileId) {
       pending.agentProfileIds.add(agentProfileId);
@@ -18783,6 +18809,31 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       pending.clientMessageIds.add(clientMessageId);
     }
     this.pendingWakeProgressInvalidationsBySpaceId.set(spaceId, pending);
+    this.scheduleLiveInvalidationFlush();
+  }
+  private requeueWakeProgressInvalidation(
+    spaceId: string,
+    failed: {
+      agentProfileIds: Set<string>;
+      clientMessageIds: Set<string>;
+      failedAttempts: number;
+    }
+  ): void {
+    const pending = this.pendingWakeProgressInvalidationsBySpaceId.get(spaceId);
+    if (pending) {
+      for (const agentProfileId of failed.agentProfileIds) {
+        pending.agentProfileIds.add(agentProfileId);
+      }
+      for (const clientMessageId of failed.clientMessageIds) {
+        pending.clientMessageIds.add(clientMessageId);
+      }
+      pending.failedAttempts = Math.max(
+        pending.failedAttempts,
+        failed.failedAttempts
+      );
+    } else {
+      this.pendingWakeProgressInvalidationsBySpaceId.set(spaceId, failed);
+    }
     this.scheduleLiveInvalidationFlush();
   }
   private async flushWakeProgressInvalidations(): Promise<void> {
@@ -18804,10 +18855,21 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
             spaceId,
           });
         } catch (error) {
+          const failedAttempts = targets.failedAttempts + 1;
+          const willRetry =
+            failedAttempts < WAKE_PROGRESS_INVALIDATION_MAX_ATTEMPTS;
+          if (willRetry) {
+            this.requeueWakeProgressInvalidation(spaceId, {
+              ...targets,
+              failedAttempts,
+            });
+          }
           console.warn("[core.wake_progress.invalidation_failed]", {
             error: error instanceof Error ? error.message : String(error),
+            failedAttempts,
             reasonCode: "wake.progress.invalidation_failed",
             spaceId,
+            willRetry,
           });
         }
       })

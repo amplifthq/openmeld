@@ -17669,6 +17669,137 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
   });
 
+  it("does not reopen the Inbox item for an answer saved during a reconnect replay", async () => {
+    const {
+      hub,
+      recordingPostgres,
+      sentFrames,
+      socket,
+      state,
+      waitUntilTasks,
+    } = await createHarness({ interactionInboxWriteFailures: 1 });
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    enableLocalAgentInteraction(state);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const requestFrameHub = hub as unknown as {
+      handleDispatchInteractionRequestFrame: (
+        webSocket: WebSocket,
+        payload: unknown
+      ) => Promise<void>;
+      validateRuntimeCoordinatorProgressToken: (
+        input: unknown
+      ) => Promise<unknown>;
+    };
+    // The first Inbox write fails, so no Inbox row exists yet.
+    await requestFrameHub.handleDispatchInteractionRequestFrame(
+      socket,
+      buildInteractionRequest(executionToken)
+    );
+    await Promise.all(waitUntilTasks);
+    expect(await recordingPostgres.interactionInboxRows.size()).toBe(0);
+
+    const session = state.sessionsById.get("daemon-session-1");
+    if (!session) {
+      throw new Error("Expected live daemon session.");
+    }
+    session.connectionGeneration = 2;
+    const validate =
+      requestFrameHub.validateRuntimeCoordinatorProgressToken.bind(hub);
+    let answered = false;
+    requestFrameHub.validateRuntimeCoordinatorProgressToken = async (input) => {
+      const result = await validate(input);
+      if (!answered) {
+        answered = true;
+        const response = await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/interaction/respond",
+          {
+            actorOwnerUserId: "owner-1",
+            interactionId: "interaction-1",
+            response: { kind: "permission", optionId: "allow-once" },
+            runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+            v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+          }
+        );
+        expect(response.status).toBe(200);
+      }
+      return result;
+    };
+    await requestFrameHub.handleDispatchInteractionRequestFrame(
+      socket,
+      buildInteractionRequest(executionToken, { connectionGeneration: 2 })
+    );
+    await Promise.all(waitUntilTasks);
+
+    expect([
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ]).not.toContainEqual(
+      expect.objectContaining({ resolution_status: "open" })
+    );
+  });
+
+  it("retries a failed Wake progress broadcast for a reconnect replay", async () => {
+    const { hub, sentFrames, socket, spaceStub, state, waitUntilTasks } =
+      await createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    enableLocalAgentInteraction(state);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const send = async (connectionGeneration: number) => {
+      await (
+        hub as unknown as {
+          handleDispatchInteractionRequestFrame: (
+            webSocket: WebSocket,
+            payload: unknown
+          ) => Promise<void>;
+        }
+      ).handleDispatchInteractionRequestFrame(
+        socket,
+        buildInteractionRequest(executionToken, { connectionGeneration })
+      );
+    };
+    const settleWaitUntil = async () => {
+      let settled = 0;
+      while (settled < waitUntilTasks.length) {
+        settled = waitUntilTasks.length;
+        await Promise.all(waitUntilTasks);
+      }
+    };
+    await send(1);
+    await settleWaitUntil();
+    const session = state.sessionsById.get("daemon-session-1");
+    if (!session) {
+      throw new Error("Expected live daemon session.");
+    }
+    session.connectionGeneration = 2;
+    spaceStub.rpcBroadcastWakeProgressChanged.mockClear();
+    spaceStub.rpcBroadcastWakeProgressChanged.mockRejectedValueOnce(
+      new Error("Space unavailable")
+    );
+    await send(2);
+    await settleWaitUntil();
+    // The replay recorded its connection, so the next heartbeat on it does
+    // not re-announce; the failed broadcast itself is retried instead.
+    await send(2);
+    await settleWaitUntil();
+    expect(spaceStub.rpcBroadcastWakeProgressChanged).toHaveBeenCalledTimes(2);
+    expect(spaceStub.rpcBroadcastWakeProgressChanged).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        agentProfileIds: [TARGET_AGENT_PROFILE_ID],
+        spaceId: HEX_SPACE_ID,
+      })
+    );
+  });
+
   it("keeps the pending interaction authoritative when Inbox creation fails", async () => {
     const {
       hub,
