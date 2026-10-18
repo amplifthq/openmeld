@@ -125,59 +125,56 @@ describe("local service process inventory", () => {
   });
 
   it("claims the repo-local service named by this custom OPENMELD_HOME runtime lease", async () => {
-    const home = await mkdtemp(join(tmpdir(), "openmeld-leased-lane-"));
-    try {
-      const pathInput = {
-        env: {
-          ...process.env,
-          OPENMELD_ENV_PRESET: "dev-local",
-          OPENMELD_HOME: home,
-        },
-      };
-      const now = new Date().toISOString();
-      await writeDaemonRuntimeLease(
-        {
-          schema: "openmeld-daemon-runtime-lease-v1",
-          v: 1,
-          generation: 1,
-          bundleId: "dev-bundle",
-          pid: 107,
-          mode: "foreground",
-          startedAt: now,
-          updatedAt: now,
-          heartbeatAt: now,
-          serviceController: "unknown",
-          managedBySystemService: false,
-        },
-        pathInput
-      );
-      const command = `node ${openMeldRootDir()}/clients/openmeld-cli/dist/openmeld-dev.js service start --mode foreground --json`;
+    await withLeasedCustomHome(
+      "2026-10-18T07:00:00.000Z",
+      async ({ pathInput, leaseStartedAtMs }) => {
+        const processes = await listDaemonOwnedProcesses({
+          pathInput,
+          // The owner process started before it wrote its lease.
+          readProcessStartedAtMs: () => leaseStartedAtMs - 5000,
+          listProcesses: async () => [
+            // Another custom lane runs the same repo-local entry; no lease names it.
+            { pid: 106, parentPid: 1, command: REPO_LOCAL_SERVICE_COMMAND },
+            { pid: 107, parentPid: 1, command: REPO_LOCAL_SERVICE_COMMAND },
+            // A lease PID is not enough for a process that is not a Service run.
+            {
+              pid: 108,
+              parentPid: 1,
+              command: `node ${openMeldRootDir()}/clients/openmeld-cli/dist/openmeld-dev.js service status`,
+            },
+          ],
+        });
 
-      const processes = await listDaemonOwnedProcesses({
-        pathInput,
-        listProcesses: async () => [
-          // Another custom lane runs the same repo-local entry; no lease names it.
-          { pid: 106, parentPid: 1, command },
-          { pid: 107, parentPid: 1, command },
-          // A lease PID is not enough for a process that is not a Service run.
-          {
-            pid: 108,
-            parentPid: 1,
-            command: `node ${openMeldRootDir()}/clients/openmeld-cli/dist/openmeld-dev.js service status`,
-          },
-        ],
-      });
+        expect(processes).toEqual([
+          expect.objectContaining({
+            pid: 107,
+            ownership: "cli_direct",
+            mode: "foreground",
+          }),
+        ]);
+      }
+    );
+  });
 
-      expect(processes).toEqual([
-        expect.objectContaining({
-          pid: 107,
-          ownership: "cli_direct",
-          mode: "foreground",
-        }),
-      ]);
-    } finally {
-      await rm(home, { recursive: true, force: true });
-    }
+  it.each([
+    ["started after the stale lease was written", 60_000],
+    ["has an unreadable start time", null],
+  ])("does not claim a leased PID that another lane's Service now uses when it %s", async (_case, startOffsetMs) => {
+    await withLeasedCustomHome(
+      "2026-10-18T07:00:00.000Z",
+      async ({ pathInput, leaseStartedAtMs }) => {
+        const processes = await listDaemonOwnedProcesses({
+          pathInput,
+          readProcessStartedAtMs: () =>
+            startOffsetMs === null ? null : leaseStartedAtMs + startOffsetMs,
+          listProcesses: async () => [
+            { pid: 107, parentPid: 1, command: REPO_LOCAL_SERVICE_COMMAND },
+          ],
+        });
+
+        expect(processes).toEqual([]);
+      }
+    );
   });
 
   it("projects equals-style foreground mode for a repo-local service start process", async () => {
@@ -828,6 +825,46 @@ describe("local service process inventory", () => {
     });
   });
 });
+
+const REPO_LOCAL_SERVICE_COMMAND = `node ${openMeldRootDir()}/clients/openmeld-cli/dist/openmeld-dev.js service start --mode foreground --json`;
+
+async function withLeasedCustomHome(
+  startedAt: string,
+  run: (input: {
+    pathInput: { env: NodeJS.ProcessEnv };
+    leaseStartedAtMs: number;
+  }) => Promise<void>
+): Promise<void> {
+  const home = await mkdtemp(join(tmpdir(), "openmeld-leased-lane-"));
+  try {
+    const pathInput = {
+      env: {
+        ...process.env,
+        OPENMELD_ENV_PRESET: "dev-local",
+        OPENMELD_HOME: home,
+      },
+    };
+    await writeDaemonRuntimeLease(
+      {
+        schema: "openmeld-daemon-runtime-lease-v1",
+        v: 1,
+        generation: 1,
+        bundleId: "dev-bundle",
+        pid: 107,
+        mode: "foreground",
+        startedAt,
+        updatedAt: startedAt,
+        heartbeatAt: startedAt,
+        serviceController: "unknown",
+        managedBySystemService: false,
+      },
+      pathInput
+    );
+    await run({ pathInput, leaseStartedAtMs: Date.parse(startedAt) });
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+}
 
 async function withDaemonEnvPreset<T>(
   preset: "prod" | "dev-local" | "canary",

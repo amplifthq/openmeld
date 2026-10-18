@@ -67,12 +67,13 @@ if (
   // that is still running, such as a controller report launching agent CLIs,
   // must not keep this process alive: the Service waits for this exit before
   // it clears its runtime state, so a lingering probe would stall every stop.
-  // Its agent CLIs end with it instead of outliving the Host.
+  // Its agent CLI trees end with it instead of outliving the Host: SIGTERM,
+  // then the bounded descendant cleanup force-kills whatever remains.
   try {
     const { terminateLiveAgentControllerProcesses } = await import(
       "@openmeld/adapter-core"
     );
-    terminateLiveAgentControllerProcesses("SIGTERM");
+    await terminateLiveAgentControllerProcesses();
   } catch (error) {
     console.error("[openmeld.execution_host.probe_cleanup_failed]", error);
   }

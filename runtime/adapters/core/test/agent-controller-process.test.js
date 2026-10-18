@@ -462,31 +462,89 @@ test("waits for the supervised discovery retry before completing cleanup", async
   assert.equal(discoveryAttempts, 2);
 });
 
+function isPidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitUntil(check, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (!check()) {
+    if (Date.now() > deadline) {
+      return false;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return true;
+}
+
 test(
-  "terminates only agent CLI processes that are still running",
+  "ends a descendant that outlives its exited agent CLI root",
   { skip: process.platform === "win32" },
   async () => {
-    const finished = spawnAgentControllerProcess({
+    const root = spawnAgentControllerProcess({
       bin: process.execPath,
-      args: ["-e", ""],
+      args: [
+        "-e",
+        [
+          "const child = require('node:child_process').spawn(",
+          "process.execPath, ['-e', 'setInterval(() => {}, 1000)'],",
+          "{ stdio: 'ignore' });",
+          "child.unref();",
+          "console.log(child.pid);",
+        ].join(" "),
+      ],
       cwd: process.cwd(),
       env: process.env,
       shell: false,
     });
-    await new Promise((resolve) => finished.child.once("exit", resolve));
-    const lingering = spawnAgentControllerProcess({
+    let output = "";
+    root.child.stdout.on("data", (chunk) => {
+      output += chunk.toString();
+    });
+    await new Promise((resolve) => root.child.once("exit", resolve));
+    const descendantPid = Number.parseInt(output.trim(), 10);
+    try {
+      assert.ok(isPidAlive(descendantPid), "descendant should outlive root");
+
+      await terminateLiveAgentControllerProcesses({ graceMs: 200 });
+
+      assert.ok(await waitUntil(() => !isPidAlive(descendantPid), 2000));
+    } finally {
+      if (isPidAlive(descendantPid)) {
+        process.kill(descendantPid, "SIGKILL");
+      }
+    }
+  }
+);
+
+test(
+  "force-ends an agent CLI that ignores SIGTERM within the bound",
+  { skip: process.platform === "win32" },
+  async () => {
+    const stubborn = spawnAgentControllerProcess({
       bin: process.execPath,
-      args: ["-e", "setInterval(() => {}, 1000)"],
+      args: [
+        "-e",
+        "process.on('SIGTERM', () => {}); console.log('ready'); setInterval(() => {}, 1000)",
+      ],
       cwd: process.cwd(),
       env: process.env,
       shell: false,
     });
+    await new Promise((resolve) => stubborn.child.stdout.once("data", resolve));
     const exited = new Promise((resolve) =>
-      lingering.child.once("exit", (_code, signal) => resolve(signal))
+      stubborn.child.once("exit", (_code, signal) => resolve(signal))
     );
+    const startedAt = Date.now();
 
-    terminateLiveAgentControllerProcesses("SIGTERM");
+    await terminateLiveAgentControllerProcesses({ graceMs: 200 });
 
-    assert.equal(await exited, "SIGTERM");
+    assert.equal(await exited, "SIGKILL");
+    assert.ok(Date.now() - startedAt < 3500);
   }
 );

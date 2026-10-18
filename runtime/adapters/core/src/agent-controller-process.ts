@@ -234,34 +234,91 @@ export type SpawnedAgentControllerProcess = {
   terminateRemainingDescendants: () => Promise<AgentControllerProcessCleanupResult>;
 };
 
-// Agent CLI process trees this process launched and has not yet seen exit.
+// Agent CLI process trees this process launched whose cleanup has not yet
+// completed. A root exit alone does not end a tree: a descendant that kept the
+// process group or supervision marker stays until descendant cleanup finishes.
 const liveAgentControllerProcesses = new Set<SpawnedAgentControllerProcess>();
+
+const LIVE_PROCESS_TERM_GRACE_MS = 1000;
+const LIVE_PROCESS_CLEANUP_TIMEOUT_MS = 3000;
 
 function trackLiveAgentControllerProcess(
   spawned: SpawnedAgentControllerProcess
 ): SpawnedAgentControllerProcess {
-  liveAgentControllerProcesses.add(spawned);
-  const forget = () => liveAgentControllerProcesses.delete(spawned);
-  spawned.child.once("exit", forget);
-  spawned.child.once("close", forget);
-  return spawned;
+  if (spawned.processId === null) {
+    return spawned;
+  }
+  const tracked: SpawnedAgentControllerProcess = {
+    ...spawned,
+    terminateRemainingDescendants: async () => {
+      const result = await spawned.terminateRemainingDescendants();
+      if (result.ok) {
+        liveAgentControllerProcesses.delete(tracked);
+      }
+      return result;
+    },
+  };
+  liveAgentControllerProcesses.add(tracked);
+  return tracked;
 }
 
 /**
- * Signals every agent CLI process tree launched by this process that is still
- * running. Only for a process that is ending after its accepted work drained:
- * whatever remains is abandoned background work, such as a controller probe.
+ * Ends every agent CLI process tree launched by this process whose cleanup has
+ * not completed. Only for a process that is ending after its accepted work
+ * drained: whatever remains is abandoned background work, such as a controller
+ * probe. Roots get SIGTERM and a short grace, then the existing descendant
+ * cleanup force-kills what is left. The whole call is bounded so the caller
+ * still exits promptly.
  */
-export function terminateLiveAgentControllerProcesses(
-  signal: NodeJS.Signals
-): void {
-  for (const spawned of liveAgentControllerProcesses) {
+export async function terminateLiveAgentControllerProcesses(
+  input: { graceMs?: number; timeoutMs?: number } = {}
+): Promise<void> {
+  const tracked = [...liveAgentControllerProcesses];
+  if (tracked.length === 0) {
+    return;
+  }
+  for (const spawned of tracked) {
     try {
-      spawned.terminate(signal);
+      spawned.terminate("SIGTERM");
     } catch {
-      // A tree that exited meanwhile needs no signal; continue with the rest.
+      // A tree that exited meanwhile needs no signal; cleanup still runs.
     }
   }
+  await settleWithin(
+    Promise.all(tracked.map(waitForRootExit)),
+    input.graceMs ?? LIVE_PROCESS_TERM_GRACE_MS
+  );
+  await settleWithin(
+    Promise.allSettled(
+      tracked.map((spawned) => spawned.terminateRemainingDescendants())
+    ),
+    input.timeoutMs ?? LIVE_PROCESS_CLEANUP_TIMEOUT_MS
+  );
+}
+
+function waitForRootExit(
+  spawned: SpawnedAgentControllerProcess
+): Promise<void> {
+  if (spawned.child.exitCode !== null || spawned.child.signalCode !== null) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    spawned.child.once("exit", () => resolve());
+  });
+}
+
+async function settleWithin(
+  work: Promise<unknown>,
+  timeoutMs: number
+): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  await Promise.race([
+    work.catch(() => undefined),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, timeoutMs);
+    }),
+  ]);
+  clearTimeout(timer);
 }
 
 export function spawnAgentControllerProcess(input: {

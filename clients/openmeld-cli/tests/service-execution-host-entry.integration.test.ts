@@ -449,14 +449,17 @@ describe("real execution Host entry", () => {
     async () => {
       // A controller that never answers its probe stands in for the agent CLIs
       // a startup report launches. It must not hold the Host, and with it the
-      // Service stop, open after the stop protocol completed.
+      // Service stop, open after the stop protocol completed, and neither it
+      // nor its descendant may outlive the Host.
       const binDir = join(root, "bin");
       await mkdir(binDir, { recursive: true });
       const probeMarker = join(root, "probe-started");
       const slowController = join(binDir, "claude");
       await writeFile(
         slowController,
-        `#!/bin/sh\ntouch "${probeMarker}"\nwhile :; do sleep 1; done\n`,
+        // Ignores SIGTERM and leaves a background descendant behind, like a
+        // CLI that daemonizes a helper.
+        `#!/bin/sh\ntrap '' TERM\n(trap '' TERM; while :; do sleep 1; done) &\ntouch "${probeMarker}"\nwhile :; do sleep 1; done\n`,
         { mode: 0o755 }
       );
       vi.stubEnv("PATH", `${binDir}:/usr/bin:/bin`);
@@ -533,7 +536,8 @@ describe("real execution Host entry", () => {
         running.child.disconnect();
         expect(await running.exit, running.stderr()).toBe(0);
         expect(Date.now() - stoppedAt).toBeLessThan(5000);
-        // The abandoned probe ends with the Host instead of being orphaned.
+        // The abandoned probe tree, including its SIGTERM-resistant
+        // descendant, ends with the Host instead of being orphaned.
         await expect
           .poll(
             async () =>

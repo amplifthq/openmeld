@@ -60,6 +60,45 @@ export function readProcessStartIdentity(
   }
 }
 
+// Windows FILETIME counts 100 ns intervals since 1601-01-01 UTC.
+const WINDOWS_FILETIME_UNIX_EPOCH_MS = 11_644_473_600_000;
+
+/**
+ * Wall-clock start of a live process in epoch milliseconds, or null when it
+ * cannot be read. POSIX `lstart` has one-second resolution and is read in the
+ * C locale so the timestamp parses regardless of the user's language.
+ */
+export function readProcessStartedAtMs(
+  pid: number,
+  platform: NodeJS.Platform = process.platform
+): number | null {
+  if (!(Number.isSafeInteger(pid) && pid > 0)) {
+    return null;
+  }
+  if (platform === "win32") {
+    const created = readWindowsProcessStartFileTime(pid);
+    if (created === null) {
+      return null;
+    }
+    const startedAtMs =
+      Number(created) / 10_000 - WINDOWS_FILETIME_UNIX_EPOCH_MS;
+    return Number.isFinite(startedAtMs) ? startedAtMs : null;
+  }
+  try {
+    const output = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], {
+      encoding: "utf8",
+      env: { ...process.env, LC_ALL: "C" },
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 1000,
+      windowsHide: true,
+    }).trim();
+    const startedAtMs = Date.parse(output);
+    return Number.isFinite(startedAtMs) ? startedAtMs : null;
+  } catch {
+    return null;
+  }
+}
+
 function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);

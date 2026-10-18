@@ -153,10 +153,14 @@ interactions, route discovery, controller reporting, and durable result outbox.
 The Host never owns Core readiness, authorization, scheduling, or Space history.
 
 The Host process ends with its supervised session. After Stop has drained
-accepted work and the Host has released ownership, the Host exits and signals
-any agent CLI process tree it launched that is still running. At that point such
-a tree can only be abandoned background evidence work, such as a controller
-report still probing installed agent CLIs. That work must not keep the Host
+accepted work and the Host has released ownership, the Host ends every agent
+CLI process tree it launched whose cleanup has not completed, then exits. At
+that point such a tree can only be abandoned background evidence work, such as
+a controller report still probing installed agent CLIs. A tree stays tracked
+after its root exits until its descendant cleanup finishes, so a helper that
+outlives its CLI is still covered. The Host sends SIGTERM, allows a short grace,
+then runs the existing descendant cleanup, which force-kills what remains; the
+whole step is bounded to a few seconds. That work must not keep the Host
 alive: the Service waits for actual Host exit before it clears its runtime
 lease, so a lingering probe would stretch every Stop past its bounded wait and
 leave a following Start racing a Service that is still shutting down.
@@ -357,8 +361,15 @@ process must still be reported independently.
 A repo-local Service started under an explicit `OPENMELD_HOME` carries no lane
 in its command line, so another custom home running the same entry looks
 identical. Process inventory therefore attributes such a direct Service process
-to the current lane only when this lane's runtime lease names its PID; other
-copies of the entry stay unattributed. Without this, a still-running Service in
+to the current lane only when this lane's runtime lease names its PID and that
+live process started no later than the lease's `startedAt` (allowing the
+one-second resolution of the OS start time). The Service writes `startedAt`
+after its own process started, while a process that reused a stale lease's PID
+started after the owner exited, so the PID alone is never ownership. An
+unreadable start time fails closed. Other copies of the entry stay
+unattributed. This matters beyond diagnostics: the same inventory drives the
+pre-start takeover and the stalled-stop force kill, which must never reach
+another lane's Service. Without this, a still-running Service in
 that lane, for example one finishing a controlled stop, has no observable entry
 path and Start reports `runtime_bundle_mismatch`, demanding repair. The
 pre-start takeover check reads the same inventory, so attribution belongs there
