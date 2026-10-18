@@ -12,6 +12,7 @@ import {
   buildRuntimeTransportDeliverDispatchRequest,
   deliverRuntimeTransportDispatch,
   readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace,
+  readRuntimeTransportRuntimeCoordinatorInteraction,
   recordRuntimeTransportRuntimeCoordinatorHeadNoExecution,
   recordRuntimeTransportRuntimeCoordinatorHeadWaiting,
   waitRuntimeTransportDispatchResult,
@@ -239,6 +240,74 @@ describe("runtime transport split clients call fallback behavior", () => {
       status: "unavailable",
     });
     expect(acquireControllerMutation).not.toHaveBeenCalled();
+  });
+
+  it("keeps a pending interaction visible when the Hub is still on an earlier build", async () => {
+    const { env, stub } = createEnv();
+    const pendingInteraction = {
+      canRespond: true,
+      expiresAtMs: 1_700_028_800_100,
+      interactionId: "interaction-1",
+      kind: "permission" as const,
+      request: null,
+      requestedAtMs: 1_700_000_000_100,
+    };
+    stub.fetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        new URL(url).pathname ===
+          "/runtime-coordinator/interaction/read-revision"
+          ? Response.json(
+              {
+                code: "not_found",
+                message: "runtime transport path not found",
+                ok: false,
+              },
+              { status: 404 }
+            )
+          : Response.json({ pendingInteraction })
+      )
+    );
+
+    await expect(
+      readRuntimeTransportRuntimeCoordinatorInteraction({
+        env,
+        ownerUserId: "owner-1",
+        request: {
+          actorOwnerUserId: "owner-1",
+          runtimeCoordinatorExecutionId: "rce-space-1-dispatch-1-agent-1",
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        },
+      })
+    ).resolves.toEqual({ interactionUpdatedAtMs: null, pendingInteraction });
+    expect(
+      stub.fetch.mock.calls.map(([url]) => new URL(url as string).pathname)
+    ).toEqual([
+      "/runtime-coordinator/interaction/read-revision",
+      "/runtime-coordinator/interaction/read",
+    ]);
+  });
+
+  it("uses the interaction revision when the Hub serves it", async () => {
+    const { env, stub } = createEnv();
+    stub.fetch.mockResolvedValue(
+      Response.json({ interactionUpdatedAtMs: 42, pendingInteraction: null })
+    );
+
+    await expect(
+      readRuntimeTransportRuntimeCoordinatorInteraction({
+        env,
+        ownerUserId: "owner-1",
+        request: {
+          actorOwnerUserId: "owner-1",
+          runtimeCoordinatorExecutionId: "rce-space-1-dispatch-1-agent-1",
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        },
+      })
+    ).resolves.toEqual({
+      interactionUpdatedAtMs: 42,
+      pendingInteraction: null,
+    });
+    expect(stub.fetch).toHaveBeenCalledTimes(1);
   });
 
   it("keeps workspace mutation admission when the local outcome is unknown", () => {
