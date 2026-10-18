@@ -116,6 +116,7 @@ import {
 	centerAgentDesignationQueryOptions,
 	centerAgentDirectMessageSpaceProjectionQueryOptions,
 } from "#/query/organizations/center-agent";
+import { usePendingPermissionModeSuggestions } from "#/query/organizations/permission-mode-suggestions";
 import { usePendingSpacePluginActionRequests } from "#/query/organizations/plugin-action-requests";
 import { isQueryCancellationError } from "#/query/query-cancellation";
 import {
@@ -1753,9 +1754,14 @@ function SpaceLandingConversationShell({
 		controller.spaceId,
 		activeActionThreadId
 	);
+	const permissionModeSuggestions = usePendingPermissionModeSuggestions(
+		controller.spaceId
+	);
 	const pendingActionSurface = (
 		<SpacePendingAgentActions
 			{...pendingAgentActions.surfaceProps}
+			onResolvePermissionModeSuggestion={permissionModeSuggestions.resolve}
+			permissionModeSuggestions={permissionModeSuggestions.suggestions}
 			{...pendingActionThreadHandlers(
 				isCompactPresentation,
 				setRequestedInteraction,
