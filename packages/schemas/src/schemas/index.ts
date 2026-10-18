@@ -1245,6 +1245,7 @@ export {
   centerAgentModelConfigurationResponseSchema,
   centerAgentOnBehalfOfInputSchema,
   centerAgentOperatingStateSchema,
+  centerAgentPermissionModeConfirmationTokenSchema,
   centerAgentPostSlackChannelMessageBodySchema,
   centerAgentPostSlackChannelMessageResponseSchema,
   centerAgentPostSlackFileBodySchema,

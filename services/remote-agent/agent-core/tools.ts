@@ -6324,7 +6324,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_update_agent_profile_runtime_settings",
       description:
-        "Update the requesting member's existing Agent Profile model, reasoning, permission, collaboration, or local working folder. Default Project resolves future tasks through its default connection on the target Computer. To use that Project, select it with the existing Default Project tool; do not duplicate its path here. To make one of the Agent's existing folders the default, pass its defaultFolderId from openmeld_check_agent_profile_readiness folders; never pass a path for it, and do it only when the member asked in this turn. An explicit custom or managed folder change, or a new default folder, saves the local folder and then clears Default Project. Inspect both steps: a saved folder alone does not mean it is effective. The result omits private local paths. This does not create profiles or change Space membership.",
+        "Update the requesting member's existing Agent Profile model, reasoning, permission, collaboration, or local working folder. Default Project resolves future tasks through its default connection on the target Computer. To use that Project, select it with the existing Default Project tool; do not duplicate its path here. To make one of the Agent's existing folders the default, pass its defaultFolderId from openmeld_check_agent_profile_readiness folders; never pass a path for it, and do it only when the member asked in this turn. An explicit custom or managed folder change, or a new default folder, saves the local folder and then clears Default Project. Inspect both steps: a saved folder alone does not mean it is effective. The result omits private local paths. This does not create profiles or change Space membership. A permission mode change may need the member's separate confirmation: when the result has permissionModeConfirmation, nothing was changed; tell the member exactly which mode it sets, ask them to confirm in their next message, and only after they confirm call again with the same settings and permissionModeConfirmationToken. Never treat the original request as that confirmation.",
       input: object({
         agentControllerCollaborationMode: collaborationModeSchema,
         agentControllerPermissionMode: permissionModeSchema,
@@ -6332,6 +6332,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         defaultFolderId: optionalNonEmptyStringSchema,
         modelId: optionalNonEmptyStringSchema,
         openCodePermission: openCodePermissionSchema,
+        permissionModeConfirmationToken: optionalNonEmptyStringSchema,
         reasoningLevel: optionalNonEmptyStringSchema,
         workspaceMode: workspaceModeSchema,
         workspacePath: optionalNonEmptyStringSchema,

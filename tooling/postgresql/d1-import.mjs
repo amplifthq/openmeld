@@ -40,6 +40,7 @@ const postgresqlOnlyTables = [
   { name: "member_agents" },
   { name: "openMeldDaemon_runtime_harness_presence" },
   { name: "agent_profile_permission_mode_advisories" },
+  { name: "center_agent_permission_mode_confirmations" },
 ];
 
 function csv(value) {

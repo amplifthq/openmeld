@@ -42,6 +42,7 @@ export {
   centerAgentMemoryPolicies,
   centerAgentMemorySubjects,
 } from "./center-agent-memory.schema.ts";
+export { centerAgentPermissionModeConfirmations } from "./center-agent-permission-mode-confirmation.schema.ts";
 export { centerAgentPublicationOperations } from "./center-agent-publication.schema.ts";
 export {
   centerAgentTaskAdmissionOutbox,

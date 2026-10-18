@@ -63,6 +63,7 @@ import {
   centerAgentMemoryPolicies,
   centerAgentMemorySubjects,
 } from "./center-agent-memory.schema.ts";
+import { centerAgentPermissionModeConfirmations } from "./center-agent-permission-mode-confirmation.schema.ts";
 import { centerAgentPublicationOperations } from "./center-agent-publication.schema.ts";
 import {
   centerAgentTaskAdmissionOutbox,
@@ -1811,6 +1812,7 @@ export const coreSchema = {
   agentTaskNeedsAttentionObservations,
   agentTaskTerminalOutcomes,
   centerAgentWakePublications,
+  centerAgentPermissionModeConfirmations,
   centerAgentProjectOperations,
   centerAgentProjectRemoveConfirmations,
   projects,

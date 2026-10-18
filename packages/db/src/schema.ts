@@ -90,6 +90,7 @@ export const {
   agentTaskTerminalOutcomes,
   centerAgentAttentionRequests,
   centerAgentWakePublications,
+  centerAgentPermissionModeConfirmations,
   centerAgentProjectOperations,
   centerAgentProjectRemoveConfirmations,
   centerAgentConnectorActionOperations,

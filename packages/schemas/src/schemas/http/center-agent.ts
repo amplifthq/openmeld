@@ -1543,6 +1543,10 @@ export const centerAgentConnectAgentProfileToLocalAgentBodySchema =
     reasoningLevel: trimmedNonEmptyStringSchema.optional(),
   });
 
+export const centerAgentPermissionModeConfirmationTokenSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{43}$/u);
+
 export const centerAgentUpdateAgentProfileRuntimeSettingsBodySchema = z
   .strictObject({
     agentControllerCollaborationMode:
@@ -1555,11 +1559,26 @@ export const centerAgentUpdateAgentProfileRuntimeSettingsBodySchema = z
     modelId: trimmedNonEmptyStringSchema.optional(),
     onBehalfOf: centerAgentOnBehalfOfInputSchema.optional(),
     openCodePermission: agentProfileBindingOpenCodePermissionSchema.optional(),
+    // Core-issued evidence from an earlier turn that the member confirmed
+    // this exact permission-mode change. Never accepted for another change.
+    permissionModeConfirmationToken:
+      centerAgentPermissionModeConfirmationTokenSchema.optional(),
     reasoningLevel: trimmedNonEmptyStringSchema.optional(),
     workspaceMode: profileWorkspaceModeSchema.optional(),
     workspacePath: profileWorkingDirectorySchema.optional(),
   })
   .superRefine((value, ctx) => {
+    if (
+      value.permissionModeConfirmationToken !== undefined &&
+      value.agentControllerPermissionMode === undefined
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "permissionModeConfirmationToken requires agentControllerPermissionMode",
+        path: ["permissionModeConfirmationToken"],
+      });
+    }
     if (
       value.agentControllerCollaborationMode === undefined &&
       value.agentControllerPermissionMode === undefined &&
@@ -1725,6 +1744,16 @@ export const centerAgentUpdateAgentProfileRuntimeSettingsResponseSchema =
     binding: ensureAgentProfilePrimaryBindingResponseSchema.optional(),
     canReply: z.boolean(),
     organizationId: trimmedNonEmptyStringSchema,
+    // Present when nothing was changed because the member must confirm the
+    // permission-mode change in a later message.
+    permissionModeConfirmation: z
+      .strictObject({
+        agentControllerPermissionMode:
+          agentProfileBindingAgentControllerPermissionModeSchema,
+        expiresAtMs: z.number().int().nonnegative(),
+        token: centerAgentPermissionModeConfirmationTokenSchema,
+      })
+      .optional(),
     readiness: centerAgentCheckAgentProfileReadinessResponseSchema.optional(),
     status: centerAgentProductOperationStatusSchema,
     steps: z.array(centerAgentProductOperationStepSchema),
