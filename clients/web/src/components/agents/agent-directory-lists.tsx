@@ -9,6 +9,7 @@ import { DirectorySearch } from "#/components/directory/directory-search";
 import { MemberAgentDirectorySection } from "#/components/member-agents/member-agent-directory-section";
 import { useMemberAgentDirectory } from "#/components/member-agents/use-member-agent-directory";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
+import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import {
 	localAgentSidebarState,
 	useAgentSidebarPreviewReady,
@@ -278,7 +279,6 @@ export function AgentDirectoryLists({
 						search={search}
 						viewPreferenceKey={viewPreferenceKey(scope.key)}
 					/>,
-					create,
 					isOwnAgentScope(scope, input)
 				)}
 			</div>
@@ -393,7 +393,7 @@ export function AgentDirectoryLists({
 							key={group.ownerUserId}
 						>
 							{heading}
-							{renderOwnAgents(null, create)}
+							{renderOwnAgents(null)}
 						</section>
 					);
 				}
@@ -464,15 +464,20 @@ function useOwnMemberAgents(args: {
 		args.items.map((item) => [item.profile.openMeldProfileId, item])
 	);
 	const onOpenMemberAgent = args.input.onOpenMemberAgent;
-	const renderOwnAgents = (
-		fallback: ReactNode,
-		emptyAction?: ReactNode,
-		ownScope = true
-	) =>
+	const { currentOrganization } = useAppOrganization();
+	const emptyActions = {
+		connectComputerPath: buildConnectComputerPath({
+			orgSlug: currentOrganization.slug,
+		}),
+		...(args.input.canCreateAgent === false
+			? {}
+			: { onCreateAgent: args.input.onCreateAgent }),
+	};
+	const renderOwnAgents = (fallback: ReactNode, ownScope = true) =>
 		ownScope && memberAgentDirectory && onOpenMemberAgent ? (
 			<MemberAgentDirectorySection
 				directory={memberAgentDirectory}
-				emptyAction={emptyAction}
+				emptyActions={emptyActions}
 				label="Your Agents"
 				onOpenMemberAgent={onOpenMemberAgent}
 				renderUnassignedCard={(entry, index) => {

@@ -22,6 +22,7 @@ import {
 	useMemo,
 	useState,
 } from "react";
+import { resolveTaskActivityAvailability } from "#/components/agents/agent-list-model";
 import {
 	type AgentProfileActivityNavigation,
 	resolveAgentProfileActivityPreview,
@@ -975,8 +976,8 @@ function AgentsWorkspaceHomeView(input: {
 			runtimeOverviewByProfileId={input.runtimeOverviewByProfileId}
 			selectedProfileId={input.sidebarSelectedProfileId}
 			showAgentRequests={workspace.isOrganizationContext}
-			taskActivityAvailable={Boolean(
-				workspace.runtimeOverviewQuery.data?.taskActivitySince
+			taskActivityAvailable={resolveTaskActivityAvailability(
+				workspace.runtimeOverviewQuery.data
 			)}
 		/>
 	);

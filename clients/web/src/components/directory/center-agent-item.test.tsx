@@ -110,3 +110,33 @@ it.each([
 	).toBeUndefined();
 	queryClient.clear();
 });
+
+it("shows a refreshing Center Agent read as loading, never as unavailable", () => {
+	// The cached designation predates the Center Agent; the refresh is pending.
+	vi.spyOn(globalThis, "fetch").mockImplementation(
+		() => new Promise<Response>(() => undefined)
+	);
+	const queryClient = createTestQueryClient();
+	queryClient.setQueryData(organizationQueryKeys.profileDirectory("org-acme"), {
+		organizationId: "org-acme",
+		generatedAt: "2026-09-10T00:00:00.000Z",
+		members: [],
+		agentProfiles: [],
+	} satisfies OrganizationProfileDirectoryResponse);
+	queryClient.setQueryData(centerAgentQueryKeys.designation("org-acme"), {
+		designation: null,
+		organizationId: "org-acme",
+		remoteRuntimeAvailability: { selectable: true },
+	});
+	queryClient.invalidateQueries();
+
+	render(
+		<TestQueryClientProvider queryClient={queryClient}>
+			<CenterAgentItem presentation="card" />
+		</TestQueryClientProvider>
+	);
+
+	expect(screen.queryByText("Center Agent unavailable")).toBeNull();
+	expect(screen.getByLabelText("Loading Center Agent")).toBeTruthy();
+	queryClient.clear();
+});

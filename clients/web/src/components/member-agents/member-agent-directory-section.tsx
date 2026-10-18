@@ -1,9 +1,11 @@
 import type { HarnessKind } from "@openmeld/schemas";
 import { Badge } from "@openmeld/ui/components/badge";
+import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { FluidCardGroup } from "@openmeld/ui/fluid/card";
 import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import { RobotIcon } from "@phosphor-icons/react";
+import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { AgentCard } from "#/components/agents/agent-card";
 import type {
@@ -83,7 +85,11 @@ function describeRow(row: MemberAgentDirectoryRow): string {
 export function MemberAgentDirectorySection(input: {
 	directory: MemberAgentDirectory;
 	label: string;
-	emptyAction?: ReactNode;
+	/** No Agents yet: connecting a computer detects them; creating is secondary. */
+	emptyActions: {
+		connectComputerPath: string;
+		onCreateAgent?: () => void;
+	};
 	onOpenMemberAgent: (memberAgentId: string) => void;
 	renderUnassignedCard: (
 		profile: MemberAgentDirectory["unassigned"][number],
@@ -95,7 +101,21 @@ export function MemberAgentDirectorySection(input: {
 		return (
 			<div className="flex flex-wrap items-center gap-3 text-muted-foreground text-sm">
 				<p>No Agents yet. Connect a computer to detect your harnesses.</p>
-				{input.emptyAction}
+				<Link
+					className={buttonVariants({ size: "sm" })}
+					to={input.emptyActions.connectComputerPath}
+				>
+					Connect computer
+				</Link>
+				{input.emptyActions.onCreateAgent ? (
+					<Button
+						onClick={input.emptyActions.onCreateAgent}
+						size="sm"
+						variant="secondary"
+					>
+						Create Agent
+					</Button>
+				) : null}
 			</div>
 		);
 	}
