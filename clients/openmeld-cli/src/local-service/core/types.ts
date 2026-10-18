@@ -236,6 +236,7 @@ export type OpenMeldDaemonTaskErrorType =
 
 export type ParsedDispatchTask = {
   requesterIsAgentOwner?: boolean;
+  permissionModeAdvisory?: import("@openmeld/schemas").PermissionModeAdvisory;
   workHandoff?: import("@openmeld/schemas").SpaceWorkHandoff;
   workingCopyId?: string;
   executionContext?: import("@openmeld/schemas/types").ExecutionContextTask;
@@ -284,6 +285,7 @@ export type ParsedDispatchTask = {
 
 export type DispatchPromptBootstrapInput = {
   requesterIsAgentOwner?: ParsedDispatchTask["requesterIsAgentOwner"];
+  permissionModeAdvisory?: ParsedDispatchTask["permissionModeAdvisory"];
   executionContextAccess?: NonNullable<
     ParsedDispatchTask["executionContext"]
   >["access"];

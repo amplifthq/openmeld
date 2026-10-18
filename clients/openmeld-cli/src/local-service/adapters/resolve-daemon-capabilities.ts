@@ -21,6 +21,7 @@ export function resolveDaemonCapabilitiesFromAdapterIds(input: {
     agentReplyContextReview: true,
     informationProtectionPrompt: true,
     workingLanguagePrompt: true,
+    permissionModeAdvisoryPrompt: true,
     verifiedRequesterContext: true,
     localAgentInteraction: true,
     ...(input.profileConfigurationRevision === true

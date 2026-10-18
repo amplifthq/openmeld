@@ -365,6 +365,7 @@ import {
   runSpaceOrganizationList,
   runSpaceSelfServeJoin,
 } from "./space/organization-space-command";
+import { runSpaceActionSuggestPermissionMode } from "./space/permission-mode-suggestion-command";
 import { getRemovedCcCliInputMessage } from "./space/removed-addressing";
 import { runSpaceRespond } from "./space/respond-command";
 import { runSpaceResult } from "./space/result-command";
@@ -3193,6 +3194,15 @@ spaceActionCmd
     await runSpaceActionSilent({
       reason: opts.reason,
     });
+  });
+
+spaceActionCmd
+  .command("suggest-permission-mode")
+  .description(
+    "Show your owner a one-click card for the permission mode this task suggested."
+  )
+  .action(async () => {
+    await runSpaceActionSuggestPermissionMode();
   });
 
 spaceActionCmd

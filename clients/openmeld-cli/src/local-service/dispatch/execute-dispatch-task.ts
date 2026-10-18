@@ -2933,6 +2933,7 @@ function buildDispatchRuntimePrompt(input: {
     projectWork: input.parsedTask.executionContext?.projectWork,
     callerContext: input.parsedTask.callerContext,
     requesterIsAgentOwner: input.parsedTask.requesterIsAgentOwner,
+    permissionModeAdvisory: input.parsedTask.permissionModeAdvisory,
     shouldInjectBootstrap: input.shouldInjectBootstrap,
     shouldInjectCenterAgentRoleTemplate:
       input.parsedTask.targetProfileIsCenterAgent,

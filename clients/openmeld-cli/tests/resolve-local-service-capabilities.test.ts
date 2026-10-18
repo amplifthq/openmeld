@@ -12,6 +12,7 @@ describe("resolve local service capabilities", () => {
       agentReplyContextReview: true,
       informationProtectionPrompt: true,
       workingLanguagePrompt: true,
+      permissionModeAdvisoryPrompt: true,
       verifiedRequesterContext: true,
       localAgentControl: {
         cancel: true,
@@ -86,6 +87,7 @@ describe("resolve local service capabilities", () => {
       agentReplyContextReview: true,
       informationProtectionPrompt: true,
       workingLanguagePrompt: true,
+      permissionModeAdvisoryPrompt: true,
       verifiedRequesterContext: true,
       localAgentControl: {
         cancel: true,

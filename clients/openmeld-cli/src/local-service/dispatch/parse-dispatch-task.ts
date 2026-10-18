@@ -226,6 +226,7 @@ export function parseDispatchTask(
     ...requiredFields,
     executionContext: payload.executionContext,
     requesterIsAgentOwner: payload.requesterIsAgentOwner,
+    ...resolveDispatchTaskPermissionModeAdvisory(payload),
     workHandoff: payload.sourceSignalSnapshot?.workHandoff,
     agentControllerConversationId,
     ...resolveDispatchSourceFiles(payload),
@@ -577,6 +578,11 @@ function renderDispatchPrompt(input: {
   if (input.workingLanguagePrompt) {
     sections.push(input.workingLanguagePrompt);
   }
+  const permissionModeAdvisorySection =
+    renderPermissionModeAdvisorySection(promptInput);
+  if (permissionModeAdvisorySection) {
+    sections.push(permissionModeAdvisorySection);
+  }
   if (promptInput.executionContextAccess === "space_context") {
     sections.push(
       "Task access: Space context only. This task has no authorized project repository or project code checkout; its local working folder is scratch space, not the Agent Profile's configured working folder. Do not claim to have reviewed code or a PR diff you cannot read. If the request needs repository access, explain this task's restriction through the required Space Action. The requester can choose New task to use the Agent's current permitted settings, or provide the relevant diff. A local clone is not required when a new task has permitted remote repository tools; verify those tools before claiming access."
@@ -655,6 +661,55 @@ function renderActivationIntentGate(
     )}\`. Stop before reading history, calling business tools, or publishing an explanation.`,
     "- An explicit Wake target does not by itself prove that the words assign work to you. If the message directly assigns you work, continue. When the intent remains ambiguous, honor the explicit Wake and continue; never rewrite the user's structured targets.",
   ].join("\n");
+}
+
+/** The advisory reaches a task only when Core verified the owner requested it. */
+function resolveDispatchTaskPermissionModeAdvisory(
+  payload: Pick<
+    RuntimeTransportDeliverDispatchRequest["payload"],
+    "permissionModeAdvisory" | "requesterIsAgentOwner"
+  >
+): Pick<ParsedDispatchTask, "permissionModeAdvisory"> {
+  return payload.permissionModeAdvisory &&
+    payload.requesterIsAgentOwner === true
+    ? { permissionModeAdvisory: payload.permissionModeAdvisory }
+    : {};
+}
+
+/**
+ * One short advisory for the Agent owner (permission-mode advisor). Rendered
+ * only for a Wake Core verified as owner-requested; the Agent mentions it at
+ * most once and never changes a setting itself.
+ */
+export function renderPermissionModeAdvisorySection(
+  input: Pick<
+    DispatchPromptBootstrapInput,
+    "permissionModeAdvisory" | "requesterIsAgentOwner"
+  >
+): string | null {
+  const advisory = input.permissionModeAdvisory;
+  if (!advisory || input.requesterIsAgentOwner !== true) {
+    return null;
+  }
+  const requesters =
+    advisory.topRequesterNames.length > 0
+      ? ` Most of these tasks came from ${formatNameList(advisory.topRequesterNames)}.`
+      : "";
+  return [
+    "Permission-mode suggestion for your owner:",
+    `- In the last ${advisory.windowDays} days, tasks other people gave you stopped ${advisory.waitingApprovalCount} times to wait for your owner's approval.${requesters}`,
+    `- Your permission mode is ${advisory.currentPermissionModeLabel}. The next less-interrupting mode is ${advisory.suggestedPermissionModeLabel} (${advisory.suggestedPermissionMode}).`,
+    "- If it fits this conversation, mention it once and briefly in your reply, and say your owner can switch with one click. If other people can read this conversation, give the count without names. Do not repeat it in this task.",
+    `- When you mention it, run \`${buildSpaceActionCommand("suggest-permission-mode")}\` once so your owner sees an Apply card. Never change a setting yourself; only your owner applies it.`,
+  ].join("\n");
+}
+
+function formatNameList(names: readonly string[]): string {
+  const quoted = names.map((name) => JSON.stringify(name));
+  if (quoted.length <= 1) {
+    return quoted.join("");
+  }
+  return `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1)}`;
 }
 
 function renderCenterAgentRoleSection(

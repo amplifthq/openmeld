@@ -1,4 +1,7 @@
-import { SPACE_FILE_MAX_SIZE_BYTES } from "@openmeld/schemas";
+import {
+  type PermissionModeAdvisory,
+  SPACE_FILE_MAX_SIZE_BYTES,
+} from "@openmeld/schemas";
 import type {
   RuntimeTransportDeliverDispatchRequest,
   SpaceMessageAttachment,
@@ -97,6 +100,68 @@ it.each([
   expect(plan.userPrompt).toContain(
     "Use the tools available under your current permissions."
   );
+});
+
+const PERMISSION_MODE_ADVISORY = {
+  currentPermissionMode: "claude-code:default",
+  currentPermissionModeLabel: "Ask permissions",
+  suggestedPermissionMode: "claude-code:acceptEdits",
+  suggestedPermissionModeLabel: "Accept edits",
+  topRequesterNames: ["Tali Chen", "Sam Ortiz"],
+  waitingApprovalCount: 5,
+  windowDays: 7,
+} satisfies PermissionModeAdvisory;
+
+it.each([
+  true,
+  false,
+  undefined,
+])("adds the permission-mode advisory only to an owner-requested task (%s)", (requesterIsAgentOwner) => {
+  const deliverRequest = createDeliverRequest({
+    targetProfileId: "agt-target-a",
+  });
+  deliverRequest.payload.requesterIsAgentOwner = requesterIsAgentOwner;
+  deliverRequest.payload.permissionModeAdvisory = PERMISSION_MODE_ADVISORY;
+  const task = parseDispatchTask({ deliverRequest, fallbackRouteConfig: null });
+  const plan = buildDispatchPromptPlan({
+    prompt: "Fix the flaky test",
+    permissionModeAdvisory: task?.permissionModeAdvisory,
+    requesterIsAgentOwner: task?.requesterIsAgentOwner,
+    spaceId: "space",
+    dispatchTriggerSource: "activation_targets",
+    targetProfileId: "agt-target-a",
+    shouldInjectBootstrap: false,
+  });
+  if (requesterIsAgentOwner !== true) {
+    expect(task?.permissionModeAdvisory).toBeUndefined();
+    expect(plan.userPrompt).not.toContain("Permission-mode suggestion");
+    expect(plan.userPrompt).not.toContain("suggest-permission-mode");
+    return;
+  }
+  expect(plan.userPrompt).toContain(
+    [
+      "Permission-mode suggestion for your owner:",
+      '- In the last 7 days, tasks other people gave you stopped 5 times to wait for your owner\'s approval. Most of these tasks came from "Tali Chen" and "Sam Ortiz".',
+      "- Your permission mode is Ask permissions. The next less-interrupting mode is Accept edits (claude-code:acceptEdits).",
+      "- If it fits this conversation, mention it once and briefly in your reply, and say your owner can switch with one click. If other people can read this conversation, give the count without names. Do not repeat it in this task.",
+    ].join("\n")
+  );
+  expect(plan.userPrompt).toContain(
+    "space action suggest-permission-mode` once so your owner sees an Apply card. Never change a setting yourself; only your owner applies it."
+  );
+});
+
+it("never renders an advisory that reaches the prompt without owner verification", () => {
+  const plan = buildDispatchPromptPlan({
+    prompt: "Fix the flaky test",
+    permissionModeAdvisory: PERMISSION_MODE_ADVISORY,
+    requesterIsAgentOwner: false,
+    spaceId: "space",
+    dispatchTriggerSource: "activation_targets",
+    targetProfileId: "agt-target-a",
+    shouldInjectBootstrap: false,
+  });
+  expect(plan.userPrompt).not.toContain("Permission-mode suggestion");
 });
 
 it("tells a Space-only parallel task when repository review is unavailable", () => {
