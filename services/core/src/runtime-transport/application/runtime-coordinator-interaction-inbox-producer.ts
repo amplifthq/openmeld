@@ -182,9 +182,13 @@ export async function resolveRuntimeCoordinatorInteractionInboxItem(
     organizationId: target.organizationId,
     resolvedAtMs: input.resolvedAtMs,
     sourceGuard: {
-      bindings: [input.interaction.interactionId],
+      bindings: [
+        input.interaction.interactionId,
+        input.runtimeCoordinatorExecutionId,
+      ],
       sql: (offset) =>
-        `((source_target_json)::jsonb ->> 'interactionId') = $${offset + 1}`,
+        `((source_target_json)::jsonb ->> 'interactionId') = $${offset + 1}
+          AND ((source_target_json)::jsonb ->> 'runtimeCoordinatorExecutionId') = $${offset + 2}`,
     },
     sourceKey: await buildRuntimeCoordinatorSessionInboxSourceKey({
       ...input,

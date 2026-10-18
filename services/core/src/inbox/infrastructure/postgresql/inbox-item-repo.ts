@@ -234,9 +234,10 @@ export async function prepareEnsureInboxItemStatements(input: {
 /**
  * One item per source that every later candidate updates and reopens in
  * place, for sources that coalesce repeated requests into one item (an
- * Agent's questions within one Session). An older candidate never replaces a
- * newer one. The urgent email delivery row is created once per item, so a
- * reopened item never sends another email.
+ * Agent's questions within one Session). Only a strictly newer candidate
+ * replaces or reopens the item; replaying the current one never reopens it
+ * after it ended. The urgent email delivery row is created once per item, so
+ * a reopened item never sends another email.
  */
 export async function prepareReopenCoalescedInboxItemStatements(input: {
   candidate: InboxSourceCandidate;
@@ -280,7 +281,11 @@ export async function prepareReopenCoalescedInboxItemStatements(input: {
           cleared_at_ms = NULL,
           occurred_at_ms = excluded.occurred_at_ms,
           updated_at_ms = GREATEST(inbox_items.updated_at_ms, excluded.updated_at_ms)
-        WHERE inbox_items.occurred_at_ms <= excluded.occurred_at_ms
+        WHERE inbox_items.occurred_at_ms < excluded.occurred_at_ms
+          OR (
+            inbox_items.source_target_json = excluded.source_target_json
+            AND inbox_items.resolution_status = 'open'
+          )
       `,
     values: [
       itemId,

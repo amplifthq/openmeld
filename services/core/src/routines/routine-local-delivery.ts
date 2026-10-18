@@ -7,6 +7,7 @@ import { readPrimaryAgentProfileBindingRecord } from "../agent-profile-binding/i
 import { getDispatchResultByDispatchId } from "../dispatch/application/dispatch-result-service";
 import { readPreHeadFailurePublicationState } from "../dispatch/infrastructure/postgresql/pre-head-failure-publication-outbox-repository";
 import type { CoreBindings } from "../lib/bindings";
+import { isRequestChainEnforced } from "../member-agent/member-agents-feature";
 import { rpcPostSignalOnceByClientMessageId } from "../rpc/methods";
 import { readRuntimeCoordinatorExecutionProjectionByDispatch } from "../runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo";
 import { readSpaceDispatchLookupByClientMessageId } from "../space/infrastructure/postgresql/space-dispatch-read-repo";
@@ -104,7 +105,6 @@ export async function submitLocalRoutineDelivery(input: {
       userId: routine.createdByUserId,
     });
     if (!human) {
-      // The creator is the Wake's root requester; without them it stops.
       return await skipRunForMissingCreator({ db, nowMs: input.nowMs, run });
     }
     await createRoutineTargetSpaceEligibility({
@@ -172,11 +172,11 @@ export async function submitLocalRoutineDelivery(input: {
     JSON.parse(frozen.local_submission_json)
   );
   if (
-    !(await readActiveRoutineCreator({
+    await hasRoutineCreatorLeft({
       db,
       organizationId: run.organizationId,
       userId: submission.context.actorContext.ownerUserId ?? "",
-    }))
+    })
   ) {
     return await skipRunForMissingCreator({ db, nowMs: input.nowMs, run });
   }
@@ -229,11 +229,27 @@ async function readActiveRoutineCreator(input: {
   return result.rows[0] ?? null;
 }
 
+/** Once the chain is enforced, a frozen run re-checks its root, the creator. */
+async function hasRoutineCreatorLeft(input: {
+  db: PostgresDatabase;
+  organizationId: string;
+  userId: string;
+}): Promise<boolean> {
+  return isRequestChainEnforced() && !(await readActiveRoutineCreator(input));
+}
+
+/**
+ * The creator is the Wake's root requester; without them the Routine stops.
+ * Before the chain is enforced the run keeps its earlier failure.
+ */
 async function skipRunForMissingCreator(input: {
   db: PostgresDatabase;
   nowMs: number;
   run: CenterAgentRoutineRun;
 }): Promise<{ status: "skipped" }> {
+  if (!isRequestChainEnforced()) {
+    throw new Error("routine.member_unavailable");
+  }
   await markRoutineRunSkipped({
     db: input.db,
     runId: input.run.id,

@@ -73,3 +73,82 @@ export function resolveDispatchOutboxRequestChain(input: {
   });
   return undefined;
 }
+
+/**
+ * Resolves the request chain basis of a hosted Agent's signal to the chain of
+ * the Wake it runs in: its final reply (Core-set native publication
+ * authority) or a Wake it starts through its Space tools. The chain is read
+ * from this Space's own outbox record, never from the signal.
+ */
+export function withHostedReplyRequestChainBasis(input: {
+  readWake: (
+    dispatchId: string
+  ) => Pick<
+    OpenMeldDaemonDispatchQueueMessage,
+    "requestChain" | "targetProfileId"
+  > | null;
+  signal: SignalEnvelope;
+  signalContext?: SignalPublishContext;
+}): SignalPublishContext | undefined {
+  const { signal, signalContext } = input;
+  const dispatchId = readHostedWakeDispatchId(signal, signalContext);
+  if (dispatchId === undefined) {
+    return signalContext;
+  }
+  const wake = dispatchId ? input.readWake(dispatchId) : null;
+  if (
+    !wake?.requestChain ||
+    wake.targetProfileId !== signal.profile.profileId
+  ) {
+    // No trusted basis: the seed carries no chain and admission decides.
+    const { requestChainBasis: _unresolved, ...rest } = signalContext ?? {};
+    return rest;
+  }
+  return {
+    ...signalContext,
+    requestChainBasis: { kind: "parent", requestChain: wake.requestChain },
+  };
+}
+
+/** Undefined: not a hosted Agent signal; null: one without a usable Wake. */
+function readHostedWakeDispatchId(
+  signal: SignalEnvelope,
+  signalContext: SignalPublishContext | undefined
+): string | null | undefined {
+  if (signal.profile.kind !== "agent") {
+    return signalContext?.requestChainBasis?.kind === "wake" ? null : undefined;
+  }
+  if (signalContext?.requestChainBasis?.kind === "wake") {
+    return signalContext.requestChainBasis.dispatchId;
+  }
+  if (
+    signalContext?.requestChainBasis ||
+    signalContext?.finalOutcomeAuthority !== "remote_agent_native_delivery" ||
+    signal.type !== "signal.text"
+  ) {
+    return undefined;
+  }
+  const meta = signal.data.meta;
+  return typeof meta?.dispatchId === "string" &&
+    meta.targetProfileId === signal.profile.profileId
+    ? meta.dispatchId
+    : null;
+}
+
+/**
+ * A message rebuilt for publication (result finalization) carries the chain
+ * of the Wake it finalizes, read from that Wake's own outbox record.
+ */
+export function withOutboxRequestChain(
+  message: OpenMeldDaemonDispatchQueueMessage,
+  wake: Pick<
+    OpenMeldDaemonDispatchQueueMessage,
+    "requestChain" | "targetProfileId"
+  > | null
+): OpenMeldDaemonDispatchQueueMessage {
+  return wake?.requestChain &&
+    wake.targetProfileId === message.targetProfileId &&
+    !message.requestChain
+    ? { ...message, requestChain: wake.requestChain }
+    : message;
+}

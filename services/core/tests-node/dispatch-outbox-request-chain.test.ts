@@ -8,9 +8,8 @@ vi.mock("../src/member-agent/member-agents-feature", () => ({
   isRequestChainEnforced: () => feature.enforced,
 }));
 
-const { resolveDispatchOutboxRequestChain } = await import(
-  "../src/space/application/dispatch-outbox-request-chain"
-);
+const { resolveDispatchOutboxRequestChain, withHostedReplyRequestChainBasis } =
+  await import("../src/space/application/dispatch-outbox-request-chain");
 
 const TALI = "human-tali";
 const AGENT_A = "agent-a";
@@ -159,5 +158,89 @@ describe("Space outbox seed request chain (each producer)", () => {
     ).toThrow(
       expect.objectContaining({ code: "request_chain.parent_mismatch" })
     );
+  });
+});
+
+describe("hosted Agent reply request chain basis", () => {
+  const wakeChain: RequestChain = [
+    { kind: "human", profileId: TALI },
+    { kind: "agent", profileId: "agent-center" },
+  ];
+  function reply(meta: Record<string, unknown>) {
+    return {
+      data: { meta },
+      id: "reply-1",
+      profile: { kind: "agent", profileId: "agent-center" },
+      type: "signal.text",
+    } as unknown as SignalEnvelope;
+  }
+  const readWake = (dispatchId: string) =>
+    dispatchId === "dispatch-1"
+      ? { requestChain: wakeChain, targetProfileId: "agent-center" }
+      : null;
+
+  it("continues the chain of the Wake the hosted Agent answers", () => {
+    expect(
+      withHostedReplyRequestChainBasis({
+        readWake,
+        signal: reply({
+          dispatchId: "dispatch-1",
+          targetProfileId: "agent-center",
+        }),
+        signalContext: {
+          finalOutcomeAuthority: "remote_agent_native_delivery",
+        },
+      })?.requestChainBasis
+    ).toEqual({ kind: "parent", requestChain: wakeChain });
+  });
+
+  it("ignores replies without the Core-set native authority or for another Wake", () => {
+    for (const [meta, signalContext] of [
+      [{ dispatchId: "dispatch-1", targetProfileId: "agent-center" }, {}],
+      [
+        { dispatchId: "dispatch-1", targetProfileId: "agent-other" },
+        { finalOutcomeAuthority: "remote_agent_native_delivery" as const },
+      ],
+      [
+        { dispatchId: "dispatch-unknown", targetProfileId: "agent-center" },
+        { finalOutcomeAuthority: "remote_agent_native_delivery" as const },
+      ],
+    ] as const) {
+      expect(
+        withHostedReplyRequestChainBasis({
+          readWake,
+          signal: reply(meta),
+          signalContext,
+        })?.requestChainBasis
+      ).toBeUndefined();
+    }
+  });
+
+  it("resolves a personal Remote Agent's Wake to that Wake's chain", () => {
+    const agentSignal = {
+      data: {},
+      id: "wake-1",
+      profile: { kind: "agent", profileId: "agent-center" },
+      type: "signal.text",
+    } as unknown as SignalEnvelope;
+    expect(
+      withHostedReplyRequestChainBasis({
+        readWake,
+        signal: agentSignal,
+        signalContext: {
+          requestChainBasis: { kind: "wake", dispatchId: "dispatch-1" },
+        },
+      })?.requestChainBasis
+    ).toEqual({ kind: "parent", requestChain: wakeChain });
+    // A Wake this Space does not hold leaves no basis behind.
+    expect(
+      withHostedReplyRequestChainBasis({
+        readWake,
+        signal: agentSignal,
+        signalContext: {
+          requestChainBasis: { kind: "wake", dispatchId: "dispatch-unknown" },
+        },
+      })?.requestChainBasis
+    ).toBeUndefined();
   });
 });

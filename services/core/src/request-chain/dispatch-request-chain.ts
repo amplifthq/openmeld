@@ -5,6 +5,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { readCenterAgentWakeAuditAttribution } from "../center-agent/center-agent-repository";
 import type { CoreBindings } from "../lib/bindings";
+import { readRemoteAgentNativeDeliveryByDeliveryId } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   appendRequestChainAgent,
   parseRequestChain,
@@ -28,7 +29,10 @@ export type RequestChainBasis =
   // The chain of the Wake whose Agent authored this signal.
   | { kind: "parent"; requestChain: RequestChain }
   // A human-authored signal published for a Routine run.
-  | { kind: "source"; source: "routine"; sourceId: string };
+  | { kind: "source"; source: "routine"; sourceId: string }
+  // The Wake (in the same Space) whose hosted Agent authored this signal.
+  // The Space resolves it to that Wake's chain before planning.
+  | { kind: "wake"; dispatchId: string };
 
 export type DispatchRequestChainPlan =
   | RequestChainResult
@@ -98,6 +102,14 @@ export type ResolveAdmittedRequestChainDeps = {
     organizationId: string;
     resourceId: string | null;
     resourceType: string | null;
+    sourceNativeDeliveryId: string | null;
+  } | null>;
+  /** The member Core recorded on a native delivery, never a tool argument. */
+  readNativeDeliveryRoot: (input: { deliveryId: string }) => Promise<{
+    onBehalfOfProfileId: string | null;
+    onBehalfOfUserId: string | null;
+    organizationId: string;
+    profileId: string;
   } | null>;
 };
 
@@ -156,10 +168,26 @@ export async function resolveAdmittedRequestChain(input: {
     if (
       !(
         attribution?.onBehalfOfProfileId &&
+        attribution.sourceNativeDeliveryId &&
         attribution.organizationId === message.organizationId &&
         attribution.resourceType === "space" &&
         attribution.resourceId === message.spaceId &&
         attribution.actorProfileId === source.profileId
+      )
+    ) {
+      return { ok: false, reasonCode: "request_chain.root_required" };
+    }
+    // The attribution must name the member of the Center Agent turn that
+    // sent this Wake, as Core recorded it on that turn's native delivery.
+    const turn = await input.deps.readNativeDeliveryRoot({
+      deliveryId: attribution.sourceNativeDeliveryId,
+    });
+    if (
+      !(
+        turn?.onBehalfOfUserId &&
+        turn.organizationId === message.organizationId &&
+        turn.profileId === source.profileId &&
+        turn.onBehalfOfProfileId === attribution.onBehalfOfProfileId
       )
     ) {
       return { ok: false, reasonCode: "request_chain.root_required" };
@@ -223,6 +251,16 @@ export function createAdmittedRequestChainDeps(
         return null;
       }
       return await readCenterAgentWakeAuditAttribution({ clientMessageId, db });
+    },
+    readNativeDeliveryRoot: async ({ deliveryId }) => {
+      const db = env ? getPostgresDatabase(env) : null;
+      if (!db) {
+        return null;
+      }
+      return await readRemoteAgentNativeDeliveryByDeliveryId({
+        db,
+        deliveryId,
+      });
     },
   };
 }

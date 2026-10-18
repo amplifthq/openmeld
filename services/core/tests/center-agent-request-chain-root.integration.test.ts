@@ -15,9 +15,10 @@ vi.mock("../src/member-agent/member-agents-feature", () => ({
   isRequestChainEnforced: () => feature.enforced,
 }));
 
-const { rpcCenterAgentUpdateAgentProfileRuntimeSettings } = await import(
-  "../src/rpc/methods"
-);
+const {
+  rpcCenterAgentConnectAgentProfileToLocalAgent,
+  rpcCenterAgentUpdateAgentProfileRuntimeSettings,
+} = await import("../src/rpc/methods");
 
 afterEach(() => {
   feature.enforced = true;
@@ -147,6 +148,23 @@ describe("Center Agent management checks the request chain root", () => {
     expect(consumed.rows).toEqual([
       { consumed_native_delivery_id: confirmation.deliveryId },
     ]);
+  });
+
+  it("refuses a reconnect that would change the mode without that confirmation", async () => {
+    const f = await seedFixture();
+    const turn = await recordTurn(f, f.felix);
+    await expect(
+      rpcCenterAgentConnectAgentProfileToLocalAgent(f.coreEnv, {
+        agentControllerPermissionMode: "codex:fullAccess",
+        agentProfileId: f.felixAgentProfileId,
+        candidateId: "candidate-any",
+        context: turn.context,
+        onBehalfOf: { profileId: f.felix.profileId },
+      })
+    ).rejects.toMatchObject({
+      code: "center_agent.permission_mode_confirmation_required",
+    });
+    expect(await readPermissionMode(f)).toBeNull();
   });
 
   it("keeps the current behavior before the chain is enforced", async () => {

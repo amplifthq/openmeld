@@ -12,6 +12,7 @@ import type {
   OpenMeldRequestContext,
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
+import { isRequestChainEnforced } from "../../member-agent/member-agents-feature";
 import { readRemoteAgentNativeDeliveryBySubmissionId } from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 import {
@@ -48,6 +49,16 @@ export async function prepareCenterAgentRepresentedMemberRequest(
     env,
     representedHuman,
   });
+  if (isRequestChainEnforced() && !sourceDelivery) {
+    // The represented member must be the root Core recorded on this turn's
+    // native delivery, never only the speaker named in the request.
+    throw createCoreRpcHttpError({
+      code: "center_agent.request_chain_root_mismatch",
+      reason:
+        "Only the member who asked in this conversation can be represented here.",
+      status: 403,
+    });
+  }
   return {
     authorization: centerAgent,
     representedHuman,

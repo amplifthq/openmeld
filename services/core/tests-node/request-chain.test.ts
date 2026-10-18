@@ -36,6 +36,14 @@ function deps(
   return {
     isActiveMemberProfile: vi.fn(() => Promise.resolve(true)),
     readCenterAgentWakeAttribution: vi.fn(() => Promise.resolve(null)),
+    readNativeDeliveryRoot: vi.fn(() =>
+      Promise.resolve({
+        onBehalfOfProfileId: TALI,
+        onBehalfOfUserId: "user-tali",
+        organizationId: "org-1",
+        profileId: CENTER,
+      })
+    ),
     ...overrides,
   };
 }
@@ -276,6 +284,7 @@ describe("resolveAdmittedRequestChain (Core admission)", () => {
         organizationId: "org-1",
         resourceId: "space-1",
         resourceType: "space",
+        sourceNativeDeliveryId: "delivery-1",
       })
     );
     await expect(
@@ -307,6 +316,36 @@ describe("resolveAdmittedRequestChain (Core admission)", () => {
               organizationId: "org-1",
               resourceId: "another-space",
               resourceType: "space",
+              sourceNativeDeliveryId: "delivery-1",
+            }),
+        }),
+        message: message({
+          sourceClientMessageId: "ca-wake:abc",
+          sourceSignalSnapshot: {
+            profileId: CENTER,
+            profileKind: "agent",
+            text: "hi",
+          },
+        }),
+      })
+    ).resolves.toEqual({
+      ok: false,
+      reasonCode: "request_chain.root_required",
+    });
+  });
+
+  it("finds no root when the attribution names someone other than the turn's member", async () => {
+    await expect(
+      resolveAdmittedRequestChain({
+        deps: deps({
+          readCenterAgentWakeAttribution: () =>
+            Promise.resolve({
+              actorProfileId: CENTER,
+              onBehalfOfProfileId: "human-felix",
+              organizationId: "org-1",
+              resourceId: "space-1",
+              resourceType: "space",
+              sourceNativeDeliveryId: "delivery-1",
             }),
         }),
         message: message({

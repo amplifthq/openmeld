@@ -545,7 +545,11 @@ import {
   DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE,
   processDispatchOutboxCandidates,
 } from "../../application/dispatch-outbox-batch-service";
-import { resolveDispatchOutboxRequestChain } from "../../application/dispatch-outbox-request-chain";
+import {
+  resolveDispatchOutboxRequestChain,
+  withHostedReplyRequestChainBasis,
+  withOutboxRequestChain,
+} from "../../application/dispatch-outbox-request-chain";
 import { readSpaceMessagePage } from "../../application/message-read";
 import {
   allowsExternalSpaceLinkJoin,
@@ -4359,7 +4363,7 @@ export class Space extends DurableObject<CoreBindings> {
       });
     const inboxRecord =
       buildDispatchResultInboxRecordFromFinalizationCommand(command);
-    const dispatchMessage = buildAcceptedDispatchFinalizationQueueMessage({
+    const finalizedMessage = buildAcceptedDispatchFinalizationQueueMessage({
       fact: command.dispatchFact,
       inboxRecord,
       organizationId: owner.readSpaceMetaRecord()?.organizationId,
@@ -4370,12 +4374,20 @@ export class Space extends DurableObject<CoreBindings> {
         command.dispatchFact.sourceEventId
       ),
     });
-    if (!dispatchMessage) {
+    if (!finalizedMessage) {
       return buildRuntimeCoordinatorFinalizationFailureOutcome({
         finalizationCommandId: command.finalizationCommandId,
         reasonCode: "daemon.result.finalization_unavailable",
       });
     }
+    // The reply continues this Wake's chain; this Space's outbox holds it.
+    const dispatchMessage = withOutboxRequestChain(
+      finalizedMessage,
+      readDispatchOutboxRecordByDispatchId(
+        owner.ctx.storage.sql,
+        finalizedMessage.dispatchId
+      )
+    );
     const db = getPostgresDatabase(owner.bindings);
     const coordinationDb = getPostgresDatabase(owner.bindings);
     if (
@@ -22195,7 +22207,12 @@ export class Space extends DurableObject<CoreBindings> {
       });
     const preparedDispatchOutboxPlan = this.prepareDispatchOutboxPlanForSignal(
       signal,
-      signalContext,
+      withHostedReplyRequestChainBasis({
+        readWake: (dispatchId) =>
+          readDispatchOutboxRecordByDispatchId(this.ctx.storage.sql, dispatchId),
+        signal,
+        signalContext,
+      }),
       callerContext,
       automaticWakeEligible
         ? await this.readAutomaticWakePreference(signal.profile.profileId)

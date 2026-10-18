@@ -77,8 +77,9 @@ export async function requireCenterAgentPermissionModeConfirmation(input: {
       confirmation: { expiresAtMs, token },
     };
   }
-  // One atomic claim: the scope, a later turn, unexpired, and unused (or used
-  // by this same turn, so a retried tool call stays idempotent).
+  // One atomic claim: the scope, a later turn of the same member (a delivery
+  // that started after the evidence was issued), unexpired, and unused (or
+  // used by this same turn, so a retried tool call stays idempotent).
   const result = await input.db.query({
     text: `
       UPDATE ${TABLE}
@@ -95,6 +96,15 @@ export async function requireCenterAgentPermissionModeConfirmation(input: {
         AND expires_at_ms > $1
         AND (consumed_native_delivery_id IS NULL
           OR consumed_native_delivery_id = $2)
+        AND EXISTS (
+          SELECT 1
+          FROM "openmeld"."openMeldRemoteAgent_native_delivery_ledger" AS turn
+          WHERE turn.delivery_id = $2
+            AND turn.profile_id = $5
+            AND turn.on_behalf_of_user_id = $6
+            AND turn.on_behalf_of_profile_id = $7
+            AND turn.created_at_ms >= ${TABLE}.created_at_ms
+        )
     `,
     values: [
       input.nowMs,

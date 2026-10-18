@@ -13175,15 +13175,18 @@ export async function rpcCenterAgentConnectAgentProfileToLocalAgent(
       code: "invalid_payload",
     });
   }
+  const owner = await resolveCenterAgentProductOperationOwner(
+    authorization,
+    parsed.data.onBehalfOf
+  );
+  await refuseUnconfirmedCenterAgentPermissionModeChange({
+    agentProfileId: parsed.data.agentProfileId,
+    db: authorization.db,
+    ownerUserId: owner.representedUserId,
+    requestedMode: parsed.data.agentControllerPermissionMode,
+  });
   const response = await connectAgentProfileToLocalAgentOperation({
-    deps: buildCenterAgentProductOperationDeps(
-      env,
-      authorization,
-      await resolveCenterAgentProductOperationOwner(
-        authorization,
-        parsed.data.onBehalfOf
-      )
-    ),
+    deps: buildCenterAgentProductOperationDeps(env, authorization, owner),
     request: parsed.data,
   });
   const validated =
@@ -13409,7 +13412,9 @@ async function resolveCenterAgentProductOperationOwner(
       reason: "The requesting member is no longer available.",
     });
   }
-  const root = await readCenterAgentRequestChainRoot(authorization);
+  const root = isRequestChainEnforced()
+    ? await readCenterAgentRequestChainRoot(authorization)
+    : null;
   if (
     isRequestChainEnforced() &&
     !(
@@ -13443,6 +13448,37 @@ async function resolveCenterAgentProductOperationOwner(
       },
     },
   };
+}
+/**
+ * Reconnecting an existing Binding must not change its permission mode
+ * without the member's separate confirmation, which only the runtime
+ * settings operation collects. Connecting a new Binding is additive.
+ */
+async function refuseUnconfirmedCenterAgentPermissionModeChange(input: {
+  agentProfileId: string;
+  db: PostgresDatabase;
+  ownerUserId: string;
+  requestedMode: string | undefined;
+}): Promise<void> {
+  if (!isRequestChainEnforced() || input.requestedMode === undefined) {
+    return;
+  }
+  const existing = await readPrimaryAgentProfileBindingRecord({
+    agentProfileId: input.agentProfileId,
+    db: input.db,
+    owner: { id: input.ownerUserId, kind: "owner_account" },
+  });
+  if (
+    existing &&
+    (existing.agentControllerPermissionMode ?? null) !== input.requestedMode
+  ) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.permission_mode_confirmation_required",
+      reason:
+        "Changing this Agent's permission mode needs the member's separate confirmation. Connect without a permission mode, then change it with openmeld_update_agent_profile_runtime_settings.",
+      status: 409,
+    });
+  }
 }
 /**
  * The human root of the Center Agent's current turn: the member Core recorded

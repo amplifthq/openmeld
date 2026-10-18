@@ -526,6 +526,55 @@ describe("RuntimeCoordinator interaction Inbox urgency from the request chain ro
     }
   });
 
+  it("never reopens an ended question on replay or lets another task's answer close it", async () => {
+    const h = await createInboxHarness();
+    try {
+      await seedRootProfiles(h);
+      const first = question(
+        1,
+        "context_one",
+        "00000000-0000-4000-8000-0000000000a2"
+      );
+      await projectRuntimeCoordinatorInteractionInboxItem({
+        ...first,
+        inboxDb: h.db,
+        spaceIndexDb: h.db,
+      });
+      // Same interaction id, another task in the Session: not this question.
+      await resolveRuntimeCoordinatorInteractionInboxItem({
+        ...first,
+        inboxDb: h.db,
+        resolvedAtMs: 2200,
+        runtimeCoordinatorExecutionId: "execution_other",
+        spaceIndexDb: h.db,
+      });
+      expect(
+        await h.queryFirst({
+          text: 'SELECT resolution_status FROM "openmeld"."inbox_items"',
+        })
+      ).toEqual({ resolution_status: "open" });
+      await resolveRuntimeCoordinatorInteractionInboxItem({
+        ...first,
+        inboxDb: h.db,
+        resolvedAtMs: 2300,
+        spaceIndexDb: h.db,
+      });
+      await projectRuntimeCoordinatorInteractionInboxItem({
+        ...first,
+        inboxDb: h.db,
+        nowMs: 2400,
+        spaceIndexDb: h.db,
+      });
+      expect(
+        await h.queryFirst({
+          text: 'SELECT resolution_status FROM "openmeld"."inbox_items"',
+        })
+      ).toEqual({ resolution_status: "resolved" });
+    } finally {
+      await h.close();
+    }
+  });
+
   it("gives each Session its own urgent item and email", async () => {
     const h = await createInboxHarness();
     try {

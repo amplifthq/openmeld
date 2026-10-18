@@ -38,6 +38,33 @@ async function seed(db: PostgresDatabase): Promise<void> {
         ($4, 'Tali', 'tali', 'human', NULL, 'user-tali', NULL, NULL, 'auth_bootstrap', 'active')`,
       values: [CENTER, FELIX_AGENT, FELIX, TALI],
     });
+    // Center Agent turns as Core recorded them: who spoke, and when.
+    for (const [deliveryId, profileId, userId, createdAtMs] of [
+      ["delivery-instruction", FELIX, "user-felix", 900],
+      ["delivery-earlier", FELIX, "user-felix", 500],
+      ["delivery-confirmation", FELIX, "user-felix", 1500],
+      ["delivery-another-turn", FELIX, "user-felix", 1600],
+      ["delivery-tali", TALI, "user-tali", 1500],
+    ] as const) {
+      await client.query({
+        text: `INSERT INTO "openmeld"."openMeldRemoteAgent_native_delivery_ledger" (
+          delivery_id, organization_id, conversation_kind, space_id, profile_id,
+          binding_id, trigger_message_id, routine_run_id, dispatch_id,
+          idempotency_key, submission_id, status, on_behalf_of_profile_id,
+          on_behalf_of_user_id, on_behalf_of_display_name, thread_context_json,
+          created_at_ms, updated_at_ms
+        ) VALUES ($1, 'org-1', 'space', 'space-1', $2, 'binding-center',
+          $3, NULL, $3, $3, $3, 'accepted', $4, $5, 'Member', NULL, $6, $6)`,
+        values: [
+          deliveryId,
+          CENTER,
+          `trigger-${deliveryId}`,
+          profileId,
+          userId,
+          createdAtMs,
+        ],
+      });
+    }
   });
 }
 
@@ -100,6 +127,25 @@ describe("Center Agent permission-mode confirmation", () => {
     await expect(confirm("delivery-another-turn")).rejects.toMatchObject({
       code: "center_agent.permission_mode_confirmation_invalid",
     });
+  });
+
+  it("rejects a turn that started before the evidence or belongs to another member", async () => {
+    const harness = await createPostgresHarness();
+    await seed(harness.db);
+    const token = await issue(harness.db);
+    for (const nativeDeliveryId of ["delivery-earlier", "delivery-tali"]) {
+      await expect(
+        requireCenterAgentPermissionModeConfirmation({
+          db: harness.db,
+          nativeDeliveryId,
+          nowMs: 2000,
+          scope,
+          token,
+        })
+      ).rejects.toMatchObject({
+        code: "center_agent.permission_mode_confirmation_invalid",
+      });
+    }
   });
 
   it("rejects the evidence for another member, Profile, mode, or after expiry", async () => {
