@@ -54,7 +54,9 @@ export function AppModuleSidebarProvider(input: {
 			setState((current) => {
 				const next = {
 					...current,
-					useRouteDefault: false,
+					useRouteDefault:
+						current.useRouteDefault &&
+						geometry.mode === (input.defaultOpen ? "expanded" : "hidden"),
 					tier: geometry.mode,
 					width: `${geometry.width}px`,
 					pageWidths: {
@@ -66,7 +68,7 @@ export function AppModuleSidebarProvider(input: {
 				return next;
 			});
 		},
-		[input.preferenceKey]
+		[input.preferenceKey, input.defaultOpen]
 	);
 	return (
 		<ModuleSidebarContext.Provider value={input.available}>
