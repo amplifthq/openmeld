@@ -26,6 +26,8 @@ export type UseFluidHoverOptions = {
    *          measured by Euclidean distance to each item's center
    */
   axis?: "x" | "y" | "xy";
+  /** Maximum viewport distance from an item edge; omitted keeps upstream proximity. */
+  maxDistance?: number;
   /**
    * Makes an item invisible to hit-testing without unregistering it — for
    * rows that stay mounted while clipped away (a collapsed sub-tree).
@@ -91,6 +93,7 @@ export type UseFluidHoverReturn = {
 };
 
 export type PickNearestInput = {
+  maxDistance?: number;
   axis: "x" | "y" | "xy";
   /** The pointer, in viewport coordinates. */
   point: { x: number; y: number };
@@ -127,6 +130,7 @@ export function pickNearest({
   border,
   layoutSize,
   isDisabled,
+  maxDistance = Number.POSITIVE_INFINITY,
 }: PickNearestInput): number | null {
   const scaleX =
     layoutSize.width > 0 ? containerRect.width / layoutSize.width : 1;
@@ -143,6 +147,18 @@ export function pickNearest({
     }
     if (isDisabled?.(index)) {
       continue;
+    }
+
+    // Bound eligibility by the real box, even for one-axis navigation.
+    // Keep center-based upstream ranking among eligible items.
+    if (maxDistance !== Number.POSITIVE_INFINITY) {
+      const left = containerRect.left + (border.x + r.left - scroll.x) * scaleX;
+      const top = containerRect.top + (border.y + r.top - scroll.y) * scaleY;
+      const dx = Math.max(left - point.x, 0, point.x - left - r.width * scaleX);
+      const dy = Math.max(top - point.y, 0, point.y - top - r.height * scaleY);
+      if (Math.hypot(dx, dy) > maxDistance) {
+        continue;
+      }
     }
 
     if (axis === "xy") {
@@ -225,7 +241,7 @@ export function useFluidHover<T extends HTMLElement>(
   containerRef: RefObject<T | null>,
   options: UseFluidHoverOptions = {}
 ): UseFluidHoverReturn {
-  const { axis = "y", isItemDisabled, gapClick = true } = options;
+  const { axis = "y", maxDistance, isItemDisabled, gapClick = true } = options;
   const gapClickMaxDistance =
     typeof gapClick === "object"
       ? (gapClick.maxDistance ?? Number.POSITIVE_INFINITY)
@@ -453,6 +469,7 @@ export function useFluidHover<T extends HTMLElement>(
         setActiveIndex(
           pickNearest({
             axis,
+            maxDistance,
             point: { x: mouseX, y: mouseY },
             rects: itemRectsRef.current,
             containerRect: container.getBoundingClientRect(),
@@ -472,7 +489,7 @@ export function useFluidHover<T extends HTMLElement>(
         );
       });
     },
-    [axis, containerRef, isItemDisabled]
+    [axis, maxDistance, containerRef, isItemDisabled]
   );
 
   const handleMouseEnter = useCallback(() => {
