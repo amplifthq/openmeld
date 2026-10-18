@@ -177,19 +177,13 @@ access remain unchanged. If internal activity cannot be kept inside the stated
 window, stop and reassess rather than claim this per-agent control is a global
 maintenance mode.
 
-For the normal signed CLI lane, the release owner can dispatch and wait for
-each of these guarded workflows in sequence, always using the same approved
-`RELEASE_SHA` (a full first-parent main SHA):
+The release owner runs each stage for the same approved first-parent `main`
+SHA and waits for its health result before the next:
 
 ```sh
-gh workflow run release-on-main.yml --ref main --field scope=database --field release_sha="$RELEASE_SHA"
-# Wait for success, then repeat this scoped workflow for auth, then remote-agent.
-gh workflow run cli-release.yml --ref main --field release_path=normal --field release_sha="$RELEASE_SHA"
-# Wait for signed CLI, required floor, and Core projection success.
-# Repeat release-on-main.yml for gateway, then web; wait for each result.
+pnpm run deploy -- --sha "$RELEASE_SHA" --scope db,auth,remote-agent --lane github
+pnpm run deploy -- --sha "$RELEASE_SHA" --scope cli --lane github
+pnpm run deploy -- --sha "$RELEASE_SHA" --scope gateway,web --lane github
 ```
 
-Do not launch the next stage on dispatch acknowledgement alone. A guarded
-preflight failure or channel mismatch is a stop, not permission to use a raw
-Wrangler deploy. The equivalent local scopes are supported only from a clean
-dedicated release worktree with the required signing credentials.
+A failed health check is a stop, not permission to use a raw Wrangler deploy.

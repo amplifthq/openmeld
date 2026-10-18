@@ -361,6 +361,7 @@ if (
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
   const { values, positionals } = parseArgs({
+    args: process.argv.slice(2).filter((arg) => arg !== "--"),
     allowPositionals: true,
     options: {
       "release-sha": { type: "string" },

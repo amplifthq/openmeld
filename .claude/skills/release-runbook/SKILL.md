@@ -1,6 +1,6 @@
 ---
 name: release-runbook
-description: Use when asked to deploy, release, publish, or ship OpenMeld to production — workers, Web, CLI, or local components. Routes to the guarded release lanes; never deploy raw.
+description: Use when asked to deploy, release, publish, or ship OpenMeld to production — workers, Web, CLI, or local components. Routes to `pnpm run deploy`; never deploy raw.
 ---
 
 # Release Runbook (thin router)
@@ -12,9 +12,7 @@ rule; do not restate them here.
 
 ## Entry points
 
-- `pnpm release:plan`
-- `pnpm release:status`
-- `pnpm release:preflight`
+- `pnpm run deploy -- --scope <auto|names> --lane <local|github|auto> --dry-run`
 - `pnpm run verify:release-ready`
 
 Select the actual lane and remaining commands from the owner document, not

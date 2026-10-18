@@ -49,7 +49,7 @@ before pushing, deploying, or declaring production smoke clear.
 | `pnpm run verify:pre-push:full` | Runs affected `check` and unit `test` with limited concurrency, then local-component release readiness. Use when a push needs broad affected-package confidence. |
 | `pnpm run verify:pr` | Runs affected `check` and unit `test` with limited concurrency. It does not run integration suites. |
 | `pnpm run verify:pr:full` | Runs affected `check`, unit `test`, and `test:integration` with limited concurrency. Use only when the changed boundary needs affected integration coverage. |
-| `pnpm run verify:release-ready` | Verifies local component release readiness. It is mandatory before manual deploys that touch CLI, OpenMeld Service carrier files, managed skills, daemon schemas, or `release/local-components.json`. |
+| `pnpm run verify:release-ready` | Verifies local component release readiness. It is mandatory before manual deploys that touch CLI, OpenMeld Service carrier files, managed skills, daemon schemas, or `release/local-components-policy.json`. |
 | `pnpm run deploy` | Runs `verify:release-ready -- --force`, then deploys Cloudflare workers and web through the guarded deployment path. |
 
 ## Package Test Entrypoints
