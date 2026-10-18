@@ -11,11 +11,17 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SpaceCreationRoute } from "./space-creation-conversation";
 
-const { landingProps, readBootstrap, readProfiles } = vi.hoisted(() => ({
-	landingProps: [] as Record<string, unknown>[],
-	readBootstrap: vi.fn(),
-	readProfiles: vi.fn(),
-}));
+const { creationState, landingProps, readBootstrap, readProfiles } = vi.hoisted(
+	() => ({
+		creationState: {
+			response: { spaceId: "space-1" } as { spaceId: string } | undefined,
+			status: "success",
+		},
+		landingProps: [] as Record<string, unknown>[],
+		readBootstrap: vi.fn(),
+		readProfiles: vi.fn(),
+	})
+);
 
 const ORGANIZATION = { id: "org-1", slug: "acme" };
 const PROFILE_ID = "hum-owner";
@@ -45,8 +51,8 @@ vi.mock("#/query/spaces/space-creation", () => ({
 			input: { creationId: "creating-1", name: "Launch", members: [] },
 			organizationId: ORGANIZATION.id,
 			profileId: PROFILE_ID,
-			response: { spaceId: SPACE_ID },
-			status: "success",
+			response: creationState.response,
+			status: creationState.status,
 		},
 	],
 }));
@@ -91,13 +97,13 @@ vi.mock("./space-composer", () => ({ SpaceComposer: () => null }));
 vi.mock("./space-header", () => ({ SpaceWindowHeader: () => null }));
 vi.mock("./space-view-tabs", () => ({ SpaceViewTabs: () => null }));
 
-function renderRoute() {
+function renderRoute(spaceId = SPACE_ID) {
 	const queryClient = new QueryClient({
 		defaultOptions: { queries: { retry: false } },
 	});
 	render(
 		<QueryClientProvider client={queryClient}>
-			<SpaceCreationRoute profileId={PROFILE_ID} spaceId={SPACE_ID}>
+			<SpaceCreationRoute profileId={PROFILE_ID} spaceId={spaceId}>
 				<div>regular route</div>
 			</SpaceCreationRoute>
 		</QueryClientProvider>
@@ -107,6 +113,8 @@ function renderRoute() {
 describe("SpaceCreationRoute", () => {
 	beforeEach(() => {
 		landingProps.length = 0;
+		creationState.response = { spaceId: SPACE_ID };
+		creationState.status = "success";
 		readProfiles.mockReset();
 		readBootstrap.mockReset();
 		readBootstrap.mockImplementation((spaceId: string) =>
@@ -144,6 +152,23 @@ describe("SpaceCreationRoute", () => {
 		});
 		expect(screen.queryByTestId("space-landing")).toBeNull();
 		expect(landingProps).toHaveLength(0);
+	});
+
+	it("does not report an opening failure before creation is confirmed", async () => {
+		vi.spyOn(console, "error").mockImplementation(() => undefined);
+		creationState.response = undefined;
+		creationState.status = "pending";
+		readProfiles.mockRejectedValue(new Error("profiles unavailable"));
+		renderRoute("creating-1");
+
+		await waitFor(() => expect(readProfiles).toHaveBeenCalled());
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 20));
+		});
+		expect(
+			screen.queryByText("couldn't be opened", { exact: false })
+		).toBeNull();
+		expect(screen.queryByRole("button", { name: "Retry opening" })).toBeNull();
 	});
 
 	it("offers to retry when the account Profiles cannot be read", async () => {

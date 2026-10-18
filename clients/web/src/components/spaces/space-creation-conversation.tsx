@@ -189,6 +189,10 @@ function CreationMemberRetry(input: { retry: (() => void) | undefined }) {
 // Space only with both the bootstrap and those Profiles.
 function useCreationOpenState(input: {
 	bootstrap: { isError: boolean; refetch: () => unknown };
+	// Only a confirmed create response can make a Profiles failure an opening
+	// failure; before that, the conversation must not claim the Space exists.
+	creationFailed: boolean;
+	realSpaceId: string | undefined;
 	storageScope: string;
 }) {
 	const profiles = useQuery(
@@ -197,7 +201,9 @@ function useCreationOpenState(input: {
 			storageScope: input.storageScope,
 		})
 	);
-	const profilesFailed = profiles.isError && profiles.data === undefined;
+	const created = Boolean(input.realSpaceId) && !input.creationFailed;
+	const profilesFailed =
+		created && profiles.isError && profiles.data === undefined;
 	return {
 		accountProfiles: profiles.data,
 		openFailed: input.bootstrap.isError || profilesFailed,
@@ -359,6 +365,8 @@ function SpaceCreationConversation(input: {
 	const failed = input.creation.status === "error";
 	const { accountProfiles, openFailed, retryOpen } = useCreationOpenState({
 		bootstrap,
+		creationFailed: failed,
+		realSpaceId,
 		storageScope,
 	});
 	const error = creationError(failed, openFailed, queueError) ?? members.error;
