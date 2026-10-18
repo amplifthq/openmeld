@@ -816,7 +816,7 @@ describe("main tray behavior", () => {
     ).toEqual({ action: "deny" });
     await Promise.resolve();
     expect(electronMock.shell.openExternal).toHaveBeenCalledWith(
-      "https://openmeld.ai/o/team/agents?profileId=agent-%E4%B8%AD#activity"
+      "https://app.openmeld.ai/o/team/agents?profileId=agent-%E4%B8%AD#activity"
     );
   });
 
