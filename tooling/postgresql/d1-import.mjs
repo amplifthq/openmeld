@@ -41,6 +41,7 @@ const postgresqlOnlyTables = [
   { name: "openMeldDaemon_runtime_harness_presence" },
   { name: "agent_profile_permission_mode_advisories" },
   { name: "center_agent_permission_mode_confirmations" },
+  { name: "direct_message_session_states" },
 ];
 
 function csv(value) {
@@ -345,6 +346,15 @@ function nativeColumns(table, targetColumns) {
     // Historical Profiles start unassigned; the MemberAgent backfill groups them.
     columns.push({
       name: "member_agent_id",
+      type: "TEXT",
+      hidden: 0,
+      source: "new_nullable",
+    });
+  }
+  if (table.name === "openMeldDaemon_dispatch_ledger") {
+    // Historical dispatches predate request chains; their root stays unset.
+    columns.push({
+      name: "request_chain_root_profile_id",
       type: "TEXT",
       hidden: 0,
       source: "new_nullable",
