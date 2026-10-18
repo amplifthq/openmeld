@@ -819,6 +819,14 @@ cache; Project redesign.
   input and a later delivery in Core, but a member who declines in words is
   honored only by the model. A clickable confirmation card would close this;
   follow-up.
+- A personal hosted Remote Agent derives its conversation from
+  Organization, Profile and Space and ignores `contextSelection: new`, so a
+  colleague approved in a Direct Message it already worked in continues that
+  conversation. New Direct Message Sessions are new Spaces, so the common
+  case is fresh. Follow-up in hosted native delivery.
+- External requesters cannot yet read or withdraw their own access requests
+  (request routes require Organization membership). Needs a Space-scoped
+  requester read; follow-up.
 - Dispatch results report `effectiveRuntimeWorkingDirectory` to Core
   (`send-dispatch-result.ts`, pre-existing). Confirm it is projected to the
   owner only and decide whether it should become a folder id (Phase 3).
@@ -909,3 +917,15 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   by the Service; no owner-adjustable limits exist yet (Phase 1 did not add
   them), recorded as a follow-up; the visible shared-folder notice is a
   follow-up. §4.9 updated.
+- 2026-10-19, Phase 4 (4a–4d) report and its Codex review (gpt-6-astra,
+  high): migration 0045 (access grants and requests). Fixed in the package:
+  Direct Message conversion cannot add another owner's Agent; an observer's
+  live stream never joins or posts; personal Agents without a MemberAgent
+  are still consent-gated; owner-participation repair skips Agents joined on
+  request; a recorded decision the Space missed is re-applied on read; a
+  voided request revokes its allow-once grant; repeated decisions are
+  idempotent. A local-stack check fixed held-Wake progress, an outbox flush
+  inside the Space gate, a duplicated answer card and Add-members copy. Two
+  items moved to §13. 4e (no migration): folder-scoped conflicts, non-owner
+  isolated default via `isolated_if_git`, admitted-folder pinning, path-free
+  failures. Phase 4 is complete on the program branch.
