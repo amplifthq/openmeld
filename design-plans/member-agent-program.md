@@ -16,9 +16,12 @@ Items marked **unverified** were not read line by line.
   stop at the package's acceptance line.
 - Reviewing agent: check the diff against the cited rules, the authorization
   matrix (§6) and the invariants (§9). Anything not in this document is out of
-  scope for this PR.
-- Owner documents in `developing/` are rewritten as part of the work packages
-  (§10, Phase 0). Until then this document wins where they disagree.
+  scope for this PR; owner-document rules still apply.
+- Owner documents in `developing/` stay authoritative, as `AGENTS.md`
+  requires. Phase 0 rewrites them in this PR before any implementation package
+  starts. If this document and an owner document disagree after Phase 0, one
+  of them is fixed in the same PR; this document never overrides an owner
+  document.
 
 ## 1. Outcome
 
@@ -146,9 +149,10 @@ NOT NULL; `profile_handle` unique per owner. Creation proposes
 `buildAgentProfileTemplateName`
 (`clients/web/src/components/profiles/create-profile-dialog.tsx:1053`). A
 controller switcher exists (`developing/product/agent-profiles.md`, Shared
-provider conversations). Binding carries `agentControllerConversationId` and
-the rule that one Profile shares one private controller conversation across
-Spaces. Per-Profile concurrency is the constant
+provider conversations). Binding carries `agentControllerConversationId`. Context-enabled Profiles
+already run independent Execution Contexts (`developing/decisions.md`,
+2026-09-14); only harnesses without context support still keep the Binding
+conversation (`execution-context-authority.ts:410`). Per-Profile concurrency is the constant
 `AGENT_PROFILE_WORK_CONCURRENCY_LIMIT`
 (`clients/openmeld-cli/src/local-service/carrier/local-execution-slots.ts:19`).
 
@@ -164,8 +168,10 @@ Target:
   editable. Later Profiles get a short owner-chosen name. Display:
   `Felix Lu's Claude Code · PR Reviewer`; the default Profile shows no suffix.
   Handle rules unchanged. The long template is no longer used for defaults.
-- `agentControllerConversationId` on the Binding becomes legacy (read only by
-  `legacyAssociation`). Each Session carries its own native conversation.
+- `agentControllerConversationId` on the Binding remains only for harnesses
+  without context support and for `legacyAssociation`. Every context-enabled
+  Session carries its own native conversation; the owner-document sentence
+  about a Profile-wide conversation is rewritten to say exactly that.
 - Only the owner changes settings, including permission mode, enforced by the
   root-requester rule (§4.6).
 
@@ -355,9 +361,13 @@ and may cancel. Timeout stays `AGENT_INTERACTION_DEFAULT_TIMEOUT_MS` (8 h).
 Server-enforced operations (root requester must be the owner): change
 settings, folders, permission mode or concurrency; answer approvals; delete;
 add the Agent to a Space; grant or revoke access; archive. Current
-owner-of-actor checks (`agent_profile_binding.owner_mismatch` in
-`services/core/src/rpc/methods.ts:5669` and `:6578`; `isSpaceOwner` in
-`space-member-management-policy.ts`) become root-requester checks. Everything
+owner-of-actor checks become root-requester checks: owner validation with
+`agent_profile_binding.owner_mismatch` on Binding reads and disables
+(`services/core/src/rpc/methods.ts:5656-5669`, `:6566-6578`), execution-target
+mutation admission on Binding settings writes such as
+`rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissionMode`
+(`methods.ts:19551`), and `isSpaceOwner` on member removal
+(`space-member-management-policy.ts`). Everything
 else is prompt guidance: each task prompt states the chain, the root
 requester, where results go and who can see them.
 
@@ -414,7 +424,8 @@ New, first phase, prompt-only:
 
 Current: `resourcesConflict`
 (`runtime/local-service/src/local-execution-slots.ts:3`) treats `exclusive`
-as conflicting with any non-`none` task machine-wide; `resourceScope` derives
+as conflicting with every other task machine-wide, `none` included, and
+treats an undefined legacy scope as conflicting with any defined one; `resourceScope` derives
 from access and workspace (`execution-context-session.ts:34`). Limits:
 `DEFAULT_RUNTIME_DAEMON_GLOBAL_CONCURRENCY = 10`,
 `DEFAULT_RUNTIME_DAEMON_QUEUE_MAX = 50`
@@ -471,7 +482,12 @@ grants and audit stay owner-only.
   archive.
 - Center Agent management operations gain: set default folder by id, archive
   Sessions, handle access requests, change permission mode. All check the root
-  requester.
+  requester and follow red line 8 in
+  `developing/product/organizations-and-center-agent.md` (Drift Control): the
+  Center Agent acts only on the verified speaker's explicit instruction in the
+  current turn, never autonomously. Archive and permission-mode changes are
+  non-additive, so they also need that explicit instruction plus a
+  confirmation, as Routine management does.
 
 ## 5. Mention and Profile selection
 
@@ -485,13 +501,20 @@ stored.
 
 | Operation | Current check | Where | Target check |
 | --- | --- | --- | --- |
-| Change Binding settings (model, reasoning, permission mode, collaboration) | actor owns Profile → `agent_profile_binding.owner_mismatch` | `services/core/src/rpc/methods.ts:5656-5669`, `:6566-6578` | root requester owns Profile |
-| Center Agent runtime-settings write | verified human actor owns Profile | `rpcCenterAgentUpdateAgentProfileRuntimeSettings`, `methods.ts:12770` | same, via chain root |
-| Working folder write | owner Service lane + Binding target fence | `agent-profiles.md`, Working Folder; `methods.ts:4743` `requireSameAgentProfileBindingTarget` | add folderId; strip for non-owner roots |
-| Add or remove Space members | Space owner | `space-member-management-policy.ts`, `isSpaceOwner`; Space DO `rpcPostMembers`/`rpcRemoveMembers` (`methods.ts:2280`, `:2303`) | owner adding own Agent: unchanged; others: request path |
-| Answer agent interaction | Binding owner | `runtime-coordinator-authority.ts`; Space DO `rpcRespondToAgentInteraction` (`methods.ts:2249`) | unchanged; requester-side cancel added |
-| Delete Profile / Space | owner / Space owner | existing | root requester owns |
-| Grant, revoke, archive | new | — | root requester owns |
+| Binding settings write (model, reasoning, permission mode, collaboration, OpenCode permission) | owner validation + execution-target mutation admission | `rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissionMode` `methods.ts:19551`; `rpcUpdateAgentProfilePrimaryBindingOpenCodePermission` `:19794` | root requester owns Profile |
+| Binding create / rebind / disable | owner validation (`agent_profile_binding.owner_mismatch`) | `rpcEnsureAgentProfilePrimaryBinding` `:19334`; `rpcDisableAgentProfilePrimaryBinding` `:6557` | root owns; rebinding an assigned Profile to another harness is refused (§4.2) |
+| Creation defaults for future Profiles | owner | `rpcSetAgentProfileCreationDefaults` `:6710` | root owns |
+| Center Agent runtime-settings write | verified human speaker owns Profile | `rpcCenterAgentUpdateAgentProfileRuntimeSettings` `:12770` | same via chain root; explicit instruction in the current turn only (red line 8, §4.11) |
+| Working folder write | owner Service lane; Binding target fence only when a target is supplied (`:4867`), required by the bound wrapper (`:4916`) | `methods.ts:4743-4931` | add `folderId`; stripped for non-owner roots (Phase 2 uses the one-hop requester) |
+| Default Project write | owner; optional target fence | `rpcUpdateAgentProfileDefaultProject` `:1489`; bound variant `:1521` | root owns |
+| Local envelope write on the computer | Service-local, no Core check | `clients/openmeld-cli/src/profile-workspace/service.ts:280` | unchanged: owner-machine local state (§4.7 item 5); the Service stays the only writer |
+| Add Space members | Space owner for direct adds; invitation acceptance; organization self-join | `rpcPostMembers` (`methods.ts:2280`); `rpcAcceptSpaceInvitation` (`space.ts:12456`); self-join (`space.ts:19101`) | owner adding own Agent unchanged; anyone else adding someone's Agent → request path; invitations and self-join never add another owner's Agent |
+| Remove members / leave | Space owner (`isSpaceOwner`, `space-member-management-policy.ts`); self for leave (`space.ts:13167`) | | unchanged |
+| Space ownership, access policy, password | Space owner | `space.ts:13203` | unchanged |
+| Answer agent interaction | Binding owner | `runtime-coordinator-authority.ts`; `rpcRespondToAgentInteraction` (`methods.ts:2249`) | unchanged; requester-side cancel added |
+| Work-recovery approval (skip or approve queued work) | owner shard + `ownerUserId` | `rpcExecuteAgentProfileWorkRecovery` `:5841`; `executeAgentProfileWorkQueueApproval` `:6039` | root owns |
+| Delete Profile / Space | owner / Space owner | existing | root owns |
+| Grant, revoke, archive | new | — | root owns; archive is non-additive and needs an explicit instruction |
 | Space actions from a task | task context file + execution token | `dispatch-space-action-context.ts` | task credential with chain |
 
 Implementers extend this table in the PR when they touch an operation not
@@ -533,6 +556,13 @@ in Inbox with the native option → Service resumes → Tali's view shows
 - Rollback per phase: a feature flag hides MemberAgent surfaces; the column
   stays nullable; projections (presence, folder index) are recomputable.
   Phase 1 ships behind the flag and can be disabled without a migration.
+- Persisted compatibility, not only visibility: envelope v3 keeps the v2
+  `workspace` field mirroring the default folder, so an older Service still
+  resolves it; invariant 4 applies only to contexts accepted after Phase 3 is
+  enabled, older contexts keep an empty chain and are treated as owner-rooted
+  legacy; session DM Spaces are ordinary DM Spaces, so with the flag off they
+  simply list as DMs. Each phase names its compatibility test in its
+  acceptance line.
 
 ## 9. Executable invariants
 
@@ -540,7 +570,8 @@ Add as SQL assertions run after migration and as property tests where a
 writer exists:
 
 1. Every active Profile with an `enabled_primary` Binding of a builtin or
-   hosted harness has exactly one `member_agent_id`.
+   `hosted:remote-agent` harness has exactly one `member_agent_id`. Center
+   Agent Profiles have no owner and are excluded.
 2. No two `member_agents` rows share `(organization_id, owner_user_id, harness_kind)`.
 3. Every `member_agents.default_profile_id` points to a Profile whose
    `member_agent_id` is that row.
@@ -602,7 +633,11 @@ flows.
 
 2a → envelope v3 with Service-minted ids; 2b → cloud folder projection;
 2c → `folderId` in preferences, composer picker, Center Agent set-default by
-id, "continue in another folder" = fork + folderId. Acceptance: invariant 6.
+id, "continue in another folder" = fork + folderId. Non-owner stripping in
+Phase 2 uses the one-hop `requesterProfileId`; Phase 3 switches it to the
+root. Acceptance: invariant 6; a v2 envelope reads as v3 and an older Service
+reads the v3 default; the Service is the only envelope writer the tests
+exercise.
 
 ### Phase 3 · Request chain and enforcement
 
@@ -627,7 +662,12 @@ ones finish; external users are asked every time.
 
 ### Phase 5 · Credentials (last)
 
-5a → task credential with chain, verified by Core; 5b → sensitive operations
+5a0 → define the risk-window contract: how Core identifies the calling
+computer of a CLI-credential request (device or daemon session) and reads that
+computer's active tasks with their roots; if a per-device read is not
+available, fall back to "any active non-owner-rooted task for this owner in
+this organization", coarser but enforceable; 5a → task credential with chain,
+verified by Core; 5b → sensitive operations
 accept task credential (owner root) or App/Web session; 5c → CLI credential
 on a sensitive operation: confirmation card only while this computer runs a
 non-owner-rooted task; 5d → audit log for every sensitive operation.
@@ -703,3 +743,19 @@ creator; external users consent each time; anonymous rejected); sensitive
 operations check the root requester; CLI-credential confirmation only inside
 the risk window; quota numbers and tiers stay private; permission-mode
 advisor in Phase 1; all work in one draft PR. Detail: this document.
+
+## 15. External review log
+
+- 2026-10-18, Codex (`codex` 0.162.1, read-only) reviewed this document
+  against the cited code. Verified and applied: Profile-wide conversation is
+  legacy only for harnesses without context support; `exclusive` conflicts
+  with every task; member addition has invitation and self-join paths; the
+  settings-write evidence pointed at read and disable functions; the folder
+  target fence is conditional; ten writers were missing from §6 (Binding
+  create/rebind/disable, creation defaults, OpenCode permission, Default
+  Project, local envelope, invitations, leave, ownership/access policy,
+  work-recovery approval); this document must not override owner documents;
+  invariant 1 excluded Center Agents; red line 8 governs Center Agent
+  management operations; Phase 2 needed a non-owner stripping basis before
+  Phase 3; Phase 5 needed the risk-window contract as a package; rollback
+  needed persisted compatibility. Nothing was rejected.
