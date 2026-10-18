@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
 import { parse } from "yaml";
 import { COMPONENTS } from "../../release/components.mjs";
 
@@ -13,6 +14,36 @@ const GITHUB_SHA_EXPRESSION = "${{ github.sha }}";
 // biome-ignore lint/suspicious/noTemplateCurlyInString: GitHub Actions expression text.
 const INPUT_SHA_EXPRESSION = "${{ inputs.sha }}";
 const jobName = (component) => component.replaceAll("-", "_");
+
+test("selected jobs accept omitted dependencies but reject failed or cancelled ancestors", () => {
+  for (const component of COMPONENTS.filter(
+    (entry) => entry.dependsOn.length
+  )) {
+    const job = deploy.jobs[jobName(component.name)];
+    const needs = Object.fromEntries(
+      job.needs.map((name) => [name, { result: "skipped" }])
+    );
+    needs.validate = {
+      result: "success",
+      outputs: { scopes: `,${component.name},` },
+    };
+    for (const outcome of ["success", "failure", "cancelled"]) {
+      const admitted = runInNewContext(job.if, {
+        needs,
+        always: () => true,
+        failure: () => outcome === "failure",
+        cancelled: () => outcome === "cancelled",
+        contains: (value, item) => value.includes(item),
+        fromJSON: JSON.parse,
+      });
+      assert.equal(
+        admitted,
+        outcome === "success",
+        `${component.name}: ${outcome}`
+      );
+    }
+  }
+});
 
 test("deploy.yml has one gated job per component, ordered by the component table", () => {
   assert.deepEqual(
