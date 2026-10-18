@@ -1,6 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
-	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -108,6 +107,7 @@ function renderRoute(spaceId = SPACE_ID) {
 			</SpaceCreationRoute>
 		</QueryClientProvider>
 	);
+	return queryClient;
 }
 
 describe("SpaceCreationRoute", () => {
@@ -143,13 +143,14 @@ describe("SpaceCreationRoute", () => {
 
 	it("waits for the account Profiles before opening the Space", async () => {
 		readProfiles.mockReturnValue(new Promise(() => undefined));
-		renderRoute();
+		const queryClient = renderRoute();
 
 		// The Space itself is ready; only the account Profiles are pending.
-		await waitFor(() => expect(readBootstrap).toHaveBeenCalled());
-		await act(async () => {
-			await new Promise((resolve) => setTimeout(resolve, 20));
-		});
+		await waitFor(() =>
+			expect(queryClient.getQueryState(["bootstrap", SPACE_ID])?.status).toBe(
+				"success"
+			)
+		);
 		expect(screen.queryByTestId("space-landing")).toBeNull();
 		expect(landingProps).toHaveLength(0);
 	});
@@ -159,12 +160,14 @@ describe("SpaceCreationRoute", () => {
 		creationState.response = undefined;
 		creationState.status = "pending";
 		readProfiles.mockRejectedValue(new Error("profiles unavailable"));
-		renderRoute("creating-1");
+		const queryClient = renderRoute("creating-1");
 
-		await waitFor(() => expect(readProfiles).toHaveBeenCalled());
-		await act(async () => {
-			await new Promise((resolve) => setTimeout(resolve, 20));
-		});
+		// The Profiles read has failed while creation is still pending.
+		await waitFor(() =>
+			expect(
+				queryClient.getQueryState(["start", "profiles", "account-1"])?.status
+			).toBe("error")
+		);
 		expect(
 			screen.queryByText("couldn't be opened", { exact: false })
 		).toBeNull();
