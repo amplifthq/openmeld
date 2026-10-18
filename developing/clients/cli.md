@@ -226,10 +226,14 @@ refuses an update that would move an assigned Profile to another harness.
 Organization with its derived state, running and queued counts, and latest
 Session. `openmeld agent show <agent>` takes a MemberAgent id or harness kind
 and prints its Profiles, the Computers that provide its harness, and each
-Profile's Sessions. Session
-commands list a Profile's Sessions, rename one, and archive one. Agent View
-returns stable ids and the same derived state as Web; neither view stores or
-recomputes MemberAgent state.
+Profile's Sessions. `openmeld session list --agent <agent> [--profile <id>]`
+lists the signed-in member's Direct Message Sessions with that Agent, grouped
+by Profile, active and archived. `session rename`, `archive`, `restore`, and
+`delete` take a Session's Space id and call Core's dedicated Session
+operations; Core decides who may change a Session, and the CLI maps a refusal
+to one next step. `session delete` asks in Human View and requires `--yes` in
+Agent View. Agent View returns stable ids and the same derived state as Web;
+neither view stores or recomputes MemberAgent state.
 
 Work started by a Wake receives a **task credential**: short-lived, verifiable
 by Core, carrying the request chain, and valid for that task only. The injected

@@ -6,6 +6,8 @@ type CenterAgentAskCommandModule =
 type CenterAgentContextCommandModule =
   typeof import("../src/center-agent/context-command");
 type MemberAgentCommandModule = typeof import("../src/member-agents/command");
+type MemberAgentSessionCommandModule =
+  typeof import("../src/member-agents/session-command");
 type OrgCommandModule = typeof import("../src/org/command");
 type ProfileCreationRequestCommandModule =
   typeof import("../src/profile-creation-request/command");
@@ -40,6 +42,12 @@ const runMocks = vi.hoisted(() => ({
     async () => undefined
   ),
   runAgentShow: vi.fn<MemberAgentCommandModule["runAgentShow"]>(
+    async () => undefined
+  ),
+  runSessionList: vi.fn<MemberAgentSessionCommandModule["runSessionList"]>(
+    async () => undefined
+  ),
+  runSessionDelete: vi.fn<MemberAgentSessionCommandModule["runSessionDelete"]>(
     async () => undefined
   ),
   runOrgDirectory: vi.fn<OrgCommandModule["runOrgDirectory"]>(
@@ -186,6 +194,27 @@ vi.mock("../src/member-agents/command", async (importOriginal) => {
     ...actual,
     runAgentList: runMocks.runAgentList,
     runAgentShow: runMocks.runAgentShow,
+  };
+});
+
+const memberAgentsFlag = vi.hoisted(() => ({ enabled: true }));
+
+vi.mock("@openmeld/schemas", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@openmeld/schemas")>();
+  return {
+    ...actual,
+    get MEMBER_AGENTS_ENABLED() {
+      return memberAgentsFlag.enabled;
+    },
+  };
+});
+
+vi.mock("../src/member-agents/session-command", async (importOriginal) => {
+  const actual = await importOriginal<MemberAgentSessionCommandModule>();
+  return {
+    ...actual,
+    runSessionDelete: runMocks.runSessionDelete,
+    runSessionList: runMocks.runSessionList,
   };
 });
 
@@ -821,6 +850,64 @@ describe("command entry CLI wiring", () => {
     });
   });
 
+  it("maps session list and session delete argv to the Session commands", async () => {
+    await runCli(
+      [
+        "session",
+        "list",
+        "--agent",
+        "codex",
+        "--profile",
+        "agt_1",
+        "--limit",
+        "5",
+      ],
+      "human"
+    );
+    expect(runCommandWithEntryChecksMock.mock.calls.at(-1)?.[0]).toMatchObject({
+      routeTokens: ["session", "list"],
+    });
+    expect(runMocks.runSessionList).toHaveBeenCalledWith({
+      limit: "5",
+      memberAgent: "codex",
+      profile: "agt_1",
+      view: "human",
+    });
+
+    await runCli(["session", "delete", "dm-1", "--yes"]);
+    expect(runCommandWithEntryChecksMock.mock.calls.at(-1)?.[0]).toMatchObject({
+      routeTokens: ["session", "delete"],
+    });
+    expect(runMocks.runSessionDelete).toHaveBeenCalledWith({
+      spaceId: "dm-1",
+      view: "agent",
+      yes: true,
+    });
+  });
+
+  it("skips entry checks for agent and session commands while the flag is off", async () => {
+    memberAgentsFlag.enabled = false;
+    try {
+      const entryCallCount = runCommandWithEntryChecksMock.mock.calls.length;
+      await runFlagOffCli(["agent", "list"], runMocks.runAgentList);
+      await runFlagOffCli(
+        ["session", "delete", "dm-1"],
+        runMocks.runSessionDelete
+      );
+      expect(runCommandWithEntryChecksMock.mock.calls.length).toBe(
+        entryCallCount
+      );
+      expect(runMocks.runAgentList).toHaveBeenLastCalledWith({ view: "human" });
+      expect(runMocks.runSessionDelete).toHaveBeenLastCalledWith({
+        spaceId: "dm-1",
+        view: "human",
+        yes: false,
+      });
+    } finally {
+      memberAgentsFlag.enabled = true;
+    }
+  });
+
   it("maps org directory argv to runOrgDirectory", async () => {
     await runCli(["org", "directory", "--json"], "human");
 
@@ -1120,6 +1207,27 @@ async function runCli(
   if (process.exitCode) {
     throw new Error(`CLI parsing failed with exit code ${process.exitCode}.`);
   }
+}
+
+async function runFlagOffCli(
+  argv: string[],
+  runMock: { mock: { calls: unknown[]; results: { value: unknown }[] } }
+): Promise<void> {
+  vi.resetModules();
+  process.argv = [
+    "node",
+    "openmeld-command-entry-test",
+    "--view",
+    "human",
+    ...argv,
+  ];
+  const callIndex = runMock.mock.calls.length;
+  await import("../src/openmeld");
+  await vi.waitUntil(() => runMock.mock.calls.length === callIndex + 1, {
+    interval: 10,
+    timeout: 1000,
+  });
+  await runMock.mock.results[callIndex]?.value;
 }
 
 async function runPassiveCli(

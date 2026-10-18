@@ -168,6 +168,31 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
     OPTIONAL_CLI_UPDATE,
     REQUIRED_SIGN_IN
   ),
+  "member_agents.sessions.list": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN
+  ),
+  "member_agents.sessions.rename": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN
+  ),
+  "member_agents.sessions.archive": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN
+  ),
+  "member_agents.sessions.restore": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN
+  ),
+  "member_agents.sessions.delete": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN
+  ),
   "routines.menu": buildCommandChecks(
     REQUIRED_DISCLAIMER,
     OPTIONAL_CLI_UPDATE,
