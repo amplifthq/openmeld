@@ -457,9 +457,23 @@ Target:
   one-click switch to an isolated copy, and each task prompt lists the other
   Sessions editing that folder.
 - Tasks from non-owners default to an isolated copy when the folder is a git
-  repository; the Service decides inside `mode: "auto"`.
-- Per-Profile and per-computer limits become owner-adjustable and visible.
-  FIFO, no priorities; owner and colleagues share the Profile's limit.
+  repository. Core resolves `mode: "auto"` and does not send the request chain
+  to the Service, so Core marks the task `workspaceDefault: "isolated_if_git"`
+  when the root is not the owner and the selection is the implicit default;
+  the Service checks for git, chooses, and reports the chosen workspace in the
+  completion, which Core persists (`executionContextVersion` 7; older
+  Services keep today's behavior).
+- Queue diagnostics name the folder and the waiting reason. Per-Profile and
+  per-computer limits stay constants in this program
+  (`AGENT_PROFILE_WORK_CONCURRENCY_LIMIT = 5`,
+  `DEFAULT_RUNTIME_DAEMON_GLOBAL_CONCURRENCY = 10`); making them
+  owner-adjustable needs a Binding migration and Web, and is a follow-up
+  package. FIFO, no priorities; owner and colleagues share the Profile's
+  limit.
+- The visible `shared_folder` notice with a one-click switch to an isolated
+  copy needs Core, Space and Web; it is a follow-up after Phase 4. Phase 4e
+  delivers the folder-scoped conflict rule and the prompt list of other
+  Sessions in the folder (without paths).
 
 ### 4.10 Visibility
 
@@ -889,3 +903,9 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   chain; Remote Agent tools resolve the chain from their own Wake; Session
   question items never reopen on replay; flag-off behavior unchanged. Program
   notes added to §6 and §13.
+- 2026-10-19, 4e blockers, verified and decided: the request chain is
+  stripped before the Service (`execution-context-authority.ts:936`) and Core
+  resolves `auto`, so the non-owner isolated default is a Core hint resolved
+  by the Service; no owner-adjustable limits exist yet (Phase 1 did not add
+  them), recorded as a follow-up; the visible shared-folder notice is a
+  follow-up. §4.9 updated.
