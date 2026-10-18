@@ -802,9 +802,9 @@ describe("CreateProfileDialog", () => {
 	});
 
 	it.each([
-		0, 1, 2, 3,
+		0, 1, 2, 3, 4,
 	])("selects connected computers and same-computer reconnects (scenario %i)", async (scenario) => {
-		const connectedCount = scenario === 3 ? 1 : scenario;
+		const connectedCount = scenario >= 3 ? 1 : scenario;
 		const recovery = buildFakeRecovery();
 		const inventory = recovery.localRuntimesQuery.data?.peopleComputers;
 		const computer = inventory?.computers[0];
@@ -903,20 +903,27 @@ describe("CreateProfileDialog", () => {
 				},
 			];
 		}
+		if (scenario === 4) {
+			const offlineComputer = inventory.computers[1];
+			if (!offlineComputer) {
+				throw new Error("Expected the selected offline Computer.");
+			}
+			offlineComputer.identityStatus = "enrolled";
+		}
 		renderCurrentCreateProfileDialog({ recovery });
-		if (connectedCount < 2) {
+		if (connectedCount === 0) {
 			expect(screen.queryByRole("combobox", { name: "Computer" })).toBeNull();
 			expect(screen.queryByText("Computer", { exact: true })).toBeNull();
 			expect(screen.queryByText("Online laptop · Connected")).toBeNull();
 			expect(screen.queryByText("Advanced connection selection")).toBeNull();
-			if (connectedCount === 1) {
-				expect(recovery.selectComputer).toHaveBeenCalledWith({
-					deviceId: "online-device",
-					runtimeLane: "dev-local",
-				});
-			} else {
-				expect(recovery.selectComputer).not.toHaveBeenCalled();
-			}
+			expect(recovery.selectComputer).not.toHaveBeenCalled();
+			return;
+		}
+		if (scenario === 1 || scenario === 3) {
+			expect(recovery.selectComputer).toHaveBeenCalledWith({
+				deviceId: "online-device",
+				runtimeLane: "dev-local",
+			});
 			return;
 		}
 		fireEvent.click(await screen.findByRole("combobox", { name: "Computer" }));

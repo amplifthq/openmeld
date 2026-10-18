@@ -1449,7 +1449,7 @@ function useCreateProfileDialogController(
 		onChangeRemoteProfileName: remoteNameDraft.update,
 		computerRecovery,
 		agentComputerSlot:
-			canChooseComputer && computerChoices.length > 1 ? (
+			canChooseComputer && computerChoices.length > 0 ? (
 				<div className="grid gap-2 text-sm">
 					<CreationComputerSelector
 						choices={computerChoices}
@@ -3064,7 +3064,10 @@ function CreationComputerSelector(input: {
 	disabled: boolean;
 	onSelect: RecoveryController["selectComputer"];
 }) {
-	if (input.choices.length <= 1) {
+	if (
+		input.choices.length === 0 ||
+		(input.choices.length === 1 && input.selectedChoice)
+	) {
 		return null;
 	}
 	return (
