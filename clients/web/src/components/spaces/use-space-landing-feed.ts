@@ -37,6 +37,7 @@ import {
 	mergeSpaceTimelineEnvelopes,
 	type SpaceLiveState,
 } from "#/lib/spaces/timeline";
+import { refreshWebAgentReadinessSharedCaches } from "#/query/agents/execution-readiness";
 import {
 	accountSpaceQueryKeys,
 	updateAccountSpaceAcceptedMessage,
@@ -1014,6 +1015,10 @@ export function useSpaceLandingFeed(input: {
 					membersRefetchTimerRef,
 					openMeldProfileId: input.openMeldProfileId,
 					queryClient,
+					readinessScope: {
+						organizationId: readinessOrganizationId,
+						storageScope: readinessStorageScope,
+					},
 					spaceId: input.spaceId,
 					statusRefetch: input.statusRefetch,
 					statusRefetchTimerRef,
@@ -1439,6 +1444,7 @@ function refreshLiveInvalidatedSnapshotsAfterReconnect(
 		| "membersRefetchTimerRef"
 		| "openMeldProfileId"
 		| "queryClient"
+		| "readinessScope"
 		| "spaceId"
 		| "statusRefetch"
 		| "statusRefetchTimerRef"
@@ -1478,6 +1484,21 @@ function refreshLiveInvalidatedSnapshotsAfterReconnect(
 		LIVE_RECONNECT_REFRESH_REASON
 	);
 	invalidateWakeProgress(input, LIVE_RECONNECT_REFRESH_REASON);
+	// A withheld agent.readiness.invalidated frame named its Agent Profiles;
+	// without them, refresh every shared readiness projection in scope.
+	if (
+		input.readinessScope?.organizationId &&
+		input.readinessScope.storageScope
+	) {
+		refreshWebAgentReadinessSharedCaches({
+			includeLocalRuntimeCaches: false,
+			organizationId: input.readinessScope.organizationId,
+			queryClient: input.queryClient,
+			storageScope: input.readinessScope.storageScope,
+		}).catch((error: unknown) =>
+			console.warn("Failed to refresh Agent readiness after reconnect.", error)
+		);
+	}
 }
 
 function invalidateSpaceMetadata(
@@ -1485,7 +1506,11 @@ function invalidateSpaceMetadata(
 	spaceId: string,
 	reason?: string
 ): void {
-	if (reason === "space.name.updated") {
+	// A reconnect cannot tell whether a withheld frame renamed the Space.
+	if (
+		reason === "space.name.updated" ||
+		reason === LIVE_RECONNECT_REFRESH_REASON
+	) {
 		queryClient
 			.invalidateQueries({
 				predicate: (query) =>

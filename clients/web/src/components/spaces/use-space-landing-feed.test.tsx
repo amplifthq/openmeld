@@ -25,6 +25,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { subscribeAgentReadinessInvalidations } from "#/lib/agents/agent-readiness-invalidation-bus";
 import { readRecentReactUpdates } from "#/lib/observability/react-update-trace";
 import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
+import { agentExecutionReadinessQueryKeys } from "#/query/agents/execution-readiness";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import {
 	readSpaceCursorLastSeenTs,
@@ -1385,17 +1386,35 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		expect(permanentRead).toHaveBeenCalledOnce();
 	});
 
-	it("re-reads mounted Tasks and files after an accepted reconnect", async () => {
+	it("re-reads mounted Tasks, files, readiness, and chat titles after an accepted reconnect", async () => {
 		const { queryClient } = renderFeed();
 		await openLatestSocket();
 		let version = 1;
 		const readTasks = vi.fn(async () => `tasks-v${version}`);
 		const readFiles = vi.fn(async () => `files-v${version}`);
+		const readReadiness = vi.fn(async () => `readiness-v${version}`);
+		const readChatTitles = vi.fn(async () => `titles-v${version}`);
 		const mounted = renderHook(
 			() => ({
+				chatTitles: useQuery({
+					queryKey: ["center-agent", "org-1", "account-1", "sessions"],
+					queryFn: readChatTitles,
+					staleTime: Number.POSITIVE_INFINITY,
+				}),
 				files: useQuery({
 					queryKey: spaceFileQueryKeys.space("space-123"),
 					queryFn: readFiles,
+					staleTime: Number.POSITIVE_INFINITY,
+				}),
+				readiness: useQuery({
+					queryKey: [
+						...agentExecutionReadinessQueryKeys.batchesForOrganization(
+							"account-1",
+							"org-1"
+						),
+						"agt-1",
+					],
+					queryFn: readReadiness,
 					staleTime: Number.POSITIVE_INFINITY,
 				}),
 				tasks: useQuery({
@@ -1432,6 +1451,12 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		expect(mounted.result.current.files.data).toBe("files-v2");
 		expect(readTasks).toHaveBeenCalledTimes(2);
 		expect(readFiles).toHaveBeenCalledTimes(2);
+		// The withheld frame's Agent Profile IDs and rename reason are gone, so
+		// the reconnect refreshes these projections broadly.
+		expect(mounted.result.current.readiness.data).toBe("readiness-v2");
+		expect(mounted.result.current.chatTitles.data).toBe("titles-v2");
+		expect(readReadiness).toHaveBeenCalledTimes(2);
+		expect(readChatTitles).toHaveBeenCalledTimes(2);
 	});
 
 	it.each([
