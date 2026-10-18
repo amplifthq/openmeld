@@ -9725,6 +9725,20 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           input.commandState.runtimeCoordinatorExecutionId
         );
         const currentPending = current?.pendingInteraction ?? null;
+        // A replay validated while the Service reconnected belongs to a
+        // superseded connection; it must not move the marker backward.
+        const liveSession = this.state.sessionsById.get(
+          input.request.daemonSessionId
+        );
+        const recorded = currentPending?.requestConnection;
+        if (
+          liveSession?.connectionGeneration !==
+            input.request.connectionGeneration ||
+          (recorded?.daemonSessionId === input.request.daemonSessionId &&
+            recorded.connectionGeneration > input.request.connectionGeneration)
+        ) {
+          return false;
+        }
         if (
           !(current && currentPending) ||
           current.activeRunId !== input.commandState.activeRunId ||

@@ -17532,6 +17532,66 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
   });
 
+  it("ignores a replay from a connection superseded while it was being validated", async () => {
+    const { hub, sentFrames, socket, spaceStub, state, waitUntilTasks } =
+      await createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    enableLocalAgentInteraction(state);
+    const requestFrameHub = hub as unknown as {
+      handleDispatchInteractionRequestFrame: (
+        webSocket: WebSocket,
+        payload: unknown
+      ) => Promise<void>;
+      validateRuntimeCoordinatorProgressToken: (
+        input: unknown
+      ) => Promise<unknown>;
+    };
+    const send = async (connectionGeneration: number) => {
+      await requestFrameHub.handleDispatchInteractionRequestFrame(
+        socket,
+        buildInteractionRequest(executionToken, { connectionGeneration })
+      );
+      await Promise.all(waitUntilTasks);
+    };
+    await send(1);
+    const session = state.sessionsById.get("daemon-session-1");
+    if (!session) {
+      throw new Error("Expected live daemon session.");
+    }
+    session.connectionGeneration = 2;
+    await send(2);
+    session.connectionGeneration = 3;
+
+    // A generation-3 replay is mid-validation when generation 4 takes over
+    // and replays first; the stale generation-3 write must not win.
+    const validate =
+      requestFrameHub.validateRuntimeCoordinatorProgressToken.bind(hub);
+    let superseded = false;
+    requestFrameHub.validateRuntimeCoordinatorProgressToken = async (input) => {
+      const result = await validate(input);
+      if (!superseded) {
+        superseded = true;
+        session.connectionGeneration = 4;
+        requestFrameHub.validateRuntimeCoordinatorProgressToken = validate;
+        await send(4);
+      }
+      return result;
+    };
+    spaceStub.rpcBroadcastWakeProgressChanged.mockClear();
+    await send(3);
+    // Only the generation-4 replay announced the request.
+    expect(spaceStub.rpcBroadcastWakeProgressChanged).toHaveBeenCalledTimes(1);
+
+    spaceStub.rpcBroadcastWakeProgressChanged.mockClear();
+    await send(4);
+    expect(spaceStub.rpcBroadcastWakeProgressChanged).not.toHaveBeenCalled();
+  });
+
   it("keeps an owner answer saved while a reconnect replay is being validated", async () => {
     const { hub, sentFrames, socket, state, waitUntilTasks } =
       await createHarness();
