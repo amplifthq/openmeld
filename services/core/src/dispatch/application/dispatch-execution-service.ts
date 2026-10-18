@@ -1397,7 +1397,10 @@ function assertDaemonRouteExecutionContextCapable(input: {
     input.message.controllerSnapshot.agentControllerRef
   )?.id;
   let requiredExecutionContextVersion = 1;
-  if (
+  if (input.message.executionContext.workspaceDefault) {
+    // Core sends the hint only to a Service that resolves it.
+    requiredExecutionContextVersion = 7;
+  } else if (
     input.message.executionContext.folderId ||
     input.message.executionContext.forkSource?.folderId
   ) {

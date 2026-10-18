@@ -19,6 +19,11 @@ export const executionContextAccessSchema = z.enum([
   "workspace",
 ]);
 const workspace = z.enum(["current", "isolated"]);
+// Core's hint for a workspace that was not chosen explicitly: the Service uses
+// an isolated copy when the resolved folder is a git repository, otherwise the
+// current folder. Core sets it only when the root requester is not the owner.
+export const executionContextWorkspaceDefaultSchema =
+  z.literal("isolated_if_git");
 // Read-only projection of the Core-owned assignment. It contains no native
 // conversation, filesystem path, credential, or authority to start work.
 export const executionContextDiagnosticsSchema = z.discriminatedUnion(
@@ -83,6 +88,9 @@ export const executionContextRequestSchema = z.strictObject({
   requestChain: requestChainSchema.optional(),
   scope: executionContextScopeSchema,
   selection: executionContextSelectionSchema,
+  // Core-written when the root requester is not the Profile owner. It applies
+  // only to a workspace the selection leaves to the default.
+  workspaceDefault: executionContextWorkspaceDefaultSchema.optional(),
 });
 
 export const executionContextAssignmentSchema = z
@@ -100,6 +108,10 @@ export const executionContextAssignmentSchema = z
     // and is never sent to the OpenMeld Service. Absent: owner-rooted legacy.
     requestChain: requestChainSchema.optional(),
     workspace,
+    // Unresolved default: the Service chooses and reports the workspace in
+    // the completion; Core then records it and drops this hint. Sent only to
+    // a Service with executionContextVersion 7.
+    workspaceDefault: executionContextWorkspaceDefaultSchema.optional(),
     forkSource: z
       .strictObject({
         contextId: z.string().uuid(),
@@ -130,6 +142,8 @@ export const executionContextCompletionSchema = z.strictObject({
   nativeConversationId: reference,
   runtimeWorkspaceFingerprint: reference,
   completedHistoryId: reference.optional(),
+  // The workspace the Service chose for a task with workspaceDefault.
+  workspace: workspace.optional(),
 });
 
 export const executionContextLegacyAssociationSchema = z.strictObject({

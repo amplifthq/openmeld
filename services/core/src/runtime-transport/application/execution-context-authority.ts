@@ -796,6 +796,13 @@ function createContext(
   // either the Service uses the Profile default, as before folders existed.
   // A fork with a new folderId is "continue in another folder".
   const folderId = preferences.folderId ?? source?.context.assignment.folderId;
+  const workspace =
+    preferences.workspace ?? forkSource?.workspace ?? "isolated";
+  const workspaceDefault = resolveAssignmentWorkspaceDefault(
+    request,
+    workspace,
+    Boolean(forkSource)
+  );
   return {
     assignment: {
       version: 1,
@@ -810,7 +817,8 @@ function createContext(
         "space_context",
       ...(projectWork ? { projectWork } : {}),
       ...(folderId ? { folderId } : {}),
-      workspace: preferences.workspace ?? forkSource?.workspace ?? "isolated",
+      workspace,
+      ...(workspaceDefault ? { workspaceDefault } : {}),
       ...(forkSource ? { forkSource } : {}),
     },
     bindingId: snapshot.controllerSnapshot.bindingId,
@@ -820,6 +828,23 @@ function createContext(
     nativeConversationId: null,
     runtimeWorkspaceFingerprint: null,
   };
+}
+
+/**
+ * A non-owner root defaults to an isolated copy of a git folder. Only a
+ * workspace left to the default qualifies: an explicit choice or a forked
+ * Session's workspace stays. The Service checks for git and reports back.
+ */
+function resolveAssignmentWorkspaceDefault(
+  request: ContextRequest,
+  workspace: ExecutionContextAssignment["workspace"],
+  forked: boolean
+): ExecutionContextAssignment["workspaceDefault"] {
+  const selection = request.selection;
+  const explicit = selection.mode !== "resume" && Boolean(selection.workspace);
+  return workspace === "current" && !explicit && !forked
+    ? request.workspaceDefault
+    : undefined;
 }
 
 function matchesSelectedProjectWork(
@@ -922,7 +947,11 @@ function assertAssignmentFolder(assignment: ExecutionContextAssignment): void {
 
 export async function resolveExecutionContextTask(
   storage: Pick<Storage, "get">,
-  assignment: ExecutionContextAssignment
+  assignment: ExecutionContextAssignment,
+  service: {
+    /** The Service resolves workspaceDefault (executionContextVersion 7). */
+    resolvesWorkspaceDefault: boolean;
+  } = { resolvesWorkspaceDefault: false }
 ): Promise<ExecutionContextTask> {
   const context = requireContext(
     await storage.get(CONTEXT_PREFIX + assignment.id)
@@ -932,10 +961,26 @@ export async function resolveExecutionContextTask(
       "execution_context.scope_mismatch"
     );
   }
-  // The chain stays in Core; installed Services parse tasks strictly.
-  const { requestChain: _requestChain, ...serviceAssignment } = assignment;
+  // The chain stays in Core; installed Services parse tasks strictly. A
+  // stored context that already recorded its workspace no longer carries the
+  // hint; an older Service keeps today's behavior and runs the assigned one.
+  const {
+    requestChain: _requestChain,
+    workspaceDefault: _workspaceDefault,
+    ...serviceAssignment
+  } = assignment;
+  // A redelivered Wake follows the context once its workspace is recorded.
+  const workspaceDefault = service.resolvesWorkspaceDefault
+    ? context.assignment.workspaceDefault
+    : undefined;
   return {
     ...serviceAssignment,
+    ...(assignment.workspaceDefault
+      ? {
+          workspace: context.assignment.workspace,
+          ...(workspaceDefault ? { workspaceDefault } : {}),
+        }
+      : {}),
     ...(context.legacyAssociation
       ? { legacyAssociation: context.legacyAssociation }
       : {}),
@@ -998,6 +1043,16 @@ function assertCompletionIdentity(
     context.runtimeWorkspaceFingerprint &&
     context.runtimeWorkspaceFingerprint !==
       completion.runtimeWorkspaceFingerprint
+  ) {
+    throw new ExecutionContextSelectionError(
+      "execution_context.workspace_changed"
+    );
+  }
+  // Only an unresolved default lets the Service choose the workspace.
+  if (
+    completion.workspace &&
+    !context.assignment.workspaceDefault &&
+    completion.workspace !== context.assignment.workspace
   ) {
     throw new ExecutionContextSelectionError(
       "execution_context.workspace_changed"
@@ -1079,6 +1134,7 @@ async function recordExecutionContextEvidence(
     [nativeKey]: wake.contextId,
     [CONTEXT_PREFIX + wake.contextId]: {
       ...context,
+      assignment: resolveContextWorkspace(context.assignment, input.completion),
       nativeConversationId: input.completion.nativeConversationId,
       runtimeWorkspaceFingerprint: input.completion.runtimeWorkspaceFingerprint,
     },
@@ -1086,4 +1142,23 @@ async function recordExecutionContextEvidence(
       ? { [key]: { ...wake, completion: input.completion } }
       : {}),
   });
+}
+
+/**
+ * The first native evidence fixes the workspace of a context that had a
+ * default: the Service's choice, or the assigned workspace when an older
+ * Service ran it without the hint. Later Wakes resume in that workspace.
+ */
+function resolveContextWorkspace(
+  assignment: ExecutionContextAssignment,
+  completion: ExecutionContextCompletion
+): ExecutionContextAssignment {
+  if (!assignment.workspaceDefault) {
+    return assignment;
+  }
+  const { workspaceDefault: _resolved, ...resolved } = assignment;
+  return {
+    ...resolved,
+    workspace: completion.workspace ?? assignment.workspace,
+  };
 }

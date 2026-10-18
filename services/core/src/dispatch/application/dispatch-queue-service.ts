@@ -148,6 +148,7 @@ import {
   applyAcceptedDispatchSnapshotToMessage,
   applyFolderSelectionPolicy,
   buildAcceptedDispatchSnapshot,
+  resolveContextWorkspaceDefault,
 } from "./accepted-dispatch-snapshot";
 import { emitDispatchActivitySignal } from "./dispatch-activity-signal";
 import {
@@ -2083,17 +2084,26 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
     return admission;
   }
   const requestChain = admission.requestChain;
+  const contextSelection = await applyFolderSelectionPolicy({
+    env: input.env,
+    message: input.dispatchMessage,
+    requestChain,
+    targetOwnerUserId: input.targetOwnerUserId,
+  });
   const acceptedDispatchSnapshot = await buildAcceptedDispatchSnapshot({
-    contextSelection: await applyFolderSelectionPolicy({
-      env: input.env,
-      message: input.dispatchMessage,
-      requestChain,
-      targetOwnerUserId: input.targetOwnerUserId,
-    }),
+    contextSelection,
     message: input.dispatchMessage,
     openMeldServiceRuntimeId: input.openMeldServiceRuntimeId,
     requestChain,
     runtimeKind: input.runtimeKind,
+    workspaceDefault: await resolveContextWorkspaceDefault({
+      contextSelection,
+      env: input.env,
+      message: input.dispatchMessage,
+      requestChain,
+      runtimeKind: input.runtimeKind,
+      targetOwnerUserId: input.targetOwnerUserId,
+    }),
   });
   if (
     requiresExecutionContext(input.dispatchMessage, input.runtimeKind) &&

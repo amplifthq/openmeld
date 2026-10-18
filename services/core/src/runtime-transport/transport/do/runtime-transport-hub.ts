@@ -2675,7 +2675,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ownerUserId: string;
     targetProfileId: string;
     agentControllerRef: string;
-    requiredContextVersion?: 2 | 3 | 4 | 5 | 6;
+    requiredContextVersion?: 2 | 3 | 4 | 5 | 6 | 7;
     requirePermissionInheritance?: boolean;
   }): string | null {
     const route = lookupRoute(
@@ -12895,7 +12895,18 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         ...response,
         executionContext: await resolveExecutionContextTask(
           this.ctx.storage,
-          response.acceptedDispatchSnapshot.executionContext
+          response.acceptedDispatchSnapshot.executionContext,
+          {
+            resolvesWorkspaceDefault:
+              this.resolveContextMigrationCapability({
+                ownerUserId: request.ownerUserId,
+                targetProfileId: identity.targetProfileId,
+                agentControllerRef:
+                  response.acceptedDispatchSnapshot.controllerSnapshot
+                    .agentControllerRef,
+                requiredContextVersion: 7,
+              }) === null,
+          }
         ),
       };
     }

@@ -1,5 +1,6 @@
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type {
+  ExecutionContextRequest,
   OpenMeldDaemonAcceptedDispatchSnapshot,
   OpenMeldDaemonDispatchQueueMessage,
   RequestChain,
@@ -21,6 +22,8 @@ export async function buildAcceptedDispatchSnapshot(input: {
   openMeldServiceRuntimeId?: string | null;
   /** This Wake's chain from resolveAdmittedRequestChain; absent: legacy. */
   requestChain?: RequestChain;
+  /** From resolveContextWorkspaceDefault: set when the root is not the owner. */
+  workspaceDefault?: ExecutionContextRequest["workspaceDefault"];
   runtimeKind?:
     | "hosted_center_agent"
     | "hosted_remote_agent"
@@ -67,6 +70,9 @@ export async function buildAcceptedDispatchSnapshot(input: {
               input.message.contextSelection ?? {
                 mode: "auto" as const,
               },
+            ...(input.workspaceDefault
+              ? { workspaceDefault: input.workspaceDefault }
+              : {}),
           },
         }
       : {}),
@@ -86,10 +92,57 @@ export async function buildAcceptedDispatchSnapshot(input: {
   };
 }
 
+/**
+ * Tasks whose root requester is not the Profile owner default to an isolated
+ * copy when the folder is a git repository (design-plans/member-agent-program.md
+ * §4.9). Core only marks the request; the Service checks for git. An explicit
+ * workspace choice or a resumed Session keeps its own workspace. Missing
+ * ownership evidence counts as not the owner.
+ */
+export async function resolveContextWorkspaceDefault(input: {
+  contextSelection?: OpenMeldDaemonDispatchQueueMessage["contextSelection"];
+  env?: CoreBindings;
+  isRequestedByOwner?: typeof isDispatchRequestedByAgentOwner;
+  message: OpenMeldDaemonDispatchQueueMessage;
+  requestChain?: RequestChain;
+  runtimeKind?: Parameters<
+    typeof buildAcceptedDispatchSnapshot
+  >[0]["runtimeKind"];
+  targetOwnerUserId: string;
+}): Promise<ExecutionContextRequest["workspaceDefault"]> {
+  const selection = input.contextSelection ?? input.message.contextSelection;
+  if (
+    input.runtimeKind !== "openmeld_service" ||
+    selection?.mode === "resume" ||
+    selection?.workspace
+  ) {
+    return undefined;
+  }
+  let requestedByOwner = false;
+  try {
+    requestedByOwner = await (
+      input.isRequestedByOwner ?? isDispatchRequestedByAgentOwner
+    )({
+      env: input.env,
+      message: input.message,
+      requestChain: input.requestChain,
+      targetOwnerUserId: input.targetOwnerUserId,
+    });
+  } catch (error) {
+    console.warn("[core.dispatch.workspace_default_owner_unverified]", {
+      dispatchId: input.message.dispatchId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return requestedByOwner ? undefined : "isolated_if_git";
+}
+
 export async function isDispatchRequestedByAgentOwner(input: {
   env?: CoreBindings;
   targetOwnerUserId?: string;
   message: OpenMeldDaemonDispatchQueueMessage;
+  /** This Wake's admitted chain, when the caller already resolved it. */
+  requestChain?: RequestChain;
 }): Promise<boolean> {
   const { env, message, targetOwnerUserId } = input;
   const source = message.sourceSignalSnapshot;
@@ -104,10 +157,12 @@ export async function isDispatchRequestedByAgentOwner(input: {
   }
   if (isRequestChainEnforced()) {
     // The root requester, not the message author, decides.
-    const chain = await resolveAdmittedRequestChain({
-      deps: createAdmittedRequestChainDeps(env),
-      message,
-    });
+    const chain = input.requestChain
+      ? { ok: true as const, chain: input.requestChain }
+      : await resolveAdmittedRequestChain({
+          deps: createAdmittedRequestChainDeps(env),
+          message,
+        });
     return (
       chain.ok &&
       Boolean(

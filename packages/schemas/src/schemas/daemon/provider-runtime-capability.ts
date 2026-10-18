@@ -48,6 +48,9 @@ export const providerRuntimeCapabilityDeclarationSchema = z.strictObject({
       z.literal(5),
       // 6: resolves an assignment's folderId (Profile folders).
       z.literal(6),
+      // 7: resolves workspaceDefault "isolated_if_git" and reports the chosen
+      // workspace in the completion.
+      z.literal(7),
     ])
     .optional(),
   streamingCapability: providerRuntimeStreamingCapabilitySchema,
