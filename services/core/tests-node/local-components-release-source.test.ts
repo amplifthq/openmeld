@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildLocalComponentsAvailabilityCatalog,
   CLI_STABLE_MANIFEST_OBJECT_KEY,
+  CLI_WINDOWS_PREVIEW_MANIFEST_OBJECT_KEY,
   LOCAL_COMPONENTS_RELEASE_OBJECT_KEY,
   readCoreLocalComponentsRelease,
   resetCoreLocalComponentsReleaseCacheForTests,
@@ -129,5 +130,30 @@ describe("published CLI release read by Core", () => {
         previewManifest: null,
       })?.entries
     ).toEqual([]);
+  });
+
+  it("applies a new required policy even when the preview channel cannot be read", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const objects: Objects = {
+      [LOCAL_COMPONENTS_RELEASE_OBJECT_KEY]:
+        PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
+    };
+    const bucket = createBucket(objects);
+    await readCoreLocalComponentsRelease(bucket, 1000);
+    const required = structuredClone(PUBLISHED_LOCAL_COMPONENTS_MANIFEST);
+    required.components.service.bundleVersion = "0.3.265";
+    required.components.service.updatePolicy = "required";
+    objects[LOCAL_COMPONENTS_RELEASE_OBJECT_KEY] = required;
+    objects[CLI_WINDOWS_PREVIEW_MANIFEST_OBJECT_KEY] = new Error("R2 timeout");
+    const release = await readCoreLocalComponentsRelease(bucket, 70_000);
+    expect(release.manifest).toEqual(required);
+    expect(release.availabilityCatalog).toBeNull();
+    const projection = resolveLocalComponentUpdateProjection({
+      generatedAt: "2026-10-18T00:00:00.000Z",
+      release,
+      serviceConnected: true,
+      serviceVersion: "0.3.264",
+    });
+    expect(projection.service.wakeBlocked).toBe(true);
   });
 });

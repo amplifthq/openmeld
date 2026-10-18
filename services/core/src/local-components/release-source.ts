@@ -82,11 +82,10 @@ async function readRelease(
   if (!bucket) {
     throw new Error("OPENMELD_CLI_RELEASES R2 binding is not configured.");
   }
-  const [manifestSource, stableSource, previewSource] = await Promise.all([
-    readJsonObject(bucket, LOCAL_COMPONENTS_RELEASE_OBJECT_KEY),
-    readJsonObject(bucket, CLI_STABLE_MANIFEST_OBJECT_KEY),
-    readJsonObject(bucket, CLI_WINDOWS_PREVIEW_MANIFEST_OBJECT_KEY),
-  ]);
+  const manifestSource = await readJsonObject(
+    bucket,
+    LOCAL_COMPONENTS_RELEASE_OBJECT_KEY
+  );
   if (manifestSource === null) {
     console.error("[core.local_components.release_manifest_missing]", {
       objectKey: LOCAL_COMPONENTS_RELEASE_OBJECT_KEY,
@@ -102,14 +101,24 @@ async function readRelease(
     });
     return UNAVAILABLE_LOCAL_COMPONENTS_RELEASE;
   }
-  return {
-    manifest: parsed.data,
-    availabilityCatalog: buildLocalComponentsAvailabilityCatalog({
+  let availabilityCatalog: LocalComponentsAvailabilityCatalog | null = null;
+  try {
+    const [stableSource, previewSource] = await Promise.all([
+      readJsonObject(bucket, CLI_STABLE_MANIFEST_OBJECT_KEY),
+      readJsonObject(bucket, CLI_WINDOWS_PREVIEW_MANIFEST_OBJECT_KEY),
+    ]);
+    availabilityCatalog = buildLocalComponentsAvailabilityCatalog({
       release: parsed.data,
       stableManifest: stableSource,
       previewManifest: previewSource,
-    }),
-  };
+    });
+  } catch (error) {
+    console.error("[core.local_components.channel_read_failed]", {
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+  // Channel availability must not discard a freshly validated required policy.
+  return { manifest: parsed.data, availabilityCatalog };
 }
 
 async function readJsonObject(
