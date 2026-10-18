@@ -179,7 +179,10 @@ notification or deep link into the same Space therefore lands on its target.
 The handoff adds only what that tab alone has: the composer draft migration
 scopes, the staged message and its consumption, the chosen tab, and composer
 focus restore. The switch is one-way; a later read failure or retired receipt
-does not return to preparation or remount the conversation.
+does not return to preparation or remount the conversation. If the acting
+Profile is no longer an active Human when the regular route redirects to
+another Human, the handoff does not follow: the draft and staged message stay
+under the creating Profile's scope and are never sent as a different identity.
 
 Text and attachments use the existing composer draft owners. Sending during
 preparation stages one message with a stable client message ID. The regular
