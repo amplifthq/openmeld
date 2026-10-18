@@ -3,6 +3,8 @@ import {
   agentControllerPermissionModeRequiresExplicitConfirmation,
   listAgentControllerPermissionModeCatalog,
   listPermissionModeAdvisorSteps,
+  MEMBER_AGENT_WELCOME_PERMISSION_MODE_LINE,
+  resolveMemberAgentWelcomePermissionModeLine,
   resolvePermissionModeAdvisorSuggestion,
 } from "../src";
 
@@ -113,5 +115,38 @@ describe("permission-mode advisor suggestions", () => {
         agentControllerPermissionModeRequiresExplicitConfirmation(step.to)
       ).toBe(false);
     }
+  });
+});
+
+describe("MemberAgent welcome permission line", () => {
+  it.each([
+    [
+      "builtin:claude-code",
+      "claude-code:default",
+      MEMBER_AGENT_WELCOME_PERMISSION_MODE_LINE,
+    ],
+    [
+      "builtin:codex",
+      "codex:askForApproval",
+      MEMBER_AGENT_WELCOME_PERMISSION_MODE_LINE,
+    ],
+    [
+      "builtin:claude-code",
+      "claude-code:acceptEdits",
+      "Permission mode is Accept edits.",
+    ],
+    [
+      "builtin:codex",
+      "codex:approveForMe",
+      "Permission mode is Approve for me.",
+    ],
+    ["builtin:claude-code", null, null],
+  ])("describes %s %s", (agentControllerRef, agentControllerPermissionMode, line) => {
+    expect(
+      resolveMemberAgentWelcomePermissionModeLine({
+        agentControllerPermissionMode,
+        agentControllerRef,
+      })
+    ).toBe(line);
   });
 });

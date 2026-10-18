@@ -1,7 +1,4 @@
-import {
-	getAgentControllerPermissionModeDisplayMetadata,
-	isAskFirstAgentControllerPermissionMode,
-} from "@openmeld/agent-runtime";
+import { resolveMemberAgentWelcomePermissionModeLine } from "@openmeld/agent-runtime";
 import type { PublicWakeabilityReason } from "@openmeld/schemas";
 import type {
 	ModelCatalog,
@@ -25,9 +22,6 @@ import {
 } from "./member-agent-chat-history";
 import { HarnessLogo } from "./member-agent-directory-section";
 import { useMemberAgentIndex } from "./use-member-agents";
-
-export const MEMBER_AGENT_PERMISSION_MODE_LINE =
-	"Permission mode is Ask first, good for personal use; I can switch it later if colleagues use this Agent.";
 
 export type MemberAgentDirectMessageCardModel =
 	| {
@@ -113,25 +107,13 @@ export function resolveMemberAgentDirectMessageCard(input: {
 	}
 }
 
-/**
- * The welcome card's permission line. The program's sentence applies only to
- * the harness's Ask-first default; any other mode is named as it is, and an
- * unknown mode says nothing rather than promise approval prompts.
- */
 function resolvePermissionModeNote(
 	entry: SpaceMemberDirectoryEntry
 ): string | null {
-	const mode = entry.agentControllerPermissionMode;
-	if (!mode) {
-		return null;
-	}
-	if (isAskFirstAgentControllerPermissionMode(mode)) {
-		return MEMBER_AGENT_PERMISSION_MODE_LINE;
-	}
-	const { label } = getAgentControllerPermissionModeDisplayMetadata(mode, {
+	return resolveMemberAgentWelcomePermissionModeLine({
+		agentControllerPermissionMode: entry.agentControllerPermissionMode,
 		agentControllerRef: entry.agentControllerRef,
 	});
-	return `Permission mode is ${label}.`;
 }
 
 function resolveReasonCard(

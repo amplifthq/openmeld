@@ -296,6 +296,7 @@ export {
   listPermissionModeAdvisorSteps,
   MEMBER_AGENT_WELCOME_PERMISSION_MODE_LINE,
   type PermissionModeAdvisorSuggestion,
+  resolveMemberAgentWelcomePermissionModeLine,
   resolvePermissionModeAdvisorSuggestion,
 } from "./permission-mode-advisor";
 export {

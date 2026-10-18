@@ -2,6 +2,7 @@ import { agentControllerPermissionModeSchema } from "@openmeld/schemas";
 import type { AgentControllerPermissionMode } from "@openmeld/schemas/types";
 import {
   getAgentControllerPermissionModeDisplayMetadata,
+  isAskFirstAgentControllerPermissionMode,
   listAgentControllerPermissionModeOptions,
   resolveNativeAgentControllerPermissionModeForController,
 } from "./agent-controller-permission-mode";
@@ -83,7 +84,30 @@ export function listPermissionModeAdvisorSteps(): {
 
 /**
  * The single line a new MemberAgent's welcome card shows about its
- * permission mode (MemberAgent program, permission-mode advisor).
+ * permission mode (MemberAgent program, permission-mode advisor). It applies
+ * only to the harness's Ask-first default.
  */
 export const MEMBER_AGENT_WELCOME_PERMISSION_MODE_LINE =
   "Permission mode is Ask first, good for personal use; I can switch it later if colleagues use this Agent.";
+
+/**
+ * The welcome card's permission line: the advisor sentence for the Ask-first
+ * default, the mode's own name otherwise, and nothing for an unknown mode, so
+ * the card never promises approval prompts it cannot verify.
+ */
+export function resolveMemberAgentWelcomePermissionModeLine(input: {
+  agentControllerPermissionMode: string | null | undefined;
+  agentControllerRef: string | null | undefined;
+}): string | null {
+  const mode = input.agentControllerPermissionMode;
+  if (!mode) {
+    return null;
+  }
+  if (isAskFirstAgentControllerPermissionMode(mode)) {
+    return MEMBER_AGENT_WELCOME_PERMISSION_MODE_LINE;
+  }
+  const { label } = getAgentControllerPermissionModeDisplayMetadata(mode, {
+    agentControllerRef: input.agentControllerRef,
+  });
+  return `Permission mode is ${label}.`;
+}

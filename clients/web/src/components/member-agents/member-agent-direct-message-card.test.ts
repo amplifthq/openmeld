@@ -1,9 +1,7 @@
+import { MEMBER_AGENT_WELCOME_PERMISSION_MODE_LINE } from "@openmeld/agent-runtime";
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
 import { describe, expect, it } from "vitest";
-import {
-	MEMBER_AGENT_PERMISSION_MODE_LINE,
-	resolveMemberAgentDirectMessageCard,
-} from "./member-agent-direct-message-card";
+import { resolveMemberAgentDirectMessageCard } from "./member-agent-direct-message-card";
 
 function entry(
 	overrides: Partial<SpaceMemberDirectoryEntry>
@@ -40,7 +38,7 @@ describe("MemberAgent Direct Message card", () => {
 				{ label: "Default model", value: "The harness default" },
 				{ label: "Default folder", value: "~/code/openmeld" },
 			],
-			note: MEMBER_AGENT_PERMISSION_MODE_LINE,
+			note: MEMBER_AGENT_WELCOME_PERMISSION_MODE_LINE,
 		});
 	});
 
