@@ -2989,6 +2989,17 @@ export {
   profileWorkspaceReadResultSchema,
   uuidProfileIdSchema,
 } from "./protocol/profile";
+export {
+  MAX_PROFILE_FOLDER_DISPLAY_NAME_LENGTH,
+  MAX_PROFILE_FOLDERS,
+  profileFolderDisplayNameSchema,
+  profileFolderIdSchema,
+  profileFolderKindSchema,
+  profileFolderOperationReasonCodeSchema,
+  profileFolderOperationSchema,
+  profileFolderProjectionEntrySchema,
+  profileFolderProjectionSchema,
+} from "./protocol/profile-folders";
 export { serverErrorFrameSchema } from "./protocol/server-error";
 export {
   AGENT_REPLY_FINAL_PURPOSE,
