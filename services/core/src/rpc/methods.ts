@@ -1085,7 +1085,7 @@ import {
 import type { CoreBindings } from "../lib/bindings";
 import { resolveCoreRuntimeContractRollout } from "../local-components/runtime-contract-rollout";
 import { resolveLocalComponentUpdateProjection } from "../local-components/update-projection";
-import { isMemberAgentsEnabled } from "../member-agents/member-agents-feature";
+import { isMemberAgentsEnabled } from "../member-agent/member-agents-feature";
 import {
   hasStartedTutorial,
   readFirstWork,

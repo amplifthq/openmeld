@@ -32,7 +32,7 @@ vi.mock("@openmeld/db/postgresql", async (importOriginal) => {
   };
 });
 const memberAgentsFeature = vi.hoisted(() => ({ enabled: false }));
-vi.mock("../src/member-agents/member-agents-feature", () => ({
+vi.mock("../src/member-agent/member-agents-feature", () => ({
   isMemberAgentsEnabled: () => memberAgentsFeature.enabled,
 }));
 function organizationFixture(env: CoreBindings) {

@@ -2,6 +2,7 @@ import {
 	getAgentControllerPermissionModeDisplayMetadata,
 	isAskFirstAgentControllerPermissionMode,
 } from "@openmeld/agent-runtime";
+import type { PublicWakeabilityReason } from "@openmeld/schemas";
 import type {
 	ModelCatalog,
 	SpaceMembersSnapshot,
@@ -13,7 +14,11 @@ import {
 	PlugsIcon,
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
+import { useQuery } from "@tanstack/react-query";
+import { isMemberAgentsEnabled } from "#/lib/member-agents/member-agents-feature";
+import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { resolveAgentProfileModel } from "#/lib/profiles/agent-profile-model-display";
+import { organizationAgentRuntimeOverviewQueryOptions } from "#/query/organizations/organization-directory";
 import {
 	type DirectMessageMemberAgent,
 	resolveDirectMessageMemberAgent,
@@ -40,19 +45,19 @@ export type MemberAgentDirectMessageCardModel =
 /**
  * One presentation card per problem for a MemberAgent Direct Message,
  * updated in place; never a published message. Driven by the Profile's four
- * Wakeability states.
- *
- * TODO(1c): when Core exposes the public availability reason enum
- * (`not_signed_in`, `no_subscription`, `org_disabled`, `version_too_old`,
- * `computer_offline`, `usage_exhausted`), map it here to per-reason repair
- * copy instead of the generic summary.
+ * Wakeability states and, when Core has exact evidence, its public
+ * Wakeability reason.
  */
 export function resolveMemberAgentDirectMessageCard(input: {
 	entry: SpaceMemberDirectoryEntry;
 	memberAgentName: string;
 	modelCatalog: ModelCatalog | null;
+	reason?: PublicWakeabilityReason | null;
 }): MemberAgentDirectMessageCardModel {
 	const { entry } = input;
+	if (input.reason && entry.availabilityCategory !== "available") {
+		return resolveReasonCard(input.reason, input.memberAgentName);
+	}
 	switch (entry.availabilityCategory) {
 		case "available": {
 			const model = resolveAgentProfileModel({
@@ -129,6 +134,65 @@ function resolvePermissionModeNote(
 	return `Permission mode is ${label}.`;
 }
 
+function resolveReasonCard(
+	reason: PublicWakeabilityReason,
+	memberAgentName: string
+): MemberAgentDirectMessageCardModel {
+	switch (reason.code) {
+		case "computer_offline":
+			return {
+				kind: "offline",
+				title: `${memberAgentName} is offline`,
+				description:
+					"Its computer isn’t connected. Messages wait until it’s back.",
+			};
+		case "not_signed_in":
+			return {
+				kind: "repair",
+				title: `${memberAgentName} needs you to sign in`,
+				description:
+					"The harness isn’t signed in on its computer. Sign in there, then send your message again.",
+			};
+		case "no_subscription":
+			return {
+				kind: "repair",
+				title: `${memberAgentName} has no active plan`,
+				description:
+					"The harness account on its computer has no active subscription. Renew it, then try again.",
+			};
+		case "org_disabled":
+			return {
+				kind: "repair",
+				title: `${memberAgentName} is turned off here`,
+				description:
+					"This harness is turned off for its account’s organization. Ask that account’s admin to turn it on.",
+			};
+		case "version_too_old":
+			return {
+				kind: "repair",
+				title: `${memberAgentName} needs an update`,
+				description: `The installed harness can’t run ${reason.modelId}. Update it on its computer, or choose another model.`,
+			};
+		case "usage_exhausted":
+			return {
+				kind: "repair",
+				title: `${memberAgentName} reached its usage limit`,
+				description: reason.resetAt
+					? `It can work again after ${new Date(reason.resetAt).toLocaleString(
+							"en-US",
+							{ dateStyle: "medium", timeStyle: "short" }
+						)}.`
+					: "It can work again when the limit resets.",
+			};
+		default:
+			return {
+				kind: "repair",
+				title: `${memberAgentName} needs attention`,
+				description: "This Agent can’t start work right now.",
+			};
+	}
+}
+
 const CARD_ICON = {
 	checking: CircleNotchIcon,
 	offline: PlugsIcon,
@@ -197,7 +261,28 @@ export type MemberAgentDirectMessageCardState = {
  * null. Callers render nothing (and keep their own empty-state guidance)
  * when this is null.
  */
-export function useMemberAgentDirectMessageCard(input: {
+type MemberAgentDirectMessageCardInput = {
+	isDirectMessage: boolean;
+	isCenterAgentDirectMessage: boolean;
+	readOnly?: boolean;
+	hasMessages: boolean;
+	membersSnapshot: SpaceMembersSnapshot | null;
+	modelCatalog: ModelCatalog | null;
+	profileEntriesById: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
+};
+
+/**
+ * The card for the signed-in member's current MemberAgent Direct Message, or
+ * null. Chosen once from MEMBER_AGENTS_ENABLED: with the flag off it reads
+ * nothing.
+ */
+export const useMemberAgentDirectMessageCard: (
+	input: MemberAgentDirectMessageCardInput
+) => MemberAgentDirectMessageCardState | null = isMemberAgentsEnabled()
+	? useEnabledMemberAgentDirectMessageCard
+	: () => null;
+
+function useEnabledMemberAgentDirectMessageCard(input: {
 	isDirectMessage: boolean;
 	isCenterAgentDirectMessage: boolean;
 	/** Observers (for example an Agent owner watching) get no card. */
@@ -208,6 +293,15 @@ export function useMemberAgentDirectMessageCard(input: {
 	profileEntriesById: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
 }): MemberAgentDirectMessageCardState | null {
 	const memberAgents = useMemberAgentIndex();
+	const organizationId =
+		useOptionalAppOrganization()?.currentOrganization.id ?? "";
+	// The public Wakeability reason rides on the owner's runtime overview.
+	const runtime = useQuery(
+		organizationAgentRuntimeOverviewQueryOptions({
+			enabled: memberAgents.ready && input.isDirectMessage,
+			organizationId,
+		})
+	);
 	if (!memberAgents.ready || input.readOnly === true) {
 		return null;
 	}
@@ -227,6 +321,10 @@ export function useMemberAgentDirectMessageCard(input: {
 		entry,
 		memberAgentName: current.memberAgent.displayName,
 		modelCatalog: input.modelCatalog,
+		reason:
+			runtime.data?.agentProfiles.find(
+				(item) => item.profileId === current.agentProfileId
+			)?.readiness.publicWakeabilityReason ?? null,
 	});
 	// The welcome card belongs to an empty Session; repair cards stay.
 	return model.kind === "welcome" && input.hasMessages

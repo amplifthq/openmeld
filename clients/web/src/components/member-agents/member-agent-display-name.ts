@@ -1,17 +1,8 @@
 import {
+	formatHarnessDisplayName,
 	type HarnessKind,
 	harnessKindFromAgentControllerRef,
 } from "@openmeld/schemas";
-import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
-
-const HOSTED_HARNESS_DISPLAY_NAME = "Remote Agent";
-
-/** `Claude Code`, `Codex`, … English only; never stored. */
-export function formatHarnessDisplayName(harnessKind: HarnessKind): string {
-	return harnessKind === "hosted"
-		? HOSTED_HARNESS_DISPLAY_NAME
-		: formatLocalAgentDisplayName(harnessKind);
-}
 
 /**
  * A MemberAgent's display name, derived from its owner's default Human Profile

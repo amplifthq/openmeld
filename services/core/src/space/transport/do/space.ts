@@ -401,7 +401,7 @@ import { canReceivePersonalAgentActivity } from "../../../inbox/application/inbo
 import { AlarmFailureBackoff } from "../../../lib/alarm-failure-backoff";
 import type { CoreBindings } from "../../../lib/bindings";
 import { verifySpacePasswordProof } from "../../../lib/space-password-proof";
-import { isMemberAgentsEnabled } from "../../../member-agents/member-agents-feature";
+import { isMemberAgentsEnabled } from "../../../member-agent/member-agents-feature";
 import {
   eraseAccountConversation,
   stopAccountConversation,

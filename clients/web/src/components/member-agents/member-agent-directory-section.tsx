@@ -21,7 +21,7 @@ const STATE_BADGE_VARIANT: Readonly<
 	available: "secondary",
 	checking: "outline",
 	offline: "outline",
-	unavailable: "destructive",
+	missing: "destructive",
 };
 
 export function HarnessLogo(input: { harnessKind: HarnessKind; size: number }) {
@@ -58,9 +58,12 @@ export function MemberAgentStateBadge(input: { state: MemberAgentState }) {
 }
 
 export function formatMemberAgentWorkload(input: {
-	runningCount: number;
-	queuedCount: number;
+	runningCount: number | null;
+	queuedCount: number | null;
 }): string {
+	if (input.runningCount === null || input.queuedCount === null) {
+		return "Work not reported";
+	}
 	return `${input.runningCount} running · ${input.queuedCount} queued`;
 }
 

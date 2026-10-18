@@ -80,4 +80,28 @@ describe("MemberAgent Direct Message card", () => {
 			})
 		).toMatchObject({ kind: "welcome", note: null });
 	});
+
+	it("uses Core's public Wakeability reason for the repair card", () => {
+		expect(
+			resolveMemberAgentDirectMessageCard({
+				entry: entry({ availabilityCategory: "unavailable" }),
+				memberAgentName,
+				modelCatalog: null,
+				reason: { code: "version_too_old", modelId: "claude-opus-5-5" },
+			})
+		).toMatchObject({
+			kind: "repair",
+			title: "Felix Lu’s Claude Code needs an update",
+			description:
+				"The installed harness can’t run claude-opus-5-5. Update it on its computer, or choose another model.",
+		});
+		expect(
+			resolveMemberAgentDirectMessageCard({
+				entry: entry({ availabilityCategory: "offline" }),
+				memberAgentName,
+				modelCatalog: null,
+				reason: { code: "computer_offline" },
+			})
+		).toMatchObject({ kind: "offline" });
+	});
 });

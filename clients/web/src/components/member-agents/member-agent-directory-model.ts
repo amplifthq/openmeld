@@ -1,4 +1,4 @@
-import type { HarnessKind } from "@openmeld/schemas";
+import type { HarnessKind, MemberAgentPresence } from "@openmeld/schemas";
 import type {
 	AuthProfileView,
 	OrganizationAgentRuntimeOverviewResponse,
@@ -6,8 +6,8 @@ import type {
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
 import type { MemberAgentIndex } from "./member-agent-index";
 import {
-	aggregateMemberAgentPresence,
-	type MemberAgentPresence,
+	type MemberAgentPresenceView,
+	resolveMemberAgentPresence,
 } from "./member-agent-presence";
 
 type RuntimeOverviewItem =
@@ -28,7 +28,7 @@ export type MemberAgentDirectoryRow = {
 	defaultProfileId: string | null;
 	/** Profiles visible in this Organization, default Profile first. */
 	profiles: readonly AuthProfileView[];
-	presence: MemberAgentPresence;
+	presence: MemberAgentPresenceView;
 	latestSession: MemberAgentLatestSession | null;
 };
 
@@ -56,6 +56,8 @@ export function buildMemberAgentDirectory(input: {
 	index: MemberAgentIndex;
 	ownedProfiles: readonly AuthProfileView[];
 	runtimeByProfileId: ReadonlyMap<string, RuntimeOverviewItem>;
+	/** Core's derived presence, keyed by MemberAgent id. */
+	presenceByMemberAgentId?: ReadonlyMap<string, MemberAgentPresence>;
 	directMessages?: readonly AccountSpaceItem[];
 	conversationTitle?: (item: AccountSpaceItem) => string;
 }): MemberAgentDirectory {
@@ -90,7 +92,8 @@ export function buildMemberAgentDirectory(input: {
 				archived: entry.memberAgent.archivedAt !== null,
 				defaultProfileId,
 				profiles,
-				presence: aggregateMemberAgentPresence({
+				presence: resolveMemberAgentPresence({
+					presence: input.presenceByMemberAgentId?.get(entry.memberAgent.id),
 					profileIds,
 					runtimeByProfileId: input.runtimeByProfileId,
 				}),

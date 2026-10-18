@@ -7,6 +7,7 @@ import { useMemo } from "react";
 import { selectAccountSpaceSections } from "#/components/spaces/account-space-sections";
 import { isMemberAgentsEnabled } from "#/lib/member-agents/member-agents-feature";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
+import { memberAgentPresenceQueryOptions } from "#/query/organizations/member-agents";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 import {
 	buildMemberAgentDirectory,
@@ -40,6 +41,12 @@ function useEnabledMemberAgentDirectory(input: {
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const memberAgents = useMemberAgentIndex();
 	const humanProfileId = memberAgents.humanProfileId ?? "";
+	const presence = useQuery(
+		memberAgentPresenceQueryOptions({
+			organizationId: currentOrganization.id,
+			enabled: memberAgents.ready,
+		})
+	);
 	const spaces = useQuery(
 		accountSpaceItemsQueryOptions({
 			enabled: memberAgents.enabled && Boolean(humanProfileId),
@@ -57,6 +64,12 @@ function useEnabledMemberAgentDirectory(input: {
 				(profile) => profile.ownerUserId === currentUserId
 			),
 			runtimeByProfileId: input.runtimeByProfileId,
+			presenceByMemberAgentId: new Map(
+				(presence.data?.memberAgents ?? []).map((item) => [
+					item.memberAgentId,
+					item,
+				])
+			),
 			directMessages: spaces.data
 				? selectAccountSpaceSections({
 						currentOrganizationId: currentOrganization.id,
@@ -72,5 +85,6 @@ function useEnabledMemberAgentDirectory(input: {
 		currentUserId,
 		currentOrganization.id,
 		spaces.data,
+		presence.data,
 	]);
 }

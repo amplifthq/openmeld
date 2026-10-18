@@ -105,41 +105,64 @@ describe("MemberAgent directory", () => {
 		).toBe(false);
 	});
 
-	it("aggregates state and running and queued counts across Profiles", () => {
+	it("reads state and work from Core presence and computers from runtime reads", () => {
 		const directory = buildMemberAgentDirectory({
 			index,
 			ownedProfiles: MIGRATED_PROFILES,
 			runtimeByProfileId: new Map([
+				["agt-claude-default", runtime("agt-claude-default", "offline")],
+				["agt-claude-reviewer", runtime("agt-claude-reviewer", "available")],
+			]),
+			presenceByMemberAgentId: new Map([
 				[
-					"agt-claude-default",
-					runtime("agt-claude-default", "offline", {
-						activeCount: 0,
-						waitingCount: 1,
-					}),
+					"ma-claude",
+					{
+						memberAgentId: "ma-claude",
+						harnessKind: "claude-code",
+						state: "available",
+						computers: [],
+						profiles: [],
+						workload: { status: "ready", runningCount: 2, queuedCount: 4 },
+					},
 				],
 				[
-					"agt-claude-reviewer",
-					runtime("agt-claude-reviewer", "available", {
-						activeCount: 2,
-						waitingCount: 3,
-					}),
+					"ma-codex",
+					{
+						memberAgentId: "ma-codex",
+						harnessKind: "codex",
+						state: "missing",
+						computers: [],
+						profiles: [],
+						workload: { status: "unavailable" },
+					},
 				],
-				["agt-codex", runtime("agt-codex", "unavailable")],
 			]),
 		});
-		const claude = directory.rows.find(
-			(row) => row.memberAgentId === "ma-claude"
-		);
-		expect(claude?.presence).toMatchObject({
+		expect(
+			directory.rows.find((row) => row.memberAgentId === "ma-claude")?.presence
+		).toEqual({
 			state: "available",
 			runningCount: 2,
 			queuedCount: 4,
 			computers: ["Felix’s MacBook"],
+			lastActivityAt: null,
 		});
 		expect(
 			directory.rows.find((row) => row.memberAgentId === "ma-codex")?.presence
-				.state
-		).toBe("unavailable");
+		).toMatchObject({
+			state: "missing",
+			runningCount: null,
+			queuedCount: null,
+		});
+	});
+
+	it("reads an Agent without a presence answer as checking, never broken", () => {
+		const directory = buildMemberAgentDirectory({
+			index,
+			ownedProfiles: MIGRATED_PROFILES,
+			runtimeByProfileId: new Map(),
+		});
+		expect(directory.rows[0]?.presence.state).toBe("checking");
 	});
 
 	it("picks the most recent Direct Message Session as the latest Session", () => {

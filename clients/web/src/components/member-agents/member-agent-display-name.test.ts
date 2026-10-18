@@ -1,7 +1,7 @@
+import { formatHarnessDisplayName } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import {
 	formatAgentProfileOwnerHarnessName,
-	formatHarnessDisplayName,
 	formatMemberAgentDisplayName,
 	formatMemberAgentProfileDisplayName,
 } from "./member-agent-display-name";

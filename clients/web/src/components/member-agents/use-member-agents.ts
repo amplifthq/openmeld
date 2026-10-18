@@ -95,13 +95,17 @@ function useEnabledMemberAgentSync(): void {
 		retry: false,
 	});
 	useEffect(() => {
-		if (sync.data?.synced) {
-			queryClient
-				.invalidateQueries({
+		if (sync.data?.changed) {
+			// Never the sync query itself, which lives under the same prefix.
+			Promise.all([
+				queryClient.invalidateQueries({
 					queryKey: memberAgentQueryKeys.all(organizationId),
 					exact: true,
-				})
-				.catch(console.error);
+				}),
+				queryClient.invalidateQueries({
+					queryKey: memberAgentQueryKeys.presence(organizationId),
+				}),
+			]).catch(console.error);
 		}
 	}, [sync.data, organizationId, queryClient]);
 }

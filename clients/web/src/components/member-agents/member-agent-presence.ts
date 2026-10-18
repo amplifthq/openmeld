@@ -1,62 +1,48 @@
+import type { MemberAgentPresence } from "@openmeld/schemas";
 import type { OrganizationAgentRuntimeOverviewResponse } from "@openmeld/schemas/types";
 
 type RuntimeOverviewItem =
 	OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number];
 
-export type MemberAgentState =
-	| "available"
-	| "checking"
-	| "offline"
-	| "unavailable";
+export type MemberAgentState = "available" | "checking" | "offline" | "missing";
 
 /**
- * The single MemberAgent presence shape every Web surface reads. Today it is
- * aggregated client-side from the existing per-Profile readiness and workload
- * reads. Package 1c moves this to a Core presence read with debounce; only
- * `aggregateMemberAgentPresence`'s input changes then, not this output.
+ * The single MemberAgent presence shape every Web surface reads. State and
+ * workload come from Core's derived presence read (`memberAgentPresence`,
+ * with its debounce); computer names and the last activity come from the
+ * owner's per-Profile runtime reads, which the presence read does not carry.
  */
-export type MemberAgentPresence = {
+export type MemberAgentPresenceView = {
 	state: MemberAgentState;
-	runningCount: number;
-	queuedCount: number;
+	/** Null when Core cannot report a complete workload. */
+	runningCount: number | null;
+	queuedCount: number | null;
 	/** Computers that run this MemberAgent's Profiles (owner-only names). */
 	computers: readonly string[];
 	lastActivityAt: string | null;
 };
 
-const STATE_PRIORITY: readonly MemberAgentState[] = [
-	"available",
-	"checking",
-	"unavailable",
-	"offline",
-];
+const STATE_BY_PRESENCE: Readonly<
+	Record<MemberAgentPresence["state"], MemberAgentState>
+> = {
+	available: "available",
+	checking: "checking",
+	all_offline: "offline",
+	missing: "missing",
+};
 
-export function aggregateMemberAgentPresence(input: {
+export function resolveMemberAgentPresence(input: {
+	presence: MemberAgentPresence | undefined;
 	profileIds: readonly string[];
 	runtimeByProfileId: ReadonlyMap<string, RuntimeOverviewItem>;
-}): MemberAgentPresence {
+}): MemberAgentPresenceView {
 	const items = input.profileIds
 		.map((profileId) => input.runtimeByProfileId.get(profileId))
 		.filter((item): item is RuntimeOverviewItem => item !== undefined);
-	const states = new Set<MemberAgentState>(
-		items.map(
-			(item) => item.readiness.agentWakeAvailability?.category ?? "checking"
-		)
-	);
-	// An Agent with any reachable Profile is available; with no Profiles read
-	// yet it is still being checked, never presented as broken.
-	const state =
-		items.length === 0
-			? "checking"
-			: (STATE_PRIORITY.find((candidate) => states.has(candidate)) ??
-				"checking");
-	let runningCount = 0;
-	let queuedCount = 0;
-	for (const item of items) {
-		const counts = readWorkloadCounts(item);
-		runningCount += counts.running;
-		queuedCount += counts.queued;
-	}
+	const workload =
+		input.presence?.workload.status === "ready"
+			? input.presence.workload
+			: null;
 	const computers = [
 		...new Set(
 			items
@@ -69,27 +55,16 @@ export function aggregateMemberAgentPresence(input: {
 			.map((item) => item.lastTaskActivityAt ?? null)
 			.filter((value): value is string => value !== null)
 			.sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null;
-	return { state, runningCount, queuedCount, computers, lastActivityAt };
-}
-
-function readWorkloadCounts(item: RuntimeOverviewItem): {
-	running: number;
-	queued: number;
-} {
-	if (item.workload?.status === "ready") {
-		return {
-			running: item.workload.activeCount,
-			queued: item.workload.waitingCount + item.workload.queuedMessageCount,
-		};
-	}
-	const context = item.operationalContext;
-	if (context?.status === "working") {
-		return { running: 1, queued: context.waitingCount };
-	}
-	if (context?.status === "paused") {
-		return { running: 0, queued: context.waitingCount };
-	}
-	return { running: 0, queued: 0 };
+	return {
+		// Until Core answers, the Agent is being checked, never shown as broken.
+		state: input.presence
+			? STATE_BY_PRESENCE[input.presence.state]
+			: "checking",
+		runningCount: workload?.runningCount ?? null,
+		queuedCount: workload?.queuedCount ?? null,
+		computers,
+		lastActivityAt,
+	};
 }
 
 export const MEMBER_AGENT_STATE_LABELS: Readonly<
@@ -98,5 +73,5 @@ export const MEMBER_AGENT_STATE_LABELS: Readonly<
 	available: "Available",
 	checking: "Checking",
 	offline: "Offline",
-	unavailable: "Needs attention",
+	missing: "Not on any computer",
 };

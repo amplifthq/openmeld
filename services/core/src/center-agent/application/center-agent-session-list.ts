@@ -4,7 +4,7 @@ import {
   type ListCenterAgentSessionsResponse,
   listCenterAgentSessionsResponseSchema,
 } from "@openmeld/schemas";
-import { isMemberAgentsEnabled } from "../../member-agents/member-agents-feature";
+import { isMemberAgentsEnabled } from "../../member-agent/member-agents-feature";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 import { readConversationDeletionDates } from "../../space/application/conversation-history";
 import {
