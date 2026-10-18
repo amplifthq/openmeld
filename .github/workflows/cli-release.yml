@@ -79,7 +79,7 @@ jobs:
       - name: Setup toolchain
         if: inputs.dry_run != true
         uses: ./release-control/.github/actions/setup-node-pnpm
-        with: { working_directory: release-source }
+        with: { working_directory: release-source, control_directory: release-control }
       - name: Setup Bun
         if: inputs.dry_run != true
         uses: oven-sh/setup-bun@v2

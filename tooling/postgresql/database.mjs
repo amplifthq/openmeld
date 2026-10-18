@@ -1,15 +1,21 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate as migrateDrizzle } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 
-export const migrationDirectory = fileURLToPath(
-  new URL("../../packages/db/postgresql/migrations/", import.meta.url)
-);
+export const migrationDirectory = process.env.OPENMELD_RELEASE_SOURCE_ROOT
+  ? path.join(
+      process.env.OPENMELD_RELEASE_SOURCE_ROOT,
+      "packages/db/postgresql/migrations"
+    )
+  : fileURLToPath(
+      new URL("../../packages/db/postgresql/migrations/", import.meta.url)
+    );
 export const migrationLock = 640_021_017;
 const EXACT_SOURCE_SHA = /^[0-9a-f]{40}$/u;
 const MIGRATION_TAG = /^\d{4}_[a-z0-9_-]+$/u;

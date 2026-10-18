@@ -24,7 +24,9 @@ import { resolveCliBinaryDeltaForRelease } from "./cli-binary-delta.mjs";
 import { compareSemverCore } from "./release-semver.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
+const REPO_ROOT =
+  process.env.OPENMELD_RELEASE_SOURCE_ROOT ??
+  path.resolve(SCRIPT_DIR, "..", "..");
 
 // Reuse the Desktop preview bucket with a cli/ prefix (per W-CLI-BIN1). The
 // binary and manifest are served through a production Web route, not a public

@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { COMPONENTS } from "../../release/components.mjs";
 import {
   buildGithubDispatch,
@@ -192,14 +197,19 @@ test("runs component steps only from a clean checkout of the exact release SHA",
 test("passes the release SHA to every Worker deploy and maps the release token once", () => {
   for (const name of ["auth", "gateway", "remote-agent"]) {
     assert.ok(
-      describeComponentSteps(component(name), TARGET).deploy[0].includes(
-        `RELEASE_SHA:${TARGET}`
+      describeComponentSteps(component(name), TARGET).deploy.some((command) =>
+        command.includes(`RELEASE_SHA:${TARGET}`)
       ),
       name
     );
   }
   assert.deepEqual(describeComponentSteps(component("core"), TARGET).deploy, [
-    ["node", "scripts/release/deploy-core-worker.mjs", "--release-sha", TARGET],
+    [
+      process.execPath,
+      fileURLToPath(new URL("./deploy-core-worker.mjs", import.meta.url)),
+      "--release-sha",
+      TARGET,
+    ],
   ]);
   const env = releaseEnvironment(
     {
@@ -231,6 +241,53 @@ test("refuses missing production credentials before running component steps", ()
         return true;
       }
     );
+  }
+});
+
+test("loads control scripts beside the component runner and build inputs from the source checkout", () => {
+  for (const entry of COMPONENTS) {
+    const steps = describeComponentSteps(entry, TARGET);
+    for (const command of [...steps.deploy, steps.health]) {
+      if (command[0] === process.execPath || command[0] === "node") {
+        assert.ok(path.isAbsolute(command[1]), entry.name);
+      }
+    }
+  }
+  const source = mkdtempSync(path.join(tmpdir(), "release-source-"));
+  try {
+    mkdirSync(path.join(source, "clients/openmeld-cli"), { recursive: true });
+    writeFileSync(
+      path.join(source, "clients/openmeld-cli/package.json"),
+      JSON.stringify({ version: "9.9.9" })
+    );
+    const buildModule = new URL("./build-cli-binary.mjs", import.meta.url).href;
+    const databaseModule = new URL(
+      "../../tooling/postgresql/database.mjs",
+      import.meta.url
+    ).href;
+    const output = execFileSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `
+      import { resolveCliPackageVersion, resolveDefaultCliBinaryOutDir } from ${JSON.stringify(buildModule)};
+      import { migrationDirectory } from ${JSON.stringify(databaseModule)};
+      console.log(JSON.stringify([resolveCliPackageVersion(), resolveDefaultCliBinaryOutDir(), migrationDirectory]));
+    `,
+      ],
+      {
+        env: { ...process.env, OPENMELD_RELEASE_SOURCE_ROOT: source },
+        encoding: "utf8",
+      }
+    );
+    assert.deepEqual(JSON.parse(output), [
+      "9.9.9",
+      path.join(source, "cli/dist"),
+      path.join(source, "packages/db/postgresql/migrations"),
+    ]);
+  } finally {
+    rmSync(source, { recursive: true, force: true });
   }
 });
 

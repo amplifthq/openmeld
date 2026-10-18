@@ -28,6 +28,14 @@ pnpm run deploy -- --scope <auto|cloud|name[,name]> --lane <local|github|auto> [
   (cheaper); `--lane auto` uses each component's `defaultLane`.
 - `--dry-run` prints the plan and exact commands without deploying.
 
+The local entrypoint must come from a clean checkout of current `origin/main`.
+To release an older main commit, run that trusted entrypoint by absolute path
+with the release-source checkout as the working directory. Both lanes load
+release scripts from the control checkout. The component runner sets
+`OPENMELD_RELEASE_SOURCE_ROOT` to its checked working directory, so migration
+files, CLI sources, embedded Skills, and native build inputs come from the
+requested product SHA. Do not set this variable by hand.
+
 ```sh
 # Typical releases.
 # A Website-only fix.
@@ -49,10 +57,10 @@ web; website and docs are independent); any other order takes two runs.
 | Component | Deploy | Health |
 | --- | --- | --- |
 | db | `cutover.mjs migrate`, then `grant-runtime` | `cutover.mjs verify` |
-| auth, gateway | package `deploy` with `--var RELEASE_SHA:<sha>` | `/health` reports the SHA |
+| auth, gateway | build dependencies, then Wrangler with `--var RELEASE_SHA:<sha>` | `/health` reports the SHA |
 | core | `deploy-core-worker.mjs`: bundle check, startup-admitted version upload, 100% activation | Cloudflare version carries the SHA |
-| remote-agent | package `deploy` with `--var RELEASE_SHA:<sha>` | Cloudflare version carries the SHA |
-| web, website, docs | package `deploy`: local SSR artifact check, then `wrangler deploy` | `production-web-health.mjs` sees the SHA |
+| remote-agent | build dependencies and production bundle, then Wrangler with `--var RELEASE_SHA:<sha>` | Cloudflare version carries the SHA |
+| web, website, docs | trusted local SSR artifact check, then `wrangler deploy` | `production-web-health.mjs` sees the SHA |
 | cli | `publish-cli.mjs` | npm `gitHead` of the version is the SHA |
 
 The platform is the release record: Worker `RELEASE_SHA`, the renderer

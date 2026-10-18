@@ -129,7 +129,7 @@ jobs:
         name: Setup toolchain
         if: inputs.dry_run != true
         uses: ./release-control/.github/actions/setup-node-pnpm
-        with: { working_directory: release-source }
+        with: { working_directory: release-source, control_directory: release-control }
       - &deploy-component
         name: Build, deploy, and check health
         run: node ../release-control/scripts/release/deploy-component.mjs "$COMPONENT" --sha "$RELEASE_SHA" $DRY_RUN

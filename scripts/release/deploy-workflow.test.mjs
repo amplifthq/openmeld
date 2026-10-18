@@ -118,7 +118,19 @@ test("only the validate job checks the SHA, from release control on main", () =>
       ),
       name
     );
+    assert.equal(
+      job.steps.find((step) => step.name === "Setup toolchain").with
+        .control_directory,
+      "release-control",
+      name
+    );
   }
+  assert.equal(
+    cliRelease.jobs.publish.steps.find(
+      (step) => step.name === "Setup toolchain"
+    ).with.control_directory,
+    "release-control"
+  );
 });
 
 test("database and Core jobs name the PostgreSQL release credentials they need", () => {

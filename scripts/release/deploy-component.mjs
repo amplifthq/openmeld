@@ -94,7 +94,7 @@ function run(command, { cwd, env }) {
 function healthCommand(component, sha) {
   const { health } = component;
   if (health.kind === "command") {
-    return health.command;
+    return controlCommand(health.command);
   }
   if (health.kind === "renderer") {
     return [
@@ -150,11 +150,21 @@ async function waitForLiveSha({ component, sha, cwd, env }) {
 
 export function describeComponentSteps(component, sha) {
   return {
-    deploy: component.deploy(sha),
+    deploy: component.deploy(sha).map(controlCommand),
     health: healthCommand(component, sha) ?? [
       `check live RELEASE_SHA (${component.health.kind})`,
     ],
   };
+}
+
+function controlCommand(command) {
+  return command[0] === "node"
+    ? [
+        process.execPath,
+        path.resolve(CONTROL_ROOT, command[1]),
+        ...command.slice(2),
+      ]
+    : command;
 }
 
 export async function deployComponent({
@@ -178,7 +188,10 @@ export async function deployComponent({
     return;
   }
   assertReleaseCheckout({ cwd, sha });
-  const childEnv = releaseEnvironment(env, sha);
+  const childEnv = {
+    ...releaseEnvironment(env, sha),
+    OPENMELD_RELEASE_SOURCE_ROOT: path.resolve(cwd),
+  };
   const startedAt = Date.now();
   for (const command of steps.deploy) {
     run(command, { cwd, env: childEnv });

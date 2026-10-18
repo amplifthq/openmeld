@@ -17,10 +17,33 @@ const LOCAL =
   "{runtime/**,packages/{api-client,agent-profile,product-catalog,ui}/**}";
 const releaseVar = (sha) => `RELEASE_SHA:${sha}`;
 const pnpmDeploy = (pkg) => (sha) => [
-  ["pnpm", "--filter", pkg, "run", "deploy", "--var", releaseVar(sha)],
+  ["pnpm", "--filter", pkg, "run", "build:workspace-dependencies"],
+  [
+    "pnpm",
+    "--filter",
+    pkg,
+    "exec",
+    "wrangler",
+    "deploy",
+    "--minify",
+    "--env",
+    "prod",
+    "--var",
+    releaseVar(sha),
+  ],
 ];
 const renderer = (client) => () => [
-  ["pnpm", "--filter", `openmeld-${client}`, "run", "deploy"],
+  ["node", "scripts/release/production-artifact-check.mjs", "--scope", client],
+  [
+    "pnpm",
+    "--filter",
+    `openmeld-${client}`,
+    "exec",
+    "wrangler",
+    "deploy",
+    "--env",
+    "prod",
+  ],
 ];
 
 export const COMPONENTS = [
@@ -98,7 +121,35 @@ export const COMPONENTS = [
     ],
     dependsOn: ["core"],
     defaultLane: "github",
-    deploy: pnpmDeploy("@openmeld/remote-agent"),
+    deploy: (sha) => [
+      [
+        "pnpm",
+        "--filter",
+        "@openmeld/remote-agent",
+        "run",
+        "build:workspace-dependencies",
+      ],
+      ["pnpm", "--filter", "@openmeld/remote-agent", "run", "build"],
+      [
+        "pnpm",
+        "--filter",
+        "@openmeld/remote-agent",
+        "run",
+        "build:prod-config",
+      ],
+      [
+        "pnpm",
+        "--filter",
+        "@openmeld/remote-agent",
+        "exec",
+        "wrangler",
+        "deploy",
+        "--config",
+        "dist/openmeld_remote_agent/wrangler.prod.json",
+        "--var",
+        releaseVar(sha),
+      ],
+    ],
     health: { kind: "worker-version", script: "openmeld-remote-agent-prod" },
   },
   {

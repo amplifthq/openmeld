@@ -24,7 +24,9 @@ import {
 } from "./windows-process-artifact.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
+const REPO_ROOT =
+  process.env.OPENMELD_RELEASE_SOURCE_ROOT ??
+  path.resolve(SCRIPT_DIR, "..", "..");
 const CLI_DIR = path.join(REPO_ROOT, "clients", "openmeld-cli");
 const CLI_ENTRY = path.join(CLI_DIR, "src", "openmeld-entry.ts");
 const DEFAULT_CLI_BINARY_OUT_DIR_SEGMENTS = ["cli", "dist"];

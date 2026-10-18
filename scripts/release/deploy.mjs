@@ -418,6 +418,16 @@ export async function deploy(options, { cwd = process.cwd(), readLive } = {}) {
   }
   if (segments.some((segment) => segment.lane === "local")) {
     assertLocalSource(git, sha);
+    const controlGit = createGit(path.resolve(SCRIPT_DIRECTORY, "../.."));
+    if (
+      controlGit.run(["rev-parse", "HEAD"]) !==
+        controlGit.run(["rev-parse", "refs/remotes/origin/main"]) ||
+      controlGit.run(["status", "--porcelain"])
+    ) {
+      throw new Error(
+        "Local release control must come from a clean checkout of current origin/main. Run that deploy.mjs by absolute path from the product checkout."
+      );
+    }
   }
   const startedAt = Date.now();
   for (const segment of segments) {
