@@ -25,6 +25,7 @@ import {
 import {
   defaultProfileFolderDisplayName,
   mutateProfileFolderListForAccount,
+  nextProfileFolderRevision,
   OPENMELD_MANAGED_FOLDER_DISPLAY_NAME,
   type ProfileFolder,
   type ProfileFolderList,
@@ -52,10 +53,12 @@ export type ProfileFolderOperationOutcome = {
 
 /** Cloud-safe view of the list: ids, kinds and display names only. */
 export function projectProfileFolderList(
-  list: ProfileFolderList
+  list: ProfileFolderList,
+  revision: number
 ): ProfileFolderProjection {
   return profileFolderProjectionSchema.parse({
     defaultFolderId: list.defaultFolderId,
+    revision,
     folders: list.folders.map((folder) => ({
       displayName: folder.displayName,
       folderId: folder.id,
@@ -85,7 +88,12 @@ export async function applyProfileFolderOperation(input: {
       account,
       openMeldProfileId,
     });
-    return { projection: projectProfileFolderList(requireList(current)) };
+    return {
+      projection: projectProfileFolderList(
+        requireList(current),
+        current.status === "valid" ? current.revision : 0
+      ),
+    };
   }
   const now = input.updatedAt ?? new Date().toISOString();
   const prepared = await prepareOperationInput({
@@ -124,6 +132,8 @@ type FolderMutationPlan = {
   list: ProfileFolderList;
   /** Writes a list whose default is unchanged, keeping `updatedAt` and origin. */
   keep: (next: ProfileFolderList, folderId?: string) => FolderMutation;
+  /** The revision this plan's write will persist. */
+  nextRevision: number;
   now: string;
   openMeldProfileId: string;
   unchanged: (folderId: string) => FolderMutation;
@@ -139,6 +149,7 @@ async function planProfileFolderMutation(input: {
 }): Promise<FolderMutation> {
   const current = input.current;
   const list = requireList(current);
+  const nextRevision = nextProfileFolderRevision(current);
   const plan: FolderMutationPlan = {
     account: input.account,
     keep: (next, folderId) => ({
@@ -149,16 +160,23 @@ async function planProfileFolderMutation(input: {
         : {}),
       result: {
         ...(folderId ? { folderId } : {}),
-        projection: projectProfileFolderList(next),
+        projection: projectProfileFolderList(next, nextRevision),
       },
       updatedAt: current.status === "valid" ? current.updatedAt : input.now,
     }),
     list,
+    nextRevision,
     now: input.now,
     openMeldProfileId: input.openMeldProfileId,
     unchanged: (folderId) => ({
       kind: "unchanged",
-      result: { folderId, projection: projectProfileFolderList(list) },
+      result: {
+        folderId,
+        projection: projectProfileFolderList(
+          list,
+          current.status === "valid" ? current.revision : 0
+        ),
+      },
     }),
   };
   const operation = input.operation;
@@ -231,7 +249,7 @@ async function planSetDefaultFolder(
     folder,
     openMeldProfileId: plan.openMeldProfileId,
   });
-  return changeDefault({ folder, list: plan.list, now: plan.now });
+  return changeDefault({ folder, list: plan.list, plan });
 }
 
 async function planRemoveFolder(
@@ -265,7 +283,7 @@ async function planRemoveFolder(
     return changeDefault({
       folder: next,
       list: { ...list, folders: remaining },
-      now: plan.now,
+      plan,
     });
   }
   return plan.keep({ ...list, folders: remaining });
@@ -342,10 +360,12 @@ export async function resolveProfileFolderRuntimeForAccount(input: {
   if (folder.kind === "openmeld_managed" && input.mode === "dispatch") {
     try {
       await mkdir(path, { recursive: true });
-    } catch (error) {
+    } catch {
       return {
         reasonCode: "profile.workspace.invalid",
-        reasonText: `Couldn’t prepare the managed working folder. ${error instanceof Error ? error.message : "Check the folder and its permissions."}`,
+        // Task failures leave this computer; keep paths out of the text.
+        reasonText:
+          "Couldn’t prepare the OpenMeld folder on this computer. Check the folder and its permissions.",
         status: "failed",
       };
     }
@@ -363,7 +383,7 @@ export async function resolveProfileFolderRuntimeForAccount(input: {
   if (validation.status === "invalid") {
     return {
       reasonCode: "profile.workspace.invalid",
-      reasonText: `The selected folder is not usable. ${describeProfileWorkspacePathValidationFailure(validation)}`,
+      reasonText: `The selected folder can’t be used on this computer (${validation.reason}). Choose a folder again.`,
       status: "failed",
     };
   }
@@ -562,7 +582,7 @@ async function prepareDefaultFolder(input: {
 function changeDefault(input: {
   folder: ProfileFolder;
   list: ProfileFolderList;
-  now: string;
+  plan: Pick<FolderMutationPlan, "nextRevision" | "now">;
 }): ProfileFolderListMutation<ProfileFolderOperationOutcome> {
   const next = { ...input.list, defaultFolderId: input.folder.id };
   return {
@@ -572,16 +592,16 @@ function changeDefault(input: {
     ...(input.folder.kind === "custom"
       ? {
           origin: {
-            configurationUpdatedAt: input.now,
+            configurationUpdatedAt: input.plan.now,
             kind: "explicit" as const,
           },
         }
       : {}),
     result: {
       folderId: input.folder.id,
-      projection: projectProfileFolderList(next),
+      projection: projectProfileFolderList(next, input.plan.nextRevision),
     },
-    updatedAt: input.now,
+    updatedAt: input.plan.now,
   };
 }
 

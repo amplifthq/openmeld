@@ -73,6 +73,7 @@ export type ProfileFolderList = {
 export type ProfileLocalMetaEnvelope = {
   defaultFolderId?: string;
   folders?: ProfileFolder[];
+  foldersRevision?: number;
   openMeldProfileId: string;
   updatedAt: string;
   v: 2;
@@ -185,6 +186,8 @@ export type ProfileFolderListReadResult =
       origin?: ProfileWorkspaceOrigin;
       path: string;
       persistedVersion: 1 | 2;
+      /** Folder-save counter; 0 before the first folder-aware save. */
+      revision: number;
       status: "valid";
       updatedAt: string;
       workspace?: ProfileWorkspaceConfig;
@@ -213,6 +216,7 @@ export async function readProfileFolderListForAccount(input: {
     }),
     path: meta.path,
     persistedVersion: meta.persistedVersion,
+    revision: meta.foldersRevision ?? 0,
     status: "valid",
     updatedAt: meta.updatedAt,
     ...(meta.origin ? { origin: meta.origin } : {}),
@@ -233,6 +237,7 @@ type ProfileLocalMetaReadResult =
   | {
       defaultFolderId?: string;
       folders?: ProfileFolder[];
+      foldersRevision?: number;
       origin?: ProfileWorkspaceOrigin;
       path: string;
       persistedVersion: 1 | 2;
@@ -322,6 +327,9 @@ async function readProfileLocalMetaForAccount(input: {
     ...(envelope.defaultFolderId
       ? { defaultFolderId: envelope.defaultFolderId }
       : {}),
+    ...(envelope.foldersRevision === undefined
+      ? {}
+      : { foldersRevision: envelope.foldersRevision }),
   };
 }
 
@@ -452,6 +460,13 @@ function mirrorDefaultProfileFolder(
     : { mode: "openmeld_managed" };
 }
 
+/** The revision the next folder save writes. */
+export function nextProfileFolderRevision(
+  current: ProfileFolderListReadResult
+): number {
+  return (current.status === "valid" ? current.revision : 0) + 1;
+}
+
 export type ProfileFolderListMutation<T> =
   | { kind: "unchanged"; result: T }
   | {
@@ -512,6 +527,7 @@ export async function mutateProfileFolderListForAccount<T>(input: {
         workspaceOrigin: mutation.origin,
         folders: mutation.list.folders.map(buildFolderPayload),
         defaultFolderId: mutation.list.defaultFolderId ?? undefined,
+        foldersRevision: nextProfileFolderRevision(current),
       };
       await mkdir(dirname(path), { recursive: true });
       const tempPath = `${path}.tmp-${process.pid}-${Date.now()}-${randomUUID()}`;
@@ -925,11 +941,13 @@ function parseProfileLocalMetaEnvelopeV2(
   );
   const folders = parseFoldersSection(record.folders);
   const defaultFolderId = parseDefaultFolderId(record.defaultFolderId);
+  const foldersRevision = parseFoldersRevision(record.foldersRevision);
   if (
     !(openMeldProfileId && updatedAt) ||
     workspace === null ||
     folders === null ||
-    defaultFolderId === null
+    defaultFolderId === null ||
+    foldersRevision === null
   ) {
     return null;
   }
@@ -937,6 +955,7 @@ function parseProfileLocalMetaEnvelopeV2(
     ...(workspace ? { workspace } : {}),
     ...(folders ? { folders } : {}),
     ...(defaultFolderId ? { defaultFolderId } : {}),
+    ...(foldersRevision === undefined ? {} : { foldersRevision }),
     ...(workspace?.mode === "custom" &&
     parsedOrigin.success &&
     parsedOrigin.data.configurationUpdatedAt === updatedAt
@@ -1005,6 +1024,15 @@ function parseFolderEntry(value: unknown): ProfileFolder | null {
     default:
       return null;
   }
+}
+
+function parseFoldersRevision(value: unknown): number | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : null;
 }
 
 function parseDefaultFolderId(value: unknown): string | null | undefined {

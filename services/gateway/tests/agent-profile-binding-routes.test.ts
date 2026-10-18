@@ -157,6 +157,7 @@ function makeEnv(input?: {
       observedAtMs: 1,
       projection: {
         defaultFolderId: "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11",
+        revision: 1,
         folders: [
           {
             displayName: "openmeld",
@@ -833,6 +834,7 @@ describe("agent profile binding routes", () => {
           observedAtMs: 1,
           projection: {
             defaultFolderId: null,
+            revision: 1,
             folders: [
               {
                 displayName: "openmeld",

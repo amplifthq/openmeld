@@ -20,6 +20,7 @@ const TARGET = {
 };
 const PROJECTION = {
   defaultFolderId: CUSTOM_FOLDER_ID,
+  revision: 3,
   folders: [
     {
       displayName: "openmeld",
@@ -103,7 +104,7 @@ describe("profile folder projection", () => {
     });
     await writeProfileFolderProjectionRecord({
       observedAtMs: 11,
-      projection: { defaultFolderId: null, folders: [] },
+      projection: { defaultFolderId: null, folders: [], revision: 1 },
       storage,
       target: { ...TARGET, deviceId: "device-2" },
     });
@@ -112,6 +113,26 @@ describe("profile folder projection", () => {
     ).resolves.toEqual(written);
     expect(storage.values.size).toBe(2);
     expect(JSON.stringify([...storage.values.values()])).not.toContain("/");
+  });
+
+  it("keeps the newest folder list when an older receipt arrives late", async () => {
+    const storage = memoryStorage();
+    await writeProfileFolderProjectionRecord({
+      observedAtMs: 10,
+      projection: PROJECTION,
+      storage,
+      target: TARGET,
+    });
+    const late = await writeProfileFolderProjectionRecord({
+      observedAtMs: 20,
+      projection: { defaultFolderId: null, folders: [], revision: 2 },
+      storage,
+      target: TARGET,
+    });
+    expect(late.projection).toEqual(PROJECTION);
+    await expect(
+      readProfileFolderProjectionRecord({ storage, target: TARGET })
+    ).resolves.toMatchObject({ observedAtMs: 10, projection: PROJECTION });
   });
 
   it("allows a default folder only from this Computer's projection", () => {

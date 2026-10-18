@@ -116,7 +116,7 @@ describe("profile folders", () => {
       expect(second).toEqual(first);
       // The derived id is a valid cloud folder id.
       if (first.status === "valid") {
-        expect(projectProfileFolderList(first.list).defaultFolderId).toBe(
+        expect(projectProfileFolderList(first.list, 0).defaultFolderId).toBe(
           expectedId
         );
       }
@@ -317,6 +317,8 @@ describe("profile folders", () => {
       });
       expect(removed.projection).toEqual({
         defaultFolderId: added.folderId,
+        // setCustom, add, remove: three folder saves.
+        revision: 3,
         folders: [
           {
             displayName: "Second repo",

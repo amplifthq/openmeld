@@ -658,6 +658,7 @@ describe("profile workspace service", () => {
 
       await expect(readLocalMetaFile(openMeldProfileId)).resolves.toEqual({
         defaultFolderId: expect.any(String),
+        foldersRevision: 2, // ensured twice
         folders: [
           {
             displayName: "OpenMeld folder",
@@ -749,6 +750,7 @@ describe("profile workspace service", () => {
 
       await expect(readLocalMetaFile(openMeldProfileId)).resolves.toEqual({
         defaultFolderId: expect.any(String),
+        foldersRevision: 1,
         // The previous managed choice stays listed next to the new default.
         folders: [
           {
@@ -809,6 +811,7 @@ describe("profile workspace service", () => {
 
       await expect(readLocalMetaFile(openMeldProfileId)).resolves.toEqual({
         defaultFolderId: expect.any(String),
+        foldersRevision: 1,
         folders: [
           {
             displayName: "migrated-custom",
@@ -1005,6 +1008,7 @@ describe("profile workspace service", () => {
 
         await expect(readLocalMetaFile(openMeldProfileId)).resolves.toEqual({
           defaultFolderId: expect.any(String),
+          foldersRevision: 1,
           folders: [
             {
               displayName: "OpenMeld folder",

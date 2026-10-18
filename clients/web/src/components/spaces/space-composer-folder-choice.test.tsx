@@ -74,7 +74,7 @@ describe("composer folder choice", () => {
 
 function renderOptions(input: {
 	folders?: (typeof DEFAULT_FOLDER)[];
-	onChange: ReturnType<typeof vi.fn>;
+	onChange: (choice: unknown) => void;
 }) {
 	render(
 		<DropdownMenu>

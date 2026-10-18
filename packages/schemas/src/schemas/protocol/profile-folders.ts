@@ -36,6 +36,9 @@ export const profileFolderProjectionSchema = z
       .array(profileFolderProjectionEntrySchema)
       .max(MAX_PROFILE_FOLDERS),
     defaultFolderId: profileFolderIdSchema.nullable(),
+    // Service-local counter, bumped by every folder save. Core keeps the
+    // highest one, so a late older receipt never replaces a newer list.
+    revision: z.number().int().nonnegative(),
   })
   .superRefine((value, context) => {
     const ids = new Set(value.folders.map((folder) => folder.folderId));

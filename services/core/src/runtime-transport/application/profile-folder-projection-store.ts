@@ -47,6 +47,13 @@ export async function writeProfileFolderProjectionRecord(input: {
     projection: input.projection,
     targetProfileId: input.target.targetProfileId,
   });
+  // Receipts can arrive out of order. Storage calls without another await in
+  // between run under the Durable Object input gate, so this read and write
+  // are not interleaved with another receipt's.
+  const stored = await readProfileFolderProjectionRecord(input);
+  if (stored && stored.projection.revision > record.projection.revision) {
+    return stored;
+  }
   await input.storage.put(
     profileFolderProjectionStorageKey(input.target),
     record
