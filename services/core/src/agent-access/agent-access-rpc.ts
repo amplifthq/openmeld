@@ -4,6 +4,7 @@ import {
 } from "@openmeld/db/postgresql";
 import {
   AGENT_ACCESS_REQUEST_LIST_LIMIT,
+  AGENT_PROFILE_ACCESS_GRANT_LIST_LIMIT,
   type AgentAccessDecision,
   type CreateSpaceAgentRequestResponse,
   createSpaceAgentRequestBodySchema,
@@ -12,9 +13,11 @@ import {
   type GetAgentAccessRequestResponse,
   type ListAgentAccessRequestsQuery,
   type ListAgentAccessRequestsResponse,
+  type ListAgentProfileAccessGrantsResponse,
   listAgentAccessRequestsQuerySchema,
   MEMBER_AGENTS_DISABLED_CODE,
   MEMBER_AGENTS_DISABLED_MESSAGE,
+  type RevokeAgentProfileAccessGrantResponse,
   type WithdrawAgentAccessRequestResponse,
 } from "@openmeld/schemas";
 import { readResolvedOrganizationSpaceMember } from "../center-agent/center-agent-repository";
@@ -41,9 +44,11 @@ import {
 import {
   type AgentAccessRequestRecord,
   asQueryable,
+  listActiveAgentProfileAccessGrants,
   listAgentAccessRequests,
   readAgentAccessRequest,
   readAgentAccessTargets,
+  revokeAgentProfileAccessGrant,
 } from "./infrastructure/postgresql/agent-access-repo";
 
 // Colleague use of an Agent (design-plans/member-agent-program.md §4.6, §7).
@@ -303,6 +308,83 @@ export async function rpcCreateSpaceAgentRequest(
       viewerUserId: caller.userId,
     }),
   };
+}
+
+export async function rpcListAgentProfileAccessGrants(
+  env: CoreBindings,
+  input: { context?: CoreRpcContextInput; agentProfileId: string }
+): Promise<ListAgentProfileAccessGrantsResponse> {
+  const caller = await requireAgentAccessCaller(env, input.context);
+  await requireOwnedAgentProfile(caller, input.agentProfileId);
+  const grants = await listActiveAgentProfileAccessGrants({
+    db: asQueryable(caller.db),
+    limit: AGENT_PROFILE_ACCESS_GRANT_LIST_LIMIT,
+    profileId: input.agentProfileId,
+  });
+  return {
+    profileId: input.agentProfileId,
+    grants: grants.map((grant) => ({
+      id: grant.id,
+      profileId: grant.profileId,
+      granteeUserId: grant.granteeUserId,
+      granteeName: grant.granteeName,
+      granteeKind: grant.granteeKind,
+      scope: grant.scope,
+      grantedAt: new Date(grant.grantedAtMs).toISOString(),
+    })),
+  };
+}
+
+/** Revoking blocks new tasks; tasks already running finish. */
+export async function rpcRevokeAgentProfileAccessGrant(
+  env: CoreBindings,
+  input: {
+    context?: CoreRpcContextInput;
+    agentProfileId: string;
+    grantId: string;
+  }
+): Promise<RevokeAgentProfileAccessGrantResponse> {
+  const caller = await requireAgentAccessCaller(env, input.context);
+  await requireOwnedAgentProfile(caller, input.agentProfileId);
+  const revoked = await revokeAgentProfileAccessGrant({
+    db: asQueryable(caller.db),
+    grantId: input.grantId,
+    nowMs: Date.now(),
+    profileId: input.agentProfileId,
+    revokedByUserId: caller.userId,
+  });
+  if (!revoked) {
+    throw createCoreRpcHttpError({
+      status: 404,
+      code: "agent_access.grant_not_found",
+      reason: "This access was already removed.",
+    });
+  }
+  return {
+    grantId: revoked.id,
+    revokedAt: new Date(revoked.revokedAtMs).toISOString(),
+  };
+}
+
+async function requireOwnedAgentProfile(
+  caller: AgentAccessCaller,
+  agentProfileId: string
+): Promise<void> {
+  const target = (
+    await readAgentAccessTargets({
+      db: asQueryable(caller.db),
+      organizationId: caller.organizationId,
+      profileIds: [agentProfileId],
+    })
+  ).get(agentProfileId);
+  if (target?.ownerUserId !== caller.userId) {
+    // Grants are owner-only (§4.10): never confirm another owner's Profile.
+    throw createCoreRpcHttpError({
+      status: 404,
+      code: "agent_access.agent_not_found",
+      reason: "That Agent is not available.",
+    });
+  }
 }
 
 async function requireRequestedAgentMember(

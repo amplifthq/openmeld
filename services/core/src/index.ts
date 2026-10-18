@@ -420,6 +420,8 @@ import {
   rpcDecideAgentAccessRequest,
   rpcGetAgentAccessRequest,
   rpcListAgentAccessRequests,
+  rpcListAgentProfileAccessGrants,
+  rpcRevokeAgentProfileAccessGrant,
   rpcWithdrawAgentAccessRequest,
 } from "./agent-access/agent-access-rpc";
 import { rpcCenterAgentReadAgentActivityOverview } from "./agent-activity/activity-center-agent-rpc";
@@ -4473,6 +4475,20 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcCreateSpaceAgentRequest(this.env, input)
     );
   }
+  listAgentProfileAccessGrants(
+    input: Parameters<typeof rpcListAgentProfileAccessGrants>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListAgentProfileAccessGrants(this.env, input)
+    );
+  }
+  revokeAgentProfileAccessGrant(
+    input: Parameters<typeof rpcRevokeAgentProfileAccessGrant>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRevokeAgentProfileAccessGrant(this.env, input)
+    );
+  }
   submitRuntimeProviderConversationProofs(
     input: SubmitRuntimeProviderConversationProofsInput
   ): Promise<SubmitRuntimeProviderConversationProofsResponse> {
@@ -6465,6 +6481,16 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: Parameters<typeof rpcCreateSpaceAgentRequest>[1]
   ) {
     return super.createSpaceAgentRequest(input);
+  }
+  listAgentProfileAccessGrants(
+    input: Parameters<typeof rpcListAgentProfileAccessGrants>[1]
+  ) {
+    return super.listAgentProfileAccessGrants(input);
+  }
+  revokeAgentProfileAccessGrant(
+    input: Parameters<typeof rpcRevokeAgentProfileAccessGrant>[1]
+  ) {
+    return super.revokeAgentProfileAccessGrant(input);
   }
   submitAgentControllerTaskLifecycleEvents(
     input: SubmitAgentControllerTaskLifecycleEventsInput

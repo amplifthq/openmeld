@@ -33,9 +33,10 @@ const {
   finishAgentAccessDecision,
   withdrawAgentAccessRequest,
 } = await import("../src/agent-access/application/agent-access-service");
-const { readAgentAccessRequest, asQueryable } = await import(
-  "../src/agent-access/infrastructure/postgresql/agent-access-repo"
-);
+const { readAgentAccessRequest, revokeAgentProfileAccessGrant, asQueryable } =
+  await import(
+    "../src/agent-access/infrastructure/postgresql/agent-access-repo"
+  );
 
 afterEach(() => {
   feature.enabled = true;
@@ -429,6 +430,71 @@ describe("Colleague use of an Agent (Phase 4)", () => {
         // Allowed once covers this Session.
         const next = await space.post(f.tali, "One more thing");
         expect(space.outbox(next)).toHaveLength(1);
+      }
+    );
+  });
+
+  it("lets an always-allowed colleague start new Sessions until the owner revokes", async () => {
+    const f = await seed();
+    let grantedRequestId = "";
+    await withSpace(
+      f,
+      { directMessage: true, humans: [f.tali], agentMember: true },
+      async (space) => {
+        const first = await space.post(f.tali, "Review my branch");
+        const hold = readHeldDirectMessageAgentAccessHold(
+          space.state.storage.sql,
+          { requesterUserId: f.tali.userId, targetProfileId: f.agentProfileId }
+        );
+        if (!hold) {
+          throw new Error("Expected a held Wake.");
+        }
+        grantedRequestId = hold.requestId;
+        await decide(f, space, hold.requestId, "always_allow");
+        expect(space.outbox(first)).toHaveLength(1);
+      }
+    );
+    const grant = await getPostgresDatabase(env).query<{
+      id: string;
+      scope: string;
+      grantee_kind: string;
+    }>({
+      text: `SELECT id, scope, grantee_kind FROM "openmeld"."agent_profile_access_grants" WHERE request_id = $1`,
+      values: [grantedRequestId],
+    });
+    expect(grant.rows[0]).toMatchObject({
+      scope: "always",
+      grantee_kind: "member",
+    });
+    const running: SignalEnvelope[] = [];
+    await withSpace(
+      f,
+      { directMessage: true, humans: [f.tali], agentMember: true },
+      async (space) => {
+        const message = await space.post(f.tali, "A new Session");
+        running.push(message);
+        expect(space.outbox(message)).toHaveLength(1);
+        const grantId = grant.rows[0]?.id;
+        if (!grantId) {
+          throw new Error("Expected a grant.");
+        }
+        await revokeAgentProfileAccessGrant({
+          db: asQueryable(getPostgresDatabase(env)),
+          grantId,
+          nowMs: Date.now(),
+          profileId: f.agentProfileId,
+          revokedByUserId: f.felix.userId,
+        });
+        // Running work is untouched; new work asks again.
+        expect(space.outbox(message)).toHaveLength(1);
+        const after = await space.post(f.tali, "And this?");
+        expect(space.outbox(after)).toHaveLength(0);
+        expect(
+          readHeldDirectMessageAgentAccessHold(space.state.storage.sql, {
+            requesterUserId: f.tali.userId,
+            targetProfileId: f.agentProfileId,
+          })
+        ).not.toBeNull();
       }
     );
   });

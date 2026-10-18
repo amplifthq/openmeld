@@ -3,7 +3,11 @@ import {
   AGENT_ACCESS_REQUEST_ROUTE,
   AGENT_ACCESS_REQUEST_WITHDRAW_ROUTE,
   AGENT_ACCESS_REQUESTS_ROUTE,
+  AGENT_PROFILE_ACCESS_GRANT_REVOKE_ROUTE,
+  AGENT_PROFILE_ACCESS_GRANTS_ROUTE,
   agentAccessRequestRouteParamsSchema,
+  agentProfileAccessGrantRevokeRouteParamsSchema,
+  agentProfileAccessGrantsRouteParamsSchema,
   createSpaceAgentRequestBodySchema,
   createSpaceAgentRequestResponseSchema,
   decideAgentAccessRequestBodySchema,
@@ -11,6 +15,8 @@ import {
   getAgentAccessRequestResponseSchema,
   listAgentAccessRequestsQuerySchema,
   listAgentAccessRequestsResponseSchema,
+  listAgentProfileAccessGrantsResponseSchema,
+  revokeAgentProfileAccessGrantResponseSchema,
   SPACE_AGENT_REQUESTS_ROUTE,
   spaceAgentRequestRouteParamsSchema,
   withdrawAgentAccessRequestResponseSchema,
@@ -178,6 +184,60 @@ export function registerAgentAccessRoutes(app: Hono<HonoBindings>): void {
           context: buildCoreRpcContext(c),
           spaceId: params.data.spaceId,
           ...(body.data.signalId ? { signalId: body.data.signalId } : {}),
+        }),
+    });
+  });
+
+  app.get(AGENT_PROFILE_ACCESS_GRANTS_ROUTE, noStore(), (c) => {
+    const params = agentProfileAccessGrantsRouteParamsSchema.safeParse({
+      agentProfileId: c.req.param("agentProfileId"),
+    });
+    if (!params.success) {
+      return respondBadRequest({
+        c,
+        route: AGENT_PROFILE_ACCESS_GRANTS_ROUTE,
+        method: "GET",
+        code: "invalid_payload",
+        message: "Invalid Agent Profile ID.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: AGENT_PROFILE_ACCESS_GRANTS_ROUTE,
+      method: "GET",
+      responseSchema: listAgentProfileAccessGrantsResponseSchema,
+      execute: () =>
+        c.var.coreRpc.listAgentProfileAccessGrants({
+          agentProfileId: params.data.agentProfileId,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
+
+  app.post(AGENT_PROFILE_ACCESS_GRANT_REVOKE_ROUTE, noStore(), (c) => {
+    const params = agentProfileAccessGrantRevokeRouteParamsSchema.safeParse({
+      agentProfileId: c.req.param("agentProfileId"),
+      grantId: c.req.param("grantId"),
+    });
+    if (!params.success) {
+      return respondBadRequest({
+        c,
+        route: AGENT_PROFILE_ACCESS_GRANT_REVOKE_ROUTE,
+        method: "POST",
+        code: "invalid_payload",
+        message: "Invalid access grant.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: AGENT_PROFILE_ACCESS_GRANT_REVOKE_ROUTE,
+      method: "POST",
+      responseSchema: revokeAgentProfileAccessGrantResponseSchema,
+      execute: () =>
+        c.var.coreRpc.revokeAgentProfileAccessGrant({
+          agentProfileId: params.data.agentProfileId,
+          context: buildCoreRpcContext(c),
+          grantId: params.data.grantId,
         }),
     });
   });
