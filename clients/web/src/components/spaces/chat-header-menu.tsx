@@ -18,10 +18,16 @@ export function ChatHeaderMenu({
 	spaceId,
 	onOpenConversationInformation,
 	ariaLabel = "Chat menu",
+	showArchive = true,
 }: {
 	spaceId: string;
 	onOpenConversationInformation: () => void;
 	ariaLabel?: string;
+	/**
+	 * False in a MemberAgent Session, which is archived through its dedicated
+	 * Session operation in the title dropdown instead.
+	 */
+	showArchive?: boolean;
 }) {
 	const [confirmOpen, setConfirmOpen] = useState(false);
 	const { archived, disabled, label, toggle } = useChatArchive(spaceId);
@@ -37,17 +43,19 @@ export function ChatHeaderMenu({
 				items={[]}
 				onOpenConversationInformation={onOpenConversationInformation}
 			>
-				<FluidDropdownMenuItem
-					disabled={disabled}
-					index={1}
-					onClick={archived ? toggle : () => setConfirmOpen(true)}
-				>
-					<ArchiveIcon
-						aria-hidden="true"
-						weight={archived ? "fill" : "regular"}
-					/>
-					{label}
-				</FluidDropdownMenuItem>
+				{showArchive ? (
+					<FluidDropdownMenuItem
+						disabled={disabled}
+						index={1}
+						onClick={archived ? toggle : () => setConfirmOpen(true)}
+					>
+						<ArchiveIcon
+							aria-hidden="true"
+							weight={archived ? "fill" : "regular"}
+						/>
+						{label}
+					</FluidDropdownMenuItem>
+				) : null}
 			</SpaceHeaderNavigationMenu>
 			<Dialog onOpenChange={setConfirmOpen} open={confirmOpen}>
 				<DialogContent size="sm">

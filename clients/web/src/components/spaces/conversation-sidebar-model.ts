@@ -10,6 +10,8 @@ export type Conversation = {
 	activity: number;
 	url: string;
 	profileId: string;
+	/** Set on the one row that stands for all Sessions of a MemberAgent. */
+	memberAgentId?: string;
 } & (
 	| { kind: "space"; item: AccountSpaceItem }
 	| { kind: "direct-message"; chat: Chat; preview?: ConversationPreview }

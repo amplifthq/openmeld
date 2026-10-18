@@ -98,4 +98,18 @@ describe("MemberAgent Direct Message rows", () => {
 			title: "Felix Lu’s Claude Code",
 		});
 	});
+
+	it("leaves archived Sessions out of the row unless one is open", () => {
+		const rows = groupMemberAgentConversations({
+			archivedSpaceIds: new Set(["dm-claude-2"]),
+			conversations,
+			index,
+			selectedSpaceId: null,
+		});
+		expect(rows[0]).toMatchObject({
+			spaceId: "dm-reviewer",
+			memberAgentId: "ma-claude",
+			activity: 20,
+		});
+	});
 });

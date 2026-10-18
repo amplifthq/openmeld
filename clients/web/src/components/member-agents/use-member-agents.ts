@@ -1,8 +1,9 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 import { isMemberAgentsEnabled } from "#/lib/member-agents/member-agents-feature";
 import { syncMemberAgents } from "#/lib/member-agents/sync-member-agents";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
+import { agentDirectMessageSessionsQueryOptions } from "#/query/organizations/agent-direct-message-sessions";
 import {
 	memberAgentQueryKeys,
 	memberAgentsQueryOptions,
@@ -116,3 +117,35 @@ function useDisabledMemberAgentSync(): void {
 export const useMemberAgentSync: () => void = isMemberAgentsEnabled()
 	? useEnabledMemberAgentSync
 	: useDisabledMemberAgentSync;
+
+function useEnabledArchivedMemberAgentSessionIds(
+	memberAgents: MemberAgentIndexState
+): ReadonlySet<string> {
+	const organizationId =
+		useOptionalAppOrganization()?.currentOrganization.id ?? "";
+	const profileIds = [...memberAgents.index.byProfileId.keys()];
+	const archived = useQueries({
+		queries: profileIds.map((agentProfileId) =>
+			agentDirectMessageSessionsQueryOptions({
+				organizationId,
+				agentProfileId,
+				archived: true,
+				enabled: memberAgents.ready && Boolean(organizationId),
+			})
+		),
+	});
+	return new Set(
+		archived.flatMap(
+			(query) => query.data?.sessions.map((session) => session.spaceId) ?? []
+		)
+	);
+}
+
+const NO_ARCHIVED_SESSIONS: ReadonlySet<string> = new Set();
+
+/** Archived Session Spaces of the member's MemberAgents (owner-only read). */
+export const useArchivedMemberAgentSessionIds: (
+	memberAgents: MemberAgentIndexState
+) => ReadonlySet<string> = isMemberAgentsEnabled()
+	? useEnabledArchivedMemberAgentSessionIds
+	: () => NO_ARCHIVED_SESSIONS;

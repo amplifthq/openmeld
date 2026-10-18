@@ -1858,6 +1858,7 @@ function SpaceLandingConversationShell({
 							onUpdateSpaceName={controller.onUpdateSpaceName}
 							renderFrame={false}
 							setupRecallAction={setupRecallAction}
+							showChatArchive={!memberAgentDirectMessage}
 							showChatSettingsMenu={currentSpaceIsCenterAgentDirectMessage}
 							showDeleteSpaceAction={
 								controller.isCurrentAccessConfirmed &&

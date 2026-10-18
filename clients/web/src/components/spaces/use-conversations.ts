@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { groupMemberAgentConversations } from "#/components/member-agents/member-agent-conversations";
 import {
+	useArchivedMemberAgentSessionIds,
 	useMemberAgentIndex,
 	useMemberAgentSync,
 } from "#/components/member-agents/use-member-agents";
@@ -33,6 +34,7 @@ export function useConversations(input: {
 	});
 	const memberAgents = useMemberAgentIndex();
 	useMemberAgentSync();
+	const archivedSpaceIds = useArchivedMemberAgentSessionIds(memberAgents);
 	const {
 		store,
 		preferences: chatPreferences,
@@ -99,6 +101,7 @@ export function useConversations(input: {
 	}
 	if (memberAgents.ready) {
 		const grouped = groupMemberAgentConversations({
+			archivedSpaceIds,
 			conversations: [...conversations.values()],
 			index: memberAgents.index,
 			selectedSpaceId: directMessages.selected,

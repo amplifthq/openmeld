@@ -909,7 +909,8 @@ export function ConversationsSidebar(
 																?.messageUnreadCount
 														}
 														onArchive={
-															item.kind === "direct-message"
+															item.kind === "direct-message" &&
+															!item.memberAgentId
 																? () =>
 																		dm.save({
 																			...dm.preferences,
@@ -933,7 +934,8 @@ export function ConversationsSidebar(
 															).catch(console.error)
 														}
 														onRename={
-															item.kind === "direct-message"
+															item.kind === "direct-message" &&
+															!item.memberAgentId
 																? () => {
 																		setRenaming(item);
 																		setName(item.title);

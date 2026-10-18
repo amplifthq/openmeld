@@ -169,6 +169,7 @@ function ConversationHeaderMenu(input: {
 	isDirectMessage: boolean;
 	isCenterAgent?: boolean;
 	onOpenSettings: () => void;
+	showChatArchive?: boolean;
 }) {
 	const ariaLabel = input.isCenterAgent ? "Center Agent menu" : "Chat menu";
 	if (input.isDirectMessage && input.profileId) {
@@ -176,6 +177,7 @@ function ConversationHeaderMenu(input: {
 			<ChatHeaderMenu
 				ariaLabel={ariaLabel}
 				onOpenConversationInformation={input.onOpenSettings}
+				showArchive={input.showChatArchive}
 				spaceId={input.spaceId}
 			/>
 		);
@@ -206,6 +208,8 @@ export function SpaceHeader(input: {
 	isLeaveSpacePending: boolean;
 	isSpaceNamePending: boolean;
 	isCenterAgentDirectMessage?: boolean;
+	/** False hides the personal chat archive (MemberAgent Sessions). */
+	showChatArchive?: boolean;
 	leaveSpaceErrorMessage: string | null;
 	managementControl?: ReactNode;
 	showChatSettingsMenu?: boolean;
@@ -335,6 +339,7 @@ export function SpaceHeader(input: {
 									setActiveDialog("settings");
 								}}
 								profileId={input.currentProfileId}
+								showChatArchive={input.showChatArchive}
 								spaceId={input.status.spaceId}
 							/>
 						) : null}

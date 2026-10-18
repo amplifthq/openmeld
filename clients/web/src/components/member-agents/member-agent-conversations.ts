@@ -12,9 +12,11 @@ export function groupMemberAgentConversations(input: {
 	conversations: readonly Conversation[];
 	index: MemberAgentIndex;
 	selectedSpaceId: string | null | undefined;
+	/** Archived Sessions leave the row; the header dropdown lists them. */
+	archivedSpaceIds?: ReadonlySet<string>;
 }): Conversation[] {
 	const groups = new Map<string, Conversation[]>();
-	const result: (Conversation | { memberAgentId: string })[] = [];
+	const result: (Conversation | { groupOf: string })[] = [];
 	for (const conversation of input.conversations) {
 		const memberAgentId = resolveConversationMemberAgentId(
 			conversation,
@@ -24,19 +26,25 @@ export function groupMemberAgentConversations(input: {
 			result.push(conversation);
 			continue;
 		}
+		if (
+			input.archivedSpaceIds?.has(conversation.spaceId) &&
+			conversation.spaceId !== input.selectedSpaceId
+		) {
+			continue;
+		}
 		const group = groups.get(memberAgentId);
 		if (group) {
 			group.push(conversation);
 		} else {
 			groups.set(memberAgentId, [conversation]);
-			result.push({ memberAgentId });
+			result.push({ groupOf: memberAgentId });
 		}
 	}
 	return result.map((entry) => {
-		if (!("memberAgentId" in entry)) {
+		if (!("groupOf" in entry)) {
 			return entry;
 		}
-		const sessions = groups.get(entry.memberAgentId) ?? [];
+		const sessions = groups.get(entry.groupOf) ?? [];
 		const representative =
 			sessions.find((session) => session.spaceId === input.selectedSpaceId) ??
 			[...sessions].sort((left, right) => right.activity - left.activity)[0];
@@ -45,8 +53,9 @@ export function groupMemberAgentConversations(input: {
 		}
 		return {
 			...representative,
+			memberAgentId: entry.groupOf,
 			title:
-				input.index.byId.get(entry.memberAgentId)?.displayName ??
+				input.index.byId.get(entry.groupOf)?.displayName ??
 				representative.title,
 			activity: Math.max(...sessions.map((session) => session.activity)),
 		};
