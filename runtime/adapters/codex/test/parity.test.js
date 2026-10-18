@@ -315,13 +315,7 @@ for (const [initialMode, targetMode, version, receipt, expectedStatus] of [
     "applied",
     "applied",
   ],
-  [
-    "codex:askForApproval",
-    "codex:fullAccess",
-    "0.160.1",
-    "applied",
-    "not_applied",
-  ],
+  ["codex:askForApproval", "codex:fullAccess", "0.160.1", "applied", "applied"],
   [
     "codex:fullAccess",
     "codex:approveForMe",
@@ -400,7 +394,11 @@ for (const [initialMode, targetMode, version, receipt, expectedStatus] of [
       const update = messages.find(
         (message) => message.method === "turn/settings/update"
       );
-      if (expectedStatus === "applied") {
+      if (targetMode === "codex:fullAccess") {
+        // The turn's sandbox cannot change; OpenMeld answers later permission
+        // requests instead of asking Codex to update the turn.
+        assert.equal(update, undefined);
+      } else if (expectedStatus === "applied") {
         assert.deepEqual(update.params, {
           threadId: "permission-thread",
           turnId: "turn-1",
@@ -1197,6 +1195,8 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "let activeTurn = null;",
       "let completionTimer = null;",
       "let pendingServerRequest = null;",
+      "const queuedServerRequests = JSON.parse(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_REQUESTS ?? '[]');",
+      "const sendServerRequest = (parsed) => { pendingServerRequest = { id: 700 + queuedServerRequests.length + 1, method: parsed.method }; write({ jsonrpc: '2.0', id: pendingServerRequest.id, method: parsed.method, params: parsed.params }); };",
       "let turnCompleted = false;",
       "let usageReads = 0;",
       "const write = (message) => process.stdout.write(JSON.stringify(message) + '\\n');",
@@ -1242,6 +1242,7 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "  log(message);",
       "  if (!message.method && pendingServerRequest && message.id === pendingServerRequest.id) {",
       "    pendingServerRequest = null;",
+      "    if (queuedServerRequests.length > 0) { sendServerRequest(queuedServerRequests.shift()); return; }",
       "    completeTurn('completed');",
       "    return;",
       "  }",
@@ -1347,6 +1348,7 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "      write({ method: 'turn/started', params: { threadId: activeTurn.threadId, turn: { id: activeTurn.turnId, status: 'inProgress', items: [] } } });",
       "      turnCompleted = false;",
       "      if (process.env.OPENMELD_FAKE_CODEX_USAGE_TIMEOUT === '1') write({ method: 'account/rateLimits/updated', params: { rateLimits: { limitId: 'codex', primary: null, secondary: null, credits: null, spendControlReached: null, rateLimitReachedType: null } } });",
+      "      if (queuedServerRequests.length > 0) { sendServerRequest(queuedServerRequests.shift()); return; }",
       "      const serverRequest = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_REQUEST;",
       "      if (serverRequest) {",
       "        const parsed = JSON.parse(serverRequest);",
@@ -3049,6 +3051,191 @@ test("codex app-server waits for an OpenMeld permission response and resumes the
       title: "Allow Codex to run this command?",
     });
     assert.deepEqual(response.result, { decision: "acceptForSession" });
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
+test("codex restores the owner's reviewer when leaving a live Full access switch", async () => {
+  const { invokeCodexAppServerTransport } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(
+    join(tmpdir(), "codex-full-access-restore-")
+  );
+  const fixturePath = join(fixtureDir, "app-server.mjs");
+  const logPath = join(fixtureDir, "rpc.jsonl");
+  await writeFakeCodexAppServerFixture(fixturePath);
+  let activeTurn;
+  let accepted;
+  const turnAccepted = new Promise((resolve) => {
+    accepted = resolve;
+  });
+  try {
+    const execution = invokeCodexAppServerTransport({
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      codexTimeoutMs: 5000,
+      codexWorkdir: fixtureDir,
+      agentControllerPermissionMode: "codex:askForApproval",
+      env: {
+        OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+        OPENMELD_FAKE_CODEX_APP_SERVER_TURN_DELAY_MS: "60000",
+        OPENMELD_FAKE_CODEX_NATIVE_VERSION: "0.160.1",
+        OPENMELD_FAKE_CODEX_PERMISSION_RECEIPT: "applied",
+      },
+      taskId: "restore-task",
+      threadId: "restore-thread",
+      prompt: "Continue working",
+      onActiveTurn: (turn) => {
+        activeTurn = turn;
+        return () => undefined;
+      },
+      onRuntimeEvent: (event) => {
+        if (event.phase === "provider_turn_accepted") {
+          accepted();
+        }
+      },
+    });
+    await Promise.race([
+      turnAccepted,
+      execution.then(() => assert.fail("Turn ended before admission")),
+    ]);
+    const statuses = [];
+    for (const agentControllerPermissionMode of [
+      "codex:approveForMe",
+      "codex:fullAccess",
+      "codex:askForApproval",
+    ]) {
+      statuses.push(
+        (
+          await activeTurn.updatePermissionMode({
+            taskId: "restore-task",
+            agentControllerPermissionMode,
+          })
+        ).status
+      );
+    }
+    assert.deepEqual(statuses, ["applied", "applied", "applied"]);
+    const reviewers = (await readFakeAppServerMessages(logPath))
+      .filter((message) => message.method === "turn/settings/update")
+      .map((message) => message.params.approvalsReviewer);
+    // Leaving Full access must put Codex back on the owner's reviewer, not
+    // leave the earlier Approve for me reviewer in place.
+    assert.deepEqual(reviewers, ["auto_review", "user"]);
+    await activeTurn.interrupt();
+    await execution;
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+  }
+});
+
+test("codex app-server answers later permission requests after a live switch to Full access", async () => {
+  const { invokeCodexAppServerTransport } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-live-full-access-"));
+  const dispatchDir = await mkdtemp(
+    join(tmpdir(), "codex-live-full-access-dispatch-")
+  );
+  const logPath = join(fixtureDir, "rpc-log.jsonl");
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+  const commandRequest = (command) => ({
+    method: "item/commandExecution/requestApproval",
+    params: {
+      availableDecisions: ["accept", "acceptForSession", "decline", "cancel"],
+      command,
+      cwd: dispatchDir,
+      itemId: `command-${command}`,
+      reason: "This command needs network access.",
+      startedAtMs: Date.now(),
+      threadId: "thread-existing-1",
+      turnId: "turn-1",
+    },
+  });
+
+  try {
+    const asked = [];
+    let activeTurn;
+    let updateResult;
+    await invokeCodexAppServerTransport({
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      codexTimeoutMs: 5000,
+      codexWorkdir: dispatchDir,
+      env: {
+        OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+        OPENMELD_FAKE_CODEX_APP_SERVER_REQUESTS: JSON.stringify([
+          commandRequest("git push origin feature"),
+          commandRequest("npm publish --dry-run"),
+          {
+            method: "item/permissions/requestApproval",
+            params: {
+              cwd: dispatchDir,
+              permissions: { network: { enabled: true } },
+              reason: "Needs network access.",
+              threadId: "thread-existing-1",
+              turnId: "turn-1",
+            },
+          },
+          {
+            method: "mcpServer/elicitation/request",
+            params: {
+              message: "Sign in to continue.",
+              mode: "url",
+              serverName: "Docs",
+              threadId: "thread-existing-1",
+              turnId: "turn-1",
+              url: "https://example.com/oauth",
+            },
+          },
+        ]),
+      },
+      onActiveTurn: (turn) => {
+        activeTurn = turn;
+        return () => undefined;
+      },
+      onInteractionRequest: async (request) => {
+        asked.push(request.subject.command ?? request.subject.resource);
+        updateResult ??= await activeTurn.updatePermissionMode({
+          agentControllerPermissionMode: "codex:fullAccess",
+          taskId: "task-live-full-access",
+        });
+        return {
+          kind: "permission",
+          optionId: request.options.find(
+            (option) => option.intent === "allow_once"
+          ).optionId,
+        };
+      },
+      agentControllerPermissionMode: "codex:askForApproval",
+      prompt: "publish the package",
+      taskId: "task-live-full-access",
+      threadId: "thread-existing-1",
+    });
+
+    assert.deepEqual(updateResult, {
+      effectiveFrom: "subsequent_tool_requests",
+      status: "applied",
+      taskId: "task-live-full-access",
+    });
+    // Approvals stop, but an MCP sign-in step still goes to the owner.
+    assert.deepEqual(asked, [
+      "git push origin feature",
+      "https://example.com/oauth",
+    ]);
+    const responses = (await readFakeAppServerMessages(logPath)).filter(
+      (message) => message.method === undefined && message.result
+    );
+    assert.deepEqual(
+      responses.slice(-4, -1).map((message) => message.result),
+      [
+        { decision: "accept" },
+        { decision: "accept" },
+        {
+          permissions: { network: { enabled: true } },
+          scope: "turn",
+          strictAutoReview: true,
+        },
+      ]
+    );
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
     await rm(dispatchDir, { force: true, recursive: true });

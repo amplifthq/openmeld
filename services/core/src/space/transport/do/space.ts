@@ -241,6 +241,7 @@ import type {
   RuntimeCoordinatorFinalizationCommand,
   RuntimeCoordinatorFinalizationFinalMessageKind,
   RuntimeCoordinatorFinalizationOutcome,
+  RuntimeTransportRuntimeCoordinatorReadInteractionRevisionResponse,
   SpaceAccessMode,
   SpaceAgentStreamDeltaFrame,
   SpaceAgentStreamPartFrame,
@@ -16728,24 +16729,28 @@ export class Space extends DurableObject<CoreBindings> {
       ? runtimeOwner.record.runtimeLookupInput.owner.id
       : null;
   }
-  private async readWakeProgressPendingAgentInteraction(input: {
+  private async readWakeProgressAgentInteraction(input: {
     actorOwnerUserId?: string | null;
     execution: Pick<
       RuntimeCoordinatorExecutionRecord,
       "runtimeCoordinatorExecutionId" | "openMeldServiceRuntimeId"
     >;
-  }): Promise<WakeProgressItem["pendingInteraction"]> {
+  }): Promise<RuntimeTransportRuntimeCoordinatorReadInteractionRevisionResponse> {
+    const unavailable = {
+      interactionUpdatedAtMs: null,
+      pendingInteraction: null,
+    };
     const actorOwnerUserId = normalizeOptionalText(input.actorOwnerUserId);
     if (!actorOwnerUserId) {
-      return null;
+      return unavailable;
     }
     const runtimeOwnerUserId = await this.readRuntimeOwnerUserId(
       input.execution.openMeldServiceRuntimeId.value
     );
     if (!runtimeOwnerUserId) {
-      return null;
+      return unavailable;
     }
-    const response = await readRuntimeTransportRuntimeCoordinatorInteraction({
+    return await readRuntimeTransportRuntimeCoordinatorInteraction({
       env: this.bindings,
       ownerUserId: runtimeOwnerUserId,
       request: {
@@ -16755,7 +16760,6 @@ export class Space extends DurableObject<CoreBindings> {
         v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
       },
     });
-    return response.pendingInteraction;
   }
   private async readWakeStopDispatchLookup(
     target: PostSpaceWakeStopBody["target"]
@@ -24628,16 +24632,15 @@ export class Space extends DurableObject<CoreBindings> {
             sourceSignal,
             targetProfileId: execution.targetProfileId,
           });
-          const pendingInteraction =
-            await this.readWakeProgressPendingAgentInteraction({
-              actorOwnerUserId: input.actorOwnerUserId,
-              execution,
-            });
+          const agentInteraction = await this.readWakeProgressAgentInteraction({
+            actorOwnerUserId: input.actorOwnerUserId,
+            execution,
+          });
           return [
             createWakeProgressItem({
               clientMessageId,
               dispatchId: execution.dispatchId,
-              pendingInteraction,
+              pendingInteraction: agentInteraction.pendingInteraction,
               phase: resolveActiveWakeProgressExecutionPhase(execution),
               runtimeCoordinatorExecutionId:
                 execution.runtimeCoordinatorExecutionId,
@@ -24652,7 +24655,10 @@ export class Space extends DurableObject<CoreBindings> {
               targetLabel,
               targetProfileId: execution.targetProfileId,
               terminal: false,
-              updatedAtMs: execution.updatedAtMs,
+              updatedAtMs: Math.max(
+                execution.updatedAtMs,
+                agentInteraction.interactionUpdatedAtMs ?? 0
+              ),
               ...(input.includeWaitReason === true
                 ? { waitReasonCode: execution.waitReasonCode }
                 : {}),
@@ -24938,13 +24944,15 @@ export class Space extends DurableObject<CoreBindings> {
           runtimeCoordinatorExecution.runtimeCoordinatorExecutionId,
       });
     }
-    const pendingInteraction = runtimeCoordinatorExecution
-      ? await this.readWakeProgressPendingAgentInteraction({
+    const agentInteraction = runtimeCoordinatorExecution
+      ? await this.readWakeProgressAgentInteraction({
           actorOwnerUserId: input.actorOwnerUserId,
           execution: runtimeCoordinatorExecution,
         })
       : null;
     return buildWakeProgressItemFromDispatchEvidence({
+      agentInteractionUpdatedAtMs:
+        agentInteraction?.interactionUpdatedAtMs ?? null,
       clientMessageId: input.clientMessageId,
       includeTiming: input.includeTiming === true,
       runningAtMs,
@@ -24953,7 +24961,7 @@ export class Space extends DurableObject<CoreBindings> {
       lookupMatch: input.lookupMatch,
       nativeDeliveryEvidence: input.nativeDeliveryEvidence,
       outboxRecord,
-      pendingInteraction,
+      pendingInteraction: agentInteraction?.pendingInteraction ?? null,
       runtimeDeviceDisplayName,
       runtimeCoordinatorExecutionId:
         runtimeCoordinatorExecution?.runtimeCoordinatorExecutionId ?? null,
@@ -27498,6 +27506,7 @@ function buildWakeProgressItemFromTerminalFailureNotice(input: {
   });
 }
 function buildWakeProgressItemFromDispatchEvidence(input: {
+  agentInteractionUpdatedAtMs?: number | null;
   clientMessageId: string | null;
   includeTiming: boolean;
   runningAtMs: number | null;
@@ -27580,6 +27589,7 @@ function buildWakeProgressItemFromDispatchEvidence(input: {
     targetProfileId: input.lookupMatch.targetProfileId,
     updatedAtMs: Math.max(
       input.nativeDeliveryEvidence?.updatedAtMs ?? 0,
+      input.agentInteractionUpdatedAtMs ?? 0,
       resolveWakeProgressUpdatedAtMs({
         lookupMatch: input.lookupMatch,
         outboxRecord: input.outboxRecord,

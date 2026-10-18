@@ -8,6 +8,8 @@ import {
   type AdapterDispatchTelemetry,
   type AdapterInterruptRequest,
   type AdapterInterruptResult,
+  type AdapterPermissionModeUpdateRequest,
+  type AdapterPermissionModeUpdateResult,
   type AdapterPreviewCallback,
   type AdapterRuntimeProcessEvent,
   type AdapterTransportMode,
@@ -23,6 +25,7 @@ import {
   resolveGrokBuildTimeoutMs,
   verifyGrokBuildLaunchContract as verifyGrokBuildLaunchContractLocal,
 } from "./config/grok-build-runtime-config.js";
+import { GrokBuildPermissionMemoryStore } from "./transport/grok-build-acp-interactions.js";
 import {
   type GrokBuildAcpActiveTurnRegistrar,
   type GrokBuildAcpActiveTurnRegistration,
@@ -60,7 +63,7 @@ export type GrokBuildAdapterOptions = {
 
 type ActiveGrokBuildAcpTurn = Pick<
   GrokBuildAcpActiveTurnRegistration,
-  "cancel" | "sessionId"
+  "cancel" | "launchPermissionMode" | "sessionId" | "setPermissionMode"
 >;
 
 const GROK_BUILD_CONVERSATION_BRIDGE_SPEC =
@@ -87,12 +90,15 @@ export function createGrokBuildAdapter(
   options: GrokBuildAdapterOptions
 ): RuntimeAdapter {
   const activeTurns = new Map<string, ActiveGrokBuildAcpTurn>();
+  const permissionMemoryStore = new GrokBuildPermissionMemoryStore();
   const registerActiveTurn: GrokBuildAcpActiveTurnRegistrar = (
     registration
   ) => {
     const turn = {
       cancel: registration.cancel,
+      launchPermissionMode: registration.launchPermissionMode,
       sessionId: registration.sessionId,
+      setPermissionMode: registration.setPermissionMode,
     };
     activeTurns.set(registration.taskId, turn);
     return () => {
@@ -108,7 +114,11 @@ export function createGrokBuildAdapter(
     invokeByMode: options.invoke
       ? options.invokeByMode
       : {
-          acp: createDefaultGrokBuildInvoke({ options, registerActiveTurn }),
+          acp: createDefaultGrokBuildInvoke({
+            options,
+            permissionMemoryStore,
+            registerActiveTurn,
+          }),
           ...(options.invokeByMode ?? {}),
         },
     repairConversationPolicy: "require_canonical",
@@ -122,6 +132,10 @@ export function createGrokBuildAdapter(
     dispatch,
     interrupt: (request) =>
       interruptActiveGrokBuildTurn({ activeTurns, request }),
+    updatePermissionMode: (request) =>
+      Promise.resolve(
+        updateGrokBuildActivePermissionMode({ activeTurns, request })
+      ),
     verifyComputerFileAccessBoundary: () =>
       Promise.resolve({
         reasonCode: "computer.file_access.controller_unsupported",
@@ -130,8 +144,57 @@ export function createGrokBuildAdapter(
   };
 }
 
+/**
+ * Grok Build reads `--permission-mode` only at launch and its ACP session has
+ * no mode switch. OpenMeld can still honor two live transitions faithfully:
+ * switching to Bypass permissions (OpenMeld answers later permission requests
+ * with Grok's one-time allow) and switching back to the launch mode (OpenMeld
+ * stops answering and Grok's native launch policy resumes). Any other change
+ * would need a native policy OpenMeld cannot reproduce, so it waits for the
+ * next Wake.
+ */
+function updateGrokBuildActivePermissionMode(input: {
+  activeTurns: ReadonlyMap<string, ActiveGrokBuildAcpTurn>;
+  request: AdapterPermissionModeUpdateRequest;
+}): AdapterPermissionModeUpdateResult {
+  const nextPermissionMode = input.request.agentControllerPermissionMode;
+  if (!nextPermissionMode.startsWith("grok-build:")) {
+    return {
+      reasonCode: "adapter.permission_mode_incompatible",
+      status: "not_applied",
+      taskId: input.request.taskId,
+    };
+  }
+  const activeTurn = input.activeTurns.get(input.request.taskId);
+  if (!activeTurn) {
+    return {
+      reasonCode: "adapter.task_not_active",
+      status: "not_applied",
+      taskId: input.request.taskId,
+    };
+  }
+  if (
+    nextPermissionMode !== "grok-build:bypassPermissions" &&
+    nextPermissionMode !==
+      (activeTurn.launchPermissionMode ?? "grok-build:default")
+  ) {
+    return {
+      reasonCode: "adapter.permission_mode_update_unsupported",
+      status: "not_applied",
+      taskId: input.request.taskId,
+    };
+  }
+  activeTurn.setPermissionMode(nextPermissionMode);
+  return {
+    effectiveFrom: "subsequent_tool_requests",
+    status: "applied",
+    taskId: input.request.taskId,
+  };
+}
+
 function createDefaultGrokBuildInvoke(input: {
   options: GrokBuildAdapterOptions;
+  permissionMemoryStore: GrokBuildPermissionMemoryStore;
   registerActiveTurn: GrokBuildAcpActiveTurnRegistrar;
 }): GrokBuildInvokeFn {
   const grokBuildTimeoutMs =
@@ -182,6 +245,7 @@ function createDefaultGrokBuildInvoke(input: {
             dispatchInput.runtimeContext.providerRuntimeWorkingDirectory,
           launchContract,
           onActiveTurn: input.registerActiveTurn,
+          permissionMemoryStore: input.permissionMemoryStore,
           ...(dispatchInput.onInteractionRequest
             ? { onInteractionRequest: dispatchInput.onInteractionRequest }
             : {}),
