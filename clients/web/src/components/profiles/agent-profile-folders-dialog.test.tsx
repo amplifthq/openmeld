@@ -11,7 +11,10 @@ import {
 	within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { TestQueryClientProvider } from "#/test-support/query-client";
+import {
+	createTestQueryClient,
+	TestQueryClientProvider,
+} from "#/test-support/query-client";
 import { AgentProfileFoldersDialog } from "./agent-profile-folders-dialog";
 import { buildAgentProfileFolderRows } from "./agent-profile-folders-model";
 
@@ -49,6 +52,7 @@ vi.mock("./agent-profile-project-selector", () => ({
 }));
 
 const MAKE_ANOTHER_DEFAULT = /Make another folder/;
+const COMPUTER_CHANGED_MESSAGE = /Computer or local agent changed/;
 const DEFAULT_FOLDER_REASON = /default folder/;
 const CUSTOM_ID = "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11";
 const OTHER_ID = "3c2e8f8a-6b55-4b8e-9a43-0f3f2c9d7e21";
@@ -121,15 +125,18 @@ function profileFixture(
 	};
 }
 
-function renderDialog(overrides: Partial<AuthProfileView> = {}) {
+function renderDialog(
+	overrides: Partial<AuthProfileView> = {},
+	bindingTarget = BINDING_TARGET
+) {
 	const onProfileUpdated = vi.fn();
-	render(
-		<TestQueryClientProvider>
+	const view = (target: typeof BINDING_TARGET) => (
+		<TestQueryClientProvider queryClient={queryClient}>
 			<AgentProfileFoldersDialog
 				actorProfileId={null}
 				agentControllerRef="builtin:codex"
 				executionTargetChangeEligibilityStatus="allowed"
-				expectedBindingTarget={BINDING_TARGET}
+				expectedBindingTarget={target}
 				onOpenChange={vi.fn()}
 				onProfileUpdated={onProfileUpdated}
 				open
@@ -140,7 +147,12 @@ function renderDialog(overrides: Partial<AuthProfileView> = {}) {
 			/>
 		</TestQueryClientProvider>
 	);
-	return { onProfileUpdated };
+	const queryClient = createTestQueryClient();
+	const { rerender } = render(view(bindingTarget));
+	return {
+		onProfileUpdated,
+		rebind: (target: typeof BINDING_TARGET) => rerender(view(target)),
+	};
 }
 
 async function findRow(name: string) {
@@ -309,6 +321,31 @@ describe("Agent folders dialog", () => {
 		expect(
 			screen
 				.getByRole("button", { name: "Add folder" })
+				.hasAttribute("disabled")
+		).toBe(true);
+	});
+
+	it("finishes a failed Default Project clear without repeating the local save", async () => {
+		// The folder is already the saved default; only the Project clear is left.
+		renderDialog({ defaultProjectId: "project-old" });
+		const row = await findRow("openmeld");
+		fireEvent.click(row.getByRole("button", { name: "Make default" }));
+		await waitFor(() =>
+			expect(updateDefaultProjectMock).toHaveBeenCalledWith(
+				expect.objectContaining({ defaultProjectId: null })
+			)
+		);
+		expect(manageFoldersMock).not.toHaveBeenCalled();
+	});
+
+	it("blocks writes when the Agent's computer changes while Folders is open", async () => {
+		const { rebind } = renderDialog();
+		await findRow("website");
+		rebind({ ...BINDING_TARGET, bindingId: "binding-2" });
+		expect(await screen.findByText(COMPUTER_CHANGED_MESSAGE)).toBeTruthy();
+		expect(
+			(await findRow("website"))
+				.getByRole("button", { name: "Make default" })
 				.hasAttribute("disabled")
 		).toBe(true);
 	});

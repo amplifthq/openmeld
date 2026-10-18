@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
   readProfileFolderProjectionRecord,
   resolveProjectedDefaultFolder,
+  resolveRemovableFolder,
   writeProfileFolderProjectionRecord,
 } from "../src/runtime-transport/application/profile-folder-projection-store";
 
@@ -234,5 +235,34 @@ describe("profile folder projection", () => {
         operation: { operation: "add_openmeld_managed" },
       }).success
     ).toBe(false);
+  });
+
+  it("refuses to remove the Default Project's folder", () => {
+    const record = profileFolderProjectionRecordSchema.parse({
+      ...TARGET,
+      observedAtMs: 1,
+      projection: PROJECTION,
+    });
+    expect(
+      resolveRemovableFolder({
+        defaultProjectId: "project-openmeld",
+        folderId: PROJECT_FOLDER_ID,
+        record,
+      })
+    ).toEqual({ status: "default_project_folder" });
+    expect(
+      resolveRemovableFolder({
+        defaultProjectId: null,
+        folderId: PROJECT_FOLDER_ID,
+        record,
+      })
+    ).toEqual({ status: "removable" });
+    expect(
+      resolveRemovableFolder({
+        defaultProjectId: null,
+        folderId: "0397cc3e-6689-4a06-a6c3-1ca0e265606b",
+        record,
+      })
+    ).toEqual({ status: "not_found" });
   });
 });

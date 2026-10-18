@@ -1314,7 +1314,10 @@ import {
 } from "../runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 import { notifyAgentProfileWorkUsageRecoveryAvailable } from "../runtime-transport/application/agent-profile-work-usage-recovery";
 import { selectCurrentOwnerServiceSessionsByDeviceLane } from "../runtime-transport/application/current-owner-service-sessions";
-import { resolveProjectedDefaultFolder } from "../runtime-transport/application/profile-folder-projection-store";
+import {
+  resolveProjectedDefaultFolder,
+  resolveRemovableFolder,
+} from "../runtime-transport/application/profile-folder-projection-store";
 import { listActiveRuntimeCoordinatorExecutionTargetsBySpaceIds } from "../runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo";
 import {
   parseRpcErrorPayload,
@@ -5234,13 +5237,22 @@ export async function rpcManageAgentProfileFolders(
       target: bound.target,
     });
   }
-  const result = await manageRuntimeTransportProfileFolders({
+  const transport = {
     deviceId: bound.target.deviceId,
     env,
-    operation,
     ownerUserId: request.owner.id,
     runtimeLane: bound.target.runtimeLane,
     targetProfileId: request.agentProfileId,
+  };
+  if (operation.operation === "remove") {
+    await requireRemovableAgentProfileFolder(env, {
+      folderId: operation.folderId,
+      transport,
+    });
+  }
+  const result = await manageRuntimeTransportProfileFolders({
+    ...transport,
+    operation,
   });
   if (result.status !== "accepted") {
     throw createCoreRpcHttpError({
@@ -5258,6 +5270,68 @@ export async function rpcManageAgentProfileFolders(
     projection: result.record.projection,
     target: bound.target,
   });
+}
+
+/**
+ * The Service refuses to remove the default folder. A Project folder whose
+ * Project is the Default Project is where new work starts too, and only Core
+ * knows the Default Project, so Core refuses that removal. Unknown folders and
+ * an unverifiable Default Project fail closed.
+ */
+async function requireRemovableAgentProfileFolder(
+  env: CoreBindings,
+  input: {
+    folderId: string;
+    transport: Parameters<
+      typeof readRuntimeTransportProfileFolderProjection
+    >[0];
+  }
+): Promise<void> {
+  const recorded = await readRuntimeTransportProfileFolderProjection(
+    input.transport
+  );
+  const record = recorded.status === "found" ? recorded.record : null;
+  // Only a Project folder needs the Default Project, which Auth owns.
+  const needsDefaultProject = record?.projection.folders.some(
+    (item) => item.folderId === input.folderId && item.kind === "project"
+  );
+  let defaultProjectId: string | null = null;
+  if (needsDefaultProject) {
+    const scope = await resolveAgentProfileWorkRecoveryAuthScope({
+      agentProfileId: input.transport.targetProfileId,
+      authWorker: env.OPENMELD_AUTH_WORKER,
+    });
+    if (scope.status !== "valid") {
+      throw createCoreRpcHttpError({
+        status: 503,
+        code: "agent_profile.unavailable",
+        reason:
+          "OpenMeld couldn’t confirm this Agent’s Default Project. Try again.",
+      });
+    }
+    defaultProjectId = scope.scope.defaultProjectId;
+  }
+  const removable = resolveRemovableFolder({
+    defaultProjectId,
+    folderId: input.folderId,
+    record,
+  });
+  if (removable.status === "not_found") {
+    throw createCoreRpcHttpError({
+      status: 404,
+      code: "profile_folder.not_found",
+      reason:
+        "This folder isn’t in the Agent’s folder list on its Computer. Reopen Folders and try again.",
+    });
+  }
+  if (removable.status === "default_project_folder") {
+    throw createCoreRpcHttpError({
+      status: 409,
+      code: "profile_folder.default_removal_requires_replacement",
+      reason:
+        "New work starts in this Project. Make another folder the default before removing it.",
+    });
+  }
 }
 
 /** Path-free folder list for the represented owner's Center Agent turn. */

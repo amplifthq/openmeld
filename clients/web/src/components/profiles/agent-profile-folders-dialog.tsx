@@ -122,9 +122,16 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 				projection,
 			})
 		: [];
-	const bindingTarget = input.expectedBindingTarget;
+	// Writes keep the Binding this opening was reviewed against. A changed
+	// Computer or local agent blocks them until Folders is reopened.
+	const [bindingTarget] = useState(input.expectedBindingTarget);
+	const targetChanged = !sameBindingTarget(
+		bindingTarget,
+		input.expectedBindingTarget
+	);
 	// Writes need the Computer to answer; a recorded list is read-only.
-	const writable = Boolean(bindingTarget) && response?.status === "current";
+	const writable =
+		Boolean(bindingTarget) && !targetChanged && response?.status === "current";
 	const localDefaultBlocked =
 		input.executionTargetChangeEligibilityStatus !== "allowed";
 	const defaultPath =
@@ -145,7 +152,17 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 			status: "current",
 			target: result.target,
 		};
-		queryClient.setQueryData(foldersQueryOptions.queryKey, current);
+		// A read that started before this change must not restore the old list.
+		queryClient.cancelQueries({ queryKey: foldersQueryOptions.queryKey });
+		queryClient.setQueryData<GetAgentProfileFoldersResponse>(
+			foldersQueryOptions.queryKey,
+			(cached) =>
+				cached &&
+				cached.status !== "unavailable" &&
+				cached.projection.revision > current.projection.revision
+					? cached
+					: current
+		);
 	};
 	const change = async (operation: FolderChange) => {
 		if (!bindingTarget) {
@@ -191,21 +208,24 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 			if (row.kind === "project" && row.projectId) {
 				await setDefaultProject(row.projectId);
 			} else {
-				await change({ folderId: row.folderId, operation: "set_default" });
+				// A retry after a failed clear must not repeat the saved local write.
+				if (!row.isDefault) {
+					await change({ folderId: row.folderId, operation: "set_default" });
+					queryClient.invalidateQueries({
+						queryKey: ["private-working-folder", input.storageScope],
+					});
+				}
 				// Second ordered write: a Default Project would otherwise still win.
 				if (input.profile.defaultProjectId) {
 					try {
 						await setDefaultProject(null);
 					} catch {
 						throw new Error(
-							"The default folder was saved on this Agent’s computer, but its Default Project couldn’t be cleared, so new work still starts in that Project. Try again."
+							"The default folder was saved on this Agent’s computer, but OpenMeld couldn’t confirm that the Default Project was cleared. New work may still start in that Project. Choose Make default again to finish."
 						);
 					}
 				}
 			}
-			queryClient.invalidateQueries({
-				queryKey: ["private-working-folder", input.storageScope],
-			});
 			toast.success(`${row.displayName} is now the default folder.`);
 		});
 
@@ -258,6 +278,7 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 			) : null}
 			{adding && bindingTarget ? (
 				<AddFolderPanel
+					disabled={!writable}
 					onAdd={async (operation) => {
 						const result = await change(operation);
 						setAdding(false);
@@ -287,6 +308,7 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 			<FolderListNotes
 				eligibility={input.executionTargetChangeEligibilityStatus}
 				error={error}
+				targetChanged={targetChanged}
 			/>
 		</div>
 	);
@@ -332,9 +354,16 @@ function FolderListStatus(input: {
 function FolderListNotes(input: {
 	eligibility: FoldersDialogInput["executionTargetChangeEligibilityStatus"];
 	error: string | null;
+	targetChanged: boolean;
 }) {
 	return (
 		<>
+			{input.targetChanged ? (
+				<output className="text-muted-foreground text-sm">
+					This Agent’s Computer or local agent changed. Close and reopen Folders
+					to review its current folders.
+				</output>
+			) : null}
 			{input.eligibility === "allowed" ? null : (
 				<p className="text-muted-foreground text-sm">
 					{input.eligibility === "blocked"
@@ -398,7 +427,12 @@ function FolderRow(input: {
 					className="flex gap-2"
 					onSubmit={(event) => {
 						event.preventDefault();
-						if (trimmedName && trimmedName !== row.displayName) {
+						// The list can turn read-only while this editor is open.
+						if (
+							!input.disabled &&
+							trimmedName &&
+							trimmedName !== row.displayName
+						) {
 							input.onRename(trimmedName);
 						}
 						setRenaming(false);
@@ -410,7 +444,11 @@ function FolderRow(input: {
 						onChange={(event) => setName(event.target.value)}
 						value={name}
 					/>
-					<Button disabled={!trimmedName} type="submit" variant="outline">
+					<Button
+						disabled={input.disabled || !trimmedName}
+						type="submit"
+						variant="outline"
+					>
 						Save
 					</Button>
 					<Button
@@ -431,6 +469,7 @@ function FolderRow(input: {
 						Remove {row.displayName}? Its files stay on your computer.
 					</span>
 					<Button
+						disabled={input.disabled}
 						onClick={() => {
 							setConfirmingRemove(false);
 							input.onRemove();
@@ -483,6 +522,7 @@ function FolderRow(input: {
 }
 
 function AddFolderPanel(input: {
+	disabled: boolean;
 	onAdd: (operation: FolderChange) => Promise<void>;
 	onCancel: () => void;
 	organizationId: string;
@@ -546,7 +586,7 @@ function AddFolderPanel(input: {
 					Cancel
 				</Button>
 				<Button
-					disabled={pending || operation === null}
+					disabled={input.disabled || pending || operation === null}
 					onClick={async () => {
 						if (!operation) {
 							return;
@@ -569,5 +609,17 @@ function AddFolderPanel(input: {
 				</Button>
 			</div>
 		</div>
+	);
+}
+
+function sameBindingTarget(
+	left: AgentProfileBindingTarget | undefined,
+	right: AgentProfileBindingTarget | undefined
+): boolean {
+	return (
+		left?.bindingId === right?.bindingId &&
+		left?.openMeldServiceRuntimeId === right?.openMeldServiceRuntimeId &&
+		left?.agentControllerRef === right?.agentControllerRef &&
+		left?.agentControllerConversationId === right?.agentControllerConversationId
 	);
 }

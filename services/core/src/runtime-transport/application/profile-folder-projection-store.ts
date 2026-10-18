@@ -97,3 +97,29 @@ export function resolveProjectedDefaultFolder(input: {
   }
   return { folderId: folder.folderId, status: "eligible" };
 }
+
+/**
+ * A folder Core may ask the Service to remove. The Service protects the
+ * default folder; Core also protects the Default Project's folder, which is
+ * where new work starts while a Default Project is set.
+ */
+export function resolveRemovableFolder(input: {
+  defaultProjectId: string | null;
+  folderId: string;
+  record: ProfileFolderProjectionRecord | null;
+}): { status: "removable" | "not_found" | "default_project_folder" } {
+  const folder = input.record?.projection.folders.find(
+    (item) => item.folderId === input.folderId
+  );
+  if (!folder) {
+    return { status: "not_found" };
+  }
+  if (
+    folder.kind === "project" &&
+    input.defaultProjectId !== null &&
+    folder.projectId === input.defaultProjectId
+  ) {
+    return { status: "default_project_folder" };
+  }
+  return { status: "removable" };
+}
