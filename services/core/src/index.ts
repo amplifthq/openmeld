@@ -3386,6 +3386,21 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       listPluginActionRequests(this.env, input)
     );
   }
+  suggestPermissionMode(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSuggestPermissionMode(this.env, input)
+    );
+  }
+  listPermissionModeSuggestions(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListPermissionModeSuggestions(this.env, input)
+    );
+  }
+  resolvePermissionModeSuggestion(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcResolvePermissionModeSuggestion(this.env, input)
+    );
+  }
 
   previewPluginChannelConnection(input: unknown) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
@@ -6883,6 +6898,11 @@ import type {
   CenterAgentReadChannelFileResponse,
   CenterAgentSetReplyPlacementInput,
 } from "@openmeld/schemas/types";
+import {
+  rpcListPermissionModeSuggestions,
+  rpcResolvePermissionModeSuggestion,
+  rpcSuggestPermissionMode,
+} from "./agent-profile/application/permission-mode-suggestion-card";
 import {
   listPluginActionRequests,
   rpcPluginActionRequest,

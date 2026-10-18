@@ -616,6 +616,10 @@ import { processRuntimeCoordinatorHeadAcceptedHandoffAlarm as processRuntimeCoor
 import { processRuntimeCoordinatorHeadFailurePublicationRetryAlarm as processRuntimeCoordinatorHeadFailurePublicationRetryAlarmWithPorts } from "../../application/runtime-coordinator-head-failure-publication-retry-alarm";
 import { processRuntimeCoordinatorHeadWaitingDeadlineAlarm as processRuntimeCoordinatorHeadWaitingDeadlineAlarmWithPorts } from "../../application/runtime-coordinator-head-waiting-deadline-alarm";
 import {
+  buildRuntimeCoordinatorInteractionAttentionEventId,
+  runtimeCoordinatorInteractionAttentionCode,
+} from "../../application/runtime-coordinator-interaction-attention";
+import {
   projectRuntimeCoordinatorInteractionInboxItem,
   resolveRuntimeCoordinatorInteractionInboxItem,
 } from "../../application/runtime-coordinator-interaction-inbox-producer";
@@ -17938,8 +17942,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return {
       observation: {
-        attentionCode: `runtime_coordinator.interaction.${input.interaction.kind}`,
-        eventId: `runtime-coordinator-interaction:${input.commandState.runtimeCoordinatorExecutionId}:${input.interaction.interactionId}`,
+        attentionCode: runtimeCoordinatorInteractionAttentionCode(
+          input.interaction.kind
+        ),
+        eventId: buildRuntimeCoordinatorInteractionAttentionEventId({
+          interactionId: input.interaction.interactionId,
+          runtimeCoordinatorExecutionId:
+            input.commandState.runtimeCoordinatorExecutionId,
+        }),
         occurredAtMs: input.interaction.requestedAtMs,
         status: "needs_attention",
       },

@@ -1,4 +1,5 @@
 import { parseAgentControllerRef } from "@openmeld/agent-runtime";
+import type { PermissionModeAdvisory } from "@openmeld/schemas";
 import {
   buildRuntimeCoordinatorExecutionId,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
@@ -69,6 +70,16 @@ import { renderDispatchSourceText } from "@openmeld/space";
 import type { CoreBindings } from "../../../lib/bindings";
 import type { SpaceBootstrapTimingCollector } from "../../../space/application/space-bootstrap-timing";
 import { callRuntimeTransportApi } from "./runtime-transport-api-client";
+
+// Only an owner-requested Wake may carry the advisory.
+function buildPermissionModeAdvisoryPayload(input: {
+  permissionModeAdvisory?: PermissionModeAdvisory | null;
+  requesterIsAgentOwner?: boolean;
+}): Pick<RuntimeTransportDeliverDispatchPayload, "permissionModeAdvisory"> {
+  return input.permissionModeAdvisory && input.requesterIsAgentOwner === true
+    ? { permissionModeAdvisory: input.permissionModeAdvisory }
+    : {};
+}
 
 async function measureRuntimeTransportClientTiming<T>(input: {
   description: string;
@@ -200,6 +211,7 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
   organizationProtectedInformation?: string | null;
   workingLanguage?: WorkingLanguageGuidance | null;
   requesterIsAgentOwner?: boolean;
+  permissionModeAdvisory?: PermissionModeAdvisory | null;
 }): RuntimeTransportDeliverDispatchRequest => {
   const sourceProfileHandle = normalizeOptionalText(
     input.sourceSignal.profileHandle
@@ -267,6 +279,7 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
         }
       : {}),
     ...buildWorkingLanguagePayload(input.workingLanguage),
+    ...buildPermissionModeAdvisoryPayload(input),
     dispatchContractVersion: input.message.dispatchContractVersion,
     dispatchPolicy: input.message.dispatchPolicy,
     controllerSnapshot: input.message.controllerSnapshot,

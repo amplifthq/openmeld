@@ -42,6 +42,7 @@ import { registerOrganizationSkillRoutes } from "./rpc-http.organization-skills"
 import { registerOrganizationUsageRoutes } from "./rpc-http.organization-usage";
 import { registerOrganizationRoutes } from "./rpc-http.organizations";
 import { registerSpacePasswordRoute } from "./rpc-http.password";
+import { registerPermissionModeSuggestionRoutes } from "./rpc-http.permission-mode-suggestions";
 import { registerPrepareReadinessRoutes } from "./rpc-http.prepare-readiness";
 import { registerPrepareSessionRoutes } from "./rpc-http.prepare-session";
 import { registerProfileSpaceHistoryRoutes } from "./rpc-http.profile-spaces";
@@ -89,6 +90,7 @@ export function registerRpcHttpRoutes(app: Hono<HonoBindings>): void {
   registerDirectMessageSessionRoutes(app);
   registerMessageChannelRoutes(app);
   registerConnectorConnectionRoutes(app);
+  registerPermissionModeSuggestionRoutes(app);
   registerLocalRuntimeExpectedRoutesRoutes(app);
   registerMemberAgentRoutes(app);
   registerOrganizationRoutes(app);

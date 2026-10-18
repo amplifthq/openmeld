@@ -15,6 +15,7 @@ import {
   type PostgresDatabase,
 } from "@openmeld/db/postgresql";
 import type { SignalEnvelope } from "@openmeld/protocol";
+import type { PermissionModeAdvisory } from "@openmeld/schemas";
 import {
   builtinAgentControllerAllowsDistinctConversationId,
   CONVERSATION_CONTINUITY_WARNING_PURPOSE,
@@ -58,6 +59,7 @@ import {
   clearProviderAccessFailureEvidenceForExecutionSuccess,
   writeAcceptedProviderAccessFailureEvidence,
 } from "../../agent-execution/infrastructure/postgresql/provider-access-evidence-repo";
+import { resolvePermissionModeAdvisoryForDispatch } from "../../agent-profile/application/permission-mode-advisor";
 import {
   type AgentProfileBindingRecord,
   readPrimaryAgentProfileBindingRecord,
@@ -908,6 +910,17 @@ export const deliverDispatchMessageToDaemon = async (input: {
     executionContext: resolveExecutionContextFromRoute(route),
     message: input.message,
   });
+  const { permissionModeAdvisory, requesterIsAgentOwner } =
+    await resolveDispatchRequesterContext({
+      binding: primaryBindingResolution.binding,
+      db: localStateDbHandle,
+      env: input.env,
+      executionLogBase,
+      message: input.message,
+      route,
+      targetOwnerUserId: input.targetOwnerUserId,
+      timing: input.timing,
+    });
   const deliverRequest = await measureDispatchTiming({
     description: "Build the RuntimeTransport delivery request",
     name: "openmeld_dispatch_deliver_request_build",
@@ -924,13 +937,8 @@ export const deliverDispatchMessageToDaemon = async (input: {
         message: input.message,
         organizationProtectedInformation,
         workingLanguage,
-        requesterIsAgentOwner: route.capabilities.verifiedRequesterContext
-          ? await isDispatchRequestedByAgentOwner({
-              env: input.env,
-              message: input.message,
-              targetOwnerUserId: input.targetOwnerUserId,
-            })
-          : undefined,
+        permissionModeAdvisory,
+        requesterIsAgentOwner,
         sourceSignal,
         targetProfileIsCenterAgent,
         targetProfileMentionLabel,
@@ -1068,6 +1076,87 @@ type OnlineRuntimeTransportRoute = Extract<
     online: true;
   }
 >;
+/** Core's requester projection for this Wake and the advisory it allows. */
+const resolveDispatchRequesterContext = async (
+  input: Omit<
+    Parameters<typeof readDispatchPermissionModeAdvisory>[0],
+    "requesterIsAgentOwner"
+  > & { env: CoreBindings }
+): Promise<{
+  permissionModeAdvisory: PermissionModeAdvisory | null;
+  requesterIsAgentOwner: boolean | undefined;
+}> => {
+  const requesterIsAgentOwner = input.route.capabilities
+    .verifiedRequesterContext
+    ? await isDispatchRequestedByAgentOwner({
+        env: input.env,
+        message: input.message,
+        targetOwnerUserId: input.targetOwnerUserId,
+      })
+    : undefined;
+  return {
+    permissionModeAdvisory: await readDispatchPermissionModeAdvisory({
+      ...input,
+      requesterIsAgentOwner,
+    }),
+    requesterIsAgentOwner,
+  };
+};
+
+/**
+ * Permission-mode advisor: only an owner-requested Wake on a Service that
+ * renders the block may carry it. Advice is optional guidance, so its
+ * failure never blocks the Wake.
+ */
+const readDispatchPermissionModeAdvisory = async (input: {
+  binding: AgentProfileBindingRecord;
+  db: PostgresDatabase;
+  executionLogBase: DispatchExecutionLogBase;
+  message: OpenMeldDaemonDispatchQueueMessage;
+  requesterIsAgentOwner: boolean | undefined;
+  route: OnlineRuntimeTransportRoute;
+  targetOwnerUserId: string;
+  timing?: SpaceBootstrapTimingCollector;
+}): Promise<PermissionModeAdvisory | null> => {
+  const organizationId = input.message.organizationId;
+  if (
+    !(
+      input.route.capabilities.permissionModeAdvisoryPrompt === true &&
+      input.requesterIsAgentOwner === true &&
+      organizationId
+    )
+  ) {
+    return null;
+  }
+  return await measureDispatchTiming({
+    description: "Resolve the permission-mode advisory",
+    name: "openmeld_dispatch_deliver_permission_mode_advisory",
+    read: () =>
+      resolvePermissionModeAdvisoryForDispatch({
+        agentControllerRef: input.binding.agentControllerRef,
+        agentProfileId: input.message.targetProfileId,
+        db: input.db,
+        dispatchId: input.message.dispatchId,
+        nowMs: Date.now(),
+        organizationId,
+        ownerUserId: input.targetOwnerUserId,
+        requesterIsAgentOwner: input.requesterIsAgentOwner,
+        savedPermissionMode: input.binding.agentControllerPermissionMode,
+      }),
+    timing: input.timing,
+  }).catch((error) => {
+    console.warn(
+      "[core.openMeldDaemon.dispatch_execution.permission_mode_advisory_unavailable]",
+      {
+        event:
+          "core.openMeldDaemon.dispatch_execution.permission_mode_advisory_unavailable",
+        ...input.executionLogBase,
+        error: error instanceof Error ? error.message : String(error),
+      }
+    );
+    return null;
+  });
+};
 const assertDaemonRouteMatchesPrimaryBinding = async (input: {
   acceptedDispatchSnapshot?: OpenMeldDaemonAcceptedDispatchSnapshot;
   db: PostgresDatabase;
