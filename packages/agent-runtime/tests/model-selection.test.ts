@@ -1,5 +1,6 @@
 import type { ModelCatalog } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
+import vendorModelCatalog from "../../../release/vendor-models.json";
 import { resolveConversationPolicyFromModelSelection } from "../src/model-selection";
 
 const CATALOG: ModelCatalog = {
@@ -67,6 +68,27 @@ const CATALOG: ModelCatalog = {
 };
 
 describe("resolveConversationPolicyFromModelSelection", () => {
+  it.each([
+    ["chatgpt", "rejected"],
+    ["apiKey", "accepted"],
+    [null, "accepted"],
+  ] as const)("applies reviewed GPT-5.5 withdrawal only to %s authentication", (authType, status) => {
+    const result = resolveConversationPolicyFromModelSelection({
+      agentControllerRef: "builtin:codex",
+      authType,
+      catalog: vendorModelCatalog as ModelCatalog,
+      modelSelection: { modelId: "gpt-5.5" },
+    });
+    expect(result.status).toBe(status);
+    if (status === "rejected") {
+      expect(result).toMatchObject({ reasonCode: "model.retired" });
+      expect(result).not.toHaveProperty("conversationPolicy");
+    } else {
+      expect(result).toMatchObject({
+        conversationPolicy: { model: "gpt-5.5" },
+      });
+    }
+  });
   it.each([
     ["announced", "chatgpt", "on", "accepted"],
     ["announced", "chatgpt", "not_before", "accepted"],

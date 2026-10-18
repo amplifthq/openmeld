@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-14T02:04:04Z",
+  "updatedAt": "2026-10-18T10:38:51Z",
   "agentControllers": {
     "antigravity": {
       "defaultModelId": "gemini-3.8-flash-high",
@@ -208,7 +208,7 @@
           "id": "gpt-5.5",
           "displayName": "GPT-5.5",
           "retirement": {
-            "status": "announced",
+            "status": "withdrawn",
             "date": {
               "value": "2026-10-14",
               "kind": "on"
@@ -218,7 +218,7 @@
               "authType": "chatgpt"
             },
             "sourceUrl": "https://learn.chatgpt.com/docs/models#gpt-55-retirement",
-            "verifiedAt": "2026-10-14T02:04:04Z"
+            "verifiedAt": "2026-10-18T10:38:51Z"
           },
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh"],
@@ -746,6 +746,101 @@
       "defaultModelId": "opencode/mimo-v2.6-flash-free",
       "models": [
         {
+          "id": "openrouter/deepseek/deepseek-v4.1-flash-1017",
+          "displayName": "DeepSeek V4.1 Flash 1017 (OpenRouter)",
+          "unavailable": false,
+          "supportedReasoningLevels": ["none", "low", "high", "max"],
+          "minCliVersion": "1.19.0",
+          "badgeLabel": "New"
+        },
+        {
+          "id": "openrouter/elorian/glimpse",
+          "displayName": "Glimpse (OpenRouter)",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high"],
+          "minCliVersion": "1.19.0",
+          "badgeLabel": "New"
+        },
+        {
+          "id": "openrouter/reflection/beam-1.0-501b-a23b",
+          "displayName": "Beam 1.0 501B A23B (OpenRouter)",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": "1.19.0",
+          "badgeLabel": "New"
+        },
+        {
+          "id": "openrouter/xingchen-agi/xing4.0-29b-a4b:free",
+          "displayName": "Xing4.0 29B A4B Free (OpenRouter)",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high"],
+          "minCliVersion": "1.19.0",
+          "badgeLabel": "New"
+        },
+        {
+          "id": "opencode/nemotron-3.5-super-vl-free",
+          "displayName": "Nemotron 3.5 Super VL Free",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
+          "minCliVersion": "1.19.0",
+          "badgeLabel": "New"
+        },
+        {
+          "id": "openrouter/meta/muse-spark-open",
+          "displayName": "Muse Spark Open (OpenRouter)",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh"],
+          "minCliVersion": "1.19.0",
+          "badgeLabel": "New"
+        },
+        {
+          "id": "openrouter/nvidia/nemotron-3.5-super-vl",
+          "displayName": "Nemotron 3.5 Super VL (OpenRouter)",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high"],
+          "minCliVersion": "1.19.0",
+          "badgeLabel": "New"
+        },
+        {
+          "id": "openrouter/nvidia/nemotron-3.5-super-vl:free",
+          "displayName": "Nemotron 3.5 Super VL Free (OpenRouter)",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high"],
+          "minCliVersion": "1.19.0",
+          "badgeLabel": "New"
+        },
+        {
+          "id": "openrouter/unbiased/pareto-26.10",
+          "displayName": "Pareto 26.10 (OpenRouter)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.19.0",
+          "badgeLabel": "New"
+        },
+        {
+          "id": "opencode/beam-free",
+          "displayName": "Beam Free",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": "1.19.0",
+          "badgeLabel": "New"
+        },
+        {
+          "id": "opencode/deepseek-v4.1-flash-free",
+          "displayName": "DeepSeek V4.1 Flash Free",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "high", "max"],
+          "minCliVersion": "1.19.0",
+          "badgeLabel": "New"
+        },
+        {
           "id": "openrouter/liquid/lfm-2.5-24b-a2b",
           "displayName": "LFM2.5-24B-A2B (OpenRouter)",
           "unavailable": false,
@@ -845,8 +940,7 @@
           "displayName": "Step 5 Preview Free (Zen)",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high"],
-          "minCliVersion": "1.18.34",
-          "badgeLabel": "New"
+          "minCliVersion": "1.18.34"
         },
         {
           "id": "opencode/deepseek-v4.1-flash",
@@ -894,8 +988,7 @@
           "displayName": "Step 5 Preview Free (Go)",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high"],
-          "minCliVersion": "1.18.34",
-          "badgeLabel": "New"
+          "minCliVersion": "1.18.34"
         },
         {
           "id": "opencode/claude-haiku-5-5",
@@ -924,7 +1017,6 @@
         {
           "id": "opencode/exo-free",
           "displayName": "OpenCode Exo Free",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["high"],
           "minCliVersion": "1.18.35"

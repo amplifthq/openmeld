@@ -1,0 +1,13 @@
+{
+  "capture": {
+    "harnessVersion": "0.162.1",
+    "observedAt": "2026-10-18T10:38:51Z",
+    "authType": "chatgpt",
+    "command": "codex exec --ignore-user-config --ephemeral --skip-git-repo-check --sandbox read-only --model gpt-5.5 --json"
+  },
+  "modelId": "gpt-5.5",
+  "status": 400,
+  "message": "The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.",
+  "sourceUrl": "https://learn.chatgpt.com/docs/models#gpt-55-retirement",
+  "retirementDate": "2026-10-14"
+}
