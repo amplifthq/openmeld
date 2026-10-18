@@ -1418,13 +1418,13 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 			refetchedAfterCancel.push(
 				cancelled.includes("status") ? "status:cancelled" : "status:shared"
 			);
-			return Promise.resolve();
+			return Promise.resolve(undefined);
 		});
 		membersRefetch.mockImplementation(() => {
 			refetchedAfterCancel.push(
 				cancelled.includes("members") ? "members:cancelled" : "members:shared"
 			);
-			return Promise.resolve();
+			return Promise.resolve(undefined);
 		});
 
 		await act(async () => {
