@@ -38,6 +38,7 @@ const postgresqlOnlyTables = [
   { name: "ai_free_grants" },
   { name: "organization_ai_credentials" },
   { name: "member_agents" },
+  { name: "openMeldDaemon_runtime_harness_presence" },
 ];
 
 function csv(value) {

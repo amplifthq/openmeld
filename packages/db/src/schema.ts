@@ -191,6 +191,7 @@ export const {
   openMeldDaemonPrepareSessionTokens,
   openMeldDaemonRuntimeRegistryRecords,
   openMeldDaemonRuntimeAgentControllerReports,
+  openMeldDaemonRuntimeHarnessPresence,
   openMeldDaemonCurrentDeviceTargets,
   spaceAttachments,
   spaceIndexSpaces,

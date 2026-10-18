@@ -190,6 +190,7 @@ export { openMeldDaemonProviderAccessEvidence } from "./provider-access-evidence
 export { openMeldDaemonProviderConversationProofs } from "./provider-conversation-proof.schema.ts";
 export { routineRuns, routines } from "./routine.schema.ts";
 export { openMeldDaemonRuntimeAgentControllerReports } from "./runtime-agent-controller-report.schema.ts";
+export { openMeldDaemonRuntimeHarnessPresence } from "./runtime-harness-presence.schema.ts";
 export { openMeldDaemonRuntimeRegistryRecords } from "./runtime-registry.schema.ts";
 export { spaceAttachments } from "./space-attachment.schema.ts";
 export {

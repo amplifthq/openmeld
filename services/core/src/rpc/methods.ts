@@ -262,6 +262,7 @@ import {
   localRuntimeEnrollmentResponseSchema,
   localRuntimesResponseSchema,
   MAX_SPACE_NAME_LENGTH,
+  MEMBER_AGENTS_ENABLED,
   messageChannelConnectionListResponseSchema,
   messageChannelIdentityLinkConsumeBodySchema,
   messageChannelIdentityLinkConsumeResponseSchema,
@@ -815,6 +816,10 @@ import {
   resolveCoreAgentExecutionReadinessForProfile,
 } from "../agent-execution/application/agent-execution-readiness-service";
 import { readAgentProfileUsage } from "../agent-execution/application/agent-profile-usage";
+import {
+  resolvePublicWakeabilityReason,
+  resolveUsageExhaustedResetAt,
+} from "../agent-execution/application/public-wakeability-reason";
 import { acceptProviderConversationProofRecord } from "../agent-execution/infrastructure/postgresql/provider-conversation-proof-repo";
 import { projectOrganizationDirectoryAgentProfileOperationalContext } from "../agent-profile/application/agent-profile-operational-context";
 import { resolveAgentProfileWorkRecoveryAuthScope } from "../agent-profile/application/agent-profile-work-recovery-auth-scope";
@@ -7622,6 +7627,13 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
               generatedAt: input.generatedAt,
               isOwner: agent.ownerUserId === input.viewerUserId,
               readiness,
+              usageResetAt: await readPublicUsageExhaustedResetAt({
+                env: input.env,
+                generatedAt: input.generatedAt,
+                profileId: agent.profileId,
+                readiness,
+                reads,
+              }),
             });
           if (input.includeUsageLimits) {
             projectedReadiness.usageLimits = await readAgentProfileUsage({
@@ -26401,12 +26413,54 @@ function buildOrganizationDirectoryAgentExecutionReadinessResponse(input: {
   generatedAt: string;
   isOwner: boolean;
   readiness: CoreAgentExecutionReadiness;
+  usageResetAt?: string | null;
 }): GetAgentExecutionReadinessResponse {
   const ownerResponse = buildGetAgentExecutionReadinessResponse(input);
+  if (MEMBER_AGENTS_ENABLED) {
+    ownerResponse.publicWakeabilityReason = resolvePublicWakeabilityReason({
+      availability: ownerResponse.agentWakeAvailability,
+      usageResetAt: input.usageResetAt ?? null,
+    });
+  }
   if (input.isOwner) {
     return ownerResponse;
   }
   return projectTeamSafeOrganizationDirectoryReadiness(ownerResponse);
+}
+// The reset time is read only for a current Usage Limit verdict, so the
+// public reason never costs a second report read on the common path.
+async function readPublicUsageExhaustedResetAt(input: {
+  env: CoreBindings;
+  generatedAt: string;
+  profileId: string;
+  readiness: CoreAgentExecutionReadiness;
+  reads: AgentExecutionReadinessReads;
+}): Promise<string | null> {
+  if (
+    !MEMBER_AGENTS_ENABLED ||
+    resolveHttpAgentWakeAvailability(input.readiness).reasonCode !==
+      AGENT_PROFILE_USAGE_EXHAUSTED_REASON_CODE
+  ) {
+    return null;
+  }
+  const nowMs = Date.parse(input.generatedAt);
+  try {
+    return resolveUsageExhaustedResetAt({
+      nowMs,
+      usageLimits: await readAgentProfileUsage({
+        binding: input.readiness.primaryBinding,
+        db: getPostgresDatabase(input.env),
+        nowMs,
+        reads: input.reads,
+      }),
+    });
+  } catch (error) {
+    console.warn("[core.agent_profile.public_usage_reset_unavailable]", {
+      error: toErrorMessage(error),
+      profileId: input.profileId,
+    });
+    return null;
+  }
 }
 export function projectTeamSafeOrganizationDirectoryReadiness(
   ownerResponse: GetAgentExecutionReadinessResponse
@@ -26520,6 +26574,9 @@ export function projectTeamSafeOrganizationDirectoryReadiness(
     },
     profileName: null,
     publicProfileConfiguration: ownerResponse.publicProfileConfiguration,
+    ...(ownerResponse.publicWakeabilityReason === undefined
+      ? {}
+      : { publicWakeabilityReason: ownerResponse.publicWakeabilityReason }),
     routeDeviceId: null,
     routeLane: null,
     runtimeDeviceDisplayName: null,
