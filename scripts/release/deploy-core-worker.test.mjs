@@ -2,32 +2,37 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { deployCoreWorker } from "./deploy-core-worker.mjs";
-import { createWorkerDeploymentCapture } from "./worker-deployment-evidence.mjs";
 
 const RELEASE_SHA = "a".repeat(40);
 const SOURCE_MISMATCH_RE = /does not match checked-out HEAD/u;
+const SEED_FIRST_RE = /Seed it first/u;
+const VERSION_ID = "fb18a6dd-5ee3-43fd-aa64-087346c6bfd3";
 
-test("deploys the exact admitted Core version without rebuilding it", async () => {
+function adapters(overrides = {}) {
   const events = [];
-
-  await deployCoreWorker({
+  return {
+    events,
     adapters: {
-      readAvailabilityCatalog: async () => ({ schemaVersion: 1, entries: [] }),
       readCoreWranglerConfig: () => "{}",
       readHeadSha: () => RELEASE_SHA,
+      readPublishedCliRelease: () => ({ schemaVersion: 1 }),
       runStartupAdmission: (input) => {
         events.push(`admit:${input.releaseSha}`);
-        return { versionId: "fb18a6dd-5ee3-43fd-aa64-087346c6bfd3" };
+        return { versionId: VERSION_ID, trafficPercent: 0 };
       },
       runStep: (step) => {
         events.push(step.label);
       },
+      ...overrides,
     },
-    releaseSha: RELEASE_SHA,
-  });
+  };
+}
 
+test("uploads, admits, and activates the exact Core version", async () => {
+  const { events, adapters: input } = adapters();
+  await deployCoreWorker({ adapters: input, releaseSha: RELEASE_SHA });
   assert.deepEqual(events, [
-    "Build Core receiver dependencies",
+    "Build Core dependencies",
     "Verify Core Worker bundle module graph",
     `admit:${RELEASE_SHA}`,
     "Deploy the startup-admitted Core version",
@@ -35,104 +40,40 @@ test("deploys the exact admitted Core version without rebuilding it", async () =
   ]);
 });
 
-test("forwards exact Core activation for staged and atomic deployment, never upload alone", async () => {
-  for (const trafficPercent of [0, 100]) {
-    const evidence = {
-      releaseSha: RELEASE_SHA,
-      workerName: "openmeld-core-prod",
-      versionId: "fb18a6dd-5ee3-43fd-aa64-087346c6bfd3",
-      trafficPercent,
-    };
-    const capture = createWorkerDeploymentCapture({
-      sourceSha: RELEASE_SHA,
-      operationKey: "f".repeat(64),
-      target: {
-        workerName: evidence.workerName,
-        projectionTag: "exact-core-projection",
-        outputEnvironment: "prod",
-      },
-      env: {},
-    });
-    const activated = [];
-    try {
-      capture.recordDeploymentBaseline({ status: 0, stdout: "[]" });
-      await deployCoreWorker({
-        releaseSha: RELEASE_SHA,
-        tag: "exact-core-projection",
-        env: capture.env,
-        adapters: {
-          readAvailabilityCatalog: async () => ({
-            schemaVersion: 1,
-            entries: [],
-          }),
-          readHeadSha: () => RELEASE_SHA,
-          readCoreWranglerConfig: () => "{}",
-          runStartupAdmission: () => evidence,
-          runStep: (step) => {
-            activated.push(step.label);
-          },
-        },
-      });
-      const captured = capture.read();
-      assert.equal(captured.versionId, evidence.versionId);
-      assert.equal(captured.proof, "command-output");
-      assert.equal(
-        activated.includes("Deploy the startup-admitted Core version"),
-        trafficPercent === 0
-      );
-    } finally {
-      capture.close();
-    }
-  }
+test("does not repeat activation after an atomic Durable Object migration", async () => {
+  const { events, adapters: input } = adapters({
+    runStartupAdmission: () => ({ versionId: VERSION_ID, trafficPercent: 100 }),
+  });
+  await deployCoreWorker({ adapters: input, releaseSha: RELEASE_SHA });
+  assert.equal(
+    events.includes("Deploy the startup-admitted Core version"),
+    false
+  );
 });
 
-test("refuses to admit a SHA other than the checked-out Core source", async () => {
+test("refuses another source or a CLI release bucket that was never seeded", async () => {
+  const failFast = {
+    runStartupAdmission: () => {
+      throw new Error("must not upload");
+    },
+    runStep: () => {
+      throw new Error("must not build");
+    },
+  };
   await assert.rejects(
-    () =>
-      deployCoreWorker({
-        adapters: {
-          readAvailabilityCatalog: async () => ({
-            schemaVersion: 1,
-            entries: [],
-          }),
-          readHeadSha: () => "b".repeat(40),
-          runStartupAdmission: () => {
-            throw new Error("must not upload");
-          },
-          runStep: () => {
-            throw new Error("must not deploy");
-          },
-        },
-        releaseSha: RELEASE_SHA,
-      }),
+    deployCoreWorker({
+      adapters: adapters({ ...failFast, readHeadSha: () => "b".repeat(40) })
+        .adapters,
+      releaseSha: RELEASE_SHA,
+    }),
     SOURCE_MISMATCH_RE
   );
-});
-
-test("checks published channel alignment before any recovery deployment", async () => {
-  const steps = [];
-  await assert.rejects(() =>
+  await assert.rejects(
     deployCoreWorker({
-      verifyLocalComponents: true,
+      adapters: adapters({ ...failFast, readPublishedCliRelease: () => null })
+        .adapters,
       releaseSha: RELEASE_SHA,
-      adapters: {
-        readAvailabilityCatalog: async () => ({
-          schemaVersion: 1,
-          entries: [],
-        }),
-        readHeadSha: () => RELEASE_SHA,
-        runStep(step) {
-          steps.push(step);
-          throw new Error("channel unavailable");
-        },
-        runStartupAdmission() {
-          assert.fail("must not deploy before channel verification");
-        },
-      },
-    })
-  );
-  assert.deepEqual(
-    steps.map((step) => step.args),
-    [["run", "deploy:release-ready"]]
+    }),
+    SEED_FIRST_RE
   );
 });

@@ -20,7 +20,8 @@ const CONTROL_PATH_PATTERNS = [
   /^scripts\/dev\/verify-pr(?:\.test)?\.mjs$/u,
   /^scripts\/dev\/(?:owned-command|process-rows|process-tree)(?:\.test)?\.mjs$/u,
   /^scripts\/release\/cli-skill(?:-check)?\.mjs$/u,
-  /^scripts\/release\/(?:hosted-production-preflight|production-(?:artifact-check|release(?:-status(?:-regressions)?)?|stage-admission|train-artifact-admission|web-health)|renderer-build)(?:\.test)?\.mjs$/u,
+  /^scripts\/release\/(?:deploy(?:-component)?|live-release|production-(?:artifact-check|web-health)|publish-cli|renderer-build)(?:\.test)?\.mjs$/u,
+  /^release\/components\.mjs$/u,
   /^packages\/schemas\/src\/schemas\/ci\/final-candidate\.ts$/u,
 ];
 

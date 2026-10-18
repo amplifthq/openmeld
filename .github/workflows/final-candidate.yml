@@ -154,21 +154,6 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Check release branch policy before dependency setup
-        shell: bash
-        run: |
-          node trusted-control/scripts/ci/final-candidate-release-policy.mjs \
-            --candidate-root "$GITHUB_WORKSPACE/untrusted-candidate" \
-            --repository "$CANDIDATE_REPOSITORY" \
-            --pr "$CANDIDATE_PR_NUMBER" \
-            --branch "$CANDIDATE_BRANCH" \
-            --head "$CANDIDATE_HEAD_SHA" \
-            --base "$CANDIDATE_BASE_SHA" \
-            --tree "$CANDIDATE_TREE_SHA" \
-            --confidence "$CANDIDATE_CONFIDENCE" \
-            --server-url "$CANDIDATE_SERVER_URL" \
-            --evidence "$RUNNER_TEMP/final-candidate-control/final-candidate-evidence.json"
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
         with:

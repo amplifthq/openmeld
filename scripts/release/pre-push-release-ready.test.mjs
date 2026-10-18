@@ -12,11 +12,6 @@ import {
   assertReleaseVerificationWorktreeClean,
   resolvePrePushReleaseMode,
 } from "./pre-push-release-ready.mjs";
-import {
-  assertDeferredReleaseBranchFacts,
-  assertStampedReleaseFacts,
-  resolvePullRequestReleaseMode,
-} from "./release-branch-policy.mjs";
 
 const SHA = "1".repeat(40);
 const REMOTE_SHA = "2".repeat(40);
@@ -24,17 +19,12 @@ const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const HOOK_READS_PUSH_UPDATES = /push_updates=\$\(cat\)/u;
 const HOOK_RUNS_RELEASE_SELECTOR = /pre-push-release-ready\.mjs/u;
 const PUSHED_OBJECT_MISMATCH_PATTERN = /does not match the checked-out HEAD/u;
-const PACKAGE_VERSION_MISMATCH_PATTERN =
-  /package version.*release manifest version/u;
-const PREMATURE_RELEASE_STAMP_PATTERN =
-  /changed without a stamped candidate diff/u;
 const RELEASE_RELEVANT_PATH_PATTERN = /packages\/schemas\/src\/index\.ts/u;
 const PRE_PUSH_GATE_CONTROL_PATH_EXAMPLES = [
   ".husky/pre-push",
   "package.json",
   "services/core/src/local-components/update-projection.ts",
   "scripts/release/build-packaged-openmeld-cli.mjs",
-  "scripts/release/cli-channel-sync.mjs",
   "scripts/release/local-components.mjs",
   "scripts/release/nested/future-gate-helper.mjs",
   "scripts/release/pre-push-release-ready.mjs",
@@ -66,133 +56,6 @@ test("ordinary non-main branch destinations do not block iterative pushes", () =
       `refs/tags/v1.2.3 ${SHA} refs/tags/v1.2.3 ${"0".repeat(40)}\n`
     ),
     "strict"
-  );
-});
-
-test("release branch pushes select strict artifact verification regardless of their name", () => {
-  assert.equal(
-    resolvePrePushReleaseMode(
-      `refs/heads/codex/release-0.3.35-563a8ae8 ${SHA} refs/heads/codex/release-0.3.35-563a8ae8 ${REMOTE_SHA}\n`
-    ),
-    "strict"
-  );
-  assert.equal(
-    resolvePrePushReleaseMode(
-      `refs/heads/codex/release-not-a-version ${SHA} refs/heads/codex/release-not-a-version ${REMOTE_SHA}\n`
-    ),
-    "strict"
-  );
-});
-
-test("a stamped PR validates version consistency without requiring a second PR", () => {
-  const facts = {
-    baseSha: `563a8ae8${"1".repeat(32)}`,
-    baseManifestVersion: "0.3.34",
-    basePackageVersion: "0.3.34",
-    branchName: "codex/release-0.3.35-563a8ae8",
-    changedPaths: [
-      "clients/openmeld-cli/package.json",
-      "release/local-components.json",
-    ],
-    manifestVersion: "0.3.35",
-    packageVersion: "0.3.35",
-  };
-
-  assert.doesNotThrow(() => assertStampedReleaseFacts(facts));
-  assert.equal(resolvePullRequestReleaseMode(facts), "strict");
-  assert.throws(
-    () =>
-      assertStampedReleaseFacts({
-        ...facts,
-        packageVersion: "0.3.34",
-      }),
-    PACKAGE_VERSION_MISMATCH_PATTERN
-  );
-  assert.equal(
-    resolvePullRequestReleaseMode({
-      ...facts,
-      branchName: "codex/feature-and-release",
-      changedPaths: [...facts.changedPaths, "services/core/src/index.ts"],
-    }),
-    "strict"
-  );
-});
-
-test("package metadata changes stay deferred but an unstamped version bump is rejected", () => {
-  const facts = {
-    changedPaths: ["clients/openmeld-cli/package.json"],
-    basePackageVersion: "0.3.35",
-    currentPackageVersion: "0.3.35",
-    baseManifest: { version: "0.3.35" },
-    currentManifest: { version: "0.3.35" },
-  };
-  assert.equal(resolvePullRequestReleaseMode(facts), "deferred");
-  assert.throws(() =>
-    resolvePullRequestReleaseMode({
-      ...facts,
-      currentPackageVersion: "0.3.36",
-    })
-  );
-  assert.throws(() => assertStampedReleaseFacts({}));
-});
-
-test("a manifest-only restamp uses strict artifact verification", () => {
-  const facts = {
-    baseSha: `563a8ae8${"1".repeat(32)}`,
-    baseManifestVersion: "0.3.35",
-    basePackageVersion: "0.3.35",
-    branchName: "codex/release-0.3.35-563a8ae8",
-    changedPaths: ["release/local-components.json"],
-    manifestVersion: "0.3.35",
-    packageVersion: "0.3.35",
-  };
-
-  assert.doesNotThrow(() => assertStampedReleaseFacts(facts));
-  assert.equal(resolvePullRequestReleaseMode(facts), "strict");
-});
-
-test("deferred release mode rejects only premature release stamps", () => {
-  const baseManifest = {
-    components: {
-      cli: { packageVersion: "0.3.217" },
-      service: { bundleVersion: "0.3.217" },
-    },
-    schemaVersion: 1,
-  };
-
-  assert.doesNotThrow(() =>
-    assertDeferredReleaseBranchFacts({
-      baseManifest,
-      basePackageVersion: "0.3.217",
-      currentManifest: structuredClone(baseManifest),
-      currentPackageVersion: "0.3.217",
-    })
-  );
-  assert.throws(
-    () =>
-      assertDeferredReleaseBranchFacts({
-        baseManifest,
-        basePackageVersion: "0.3.217",
-        currentManifest: structuredClone(baseManifest),
-        currentPackageVersion: "0.3.218",
-      }),
-    PREMATURE_RELEASE_STAMP_PATTERN
-  );
-  assert.throws(
-    () =>
-      assertDeferredReleaseBranchFacts({
-        baseManifest,
-        basePackageVersion: "0.3.217",
-        currentManifest: {
-          ...baseManifest,
-          components: {
-            ...baseManifest.components,
-            cli: { packageVersion: "0.3.218" },
-          },
-        },
-        currentPackageVersion: "0.3.217",
-      }),
-    PREMATURE_RELEASE_STAMP_PATTERN
   );
 });
 

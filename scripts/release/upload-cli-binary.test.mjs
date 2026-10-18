@@ -1,11 +1,18 @@
-const WINDOWS_SERVICE_POLICY_PATTERN = /Prepare a Service release/u;
+const WINDOWS_SERVICE_POLICY_PATTERN = /needs cli and service decisions/u;
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import path from "node:path";
+import path, { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { createCliBinaryDelta } from "./cli-binary-delta.mjs";
 import {
@@ -474,7 +481,7 @@ test("rejects a signed binary when the secure storage smoke fails", async () => 
 test("policy provenance does not attach production identity to custom staging artifacts", () => {
   const releaseManifest = JSON.parse(
     readFileSync(
-      new URL("../../release/local-components.json", import.meta.url),
+      new URL("./fixtures/local-components-v0.3.264.json", import.meta.url),
       "utf8"
     )
   );
@@ -508,42 +515,34 @@ test("policy provenance does not attach production identity to custom staging ar
     undefined
   );
 });
-test("native preview refuses retained policy before rebuilding or relabelling a Service", () => {
-  const releaseManifest = JSON.parse(
-    readFileSync(
-      new URL("../../release/local-components.json", import.meta.url),
-      "utf8"
-    )
+test("native preview needs fresh CLI and Service decisions for its exact version", async () => {
+  const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
+  const { version } = JSON.parse(
+    readFileSync(join(repoRoot, "clients/openmeld-cli/package.json"), "utf8")
   );
-  const version = releaseManifest.components.cli.packageVersion;
-  const matching = {
-    ...releaseManifest,
-    components: {
-      ...releaseManifest.components,
-      service: {
-        ...releaseManifest.components.service,
-        bundleVersion: version,
-      },
-    },
-  };
-  assert.equal(
-    resolveWindowsPreviewComponentPolicy({ releaseManifest: matching, version })
-      .service.bundleVersion,
-    version
+  const policy = JSON.parse(
+    readFileSync(join(repoRoot, "release/local-components-policy.json"), "utf8")
   );
-  const retained = {
-    ...matching,
-    components: {
-      ...matching.components,
-      service: { ...matching.components.service, bundleVersion: "0.0.0" },
-    },
-  };
-  assert.throws(
-    () =>
-      resolveWindowsPreviewComponentPolicy({
-        releaseManifest: retained,
-        version,
-      }),
-    WINDOWS_SERVICE_POLICY_PATTERN
-  );
+  if (policy.version === version && policy.service) {
+    const resolved = await resolveWindowsPreviewComponentPolicy({
+      repoRoot,
+      version,
+    });
+    assert.equal(resolved.service.bundleVersion, version);
+    assert.equal(resolved.service.updatePolicy, policy.service.updatePolicy);
+  }
+  const root = mkdtempSync(join(tmpdir(), "windows-preview-policy-"));
+  try {
+    mkdirSync(join(root, "release"));
+    writeFileSync(
+      join(root, "release/local-components-policy.json"),
+      JSON.stringify({ version, cli: policy.cli })
+    );
+    await assert.rejects(
+      resolveWindowsPreviewComponentPolicy({ repoRoot: root, version }),
+      WINDOWS_SERVICE_POLICY_PATTERN
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

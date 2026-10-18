@@ -660,7 +660,9 @@ export async function commitDesktopPromotion({
   );
   const currentVersion = current?.version ?? null;
   if ((currentVersion ?? "none") !== expectedVersion) {
-    throw new Error("Promoted Desktop version changed or could not be verified.");
+    throw new Error(
+      "Promoted Desktop version changed or could not be verified."
+    );
   }
   assertDesktopPromotionVersion(manifest.version, currentVersion);
   await writePointer(
