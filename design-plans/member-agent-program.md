@@ -723,6 +723,13 @@ uninterrupted.
   colliding number rebases onto the program branch and regenerates its
   migration and snapshot before it is merged. Lesson from Wave 2, where 1c,
   1d and 1e each produced a `0040`.
+- **Unattended operation.** Sessions for later phases are opened ahead of
+  time with a HOLD brief and started later by a message beginning with START
+  that carries their migration number and contract notes, because the app
+  only lets the designer open sessions while Felix is present. An hourly
+  check in the designer session resumes sessions stopped by a usage limit,
+  reviews and merges finished branches, and starts the next held session when
+  its predecessors are merged.
 - **Final smoke.** After Phase 4 and again after Phase 5, one dedicated Codex
   (GPT-6 Astra Mid) session runs the worked example (§4.5) and the three flows
   (§7) on Felix's real computers and returns screenshots of every intermediate
