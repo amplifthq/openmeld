@@ -21,6 +21,7 @@ import type {
   AgentProfileCreationRequestStatusReason,
   AgentProfileCreationSessionStrategy,
   CreateAgentProfileCreationRequestBody,
+  LocalComponentsReleaseManifest,
   RetryAgentProfileCreationRequestBody,
   SetAgentProfileCreationApprovalPreferenceBody,
 } from "@openmeld/schemas/types";
@@ -277,6 +278,8 @@ export async function failStaleAgentProfileCreationRequests(input: {
 }
 
 export function createAgentProfileCreationRequestService(input: {
+  // The published release gates configuration the Service cannot honor yet.
+  readLocalComponentsManifest: () => Promise<LocalComponentsReleaseManifest | null>;
   // Only isolated lifecycle tests opt in. Production callers use the launch hold.
   teammateRequestsEnabled?: boolean;
   attemptInboxProjection: (requestId: string) => Promise<void>;
@@ -626,7 +629,8 @@ export function createAgentProfileCreationRequestService(input: {
       });
 
       assertAgentControllerPermissionModeReleased(
-        configuration.agentControllerPermissionMode
+        configuration.agentControllerPermissionMode,
+        await input.readLocalComponentsManifest()
       );
 
       requireConfiguredAgentRunTarget(body.source, configuration);

@@ -31,6 +31,7 @@ import {
   readRuntimeRegistryRecord,
   registerRuntimeRegistryRecord,
 } from "../src/runtime-registry/infrastructure/postgresql/runtime-registry-repo";
+import { PUBLISHED_LOCAL_COMPONENTS_MANIFEST } from "../test-support/published-local-components-release";
 import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
@@ -673,6 +674,7 @@ describe("Agent Profile Binding repo write-side", () => {
         },
       });
       await acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: 2700,
         report: {
@@ -686,6 +688,7 @@ describe("Agent Profile Binding repo write-side", () => {
       });
       await expect(
         ensurePrimaryAgentProfileBinding({
+          localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
           agentProfileId: initial.agentProfileId,
           agentControllerRef: "builtin:codex",
           bindingStore: createPostgresAgentProfileBindingCommandStore({
@@ -1360,6 +1363,7 @@ describe("Agent Profile Binding repo write-side", () => {
         },
       });
       await acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: 1200,
         report: {
@@ -1373,6 +1377,7 @@ describe("Agent Profile Binding repo write-side", () => {
       });
       await expect(
         ensurePrimaryAgentProfileBinding({
+          localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
           agentProfileId: AGENT_PROFILE_ID,
           bindingStore: createPostgresAgentProfileBindingCommandStore({
             db: harness.db,

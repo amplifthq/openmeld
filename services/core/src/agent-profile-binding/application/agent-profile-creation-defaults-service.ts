@@ -2,6 +2,7 @@ import { parseAgentControllerRef } from "@openmeld/agent-runtime";
 import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   AgentProfileCreationPreferenceSelection,
+  LocalComponentsReleaseManifest,
   ModelCatalog,
 } from "@openmeld/schemas/types";
 import { assertAgentControllerPermissionModeReleased } from "../../local-components/runtime-contract-rollout";
@@ -42,6 +43,7 @@ export function resolveFirstUseAgentProfileCreationDefaults(input: {
   return { modelId: defaultModel.id, reasoningLevel };
 }
 export async function rememberAgentProfileCreationDefaults(input: {
+  localComponentsManifest: LocalComponentsReleaseManifest | null;
   agentControllerRef: string;
   db: PostgresDatabase;
   nowMs: number;
@@ -50,7 +52,8 @@ export async function rememberAgentProfileCreationDefaults(input: {
   userId: string;
 }): Promise<AgentProfileCreationDefaultsRecord> {
   assertAgentControllerPermissionModeReleased(
-    input.selection.agentControllerPermissionMode
+    input.selection.agentControllerPermissionMode,
+    input.localComponentsManifest
   );
   if (input.selection.defaultProjectId) {
     const project = await readProjectRecord({

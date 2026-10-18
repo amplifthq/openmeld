@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { gunzipSync, gzipSync } from "node:zlib";
 import {
   cliBinaryCompressedReleaseSchema,
@@ -36,7 +36,6 @@ export const DEFAULT_CLI_DOWNLOAD_BASE_URL = "https://openmeld.ai/cli/download";
 export const CLI_MANIFEST_SCHEMA_VERSION = 1;
 export const CLI_BINARY_CODE_IDENTIFIER =
   OPENMELD_MACOS_CLI_SIGNING_IDENTITY.codeIdentifier;
-const LOCAL_COMPONENTS_MANIFEST_PATH = "release/local-components.json";
 const PRODUCTION_CLI_MANIFEST_URL = `${new URL(DEFAULT_CLI_DOWNLOAD_BASE_URL).origin}/${CLI_MANIFEST_OBJECT_KEY}`;
 
 export function resolveCliMinRequiredVersion(repoRoot = REPO_ROOT) {
@@ -168,11 +167,13 @@ export async function uploadCliBinary(input = {}) {
     DEFAULT_CLI_R2_BUCKET;
   const downloadBaseUrl =
     input.downloadBaseUrl ?? DEFAULT_CLI_DOWNLOAD_BASE_URL;
+  // Production publication passes the release manifest it is about to
+  // publish; staging passes its own Service selection and no manifest.
   const service = Object.hasOwn(input, "service")
     ? input.service
     : await resolveCliServiceSelectionForUpload({
         fetch: input.fetch ?? fetch,
-        repoRoot: input.repoRoot ?? REPO_ROOT,
+        releaseManifest: input.releaseManifest,
       });
 
   const compiled = (input.buildBinary ?? buildCliBinary)({
@@ -209,22 +210,14 @@ export async function uploadCliBinary(input = {}) {
     manifestObjectKey: CLI_MANIFEST_OBJECT_KEY,
   });
   const minRequiredCliVersion = resolveCliMinRequiredVersion();
-  const releasePolicy = localComponentsReleaseManifestSchema.parse(
-    JSON.parse(
-      readFileSync(
-        path.join(input.repoRoot ?? REPO_ROOT, LOCAL_COMPONENTS_MANIFEST_PATH),
-        "utf8"
-      )
-    )
-  );
   const manifest = buildCliManifest({
-    componentPolicy:
-      input.componentPolicy ??
-      resolveCliBinaryComponentPolicy({
-        releaseManifest: releasePolicy,
-        cliVersion: built.version,
-        serviceVersion: service?.version ?? built.version,
-      }),
+    componentPolicy: input.releaseManifest
+      ? resolveCliBinaryComponentPolicy({
+          releaseManifest: input.releaseManifest,
+          cliVersion: built.version,
+          serviceVersion: service?.version ?? built.version,
+        })
+      : undefined,
     archiveArtifactName: archive.artifactName,
     archiveSha256: archive.sha256,
     archiveSizeBytes: archive.sizeBytes,
@@ -349,21 +342,11 @@ export function resolveRetainedCliServiceSelection(input) {
 }
 
 async function resolveCliServiceSelectionForUpload(input) {
-  const localComponents = JSON.parse(
-    readFileSync(
-      path.join(input.repoRoot, LOCAL_COMPONENTS_MANIFEST_PATH),
-      "utf8"
-    )
+  const release = localComponentsReleaseManifestSchema.parse(
+    input.releaseManifest
   );
-  const targetCliVersion =
-    localComponents?.components?.cli?.packageVersion ?? null;
-  const targetServiceVersion =
-    localComponents?.components?.service?.bundleVersion ?? null;
-  if (!(targetCliVersion && targetServiceVersion)) {
-    throw new Error(
-      "release/local-components.json must declare CLI and Service versions before publishing the CLI binary."
-    );
-  }
+  const targetCliVersion = release.components.cli.packageVersion;
+  const targetServiceVersion = release.components.service.bundleVersion;
   if (targetCliVersion === targetServiceVersion) {
     return undefined;
   }
@@ -457,18 +440,4 @@ function resolveCommandBinary(command) {
     return command;
   }
   return command === "pnpm" ? "pnpm.cmd" : command;
-}
-
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
-  try {
-    await uploadCliBinary();
-  } catch (error) {
-    process.stderr.write(
-      `${error instanceof Error ? error.message : String(error)}\n`
-    );
-    process.exitCode = 1;
-  }
 }

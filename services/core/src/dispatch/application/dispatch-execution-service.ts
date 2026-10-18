@@ -71,6 +71,10 @@ import {
 import { readCenterAgentDesignationRecord } from "../../center-agent/center-agent-repository";
 import { readModelCatalog } from "../../config/model-catalog";
 import type { CoreBindings } from "../../lib/bindings";
+import {
+  type CoreLocalComponentsRelease,
+  readCoreLocalComponentsRelease,
+} from "../../local-components/release-source";
 import { resolveLocalComponentUpdateProjection } from "../../local-components/update-projection";
 import { summarizeInformationProtectionError } from "../../organizations/organization-information-protection-observability";
 import { readOrganizationInformationProtectionPolicyForSpace } from "../../organizations/organization-information-protection-repository";
@@ -717,6 +721,9 @@ export const deliverDispatchMessageToDaemon = async (input: {
       waitReasonCode: "controlled_service_update",
     });
   }
+  const localComponentsRelease = await readCoreLocalComponentsRelease(
+    input.env.OPENMELD_CLI_RELEASES
+  );
   try {
     await measureDispatchTiming({
       description: "Validate RuntimeTransport route execution compatibility",
@@ -730,6 +737,7 @@ export const deliverDispatchMessageToDaemon = async (input: {
         assertDaemonRouteLocalComponentsCurrent({
           executionContext: routeExecutionContext,
           executionLogBase,
+          localComponentsRelease,
           route,
         });
         assertDaemonRouteExecutionContextCapable({
@@ -1373,9 +1381,11 @@ const assertDaemonRouteExecutionCompatible = (input: {
 const assertDaemonRouteLocalComponentsCurrent = (input: {
   executionContext: DispatchExecutionContext;
   executionLogBase: DispatchExecutionLogBase;
+  localComponentsRelease: CoreLocalComponentsRelease;
   route: OnlineRuntimeTransportRoute;
 }): void => {
   const localComponents = resolveLocalComponentUpdateProjection({
+    release: input.localComponentsRelease,
     generatedAt: new Date().toISOString(),
     localComponentsStatus: input.route.capabilities.localComponents ?? null,
     serviceConnected: true,
@@ -1483,6 +1493,9 @@ const resolveOfflineRouteServiceUpdateBlocker = async (input: {
     };
   }
   const localComponents = resolveLocalComponentUpdateProjection({
+    release: await readCoreLocalComponentsRelease(
+      input.env.OPENMELD_CLI_RELEASES
+    ),
     generatedAt: new Date().toISOString(),
     localComponentsStatus: session.capabilities.localComponents ?? null,
     serviceConnected: true,

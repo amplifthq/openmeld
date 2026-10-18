@@ -12,6 +12,7 @@ import {
   createRuntimeTransportMutableState,
   type RuntimeTransportSessionState,
 } from "../src/runtime-transport/application/runtime-transport-state";
+import { PUBLISHED_LOCAL_COMPONENTS_MANIFEST } from "../test-support/published-local-components-release";
 import { createInboxFeedFixture } from "./helpers/inbox-feed.test-support";
 import { createFaultInjectingPostgresDatabase } from "./helpers/postgresql-harness.test-support";
 
@@ -105,7 +106,10 @@ describe("Runtime Transport Computer incidents", () => {
     {
       name: "an independent execution compatibility issue",
       patch: {
-        executionCompatibility: resolveDaemonExecutionCompatibility(null),
+        executionCompatibility: resolveDaemonExecutionCompatibility(
+          null,
+          PUBLISHED_LOCAL_COMPONENTS_MANIFEST
+        ),
       },
     },
   ] satisfies {
@@ -159,6 +163,7 @@ describe("Runtime Transport Computer incidents", () => {
           {
             persistRuntimeRecords: () => undefined,
             cleanupExpiredPendingDispatches: () => undefined,
+            localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
           }
         ).online
       ).toBe(true);
@@ -433,9 +438,12 @@ async function fixture() {
       deliveryDisconnectedAtMs: null,
       acceptingDispatches: true,
       capabilities: {},
-      executionCompatibility: resolveDaemonExecutionCompatibility({
-        epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-      }),
+      executionCompatibility: resolveDaemonExecutionCompatibility(
+        {
+          epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+        },
+        PUBLISHED_LOCAL_COMPONENTS_MANIFEST
+      ),
       profileIds: new Set(),
       localWakeRouteReport: null,
       rejectedProfileRegistrationsByProfileId: new Map(),

@@ -75,7 +75,6 @@ import type {
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { handleDispatchQueueBatch } from "../src/dispatch/transport/queue/dispatch-queue-consumer";
 import type { CoreBindings } from "../src/lib/bindings";
-import { resolveCoreLocalComponentsReleaseManifest } from "../src/local-components/update-projection";
 // biome-ignore lint/performance/noNamespaceImport: Spy on the authoritative transaction result in the worker graph.
 import * as executionAdmission from "../src/runtime-transport/application/agent-profile-execution-admission";
 import {
@@ -131,6 +130,7 @@ import {
 } from "../src/runtime-transport/application/runtime-transport-state";
 import { listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace } from "../src/runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo";
 import { RuntimeTransportHub } from "../src/runtime-transport/transport/do/runtime-transport-hub";
+import { PUBLISHED_LOCAL_COMPONENTS_MANIFEST } from "../test-support/published-local-components-release";
 
 const SELECT_QUERY_PATTERN = /^\s*SELECT/u;
 const MUTATION_QUERY_PATTERN = /^\s*(?:INSERT|UPDATE|DELETE)/u;
@@ -154,10 +154,7 @@ const SQL_SELECT_PATTERN = /^\s*SELECT\b/i;
 const TOKEN_FINGERPRINT_PATTERN = /^etfp_v1_[a-f0-9]{32}$/;
 const TOKEN_VALIDATION_HASH_PATTERN = /^sha256:[a-f0-9]{64}$/;
 const PUBLISHED_SERVICE_VERSION =
-  resolveCoreLocalComponentsReleaseManifest()?.components.service.bundleVersion;
-if (!PUBLISHED_SERVICE_VERSION) {
-  throw new Error("Expected the published OpenMeld Service release version.");
-}
+  PUBLISHED_LOCAL_COMPONENTS_MANIFEST.components.service.bundleVersion;
 const buildAcceptedDispatchPayloadFingerprintStorageKey = (
   runtimeCoordinatorExecutionId: string
 ): string =>

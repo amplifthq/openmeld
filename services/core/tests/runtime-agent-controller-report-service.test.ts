@@ -54,6 +54,7 @@ describe("runtime agent controller report service", () => {
 
     await expect(
       acceptRuntimeAgentControllerReport({
+        authFreshnessRequired: true,
         nowMs: 2000,
         report: {
           agentControllerRef: "builtin:codex",
@@ -109,6 +110,7 @@ describe("runtime agent controller report service", () => {
     const reportStore = createInMemoryRuntimeAgentControllerReportStore();
     for (const ageMs of [30_000, 180_000]) {
       const result = await acceptRuntimeAgentControllerReport({
+        authFreshnessRequired: true,
         nowMs,
         report: {
           agentControllerRef: "builtin:codex",
@@ -149,6 +151,7 @@ describe("runtime agent controller report service", () => {
 
     await expect(
       acceptRuntimeAgentControllerReport({
+        authFreshnessRequired: true,
         nowMs: 2000,
         report: {
           agentControllerRef: "builtin:codex",
@@ -179,6 +182,7 @@ describe("runtime agent controller report service", () => {
 
     await expect(
       acceptRuntimeAgentControllerReport({
+        authFreshnessRequired: true,
         nowMs: 2000,
         report: {
           agentControllerRef: "builtin:codex",
@@ -214,6 +218,7 @@ describe("runtime agent controller report service", () => {
 
     await expect(
       acceptRuntimeAgentControllerReport({
+        authFreshnessRequired: true,
         nowMs: 2000,
         report: {
           agentControllerRef: "codex",
@@ -246,6 +251,7 @@ describe("runtime agent controller report service", () => {
 
     await expect(
       acceptRuntimeAgentControllerReport({
+        authFreshnessRequired: true,
         nowMs: 2000,
         report: {
           agentControllerRef: "builtin:claude-code",
@@ -279,6 +285,7 @@ describe("runtime agent controller report service", () => {
 
     await expect(
       acceptRuntimeAgentControllerReport({
+        authFreshnessRequired: true,
         nowMs: 5000,
         report: {
           agentControllerRef: "builtin:codex",
@@ -315,6 +322,7 @@ describe("runtime agent controller report service", () => {
 
     await expect(
       acceptRuntimeAgentControllerReport({
+        authFreshnessRequired: true,
         nowMs: 2000,
         report: {
           agentControllerRef: "builtin:codex",
@@ -352,6 +360,7 @@ describe("runtime agent controller report service", () => {
 
     await expect(
       acceptRuntimeAgentControllerReport({
+        authFreshnessRequired: true,
         nowMs: 2000,
         report: {
           agentControllerRef: "builtin:codex",

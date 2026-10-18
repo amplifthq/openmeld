@@ -17,6 +17,7 @@ import {
 } from "../cloudflare/core-startup-admission.mjs";
 import { buildCoreVersionReleaseStepSpecs } from "../cloudflare/core-version-deployment.mjs";
 import { cutoverConfigArgs } from "./postgresql-cutover-config.mjs";
+import { readPublishedCliRelease } from "./publish-cli.mjs";
 
 const FULL_COMMIT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 
@@ -31,6 +32,7 @@ export async function deployCoreWorker(input = {}) {
         cwd,
         encoding: "utf8",
       }).trim(),
+    readPublishedCliRelease: () => readPublishedCliRelease({ cwd, env }),
     runStartupAdmission: runCoreStartupAdmission,
     runStep: (step) => runStep({ ...step, cwd, env }),
     ...input.adapters,
@@ -45,6 +47,12 @@ export async function deployCoreWorker(input = {}) {
   if (releaseSha !== headSha) {
     throw new Error(
       `Core deploy release SHA ${releaseSha} does not match checked-out HEAD ${headSha}.`
+    );
+  }
+  const release = await adapters.readPublishedCliRelease();
+  if (!release) {
+    throw new Error(
+      "Core reads the CLI release manifest from R2 at runtime and would block every Wake without it. Seed it first: node scripts/release/publish-cli.mjs seed-manifest --from <manifest.json>"
     );
   }
   adapters.runStep({

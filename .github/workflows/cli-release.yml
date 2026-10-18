@@ -1,74 +1,36 @@
 name: 📦 CLI Release
-run-name: ${{ inputs.helper_only && 'Windows Helper' || 'CLI Release' }} @ ${{ inputs.helper_only && github.sha || inputs.release_sha || github.sha }}
+run-name: CLI Release @ ${{ inputs.release_sha }}
 
-permissions:
-  contents: write
-  actions: read
-  checks: read
-  statuses: read
-  pull-requests: read
-  id-token: write
+# Called by deploy.yml for the cli component after its validate job checked
+# the SHA on main's first-parent history. The Windows helper is built in this
+# run beside the macOS checkout; the macOS job packages, signs, notarizes, and
+# publishes with scripts/release/publish-cli.mjs, the same script the local
+# lane runs. Installation checks run after publication.
 
 on:
-  workflow_dispatch:
+  workflow_call:
     inputs:
       release_sha:
-        description: "Optional exact commit to release or recover; leave empty for the dispatched main SHA"
-        required: false
-        type: string
-        default: ""
-      release_path:
-        description: "Use normal unless recovering the same release after a completed stage"
         required: true
-        type: choice
-        default: normal
-        options:
-          - normal
-          - resume-after-binary-upload
-          - resume-after-npm-publish
-      windows_artifact_run_id:
-        description: "Required for publication: trusted main CLI run whose Windows helper bytes were used to stamp this release"
-        required: false
         type: string
-        default: ""
-      helper_only:
-        description: "Build a trusted Windows helper on main without publishing CLI or Core"
+      dry_run:
         required: false
         type: boolean
         default: false
-      production_train_scopes:
-        description: "Comma-separated complete release train; use cli for an independent CLI release"
-        required: true
-        type: string
 
-concurrency:
-  group: cli-production-release
-  queue: max
-  cancel-in-progress: false
+permissions:
+  contents: read
 
 jobs:
-  reject_non_main:
-    name: Reject Invalid CLI Release
-    if: github.ref != 'refs/heads/main' || (!inputs.helper_only && inputs.windows_artifact_run_id == '')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require main and a prepared publication artifact
-        run: |
-          echo "::error::CLI releases require main and windows_artifact_run_id from the stamped helper. Use helper_only to prepare a new helper before stamping."
-          exit 1
-
-  windows_process_artifact:
-    name: Build Windows Process Helper For CLI Package
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      inputs.helper_only
+  windows_helper:
+    name: Build Windows Process Helper
     runs-on: windows-2025
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
-          ref: ${{ inputs.helper_only && github.sha || inputs.release_sha || github.sha }}
+          ref: ${{ inputs.release_sha }}
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v5
         with:
@@ -81,264 +43,52 @@ jobs:
       - run: node scripts/release/build-windows-process-helper.mjs
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-process-${{ inputs.helper_only && github.sha || inputs.release_sha || github.sha }}
+          name: windows-process-${{ inputs.release_sha }}
           path: |
             cli/dist/openmeld-windows-process.exe
             cli/dist/windows-process-artifact.json
           if-no-files-found: error
           retention-days: 7
 
-  npm_artifact:
-    name: Build npm Consumer Artifact
-    outputs:
-      integrity: ${{ steps.pack.outputs.integrity }}
-    if: >-
-      !cancelled() && !inputs.helper_only && github.ref == 'refs/heads/main' &&
-      inputs.windows_artifact_run_id != ''
-    needs: windows_process_artifact
-    runs-on: macos-15
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      actions: read
-    env:
-      RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ env.RELEASE_SHA }}
-          persist-credentials: false
-      - uses: ./.github/actions/setup-node-pnpm
-      - name: Reuse stamped Windows helper
-        env:
-          GH_TOKEN: ${{ github.token }}
-          WINDOWS_ARTIFACT_RUN_ID: ${{ inputs.windows_artifact_run_id }}
-        run: node scripts/release/reuse-windows-process-artifact.mjs
-      - name: Build and pack the release source
-        id: pack
-        run: |
-          pnpm run verify:release-ready -- --force
-          node scripts/release/npm-cli-smoke.mjs pack dev-tmp/npm-consumer/openmeld.tgz
-      - uses: actions/upload-artifact@v4
-        with:
-          name: npm-consumer-${{ env.RELEASE_SHA }}
-          path: dev-tmp/npm-consumer/openmeld.tgz
-          if-no-files-found: error
-          retention-days: 7
-
-  npm_consumer:
-    name: npm Install / Node ${{ matrix.node }} / ${{ matrix.os }}
-    needs: npm_artifact
-    if: ${{ !cancelled() && needs.npm_artifact.result == 'success' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        node: ["22.0.0", "24", "25"]
-        os: [ubuntu-24.04, macos-15, windows-2025]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    env:
-      RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
-      OPENMELD_NPM_ARTIFACT_INTEGRITY: ${{ needs.npm_artifact.outputs.integrity }}
-      OPENMELD_REQUIRE_VERIFIED_NPM_ARTIFACT: "1"
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ env.RELEASE_SHA }}
-          persist-credentials: false
-      - uses: actions/setup-node@v5
-        with:
-          node-version: ${{ matrix.node }}
-          package-manager-cache: false
-      - uses: actions/download-artifact@v4
-        with:
-          name: npm-consumer-${{ env.RELEASE_SHA }}
-          path: ${{ runner.temp }}/npm-consumer
-      - name: Verify native platform and clean npm installation
-        shell: bash
-        env:
-          OPENMELD_NPM_ARTIFACT_PATH: ${{ runner.temp }}/npm-consumer/openmeld.tgz
-        run: |
-          node -e 'const expected = process.platform === "darwin" ? "arm64" : "x64"; if (process.arch !== expected) throw new Error(`Expected ${expected}, got ${process.arch}`)'
-          node scripts/release/npm-cli-smoke.mjs verify "$RUNNER_TEMP/npm-consumer/openmeld.tgz"
-          node --input-type=module -e 'import { prepareNpmCliArtifact } from "./scripts/release/npm-cli-artifact.mjs"; const artifact = await prepareNpmCliArtifact(); console.log(`Publisher handoff verified: ${artifact.integrity}`); artifact.cleanup();'
-      - name: Select Node 20 for the upgrade-message check
-        if: matrix.node == '22.0.0'
-        uses: actions/setup-node@v5
-        with:
-          node-version: "20.19.2"
-          package-manager-cache: false
-      - name: Reject Node 20 before loading dependencies
-        if: matrix.node == '22.0.0'
-        shell: bash
-        run: |
-          node scripts/release/npm-cli-smoke.mjs reject "$RUNNER_TEMP/npm-consumer/openmeld.tgz"
-      - name: Select Node 23 for the upgrade-message check
-        if: matrix.node == '24'
-        uses: actions/setup-node@v5
-        with:
-          node-version: "23.11.1"
-          package-manager-cache: false
-      - name: Reject Node 23 before loading dependencies
-        if: matrix.node == '24'
-        shell: bash
-        run: |
-          node scripts/release/npm-cli-smoke.mjs reject "$RUNNER_TEMP/npm-consumer/openmeld.tgz"
-
-  cli_release:
-    name: Publish CLI And Release Core
-    if: >-
-      !cancelled() && !inputs.helper_only && github.ref == 'refs/heads/main' &&
-      inputs.windows_artifact_run_id != '' && needs.npm_consumer.result == 'success'
-    needs: [windows_process_artifact, npm_artifact, npm_consumer]
+  publish:
+    name: Publish CLI
+    needs: windows_helper
     runs-on: macos-15
     timeout-minutes: 45
-    concurrency:
-      group: deploy-core-worker-production
-      queue: max
-      cancel-in-progress: false
     environment: production
+    concurrency: { group: production-cli, cancel-in-progress: false }
+    permissions:
+      contents: write
+      id-token: write
     env:
-      OPENMELD_PRODUCTION_TRAIN_SCOPES: ${{ inputs.production_train_scopes }}
-      RELEASE_PATH: ${{ inputs.release_path }}
-      RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
-      OPENMELD_NPM_ARTIFACT_INTEGRITY: ${{ needs.npm_artifact.outputs.integrity }}
+      RELEASE_SHA: ${{ inputs.release_sha }}
+      DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+    defaults: { run: { working-directory: release-source } }
     steps:
-      - name: Validate immutable release inputs
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
-            echo "::error::CLI releases must run from main. Current ref: ${GITHUB_REF}"
-            exit 1
-          fi
-          if ! [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::release_sha must be an exact 40-character lowercase commit SHA."
-            exit 1
-          fi
-
-      - name: Checkout current main history for source validation
+      - name: Checkout release control
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-          path: release-control
-          persist-credentials: false
-          ref: ${{ github.sha }}
-
-      - name: Refresh current main with step-scoped read authentication
-        uses: ./release-control/.github/actions/trusted-git-network
-        with:
-          github_token: ${{ github.token }}
-          operation: fetch-main
-          repository: ${{ github.repository }}
-          working_directory: release-control
-
-      - name: Require release SHA from current main first-parent history
-        shell: bash
-        working-directory: release-control
-        run: |
-          set -euo pipefail
-          if ! validation_error="$(node scripts/release/require-mainline-release-sha.mjs \
-            "$RELEASE_SHA" refs/remotes/origin/main 2>&1)"; then
-            echo "::error::$validation_error"
-            exit 1
-          fi
-
-      - name: Checkout release commit
+        with: { path: release-control, persist-credentials: false, ref: "${{ github.sha }}" }
+      - name: Checkout release source
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-          path: release-source
-          persist-credentials: false
-          ref: ${{ env.RELEASE_SHA }}
-
-      - name: Setup repository toolchain
-        uses: ./release-control/.github/actions/setup-node-pnpm
-        with:
-          control_directory: release-control
-          working_directory: release-source
-
-      - name: Download the consumer-verified npm package
+        with: { path: release-source, persist-credentials: false, ref: "${{ inputs.release_sha }}" }
+      - name: Use the Windows helper built for this source
         uses: actions/download-artifact@v4
         with:
-          name: npm-consumer-${{ env.RELEASE_SHA }}
-          path: ${{ runner.temp }}/npm-consumer
-
-      - name: Reuse the stamped Windows process helper
-        env:
-          GH_TOKEN: ${{ github.token }}
-          WINDOWS_ARTIFACT_RUN_ID: ${{ inputs.windows_artifact_run_id }}
-        run: node scripts/release/reuse-windows-process-artifact.mjs
-        working-directory: release-source
-
-      - name: Require production database migrations current
-        env:
-          OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN: ${{ github.token }}
-          OPENMELD_PRODUCTION_LEASE_GITHUB_SERVER_URL: ${{ github.server_url }}
-          OPENMELD_PRODUCTION_LEASE_GITHUB_REPOSITORY: ${{ github.repository }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: node ../release-control/scripts/release/require-production-db-current.mjs --release-source "$PWD" --hosted-cli
-        working-directory: release-source
-
-      - name: Acquire shared CLI publication lease
-        id: cli_scope_lease
-        uses: ./release-control/.github/actions/production-scope-lease
-        with:
-          github_token: ${{ github.token }}
-          operation: acquire
-          owner: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
-          scope: cli
-          source_sha: ${{ env.RELEASE_SHA }}
-          working_directory: release-source
-
-      - name: Acquire shared Core projection lease
-        id: core_scope_lease
-        uses: ./release-control/.github/actions/production-scope-lease
-        with:
-          github_token: ${{ github.token }}
-          operation: acquire
-          owner: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
-          scope: core
-          source_sha: ${{ env.RELEASE_SHA }}
-          working_directory: release-source
-
-      - name: Fetch release tags
-        uses: ./release-control/.github/actions/trusted-git-network
-        with:
-          github_token: ${{ github.token }}
-          operation: fetch-tags
-          repository: ${{ github.repository }}
-          working_directory: release-source
-
+          name: windows-process-${{ inputs.release_sha }}
+          path: release-source/cli/dist
+      - name: Setup toolchain
+        if: inputs.dry_run != true
+        uses: ./release-control/.github/actions/setup-node-pnpm
+        with: { working_directory: release-source }
       - name: Setup Bun
+        if: inputs.dry_run != true
         uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.14
-
+        with: { bun-version: 1.3.14 }
       - name: Setup npm Trusted Publishing client
-        run: |
-          npm install --global npm@11.18.0
-          npm --version
-
-      - name: Build Core release dependencies
-        run: pnpm turbo run build --filter=@openmeld/core...
-        working-directory: release-source
-
-      - name: Configure release tag identity
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        working-directory: release-source
-
-      - name: Publish signed and notarized CLI, binary channel, npm package, tag, and Core
-        shell: bash
+        if: inputs.dry_run != true
+        run: npm install --global npm@11.18.0
+      - name: Build, sign, publish, and check the release
         env:
-          OPENMELD_NPM_ARTIFACT_PATH: ${{ runner.temp }}/npm-consumer/openmeld.tgz
           APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
           APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
           APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
@@ -347,57 +97,47 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          OPENMELD_TRUSTED_GIT_GITHUB_SERVER_URL: ${{ github.server_url }}
-          OPENMELD_TRUSTED_GIT_GITHUB_TOKEN: ${{ github.token }}
-          CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          # npm Trusted Publishing authenticates private repositories through OIDC,
-          # but npm cannot write public Sigstore provenance for a private source repo.
+          GH_TOKEN: ${{ github.token }}
+          # npm Trusted Publishing authenticates this private repository with
+          # OIDC but cannot write public provenance for it.
           NPM_CONFIG_PROVENANCE: "false"
+        run: node ../release-control/scripts/release/deploy-component.mjs cli --sha "$RELEASE_SHA" $DRY_RUN
+
+  npm_consumers:
+    name: npm Install / Node ${{ matrix.node }} / ${{ matrix.os }}
+    needs: publish
+    if: inputs.dry_run != true
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["24"]
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.release_sha }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - name: Install the published package on a clean machine
+        shell: bash
         run: |
           set -euo pipefail
-          case "$RELEASE_PATH" in
-            normal|resume-after-binary-upload|resume-after-npm-publish)
-              node ../release-control/scripts/release/hosted-cli-release.mjs .
-              ;;
-            *)
-              echo "::error::Unknown release path: $RELEASE_PATH"
-              exit 1
-              ;;
-          esac
-        working-directory: release-source
-
-      - name: Preserve a failed Core startup profile
-        if: failure()
-        uses: actions/upload-artifact@v4
+          version="$(node -p 'require("./clients/openmeld-cli/package.json").version')"
+          npm pack "openmeld@${version}" --pack-destination "$RUNNER_TEMP"
+          node scripts/release/npm-cli-smoke.mjs verify "$RUNNER_TEMP/openmeld-${version}.tgz"
+          echo "OPENMELD_PACKAGE=$RUNNER_TEMP/openmeld-${version}.tgz" >> "$GITHUB_ENV"
+      - name: Select Node 20 for the upgrade-message check
+        if: matrix.os == 'ubuntu-24.04'
+        uses: actions/setup-node@v5
         with:
-          name: core-startup-profile-${{ env.RELEASE_SHA }}
-          if-no-files-found: ignore
-          path: release-source/services/core/.wrangler/tmp/startup-profile-*/worker.cpuprofile
-          retention-days: 14
-
-      - name: Verify Core deployment is visible
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: pnpm exec wrangler deployments list --config services/core/wrangler.jsonc --env prod --json > /dev/null
-        working-directory: release-source
-
-      - name: Release shared Core projection lease
-        if: always() && steps.core_scope_lease.outputs.lease_sha != ''
-        uses: ./release-control/.github/actions/production-scope-lease
-        with:
-          github_token: ${{ github.token }}
-          lease_sha: ${{ steps.core_scope_lease.outputs.lease_sha }}
-          operation: release
-          scope: core
-          working_directory: release-source
-
-      - name: Release shared CLI publication lease
-        if: always() && steps.cli_scope_lease.outputs.lease_sha != ''
-        uses: ./release-control/.github/actions/production-scope-lease
-        with:
-          github_token: ${{ github.token }}
-          lease_sha: ${{ steps.cli_scope_lease.outputs.lease_sha }}
-          operation: release
-          scope: cli
-          working_directory: release-source
+          node-version: "20.19.2"
+          package-manager-cache: false
+      - name: Reject Node 20 before loading dependencies
+        if: matrix.os == 'ubuntu-24.04'
+        shell: bash
+        run: node scripts/release/npm-cli-smoke.mjs reject "$OPENMELD_PACKAGE"

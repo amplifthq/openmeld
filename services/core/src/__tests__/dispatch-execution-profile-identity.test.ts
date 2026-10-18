@@ -128,7 +128,10 @@ function useRequiredServiceUpdatePolicy() {
     .mockImplementation((input) =>
       resolveLocalComponentUpdateProjection({
         ...input,
-        releaseManifest: REQUIRED_SERVICE_UPDATE_RELEASE_MANIFEST,
+        release: {
+          manifest: REQUIRED_SERVICE_UPDATE_RELEASE_MANIFEST,
+          availabilityCatalog: null,
+        },
       })
     );
 }

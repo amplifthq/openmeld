@@ -28,7 +28,7 @@ export const COMPONENTS = [
     name: "db",
     paths: ["packages/db/postgresql/migrations/**"],
     dependsOn: [],
-    defaultLane: "local",
+    defaultLane: "github",
     postgresql: true,
     // PostgreSQL has no release marker. Core follows every migration, so its
     // live SHA bounds what the database already received.
@@ -51,7 +51,7 @@ export const COMPONENTS = [
       SHARED,
     ],
     dependsOn: ["db"],
-    defaultLane: "local",
+    defaultLane: "github",
     deploy: pnpmDeploy("@openmeld/auth-worker"),
     health: { kind: "worker-health", url: "https://auth.openmeld.ai/health" },
   },
@@ -65,7 +65,7 @@ export const COMPONENTS = [
       "release/vendor-models.json",
     ],
     dependsOn: ["db", "auth"],
-    defaultLane: "local",
+    defaultLane: "github",
     postgresql: true,
     deploy: (sha) => [
       ["node", "scripts/release/deploy-core-worker.mjs", "--release-sha", sha],

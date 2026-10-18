@@ -1,6 +1,7 @@
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import type { LocalComponentsStatus } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PUBLISHED_LOCAL_COMPONENTS_MANIFEST } from "../../test-support/published-local-components-release";
 import { resolveDaemonExecutionCompatibility } from "../runtime-transport/application/daemon-execution-compatibility";
 import {
   detachSocket,
@@ -105,9 +106,10 @@ const putServiceRuntimeRecord = async (
       ? {}
       : { deliveryDisconnectedAtMs: input.deliveryDisconnectedAtMs ?? null }),
     capabilities: {},
-    executionCompatibility: resolveDaemonExecutionCompatibility({
-      epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-    }),
+    executionCompatibility: resolveDaemonExecutionCompatibility(
+      { epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH },
+      PUBLISHED_LOCAL_COMPONENTS_MANIFEST
+    ),
     localWakeRouteReport: null,
     rejectedProfileRegistrations: [],
     profileLeases: [
@@ -258,6 +260,7 @@ describe("runtime transport session service", () => {
           failPendingDispatchResultWaitersForConnectionGeneration: () =>
             undefined,
           closeSocket: () => undefined,
+          localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
         }
       );
     register(firstSocket, 1000, 1);
@@ -318,9 +321,10 @@ describe("runtime transport session service", () => {
       lastHeartbeatMs: 1000,
       deliveryDisconnectedAtMs: null,
       capabilities: {},
-      executionCompatibility: resolveDaemonExecutionCompatibility({
-        epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-      }),
+      executionCompatibility: resolveDaemonExecutionCompatibility(
+        { epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH },
+        PUBLISHED_LOCAL_COMPONENTS_MANIFEST
+      ),
       profileIds: new Set<string>(),
       localWakeRouteReport: null,
       rejectedProfileRegistrationsByProfileId: new Map(),
@@ -354,6 +358,7 @@ describe("runtime transport session service", () => {
         failPendingDispatchResultWaitersForConnectionGeneration: () =>
           undefined,
         closeSocket: () => undefined,
+        localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
       }
     );
 
@@ -401,6 +406,7 @@ describe("runtime transport session service", () => {
         failPendingDispatchResultWaitersForConnectionGeneration: () =>
           undefined,
         closeSocket: () => undefined,
+        localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
       }
     );
 
@@ -419,6 +425,7 @@ describe("runtime transport session service", () => {
           ownerUserId: "owner-verified",
         },
         {
+          localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
           persistRuntimeRecords: () => undefined,
           cleanupExpiredPendingDispatches: () => undefined,
         }
@@ -444,6 +451,7 @@ describe("runtime transport session service", () => {
           profileId: "agt-verified",
         },
         {
+          localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
           persistRuntimeRecords: () => undefined,
           cleanupExpiredPendingDispatches: () => undefined,
         }
@@ -461,9 +469,10 @@ describe("runtime transport session service", () => {
       vi.setSystemTime(nowMs);
       const state = createRuntimeTransportMutableState();
       state.ownerUserId = "owner-verified";
-      const executionCompatibility = resolveDaemonExecutionCompatibility({
-        epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-      });
+      const executionCompatibility = resolveDaemonExecutionCompatibility(
+        { epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH },
+        PUBLISHED_LOCAL_COMPONENTS_MANIFEST
+      );
 
       state.sessionsById.set("daemon-session-old", {
         ownerUserId: "owner-verified",
@@ -508,6 +517,7 @@ describe("runtime transport session service", () => {
             ownerUserId: "owner-verified",
           },
           {
+            localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
             persistRuntimeRecords: () => undefined,
             cleanupExpiredPendingDispatches: () => undefined,
           }
@@ -532,9 +542,10 @@ describe("runtime transport session service", () => {
     vi.setSystemTime(nowMs);
     const state = createRuntimeTransportMutableState();
     state.ownerUserId = "owner-verified";
-    const executionCompatibility = resolveDaemonExecutionCompatibility({
-      epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-    });
+    const executionCompatibility = resolveDaemonExecutionCompatibility(
+      { epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH },
+      PUBLISHED_LOCAL_COMPONENTS_MANIFEST
+    );
     const baseSession = {
       ownerUserId: "owner-verified",
       deviceId: "device-verified",
@@ -567,6 +578,7 @@ describe("runtime transport session service", () => {
     const dependencies = {
       persistRuntimeRecords: () => undefined,
       cleanupExpiredPendingDispatches: () => undefined,
+      localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
     };
 
     expect(
@@ -608,6 +620,7 @@ describe("runtime transport session service", () => {
       cleanupExpiredPendingDispatches: () => undefined,
       failPendingDispatchResultWaitersForConnectionGeneration: () => undefined,
       closeSocket: () => undefined,
+      localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
     };
     const register = (daemonSessionId: string, deviceId = "device-a") => {
       const webSocket = new FakeSocket() as unknown as WebSocket;
@@ -703,6 +716,7 @@ describe("runtime transport session service", () => {
         failPendingDispatchResultWaitersForConnectionGeneration: () =>
           undefined,
         closeSocket: () => undefined,
+        localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
       };
 
       const register = handleRegisterSession(
@@ -746,6 +760,7 @@ describe("runtime transport session service", () => {
             profileId: "agt-verified",
           },
           {
+            localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
             persistRuntimeRecords: () => undefined,
             cleanupExpiredPendingDispatches: () => undefined,
           }
@@ -762,6 +777,7 @@ describe("runtime transport session service", () => {
             ownerUserId: "owner-verified",
           },
           {
+            localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
             persistRuntimeRecords: () => undefined,
             cleanupExpiredPendingDispatches: () => undefined,
           }
@@ -820,6 +836,7 @@ describe("runtime transport session service", () => {
         failPendingDispatchResultWaitersForConnectionGeneration: () =>
           undefined,
         closeSocket: () => undefined,
+        localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
       }
     );
 
@@ -832,6 +849,7 @@ describe("runtime transport session service", () => {
           profileId: "agt-skipped",
         },
         {
+          localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
           persistRuntimeRecords: () => undefined,
           cleanupExpiredPendingDispatches: () => undefined,
         }
@@ -887,6 +905,7 @@ describe("runtime transport session service", () => {
         failPendingDispatchResultWaitersForConnectionGeneration: () =>
           undefined,
         closeSocket: () => undefined,
+        localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
       }
     );
 
@@ -899,6 +918,7 @@ describe("runtime transport session service", () => {
           profileId: "agt-rejected",
         },
         {
+          localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
           persistRuntimeRecords: () => undefined,
           cleanupExpiredPendingDispatches: () => undefined,
         }
@@ -923,6 +943,7 @@ describe("runtime transport session service", () => {
       recordReapedReadinessProfiles: () => undefined,
       failPendingDispatchResultWaitersForConnectionGeneration: () => undefined,
       closeSocket: () => undefined,
+      localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
     };
 
     const register = handleRegisterSession(
@@ -989,6 +1010,7 @@ describe("runtime transport session service", () => {
       cleanupExpiredPendingDispatches: () => undefined,
       failPendingDispatchResultWaitersForConnectionGeneration: () => undefined,
       closeSocket: () => undefined,
+      localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
     };
 
     const register = handleRegisterSession(
@@ -1108,6 +1130,7 @@ describe("runtime transport session service", () => {
       cleanupExpiredPendingDispatches: () => undefined,
       failPendingDispatchResultWaitersForConnectionGeneration: () => undefined,
       closeSocket: () => undefined,
+      localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
     };
 
     const register = handleRegisterSession(
@@ -1203,6 +1226,7 @@ describe("runtime transport session service", () => {
       cleanupExpiredPendingDispatches: () => undefined,
       failPendingDispatchResultWaitersForConnectionGeneration: () => undefined,
       closeSocket: () => undefined,
+      localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
     };
 
     const register = handleRegisterSession(
@@ -1263,6 +1287,7 @@ describe("runtime transport session service", () => {
           profileId: "agt-verified",
         },
         {
+          localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
           persistRuntimeRecords: () => undefined,
           cleanupExpiredPendingDispatches: () => undefined,
         }
@@ -1279,6 +1304,7 @@ describe("runtime transport session service", () => {
           ownerUserId: "owner-verified",
         },
         {
+          localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
           persistRuntimeRecords: () => undefined,
           cleanupExpiredPendingDispatches: () => undefined,
         }
@@ -1356,6 +1382,7 @@ describe("runtime transport session service", () => {
           profileId: "agt-verified",
         },
         {
+          localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
           persistRuntimeRecords: () => undefined,
           cleanupExpiredPendingDispatches: () => undefined,
         }
@@ -1372,6 +1399,7 @@ describe("runtime transport session service", () => {
           ownerUserId: "owner-verified",
         },
         {
+          localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
           persistRuntimeRecords: () => undefined,
           cleanupExpiredPendingDispatches: () => undefined,
         }
@@ -1402,6 +1430,7 @@ describe("runtime transport session service", () => {
       cleanupExpiredPendingDispatches: () => undefined,
       failPendingDispatchResultWaitersForConnectionGeneration: () => undefined,
       closeSocket: () => undefined,
+      localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
     };
 
     handleRegisterSession(
@@ -1454,6 +1483,7 @@ describe("runtime transport session service", () => {
           profileId: "agt-verified",
         },
         {
+          localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
           persistRuntimeRecords: () => undefined,
           cleanupExpiredPendingDispatches: () => undefined,
         }
@@ -1478,6 +1508,7 @@ describe("runtime transport session service", () => {
       cleanupExpiredPendingDispatches: () => undefined,
       failPendingDispatchResultWaitersForConnectionGeneration: () => undefined,
       closeSocket: () => undefined,
+      localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
     };
     handleRegisterSession(
       state,
@@ -1558,9 +1589,10 @@ describe("runtime transport session service", () => {
       lastHeartbeatMs: Date.now(),
       deliveryDisconnectedAtMs: null,
       capabilities: {},
-      executionCompatibility: resolveDaemonExecutionCompatibility({
-        epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-      }),
+      executionCompatibility: resolveDaemonExecutionCompatibility(
+        { epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH },
+        PUBLISHED_LOCAL_COMPONENTS_MANIFEST
+      ),
       profileIds: new Set<string>(),
       localWakeRouteReport: null,
       rejectedProfileRegistrationsByProfileId: new Map(),
@@ -1597,9 +1629,10 @@ describe("runtime transport session service", () => {
       lastHeartbeatMs: Date.now(),
       deliveryDisconnectedAtMs: Date.now() - 1000,
       capabilities: {},
-      executionCompatibility: resolveDaemonExecutionCompatibility({
-        epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-      }),
+      executionCompatibility: resolveDaemonExecutionCompatibility(
+        { epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH },
+        PUBLISHED_LOCAL_COMPONENTS_MANIFEST
+      ),
       profileIds: new Set<string>(),
       localWakeRouteReport: null,
       rejectedProfileRegistrationsByProfileId: new Map(),
@@ -1667,9 +1700,10 @@ describe("runtime transport session service", () => {
       lastHeartbeatMs: 1000,
       deliveryDisconnectedAtMs: null,
       capabilities: {},
-      executionCompatibility: resolveDaemonExecutionCompatibility({
-        epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-      }),
+      executionCompatibility: resolveDaemonExecutionCompatibility(
+        { epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH },
+        PUBLISHED_LOCAL_COMPONENTS_MANIFEST
+      ),
       profileIds: new Set<string>(["agt-expired"]),
       localWakeRouteReport: null,
       rejectedProfileRegistrationsByProfileId: new Map(),
@@ -1683,9 +1717,10 @@ describe("runtime transport session service", () => {
       leaseEpoch: 1,
       lastHeartbeatMs: 1000,
       capabilities: {},
-      executionCompatibility: resolveDaemonExecutionCompatibility({
-        epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-      }),
+      executionCompatibility: resolveDaemonExecutionCompatibility(
+        { epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH },
+        PUBLISHED_LOCAL_COMPONENTS_MANIFEST
+      ),
     });
     state.sessionsById.set("daemon-session-report-only", {
       ownerUserId: "owner-lease",
@@ -1697,9 +1732,10 @@ describe("runtime transport session service", () => {
       lastHeartbeatMs: 1000,
       deliveryDisconnectedAtMs: null,
       capabilities: {},
-      executionCompatibility: resolveDaemonExecutionCompatibility({
-        epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-      }),
+      executionCompatibility: resolveDaemonExecutionCompatibility(
+        { epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH },
+        PUBLISHED_LOCAL_COMPONENTS_MANIFEST
+      ),
       profileIds: new Set<string>(),
       localWakeRouteReport: {
         daemonSessionId: "daemon-session-report-only",
@@ -1760,6 +1796,7 @@ describe("runtime transport session service", () => {
     const socket = new FakeSocket() as unknown as WebSocket;
     const deps = {
       closeSocket: () => undefined,
+      localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
       persistRuntimeRecords: () => undefined,
       cleanupExpiredPendingDispatches: () => undefined,
       failPendingDispatchResultWaitersForConnectionGeneration: () => undefined,
@@ -1855,6 +1892,7 @@ describe("runtime transport session service", () => {
     const socket = new FakeSocket() as unknown as WebSocket;
     const deps = {
       closeSocket: () => undefined,
+      localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
       persistRuntimeRecords: () => undefined,
       cleanupExpiredPendingDispatches: () => undefined,
       failPendingDispatchResultWaitersForConnectionGeneration: () => undefined,
@@ -1941,6 +1979,7 @@ describe("runtime transport session service", () => {
     } as unknown as DurableObjectState;
     const deps = {
       closeSocket: () => undefined,
+      localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
       persistRuntimeRecords: () => undefined,
       cleanupExpiredPendingDispatches: () => undefined,
       failPendingDispatchResultWaitersForConnectionGeneration: () => undefined,
@@ -1998,6 +2037,7 @@ describe("runtime transport session service", () => {
     } as unknown as DurableObjectState;
     const deps = {
       closeSocket: () => undefined,
+      localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
       persistRuntimeRecords: () => undefined,
       cleanupExpiredPendingDispatches: () => undefined,
       failPendingDispatchResultWaitersForConnectionGeneration: () => undefined,
@@ -2057,6 +2097,7 @@ describe("runtime transport session service", () => {
     } as unknown as DurableObjectState;
     const deps = {
       closeSocket: () => undefined,
+      localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
       persistRuntimeRecords: () => undefined,
       cleanupExpiredPendingDispatches: () => undefined,
       failPendingDispatchResultWaitersForConnectionGeneration: () => undefined,

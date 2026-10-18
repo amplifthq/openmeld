@@ -46,6 +46,7 @@ describe("prepare readiness Core RPC read", () => {
         },
       });
       await acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs,
         report: {

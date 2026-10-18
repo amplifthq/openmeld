@@ -130,13 +130,15 @@ export function orderComponents(names) {
 
 // Consecutive components on the same lane form one segment; segments run in
 // order so a GitHub component never starts before a local dependency ends.
-export function planLaneSegments(names, lane) {
+export function planLaneSegments(
+  names,
+  lane,
+  defaultLaneOf = (name) =>
+    COMPONENTS.find((entry) => entry.name === name).defaultLane
+) {
   const segments = [];
   for (const name of names) {
-    const componentLane =
-      lane === "auto"
-        ? COMPONENTS.find((entry) => entry.name === name).defaultLane
-        : lane;
+    const componentLane = lane === "auto" ? defaultLaneOf(name) : lane;
     const last = segments.at(-1);
     if (last?.lane === componentLane) {
       last.components.push(name);

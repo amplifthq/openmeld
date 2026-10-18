@@ -94,6 +94,7 @@ describe("runtime agent controller report repo write-side", () => {
 
     await expect(
       acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: 2000,
         report: {
@@ -161,11 +162,13 @@ describe("runtime agent controller report repo write-side", () => {
       status: "ready" as const,
     };
     await acceptRuntimeAgentControllerReportRecord({
+      authFreshnessRequired: true,
       db: harness.db,
       nowMs: 2000,
       report,
     });
     const repeated = await acceptRuntimeAgentControllerReportRecord({
+      authFreshnessRequired: true,
       db: harness.db,
       nowMs: 3000,
       report: { ...report, observedAtMs: 2000, expiresAtMs: 6000 },
@@ -182,6 +185,7 @@ describe("runtime agent controller report repo write-side", () => {
       })
     ).toMatchObject({ expiresAtMs: 5000 });
     const refreshed = await acceptRuntimeAgentControllerReportRecord({
+      authFreshnessRequired: true,
       db: harness.db,
       nowMs: 4000,
       report: {
@@ -209,6 +213,7 @@ describe("runtime agent controller report repo write-side", () => {
 
     await expect(
       acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: 2000,
         report: {
@@ -255,6 +260,7 @@ describe("runtime agent controller report repo write-side", () => {
       },
     });
     await acceptRuntimeAgentControllerReportRecord({
+      authFreshnessRequired: true,
       db: harness.db,
       nowMs: 2000,
       report,
@@ -262,6 +268,7 @@ describe("runtime agent controller report repo write-side", () => {
 
     await expect(
       acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: 2500,
         report,
@@ -308,6 +315,7 @@ describe("runtime agent controller report repo write-side", () => {
       },
     });
     await acceptRuntimeAgentControllerReportRecord({
+      authFreshnessRequired: true,
       db: harness.db,
       nowMs: 5000,
       report: currentReport,
@@ -315,6 +323,7 @@ describe("runtime agent controller report repo write-side", () => {
 
     await expect(
       acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: 5500,
         report: olderReport,
@@ -361,6 +370,7 @@ describe("runtime agent controller report repo write-side", () => {
       },
     });
     await acceptRuntimeAgentControllerReportRecord({
+      authFreshnessRequired: true,
       db: harness.db,
       nowMs: 5000,
       report: currentReport,
@@ -368,6 +378,7 @@ describe("runtime agent controller report repo write-side", () => {
 
     await expect(
       acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: 5500,
         report: conflictingReport,
@@ -415,6 +426,7 @@ describe("runtime agent controller report repo write-side", () => {
 
     await expect(
       acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: 2000,
         report,
@@ -482,11 +494,13 @@ describe("runtime agent controller report repo write-side", () => {
 
     const results = await Promise.all([
       acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: 2000,
         report,
       }),
       acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: 2001,
         report,
@@ -541,11 +555,13 @@ describe("runtime agent controller report repo write-side", () => {
 
     const results = await Promise.all([
       acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: 2000,
         report: olderReport,
       }),
       acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: 4000,
         report: newerReport,
@@ -611,11 +627,13 @@ describe("runtime agent controller report repo write-side", () => {
 
     const results = await Promise.all([
       acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: 2000,
         report: readyReport,
       }),
       acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: 2001,
         report: disabledReport,
@@ -676,6 +694,7 @@ describe("runtime agent controller report repo write-side", () => {
       },
     });
     await acceptRuntimeAgentControllerReportRecord({
+      authFreshnessRequired: true,
       db: harness.db,
       nowMs: 2000,
       report: firstReport,
@@ -683,6 +702,7 @@ describe("runtime agent controller report repo write-side", () => {
 
     await expect(
       acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: 4000,
         report: newerReport,
@@ -723,6 +743,7 @@ describe("runtime agent controller report repo write-side", () => {
 
     await expect(
       acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: 5000,
         report: {

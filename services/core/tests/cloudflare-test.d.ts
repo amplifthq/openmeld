@@ -10,6 +10,7 @@ declare module "cloudflare:test" {
     >;
     OPENMELD_SPACE_ATTACHMENTS: R2Bucket;
     OPENMELD_ORGANIZATION_SKILLS: R2Bucket;
+    OPENMELD_CLI_RELEASES: R2Bucket;
     OPENMELD_SPACES: unknown;
     OPENMELD_FILE_ROOTS: DurableObjectNamespace<
       import("../src/files/organization-file-root").OrganizationFileRoot

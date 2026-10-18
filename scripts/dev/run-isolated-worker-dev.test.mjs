@@ -123,7 +123,16 @@ test("starts Auth and Core on the isolated lane with shared persistence", () => 
     service: "auth",
   });
 
-  assert.deepEqual(plan.preCommands, []);
+  assert.deepEqual(plan.preCommands, [
+    {
+      args: [
+        fileURLToPath(new URL("./seed-local-cli-release.mjs", import.meta.url)),
+        "--persist-to",
+        ISOLATED_ENV.OPENMELD_DEV_WRANGLER_STATE_DIR,
+      ],
+      command: process.execPath,
+    },
+  ]);
   assert.equal(plan.command, "pnpm");
   assert.deepEqual(plan.args, [
     "exec",

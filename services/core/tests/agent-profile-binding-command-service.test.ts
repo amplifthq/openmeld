@@ -6,8 +6,7 @@ import {
 } from "@openmeld/agent-runtime";
 import { modelCatalogSchema } from "@openmeld/schemas";
 import type { ModelCatalog } from "@openmeld/schemas/types";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import publishedManifest from "../../../release/local-components.json";
+import { describe, expect, it } from "vitest";
 import {
   type AgentProfileBindingCommandStore,
   AgentProfileBindingModelSelectionValidationError,
@@ -20,6 +19,7 @@ import {
 } from "../src/agent-profile-binding/application/agent-profile-binding-command-service";
 import { readModelCatalog } from "../src/config/model-catalog";
 import type { RuntimeLookupStore } from "../src/runtime-registry/application/runtime-lookup-service";
+import { PUBLISHED_LOCAL_COMPONENTS_MANIFEST } from "../test-support/published-local-components-release";
 import { readAvailableModelIds } from "./test-support/model-catalog.test-support";
 
 const OWNER = {
@@ -32,20 +32,19 @@ const OTHER_OWNER = {
 } as const;
 
 describe("Agent Profile Binding command service", () => {
-  afterEach(() => vi.unstubAllGlobals());
-
-  it("does not persist new permission values during the receiver-only rollout", async () => {
-    const receiverManifest = structuredClone(publishedManifest);
+  it("does not persist new permission values before the matching Service is published", async () => {
+    const receiverManifest = structuredClone(
+      PUBLISHED_LOCAL_COMPONENTS_MANIFEST
+    );
     receiverManifest.components.service.runtimeContractEpoch =
       "runtime-transport-epoch-2026-09-image-geometry";
-    vi.stubGlobal(
-      "OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON",
-      JSON.stringify(receiverManifest)
-    );
     const bindingStore = createInMemoryBindingStore();
-    const command = createValidCommandInput({
-      agentControllerRef: "builtin:antigravity",
-    });
+    const command = {
+      ...createValidCommandInput({
+        agentControllerRef: "builtin:antigravity",
+      }),
+      localComponentsManifest: receiverManifest,
+    };
     await expect(
       ensurePrimaryAgentProfileBinding({
         ...command,
@@ -57,6 +56,7 @@ describe("Agent Profile Binding command service", () => {
     await ensurePrimaryAgentProfileBinding({ ...command, bindingStore });
     await expect(
       updatePrimaryAgentProfileBindingAgentControllerPermissionMode({
+        localComponentsManifest: receiverManifest,
         agentProfileId: "agent-profile-1",
         agentControllerPermissionMode: "antigravity:plan",
         bindingStore,
@@ -79,6 +79,7 @@ describe("Agent Profile Binding command service", () => {
 
     await expect(
       ensurePrimaryAgentProfileBinding({
+        localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
         agentProfileId: "agent-profile-1",
         bindingStore,
         agentControllerRef: "builtin:codex",
@@ -351,6 +352,7 @@ describe("Agent Profile Binding command service", () => {
 
     await expect(
       updatePrimaryAgentProfileBindingAgentControllerPermissionMode({
+        localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
         agentProfileId: "agent-profile-1",
         agentControllerPermissionMode: "unsupported",
         bindingStore,
@@ -392,6 +394,7 @@ describe("Agent Profile Binding command service", () => {
 
     await expect(
       updatePrimaryAgentProfileBindingAgentControllerPermissionMode({
+        localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
         agentProfileId: "agent-profile-1",
         agentControllerPermissionMode: "codex:fullAccess",
         bindingStore,
@@ -432,6 +435,7 @@ describe("Agent Profile Binding command service", () => {
 
     await expect(
       updatePrimaryAgentProfileBindingAgentControllerPermissionMode({
+        localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
         agentProfileId: "agent-profile-1",
         agentControllerPermissionMode: "codex:fullAccess",
         bindingStore,
@@ -1566,6 +1570,7 @@ function createValidCommandInput(input?: {
     });
   return {
     agentProfileId: "agent-profile-1",
+    localComponentsManifest: PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
     bindingStore: createInMemoryBindingStore(),
     agentControllerRef,
     createBindingId: () => "binding_opaque_1",

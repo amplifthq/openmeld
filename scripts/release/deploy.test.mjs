@@ -97,9 +97,17 @@ test("expands explicit scopes and rejects unknown components", () => {
 
 test("splits lanes into ordered segments so GitHub work waits for local dependencies", () => {
   assert.deepEqual(planLaneSegments(["db", "core", "gateway", "web"], "auto"), [
-    { lane: "local", components: ["db", "core"] },
-    { lane: "github", components: ["gateway", "web"] },
+    { lane: "github", components: ["db", "core", "gateway", "web"] },
   ]);
+  const localDatabase = (name) =>
+    ["db", "core"].includes(name) ? "local" : "github";
+  assert.deepEqual(
+    planLaneSegments(["db", "core", "gateway", "web"], "auto", localDatabase),
+    [
+      { lane: "local", components: ["db", "core"] },
+      { lane: "github", components: ["gateway", "web"] },
+    ]
+  );
   assert.deepEqual(planLaneSegments(["core", "gateway"], "local"), [
     { lane: "local", components: ["core", "gateway"] },
   ]);

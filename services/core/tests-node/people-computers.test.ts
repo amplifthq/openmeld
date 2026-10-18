@@ -14,6 +14,7 @@ import {
   projectPeopleComputers,
   resolvePeopleComputerTarget,
 } from "../src/people-computers/projection";
+import { createPublishedLocalComponentsRelease } from "../test-support/published-local-components-release";
 
 const compatible = {
   status: "compatible",
@@ -129,6 +130,7 @@ describe("PeopleComputers authority", () => {
   it("does not merge same-name devices or infer a browser's current computer", () => {
     const response = peopleComputersResponseSchema.parse(
       projectPeopleComputers({
+        localComponentsRelease: createPublishedLocalComponentsRelease(),
         generatedAt: "2026-09-07T00:00:00.000Z",
         inventory: inventory(),
         ownerService: { online: true, sessions: [live("new-device")] },
@@ -150,6 +152,7 @@ describe("PeopleComputers authority", () => {
       connectionStatus: "connected",
     };
     const response = projectPeopleComputers({
+      localComponentsRelease: createPublishedLocalComponentsRelease(),
       generatedAt: "2026-09-07T00:00:00.000Z",
       inventory: source,
       ownerService: { online: true, sessions: [live("new-device")] },
@@ -167,12 +170,14 @@ describe("PeopleComputers authority", () => {
   it("does not translate lookup failure or transport restart into disconnection", () => {
     expect(
       projectPeopleComputerConnection({
+        localComponentsRelease: createPublishedLocalComponentsRelease(),
         deviceIds: ["new-device"],
         ownerService: null,
       }).status
     ).toBe("unknown");
     expect(
       projectPeopleComputerConnection({
+        localComponentsRelease: createPublishedLocalComponentsRelease(),
         deviceIds: ["new-device"],
         ownerService: {
           online: false,
@@ -182,6 +187,7 @@ describe("PeopleComputers authority", () => {
     ).toBe("unknown");
     expect(
       projectPeopleComputerConnection({
+        localComponentsRelease: createPublishedLocalComponentsRelease(),
         deviceIds: ["new-device"],
         ownerService: { online: false, reasonCode: "daemon.session.not_found" },
       }).status
@@ -190,6 +196,7 @@ describe("PeopleComputers authority", () => {
 
   it("retains only the transport-authoritative current session for a device/lane", () => {
     const result = projectPeopleComputerConnection({
+      localComponentsRelease: createPublishedLocalComponentsRelease(),
       deviceIds: ["new-device"],
       ownerService: {
         online: true,

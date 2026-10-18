@@ -22,6 +22,7 @@ import type {
   AgentControllerPermissionMode,
   AgentProfileBindingWriteMode,
   GatewayErrorCode,
+  LocalComponentsReleaseManifest,
   ModelCatalog,
   OpenCodePermissionConfig,
 } from "@openmeld/schemas/types";
@@ -297,6 +298,8 @@ type OpenCodePermissionPatchResolution =
 
 export async function ensurePrimaryAgentProfileBinding(input: {
   agentProfileId: string;
+  // Published release; gates writes the released Service cannot honor.
+  localComponentsManifest: LocalComponentsReleaseManifest | null;
   bindingStore: AgentProfileBindingCommandStore;
   agentControllerConversationId?: string | null;
   agentControllerRef: string;
@@ -402,6 +405,7 @@ export async function ensurePrimaryAgentProfileBinding(input: {
     reasoningLevel: requestedSettings.reasoningLevel,
   });
   const agentControllerModePatches = resolveAgentControllerModePatches({
+    localComponentsManifest: input.localComponentsManifest,
     agentControllerCollaborationMode:
       requestedSettings.agentControllerCollaborationMode,
     agentControllerRef: localEvidence.agentControllerRef,
@@ -532,6 +536,7 @@ function resolveBindingControllerSettings(input: {
 
 export async function updatePrimaryAgentProfileBindingAgentControllerPermissionMode(input: {
   agentProfileId: string;
+  localComponentsManifest: LocalComponentsReleaseManifest | null;
   agentControllerPermissionMode: string;
   bindingStore: AgentProfileBindingCommandStore;
   nowMs: number;
@@ -563,6 +568,7 @@ export async function updatePrimaryAgentProfileBindingAgentControllerPermissionM
 
   const agentControllerPermissionModePatch =
     resolveAgentControllerPermissionModePatch({
+      localComponentsManifest: input.localComponentsManifest,
       agentControllerPermissionMode: input.agentControllerPermissionMode,
       agentControllerRef: currentBinding.agentControllerRef,
     });
@@ -827,6 +833,7 @@ function resolveModelSelectionPatch(input: {
 }
 
 function resolveAgentControllerModePatches(input: {
+  localComponentsManifest: LocalComponentsReleaseManifest | null;
   agentControllerCollaborationMode?: string | null;
   agentControllerPermissionMode?: string | null;
   agentControllerRef: string;
@@ -899,6 +906,7 @@ function resolveAgentControllerCollaborationModePatch(input: {
 }
 
 function resolveAgentControllerPermissionModePatch(input: {
+  localComponentsManifest: LocalComponentsReleaseManifest | null;
   agentControllerPermissionMode?: string | null;
   agentControllerRef: string;
 }): AgentControllerPermissionModePatchResolution {
@@ -926,7 +934,10 @@ function resolveAgentControllerPermissionModePatch(input: {
       status: "rejected",
     };
   }
-  assertAgentControllerPermissionModeReleased(parsed.data);
+  assertAgentControllerPermissionModeReleased(
+    parsed.data,
+    input.localComponentsManifest
+  );
   return {
     patch: {
       agentControllerPermissionMode: parsed.data,

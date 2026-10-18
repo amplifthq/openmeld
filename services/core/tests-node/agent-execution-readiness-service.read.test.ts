@@ -6,7 +6,6 @@ import {
 import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
-import publishedManifest from "../../../release/local-components.json";
 import { createAgentExecutionReadinessReads } from "../src/agent-execution/application/agent-execution-readiness-reads";
 import { resolveCoreAgentExecutionReadinessForProfile } from "../src/agent-execution/application/agent-execution-readiness-service";
 import { writeAcceptedAgentExecutionReadinessImpact } from "../src/agent-execution/infrastructure/postgresql/agent-execution-readiness-impact-repo";
@@ -15,6 +14,10 @@ import { ensurePrimaryAgentProfileBindingRecord } from "../src/agent-profile-bin
 import type { CoreBindings } from "../src/lib/bindings";
 import { acceptRuntimeAgentControllerReportRecord } from "../src/runtime-registry/infrastructure/postgresql/runtime-agent-controller-report-repo";
 import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/postgresql/runtime-registry-repo";
+import {
+  createPublishedCliReleasesBucket,
+  PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
+} from "../test-support/published-local-components-release";
 import { createAvailableCodexAgentControllerInterface } from "./helpers/agent-controller-interface.test-support";
 import {
   createPostgresHarness,
@@ -31,7 +34,7 @@ const AVAILABLE_CODEX_AGENT_CONTROLLER_INTERFACE =
 // Read-model scenarios use the matching supported release; outdated-Service
 // behavior is covered separately by the local-component update tests.
 const CURRENT_SERVICE_VERSION =
-  publishedManifest.components.service.bundleVersion;
+  PUBLISHED_LOCAL_COMPONENTS_MANIFEST.components.service.bundleVersion;
 const COMPATIBLE_DAEMON_EXECUTION_CONTRACT = {
   expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
@@ -66,6 +69,7 @@ describe("agent execution readiness service PostgreSQL read model", () => {
         },
       });
       await acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: GENERATED_AT_MS,
         report: {
@@ -165,6 +169,7 @@ describe("agent execution readiness service PostgreSQL read model", () => {
         },
       });
       await acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: GENERATED_AT_MS,
         report: {
@@ -283,6 +288,7 @@ describe("agent execution readiness service PostgreSQL read model", () => {
         },
       });
       await acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: GENERATED_AT_MS,
         report: {
@@ -381,6 +387,7 @@ describe("agent execution readiness service PostgreSQL read model", () => {
         },
       });
       await acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: GENERATED_AT_MS,
         report: {
@@ -490,6 +497,7 @@ describe("agent execution readiness service PostgreSQL read model", () => {
         },
       });
       await acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: GENERATED_AT_MS,
         report: {
@@ -611,6 +619,7 @@ describe("agent execution readiness service PostgreSQL read model", () => {
         },
       });
       await acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: GENERATED_AT_MS,
         report: {
@@ -704,6 +713,7 @@ describe("agent execution readiness service PostgreSQL read model", () => {
         },
       });
       await acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: GENERATED_AT_MS,
         report: {
@@ -998,6 +1008,7 @@ function createReadinessEnv(input: {
       workingFolderBindingId: input.workingFolderBindingId,
     }),
     OPENMELD_POSTGRESQL: postgresTestBinding(input.db),
+    OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
   } as unknown as CoreBindings;
 }
 

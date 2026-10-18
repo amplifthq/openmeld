@@ -4,6 +4,7 @@
 // record of "what is deployed" exists.
 
 import { execFileSync } from "node:child_process";
+import { readNpmVersion } from "./npm-registry.mjs";
 
 const FULL_SHA = /^[0-9a-f]{40}$/u;
 const SOURCE_META =
@@ -80,15 +81,15 @@ export async function readWorkerVersionSha(
   return exact(binding?.text);
 }
 
-export function readNpmGitHead(version, run = execFileSync) {
-  const spec = version ? `openmeld@${version}` : "openmeld";
-  try {
-    return exact(
-      run("npm", ["view", spec, "gitHead"], { encoding: "utf8" }).trim()
-    );
-  } catch {
-    return null;
-  }
+export function readNpmGitHead(version) {
+  const latest = version ?? readNpmLatestVersion();
+  return latest ? (readNpmVersion(latest)?.gitHead ?? null) : null;
+}
+
+function readNpmLatestVersion() {
+  return execFileSync("npm", ["view", "openmeld", "version"], {
+    encoding: "utf8",
+  }).trim();
 }
 
 export function readLiveReleaseSha(component, components, options = {}) {

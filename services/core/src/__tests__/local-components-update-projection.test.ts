@@ -1,4 +1,5 @@
 import type {
+  LocalComponentsAvailabilityCatalog,
   LocalComponentsReleaseManifest,
   LocalComponentsStatus,
 } from "@openmeld/schemas/types";
@@ -7,6 +8,24 @@ import {
   isServiceAuthFreshnessRequired,
   resolveLocalComponentUpdateProjection,
 } from "../local-components/update-projection";
+
+// Core reads the published release from R2; these cases state it inline.
+function projectWithPublishedRelease({
+  releaseManifest,
+  availabilityCatalog = null,
+  ...input
+}: Omit<
+  Parameters<typeof resolveLocalComponentUpdateProjection>[0],
+  "release"
+> & {
+  releaseManifest: LocalComponentsReleaseManifest | null;
+  availabilityCatalog?: LocalComponentsAvailabilityCatalog | null;
+}) {
+  return resolveLocalComponentUpdateProjection({
+    ...input,
+    release: { manifest: releaseManifest, availabilityCatalog },
+  });
+}
 
 describe("local component update projection", () => {
   it.each([
@@ -17,7 +36,7 @@ describe("local component update projection", () => {
     const manifest = createReleaseManifest({});
     manifest.components.service.bundleVersion = version;
     expect(isServiceAuthFreshnessRequired(manifest)).toBe(active);
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       generatedAt: "2026-10-16T00:00:00.000Z",
       releaseManifest: manifest,
       serviceConnected: true,
@@ -29,7 +48,7 @@ describe("local component update projection", () => {
     "restored",
     "needs_help",
   ] as const)("projects only the first allowlisted Service CLI update failure reason for %s", (phase) => {
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       generatedAt: "2026-09-14T00:00:00.000Z",
       localComponentsStatus: createLocalComponentsStatus({
         cliPackageVersion: "0.7.27",
@@ -54,7 +73,7 @@ describe("local component update projection", () => {
   });
 
   it("keeps a healthy Service Wake-ready after a historical update failure", () => {
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       generatedAt: "2026-09-14T00:00:00.000Z",
       localComponentsStatus: createLocalComponentsStatus({
         cliReasonCodes: ["cli.update.download_stalled"],
@@ -80,7 +99,7 @@ describe("local component update projection", () => {
   });
 
   it("drops Service CLI update failure reasons without an update operation", () => {
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       generatedAt: "2026-09-14T00:00:00.000Z",
       localComponentsStatus: createLocalComponentsStatus({
         cliPackageVersion: "0.7.27",
@@ -101,7 +120,7 @@ describe("local component update projection", () => {
     "updating",
     "updated",
   ] as const)("drops Service CLI update failure reasons while the operation is %s", (phase) => {
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       generatedAt: "2026-09-14T00:00:00.000Z",
       localComponentsStatus: createLocalComponentsStatus({
         cliReasonCodes: ["cli.update.download_stalled"],
@@ -117,7 +136,7 @@ describe("local component update projection", () => {
   });
 
   it("does not describe unknown installed versions as up to date and preserves the command lane", () => {
-    const result = resolveLocalComponentUpdateProjection({
+    const result = projectWithPublishedRelease({
       generatedAt: "2026-09-07T00:00:00.000Z",
       runtimeLane: "canary",
       releaseManifest: createReleaseManifest({}),
@@ -139,7 +158,7 @@ describe("local component update projection", () => {
       revision: 1,
       minimumCliVersion: "0.3.159",
     };
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       generatedAt: "2026-09-05T00:00:00.000Z",
       localComponentsStatus: status,
       releaseManifest: createReleaseManifest({
@@ -171,7 +190,7 @@ describe("local component update projection", () => {
       if (fault === "contract") {
         status.skills.skillContractVersion = "unsupported";
       }
-      const projection = resolveLocalComponentUpdateProjection({
+      const projection = projectWithPublishedRelease({
         generatedAt: "2026-09-05T00:00:00.000Z",
         localComponentsStatus: status,
         releaseManifest: createReleaseManifest({
@@ -184,7 +203,7 @@ describe("local component update projection", () => {
     }
   });
   it("keeps advisory Service updates from blocking Wake work", () => {
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       localComponentsStatus: createNpmStatusForServiceVersion("0.7.27"),
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
@@ -212,7 +231,7 @@ describe("local component update projection", () => {
   });
 
   it("preserves the Service-owned update operation while the required floor blocks new Wakes", () => {
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       generatedAt: "2026-06-04T00:00:00.000Z",
       localComponentsStatus: createLocalComponentsStatus({
         includeUpdateOperation: true,
@@ -249,7 +268,7 @@ describe("local component update projection", () => {
   });
 
   it("does not show an old completed update when a newer update is available", () => {
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       generatedAt: "2026-06-04T00:00:00.000Z",
       localComponentsStatus: createLocalComponentsStatus({
         includeCompletedUpdateOperation: true,
@@ -267,7 +286,7 @@ describe("local component update projection", () => {
   });
 
   it("passes the computer's automatic update setting through unchanged", () => {
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       generatedAt: "2026-06-04T00:00:00.000Z",
       localComponentsStatus: createLocalComponentsStatus({
         automaticUpdatesEnabled: false,
@@ -439,7 +458,7 @@ describe("local component update projection", () => {
     updatePolicy,
     wakeBlocked,
   }) => {
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       localComponentsStatus: createNpmStatusForServiceVersion(installedVersion),
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
@@ -470,7 +489,7 @@ describe("local component update projection", () => {
     installedVersion,
     reasonCode,
   }) => {
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       localComponentsStatus: createNpmStatusForServiceVersion(installedVersion),
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
@@ -496,7 +515,7 @@ describe("local component update projection", () => {
   });
 
   it("fails closed when a connected Service cannot prove the minimum version", () => {
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       localComponentsStatus: createNpmStatusForServiceVersion(null),
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
@@ -520,7 +539,7 @@ describe("local component update projection", () => {
   });
 
   it("fails closed when a connected Service reports a non-SemVer version", () => {
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       localComponentsStatus: createNpmStatusForServiceVersion("unknown"),
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
@@ -543,7 +562,7 @@ describe("local component update projection", () => {
   });
 
   it("keeps a prerelease Service below the stable minimum version", () => {
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       localComponentsStatus:
         createNpmStatusForServiceVersion("0.3.126-alpha.1"),
       generatedAt: "2026-06-04T00:00:00.000Z",
@@ -567,7 +586,7 @@ describe("local component update projection", () => {
   });
 
   it("blocks Wake work only when the release policy is required", () => {
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       localComponentsStatus: createNpmStatusForServiceVersion("0.7.27"),
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
@@ -592,7 +611,7 @@ describe("local component update projection", () => {
   });
 
   it("projects advisory CLI package drift without blocking Wake work", () => {
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       generatedAt: "2026-06-04T00:00:00.000Z",
       localComponentsStatus: createLocalComponentsStatus({
         cliPackageVersion: "0.7.27",
@@ -618,7 +637,7 @@ describe("local component update projection", () => {
   });
 
   it("projects same-version Service bundle drift as an advisory update", () => {
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       generatedAt: "2026-06-04T00:00:00.000Z",
       localComponentsStatus: createLocalComponentsStatus({
         serviceBundleHash: "c".repeat(64),
@@ -645,7 +664,7 @@ describe("local component update projection", () => {
   });
 
   it("keeps same-version missing Service bundle hash diagnostic-only even when required", () => {
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       generatedAt: "2026-06-04T00:00:00.000Z",
       localComponentsStatus: createLocalComponentsStatus({
         serviceBundleHash: null,
@@ -672,7 +691,7 @@ describe("local component update projection", () => {
   });
 
   it("projects same-version Service bundle drift as required when the release policy requires it", () => {
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       generatedAt: "2026-06-04T00:00:00.000Z",
       localComponentsStatus: createLocalComponentsStatus({
         serviceBundleHash: "c".repeat(64),
@@ -699,7 +718,7 @@ describe("local component update projection", () => {
   });
 
   it("projects required CLI package drift as a setup update without a Core Wake gate", () => {
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       generatedAt: "2026-06-04T00:00:00.000Z",
       localComponentsStatus: createLocalComponentsStatus({
         cliPackageVersion: "0.7.27",
@@ -731,7 +750,7 @@ describe("local component update projection", () => {
     // status is ok, the projection must be current regardless of the release
     // update policy.
     for (const skillsUpdatePolicy of ["available", "required"] as const) {
-      const projection = resolveLocalComponentUpdateProjection({
+      const projection = projectWithPublishedRelease({
         generatedAt: "2026-06-04T00:00:00.000Z",
         localComponentsStatus: createLocalComponentsStatus({}),
         releaseManifest: createReleaseManifest({
@@ -756,7 +775,7 @@ describe("local component update projection", () => {
   });
 
   it("projects advisory OpenMeld skills drift from installed bundle facts", () => {
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       generatedAt: "2026-06-04T00:00:00.000Z",
       localComponentsStatus: createLocalComponentsStatus({
         skillsBundleHash: "c".repeat(64),
@@ -784,7 +803,7 @@ describe("local component update projection", () => {
   });
 
   it("projects required OpenMeld skills drift as a setup update", () => {
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       generatedAt: "2026-06-04T00:00:00.000Z",
       localComponentsStatus: createLocalComponentsStatus({
         skillsBundleHash: "c".repeat(64),
@@ -808,7 +827,7 @@ describe("local component update projection", () => {
   });
 
   it("fails closed when required CLI or skills facts are missing", () => {
-    const projection = resolveLocalComponentUpdateProjection({
+    const projection = projectWithPublishedRelease({
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
         cliUpdatePolicy: "required",
@@ -1008,7 +1027,7 @@ describe("installation-source availability", () => {
       cliPackageVersion: input.installed ?? "0.3.231",
     });
     status.installationSource = input.source;
-    return resolveLocalComponentUpdateProjection({
+    return projectWithPublishedRelease({
       generatedAt: "2026-10-01T00:00:00.000Z",
       localComponentsStatus: status,
       releaseManifest: input.policy ?? global,

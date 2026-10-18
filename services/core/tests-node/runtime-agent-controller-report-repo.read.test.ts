@@ -24,6 +24,7 @@ describe("runtime agent controller report repo read-side", () => {
       const runtimeId = openMeldServiceRuntimeId(lookup, "runtime_opaque_1");
       await registerRuntime(harness.db, lookup, runtimeId);
       await acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: 2000,
         report: {
@@ -185,6 +186,7 @@ describe("runtime agent controller report repo read-side", () => {
         registeredRuntimeId
       );
       await acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: 2000,
         report: {
@@ -289,6 +291,7 @@ describe("runtime agent controller report repo read-side", () => {
         registeredRuntimeId
       );
       await acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: 2000,
         report: {
@@ -303,6 +306,7 @@ describe("runtime agent controller report repo read-side", () => {
       });
 
       await acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: 3000,
         report: {
@@ -372,6 +376,7 @@ describe("runtime agent controller report repo read-side", () => {
         registeredRuntimeId
       );
       await acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: 2000,
         report: {
@@ -389,6 +394,7 @@ describe("runtime agent controller report repo read-side", () => {
       });
 
       await acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: 3000,
         report: {
@@ -551,6 +557,7 @@ async function writeReport(
   status: "disabled" | "ready"
 ): Promise<void> {
   await acceptRuntimeAgentControllerReportRecord({
+    authFreshnessRequired: true,
     db,
     nowMs: 2000,
     report: {
