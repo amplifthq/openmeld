@@ -223,11 +223,16 @@ Target:
   `defaultFolderId`. **The Service mints folder ids.** v1/v2 envelopes read as
   a one-element list.
 - Cloud projection `(profileId, folderId, kind, displayName)` written by Core
-  when the Service reports a folder save. No path is ever stored in the cloud
-  or shown to anyone but the owner; the existing owner-self transit of a path
-  through Core to the owner's own Web session (Project folder picker) is
-  unchanged. A cloud id unknown to the local envelope takes the existing
-  fail-closed path.
+  when the Service reports a folder save. The folder projection and every
+  folder operation carry no path; a failure about a selected folder reports a
+  reason code, never the path. No path is stored in the cloud or shown to
+  anyone but the owner; the existing owner-self transit of a path through
+  Core to the owner's own Web session (Project folder picker) is unchanged,
+  and the pre-existing `effectiveRuntimeWorkingDirectory` in dispatch results
+  stays owner-only diagnostics (open item, §13). A cloud id unknown to the
+  local envelope takes the existing fail-closed path. The envelope carries a
+  Service-local `foldersRevision`; Core keeps the highest revision so a late
+  receipt never restores an older list.
 - Preferences gain `folderId`. Core strips `folderId` when the root requester
   is not the owner, so colleagues always use the default folder.
 - Resolution order: explicit choice → inherited from the continued or forked
@@ -758,6 +763,12 @@ cache; Project redesign.
   active tasks with their roots (Phase 5).
 - Observer widening: read cost of `owner_user_id_snapshot` in the Space DO
   member table (Phase 4).
+- Dispatch results report `effectiveRuntimeWorkingDirectory` to Core
+  (`send-dispatch-result.ts`, pre-existing). Confirm it is projected to the
+  owner only and decide whether it should become a folder id (Phase 3).
+- The Service's local-component manifest was not stamped for the Phase 2
+  capability bump (`executionContextVersion` 5 → 6 in
+  `config/agents/registry.json`); the release lane handles stamping.
 
 ## 14. Decisions to record in `developing/decisions.md`
 
@@ -804,3 +815,9 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   bypass via null owner; both fixed in the package. Pre-existing owner-doc
   contradictions with older decisions that P0's review surfaced are out of
   scope and listed in P0's report.
+- 2026-10-18, P2 report and its Codex review (gpt-6-astra, high): a selected
+  folder failure leaked the absolute path into dispatch failure text (fixed in
+  the package); a late folder-list receipt could restore an older list (fixed
+  with `foldersRevision`); the pre-existing dispatch-result working-directory
+  field means "no path reaches the cloud" is true for folders, not for the
+  Service as a whole; §4.4 reworded and §13 extended.
