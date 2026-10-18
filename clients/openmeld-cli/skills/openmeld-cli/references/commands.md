@@ -714,6 +714,23 @@ openmeld agents show <agent-id> --view agent
 openmeld agents disable --agent <agent-id> --view agent
 ```
 
+### `openmeld agent`
+
+See your Agents in the current organization: one per harness, each with its
+Agent Profiles. Available only when OpenMeld enables Agents grouped by
+harness; otherwise each command reports that and changes nothing.
+
+```bash
+openmeld agent list --view agent
+openmeld agent show <agent> --view agent
+```
+
+`list` returns one row per Agent with its stable ID, harness, default Profile,
+and any unassigned Agent Profiles. `show` takes an Agent ID, harness (such as
+`codex`), or Agent name and lists its Profiles with the computer each one is
+connected to. Use `openmeld profiles create <profile-name> --member-agent
+<agent>` to add another Profile under an Agent.
+
 ### `openmeld session`
 
 List and manage your Direct Message Sessions with one of your Agents. One
