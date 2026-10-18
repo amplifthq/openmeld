@@ -825,22 +825,6 @@
           "badgeLabel": "New"
         },
         {
-          "id": "opencode/beam-free",
-          "displayName": "Beam Free",
-          "unavailable": false,
-          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
-          "minCliVersion": "1.19.0",
-          "badgeLabel": "New"
-        },
-        {
-          "id": "opencode/deepseek-v4.1-flash-free",
-          "displayName": "DeepSeek V4.1 Flash Free",
-          "unavailable": false,
-          "supportedReasoningLevels": ["low", "high", "max"],
-          "minCliVersion": "1.19.0",
-          "badgeLabel": "New"
-        },
-        {
           "id": "openrouter/liquid/lfm-2.5-24b-a2b",
           "displayName": "LFM2.5-24B-A2B (OpenRouter)",
           "unavailable": false,
@@ -1020,6 +1004,14 @@
           "unavailable": false,
           "supportedReasoningLevels": ["high"],
           "minCliVersion": "1.18.35"
+        },
+        {
+          "id": "opencode/beam-free",
+          "displayName": "Beam Free",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": "1.19.0",
+          "badgeLabel": "New"
         },
         {
           "id": "opencode/fledge-alpha-free",
@@ -1209,6 +1201,14 @@
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
           "minCliVersion": "1.18.33"
+        },
+        {
+          "id": "opencode/deepseek-v4.1-flash-free",
+          "displayName": "DeepSeek V4.1 Flash Free",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "high", "max"],
+          "minCliVersion": "1.19.0",
+          "badgeLabel": "New"
         },
         {
           "id": "openai/gpt-6-astra",
