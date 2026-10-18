@@ -591,6 +591,14 @@ describe("sensitive operation credentials", () => {
       )
     ).rejects.toThrow("sensitive_operation.source_required");
     expect(change).not.toHaveBeenCalled();
+    // Without proof the request counts as the CLI credential, and is audited.
+    expect(await readAudit(f)).toEqual([
+      expect.objectContaining({
+        outcome: "rejected",
+        reason_code: "sensitive_operation.source_required",
+        source_kind: "cli_credential",
+      }),
+    ]);
   });
 
   it("changes nothing while the MemberAgent program is off", async () => {

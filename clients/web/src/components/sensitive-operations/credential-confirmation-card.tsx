@@ -34,6 +34,7 @@ const OPERATION_LABELS: Record<SensitiveOperation, string> = {
 	profile_delete: "Delete an Agent Profile",
 	session_archive: "Archive a chat with the Agent",
 	session_delete: "Delete a chat with the Agent",
+	runtime_settings_write: "Change the Agent's settings",
 	space_delete: "Delete a Space",
 	space_members_add_agent: "Add the Agent to a Space",
 	work_recovery: "Approve or skip queued work",

@@ -5,6 +5,7 @@ import {
   OPENMELD_HEADER_CREDENTIAL_CONFIRMATION,
   readTaskCredentialHeader,
 } from "@openmeld/gateway-contract";
+import { formatCredentialConfirmationRequiredMessage } from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   readDispatchTaskCredentialHeader,
@@ -60,12 +61,14 @@ function wakeEnv(withToken: boolean): NodeJS.ProcessEnv {
   };
 }
 
-function confirmationRequired(): Response {
+function confirmationRequired(confirmationId?: string): Response {
   return Response.json(
     {
       error: {
         code: "upstream_error",
-        message: "Confirm this change in your OpenMeld Inbox.",
+        message: confirmationId
+          ? formatCredentialConfirmationRequiredMessage(confirmationId)
+          : "Confirm this change in your OpenMeld Inbox.",
         requestId: "request-1",
         upstreamCode: "credential_confirmation.required",
       },
@@ -138,6 +141,28 @@ describe("owner confirmation", () => {
       confirmationId: handle,
       url: `https://api.openmeld.test/v1/credential-confirmations/${handle}`,
     });
+  });
+
+  it("polls the pending confirmation Core names when a command is repeated", async () => {
+    const pending = "p".repeat(32);
+    const send = vi
+      .fn<(headers: Record<string, string>) => Promise<Response>>()
+      .mockResolvedValueOnce(confirmationRequired(pending))
+      .mockResolvedValueOnce(Response.json({ ok: true }));
+    const readConfirmation = vi
+      .fn()
+      .mockResolvedValueOnce(confirmation("approved"));
+    await sendWithCredentialConfirmation({
+      ...base,
+      env: {},
+      method: "PATCH",
+      readConfirmation,
+      send,
+    });
+    expect(readConfirmation.mock.calls[0]?.[0]).toMatchObject({
+      confirmationId: pending,
+    });
+    expect(send).toHaveBeenCalledTimes(2);
   });
 
   it("does not repeat a declined request", async () => {

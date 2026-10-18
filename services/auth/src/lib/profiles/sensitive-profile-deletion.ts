@@ -34,20 +34,39 @@ const NO_GUARD: AgentProfileDeletionGuard = {
 /** Null-object guard when the target is not an Agent Profile in an Organization. */
 export async function guardAgentProfileDeletion(
   c: Context<AppContext>,
-  input: { profileId: string; userId: string }
+  input: {
+    profileId: string;
+    user: { email?: unknown; id: unknown; name?: unknown };
+  }
 ): Promise<AgentProfileDeletionGuard | Response> {
   if (!MEMBER_AGENTS_ENABLED) {
     return NO_GUARD;
   }
-  const profile = await c.var.profileService
-    .resolveProfileById(input.profileId)
-    .catch(() => null);
+  const userId = String(input.user.id);
+  let profile: Awaited<
+    ReturnType<AppContext["Variables"]["profileService"]["resolveProfileById"]>
+  >;
+  let humanProfileId: string;
+  try {
+    profile = await c.var.profileService.resolveProfileById(input.profileId);
+    // The signed-in account is its own root for Web, App and CLI requests.
+    humanProfileId = (
+      await c.var.profileService.ensurePrimaryHumanProfile({
+        userEmail: typeof input.user.email === "string" ? input.user.email : "",
+        userId,
+        userName: typeof input.user.name === "string" ? input.user.name : "",
+      })
+    ).profileId;
+  } catch {
+    // An unreadable target must not skip the gate.
+    return unavailable(c);
+  }
   if (
     !(
       profile &&
       profile.profileKind === "agent" &&
       profile.organizationId &&
-      profile.ownerUserId === input.userId
+      profile.ownerUserId === userId
     )
   ) {
     // Not a personal Agent the caller owns: the deletion itself refuses it.
@@ -58,22 +77,23 @@ export async function guardAgentProfileDeletion(
     c,
     readRequestCredential(c)
   );
-  if (!(core && credential)) {
+  if (!core) {
+    return unavailable(c);
+  }
+  if (!credential) {
     return c.json(
       {
         ok: false,
-        code: core ? "bad_request" : "sensitive_operation.store_unavailable",
-        message: core
-          ? "The task credential is malformed."
-          : "OpenMeld could not check this change right now.",
+        code: "bad_request",
+        message: "The task credential is malformed.",
       },
-      core ? 400 : 503
+      400
     );
   }
   const actor = {
-    humanProfileId: null,
+    humanProfileId,
     organizationId: profile.organizationId,
-    userId: input.userId,
+    userId,
   };
   const request = {
     agentProfileId: profile.profileId,
@@ -119,6 +139,17 @@ export async function guardAgentProfileDeletion(
       }
     },
   };
+}
+
+function unavailable(c: Context<AppContext>): Response {
+  return c.json(
+    {
+      ok: false,
+      code: "sensitive_operation.store_unavailable",
+      message: "OpenMeld could not check this change right now.",
+    },
+    503
+  );
 }
 
 /**

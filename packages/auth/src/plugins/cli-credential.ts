@@ -1,3 +1,4 @@
+import { MEMBER_AGENTS_ENABLED } from "@openmeld/schemas";
 import type { BetterAuthPlugin } from "better-auth";
 import {
   APIError,
@@ -112,16 +113,26 @@ export function createCliCredentialPlugin(): BetterAuthPlugin {
     hooks: {
       before: [
         {
+          // Marking runs regardless, so sessions are classified before the
+          // MemberAgent program turns enforcement on; refusing waits for it.
           matcher: (context) =>
+            MEMBER_AGENTS_ENABLED &&
             INTERACTIVE_SESSION_ONLY_PATHS.has(context.path ?? ""),
           handler: createAuthMiddleware(async (context) => {
             const session = await getSessionFromCtx(context, {
               disableRefresh: true,
             });
+            if (!session) {
+              return;
+            }
+            // The cookie cache can predate the marker: read the stored session.
+            const stored = await context.context.internalAdapter.findSession(
+              session.session.token
+            );
             if (
-              session &&
-              (hasBearerAuthorization(readRequestHeaders(context)) ||
-                isCliCredentialSessionRecord(session.session))
+              hasBearerAuthorization(readRequestHeaders(context)) ||
+              !stored ||
+              isCliCredentialSessionRecord(stored.session)
             ) {
               throw new APIError("FORBIDDEN", {
                 code: INTERACTIVE_SESSION_REQUIRED_CODE,

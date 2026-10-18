@@ -18,6 +18,7 @@ export const SENSITIVE_OPERATION_SOURCE_KINDS = [
   "task_credential",
   "web_session",
   "cli_credential",
+  "center_agent",
 ] as const;
 export type SensitiveOperationSourceKindValue =
   (typeof SENSITIVE_OPERATION_SOURCE_KINDS)[number];
@@ -123,7 +124,7 @@ export const sensitiveOperationAuditEvents = applicationTable(
     ),
     check(
       "sensitive_operation_audit_events_source_kind_check",
-      sql`"source_kind" in ('task_credential', 'web_session', 'cli_credential')`
+      sql`"source_kind" in ('task_credential', 'web_session', 'cli_credential', 'center_agent')`
     ),
     check(
       "sensitive_operation_audit_events_outcome_check",

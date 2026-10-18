@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 const sessionFromContext = vi.hoisted(() => vi.fn());
+vi.mock("@openmeld/schemas", async (importActual) => ({
+  ...(await importActual<typeof import("@openmeld/schemas")>()),
+  MEMBER_AGENTS_ENABLED: true,
+}));
 vi.mock("better-auth/api", async (importActual) => ({
   ...(await importActual<typeof import("better-auth/api")>()),
   getSessionFromCtx: sessionFromContext,
@@ -128,12 +132,23 @@ describe("CLI credential sessions", () => {
     const attempt = (input: {
       headers: Record<string, string>;
       session: Record<string, unknown>;
+      stored?: Record<string, unknown>;
     }) => {
+      // The context's session can come from the cookie cache; the stored one
+      // is authoritative.
       sessionFromContext.mockResolvedValueOnce({
-        session: input.session,
+        session: { token: input.session.token },
         user: { id: "user-1" },
       });
       return blockHook?.handler({
+        context: {
+          internalAdapter: {
+            findSession: async () => ({
+              session: input.stored ?? input.session,
+              user: { id: "user-1" },
+            }),
+          },
+        },
         headers: new Headers(input.headers),
         path: "/electron/transfer-user",
       } as never);
@@ -150,6 +165,18 @@ describe("CLI credential sessions", () => {
       attempt({
         headers: { cookie: "better-auth.session_token=signed" },
         session: { token: "held", [CLI_CREDENTIAL_SESSION_FIELD]: new Date() },
+      })
+    ).rejects.toMatchObject({
+      body: { code: INTERACTIVE_SESSION_REQUIRED_CODE },
+    });
+    await expect(
+      attempt({
+        headers: { cookie: "better-auth.session_token=signed" },
+        session: { token: "cached" },
+        stored: {
+          token: "cached",
+          [CLI_CREDENTIAL_SESSION_FIELD]: new Date(),
+        },
       })
     ).rejects.toMatchObject({
       body: { code: INTERACTIVE_SESSION_REQUIRED_CODE },

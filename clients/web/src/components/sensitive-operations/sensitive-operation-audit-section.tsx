@@ -9,6 +9,7 @@ import { useMemberAgentSensitiveOperationAudit } from "#/query/sensitive-operati
 import { credentialConfirmationOperationLabel } from "./credential-confirmation-card";
 
 const SOURCE_LABELS: Record<SensitiveOperationSourceKind, string> = {
+	center_agent: "Center Agent",
 	cli_credential: "Your computer's sign-in",
 	task_credential: "An Agent task",
 	web_session: "Web or app",

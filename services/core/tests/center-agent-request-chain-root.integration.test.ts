@@ -100,6 +100,24 @@ describe("Center Agent management checks the request chain root", () => {
       ],
     });
     expect(await readPermissionMode(f)).toBeNull();
+    // Center Agent settings changes are audited sensitive operations (§6).
+    const audit = await getPostgresDatabase(f.coreEnv).query<{
+      chain_root_profile_id: string | null;
+      outcome: string;
+      source_kind: string;
+    }>({
+      text: `SELECT source_kind, outcome, chain_root_profile_id
+        FROM "openmeld"."sensitive_operation_audit_events"
+        WHERE agent_profile_id = $1 ORDER BY created_at_ms`,
+      values: [f.felixAgentProfileId],
+    });
+    expect(audit.rows).toEqual([
+      {
+        chain_root_profile_id: f.felix.profileId,
+        outcome: "confirmation_required",
+        source_kind: "center_agent",
+      },
+    ]);
     const token = first.permissionModeConfirmation?.token as string;
     // The instruction's own turn cannot confirm it.
     await expect(

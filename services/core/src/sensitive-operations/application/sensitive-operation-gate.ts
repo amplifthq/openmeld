@@ -5,6 +5,7 @@ import {
 import {
   CREDENTIAL_CONFIRMATION_DECLINED_CODE,
   CREDENTIAL_CONFIRMATION_REQUIRED_CODE,
+  formatCredentialConfirmationRequiredMessage,
   type RequestCredential,
   riskWindowExecutionsResponseSchema,
   SENSITIVE_OPERATION_ROOT_NOT_OWNER_CODE,
@@ -68,6 +69,19 @@ export async function runSensitiveOperation<T>(
   }
   const caller = requireCaller(request.context);
   if (!request.credential) {
+    // Without credential facts a request counts as the CLI credential.
+    await writeAudit(env, {
+      caller,
+      decision: {
+        chainRootProfileId: caller.humanProfileId,
+        confirmationId: null,
+        sourceKind: "cli_credential",
+        taskExecutionId: null,
+      },
+      outcome: "rejected",
+      reasonCode: SENSITIVE_OPERATION_SOURCE_REQUIRED_CODE,
+      request,
+    });
     throw createCoreRpcHttpError({
       code: SENSITIVE_OPERATION_SOURCE_REQUIRED_CODE,
       reason: "OpenMeld could not tell how this request was signed in.",
@@ -79,10 +93,9 @@ export async function runSensitiveOperation<T>(
     credential: request.credential,
     request,
   });
+  let result: T;
   try {
-    const result = await run();
-    await writeAudit(env, { caller, decision, outcome: "succeeded", request });
-    return result;
+    result = await run();
   } catch (error) {
     await writeAudit(env, {
       caller,
@@ -93,6 +106,23 @@ export async function runSensitiveOperation<T>(
     });
     throw error;
   }
+  // The change is done: a failed audit write is reported, never turned into
+  // a failure of the operation.
+  await writeAudit(env, {
+    caller,
+    decision,
+    outcome: "succeeded",
+    request,
+  }).catch((error: unknown) => {
+    console.error("[core.sensitive_operation.audit_failed]", {
+      agentProfileId: request.agentProfileId,
+      error: error instanceof Error ? error.message : String(error),
+      event: "core.sensitive_operation.audit_failed",
+      operation: request.operation,
+      outcome: "succeeded",
+    });
+  });
+  return result;
 }
 
 /**
@@ -120,7 +150,7 @@ export async function recordSensitiveOperationOutcome(
   input: {
     caller: SensitiveOperationCaller;
     decision: Decision;
-    outcome: "failed" | "succeeded";
+    outcome: SensitiveOperationOutcome;
     reasonCode: string | null;
     request: Pick<SensitiveOperationRequest, "agentProfileId" | "operation">;
   }
@@ -231,7 +261,9 @@ async function decideSource(
         }
       : {
           code: CREDENTIAL_CONFIRMATION_REQUIRED_CODE,
-          reason: `Confirm this change in your OpenMeld Inbox (confirmation ${confirmation.confirmationId}). A task requested by someone else is running on your computer.`,
+          reason: formatCredentialConfirmationRequiredMessage(
+            confirmation.confirmationId
+          ),
           status: 409,
         }
   );
@@ -299,6 +331,13 @@ async function decideTaskCredential(
     profileIds: [resolution.rootProfileId],
   });
   if (!facts) {
+    await writeAudit(env, {
+      caller,
+      decision,
+      outcome: "rejected",
+      reasonCode: "sensitive_operation.identity_unavailable",
+      request,
+    });
     throw createCoreRpcHttpError({
       code: "sensitive_operation.identity_unavailable",
       reason: "OpenMeld could not verify who asked for this task.",

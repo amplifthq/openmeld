@@ -1,5 +1,5 @@
 {
-  "id": "12a4bf26-8ec9-4e0b-96e2-ed2a4743dd1c",
+  "id": "d1fdd909-f3e9-4dea-9b05-cf948dba452f",
   "prevId": "ec9a93e0-d16e-4d41-a1aa-ad797378cb12",
   "version": "7",
   "dialect": "postgresql",
@@ -25823,7 +25823,7 @@
       "checkConstraints": {
         "sensitive_operation_audit_events_source_kind_check": {
           "name": "sensitive_operation_audit_events_source_kind_check",
-          "value": "\"source_kind\" in ('task_credential', 'web_session', 'cli_credential')"
+          "value": "\"source_kind\" in ('task_credential', 'web_session', 'cli_credential', 'center_agent')"
         },
         "sensitive_operation_audit_events_outcome_check": {
           "name": "sensitive_operation_audit_events_outcome_check",

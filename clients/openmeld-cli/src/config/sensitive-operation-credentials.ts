@@ -7,6 +7,7 @@ import {
   CREDENTIAL_CONFIRMATION_REQUIRED_CODE,
   CREDENTIAL_CONFIRMATION_TTL_MS,
   getCredentialConfirmationResponseSchema,
+  readCredentialConfirmationIdFromMessage,
 } from "@openmeld/schemas";
 import {
   DISPATCH_OWNED_RUNTIME_MODE,
@@ -77,11 +78,11 @@ export async function sendWithCredentialConfirmation(input: {
     [OPENMELD_HEADER_CREDENTIAL_CONFIRMATION]: confirmationId,
   };
   const response = await input.send(headers);
-  if (
-    response.status !== 409 ||
-    isServiceProcess(input.env ?? process.env) ||
-    !(await isConfirmationRequired(response))
-  ) {
+  const required =
+    response.status === 409 && !isServiceProcess(input.env ?? process.env)
+      ? await readConfirmationRequired(response)
+      : null;
+  if (!required) {
     return response;
   }
   const log = input.log ?? ((message) => process.stderr.write(`${message}\n`));
@@ -90,7 +91,8 @@ export async function sendWithCredentialConfirmation(input: {
   );
   const status = await waitForConfirmation({
     ...input,
-    confirmationId,
+    // A repeated command reuses the pending confirmation Core names.
+    confirmationId: required.confirmationId ?? confirmationId,
     nowMs: input.nowMs ?? Date.now,
     sleep: input.sleep ?? ((ms) => new Promise((done) => setTimeout(done, ms))),
   });
@@ -148,17 +150,27 @@ async function waitForConfirmation(input: {
   return "expired";
 }
 
-async function isConfirmationRequired(response: Response): Promise<boolean> {
+async function readConfirmationRequired(
+  response: Response
+): Promise<{ confirmationId: string | null } | null> {
+  // The Gateway nests its error; Auth answers with a flat one.
   const body = (await response
     .clone()
     .json()
     .catch(() => null)) as {
-    error?: { code?: unknown; upstreamCode?: unknown };
+    code?: unknown;
+    error?: { code?: unknown; message?: unknown; upstreamCode?: unknown };
+    message?: unknown;
   } | null;
-  return (
+  const error = body?.error ?? body;
+  const required =
     body?.error?.upstreamCode === CREDENTIAL_CONFIRMATION_REQUIRED_CODE ||
-    body?.error?.code === CREDENTIAL_CONFIRMATION_REQUIRED_CODE
-  );
+    error?.code === CREDENTIAL_CONFIRMATION_REQUIRED_CODE;
+  return required
+    ? {
+        confirmationId: readCredentialConfirmationIdFromMessage(error?.message),
+      }
+    : null;
 }
 
 function isServiceProcess(env: NodeJS.ProcessEnv): boolean {

@@ -53,6 +53,9 @@ function context(input: {
     },
     var: {
       profileService: {
+        ensurePrimaryHumanProfile: vi.fn(async () => ({
+          profileId: "human-felix",
+        })),
         resolveProfileById: vi.fn(async () =>
           input.profile === undefined
             ? {
@@ -77,11 +80,16 @@ describe("Agent Profile deletion guard", () => {
     });
     const guard = await guardAgentProfileDeletion(c as never, {
       profileId: "agt_1",
-      userId: "user-1",
+      user: { id: "user-1", name: "Felix" },
     });
     expect(guard).not.toBeInstanceOf(Response);
     expect(core.authorizeSensitiveOperation).toHaveBeenCalledWith(
       expect.objectContaining({
+        actor: {
+          humanProfileId: "human-felix",
+          organizationId: "org-1",
+          userId: "user-1",
+        },
         agentProfileId: "agt_1",
         credential: { kind: "interactive_session" },
         operation: "profile_delete",
@@ -107,7 +115,7 @@ describe("Agent Profile deletion guard", () => {
     });
     const response = await guardAgentProfileDeletion(c as never, {
       profileId: "agt_1",
-      userId: "user-1",
+      user: { id: "user-1", name: "Felix" },
     });
     expect(core.authorizeSensitiveOperation).toHaveBeenCalledWith(
       expect.objectContaining({ credential: { kind: "cli_credential" } })
@@ -126,7 +134,7 @@ describe("Agent Profile deletion guard", () => {
     });
     await guardAgentProfileDeletion(c as never, {
       profileId: "agt_1",
-      userId: "user-1",
+      user: { id: "user-1", name: "Felix" },
     });
     database.cliCredentialAt = null;
     expect(core.authorizeSensitiveOperation).toHaveBeenCalledWith(
@@ -141,7 +149,7 @@ describe("Agent Profile deletion guard", () => {
     });
     await guardAgentProfileDeletion(c as never, {
       profileId: "agt_1",
-      userId: "user-1",
+      user: { id: "user-1", name: "Felix" },
     });
     expect(core.authorizeSensitiveOperation).toHaveBeenCalledWith(
       expect.objectContaining({ credential: { kind: "cli_credential" } })
@@ -166,9 +174,22 @@ describe("Agent Profile deletion guard", () => {
       const { c, core } = context({ authorize: null, profile });
       await guardAgentProfileDeletion(c as never, {
         profileId: String(profile.profileId),
-        userId: "user-1",
+        user: { id: "user-1", name: "Felix" },
       });
       expect(core.authorizeSensitiveOperation).not.toHaveBeenCalled();
     }
+  });
+
+  it("refuses instead of skipping the gate when the target cannot be read", async () => {
+    const { c, core } = context({ authorize: null });
+    c.var.profileService.resolveProfileById.mockRejectedValueOnce(
+      new Error("connection reset")
+    );
+    const response = await guardAgentProfileDeletion(c as never, {
+      profileId: "agt_1",
+      user: { id: "user-1" },
+    });
+    expect((response as Response).status).toBe(503);
+    expect(core.authorizeSensitiveOperation).not.toHaveBeenCalled();
   });
 });

@@ -107,7 +107,7 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
       }
       const guard = await guardAgentProfileDeletion(c, {
         profileId: c.req.param("openMeldProfileId"),
-        userId: String(authenticated.user.id),
+        user: authenticated.user,
       });
       if (guard instanceof Response) {
         return guard;
@@ -353,7 +353,7 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
     const openMeldProfileId = c.req.param("openMeldProfileId");
     const guard = await guardAgentProfileDeletion(c, {
       profileId: openMeldProfileId,
-      userId: String(authenticated.user.id),
+      user: authenticated.user,
     });
     if (guard instanceof Response) {
       return guard;

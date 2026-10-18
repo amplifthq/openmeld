@@ -44,6 +44,7 @@ const OPERATION_PHRASES: Record<SensitiveOperation, string> = {
   profile_delete: "delete an Agent Profile",
   session_archive: "archive a chat with an Agent",
   session_delete: "delete a chat with an Agent",
+  runtime_settings_write: "change an Agent's settings",
   space_delete: "delete a Space",
   space_members_add_agent: "add an Agent to a Space",
   work_recovery: "approve or skip an Agent's queued work",

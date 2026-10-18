@@ -28,6 +28,27 @@ export const SENSITIVE_OPERATION_ROOT_NOT_OWNER_CODE =
 export const SENSITIVE_OPERATION_SOURCE_REQUIRED_CODE =
   "sensitive_operation.source_required";
 
+const CONFIRMATION_ID_IN_MESSAGE_PATTERN =
+  /\(confirmation ([A-Za-z0-9_-]{16,256})\)/u;
+
+/**
+ * The credential_confirmation.required message names the confirmation, so a
+ * client that reuses a pending one (a repeated command) polls the right id.
+ */
+export function formatCredentialConfirmationRequiredMessage(
+  confirmationId: string
+): string {
+  return `Confirm this change in your OpenMeld Inbox (confirmation ${confirmationId}). A task requested by someone else is running on your computer.`;
+}
+
+export function readCredentialConfirmationIdFromMessage(
+  message: unknown
+): string | null {
+  return typeof message === "string"
+    ? (CONFIRMATION_ID_IN_MESSAGE_PATTERN.exec(message)?.[1] ?? null)
+    : null;
+}
+
 /** A confirmation is answered and used within this window. */
 export const CREDENTIAL_CONFIRMATION_TTL_MS = 10 * 60 * 1000;
 export const SENSITIVE_OPERATION_AUDIT_LIST_LIMIT = 100;
@@ -77,13 +98,19 @@ export const sensitiveOperationSchema = z.enum([
   "profile_delete",
   "session_archive",
   "session_delete",
+  "runtime_settings_write",
 ]);
 export type SensitiveOperation = z.infer<typeof sensitiveOperationSchema>;
 
+/**
+ * `center_agent`: the Center Agent acting for a verified member; its root is
+ * checked at the tool boundary (§6, Center Agent runtime-settings write).
+ */
 export const sensitiveOperationSourceKindSchema = z.enum([
   "task_credential",
   "web_session",
   "cli_credential",
+  "center_agent",
 ]);
 export type SensitiveOperationSourceKind = z.infer<
   typeof sensitiveOperationSourceKindSchema

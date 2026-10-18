@@ -11,7 +11,7 @@ CREATE TABLE "openmeld"."sensitive_operation_audit_events" (
 	"reason_code" text,
 	"confirmation_id" text,
 	"created_at_ms" bigint NOT NULL,
-	CONSTRAINT "sensitive_operation_audit_events_source_kind_check" CHECK ("source_kind" in ('task_credential', 'web_session', 'cli_credential')),
+	CONSTRAINT "sensitive_operation_audit_events_source_kind_check" CHECK ("source_kind" in ('task_credential', 'web_session', 'cli_credential', 'center_agent')),
 	CONSTRAINT "sensitive_operation_audit_events_outcome_check" CHECK ("outcome" in ('succeeded', 'failed', 'rejected', 'confirmation_required', 'declined'))
 );
 --> statement-breakpoint
