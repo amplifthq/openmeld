@@ -36,10 +36,6 @@ import {
   DEFAULT_R2_BUCKET_NAME,
   desktopPublisherCredentials,
 } from "./desktop-publisher.mjs";
-import {
-  acquireProductionScopeLease,
-  releaseProductionScopeLease,
-} from "./production-scope-lease.mjs";
 import { requireMainlineReleaseSha } from "./require-mainline-release-sha.mjs";
 
 const DMG_SUFFIX = /\.dmg$/;
@@ -656,38 +652,25 @@ export async function commitDesktopPromotion({
     );
   }
   const pointerKey = desktopPromotedReleaseKey(manifest.platform);
-  const lease = acquireProductionScopeLease({
-    cwd: repoRoot,
-    scope: "web",
-    sourceSha: manifest.releaseSha,
-  });
-  try {
-    const current = await readPromotedDesktopCandidate(
-      manifest.platform,
-      readObject
-    );
-    const currentVersion = current?.version ?? null;
-    if ((currentVersion ?? "none") !== expectedVersion) {
-      throw new Error(
-        "Promoted Desktop version changed or could not be verified."
-      );
-    }
-    assertDesktopPromotionVersion(manifest.version, currentVersion);
-    await writePointer(
-      desktopPromotedReleaseSchema.parse({
-        schemaVersion: 1,
-        candidate: manifest.sha256,
-        promotedAt: new Date().toISOString(),
-      }),
-      pointerKey
-    );
-  } finally {
-    releaseProductionScopeLease({
-      cwd: repoRoot,
-      scope: "web",
-      leaseSha: lease.leaseSha,
-    });
+  // desktop-release.yml serializes promotion with its concurrency group; the
+  // expected-version check still refuses a pointer that moved underneath it.
+  const current = await readPromotedDesktopCandidate(
+    manifest.platform,
+    readObject
+  );
+  const currentVersion = current?.version ?? null;
+  if ((currentVersion ?? "none") !== expectedVersion) {
+    throw new Error("Promoted Desktop version changed or could not be verified.");
   }
+  assertDesktopPromotionVersion(manifest.version, currentVersion);
+  await writePointer(
+    desktopPromotedReleaseSchema.parse({
+      schemaVersion: 1,
+      candidate: manifest.sha256,
+      promotedAt: new Date().toISOString(),
+    }),
+    pointerKey
+  );
 }
 
 function writeDesktopPromotionPointer(repoRoot, value, pointerKey, env) {

@@ -10,16 +10,15 @@ import {
   DESKTOP_WINDOWS_INTERNAL_PREVIEW_KEY,
   desktopWindowsInternalPreviewLocation,
   desktopWindowsInternalPreviewSchema,
-  localComponentsReleaseManifestSchema,
 } from "../../packages/schemas/dist/index.js";
 import {
   checkDesktopPublisher,
   DEFAULT_R2_BUCKET_NAME,
 } from "./desktop-publisher.mjs";
 import {
-  acquireProductionScopeLease,
-  releaseProductionScopeLease,
-} from "./production-scope-lease.mjs";
+  resolveWindowsPreviewComponentPolicy,
+  sameWindowsPreviewDecision,
+} from "./windows-preview-policy.mjs";
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const SHA = /^[a-f0-9]{40}$/u;
@@ -105,30 +104,24 @@ function validateSourceIdentity(bundle, requireMain) {
   return sourceSha;
 }
 
-function validateSourceComponentPolicy(componentPolicy) {
+async function validateSourceComponentPolicy(componentPolicy, version) {
   if (!componentPolicy) {
     throw new Error(
       "Windows preview requires source-matched CLI and Service component policies."
     );
   }
-  const sourcePolicy = localComponentsReleaseManifestSchema.parse(
-    JSON.parse(
-      readFileSync(join(root, "release/local-components.json"), "utf8")
-    )
-  );
-  if (
-    JSON.stringify(componentPolicy.cli) !==
-      JSON.stringify(sourcePolicy.components.cli) ||
-    JSON.stringify(componentPolicy.service) !==
-      JSON.stringify(sourcePolicy.components.service)
-  ) {
+  const sourcePolicy = await resolveWindowsPreviewComponentPolicy({
+    repoRoot: root,
+    version,
+  });
+  if (!sameWindowsPreviewDecision(componentPolicy, sourcePolicy)) {
     throw new Error(
-      "Windows preview policies do not match the exact source release manifest."
+      "Windows preview policies do not match release/local-components-policy.json at the exact source."
     );
   }
 }
 
-function validateBundle(directory, requireMain, cliOnly = false) {
+async function validateBundle(directory, requireMain, cliOnly = false) {
   const bundle = JSON.parse(
     readFileSync(
       join(
@@ -140,7 +133,10 @@ function validateBundle(directory, requireMain, cliOnly = false) {
   );
   const sourceSha = validateSourceIdentity(bundle, requireMain);
   const manifest = cliBinaryManifestSchema.parse(bundle.manifest);
-  validateSourceComponentPolicy(manifest.channels.stable.componentPolicy);
+  await validateSourceComponentPolicy(
+    manifest.channels.stable.componentPolicy,
+    manifest.channels.stable.version
+  );
   const pointer = cliOnly
     ? undefined
     : desktopWindowsInternalPreviewSchema.parse(bundle.pointer);
@@ -244,7 +240,7 @@ async function main() {
     );
   }
   const cliOnly = mode.endsWith("-cli");
-  const selected = validateBundle(
+  const selected = await validateBundle(
     resolve(directory),
     mode.startsWith("publish"),
     cliOnly
@@ -255,13 +251,9 @@ async function main() {
     );
     return;
   }
+  // windows-internal-preview.yml serializes publication with its concurrency group.
   const env = await checkDesktopPublisher();
-  const lease = acquireProductionScopeLease({
-    cwd: root,
-    scope: "cli",
-    sourceSha: selected.sourceSha,
-  });
-  try {
+  {
     for (const role of cliOnly
       ? ["helper", "service", "cli"]
       : ["helper", "service", "cli", "desktop"]) {
@@ -306,15 +298,9 @@ async function main() {
         env,
       });
     }
-  } finally {
-    releaseProductionScopeLease({
-      cwd: root,
-      scope: "cli",
-      leaseSha: lease.leaseSha,
-    });
   }
   process.stdout.write(
-    `Windows ${cliOnly ? "CLI" : "CLI and Desktop"} internal preview published from ${selected.sourceSha}. Publication closeout is pending: verify public URLs, then run guarded Core --redeploy and retain newly admitted Worker/catalogue evidence before sharing completion.\n`
+    `Windows ${cliOnly ? "CLI" : "CLI and Desktop"} internal preview published from ${selected.sourceSha}. Core reads the preview channel within one minute; verify the public URLs before sharing it.\n`
   );
 }
 
