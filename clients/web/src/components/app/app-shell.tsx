@@ -154,7 +154,8 @@ function AppReadinessInvalidationListener(input: {
 		const flush = () => {
 			refreshTimerRef.current = null;
 			// No Agent Profile IDs refreshes every shared readiness projection.
-			const agentProfileIds = pendingRefreshAllRef.current
+			const refreshAll = pendingRefreshAllRef.current;
+			const agentProfileIds = refreshAll
 				? []
 				: [...pendingProfileIdsRef.current];
 			pendingRefreshAllRef.current = false;
@@ -164,6 +165,7 @@ function AppReadinessInvalidationListener(input: {
 				includeLocalRuntimeCaches: false,
 				organizationId: input.organizationId,
 				queryClient,
+				restartInFlightReadinessReads: refreshAll,
 				storageScope: input.storageScope,
 			}).catch((error: unknown) => {
 				console.warn("[openmeld.web.agent_readiness_invalidation_bus_failed]", {

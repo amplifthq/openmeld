@@ -1497,6 +1497,7 @@ function refreshLiveInvalidatedSnapshotsAfterReconnect(
 			includeLocalRuntimeCaches: false,
 			organizationId: input.readinessScope.organizationId,
 			queryClient: input.queryClient,
+			restartInFlightReadinessReads: true,
 			storageScope: input.readinessScope.storageScope,
 		}).catch((error: unknown) =>
 			console.warn("Failed to refresh Agent readiness after reconnect.", error)

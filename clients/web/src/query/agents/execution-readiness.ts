@@ -172,6 +172,9 @@ export async function refreshWebAgentReadinessSharedCaches(input: {
 	includeLocalRuntimeCaches?: boolean;
 	organizationId: string;
 	queryClient: QueryClient;
+	// A read already in flight may predate the change being recovered, so a
+	// live reconnect recovery restarts it instead of sharing it.
+	restartInFlightReadinessReads?: boolean;
 	storageScope: string;
 }) {
 	const agentProfileIds = normalizeAgentProfileIds(input.agentProfileIds ?? []);
@@ -191,7 +194,7 @@ export async function refreshWebAgentReadinessSharedCaches(input: {
 				),
 				refetchType: "active",
 			},
-			{ cancelRefetch: false }
+			{ cancelRefetch: input.restartInFlightReadinessReads === true }
 		),
 	];
 	const organizationId = input.organizationId.trim();

@@ -9360,7 +9360,9 @@ delivered under a check older than the message. A denied check closes only that
 session with `1008 space_access_changed`. A check that cannot verify access,
 such as a PostgreSQL connect timeout, is not a revocation: Space withholds the
 session's messages, retries once immediately, and then closes only that
-session with `1013 space_access_unverified` before yielding. The retry is not
+session with `1013 space_access_unverified` before yielding. Closing an
+accepted session this way publishes its `presence.quit` to the sessions that
+stay open, as an ordinary disconnect does. The retry is not
 delayed by a timer, because a timer does not keep a hibernating Space awake and
 a discarded retry would leave the socket open with its messages lost. The client reconnects through the full join
 check. After an accepted reconnect, Web re-reads every snapshot those
@@ -9369,7 +9371,8 @@ titles, Agent progress, and shared Agent readiness) in addition to its history
 catch-up. Because the missed readiness frames' Agent Profiles are unknown, the
 tab also publishes a scoped refresh-all message on the readiness bus so other
 tabs in the same account and Organization refresh their readiness projections;
-it bypasses the per-Space version check. A tab loaded before that
+it bypasses the per-Space version check. Recovery restarts a readiness read
+already in flight, because that read may predate the missed change. A tab loaded before that
 Web change keeps the earlier reconnect behavior until it reloads; that gap
 predates this rule, because a failed check used to close every session. A failure for
 one session never closes or delays another session.
