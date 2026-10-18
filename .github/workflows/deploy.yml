@@ -1,0 +1,326 @@
+name: 🚀 Deploy
+run-name: Deploy ${{ inputs.scopes }} @ ${{ inputs.sha }}${{ inputs.dry_run && ' (dry run)' || '' }}
+
+# One dispatch per release: `pnpm run deploy -- --lane github` sends the exact
+# main SHA and the ordered component list from release/components.mjs. Each
+# component job runs scripts/release/deploy-component.mjs, the same steps the
+# local lane runs. Release control (that script and the component table) comes
+# from main; product code comes from the requested SHA.
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Exact 40-character commit on main's first-parent history"
+        required: true
+        type: string
+      scopes:
+        description: "Comma-separated components from release/components.mjs"
+        required: true
+        type: string
+      dry_run:
+        description: "Validate the source and gates and print each step without deploying"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  validate:
+    name: Validate Release Source
+    runs-on: ubuntu-latest
+    outputs:
+      scopes: ${{ steps.scopes.outputs.scopes }}
+    steps:
+      - name: Require main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Production deploys run release control from main. Current ref: ${GITHUB_REF}"
+          exit 1
+
+      - name: Checkout release control
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          path: release-control
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Refresh current main
+        uses: ./release-control/.github/actions/trusted-git-network
+        with:
+          github_token: ${{ github.token }}
+          operation: fetch-main
+          repository: ${{ github.repository }}
+          working_directory: release-control
+
+      - name: Require the SHA on main first-parent history
+        working-directory: release-control
+        env:
+          RELEASE_SHA: ${{ inputs.sha }}
+        run: node scripts/release/require-mainline-release-sha.mjs "$RELEASE_SHA" refs/remotes/origin/main
+
+      - name: Normalize components
+        id: scopes
+        working-directory: release-control
+        env:
+          SCOPES: ${{ inputs.scopes }}
+        run: |
+          node --input-type=module -e '
+            import { COMPONENTS } from "./release/components.mjs";
+            const names = process.env.SCOPES.split(",").map((name) => name.trim()).filter(Boolean);
+            const unknown = names.filter((name) => !COMPONENTS.some((component) => component.name === name));
+            if (names.length === 0 || unknown.length > 0) {
+              console.error(`::error::Unknown or empty components: ${unknown.join(", ") || "(none)"}`);
+              process.exit(1);
+            }
+            process.stdout.write(`scopes=,${names.join(",")},\n`);
+          ' >> "$GITHUB_OUTPUT"
+
+  db:
+    name: Database
+    needs: validate
+    if: contains(needs.validate.outputs.scopes, ',db,')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    concurrency: { group: production-db, cancel-in-progress: false }
+    env:
+      COMPONENT: db
+      RELEASE_SHA: ${{ inputs.sha }}
+      DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+      PLANETSCALE_SERVICE_TOKEN_ID: ${{ secrets.PLANETSCALE_SERVICE_TOKEN_ID }}
+      PLANETSCALE_SERVICE_TOKEN: ${{ secrets.PLANETSCALE_SERVICE_TOKEN }}
+    defaults: { run: { working-directory: release-source } }
+    steps:
+      - &checkout-control
+        name: Checkout release control
+        uses: actions/checkout@v5
+        with: { path: release-control, persist-credentials: false, ref: "${{ github.sha }}" }
+      - &checkout-source
+        name: Checkout release source
+        uses: actions/checkout@v5
+        with: { path: release-source, persist-credentials: false, ref: "${{ inputs.sha }}" }
+      - &require-postgresql-secrets
+        name: Require PostgreSQL release credentials
+        run: |
+          missing=""
+          for name in DOPPLER_TOKEN PLANETSCALE_SERVICE_TOKEN_ID PLANETSCALE_SERVICE_TOKEN; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::The production environment is missing:$missing. Add them, or release $COMPONENT with --lane local."
+            exit 1
+          fi
+      - &setup-postgresql-tools-doppler
+        name: Setup Doppler CLI
+        if: inputs.dry_run != true
+        uses: dopplerhq/cli-action@v3
+      - &setup-postgresql-tools-pscale
+        name: Setup PlanetScale CLI
+        if: inputs.dry_run != true
+        uses: planetscale/setup-pscale-action@v1
+      - &setup-toolchain
+        name: Setup toolchain
+        if: inputs.dry_run != true
+        uses: ./release-control/.github/actions/setup-node-pnpm
+        with: { working_directory: release-source }
+      - &deploy-component
+        name: Build, deploy, and check health
+        run: node ../release-control/scripts/release/deploy-component.mjs "$COMPONENT" --sha "$RELEASE_SHA" $DRY_RUN
+
+  auth:
+    name: Auth
+    needs: [validate, db]
+    if: >-
+      always() && needs.validate.result == 'success' &&
+      contains(needs.validate.outputs.scopes, ',auth,') &&
+      contains(fromJSON('["success","skipped"]'), needs.db.result)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    concurrency: { group: production-auth, cancel-in-progress: false }
+    env:
+      COMPONENT: auth
+      RELEASE_SHA: ${{ inputs.sha }}
+      DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      # Better Auth schema generation needs placeholder values at build time.
+      # Deployed Workers keep their own vars and secrets.
+      BETTER_AUTH_OPENMELD_SECRET: ci_codegen_only_secret_please_do_not_use_1234567890
+      AUTH_WORKER_NODE_ENV: development
+      BETTER_AUTH_URL: http://localhost:8788
+      WEB_APP_URL: http://localhost:8788
+    defaults: { run: { working-directory: release-source } }
+    steps: [*checkout-control, *checkout-source, *setup-toolchain, *deploy-component]
+
+  core:
+    name: Core
+    needs: [validate, db, auth]
+    if: >-
+      always() && needs.validate.result == 'success' &&
+      contains(needs.validate.outputs.scopes, ',core,') &&
+      contains(fromJSON('["success","skipped"]'), needs.db.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.auth.result)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    concurrency: { group: production-core, cancel-in-progress: false }
+    env:
+      COMPONENT: core
+      RELEASE_SHA: ${{ inputs.sha }}
+      DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+      PLANETSCALE_SERVICE_TOKEN_ID: ${{ secrets.PLANETSCALE_SERVICE_TOKEN_ID }}
+      PLANETSCALE_SERVICE_TOKEN: ${{ secrets.PLANETSCALE_SERVICE_TOKEN }}
+    defaults: { run: { working-directory: release-source } }
+    steps:
+      - *checkout-control
+      - *checkout-source
+      - *require-postgresql-secrets
+      - *setup-postgresql-tools-doppler
+      - *setup-postgresql-tools-pscale
+      - *setup-toolchain
+      - *deploy-component
+      - name: Keep a failed Core startup profile
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-startup-profile-${{ inputs.sha }}
+          path: release-source/services/core/.wrangler/tmp/startup-profile-*/worker.cpuprofile
+          if-no-files-found: ignore
+          retention-days: 14
+
+  gateway:
+    name: Gateway
+    needs: [validate, core]
+    if: >-
+      always() && needs.validate.result == 'success' &&
+      contains(needs.validate.outputs.scopes, ',gateway,') &&
+      contains(fromJSON('["success","skipped"]'), needs.core.result)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    concurrency: { group: production-gateway, cancel-in-progress: false }
+    env:
+      COMPONENT: gateway
+      RELEASE_SHA: ${{ inputs.sha }}
+      DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    defaults: { run: { working-directory: release-source } }
+    steps: [*checkout-control, *checkout-source, *setup-toolchain, *deploy-component]
+
+  remote_agent:
+    name: Remote Agent
+    needs: [validate, core]
+    if: >-
+      always() && needs.validate.result == 'success' &&
+      contains(needs.validate.outputs.scopes, ',remote-agent,') &&
+      contains(fromJSON('["success","skipped"]'), needs.core.result)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    concurrency: { group: production-remote-agent, cancel-in-progress: false }
+    env:
+      COMPONENT: remote-agent
+      RELEASE_SHA: ${{ inputs.sha }}
+      DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    defaults: { run: { working-directory: release-source } }
+    steps: [*checkout-control, *checkout-source, *setup-toolchain, *deploy-component]
+
+  web:
+    name: Web
+    needs: [validate, auth, core, gateway, remote_agent]
+    if: >-
+      always() && needs.validate.result == 'success' &&
+      contains(needs.validate.outputs.scopes, ',web,') &&
+      contains(fromJSON('["success","skipped"]'), needs.auth.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.core.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.gateway.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.remote_agent.result)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment: production
+    concurrency: { group: production-web, cancel-in-progress: false }
+    env:
+      COMPONENT: web
+      RELEASE_SHA: ${{ inputs.sha }}
+      DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    defaults: { run: { working-directory: release-source } }
+    steps:
+      - *checkout-control
+      - *checkout-source
+      - *setup-toolchain
+      - *deploy-component
+      - &source-maps
+        name: Keep private browser source maps
+        if: always() && inputs.dry_run != true
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.COMPONENT }}-source-maps-${{ inputs.sha }}-${{ github.run_id }}
+          path: release-source/clients/*/dist/client/**/*.map
+          if-no-files-found: ignore
+          retention-days: 14
+
+  website:
+    name: Website
+    needs: validate
+    if: contains(needs.validate.outputs.scopes, ',website,')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    concurrency: { group: production-website, cancel-in-progress: false }
+    env:
+      COMPONENT: website
+      RELEASE_SHA: ${{ inputs.sha }}
+      DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    defaults: { run: { working-directory: release-source } }
+    steps: [*checkout-control, *checkout-source, *setup-toolchain, *deploy-component, *source-maps]
+
+  docs:
+    name: Docs
+    needs: validate
+    if: contains(needs.validate.outputs.scopes, ',docs,')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    concurrency: { group: production-docs, cancel-in-progress: false }
+    env:
+      COMPONENT: docs
+      RELEASE_SHA: ${{ inputs.sha }}
+      DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    defaults: { run: { working-directory: release-source } }
+    steps: [*checkout-control, *checkout-source, *setup-toolchain, *deploy-component, *source-maps]
+
+  cli:
+    name: CLI
+    needs: [validate, core]
+    if: >-
+      always() && needs.validate.result == 'success' &&
+      contains(needs.validate.outputs.scopes, ',cli,') &&
+      contains(fromJSON('["success","skipped"]'), needs.core.result)
+    permissions:
+      contents: write
+      id-token: write
+    uses: ./.github/workflows/cli-release.yml
+    with:
+      release_sha: ${{ inputs.sha }}
+      dry_run: ${{ inputs.dry_run }}
+    secrets: inherit

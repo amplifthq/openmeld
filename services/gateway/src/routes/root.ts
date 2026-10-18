@@ -1,3 +1,5 @@
+import { resolveWorkerReleaseSha } from "@openmeld/schemas";
+import type { WorkerHealthResponse } from "@openmeld/schemas/types";
 import type { Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
 import { PUBLIC_SPACE_BOUNDARY_ENDPOINTS } from "./rpc-http.public-space";
@@ -7,7 +9,8 @@ export function registerRootRoute(app: Hono<HonoBindings>): void {
     return c.json({
       ok: true,
       service: "openmeld-gateway",
-    });
+      releaseSha: resolveWorkerReleaseSha(c.env.RELEASE_SHA),
+    } satisfies WorkerHealthResponse);
   });
 
   app.get("/", (c) => {

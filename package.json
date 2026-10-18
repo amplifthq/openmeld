@@ -11,7 +11,7 @@
     "pg:check": "pnpm --filter @openmeld/postgresql test",
     "pretest": "node scripts/dev/require-node-major.mjs 24",
     "build": "node scripts/dev/run-local-heavy.mjs pnpm exec turbo run build --concurrency=2",
-    "deploy": "node scripts/release/production-release-cli.mjs deploy",
+    "deploy": "node scripts/release/deploy.mjs",
     "release:plan": "node scripts/release/production-release-cli.mjs plan",
     "release:lease": "node scripts/release/production-scope-lease.mjs",
     "release:status": "node scripts/release/production-release-status.mjs",
