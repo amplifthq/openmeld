@@ -852,6 +852,7 @@ import {
   hasHeldSpaceJoinHoldForOwner,
   hasUnsyncedSpaceAgentAccessHolds,
   insertSpaceAgentAccessHold,
+  isAgentAccessHeldOrClosed,
   listHeldSpaceAgentAccessHoldsForSignal,
   listOwnerApprovedJoinProfileIds,
   listUnsyncedSpaceAgentAccessHolds,
@@ -1643,6 +1644,12 @@ type DispatchPlannerEvaluation = {
   mergedReadyDecisions: DispatchReadyDecision[];
   nonReadyDecisions: NonReadyMentionDispatchDecision[];
   plannerSummary: ReturnType<typeof readDispatchPlannerSignalEnvelopeSummary>;
+};
+/** What applying an owner's decision changed, for work after the gate. */
+type AgentAccessApplication = {
+  addedMemberIds?: readonly string[];
+  dispatched?: boolean;
+  outcome: "applied" | "voided" | "closed";
 };
 type PreparedDispatchOutboxPlan = {
   // Ready Wakes held for their Agent owner's consent; no outbox record.
@@ -23255,7 +23262,8 @@ export class Space extends DurableObject<CoreBindings> {
     status: AgentAccessRequestStatus;
   }): Promise<{ outcome: "applied" | "voided" | "closed" }> {
     this.applySpaceRef(input.spaceId);
-    return await this.blockConcurrencyWithPostgres(async () => {
+    const applied = await this.blockConcurrencyWithPostgres(
+      async (): Promise<AgentAccessApplication> => {
       const meta = this.readSpaceMetaRecord();
       if (meta?.organizationId !== input.organizationId) {
         throw new Error("Agent access request Space mismatch.");
@@ -23283,7 +23291,12 @@ export class Space extends DurableObject<CoreBindings> {
       }
       const nowMs = Date.now();
       if (input.status === "allowed" || input.status === "joined") {
-        return await this.releaseAgentAccessHold({ ...input, hold, meta, nowMs });
+        return await this.releaseAgentAccessHold({
+          ...input,
+          hold,
+          meta,
+          nowMs,
+        });
       }
       if (
         input.status === "declined" ||
@@ -23300,7 +23313,23 @@ export class Space extends DurableObject<CoreBindings> {
         return { outcome: "closed" };
       }
       throw new Error("Agent access decision is not applicable.");
+      }
+    );
+    // Projection and dispatch can call back into this Space, so they run
+    // after the gate opens.
+    await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, async () => {
+      if (applied.addedMemberIds?.length) {
+        await this.projectCurrentSpaceIndexSnapshot("space.members_updated");
+        await this.broadcastSpaceMembersChanged({
+          profileIds: applied.addedMemberIds,
+          reason: "space.members.added",
+        });
+      }
+      if (applied.dispatched) {
+        await this.flushPendingDispatchOutbox();
+      }
     });
+    return { outcome: applied.outcome };
   }
   private async releaseAgentAccessHold(input: {
     agentMember?: ResolvedSpaceMemberProfile;
@@ -23310,7 +23339,7 @@ export class Space extends DurableObject<CoreBindings> {
     meta: SpaceMetaRecord;
     nowMs: number;
     status: AgentAccessRequestStatus;
-  }): Promise<{ outcome: "applied" | "voided" }> {
+  }): Promise<AgentAccessApplication> {
     const { hold } = input;
     const signal = hold.signalId ? this.readSignalById(hold.signalId) : null;
     if (
@@ -23416,18 +23445,12 @@ export class Space extends DurableObject<CoreBindings> {
         requestId: hold.requestId,
       });
     });
-    if (addedMemberIds.length > 0) {
-      await this.projectCurrentSpaceIndexSnapshot("space.members_updated");
-      await this.broadcastSpaceMembersChanged({
-        profileIds: addedMemberIds,
-        reason: "space.members.added",
-      });
-    }
     this.finishEarlyWakeStops(stoppedNotices, undefined);
-    if (dispatchMessages.length > 0) {
-      await this.flushPendingDispatchOutbox();
-    }
-    return { outcome: "applied" };
+    return {
+      addedMemberIds,
+      dispatched: dispatchMessages.length > 0,
+      outcome: "applied",
+    };
   }
   /**
    * Someone other than the owner asks for an Agent that is not in this
@@ -25313,7 +25336,13 @@ export class Space extends DurableObject<CoreBindings> {
         );
         continue;
       }
-      if (sourceSignal) {
+      if (
+        sourceSignal &&
+        !isAgentAccessHeldOrClosed(this.ctx.storage.sql, {
+          signalId: sourceSignal.id,
+          targetProfileId: nextTargetProfileId,
+        })
+      ) {
         items.push(
           createWakeProgressItem({
             clientMessageId,

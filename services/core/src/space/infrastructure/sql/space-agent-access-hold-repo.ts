@@ -162,6 +162,28 @@ export function hasHeldSpaceJoinHoldForOwner(
   );
 }
 
+/**
+ * Whether this message's Wake of `targetProfileId` waits, or waited and
+ * ended, on its owner's consent. Such a Wake has no dispatch and is not in
+ * progress; the request carries its state.
+ */
+export function isAgentAccessHeldOrClosed(
+  sql: SqlStorage,
+  input: { signalId: string; targetProfileId: string }
+): boolean {
+  return (
+    sql
+      .exec<{ found: number }>(
+        `SELECT 1 AS found FROM space_agent_access_holds
+         WHERE signal_id = ? AND target_profile_id = ? AND state <> 'released'
+         LIMIT 1`,
+        input.signalId,
+        input.targetProfileId
+      )
+      .toArray().length > 0
+  );
+}
+
 /** Agents that joined because their owner let them; the owner observes. */
 export function listOwnerApprovedJoinProfileIds(
   sql: SqlStorage

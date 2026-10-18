@@ -145,6 +145,7 @@ type ConsentSpace = {
   rpcApplyAgentAccessDecision: Space["rpcApplyAgentAccessDecision"];
   rpcRequestAgentForSpace: Space["rpcRequestAgentForSpace"];
   rpcMutateSpaceMessage: Space["rpcMutateSpaceMessage"];
+  rpcGetWakeProgress: Space["rpcGetWakeProgress"];
   isAgentOwnerObserver(actor: OpenMeldRequestContext["actorContext"]): boolean;
   ensureAgentOwnerMembershipPolicy(meta: unknown): Promise<void>;
   readSpaceMetaRecord(): unknown;
@@ -405,6 +406,17 @@ describe("Colleague use of an Agent (Phase 4)", () => {
         });
         // The urgent email carries the item's copy: never the message text.
         expect(`${item?.title} ${item?.preview}`).not.toContain("signing key");
+
+        // A held Wake is not in progress: no "Working…" for the requester.
+        const progress = await space.instance.rpcGetWakeProgress({
+          clientMessageId: String(
+            (first.data as { meta?: { clientMessageId?: string } }).meta
+              ?.clientMessageId
+          ),
+          context: space.context(f.tali),
+          spaceId: space.spaceId,
+        } as Parameters<ConsentSpace["rpcGetWakeProgress"]>[0]);
+        expect(progress.items).toEqual([]);
 
         // One request per Session: the requester waits or withdraws.
         await expect(
