@@ -16,6 +16,7 @@ import type { ComposerDraftScope } from "#/lib/composer-draft-storage";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationSpacesPath } from "#/lib/organizations/organization-routes";
 import type { PendingSpaceMessage } from "#/lib/spaces/pending-message";
+import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { spaceBootstrapQueryOptions } from "#/query/spaces/bootstrap";
 import {
 	addSpaceDirectoryMembers,
@@ -183,6 +184,34 @@ function CreationMemberRetry(input: { retry: (() => void) | undefined }) {
 	) : null;
 }
 
+// Space member actions confirm the acting Human from the account Profiles,
+// exactly as the regular Space route provides them, so the handoff opens the
+// Space only with both the bootstrap and those Profiles.
+function useCreationOpenState(input: {
+	bootstrap: { isError: boolean; refetch: () => unknown };
+	storageScope: string;
+}) {
+	const profiles = useQuery(
+		buildStartProfilesQueryOptions({
+			enabled: true,
+			storageScope: input.storageScope,
+		})
+	);
+	const profilesFailed = profiles.isError && profiles.data === undefined;
+	return {
+		accountProfiles: profiles.data,
+		openFailed: input.bootstrap.isError || profilesFailed,
+		retryOpen: () => {
+			if (input.bootstrap.isError) {
+				input.bootstrap.refetch();
+			}
+			if (profilesFailed) {
+				profiles.refetch();
+			}
+		},
+	};
+}
+
 function SpaceCreationConversation(input: {
 	creation: Creation;
 	profileId: string;
@@ -328,9 +357,17 @@ function SpaceCreationConversation(input: {
 		}
 	};
 	const failed = input.creation.status === "error";
-	const error =
-		creationError(failed, bootstrap.isError, queueError) ?? members.error;
-	const ready = realSpaceId && bootstrap.data && !queueing && members.ready;
+	const { accountProfiles, openFailed, retryOpen } = useCreationOpenState({
+		bootstrap,
+		storageScope,
+	});
+	const error = creationError(failed, openFailed, queueError) ?? members.error;
+	const ready =
+		realSpaceId &&
+		bootstrap.data &&
+		accountProfiles &&
+		!queueing &&
+		members.ready;
 	return (
 		<AppSpaceShell
 			currentProfileId={input.profileId}
@@ -339,6 +376,7 @@ function SpaceCreationConversation(input: {
 		>
 			{ready ? (
 				<SpaceLanding
+					accountProfiles={accountProfiles}
 					composerDraftMigrationScopes={scope ? [scope] : undefined}
 					initialPendingMessage={pending.data}
 					initialSpaceView={view}
@@ -399,12 +437,8 @@ function SpaceCreationConversation(input: {
 									Check Spaces
 								</Link>
 							) : null}
-							{bootstrap.isError ? (
-								<Button
-									onClick={() => bootstrap.refetch()}
-									size="sm"
-									variant="outline"
-								>
+							{openFailed ? (
+								<Button onClick={retryOpen} size="sm" variant="outline">
 									Retry opening
 								</Button>
 							) : null}

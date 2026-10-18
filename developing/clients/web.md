@@ -170,6 +170,13 @@ searches, presence, or read receipts. The verified create response replaces it
 with the canonical Space route without adding a history entry. Directory
 refresh runs independently and cannot delay entry.
 
+The creation conversation stays mounted on the canonical Space route in the
+tab that created it, so it must give the regular Space view the same inputs as
+the regular route. In particular it reads the account Profiles and opens the
+Space only once they are available, because member removal and addition
+confirm the acting Human from that list; a profile read failure uses the same
+"couldn't be opened" retry as a bootstrap failure.
+
 Text and attachments use the existing composer draft owners. Sending during
 preparation stages one message with a stable client message ID. The regular
 Space composer publishes it only after bootstrap confirms access; creation
