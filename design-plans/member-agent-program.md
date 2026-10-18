@@ -823,6 +823,17 @@ cache; Project redesign.
 - External requesters cannot yet read or withdraw their own access requests
   (request routes require Organization membership). Needs a Space-scoped
   requester read; follow-up.
+- Smoke environment: a dev-lane Service registered with launchd stalls in
+  the OS loader when its worktree lives under a macOS privacy-protected
+  folder (`~/Desktop`, `~/Documents`, `~/Downloads`); foreground start works.
+  Smoke runs use a worktree outside those folders.
+- `service stop --force` and `pnpm dev:stop` refuse a Service process that
+  never published a lease ("The Service owner changed"); only
+  `service repair --force` recovers (`service-stop-command.ts`,
+  `persistUserStopIntent`). Pre-existing CLI lifecycle; follow-up.
+- Web setup shows "Reconnecting..." after the CLI already exited with a
+  setup failure instead of the failure and next action. Pre-existing Prepare
+  presentation; follow-up.
 - Dispatch results report `effectiveRuntimeWorkingDirectory` to Core
   (`send-dispatch-result.ts`, pre-existing). Confirm it is projected to the
   owner only and decide whether it should become a folder id (Phase 3).
@@ -925,3 +936,11 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   items moved to §13. 4e (no migration): folder-scoped conflicts, non-owner
   isolated default via `isolated_if_git`, admitted-folder pinning, path-free
   failures. Phase 4 is complete on the program branch.
+- 2026-10-19, real-machine smoke rounds 1 and 1b (Codex gpt-6-astra, medium;
+  evidence in `dev-tmp/member-agent-smoke/`, not committed): account,
+  organization, Space and isolated CLI flows passed; six harnesses detected;
+  MemberAgent scenarios A–H blocked first by the smoke's own install rule,
+  then by a launchd start stall attributed to the worktree's location under
+  `~/Desktop`. Agents empty state lacked Connect computer and loading showed
+  "unavailable"; both fixed by 1d (`claude/map-1d-smoke-fixes`, merged).
+  Service stop/repair and setup-failure presentation recorded in §13.
