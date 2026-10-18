@@ -716,6 +716,13 @@ uninterrupted.
   #236 accumulates every package. Sub-sessions do not edit this document;
   they report corrections, and Claude applies them. Each sub-session records
   its external review in `design-plans/member-agent-program-reviews/<pkg>.md`.
+- **Migrations are serialized.** Parallel packages must not each add a
+  Drizzle migration under the same number. Before a package that needs a
+  migration is dispatched or resumed, Claude assigns it the next free number
+  after the program branch's latest migration; a package that generated a
+  colliding number rebases onto the program branch and regenerates its
+  migration and snapshot before it is merged. Lesson from Wave 2, where 1c,
+  1d and 1e each produced a `0040`.
 - **Final smoke.** After Phase 4 and again after Phase 5, one dedicated Codex
   (GPT-6 Astra Mid) session runs the worked example (§4.5) and the three flows
   (§7) on Felix's real computers and returns screenshots of every intermediate
