@@ -9364,7 +9364,9 @@ session with `1013 space_access_unverified` before yielding. Closing an
 accepted session this way publishes its `presence.quit` to the sessions that
 stay open, as an ordinary disconnect does. The retry is not
 delayed by a timer, because a timer does not keep a hibernating Space awake and
-a discarded retry would leave the socket open with its messages lost. The client reconnects through the full join
+a discarded retry would leave the socket open with its messages lost. On that close Web re-reads Space access at once, because a real revocation
+in the meantime rejects the reconnect before any close code reaches the
+browser. The client reconnects through the full join
 check. After an accepted reconnect, Web re-reads every snapshot those
 invalidations refresh (Space metadata and access, members, Tasks, files, chat
 titles, Agent progress, and shared Agent readiness) in addition to its history
