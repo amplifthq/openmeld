@@ -14,7 +14,12 @@ import {
 	conversationSections,
 } from "./conversation-sidebar-model";
 
-function session(id: string, activity: number, agent = "center"): Conversation {
+function session(
+	id: string,
+	activity: number,
+	agent = "center",
+	agentName?: string
+): Conversation {
 	return {
 		kind: "direct-message",
 		spaceId: id,
@@ -28,6 +33,7 @@ function session(id: string, activity: number, agent = "center"): Conversation {
 			createdAt: null,
 			session: true,
 			centerAgentProfileId: agent,
+			centerAgentProfileName: agentName,
 		},
 	};
 }
@@ -112,14 +118,16 @@ describe("center-agent sidebar entry", () => {
 
 		it("keeps separate Center Agents apart", () => {
 			const result = collapseCenterAgentSessions({
-				conversations: [session("a", 1, "one"), session("b", 2, "two")],
+				conversations: [session("a", 1, "one"), session("b", 2, "two", "Ops")],
 				archivedIds: [],
 				latestUnreadAtBySpaceId: noUnread,
 				title: "Center Agent",
 			});
-			expect(result.conversations.map((item) => item.spaceId)).toEqual([
-				"a",
-				"b",
+			expect(
+				result.conversations.map(({ spaceId, title }) => [spaceId, title])
+			).toEqual([
+				["a", "Center Agent"],
+				["b", "Center Agent · Ops"],
 			]);
 		});
 	});

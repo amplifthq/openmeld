@@ -469,14 +469,17 @@ history navigates to the exact Space; a new draft omits the redundant New chat a
 
 The Spaces list shows the viewer's active private sessions with one Center
 Agent as a single entry titled **{display name}’s Center Agent** (plain
-**Center Agent** without a name). The name is the default Human Profile name,
-which the Account display name keeps paired; renaming updates the session,
-Profile, directory and Space member caches optimistically and restores them if
-the request fails. The Center Agent is Organization-owned, so the
+**Center Agent** without a name); with sessions under more than one Center
+Agent, each entry adds that agent's name. The name is the default Human Profile
+name, which the Account display name keeps paired; renaming updates the session,
+Profile, directory and Space member caches optimistically and, if the request
+fails, rolls back only the name. The Center Agent is Organization-owned, so the
 possessive names only the viewer's private sessions. The entry is the session it
 opens: the one with the newest unread message, otherwise the most recently
-active one, so its id, link and unread jump agree. It sums unread, Wake count,
-Wake statuses, and attention evidence across its sessions. A pin, group, or
+active one, so its id, link and unread jump agree; it sorts by the latest
+activity across its sessions. It sums unread, Wake count, Wake statuses, and
+attention evidence across its sessions, and its activity indicator opens the
+session that owns the shown work. A pin, group, or
 manual position saved for any of its sessions applies to the entry; moving or
 unpinning it drops the other sessions' saved positions. While a search is
 active, each session is listed on its own row so a title match opens that

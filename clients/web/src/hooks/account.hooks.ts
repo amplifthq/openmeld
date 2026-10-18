@@ -106,7 +106,9 @@ export function useUpdateUserName() {
 			const defaultHumanProfile = findActiveDefaultHumanProfile(
 				snapshot.profiles.flatMap(([, profiles]) => profiles ?? [])
 			);
-			const defaultHumanProfileId = defaultHumanProfile?.openMeldProfileId;
+			const defaultHumanProfileId =
+				defaultHumanProfile?.openMeldProfileId ??
+				snapshot.accountAvatar?.defaultHumanProfileId;
 			setAccountNameIdentityProjection(queryClient, {
 				name,
 				defaultHumanProfileId,
@@ -291,6 +293,37 @@ function setAccountNameIdentityProjection(
 		(session) =>
 			session ? { ...session, user: { ...session.user, name } } : session
 	);
+	// The Account name belongs to the user; the profile name to the default
+	// Human Profile. Each is matched by its own id.
+	const userId = queryClient.getQueryData<AccountSession | null>(
+		userQueryKeys.session
+	)?.user.id;
+	queryClient.setQueriesData<OrganizationDirectoryResponse>(
+		organizationDirectoryQueryFilters(),
+		(directory) => {
+			if (!directory) {
+				return directory;
+			}
+			const members = directory.members.map((member) => {
+				const ownsUser = userId !== undefined && member.user.id === userId;
+				const ownsProfile =
+					defaultHumanProfileId !== undefined &&
+					member.humanProfile?.profileId === defaultHumanProfileId;
+				if (!(ownsUser || ownsProfile)) {
+					return member;
+				}
+				return {
+					...member,
+					user: ownsUser ? { ...member.user, name } : member.user,
+					humanProfile:
+						ownsProfile && member.humanProfile
+							? { ...member.humanProfile, profileName: name }
+							: member.humanProfile,
+				};
+			});
+			return { ...directory, members };
+		}
+	);
 	if (!defaultHumanProfileId) {
 		return;
 	}
@@ -302,24 +335,6 @@ function setAccountNameIdentityProjection(
 					? { ...profile, profileName: name }
 					: profile
 			)
-	);
-	queryClient.setQueriesData<OrganizationDirectoryResponse>(
-		organizationDirectoryQueryFilters(),
-		(directory) => {
-			if (!directory) {
-				return directory;
-			}
-			const members = directory.members.map((member) =>
-				member.humanProfile?.profileId === defaultHumanProfileId
-					? {
-							...member,
-							user: { ...member.user, name },
-							humanProfile: { ...member.humanProfile, profileName: name },
-						}
-					: member
-			);
-			return { ...directory, members };
-		}
 	);
 	const renameHuman = (members: SpaceMembersSnapshot) => {
 		let changed = false;

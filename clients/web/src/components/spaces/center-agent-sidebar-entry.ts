@@ -53,6 +53,8 @@ export function collapseCenterAgentSessions(input: {
 		unreadAt(candidate) === unreadAt(current)
 			? candidate.activity > current.activity
 			: unreadAt(candidate) > unreadAt(current);
+	// Two Center Agents would otherwise show the same name side by side.
+	const namesAgent = sessionsByAgent.size > 1;
 	for (const sessions of sessionsByAgent.values()) {
 		const entry = sessions.reduce((current, candidate) =>
 			opensBefore(candidate, current) ? candidate : current
@@ -66,7 +68,10 @@ export function collapseCenterAgentSessions(input: {
 		}
 		conversations.push({
 			...entry,
-			title: input.title,
+			title:
+				namesAgent && entry.chat.centerAgentProfileName
+					? `${input.title} · ${entry.chat.centerAgentProfileName}`
+					: input.title,
 			activity: Math.max(...sessions.map((session) => session.activity)),
 			sessionSpaceIds: sessionIds,
 			sessionUrlBySpaceId: new Map(
