@@ -1,4 +1,9 @@
+import { DESKTOP_APP_ORIGIN } from "@openmeld/schemas";
 import { createServerFn } from "@tanstack/react-start";
+import {
+	readBrowserPreference,
+	writeBrowserPreference,
+} from "./spaces/browser-preference-storage";
 
 /**
  * Injected web persistence for the resizable Space sidebar (PROVE-ABSTRACTION
@@ -10,8 +15,8 @@ import { createServerFn } from "@tanstack/react-start";
  * first-paint flash). The outer rail stores widths by page in one cookie. Each inner-sidebar route
  * family owns an independent preference while the original global inner value
  * remains a read-only migration fallback. The Desktop track injects its own
- * electron-store equivalent against the same `onWidthChange` / tier-change
- * seam.
+ * local browser-preference storage because its custom scheme cannot save
+ * document cookies. Both stores use the same serialized state and defaults.
  *
  * The pure parse/serialize/read helpers are isomorphic and unit-testable; the
  * client write goes through `document.cookie`; the SSR read goes through a
@@ -303,10 +308,14 @@ export function readAppSidebarStatesFromClientCookie(
 	if (typeof document === "undefined") {
 		return APP_SIDEBAR_DEFAULT_STATES;
 	}
-	return readAppSidebarStatesFromCookieHeader(
-		document.cookie,
-		innerPreferenceKey
-	);
+	return {
+		inner: innerPreferenceKey
+			? (readInnerSidebarStateFromClientCookie(innerPreferenceKey) ??
+				SIDEBAR_DEFAULT_STATE)
+			: (readSidebarStateFromClientCookie("inner") ?? SIDEBAR_DEFAULT_STATE),
+		outer:
+			readSidebarStateFromClientCookie("outer") ?? OUTER_SIDEBAR_DEFAULT_STATE,
+	};
 }
 
 function readAppSidebarStateCatalogFromCookieHeader(
@@ -342,8 +351,7 @@ function readSidebarStateFromClientCookie(
 	if (typeof document === "undefined") {
 		return null;
 	}
-	const rawValue = readCookieValueFromHeader(
-		document.cookie,
+	const rawValue = readClientSidebarPreference(
 		SIDEBAR_STATE_COOKIE_NAMES[scope]
 	);
 	return rawValue === null
@@ -357,14 +365,27 @@ function readInnerSidebarStateFromClientCookie(
 	if (typeof document === "undefined") {
 		return null;
 	}
-	const scopedValue = readCookieValueFromHeader(
-		document.cookie,
+	const scopedValue = readClientSidebarPreference(
 		INNER_SIDEBAR_STATE_COOKIE_NAMES[preferenceKey]
 	);
 	if (scopedValue !== null) {
 		return parseSidebarStateCookieValue(scopedValue, "inner");
 	}
 	return readSidebarStateFromClientCookie("inner");
+}
+
+function usesDesktopSidebarStorage(): boolean {
+	return (
+		typeof window !== "undefined" &&
+		`${window.location.protocol}//${window.location.host}` ===
+			DESKTOP_APP_ORIGIN
+	);
+}
+
+function readClientSidebarPreference(key: string): string | null {
+	return usesDesktopSidebarStorage()
+		? readBrowserPreference(key)
+		: readCookieValueFromHeader(document.cookie, key);
 }
 
 function readCookieValueFromHeader(
@@ -431,9 +452,12 @@ function writeClientSidebarStateCookie(
 	state: SidebarPersistedState,
 	scope: SidebarScope
 ): void {
-	const value = encodeURIComponent(
-		serializeSidebarStateCookieValue(state, scope)
-	);
+	const serialized = serializeSidebarStateCookieValue(state, scope);
+	if (usesDesktopSidebarStorage()) {
+		writeBrowserPreference(cookieName, serialized);
+		return;
+	}
+	const value = encodeURIComponent(serialized);
 	const secure = window.location.protocol === "https:" ? "; Secure" : "";
 	// This layout preference must be CLIENT-writable and SSR-readable, so a
 	// first-party (non-HttpOnly) cookie is the correct store. The async Cookie
