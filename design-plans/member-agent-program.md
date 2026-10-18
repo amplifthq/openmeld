@@ -54,7 +54,7 @@ Principles that decide trade-offs:
 | User-facing | Code | Meaning |
 | --- | --- | --- |
 | Agent | **MemberAgent** (`member_agents`) | One organization member's instance of one harness, e.g. Felix Lu's Claude Code |
-| Claude Code, Codex, … | **Harness** (`harnessKind`) | The program kind that runs an Agent: `claude-code`, `codex`, `grok-build`, `cursor`, `opencode`, `antigravity`, `openclaw`, `hosted` |
+| Claude Code, Codex, … | **Harness** (`harnessKind`) | The program kind that runs an Agent: one per builtin controller id (`claude-code`, `codex`, `grok-build`, `grok-bot`, `cursor`, `opencode`, `antigravity`, `openclaw`) plus `hosted` |
 | Profile | Agent Profile (unchanged) | One configuration; still the Space member, message author and mention target |
 | Chat | Session | One conversation: a Direct Message Space, or an Execution Context inside a group Space |
 
@@ -223,8 +223,11 @@ Target:
   `defaultFolderId`. **The Service mints folder ids.** v1/v2 envelopes read as
   a one-element list.
 - Cloud projection `(profileId, folderId, kind, displayName)` written by Core
-  when the Service reports a folder save. No path ever reaches the cloud. A
-  cloud id unknown to the local envelope takes the existing fail-closed path.
+  when the Service reports a folder save. No path is ever stored in the cloud
+  or shown to anyone but the owner; the existing owner-self transit of a path
+  through Core to the owner's own Web session (Project folder picker) is
+  unchanged. A cloud id unknown to the local envelope takes the existing
+  fail-closed path.
 - Preferences gain `folderId`. Core strips `folderId` when the root requester
   is not the owner, so colleagues always use the default folder.
 - Resolution order: explicit choice → inherited from the continued or forked
@@ -461,8 +464,10 @@ Target: the exception becomes an enum of reasons visible to organization
 members: `not_signed_in`, `no_subscription`, `org_disabled`,
 `version_too_old` (with the unsupported model), `computer_offline`,
 `usage_exhausted` (with reset time when known). Quota numbers, subscription
-tier, account identity, computer names, paths, command text, raw diagnostics,
-grants and audit stay owner-only.
+tier, account identity, paths, command text, raw diagnostics, grants and
+audit stay owner-only. Computer names stay out of the MemberAgent non-owner
+projection; the existing People/Computers directory is a separate shipped
+surface and is not changed by this program.
 
 ### 4.11 Management
 
@@ -574,9 +579,11 @@ in Inbox with the native option → Service resumes → Tali's view shows
 Add as SQL assertions run after migration and as property tests where a
 writer exists:
 
-1. Every active Profile with an `enabled_primary` Binding of a builtin or
-   `hosted:remote-agent` harness has exactly one `member_agent_id`. Center
-   Agent Profiles have no owner and are excluded.
+1. Every active, unmanaged Profile with an `enabled_primary` Binding of a
+   builtin or `hosted:remote-agent` harness has exactly one
+   `member_agent_id`. Managed Profiles (Center Agent, legacy
+   `openmeld_assistant`) are excluded; they stay outside the structure and
+   hidden from the Agents home.
 2. No two `member_agents` rows share `(organization_id, owner_user_id, harness_kind)`.
 3. Every `member_agents.default_profile_id` points to a Profile whose
    `member_agent_id` is that row.
@@ -786,3 +793,14 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   since 2026-06). Verified and applied: repeat rejection is scoped to
   delegated work; conversational auto-relay keeps the root and appends; the
   depth cap is not stricter than the existing thresholds.
+- 2026-10-18, P0 and P1 reports, decided by the designer: computer names are
+  owner-only in the MemberAgent projection while the People/Computers
+  directory stays as shipped; "no path reaches the cloud" means never stored
+  or shown to others, owner-self transit for the folder picker is unchanged;
+  invariant 1 excludes all managed Profiles, not only Center Agent;
+  `grok-bot` is a harness kind because it is a builtin controller id. P1's
+  Codex review (gpt-6-astra, high) found a Session-selected organization
+  without membership check on the new read route and a composite foreign key
+  bypass via null owner; both fixed in the package. Pre-existing owner-doc
+  contradictions with older decisions that P0's review surfaced are out of
+  scope and listed in P0's report.
