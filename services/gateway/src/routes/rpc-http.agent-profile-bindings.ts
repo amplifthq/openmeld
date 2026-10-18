@@ -269,8 +269,9 @@ export function registerAgentProfileBindingRoutes(
       route: AGENT_PROFILE_FOLDERS_ROUTE,
       method: "POST",
       responseSchema: manageAgentProfileFoldersResponseSchema,
-      execute: () =>
-        c.var.coreRpc.manageAgentProfileFolders({
+      execute: async () =>
+        await c.var.coreRpc.manageAgentProfileFolders({
+          requestCredential: await buildCoreRpcCredential(c),
           ...parsedBody.data,
           agentProfileId: routeParams.data.agentProfileId,
           context: buildCoreRpcContext(c),

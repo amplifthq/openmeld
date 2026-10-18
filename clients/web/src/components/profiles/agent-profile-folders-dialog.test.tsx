@@ -1,3 +1,7 @@
+import {
+	CREDENTIAL_CONFIRMATION_REQUIRED_CODE,
+	formatCredentialConfirmationRequiredMessage,
+} from "@openmeld/schemas";
 import type {
 	AuthProfileView,
 	GetAgentProfileFoldersResponse,
@@ -348,5 +352,24 @@ describe("Agent folders dialog", () => {
 				.getByRole("button", { name: "Make default" })
 				.hasAttribute("disabled")
 		).toBe(true);
+	});
+
+	it("shows the owner's Inbox confirmation instead of a change while a colleague's task runs", async () => {
+		// The same structured refusal every gated folder write returns.
+		manageFoldersMock.mockRejectedValue({
+			code: "http_409",
+			message: formatCredentialConfirmationRequiredMessage("confirmation-1"),
+			requestId: null,
+			status: 409,
+			upstreamCode: CREDENTIAL_CONFIRMATION_REQUIRED_CODE,
+		});
+		renderDialog();
+		const row = await findRow("website");
+		fireEvent.click(row.getByRole("button", { name: "Make default" }));
+		expect((await screen.findByRole("alert")).textContent).toContain(
+			"Confirm this change in your OpenMeld Inbox"
+		);
+		expect(updateDefaultProjectMock).not.toHaveBeenCalled();
+		expect((await findRow("openmeld")).getByText("Default")).toBeTruthy();
 	});
 });

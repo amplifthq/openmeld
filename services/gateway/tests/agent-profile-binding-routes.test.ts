@@ -877,6 +877,10 @@ describe("agent profile binding routes", () => {
       expect.objectContaining({
         agentProfileId: AGENT_PROFILE_ID,
         expectedBindingTarget,
+        // The sensitive-operation gate decides from the caller's credential.
+        requestCredential: expect.objectContaining({
+          kind: expect.any(String),
+        }),
         operation: {
           folderId: "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11",
           operation: "set_default",

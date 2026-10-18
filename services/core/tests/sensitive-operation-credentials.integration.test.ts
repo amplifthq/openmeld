@@ -671,6 +671,10 @@ describe("sensitive operation credentials", () => {
       ["setCurrentAgentProfileWorkspace", { folder: "a" }],
       ["setPeopleComputerAgentProfileWorkspace", { folder: "b" }],
       ["setBoundPeopleComputerAgentProfileWorkspace", { folder: "c" }],
+      [
+        "manageAgentProfileFolders",
+        { operation: { operation: "add_openmeld_managed" } },
+      ],
       ["executeAgentProfileWorkRecovery", { body: { action: "skip" } }],
       ["agentProfileExecutionMode", { body: { mode: "serial" } }],
       ["respondToSpaceAgentInteraction", { spaceId: "space-1" }],
@@ -708,6 +712,97 @@ describe("sensitive operation credentials", () => {
     }
     // Each distinct request opens its own card.
     expect(await readConfirmationInboxItems(f)).toHaveLength(calls.length);
+  });
+
+  it("gates an owner's folder changes as working-folder writes", async () => {
+    const f = await seed();
+    const entrypoint = Object.create(
+      GatewayRpcEntrypoint.prototype
+    ) as InstanceType<typeof GatewayRpcEntrypoint>;
+    Reflect.set(entrypoint, "env", env);
+    // The folder change itself needs the Agent's Computer; the gate runs first.
+    const change = vi
+      .spyOn(
+        Object.getPrototypeOf(GatewayRpcEntrypoint.prototype),
+        "manageAgentProfileFolders"
+      )
+      .mockImplementation((input: unknown) => {
+        if (
+          input &&
+          typeof input === "object" &&
+          "requestCredential" in input
+        ) {
+          throw new Error("The credential leaked past the gate.");
+        }
+        return Promise.resolve("changed");
+      });
+    const manage = (requestCredential: RequestCredential) =>
+      entrypoint.manageAgentProfileFolders({
+        agentProfileId: f.agentProfileId,
+        context: contextFor(f, f.felix),
+        expectedBindingTarget: {
+          agentControllerConversationId: null,
+          agentControllerRef: "builtin:codex",
+          bindingId: "binding-1",
+          openMeldServiceRuntimeId: LAPTOP,
+        },
+        operation: {
+          folderId: "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11",
+          operation: "remove",
+        },
+        requestCredential,
+      });
+    try {
+      // The owner's Web session passes.
+      await expect(manage(interactive())).resolves.toBe("changed");
+      // A colleague-rooted task's credential is refused.
+      shard.taskCredential = {
+        openMeldServiceRuntimeId: LAPTOP,
+        rootProfileId: f.tali.profileId,
+        runtimeCoordinatorExecutionId:
+          TASK_CREDENTIAL.runtimeCoordinatorExecutionId,
+        status: "valid",
+        targetProfileId: f.agentProfileId,
+      };
+      await expect(
+        manage({ kind: "cli_credential", taskCredential: TASK_CREDENTIAL })
+      ).rejects.toThrow("sensitive_operation.root_not_owner");
+      // The CLI credential while a colleague's task runs waits for the owner.
+      shard.riskWindow = runningTask({
+        rootProfileId: f.tali.profileId,
+        runtimeId: LAPTOP,
+        targetProfileId: f.agentProfileId,
+      });
+      await expect(manage(cli())).rejects.toThrow(
+        "credential_confirmation.required"
+      );
+      expect(change).toHaveBeenCalledTimes(1);
+      expect(await readAudit(f)).toEqual([
+        expect.objectContaining({
+          outcome: "succeeded",
+          source_kind: "web_session",
+        }),
+        expect.objectContaining({
+          outcome: "rejected",
+          reason_code: "sensitive_operation.root_not_owner",
+          source_kind: "task_credential",
+        }),
+        expect.objectContaining({
+          outcome: "confirmation_required",
+          source_kind: "cli_credential",
+        }),
+      ]);
+      const operations = await getPostgresDatabase(env).query<{
+        operation: string;
+      }>({
+        text: `SELECT DISTINCT operation FROM "openmeld"."sensitive_operation_audit_events"
+          WHERE organization_id = $1`,
+        values: [f.organizationId],
+      });
+      expect(operations.rows).toEqual([{ operation: "working_folder_write" }]);
+    } finally {
+      change.mockRestore();
+    }
   });
 
   it("decides Auth's Agent Profile deletion through the same gate and audits its outcome", async () => {

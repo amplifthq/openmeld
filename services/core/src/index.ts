@@ -5890,8 +5890,20 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   getAgentProfileFolders(input: GetAgentProfileFoldersInput) {
     return super.getAgentProfileFolders(input);
   }
-  manageAgentProfileFolders(input: ManageAgentProfileFoldersInput) {
-    return super.manageAgentProfileFolders(input);
+  manageAgentProfileFolders(
+    input: ManageAgentProfileFoldersInput & GatewaySensitiveCredential
+  ) {
+    // Adding, removing, renaming or choosing the default folder is a
+    // working-folder write: same gate, confirmation and audit.
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "working_folder_write",
+      },
+      (operationInput) => super.manageAgentProfileFolders(operationInput)
+    );
   }
   setCurrentAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput & GatewaySensitiveCredential
