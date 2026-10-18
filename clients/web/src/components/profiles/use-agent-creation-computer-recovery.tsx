@@ -195,6 +195,16 @@ export function useAgentCreationComputerRecovery(input: RecoveryInput) {
 	return {
 		computerRecovery: recovery,
 		reconnectComputerId: target.connectedComputerId,
+		selectCreationComputer: (
+			nextTarget: Parameters<RecoveryInput["recovery"]["selectComputer"]>[0]
+		) => {
+			// An explicit choice replaces the old setup journey. Background
+			// inventory updates must still preserve it until Prepare completes.
+			setPendingSetup(null);
+			setRepairComputerId(null);
+			setSetupCompleted(false);
+			input.recovery.selectComputer(nextTarget);
+		},
 	};
 }
 

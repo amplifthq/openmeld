@@ -935,7 +935,7 @@ function useCreateProfileDialogController(
 			]);
 		}
 	};
-	const { computerRecovery, reconnectComputerId } =
+	const { computerRecovery, reconnectComputerId, selectCreationComputer } =
 		useAgentCreationComputerRecovery({
 			enabled: input.open && ownerMode === "self",
 			orgSlug,
@@ -1455,7 +1455,7 @@ function useCreateProfileDialogController(
 						choices={computerChoices}
 						disabled={createProfileMutation.isPending}
 						onSelect={(target) => {
-							recovery.selectComputer(target);
+							selectCreationComputer(target);
 							setBoundAgentId("");
 							setAgentBindingValue("");
 							setErrorState(null);
@@ -1466,7 +1466,7 @@ function useCreateProfileDialogController(
 						choices={connectionChoices}
 						disabled={createProfileMutation.isPending}
 						onSelect={(target) => {
-							recovery.selectComputer(target);
+							selectCreationComputer(target);
 							setBoundAgentId("");
 							setAgentBindingValue("");
 							setErrorState(null);
