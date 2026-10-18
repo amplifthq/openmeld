@@ -17,6 +17,18 @@
   conflicts with an owner doc means one of the two must be fixed in the same
   PR.
 
+2026-10-18: The **MemberAgent program** restructures local Agents around
+`MemberAgent` (organization × owner × harnessKind, derived state, no status
+column) → Agent Profile → Session. Vocabulary: MemberAgent / Harness / Agent
+Profile / Session; "tool" is not used for a harness. Remote Agents are `hosted`
+MemberAgents; Profiles cannot change harness; the default Profile is named
+after the harness; Sessions are DM Spaces by pairKey or Execution Contexts;
+every Wake has a human root requester and sensitive operations check that
+root; CLI-credential confirmation applies only while the computer runs a
+non-owner-rooted task; quota numbers stay owner-only; the permission-mode
+advisor ships in Phase 1; all work lands in one draft PR. Detail:
+`design-plans/member-agent-program.md`.
+
 2026-10-15: The Web primary rail is **Inbox / Spaces / Team / Routines**.
 Team retains **People / Agents / Files / Skills / Plugins**. Contextual
 sidebars follow their content: members in People, the current Agent list in
