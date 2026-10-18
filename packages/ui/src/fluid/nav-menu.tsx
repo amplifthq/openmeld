@@ -14,6 +14,7 @@ type FluidNavMenuProps = ComponentProps<"nav"> & {
   activeValue: string | null;
   listClassName?: string;
   hoverAxis?: ComponentProps<typeof SidebarMenu>["hoverAxis"];
+  hoverMaxDistance?: number;
   activeIndicatorClassName?: string;
   hoverIndicatorClassName?: string;
   focusIndicatorClassName?: string;
@@ -40,6 +41,7 @@ const FluidNavMenu = forwardRef<HTMLElement, FluidNavMenuProps>(
       className,
       listClassName,
       hoverAxis,
+      hoverMaxDistance,
       ...props
     },
     ref
@@ -59,6 +61,7 @@ const FluidNavMenu = forwardRef<HTMLElement, FluidNavMenuProps>(
             focusIndicatorClassName={focusIndicatorClassName}
             hoverAxis={hoverAxis}
             hoverIndicatorClassName={hoverIndicatorClassName}
+            hoverMaxDistance={hoverMaxDistance}
           >
             {children}
           </SidebarMenu>

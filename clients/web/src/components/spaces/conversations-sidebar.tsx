@@ -78,6 +78,7 @@ import {
 } from "./conversation-sidebar-model";
 import { ConversationSidebarRow } from "./conversation-sidebar-row";
 import { NewChatDialog } from "./new-chat-dialog";
+import { PinnedLayoutMenu, usePinnedLayout } from "./pinned-layout-menu";
 import { SpaceCreationSidebar } from "./space-creation-sidebar";
 import { resolveSpaceMemberAppearances } from "./space-member-avatars";
 import { useConversationDisclosure } from "./use-conversation-disclosure";
@@ -348,6 +349,10 @@ export function ConversationsSidebar(
 	);
 	const activeSection = active ? model.owner(active) : null;
 	const { showMessagePreviews, setShowMessagePreviews } = useMessagePreviews(
+		dm.profileId,
+		dm.org.id
+	);
+	const { pinnedLayout, setPinnedLayout } = usePinnedLayout(
 		dm.profileId,
 		dm.org.id
 	);
@@ -846,6 +851,12 @@ export function ConversationsSidebar(
 														{unreadCount(section)} unread
 													</span>
 												)}
+											{section.id === "pinned" && (
+												<PinnedLayoutMenu
+													layout={pinnedLayout}
+													onLayoutChange={setPinnedLayout}
+												/>
+											)}
 											{view === "grouped" && section.id !== "pinned" && (
 												<SidebarSectionActions
 													addLabel={
@@ -882,7 +893,7 @@ export function ConversationsSidebar(
 									content: (
 										<SidebarDropSection
 											ids={rows(section).map((item) => item.spaceId)}
-											layout={section.id === "pinned" ? "grid" : "list"}
+											layout={section.id === "pinned" ? pinnedLayout : "list"}
 											section={section.id}
 										>
 											<SpaceSidebarEmptyState
@@ -895,7 +906,7 @@ export function ConversationsSidebar(
 												activeLayoutId="conversation-selection"
 												activeValue={model.selected}
 												aria-label={section.name}
-												pinned={section.id === "pinned"}
+												layout={section.id === "pinned" ? pinnedLayout : "list"}
 												updateIndices={rows(section).flatMap((item, index) =>
 													(dm.indicators.unreadBySpaceId.get(item.spaceId)
 														?.unreadCount ?? 0) > 0 ||
@@ -924,6 +935,9 @@ export function ConversationsSidebar(
 														groups={model.moveGroups[item.kind]}
 														index={index}
 														key={item.spaceId}
+														layout={
+															section.id === "pinned" ? pinnedLayout : "list"
+														}
 														memberAppearances={memberAppearances}
 														messageUnreadCount={
 															dm.indicators.unreadBySpaceId.get(item.spaceId)
