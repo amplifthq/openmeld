@@ -16,7 +16,11 @@ import {
 	SidebarGroupAction,
 	SidebarGroupActions,
 } from "@openmeld/ui/fluid/sidebar-group";
-import { SlidersHorizontalIcon } from "@phosphor-icons/react";
+import {
+	ListIcon,
+	SlidersHorizontalIcon,
+	SquaresFourIcon,
+} from "@phosphor-icons/react";
 import { useState } from "react";
 import { useBrowserPreference } from "#/lib/use-browser-preference";
 
@@ -73,9 +77,11 @@ export function PinnedLayoutMenu({
 						value={layout}
 					>
 						<FluidDropdownMenuRadioItem index={0} value="grid">
+							<SquaresFourIcon aria-hidden="true" />
 							Grid
 						</FluidDropdownMenuRadioItem>
 						<FluidDropdownMenuRadioItem index={1} value="list">
+							<ListIcon aria-hidden="true" />
 							List
 						</FluidDropdownMenuRadioItem>
 					</DropdownMenuRadioGroup>
