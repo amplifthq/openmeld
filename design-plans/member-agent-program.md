@@ -804,11 +804,7 @@ cache; Project redesign.
   active tasks with their roots (Phase 5).
 - Observer widening: read cost of `owner_user_id_snapshot` in the Space DO
   member table (Phase 4).
-- Organization directory overview (`rpcGetCurrentOrganizationAgentRuntimeOverview`,
-  `resolveOrganizationAgentRuntimeOverview` in `services/core/src/rpc/methods.ts`)
-  accepts `includeUsageLimits` and, per 1c's review, may attach `usageLimits`
-  for other members' Profiles. Verify viewer gating against §4.10 (quota
-  numbers owner-only) in Phase 4 and fix if it leaks (pre-existing).
+- Organization directory overview quota exposure: fixed in Phase 4 (`canReadAgentQuota` in `services/core/src/rpc/methods.ts`); quota numbers reach only the owner.
 - Personal Remote Agent rejects `autoRelayDepth >= 6`, a pre-existing hard
   block that contradicts the Auto-Relay Loop Policy. Follow-up outside this
   program unless Phase 4 touches hosted collaboration.
