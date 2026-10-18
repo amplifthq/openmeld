@@ -107,9 +107,9 @@ function renderRoute(spaceId = SPACE_ID) {
 		defaultOptions: { queries: { retry: false } },
 	});
 	const handoffs: (SpaceCreationHandoff | undefined)[] = [];
-	const tree = () => (
+	const tree = (routeSpaceId = spaceId) => (
 		<QueryClientProvider client={queryClient}>
-			<SpaceCreationRoute profileId={PROFILE_ID} spaceId={spaceId}>
+			<SpaceCreationRoute profileId={PROFILE_ID} spaceId={routeSpaceId}>
 				{(handoff) => {
 					handoffs.push(handoff);
 					return <RegularRoute />;
@@ -121,7 +121,7 @@ function renderRoute(spaceId = SPACE_ID) {
 	return {
 		handoffs,
 		queryClient,
-		rerender: () => view.rerender(tree()),
+		rerender: (routeSpaceId?: string) => view.rerender(tree(routeSpaceId)),
 	};
 }
 
@@ -238,5 +238,44 @@ describe("SpaceCreationRoute", () => {
 
 		await screen.findByTestId("regular-route");
 		expect(handoffs).toEqual([undefined]);
+	});
+
+	it("keeps preparing while the route still names the creation request", async () => {
+		const { handoffs, queryClient } = renderRoute(CREATION_ID);
+
+		// Creation, bootstrap, and admission are confirmed, but the replace
+		// navigation to the canonical Space has not landed (or failed). The
+		// regular route would read the `creating-` id as a Space and migrate the
+		// creation draft onto its own scope.
+		await waitFor(() =>
+			expect(queryClient.getQueryState(["bootstrap", SPACE_ID])?.status).toBe(
+				"success"
+			)
+		);
+		expect(screen.getByText("Preparing…")).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Open Space" })).toBeTruthy();
+		expect(screen.queryByTestId("regular-route")).toBeNull();
+		expect(handoffs).toHaveLength(0);
+	});
+
+	it("opens the regular route once the route names the created Space", async () => {
+		const { handoffs, queryClient, rerender } = renderRoute(CREATION_ID);
+		await waitFor(() =>
+			expect(queryClient.getQueryState(["bootstrap", SPACE_ID])?.status).toBe(
+				"success"
+			)
+		);
+		expect(handoffs).toHaveLength(0);
+
+		rerender(SPACE_ID);
+
+		await screen.findByTestId("regular-route");
+		expect(handoffs.at(-1)).toMatchObject({
+			composerDraftMigrationScopes: [
+				expect.objectContaining({ spaceId: CREATION_ID }),
+			],
+			initialSpaceView: "messages",
+		});
+		expect(routeLifecycle).toEqual({ mounts: 1, unmounts: 0 });
 	});
 });

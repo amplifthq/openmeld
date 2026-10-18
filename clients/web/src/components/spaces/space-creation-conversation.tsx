@@ -15,7 +15,10 @@ import { useStartFlowState } from "#/components/app/start-flow-state";
 import { useComposerDraft } from "#/hooks/use-composer-draft";
 import type { ComposerDraftScope } from "#/lib/composer-draft-storage";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
-import { buildOrganizationSpacesPath } from "#/lib/organizations/organization-routes";
+import {
+	buildOrganizationSpacePath,
+	buildOrganizationSpacesPath,
+} from "#/lib/organizations/organization-routes";
 import type { PendingSpaceMessage } from "#/lib/spaces/pending-message";
 import { spaceBootstrapQueryOptions } from "#/query/spaces/bootstrap";
 import {
@@ -113,6 +116,7 @@ export function SpaceCreationRoute(input: {
 				profileId={input.profileId}
 				renderRoute={input.children}
 				request={creation.input}
+				routeSpaceId={input.spaceId}
 			/>
 		);
 	}
@@ -195,6 +199,28 @@ function useCreationMembers(input: {
 	};
 }
 
+// Creation replaces the `creating-` route with the canonical one, but tolerates
+// that navigation failing. Until the URL names the Space, offer to open it.
+function CreationOpenSpaceLink(input: {
+	orgSlug: string;
+	profileId: string;
+	spaceId: string | undefined;
+}) {
+	return input.spaceId ? (
+		<Link
+			className="text-sm underline"
+			replace
+			to={buildOrganizationSpacePath({
+				orgSlug: input.orgSlug,
+				spaceId: input.spaceId,
+				search: { profileId: input.profileId },
+			})}
+		>
+			Open Space
+		</Link>
+	) : null;
+}
+
 function CreationMemberRetry(input: { retry: (() => void) | undefined }) {
 	return input.retry ? (
 		<Button onClick={input.retry} size="sm" variant="outline">
@@ -208,6 +234,9 @@ function SpaceCreationConversation(input: {
 	profileId: string;
 	renderRoute: (handoff: SpaceCreationHandoff) => ReactNode;
 	request: SpaceCreationRequest;
+	// The regular route reads the Space named by the URL, so it may open only
+	// once the URL names the confirmed Space instead of the `creating-` id.
+	routeSpaceId: string;
 }) {
 	const { currentOrganization: organization } = useAppOrganization();
 	const { storageScope } = useStartFlowState();
@@ -354,7 +383,10 @@ function SpaceCreationConversation(input: {
 	// The handoff is one-way: once the regular route opens the created Space, a
 	// later read failure must not swap it back and remount the conversation.
 	const opened = useRef(false);
-	if (realSpaceId && bootstrap.data && !queueing && members.ready) {
+	const prepared = Boolean(
+		realSpaceId && bootstrap.data && !queueing && members.ready
+	);
+	if (prepared && input.routeSpaceId === realSpaceId) {
 		opened.current = true;
 	}
 	if (opened.current) {
@@ -431,6 +463,11 @@ function SpaceCreationConversation(input: {
 							</Button>
 						) : null}
 						<CreationMemberRetry retry={members.retry} />
+						<CreationOpenSpaceLink
+							orgSlug={organization.slug}
+							profileId={input.profileId}
+							spaceId={prepared ? realSpaceId : undefined}
+						/>
 					</div>
 				</div>
 				{view === "messages" ? (
