@@ -1396,6 +1396,54 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		expect(permanentRead).toHaveBeenCalledOnce();
 	});
 
+	it("replaces a Tasks first load still in flight when a reconnect is accepted", async () => {
+		const { queryClient } = renderFeed();
+		await openLatestSocket();
+		let resolveFirstRead!: (value: string) => void;
+		const readTasks = vi
+			.fn<() => Promise<string>>()
+			.mockImplementationOnce(
+				() =>
+					new Promise<string>((resolve) => {
+						resolveFirstRead = resolve;
+					})
+			)
+			.mockResolvedValue("tasks-v2");
+		const mounted = renderHook(
+			() =>
+				useQuery({
+					queryKey: spaceTaskQueryKeys.space("space-123"),
+					queryFn: readTasks,
+					staleTime: Number.POSITIVE_INFINITY,
+				}),
+			{
+				wrapper: ({ children }: { children: ReactNode }) => (
+					<QueryClientProvider client={queryClient}>
+						{children}
+					</QueryClientProvider>
+				),
+			}
+		);
+		await flushMicrotasks();
+		expect(readTasks).toHaveBeenCalledTimes(1);
+
+		// The first read started before the withheld change and has no data yet.
+		await act(async () => {
+			await FakeWebSocket.latest.emitClose(1013, "space_access_unverified");
+			await vi.advanceTimersByTimeAsync(2000);
+		});
+		await openLatestSocket();
+		await act(async () => {
+			resolveFirstRead("tasks-v1");
+			await vi.advanceTimersByTimeAsync(0);
+		});
+		await flushMicrotasks();
+		await act(async () => vi.advanceTimersByTimeAsync(0));
+
+		expect(readTasks).toHaveBeenCalledTimes(2);
+		expect(mounted.result.current.data).toBe("tasks-v2");
+	});
+
 	it("re-reads mounted Tasks, files, readiness, and chat titles after an accepted reconnect", async () => {
 		vi.stubGlobal("BroadcastChannel", undefined);
 		const onAgentReadinessInvalidated = vi.fn();

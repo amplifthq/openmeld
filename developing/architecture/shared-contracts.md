@@ -9373,8 +9373,9 @@ titles, Agent progress, and shared Agent readiness) in addition to its history
 catch-up. Because the missed readiness frames' Agent Profiles are unknown, the
 tab also publishes a scoped refresh-all message on the readiness bus so other
 tabs in the same account and Organization refresh their readiness projections;
-it bypasses the per-Space version check. Recovery restarts a readiness read
-already in flight, because that read may predate the missed change. A tab loaded before that
+it bypasses the per-Space version check. Recovery restarts snapshot and readiness
+reads already in flight, including a first load with no data, because such a
+read may predate the missed change. A tab loaded before that
 Web change keeps the earlier reconnect behavior until it reloads; that gap
 predates this rule, because a failed check used to close every session. A failure for
 one session never closes or delays another session.

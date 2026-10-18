@@ -1461,36 +1461,52 @@ function refreshLiveInvalidatedSnapshotsAfterReconnect(
 ): void {
 	debounceRefetch(input.statusRefetchTimerRef, input.statusRefetch);
 	debounceRefetch(input.membersRefetchTimerRef, input.membersRefetch);
-	input.queryClient
-		.invalidateQueries({
-			queryKey: ["spaces", "entry-resolution", input.spaceId],
-		})
+	// A first load still in flight may predate the withheld change, and an
+	// invalidation would share it instead of reading again. Cancel matching
+	// reads first so every refresh below starts a fresh read.
+	cancelSpaceSnapshotReadsBeforeReconnectRefresh(
+		input.queryClient,
+		input.spaceId
+	)
 		.catch((error: unknown) =>
-			console.warn("Failed to refresh Space access.", error)
-		);
-	input.queryClient
-		.invalidateQueries({
-			predicate: (query) =>
-				query.queryKey[0] === "spaces" &&
-				query.queryKey[1] === input.spaceId &&
-				query.queryKey.includes("history-navigation"),
-		})
-		.catch((error) =>
-			console.warn("Failed to refresh history navigation.", error)
-		);
-	input.queryClient
-		.invalidateQueries({ queryKey: spaceTaskQueryKeys.space(input.spaceId) })
-		.catch((error) => console.warn("Failed to refresh Space Tasks.", error));
-	invalidateSpaceMetadata(
-		input.queryClient,
-		input.spaceId,
-		LIVE_RECONNECT_REFRESH_REASON
-	);
-	invalidateSpaceFiles(
-		input.queryClient,
-		input.spaceId,
-		LIVE_RECONNECT_REFRESH_REASON
-	);
+			console.warn("Failed to cancel stale Space reads.", error)
+		)
+		.finally(() => {
+			input.queryClient
+				.invalidateQueries({
+					queryKey: ["spaces", "entry-resolution", input.spaceId],
+				})
+				.catch((error: unknown) =>
+					console.warn("Failed to refresh Space access.", error)
+				);
+			input.queryClient
+				.invalidateQueries({
+					predicate: (query) =>
+						query.queryKey[0] === "spaces" &&
+						query.queryKey[1] === input.spaceId &&
+						query.queryKey.includes("history-navigation"),
+				})
+				.catch((error) =>
+					console.warn("Failed to refresh history navigation.", error)
+				);
+			input.queryClient
+				.invalidateQueries({
+					queryKey: spaceTaskQueryKeys.space(input.spaceId),
+				})
+				.catch((error) =>
+					console.warn("Failed to refresh Space Tasks.", error)
+				);
+			invalidateSpaceMetadata(
+				input.queryClient,
+				input.spaceId,
+				LIVE_RECONNECT_REFRESH_REASON
+			);
+			invalidateSpaceFiles(
+				input.queryClient,
+				input.spaceId,
+				LIVE_RECONNECT_REFRESH_REASON
+			);
+		});
 	invalidateWakeProgress(input, LIVE_RECONNECT_REFRESH_REASON);
 	// A withheld agent.readiness.invalidated frame named its Agent Profiles;
 	// without them, refresh every shared readiness projection in scope.
@@ -1515,6 +1531,31 @@ function refreshLiveInvalidatedSnapshotsAfterReconnect(
 			storageScope: input.readinessScope.storageScope,
 		});
 	}
+}
+
+function cancelSpaceSnapshotReadsBeforeReconnectRefresh(
+	queryClient: QueryClient,
+	spaceId: string
+): Promise<unknown> {
+	return Promise.all([
+		queryClient.cancelQueries({
+			queryKey: ["spaces", "entry-resolution", spaceId],
+		}),
+		queryClient.cancelQueries({
+			predicate: (query) =>
+				query.queryKey[0] === "spaces" &&
+				query.queryKey[1] === spaceId &&
+				query.queryKey.includes("history-navigation"),
+		}),
+		queryClient.cancelQueries({ queryKey: spaceTaskQueryKeys.space(spaceId) }),
+		queryClient.cancelQueries({ queryKey: spaceFileQueryKeys.space(spaceId) }),
+		queryClient.cancelQueries({ queryKey: accountSpaceQueryKeys.all }),
+		queryClient.cancelQueries({
+			predicate: (query) =>
+				query.queryKey[0] === "center-agent" &&
+				query.queryKey[3] === "sessions",
+		}),
+	]);
 }
 
 function invalidateSpaceMetadata(
