@@ -685,11 +685,26 @@ uninterrupted.
   `claude/member-agent-program` and its draft PR. Felix reviews there; the PR
   merges once, after Felix's acceptance. Commits are per package and name the
   package id.
-- **Dispatch.** On Felix's go signal, Claude starts one sub-session per
-  parallel package with a brief containing: package id, this document's
+- **Dispatch.** On Felix's go signal (given 2026-10-18), Claude starts one
+  sub-session per scope with a brief containing: package ids, this document's
   sections it implements, the exact files, the acceptance line, and the
   instruction to request external review before reporting done. Serial
-  packages start when their predecessor's verdict is PASS.
+  packages inside one scope run in that session; serial scopes start when
+  their predecessor's verdict is PASS.
+- **Mechanics.** Each sub-session works in its own git worktree on a branch
+  cut from `claude/member-agent-program`, commits per package with the package
+  id in the message, pushes its branch and never opens a PR. Claude reviews
+  the branch, merges it into `claude/member-agent-program` and pushes, so PR
+  #236 accumulates every package. Sub-sessions do not edit this document;
+  they report corrections, and Claude applies them. Each sub-session records
+  its external review in `design-plans/member-agent-program-reviews/<pkg>.md`.
+- **Final smoke.** After Phase 4 and again after Phase 5, one dedicated Codex
+  (GPT-6 Astra Mid) session runs the worked example (§4.5) and the three flows
+  (§7) on Felix's real computers and returns screenshots of every intermediate
+  state, not only the end state, judged from a user's point of view: anything
+  harmful, slow, pessimistic, or visually inconsistent is reported with the
+  screenshot. Claude accepts against code plus screenshots; Felix accepts from
+  the screenshots as a user.
 - **External review.** Each sub-session asks Codex or Grok for an adversarial
   review of its diff with a concrete question ("find a path where a
   non-owner root changes X", "find a state where the derived presence greys a
