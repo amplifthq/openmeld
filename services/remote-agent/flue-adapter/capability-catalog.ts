@@ -61,7 +61,10 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
       "连接代理配置文件",
       "连接本地代理",
     ],
-    dependencies: ["openmeld_list_local_agent_connection_candidates"],
+    dependencies: [
+      "openmeld_list_local_agent_connection_candidates",
+      "openmeld_list_agent_controller_permission_modes",
+    ],
     namespace: "agents_and_computers",
   },
   openmeld_create_agent_profile_request: {
@@ -81,6 +84,28 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
       "openmeld_list_hosted_models",
       "openmeld_list_local_agent_connection_candidates",
       "openmeld_list_projects",
+    ],
+    namespace: "agents_and_computers",
+  },
+  openmeld_update_agent_profile_runtime_settings: {
+    aliases: [
+      "change an Agent Profile's permission mode",
+      "switch an agent to bypass permissions",
+      "stop an agent from asking for approval",
+      "修改代理权限",
+      "把代理改成 bypass 权限",
+      "让代理不要再问审批",
+    ],
+    dependencies: ["openmeld_list_agent_controller_permission_modes"],
+    namespace: "agents_and_computers",
+  },
+  openmeld_list_agent_controller_permission_modes: {
+    aliases: [
+      "list local agent permission modes",
+      "what permissions can this agent use",
+      "change an agent's permission mode",
+      "查看本地代理支持的权限",
+      "修改代理权限模式",
     ],
     namespace: "agents_and_computers",
   },

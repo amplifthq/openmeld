@@ -408,9 +408,17 @@ An update for an explicitly selected Computer requires a successful trusted
 CLI connection review before any installation. A missing CLI or obsolete
 connection-review command returns normal Desktop connection guidance without
 installing; ordinary first Connect retains automatic acquisition.
-After review, main validates the returned Prepare targets before acquiring the
-current verified managed binary after account-switch approval. It rechecks local
-account ownership and bypasses connection reuse. The CLI owns
+After review and account-switch approval, main validates the selected Computer
+against authenticated inventory before acquiring the current verified managed
+binary. It joins an existing update with `computer wait-for-update --view agent`
+before creating the short-lived Prepare token and device grant. Older CLIs that
+explicitly reject this command or return the exact parent `computer` help are
+upgraded through the same verified installer. Help can name the lane's absolute
+CLI path. Other unexpected output, identity failures, and authorization failures
+never trigger that compatibility branch.
+Main rechecks native account, local session identity, and selected device/lane
+after waiting. It validates the newly returned Prepare targets before creating
+the grant. It bypasses connection reuse. The CLI owns
 Service update joining and installed-version verification before `setup.complete`;
 Desktop requires both that command success and completed Prepare before returning.
 It does not introduce a second Service updater or cloud readiness authority.
@@ -418,6 +426,15 @@ Older Desktop without this capability retains the explicit original Web update
 route and cannot report native update completion. Once Prepare exists, later
 authorization, account, execution, or snapshot failures retain its diagnostic
 correlation ID.
+
+Waiting progress uses the shared `waiting_for_current_work` phase and the
+Service's `service_update_readiness` accepted-work projection. Desktop displays
+that tasks must finish, setup will continue automatically, and tasks can be
+stopped in their Spaces. It does not infer work from the durable `updating`
+phase or own a second task counter. The CLI observer takes no setup lock and
+has a fixed 30-minute observation limit. At expiry Desktop reports that tasks
+and the background update continue, with a check-and-retry action. No Prepare
+credentials have been acquired and no running task is stopped by that limit.
 
 For ordinary Connect, when the managed CLI is absent or lacks the connection
 contract, main downloads the managed binary manifest and the Apple silicon or

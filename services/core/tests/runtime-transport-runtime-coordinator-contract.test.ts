@@ -1218,6 +1218,8 @@ const createHarness = async (input?: {
   });
   Object.defineProperty(hub, "ctx", {
     value: {
+      blockConcurrencyWhile: async <T>(callback: () => Promise<T>) =>
+        await callback(),
       storage: {
         delete: storageDelete,
         deleteAlarm: vi.fn(() => {
@@ -14400,6 +14402,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
   it.each([
     "connected",
+    "expired_controller_report",
+    "unavailable_controller_report",
     "same_service_reconnect",
     "same_service_reconnect_after_hibernation",
   ] as const)("records Wake Stop as cancellation_requested for an eligible active RuntimeCoordinator execution (%s)", async (connection) => {
@@ -14411,7 +14415,16 @@ describe("runtime transport runtime coordinator transport contract", () => {
       state,
       storageRecords,
     } = await createHarness({
-      agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+      agentControllerReportRow: buildRuntimeAgentControllerReportRow({
+        expiresAtMs:
+          connection === "expired_controller_report"
+            ? Date.now() - 60_000
+            : undefined,
+        reportStatus:
+          connection === "unavailable_controller_report"
+            ? "unavailable"
+            : "ready",
+      }),
     });
     const executionToken = await issueDeliveryToken({
       hub,
@@ -14440,7 +14453,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
       buildInteractionRequest(executionToken)
     );
 
-    if (connection !== "connected") {
+    if (
+      connection === "same_service_reconnect" ||
+      connection === "same_service_reconnect_after_hibernation"
+    ) {
       const lifecycleHub = hub as unknown as {
         handleDispatchLifecycleFrame: (
           webSocket: WebSocket,
@@ -17420,6 +17436,62 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect([
       ...(await recordingPostgres.interactionInboxRows.values()),
     ]).toEqual([expect.objectContaining({ resolution_status: "resolved" })]);
+  });
+
+  it("tells the open Space about a new interaction without waiting for a poll", async () => {
+    const { hub, sentFrames, socket, spaceStub, state, waitUntilTasks } =
+      await createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    enableLocalAgentInteraction(state);
+    spaceStub.rpcBroadcastWakeProgressChanged.mockClear();
+
+    await (
+      hub as unknown as {
+        handleDispatchInteractionRequestFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchInteractionRequestFrame(
+      socket,
+      buildInteractionRequest(executionToken)
+    );
+    await Promise.all(waitUntilTasks);
+
+    expect(spaceStub.rpcBroadcastWakeProgressChanged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentProfileIds: [TARGET_AGENT_PROFILE_ID],
+        reason: "runtime_coordinator.wake_progress_changed",
+        spaceId: HEX_SPACE_ID,
+      })
+    );
+
+    // The Service replays the same unanswered request after reconnecting.
+    spaceStub.rpcBroadcastWakeProgressChanged.mockClear();
+    await (
+      hub as unknown as {
+        handleDispatchInteractionRequestFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchInteractionRequestFrame(
+      socket,
+      buildInteractionRequest(executionToken)
+    );
+    await Promise.all(waitUntilTasks);
+
+    expect(spaceStub.rpcBroadcastWakeProgressChanged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentProfileIds: [TARGET_AGENT_PROFILE_ID],
+        spaceId: HEX_SPACE_ID,
+      })
+    );
   });
 
   it("keeps the pending interaction authoritative when Inbox creation fails", async () => {
@@ -23183,12 +23255,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
       vi.setSystemTime(1_700_000_001_100);
 
       const registerReplacement = (profileIds: string[]) => {
-        (
+        return (
           hub as unknown as {
             handleRegisterSessionFrame: (
               webSocket: WebSocket,
               payload: unknown
-            ) => void;
+            ) => Promise<void>;
           }
         ).handleRegisterSessionFrame(replacementSocket, {
           v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
@@ -23220,7 +23292,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }
       };
 
-      registerReplacement([]);
+      await registerReplacement([]);
       await settleWaitUntilTasks();
 
       expect(state.sessionsById.get("daemon-session-2")).toMatchObject({
@@ -23362,9 +23434,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
         },
         sentAtMs: 1_700_000_001_200,
       });
-      registerReplacement([TARGET_AGENT_PROFILE_ID, conflictingProfileId]);
-      registerReplacement([TARGET_AGENT_PROFILE_ID, conflictingProfileId]);
-      const settleBurst = settleWaitUntilTasks();
+      const registrations = Promise.all([
+        registerReplacement([TARGET_AGENT_PROFILE_ID, conflictingProfileId]),
+        registerReplacement([TARGET_AGENT_PROFILE_ID, conflictingProfileId]),
+      ]);
+      const settleBurst = registrations.then(settleWaitUntilTasks);
       await vi.waitFor(() => expect(reconciliationAttempt).toBe(1));
       expect(noticePublicationAttempt).toBe(0);
       rejectFirstReconciliation?.(

@@ -9590,6 +9590,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           webSocket,
         });
       } else {
+        // A Service replays an unanswered request after reconnecting; an open
+        // Space may have missed the first notice while the socket was down.
+        this.publishWakeProgressChanged({
+          agentProfileId: authority.commandState.targetProfileId,
+          clientMessageId: authority.commandState.sourceClientMessageId,
+          spaceId:
+            authority.commandState.sanitizedDeliveryRequest.payload.spaceId,
+        });
         await this.tryProjectRuntimeCoordinatorInteractionInboxItem({
           commandState: authority.commandState,
           interaction: existing.request,
@@ -9654,6 +9662,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     } else {
       await this.writeRuntimeCoordinatorRunCommandState(nextCommandState);
     }
+    // An open Space must show the new request now, not on its next poll.
+    this.publishWakeProgressChanged({
+      agentProfileId: nextCommandState.targetProfileId,
+      clientMessageId: nextCommandState.sourceClientMessageId,
+      spaceId: nextCommandState.sanitizedDeliveryRequest.payload.spaceId,
+    });
     if (delivery) {
       await this.tryProjectRuntimeCoordinatorInteractionInboxItem({
         commandState: nextCommandState,
@@ -15337,11 +15351,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ).catch(() => null);
     const wakeStopEligibility = resolveWakeStopEligibility({
       agentControllerInterface:
-        agentControllerReport &&
-        agentControllerReport.status === "ready" &&
-        agentControllerReport.expiresAtMs > nowMs
-          ? (agentControllerReport.agentControllerInterface ?? null)
-          : null,
+        agentControllerReport?.agentControllerInterface ?? null,
     });
     if (wakeStopEligibility.status !== "eligible") {
       return buildWakeStopFailureResponse({

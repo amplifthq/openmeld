@@ -10,6 +10,7 @@ import {
   buildSystemServiceStartupFailureReportFromVerdict,
   type SystemServiceStartupFailureVerdict,
 } from "../commands/service-start-failure";
+import { createSetupUpdateObserver } from "../commands/setup-update-progress";
 import { normalizeGatewayBaseUrlOrNull } from "../config/base-url";
 import { readDaemonServiceContract } from "../config/daemon-service-contract";
 import { toErrorMessage } from "../local-service/core/logger";
@@ -710,17 +711,8 @@ async function completeScheduledServiceRefresh(input: {
   }
   await waitForOpenMeldToolsUpdateCompletion({
     operationId: input.outcome.jobId,
-    onWaiting: (operation) => {
-      input.presenter.line({
-        code: `${input.codePrefix}.update.waiting`,
-        text: "OpenMeld is finishing its background update. This command will continue automatically when it finishes.",
-        data: {
-          operationId: operation.operationId,
-          phase: operation.phase,
-          targetVersion: operation.targetVersion,
-        },
-      });
-    },
+    pollIntervalMs: 2000,
+    onObservation: createSetupUpdateObserver(input.presenter),
   });
   return true;
 }

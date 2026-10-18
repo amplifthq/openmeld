@@ -193,24 +193,20 @@ describe("Center Agent Wake Stop authorization", () => {
           : {}),
       },
     }));
-    // D1 row shape from center_agent_designations; Space still owns the author check.
+    // PostgreSQL row shape from center_agent_designations; Space owns the author check.
     Reflect.set(space, "bindings", {
-      OPENMELD_DB: {
-        prepare: () => ({
-          bind: () => ({
-            first: async () => ({
-              organization_id: "org-1",
-              agent_profile_id: scenario.designatedProfileId ?? CENTER_ID,
-              operating_state: scenario.operatingState ?? "active",
-              duty: null,
-              designated_by: null,
-              paused_at: null,
-              paused_by_user_id: null,
-              created_at: 0,
-            }),
-          }),
-        }),
-      },
+      OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => [
+        {
+          organization_id: "org-1",
+          agent_profile_id: scenario.designatedProfileId ?? CENTER_ID,
+          operating_state: scenario.operatingState ?? "active",
+          duty: null,
+          designated_by: null,
+          paused_at: null,
+          paused_by_user_id: null,
+          created_at: 0,
+        },
+      ]),
     });
     await expect(
       Reflect.get(space, "isWakeStopAuthorized").call(space, {

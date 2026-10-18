@@ -443,6 +443,90 @@ describe("remote agent OpenMeld tool catalog", () => {
     }
   });
 
+  it("lists every local agent's permission modes and accepts each one when changing a profile", async () => {
+    const request = createSubmitTurnRequest();
+    const storage = await createStorageWithPendingContext(request);
+    const updateRuntimeSettings = vi.fn(async () =>
+      updateRuntimeSettingsResponse()
+    );
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {
+        centerAgentUpdateAgentProfileRuntimeSettings: updateRuntimeSettings,
+      },
+      storage,
+    });
+
+    const catalog = (await executeTool(
+      tools,
+      "openmeld_list_agent_controller_permission_modes",
+      {}
+    )) as {
+      controllers: {
+        agentControllerRef: string;
+        modes: { requiresExplicitConfirmation: boolean; value: string }[];
+      }[];
+    };
+    expect(
+      catalog.controllers.map((controller) => controller.agentControllerRef)
+    ).toEqual([
+      "builtin:antigravity",
+      "builtin:claude-code",
+      "builtin:codex",
+      "builtin:cursor",
+      "builtin:grok-build",
+    ]);
+    const grokModes = catalog.controllers.find(
+      (controller) => controller.agentControllerRef === "builtin:grok-build"
+    )?.modes;
+    expect(grokModes?.map((mode) => mode.value)).toEqual([
+      "grok-build:default",
+      "grok-build:acceptEdits",
+      "grok-build:plan",
+      "grok-build:auto",
+      "grok-build:dontAsk",
+      "grok-build:bypassPermissions",
+    ]);
+    expect(
+      grokModes?.find((mode) => mode.value === "grok-build:bypassPermissions")
+        ?.requiresExplicitConfirmation
+    ).toBe(true);
+    expect(
+      catalog.controllers
+        .flatMap((controller) => controller.modes)
+        .some((mode) => mode.value === "codex:customConfig")
+    ).toBe(false);
+
+    const updateTool = tools.find(
+      (tool) => tool.name === "openmeld_update_agent_profile_runtime_settings"
+    );
+    if (!updateTool?.input) {
+      throw new Error("Runtime settings input schema is unavailable.");
+    }
+    const listedModes = catalog.controllers.flatMap((controller) =>
+      controller.modes.map((mode) => mode.value)
+    );
+    for (const agentControllerPermissionMode of listedModes) {
+      expect(
+        safeParse(updateTool.input, {
+          agentControllerPermissionMode,
+          agentProfileId: AGENT_PROFILE_ID,
+        }).success,
+        agentControllerPermissionMode
+      ).toBe(true);
+    }
+
+    await executeTool(tools, "openmeld_update_agent_profile_runtime_settings", {
+      agentControllerPermissionMode: "grok-build:bypassPermissions",
+      agentProfileId: AGENT_PROFILE_ID,
+    });
+    expect(updateRuntimeSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentControllerPermissionMode: "grok-build:bypassPermissions",
+        agentProfileId: AGENT_PROFILE_ID,
+      })
+    );
+  });
+
   it("exposes exactly the approved model-visible OpenMeld tool list for an organization-shared turn", () => {
     const privateEnvelope = createSubmitTurnRequest().turnEnvelope;
     const tools = getRemoteAgentOpenMeldToolDefinitions({

@@ -579,6 +579,9 @@ async function startAndAwaitAppServerTurn(input: {
     }
   };
 
+  // The reviewer Codex is currently using. A live Full access switch keeps it
+  // underneath, so leaving Full access must restore the owner's chosen one.
+  let appliedReviewerMode = input.permissionMode;
   const unregisterActiveTurn = session.registerActiveTurn({
     updatePermissionMode: async (update) => {
       const next = update.agentControllerPermissionMode;
@@ -604,6 +607,28 @@ async function startAndAwaitAppServerTurn(input: {
       }
       const reviewerMode = (mode: AgentControllerPermissionMode) =>
         mode === "codex:askForApproval" || mode === "codex:approveForMe";
+      const canEmulateFullAccess =
+        input.executionMode !== "repair" && reviewerMode(input.permissionMode);
+      if (canEmulateFullAccess && next === "codex:fullAccess") {
+        session.setLiveFullAccess(true);
+        return {
+          status: "applied",
+          effectiveFrom: "subsequent_tool_requests",
+          taskId,
+        };
+      }
+      if (
+        canEmulateFullAccess &&
+        session.liveFullAccess &&
+        next === appliedReviewerMode
+      ) {
+        session.setLiveFullAccess(false);
+        return {
+          status: "applied",
+          effectiveFrom: "subsequent_tool_requests",
+          taskId,
+        };
+      }
       if (
         !input.supportsLiveReviewer ||
         input.executionMode === "repair" ||
@@ -639,6 +664,8 @@ async function startAndAwaitAppServerTurn(input: {
           reasonCode: "adapter.task_not_active",
         };
       }
+      appliedReviewerMode = next;
+      session.setLiveFullAccess(false);
       return {
         status: "applied",
         effectiveFrom: "subsequent_tool_requests",
@@ -1516,6 +1543,10 @@ class CodexAppServerSession {
   readonly #executionMode?: AdapterDispatchExecutionMode;
   readonly #notifications: JsonRpcMessage[] = [];
   readonly #onInteractionRequest?: AdapterInteractionCallback;
+  // Set when the owner switches this running task to Full access. The turn's
+  // sandbox cannot change, so OpenMeld answers Codex's later permission
+  // requests with its one-time allow; full sandbox access starts next task.
+  #liveFullAccess = false;
   readonly #onProcessControlEvent?: AdapterRuntimeProcessCallback;
   readonly #onRuntimeEvent?: AdapterRuntimeEventCallback;
   readonly #permissionMode?: AgentControllerPermissionMode;
@@ -1926,6 +1957,12 @@ class CodexAppServerSession {
   }
 
   async supportsSpaceToolPolicy(): Promise<boolean> {
+    // TODO(PR #225): Investigate intermittent macOS config/read stalls promptly.
+    // The same binary and workspace can reply when launched directly, yet time
+    // out after a Service restart. Native samples show blocked file opens; the
+    // exact file and cause remain unknown. Preserve the original workspace and
+    // compare foreground/background launches. A longer timeout or another cwd
+    // did not establish a repair. Keep this policy check fail-closed.
     const configuration = await this.requestControl(
       "config/read",
       { cwd: this.#codexWorkdir, includeLayers: false },
@@ -2664,6 +2701,14 @@ class CodexAppServerSession {
     });
   }
 
+  get liveFullAccess(): boolean {
+    return this.#liveFullAccess;
+  }
+
+  setLiveFullAccess(enabled: boolean): void {
+    this.#liveFullAccess = enabled;
+  }
+
   async #handleServerRequest(message: JsonRpcMessage): Promise<void> {
     const id = message.id;
     if (!(typeof id === "number" || typeof id === "string")) {
@@ -2712,7 +2757,9 @@ class CodexAppServerSession {
               turnId,
             });
           },
-          onInteractionRequest: this.#onInteractionRequest,
+          onInteractionRequest: this.#liveFullAccess
+            ? allowPermissionRequestsOnce(this.#onInteractionRequest)
+            : this.#onInteractionRequest,
           params: message.params,
         })
       : buildServerRequestDeclineResponse(message.method);
@@ -3067,6 +3114,34 @@ async function emitPreviewIfRequested(input: {
   await input.onPreview({
     text: input.output,
   });
+}
+
+// Only Codex approval prompts are covered by Full access. An MCP URL step
+// shares the permission shape, but its "allow" means the owner completed a
+// step such as a sign-in, so it must still reach the owner.
+const FULL_ACCESS_APPROVAL_SUBJECTS: ReadonlySet<string> = new Set([
+  "additional_permissions",
+  "command",
+  "file_change",
+]);
+
+function allowPermissionRequestsOnce(
+  onInteractionRequest: AdapterInteractionCallback
+): AdapterInteractionCallback {
+  return (request) => {
+    if (
+      request.kind !== "permission" ||
+      !FULL_ACCESS_APPROVAL_SUBJECTS.has(request.subject.type)
+    ) {
+      return onInteractionRequest(request);
+    }
+    const allowOnce = request.options.find(
+      (option) => option.intent === "allow_once"
+    );
+    return allowOnce
+      ? Promise.resolve({ kind: "permission", optionId: allowOnce.optionId })
+      : onInteractionRequest(request);
+  };
 }
 
 async function resolveCodexServerInteraction(input: {

@@ -405,6 +405,35 @@ export function listAgentControllerPermissionModeOptions(input?: {
     .map((option) => ({ ...option }));
 }
 
+/** Local agent controllers whose permission is an Agent Controller Permission Mode. */
+export const PERMISSION_MODE_AGENT_CONTROLLER_REFS = [
+  "builtin:antigravity",
+  "builtin:claude-code",
+  "builtin:codex",
+  "builtin:cursor",
+  "builtin:grok-build",
+] as const;
+
+export type PermissionModeAgentControllerRef =
+  (typeof PERMISSION_MODE_AGENT_CONTROLLER_REFS)[number];
+
+/** Every selectable permission mode, grouped by the controller that offers it. */
+export function listAgentControllerPermissionModeCatalog(input?: {
+  agentControllerRef?: string | null;
+}): {
+  agentControllerRef: PermissionModeAgentControllerRef;
+  modes: AgentControllerPermissionModeOption[];
+}[] {
+  return PERMISSION_MODE_AGENT_CONTROLLER_REFS.filter(
+    (agentControllerRef) =>
+      !input?.agentControllerRef ||
+      input.agentControllerRef === agentControllerRef
+  ).map((agentControllerRef) => ({
+    agentControllerRef,
+    modes: listAgentControllerPermissionModeOptions({ agentControllerRef }),
+  }));
+}
+
 export function agentControllerPermissionModeRequiresExplicitConfirmation(
   value: unknown
 ): boolean {

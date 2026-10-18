@@ -60,6 +60,10 @@ import {
 } from "#/lib/profiles/agent-profile-runtime-binding";
 import { projectAgentStreamReplyPlacements } from "#/lib/spaces/active-wake-conversation";
 import { sendWebSpaceAgentInteractionResponse } from "#/lib/spaces/agent-interaction-response";
+import {
+	presentAnsweredAgentInteractions,
+	resolveAgentInteractionAnswerKey,
+} from "#/lib/spaces/answered-agent-interactions";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
@@ -1676,6 +1680,10 @@ export function useSpaceLandingController(input: {
 		},
 		[input.profileId, input.spaceId, queryClient]
 	);
+	// Requests the owner has answered in this Space; see
+	// presentAnsweredAgentInteractions for why they are applied locally.
+	const [answeredAgentInteractionKeys, setAnsweredAgentInteractionKeys] =
+		useState<ReadonlySet<string>>(() => new Set());
 	const activeWakeProgressSummaryQuery = useQuery(
 		spaceActiveWakeProgressSummaryQueryOptions({
 			enabled:
@@ -2386,14 +2394,18 @@ export function useSpaceLandingController(input: {
 	);
 	const presentedWakeProgressItems = useMemo(
 		() =>
-			readPresentedWakeProgressItems({
-				presentation: wakeProgressPresentationQuery.data,
-				confirmedItems: confirmedWakeProgressItems,
-				currentItems: wakeProgressItems,
-				restoredItems: restoredWakeProgressItems,
-				signals: wakeOutcomeSignals,
-			}),
+			presentAnsweredAgentInteractions(
+				readPresentedWakeProgressItems({
+					presentation: wakeProgressPresentationQuery.data,
+					confirmedItems: confirmedWakeProgressItems,
+					currentItems: wakeProgressItems,
+					restoredItems: restoredWakeProgressItems,
+					signals: wakeOutcomeSignals,
+				}),
+				answeredAgentInteractionKeys
+			),
 		[
+			answeredAgentInteractionKeys,
 			confirmedWakeProgressItems,
 			wakeProgressPresentationQuery.data,
 			wakeOutcomeSignals,
@@ -2560,6 +2572,10 @@ export function useSpaceLandingController(input: {
 						queryClient,
 					})
 				: () => undefined;
+			const answerKey = resolveAgentInteractionAnswerKey(body);
+			setAnsweredAgentInteractionKeys((current) =>
+				new Set(current).add(answerKey)
+			);
 			try {
 				await sendWebSpaceAgentInteractionResponse({
 					body,
@@ -2568,6 +2584,11 @@ export function useSpaceLandingController(input: {
 				});
 			} catch (error) {
 				rollback();
+				setAnsweredAgentInteractionKeys((current) => {
+					const next = new Set(current);
+					next.delete(answerKey);
+					return next;
+				});
 				throw error;
 			} finally {
 				if (input.organizationId) {
@@ -2921,10 +2942,13 @@ export function useSpaceLandingController(input: {
 		threadComposerFileRestorationError:
 			threadController.threadComposerFileRestorationError,
 		threadFilePreviewUrlsById: threadController.threadFilePreviewUrlsById,
-		threadEphemeralActivityItems: filterSpaceWakeProgressItems({
-			presentation: wakeProgressPresentationQuery.data,
-			items: threadController.threadEphemeralActivityItems,
-		}),
+		threadEphemeralActivityItems: presentAnsweredAgentInteractions(
+			filterSpaceWakeProgressItems({
+				presentation: wakeProgressPresentationQuery.data,
+				items: threadController.threadEphemeralActivityItems,
+			}),
+			answeredAgentInteractionKeys
+		),
 		threads: threadController.threads,
 		threadPreviews: threadController.threadPreviews,
 		threadSignals: threadController.threadSignals,
