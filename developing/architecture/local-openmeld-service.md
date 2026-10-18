@@ -162,7 +162,13 @@ outlives its CLI is still covered. Cleanup first closes further agent CLI
 launches in the Host, so background work still running, such as a report moving
 on to its next probe, cannot start a tree behind it. The Host then sends
 SIGTERM, allows a short grace, and runs the existing descendant cleanup, which
-force-kills what remains; the whole step is bounded to a few seconds. That work must not keep the Host
+force-kills what remains; the whole step is bounded to a few seconds. Once a
+tree's root has exited, its stored process-group ID is signaled only while no
+live process holds that PID. A PID cannot be reused while it is the ID of an
+existing group, so a live holder means the group may belong to someone else.
+Cleanup then signals only processes a fresh scan finds carrying the
+invocation's supervision marker. Every agent CLI cleanup applies this rule,
+not only Host shutdown. That work must not keep the Host
 alive: the Service waits for actual Host exit before it clears its runtime
 lease, so a lingering probe would stretch every Stop past its bounded wait and
 leave a following Start racing a Service that is still shutting down.
@@ -364,8 +370,10 @@ A repo-local Service started under an explicit `OPENMELD_HOME` carries no lane
 in its command line, so another custom home running the same entry looks
 identical. Process inventory therefore attributes such a direct Service process
 to the current lane only when this lane's runtime lease names its PID and that
-live process started no later than the lease's `startedAt` (allowing the
-one-second resolution of the OS start time). The Service writes `startedAt`
+live process started no later than the lease's `startedAt`. The comparison
+uses the precision the OS reports: exact for Windows process creation time, and
+by whole second for POSIX `lstart`, where a start inside the lease's own second
+cannot be ordered against it and is accepted. The Service writes `startedAt`
 after its own process started, while a process that reused a stale lease's PID
 started after the owner exited, so the PID alone is never ownership. An
 unreadable start time fails closed. Other copies of the entry stay

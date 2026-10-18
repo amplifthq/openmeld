@@ -17,7 +17,10 @@ import {
   resolveOpenMeldEnvPreset,
   resolveOpenMeldRootDir,
 } from "../../config/paths";
-import { readProcessStartedAtMs } from "../../system/process-identity";
+import {
+  type ProcessStartTime,
+  readProcessStartTime,
+} from "../../system/process-identity";
 import {
   containsOpenMeldManagedBinaryPath,
   resolveOpenMeldManagedVersionBinaryRootPath,
@@ -71,7 +74,7 @@ export async function listDaemonOwnedProcesses(
     listProcesses?: () => Promise<ListedProcess[]>;
     ignoreProcessIds?: Iterable<number>;
     pathInput?: OpenMeldPathResolutionInput;
-    readProcessStartedAtMs?: (pid: number) => number | null;
+    readProcessStartTime?: (pid: number) => ProcessStartTime | null;
   } = {}
 ): Promise<DaemonOwnedProcess[]> {
   const listProcesses =
@@ -90,8 +93,8 @@ export async function listDaemonOwnedProcesses(
     isCurrentLaneRuntimeLeaseOwner({
       lease: laneRuntimeLease,
       pid,
-      readProcessStartedAtMs:
-        overrides.readProcessStartedAtMs ?? readProcessStartedAtMs,
+      readProcessStartTime:
+        overrides.readProcessStartTime ?? readProcessStartTime,
     });
   const ownedProcesses = processes
     .map((processInfo) =>
@@ -125,23 +128,29 @@ async function readLaneRuntimeLease(
 // force kills. The Service writes `startedAt` after its own process started,
 // while a process that reused the PID started only after the owner exited.
 // Attribution therefore needs a live process that started no later than the
-// lease (plus `lstart`'s one-second resolution) and fails closed otherwise.
-const LEASE_OWNER_START_RESOLUTION_MS = 1000;
-
+// lease, compared at the precision the OS reports: exactly for Windows
+// FILETIME, and by whole second for POSIX `lstart`, where a start within the
+// lease's own second cannot be ordered against it. An unreadable start time
+// fails closed.
 function isCurrentLaneRuntimeLeaseOwner(input: {
   lease: DaemonRuntimeLease | null;
   pid: number;
-  readProcessStartedAtMs: (pid: number) => number | null;
+  readProcessStartTime: (pid: number) => ProcessStartTime | null;
 }): boolean {
   if (!input.lease || input.lease.pid !== input.pid) {
     return false;
   }
   const leaseStartedAtMs = Date.parse(input.lease.startedAt);
-  const processStartedAtMs = input.readProcessStartedAtMs(input.pid);
+  const processStart = input.readProcessStartTime(input.pid);
+  if (!(Number.isFinite(leaseStartedAtMs) && processStart)) {
+    return false;
+  }
+  if (processStart.resolutionMs <= 0) {
+    return processStart.startedAtMs <= leaseStartedAtMs;
+  }
   return (
-    Number.isFinite(leaseStartedAtMs) &&
-    processStartedAtMs !== null &&
-    processStartedAtMs <= leaseStartedAtMs + LEASE_OWNER_START_RESOLUTION_MS
+    Math.floor(processStart.startedAtMs / processStart.resolutionMs) <=
+    Math.floor(leaseStartedAtMs / processStart.resolutionMs)
   );
 }
 

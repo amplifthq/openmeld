@@ -63,15 +63,22 @@ export function readProcessStartIdentity(
 // Windows FILETIME counts 100 ns intervals since 1601-01-01 UTC.
 const WINDOWS_FILETIME_UNIX_EPOCH_MS = 11_644_473_600_000;
 
+export type ProcessStartTime = {
+  /** Wall-clock start in epoch milliseconds, truncated to `resolutionMs`. */
+  startedAtMs: number;
+  /** 0 when exact to the millisecond; otherwise the source's step size. */
+  resolutionMs: number;
+};
+
 /**
- * Wall-clock start of a live process in epoch milliseconds, or null when it
- * cannot be read. POSIX `lstart` has one-second resolution and is read in the
- * C locale so the timestamp parses regardless of the user's language.
+ * Wall-clock start of a live process, or null when it cannot be read. Windows
+ * FILETIME is exact. POSIX `lstart` has one-second resolution and is read in
+ * the C locale so the timestamp parses regardless of the user's language.
  */
-export function readProcessStartedAtMs(
+export function readProcessStartTime(
   pid: number,
   platform: NodeJS.Platform = process.platform
-): number | null {
+): ProcessStartTime | null {
   if (!(Number.isSafeInteger(pid) && pid > 0)) {
     return null;
   }
@@ -82,7 +89,9 @@ export function readProcessStartedAtMs(
     }
     const startedAtMs =
       Number(created) / 10_000 - WINDOWS_FILETIME_UNIX_EPOCH_MS;
-    return Number.isFinite(startedAtMs) ? startedAtMs : null;
+    return Number.isFinite(startedAtMs)
+      ? { startedAtMs, resolutionMs: 0 }
+      : null;
   }
   try {
     const output = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], {
@@ -93,7 +102,9 @@ export function readProcessStartedAtMs(
       windowsHide: true,
     }).trim();
     const startedAtMs = Date.parse(output);
-    return Number.isFinite(startedAtMs) ? startedAtMs : null;
+    return Number.isFinite(startedAtMs)
+      ? { startedAtMs, resolutionMs: 1000 }
+      : null;
   } catch {
     return null;
   }

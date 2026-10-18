@@ -131,7 +131,10 @@ describe("local service process inventory", () => {
         const processes = await listDaemonOwnedProcesses({
           pathInput,
           // The owner process started before it wrote its lease.
-          readProcessStartedAtMs: () => leaseStartedAtMs - 5000,
+          readProcessStartTime: () => ({
+            startedAtMs: leaseStartedAtMs - 5000,
+            resolutionMs: 1000,
+          }),
           listProcesses: async () => [
             // Another custom lane runs the same repo-local entry; no lease names it.
             { pid: 106, parentPid: 1, command: REPO_LOCAL_SERVICE_COMMAND },
@@ -157,16 +160,67 @@ describe("local service process inventory", () => {
   });
 
   it.each([
-    ["started after the stale lease was written", 60_000],
-    ["has an unreadable start time", null],
-  ])("does not claim a leased PID that another lane's Service now uses when it %s", async (_case, startOffsetMs) => {
+    ["exactly before the lease", { offsetMs: -1, resolutionMs: 0 }],
+    // POSIX `lstart` truncates to the second; a start within the lease's own
+    // second cannot be ordered against it, so the owner is accepted there.
+    [
+      "in the lease's second, truncated",
+      { offsetMs: -400, resolutionMs: 1000 },
+    ],
+  ])("claims the leased owner whose start is %s", async (_case, start) => {
     await withLeasedCustomHome(
-      "2026-10-18T07:00:00.000Z",
+      "2026-10-18T07:00:00.400Z",
       async ({ pathInput, leaseStartedAtMs }) => {
         const processes = await listDaemonOwnedProcesses({
           pathInput,
-          readProcessStartedAtMs: () =>
-            startOffsetMs === null ? null : leaseStartedAtMs + startOffsetMs,
+          readProcessStartTime: () => ({
+            startedAtMs: leaseStartedAtMs + start.offsetMs,
+            resolutionMs: start.resolutionMs,
+          }),
+          listProcesses: async () => [
+            { pid: 107, parentPid: 1, command: REPO_LOCAL_SERVICE_COMMAND },
+          ],
+        });
+
+        expect(processes.map((processInfo) => processInfo.pid)).toEqual([107]);
+      }
+    );
+  });
+
+  it.each([
+    [
+      "started 0.5 s after the lease on a precise clock",
+      { offsetMs: 500, resolutionMs: 0 },
+    ],
+    [
+      "started in the second after the lease on a one-second clock",
+      { offsetMs: 600, resolutionMs: 1000 },
+    ],
+    [
+      "started a minute after the stale lease was written",
+      { offsetMs: 60_000, resolutionMs: 1000 },
+    ],
+    ["has an unreadable start time", null],
+  ])("does not claim a leased PID that another lane's Service now uses when it %s", async (_case, start) => {
+    await withLeasedCustomHome(
+      "2026-10-18T07:00:00.400Z",
+      async ({ pathInput, leaseStartedAtMs }) => {
+        const processes = await listDaemonOwnedProcesses({
+          pathInput,
+          // POSIX truncates its reading to the whole second it reports.
+          readProcessStartTime: () =>
+            start === null
+              ? null
+              : {
+                  startedAtMs:
+                    start.resolutionMs > 0
+                      ? Math.floor(
+                          (leaseStartedAtMs + start.offsetMs) /
+                            start.resolutionMs
+                        ) * start.resolutionMs
+                      : leaseStartedAtMs + start.offsetMs,
+                  resolutionMs: start.resolutionMs,
+                },
           listProcesses: async () => [
             { pid: 107, parentPid: 1, command: REPO_LOCAL_SERVICE_COMMAND },
           ],
