@@ -1195,6 +1195,8 @@ export {
 export {
   getAgentProfileFoldersResponseSchema,
   getAgentProfileFoldersRouteParamsSchema,
+  manageAgentProfileFoldersBodySchema,
+  manageAgentProfileFoldersResponseSchema,
 } from "./http/agent-profile-folders";
 export {
   RECONCILE_DELETED_AGENT_PROFILE_MAX_SPACES,

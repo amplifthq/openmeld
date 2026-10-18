@@ -1,6 +1,8 @@
 import {
   agentAvatarStyleSchema,
   getAgentProfileFoldersResponseSchema,
+  manageAgentProfileFoldersBodySchema,
+  manageAgentProfileFoldersResponseSchema,
   updateAgentProfileDefaultProjectBodySchema,
   updateAgentProfileDefaultProjectResponseSchema,
   updateProfileResponseSchema,
@@ -18,6 +20,24 @@ import type {
 } from "./types";
 
 export const createProfilesApi: CreateProfilesApi = (client) => ({
+  manageFolders: async (input) => {
+    const body = manageAgentProfileFoldersBodySchema.parse({
+      expectedBindingTarget: input.expectedBindingTarget,
+      operation: input.operation,
+    });
+    return await client.requestJson({
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      invalidMessage: "Invalid Agent folder change response.",
+      method: "POST",
+      operation: "profile.manageFolders",
+      requestContext: input.requestContext,
+      schema: manageAgentProfileFoldersResponseSchema,
+      url: buildAgentProfileFoldersRoute(
+        normalizeRequiredText(input.profileId, "profileId")
+      ),
+    });
+  },
   getFolders: async (input) =>
     await client.requestJson({
       invalidMessage: "Invalid Agent folders response.",

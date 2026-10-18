@@ -271,6 +271,8 @@ import {
   MEMBER_AGENTS_DISABLED_CODE,
   MEMBER_AGENTS_DISABLED_MESSAGE,
   MEMBER_AGENTS_ENABLED,
+  manageAgentProfileFoldersBodySchema,
+  manageAgentProfileFoldersResponseSchema,
   messageChannelConnectionListResponseSchema,
   messageChannelIdentityLinkConsumeBodySchema,
   messageChannelIdentityLinkConsumeResponseSchema,
@@ -5079,6 +5081,7 @@ export async function rpcSetAgentProfileDefaultFolder(
 ): Promise<{
   agentProfileId: string;
   folderId: string;
+  observedAtMs: number;
   projection: import("@openmeld/schemas/types").ProfileFolderProjection;
 }> {
   const folderId = profileFolderIdSchema.safeParse(input.folderId);
@@ -5153,6 +5156,7 @@ export async function rpcSetAgentProfileDefaultFolder(
     return {
       agentProfileId: request.agentProfileId,
       folderId: folderId.data,
+      observedAtMs: result.record.observedAtMs,
       projection: result.record.projection,
     };
   } finally {
@@ -5175,6 +5179,87 @@ export async function rpcSetAgentProfileDefaultFolder(
     }
   }
 }
+export type ManageAgentProfileFoldersInput =
+  import("@openmeld/schemas/types").ManageAgentProfileFoldersBody & {
+    agentProfileId: string;
+    context?: CoreRpcContextInput;
+  };
+
+/**
+ * Owner folder change from Profile settings, applied by the Agent's bound
+ * Service. A new default goes through rpcSetAgentProfileDefaultFolder (id
+ * check against the projection and execution-target admission); the caller
+ * clears Default Project as the second ordered write, as for any folder save.
+ */
+export async function rpcManageAgentProfileFolders(
+  env: CoreBindings,
+  input: ManageAgentProfileFoldersInput
+): Promise<
+  import("@openmeld/schemas/types").ManageAgentProfileFoldersResponse
+> {
+  const parsed = manageAgentProfileFoldersBodySchema.safeParse({
+    expectedBindingTarget: input.expectedBindingTarget,
+    operation: input.operation,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: parsed.error.issues[0]?.message ?? "Invalid folder change.",
+    });
+  }
+  const { request } = await requireAgentProfileWorkspaceScope(env, input);
+  const bound = await resolveBoundAgentProfileComputerContext(env, input);
+  requireSameAgentProfileBindingTarget(
+    bound.bindingTarget,
+    parsed.data.expectedBindingTarget
+  );
+  const operation = parsed.data.operation;
+  if (operation.operation === "set_default") {
+    const saved = await rpcSetAgentProfileDefaultFolder(
+      env,
+      {
+        agentProfileId: request.agentProfileId,
+        context: input.context,
+        folderId: operation.folderId,
+      },
+      bound.target,
+      parsed.data.expectedBindingTarget
+    );
+    return manageAgentProfileFoldersResponseSchema.parse({
+      agentProfileId: request.agentProfileId,
+      folderId: saved.folderId,
+      observedAtMs: saved.observedAtMs,
+      projection: saved.projection,
+      target: bound.target,
+    });
+  }
+  const result = await manageRuntimeTransportProfileFolders({
+    deviceId: bound.target.deviceId,
+    env,
+    operation,
+    ownerUserId: request.owner.id,
+    runtimeLane: bound.target.runtimeLane,
+    targetProfileId: request.agentProfileId,
+  });
+  if (result.status !== "accepted") {
+    throw createCoreRpcHttpError({
+      code: result.reasonCode,
+      reason: result.message,
+      status: result.reasonCode === "local_agent_control.timeout" ? 504 : 409,
+    });
+  }
+  return manageAgentProfileFoldersResponseSchema.parse({
+    agentProfileId: request.agentProfileId,
+    ...(result.payload.accepted && result.payload.folderId
+      ? { folderId: result.payload.folderId }
+      : {}),
+    observedAtMs: result.record.observedAtMs,
+    projection: result.record.projection,
+    target: bound.target,
+  });
+}
+
 /** Path-free folder list for the represented owner's Center Agent turn. */
 async function readCenterAgentAgentProfileFolders(
   env: CoreBindings,

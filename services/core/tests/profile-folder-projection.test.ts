@@ -1,6 +1,7 @@
 import {
   centerAgentUpdateAgentProfileRuntimeSettingsBodySchema,
   getAgentProfileFoldersResponseSchema,
+  manageAgentProfileFoldersBodySchema,
   profileFolderProjectionRecordSchema,
 } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
@@ -33,6 +34,7 @@ const PROJECTION = {
       folderId: PROJECT_FOLDER_ID,
       isDefault: false,
       kind: "project" as const,
+      projectId: "project-openmeld",
     },
   ],
 };
@@ -179,6 +181,57 @@ describe("profile folder projection", () => {
       centerAgentUpdateAgentProfileRuntimeSettingsBodySchema.safeParse({
         agentProfileId: AGENT_PROFILE_ID,
         defaultFolderId: "/Users/felix/work/openmeld",
+      }).success
+    ).toBe(false);
+  });
+
+  it("carries a Project id only on Project folders", () => {
+    const parse = (folders: unknown[]) =>
+      profileFolderProjectionRecordSchema.safeParse({
+        ...TARGET,
+        observedAtMs: 1,
+        projection: { defaultFolderId: null, folders, revision: 1 },
+      }).success;
+    const base = {
+      displayName: "openmeld",
+      folderId: CUSTOM_FOLDER_ID,
+      isDefault: false,
+    };
+    expect(parse([{ ...base, kind: "custom", projectId: "project-1" }])).toBe(
+      false
+    );
+    expect(parse([{ ...base, kind: "project" }])).toBe(false);
+    expect(parse([{ ...base, kind: "project", projectId: "project-1" }])).toBe(
+      true
+    );
+  });
+
+  it("changes the default only through set_default on the owner write route", () => {
+    const bindingTarget = {
+      agentControllerConversationId: null,
+      agentControllerRef: "builtin:codex",
+      bindingId: "binding-1",
+      openMeldServiceRuntimeId: "runtime-1",
+    };
+    const parse = (operation: unknown) =>
+      manageAgentProfileFoldersBodySchema.safeParse({
+        expectedBindingTarget: bindingTarget,
+        operation,
+      }).success;
+    expect(parse({ folderId: CUSTOM_FOLDER_ID, operation: "remove" })).toBe(
+      true
+    );
+    expect(
+      parse({
+        folderId: CUSTOM_FOLDER_ID,
+        nextDefaultFolderId: PROJECT_FOLDER_ID,
+        operation: "remove",
+      })
+    ).toBe(false);
+    expect(parse({ operation: "list" })).toBe(false);
+    expect(
+      manageAgentProfileFoldersBodySchema.safeParse({
+        operation: { operation: "add_openmeld_managed" },
       }).success
     ).toBe(false);
   });

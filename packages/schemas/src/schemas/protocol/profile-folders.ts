@@ -23,12 +23,20 @@ const profileFolderProjectIdSchema = z.string().trim().min(1).max(256);
  * Cloud-safe folder fact. It has no path field by design: Core, Web and the
  * Center Agent choose folders by id and display name only.
  */
-export const profileFolderProjectionEntrySchema = z.strictObject({
-  folderId: profileFolderIdSchema,
-  kind: profileFolderKindSchema,
-  displayName: profileFolderDisplayNameSchema,
-  isDefault: z.boolean(),
-});
+export const profileFolderProjectionEntrySchema = z
+  .strictObject({
+    folderId: profileFolderIdSchema,
+    kind: profileFolderKindSchema,
+    displayName: profileFolderDisplayNameSchema,
+    isDefault: z.boolean(),
+    // Cloud Project id of a Project folder; lets its owner make that Project
+    // the Default Project. Never a path.
+    projectId: z.string().trim().min(1).max(256).optional(),
+  })
+  .refine((entry) => (entry.kind === "project") === Boolean(entry.projectId), {
+    message: "Only a Project folder carries its Project id.",
+    path: ["projectId"],
+  });
 
 export const profileFolderProjectionSchema = z
   .strictObject({
