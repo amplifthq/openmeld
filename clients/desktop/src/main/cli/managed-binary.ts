@@ -19,6 +19,7 @@ import {
   resolveCliBinaryPlatform,
 } from "@openmeld/schemas";
 import type { CommandDeps } from "./commands";
+import { cliDistributionOrigin } from "./distribution";
 
 function hasAcceptedSigningIdentity(
   platform: string,
@@ -100,9 +101,13 @@ export async function installManagedBinary(
       "OpenMeld Tools are available for Apple silicon Macs and 64-bit Windows PCs."
     );
   }
+  const distributionOrigin = cliDistributionOrigin(
+    webOrigin,
+    deps.env?.OPENMELD_ENV_PRESET
+  );
   const manifestUrl = new URL(
     deps.env?.OPENMELD_CLI_BINARY_MANIFEST_URL ?? "/cli/manifest.json",
-    webOrigin
+    distributionOrigin
   );
   const webUrl = new URL(webOrigin);
   const usesLocalDevelopmentServer =
@@ -120,7 +125,10 @@ export async function installManagedBinary(
     !manifestUrl.password &&
     !manifestUrl.search &&
     !manifestUrl.hash;
-  if (manifestUrl.origin !== webUrl.origin && !usesLocalDevelopmentServer) {
+  if (
+    manifestUrl.origin !== distributionOrigin &&
+    !usesLocalDevelopmentServer
+  ) {
     throw new Error("OpenMeld Tools returned an unexpected download location.");
   }
   const response = await fetch(manifestUrl, {

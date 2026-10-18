@@ -209,11 +209,9 @@ function readPermissionCommandKey(
   toolCall: Record<string, unknown> | null
 ): string | null {
   const rawInput = toRecord(toolCall?.rawInput);
-  return (
-    normalizeText(rawInput?.command) ??
-    normalizeText(toolCall?.command) ??
-    normalizeText(toolCall?.title)
-  );
+  // Only an exact command identifies one action. A display title can be shared
+  // by unrelated requests, so it never becomes a remembered denial key.
+  return normalizeText(rawInput?.command) ?? normalizeText(toolCall?.command);
 }
 
 function selectRememberedPermissionOutcome(input: {

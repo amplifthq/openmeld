@@ -46,7 +46,7 @@ const PHASE_COPY: Record<
   waiting_for_current_work: {
     stage: "Waiting for current work",
     description:
-      "OpenMeld is waiting for accepted local work to finish safely.",
+      "Current tasks are still running. Setup continues automatically when they finish. To continue sooner, stop the tasks in their Spaces.",
   },
   connecting_service: {
     stage: "Connecting OpenMeld Service",

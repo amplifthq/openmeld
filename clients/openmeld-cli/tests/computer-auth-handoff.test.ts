@@ -1,3 +1,5 @@
+import { computerSetupOutputSchema } from "@openmeld/schemas";
+import type { OpenMeldToolsUpdateOperation } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildStoredAuthSessionIdentity } from "../src/config/auth-session";
 import type { Presenter } from "../src/runtime/presenter";
@@ -149,6 +151,7 @@ import {
   recoverInterruptedComputerAuthHandoff,
   waitForOpenMeldToolsUpdateBeforeComputerHandoff,
 } from "../src/commands/computer-auth-handoff-recovery";
+import { createSetupUpdateObserver } from "../src/commands/setup-update-progress";
 import { AuthSessionChangedBeforeTransitionError } from "../src/config/auth-session";
 import { OPENMELD_VERSION } from "../src/runtime/version";
 
@@ -190,6 +193,47 @@ const presenter = {
 } satisfies Presenter;
 
 describe("Computer authorization handoff", () => {
+  it("emits Desktop-readable progress from Service work, including drain completion", () => {
+    const operation: OpenMeldToolsUpdateOperation = {
+      operationId: "update-running",
+      phase: "updating",
+      requestSource: "cli",
+      requestedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      targetVersion: "0.3.264",
+      urgency: "required",
+    };
+    const observe = createSetupUpdateObserver(presenter);
+    observe(operation, {
+      acceptedWakeCount: 2,
+      safeToSwitch: false,
+      unacknowledgedResultCount: 0,
+    });
+    observe(operation, {
+      acceptedWakeCount: 1,
+      safeToSwitch: false,
+      unacknowledgedResultCount: 0,
+    });
+    observe(operation, {
+      acceptedWakeCount: 0,
+      safeToSwitch: true,
+      unacknowledgedResultCount: 0,
+    });
+    expect(presenter.line).toHaveBeenCalledTimes(2);
+    observe(operation, null);
+    const events = presenter.line.mock.calls.map(([event]) =>
+      computerSetupOutputSchema.parse({
+        type: "line",
+        code: event.code,
+        message: event.text,
+        data: event.data,
+      })
+    );
+    expect(events).toMatchObject([
+      { data: { phase: "waiting_for_current_work", state: "active" } },
+      { data: { phase: "installing", state: "active" } },
+    ]);
+  });
   it("wakes an unclaimed update before waiting for it", async () => {
     readPendingOpenMeldToolsUpdateAttemptMock.mockResolvedValue({
       attempts: 0,

@@ -579,6 +579,9 @@ async function startAndAwaitAppServerTurn(input: {
     }
   };
 
+  // The reviewer Codex is currently using. A live Full access switch keeps it
+  // underneath, so leaving Full access must restore the owner's chosen one.
+  let appliedReviewerMode = input.permissionMode;
   const unregisterActiveTurn = session.registerActiveTurn({
     updatePermissionMode: async (update) => {
       const next = update.agentControllerPermissionMode;
@@ -617,7 +620,7 @@ async function startAndAwaitAppServerTurn(input: {
       if (
         canEmulateFullAccess &&
         session.liveFullAccess &&
-        next === input.permissionMode
+        next === appliedReviewerMode
       ) {
         session.setLiveFullAccess(false);
         return {
@@ -661,6 +664,7 @@ async function startAndAwaitAppServerTurn(input: {
           reasonCode: "adapter.task_not_active",
         };
       }
+      appliedReviewerMode = next;
       session.setLiveFullAccess(false);
       return {
         status: "applied",
@@ -1953,6 +1957,12 @@ class CodexAppServerSession {
   }
 
   async supportsSpaceToolPolicy(): Promise<boolean> {
+    // TODO(PR #225): Investigate intermittent macOS config/read stalls promptly.
+    // The same binary and workspace can reply when launched directly, yet time
+    // out after a Service restart. Native samples show blocked file opens; the
+    // exact file and cause remain unknown. Preserve the original workspace and
+    // compare foreground/background launches. A longer timeout or another cwd
+    // did not establish a repair. Keep this policy check fail-closed.
     const configuration = await this.requestControl(
       "config/read",
       { cwd: this.#codexWorkdir, includeLayers: false },
@@ -3106,11 +3116,23 @@ async function emitPreviewIfRequested(input: {
   });
 }
 
+// Only Codex approval prompts are covered by Full access. An MCP URL step
+// shares the permission shape, but its "allow" means the owner completed a
+// step such as a sign-in, so it must still reach the owner.
+const FULL_ACCESS_APPROVAL_SUBJECTS: ReadonlySet<string> = new Set([
+  "additional_permissions",
+  "command",
+  "file_change",
+]);
+
 function allowPermissionRequestsOnce(
   onInteractionRequest: AdapterInteractionCallback
 ): AdapterInteractionCallback {
   return (request) => {
-    if (request.kind !== "permission") {
+    if (
+      request.kind !== "permission" ||
+      !FULL_ACCESS_APPROVAL_SUBJECTS.has(request.subject.type)
+    ) {
       return onInteractionRequest(request);
     }
     const allowOnce = request.options.find(

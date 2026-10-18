@@ -15,17 +15,37 @@ import stoppedComputerInventory from "./fixtures/stopped-computer-inventory.json
 
 const mocks = vi.hoisted(() => ({
   exec: vi.fn(),
+  help: vi.fn(() =>
+    Promise.resolve({
+      stdout:
+        "Usage: /test-owned/bin/openmeld computer wait-for-update [options]\n",
+    })
+  ),
   install: vi.fn(),
   grant: vi.fn(),
 }));
 vi.mock("@openmeld/api-client", () => ({
   createComputerAuthorizationGrant: mocks.grant,
 }));
-vi.mock("node:child_process", async () => {
+vi.mock("node:child_process", async (importOriginal) => {
   const { promisify } = await import("node:util");
+  const actual = await importOriginal<typeof import("node:child_process")>();
   return {
-    execFile: Object.assign(vi.fn(), { [promisify.custom]: mocks.exec }),
-    spawn: vi.fn(() => {
+    execFile: Object.assign(vi.fn(), {
+      [promisify.custom]: (bin: string, args: string[], options: unknown) =>
+        args.includes("--help") ? mocks.help() : mocks.exec(bin, args, options),
+    }),
+    spawn: vi.fn((_bin, args, options) => {
+      if (args[1] === "wait-for-update") {
+        return actual.spawn(
+          process.execPath,
+          [
+            "-e",
+            'console.log(JSON.stringify({type:"line",code:"computer.update_ready",message:"Computer connection can continue."}))',
+          ],
+          options
+        );
+      }
       throw new Error("Test executable unavailable");
     }),
   };
@@ -183,6 +203,7 @@ describe("Desktop computer connection admission", () => {
     "reconnect_target",
     "space_target",
     "service_update",
+    "legacy_update_wait",
   ] as const)("keeps connection intent and account boundaries: %s", async (scenario) => {
     const cloudRequest = vi.fn();
     const firstConnect = scenario.startsWith("first_connect_");
@@ -193,6 +214,7 @@ describe("Desktop computer connection admission", () => {
       "reconnect_target",
       "space_target",
       "service_update",
+      "legacy_update_wait",
       "first_connect_missing_tools",
       "first_connect_legacy_tools",
     ].includes(scenario);
@@ -208,6 +230,13 @@ describe("Desktop computer connection admission", () => {
       }
     }
     const confirmSwitch = vi.fn(async () => false);
+    if (scenario === "legacy_update_wait") {
+      // Captured from published 0.3.264: unknown child + --help exits 0.
+      mocks.help.mockResolvedValueOnce({
+        stdout:
+          "Usage: /test-owned/bin/openmeld computer [options] [command]\n\nInspect and name computers in OpenMeld.\n",
+      });
+    }
     const onProgress = vi.fn();
     mocks.exec.mockResolvedValue({
       stdout: JSON.stringify({
@@ -276,7 +305,9 @@ describe("Desktop computer connection admission", () => {
     const result = connect({
       expectedAccount: "account-a",
       ...(scenario === "unexpected_field" ? { command: "arbitrary" } : {}),
-      ...(scenario === "fresh_session" ? { resetThisComputer: true } : {}),
+      ...(scenario === "fresh_session" || scenario === "legacy_update_wait"
+        ? { resetThisComputer: true }
+        : {}),
       ...(scenario === "reconnect_target" || targetedUpdate
         ? { connectedComputerId: "computer-b" }
         : {}),
@@ -336,7 +367,12 @@ describe("Desktop computer connection admission", () => {
     } else {
       expect(cloudRequest).not.toHaveBeenCalled();
     }
-    if (scenario === "missing_tools" || firstConnect) {
+    if (
+      scenario === "missing_tools" ||
+      firstConnect ||
+      scenario === "service_update" ||
+      scenario === "legacy_update_wait"
+    ) {
       expect(mocks.install).toHaveBeenCalledOnce();
       expect(mocks.exec.mock.calls.at(-1)?.[0]).toBe(
         "/test-owned/installed/npm/openmeld.js"
@@ -503,7 +539,7 @@ describe("Prepare diagnostic continuity", () => {
       expect(spawn).not.toHaveBeenCalled();
       return;
     }
-    const result = await connect({
+    const pendingResult = connect({
       expectedAccount: "account-a",
       ...(failure === "target_space" || failure === "target_match"
         ? { targetSpaceId: "space-a" }
@@ -520,6 +556,16 @@ describe("Prepare diagnostic continuity", () => {
         ? { serviceAction: "update_service" }
         : {}),
     });
+    if (failure === "update_account_changed") {
+      await expect(pendingResult).rejects.toThrow(
+        "Local sign-in changed. Check the account and try again."
+      );
+      expect(cloudRequest).not.toHaveBeenCalled();
+      expect(mocks.grant).not.toHaveBeenCalled();
+      expect(spawn).not.toHaveBeenCalled();
+      return;
+    }
+    const result = await pendingResult;
     if (
       [
         "target_space",
@@ -531,13 +577,17 @@ describe("Prepare diagnostic continuity", () => {
       ].includes(failure)
     ) {
       expect(mocks.grant).not.toHaveBeenCalled();
-      expect(spawn).not.toHaveBeenCalled();
+      expect(
+        vi
+          .mocked(spawn)
+          .mock.calls.every((call) => call[1]?.[1] === "wait-for-update")
+      ).toBe(true);
     } else {
       expect(mocks.grant).toHaveBeenCalledWith(expect.any(Function), {
         clientId: "openmeld-cli-dev",
       });
     }
-    if (failure === "service_update" || failure === "update_account_changed") {
+    if (failure === "service_update") {
       expect(mocks.install).toHaveBeenCalledOnce();
     }
     expect(result).toMatchObject({

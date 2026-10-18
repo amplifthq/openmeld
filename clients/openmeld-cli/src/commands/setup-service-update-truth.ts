@@ -4,7 +4,9 @@ import { compareSemver } from "../config/version-state";
 import { resolveCurrentDaemonExpectedVersion } from "../local-service/lifecycle/current-daemon-version";
 import { inspectDaemonServiceInventory } from "../local-service/lifecycle/daemon-service-inventory";
 import { waitForOpenMeldToolsUpdateCompletion } from "../local-service/maintenance/openmeld-tools-update-join";
+import type { Presenter } from "../runtime/presenter";
 import { OPENMELD_VERSION } from "../runtime/version";
+import { createSetupUpdateObserver } from "./setup-update-progress";
 
 export type SetupServiceUpdateTruth =
   | { status: "ready" }
@@ -59,9 +61,18 @@ export function resolveSetupServiceUpdateTruth(input: {
 }
 
 export async function assertSetupServiceUpdateComplete(
-  input: Parameters<typeof waitForOpenMeldToolsUpdateCompletion>[0] = {}
+  input: NonNullable<
+    Parameters<typeof waitForOpenMeldToolsUpdateCompletion>[0]
+  > & { presenter?: Presenter } = {}
 ): Promise<void> {
-  const operation = await waitForOpenMeldToolsUpdateCompletion(input);
+  const operation = await waitForOpenMeldToolsUpdateCompletion({
+    ...input,
+    onObservation:
+      input.onObservation ??
+      (input.presenter
+        ? createSetupUpdateObserver(input.presenter)
+        : undefined),
+  });
   if (!operation) {
     return;
   }

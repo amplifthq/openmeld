@@ -2484,6 +2484,12 @@ Wake execution invariants:
   business work or create a second source of execution truth.
 - A completed Wake execution must not be delivered again as current work.
 - A delivered Stop control frame does not mean the local agent has stopped.
+  Stop capability for an existing execution comes from the controller report
+  for that execution's exact Service Runtime and controller identity. Admission
+  readiness and report freshness govern new work; they must not remove Stop
+  from work already running. Missing control capabilities remain unsupported.
+  The local controller must still confirm cancellation through the existing
+  execution lifecycle before the stopped outcome is confirmed.
   RuntimeCoordinator may show `cancellation_requested` while execution remains
   active. Once RuntimeCoordinator accepts a user Wake Stop intent before a
   visible reply is finalized, later success replies must be diagnostic-only and

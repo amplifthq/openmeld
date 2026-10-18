@@ -26,13 +26,15 @@ import { errLine, outJsonLine, outLine } from "../ui/io";
 export const SETUP_COMMAND_LOCK_PROFILE = "setup";
 export const SETUP_COMMAND_LOCK_KEY = "setup-command";
 
-// Hard ceiling for a single `openmeld setup` invocation. Step-level waits inside the
+// Watchdog for a single `openmeld setup` invocation. Step-level waits inside the
 // prepare-session executor (terminal step writes, stream settle, and the
 // service gate) block on the WebSocket staying open; if Core/Web never sends a
 // matching snapshot the executor pass can hang indefinitely while the outer
 // reconnect loop never trips (it only reacts to socket close). This deadline is
 // the coarse global backstop: on expiry setup fails cleanly, releases the lock,
 // and exits so a stuck setup can never hold the single-instance lock forever.
+// This bounds the setup caller, not the independently owned update or Wake.
+// Task counts never extend the lifetime of the setup mutation lock.
 export const SETUP_GLOBAL_DEADLINE_MS = 15 * 60 * 1000;
 
 // A deliberate new Web-issued setup command may ask a still-running holder to
@@ -254,7 +256,7 @@ export function createSetupGlobalDeadline(input: {
   const clock = input.clock ?? realDeadlineClock;
   const deadlineMs = input.deadlineMs ?? SETUP_GLOBAL_DEADLINE_MS;
   let handle: DeadlineTimerHandle | null = null;
-  return {
+  const deadline = {
     arm() {
       if (handle !== null) {
         return;
@@ -272,6 +274,7 @@ export function createSetupGlobalDeadline(input: {
       handle = null;
     },
   };
+  return deadline;
 }
 
 export function handleSetupGlobalDeadlineExpiry(input: {
@@ -285,7 +288,7 @@ export function handleSetupGlobalDeadlineExpiry(input: {
 }): void {
   const deadlineMs = input.deadlineMs ?? SETUP_GLOBAL_DEADLINE_MS;
   const minutes = Math.max(1, Math.round(deadlineMs / 60_000));
-  const message = `OpenMeld setup did not finish within ${minutes} minutes on this computer and was stopped. This computer's setup lock has been released. Return to OpenMeld Web to see the current connection state and recovery action.`;
+  const message = `OpenMeld setup did not finish within ${minutes} minutes. The setup lock has been released. Current tasks and any background update continue. Check the computer connection and try again.`;
 
   // Release the lock file before exiting: the run promise stays pending (it is
   // hung), so runWithHeldLock's cleanup never runs. Releasing here is what
