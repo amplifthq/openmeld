@@ -178,24 +178,31 @@ export async function refreshWebAgentReadinessSharedCaches(input: {
 	storageScope: string;
 }) {
 	const agentProfileIds = normalizeAgentProfileIds(input.agentProfileIds ?? []);
-	const refreshes: Promise<unknown>[] = [
-		input.queryClient.invalidateQueries(
-			{
-				predicate:
-					agentProfileIds.length === 0
-						? undefined
-						: (query) =>
-								agentProfileIds.some((agentProfileId) =>
-									query.queryKey.includes(agentProfileId)
-								),
-				queryKey: agentExecutionReadinessQueryKeys.batchesForOrganization(
-					input.storageScope,
-					input.organizationId
-				),
-				refetchType: "active",
-			},
-			{ cancelRefetch: input.restartInFlightReadinessReads === true }
+	const batchFilters = {
+		predicate:
+			agentProfileIds.length === 0
+				? undefined
+				: (query: { queryKey: readonly unknown[] }) =>
+						agentProfileIds.some((agentProfileId) =>
+							query.queryKey.includes(agentProfileId)
+						),
+		queryKey: agentExecutionReadinessQueryKeys.batchesForOrganization(
+			input.storageScope,
+			input.organizationId
 		),
+	};
+	const refreshes: Promise<unknown>[] = [
+		(async () => {
+			if (input.restartInFlightReadinessReads === true) {
+				// cancelRefetch cannot replace a first read that has no data yet;
+				// cancel every in-flight read so the invalidation starts fresh ones.
+				await input.queryClient.cancelQueries(batchFilters);
+			}
+			await input.queryClient.invalidateQueries(
+				{ ...batchFilters, refetchType: "active" },
+				{ cancelRefetch: input.restartInFlightReadinessReads === true }
+			);
+		})(),
 	];
 	const organizationId = input.organizationId.trim();
 	if (organizationId.length > 0) {

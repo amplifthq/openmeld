@@ -160,9 +160,11 @@ describe("refreshWebAgentReadinessFacts", () => {
 	});
 
 	it.each([
-		[false, 1, "readiness-v1"],
-		[true, 2, "readiness-v2"],
-	] as const)("restarts an in-flight readiness read only for a reconnect recovery (%s)", async (restartInFlightReadinessReads, expectedReads, expectedData) => {
+		[false, true, 1, "readiness-v1"],
+		[true, true, 2, "readiness-v2"],
+		[false, false, 1, "readiness-v1"],
+		[true, false, 2, "readiness-v2"],
+	] as const)("restarts an in-flight readiness read only for a reconnect recovery (restart: %s, cached data: %s)", async (restartInFlightReadinessReads, hasCachedData, expectedReads, expectedData) => {
 		const queryClient = createTestQueryClient();
 		let resolveFirstRead!: (value: string) => void;
 		const readReadiness = vi
@@ -181,9 +183,11 @@ describe("refreshWebAgentReadinessFacts", () => {
 			),
 			"agt_target",
 		];
-		// A mounted batch already has data and is refetching when the
-		// reconnect recovery arrives.
-		queryClient.setQueryData(queryKey, "readiness-v0", { updatedAt: 0 });
+		// A mounted batch is refetching over cached data, or still on its first
+		// read without data, when the reconnect recovery arrives.
+		if (hasCachedData) {
+			queryClient.setQueryData(queryKey, "readiness-v0", { updatedAt: 0 });
+		}
 		const observer = new QueryObserver(queryClient, {
 			queryFn: readReadiness,
 			queryKey,
