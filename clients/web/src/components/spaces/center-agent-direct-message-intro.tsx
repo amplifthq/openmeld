@@ -3,19 +3,20 @@ import {
 	MagnifyingDock,
 	MagnifyingDockItem,
 } from "@openmeld/ui/components/magnifying-dock";
-import { OpenMeldLetterLogoStrong } from "@openmeld/ui/components/openmeld-letter-logo-strong";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import type { ReactNode } from "react";
+import { RemoteAgentAvatar } from "#/components/agents/remote-agent-avatar";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import {
 	LOCAL_AGENT_STACK_IDS,
 	LOCAL_AGENT_STACK_TOOLTIP,
 } from "#/components/profiles/local-agent-logo-stack";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
+import { useCenterAgentAvatarProfile } from "#/query/profiles/agent-avatar-context";
 import {
 	CenterAgentComputerSetupCard,
 	type CenterAgentComputerSetupContext,
@@ -34,6 +35,7 @@ export function CenterAgentDirectMessageIntro(input: {
 	showStarterComputerSetup: boolean;
 }) {
 	const organization = useOptionalAppOrganization()?.currentOrganization;
+	const profile = useCenterAgentAvatarProfile();
 	const organizationHeading = organization
 		? `What should we work on in ${organization.name}?`
 		: "What should we work on?";
@@ -68,10 +70,14 @@ export function CenterAgentDirectMessageIntro(input: {
 		>
 			<div className="flex w-full flex-col items-center gap-4">
 				<div className="flex h-20 items-center justify-center text-foreground">
-					<OpenMeldLetterLogoStrong
-						ariaLabel="OpenMeld O logo"
-						pointerTracking="viewport"
-						size={10}
+					<RemoteAgentAvatar
+						botInteraction="playful"
+						clickable
+						followPointer
+						profileId={profile?.profileId}
+						profileName={profile?.profileName ?? "Center Agent"}
+						shape="circle"
+						size={80}
 					/>
 				</div>
 				<h2 className="flex flex-wrap items-center justify-center gap-x-2 gap-y-3 text-center font-medium text-2xl text-foreground leading-relaxed">
@@ -88,7 +94,7 @@ export function CenterAgentDirectMessageIntro(input: {
 									<MagnifyingDockItem
 										className="h-9 min-h-9 w-9 min-w-9 justify-center"
 										key={agentId}
-										style={{ zIndex: 5 - index }}
+										style={{ zIndex: LOCAL_AGENT_STACK_IDS.length - index }}
 										visualClassName="origin-center"
 									>
 										<Tooltip>

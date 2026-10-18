@@ -423,7 +423,8 @@ Conversation rows leave the preview blank when no message exists, preserving its
 line height so titles and action controls stay aligned. Preview text
 is quieter than the title: dark mode slightly reduces its muted color opacity;
 light mode preserves readable preview contrast and slightly strengthens the
-unselected title instead. Selected and unread titles retain foreground emphasis.
+unselected title instead. Selection uses the row background without changing
+title size or weight, including pinned tiles. Only unread titles use heavier type.
 
 Pinned contains ordinary Spaces, human and Agent direct messages, and Center
 Agent sessions once each. Its shared manual order uses the existing root
@@ -431,10 +432,14 @@ sidebar preference; ordinary pin membership remains Space Index-owned and
 session pins remain in `chats` preferences. New pins appear first without changing
 the existing pinned order, including entries hidden by filters. Dragging still
 uses the chosen drop position. Unpin restores the saved group.
-Pinned uses 32px avatars for single profiles and member composites, with two to
-five columns based on the available grid width. Tiles target at least 60px of
-width, with 4px gaps. Its compact tiles retain two lines
-for names and expose additional rows through the existing disclosure control.
+Pinned defaults to Grid: 48px avatars above two-line names, with two to four
+columns targeting at least 76px per tile and 4px gaps. Additional rows use the
+existing disclosure control. The Pinned header's Layout menu switches between
+Grid and ordinary List rows without changing pin membership or manual order.
+The browser preference store saves this choice per Human Profile and Organization.
+Its settings action appears while the whole section is hovered or contains focus,
+while the menu is open, and on touch devices. Grid hover bridges small gaps but
+clears across empty last-row cells. List retains ordinary previews and timestamps.
 Spaces, People, and Agents are optional filters. The plus menu offers New message
 and New Space. The adjacent View and filters menu holds separate Conversation
 view and Filter conversations submenus. The Spaces title remains the link to
@@ -477,6 +482,31 @@ the title without an empty rename slot; hovering reveals the rename icon after
 the chevron with a short opacity/transform transition. Keyboard focus and touch
 also expose rename, and reduced motion disables the transition. Selecting
 history navigates to the exact Space; a new draft omits the redundant New chat action.
+
+The Spaces list shows the viewer's active private sessions with one Center
+Agent as a single entry titled **{display name}’s Center Agent** (plain
+**Center Agent** without a name); with sessions under more than one Center
+Agent, each entry adds that agent's name. The name is the default Human Profile
+name, which the Account display name keeps paired; renaming updates the session,
+Profile, directory and Space member caches optimistically and, if the request
+fails, rolls back only the name. The Center Agent is Organization-owned, so the
+possessive names only the viewer's private sessions. The entry is the session it
+opens: the one with the newest unread message, otherwise the most recently
+active one, so its id, link and unread jump agree; it sorts by the latest
+activity across its sessions. It sums unread, Wake count, Wake statuses, and
+attention evidence across its sessions, and its activity indicator opens the
+session that owns the shown work. A pin, group, or
+manual position saved for any of its sessions applies to the entry; moving or
+unpinning it drops the other sessions' saved positions. While a search is
+active, each session is listed on its own row so a title match opens that
+session.
+Rename and archive stay on the session's title dropdown and header, not the
+entry. Archived sessions keep their own rows in the Archived view. The session
+title dropdown shows only the session title; the sidebar and Center Agent avatar
+provide its identity. The title uses the available header width and truncates
+before the actions. The heading's accessible name stays the session title. Other
+lists that read conversations, such as the command center, keep one row per
+session.
 
 Selecting only Center Agent in New message, or **New chat** in an existing
 Center Agent conversation's title dropdown, opens a local `?draft=new` composer without creating a session or

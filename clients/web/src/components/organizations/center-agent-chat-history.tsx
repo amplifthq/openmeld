@@ -83,7 +83,7 @@ export function CenterAgentChatHistory({
 		<h1
 			className={cn(
 				buttonVariants({ variant: "ghost" }),
-				"group/chat-title relative ml-[var(--space-title-control-inline-offset,0px)] h-auto min-w-0 max-w-[28rem] shrink gap-0 rounded-full border-0 p-0 text-lg transition-none hover:shadow-sm",
+				"group/chat-title relative ml-[var(--space-title-control-inline-offset,0px)] h-auto min-w-0 max-w-full shrink gap-0 rounded-full border-0 p-0 text-lg transition-none hover:shadow-sm",
 				open && "bg-muted shadow-sm"
 			)}
 		>

@@ -11,33 +11,34 @@ import {
 
 /** Layout and disclosure only; rows retain navigation, menus and status ownership. */
 export function ConversationSidebarMenu({
-	pinned,
+	layout,
 	updateIndices,
 	children,
 	...props
 }: ComponentProps<typeof FluidNavMenu> & {
-	pinned: boolean;
+	layout: "grid" | "list";
 	updateIndices: number[];
 }) {
+	const grid = layout === "grid";
 	const ref = useRef<HTMLDivElement>(null);
 	const [columns, setColumns] = useState(2);
 	const [expanded, setExpanded] = useState(false);
 	const { active } = useDndContext();
 	useEffect(() => {
 		const node = ref.current;
-		if (!(node && pinned)) {
+		if (!(node && grid)) {
 			return;
 		}
 		const measure = () => {
 			const width = node.getBoundingClientRect().width;
-			// Keep at least 60px per tile, plus the 4px gap between columns.
-			setColumns(Math.max(2, Math.min(5, Math.floor((width + 4) / 64))));
+			// Keep at least 76px per tile, plus the 4px gap between columns.
+			setColumns(Math.max(2, Math.min(4, Math.floor((width + 4) / 80))));
 		};
 		measure();
 		const observer = new ResizeObserver(measure);
 		observer.observe(node);
 		return () => observer.disconnect();
-	}, [pinned]);
+	}, [grid]);
 	const items = Children.toArray(children);
 	const visibleColumns = Math.max(1, Math.min(columns, items.length));
 	const limit = columns * 2;
@@ -48,16 +49,17 @@ export function ConversationSidebarMenu({
 		<div ref={ref}>
 			<FluidNavMenu
 				{...props}
-				hoverAxis={pinned ? "xy" : "y"}
+				hoverAxis={grid ? "xy" : "y"}
+				hoverMaxDistance={grid ? 4 : undefined}
 				listClassName={
-					pinned
-						? `grid gap-1 ${{ 1: "grid-cols-1", 2: "grid-cols-2", 3: "grid-cols-3", 4: "grid-cols-4", 5: "grid-cols-5" }[visibleColumns]}`
+					grid
+						? `grid gap-1 ${{ 1: "grid-cols-1", 2: "grid-cols-2", 3: "grid-cols-3", 4: "grid-cols-4" }[visibleColumns]}`
 						: undefined
 				}
 			>
-				{pinned && !open ? items.slice(0, limit) : items}
+				{grid && !open ? items.slice(0, limit) : items}
 			</FluidNavMenu>
-			{pinned && items.length > limit && (
+			{grid && items.length > limit && (
 				<Button
 					aria-expanded={open}
 					className="mt-1 h-7 w-full text-muted-foreground text-xs"

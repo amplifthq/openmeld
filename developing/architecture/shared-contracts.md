@@ -9375,7 +9375,9 @@ tab also publishes a scoped refresh-all message on the readiness bus so other
 tabs in the same account and Organization refresh their readiness projections;
 it bypasses the per-Space version check. Recovery restarts snapshot and readiness
 reads already in flight, including a first load with no data, because such a
-read may predate the missed change. A tab loaded before that
+read may predate the missed change. The active Wake progress summary and
+message details instead read once more after an in-flight read settles. A tab
+loaded before that
 Web change keeps the earlier reconnect behavior until it reloads; that gap
 predates this rule, because a failed check used to close every session. A failure for
 one session never closes or delays another session.
