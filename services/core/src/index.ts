@@ -1239,9 +1239,11 @@ import {
 import { rpcSearchMessages } from "./search/message-search";
 import { runGatewaySensitiveOperation } from "./sensitive-operations/application/sensitive-operation-gate";
 import {
+  rpcAuthorizeSensitiveOperation,
   rpcDecideCredentialConfirmation,
   rpcGetCredentialConfirmation,
   rpcListMemberAgentSensitiveOperationAudit,
+  rpcRecordSensitiveOperationOutcome,
 } from "./sensitive-operations/sensitive-operation-rpc";
 import { emitCoreCloudflareRuntimeEvidence } from "./shared/observability/cloudflare-runtime-evidence";
 import { handleCoreQueueBatch } from "./shared/queue/core-queue-router";
@@ -1265,6 +1267,17 @@ import {
 // fan-out. Kept separate from GatewayRpcEntrypoint so auth only gets the
 // reconcile surface instead of the whole gateway RPC surface.
 export class ProfileLifecycleEntrypoint extends WorkerEntrypoint<CoreBindings> {
+  /** Auth's Agent Profile deletion asks the sensitive operation gate first. */
+  authorizeSensitiveOperation(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcAuthorizeSensitiveOperation(this.env, input)
+    );
+  }
+  recordSensitiveOperationOutcome(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRecordSensitiveOperationOutcome(this.env, input)
+    );
+  }
   organizationJoinRequest(
     input: import("@openmeld/schemas").OrganizationJoinRequestRpcInput
   ) {

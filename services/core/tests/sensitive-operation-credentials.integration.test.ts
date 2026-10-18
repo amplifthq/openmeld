@@ -48,9 +48,11 @@ const { runGatewaySensitiveOperation } = await import(
 );
 const { GatewayRpcEntrypoint } = await import("../src/index");
 const {
+  rpcAuthorizeSensitiveOperation,
   rpcDecideCredentialConfirmation,
   rpcGetCredentialConfirmation,
   rpcListMemberAgentSensitiveOperationAudit,
+  rpcRecordSensitiveOperationOutcome,
 } = await import("../src/sensitive-operations/sensitive-operation-rpc");
 
 const coreEnv = env as unknown as CoreBindings;
@@ -696,5 +698,56 @@ describe("sensitive operation credentials", () => {
     }
     // Each distinct request opens its own card.
     expect(await readConfirmationInboxItems(f)).toHaveLength(calls.length);
+  });
+
+  it("decides Auth's Agent Profile deletion through the same gate and audits its outcome", async () => {
+    const f = await seed();
+    const actor = {
+      humanProfileId: null,
+      organizationId: f.organizationId,
+      userId: f.felix.userId,
+    };
+    const ask = (credential: RequestCredential) =>
+      rpcAuthorizeSensitiveOperation(coreEnv, {
+        actor,
+        agentProfileId: f.agentProfileId,
+        credential,
+        digestInput: { profileId: f.agentProfileId },
+        operation: "profile_delete",
+      });
+    shard.riskWindow = runningTask({
+      rootProfileId: f.tali.profileId,
+      runtimeId: LAPTOP,
+      targetProfileId: f.agentProfileId,
+    });
+    await expect(ask(cli())).resolves.toMatchObject({
+      code: "credential_confirmation.required",
+      httpStatus: 409,
+      status: "refused",
+    });
+    const allowed = await ask(interactive());
+    expect(allowed).toMatchObject({
+      decision: { sourceKind: "web_session" },
+      status: "allowed",
+    });
+    if (allowed.status !== "allowed") {
+      throw new Error("Expected an allowed deletion.");
+    }
+    await rpcRecordSensitiveOperationOutcome(coreEnv, {
+      actor,
+      agentProfileId: f.agentProfileId,
+      decision: allowed.decision,
+      operation: "profile_delete",
+      outcome: "succeeded",
+      reasonCode: null,
+    });
+    expect(
+      (await readAudit(f)).map((row) => [row.source_kind, row.outcome])
+    ).toEqual([
+      ["cli_credential", "confirmation_required"],
+      ["web_session", "succeeded"],
+    ]);
+    feature.enabled = false;
+    await expect(ask(cli())).resolves.toEqual({ status: "not_enforced" });
   });
 });

@@ -13,9 +13,16 @@ import {
   memberAgentSensitiveOperationAuditRouteParamsSchema,
   type RequestCredential,
   SENSITIVE_OPERATION_AUDIT_LIST_LIMIT,
+  type SensitiveOperationAuthorization,
+  sensitiveOperationAuthorizationInputSchema,
+  sensitiveOperationAuthorizationSchema,
+  sensitiveOperationOutcomeInputSchema,
 } from "@openmeld/schemas";
 import type { CoreBindings } from "../lib/bindings";
-import { isMemberAgentsEnabled } from "../member-agent/member-agents-feature";
+import {
+  isMemberAgentsEnabled,
+  isRequestChainEnforced,
+} from "../member-agent/member-agents-feature";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   type CoreRpcContextInput,
@@ -26,6 +33,10 @@ import {
   decideCredentialConfirmation,
   readCredentialConfirmationView,
 } from "./application/credential-confirmation-service";
+import {
+  authorizeSensitiveOperation,
+  recordSensitiveOperationOutcome,
+} from "./application/sensitive-operation-gate";
 import {
   asQueryable,
   listMemberAgentSensitiveOperationAudit,
@@ -193,4 +204,86 @@ export async function rpcListMemberAgentSensitiveOperationAudit(
     });
   }
   return { events };
+}
+
+/**
+ * Auth asks before an Agent Profile deletion it performs itself. Refusals
+ * come back as data so Auth answers with the same code the Gateway would.
+ */
+export async function rpcAuthorizeSensitiveOperation(
+  env: CoreBindings,
+  raw: unknown
+): Promise<SensitiveOperationAuthorization> {
+  if (!isRequestChainEnforced()) {
+    return { status: "not_enforced" };
+  }
+  const input = sensitiveOperationAuthorizationInputSchema.parse(raw);
+  try {
+    const decision = await authorizeSensitiveOperation(env, {
+      caller: input.actor,
+      credential: input.credential,
+      request: {
+        agentProfileId: input.agentProfileId,
+        digestInput: input.digestInput,
+        operation: input.operation,
+      },
+    });
+    return sensitiveOperationAuthorizationSchema.parse({
+      decision,
+      status: "allowed",
+    });
+  } catch (error) {
+    const refusal = readStructuredRefusal(error);
+    if (!refusal) {
+      throw error;
+    }
+    return sensitiveOperationAuthorizationSchema.parse({
+      ...refusal,
+      status: "refused",
+    });
+  }
+}
+
+export async function rpcRecordSensitiveOperationOutcome(
+  env: CoreBindings,
+  raw: unknown
+): Promise<{ ok: true }> {
+  const input = sensitiveOperationOutcomeInputSchema.parse(raw);
+  await recordSensitiveOperationOutcome(env, {
+    caller: input.actor,
+    decision: input.decision,
+    outcome: input.outcome,
+    reasonCode: input.reasonCode,
+    request: {
+      agentProfileId: input.agentProfileId,
+      operation: input.operation,
+    },
+  });
+  return { ok: true };
+}
+
+function readStructuredRefusal(
+  error: unknown
+): { code: string; httpStatus: number; message: string } | null {
+  const cause =
+    error && typeof error === "object"
+      ? (
+          error as {
+            cause?: { code?: unknown; message?: unknown; status?: unknown };
+          }
+        ).cause
+      : undefined;
+  if (
+    typeof cause?.code === "string" &&
+    typeof cause.message === "string" &&
+    typeof cause.status === "number" &&
+    cause.status >= 400
+  ) {
+    return {
+      code: cause.code,
+      httpStatus: cause.status,
+      message: cause.message.slice(0, 500),
+    };
+  }
+  return null;
 }

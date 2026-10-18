@@ -50,11 +50,13 @@ type Decision = {
   taskExecutionId: string | null;
 };
 
-type Caller = {
+/** The signed-in account, its Organization and its own Human Profile. */
+export type SensitiveOperationCaller = {
   humanProfileId: string | null;
   organizationId: string;
   userId: string;
 };
+type Caller = SensitiveOperationCaller;
 
 export async function runSensitiveOperation<T>(
   env: CoreBindings,
@@ -91,6 +93,50 @@ export async function runSensitiveOperation<T>(
     });
     throw error;
   }
+}
+
+/**
+ * The decision alone, for an operation another service performs (Auth's
+ * Agent Profile deletion). Refusals throw and are audited here; the caller
+ * reports the outcome with recordSensitiveOperationOutcome.
+ */
+export async function authorizeSensitiveOperation(
+  env: CoreBindings,
+  input: {
+    caller: SensitiveOperationCaller;
+    credential: RequestCredential;
+    request: Omit<SensitiveOperationRequest, "context" | "credential">;
+  }
+): Promise<Decision> {
+  return await decideSource(env, {
+    caller: input.caller,
+    credential: input.credential,
+    request: { ...input.request, context: undefined, credential: undefined },
+  });
+}
+
+export async function recordSensitiveOperationOutcome(
+  env: CoreBindings,
+  input: {
+    caller: SensitiveOperationCaller;
+    decision: Decision;
+    outcome: "failed" | "succeeded";
+    reasonCode: string | null;
+    request: Pick<SensitiveOperationRequest, "agentProfileId" | "operation">;
+  }
+): Promise<void> {
+  await writeAudit(env, {
+    caller: input.caller,
+    decision: input.decision,
+    outcome: input.outcome,
+    reasonCode: input.reasonCode,
+    request: {
+      ...input.request,
+      context: undefined,
+      credential: undefined,
+      digestInput: null,
+    },
+  });
 }
 
 function requireCaller(context: OpenMeldRequestContext | undefined): Caller {

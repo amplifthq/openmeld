@@ -74,6 +74,7 @@ export const sensitiveOperationSchema = z.enum([
   "space_delete",
   "agent_access_decision",
   "agent_access_grant_revoke",
+  "profile_delete",
 ]);
 export type SensitiveOperation = z.infer<typeof sensitiveOperationSchema>;
 
@@ -237,4 +238,68 @@ export const riskWindowExecutionsResponseSchema = z.discriminatedUnion(
 );
 export type RiskWindowExecutionsResponse = z.infer<
   typeof riskWindowExecutionsResponseSchema
+>;
+
+/** How Core decided one sensitive operation; the outcome row repeats it. */
+export const sensitiveOperationDecisionSchema = z.strictObject({
+  chainRootProfileId: identifierSchema.nullable(),
+  confirmationId: identifierSchema.nullable(),
+  sourceKind: sensitiveOperationSourceKindSchema,
+  taskExecutionId: identifierSchema.nullable(),
+});
+export type SensitiveOperationDecision = z.infer<
+  typeof sensitiveOperationDecisionSchema
+>;
+
+const sensitiveOperationActorSchema = z.strictObject({
+  humanProfileId: identifierSchema.nullable(),
+  organizationId: identifierSchema,
+  userId: identifierSchema,
+});
+
+/**
+ * Auth asks Core before a sensitive operation Auth performs itself (Agent
+ * Profile deletion), so one gate decides every source.
+ */
+export const sensitiveOperationAuthorizationInputSchema = z.strictObject({
+  actor: sensitiveOperationActorSchema,
+  agentProfileId: identifierSchema.nullable(),
+  credential: requestCredentialSchema,
+  digestInput: z.unknown(),
+  operation: sensitiveOperationSchema,
+});
+export type SensitiveOperationAuthorizationInput = z.infer<
+  typeof sensitiveOperationAuthorizationInputSchema
+>;
+
+export const sensitiveOperationAuthorizationSchema = z.discriminatedUnion(
+  "status",
+  [
+    z.strictObject({ status: z.literal("not_enforced") }),
+    z.strictObject({
+      decision: sensitiveOperationDecisionSchema,
+      status: z.literal("allowed"),
+    }),
+    z.strictObject({
+      code: reasonCodeSchema,
+      httpStatus: z.number().int().min(400).max(599),
+      message: z.string().trim().min(1).max(500),
+      status: z.literal("refused"),
+    }),
+  ]
+);
+export type SensitiveOperationAuthorization = z.infer<
+  typeof sensitiveOperationAuthorizationSchema
+>;
+
+export const sensitiveOperationOutcomeInputSchema = z.strictObject({
+  actor: sensitiveOperationActorSchema,
+  agentProfileId: identifierSchema.nullable(),
+  decision: sensitiveOperationDecisionSchema,
+  operation: sensitiveOperationSchema,
+  outcome: z.enum(["succeeded", "failed"]),
+  reasonCode: reasonCodeSchema.nullable(),
+});
+export type SensitiveOperationOutcomeInput = z.infer<
+  typeof sensitiveOperationOutcomeInputSchema
 >;
