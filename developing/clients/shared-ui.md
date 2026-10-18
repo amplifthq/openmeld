@@ -142,6 +142,10 @@ content without a second shared disclosure component.
 `FluidNavMenu.listClassName` composes list or grid layout over the same measured
 SidebarMenu hover, selection, focus and action scope. Product surfaces supply
 responsive columns and disclosure; they do not introduce another hover engine.
+`hoverMaxDistance` optionally bounds proximity by the distance in viewport pixels
+from a real item edge. It maps to the shared hook's `maxDistance`; consumers that
+omit it retain upstream nearest-item behavior. Pinned grids use 4px to bridge
+their small gaps without highlighting across empty cells.
 
 `hooks/use-fluid-hover` and `fluid/fluid-hover-highlight` are installed from the
 official Fluid Functionalism registry. The import retains the vendor's nearest
