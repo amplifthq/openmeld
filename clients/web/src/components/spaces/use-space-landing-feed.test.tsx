@@ -1396,6 +1396,55 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		expect(permanentRead).toHaveBeenCalledOnce();
 	});
 
+	it("cancels in-flight status and member reads before the reconnect refetch", async () => {
+		const { membersRefetch, queryClient, statusRefetch } = renderFeed();
+		await openLatestSocket();
+		const cancelled: string[] = [];
+		const cancelQueries = queryClient.cancelQueries.bind(queryClient);
+		vi.spyOn(queryClient, "cancelQueries").mockImplementation(
+			(filters, options) => {
+				const key = filters?.queryKey;
+				if (key?.[0] === "spaces" && key[1] === "status") {
+					cancelled.push("status");
+				}
+				if (key?.[0] === "spaces" && key[1] === "members") {
+					cancelled.push("members");
+				}
+				return cancelQueries(filters, options);
+			}
+		);
+		const refetchedAfterCancel: string[] = [];
+		statusRefetch.mockImplementation(() => {
+			refetchedAfterCancel.push(
+				cancelled.includes("status") ? "status:cancelled" : "status:shared"
+			);
+			return Promise.resolve();
+		});
+		membersRefetch.mockImplementation(() => {
+			refetchedAfterCancel.push(
+				cancelled.includes("members") ? "members:cancelled" : "members:shared"
+			);
+			return Promise.resolve();
+		});
+
+		await act(async () => {
+			await FakeWebSocket.latest.emitClose(1013, "space_access_unverified");
+			await vi.advanceTimersByTimeAsync(2000);
+		});
+		refetchedAfterCancel.length = 0;
+		await openLatestSocket();
+		await flushMicrotasks();
+		await act(async () => vi.advanceTimersByTimeAsync(1000));
+
+		// A first status read may predate the withheld change; it must not be
+		// shared by the reconnect refetch.
+		expect(refetchedAfterCancel).toEqual(
+			expect.arrayContaining(["status:cancelled", "members:cancelled"])
+		);
+		expect(refetchedAfterCancel).not.toContain("status:shared");
+		expect(refetchedAfterCancel).not.toContain("members:shared");
+	});
+
 	it.each([
 		["Tasks", spaceTaskQueryKeys.space("space-123")],
 		["message pins", ["space-message-pins", "space-123"]],

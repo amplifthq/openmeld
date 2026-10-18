@@ -1446,8 +1446,6 @@ function refreshLiveInvalidatedSnapshotsAfterReconnect(
 		| "wakeProgressRefreshScopeRef"
 	>
 ): void {
-	debounceRefetch(input.statusRefetchTimerRef, input.statusRefetch);
-	debounceRefetch(input.membersRefetchTimerRef, input.membersRefetch);
 	// A first load still in flight may predate the withheld change, and an
 	// invalidation would share it instead of reading again. Cancel matching
 	// reads first so every refresh below starts a fresh read.
@@ -1459,6 +1457,8 @@ function refreshLiveInvalidatedSnapshotsAfterReconnect(
 			console.warn("Failed to cancel stale Space reads.", error)
 		)
 		.finally(() => {
+			debounceRefetch(input.statusRefetchTimerRef, input.statusRefetch);
+			debounceRefetch(input.membersRefetchTimerRef, input.membersRefetch);
 			input.queryClient
 				.invalidateQueries({ queryKey: messageReactionsKey(input.spaceId) })
 				.catch(() => undefined);
@@ -1547,6 +1547,12 @@ function cancelSpaceSnapshotReadsBeforeReconnectRefresh(
 	spaceId: string
 ): Promise<unknown> {
 	return Promise.all([
+		// Status and members may still be on a first read when a message-target
+		// route opens the socket before status is ready.
+		queryClient.cancelQueries({ queryKey: ["spaces", "status", spaceId] }),
+		queryClient.cancelQueries({
+			queryKey: [...spaceQueryKeys.allMembers, spaceId],
+		}),
 		queryClient.cancelQueries({ queryKey: messageReactionsKey(spaceId) }),
 		queryClient.cancelQueries({
 			predicate: (query) => isSpacePinQuery(query, spaceId),
