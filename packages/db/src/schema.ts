@@ -50,6 +50,7 @@ export const {
 
 export const {
   conversationHistoryDeletions,
+  directMessageSessionStates,
   firstWorkExperiences,
   userTimeContexts,
   aiUsageRecords,

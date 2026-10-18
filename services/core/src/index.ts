@@ -19,6 +19,8 @@ import type {
   SyncMemberAgentsResponse,
 } from "@openmeld/schemas";
 import {
+  type DeleteAgentDirectMessageSessionResponse,
+  type ListAgentDirectMessageSessionsResponse,
   type ListCenterAgentSessionsResponse,
   type ModelCatalogReadOptions,
   modelCatalogReadOptionsSchema,
@@ -28,6 +30,7 @@ import {
   toLegacySpaceFilesOriginWireValue,
   toLegacySpaceImageGeometryWireValue,
   toSpaceSignalReadWireValue,
+  type UpdateAgentDirectMessageSessionResponse,
 } from "@openmeld/schemas";
 import type {
   AccountSpaceActiveWakeSummaryResponse,
@@ -719,6 +722,7 @@ import {
   type CreateSpaceFolderInput,
   type CreateSpaceInput,
   type CreateSpaceTaskInput,
+  type DeleteAgentDirectMessageSessionInput,
   type DeleteRoutineInput,
   type DeleteSpaceAttachmentRecordInput,
   type DeleteSpaceAttachmentRecordResult,
@@ -791,6 +795,7 @@ import {
   type ListAccountSpaceActiveWakeSummaryInput,
   type ListAccountSpacesInput,
   type ListActiveLarkPlatformRegistrationsInput,
+  type ListAgentDirectMessageSessionsInput,
   type ListCenterAgentAuditJournalInput,
   type ListCenterAgentSessionsInput,
   type ListCurrentOrganizationConnectorAppRequestsInput,
@@ -954,6 +959,7 @@ import {
   rpcCreateSpaceDiagnosticReport,
   rpcCreateSpaceFolder,
   rpcCreateSpaceTask,
+  rpcDeleteAgentDirectMessageSession,
   rpcDeleteConversationForMe,
   rpcDeleteRoutine,
   rpcDeleteSpace,
@@ -1035,6 +1041,7 @@ import {
   rpcListAccountSpaceActiveWakeSummary,
   rpcListAccountSpaces,
   rpcListActiveLarkPlatformRegistrations,
+  rpcListAgentDirectMessageSessions,
   rpcListCenterAgentAuditJournal,
   rpcListCenterAgentSessions,
   rpcListCurrentOrganizationConnectorAppRequests,
@@ -1139,6 +1146,7 @@ import {
   rpcSubmitRuntimeProviderConversationProofs,
   rpcSubmitRuntimeRegistration,
   rpcTrashSpaceFileEntry,
+  rpcUpdateAgentDirectMessageSession,
   rpcUpdateAgentProfileDefaultProject,
   rpcUpdateAgentProfilePrimaryBindingAgentControllerCollaborationMode,
   rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissionMode,
@@ -1188,6 +1196,7 @@ import {
   type SubmitRuntimeProviderConversationProofsInput,
   type SubmitRuntimeRegistrationInput,
   type TrashSpaceFileEntryInput,
+  type UpdateAgentDirectMessageSessionInput,
   type UpdateAgentProfileDefaultProjectInput,
   type UpdateAgentProfilePrimaryBindingAgentControllerCollaborationModeInput,
   type UpdateAgentProfilePrimaryBindingAgentControllerPermissionModeInput,
@@ -3561,6 +3570,27 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   ): Promise<ListCenterAgentSessionsResponse> {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcListCenterAgentSessions(this.env, input)
+    );
+  }
+  listAgentDirectMessageSessions(
+    input: ListAgentDirectMessageSessionsInput
+  ): Promise<ListAgentDirectMessageSessionsResponse> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListAgentDirectMessageSessions(this.env, input)
+    );
+  }
+  updateAgentDirectMessageSession(
+    input: UpdateAgentDirectMessageSessionInput
+  ): Promise<UpdateAgentDirectMessageSessionResponse> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateAgentDirectMessageSession(this.env, input)
+    );
+  }
+  deleteAgentDirectMessageSession(
+    input: DeleteAgentDirectMessageSessionInput
+  ): Promise<DeleteAgentDirectMessageSessionResponse> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDeleteAgentDirectMessageSession(this.env, input)
     );
   }
   createCenterAgentContextManifest(
@@ -5986,6 +6016,21 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: ListCenterAgentSessionsInput
   ): Promise<ListCenterAgentSessionsResponse> {
     return super.listCenterAgentSessions(input);
+  }
+  listAgentDirectMessageSessions(
+    input: ListAgentDirectMessageSessionsInput
+  ): Promise<ListAgentDirectMessageSessionsResponse> {
+    return super.listAgentDirectMessageSessions(input);
+  }
+  updateAgentDirectMessageSession(
+    input: UpdateAgentDirectMessageSessionInput
+  ): Promise<UpdateAgentDirectMessageSessionResponse> {
+    return super.updateAgentDirectMessageSession(input);
+  }
+  deleteAgentDirectMessageSession(
+    input: DeleteAgentDirectMessageSessionInput
+  ): Promise<DeleteAgentDirectMessageSessionResponse> {
+    return super.deleteAgentDirectMessageSession(input);
   }
   createCenterAgentContextManifest(
     input: CreateCenterAgentContextManifestInput

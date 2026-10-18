@@ -181,6 +181,10 @@ const DIRECT_GATEWAY_ERROR_CODES = [
   "direct_message.self_not_allowed",
   "direct_message.target_not_found",
   "direct_message.conversion_required",
+  "direct_message_session.agent_not_found",
+  "direct_message_session.forbidden",
+  "direct_message_session.not_found",
+  "member_agents.disabled",
   "invalid_password_payload",
   "space.forbidden",
   "space.not_found",
@@ -1020,5 +1024,56 @@ function validateSuccessResponseForRequestId(input: {
       message: "upstream returned invalid response payload",
       requestId: input.requestId,
     }),
+  };
+}
+
+type JsonBodyParseResult<T> =
+  | {
+      data: T;
+      ok: true;
+    }
+  | {
+      ok: false;
+      response: Response;
+    };
+
+export async function parseJsonBody<T>(
+  c: Context<HonoBindings>,
+  schema: z.ZodType<T>
+): Promise<JsonBodyParseResult<T>> {
+  let body: unknown = {};
+  const rawBody = (await c.req.text()).trim();
+  if (rawBody.length > 0) {
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return {
+        ok: false,
+        response: respondBadRequest({
+          c,
+          route: c.req.path,
+          method: c.req.method as "POST" | "PUT" | "PATCH",
+          code: "invalid_json",
+          message: "Invalid JSON",
+        }),
+      };
+    }
+  }
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      response: respondBadRequest({
+        c,
+        route: c.req.path,
+        method: c.req.method as "POST" | "PUT" | "PATCH",
+        code: "invalid_payload",
+        message: parsed.error.issues[0]?.message ?? "Invalid payload.",
+      }),
+    };
+  }
+  return {
+    data: parsed.data,
+    ok: true,
   };
 }

@@ -112,14 +112,19 @@ export type {
 export { createDirectMessageApi } from "./direct-message/api";
 export {
   buildDirectMessageConversionPath,
+  buildDirectMessageSessionPath,
+  buildDirectMessageSessionsPath,
   buildDirectMessageSpacePath,
 } from "./direct-message/routes";
 export type {
   ConvertDirectMessageToSpaceInput,
   CreateDirectMessageApi,
+  DeleteAgentDirectMessageSessionInput,
   DirectMessageApi,
   DirectMessageRequestInput,
+  ListAgentDirectMessageSessionsInput,
   OpenDirectMessageSpaceInput,
+  UpdateAgentDirectMessageSessionInput,
 } from "./direct-message/types";
 export type { StructuredApiClientFailure } from "./errors";
 export {

@@ -1271,11 +1271,16 @@ export async function readCenterAgentDirectMessageProjectionCandidateBySpaceId(i
     .then((result) => result.rows[0] ?? null);
   return row ? toCenterAgentDirectMessageProjectionCandidate(row) : null;
 }
-export async function listCenterAgentSessionIndexRows(input: {
+/**
+ * Sessions of one Human–Agent Direct Message pair (Center Agent or any agent
+ * Profile). Archive state is owned by `direct_message_session_states`.
+ */
+export async function listDirectMessageSessionIndexRows(input: {
   db: PostgresDatabase;
   organizationId: string;
   pairKey: string;
   limit: number;
+  archived?: boolean;
   before?: {
     createdAtMs: number;
     spaceId: string;
@@ -1285,26 +1290,35 @@ export async function listCenterAgentSessionIndexRows(input: {
     spaceId: string;
     name: string | null;
     createdAtMs: number | null;
+    archivedAtMs: number | null;
     messagePreview?: AccountSpaceIndexItem["messagePreview"];
   }>
 > {
   const beforeClause = input.before
     ? "AND (COALESCE(s.space_created_at_ms, 0), s.space_id) < ($5, $6)"
     : "";
+  const archivedClause =
+    input.archived === true
+      ? "AND st.archived_at_ms IS NOT NULL"
+      : "AND st.archived_at_ms IS NULL";
   const rows = await input.db.query<{
     space_id: string;
     space_name: string | null;
     space_created_at_ms: number | null;
+    archived_at_ms: number | string | null;
     message_preview_revision: number | null;
     message_preview_json: string | null;
   }>({
     text: `
-    SELECT s.space_id, s.space_name, s.space_created_at_ms,
+    SELECT s.space_id, s.space_name, s.space_created_at_ms, st.archived_at_ms,
       s.message_preview_revision, s.message_preview_json
     FROM "openmeld"."space_index_spaces" s
+    LEFT JOIN "openmeld"."direct_message_session_states" st
+      ON st.space_id = s.space_id
     WHERE s.organization_id = $1 AND s.direct_message_pair_key = $2
       AND s.space_purpose = $3 AND s.direct_message_converted_at_ms IS NULL
       AND s.status = 'active'
+      ${archivedClause}
       ${beforeClause}
     ORDER BY COALESCE(s.space_created_at_ms, 0) DESC NULLS LAST, s.space_id DESC NULLS LAST
     LIMIT $4
@@ -1321,6 +1335,8 @@ export async function listCenterAgentSessionIndexRows(input: {
     spaceId: row.space_id,
     name: row.space_name,
     createdAtMs: row.space_created_at_ms,
+    archivedAtMs:
+      row.archived_at_ms === null ? null : Number(row.archived_at_ms),
     ...(row.message_preview_revision === null
       ? {}
       : {
@@ -1332,6 +1348,44 @@ export async function listCenterAgentSessionIndexRows(input: {
             ),
         }),
   }));
+}
+/** Session archive state; Core's Session operations are the only writer. */
+export async function writeDirectMessageSessionArchivedAt(input: {
+  db: PostgresDatabase;
+  spaceId: string;
+  organizationId: string;
+  archivedAtMs: number | null;
+  nowMs: number;
+}): Promise<void> {
+  await input.db.query({
+    text: `
+      INSERT INTO "openmeld"."direct_message_session_states"
+        (space_id, organization_id, archived_at_ms, updated_at_ms)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (space_id) DO UPDATE SET
+        archived_at_ms = EXCLUDED.archived_at_ms,
+        updated_at_ms = EXCLUDED.updated_at_ms
+    `,
+    values: [
+      input.spaceId,
+      input.organizationId,
+      input.archivedAtMs,
+      input.nowMs,
+    ],
+  });
+}
+export async function readDirectMessageSessionArchivedAtMs(input: {
+  db: PostgresDatabase;
+  spaceId: string;
+}): Promise<number | null> {
+  const result = await input.db.query<{
+    archived_at_ms: number | string | null;
+  }>({
+    text: `SELECT archived_at_ms FROM "openmeld"."direct_message_session_states" WHERE space_id = $1`,
+    values: [input.spaceId],
+  });
+  const value = result.rows[0]?.archived_at_ms ?? null;
+  return value === null ? null : Number(value);
 }
 export async function readSpaceIndexOrganizationJoinTarget(input: {
   db: PostgresDatabase;

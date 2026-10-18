@@ -46,6 +46,7 @@ import {
   accountSpaceActiveWakeSummaryRpcInputSchema,
   addCenterAgentToSpaceBodySchema,
   addOrganizationDirectoryProfilesToSpaceBodySchema,
+  agentDirectMessageSessionSelectorSchema,
   agentExecutionReadinessRouteParamsSchema,
   agentProfileBindingRouteParamsSchema,
   agentProfileBindingTargetSchema,
@@ -187,10 +188,12 @@ import {
   currentLocalAgentInstallationsResponseSchema,
   currentLocalAgentInstallationsRouteParamsSchema,
   currentLocalRuntimeReplyReadinessResponseSchema,
+  type DeleteAgentDirectMessageSessionResponse,
   type DeleteConversationForMeInput,
   type DeleteConversationForMeResponse,
   daemonServiceLaneSchema,
   decodeSpaceFileText,
+  deleteAgentDirectMessageSessionResponseSchema,
   deleteConversationForMeInputSchema,
   deleteSpaceAttachmentRecordInputSchema,
   deleteSpaceAttachmentRecordResultSchema,
@@ -247,11 +250,14 @@ import {
   isHostedAgentControllerRef,
   isSpaceFileTextEditable,
   isSpaceFileTextReadable,
+  type ListAgentDirectMessageSessionsQuery,
+  type ListAgentDirectMessageSessionsResponse,
   type ListCenterAgentSessionsQuery,
   type ListCenterAgentSessionsResponse,
   larkPlatformActiveRegistrationListResponseSchema,
   larkPlatformProviderSchema,
   larkPlatformRegistrationAttemptIdSchema,
+  listAgentDirectMessageSessionsQuerySchema,
   listCenterAgentAuditJournalQuerySchema,
   listCenterAgentAuditJournalResponseSchema,
   listCenterAgentSessionsQuerySchema,
@@ -262,6 +268,8 @@ import {
   localRuntimeEnrollmentResponseSchema,
   localRuntimesResponseSchema,
   MAX_SPACE_NAME_LENGTH,
+  MEMBER_AGENTS_DISABLED_CODE,
+  MEMBER_AGENTS_DISABLED_MESSAGE,
   MEMBER_AGENTS_ENABLED,
   messageChannelConnectionListResponseSchema,
   messageChannelIdentityLinkConsumeBodySchema,
@@ -372,6 +380,10 @@ import {
   submitRuntimeRegistrationBodySchema,
   submitRuntimeRegistrationResponseSchema,
   summarizeComputerFileAccessPolicy,
+  type UpdateAgentDirectMessageSessionBody,
+  type UpdateAgentDirectMessageSessionResponse,
+  updateAgentDirectMessageSessionBodySchema,
+  updateAgentDirectMessageSessionResponseSchema,
   updateAgentProfileDefaultProjectRpcInputSchema,
   updateAgentProfileExecutionModeBodySchema,
   updateAgentProfilePrimaryBindingAgentControllerCollaborationModeBodySchema,
@@ -1073,6 +1085,7 @@ import {
 import type { CoreBindings } from "../lib/bindings";
 import { resolveCoreRuntimeContractRollout } from "../local-components/runtime-contract-rollout";
 import { resolveLocalComponentUpdateProjection } from "../local-components/update-projection";
+import { isMemberAgentsEnabled } from "../member-agents/member-agents-feature";
 import {
   hasStartedTutorial,
   readFirstWork,
@@ -1297,6 +1310,7 @@ import {
   parseRpcErrorPayload,
   readSafeRpcFailureReasonCode,
 } from "../shared/rpc/rpc-json";
+import { listAuthorizedAgentDirectMessageSessions } from "../space/application/agent-direct-message-session-list";
 import {
   assertSpaceAccessMatchesSpace,
   requireWritableSpaceActor,
@@ -3518,6 +3532,19 @@ export type DisconnectLarkPlatformRegistrationInput =
 export type DisconnectMessageChannelIdentityLinkInput = {
   context?: CoreRpcContextInput;
   identityLinkId: string;
+};
+export type ListAgentDirectMessageSessionsInput =
+  ListAgentDirectMessageSessionsQuery & {
+    context?: CoreRpcContextInput;
+  };
+export type UpdateAgentDirectMessageSessionInput = {
+  context?: CoreRpcContextInput;
+  spaceId: string;
+  update: UpdateAgentDirectMessageSessionBody;
+};
+export type DeleteAgentDirectMessageSessionInput = {
+  context?: CoreRpcContextInput;
+  spaceId: string;
 };
 export type ListCenterAgentSessionsInput = ListCenterAgentSessionsQuery & {
   context?: CoreRpcContextInput;
@@ -9909,6 +9936,180 @@ export async function rpcListCenterAgentSessions(
       human.profileId,
       designation.agentProfileId
     ),
+  });
+}
+function requireMemberAgentsEnabledForSessions(): void {
+  if (!isMemberAgentsEnabled()) {
+    throw createCoreRpcHttpError({
+      status: 404,
+      code: MEMBER_AGENTS_DISABLED_CODE,
+      reason: MEMBER_AGENTS_DISABLED_MESSAGE,
+    });
+  }
+}
+export async function rpcListAgentDirectMessageSessions(
+  env: CoreBindings,
+  input: ListAgentDirectMessageSessionsInput
+): Promise<ListAgentDirectMessageSessionsResponse> {
+  requireMemberAgentsEnabledForSessions();
+  const parsed = listAgentDirectMessageSessionsQuerySchema.safeParse({
+    agentProfileId: input.agentProfileId,
+    ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+    ...(input.limit === undefined ? {} : { limit: input.limit }),
+    ...(input.archived === undefined ? {} : { archived: input.archived }),
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Provide a valid Agent, chat-list cursor and limit.",
+    });
+  }
+  const context = requireRpcContext(input.context);
+  const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
+    context,
+    env,
+  });
+  const human = requireHumanSpaceMemberFromContext({
+    context,
+    userId: activeOrganization.userId,
+  });
+  const agent = await readResolvedOrganizationSpaceMember({
+    db: requireCenterAgentDb(env),
+    organizationId: activeOrganization.organizationId,
+    profileId: parsed.data.agentProfileId,
+  });
+  if (agent?.profileKind !== "agent") {
+    throw createCoreRpcHttpError({
+      status: 404,
+      code: "direct_message_session.agent_not_found",
+      reason: "That Agent is not available in this Organization.",
+    });
+  }
+  return await listAuthorizedAgentDirectMessageSessions({
+    db: requireSpaceIndexDb(env),
+    organizationId: activeOrganization.organizationId,
+    memberProfileId: human.profileId,
+    ownerUserId: activeOrganization.userId,
+    agentProfileId: agent.profileId,
+    pairKey: buildDirectMessagePairKey(human.profileId, agent.profileId),
+    limit: parsed.data.limit,
+    archived: parsed.data.archived,
+    ...(parsed.data.cursor === undefined ? {} : { cursor: parsed.data.cursor }),
+  });
+}
+/**
+ * Resolves the exact Session Space in the caller's current Organization.
+ * The Space then checks that the caller is the Human in its Human–Agent pair.
+ */
+async function requireAgentDirectMessageSessionSpace(input: {
+  env: CoreBindings;
+  context: CoreRpcContextInput;
+  spaceId: string;
+}): Promise<{ spaceId: string; organizationId: string }> {
+  requireMemberAgentsEnabledForSessions();
+  const selector = agentDirectMessageSessionSelectorSchema.safeParse({
+    spaceId: input.spaceId,
+  });
+  if (!selector.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Provide a valid session ID.",
+    });
+  }
+  const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
+    context: input.context,
+    env: input.env,
+  });
+  requireHumanSpaceMemberFromContext({
+    context: input.context,
+    userId: activeOrganization.userId,
+  });
+  const candidate =
+    await readCenterAgentDirectMessageProjectionCandidateBySpaceId({
+      db: requireSpaceIndexDb(input.env),
+      spaceId: selector.data.spaceId,
+    });
+  if (
+    !candidate ||
+    candidate.organizationId !== activeOrganization.organizationId ||
+    candidate.spacePurpose !== OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE
+  ) {
+    // An unavailable or foreign selection never substitutes another chat.
+    throw createCoreRpcHttpError({
+      status: 404,
+      code: "direct_message_session.not_found",
+      reason: "This chat is unavailable. Open a chat you can access.",
+    });
+  }
+  return {
+    spaceId: candidate.spaceId,
+    organizationId: candidate.organizationId,
+  };
+}
+export async function rpcUpdateAgentDirectMessageSession(
+  env: CoreBindings,
+  input: UpdateAgentDirectMessageSessionInput
+): Promise<UpdateAgentDirectMessageSessionResponse> {
+  const parsed = updateAgentDirectMessageSessionBodySchema.safeParse(
+    input.update
+  );
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: parsed.error.issues[0]?.message ?? "Provide a valid chat update.",
+    });
+  }
+  const context = requireRpcContext(input.context);
+  const session = await requireAgentDirectMessageSessionSpace({
+    env,
+    context,
+    spaceId: input.spaceId,
+  });
+  const { stub } = resolveRpcSpaceStubOrThrow(env, session.spaceId);
+  const result = await stub.rpcManageDirectMessageSession({
+    spaceId: session.spaceId,
+    context,
+    operation:
+      parsed.data.operation === "rename"
+        ? { kind: "rename", name: parsed.data.name }
+        : { kind: parsed.data.operation },
+  });
+  if (result.kind !== "updated") {
+    throw new Error("Session update returned an unexpected result.");
+  }
+  return updateAgentDirectMessageSessionResponseSchema.parse({
+    spaceId: result.spaceId,
+    organizationId: result.organizationId,
+    name: result.name,
+    archivedAt:
+      result.archivedAtMs === null
+        ? null
+        : new Date(result.archivedAtMs).toISOString(),
+  });
+}
+export async function rpcDeleteAgentDirectMessageSession(
+  env: CoreBindings,
+  input: DeleteAgentDirectMessageSessionInput
+): Promise<DeleteAgentDirectMessageSessionResponse> {
+  const context = requireRpcContext(input.context);
+  const session = await requireAgentDirectMessageSessionSpace({
+    env,
+    context,
+    spaceId: input.spaceId,
+  });
+  const { stub } = resolveRpcSpaceStubOrThrow(env, session.spaceId);
+  const result = await stub.rpcManageDirectMessageSession({
+    spaceId: session.spaceId,
+    context,
+    operation: { kind: "delete" },
+  });
+  return deleteAgentDirectMessageSessionResponseSchema.parse({
+    spaceId: result.spaceId,
+    organizationId: result.organizationId,
+    deleted: true,
   });
 }
 export async function rpcGetCenterAgentDirectMessageSpaceProjection(
@@ -18705,7 +18906,7 @@ export async function rpcOpenCenterAgentDirectMessageSpace(
     );
     const openedSpace = await timing.measure("direct_message_open", async () =>
       sessionCreation?.success
-        ? await createCenterAgentSessionSpace(env, {
+        ? await createAgentDirectMessageSessionSpace(env, {
             context,
             creationId: sessionCreation.data.creationId,
             member: humanMember,
@@ -18996,6 +19197,37 @@ function validateDirectMessagePublication(
   }
 }
 
+async function assertDirectMessageSessionCreationAllowed(input: {
+  db: ReturnType<typeof requireCenterAgentDb>;
+  member: ResolvedSpaceMemberProfile;
+  organizationId: string;
+  targetMember: ResolvedSpaceMemberProfile;
+}): Promise<void> {
+  const { member, targetMember } = input;
+  const designation = await readCenterAgentDesignationRecord({
+    db: input.db,
+    organizationId: input.organizationId,
+  });
+  const isHumanCenterPair =
+    (member.profileKind === "human" &&
+      targetMember.profileId === designation?.agentProfileId) ||
+    (targetMember.profileKind === "human" &&
+      member.profileId === designation?.agentProfileId);
+  // MemberAgent program: any Human–Agent pair can hold several Sessions.
+  const isHumanAgentPair =
+    isMemberAgentsEnabled() &&
+    [member.profileKind, targetMember.profileKind].sort().join(":") ===
+      "agent:human";
+  if (!(isHumanCenterPair || isHumanAgentPair)) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "direct_message.new_session_requires_center",
+      reason: isMemberAgentsEnabled()
+        ? "New chat sessions are available between a person and an Agent. Other Direct Messages reuse the current conversation."
+        : "New chat sessions are available between a person and their Center Agent. Other Direct Messages reuse the current conversation.",
+    });
+  }
+}
 async function openDirectMessageForCaller(
   env: CoreBindings,
   input: OpenDirectMessageSpaceInput & { context: CoreRpcContextInput },
@@ -19040,30 +19272,19 @@ async function openDirectMessageForCaller(
 
   validateDirectMessagePublication(parsed.data, targetMember);
   if (parsed.data.creationId) {
-    const designation = await readCenterAgentDesignationRecord({
+    await assertDirectMessageSessionCreationAllowed({
       db,
+      member,
       organizationId,
+      targetMember,
     });
-    const isHumanCenterPair =
-      (member.profileKind === "human" &&
-        targetMember.profileId === designation?.agentProfileId) ||
-      (targetMember.profileKind === "human" &&
-        member.profileId === designation?.agentProfileId);
-    if (!isHumanCenterPair) {
-      throw createCoreRpcHttpError({
-        status: 400,
-        code: "direct_message.new_session_requires_center",
-        reason:
-          "New chat sessions are available between a person and their Center Agent. Other Direct Messages reuse the current conversation.",
-      });
-    }
   }
   const participants = { context, member, organizationId, targetMember };
   let opened: { spaceId: string; created: boolean };
   if (parsed.data.spaceId) {
     opened = { spaceId: parsed.data.spaceId, created: false };
   } else if (parsed.data.creationId) {
-    opened = await createCenterAgentSessionSpace(env, {
+    opened = await createAgentDirectMessageSessionSpace(env, {
       ...participants,
       creationId: parsed.data.creationId,
     });
@@ -19371,7 +19592,7 @@ async function openDirectMessageSpaceInternal(
   );
   return { created: initialized.created, spaceId };
 }
-async function createCenterAgentSessionSpace(
+async function createAgentDirectMessageSessionSpace(
   env: CoreBindings,
   input: {
     context: CoreRpcContextInput;
@@ -19388,6 +19609,8 @@ async function createCenterAgentSessionSpace(
     input.member.profileId,
     input.targetMember.profileId
   );
+  // The namespace predates agent Sessions; keeping it keeps every existing
+  // Center Agent creation ID resolving to the same Space.
   const spaceId = resolveNamedSpaceId(
     env.OPENMELD_SPACES,
     JSON.stringify([

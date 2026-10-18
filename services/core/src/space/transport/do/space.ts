@@ -401,6 +401,7 @@ import { canReceivePersonalAgentActivity } from "../../../inbox/application/inbo
 import { AlarmFailureBackoff } from "../../../lib/alarm-failure-backoff";
 import type { CoreBindings } from "../../../lib/bindings";
 import { verifySpacePasswordProof } from "../../../lib/space-password-proof";
+import { isMemberAgentsEnabled } from "../../../member-agents/member-agents-feature";
 import {
   eraseAccountConversation,
   stopAccountConversation,
@@ -517,6 +518,10 @@ import {
 import { CORE_LOG_EVENTS } from "../../../shared/observability/log-events";
 import { parseRpcErrorPayload } from "../../../shared/rpc/rpc-json";
 import { attemptSpaceIndexProjectionOutboxRecord } from "../../../space-index/space-index-projection-outbox-service";
+import {
+  readDirectMessageSessionArchivedAtMs,
+  writeDirectMessageSessionArchivedAt,
+} from "../../../space-index/space-index-repository";
 import { captureSpaceMessagePreview } from "../../../space-index/space-message-preview";
 import { SPACE_OUTBOX_ALARM_REDRIVE_INTERVAL_MS } from "../../../strategy-constants";
 import { resolveUserRequestTimeContext } from "../../../user-time-context/user-time-context-repository";
@@ -886,6 +891,7 @@ import {
   toSpaceThreadContext,
   updateSpaceThreadActivity,
 } from "../../infrastructure/sql/space-thread-repo";
+import { authorizeDirectMessageSessionOperation } from "../../rules/access/direct-message-session-access";
 import { authorizeSpaceDeletion } from "../../rules/access/space-deletion-policy";
 import { authorizeSpaceMemberRemoval } from "../../rules/access/space-member-management-policy";
 import {
@@ -13540,6 +13546,133 @@ export class Space extends DurableObject<CoreBindings> {
       }
     );
   }
+  /**
+   * Dedicated agent Direct Message Session operations. The Human in the
+   * Session's pair is the only caller; the generic Direct Message mutation
+   * rejections stay in force for every other path.
+   */
+  async rpcManageDirectMessageSession(input: {
+    spaceId: string;
+    context: CoreRpcContextInput;
+    operation:
+      | { kind: "rename"; name: string }
+      | { kind: "archive" }
+      | { kind: "unarchive" }
+      | { kind: "delete" };
+  }): Promise<
+    | {
+        kind: "updated";
+        spaceId: string;
+        organizationId: string;
+        name: string | null;
+        archivedAtMs: number | null;
+      }
+    | { kind: "deleted"; spaceId: string; organizationId: string }
+  > {
+    return await this.blockConcurrencyWithPostgres(async () => {
+      this.applySpaceRef(input.spaceId);
+      const meta = await this.requireDirectMessageSessionAccess(input.context);
+      const db = this.requireSpaceIndexDb();
+      const operation = input.operation;
+      if (operation.kind === "delete") {
+        await readSpaceRpcJsonOrThrow(
+          await this.softDeleteAuthorizedSpace(meta, input.context)
+        );
+        return {
+          kind: "deleted",
+          spaceId: this.spaceId,
+          organizationId: meta.organizationId,
+        };
+      }
+      let name = meta.name ?? null;
+      if (operation.kind === "rename") {
+        const nowIso = new Date().toISOString();
+        upsertSpaceMetaRecord(this.ctx.storage.sql, {
+          ...meta,
+          name: operation.name,
+          updatedAt: nowIso,
+        });
+        name = operation.name;
+        await this.projectCurrentSpaceIndexSnapshot("space.meta_updated");
+        await this.broadcastSpaceMetaChanged({ reason: "space.name.updated" });
+      } else {
+        await this.writeDirectMessageSessionArchive(
+          meta,
+          operation.kind === "archive"
+        );
+      }
+      return {
+        kind: "updated",
+        spaceId: this.spaceId,
+        organizationId: meta.organizationId,
+        name,
+        archivedAtMs: await readDirectMessageSessionArchivedAtMs({
+          db,
+          spaceId: this.spaceId,
+        }),
+      };
+    });
+  }
+  private async requireDirectMessageSessionAccess(
+    context: CoreRpcContextInput
+  ): Promise<SpaceMetaRecord> {
+    const meta = this.readSpaceMetaRecord();
+    const access = authorizeDirectMessageSessionOperation({
+      actor: context.actorContext,
+      meta,
+      members: listSpaceMemberRecords(this.ctx.storage.sql),
+    });
+    if (!access.ok) {
+      throw createCoreRpcHttpError({
+        status: access.code === "direct_message_session.not_found" ? 404 : 403,
+        code: access.code,
+        reason: access.message,
+      });
+    }
+    if (!meta) {
+      throw createCoreRpcHttpError({
+        status: 404,
+        code: "direct_message_session.not_found",
+        reason: "This chat is unavailable. Open a chat you can access.",
+      });
+    }
+    await assertRpcSpaceAccessAuthorized(
+      await this.authorizeSpaceAccess(
+        createAuthenticatedSpaceAccessContext({
+          spaceId: this.spaceId,
+          requestContext: context,
+        })
+      )
+    );
+    return meta;
+  }
+  private async writeDirectMessageSessionArchive(
+    meta: SpaceMetaRecord,
+    archived: boolean
+  ): Promise<void> {
+    const nowMs = Date.now();
+    await writeDirectMessageSessionArchivedAt({
+      db: this.requireSpaceIndexDb(),
+      spaceId: this.spaceId,
+      organizationId: meta.organizationId,
+      archivedAtMs: archived ? nowMs : null,
+      nowMs,
+    });
+    // Archive state is not Space content; tell the members' clients to
+    // reread their Session lists.
+    this.ctx.waitUntil(
+      publishAccountInvalidation({
+        env: this.bindings,
+        frame: { type: "space_index.changed" },
+        organizationId: meta.organizationId,
+        userIds: listSpaceMemberRecords(this.ctx.storage.sql, {
+          status: "active",
+        })
+          .map((member) => member.ownerUserIdSnapshot)
+          .filter((userId): userId is string => Boolean(userId)),
+      })
+    );
+  }
   async rpcDeleteConversationForMe(
     input: import("@openmeld/schemas").DeleteConversationForMeInput
   ): Promise<import("@openmeld/schemas").DeleteConversationForMeResponse> {
@@ -20100,6 +20233,13 @@ export class Space extends DurableObject<CoreBindings> {
         { status: 403 }
       );
     }
+    return await this.softDeleteAuthorizedSpace(existing, context);
+  }
+  /** Shared by Space deletion and agent Direct Message Session deletion. */
+  private async softDeleteAuthorizedSpace(
+    existing: SpaceMetaRecord,
+    context: CoreRpcContextInput
+  ): Promise<Response> {
     if (existing.deletedAt) {
       return Response.json({ spaceId: this.spaceId, deleted: true as const });
     }
@@ -21830,14 +21970,17 @@ export class Space extends DurableObject<CoreBindings> {
       if (attempts >= 3) {
         return;
       }
-      const projection =
-        await this.readCenterAgentDirectMessageProjectionFromMetaRecord(meta);
+      const projection = await this.readDirectMessageSessionTitlePair(
+        meta,
+        signal.profile.profileId
+      );
       const member = readSpaceMemberRecord(
         this.ctx.storage.sql,
         signal.profile.profileId
       );
       if (
-        projection?.memberProfileId !== signal.profile.profileId ||
+        !projection ||
+        projection.memberProfileId !== signal.profile.profileId ||
         member?.status !== "active" ||
         member.profileKindSnapshot !== "human"
       ) {
@@ -21874,14 +22017,13 @@ export class Space extends DurableObject<CoreBindings> {
       ) {
         return;
       }
-      const currentProjection =
-        await this.readCenterAgentDirectMessageProjectionFromMetaRecord(
-          current
-        );
+      const currentProjection = await this.readDirectMessageSessionTitlePair(
+        current,
+        signal.profile.profileId
+      );
       if (
         currentProjection?.memberProfileId !== projection.memberProfileId ||
-        currentProjection?.centerAgentProfileId !==
-          projection.centerAgentProfileId
+        currentProjection?.agentProfileId !== projection.agentProfileId
       ) {
         return;
       }
@@ -21914,6 +22056,38 @@ export class Space extends DurableObject<CoreBindings> {
         this.ctx.waitUntil(this.generateInitialSessionTitle(nextSignal));
       }
     }
+  }
+  /**
+   * The Human–Agent pair whose Session may get a generated title: the
+   * designated Center Agent pair, or, with MemberAgents enabled, any agent
+   * Profile's Direct Message Session with the authoring Human.
+   */
+  private async readDirectMessageSessionTitlePair(
+    meta: SpaceMetaRecord,
+    authorProfileId: string
+  ): Promise<{ memberProfileId: string; agentProfileId: string } | null> {
+    const center =
+      await this.readCenterAgentDirectMessageProjectionFromMetaRecord(meta);
+    if (center) {
+      return {
+        memberProfileId: center.memberProfileId,
+        agentProfileId: center.centerAgentProfileId,
+      };
+    }
+    if (!isMemberAgentsEnabled()) {
+      return null;
+    }
+    const access = authorizeDirectMessageSessionOperation({
+      actor: { openMeldProfileId: authorProfileId, profileKind: "human" },
+      meta,
+      members: listSpaceMemberRecords(this.ctx.storage.sql),
+    });
+    return access.ok
+      ? {
+          memberProfileId: access.humanProfileId,
+          agentProfileId: access.agentProfileId,
+        }
+      : null;
   }
   private broadcastRepostedSource(repostedSource: SignalEnvelope | null) {
     if (repostedSource) {

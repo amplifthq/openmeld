@@ -82,6 +82,7 @@ import {
 } from "./connector-connection.schema.ts";
 import { conversationHistoryDeletions } from "./conversation-history.schema.ts";
 import { openMeldDaemonCurrentDeviceTargets } from "./current-device-target.schema.ts";
+import { directMessageSessionStates } from "./direct-message-session.schema.ts";
 import { evalReports } from "./eval-report.schema.ts";
 import {
   openMeldFeedbackInboxes,
@@ -1771,6 +1772,7 @@ export const agentActivityExecutionLinks = applicationTable(
 
 export const coreSchema = {
   conversationHistoryDeletions,
+  directMessageSessionStates,
   userTimeContexts,
   firstWorkExperiences,
   aiUsageRecords,

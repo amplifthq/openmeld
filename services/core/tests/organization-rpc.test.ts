@@ -31,6 +31,10 @@ vi.mock("@openmeld/db/postgresql", async (importOriginal) => {
       actual.getPostgresDatabase(bindings),
   };
 });
+const memberAgentsFeature = vi.hoisted(() => ({ enabled: false }));
+vi.mock("../src/member-agents/member-agents-feature", () => ({
+  isMemberAgentsEnabled: () => memberAgentsFeature.enabled,
+}));
 function organizationFixture(env: CoreBindings) {
   const fixture =
     env.OPENMELD_POSTGRESQL &&
@@ -10029,6 +10033,100 @@ describe("organization Core RPC", () => {
       spaceId: first.spaceId,
     });
     expect(db.spaces).toHaveLength(1);
+  });
+
+  it("creates fresh Sessions for any Human–Agent pair only with MemberAgents enabled", async () => {
+    const db = await createOrganizationRpcDb({
+      agentProfiles: [
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-a",
+          profileHandle: "codex",
+          profileId: AGENT_PROFILE_ID,
+          profileName: "Codex",
+          status: "active",
+        },
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-a",
+          profileHandle: "reviewer",
+          profileId: SECOND_AGENT_PROFILE_ID,
+          profileName: "PR Reviewer",
+          status: "active",
+        },
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "member")],
+    });
+    const spaceStub = createSpaceStub({ spaces: db.spaces });
+    const env = await buildEnv({ db, spaceStub });
+    const context = buildContext({
+      activeOrganizationId: "org-a",
+      userId: "user-a",
+    });
+    const creationId = "00000000-0000-4000-8000-000000000051";
+    await expect(
+      rpcOpenDirectMessageSpace(env, {
+        context,
+        targetProfileId: AGENT_PROFILE_ID,
+        creationId,
+      })
+    ).rejects.toMatchObject({
+      code: "direct_message.new_session_requires_center",
+    });
+    memberAgentsFeature.enabled = true;
+    try {
+      const ordinary = await rpcOpenDirectMessageSpace(env, {
+        context,
+        targetProfileId: AGENT_PROFILE_ID,
+      });
+      const first = await rpcOpenDirectMessageSpace(env, {
+        context,
+        targetProfileId: AGENT_PROFILE_ID,
+        creationId,
+      });
+      const retry = await rpcOpenDirectMessageSpace(env, {
+        context,
+        targetProfileId: AGENT_PROFILE_ID,
+        creationId,
+      });
+      const next = await rpcOpenDirectMessageSpace(env, {
+        context,
+        targetProfileId: AGENT_PROFILE_ID,
+        creationId: "00000000-0000-4000-8000-000000000052",
+      });
+      expect(first).toMatchObject({
+        created: true,
+        creationId,
+        memberProfileId: HUMAN_PROFILE_ID,
+        targetProfileId: AGENT_PROFILE_ID,
+      });
+      expect(retry).toMatchObject({ created: false, spaceId: first.spaceId });
+      expect(
+        new Set([ordinary.spaceId, first.spaceId, next.spaceId]).size
+      ).toBe(3);
+      expect(spaceStub.rpcInitializeDirectMessageMeta).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          name: "New chat",
+          pairKey: [HUMAN_PROFILE_ID, AGENT_PROFILE_ID].sort().join(":"),
+        })
+      );
+      // Agent–Agent pairs keep reusing their one Direct Message.
+      await expect(
+        rpcOpenDirectMessageSpace(env, {
+          context: buildContext({
+            activeOrganizationId: "org-a",
+            userId: "user-a",
+            profileKind: "agent",
+          }),
+          targetProfileId: SECOND_AGENT_PROFILE_ID,
+          creationId,
+        })
+      ).rejects.toMatchObject({
+        code: "direct_message.new_session_requires_center",
+      });
+    } finally {
+      memberAgentsFeature.enabled = false;
+    }
   });
 
   it("lets either owned Agent open the same DM without adding their Humans", async () => {

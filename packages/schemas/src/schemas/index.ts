@@ -1043,6 +1043,23 @@ export {
   submitAgentActivitySessionReconciliationRpcInputSchema,
 } from "./http/agent-activity-sessions";
 export {
+  AGENT_DIRECT_MESSAGE_SESSION_NAME_MAX_LENGTH,
+  type AgentDirectMessageSession,
+  agentDirectMessageSessionListCursorSchema,
+  agentDirectMessageSessionSchema,
+  agentDirectMessageSessionSelectorSchema,
+  type DeleteAgentDirectMessageSessionResponse,
+  deleteAgentDirectMessageSessionResponseSchema,
+  type ListAgentDirectMessageSessionsQuery,
+  type ListAgentDirectMessageSessionsResponse,
+  listAgentDirectMessageSessionsQuerySchema,
+  listAgentDirectMessageSessionsResponseSchema,
+  type UpdateAgentDirectMessageSessionBody,
+  type UpdateAgentDirectMessageSessionResponse,
+  updateAgentDirectMessageSessionBodySchema,
+  updateAgentDirectMessageSessionResponseSchema,
+} from "./http/agent-direct-message-sessions";
+export {
   agentExecutionReadinessPrimaryActionPlanSchema,
   agentExecutionReadinessPrimaryActionSchema,
   agentExecutionReadinessRouteParamsSchema,
