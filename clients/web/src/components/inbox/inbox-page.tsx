@@ -27,6 +27,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { AgentAccessRequestCard } from "#/components/agent-access/agent-access-request-card";
 import { AppPageHeader } from "#/components/app/app-page-header";
 import { MessageSearchButton } from "#/components/search/message-search";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -61,6 +62,14 @@ import { useInboxItemReadMutation } from "./use-inbox-item-read-mutation";
 function InboxSourceDetails({ target }: { target: InboxItem["sourceTarget"] }) {
 	if (target.kind === "desktop_update") {
 		return <InboxDesktopUpdateDetails target={target} />;
+	}
+	if (target.kind === "agent_access_request") {
+		return (
+			<AgentAccessRequestCard
+				key={target.requestId}
+				requestId={target.requestId}
+			/>
+		);
 	}
 	if (target.kind === "plugin_action_request") {
 		return (

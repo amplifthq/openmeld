@@ -84,6 +84,8 @@ import {
 import { SpaceUnreadLink } from "./space-unread-link";
 
 type ConversationSidebarRowProps = {
+	// The state of the viewer's own request for an Agent in this Space.
+	agentRequestLabel?: string;
 	layout?: "grid" | "list";
 	showMessagePreviews?: boolean;
 	attentionTone: "danger" | "warning" | null;
@@ -229,6 +231,16 @@ function renderConversationPreview(
 			<span className={CONVERSATION_PREVIEW_CLASS_NAME}>{statusLabel}</span>
 		);
 	}
+	if (input.agentRequestLabel) {
+		return (
+			<span
+				className={CONVERSATION_PREVIEW_CLASS_NAME}
+				data-slot="conversation-agent-request"
+			>
+				{input.agentRequestLabel}
+			</span>
+		);
+	}
 	if (input.previewSignalId) {
 		return (
 			<ConversationPreviewLink
@@ -271,7 +283,9 @@ const ConversationSidebarRowContent = memo(
 			(status) => status.kind === "needs_input"
 		);
 		const hasPreviewLine =
-			needsInput || (input.showMessagePreviews !== false && !!previewText);
+			needsInput ||
+			Boolean(input.agentRequestLabel) ||
+			(input.showMessagePreviews !== false && !!previewText);
 		const { drag } = input;
 		const row = (
 			<FluidNavMenuItem

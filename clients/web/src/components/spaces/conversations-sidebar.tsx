@@ -48,6 +48,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useAgentRequestSpaceLabels } from "#/components/agent-access/agent-access-space-labels";
 import { AppModuleSidebarHeader } from "#/components/app/app-module-sidebar-header";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
 import { resolveInboxAttentionTone } from "#/lib/inbox/attention";
@@ -354,6 +355,7 @@ export function ConversationsSidebar(
 		}
 	};
 	const { directMessages: dm } = model;
+	const agentRequestLabels = useAgentRequestSpaceLabels();
 	const memberAppearances = useMemo(
 		() => resolveSpaceMemberAppearances(dm.directory.data),
 		[dm.directory.data]
@@ -983,6 +985,9 @@ export function ConversationsSidebar(
 													return (
 														<ConversationSidebarRow
 															activeWakeSummary={indicators.activeWakeSummary}
+															agentRequestLabel={agentRequestLabels.get(
+																item.spaceId
+															)}
 															archived={archived}
 															attentionTone={indicators.attentionTone}
 															conversation={item}

@@ -41,6 +41,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { AgentProfileAccessSection } from "#/components/agent-access/agent-profile-access-section";
 import { AgentAvatarEditor } from "#/components/agents/agent-avatar-editor";
 import type {
 	AgentProfileActivityDestination,
@@ -288,6 +289,10 @@ export function AgentProfileWorkspaceDetail(input: {
 					viewerProfileId={input.conversationViewerProfileId}
 				/>
 			) : null}
+			<AgentProfileAccessSection
+				enabled={showOwnerOperationalContext}
+				profileId={input.profile.openMeldProfileId}
+			/>
 		</div>
 	);
 }

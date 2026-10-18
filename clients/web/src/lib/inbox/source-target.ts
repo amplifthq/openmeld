@@ -30,6 +30,7 @@ export function buildInboxItemSourceNavigation(input: {
 			};
 		case "desktop_update":
 		case "plugin_action_request":
+		case "agent_access_request":
 			if (!input.item.id) {
 				throw new Error(
 					"Inbox detail navigation requires its canonical Inbox item."

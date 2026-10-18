@@ -1,0 +1,43 @@
+import type {
+  AgentAccessDecision,
+  CreateSpaceAgentRequestResponse,
+  DecideAgentAccessRequestResponse,
+  GetAgentAccessRequestResponse,
+  ListAgentAccessRequestsQuery,
+  ListAgentAccessRequestsResponse,
+  ListAgentProfileAccessGrantsResponse,
+  RevokeAgentProfileAccessGrantResponse,
+  WithdrawAgentAccessRequestResponse,
+} from "@openmeld/schemas";
+import type { OpenMeldApiClientFoundation } from "../client";
+
+export type AgentAccessApi = {
+  /** Requests where the caller is the Agent owner or the requester. */
+  list: (
+    query?: ListAgentAccessRequestsQuery
+  ) => Promise<ListAgentAccessRequestsResponse>;
+  get: (requestId: string) => Promise<GetAgentAccessRequestResponse>;
+  /** The Agent owner's answer; Core applies it in the request's Space. */
+  decide: (
+    requestId: string,
+    decision: AgentAccessDecision
+  ) => Promise<DecideAgentAccessRequestResponse>;
+  withdraw: (requestId: string) => Promise<WithdrawAgentAccessRequestResponse>;
+  /** Ask an Agent's owner to let it join a Space, optionally for a message. */
+  requestForSpace: (input: {
+    spaceId: string;
+    agentProfileId: string;
+    signalId?: string;
+  }) => Promise<CreateSpaceAgentRequestResponse>;
+  listGrants: (
+    agentProfileId: string
+  ) => Promise<ListAgentProfileAccessGrantsResponse>;
+  revokeGrant: (
+    agentProfileId: string,
+    grantId: string
+  ) => Promise<RevokeAgentProfileAccessGrantResponse>;
+};
+
+export type CreateAgentAccessApi = (
+  client: OpenMeldApiClientFoundation
+) => AgentAccessApi;

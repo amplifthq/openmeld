@@ -13,6 +13,11 @@ export type {
   CreateAccountSpaceIndexApi,
   ListAccountSpaceIndexInput,
 } from "./account-space-index/types";
+export { createAgentAccessApi } from "./agent-access/api";
+export type {
+  AgentAccessApi,
+  CreateAgentAccessApi,
+} from "./agent-access/types";
 export { createAgentActivityApi } from "./agent-activity/api";
 export {
   buildAgentActivitySessionsPath,

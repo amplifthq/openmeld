@@ -29,6 +29,7 @@ import {
 } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { MouseEvent, ReactNode } from "react";
+import { AgentAccessRequestCard } from "#/components/agent-access/agent-access-request-card";
 import { ObjectMenuItems } from "#/components/app/object-menu-items";
 import {
 	presentInboxItem,
@@ -343,7 +344,8 @@ function isInlineInvitation(
 ) {
 	return (
 		density === "default" &&
-		item.sourceTarget.kind === "organization_join_request" &&
+		(item.sourceTarget.kind === "organization_join_request" ||
+			item.sourceTarget.kind === "agent_access_request") &&
 		item.resolutionStatus === "open"
 	);
 }
@@ -357,7 +359,20 @@ function InboxInlineInvitation({
 	item: InboxItem;
 	onInteract: () => void;
 }) {
-	if (!enabled || item.sourceTarget.kind !== "organization_join_request") {
+	if (!enabled) {
+		return null;
+	}
+	if (item.sourceTarget.kind === "agent_access_request") {
+		return (
+			<div className="ps-[4.125rem] pe-4 pb-4">
+				<AgentAccessRequestCard
+					onInteract={onInteract}
+					requestId={item.sourceTarget.requestId}
+				/>
+			</div>
+		);
+	}
+	if (item.sourceTarget.kind !== "organization_join_request") {
 		return null;
 	}
 	return (
@@ -565,6 +580,8 @@ function InboxKindIcon(input: { item: InboxItem }): ReactNode {
 			return <ChatCircleTextIcon aria-hidden="true" className="size-4" />;
 		case "agent_reply":
 		case "agent_interaction":
+		case "agent_access_request":
+		case "agent_space_request":
 		case "center_agent_update":
 			return <RobotIcon aria-hidden="true" className="size-4" />;
 		case "document_review":

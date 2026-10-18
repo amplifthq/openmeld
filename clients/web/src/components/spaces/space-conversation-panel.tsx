@@ -30,6 +30,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { SpaceAgentAccessBanner } from "#/components/agent-access/space-agent-access-banner";
 import {
 	MemberAgentDirectMessageCard,
 	type MemberAgentDirectMessageCardState,
@@ -839,6 +840,7 @@ function SpaceConversationPanelContent(
 				tasks={input.tasks}
 			/>
 
+			<SpaceAgentAccessBanner spaceId={input.spaceId} />
 			{showComposer ? (
 				<SpaceComposerSection
 					canSendMessage={canSendMessage}
