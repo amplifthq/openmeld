@@ -664,7 +664,10 @@ exercise.
 3a → `requestChain` on the assignment; producers
 (`accepted-dispatch-snapshot.ts:49`, `space.ts:5488`, plugin callers,
 Routines, delegate inheritance); depth cap and delegation re-entry check
-(conversational auto-relay is never blocked); 3b → sensitive
+(conversational auto-relay is never blocked); 3b → Center Agent
+non-additive writes (permission mode, archive) require Core-bound
+confirmation evidence tied to member, target and input, not prompt guidance
+alone; sensitive
 operations check the root (matrix §6); 3c → Inbox producer `urgent` for
 non-owner roots with per-`contextId` coalescing; advisor counter switches to
 the root. Acceptance: Tali's Center Agent cannot change Felix's Profile and
@@ -850,3 +853,12 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   row. Designer decisions: a migrated MemberAgent qualifies its organization
   for catalog-update reconciliation (§4.5); the directory overview's
   `includeUsageLimits` exposure is a Phase 4 check (§13).
+- 2026-10-19, 1d report and its Codex review (gpt-6-astra, high): welcome
+  card named Ask first for every mode (fixed per harness); Session archive and
+  personal archive merged into one state with Restore; rename clears the
+  personal title; grouped rows combine indicators; Session reads paginate.
+  A local-stack check found three Web defects, fixed. 1e report and review:
+  stale suggestion cards dropped when the mode changed elsewhere; Apply
+  resolves the card before writing; the CLI-credential risk is Phase 5's;
+  Center Agent confirmation needs Core-bound evidence, added to Phase 3b.
+  Phase 1 is complete on the program branch (migrations 0038–0042).
