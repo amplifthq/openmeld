@@ -6,6 +6,7 @@ import {
 } from "../../src/index";
 import { modelRetirementNoticeSchema } from "../../src/schemas/config/model-catalog";
 import codexGpt6Capture from "../fixtures/codex-gpt-6-sol-luna-2026.09.23.json";
+import gpt55Withdrawal from "../fixtures/codex-gpt55-withdrawal-2026.10.18.json";
 import sparkWithdrawal from "../fixtures/codex-spark-withdrawal-2026.10.09.json";
 import cursorModelCatalogCapture from "../fixtures/cursor-model-catalog-2026.09.10.json";
 import cursorOctoberReviewCapture from "../fixtures/cursor-model-catalog-2026.10.07.json";
@@ -20,6 +21,7 @@ import openCodeReviewCapture from "../fixtures/opencode-model-catalog-2026.10.06
 import openCodeLatestReviewCapture from "../fixtures/opencode-model-catalog-2026.10.07.json";
 import openCodeAlignmentCapture from "../fixtures/opencode-model-catalog-2026.10.09.json";
 import openCodeOctober14Capture from "../fixtures/opencode-model-catalog-2026.10.14.json";
+import openCodeOctober18Capture from "../fixtures/opencode-model-catalog-2026.10.18.json";
 import museWonderCapture from "../fixtures/opencode-muse-wonder-2026.10.13.json";
 
 describe("model catalog schema", () => {
@@ -97,22 +99,25 @@ describe("model catalog schema", () => {
     ).toBe(false);
   });
 
-  it("scopes Spark withdrawal to the rejected native login method", () => {
+  it.each([
+    sparkWithdrawal,
+    gpt55Withdrawal,
+  ])("scopes $modelId withdrawal to the rejected native login method", (withdrawal) => {
     const model = modelCatalogSchema
       .parse(vendorModelCatalog)
       .agentControllers.codex?.models.find(
-        (entry) => entry.id === sparkWithdrawal.modelId
+        (entry) => entry.id === withdrawal.modelId
       );
     expect(model?.unavailable).toBe(false);
     expect(model?.retirement).toEqual({
       status: "withdrawn",
-      date: { value: sparkWithdrawal.retirementDate, kind: "on" },
+      date: { value: withdrawal.retirementDate, kind: "on" },
       scope: {
         controllerRef: "builtin:codex",
-        authType: sparkWithdrawal.capture.authType,
+        authType: withdrawal.capture.authType,
       },
-      sourceUrl: sparkWithdrawal.sourceUrl,
-      verifiedAt: sparkWithdrawal.capture.observedAt,
+      sourceUrl: withdrawal.sourceUrl,
+      verifiedAt: withdrawal.capture.observedAt,
     });
   });
 
@@ -180,6 +185,7 @@ describe("model catalog schema", () => {
       ...openCodeAlignmentCapture.models,
       ...museWonderCapture.models,
       ...openCodeOctober14Capture.models,
+      ...openCodeOctober18Capture.models,
     ]) {
       expect(agentControllers.opencode?.models).toContainEqual(
         expect.objectContaining({
@@ -252,6 +258,9 @@ describe("model catalog schema", () => {
         ...openCodeOctober14Capture.models.map(
           (model) => `${model.providerID}/${model.id}`
         ),
+        ...openCodeOctober18Capture.models.map(
+          (model) => `${model.providerID}/${model.id}`
+        ),
         "gemini-4-argon-medium",
         "gemini-4-argon[reasoning_effort=medium]",
         "google/gemini-4-argon",
@@ -263,10 +272,7 @@ describe("model catalog schema", () => {
         ...haikuCapture.opencode.models.map(
           (model) => `${model.providerID}/${model.id}`
         ),
-        "opencode/exo-free",
         "opencode/mistral-large-4",
-        "opencode/step-5-preview-free",
-        "opencode-go/step-5-preview-free",
       ].toSorted()
     );
   });
@@ -332,7 +338,7 @@ describe("model catalog schema", () => {
           ...(id === "gpt-5.5"
             ? {
                 retirement: {
-                  status: "announced",
+                  status: "withdrawn",
                   date: { value: "2026-10-14", kind: "on" },
                   scope: {
                     controllerRef: "builtin:codex",
@@ -340,7 +346,7 @@ describe("model catalog schema", () => {
                   },
                   sourceUrl:
                     "https://learn.chatgpt.com/docs/models#gpt-55-retirement",
-                  verifiedAt: "2026-10-14T02:04:04Z",
+                  verifiedAt: gpt55Withdrawal.capture.observedAt,
                 },
               }
             : {}),
