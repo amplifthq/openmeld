@@ -214,6 +214,52 @@ describe("refreshWebAgentReadinessFacts", () => {
 		}
 	});
 
+	it.each([
+		[
+			"Organization Directory",
+			organizationQueryKeys.profileDirectory("org-acme"),
+		],
+		[
+			"runtime overview",
+			organizationQueryKeys.agentRuntimeOverview("org-acme"),
+		],
+	] as const)("restarts a first %s read for a reconnect recovery", async (_name, queryKey) => {
+		const queryClient = createTestQueryClient();
+		let resolveFirstRead!: (value: string) => void;
+		const read = vi
+			.fn<() => Promise<string>>()
+			.mockImplementationOnce(
+				() =>
+					new Promise<string>((resolve) => {
+						resolveFirstRead = resolve;
+					})
+			)
+			.mockResolvedValue("fresh");
+		const observer = new QueryObserver(queryClient, {
+			queryFn: read,
+			queryKey,
+		});
+		const unsubscribe = observer.subscribe(() => undefined);
+		try {
+			await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+			const refresh = refreshWebAgentReadinessSharedCaches({
+				includeLocalRuntimeCaches: false,
+				organizationId: "org-acme",
+				queryClient,
+				restartInFlightReadinessReads: true,
+				storageScope: "scope-test",
+			});
+			resolveFirstRead("stale");
+			await refresh;
+			await vi.waitFor(() =>
+				expect(observer.getCurrentResult().data).toBe("fresh")
+			);
+			expect(read).toHaveBeenCalledTimes(2);
+		} finally {
+			unsubscribe();
+		}
+	});
+
 	it("does not refetch the whole Agent runtime overview for one Profile change", async () => {
 		const queryClient = createTestQueryClient();
 		const invalidateQueriesSpy = vi.spyOn(queryClient, "invalidateQueries");

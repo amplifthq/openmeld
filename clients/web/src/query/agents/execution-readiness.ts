@@ -191,36 +191,44 @@ export async function refreshWebAgentReadinessSharedCaches(input: {
 			input.organizationId
 		),
 	};
+	const restartInFlight = input.restartInFlightReadinessReads === true;
+	// cancelRefetch cannot replace a first read that has no data yet, so a
+	// recovery cancels every in-flight read before invalidating it.
+	// Readiness batches otherwise share an in-flight read so equivalent events
+	// do not cancel each other; the Organization reads keep the default restart.
+	const invalidate = async (
+		filters: Parameters<QueryClient["invalidateQueries"]>[0] & object,
+		options: { shareInFlight: boolean }
+	) => {
+		if (restartInFlight) {
+			await input.queryClient.cancelQueries(filters);
+		}
+		const activeFilters = { ...filters, refetchType: "active" as const };
+		await (restartInFlight || options.shareInFlight
+			? input.queryClient.invalidateQueries(activeFilters, {
+					cancelRefetch: restartInFlight,
+				})
+			: input.queryClient.invalidateQueries(activeFilters));
+	};
 	const refreshes: Promise<unknown>[] = [
-		(async () => {
-			if (input.restartInFlightReadinessReads === true) {
-				// cancelRefetch cannot replace a first read that has no data yet;
-				// cancel every in-flight read so the invalidation starts fresh ones.
-				await input.queryClient.cancelQueries(batchFilters);
-			}
-			await input.queryClient.invalidateQueries(
-				{ ...batchFilters, refetchType: "active" },
-				{ cancelRefetch: input.restartInFlightReadinessReads === true }
-			);
-		})(),
+		invalidate(batchFilters, { shareInFlight: true }),
 	];
 	const organizationId = input.organizationId.trim();
 	if (organizationId.length > 0) {
 		refreshes.push(
-			input.queryClient.invalidateQueries({
-				queryKey: organizationQueryKeys.profileDirectory(organizationId),
-				exact: true,
-				refetchType: "active",
-			})
+			invalidate(
+				{
+					queryKey: organizationQueryKeys.profileDirectory(organizationId),
+					exact: true,
+				},
+				{ shareInFlight: false }
+			)
 		);
 		const overviewQueryKey =
 			organizationQueryKeys.agentRuntimeOverview(organizationId);
 		if (agentProfileIds.length === 0) {
 			refreshes.push(
-				input.queryClient.invalidateQueries({
-					queryKey: overviewQueryKey,
-					refetchType: "active",
-				})
+				invalidate({ queryKey: overviewQueryKey }, { shareInFlight: false })
 			);
 		} else {
 			const overviewQuery = input.queryClient

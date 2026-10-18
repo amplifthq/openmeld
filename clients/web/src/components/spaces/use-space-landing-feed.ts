@@ -993,23 +993,10 @@ export function useSpaceLandingFeed(input: {
 			}
 
 			hasAcceptedLiveSession = true;
-			// A message cursor cannot recover reactions changed on older messages.
-			// Refresh mounted reaction snapshots only after reconnect, not every initial read.
+			// A message cursor cannot recover reactions or pins changed on older
+			// messages, so refresh those snapshots only after reconnect, not every
+			// initial read.
 			if (reconnectKey > 0) {
-				queryClient
-					.invalidateQueries({ queryKey: messageReactionsKey(input.spaceId) })
-					.catch(() => undefined);
-				queryClient
-					.invalidateQueries({
-						predicate: (query) =>
-							(query.queryKey[0] === "space-message-pins" ||
-								query.queryKey[0] === "space-input-queue" ||
-								query.queryKey[0] === "space-file-pins") &&
-							query.queryKey[1] === input.spaceId,
-					})
-					.catch((error) =>
-						console.warn("Failed to refresh Space pins after reconnect.", error)
-					);
 				// Core may withhold invalidations while it cannot verify access and
 				// then close the socket. Re-read every snapshot those frames would
 				// have refreshed, so a reconnect recovers them.
@@ -1473,6 +1460,16 @@ function refreshLiveInvalidatedSnapshotsAfterReconnect(
 		)
 		.finally(() => {
 			input.queryClient
+				.invalidateQueries({ queryKey: messageReactionsKey(input.spaceId) })
+				.catch(() => undefined);
+			input.queryClient
+				.invalidateQueries({
+					predicate: (query) => isSpacePinQuery(query, input.spaceId),
+				})
+				.catch((error) =>
+					console.warn("Failed to refresh Space pins after reconnect.", error)
+				);
+			input.queryClient
 				.invalidateQueries({
 					queryKey: ["spaces", "entry-resolution", input.spaceId],
 				})
@@ -1533,11 +1530,27 @@ function refreshLiveInvalidatedSnapshotsAfterReconnect(
 	}
 }
 
+function isSpacePinQuery(
+	query: { queryKey: readonly unknown[] },
+	spaceId: string
+): boolean {
+	return (
+		(query.queryKey[0] === "space-message-pins" ||
+			query.queryKey[0] === "space-input-queue" ||
+			query.queryKey[0] === "space-file-pins") &&
+		query.queryKey[1] === spaceId
+	);
+}
+
 function cancelSpaceSnapshotReadsBeforeReconnectRefresh(
 	queryClient: QueryClient,
 	spaceId: string
 ): Promise<unknown> {
 	return Promise.all([
+		queryClient.cancelQueries({ queryKey: messageReactionsKey(spaceId) }),
+		queryClient.cancelQueries({
+			predicate: (query) => isSpacePinQuery(query, spaceId),
+		}),
 		queryClient.cancelQueries({
 			queryKey: ["spaces", "entry-resolution", spaceId],
 		}),

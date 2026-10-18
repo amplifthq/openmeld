@@ -1396,7 +1396,11 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		expect(permanentRead).toHaveBeenCalledOnce();
 	});
 
-	it("replaces a Tasks first load still in flight when a reconnect is accepted", async () => {
+	it.each([
+		["Tasks", spaceTaskQueryKeys.space("space-123")],
+		["message pins", ["space-message-pins", "space-123"]],
+		["file pins", ["space-file-pins", "space-123"]],
+	] as const)("replaces a %s first load still in flight when a reconnect is accepted", async (_name, queryKey) => {
 		const { queryClient } = renderFeed();
 		await openLatestSocket();
 		let resolveFirstRead!: (value: string) => void;
@@ -1412,7 +1416,7 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		const mounted = renderHook(
 			() =>
 				useQuery({
-					queryKey: spaceTaskQueryKeys.space("space-123"),
+					queryKey,
 					queryFn: readTasks,
 					staleTime: Number.POSITIVE_INFINITY,
 				}),
