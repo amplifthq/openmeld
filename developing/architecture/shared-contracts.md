@@ -9347,7 +9347,11 @@ session's messages, retries once immediately, and then closes only that
 session with `1013 space_access_unverified` before yielding. The retry is not
 delayed by a timer, because a timer does not keep a hibernating Space awake and
 a discarded retry would leave the socket open with its messages lost. The client reconnects through the full join
-check, and its snapshot read recovers the withheld invalidations. A failure for
+check. Space remembers that profile for ten minutes, and its next authorized
+join receives replacement `space.meta.changed`, `space.members.changed`,
+`space.files.changed`, `space.tasks.changed`, and `wake.progress.changed`
+frames, so even a Web client loaded before this behavior refreshes the
+snapshots it missed. A failure for
 one session never closes or delays another session.
 
 Guest invitations are email-bound and require an authenticated recipient. Their

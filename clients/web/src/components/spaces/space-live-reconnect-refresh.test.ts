@@ -1,5 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { spaceFileQueryKeys } from "#/query/spaces/space-files";
 import { refreshLiveInvalidatedSnapshotsAfterReconnect } from "./use-space-landing-feed";
 
 describe("refreshLiveInvalidatedSnapshotsAfterReconnect", () => {
@@ -36,6 +37,7 @@ describe("refreshLiveInvalidatedSnapshotsAfterReconnect", () => {
 		expect(invalidated).toEqual(
 			expect.arrayContaining([
 				["space-tasks", "space-123"],
+				spaceFileQueryKeys.space("space-123"),
 				["spaces", "entry-resolution", "space-123"],
 				[
 					"spaces",

@@ -306,6 +306,10 @@ describe("Organization Space self-join", () => {
         }) => Promise<unknown>;
       };
       const authorize = space.authorizeSpacePasswordAccess.bind(space);
+      (space as unknown as { restoreAuthorize: () => void }).restoreAuthorize =
+        () => {
+          space.authorizeSpacePasswordAccess = authorize;
+        };
       space.authorizeSpacePasswordAccess = (input) =>
         input.context?.actorContext.ownerUserId === f.recipientId
           ? Promise.reject(
@@ -341,6 +345,63 @@ describe("Organization Space self-join", () => {
       new Promise((resolve) => setTimeout(() => resolve("open"), 50)),
     ]);
     expect(ownerOutcome).toBe("open");
+
+    // Access can be verified again. The recipient reconnects; its next
+    // authorized join replays replacement invalidations, so even a Web
+    // client loaded before this Core refreshes what it missed.
+    await runInDurableObject(f.stub, (instance) => {
+      (
+        instance as unknown as { restoreAuthorize: () => void }
+      ).restoreAuthorize();
+    });
+    const reconnectHeaders = new Headers({ Upgrade: "websocket" });
+    applyOpenMeldRequestContextHeaders(reconnectHeaders, {
+      requestContext: recipientContext,
+    });
+    const reconnect = await f.stub.fetch(
+      new Request(`https://openmeld-core.internal/stream?space=${f.spaceId}`, {
+        headers: reconnectHeaders,
+      })
+    );
+    const reconnected = reconnect.webSocket;
+    if (!reconnected) {
+      throw new Error("Missing accepted WebSocket");
+    }
+    reconnected.accept();
+    const replayed = new Set<string>();
+    const replayComplete = new Promise<void>((resolve) => {
+      reconnected.addEventListener("message", (event) => {
+        const message = JSON.parse(String(event.data)) as {
+          reason?: string;
+          type?: string;
+        };
+        if (message.reason === "space.live.access_reverified" && message.type) {
+          replayed.add(message.type);
+          if (replayed.has("wake.progress.changed")) {
+            resolve();
+          }
+        }
+      });
+    });
+    reconnected.send(
+      JSON.stringify({
+        type: "hello",
+        profile: {
+          kind: "human",
+          profileId: f.recipientProfile,
+          profileName: "Morgan Lee",
+        },
+      })
+    );
+    await replayComplete;
+    expect([...replayed].sort()).toEqual([
+      "space.files.changed",
+      "space.members.changed",
+      "space.meta.changed",
+      "space.tasks.changed",
+      "wake.progress.changed",
+    ]);
+    reconnected.close(1000, "test_complete");
     ownerSocket.close(1000, "test_complete");
   });
 });
