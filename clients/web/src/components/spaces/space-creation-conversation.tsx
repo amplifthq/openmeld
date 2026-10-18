@@ -16,9 +16,7 @@ import { useComposerDraft } from "#/hooks/use-composer-draft";
 import type { ComposerDraftScope } from "#/lib/composer-draft-storage";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationSpacesPath } from "#/lib/organizations/organization-routes";
-import { findActiveProfileById } from "#/lib/profiles/profiles";
 import type { PendingSpaceMessage } from "#/lib/spaces/pending-message";
-import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { spaceBootstrapQueryOptions } from "#/query/spaces/bootstrap";
 import {
 	addSpaceDirectoryMembers,
@@ -34,20 +32,26 @@ import { AppSpaceShell } from "./app-space-shell";
 import { SpaceComposer } from "./space-composer";
 import type { SpaceComposerEditorHandle } from "./space-composer-editor";
 import { SpaceWindowHeader } from "./space-header";
-import { SpaceLanding } from "./space-landing";
+import type { SpaceLanding } from "./space-landing";
 import type { SpaceView } from "./space-view";
 import { SpaceViewTabs } from "./space-view-tabs";
 import { useSpaceComposerFiles } from "./use-space-composer-attachments";
 
 type Creation = ReturnType<typeof useSpaceCreations>[number];
 
-/** The regular Space route's message, thread, and interaction targets. */
-export type SpaceCreationFocus = {
-	focusInteractionId?: string;
-	focusRequestId?: string;
-	focusSignalId?: string;
-	focusThreadRootSignalId?: string;
-};
+/**
+ * What only the creation handoff gives the created Space's view. Everything
+ * else (acting-Profile validation, account Profiles, focus targets, and
+ * Organization context) comes from the regular Space route.
+ */
+export type SpaceCreationHandoff = Pick<
+	ComponentProps<typeof SpaceLanding>,
+	| "composerDraftMigrationScopes"
+	| "initialPendingMessage"
+	| "initialSpaceView"
+	| "onComposerReady"
+	| "onInitialPendingMessageConsumed"
+>;
 
 function creationError(
 	failed: boolean,
@@ -63,10 +67,13 @@ function creationError(
 	return queueError;
 }
 
-/** A local creation receipt can present a conversation, never grant Space access. */
+/**
+ * A local creation receipt can present a conversation, never grant Space access.
+ * `children` renders the regular Space route; once the created Space is ready
+ * it receives the handoff inputs, and otherwise none.
+ */
 export function SpaceCreationRoute(input: {
-	children: ReactNode;
-	focus: SpaceCreationFocus;
+	children: (handoff: SpaceCreationHandoff | undefined) => ReactNode;
 	spaceId: string;
 	profileId?: string;
 }) {
@@ -102,10 +109,9 @@ export function SpaceCreationRoute(input: {
 		return (
 			<SpaceCreationConversation
 				creation={creation}
-				focus={input.focus}
 				key={creation.input.creationId}
 				profileId={input.profileId}
-				regularRoute={input.children}
+				renderRoute={input.children}
 				request={creation.input}
 			/>
 		);
@@ -126,7 +132,7 @@ export function SpaceCreationRoute(input: {
 			</div>
 		);
 	}
-	return input.children;
+	return input.children(undefined);
 }
 
 function useCreationMembers(input: {
@@ -197,57 +203,10 @@ function CreationMemberRetry(input: { retry: (() => void) | undefined }) {
 	) : null;
 }
 
-// Space member actions confirm the acting Human from the account Profiles,
-// exactly as the regular Space route provides them, so the handoff opens the
-// Space only with both the bootstrap and those Profiles. Those Profiles also
-// decide whether the acting Profile is still an active Human; when it is not,
-// the regular route's Profile recovery takes over.
-function useCreationOpenState(input: {
-	bootstrap: { isError: boolean; refetch: () => unknown };
-	// Only a confirmed create response can make a Profiles failure an opening
-	// failure; before that, the conversation must not claim the Space exists.
-	creationFailed: boolean;
-	profileId: string;
-	realSpaceId: string | undefined;
-	storageScope: string;
-}) {
-	const profiles = useQuery(
-		buildStartProfilesQueryOptions({
-			enabled: true,
-			storageScope: input.storageScope,
-		})
-	);
-	const created = Boolean(input.realSpaceId) && !input.creationFailed;
-	const profilesFailed =
-		created && profiles.isError && profiles.data === undefined;
-	return {
-		accountProfiles: profiles.data,
-		actingProfileRejected: Boolean(
-			profiles.data &&
-				!findActiveProfileById(profiles.data, {
-					profileId: input.profileId,
-					profileKind: "human",
-				})
-		),
-		openFailed: input.bootstrap.isError || profilesFailed,
-		retryOpen: () => {
-			if (input.bootstrap.isError) {
-				input.bootstrap.refetch();
-			}
-			if (profilesFailed) {
-				profiles.refetch();
-			}
-		},
-	};
-}
-
 function SpaceCreationConversation(input: {
 	creation: Creation;
-	focus: SpaceCreationFocus;
 	profileId: string;
-	// The regular Space route owns acting-Profile recovery: redirecting to the
-	// account's Human or asking the person to choose one.
-	regularRoute: ReactNode;
+	renderRoute: (handoff: SpaceCreationHandoff) => ReactNode;
 	request: SpaceCreationRequest;
 }) {
 	const { currentOrganization: organization } = useAppOrganization();
@@ -390,198 +349,152 @@ function SpaceCreationConversation(input: {
 		}
 	};
 	const failed = input.creation.status === "error";
-	const { accountProfiles, actingProfileRejected, openFailed, retryOpen } =
-		useCreationOpenState({
-			bootstrap,
-			creationFailed: failed,
-			profileId: input.profileId,
-			realSpaceId,
-			storageScope,
-		});
-	if (actingProfileRejected) {
-		return input.regularRoute;
+	const error =
+		creationError(failed, bootstrap.isError, queueError) ?? members.error;
+	// The handoff is one-way: once the regular route opens the created Space, a
+	// later read failure must not swap it back and remount the conversation.
+	const opened = useRef(false);
+	if (realSpaceId && bootstrap.data && !queueing && members.ready) {
+		opened.current = true;
 	}
-	const error = creationError(failed, openFailed, queueError) ?? members.error;
-	const ready =
-		realSpaceId &&
-		bootstrap.data &&
-		accountProfiles &&
-		!queueing &&
-		members.ready;
+	if (opened.current) {
+		return input.renderRoute({
+			composerDraftMigrationScopes: scope ? [scope] : undefined,
+			initialPendingMessage: pending.data,
+			initialSpaceView: view,
+			onComposerReady: finishComposerHandoff,
+			onInitialPendingMessageConsumed: () =>
+				client.setQueryData(pendingKey, null),
+		});
+	}
 	return (
 		<AppSpaceShell
 			currentProfileId={input.profileId}
 			currentSpaceId={realSpaceId ?? ""}
 			defaultModuleSidebarOpen
 		>
-			{ready ? (
-				<CreatedSpaceLanding
-					accountProfiles={accountProfiles}
-					draftScope={scope}
-					focus={input.focus}
-					initialPendingMessage={pending.data}
-					initialSpaceView={view}
-					isPersonal={organization.isPersonal}
-					onComposerReady={finishComposerHandoff}
-					onInitialPendingMessageConsumed={() =>
-						client.setQueryData(pendingKey, null)
+			<section
+				className="flex h-full min-h-0 flex-1 flex-col"
+				data-space-creation-conversation=""
+			>
+				<SpaceWindowHeader
+					navigation={
+						<SpaceViewTabs
+							activeView={view}
+							idPrefix={request.creationId}
+							onViewChange={setView}
+						/>
 					}
-					orgSlug={organization.slug}
-					profileId={input.profileId}
-					spaceId={realSpaceId}
+					title={request.name}
+					titleAdornment={
+						<span className="text-muted-foreground text-sm">
+							{request.accessMode === "members_only" ? "Invite only" : ""}
+						</span>
+					}
 				/>
-			) : (
-				<section
-					className="flex h-full min-h-0 flex-1 flex-col"
-					data-space-creation-conversation=""
+				<div
+					aria-label="Space conversation"
+					className="flex min-h-0 flex-1 flex-col overflow-y-auto py-4"
+					role="log"
 				>
-					<SpaceWindowHeader
-						navigation={
-							<SpaceViewTabs
-								activeView={view}
-								idPrefix={request.creationId}
-								onViewChange={setView}
-							/>
-						}
-						title={request.name}
-						titleAdornment={
-							<span className="text-muted-foreground text-sm">
-								{request.accessMode === "members_only" ? "Invite only" : ""}
-							</span>
-						}
-					/>
 					<div
-						aria-label="Space conversation"
-						className="flex min-h-0 flex-1 flex-col overflow-y-auto py-4"
-						role="log"
+						className={cn("space-y-4", !(pending.data || error) && "my-auto")}
+						data-space-conversation-content-width=""
 					>
-						<div
-							className={cn("space-y-4", !(pending.data || error) && "my-auto")}
-							data-space-conversation-content-width=""
+						<p
+							aria-live="polite"
+							className="py-2 text-center text-muted-foreground text-sm"
 						>
-							<p
-								aria-live="polite"
-								className="py-2 text-center text-muted-foreground text-sm"
+							{error ?? <TextShimmer as="span">{members.label}</TextShimmer>}
+						</p>
+						<CreationQueuedMessage
+							failed={failed}
+							message={pending.data}
+							onEdit={() => client.setQueryData(pendingKey, null)}
+							view={view}
+						/>
+						{failed ? (
+							<Link
+								className="text-sm underline"
+								to={buildOrganizationSpacesPath(organization.slug)}
 							>
-								{error ?? <TextShimmer as="span">{members.label}</TextShimmer>}
-							</p>
-							<CreationQueuedMessage
-								failed={failed}
-								message={pending.data}
-								onEdit={() => client.setQueryData(pendingKey, null)}
-								view={view}
-							/>
-							{failed ? (
-								<Link
-									className="text-sm underline"
-									to={buildOrganizationSpacesPath(organization.slug)}
-								>
-									Check Spaces
-								</Link>
-							) : null}
-							{openFailed ? (
-								<Button onClick={retryOpen} size="sm" variant="outline">
-									Retry opening
-								</Button>
-							) : null}
-							<CreationMemberRetry retry={members.retry} />
-						</div>
+								Check Spaces
+							</Link>
+						) : null}
+						{bootstrap.isError ? (
+							<Button
+								onClick={() => bootstrap.refetch()}
+								size="sm"
+								variant="outline"
+							>
+								Retry opening
+							</Button>
+						) : null}
+						<CreationMemberRetry retry={members.retry} />
 					</div>
-					{view === "messages" ? (
-						<footer
-							className="shrink-0 bg-background py-4"
-							onBlurCapture={(event) => {
-								if (event.relatedTarget) {
-									client.setQueryData(focusKey, null);
-								}
-							}}
-						>
-							<div data-space-conversation-content-width="">
-								<SpaceComposer
-									actions={{
-										onEditorChange: (change) => {
-											if (
-												document.activeElement?.getAttribute("role") ===
-												"textbox"
-											) {
-												client.setQueryData(focusKey, change.selection);
-											}
-											draft.setContent({
-												...draft.content,
-												text: change.text,
-												authoredMentions: change.authoredMentions,
-											});
-										},
-										onSubmit: () => {
-											queueMessage();
-										},
-										onAddFiles: files.addFiles,
-										onRemoveFile: files.removeFile,
-										onRetryFile: files.retryFile,
-										onRetryFileCleanup: files.retryCleanup,
-										onRetryFileRestoration: files.retryRestoration,
-									}}
-									availability={{
-										canSendMessage: !failed,
-										canUploadFiles: true,
-										isSendingMessage: queueing || Boolean(pending.data),
-										sendBlocked: failed,
-										fileLimitReached: files.isAtLimit,
-									}}
-									capabilities={{ mentions: false }}
-									centerAgentProfileId={null}
-									composerRef={editor}
-									content={{
-										text: draft.content.text,
-										authoredMentions: draft.content.authoredMentions,
-										addressingTargets: [],
-										mentionPickerItems: [],
-										files: files.files,
-										fileCleanup: files.cleanup,
-										fileRestorationError: files.restorationError,
-									}}
-									context={{
-										conversationKind: "space",
-										placement: "conversation",
-									}}
-								/>
-							</div>
-						</footer>
-					) : null}
-				</section>
-			)}
+				</div>
+				{view === "messages" ? (
+					<footer
+						className="shrink-0 bg-background py-4"
+						onBlurCapture={(event) => {
+							if (event.relatedTarget) {
+								client.setQueryData(focusKey, null);
+							}
+						}}
+					>
+						<div data-space-conversation-content-width="">
+							<SpaceComposer
+								actions={{
+									onEditorChange: (change) => {
+										if (
+											document.activeElement?.getAttribute("role") === "textbox"
+										) {
+											client.setQueryData(focusKey, change.selection);
+										}
+										draft.setContent({
+											...draft.content,
+											text: change.text,
+											authoredMentions: change.authoredMentions,
+										});
+									},
+									onSubmit: () => {
+										queueMessage();
+									},
+									onAddFiles: files.addFiles,
+									onRemoveFile: files.removeFile,
+									onRetryFile: files.retryFile,
+									onRetryFileCleanup: files.retryCleanup,
+									onRetryFileRestoration: files.retryRestoration,
+								}}
+								availability={{
+									canSendMessage: !failed,
+									canUploadFiles: true,
+									isSendingMessage: queueing || Boolean(pending.data),
+									sendBlocked: failed,
+									fileLimitReached: files.isAtLimit,
+								}}
+								capabilities={{ mentions: false }}
+								centerAgentProfileId={null}
+								composerRef={editor}
+								content={{
+									text: draft.content.text,
+									authoredMentions: draft.content.authoredMentions,
+									addressingTargets: [],
+									mentionPickerItems: [],
+									files: files.files,
+									fileCleanup: files.cleanup,
+									fileRestorationError: files.restorationError,
+								}}
+								context={{
+									conversationKind: "space",
+									placement: "conversation",
+								}}
+							/>
+						</div>
+					</footer>
+				) : null}
+			</section>
 		</AppSpaceShell>
-	);
-}
-
-// The created Space receives the same focus targets and Organization context
-// the regular Space route gives it.
-function CreatedSpaceLanding(
-	input: Omit<
-		ComponentProps<typeof SpaceLanding>,
-		| "composerDraftMigrationScopes"
-		| "initialFocusInteractionId"
-		| "initialFocusRequestId"
-		| "initialFocusSignalId"
-		| "initialFocusThreadRootSignalId"
-		| "isPersonalContext"
-	> & {
-		draftScope: ComposerDraftScope | null;
-		focus: SpaceCreationFocus;
-		isPersonal: boolean | undefined;
-	}
-) {
-	const { draftScope, focus, isPersonal, ...landing } = input;
-	return (
-		<SpaceLanding
-			{...landing}
-			composerDraftMigrationScopes={draftScope ? [draftScope] : undefined}
-			initialFocusInteractionId={focus.focusInteractionId}
-			initialFocusRequestId={focus.focusRequestId}
-			initialFocusSignalId={focus.focusSignalId}
-			initialFocusThreadRootSignalId={focus.focusThreadRootSignalId}
-			isPersonalContext={isPersonal === true}
-		/>
 	);
 }
 

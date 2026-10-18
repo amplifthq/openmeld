@@ -170,17 +170,16 @@ searches, presence, or read receipts. The verified create response replaces it
 with the canonical Space route without adding a history entry. Directory
 refresh runs independently and cannot delay entry.
 
-The creation conversation stays mounted on the canonical Space route in the
-tab that created it and renders the regular Space view there. It reads the same
-account Profiles as the regular route and opens the Space only once they are
-available, because member removal and addition confirm the acting Human from
-that list; a profile read failure uses the same "couldn't be opened" retry as a
-bootstrap failure. When those Profiles show the acting Profile is not an active
-Human, the handoff yields to the regular route, which redirects to the
-account's Human or asks the person to choose. It passes the route's message,
-thread, and interaction focus targets and the personal-Organization context to
-the Space view, so a notification or deep link into the same Space lands on
-its target while the handoff stays mounted.
+The creation conversation owns only the preparation phase. Once the create
+response, bootstrap, and member admission are confirmed, the tab that created
+the Space renders the regular Space route's validated entry layer, the same one
+a fresh tab uses: account Profiles, the active-Human check and its redirect or
+chooser, entry resolution, focus targets, and Organization context. A
+notification or deep link into the same Space therefore lands on its target.
+The handoff adds only what that tab alone has: the composer draft migration
+scopes, the staged message and its consumption, the chosen tab, and composer
+focus restore. The switch is one-way; a later read failure or retired receipt
+does not return to preparation or remount the conversation.
 
 Text and attachments use the existing composer draft owners. Sending during
 preparation stages one message with a stable client message ID. The regular
