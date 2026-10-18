@@ -10,6 +10,9 @@ export type AgentReadinessInvalidationMessage = {
 	organizationId: string;
 	agentProfileIds: readonly string[];
 	reason: string | null;
+	// A recovery message names no Agent Profiles: every shared readiness
+	// projection in scope is refreshed, and Space versions do not apply.
+	refreshAll: boolean;
 	spaceId: string;
 	version: number;
 };
@@ -28,9 +31,33 @@ export function publishAgentReadinessInvalidationFrame(
 		spaceId: frame.spaceId,
 		version: frame.version,
 	});
-	if (!message) {
-		return;
+	if (message) {
+		postAgentReadinessInvalidationMessage(message);
 	}
+}
+
+// A live reconnect cannot know which readiness frames it missed, so other tabs
+// in the same scope refresh every shared readiness projection too.
+export function publishAgentReadinessRecovery(input: {
+	organizationId: string;
+	reason: string;
+	spaceId: string;
+	storageScope: string;
+}): void {
+	const message = normalizeAgentReadinessInvalidationMessage({
+		...input,
+		agentProfileIds: [],
+		refreshAll: true,
+		version: 0,
+	});
+	if (message) {
+		postAgentReadinessInvalidationMessage(message);
+	}
+}
+
+function postAgentReadinessInvalidationMessage(
+	message: AgentReadinessInvalidationMessage
+): void {
 	const channel = createAgentReadinessInvalidationChannel();
 	if (channel) {
 		channel.postMessage(message);
@@ -55,6 +82,10 @@ export function subscribeAgentReadinessInvalidations(
 			message.storageScope !== scope.storageScope ||
 			message.organizationId !== scope.organizationId
 		) {
+			return;
+		}
+		if (message.refreshAll) {
+			onMessage(message);
 			return;
 		}
 		if (message.version <= (versions.get(message.spaceId) ?? -1)) {
@@ -115,14 +146,16 @@ function normalizeAgentReadinessInvalidationMessage(
 		return null;
 	}
 	const agentProfileIds = normalizeAgentProfileIds(candidate.agentProfileIds);
-	if (agentProfileIds.length === 0) {
+	const refreshAll = candidate.refreshAll === true;
+	if (agentProfileIds.length === 0 && !refreshAll) {
 		return null;
 	}
 	return {
 		storageScope,
 		organizationId,
-		agentProfileIds,
+		agentProfileIds: refreshAll ? [] : agentProfileIds,
 		reason: normalizeText(candidate.reason) ?? null,
+		refreshAll,
 		spaceId,
 		version:
 			typeof candidate.version === "number" &&

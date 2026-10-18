@@ -21,6 +21,7 @@ import {
   runtimeTransportRuntimeCoordinatorHeadWaitingResponseSchema,
   runtimeTransportRuntimeCoordinatorReadInteractionRequestSchema,
   runtimeTransportRuntimeCoordinatorReadInteractionResponseSchema,
+  runtimeTransportRuntimeCoordinatorReadInteractionRevisionResponseSchema,
   runtimeTransportRuntimeCoordinatorRespondInteractionRequestSchema,
   runtimeTransportRuntimeCoordinatorRespondInteractionResponseSchema,
   runtimeTransportRuntimeCoordinatorWakeStopRequestSchema,
@@ -54,7 +55,7 @@ import type {
   RuntimeTransportRuntimeCoordinatorHeadWaitingRequest,
   RuntimeTransportRuntimeCoordinatorHeadWaitingResponse,
   RuntimeTransportRuntimeCoordinatorReadInteractionRequest,
-  RuntimeTransportRuntimeCoordinatorReadInteractionResponse,
+  RuntimeTransportRuntimeCoordinatorReadInteractionRevisionResponse,
   RuntimeTransportRuntimeCoordinatorRespondInteractionRequest,
   RuntimeTransportRuntimeCoordinatorRespondInteractionResponse,
   RuntimeTransportRuntimeCoordinatorWakeStopRequest,
@@ -823,25 +824,44 @@ export const readRuntimeTransportRuntimeCoordinatorInteraction = async (input: {
   env: CoreBindings;
   ownerUserId: string;
   request: RuntimeTransportRuntimeCoordinatorReadInteractionRequest;
-}): Promise<RuntimeTransportRuntimeCoordinatorReadInteractionResponse> => {
+}): Promise<RuntimeTransportRuntimeCoordinatorReadInteractionRevisionResponse> => {
   const parsedRequest =
     runtimeTransportRuntimeCoordinatorReadInteractionRequestSchema.safeParse(
       input.request
     );
   if (!parsedRequest.success) {
-    return { pendingInteraction: null };
+    return { interactionUpdatedAtMs: null, pendingInteraction: null };
   }
-  const response = await callRuntimeTransportApi({
-    env: input.env,
-    ownerUserId: input.ownerUserId,
-    path: "/runtime-coordinator/interaction/read",
-    body: parsedRequest.data,
-  });
-  const parsed =
-    runtimeTransportRuntimeCoordinatorReadInteractionResponseSchema.safeParse(
-      response
+  const revisionResponse =
+    runtimeTransportRuntimeCoordinatorReadInteractionRevisionResponseSchema.safeParse(
+      await callRuntimeTransportApi({
+        env: input.env,
+        ownerUserId: input.ownerUserId,
+        path: "/runtime-coordinator/interaction/read-revision",
+        body: parsedRequest.data,
+      })
     );
-  return parsed.success ? parsed.data : { pendingInteraction: null };
+  if (revisionResponse.success) {
+    return revisionResponse.data;
+  }
+  // A Hub still on an earlier build answers the revision path with
+  // not_found. Keep the request visible through the frozen read; the Wake
+  // progress revision then stays on the lifecycle time.
+  const legacyResponse =
+    runtimeTransportRuntimeCoordinatorReadInteractionResponseSchema.safeParse(
+      await callRuntimeTransportApi({
+        env: input.env,
+        ownerUserId: input.ownerUserId,
+        path: "/runtime-coordinator/interaction/read",
+        body: parsedRequest.data,
+      })
+    );
+  return {
+    interactionUpdatedAtMs: null,
+    pendingInteraction: legacyResponse.success
+      ? legacyResponse.data.pendingInteraction
+      : null,
+  };
 };
 export const respondToRuntimeTransportRuntimeCoordinatorInteraction =
   async (input: {

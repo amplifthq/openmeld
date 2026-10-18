@@ -11,7 +11,7 @@ export function DirectMessageAvatar(input: {
 	size?: "sm" | "sidebar" | "card" | "md" | "pinned";
 }) {
 	const compactSize = (
-		{ pinned: 32, md: 48, sm: 24, sidebar: 24, card: 24 } as const
+		{ pinned: 48, md: 48, sm: 24, sidebar: 24, card: 24 } as const
 	)[input.size ?? "sm"];
 	if (input.peer) {
 		return (

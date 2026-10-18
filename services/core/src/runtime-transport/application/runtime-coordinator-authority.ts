@@ -388,6 +388,22 @@ export type RuntimeCoordinatorRunLocalProgressState = {
 
 export type RuntimeCoordinatorPendingAgentInteractionState = {
   request: AgentInteractionRequest;
+  /**
+   * Core time the request first reached Core. Optional for interactions
+   * stored before it was recorded; the command state's Core updatedAtMs
+   * stands in, never the Service's requestedAtMs.
+   */
+  requestReceivedAtMs?: number;
+  /**
+   * Service connection that last delivered the request. The Service replays
+   * an unanswered request on every heartbeat; Core re-announces it to the
+   * Space only when a replay arrives on a different connection. Optional for
+   * interactions stored before it was recorded.
+   */
+  requestConnection?: {
+    connectionGeneration: number;
+    daemonSessionId: string;
+  };
   respondedAtMs: number | null;
   response: AgentInteractionResponse | null;
 };
@@ -1643,7 +1659,10 @@ export const isRuntimeCoordinatorRunCommandState = (
       !(
         agentInteractionRequestSchema.safeParse(pendingInteraction.request)
           .success &&
-        isOptionalNullableNonNegativeNumber(pendingInteraction.respondedAtMs)
+        isOptionalNullableNonNegativeNumber(pendingInteraction.respondedAtMs) &&
+        isOptionalNullableNonNegativeNumber(
+          pendingInteraction.requestReceivedAtMs
+        )
       ) ||
       (pendingInteraction.response !== null &&
         !agentInteractionResponseSchema.safeParse(pendingInteraction.response)

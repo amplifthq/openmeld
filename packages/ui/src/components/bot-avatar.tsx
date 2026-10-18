@@ -29,7 +29,7 @@ import { botAvatarPoster } from "#lib/bot-avatar-poster";
 
 export type { BotAvatarType } from "bot-avatars";
 export type BotAvatarMaterial = "fabric" | "plastic";
-export type BotAvatarInteraction = "subtle" | "playful";
+export type BotAvatarInteraction = "subtle" | "playful" | "pointer";
 
 // The stock renderer blends lighting during motion. Keep pristine still frames
 // in their own contexts, shared across identical avatars and bounded in memory.
@@ -71,7 +71,7 @@ type BotAvatarProps = Omit<ComponentPropsWithoutRef<"canvas">, "type"> & {
   followPointer?: boolean;
   /** Use the library's idle motion, nearby pointer tracking, and full jumps. */
   ambient?: boolean;
-  /** Use the library's natural idle motion and full click spin. */
+  /** Playful adds idle motion and full click spins; pointer follows without click motion. */
   interaction?: BotAvatarInteraction;
 };
 
@@ -175,7 +175,7 @@ const InteractiveBotAvatar = forwardRef<
     size,
     working = false,
     interaction = "subtle",
-    followPointer = interaction === "playful",
+    followPointer = interaction === "playful" || interaction === "pointer",
     reducedMotion,
     shading = "fabric",
     palette = "soft",
@@ -355,7 +355,12 @@ const InteractiveBotAvatar = forwardRef<
     };
     handlers.current = {
       click: () => {
-        if (reducedMotion || (!playful && clickTime) || document.hidden) {
+        if (
+          interaction === "pointer" ||
+          reducedMotion ||
+          (!playful && clickTime) ||
+          document.hidden
+        ) {
           return;
         }
         sim.poke();

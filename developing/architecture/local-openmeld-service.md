@@ -152,6 +152,27 @@ Execution Host assembles the existing adapters, execution slots, pending human
 interactions, route discovery, controller reporting, and durable result outbox.
 The Host never owns Core readiness, authorization, scheduling, or Space history.
 
+The Host process ends with its supervised session. After Stop has drained
+accepted work and the Host has released ownership, the Host ends every agent
+CLI process tree it launched whose cleanup has not completed, then exits. At
+that point such a tree can only be abandoned background evidence work, such as
+a controller report still probing installed agent CLIs. A tree stays tracked
+after its root exits until its descendant cleanup finishes, so a helper that
+outlives its CLI is still covered. Cleanup first closes further agent CLI
+launches in the Host, so background work still running, such as a report moving
+on to its next probe, cannot start a tree behind it. The Host then sends
+SIGTERM, allows a short grace, and runs the existing descendant cleanup, which
+force-kills what remains; the whole step is bounded to a few seconds. Once a
+tree's root has exited, its stored process-group ID is signaled only while no
+live process holds that PID. A PID cannot be reused while it is the ID of an
+existing group, so a live holder means the group may belong to someone else.
+Cleanup then signals only processes a fresh scan finds carrying the
+invocation's supervision marker. Every agent CLI cleanup applies this rule,
+not only Host shutdown. That work must not keep the Host
+alive: the Service waits for actual Host exit before it clears its runtime
+lease, so a lingering probe would stretch every Stop past its bounded wait and
+leave a following Start racing a Service that is still shutting down.
+
 Connector registration, heartbeat responses, and transport errors are handled
 only by `carrier/daemon-frame-transport.ts`. The inherited IPC contract excludes
 those frames from `execution-host/frame-router.ts`; the Host has no connector
@@ -344,6 +365,26 @@ A fresh running lease identifying a system-managed PID likewise takes precedence
 over that same PID's path-based direct/unknown classification. Do not count one
 verified system-managed process as both lifecycle owners; a different direct
 process must still be reported independently.
+
+A repo-local Service started under an explicit `OPENMELD_HOME` carries no lane
+in its command line, so another custom home running the same entry looks
+identical. Process inventory therefore attributes such a direct Service process
+to the current lane only when this lane's runtime lease names its PID and that
+live process started no later than the lease's `startedAt`. The comparison
+uses the precision the OS reports: exact for Windows process creation time, and
+by whole second for POSIX `lstart`, where a start inside the lease's own second
+cannot be ordered against it and is accepted. The Service writes `startedAt`
+after its own process started, while a process that reused a stale lease's PID
+started after the owner exited, so the PID alone is never ownership. An
+unreadable start time fails closed. Other copies of the entry stay
+unattributed. This matters beyond diagnostics: the same inventory drives the
+pre-start takeover and the stalled-stop force kill, which must never reach
+another lane's Service. Without this, a still-running Service in
+that lane, for example one finishing a controlled stop, has no observable entry
+path and Start reports `runtime_bundle_mismatch`, demanding repair. The
+pre-start takeover check reads the same inventory, so attribution belongs there
+rather than in one caller: a live owner it cannot see would be treated as a
+replaceable runtime.
 
 Isolated Service smoke must use the development or Canary entry point, not
 borrow the installed Production binary with a different `OPENMELD_HOME` or
@@ -1874,7 +1915,10 @@ callbacks, registers the exact request and authority before sending
 turn. On `daemon.dispatch.interaction_response`, it validates the exact
 execution authority, resolves the registered callback, and sends
 `daemon.dispatch.interaction_delivered`. Unanswered requests are replayed after
-heartbeat registration or socket reconnect in request order. Responded requests
+heartbeat registration or socket reconnect in request order. Core treats an
+exact replay as idempotent and re-announces it to open Spaces only when it
+arrives on a new connection, so the heartbeat replay is cheap recovery, not a
+Space refresh signal. Responded requests
 resume locally before acknowledgement; if acknowledgement temporarily lacks a
 current lease, the Service reports that delivery is deferred rather than
 inventing completion.
@@ -3828,6 +3872,12 @@ liveness evidence, never elapsed time on a live execution, and a daemon with
 a fresh heartbeat is never force-killed. Heartbeat staleness here is local
 stop-safety evidence only; it must not feed any liveness, readiness, or Wake
 availability projection.
+
+When the bounded wait elapses for a Service that is still alive, its controlled
+stop is still in progress; that is not a failed stop. The warning says so and
+points to Service status before `--force`. A Start that runs meanwhile observes
+that Service as this lane's current owner and reports it as already running; it
+must not classify the live owner as damaged service files that need repair.
 
 A forced stop is never presented as a controlled drain. The command must warn
 before the destructive escalation, and the lifecycle journal must retain the

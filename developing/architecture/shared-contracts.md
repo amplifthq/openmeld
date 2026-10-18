@@ -8891,6 +8891,22 @@ additive field. Space's response HTTP/RPC contract carries only the public Wake
 selector, interaction id, and shared response; Core resolves private execution
 authority and must not accept it from the browser.
 
+RuntimeCoordinator serves `interactionUpdatedAtMs` only from the revision read
+(`/runtime-coordinator/interaction/read-revision`); the original interaction
+read keeps its frozen `{ pendingInteraction }` body. Space and the Runtime
+Transport Hub are separate Durable Objects that can briefly run different
+Core builds, so a reader whose revision read is answered with anything else
+(an earlier Hub returns `not_found`) falls back to the original read, keeps the
+request visible, and leaves the lifecycle revision unchanged. The value is the
+Core time of the execution's latest interaction change (the request reaching
+Core, its answer, or its expiry), or null before any interaction.
+Space folds it into every Wake progress item's `updatedAtMs` for that
+execution. A request or answer therefore advances the item revision even when
+the lifecycle record is unchanged, so a client holding an older copy of the
+same lifecycle revision, such as a per-message poll taken before the request,
+cannot outrank the newer interaction state. The Service's `requestedAtMs`
+stays display data and never orders progress.
+
 Provider adapters map native protocols into this contract without creating
 provider-specific approval truth:
 
@@ -9338,6 +9354,33 @@ Authenticated membership grants recheck current Organization membership, an
 explicit enabled guest admission, or the Organization-managed Agent identity.
 The same authorization runs for reads, joins, incoming WebSocket messages, and
 live delivery; connection establishment is not a permanent access grant.
+Live delivery checks each session independently. One check covers every message
+already queued for that session before the check started, so no message is
+delivered under a check older than the message. A denied check closes only that
+session with `1008 space_access_changed`. A check that cannot verify access,
+such as a PostgreSQL connect timeout, is not a revocation: Space withholds the
+session's messages, retries once immediately, and then closes only that
+session with `1013 space_access_unverified` before yielding. Closing an
+accepted session this way publishes its `presence.quit` to the sessions that
+stay open, as an ordinary disconnect does. The retry is not
+delayed by a timer, because a timer does not keep a hibernating Space awake and
+a discarded retry would leave the socket open with its messages lost. On that close Web re-reads Space access at once, because a real revocation
+in the meantime rejects the reconnect before any close code reaches the
+browser. The client reconnects through the full join
+check. After an accepted reconnect, Web re-reads every snapshot those
+invalidations refresh (Space metadata and access, members, Tasks, files, chat
+titles, Agent progress, and shared Agent readiness) in addition to its history
+catch-up. Because the missed readiness frames' Agent Profiles are unknown, the
+tab also publishes a scoped refresh-all message on the readiness bus so other
+tabs in the same account and Organization refresh their readiness projections;
+it bypasses the per-Space version check. Recovery restarts snapshot and readiness
+reads already in flight, including a first load with no data, because such a
+read may predate the missed change. The active Wake progress summary and
+message details instead read once more after an in-flight read settles. A tab
+loaded before that
+Web change keeps the earlier reconnect behavior until it reloads; that gap
+predates this rule, because a failed check used to close every session. A failure for
+one session never closes or delays another session.
 
 Guest invitations are email-bound and require an authenticated recipient. Their
 acceptance records Space membership and a guest receipt without creating an Auth

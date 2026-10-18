@@ -241,6 +241,7 @@ import type {
   RuntimeCoordinatorFinalizationCommand,
   RuntimeCoordinatorFinalizationFinalMessageKind,
   RuntimeCoordinatorFinalizationOutcome,
+  RuntimeTransportRuntimeCoordinatorReadInteractionRevisionResponse,
   SpaceAccessMode,
   SpaceAgentStreamDeltaFrame,
   SpaceAgentStreamPartFrame,
@@ -930,6 +931,10 @@ import {
   buildReadLedgerStatusFailedHealthReport,
   toRedactedSpaceErrorMessage,
 } from "./space-error-reporting";
+import {
+  SpaceLiveDelivery,
+  type SpaceLiveDeliveryClosure,
+} from "./space-live-delivery";
 import { logSpaceOutboxConsoleEvent } from "./space-outbox-console-log-policy";
 import {
   acceptSpaceWebSocketHello,
@@ -2638,7 +2643,18 @@ export class Space extends DurableObject<CoreBindings> {
   private lastTimestamp = 0;
   private lastLiveInvalidationVersion = 0;
   private liveInvalidationVersionUpdate: Promise<void> = Promise.resolve();
-  private liveBroadcastDelivery: Promise<void> = Promise.resolve();
+  private readonly liveDelivery = new SpaceLiveDelivery<
+    Session,
+    Parameters<Space["encodeLiveMessageForSession"]>[0]
+  >({
+    authorize: async (session) =>
+      (await this.authorizeLiveSession(session)) ? "authorized" : "denied",
+    close: (target, closure) => this.closeLiveSession(target, closure),
+    deliver: (target, messages) =>
+      this.deliverAuthorizedLiveMessages(target, messages),
+    isActive: (target) => this.isActiveLiveSession(target),
+    waitUntil: (promise) => this.ctx.waitUntil(promise),
+  });
   private lastPostCleanupAtMs = 0;
   private lastRetentionWarningAtMs = 0;
   private sessionTitleGenerationPending = false;
@@ -16713,24 +16729,28 @@ export class Space extends DurableObject<CoreBindings> {
       ? runtimeOwner.record.runtimeLookupInput.owner.id
       : null;
   }
-  private async readWakeProgressPendingAgentInteraction(input: {
+  private async readWakeProgressAgentInteraction(input: {
     actorOwnerUserId?: string | null;
     execution: Pick<
       RuntimeCoordinatorExecutionRecord,
       "runtimeCoordinatorExecutionId" | "openMeldServiceRuntimeId"
     >;
-  }): Promise<WakeProgressItem["pendingInteraction"]> {
+  }): Promise<RuntimeTransportRuntimeCoordinatorReadInteractionRevisionResponse> {
+    const unavailable = {
+      interactionUpdatedAtMs: null,
+      pendingInteraction: null,
+    };
     const actorOwnerUserId = normalizeOptionalText(input.actorOwnerUserId);
     if (!actorOwnerUserId) {
-      return null;
+      return unavailable;
     }
     const runtimeOwnerUserId = await this.readRuntimeOwnerUserId(
       input.execution.openMeldServiceRuntimeId.value
     );
     if (!runtimeOwnerUserId) {
-      return null;
+      return unavailable;
     }
-    const response = await readRuntimeTransportRuntimeCoordinatorInteraction({
+    return await readRuntimeTransportRuntimeCoordinatorInteraction({
       env: this.bindings,
       ownerUserId: runtimeOwnerUserId,
       request: {
@@ -16740,7 +16760,6 @@ export class Space extends DurableObject<CoreBindings> {
         v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
       },
     });
-    return response.pendingInteraction;
   }
   private async readWakeStopDispatchLookup(
     target: PostSpaceWakeStopBody["target"]
@@ -17270,8 +17289,12 @@ export class Space extends DurableObject<CoreBindings> {
     webSocket.send(JSON.stringify({ type: "system.hello.ack", profile }));
     await this.replayActiveReplyingSignalsToSession(webSocket, session);
     await this.replayAgentRecovery(webSocket, session);
-    const joinSignal = this.buildPresence("presence.join", profile);
-    this.publishPresenceSignal(joinSignal);
+    // A live access check may have closed this session during the replays and
+    // already announced its departure; do not announce it again as joined.
+    if (this.isActiveLiveSession({ session, webSocket })) {
+      const joinSignal = this.buildPresence("presence.join", profile);
+      this.publishPresenceSignal(joinSignal);
+    }
     this.ctx.waitUntil(this.flushPendingDispatchOutbox());
   }
   async webSocketMessage(webSocket: WebSocket, msg: string | ArrayBuffer) {
@@ -21289,16 +21312,13 @@ export class Space extends DurableObject<CoreBindings> {
     if (this.sessions.size === 0) {
       return;
     }
-    this.liveBroadcastDelivery = this.liveBroadcastDelivery
-      .then(() => this.deliverAuthorizedLiveMessage(message))
-      .catch((error) => {
-        console.error("[core.space.live_access_check_failed]", {
-          spaceId: this.spaceId,
-          error: formatUnknownErrorMessage(error),
-        });
-        this.closeAllSessions("space_access_changed");
-      });
-    this.ctx.waitUntil(this.liveBroadcastDelivery);
+    this.liveDelivery.enqueue(
+      [...this.sessions].map(([webSocket, session]) => ({
+        session,
+        webSocket,
+      })),
+      message
+    );
   }
   private async authorizeLiveSession(session: Session): Promise<boolean> {
     const profile = session.enforcedProfile ?? session.profile;
@@ -21326,55 +21346,74 @@ export class Space extends DurableObject<CoreBindings> {
       );
     return access.ok && !access.organizationPreview;
   }
-  private async deliverAuthorizedLiveMessage(
-    message: Parameters<Space["encodeLiveMessageForSession"]>[0]
-  ): Promise<void> {
-    const quitters: Session[] = [];
-    await Promise.all(
-      [...this.sessions].map(async ([ws, session]) => {
-        if (!(await this.authorizeLiveSession(session))) {
-          removeFailedSpaceWebSocketSession({
-            closeCode: 1008,
-            closeReason: "space_access_changed",
-            session,
-            sessions: this.sessions,
-            webSocket: ws,
-          });
-          return;
-        }
-        if (this.sessions.get(ws) !== session || session.quit) {
-          return;
-        }
-        if (session.profile) {
-          const encoded = this.encodeLiveMessageForSession(message, session);
-          if (encoded === null) {
-            return;
-          }
-          try {
-            ws.send(encoded);
-          } catch {
-            removeFailedSpaceWebSocketSession({
-              closeCode: 1011,
-              closeReason: "broadcast_send_failed",
-              session,
-              sessions: this.sessions,
-              webSocket: ws,
-            });
-            quitters.push(session);
-          }
-          return;
-        }
-        if (!session.blocked) {
-          session.blocked = [];
-        }
-        session.blocked.push(message);
-      })
+  private isActiveLiveSession(target: {
+    session: Session;
+    webSocket: WebSocket;
+  }): boolean {
+    return (
+      this.sessions.get(target.webSocket) === target.session &&
+      !target.session.quit
     );
-    // If any sockets broke while sending, notify remaining members once.
-    for (const quitter of quitters) {
-      if (quitter.profile) {
-        const quitSignal = this.buildPresence("presence.quit", quitter.profile);
+  }
+  private closeLiveSession(
+    target: { session: Session; webSocket: WebSocket },
+    closure: SpaceLiveDeliveryClosure
+  ): void {
+    if (closure.code !== 1008) {
+      console.error("[core.space.live_access_check_failed]", {
+        spaceId: this.spaceId,
+        closeReason: closure.reason,
+        error: toRedactedSpaceErrorMessage(closure.error),
+      });
+    }
+    removeFailedSpaceWebSocketSession({
+      closeCode: closure.code,
+      closeReason: closure.reason,
+      session: target.session,
+      sessions: this.sessions,
+      webSocket: target.webSocket,
+    });
+    // The session is gone before its socket closes, so webSocketClose cannot
+    // announce the departure; tell the sessions that stay open here.
+    if (target.session.profile) {
+      const quitSignal = this.buildPresence(
+        "presence.quit",
+        target.session.profile
+      );
+      this.publishPresenceSignal(quitSignal);
+    }
+  }
+  private deliverAuthorizedLiveMessages(
+    target: { session: Session; webSocket: WebSocket },
+    messages: readonly Parameters<Space["encodeLiveMessageForSession"]>[0][]
+  ): void {
+    const { session, webSocket } = target;
+    if (!session.profile) {
+      if (!session.blocked) {
+        session.blocked = [];
+      }
+      session.blocked.push(...messages);
+      return;
+    }
+    for (const message of messages) {
+      const encoded = this.encodeLiveMessageForSession(message, session);
+      if (encoded === null) {
+        continue;
+      }
+      try {
+        webSocket.send(encoded);
+      } catch {
+        removeFailedSpaceWebSocketSession({
+          closeCode: 1011,
+          closeReason: "broadcast_send_failed",
+          session,
+          sessions: this.sessions,
+          webSocket,
+        });
+        // Notify remaining members once that this socket broke.
+        const quitSignal = this.buildPresence("presence.quit", session.profile);
         this.publishPresenceSignal(quitSignal);
+        return;
       }
     }
   }
@@ -24606,16 +24645,15 @@ export class Space extends DurableObject<CoreBindings> {
             sourceSignal,
             targetProfileId: execution.targetProfileId,
           });
-          const pendingInteraction =
-            await this.readWakeProgressPendingAgentInteraction({
-              actorOwnerUserId: input.actorOwnerUserId,
-              execution,
-            });
+          const agentInteraction = await this.readWakeProgressAgentInteraction({
+            actorOwnerUserId: input.actorOwnerUserId,
+            execution,
+          });
           return [
             createWakeProgressItem({
               clientMessageId,
               dispatchId: execution.dispatchId,
-              pendingInteraction,
+              pendingInteraction: agentInteraction.pendingInteraction,
               phase: resolveActiveWakeProgressExecutionPhase(execution),
               runtimeCoordinatorExecutionId:
                 execution.runtimeCoordinatorExecutionId,
@@ -24630,7 +24668,10 @@ export class Space extends DurableObject<CoreBindings> {
               targetLabel,
               targetProfileId: execution.targetProfileId,
               terminal: false,
-              updatedAtMs: execution.updatedAtMs,
+              updatedAtMs: Math.max(
+                execution.updatedAtMs,
+                agentInteraction.interactionUpdatedAtMs ?? 0
+              ),
               ...(input.includeWaitReason === true
                 ? { waitReasonCode: execution.waitReasonCode }
                 : {}),
@@ -24916,13 +24957,15 @@ export class Space extends DurableObject<CoreBindings> {
           runtimeCoordinatorExecution.runtimeCoordinatorExecutionId,
       });
     }
-    const pendingInteraction = runtimeCoordinatorExecution
-      ? await this.readWakeProgressPendingAgentInteraction({
+    const agentInteraction = runtimeCoordinatorExecution
+      ? await this.readWakeProgressAgentInteraction({
           actorOwnerUserId: input.actorOwnerUserId,
           execution: runtimeCoordinatorExecution,
         })
       : null;
     return buildWakeProgressItemFromDispatchEvidence({
+      agentInteractionUpdatedAtMs:
+        agentInteraction?.interactionUpdatedAtMs ?? null,
       clientMessageId: input.clientMessageId,
       includeTiming: input.includeTiming === true,
       runningAtMs,
@@ -24931,7 +24974,7 @@ export class Space extends DurableObject<CoreBindings> {
       lookupMatch: input.lookupMatch,
       nativeDeliveryEvidence: input.nativeDeliveryEvidence,
       outboxRecord,
-      pendingInteraction,
+      pendingInteraction: agentInteraction?.pendingInteraction ?? null,
       runtimeDeviceDisplayName,
       runtimeCoordinatorExecutionId:
         runtimeCoordinatorExecution?.runtimeCoordinatorExecutionId ?? null,
@@ -27476,6 +27519,7 @@ function buildWakeProgressItemFromTerminalFailureNotice(input: {
   });
 }
 function buildWakeProgressItemFromDispatchEvidence(input: {
+  agentInteractionUpdatedAtMs?: number | null;
   clientMessageId: string | null;
   includeTiming: boolean;
   runningAtMs: number | null;
@@ -27558,6 +27602,7 @@ function buildWakeProgressItemFromDispatchEvidence(input: {
     targetProfileId: input.lookupMatch.targetProfileId,
     updatedAtMs: Math.max(
       input.nativeDeliveryEvidence?.updatedAtMs ?? 0,
+      input.agentInteractionUpdatedAtMs ?? 0,
       resolveWakeProgressUpdatedAtMs({
         lookupMatch: input.lookupMatch,
         outboxRecord: input.outboxRecord,

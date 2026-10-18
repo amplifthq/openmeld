@@ -844,7 +844,7 @@ export function buildDaemonStopWarningText(
   }
   if (input.reason === "process_timeout") {
     return formatInlineOpenMeldCliCommands(
-      `Service process (pid=${String(input.pid)}) did not exit after ${String(STOP_WAIT_MS)}ms. Run \`openmeld service stop --force\` to kill.`
+      `Service process (pid=${String(input.pid)}) is still finishing its controlled stop after ${String(STOP_WAIT_MS)}ms. Check \`openmeld service status\` before starting it again; run \`openmeld service stop --force\` only if it must stop immediately.`
     );
   }
   const detail = input.errorMessage ? ` ${input.errorMessage}` : "";

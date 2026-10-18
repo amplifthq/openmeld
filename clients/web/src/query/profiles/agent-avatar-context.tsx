@@ -1,5 +1,12 @@
-import type { OrganizationProfileDirectoryResponse } from "@openmeld/schemas/types";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type {
+	CenterAgentUpdateProfileBody,
+	OrganizationProfileDirectoryResponse,
+} from "@openmeld/schemas/types";
+import {
+	useMutationState,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import {
 	createContext,
 	type PropsWithChildren,
@@ -12,6 +19,10 @@ import {
 	centerAgentModelQueryOptions,
 } from "#/query/organizations/center-agent";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
+import {
+	centerAgentAvatarAppearance,
+	centerAgentAvatarMutationKey,
+} from "./agent-avatar";
 import {
 	type AgentAvatarInvalidationScope,
 	subscribeAgentAvatarInvalidations,
@@ -63,19 +74,47 @@ export function AgentAvatarProfilesProvider(
 			organizationId: input.organizationId,
 		})
 	).data;
-	const profiles = useMemo(
-		() =>
-			new Map(
-				directory?.agentProfiles.map((profile) => [profile.profileId, profile])
-			),
-		[directory?.agentProfiles]
-	);
 	const designation = useQuery(
 		centerAgentDesignationQueryOptions({
 			enabled: true,
 			organizationId: input.organizationId,
 		})
 	).data?.designation;
+	// Pending saves are a view over confirmed identity, never writes to its cache.
+	// Filtering the selected key here also handles an Organization switch while pending.
+	const pending = useMutationState({
+		filters: { mutationKey: ["center-agent-avatar-update"], status: "pending" },
+		select: (mutation) => ({
+			key: mutation.options.mutationKey,
+			id: mutation.mutationId,
+			update: mutation.state.variables as CenterAgentUpdateProfileBody,
+		}),
+	});
+	const profiles = useMemo(() => {
+		const entries = new Map(
+			directory?.agentProfiles.map((profile) => [profile.profileId, profile])
+		);
+		if (!designation) {
+			return entries;
+		}
+		const key = centerAgentAvatarMutationKey(
+			input.organizationId,
+			designation.agentProfileId
+		);
+		for (const intent of [...pending].sort((a, b) => a.id - b.id)) {
+			if (intent.key?.[1] !== key[1] || intent.key?.[2] !== key[2]) {
+				continue;
+			}
+			const profile = entries.get(designation.agentProfileId);
+			if (profile && (intent.update.avatar || intent.update.avatarStyle)) {
+				entries.set(profile.profileId, {
+					...profile,
+					...centerAgentAvatarAppearance(intent.update),
+				});
+			}
+		}
+		return entries;
+	}, [directory?.agentProfiles, designation, input.organizationId, pending]);
 	const modelQuery = useQuery({
 		...centerAgentModelQueryOptions({
 			enabled: Boolean(designation),

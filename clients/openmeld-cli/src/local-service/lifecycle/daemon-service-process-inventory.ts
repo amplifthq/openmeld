@@ -7,6 +7,8 @@ import {
   powerShellEncodedArguments,
   resolveWindowsPowerShellPath,
 } from "@openmeld/adapter-core/windows-system";
+import type { DaemonRuntimeLease } from "@openmeld/schemas/types";
+import { readDaemonRuntimeLease } from "../../config/daemon-runtime-lease";
 import { daemonRuntimeRootPath } from "../../config/daemon-state";
 import {
   OPENMELD_HOME_ENV_KEY,
@@ -15,6 +17,10 @@ import {
   resolveOpenMeldEnvPreset,
   resolveOpenMeldRootDir,
 } from "../../config/paths";
+import {
+  type ProcessStartTime,
+  readProcessStartTime,
+} from "../../system/process-identity";
 import {
   containsOpenMeldManagedBinaryPath,
   resolveOpenMeldManagedVersionBinaryRootPath,
@@ -68,6 +74,7 @@ export async function listDaemonOwnedProcesses(
     listProcesses?: () => Promise<ListedProcess[]>;
     ignoreProcessIds?: Iterable<number>;
     pathInput?: OpenMeldPathResolutionInput;
+    readProcessStartTime?: (pid: number) => ProcessStartTime | null;
   } = {}
 ): Promise<DaemonOwnedProcess[]> {
   const listProcesses =
@@ -77,13 +84,25 @@ export async function listDaemonOwnedProcesses(
       (pid): pid is number => Number.isInteger(pid) && pid > 0
     )
   );
-  const processes = await listProcesses();
+  const pathInput = overrides.pathInput ?? {};
+  const [processes, laneRuntimeLease] = await Promise.all([
+    listProcesses(),
+    readLaneRuntimeLease(pathInput),
+  ]);
+  const isLaneRuntimeLeaseOwner = (pid: number) =>
+    isCurrentLaneRuntimeLeaseOwner({
+      lease: laneRuntimeLease,
+      pid,
+      readProcessStartTime:
+        overrides.readProcessStartTime ?? readProcessStartTime,
+    });
   const ownedProcesses = processes
     .map((processInfo) =>
       classifyDaemonOwnedProcess(
         processInfo,
         ignoredProcessIds,
-        overrides.pathInput
+        pathInput,
+        isLaneRuntimeLeaseOwner
       )
     )
     .filter(
@@ -92,10 +111,54 @@ export async function listDaemonOwnedProcesses(
   return collapseLauncherWrapperProcesses(ownedProcesses);
 }
 
+// A custom OPENMELD_HOME is invisible in a repo-local Service command line, so
+// that command alone cannot be attributed to a lane. This lane's runtime lease
+// names its own Service; only that lease can claim such a process.
+async function readLaneRuntimeLease(
+  pathInput: OpenMeldPathResolutionInput
+): Promise<DaemonRuntimeLease | null> {
+  if (!hasExplicitOpenMeldHome(pathInput)) {
+    return null;
+  }
+  return await readDaemonRuntimeLease(pathInput).catch(() => null);
+}
+
+// The lease PID alone is not ownership: a stale lease's PID may now belong to
+// another lane's Service, and this inventory drives takeover and stalled-stop
+// force kills. The Service writes `startedAt` after its own process started,
+// while a process that reused the PID started only after the owner exited.
+// Attribution therefore needs a live process that started no later than the
+// lease, compared at the precision the OS reports: exactly for Windows
+// FILETIME, and by whole second for POSIX `lstart`, where a start within the
+// lease's own second cannot be ordered against it. An unreadable start time
+// fails closed.
+function isCurrentLaneRuntimeLeaseOwner(input: {
+  lease: DaemonRuntimeLease | null;
+  pid: number;
+  readProcessStartTime: (pid: number) => ProcessStartTime | null;
+}): boolean {
+  if (!input.lease || input.lease.pid !== input.pid) {
+    return false;
+  }
+  const leaseStartedAtMs = Date.parse(input.lease.startedAt);
+  const processStart = input.readProcessStartTime(input.pid);
+  if (!(Number.isFinite(leaseStartedAtMs) && processStart)) {
+    return false;
+  }
+  if (processStart.resolutionMs <= 0) {
+    return processStart.startedAtMs <= leaseStartedAtMs;
+  }
+  return (
+    Math.floor(processStart.startedAtMs / processStart.resolutionMs) <=
+    Math.floor(leaseStartedAtMs / processStart.resolutionMs)
+  );
+}
+
 function classifyDaemonOwnedProcess(
   processInfo: ListedProcess,
   ignoredProcessIds: ReadonlySet<number>,
-  pathInput: OpenMeldPathResolutionInput = {}
+  pathInput: OpenMeldPathResolutionInput = {},
+  isLaneRuntimeLeaseOwner: (pid: number) => boolean = () => false
 ): DaemonOwnedProcess | null {
   if (ignoredProcessIds.has(processInfo.pid)) {
     return null;
@@ -130,13 +193,16 @@ function classifyDaemonOwnedProcess(
   ) {
     return null;
   }
-  if (
-    resolveDaemonCommandLaneScope({
-      launcherPath,
-      normalizedCommand,
-      pathInput,
-    }) !== "current_lane"
-  ) {
+  const laneScope = resolveDaemonCommandLaneScope({
+    launcherPath,
+    normalizedCommand,
+    pathInput,
+  });
+  const isLeasedLaneRuntime =
+    laneScope === "not_openmeld" &&
+    isRuntimeProcess &&
+    isLaneRuntimeLeaseOwner(processInfo.pid);
+  if (laneScope !== "current_lane" && !isLeasedLaneRuntime) {
     return null;
   }
   const ownership = resolveDaemonProcessOwnership(
