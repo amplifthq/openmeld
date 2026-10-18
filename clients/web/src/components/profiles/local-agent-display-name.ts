@@ -5,6 +5,7 @@ const LOCAL_AGENT_DISPLAY_NAMES: Readonly<Record<string, string>> = {
 	codex: "Codex",
 	cursor: "Cursor",
 	"grok-build": "Grok Build",
+	"grok-bot": "Grok Bot",
 	opencode: "OpenCode",
 	openclaw: "OpenClaw",
 };

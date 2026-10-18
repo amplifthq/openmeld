@@ -10,14 +10,15 @@ export const LOCAL_AGENT_EXAMPLE_IDS = [
 	"codex",
 	"claude-code",
 	"grok-build",
+	"grok-bot",
 	"opencode",
 	"antigravity",
 	"cursor",
 ] as const;
 
-export const LOCAL_AGENT_STACK_IDS = LOCAL_AGENT_EXAMPLE_IDS.slice(0, 5);
+export const LOCAL_AGENT_STACK_IDS = LOCAL_AGENT_EXAMPLE_IDS.slice(0, 6);
 export const LOCAL_AGENT_STACK_TOOLTIP =
-	"Codex, Claude Code, Grok Build, OpenCode, Antigravity, and Cursor";
+	"Codex, Claude Code, Grok Build, Grok Bot, OpenCode, Antigravity, and Cursor";
 
 /** Examples of supported apps, not the current computer's installation state. */
 export function LocalAgentLogoStack({
