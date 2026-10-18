@@ -412,7 +412,8 @@ Conversation rows leave the preview blank when no message exists, preserving its
 line height so titles and action controls stay aligned. Preview text
 is quieter than the title: dark mode slightly reduces its muted color opacity;
 light mode preserves readable preview contrast and slightly strengthens the
-unselected title instead. Selected and unread titles retain foreground emphasis.
+unselected title instead. Selection uses the row background without changing
+title size or weight, including pinned tiles. Only unread titles use heavier type.
 
 Pinned contains ordinary Spaces, human and Agent direct messages, and Center
 Agent sessions once each. Its shared manual order uses the existing root
@@ -470,6 +471,31 @@ the title without an empty rename slot; hovering reveals the rename icon after
 the chevron with a short opacity/transform transition. Keyboard focus and touch
 also expose rename, and reduced motion disables the transition. Selecting
 history navigates to the exact Space; a new draft omits the redundant New chat action.
+
+The Spaces list shows the viewer's active private sessions with one Center
+Agent as a single entry titled **{display name}’s Center Agent** (plain
+**Center Agent** without a name); with sessions under more than one Center
+Agent, each entry adds that agent's name. The name is the default Human Profile
+name, which the Account display name keeps paired; renaming updates the session,
+Profile, directory and Space member caches optimistically and, if the request
+fails, rolls back only the name. The Center Agent is Organization-owned, so the
+possessive names only the viewer's private sessions. The entry is the session it
+opens: the one with the newest unread message, otherwise the most recently
+active one, so its id, link and unread jump agree; it sorts by the latest
+activity across its sessions. It sums unread, Wake count, Wake statuses, and
+attention evidence across its sessions, and its activity indicator opens the
+session that owns the shown work. A pin, group, or
+manual position saved for any of its sessions applies to the entry; moving or
+unpinning it drops the other sessions' saved positions. While a search is
+active, each session is listed on its own row so a title match opens that
+session.
+Rename and archive stay on the session's title dropdown and header, not the
+entry. Archived sessions keep their own rows in the Archived view. The session
+title dropdown shows only the session title; the sidebar and Center Agent avatar
+provide its identity. The title uses the available header width and truncates
+before the actions. The heading's accessible name stays the session title. Other
+lists that read conversations, such as the command center, keep one row per
+session.
 
 Selecting only Center Agent in New message, or **New chat** in an existing
 Center Agent conversation's title dropdown, opens a local `?draft=new` composer without creating a session or
