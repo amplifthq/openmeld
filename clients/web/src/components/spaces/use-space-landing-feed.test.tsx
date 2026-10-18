@@ -25,6 +25,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { subscribeAgentReadinessInvalidations } from "#/lib/agents/agent-readiness-invalidation-bus";
 import { readRecentReactUpdates } from "#/lib/observability/react-update-trace";
 import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
+import { agentExecutionReadinessQueryKeys } from "#/query/agents/execution-readiness";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import {
 	readSpaceCursorLastSeenTs,
@@ -38,6 +39,7 @@ import {
 } from "#/query/spaces/history";
 import { MissingHistoryAnchorError } from "#/query/spaces/retry";
 import { spaceFileQueryKeys } from "#/query/spaces/space-files";
+import { spaceTaskQueryKeys } from "#/query/spaces/space-tasks";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import { spaceThreadSignalsQueryOptions } from "#/query/spaces/threads";
 import threadReconnectFixture from "./fixtures/thread-reconnect.json";
@@ -137,6 +139,10 @@ class FakeWebSocket {
 
 	async emitAccessRevoked() {
 		await this.emit("close", { code: 1008, reason: "space_access_changed" });
+	}
+
+	async emitClose(code: number, reason: string) {
+		await this.emit("close", { code, reason });
 	}
 
 	async emitMessage(data: unknown) {
@@ -358,6 +364,16 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		const { statusRefetch } = renderFeed();
 		await openLatestSocket();
 		await act(async () => FakeWebSocket.latest.emitAccessRevoked());
+		expect(statusRefetch).toHaveBeenCalledTimes(1);
+	});
+
+	it("refreshes authority when Core closes a session it could not verify", async () => {
+		const { statusRefetch } = renderFeed();
+		await openLatestSocket();
+		await act(async () =>
+			FakeWebSocket.latest.emitClose(1013, "space_access_unverified")
+		);
+		// Do not wait for an accepted reconnect: a revoked viewer never gets one.
 		expect(statusRefetch).toHaveBeenCalledTimes(1);
 	});
 
@@ -1378,6 +1394,196 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		expect(windows.result.current.other.isError).toBe(true);
 		expect(readyRead).toHaveBeenCalledOnce();
 		expect(permanentRead).toHaveBeenCalledOnce();
+	});
+
+	it("cancels in-flight status and member reads before the reconnect refetch", async () => {
+		const { membersRefetch, queryClient, statusRefetch } = renderFeed();
+		await openLatestSocket();
+		const cancelled: string[] = [];
+		const cancelQueries = queryClient.cancelQueries.bind(queryClient);
+		vi.spyOn(queryClient, "cancelQueries").mockImplementation(
+			(filters, options) => {
+				const key = filters?.queryKey;
+				if (key?.[0] === "spaces" && key[1] === "status") {
+					cancelled.push("status");
+				}
+				if (key?.[0] === "spaces" && key[1] === "members") {
+					cancelled.push("members");
+				}
+				return cancelQueries(filters, options);
+			}
+		);
+		const refetchedAfterCancel: string[] = [];
+		statusRefetch.mockImplementation(() => {
+			refetchedAfterCancel.push(
+				cancelled.includes("status") ? "status:cancelled" : "status:shared"
+			);
+			return Promise.resolve(undefined);
+		});
+		membersRefetch.mockImplementation(() => {
+			refetchedAfterCancel.push(
+				cancelled.includes("members") ? "members:cancelled" : "members:shared"
+			);
+			return Promise.resolve(undefined);
+		});
+
+		await act(async () => {
+			await FakeWebSocket.latest.emitClose(1013, "space_access_unverified");
+			await vi.advanceTimersByTimeAsync(2000);
+		});
+		refetchedAfterCancel.length = 0;
+		await openLatestSocket();
+		await flushMicrotasks();
+		await act(async () => vi.advanceTimersByTimeAsync(1000));
+
+		// A first status read may predate the withheld change; it must not be
+		// shared by the reconnect refetch.
+		expect(refetchedAfterCancel).toEqual(
+			expect.arrayContaining(["status:cancelled", "members:cancelled"])
+		);
+		expect(refetchedAfterCancel).not.toContain("status:shared");
+		expect(refetchedAfterCancel).not.toContain("members:shared");
+	});
+
+	it.each([
+		["Tasks", spaceTaskQueryKeys.space("space-123")],
+		["message pins", ["space-message-pins", "space-123"]],
+		["file pins", ["space-file-pins", "space-123"]],
+	] as const)("replaces a %s first load still in flight when a reconnect is accepted", async (_name, queryKey) => {
+		const { queryClient } = renderFeed();
+		await openLatestSocket();
+		let resolveFirstRead!: (value: string) => void;
+		const readTasks = vi
+			.fn<() => Promise<string>>()
+			.mockImplementationOnce(
+				() =>
+					new Promise<string>((resolve) => {
+						resolveFirstRead = resolve;
+					})
+			)
+			.mockResolvedValue("tasks-v2");
+		const mounted = renderHook(
+			() =>
+				useQuery({
+					queryKey,
+					queryFn: readTasks,
+					staleTime: Number.POSITIVE_INFINITY,
+				}),
+			{
+				wrapper: ({ children }: { children: ReactNode }) => (
+					<QueryClientProvider client={queryClient}>
+						{children}
+					</QueryClientProvider>
+				),
+			}
+		);
+		await flushMicrotasks();
+		expect(readTasks).toHaveBeenCalledTimes(1);
+
+		// The first read started before the withheld change and has no data yet.
+		await act(async () => {
+			await FakeWebSocket.latest.emitClose(1013, "space_access_unverified");
+			await vi.advanceTimersByTimeAsync(2000);
+		});
+		await openLatestSocket();
+		await act(async () => {
+			resolveFirstRead("tasks-v1");
+			await vi.advanceTimersByTimeAsync(0);
+		});
+		await flushMicrotasks();
+		await act(async () => vi.advanceTimersByTimeAsync(0));
+
+		expect(readTasks).toHaveBeenCalledTimes(2);
+		expect(mounted.result.current.data).toBe("tasks-v2");
+	});
+
+	it("re-reads mounted Tasks, files, readiness, and chat titles after an accepted reconnect", async () => {
+		vi.stubGlobal("BroadcastChannel", undefined);
+		const onAgentReadinessInvalidated = vi.fn();
+		const unsubscribeReadiness = subscribeAgentReadinessInvalidations(
+			onAgentReadinessInvalidated,
+			{ organizationId: "org-1", storageScope: "account-1" }
+		);
+		const { queryClient } = renderFeed();
+		await openLatestSocket();
+		let version = 1;
+		const readTasks = vi.fn(async () => `tasks-v${version}`);
+		const readFiles = vi.fn(async () => `files-v${version}`);
+		const readReadiness = vi.fn(async () => `readiness-v${version}`);
+		const readChatTitles = vi.fn(async () => `titles-v${version}`);
+		const mounted = renderHook(
+			() => ({
+				chatTitles: useQuery({
+					queryKey: ["center-agent", "org-1", "account-1", "sessions"],
+					queryFn: readChatTitles,
+					staleTime: Number.POSITIVE_INFINITY,
+				}),
+				files: useQuery({
+					queryKey: spaceFileQueryKeys.space("space-123"),
+					queryFn: readFiles,
+					staleTime: Number.POSITIVE_INFINITY,
+				}),
+				readiness: useQuery({
+					queryKey: [
+						...agentExecutionReadinessQueryKeys.batchesForOrganization(
+							"account-1",
+							"org-1"
+						),
+						"agt-1",
+					],
+					queryFn: readReadiness,
+					staleTime: Number.POSITIVE_INFINITY,
+				}),
+				tasks: useQuery({
+					queryKey: spaceTaskQueryKeys.space("space-123"),
+					queryFn: readTasks,
+					staleTime: Number.POSITIVE_INFINITY,
+				}),
+			}),
+			{
+				wrapper: ({ children }: { children: ReactNode }) => (
+					<QueryClientProvider client={queryClient}>
+						{children}
+					</QueryClientProvider>
+				),
+			}
+		);
+		await flushMicrotasks();
+		await act(async () => vi.advanceTimersByTimeAsync(0));
+		expect(mounted.result.current.tasks.data).toBe("tasks-v1");
+		expect(mounted.result.current.files.data).toBe("files-v1");
+
+		// Core withheld an invalidation while it could not verify access, then
+		// closed the socket; the snapshots changed in the meantime.
+		version = 2;
+		await act(async () => {
+			await FakeWebSocket.latest.emitClose(1013, "space_access_unverified");
+			await vi.advanceTimersByTimeAsync(2000);
+		});
+		await openLatestSocket();
+		await flushMicrotasks();
+		await act(async () => vi.advanceTimersByTimeAsync(0));
+
+		expect(mounted.result.current.tasks.data).toBe("tasks-v2");
+		expect(mounted.result.current.files.data).toBe("files-v2");
+		expect(readTasks).toHaveBeenCalledTimes(2);
+		expect(readFiles).toHaveBeenCalledTimes(2);
+		// The withheld frame's Agent Profile IDs and rename reason are gone, so
+		// the reconnect refreshes these projections broadly.
+		expect(mounted.result.current.readiness.data).toBe("readiness-v2");
+		expect(mounted.result.current.chatTitles.data).toBe("titles-v2");
+		expect(readReadiness).toHaveBeenCalledTimes(2);
+		expect(readChatTitles).toHaveBeenCalledTimes(2);
+		// Other tabs learn about readiness only through the shared bus.
+		expect(onAgentReadinessInvalidated).toHaveBeenCalledWith(
+			expect.objectContaining({
+				agentProfileIds: [],
+				reason: "space.live.reconnected",
+				refreshAll: true,
+				spaceId: "space-123",
+			})
+		);
+		unsubscribeReadiness();
 	});
 
 	it.each([

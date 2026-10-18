@@ -22,7 +22,10 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { publishAgentReadinessInvalidationFrame } from "#/lib/agents/agent-readiness-invalidation-bus";
+import {
+	publishAgentReadinessInvalidationFrame,
+	publishAgentReadinessRecovery,
+} from "#/lib/agents/agent-readiness-invalidation-bus";
 import { recordReactUpdate } from "#/lib/observability/react-update-trace";
 import {
 	parseSpaceLiveMessage,
@@ -37,6 +40,7 @@ import {
 	mergeSpaceTimelineEnvelopes,
 	type SpaceLiveState,
 } from "#/lib/spaces/timeline";
+import { refreshWebAgentReadinessSharedCaches } from "#/query/agents/execution-readiness";
 import {
 	accountSpaceQueryKeys,
 	updateAccountSpaceAcceptedMessage,
@@ -989,23 +993,27 @@ export function useSpaceLandingFeed(input: {
 			}
 
 			hasAcceptedLiveSession = true;
-			// A message cursor cannot recover reactions changed on older messages.
-			// Refresh mounted reaction snapshots only after reconnect, not every initial read.
+			// A message cursor cannot recover reactions or pins changed on older
+			// messages, so refresh those snapshots only after reconnect, not every
+			// initial read.
 			if (reconnectKey > 0) {
-				queryClient
-					.invalidateQueries({ queryKey: messageReactionsKey(input.spaceId) })
-					.catch(() => undefined);
-				queryClient
-					.invalidateQueries({
-						predicate: (query) =>
-							(query.queryKey[0] === "space-message-pins" ||
-								query.queryKey[0] === "space-input-queue" ||
-								query.queryKey[0] === "space-file-pins") &&
-							query.queryKey[1] === input.spaceId,
-					})
-					.catch((error) =>
-						console.warn("Failed to refresh Space pins after reconnect.", error)
-					);
+				// Core may withhold invalidations while it cannot verify access and
+				// then close the socket. Re-read every snapshot those frames would
+				// have refreshed, so a reconnect recovers them.
+				refreshLiveInvalidatedSnapshotsAfterReconnect({
+					membersRefetch: input.membersRefetch,
+					membersRefetchTimerRef,
+					openMeldProfileId: input.openMeldProfileId,
+					queryClient,
+					readinessScope: {
+						organizationId: readinessOrganizationId,
+						storageScope: readinessStorageScope,
+					},
+					spaceId: input.spaceId,
+					statusRefetch: input.statusRefetch,
+					statusRefetchTimerRef,
+					wakeProgressRefreshScopeRef,
+				});
 			}
 			readySocketAttemptKeyRef.current = socketAttemptKey;
 			markSubscribed();
@@ -1100,6 +1108,11 @@ export function useSpaceLandingFeed(input: {
 
 			if (event.code === 1008) {
 				clearTransientStreams();
+			}
+			// 1013 means Core could not verify access. If access was really
+			// revoked meanwhile, the reconnect is rejected before any close code
+			// reaches the browser, so re-read access now as for 1008.
+			if (event.code === 1008 || event.code === 1013) {
 				input.statusRefetch().catch((error) => {
 					console.error(
 						"Failed to refresh Space access after session closure",
@@ -1417,12 +1430,163 @@ function handleLiveInvalidationMessage(
 	}
 }
 
+const LIVE_RECONNECT_REFRESH_REASON = "space.live.reconnected";
+
+function refreshLiveInvalidatedSnapshotsAfterReconnect(
+	input: Pick<
+		NonTimelineLiveMessageInput,
+		| "membersRefetch"
+		| "membersRefetchTimerRef"
+		| "openMeldProfileId"
+		| "queryClient"
+		| "readinessScope"
+		| "spaceId"
+		| "statusRefetch"
+		| "statusRefetchTimerRef"
+		| "wakeProgressRefreshScopeRef"
+	>
+): void {
+	// A first load still in flight may predate the withheld change, and an
+	// invalidation would share it instead of reading again. Cancel matching
+	// reads first so every refresh below starts a fresh read.
+	cancelSpaceSnapshotReadsBeforeReconnectRefresh(
+		input.queryClient,
+		input.spaceId
+	)
+		.catch((error: unknown) =>
+			console.warn("Failed to cancel stale Space reads.", error)
+		)
+		.finally(() => {
+			debounceRefetch(input.statusRefetchTimerRef, input.statusRefetch);
+			debounceRefetch(input.membersRefetchTimerRef, input.membersRefetch);
+			input.queryClient
+				.invalidateQueries({ queryKey: messageReactionsKey(input.spaceId) })
+				.catch(() => undefined);
+			input.queryClient
+				.invalidateQueries({
+					predicate: (query) => isSpacePinQuery(query, input.spaceId),
+				})
+				.catch((error) =>
+					console.warn("Failed to refresh Space pins after reconnect.", error)
+				);
+			input.queryClient
+				.invalidateQueries({
+					queryKey: ["spaces", "entry-resolution", input.spaceId],
+				})
+				.catch((error: unknown) =>
+					console.warn("Failed to refresh Space access.", error)
+				);
+			input.queryClient
+				.invalidateQueries({
+					predicate: (query) =>
+						query.queryKey[0] === "spaces" &&
+						query.queryKey[1] === input.spaceId &&
+						query.queryKey.includes("history-navigation"),
+				})
+				.catch((error) =>
+					console.warn("Failed to refresh history navigation.", error)
+				);
+			input.queryClient
+				.invalidateQueries({
+					queryKey: spaceTaskQueryKeys.space(input.spaceId),
+				})
+				.catch((error) =>
+					console.warn("Failed to refresh Space Tasks.", error)
+				);
+			invalidateSpaceMetadata(
+				input.queryClient,
+				input.spaceId,
+				LIVE_RECONNECT_REFRESH_REASON
+			);
+			invalidateSpaceFiles(
+				input.queryClient,
+				input.spaceId,
+				LIVE_RECONNECT_REFRESH_REASON
+			);
+		});
+	invalidateWakeProgress(input, LIVE_RECONNECT_REFRESH_REASON);
+	// A withheld agent.readiness.invalidated frame named its Agent Profiles;
+	// without them, refresh every shared readiness projection in scope.
+	if (
+		input.readinessScope?.organizationId &&
+		input.readinessScope.storageScope
+	) {
+		refreshWebAgentReadinessSharedCaches({
+			includeLocalRuntimeCaches: false,
+			organizationId: input.readinessScope.organizationId,
+			queryClient: input.queryClient,
+			restartInFlightReadinessReads: true,
+			storageScope: input.readinessScope.storageScope,
+		}).catch((error: unknown) =>
+			console.warn("Failed to refresh Agent readiness after reconnect.", error)
+		);
+		// Other tabs learn about readiness only through the shared bus.
+		publishAgentReadinessRecovery({
+			organizationId: input.readinessScope.organizationId,
+			reason: LIVE_RECONNECT_REFRESH_REASON,
+			spaceId: input.spaceId,
+			storageScope: input.readinessScope.storageScope,
+		});
+	}
+}
+
+function isSpacePinQuery(
+	query: { queryKey: readonly unknown[] },
+	spaceId: string
+): boolean {
+	return (
+		(query.queryKey[0] === "space-message-pins" ||
+			query.queryKey[0] === "space-input-queue" ||
+			query.queryKey[0] === "space-file-pins") &&
+		query.queryKey[1] === spaceId
+	);
+}
+
+function cancelSpaceSnapshotReadsBeforeReconnectRefresh(
+	queryClient: QueryClient,
+	spaceId: string
+): Promise<unknown> {
+	return Promise.all([
+		// Status and members may still be on a first read when a message-target
+		// route opens the socket before status is ready.
+		queryClient.cancelQueries({ queryKey: ["spaces", "status", spaceId] }),
+		queryClient.cancelQueries({
+			queryKey: [...spaceQueryKeys.allMembers, spaceId],
+		}),
+		queryClient.cancelQueries({ queryKey: messageReactionsKey(spaceId) }),
+		queryClient.cancelQueries({
+			predicate: (query) => isSpacePinQuery(query, spaceId),
+		}),
+		queryClient.cancelQueries({
+			queryKey: ["spaces", "entry-resolution", spaceId],
+		}),
+		queryClient.cancelQueries({
+			predicate: (query) =>
+				query.queryKey[0] === "spaces" &&
+				query.queryKey[1] === spaceId &&
+				query.queryKey.includes("history-navigation"),
+		}),
+		queryClient.cancelQueries({ queryKey: spaceTaskQueryKeys.space(spaceId) }),
+		queryClient.cancelQueries({ queryKey: spaceFileQueryKeys.space(spaceId) }),
+		queryClient.cancelQueries({ queryKey: accountSpaceQueryKeys.all }),
+		queryClient.cancelQueries({
+			predicate: (query) =>
+				query.queryKey[0] === "center-agent" &&
+				query.queryKey[3] === "sessions",
+		}),
+	]);
+}
+
 function invalidateSpaceMetadata(
 	queryClient: QueryClient,
 	spaceId: string,
 	reason?: string
 ): void {
-	if (reason === "space.name.updated") {
+	// A reconnect cannot tell whether a withheld frame renamed the Space.
+	if (
+		reason === "space.name.updated" ||
+		reason === LIVE_RECONNECT_REFRESH_REASON
+	) {
 		queryClient
 			.invalidateQueries({
 				predicate: (query) =>
