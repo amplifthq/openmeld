@@ -66,9 +66,14 @@ tasks with their chain roots?
    credential and no task credential: one Durable Object RPC, plus one Auth
    batch when tasks are active. Ordinary CLI use, Web, App and task-credential
    calls never read it.
-5. **Calls that present a task credential identify their computer anyway**
-   (the credential's authority scope names `openMeldServiceRuntimeId`), but
-   they are decided by their own chain root (5b), not by the window.
+5. **A task credential rooted at the owner also sits in the window.** Any
+   task of the owner's OS user can read another task's credential file, so
+   while a task with another root runs, an owner-rooted credential asks the
+   owner too. The credential names its Service runtime
+   (`openMeldServiceRuntimeId`), but narrowing the window to that runtime is
+   not safe: dev, canary and production Service lanes on one computer have
+   different runtimes and the same OS user. A colleague-rooted or rootless
+   task credential is rejected outright (5b).
 
 ### Residual risk (accepted, recorded)
 

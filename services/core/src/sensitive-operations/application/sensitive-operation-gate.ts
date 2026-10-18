@@ -169,16 +169,15 @@ async function decideSource(
 ): Promise<Decision> {
   const { caller, credential, request } = input;
   let decision: Decision;
-  let windowRuntimeId: string | null = null;
   if (credential.taskCredential) {
-    const task = await decideTaskCredential(env, {
+    // Any task of the owner's OS user can read another task's credential,
+    // across Service lanes too, so an owner-rooted credential still sits in
+    // the owner-wide risk window (decision 5a0).
+    decision = await decideTaskCredential(env, {
       caller,
       request,
       taskCredential: credential.taskCredential,
     });
-    decision = task.decision;
-    // Another task on the same computer can read this task's credential.
-    windowRuntimeId = task.openMeldServiceRuntimeId;
   } else {
     decision = {
       chainRootProfileId: caller.humanProfileId,
@@ -193,7 +192,7 @@ async function decideSource(
       return decision;
     }
   }
-  const window = await readRiskWindow(env, caller, windowRuntimeId);
+  const window = await readRiskWindow(env, caller);
   if (!window.open) {
     return decision;
   }
@@ -245,7 +244,7 @@ async function decideTaskCredential(
     request: SensitiveOperationRequest;
     taskCredential: NonNullable<RequestCredential["taskCredential"]>;
   }
-): Promise<{ decision: Decision; openMeldServiceRuntimeId: string }> {
+): Promise<Decision> {
   const { caller, request } = input;
   const resolution = taskCredentialResolutionSchema.parse(
     await resolveRuntimeTransportOwnerShard(
@@ -322,10 +321,7 @@ async function decideTaskCredential(
       "Only a task the Agent owner asked for can make this change."
     );
   }
-  return {
-    decision,
-    openMeldServiceRuntimeId: resolution.openMeldServiceRuntimeId,
-  };
+  return decision;
 }
 
 type RiskWindow =
@@ -338,14 +334,12 @@ type RiskWindow =
 
 /**
  * Open when any running task of this owner, for a Profile in this
- * Organization, has a root the owner does not own (decision 5a0). With a
- * runtime, only tasks on that computer count. Fails closed: an unverifiable
- * state counts as open.
+ * Organization, has a root the owner does not own (decision 5a0). Fails
+ * closed: an unverifiable state counts as open.
  */
 async function readRiskWindow(
   env: CoreBindings,
-  caller: Caller,
-  openMeldServiceRuntimeId: string | null
+  caller: Caller
 ): Promise<RiskWindow> {
   const unverifiable: RiskWindow = {
     blockingRootProfileId: null,
@@ -361,13 +355,7 @@ async function readRiskWindow(
   if (response.status === "unavailable") {
     return unverifiable;
   }
-  const executions = openMeldServiceRuntimeId
-    ? response.executions.filter(
-        (execution) =>
-          execution.openMeldServiceRuntimeId === null ||
-          execution.openMeldServiceRuntimeId === openMeldServiceRuntimeId
-      )
-    : response.executions;
+  const { executions } = response;
   if (executions.length === 0) {
     return { open: false };
   }

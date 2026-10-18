@@ -542,7 +542,7 @@ describe("sensitive operation credentials", () => {
     ]);
   });
 
-  it("asks the owner when a colleague's task runs on the same computer as an owner-rooted task", async () => {
+  it("asks the owner when a colleague's task runs next to an owner-rooted task", async () => {
     const f = await seed();
     const change = vi.fn(async () => "changed");
     shard.taskCredential = {
@@ -557,25 +557,22 @@ describe("sensitive operation credentials", () => {
       kind: "cli_credential",
       taskCredential: TASK_CREDENTIAL,
     };
-    // A colleague's task on another computer cannot read this task's files.
-    shard.riskWindow = runningTask({
-      rootProfileId: f.tali.profileId,
-      runtimeId: DESKTOP,
-      targetProfileId: f.agentProfileId,
-    });
-    await expect(setPermissionMode(f, withTask, change)).resolves.toBe(
-      "changed"
-    );
-    // On the same computer it could have borrowed the credential.
-    shard.riskWindow = runningTask({
-      rootProfileId: f.tali.profileId,
-      runtimeId: LAPTOP,
-      targetProfileId: f.agentProfileId,
-    });
-    await expect(
-      setPermissionMode(f, withTask, change, "ask_first")
-    ).rejects.toThrow("credential_confirmation.required");
-    expect(change).toHaveBeenCalledTimes(1);
+    // Another Service lane on the same computer has its own runtime, and its
+    // tasks run as the same OS user: any running colleague task counts.
+    for (const [runtimeId, mode] of [
+      [DESKTOP, "ask_first"],
+      [LAPTOP, "full_access"],
+    ] as const) {
+      shard.riskWindow = runningTask({
+        rootProfileId: f.tali.profileId,
+        runtimeId,
+        targetProfileId: f.agentProfileId,
+      });
+      await expect(
+        setPermissionMode(f, withTask, change, mode)
+      ).rejects.toThrow("credential_confirmation.required");
+    }
+    expect(change).not.toHaveBeenCalled();
     expect((await readAudit(f)).at(-1)).toMatchObject({
       outcome: "confirmation_required",
       source_kind: "task_credential",
