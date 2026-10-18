@@ -1,35 +1,39 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-	cleanup,
-	fireEvent,
-	render,
-	screen,
-	waitFor,
-} from "@testing-library/react";
-import type { ReactNode } from "react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { type ReactNode, useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SpaceCreationRoute } from "./space-creation-conversation";
+import type { PendingSpaceMessage } from "#/lib/spaces/pending-message";
+import {
+	type SpaceCreationHandoff,
+	SpaceCreationRoute,
+} from "./space-creation-conversation";
 
-const { creationState, landingProps, readBootstrap, readProfiles } = vi.hoisted(
-	() => ({
-		creationState: {
-			response: { spaceId: "space-1" } as { spaceId: string } | undefined,
-			status: "success",
-		},
-		landingProps: [] as Record<string, unknown>[],
-		readBootstrap: vi.fn(),
-		readProfiles: vi.fn(),
-	})
-);
+const { creationState, readBootstrap, routeLifecycle } = vi.hoisted(() => ({
+	creationState: {
+		listed: true,
+		response: { spaceId: "space-1" } as { spaceId: string } | undefined,
+		status: "success",
+	},
+	readBootstrap: vi.fn(),
+	routeLifecycle: { mounts: 0, unmounts: 0 },
+}));
 
 const ORGANIZATION = { id: "org-1", slug: "acme" };
 const PROFILE_ID = "hum-owner";
 const SPACE_ID = "space-1";
-const OWNER_PROFILE = {
-	openMeldProfileId: PROFILE_ID,
-	profileKind: "human",
-	status: "active",
-};
+const CREATION_ID = "creating-1";
+const PENDING_KEY = [
+	"space-creation-message",
+	ORGANIZATION.id,
+	PROFILE_ID,
+	CREATION_ID,
+];
+const FOCUS_KEY = [
+	"space-creation-focus",
+	ORGANIZATION.id,
+	PROFILE_ID,
+	CREATION_ID,
+];
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: (input: { children: ReactNode }) => <a href="/">{input.children}</a>,
@@ -45,15 +49,18 @@ vi.mock("#/query/spaces/space-creation", () => ({
 		"space-creation-receipt",
 		...parts,
 	],
-	useSpaceCreations: () => [
-		{
-			input: { creationId: "creating-1", name: "Launch", members: [] },
-			organizationId: ORGANIZATION.id,
-			profileId: PROFILE_ID,
-			response: creationState.response,
-			status: creationState.status,
-		},
-	],
+	useSpaceCreations: () =>
+		creationState.listed
+			? [
+					{
+						input: { creationId: CREATION_ID, name: "Launch", members: [] },
+						organizationId: ORGANIZATION.id,
+						profileId: PROFILE_ID,
+						response: creationState.response,
+						status: creationState.status,
+					},
+				]
+			: [],
 }));
 vi.mock("#/query/spaces/member-additions", () => ({
 	addSpaceDirectoryMembers: vi.fn(),
@@ -70,13 +77,6 @@ vi.mock("#/query/spaces/bootstrap", () => ({
 		queryKey: ["bootstrap", input.spaceId],
 	}),
 }));
-vi.mock("#/query/profiles/profiles", () => ({
-	buildStartProfilesQueryOptions: (input: { storageScope: string }) => ({
-		queryFn: readProfiles,
-		queryKey: ["start", "profiles", input.storageScope],
-		retry: false,
-	}),
-}));
 vi.mock("#/hooks/use-composer-draft", () => ({
 	useComposerDraft: () => ({ content: { text: "" } }),
 }));
@@ -86,36 +86,52 @@ vi.mock("./use-space-composer-attachments", () => ({
 vi.mock("./app-space-shell", () => ({
 	AppSpaceShell: (input: { children: ReactNode }) => <>{input.children}</>,
 }));
-vi.mock("./space-landing", () => ({
-	SpaceLanding: (props: Record<string, unknown>) => {
-		landingProps.push(props);
-		return <div data-testid="space-landing" />;
-	},
-}));
 vi.mock("./space-composer", () => ({ SpaceComposer: () => null }));
 vi.mock("./space-header", () => ({ SpaceWindowHeader: () => null }));
 vi.mock("./space-view-tabs", () => ({ SpaceViewTabs: () => null }));
+
+// Stands in for the regular Space route, which validates the acting Profile
+// and assembles the Space view.
+function RegularRoute() {
+	useEffect(() => {
+		routeLifecycle.mounts += 1;
+		return () => {
+			routeLifecycle.unmounts += 1;
+		};
+	}, []);
+	return <div data-testid="regular-route" />;
+}
 
 function renderRoute(spaceId = SPACE_ID) {
 	const queryClient = new QueryClient({
 		defaultOptions: { queries: { retry: false } },
 	});
-	render(
+	const handoffs: (SpaceCreationHandoff | undefined)[] = [];
+	const tree = (routeSpaceId = spaceId) => (
 		<QueryClientProvider client={queryClient}>
-			<SpaceCreationRoute profileId={PROFILE_ID} spaceId={spaceId}>
-				<div>regular route</div>
+			<SpaceCreationRoute profileId={PROFILE_ID} spaceId={routeSpaceId}>
+				{(handoff) => {
+					handoffs.push(handoff);
+					return <RegularRoute />;
+				}}
 			</SpaceCreationRoute>
 		</QueryClientProvider>
 	);
-	return queryClient;
+	const view = render(tree());
+	return {
+		handoffs,
+		queryClient,
+		rerender: (routeSpaceId?: string) => view.rerender(tree(routeSpaceId)),
+	};
 }
 
 describe("SpaceCreationRoute", () => {
 	beforeEach(() => {
-		landingProps.length = 0;
+		creationState.listed = true;
 		creationState.response = { spaceId: SPACE_ID };
 		creationState.status = "success";
-		readProfiles.mockReset();
+		routeLifecycle.mounts = 0;
+		routeLifecycle.unmounts = 0;
 		readBootstrap.mockReset();
 		readBootstrap.mockImplementation((spaceId: string) =>
 			Promise.resolve({ spaceId })
@@ -126,69 +142,140 @@ describe("SpaceCreationRoute", () => {
 		vi.restoreAllMocks();
 	});
 
-	it("opens the created Space with the account Profiles its member actions need", async () => {
-		readProfiles.mockResolvedValue([OWNER_PROFILE]);
-		renderRoute();
+	it("opens the created Space through the regular route with only the handoff inputs", async () => {
+		const { handoffs } = renderRoute();
 
-		await screen.findByTestId("space-landing");
-		// Removing or adding members confirms the acting Human from this list;
-		// without it the handoff tab reported "could not confirm your current
-		// profile" while a fresh tab succeeded.
-		expect(landingProps.at(-1)).toMatchObject({
-			accountProfiles: [OWNER_PROFILE],
-			profileId: PROFILE_ID,
-			spaceId: SPACE_ID,
+		await screen.findByTestId("regular-route");
+		const handoff = handoffs.at(-1);
+		// Profile validation, account Profiles, focus targets, and Organization
+		// context belong to the regular route, so the handoff adds none of them.
+		expect(Object.keys(handoff ?? {}).sort()).toEqual([
+			"composerDraftMigrationScopes",
+			"initialPendingMessage",
+			"initialSpaceView",
+			"onComposerReady",
+			"onInitialPendingMessageConsumed",
+		]);
+		expect(handoff).toMatchObject({
+			composerDraftMigrationScopes: [
+				{
+					kind: "space",
+					ownerAccountId: "account-1",
+					profileId: PROFILE_ID,
+					spaceId: CREATION_ID,
+				},
+			],
+			initialSpaceView: "messages",
 		});
 	});
 
-	it("waits for the account Profiles before opening the Space", async () => {
-		readProfiles.mockReturnValue(new Promise(() => undefined));
-		const queryClient = renderRoute();
+	it("carries the staged message and composer selection into the regular route", async () => {
+		const message: PendingSpaceMessage = {
+			clientMessageId: "message-1",
+			createdAtMs: 1,
+			fileDrafts: [],
+			files: [],
+			text: "Kickoff notes",
+		};
+		const selection = { start: 3, end: 3 };
+		const { handoffs, queryClient } = renderRoute();
+		queryClient.setQueryData(PENDING_KEY, message);
+		queryClient.setQueryData(FOCUS_KEY, selection);
 
-		// The Space itself is ready; only the account Profiles are pending.
+		await screen.findByTestId("regular-route");
+		await waitFor(() =>
+			expect(handoffs.at(-1)?.initialPendingMessage).toEqual(message)
+		);
+
+		const composer = { selectTextRange: vi.fn() };
+		act(() => {
+			handoffs.at(-1)?.onComposerReady?.(composer as never);
+		});
+		await waitFor(() =>
+			expect(composer.selectTextRange).toHaveBeenCalledWith(selection)
+		);
+		expect(queryClient.getQueryData(FOCUS_KEY)).toBeNull();
+
+		act(() => {
+			handoffs.at(-1)?.onInitialPendingMessageConsumed?.();
+		});
+		expect(queryClient.getQueryData(PENDING_KEY)).toBeNull();
+	});
+
+	it("keeps the regular route mounted after the handoff", async () => {
+		vi.spyOn(console, "error").mockImplementation(() => undefined);
+		const { queryClient, rerender } = renderRoute();
+		await screen.findByTestId("regular-route");
+
+		// The sidebar retires the receipt and a later bootstrap read fails; the
+		// opened conversation must not fall back to preparation and remount.
+		creationState.listed = false;
+		readBootstrap.mockRejectedValue(new Error("bootstrap unavailable"));
+		await act(async () => {
+			await queryClient
+				.refetchQueries({ queryKey: ["bootstrap", SPACE_ID] })
+				.catch(() => undefined);
+		});
+		rerender();
+
+		expect(screen.getByTestId("regular-route")).toBeTruthy();
+		expect(routeLifecycle).toEqual({ mounts: 1, unmounts: 0 });
+	});
+
+	it("keeps the preparation conversation until the created Space is ready", async () => {
+		creationState.response = undefined;
+		creationState.status = "pending";
+		const { handoffs } = renderRoute(CREATION_ID);
+
+		await screen.findByText("Preparing…");
+		expect(screen.queryByTestId("regular-route")).toBeNull();
+		expect(handoffs).toHaveLength(0);
+		expect(readBootstrap).not.toHaveBeenCalled();
+	});
+
+	it("renders the regular route without a handoff for another Space", async () => {
+		const { handoffs } = renderRoute("space-2");
+
+		await screen.findByTestId("regular-route");
+		expect(handoffs).toEqual([undefined]);
+	});
+
+	it("keeps preparing while the route still names the creation request", async () => {
+		const { handoffs, queryClient } = renderRoute(CREATION_ID);
+
+		// Creation, bootstrap, and admission are confirmed, but the replace
+		// navigation to the canonical Space has not landed (or failed). The
+		// regular route would read the `creating-` id as a Space and migrate the
+		// creation draft onto its own scope.
 		await waitFor(() =>
 			expect(queryClient.getQueryState(["bootstrap", SPACE_ID])?.status).toBe(
 				"success"
 			)
 		);
-		expect(screen.queryByTestId("space-landing")).toBeNull();
-		expect(landingProps).toHaveLength(0);
+		expect(screen.getByText("Preparing…")).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Open Space" })).toBeTruthy();
+		expect(screen.queryByTestId("regular-route")).toBeNull();
+		expect(handoffs).toHaveLength(0);
 	});
 
-	it("does not report an opening failure before creation is confirmed", async () => {
-		vi.spyOn(console, "error").mockImplementation(() => undefined);
-		creationState.response = undefined;
-		creationState.status = "pending";
-		readProfiles.mockRejectedValue(new Error("profiles unavailable"));
-		const queryClient = renderRoute("creating-1");
-
-		// The Profiles read has failed while creation is still pending.
+	it("opens the regular route once the route names the created Space", async () => {
+		const { handoffs, queryClient, rerender } = renderRoute(CREATION_ID);
 		await waitFor(() =>
-			expect(
-				queryClient.getQueryState(["start", "profiles", "account-1"])?.status
-			).toBe("error")
+			expect(queryClient.getQueryState(["bootstrap", SPACE_ID])?.status).toBe(
+				"success"
+			)
 		);
-		expect(
-			screen.queryByText("couldn't be opened", { exact: false })
-		).toBeNull();
-		expect(screen.queryByRole("button", { name: "Retry opening" })).toBeNull();
-	});
+		expect(handoffs).toHaveLength(0);
 
-	it("offers to retry when the account Profiles cannot be read", async () => {
-		vi.spyOn(console, "error").mockImplementation(() => undefined);
-		readProfiles
-			.mockRejectedValueOnce(new Error("profiles unavailable"))
-			.mockResolvedValue([OWNER_PROFILE]);
-		renderRoute();
+		rerender(SPACE_ID);
 
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Retry opening" })
-		);
-
-		await screen.findByTestId("space-landing");
-		expect(readProfiles).toHaveBeenCalledTimes(2);
-		expect(landingProps.at(-1)).toMatchObject({
-			accountProfiles: [OWNER_PROFILE],
+		await screen.findByTestId("regular-route");
+		expect(handoffs.at(-1)).toMatchObject({
+			composerDraftMigrationScopes: [
+				expect.objectContaining({ spaceId: CREATION_ID }),
+			],
+			initialSpaceView: "messages",
 		});
+		expect(routeLifecycle).toEqual({ mounts: 1, unmounts: 0 });
 	});
 });

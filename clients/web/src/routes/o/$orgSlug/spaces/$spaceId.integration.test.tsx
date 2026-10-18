@@ -4,8 +4,8 @@ import type {
 	SpaceBootstrapResponse,
 } from "@openmeld/schemas/types";
 import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { type ComponentProps, type ReactNode, useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createInitialStartFlowState,
@@ -937,10 +937,137 @@ describe("app space entry route", () => {
 		expect(spaceLandingMock).not.toHaveBeenCalled();
 		expect(appSpaceShellMock).toHaveBeenCalled();
 	});
+
+	it("opens a created Space with the creation handoff and the route's own inputs", async () => {
+		let allowEntry: (value: unknown) => void = () => undefined;
+		resolveSpaceEntryMock.mockReturnValue(
+			new Promise((resolve) => {
+				allowEntry = resolve;
+			})
+		);
+		const lifecycle = { mounts: 0, unmounts: 0 };
+		spaceLandingMock.mockImplementation(() => {
+			useEffect(() => {
+				lifecycle.mounts += 1;
+				return () => {
+					lifecycle.unmounts += 1;
+				};
+			}, []);
+			return <div data-testid="space-landing" />;
+		});
+		const onComposerReady = vi.fn();
+		const onInitialPendingMessageConsumed = vi.fn();
+		const pendingMessage = {
+			clientMessageId: "message-1",
+			createdAtMs: 1,
+			text: "Kickoff notes",
+		};
+
+		// The tab that created the Space follows a notification into one of its
+		// threads: the regular route supplies the focus targets and Profiles.
+		renderAppSpaceEntry({
+			focusInteractionId: "interaction-1",
+			focusRequestId: "request-1",
+			focusSignalId: "signal-2",
+			focusThreadRootSignalId: "signal-1",
+			handoff: {
+				composerDraftMigrationScopes: [
+					{
+						kind: "space",
+						ownerAccountId: "user-123",
+						profileId: "profile-123",
+						spaceId: "creating-1",
+					},
+				],
+				initialPendingMessage: pendingMessage,
+				initialSpaceView: "messages",
+				onComposerReady,
+				onInitialPendingMessageConsumed,
+			},
+			profileId: "profile-123",
+			selectedHumanProfileId: "profile-123",
+			spaceId: "space-123",
+		});
+
+		await screen.findByTestId("space-landing");
+		expect(spaceLandingMock).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				accountProfiles: [
+					expect.objectContaining({ openMeldProfileId: "profile-123" }),
+				],
+				composerDraftMigrationScopes: [
+					expect.objectContaining({ spaceId: "creating-1" }),
+				],
+				initialFocusInteractionId: "interaction-1",
+				initialFocusRequestId: "request-1",
+				initialFocusSignalId: "signal-2",
+				initialFocusThreadRootSignalId: "signal-1",
+				initialPendingMessage: pendingMessage,
+				initialSpaceView: "messages",
+				isPersonalContext: false,
+				onComposerReady,
+				onInitialPendingMessageConsumed,
+				profileId: "profile-123",
+				spaceId: "space-123",
+			}),
+			undefined
+		);
+
+		// Access confirmation must keep the staged draft's conversation mounted.
+		await act(async () => {
+			allowEntry({
+				participation: { state: "active_member" },
+				recovery: null,
+				safeContext: {
+					organizationId: "org-acme",
+					organizationSlug: "acme",
+					spaceName: "Shared Space",
+				},
+				target: { spaceId: "space-123" },
+				view: { experience: "member", state: "allowed" },
+			});
+			await Promise.resolve();
+		});
+		await waitFor(() => expect(resolveSpaceEntryMock).toHaveBeenCalledTimes(1));
+		expect(screen.getByTestId("space-landing")).toBeTruthy();
+		expect(lifecycle).toEqual({ mounts: 1, unmounts: 0 });
+	});
+
+	it("does not open a created Space as an inactive acting Profile", async () => {
+		listStartProfilesMock.mockResolvedValue([
+			createProfile({
+				openMeldProfileId: "current-human",
+				isDefault: true,
+			}),
+			createProfile({
+				openMeldProfileId: "former-human",
+				status: "disabled",
+			}),
+		]);
+
+		renderAppSpaceEntry({
+			handoff: { initialSpaceView: "messages" },
+			profileId: "former-human",
+			selectedHumanProfileId: "current-human",
+			spaceId: "space-123",
+		});
+
+		await waitFor(() => {
+			expect(navigateMock).toHaveBeenCalledWith({
+				params: { orgSlug: "acme", spaceId: "space-123" },
+				replace: true,
+				search: { profileId: "current-human" },
+				to: "/o/$orgSlug/spaces/$spaceId",
+			});
+		});
+		expect(spaceLandingMock).not.toHaveBeenCalled();
+	});
 });
 
 function renderAppSpaceEntry(input: {
 	focusInteractionId?: string;
+	focusRequestId?: string;
+	handoff?: ComponentProps<typeof AppSpaceEntryContent>["handoff"];
 	focusSignalId?: string;
 	focusThreadRootSignalId?: string;
 	navigationSurface?: "directMessages" | "spaces";
@@ -963,8 +1090,10 @@ function renderAppSpaceEntry(input: {
 				<AppSpaceEntryContent
 					{...(input.profileId ? { profileId: input.profileId } : {})}
 					focusInteractionId={input.focusInteractionId}
+					focusRequestId={input.focusRequestId}
 					focusSignalId={input.focusSignalId}
 					focusThreadRootSignalId={input.focusThreadRootSignalId}
+					handoff={input.handoff}
 					navigationSurface={input.navigationSurface}
 					orgSlug="acme"
 					spaceId={input.spaceId}

@@ -6,6 +6,8 @@ areas: ["spaces"]
 audiences: ["users"]
 ---
 
-Removing a member from a Space you just created now works in the same tab.
-Previously it failed with "OpenMeld could not confirm your current profile"
-until you reloaded the page or opened the Space in another tab.
+A Space you just created now behaves the same in that tab as anywhere else.
+Removing a member no longer fails with "OpenMeld could not confirm your current
+profile", and a notification or link to a thread in that Space opens the thread
+instead of staying on the main conversation. Previously both needed a page
+reload or another tab.
