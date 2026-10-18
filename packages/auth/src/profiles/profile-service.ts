@@ -430,10 +430,13 @@ export function createOpenMeldProfileService(
       throw new ProfileNotFoundError();
     }
 
-    // A detected MemberAgent's default Profile is named after its Harness.
+    // A MemberAgent's default Profile is named after its Harness and is not
+    // editable (program §4.2), whether it was detected or migrated.
     if (
-      existing.source === "auto_detected" &&
-      existing.profileName !== input.profileName
+      existing.profileName !== input.profileName &&
+      (existing.source === "auto_detected" ||
+        (existing.memberAgentId !== null &&
+          (await repository.isMemberAgentDefaultProfile(existing.profileId))))
     ) {
       throw new ProfileValidationError(
         "This Agent is named after its harness and cannot be renamed.",

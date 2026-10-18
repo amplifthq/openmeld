@@ -21,6 +21,11 @@ import {
 } from "#/test-support/member-agent-fixtures";
 import { MemberAgentDetail } from "./member-agent-detail";
 import { buildMemberAgentDirectory } from "./member-agent-directory-model";
+import {
+	MemberAgentHarnessLock,
+	useMemberAgentHarnessLocked,
+	useMemberAgentProfileNameLocked,
+} from "./member-agent-harness-lock";
 import { buildMemberAgentIndex } from "./member-agent-index";
 
 vi.mock("#/lib/member-agents/member-agents-feature", () => ({
@@ -225,5 +230,36 @@ describe("Agents list for a migrated member", () => {
 		expect(
 			within(profiles).getByText("Felix Lu’s Claude Code · PR Reviewer")
 		).toBeTruthy();
+	});
+
+	it("locks the default Profile's name and every assigned Profile's harness", async () => {
+		function Probe() {
+			return (
+				<output>
+					{`harness:${useMemberAgentHarnessLocked()} name:${useMemberAgentProfileNameLocked()}`}
+				</output>
+			);
+		}
+		const client = seededClient();
+		render(
+			<QueryClientProvider client={client}>
+				<MemberAgentHarnessLock profileId="agt-claude-default">
+					<Probe />
+				</MemberAgentHarnessLock>
+				<MemberAgentHarnessLock profileId="agt-claude-reviewer">
+					<Probe />
+				</MemberAgentHarnessLock>
+				<MemberAgentHarnessLock profileId="agt-custom">
+					<Probe />
+				</MemberAgentHarnessLock>
+			</QueryClientProvider>
+		);
+		expect(
+			(await screen.findAllByRole("status")).map((node) => node.textContent)
+		).toEqual([
+			"harness:true name:true",
+			"harness:true name:false",
+			"harness:false name:false",
+		]);
 	});
 });

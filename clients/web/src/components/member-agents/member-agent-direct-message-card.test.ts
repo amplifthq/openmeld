@@ -17,6 +17,8 @@ function entry(
 	} as SpaceMemberDirectoryEntry;
 }
 
+const FAILURE_WORD_PATTERN = /fail/i;
+
 const memberAgentName = "Felix Lu’s Claude Code";
 
 describe("MemberAgent Direct Message card", () => {
@@ -101,5 +103,35 @@ describe("MemberAgent Direct Message card", () => {
 				reason: { code: "computer_offline" },
 			})
 		).toMatchObject({ kind: "offline" });
+	});
+
+	it("asks for a working folder before the first task, not after a failure", () => {
+		const missing = entry({
+			availabilityCategory: "unavailable",
+			availabilityReasonCode: "profile.workspace.missing",
+			availabilitySummary: "Choose a working folder for this Agent.",
+		});
+		expect(
+			resolveMemberAgentDirectMessageCard({
+				entry: missing,
+				memberAgentName,
+				modelCatalog: null,
+				hasMessages: false,
+			})
+		).toEqual({
+			kind: "repair",
+			title: "Felix Lu’s Claude Code needs a working folder",
+			description: "Choose a working folder before its first task.",
+		});
+		const card = resolveMemberAgentDirectMessageCard({
+			entry: missing,
+			memberAgentName,
+			modelCatalog: null,
+			hasMessages: true,
+		});
+		expect(card).toMatchObject({
+			description: "Choose a working folder before its next task.",
+		});
+		expect(JSON.stringify(card)).not.toMatch(FAILURE_WORD_PATTERN);
 	});
 });

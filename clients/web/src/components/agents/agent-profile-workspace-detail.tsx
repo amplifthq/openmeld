@@ -50,6 +50,7 @@ import type {
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import { AgentProfileConversationsSection } from "#/components/directory/agent-conversations-section";
+import { useMemberAgentProfileNameLocked } from "#/components/member-agents/member-agent-harness-lock";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
@@ -1013,6 +1014,8 @@ function AgentProfileNameEditor(input: {
 	onRenameProfile: (profileName: string) => Promise<void>;
 	profileName: string;
 }) {
+	const nameLocked = useMemberAgentProfileNameLocked();
+	const canEdit = input.canEdit && !nameLocked;
 	const [open, setOpen] = useState(false);
 	const [draftName, setDraftName] = useState(input.profileName);
 	const [isSaving, setIsSaving] = useState(false);
@@ -1037,7 +1040,7 @@ function AgentProfileNameEditor(input: {
 			{input.profileName}
 		</h1>
 	);
-	if (!input.canEdit) {
+	if (!canEdit) {
 		return (
 			<div className="flex min-w-0 items-center gap-1.5">
 				{heading}
