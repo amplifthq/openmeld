@@ -169,6 +169,14 @@ It exposes `tsc6`, not `tsc`; do not replace workspace type checks with `tsc6`.
 Repository-owned AST and transpilation scripts import `@typescript/typescript6`
 explicitly and declare it in their owning package.
 
+The compatibility wrapper's version is not the underlying compiler API version:
+`@typescript/typescript6@6.0.2` currently resolves its `@typescript/old` dependency
+to TypeScript 6.0.3 in the lockfile. Use frozen installs to preserve that resolution.
+tsdown's declaration plugin also uses this API; bundled declarations remain on
+TypeScript 6 while workspace checks and direct `tsc` emission use TypeScript 7.
+The tsdown 0.23 migration includes Rolldown 1.2 and its declaration plugin, so
+bundle chunk names and counts can change even when public imports stay the same.
+
 Use `pnpm exec tsc --version` to check the active compiler. Reading the version
 from `typescript/package.json` reports the compatibility API package instead.
 Keep emitting projects' `rootDir` explicit to preserve package entrypoints.
