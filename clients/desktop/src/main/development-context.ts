@@ -39,6 +39,8 @@ export function applyDesktopDevelopmentContext(
     OPENMELD_DESKTOP_PILOT: "1",
     OPENMELD_DEV_LANE_ID: context.laneId,
     OPENMELD_ENV_PRESET: context.preset,
+    OPENMELD_AUTH_CLIENT_ID:
+      context.preset === "dev-local" ? "openmeld-cli-dev" : "openmeld-cli",
     OPENMELD_HOME: home,
     OPENMELD_BIN: cli,
     OPENMELD_USER_FACING_CLI_COMMAND: cli,
