@@ -57,6 +57,7 @@ const useIsoLayoutEffect =
 type MenuAppearance = {
   /** Use both coordinates for compact grids of navigation targets. */
   hoverAxis?: "x" | "y" | "xy";
+  hoverMaxDistance?: number;
   activeIndicatorClassName?: string;
   hoverIndicatorClassName?: string;
   focusIndicatorClassName?: string;
@@ -170,6 +171,7 @@ function useMenuScope(
     focusIndicatorClassName,
     indicatorTargetSelector,
     hoverAxis = "y",
+    hoverMaxDistance,
   }: MenuAppearance = {}
 ): MenuScope {
   const reduceMotion = useReducedMotion();
@@ -183,6 +185,7 @@ function useMenuScope(
     isMeasured,
   } = useFluidHover(containerRef, {
     axis: hoverAxis,
+    maxDistance: hoverMaxDistance,
     gapClick: false,
     isItemDisabled: rowHidden,
   });
@@ -702,6 +705,7 @@ const SidebarMenu = forwardRef<HTMLUListElement, SidebarMenuProps>(
       focusIndicatorClassName,
       indicatorTargetSelector,
       hoverAxis,
+      hoverMaxDistance,
       ...props
     },
     ref
@@ -716,6 +720,7 @@ const SidebarMenu = forwardRef<HTMLUListElement, SidebarMenuProps>(
         focusIndicatorClassName,
         indicatorTargetSelector,
         hoverAxis,
+        hoverMaxDistance,
       }
     );
 
