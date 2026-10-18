@@ -84,6 +84,7 @@ import {
 import { SpaceUnreadLink } from "./space-unread-link";
 
 type ConversationSidebarRowProps = {
+	layout?: "grid" | "list";
 	showMessagePreviews?: boolean;
 	attentionTone: "danger" | "warning" | null;
 	index: number;
@@ -243,8 +244,8 @@ function renderConversationPreview(
 	);
 }
 
-function conversationRowClassName(pinned: boolean, hasPreviewLine: boolean) {
-	if (pinned) {
+function conversationRowClassName(grid: boolean, hasPreviewLine: boolean) {
+	if (grid) {
 		return "group/chat relative [&>[data-sidebar=menu-actions]]:top-1 [&>[data-sidebar=menu-actions]]:right-0 [&>[data-sidebar=menu-badge]]:top-10 [&>[data-sidebar=menu-badge]]:right-1";
 	}
 	return hasPreviewLine
@@ -257,7 +258,9 @@ const ConversationSidebarRowContent = memo(
 		input: SortableConversationSidebarRowProps & ConversationRowPreview
 	) {
 		const { timestamp, previewText } = input;
-		const pinned = input.section === "pinned";
+		const grid =
+			(input.layout ?? (input.section === "pinned" ? "grid" : "list")) ===
+			"grid";
 		const rowAnchor = useRef<HTMLDivElement>(null);
 		const presentation = input.activeWakeSummary
 			? resolveSpaceActiveWakePresentation(input.activeWakeSummary)
@@ -272,7 +275,7 @@ const ConversationSidebarRowContent = memo(
 		const { drag } = input;
 		const row = (
 			<FluidNavMenuItem
-				className={conversationRowClassName(pinned, !!hasPreviewLine)}
+				className={conversationRowClassName(grid, !!hasPreviewLine)}
 				index={input.index}
 				ref={drag.ref}
 				style={drag.style}
@@ -282,14 +285,14 @@ const ConversationSidebarRowContent = memo(
 					actionLayout="heading"
 					asChild
 					className={
-						pinned
+						grid
 							? "h-auto px-1 [&_[data-sidebar=menu-heading]]:pr-0!"
 							: "h-auto pl-1"
 					}
 					isActive={input.selected}
 				>
 					<div
-						className={`relative flex w-full min-w-0 items-center ${pinned ? "min-h-22 flex-col justify-center gap-1.5 px-1 py-2 text-xs" : "min-h-12 gap-1 px-1 py-1.5 text-sm"} ${input.selected ? "text-sidebar-accent-foreground" : "text-muted-foreground"}`}
+						className={`relative flex w-full min-w-0 items-center ${grid ? "min-h-26 flex-col justify-center gap-1.5 px-1 py-2 text-xs" : "min-h-12 gap-1 px-1 py-1.5 text-sm"} ${input.selected ? "text-sidebar-accent-foreground" : "text-muted-foreground"}`}
 						ref={rowAnchor}
 					>
 						<Tooltip>
@@ -315,7 +318,7 @@ const ConversationSidebarRowContent = memo(
 								<ConversationIcon
 									conversation={input.conversation}
 									memberAppearances={input.memberAppearances}
-									pinned={pinned}
+									pinned={grid}
 									summary={input.activeWakeSummary}
 									title={input.title}
 								/>
@@ -331,7 +334,7 @@ const ConversationSidebarRowContent = memo(
 						</Tooltip>
 						<span className="pointer-events-none contents">
 							<span
-								className={`flex min-w-0 flex-col gap-0.5 ${pinned ? "w-full flex-none text-center" : "flex-1"}`}
+								className={`flex min-w-0 flex-col gap-0.5 ${grid ? "w-full flex-none text-center" : "flex-1"}`}
 							>
 								<span
 									className="flex min-w-0 items-center gap-2"
@@ -339,7 +342,7 @@ const ConversationSidebarRowContent = memo(
 								>
 									<span className="flex min-w-0 flex-1 items-center gap-1.5">
 										<span
-											className={`min-w-0 flex-1 text-foreground ${pinned ? "line-clamp-2 break-words leading-4" : "truncate"} ${hasUnread ? "font-semibold" : "font-normal"}`}
+											className={`min-w-0 flex-1 text-foreground ${grid ? "line-clamp-2 break-words leading-4" : "truncate"} ${hasUnread ? "font-semibold" : "font-normal"}`}
 											data-conversation-title="true"
 										>
 											{input.title}
@@ -349,7 +352,7 @@ const ConversationSidebarRowContent = memo(
 												<SpaceDeletedLabel />
 											)}
 									</span>
-									{!pinned && timestamp !== null && !presentation && (
+									{!grid && timestamp !== null && !presentation && (
 										<ConversationSidebarRowTime timestamp={timestamp} />
 									)}
 									{presentation && input.attentionTone && (
@@ -360,7 +363,7 @@ const ConversationSidebarRowContent = memo(
 										/>
 									)}
 								</span>
-								{!pinned &&
+								{!grid &&
 									hasPreviewLine &&
 									renderConversationPreview(
 										input,
@@ -654,7 +657,7 @@ function ConversationIcon(input: {
 		return (
 			<SpaceMemberAvatars
 				appearances={input.memberAppearances}
-				compactSize={input.pinned ? 32 : 24}
+				compactSize={input.pinned ? 48 : 24}
 				members={members}
 			/>
 		);
@@ -662,7 +665,7 @@ function ConversationIcon(input: {
 	return (
 		<ChatCircleTextIcon
 			aria-label="Space"
-			className={input.pinned ? "size-8 shrink-0" : "size-6 shrink-0"}
+			className={input.pinned ? "size-12 shrink-0" : "size-6 shrink-0"}
 		/>
 	);
 }
@@ -694,7 +697,7 @@ export function ChatIcon(input: {
 				profileId={input.chat.centerAgentProfileId}
 				profileName={input.chat.centerAgentProfileName}
 				size={
-					({ card: 56, sidebar: 28, sm: 24, md: 48, pinned: 32 } as const)[
+					({ card: 56, sidebar: 28, sm: 24, md: 48, pinned: 48 } as const)[
 						input.size ?? "sm"
 					]
 				}

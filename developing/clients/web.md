@@ -170,6 +170,14 @@ searches, presence, or read receipts. The verified create response replaces it
 with the canonical Space route without adding a history entry. Directory
 refresh runs independently and cannot delay entry.
 
+The creation conversation stays mounted on the canonical Space route in the
+tab that created it and renders the regular Space view there. It reads the same
+account Profiles as the regular route and opens the Space only once they are
+available, because member removal and addition confirm the acting Human from
+that list; a profile read failure uses the same "couldn't be opened" retry as a
+bootstrap failure. It does not yet apply the regular route's active-Human
+redirect or pass its focus targets.
+
 Text and attachments use the existing composer draft owners. Sending during
 preparation stages one message with a stable client message ID. The regular
 Space composer publishes it only after bootstrap confirms access; creation
@@ -427,10 +435,14 @@ sidebar preference; ordinary pin membership remains Space Index-owned and
 session pins remain in `chats` preferences. New pins appear first without changing
 the existing pinned order, including entries hidden by filters. Dragging still
 uses the chosen drop position. Unpin restores the saved group.
-Pinned uses 32px avatars for single profiles and member composites, with two to
-five columns based on the available grid width. Tiles target at least 60px of
-width, with 4px gaps. Its compact tiles retain two lines
-for names and expose additional rows through the existing disclosure control.
+Pinned defaults to Grid: 48px avatars above two-line names, with two to four
+columns targeting at least 76px per tile and 4px gaps. Additional rows use the
+existing disclosure control. The Pinned header's Layout menu switches between
+Grid and ordinary List rows without changing pin membership or manual order.
+The browser preference store saves this choice per Human Profile and Organization.
+Its settings action appears while the whole section is hovered or contains focus,
+while the menu is open, and on touch devices. Grid hover bridges small gaps but
+clears across empty last-row cells. List retains ordinary previews and timestamps.
 Spaces, People, and Agents are optional filters. The plus menu offers New message
 and New Space. The adjacent View and filters menu holds separate Conversation
 view and Filter conversations submenus. The Spaces title remains the link to
