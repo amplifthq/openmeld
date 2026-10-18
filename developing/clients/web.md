@@ -171,11 +171,12 @@ with the canonical Space route without adding a history entry. Directory
 refresh runs independently and cannot delay entry.
 
 The creation conversation stays mounted on the canonical Space route in the
-tab that created it, so it must give the regular Space view the same inputs as
-the regular route. In particular it reads the account Profiles and opens the
-Space only once they are available, because member removal and addition
-confirm the acting Human from that list; a profile read failure uses the same
-"couldn't be opened" retry as a bootstrap failure.
+tab that created it and renders the regular Space view there. It reads the same
+account Profiles as the regular route and opens the Space only once they are
+available, because member removal and addition confirm the acting Human from
+that list; a profile read failure uses the same "couldn't be opened" retry as a
+bootstrap failure. It does not yet apply the regular route's active-Human
+redirect or pass its focus targets.
 
 Text and attachments use the existing composer draft owners. Sending during
 preparation stages one message with a stable client message ID. The regular
