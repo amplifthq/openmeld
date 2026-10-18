@@ -731,6 +731,7 @@ import {
   type GetAgentExecutionReadinessInput,
   type GetAgentProfileControllerChangeEligibilityInput,
   type GetAgentProfileCreationDefaultsInput,
+  type GetAgentProfileFoldersInput,
   type GetAgentProfilePrimaryBindingInput,
   type GetCenterAgentDesignationInput,
   type GetCenterAgentDirectMessageSpaceProjectionInput,
@@ -967,6 +968,7 @@ import {
   rpcGetAgentExecutionReadinessBatch,
   rpcGetAgentProfileControllerChangeEligibility,
   rpcGetAgentProfileCreationDefaults,
+  rpcGetAgentProfileFolders,
   rpcGetAgentProfilePrimaryBinding,
   rpcGetCenterAgentDesignation,
   rpcGetCenterAgentDirectMessageSpaceProjection,
@@ -4504,6 +4506,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcGetCurrentAgentProfileWorkspace(this.env, input)
     );
   }
+  getAgentProfileFolders(input: GetAgentProfileFoldersInput) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetAgentProfileFolders(this.env, input)
+    );
+  }
   setCurrentAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput
   ): Promise<SetCurrentAgentProfileWorkspaceResponse> {
@@ -5636,6 +5643,9 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   }
   getCurrentAgentProfileWorkspace(input: GetCurrentAgentProfileWorkspaceInput) {
     return super.getCurrentAgentProfileWorkspace(input);
+  }
+  getAgentProfileFolders(input: GetAgentProfileFoldersInput) {
+    return super.getAgentProfileFolders(input);
   }
   setCurrentAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput

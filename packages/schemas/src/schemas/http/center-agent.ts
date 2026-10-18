@@ -25,6 +25,10 @@ import {
   profileWorkspaceModeSchema,
 } from "../protocol/profile";
 import {
+  profileFolderIdSchema,
+  profileFolderProjectionSchema,
+} from "../protocol/profile-folders";
+import {
   agentTaskCompletionConditionSchema,
   agentTaskCompletionObservationSchema,
   agentTaskHandleSchema,
@@ -1546,6 +1550,8 @@ export const centerAgentUpdateAgentProfileRuntimeSettingsBodySchema = z
     agentControllerPermissionMode:
       agentProfileBindingAgentControllerPermissionModeSchema.optional(),
     agentProfileId: agentProfileIdSchema,
+    // A folder id from the owner's folder list; never a path.
+    defaultFolderId: profileFolderIdSchema.optional(),
     modelId: trimmedNonEmptyStringSchema.optional(),
     onBehalfOf: centerAgentOnBehalfOfInputSchema.optional(),
     openCodePermission: agentProfileBindingOpenCodePermissionSchema.optional(),
@@ -1557,6 +1563,7 @@ export const centerAgentUpdateAgentProfileRuntimeSettingsBodySchema = z
     if (
       value.agentControllerCollaborationMode === undefined &&
       value.agentControllerPermissionMode === undefined &&
+      value.defaultFolderId === undefined &&
       value.modelId === undefined &&
       value.openCodePermission === undefined &&
       value.reasoningLevel === undefined &&
@@ -1566,6 +1573,16 @@ export const centerAgentUpdateAgentProfileRuntimeSettingsBodySchema = z
       ctx.addIssue({
         code: "custom",
         message: "Expected at least one runtime setting",
+      });
+    }
+    if (
+      value.defaultFolderId !== undefined &&
+      value.workspaceMode !== undefined
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Choose either defaultFolderId or workspaceMode, not both",
+        path: ["defaultFolderId"],
       });
     }
     if (value.reasoningLevel !== undefined && value.modelId === undefined) {
@@ -1589,6 +1606,7 @@ export const centerAgentUpdateAgentProfileRuntimeSettingsBodySchema = z
 
 export const centerAgentCheckAgentProfileReadinessBodySchema = z.strictObject({
   includeDefaultProjectConnection: z.boolean().optional(),
+  includeFolders: z.boolean().optional(),
   agentProfileId: agentProfileIdSchema,
   onBehalfOf: centerAgentOnBehalfOfInputSchema.optional(),
 });
@@ -1663,6 +1681,14 @@ export const centerAgentCheckAgentProfileReadinessResponseSchema =
         ]),
         checkedAtMs: z.number().int().nonnegative().nullable(),
         configurationVersion: nullableTrimmedStringSchema,
+        reasonCode: nullableTrimmedStringSchema,
+      })
+      .optional(),
+    // Requested with includeFolders. Folder ids and names only, never paths.
+    folders: z
+      .strictObject({
+        status: z.enum(["current", "recorded", "unavailable"]),
+        projection: profileFolderProjectionSchema.nullable(),
         reasonCode: nullableTrimmedStringSchema,
       })
       .optional(),

@@ -1,5 +1,6 @@
 import * as z from "zod/v4";
 import { repositoryFingerprintSchema } from "../http/projects";
+import { profileFolderIdSchema } from "./profile-folders";
 
 const reference = z.string().trim().min(1).max(2048);
 // Local workspace owner facts, not client-selected paths or Computer policy.
@@ -44,8 +45,12 @@ export const executionContextProjectWorkSchema = z.strictObject({
     .regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u)
     .optional(),
 });
+// A Service-minted folder id of the target Profile, never a path. Core keeps
+// it only when the Profile owner requested the work.
+const folderId = profileFolderIdSchema.optional();
 const preferences = {
   access: executionContextAccessSchema.optional(),
+  folderId,
   projectWork: executionContextProjectWorkSchema.optional(),
   workspace: workspace.optional(),
 };
@@ -83,6 +88,8 @@ export const executionContextAssignmentSchema = z
     id: z.string().uuid(),
     scope: executionContextScopeSchema,
     access: executionContextAccessSchema,
+    // Absent: the Profile's default folder, as before folders existed.
+    folderId,
     projectWork: executionContextProjectWorkSchema.optional(),
     // Absent on retained tasks: their original folder boundary still applies.
     permissionSource: z.literal("agent_settings").optional(),
@@ -100,6 +107,8 @@ export const executionContextAssignmentSchema = z
         completedHistoryId: reference.optional(),
         runtimeWorkspaceFingerprint: reference,
         workspace,
+        // The source's own folder, so a fork may continue in another one.
+        folderId,
       })
       .optional(),
   })

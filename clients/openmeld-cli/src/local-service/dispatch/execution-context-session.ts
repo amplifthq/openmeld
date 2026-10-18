@@ -129,6 +129,8 @@ export async function prepareExecutionContextConversation(input: {
   context?: ExecutionContextTask;
   unscopedNativeConversationId: string | null;
   currentWorkingDirectory: string;
+  /** Set when a fork continues in another folder than its source. */
+  forkSourceWorkingDirectory?: string;
   workingDirectory: string;
   existingNativeConversationId: string | null;
   ledgerRootPath: string;
@@ -173,7 +175,7 @@ export async function prepareExecutionContextConversation(input: {
     sourceWorkspace?.workingDirectory ??
     (await realpath(
       source.workspace === "current"
-        ? input.currentWorkingDirectory
+        ? (input.forkSourceWorkingDirectory ?? input.currentWorkingDirectory)
         : (sourceWorkspace?.workingDirectory ??
             join(
               input.ledgerRootPath,

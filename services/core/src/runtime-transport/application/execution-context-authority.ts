@@ -708,6 +708,9 @@ function forkCheckpoint(
     ...(completedHistoryId ? { completedHistoryId } : {}),
     workspace: source.context.assignment.workspace,
     runtimeWorkspaceFingerprint,
+    ...(source.context.assignment.folderId
+      ? { folderId: source.context.assignment.folderId }
+      : {}),
   };
 }
 
@@ -741,7 +744,10 @@ function createContext(
         } as const)
       : {};
   const preferences: Partial<
-    Pick<ExecutionContextAssignment, "access" | "projectWork" | "workspace">
+    Pick<
+      ExecutionContextAssignment,
+      "access" | "folderId" | "projectWork" | "workspace"
+    >
   > =
     selection.mode === "resume" ? {} : { ...implicitPreferences, ...selection };
   if (
@@ -760,6 +766,10 @@ function createContext(
     selection.mode === "fork"
       ? source?.context.assignment.projectWork
       : (preferences.projectWork ?? source?.context.assignment.projectWork);
+  // Explicit choice, then the continued or forked Session's folder. Without
+  // either the Service uses the Profile default, as before folders existed.
+  // A fork with a new folderId is "continue in another folder".
+  const folderId = preferences.folderId ?? source?.context.assignment.folderId;
   return {
     assignment: {
       version: 1,
@@ -773,6 +783,7 @@ function createContext(
         source?.context.assignment.access ??
         "space_context",
       ...(projectWork ? { projectWork } : {}),
+      ...(folderId ? { folderId } : {}),
       workspace: preferences.workspace ?? forkSource?.workspace ?? "isolated",
       ...(forkSource ? { forkSource } : {}),
     },
@@ -818,6 +829,7 @@ function assertContextPreferences(
       "execution_context.project_work_requires_workspace_access"
     );
   }
+  assertAssignmentFolder(assignment);
   if (
     assignment.access === "space_context" &&
     assignment.workspace !== "isolated"
@@ -850,12 +862,34 @@ function assertContextPreferences(
       "execution_context.workspace_changed_requires_new_task"
     );
   }
+  if (selection.folderId && selection.folderId !== assignment.folderId) {
+    throw new ExecutionContextSelectionError(
+      "execution_context.folder_changed_requires_new_task"
+    );
+  }
   if (
     selection.projectWork &&
     !matchesSelectedProjectWork(selection.projectWork, assignment.projectWork)
   ) {
     throw new ExecutionContextSelectionError(
       "execution_context.project_work_changed_requires_new_task"
+    );
+  }
+}
+
+/** A folder is a user folder: no Space-only work, no Project repository. */
+function assertAssignmentFolder(assignment: ExecutionContextAssignment): void {
+  if (!assignment.folderId) {
+    return;
+  }
+  if (assignment.access === "space_context") {
+    throw new ExecutionContextSelectionError(
+      "execution_context.folder_requires_workspace_access"
+    );
+  }
+  if (assignment.projectWork) {
+    throw new ExecutionContextSelectionError(
+      "execution_context.folder_conflicts_with_project_work"
     );
   }
 }

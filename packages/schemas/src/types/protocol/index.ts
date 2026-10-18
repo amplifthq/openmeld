@@ -57,6 +57,7 @@ export type {
   ProfileWorkspaceOrigin,
   ProfileWorkspaceReadResult,
 } from "./profile";
+export type * from "./profile-folders";
 export type {
   SignalText,
   SignalTextData,

@@ -7,10 +7,12 @@ import type {
   RuntimeTransportDeliveryExecutionIdentity,
 } from "@openmeld/schemas/types";
 import { listProjectConnectionsWithStatus } from "../../agent-activity/project-bindings";
+import { resolveCurrentOpenMeldAccountContext } from "../../config/account-context";
 import {
   resolveCurrentEffectiveProfileWorkingFolderRuntime,
   resolveEffectiveProfileWorkingFolderRuntime,
 } from "../../profile-workspace/effective-runtime-resolution";
+import { resolveProfileFolderRuntimeForAccount } from "../../profile-workspace/folders";
 import {
   type ProviderRuntimePreparationDetails,
   prepareProviderRuntime,
@@ -208,6 +210,14 @@ export async function resolveDispatchWorkingFolderRuntimeContext(input: {
       input.ownerUserId
     );
   }
+  if (input.executionContext?.folderId) {
+    return await resolveSelectedProfileFolder({
+      folderId: input.executionContext.folderId,
+      organizationId: input.executionContext.scope.organizationId,
+      ownerUserId: input.ownerUserId,
+      targetProfileId: input.targetProfileId,
+    });
+  }
   if (workingFolderRuntime.status !== "ready") {
     const reasonCode =
       observedFact.reasonCode ??
@@ -217,6 +227,74 @@ export async function resolveDispatchWorkingFolderRuntimeContext(input: {
     throw new DaemonServiceRunError({ code: reasonCode, message: reasonCode });
   }
   return workingFolderRuntime.runtimeContext;
+}
+
+/**
+ * The folder a fork reads its source conversation from, when the fork
+ * continues in another folder. A source that ran in the current folder used
+ * its own folder id, or the Profile default when it had none.
+ */
+export async function resolveForkSourceWorkingDirectory(input: {
+  executionContext?: ExecutionContextTask;
+  ownerUserId?: string;
+  routeConfig: DaemonProfileRouteConfig | null;
+  targetProfileId: string;
+}): Promise<string | undefined> {
+  const context = input.executionContext;
+  const source = context?.forkSource;
+  if (
+    !(context && source) ||
+    source.workspace !== "current" ||
+    (source.folderId ?? null) === (context.folderId ?? null)
+  ) {
+    return;
+  }
+  if (source.folderId) {
+    return (
+      await resolveSelectedProfileFolder({
+        folderId: source.folderId,
+        organizationId: context.scope.organizationId,
+        ownerUserId: input.ownerUserId,
+        targetProfileId: input.targetProfileId,
+      })
+    ).providerRuntimeWorkingDirectory;
+  }
+  const defaultFolder = input.routeConfig?.workingFolderRuntime;
+  if (defaultFolder?.status !== "ready") {
+    throw new DaemonServiceRunError({
+      code: "profile.workspace.missing",
+      message:
+        "profile.workspace.missing: the source session's default folder is not available on this computer.",
+    });
+  }
+  return defaultFolder.runtimeContext.providerRuntimeWorkingDirectory;
+}
+
+/** An unknown folder id fails closed; it never falls back to another folder. */
+async function resolveSelectedProfileFolder(input: {
+  folderId: string;
+  organizationId: string;
+  ownerUserId?: string;
+  targetProfileId: string;
+}): Promise<ProviderDispatchRuntimeContext> {
+  const resolution = await resolveProfileFolderRuntimeForAccount({
+    account: (await resolveCurrentOpenMeldAccountContext()).key,
+    folderId: input.folderId,
+    mode: "dispatch",
+    openMeldProfileId: input.targetProfileId,
+    organizationId: input.organizationId,
+    ...(input.ownerUserId ? { ownerUserId: input.ownerUserId } : {}),
+  });
+  if (resolution.status === "ready") {
+    return resolution.runtimeContext;
+  }
+  throw new DaemonServiceRunError({
+    code: resolution.reasonCode,
+    message: `${resolution.reasonCode}: ${resolution.reasonText}`,
+    ...(resolution.projectFailureContext
+      ? { projectFailureContext: resolution.projectFailureContext }
+      : {}),
+  });
 }
 
 async function resolveSpaceOnlyWorkingFolder(

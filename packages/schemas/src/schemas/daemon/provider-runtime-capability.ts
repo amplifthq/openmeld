@@ -46,6 +46,8 @@ export const providerRuntimeCapabilityDeclarationSchema = z.strictObject({
       z.literal(3),
       z.literal(4),
       z.literal(5),
+      // 6: resolves an assignment's folderId (Profile folders).
+      z.literal(6),
     ])
     .optional(),
   streamingCapability: providerRuntimeStreamingCapabilitySchema,

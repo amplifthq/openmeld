@@ -13,6 +13,8 @@ import {
   getAgentExecutionReadinessBatchResponseSchema,
   getAgentExecutionReadinessResponseSchema,
   getAgentProfileControllerChangeEligibilityResponseSchema,
+  getAgentProfileFoldersResponseSchema,
+  getAgentProfileFoldersRouteParamsSchema,
   getAgentProfilePrimaryBindingResponseSchema,
   notifyAgentProfileRouteCatalogChangedBodySchema,
   notifyAgentProfileRouteCatalogChangedResponseSchema,
@@ -43,6 +45,8 @@ const AGENT_PROFILE_CONTROLLER_CHANGE_ELIGIBILITY_ROUTE =
   "/v1/agent-profiles/:agentProfileId/controller-change-eligibility";
 const AGENT_PROFILE_DEFAULT_PROJECT_ROUTE =
   "/v1/agent-profiles/:agentProfileId/default-project";
+const AGENT_PROFILE_FOLDERS_ROUTE =
+  "/v1/agent-profiles/:agentProfileId/folders";
 const AGENT_PROFILE_BINDING_MODEL_SELECTION_ROUTE =
   "/v1/agent-profiles/:agentProfileId/primary-binding/model-selection";
 const AGENT_PROFILE_BINDING_AGENT_CONTROLLER_PERMISSION_MODE_ROUTE =
@@ -192,6 +196,39 @@ export function registerAgentProfileBindingRoutes(
         }),
     });
   });
+
+  app.get(
+    AGENT_PROFILE_FOLDERS_ROUTE,
+    async (c, next) => {
+      await next();
+      c.header("Cache-Control", "no-store");
+    },
+    (c) => {
+      const routeParams = getAgentProfileFoldersRouteParamsSchema.safeParse({
+        agentProfileId: c.req.param("agentProfileId"),
+      });
+      if (!routeParams.success) {
+        return respondBadRequest({
+          c,
+          route: AGENT_PROFILE_FOLDERS_ROUTE,
+          method: "GET",
+          code: "invalid_payload",
+          message: "Invalid Agent Profile id.",
+        });
+      }
+      return executeRpcRoute({
+        c,
+        route: AGENT_PROFILE_FOLDERS_ROUTE,
+        method: "GET",
+        responseSchema: getAgentProfileFoldersResponseSchema,
+        execute: () =>
+          c.var.coreRpc.getAgentProfileFolders({
+            agentProfileId: routeParams.data.agentProfileId,
+            context: buildCoreRpcContext(c),
+          }),
+      });
+    }
+  );
 
   app.patch(AGENT_PROFILE_DEFAULT_PROJECT_ROUTE, async (c) => {
     const routeParams =

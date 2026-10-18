@@ -553,6 +553,11 @@ export {
   openMeldDaemonMentionDispatchStatusSchema,
 } from "./daemon/mention-dispatch-result";
 export {
+  openMeldDaemonManageProfileFoldersPayloadSchema,
+  openMeldDaemonManageProfileFoldersRequestPayloadSchema,
+  profileFolderProjectionRecordSchema,
+} from "./daemon/profile-folder-control";
+export {
   openMeldActorContextSchema,
   openMeldProfileIdSchema,
   openMeldRequestContextSchema,
@@ -747,6 +752,7 @@ export {
   runtimeTransportLocalAgentControlForkSessionFramePayloadSchema,
   runtimeTransportLocalAgentControlInterruptFramePayloadSchema,
   runtimeTransportLocalAgentControlManageInstallationFramePayloadSchema,
+  runtimeTransportLocalAgentControlManageProfileFoldersFramePayloadSchema,
   runtimeTransportLocalAgentControlReadProfileWorkspaceFramePayloadSchema,
   runtimeTransportLocalAgentControlRefreshCatalogFramePayloadSchema,
   runtimeTransportLocalAgentControlResultFramePayloadSchema,
@@ -760,6 +766,8 @@ export {
   runtimeTransportLookupRoutesBatchResponseSchema,
   runtimeTransportManageLocalAgentInstallationRequestSchema,
   runtimeTransportManageLocalAgentInstallationResponseSchema,
+  runtimeTransportManageProfileFoldersRequestSchema,
+  runtimeTransportManageProfileFoldersResponseSchema,
   runtimeTransportNotifyRouteCatalogChangedRequestSchema,
   runtimeTransportNotifyRouteCatalogChangedResponseSchema,
   runtimeTransportOpenMeldToolsControlFramePayloadSchema,
@@ -769,6 +777,8 @@ export {
   runtimeTransportPreExecutionHandoffReasonCodeSchema,
   runtimeTransportPreExecutionHandoffRequestSchema,
   runtimeTransportPreExecutionHandoffResponseSchema,
+  runtimeTransportReadProfileFolderProjectionRequestSchema,
+  runtimeTransportReadProfileFolderProjectionResponseSchema,
   runtimeTransportReadProfileWorkspaceRequestSchema,
   runtimeTransportReadProfileWorkspaceResponseSchema,
   runtimeTransportRefreshLocalAgentCatalogRequestSchema,
@@ -1110,6 +1120,10 @@ export {
   runtimeTransportAgentProfileExecutionModeRequestSchema,
   updateAgentProfileExecutionModeBodySchema,
 } from "./http/agent-profile-execution-mode";
+export {
+  getAgentProfileFoldersResponseSchema,
+  getAgentProfileFoldersRouteParamsSchema,
+} from "./http/agent-profile-folders";
 export {
   RECONCILE_DELETED_AGENT_PROFILE_MAX_SPACES,
   reconcileDeletedAgentProfileRequestSchema,
@@ -3012,6 +3026,17 @@ export {
   profileWorkspaceReadResultSchema,
   uuidProfileIdSchema,
 } from "./protocol/profile";
+export {
+  MAX_PROFILE_FOLDER_DISPLAY_NAME_LENGTH,
+  MAX_PROFILE_FOLDERS,
+  profileFolderDisplayNameSchema,
+  profileFolderIdSchema,
+  profileFolderKindSchema,
+  profileFolderOperationReasonCodeSchema,
+  profileFolderOperationSchema,
+  profileFolderProjectionEntrySchema,
+  profileFolderProjectionSchema,
+} from "./protocol/profile-folders";
 export { serverErrorFrameSchema } from "./protocol/server-error";
 export {
   AGENT_REPLY_FINAL_PURPOSE,

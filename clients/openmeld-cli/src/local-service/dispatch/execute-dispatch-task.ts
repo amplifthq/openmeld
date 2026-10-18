@@ -86,6 +86,7 @@ import {
   type DispatchRuntimePreparation,
   prepareDispatchRuntimeExecution,
   resolveDispatchWorkingFolderRuntimeContext,
+  resolveForkSourceWorkingDirectory,
 } from "../../local-service/execution/dispatch-runtime-preparation";
 import { toTaskExecutionError as toTaskExecutionErrorInternal } from "../../local-service/execution/task-execution-error";
 import { buildDispatchOwnedRuntimeEnv } from "../../runtime/dispatch-owned-runtime";
@@ -1425,6 +1426,12 @@ export async function handleDispatchDeliverFrame(input: {
         unscopedNativeConversationId: effectiveAgentControllerConversationId,
         context: parsedTask.executionContext,
         currentWorkingDirectory: originalWorkingDirectory,
+        forkSourceWorkingDirectory: await resolveForkSourceWorkingDirectory({
+          executionContext: parsedTask.executionContext,
+          ownerUserId: input.profileOwnerUserId,
+          routeConfig,
+          targetProfileId: parsedTask.targetProfileId,
+        }),
         workingDirectory: activeRuntimeContext.providerRuntimeWorkingDirectory,
         existingNativeConversationId: existingContextId,
         ledgerRootPath: input.ledgerPaths.rootDirPath,
