@@ -92,6 +92,11 @@ describe("command check requirements", () => {
     for (const entryName of [
       "member_agents.list",
       "member_agents.show",
+      "member_agents.sessions.list",
+      "member_agents.sessions.rename",
+      "member_agents.sessions.archive",
+      "member_agents.sessions.restore",
+      "member_agents.sessions.delete",
       "routines.list",
       "routines.create",
       "routines.show",

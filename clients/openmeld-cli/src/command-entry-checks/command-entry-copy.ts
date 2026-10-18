@@ -174,6 +174,36 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     cliUpdateAction: "showing an Agent",
     serviceAction: null,
   },
+  "member_agents.sessions.list": {
+    signInAction: "listing your Sessions",
+    profileAction: null,
+    cliUpdateAction: "listing your Sessions",
+    serviceAction: null,
+  },
+  "member_agents.sessions.rename": {
+    signInAction: "renaming a Session",
+    profileAction: null,
+    cliUpdateAction: "renaming a Session",
+    serviceAction: null,
+  },
+  "member_agents.sessions.archive": {
+    signInAction: "archiving a Session",
+    profileAction: null,
+    cliUpdateAction: "archiving a Session",
+    serviceAction: null,
+  },
+  "member_agents.sessions.restore": {
+    signInAction: "restoring a Session",
+    profileAction: null,
+    cliUpdateAction: "restoring a Session",
+    serviceAction: null,
+  },
+  "member_agents.sessions.delete": {
+    signInAction: "deleting a Session",
+    profileAction: null,
+    cliUpdateAction: "deleting a Session",
+    serviceAction: null,
+  },
   "routines.menu": {
     signInAction: "managing Routines",
     profileAction: null,

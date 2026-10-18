@@ -714,6 +714,26 @@ openmeld agents show <agent-id> --view agent
 openmeld agents disable --agent <agent-id> --view agent
 ```
 
+### `openmeld session`
+
+List and manage your Direct Message Sessions with one of your Agents. One
+Session is one Direct Message Space. Available only when OpenMeld enables
+Agents grouped by harness; otherwise each command reports that and changes
+nothing.
+
+```bash
+openmeld session list --agent <agent> --view agent
+openmeld session list --agent <agent> --profile <profile-id> --limit 50 --view agent
+openmeld session rename <space-id> "<title>" --view agent
+openmeld session archive <space-id> --view agent
+openmeld session restore <space-id> --view agent
+openmeld session delete <space-id> --yes --view agent
+```
+
+`--agent` takes an Agent ID, harness, or Agent name from `openmeld agent list`.
+Core decides who may change a Session; only its human member can. `delete` is
+permanent and requires `--yes` in Agent View.
+
 ### `openmeld computer`
 
 Name or inspect this computer in OpenMeld.

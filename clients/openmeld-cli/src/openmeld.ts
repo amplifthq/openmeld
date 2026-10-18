@@ -163,6 +163,13 @@ import {
   runAgentList,
   runAgentShow,
 } from "./member-agents/command";
+import {
+  runSessionArchive,
+  runSessionDelete,
+  runSessionList,
+  runSessionRename,
+  runSessionRestore,
+} from "./member-agents/session-command";
 import { emitStartupAgentOverviewForCommand } from "./openmeld-agent-overview";
 import {
   runStartFromCliOptions,
@@ -5256,6 +5263,20 @@ program
 
 // Hidden from help while the MemberAgent release flag is off; running it then
 // prints the not-enabled message without calling Auth.
+async function runMemberAgentCommand(input: {
+  routeTokens: string[];
+  view?: string;
+  run: () => Promise<void>;
+}): Promise<void> {
+  // While the flag is off, skip the sign-in entry check: the handler only
+  // prints the not-enabled message and must not contact Auth first.
+  if (!MEMBER_AGENTS_ENABLED) {
+    await input.run();
+    return;
+  }
+  await runCommandWithEntryChecks(input);
+}
+
 const memberAgentCmd = program
   .command("agent", { hidden: !MEMBER_AGENTS_ENABLED })
   .description("See your Agents: one per harness, with their Agent Profiles.");
@@ -5268,7 +5289,7 @@ memberAgentCmd
   )
   .action(async () => {
     const view = getGlobalViewOption();
-    await runCommandWithEntryChecks({
+    await runMemberAgentCommand({
       routeTokens: ["agent", "list"],
       view,
       run: () => runAgentList({ view }),
@@ -5281,10 +5302,99 @@ memberAgentCmd
   .argument("<agent>", "Agent ID, harness (such as codex), or Agent name")
   .action(async (memberAgent: string) => {
     const view = getGlobalViewOption();
-    await runCommandWithEntryChecks({
+    await runMemberAgentCommand({
       routeTokens: ["agent", "show"],
       view,
       run: () => runAgentShow({ memberAgent, view }),
+    });
+  });
+
+// Agent Direct Message Sessions, behind the same MemberAgent release flag.
+const sessionCmd = program
+  .command("session", { hidden: !MEMBER_AGENTS_ENABLED })
+  .description(
+    "See and manage your Direct Message Sessions with one of your Agents."
+  );
+
+sessionCmd
+  .command("list")
+  .alias("ls")
+  .description("List your Sessions with an Agent, grouped by Agent Profile.")
+  .requiredOption(
+    "--agent <agent>",
+    "Agent ID, harness (such as codex), or Agent name"
+  )
+  .option("--profile <profileId>", "Only this Agent Profile's Sessions")
+  .option(
+    "--limit <n>",
+    "Sessions per state and Profile, 1 to 100 (default 20)"
+  )
+  .action(async (opts: { agent: string; profile?: string; limit?: string }) => {
+    const view = getGlobalViewOption();
+    await runMemberAgentCommand({
+      routeTokens: ["session", "list"],
+      view,
+      run: () =>
+        runSessionList({
+          memberAgent: opts.agent,
+          ...(opts.profile === undefined ? {} : { profile: opts.profile }),
+          ...(opts.limit === undefined ? {} : { limit: opts.limit }),
+          view,
+        }),
+    });
+  });
+
+sessionCmd
+  .command("rename")
+  .description("Rename one of your Sessions.")
+  .argument("<spaceId>", "Session ID (its Direct Message Space ID)")
+  .argument("<title>", "New Session title")
+  .action(async (spaceId: string, title: string) => {
+    const view = getGlobalViewOption();
+    await runMemberAgentCommand({
+      routeTokens: ["session", "rename"],
+      view,
+      run: () => runSessionRename({ spaceId, title, view }),
+    });
+  });
+
+sessionCmd
+  .command("archive")
+  .description("Archive one of your Sessions. Restore it at any time.")
+  .argument("<spaceId>", "Session ID (its Direct Message Space ID)")
+  .action(async (spaceId: string) => {
+    const view = getGlobalViewOption();
+    await runMemberAgentCommand({
+      routeTokens: ["session", "archive"],
+      view,
+      run: () => runSessionArchive({ spaceId, view }),
+    });
+  });
+
+sessionCmd
+  .command("restore")
+  .description("Restore one of your archived Sessions.")
+  .argument("<spaceId>", "Session ID (its Direct Message Space ID)")
+  .action(async (spaceId: string) => {
+    const view = getGlobalViewOption();
+    await runMemberAgentCommand({
+      routeTokens: ["session", "restore"],
+      view,
+      run: () => runSessionRestore({ spaceId, view }),
+    });
+  });
+
+sessionCmd
+  .command("delete")
+  .description("Permanently delete one of your Sessions and its messages.")
+  .argument("<spaceId>", "Session ID (its Direct Message Space ID)")
+  .option("-y, --yes", "Delete without asking (required in Agent View)")
+  .action(async (spaceId: string, opts: { yes?: boolean }) => {
+    const view = getGlobalViewOption();
+    await runMemberAgentCommand({
+      routeTokens: ["session", "delete"],
+      view,
+      run: () => runSessionDelete({ spaceId, yes: opts.yes === true, view }),
     });
   });
 

@@ -24,7 +24,7 @@ import {
   readMemberAgentListing,
 } from "./read";
 
-class MemberAgentNotFoundError extends MemberAgentCommandError {
+export class MemberAgentNotFoundError extends MemberAgentCommandError {
   constructor(selector: string) {
     super({
       code: "member_agents.not_found",
