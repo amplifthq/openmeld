@@ -17438,7 +17438,101 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ]).toEqual([expect.objectContaining({ resolution_status: "resolved" })]);
   });
 
-  it("tells the open Space about a new interaction without waiting for a poll", async () => {
+  it("tells the open Space about a new interaction once per Service connection", async () => {
+    const {
+      hub,
+      sentFrames,
+      socket,
+      spaceStub,
+      state,
+      storageRecords,
+      waitUntilTasks,
+    } = await createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    enableLocalAgentInteraction(state);
+    const sendInteractionRequest = async (
+      overrides: Partial<RuntimeTransportDispatchInteractionRequest> = {}
+    ) => {
+      spaceStub.rpcBroadcastWakeProgressChanged.mockClear();
+      await (
+        hub as unknown as {
+          handleDispatchInteractionRequestFrame: (
+            webSocket: WebSocket,
+            payload: unknown
+          ) => Promise<void>;
+        }
+      ).handleDispatchInteractionRequestFrame(
+        socket,
+        buildInteractionRequest(executionToken, overrides)
+      );
+      await Promise.all(waitUntilTasks);
+    };
+
+    await sendInteractionRequest();
+    expect(spaceStub.rpcBroadcastWakeProgressChanged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentProfileIds: [TARGET_AGENT_PROFILE_ID],
+        reason: "runtime_coordinator.wake_progress_changed",
+        spaceId: HEX_SPACE_ID,
+      })
+    );
+
+    // The Service heartbeat replays the unanswered request on the same
+    // connection; nothing changed, so open Spaces are not asked to refetch.
+    for (let replay = 0; replay < 2; replay += 1) {
+      await sendInteractionRequest();
+      expect(spaceStub.rpcBroadcastWakeProgressChanged).not.toHaveBeenCalled();
+    }
+
+    // After a reconnect the replay re-announces the request once.
+    const session = state.sessionsById.get("daemon-session-1");
+    if (!session) {
+      throw new Error("Expected live daemon session.");
+    }
+    session.connectionGeneration = 2;
+    await sendInteractionRequest({ connectionGeneration: 2 });
+    expect(spaceStub.rpcBroadcastWakeProgressChanged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentProfileIds: [TARGET_AGENT_PROFILE_ID],
+        spaceId: HEX_SPACE_ID,
+      })
+    );
+    await sendInteractionRequest({ connectionGeneration: 2 });
+    expect(spaceStub.rpcBroadcastWakeProgressChanged).not.toHaveBeenCalled();
+
+    // A request stored before connections were recorded re-announces once.
+    const commandStateKey = [...storageRecords.keys()].find(
+      (key) =>
+        key.startsWith("runtime-coordinator:run-command-state:") &&
+        key !== "runtime-coordinator:run-command-state:index"
+    );
+    if (!commandStateKey) {
+      throw new Error("Expected stored command state.");
+    }
+    const stored = storageRecords.get(commandStateKey) as {
+      pendingInteraction: Record<string, unknown>;
+    };
+    const { requestConnection: _legacy, ...legacyPending } =
+      stored.pendingInteraction;
+    storageRecords.set(commandStateKey, {
+      ...stored,
+      pendingInteraction: legacyPending,
+    });
+    await sendInteractionRequest({ connectionGeneration: 2 });
+    expect(spaceStub.rpcBroadcastWakeProgressChanged).toHaveBeenCalledTimes(1);
+    await sendInteractionRequest({ connectionGeneration: 2 });
+    expect(spaceStub.rpcBroadcastWakeProgressChanged).not.toHaveBeenCalled();
+    expect(sentFrames).not.toContainEqual(
+      expect.objectContaining({ code: "daemon.error" })
+    );
+  });
+
+  it("ignores a replay from a connection superseded while it was being validated", async () => {
     const { hub, sentFrames, socket, spaceStub, state, waitUntilTasks } =
       await createHarness();
     const executionToken = await issueDeliveryToken({
@@ -17448,45 +17542,257 @@ describe("runtime transport runtime coordinator transport contract", () => {
       state,
     });
     enableLocalAgentInteraction(state);
-    spaceStub.rpcBroadcastWakeProgressChanged.mockClear();
+    const requestFrameHub = hub as unknown as {
+      handleDispatchInteractionRequestFrame: (
+        webSocket: WebSocket,
+        payload: unknown
+      ) => Promise<void>;
+      validateRuntimeCoordinatorProgressToken: (
+        input: unknown
+      ) => Promise<unknown>;
+    };
+    const send = async (connectionGeneration: number) => {
+      await requestFrameHub.handleDispatchInteractionRequestFrame(
+        socket,
+        buildInteractionRequest(executionToken, { connectionGeneration })
+      );
+      await Promise.all(waitUntilTasks);
+    };
+    await send(1);
+    const session = state.sessionsById.get("daemon-session-1");
+    if (!session) {
+      throw new Error("Expected live daemon session.");
+    }
+    session.connectionGeneration = 2;
+    await send(2);
+    session.connectionGeneration = 3;
 
-    await (
-      hub as unknown as {
-        handleDispatchInteractionRequestFrame: (
-          webSocket: WebSocket,
-          payload: unknown
-        ) => Promise<void>;
+    // A generation-3 replay is mid-validation when generation 4 takes over
+    // and replays first; the stale generation-3 write must not win.
+    const validate =
+      requestFrameHub.validateRuntimeCoordinatorProgressToken.bind(hub);
+    let superseded = false;
+    requestFrameHub.validateRuntimeCoordinatorProgressToken = async (input) => {
+      const result = await validate(input);
+      if (!superseded) {
+        superseded = true;
+        session.connectionGeneration = 4;
+        requestFrameHub.validateRuntimeCoordinatorProgressToken = validate;
+        await send(4);
       }
-    ).handleDispatchInteractionRequestFrame(
+      return result;
+    };
+    spaceStub.rpcBroadcastWakeProgressChanged.mockClear();
+    await send(3);
+    // Only the generation-4 replay announced the request.
+    expect(spaceStub.rpcBroadcastWakeProgressChanged).toHaveBeenCalledTimes(1);
+
+    spaceStub.rpcBroadcastWakeProgressChanged.mockClear();
+    await send(4);
+    expect(spaceStub.rpcBroadcastWakeProgressChanged).not.toHaveBeenCalled();
+  });
+
+  it("keeps an owner answer saved while a reconnect replay is being validated", async () => {
+    const { hub, sentFrames, socket, state, waitUntilTasks } =
+      await createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    enableLocalAgentInteraction(state);
+    const requestFrameHub = hub as unknown as {
+      handleDispatchInteractionRequestFrame: (
+        webSocket: WebSocket,
+        payload: unknown
+      ) => Promise<void>;
+      validateRuntimeCoordinatorProgressToken: (
+        input: unknown
+      ) => Promise<unknown>;
+    };
+    await requestFrameHub.handleDispatchInteractionRequestFrame(
       socket,
       buildInteractionRequest(executionToken)
     );
     await Promise.all(waitUntilTasks);
 
-    expect(spaceStub.rpcBroadcastWakeProgressChanged).toHaveBeenCalledWith(
-      expect.objectContaining({
-        agentProfileIds: [TARGET_AGENT_PROFILE_ID],
-        reason: "runtime_coordinator.wake_progress_changed",
-        spaceId: HEX_SPACE_ID,
-      })
+    const session = state.sessionsById.get("daemon-session-1");
+    if (!session) {
+      throw new Error("Expected live daemon session.");
+    }
+    session.connectionGeneration = 2;
+    // The owner answers while the generation-2 replay awaits token validation.
+    const validate =
+      requestFrameHub.validateRuntimeCoordinatorProgressToken.bind(hub);
+    const answer: { response: Response | null } = { response: null };
+    requestFrameHub.validateRuntimeCoordinatorProgressToken = async (input) => {
+      const result = await validate(input);
+      answer.response ??= await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/interaction/respond",
+        {
+          actorOwnerUserId: "owner-1",
+          interactionId: "interaction-1",
+          response: { kind: "permission", optionId: "allow-once" },
+          runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        }
+      );
+      return result;
+    };
+    await requestFrameHub.handleDispatchInteractionRequestFrame(
+      socket,
+      buildInteractionRequest(executionToken, { connectionGeneration: 2 })
     );
+    await Promise.all(waitUntilTasks);
 
-    // The Service replays the same unanswered request after reconnecting.
-    spaceStub.rpcBroadcastWakeProgressChanged.mockClear();
-    await (
-      hub as unknown as {
-        handleDispatchInteractionRequestFrame: (
-          webSocket: WebSocket,
-          payload: unknown
-        ) => Promise<void>;
-      }
-    ).handleDispatchInteractionRequestFrame(
+    expect(answer.response?.status).toBe(200);
+    // The saved answer survived the replay: the same answer is already
+    // resolved and a different one is rejected, instead of being accepted anew.
+    for (const [optionId, expected] of [
+      ["allow-once", { ok: true, status: "already_resolved" }],
+      ["deny", { ok: false, status: "response_invalid" }],
+    ] as const) {
+      const retry = await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/interaction/respond",
+        {
+          actorOwnerUserId: "owner-1",
+          interactionId: "interaction-1",
+          response: { kind: "permission", optionId },
+          runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        }
+      );
+      await expect(retry.json()).resolves.toMatchObject(expected);
+    }
+  });
+
+  it("does not reopen the Inbox item for an answer saved during a reconnect replay", async () => {
+    const {
+      hub,
+      recordingPostgres,
+      sentFrames,
+      socket,
+      state,
+      waitUntilTasks,
+    } = await createHarness({ interactionInboxWriteFailures: 1 });
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    enableLocalAgentInteraction(state);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const requestFrameHub = hub as unknown as {
+      handleDispatchInteractionRequestFrame: (
+        webSocket: WebSocket,
+        payload: unknown
+      ) => Promise<void>;
+      validateRuntimeCoordinatorProgressToken: (
+        input: unknown
+      ) => Promise<unknown>;
+    };
+    // The first Inbox write fails, so no Inbox row exists yet.
+    await requestFrameHub.handleDispatchInteractionRequestFrame(
       socket,
       buildInteractionRequest(executionToken)
     );
     await Promise.all(waitUntilTasks);
+    expect(await recordingPostgres.interactionInboxRows.size()).toBe(0);
 
-    expect(spaceStub.rpcBroadcastWakeProgressChanged).toHaveBeenCalledWith(
+    const session = state.sessionsById.get("daemon-session-1");
+    if (!session) {
+      throw new Error("Expected live daemon session.");
+    }
+    session.connectionGeneration = 2;
+    const validate =
+      requestFrameHub.validateRuntimeCoordinatorProgressToken.bind(hub);
+    let answered = false;
+    requestFrameHub.validateRuntimeCoordinatorProgressToken = async (input) => {
+      const result = await validate(input);
+      if (!answered) {
+        answered = true;
+        const response = await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/interaction/respond",
+          {
+            actorOwnerUserId: "owner-1",
+            interactionId: "interaction-1",
+            response: { kind: "permission", optionId: "allow-once" },
+            runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+            v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+          }
+        );
+        expect(response.status).toBe(200);
+      }
+      return result;
+    };
+    await requestFrameHub.handleDispatchInteractionRequestFrame(
+      socket,
+      buildInteractionRequest(executionToken, { connectionGeneration: 2 })
+    );
+    await Promise.all(waitUntilTasks);
+
+    expect([
+      ...(await recordingPostgres.interactionInboxRows.values()),
+    ]).not.toContainEqual(
+      expect.objectContaining({ resolution_status: "open" })
+    );
+  });
+
+  it("retries a failed Wake progress broadcast for a reconnect replay", async () => {
+    const { hub, sentFrames, socket, spaceStub, state, waitUntilTasks } =
+      await createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    enableLocalAgentInteraction(state);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const send = async (connectionGeneration: number) => {
+      await (
+        hub as unknown as {
+          handleDispatchInteractionRequestFrame: (
+            webSocket: WebSocket,
+            payload: unknown
+          ) => Promise<void>;
+        }
+      ).handleDispatchInteractionRequestFrame(
+        socket,
+        buildInteractionRequest(executionToken, { connectionGeneration })
+      );
+    };
+    const settleWaitUntil = async () => {
+      let settled = 0;
+      while (settled < waitUntilTasks.length) {
+        settled = waitUntilTasks.length;
+        await Promise.all(waitUntilTasks);
+      }
+    };
+    await send(1);
+    await settleWaitUntil();
+    const session = state.sessionsById.get("daemon-session-1");
+    if (!session) {
+      throw new Error("Expected live daemon session.");
+    }
+    session.connectionGeneration = 2;
+    spaceStub.rpcBroadcastWakeProgressChanged.mockClear();
+    spaceStub.rpcBroadcastWakeProgressChanged.mockRejectedValueOnce(
+      new Error("Space unavailable")
+    );
+    await send(2);
+    await settleWaitUntil();
+    // The replay recorded its connection, so the next heartbeat on it does
+    // not re-announce; the failed broadcast itself is retried instead.
+    await send(2);
+    await settleWaitUntil();
+    expect(spaceStub.rpcBroadcastWakeProgressChanged).toHaveBeenCalledTimes(2);
+    expect(spaceStub.rpcBroadcastWakeProgressChanged).toHaveBeenLastCalledWith(
       expect.objectContaining({
         agentProfileIds: [TARGET_AGENT_PROFILE_ID],
         spaceId: HEX_SPACE_ID,
