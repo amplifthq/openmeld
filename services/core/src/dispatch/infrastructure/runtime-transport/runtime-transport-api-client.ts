@@ -40,6 +40,7 @@ export type RuntimeTransportApiPath =
   | "/runtime-coordinator/head/waiting"
   | "/runtime-coordinator/head/trace"
   | "/runtime-coordinator/interaction/read"
+  | "/runtime-coordinator/interaction/read-revision"
   | "/runtime-coordinator/execution-input/resolve"
   | "/runtime-coordinator/execution-input"
   | "/runtime-coordinator/interaction/respond"
@@ -440,6 +441,7 @@ const resolveRuntimeTransportApiTimeoutMs = (input: {
   }
   if (
     input.path === "/runtime-coordinator/interaction/read" ||
+    input.path === "/runtime-coordinator/interaction/read-revision" ||
     input.path === "/runtime-coordinator/interaction/respond"
   ) {
     return RUNTIME_TRANSPORT_LOOKUP_TIMEOUT_MS;

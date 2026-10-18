@@ -6216,7 +6216,10 @@ selection, or cached UI state. Secret questions use a password input and must
 not be echoed after submission.
 
 Detailed Wake polling must merge changes to `pendingInteraction` even when the
-ordinary lifecycle phase and `updatedAtMs` are unchanged. An unexpired
+ordinary lifecycle phase and `updatedAtMs` are unchanged. Across the Space
+summary and per-message copies, Web relies on Core's `updatedAtMs` already
+including the interaction revision (see shared contracts); it must not add a
+client-side tie-break that prefers either source's `pendingInteraction`. An unexpired
 interaction remains visible and polled beyond the ordinary 30-minute working
 presentation window, up to its server-provided expiry. Refresh, route
 navigation, or a temporary socket replacement must therefore recover the card

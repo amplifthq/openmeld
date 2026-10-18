@@ -173,6 +173,7 @@ import {
   runtimeTransportRuntimeCoordinatorHeadWaitingResponseSchema,
   runtimeTransportRuntimeCoordinatorReadInteractionRequestSchema,
   runtimeTransportRuntimeCoordinatorReadInteractionResponseSchema,
+  runtimeTransportRuntimeCoordinatorReadInteractionRevisionResponseSchema,
   runtimeTransportRuntimeCoordinatorRespondInteractionRequestSchema,
   runtimeTransportRuntimeCoordinatorRespondInteractionResponseSchema,
   runtimeTransportRuntimeCoordinatorWakeStopRequestSchema,
@@ -9632,6 +9633,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       lastWatchdogCheckAtMs: null,
       pendingInteraction: {
         request: interaction,
+        requestReceivedAtMs: nowMs,
         respondedAtMs: null,
         response: null,
       },
@@ -10871,7 +10873,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       | ((input: Request) => Promise<Response>)
       | undefined = {
       "/runtime-coordinator/interaction/read": (input: Request) =>
-        this.handleRuntimeCoordinatorReadInteractionRequest(input),
+        this.handleRuntimeCoordinatorReadInteractionRequest(input, {
+          includeRevision: false,
+        }),
+      "/runtime-coordinator/interaction/read-revision": (input: Request) =>
+        this.handleRuntimeCoordinatorReadInteractionRequest(input, {
+          includeRevision: true,
+        }),
       "/runtime-coordinator/execution-input/resolve": (input: Request) =>
         this.handleExecutionInput(input, true),
       "/runtime-coordinator/execution-input": (input: Request) =>
@@ -14340,7 +14348,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }
 
   private async handleRuntimeCoordinatorReadInteractionRequest(
-    request: Request
+    request: Request,
+    options: { includeRevision: boolean }
   ): Promise<Response> {
     const parsed =
       runtimeTransportRuntimeCoordinatorReadInteractionRequestSchema.safeParse(
@@ -14357,11 +14366,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const commandState = await this.readRuntimeCoordinatorRunCommandState(
       parsed.data.runtimeCoordinatorExecutionId
     );
+    const nowMs = Date.now();
     const storedPending = commandState?.pendingInteraction ?? null;
     const pending =
       storedPending &&
       !storedPending.response &&
-      storedPending.request.expiresAtMs > Date.now()
+      storedPending.request.expiresAtMs > nowMs
         ? storedPending
         : null;
     const canRespond =
@@ -14379,11 +14389,25 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           requestedAtMs: pending.request.requestedAtMs,
         }
       : null;
-    const response =
-      runtimeTransportRuntimeCoordinatorReadInteractionResponseSchema.parse({
-        pendingInteraction,
-      });
-    return Response.json(response);
+    if (!options.includeRevision) {
+      return Response.json(
+        runtimeTransportRuntimeCoordinatorReadInteractionResponseSchema.parse({
+          pendingInteraction,
+        })
+      );
+    }
+    return Response.json(
+      runtimeTransportRuntimeCoordinatorReadInteractionRevisionResponseSchema.parse(
+        {
+          interactionUpdatedAtMs:
+            resolveRuntimeCoordinatorInteractionUpdatedAtMs({
+              commandState,
+              nowMs,
+            }),
+          pendingInteraction,
+        }
+      )
+    );
   }
   private async handleRuntimeCoordinatorRespondInteractionRequest(
     request: Request
@@ -22029,6 +22053,36 @@ const normalizeAgentReadinessInvalidationError = (
     return String(error);
   }
   return undefined;
+};
+// Core time of the execution's latest interaction change: a request reaching
+// Core, its answer, or its expiry. Wake progress folds it into the item
+// revision; otherwise an older copy at the same lifecycle revision can hide a
+// new request, or keep showing an answered one, until the next lifecycle write.
+const resolveRuntimeCoordinatorInteractionUpdatedAtMs = (input: {
+  commandState: RuntimeCoordinatorRunCommandState | null;
+  nowMs: number;
+}): number | null => {
+  const commandState = input.commandState;
+  const pending = commandState?.pendingInteraction ?? null;
+  if (commandState && pending) {
+    if (pending.respondedAtMs !== null) {
+      return pending.respondedAtMs;
+    }
+    // A request stored before its arrival was recorded falls back to the
+    // command state's Core write time, never the Service's clock. Later writes
+    // only move it forward, which still orders the request correctly.
+    const receivedAtMs =
+      pending.requestReceivedAtMs ?? commandState.updatedAtMs;
+    return pending.request.expiresAtMs <= input.nowMs
+      ? Math.max(receivedAtMs, pending.request.expiresAtMs)
+      : receivedAtMs;
+  }
+  const receipts = Object.values(
+    input.commandState?.interactionResponseReceipts ?? {}
+  );
+  return receipts.length > 0
+    ? Math.max(...receipts.map((receipt) => receipt.respondedAtMs))
+    : null;
 };
 const readDispatchIdForFrameOrdering = (payload: unknown): string | null => {
   if (!(payload && typeof payload === "object" && "dispatchId" in payload)) {
