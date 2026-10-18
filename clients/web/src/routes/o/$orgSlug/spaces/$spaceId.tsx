@@ -159,12 +159,23 @@ export const Route = createFileRoute("/o/$orgSlug/spaces/$spaceId")({
 	component: AppSpaceEntryRoute,
 });
 
+function useAppSpaceFocusRequestId() {
+	return useLocation({
+		select: (location) => readInboxSourceFocusRequestId(location.state),
+	});
+}
+
 function AppSpaceConversationPendingRoute() {
 	const search = Route.useSearch();
 	const { spaceId } = Route.useParams();
+	const focusRequestId = useAppSpaceFocusRequestId();
 	const membersPanel = useSpacePanelWidth({ panel: "members", spaceId });
 	return (
-		<SpaceCreationRoute profileId={search.profileId} spaceId={spaceId}>
+		<SpaceCreationRoute
+			focus={{ ...search, focusRequestId }}
+			profileId={search.profileId}
+			spaceId={spaceId}
+		>
 			<SpaceWindowShell
 				initialOuterSidebarState={APP_SIDEBAR_DEFAULT_STATES.outer}
 				initialSidebarState={APP_SIDEBAR_DEFAULT_STATES.inner}
@@ -187,12 +198,14 @@ function AppSpaceEntryRoute() {
 	const { orgSlug, spaceId } = Route.useParams();
 	const search = Route.useSearch();
 	const { sidebarStates } = Route.useLoaderData();
-	const focusRequestId = useLocation({
-		select: (location) => readInboxSourceFocusRequestId(location.state),
-	});
+	const focusRequestId = useAppSpaceFocusRequestId();
 
 	return (
-		<SpaceCreationRoute profileId={search.profileId} spaceId={spaceId}>
+		<SpaceCreationRoute
+			focus={{ ...search, focusRequestId }}
+			profileId={search.profileId}
+			spaceId={spaceId}
+		>
 			<AppSpaceEntryContent
 				focusInteractionId={search.focusInteractionId}
 				focusRequestId={focusRequestId}

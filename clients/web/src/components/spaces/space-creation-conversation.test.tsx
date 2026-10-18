@@ -9,7 +9,10 @@ import {
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SpaceCreationRoute } from "./space-creation-conversation";
+import {
+	type SpaceCreationFocus,
+	SpaceCreationRoute,
+} from "./space-creation-conversation";
 
 const { creationState, landingProps, readBootstrap, readProfiles } = vi.hoisted(
 	() => ({
@@ -23,7 +26,7 @@ const { creationState, landingProps, readBootstrap, readProfiles } = vi.hoisted(
 	})
 );
 
-const ORGANIZATION = { id: "org-1", slug: "acme" };
+const ORGANIZATION = { id: "org-1", isPersonal: false, slug: "acme" };
 const PROFILE_ID = "hum-owner";
 const SPACE_ID = "space-1";
 const OWNER_PROFILE = {
@@ -97,13 +100,17 @@ vi.mock("./space-composer", () => ({ SpaceComposer: () => null }));
 vi.mock("./space-header", () => ({ SpaceWindowHeader: () => null }));
 vi.mock("./space-view-tabs", () => ({ SpaceViewTabs: () => null }));
 
-function renderRoute(spaceId = SPACE_ID) {
+function renderRoute(spaceId = SPACE_ID, focus: SpaceCreationFocus = {}) {
 	const queryClient = new QueryClient({
 		defaultOptions: { queries: { retry: false } },
 	});
 	render(
 		<QueryClientProvider client={queryClient}>
-			<SpaceCreationRoute profileId={PROFILE_ID} spaceId={spaceId}>
+			<SpaceCreationRoute
+				focus={focus}
+				profileId={PROFILE_ID}
+				spaceId={spaceId}
+			>
 				<div>regular route</div>
 			</SpaceCreationRoute>
 		</QueryClientProvider>
@@ -113,6 +120,7 @@ function renderRoute(spaceId = SPACE_ID) {
 describe("SpaceCreationRoute", () => {
 	beforeEach(() => {
 		landingProps.length = 0;
+		ORGANIZATION.isPersonal = false;
 		creationState.response = { spaceId: SPACE_ID };
 		creationState.status = "success";
 		readProfiles.mockReset();
@@ -187,5 +195,41 @@ describe("SpaceCreationRoute", () => {
 		expect(landingProps.at(-1)).toMatchObject({
 			accountProfiles: [OWNER_PROFILE],
 		});
+	});
+
+	it("opens the created Space at the route's message and thread targets", async () => {
+		ORGANIZATION.isPersonal = true;
+		readProfiles.mockResolvedValue([OWNER_PROFILE]);
+		// A notification or deep link to this Space while the creation tab still
+		// shows the handoff must land on its target, as the regular route does.
+		renderRoute(SPACE_ID, {
+			focusInteractionId: "interaction-1",
+			focusRequestId: "request-1",
+			focusSignalId: "signal-2",
+			focusThreadRootSignalId: "signal-1",
+		});
+
+		await screen.findByTestId("space-landing");
+		expect(landingProps.at(-1)).toMatchObject({
+			initialFocusInteractionId: "interaction-1",
+			initialFocusRequestId: "request-1",
+			initialFocusSignalId: "signal-2",
+			initialFocusThreadRootSignalId: "signal-1",
+			isPersonalContext: true,
+		});
+	});
+
+	it.each([
+		["an inactive", { ...OWNER_PROFILE, status: "inactive" }],
+		["an Agent", { ...OWNER_PROFILE, profileKind: "agent" }],
+	])("hands %s acting Profile to the regular route", async (_, profile) => {
+		readProfiles.mockResolvedValue([profile]);
+		renderRoute();
+
+		// The regular route redirects to the account's Human or asks the person
+		// to choose one; the handoff must not open the Space as this Profile.
+		await screen.findByText("regular route");
+		expect(screen.queryByTestId("space-landing")).toBeNull();
+		expect(landingProps).toHaveLength(0);
 	});
 });

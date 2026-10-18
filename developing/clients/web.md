@@ -175,8 +175,12 @@ tab that created it and renders the regular Space view there. It reads the same
 account Profiles as the regular route and opens the Space only once they are
 available, because member removal and addition confirm the acting Human from
 that list; a profile read failure uses the same "couldn't be opened" retry as a
-bootstrap failure. It does not yet apply the regular route's active-Human
-redirect or pass its focus targets.
+bootstrap failure. When those Profiles show the acting Profile is not an active
+Human, the handoff yields to the regular route, which redirects to the
+account's Human or asks the person to choose. It passes the route's message,
+thread, and interaction focus targets and the personal-Organization context to
+the Space view, so a notification or deep link into the same Space lands on
+its target while the handoff stays mounted.
 
 Text and attachments use the existing composer draft owners. Sending during
 preparation stages one message with a stable client message ID. The regular

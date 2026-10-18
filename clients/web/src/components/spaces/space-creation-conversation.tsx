@@ -4,6 +4,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
+	type ComponentProps,
 	type ReactNode,
 	useCallback,
 	useEffect,
@@ -15,6 +16,7 @@ import { useComposerDraft } from "#/hooks/use-composer-draft";
 import type { ComposerDraftScope } from "#/lib/composer-draft-storage";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationSpacesPath } from "#/lib/organizations/organization-routes";
+import { findActiveProfileById } from "#/lib/profiles/profiles";
 import type { PendingSpaceMessage } from "#/lib/spaces/pending-message";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { spaceBootstrapQueryOptions } from "#/query/spaces/bootstrap";
@@ -39,6 +41,14 @@ import { useSpaceComposerFiles } from "./use-space-composer-attachments";
 
 type Creation = ReturnType<typeof useSpaceCreations>[number];
 
+/** The regular Space route's message, thread, and interaction targets. */
+export type SpaceCreationFocus = {
+	focusInteractionId?: string;
+	focusRequestId?: string;
+	focusSignalId?: string;
+	focusThreadRootSignalId?: string;
+};
+
 function creationError(
 	failed: boolean,
 	openFailed: boolean,
@@ -56,6 +66,7 @@ function creationError(
 /** A local creation receipt can present a conversation, never grant Space access. */
 export function SpaceCreationRoute(input: {
 	children: ReactNode;
+	focus: SpaceCreationFocus;
 	spaceId: string;
 	profileId?: string;
 }) {
@@ -91,8 +102,10 @@ export function SpaceCreationRoute(input: {
 		return (
 			<SpaceCreationConversation
 				creation={creation}
+				focus={input.focus}
 				key={creation.input.creationId}
 				profileId={input.profileId}
+				regularRoute={input.children}
 				request={creation.input}
 			/>
 		);
@@ -186,12 +199,15 @@ function CreationMemberRetry(input: { retry: (() => void) | undefined }) {
 
 // Space member actions confirm the acting Human from the account Profiles,
 // exactly as the regular Space route provides them, so the handoff opens the
-// Space only with both the bootstrap and those Profiles.
+// Space only with both the bootstrap and those Profiles. Those Profiles also
+// decide whether the acting Profile is still an active Human; when it is not,
+// the regular route's Profile recovery takes over.
 function useCreationOpenState(input: {
 	bootstrap: { isError: boolean; refetch: () => unknown };
 	// Only a confirmed create response can make a Profiles failure an opening
 	// failure; before that, the conversation must not claim the Space exists.
 	creationFailed: boolean;
+	profileId: string;
 	realSpaceId: string | undefined;
 	storageScope: string;
 }) {
@@ -206,6 +222,13 @@ function useCreationOpenState(input: {
 		created && profiles.isError && profiles.data === undefined;
 	return {
 		accountProfiles: profiles.data,
+		actingProfileRejected: Boolean(
+			profiles.data &&
+				!findActiveProfileById(profiles.data, {
+					profileId: input.profileId,
+					profileKind: "human",
+				})
+		),
 		openFailed: input.bootstrap.isError || profilesFailed,
 		retryOpen: () => {
 			if (input.bootstrap.isError) {
@@ -220,7 +243,11 @@ function useCreationOpenState(input: {
 
 function SpaceCreationConversation(input: {
 	creation: Creation;
+	focus: SpaceCreationFocus;
 	profileId: string;
+	// The regular Space route owns acting-Profile recovery: redirecting to the
+	// account's Human or asking the person to choose one.
+	regularRoute: ReactNode;
 	request: SpaceCreationRequest;
 }) {
 	const { currentOrganization: organization } = useAppOrganization();
@@ -363,12 +390,17 @@ function SpaceCreationConversation(input: {
 		}
 	};
 	const failed = input.creation.status === "error";
-	const { accountProfiles, openFailed, retryOpen } = useCreationOpenState({
-		bootstrap,
-		creationFailed: failed,
-		realSpaceId,
-		storageScope,
-	});
+	const { accountProfiles, actingProfileRejected, openFailed, retryOpen } =
+		useCreationOpenState({
+			bootstrap,
+			creationFailed: failed,
+			profileId: input.profileId,
+			realSpaceId,
+			storageScope,
+		});
+	if (actingProfileRejected) {
+		return input.regularRoute;
+	}
 	const error = creationError(failed, openFailed, queueError) ?? members.error;
 	const ready =
 		realSpaceId &&
@@ -383,11 +415,13 @@ function SpaceCreationConversation(input: {
 			defaultModuleSidebarOpen
 		>
 			{ready ? (
-				<SpaceLanding
+				<CreatedSpaceLanding
 					accountProfiles={accountProfiles}
-					composerDraftMigrationScopes={scope ? [scope] : undefined}
+					draftScope={scope}
+					focus={input.focus}
 					initialPendingMessage={pending.data}
 					initialSpaceView={view}
+					isPersonal={organization.isPersonal}
 					onComposerReady={finishComposerHandoff}
 					onInitialPendingMessageConsumed={() =>
 						client.setQueryData(pendingKey, null)
@@ -517,6 +551,37 @@ function SpaceCreationConversation(input: {
 				</section>
 			)}
 		</AppSpaceShell>
+	);
+}
+
+// The created Space receives the same focus targets and Organization context
+// the regular Space route gives it.
+function CreatedSpaceLanding(
+	input: Omit<
+		ComponentProps<typeof SpaceLanding>,
+		| "composerDraftMigrationScopes"
+		| "initialFocusInteractionId"
+		| "initialFocusRequestId"
+		| "initialFocusSignalId"
+		| "initialFocusThreadRootSignalId"
+		| "isPersonalContext"
+	> & {
+		draftScope: ComposerDraftScope | null;
+		focus: SpaceCreationFocus;
+		isPersonal: boolean | undefined;
+	}
+) {
+	const { draftScope, focus, isPersonal, ...landing } = input;
+	return (
+		<SpaceLanding
+			{...landing}
+			composerDraftMigrationScopes={draftScope ? [draftScope] : undefined}
+			initialFocusInteractionId={focus.focusInteractionId}
+			initialFocusRequestId={focus.focusRequestId}
+			initialFocusSignalId={focus.focusSignalId}
+			initialFocusThreadRootSignalId={focus.focusThreadRootSignalId}
+			isPersonalContext={isPersonal === true}
+		/>
 	);
 }
 
