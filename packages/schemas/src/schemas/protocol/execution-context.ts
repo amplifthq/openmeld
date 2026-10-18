@@ -1,6 +1,7 @@
 import * as z from "zod/v4";
 import { repositoryFingerprintSchema } from "../http/projects";
 import { profileFolderIdSchema } from "./profile-folders";
+import { requestChainSchema } from "./request-chain";
 
 const reference = z.string().trim().min(1).max(2048);
 // Local workspace owner facts, not client-selected paths or Computer policy.
@@ -78,6 +79,8 @@ export const executionContextRequestSchema = z.strictObject({
   required: z.boolean().optional(),
   // Retained for persisted snapshots from older Core versions. Not a permission gate.
   ownerRequested: z.literal(true).optional(),
+  // Core-written at Wake time; absent on requests from before the chain.
+  requestChain: requestChainSchema.optional(),
   scope: executionContextScopeSchema,
   selection: executionContextSelectionSchema,
 });
@@ -93,6 +96,9 @@ export const executionContextAssignmentSchema = z
     projectWork: executionContextProjectWorkSchema.optional(),
     // Absent on retained tasks: their original folder boundary still applies.
     permissionSource: z.literal("agent_settings").optional(),
+    // This Wake's chain, frozen at admission. It is not part of the scope key
+    // and is never sent to the OpenMeld Service. Absent: owner-rooted legacy.
+    requestChain: requestChainSchema.optional(),
     workspace,
     forkSource: z
       .strictObject({

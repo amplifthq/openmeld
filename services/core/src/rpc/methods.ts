@@ -2497,6 +2497,8 @@ export async function rpcMutateSpaceMessage(
 export type PostSignalInput = {
   /** Internal Core→Space only. Public input cannot supply a time anchor. */
   requestTimeContext?: import("@openmeld/schemas").UserRequestTimeContext;
+  /** Internal Core→Space only. Public input cannot supply a request chain. */
+  requestChainBasis?: import("../request-chain/dispatch-request-chain").RequestChainBasis;
   contextSelection?: import("@openmeld/schemas/types").ExecutionContextSelection;
   contextSelections?: Record<
     string,
@@ -20702,6 +20704,7 @@ export async function rpcPostSignalOnceByClientMessageId(
     ...(input.spaceAccess ? { spaceAccess: input.spaceAccess } : {}),
   });
   const postInput = {
+    requestChainBasis: input.requestChainBasis,
     ...(input.requestTimeContext
       ? { requestTimeContext: input.requestTimeContext }
       : {}),

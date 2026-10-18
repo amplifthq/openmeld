@@ -545,6 +545,7 @@ import {
   DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE,
   processDispatchOutboxCandidates,
 } from "../../application/dispatch-outbox-batch-service";
+import { resolveDispatchOutboxRequestChain } from "../../application/dispatch-outbox-request-chain";
 import { readSpaceMessagePage } from "../../application/message-read";
 import {
   allowsExternalSpaceLinkJoin,
@@ -1347,8 +1348,15 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
           input.decision.targetProfileId
         ] ?? input.signal.data.contextSelection)
       : undefined;
+  const requestChain = resolveDispatchOutboxRequestChain({
+    callerContext: input.callerContext,
+    signal: input.signal,
+    signalContext: input.signalContext,
+    targetProfileId: input.decision.targetProfileId,
+  });
   return createDispatchOutboxRecord({
     ...(contextSelection ? { contextSelection } : {}),
+    ...(requestChain ? { requestChain } : {}),
     bindingEnabled: true,
     ...(input.signal.type === "signal.text" &&
     input.signal.data.deviceWait?.targetProfileId ===
@@ -4921,6 +4929,16 @@ export class Space extends DurableObject<CoreBindings> {
         ? { finalOutcomeAuthority: input.finalOutcomeAuthority }
         : {}),
       ...(sourceDispatchChainContext ? { sourceDispatchChainContext } : {}),
+      // The Agent publishes inside the Wake it is running, so that Wake's
+      // server-held chain is the basis of any Wake this message starts.
+      ...(input.dispatchMessage.requestChain
+        ? {
+            requestChainBasis: {
+              kind: "parent" as const,
+              requestChain: input.dispatchMessage.requestChain,
+            },
+          }
+        : {}),
       ...(spacePassword === undefined ? {} : { spacePassword }),
       ...(outputThreadContext
         ? {
@@ -5851,6 +5869,9 @@ export class Space extends DurableObject<CoreBindings> {
       ...(input.input.requestTimeContext
         ? { requestTimeContext: input.input.requestTimeContext }
         : {}),
+      ...(input.input.requestChainBasis
+        ? { requestChainBasis: input.input.requestChainBasis }
+        : {}),
       ...(input.input.deviceWait ? { deviceWait: input.input.deviceWait } : {}),
       ...(input.input.contextSelection
         ? { contextSelection: input.input.contextSelection }
@@ -6127,6 +6148,7 @@ export class Space extends DurableObject<CoreBindings> {
         sourceDispatchChainContext: resolveSourceDispatchChainContext(
           requestContext ?? undefined
         ),
+        requestChainBasis: input.requestChainBasis,
         ...(spacePassword === undefined ? {} : { spacePassword }),
         supportsCurrentSpaceAddressing:
           input.spaceAddressingVersion === OPENMELD_SPACE_ADDRESSING_VERSION,
@@ -28605,6 +28627,9 @@ function buildDispatchQueueMessageFromOutboxRecord(
     autoRelayDepth: outboxRecord.autoRelayDepth,
     visitedProfileIds: outboxRecord.visitedProfileIds,
     visitedProfileIdsHash: outboxRecord.visitedProfileIdsHash,
+    ...(outboxRecord.requestChain
+      ? { requestChain: outboxRecord.requestChain }
+      : {}),
     dispatchContractVersion: outboxRecord.dispatchContractVersion,
     dispatchPolicy: outboxRecord.dispatchPolicy,
     ruleSource: outboxRecord.ruleSource,

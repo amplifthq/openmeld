@@ -98,16 +98,14 @@ export async function submitLocalRoutineDelivery(input: {
     if (executor.kind !== "local_agent") {
       throw new Error("routine.executor_changed");
     }
-    const human = (
-      await db.query<{ profile_id: string; profile_name: string }>({
-        text: `SELECT p.profile_id, p.profile_name FROM openmeld.openmeld_profiles p
-        JOIN openmeld.members m ON m.user_id = p.owner_user_id AND m.organization_id = $1
-        WHERE p.owner_user_id = $2 AND p.profile_kind = 'human' AND p.status = 'active' LIMIT 1`,
-        values: [routine.organizationId, routine.createdByUserId],
-      })
-    ).rows[0];
+    const human = await readActiveRoutineCreator({
+      db,
+      organizationId: routine.organizationId,
+      userId: routine.createdByUserId,
+    });
     if (!human) {
-      throw new Error("routine.member_unavailable");
+      // The creator is the Wake's root requester; without them it stops.
+      return await skipRunForMissingCreator({ db, nowMs: input.nowMs, run });
     }
     await createRoutineTargetSpaceEligibility({
       db,
@@ -173,8 +171,23 @@ export async function submitLocalRoutineDelivery(input: {
   const submission = routineLocalSubmissionSchema.parse(
     JSON.parse(frozen.local_submission_json)
   );
+  if (
+    !(await readActiveRoutineCreator({
+      db,
+      organizationId: run.organizationId,
+      userId: submission.context.actorContext.ownerUserId ?? "",
+    }))
+  ) {
+    return await skipRunForMissingCreator({ db, nowMs: input.nowMs, run });
+  }
   const signal = await rpcPostSignalOnceByClientMessageId(input.env, {
     ...submission,
+    // Root: the creator, who authors this message; marker: this Routine.
+    requestChainBasis: {
+      kind: "source",
+      source: "routine",
+      sourceId: run.routineId,
+    },
     clientMessageId: run.id,
     authoringPolicy: "system_emitted",
     spaceAddressingVersion: OPENMELD_SPACE_ADDRESSING_VERSION,
@@ -194,6 +207,42 @@ export async function submitLocalRoutineDelivery(input: {
     values: [signal.id, run.id],
   });
   return { status: "submitted" };
+}
+
+async function readActiveRoutineCreator(input: {
+  db: PostgresDatabase;
+  organizationId: string;
+  userId: string;
+}): Promise<{ profile_id: string; profile_name: string } | null> {
+  if (!input.userId) {
+    return null;
+  }
+  const result = await input.db.query<{
+    profile_id: string;
+    profile_name: string;
+  }>({
+    text: `SELECT p.profile_id, p.profile_name FROM openmeld.openmeld_profiles p
+        JOIN openmeld.members m ON m.user_id = p.owner_user_id AND m.organization_id = $1
+        WHERE p.owner_user_id = $2 AND p.profile_kind = 'human' AND p.status = 'active' LIMIT 1`,
+    values: [input.organizationId, input.userId],
+  });
+  return result.rows[0] ?? null;
+}
+
+async function skipRunForMissingCreator(input: {
+  db: PostgresDatabase;
+  nowMs: number;
+  run: CenterAgentRoutineRun;
+}): Promise<{ status: "skipped" }> {
+  await markRoutineRunSkipped({
+    db: input.db,
+    runId: input.run.id,
+    nowMs: input.nowMs,
+    failureCode: "routine.creator_unavailable",
+    failureDetail:
+      "The person who created this Routine is no longer in this organization.",
+  });
+  return { status: "skipped" };
 }
 
 export async function recoverLocalRoutineRuns(input: {

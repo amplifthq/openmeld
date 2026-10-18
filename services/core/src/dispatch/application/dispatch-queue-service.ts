@@ -28,6 +28,7 @@ import type {
   OpenMeldDaemonAcceptedDispatchSnapshot,
   OpenMeldDaemonDispatchQueueMessage,
   RemoteAgentNativeDeliveryDeadlineProbeQueueMessage,
+  RequestChain,
   RuntimeTransportRuntimeCoordinatorDecisionResponse,
 } from "@openmeld/schemas/types";
 import { processAgentTaskContinuationQueueMessage } from "../../agent-task-coordination/application/agent-task-continuation-service";
@@ -38,12 +39,18 @@ import {
   readAgentTaskTerminalOutcome,
 } from "../../agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import type { CoreBindings } from "../../lib/bindings";
+import { isRequestChainEnforced } from "../../member-agent/member-agents-feature";
 import { createConfiguredMessageChannelProviderRegistry } from "../../remote-agent/application/message-channel-provider-runtime";
 import {
   processRemoteAgentNativeDeliveryDeadlineProbe,
   publishRemoteAgentFailureNotice,
   submitRemoteAgentNativeDelivery,
 } from "../../remote-agent/application/native-delivery-service";
+import {
+  createAdmittedRequestChainDeps,
+  resolveAdmittedRequestChain,
+} from "../../request-chain/dispatch-request-chain";
+import type { RequestChainRejectionReason } from "../../request-chain/request-chain";
 import { resolveSpaceStub } from "../../rpc/space-ref";
 import { emitSpaceSystemNoticeSignal } from "../../rpc/space-signal-emitter";
 import { DELETED_AGENT_PROFILE_WAKE_STOP_REASON } from "../../runtime-transport/application/deleted-agent-profile-wake-cancellation";
@@ -1948,6 +1955,54 @@ const settleRuntimeCoordinatorAcceptedPayloadConflict = async (input: {
       }
     : { status: "existing_publication_intent_preserved" };
 };
+/**
+ * This Wake's request chain. Once the chain is enforced, a workstation Wake
+ * without a human root is a visible failure: no human root, no Wake
+ * (agent-transport-contract.md, Request Chain).
+ */
+async function admitDispatchRequestChain(input: {
+  dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
+  env: CoreBindings;
+  runtimeKind?: string | null;
+}): Promise<
+  | { status: "admitted"; requestChain: RequestChain | undefined }
+  | Extract<
+      RuntimeCoordinatorHeadAcceptanceOutcome,
+      { status: "context_rejected" }
+    >
+> {
+  const result = await resolveAdmittedRequestChain({
+    deps: createAdmittedRequestChainDeps(input.env),
+    message: input.dispatchMessage,
+  });
+  if (result.ok) {
+    return { status: "admitted", requestChain: result.chain };
+  }
+  if (isRequestChainEnforced() && input.runtimeKind === "openmeld_service") {
+    return {
+      status: "context_rejected",
+      reasonCode: result.reasonCode,
+      errorMessage: describeRequestChainRejection(result.reasonCode),
+    };
+  }
+  return { status: "admitted", requestChain: undefined };
+}
+function describeRequestChainRejection(
+  reasonCode: RequestChainRejectionReason
+): string {
+  switch (reasonCode) {
+    case "request_chain.delegation_reentry":
+      return "This Agent already handed this work off, so it can't take it back.";
+    case "request_chain.depth_exceeded":
+      return "Too many Agents are already working on this request to wake another one.";
+    case "request_chain.anonymous_requester":
+      return "Sign in to OpenMeld to wake an Agent.";
+    case "request_chain.root_unavailable":
+      return "The person who asked for this work is no longer in this organization.";
+    default:
+      return "OpenMeld couldn't confirm which person asked for this work, so the Agent didn't start.";
+  }
+}
 const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
   allowPublicationIntentReconcile?: boolean;
   db: PostgresDatabase;
@@ -1982,14 +2037,21 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
   if (preAgentStopped.handled) {
     return { status: "skip_duplicate" };
   }
+  const admission = await admitDispatchRequestChain(input);
+  if (admission.status === "context_rejected") {
+    return admission;
+  }
+  const requestChain = admission.requestChain;
   const acceptedDispatchSnapshot = await buildAcceptedDispatchSnapshot({
     contextSelection: await applyFolderSelectionPolicy({
       env: input.env,
       message: input.dispatchMessage,
+      requestChain,
       targetOwnerUserId: input.targetOwnerUserId,
     }),
     message: input.dispatchMessage,
     openMeldServiceRuntimeId: input.openMeldServiceRuntimeId,
+    requestChain,
     runtimeKind: input.runtimeKind,
   });
   if (

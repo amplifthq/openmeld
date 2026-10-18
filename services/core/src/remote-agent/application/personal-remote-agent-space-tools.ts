@@ -422,10 +422,23 @@ export async function runPersonalRemoteAgentSpaceTool(
   const clientMessageId =
     operation.clientMessageId ??
     `personal-agent:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+  // The member this delivery acts for is the root; this Agent continues it.
+  const rootProfileId = delivery.onBehalfOfProfileId;
   const signal = await rpcPostSignalOnceByClientMessageId(env, {
     authoringPolicy: "user_authored",
     clientMessageId,
     context,
+    ...(rootProfileId
+      ? {
+          requestChainBasis: {
+            kind: "parent" as const,
+            requestChain: [
+              { kind: "human" as const, profileId: rootProfileId },
+              { kind: "agent" as const, profileId: agent.profileId },
+            ],
+          },
+        }
+      : {}),
     messageEnvelope: {
       activationTargets: [target.profileId],
       referenceTargets: [],
