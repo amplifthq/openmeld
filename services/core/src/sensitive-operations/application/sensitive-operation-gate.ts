@@ -1,0 +1,504 @@
+import {
+  getPostgresDatabase,
+  withPostgresRequest,
+} from "@openmeld/db/postgresql";
+import {
+  CREDENTIAL_CONFIRMATION_DECLINED_CODE,
+  CREDENTIAL_CONFIRMATION_REQUIRED_CODE,
+  type RequestCredential,
+  riskWindowExecutionsResponseSchema,
+  SENSITIVE_OPERATION_ROOT_NOT_OWNER_CODE,
+  SENSITIVE_OPERATION_SOURCE_REQUIRED_CODE,
+  type SensitiveOperation,
+  type SensitiveOperationOutcome,
+  type SensitiveOperationSourceKind,
+  TASK_CREDENTIAL_REJECTED_CODE,
+  taskCredentialResolutionSchema,
+} from "@openmeld/schemas";
+import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
+import { readAuthProfileFacts } from "../../auth/application/profile-facts-reader";
+import { resolveRuntimeTransportOwnerShard } from "../../dispatch/infrastructure/runtime-transport/runtime-transport-shard";
+import type { CoreBindings } from "../../lib/bindings";
+import { isRequestChainEnforced } from "../../member-agent/member-agents-feature";
+import { createCoreRpcHttpError } from "../../rpc/errors";
+import {
+  asQueryable,
+  insertSensitiveOperationAuditEvent,
+} from "../infrastructure/postgresql/sensitive-operation-repo";
+import { resolveCredentialConfirmation } from "./credential-confirmation-service";
+
+// Sources for sensitive operations (design-plans/member-agent-program.md
+// §4.7, §6). A task credential passes only when its chain root is the Profile
+// owner; the owner's Web or App session passes; the CLI credential passes
+// unless the owner has a running task with another root (decision 5a0 in
+// member-agent-program-reviews/5-credentials.md), and then waits for the
+// owner's confirmation. Every decision is audited.
+
+export type SensitiveOperationRequest = {
+  agentProfileId: string | null;
+  context: OpenMeldRequestContext | undefined;
+  credential: RequestCredential | undefined;
+  /** The operation's own input; the digest binds a confirmation to it. */
+  digestInput: unknown;
+  operation: SensitiveOperation;
+};
+
+type Decision = {
+  chainRootProfileId: string | null;
+  confirmationId: string | null;
+  sourceKind: SensitiveOperationSourceKind;
+  taskExecutionId: string | null;
+};
+
+type Caller = {
+  humanProfileId: string | null;
+  organizationId: string;
+  userId: string;
+};
+
+export async function runSensitiveOperation<T>(
+  env: CoreBindings,
+  request: SensitiveOperationRequest,
+  run: () => Promise<T>
+): Promise<T> {
+  if (!isRequestChainEnforced()) {
+    return await run();
+  }
+  const caller = requireCaller(request.context);
+  if (!request.credential) {
+    throw createCoreRpcHttpError({
+      code: SENSITIVE_OPERATION_SOURCE_REQUIRED_CODE,
+      reason: "OpenMeld could not tell how this request was signed in.",
+      status: 403,
+    });
+  }
+  const decision = await decideSource(env, {
+    caller,
+    credential: request.credential,
+    request,
+  });
+  try {
+    const result = await run();
+    await writeAudit(env, { caller, decision, outcome: "succeeded", request });
+    return result;
+  } catch (error) {
+    await writeAudit(env, {
+      caller,
+      decision,
+      outcome: "failed",
+      reasonCode: readErrorCode(error),
+      request,
+    });
+    throw error;
+  }
+}
+
+function requireCaller(context: OpenMeldRequestContext | undefined): Caller {
+  const userId = context?.actorContext.callerPrincipalId;
+  const organizationId = context?.activeOrganizationId;
+  if (!(userId && organizationId)) {
+    throw createCoreRpcHttpError({
+      code: SENSITIVE_OPERATION_SOURCE_REQUIRED_CODE,
+      reason: "Sign in to an Organization to make this change.",
+      status: 403,
+    });
+  }
+  return {
+    humanProfileId:
+      context.actorContext.profileKind === "human"
+        ? context.actorContext.openMeldProfileId
+        : null,
+    organizationId,
+    userId,
+  };
+}
+
+async function decideSource(
+  env: CoreBindings,
+  input: {
+    caller: Caller;
+    credential: RequestCredential;
+    request: SensitiveOperationRequest;
+  }
+): Promise<Decision> {
+  const { caller, credential, request } = input;
+  let decision: Decision;
+  let windowRuntimeId: string | null = null;
+  if (credential.taskCredential) {
+    const task = await decideTaskCredential(env, {
+      caller,
+      request,
+      taskCredential: credential.taskCredential,
+    });
+    decision = task.decision;
+    // Another task on the same computer can read this task's credential.
+    windowRuntimeId = task.openMeldServiceRuntimeId;
+  } else {
+    decision = {
+      chainRootProfileId: caller.humanProfileId,
+      confirmationId: null,
+      sourceKind:
+        credential.kind === "interactive_session"
+          ? "web_session"
+          : "cli_credential",
+      taskExecutionId: null,
+    };
+    if (credential.kind === "interactive_session") {
+      return decision;
+    }
+  }
+  const window = await readRiskWindow(env, caller, windowRuntimeId);
+  if (!window.open) {
+    return decision;
+  }
+  const confirmation = await resolveCredentialConfirmation({
+    agentProfileId: request.agentProfileId,
+    blockingRootProfileId: window.blockingRootProfileId,
+    clientConfirmationId: credential.confirmationId ?? null,
+    db: requireDatabase(env),
+    nowMs: Date.now(),
+    operation: request.operation,
+    organizationId: caller.organizationId,
+    ownerUserId: caller.userId,
+    requestDigest: await digestSensitiveRequest(request),
+  });
+  const confirmed: Decision = {
+    ...decision,
+    confirmationId: confirmation.confirmationId,
+  };
+  if (confirmation.status === "approved") {
+    return confirmed;
+  }
+  const declined = confirmation.status === "declined";
+  await writeAudit(env, {
+    caller,
+    decision: confirmed,
+    outcome: declined ? "declined" : "confirmation_required",
+    reasonCode: window.reasonCode,
+    request,
+  });
+  throw createCoreRpcHttpError(
+    declined
+      ? {
+          code: CREDENTIAL_CONFIRMATION_DECLINED_CODE,
+          reason: "The Agent owner declined this change.",
+          status: 403,
+        }
+      : {
+          code: CREDENTIAL_CONFIRMATION_REQUIRED_CODE,
+          reason: `Confirm this change in your OpenMeld Inbox (confirmation ${confirmation.confirmationId}). A task requested by someone else is running on your computer.`,
+          status: 409,
+        }
+  );
+}
+
+async function decideTaskCredential(
+  env: CoreBindings,
+  input: {
+    caller: Caller;
+    request: SensitiveOperationRequest;
+    taskCredential: NonNullable<RequestCredential["taskCredential"]>;
+  }
+): Promise<{ decision: Decision; openMeldServiceRuntimeId: string }> {
+  const { caller, request } = input;
+  const resolution = taskCredentialResolutionSchema.parse(
+    await resolveRuntimeTransportOwnerShard(
+      env,
+      caller.userId
+    ).rpcResolveTaskCredential(input.taskCredential)
+  );
+  const rejected = async (
+    reasonCode: string,
+    decision: Decision,
+    code: string,
+    reason: string
+  ): Promise<never> => {
+    await writeAudit(env, {
+      caller,
+      decision,
+      outcome: "rejected",
+      reasonCode,
+      request,
+    });
+    throw createCoreRpcHttpError({ code, reason, status: 403 });
+  };
+  if (resolution.status === "rejected") {
+    return await rejected(
+      resolution.reasonCode,
+      {
+        chainRootProfileId: null,
+        confirmationId: null,
+        sourceKind: "task_credential",
+        taskExecutionId: input.taskCredential.runtimeCoordinatorExecutionId,
+      },
+      TASK_CREDENTIAL_REJECTED_CODE,
+      "This task's credential is no longer valid."
+    );
+  }
+  const decision: Decision = {
+    chainRootProfileId: resolution.rootProfileId,
+    confirmationId: null,
+    sourceKind: "task_credential",
+    taskExecutionId: resolution.runtimeCoordinatorExecutionId,
+  };
+  if (!resolution.rootProfileId) {
+    return await rejected(
+      "task_credential.chain_missing",
+      decision,
+      TASK_CREDENTIAL_REJECTED_CODE,
+      "This task has no requester OpenMeld can verify."
+    );
+  }
+  const facts = await readAuthProfileFacts({
+    authWorker: env.OPENMELD_AUTH_WORKER,
+    profileIds: [resolution.rootProfileId],
+  });
+  if (!facts) {
+    throw createCoreRpcHttpError({
+      code: "sensitive_operation.identity_unavailable",
+      reason: "OpenMeld could not verify who asked for this task.",
+      status: 503,
+    });
+  }
+  const root = facts.get(resolution.rootProfileId);
+  if (
+    !(
+      root &&
+      root.profileKind === "human" &&
+      root.status === "active" &&
+      root.ownerUserId === caller.userId
+    )
+  ) {
+    return await rejected(
+      "sensitive_operation.root_not_owner",
+      decision,
+      SENSITIVE_OPERATION_ROOT_NOT_OWNER_CODE,
+      "Only a task the Agent owner asked for can make this change."
+    );
+  }
+  return {
+    decision,
+    openMeldServiceRuntimeId: resolution.openMeldServiceRuntimeId,
+  };
+}
+
+type RiskWindow =
+  | { open: false }
+  | {
+      open: true;
+      blockingRootProfileId: string | null;
+      reasonCode: string;
+    };
+
+/**
+ * Open when any running task of this owner, for a Profile in this
+ * Organization, has a root the owner does not own (decision 5a0). With a
+ * runtime, only tasks on that computer count. Fails closed: an unverifiable
+ * state counts as open.
+ */
+async function readRiskWindow(
+  env: CoreBindings,
+  caller: Caller,
+  openMeldServiceRuntimeId: string | null
+): Promise<RiskWindow> {
+  const unverifiable: RiskWindow = {
+    blockingRootProfileId: null,
+    open: true,
+    reasonCode: "risk_window_unverifiable",
+  };
+  const response = riskWindowExecutionsResponseSchema.parse(
+    await resolveRuntimeTransportOwnerShard(
+      env,
+      caller.userId
+    ).rpcReadRiskWindowExecutions({ ownerUserId: caller.userId })
+  );
+  if (response.status === "unavailable") {
+    return unverifiable;
+  }
+  const executions = openMeldServiceRuntimeId
+    ? response.executions.filter(
+        (execution) =>
+          execution.openMeldServiceRuntimeId === null ||
+          execution.openMeldServiceRuntimeId === openMeldServiceRuntimeId
+      )
+    : response.executions;
+  if (executions.length === 0) {
+    return { open: false };
+  }
+  const facts = await readAuthProfileFacts({
+    authWorker: env.OPENMELD_AUTH_WORKER,
+    profileIds: executions.flatMap((execution) => [
+      execution.targetProfileId,
+      ...(execution.rootProfileId ? [execution.rootProfileId] : []),
+    ]),
+  });
+  if (!facts) {
+    return unverifiable;
+  }
+  for (const execution of executions) {
+    const target = facts.get(execution.targetProfileId);
+    if (target && target.organizationId !== caller.organizationId) {
+      continue;
+    }
+    const root = execution.rootProfileId
+      ? facts.get(execution.rootProfileId)
+      : null;
+    if (
+      !(
+        target &&
+        root &&
+        root.profileKind === "human" &&
+        root.ownerUserId === caller.userId
+      )
+    ) {
+      return {
+        blockingRootProfileId: execution.rootProfileId,
+        open: true,
+        reasonCode: "risk_window_open",
+      };
+    }
+  }
+  return { open: false };
+}
+
+export async function digestSensitiveRequest(
+  request: Pick<
+    SensitiveOperationRequest,
+    "agentProfileId" | "digestInput" | "operation"
+  >
+): Promise<string> {
+  const material = stableStringify({
+    agentProfileId: request.agentProfileId,
+    input: request.digestInput ?? null,
+    operation: request.operation,
+  });
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(material)
+  );
+  return `sha256:${[...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+function compareKeys(left: string, right: string): number {
+  if (left === right) {
+    return 0;
+  }
+  return left < right ? -1 : 1;
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => compareKeys(left, right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
+function readErrorCode(error: unknown): string {
+  const code =
+    error && typeof error === "object"
+      ? ((error as { code?: unknown }).code ??
+        (error as { cause?: { code?: unknown } }).cause?.code)
+      : undefined;
+  return typeof code === "string" && code.trim()
+    ? code.trim().slice(0, 160)
+    : "operation_failed";
+}
+
+function requireDatabase(env: CoreBindings) {
+  const db = getPostgresDatabase(env);
+  if (!db) {
+    throw createCoreRpcHttpError({
+      code: "sensitive_operation.store_unavailable",
+      reason: "OpenMeld could not check this change right now.",
+      status: 503,
+    });
+  }
+  return db;
+}
+
+async function writeAudit(
+  env: CoreBindings,
+  input: {
+    caller: Caller;
+    decision: Decision;
+    outcome: SensitiveOperationOutcome;
+    reasonCode?: string | null;
+    request: SensitiveOperationRequest;
+  }
+): Promise<void> {
+  await insertSensitiveOperationAuditEvent({
+    db: asQueryable(requireDatabase(env)),
+    event: {
+      actorUserId: input.caller.userId,
+      agentProfileId: input.request.agentProfileId,
+      chainRootProfileId: input.decision.chainRootProfileId,
+      confirmationId: input.decision.confirmationId,
+      createdAtMs: Date.now(),
+      id: crypto.randomUUID(),
+      operation: input.request.operation,
+      organizationId: input.caller.organizationId,
+      outcome: input.outcome,
+      reasonCode: input.reasonCode ?? null,
+      sourceKind: input.decision.sourceKind,
+      taskExecutionId: input.decision.taskExecutionId,
+    },
+  });
+}
+
+type GatewaySensitiveInput = {
+  context?: OpenMeldRequestContext;
+  requestCredential?: RequestCredential;
+};
+
+/**
+ * The Gateway-facing wrapper: decides the source, then runs the operation
+ * with the credential removed, so the task credential never travels past
+ * this boundary. The digest covers the operation's own input only.
+ */
+export async function runGatewaySensitiveOperation<
+  I extends GatewaySensitiveInput,
+  T,
+>(
+  env: CoreBindings,
+  input: I,
+  options: {
+    agentProfileId: string | null;
+    context?: OpenMeldRequestContext;
+    operation: SensitiveOperation;
+  },
+  run: (input: Omit<I, "requestCredential">) => Promise<T>
+): Promise<T> {
+  const { requestCredential, ...operationInput } = input;
+  if (!isRequestChainEnforced()) {
+    return await run(operationInput);
+  }
+  const {
+    context: _context,
+    password: _password,
+    spaceAccess: _spaceAccess,
+    ...digestInput
+  } = operationInput as Record<string, unknown>;
+  // One connection for the decision, the operation and its audit row.
+  return await withPostgresRequest(env.OPENMELD_POSTGRESQL, () =>
+    runSensitiveOperation(
+      env,
+      {
+        agentProfileId: options.agentProfileId,
+        context: options.context ?? input.context,
+        credential: requestCredential,
+        digestInput,
+        operation: options.operation,
+      },
+      () => run(operationInput)
+    )
+  );
+}

@@ -397,6 +397,7 @@ import {
   readRuntimeCoordinatorAgentProfileOperationalContextsFromAdmission,
   readRuntimeCoordinatorAgentProfileWorkControllerConversationOccupied,
   readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmission,
+  readRuntimeCoordinatorRiskWindowExecutions,
   releaseRuntimeCoordinatorAgentProfileExecutionTargetMutation,
   resolveNextAgentProfileContextMigrationAlarmAtMs,
   retireRuntimeCoordinatorAgentProfileHeadHistoryReference,
@@ -1938,6 +1939,82 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         ? { allowed: true }
         : { allowed: false, reasonCode: validation.reasonCode }
     );
+  }
+
+  /**
+   * Resolves a task credential (the task's execution token) to its execution
+   * and the root of that Wake's frozen request chain. Only an active token of
+   * an execution in this owner's shard is valid; the root always comes from
+   * the accepted assignment, never from the caller.
+   */
+  async rpcResolveTaskCredential(
+    input: RuntimeCoordinatorExecutionTokenEcho
+  ): Promise<TaskCredentialResolution> {
+    const echo = runtimeCoordinatorExecutionTokenEchoSchema.safeParse(input);
+    if (!echo.success) {
+      return { reasonCode: "execution_token_missing", status: "rejected" };
+    }
+    const executionId = echo.data.runtimeCoordinatorExecutionId;
+    const authority =
+      await this.readRuntimeCoordinatorTokenAuthority(executionId);
+    const validation =
+      await validateRuntimeCoordinatorExecutionTokenAgainstAuthority({
+        authority,
+        executionTokenEcho: echo.data,
+        nowMs: Date.now(),
+      });
+    if (!(validation.ok && authority)) {
+      return {
+        reasonCode: validation.ok
+          ? "execution_token_authority_missing"
+          : validation.reasonCode,
+        status: "rejected",
+      };
+    }
+    const commandState =
+      await this.readRuntimeCoordinatorRunCommandState(executionId);
+    if (!commandState) {
+      return {
+        reasonCode: "task_credential.execution_unavailable",
+        status: "rejected",
+      };
+    }
+    const payload = commandState.sanitizedDeliveryRequest.payload;
+    const head = await this.readRuntimeCoordinatorHeadLifecycleRecord(
+      projectTargetWakeLifecycleIdentity({
+        clientMessageId: commandState.sourceClientMessageId,
+        dispatchId: commandState.dispatchId,
+        sourceSignalId: payload.sourceEventId,
+        spaceId: payload.spaceId,
+        targetProfileId: commandState.targetProfileId,
+      }).targetWakeLifecycleId
+    );
+    const snapshot = head?.acceptedDispatchSnapshot;
+    const root = (snapshot?.executionContext?.requestChain ??
+      snapshot?.contextRequest?.requestChain)?.[0];
+    return taskCredentialResolutionSchema.parse({
+      openMeldServiceRuntimeId:
+        authority.authorityScope.openMeldServiceRuntimeId,
+      rootProfileId: root?.kind === "human" ? root.profileId : null,
+      runtimeCoordinatorExecutionId: executionId,
+      status: "valid",
+      targetProfileId: authority.executionScope.targetProfileId,
+    });
+  }
+
+  /** The owner's running tasks with chain roots (decision 5a0). */
+  async rpcReadRiskWindowExecutions(input: {
+    ownerUserId: string;
+  }): Promise<RiskWindowExecutionsResponse> {
+    const response = await readRuntimeCoordinatorRiskWindowExecutions({
+      nowMs: Date.now(),
+      ownerUserId: input.ownerUserId,
+      storage: this.ctx.storage,
+    });
+    if (response.status === "unavailable") {
+      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
+    }
+    return riskWindowExecutionsResponseSchema.parse(response);
   }
 
   async rpcReadPluginConnectionExecutionSource(
@@ -23169,11 +23246,16 @@ const safeCloseSocket = (
 };
 
 import {
+  type RiskWindowExecutionsResponse,
+  riskWindowExecutionsResponseSchema,
   runtimeCoordinatorExecutionAccessRequestSchema,
   runtimeCoordinatorExecutionAccessResponseSchema,
+  runtimeCoordinatorExecutionTokenEchoSchema,
   runtimeTransportSessionHistoryRequestSchema,
   SESSION_HISTORY_CAPABILITY_HEADER,
   SESSION_HISTORY_RUNTIME_CAPABILITY,
   sessionHistoryResultFrameSchema,
   sessionHistoryResultSchema,
+  type TaskCredentialResolution,
+  taskCredentialResolutionSchema,
 } from "@openmeld/schemas";

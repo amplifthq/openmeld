@@ -44,6 +44,8 @@ const postgresqlOnlyTables = [
   { name: "direct_message_session_states" },
   { name: "agent_access_requests" },
   { name: "agent_profile_access_grants" },
+  { name: "sensitive_operation_confirmations" },
+  { name: "sensitive_operation_audit_events" },
 ];
 
 function csv(value) {
@@ -312,6 +314,12 @@ async function lockEmptyTarget(client, catalog) {
   }
 }
 
+function newNullableIntegerColumns(table) {
+  // No historical session is known to be CLI-held. The first Bearer use marks
+  // it (member-agent-program.md §4.7).
+  return table.name === "sessions" ? ["cli_credential_at"] : [];
+}
+
 function nativeColumns(table, targetColumns) {
   const newNullableColumns = {
     plugin_action_requests: ["continuation_json"],
@@ -326,6 +334,12 @@ function nativeColumns(table, targetColumns) {
     ...(newNullableColumns[table.name] ?? []).map((name) => ({
       name,
       type: "TEXT",
+      hidden: 0,
+      source: "new_nullable",
+    })),
+    ...newNullableIntegerColumns(table).map((name) => ({
+      name,
+      type: "INTEGER",
       hidden: 0,
       source: "new_nullable",
     })),

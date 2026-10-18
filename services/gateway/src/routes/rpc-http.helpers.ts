@@ -580,6 +580,13 @@ export function buildCoreRpcContext(
   return c.var.openMeldRequestContext;
 }
 
+/** For sensitive operations only (design-plans/member-agent-program.md §4.7). */
+export function buildCoreRpcCredential(
+  c: Context<HonoBindings>
+): HonoBindings["Variables"]["requestCredential"] {
+  return c.var.requestCredential;
+}
+
 function mapCoreRpcError(input: CoreRpcErrorInput): Response {
   const { c, route, method, spaceId, err } = input;
   const context = c.var.openMeldRequestContext;

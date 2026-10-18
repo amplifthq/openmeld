@@ -110,6 +110,7 @@ export const inboxItemKindSchema = z.enum([
   "organization_request",
   "agent_access_request",
   "agent_space_request",
+  "credential_confirmation",
   "system_issue",
   "computer_connection",
   "desktop_update",
@@ -129,6 +130,7 @@ export const inboxSourceKindSchema = z.enum([
   "organization_member_request",
   "agent_profile_work_recovery",
   "agent_access_request",
+  "credential_confirmation",
   "system_attention_event",
   "computer_connection",
   "desktop_update",
@@ -217,6 +219,12 @@ export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("agent_access_request"),
     requestId: identifierSchema,
+  }),
+  // The owner's confirmation of a sensitive operation made with the CLI
+  // credential while a task with another root requester was running.
+  z.strictObject({
+    kind: z.literal("credential_confirmation"),
+    confirmationId: identifierSchema,
   }),
   z.strictObject({
     kind: z.literal("agent_profile"),

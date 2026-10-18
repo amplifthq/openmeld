@@ -3784,6 +3784,105 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toMatchObject({ allowed: false });
     expect([...harness.storageRecords.entries()]).toEqual(before);
   });
+  it("resolves a task credential to its Wake's frozen chain root and lists running tasks for the risk window", async () => {
+    const harness = await createContextHarness();
+    const headRequest = buildRuntimeCoordinatorHeadAcceptRequest({
+      acceptedDispatchSnapshot: {
+        ...buildAcceptedDispatchSnapshot({ fingerprint: "d" }),
+        contextRequest: {
+          required: true,
+          requestChain: [
+            { kind: "human", profileId: "human-tali" },
+            { kind: "agent", profileId: TARGET_AGENT_PROFILE_ID },
+          ],
+          scope: {
+            organizationId: "org-1",
+            requesterProfileId: "human-tali",
+            spaceId: HEX_SPACE_ID,
+            targetProfileId: TARGET_AGENT_PROFILE_ID,
+            threadId: null,
+          },
+          selection: {
+            mode: "new",
+            access: "space_context",
+            workspace: "isolated",
+          },
+        },
+      },
+    });
+    const token = await issueDeliveryToken({ ...harness, headRequest });
+    const reader = harness.hub as unknown as Pick<
+      RuntimeTransportHub,
+      "rpcReadRiskWindowExecutions" | "rpcResolveTaskCredential"
+    >;
+    const echo = buildExecutionTokenEcho(token);
+    expect(await reader.rpcResolveTaskCredential(echo)).toEqual({
+      openMeldServiceRuntimeId: token.authorityScope.openMeldServiceRuntimeId,
+      rootProfileId: "human-tali",
+      runtimeCoordinatorExecutionId:
+        token.executionScope.runtimeCoordinatorExecutionId,
+      status: "valid",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    // A token Core did not issue for this execution is never a credential.
+    expect(
+      await reader.rpcResolveTaskCredential({
+        ...echo,
+        executionToken: `rcet_v1_${"b".repeat(64)}`,
+      })
+    ).toEqual({ reasonCode: "execution_token_unknown", status: "rejected" });
+    const head = harness.storageRecords.get(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        headRequest.targetWakeLifecycleIdentity.targetWakeLifecycleId
+      )
+    ) as RuntimeCoordinatorHeadLifecycleRecord;
+    expect(head.status).toBe("execution_linked");
+    expect(
+      await reader.rpcReadRiskWindowExecutions({
+        ownerUserId: head.ownerUserId,
+      })
+    ).toEqual({
+      executions: [
+        {
+          openMeldServiceRuntimeId:
+            head.acceptedDispatchSnapshot?.openMeldServiceRuntimeId ?? null,
+          rootProfileId: "human-tali",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        },
+      ],
+      status: "ready",
+    });
+
+    // Once the task ends its credential stops working and the window closes.
+    const storage = (
+      harness.hub as unknown as { ctx: { storage: DurableObjectStorage } }
+    ).ctx.storage;
+    const authorityKey = buildRuntimeCoordinatorTokenAuthorityStorageKey(
+      token.executionScope.runtimeCoordinatorExecutionId
+    );
+    const authority =
+      await storage.get<RuntimeCoordinatorExecutionTokenAuthorityRecord>(
+        authorityKey
+      );
+    await storage.put(authorityKey, {
+      ...authority,
+      terminalOutcome: {
+        finalizedAtMs: Date.now(),
+        reasonCode: "runtime_coordinator.reply_published",
+        replySignalId: null,
+        status: "reply_published",
+      },
+    });
+    expect(await reader.rpcResolveTaskCredential(echo)).toEqual({
+      reasonCode: "execution_token_terminal_late",
+      status: "rejected",
+    });
+    expect(
+      await reader.rpcReadRiskWindowExecutions({
+        ownerUserId: head.ownerUserId,
+      })
+    ).toEqual({ executions: [], status: "ready" });
+  });
   it("keeps independent ordinary Claude tasks native in parallel mode", async () => {
     const { hub } = await createContextHarness({
       bindingControllerRef: "builtin:claude-code",

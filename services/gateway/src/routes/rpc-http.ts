@@ -53,6 +53,7 @@ import { registerReasoningRoutes } from "./rpc-http.reasoning";
 import { registerResultRoutes } from "./rpc-http.result";
 import { registerRoutineRoutes } from "./rpc-http.routines";
 import { registerRuntimeReportingRoutes } from "./rpc-http.runtime-reporting";
+import { registerSensitiveOperationRoutes } from "./rpc-http.sensitive-operations";
 import { registerSpaceAttachmentRoutes } from "./rpc-http.space-attachments";
 import { registerSpaceDeletionTombstoneRoutes } from "./rpc-http.space-deletion-tombstones";
 import { registerSpaceDiagnosticReportRoutes } from "./rpc-http.space-diagnostic-reports";
@@ -95,6 +96,7 @@ export function registerRpcHttpRoutes(app: Hono<HonoBindings>): void {
   registerLocalRuntimeExpectedRoutesRoutes(app);
   registerMemberAgentRoutes(app);
   registerAgentAccessRoutes(app);
+  registerSensitiveOperationRoutes(app);
   registerOrganizationRoutes(app);
   registerOrganizationUsageRoutes(app);
   registerOrganizationDocumentRoutes(app);

@@ -32,6 +32,7 @@ import type { Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
 import {
   buildCoreRpcContext,
+  buildCoreRpcCredential,
   executeRpcRoute,
   respondBadRequest,
 } from "./rpc-http.helpers";
@@ -288,6 +289,7 @@ export function registerPeopleComputerControlRoutes(
           ...profile.data,
           ...parsed.data,
           context: buildCoreRpcContext(c),
+          requestCredential: buildCoreRpcCredential(c),
         };
         // A named required receiver prevents older Core from discarding the
         // precondition. Never fall back to an unguarded explicit-target write.

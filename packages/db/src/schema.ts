@@ -93,6 +93,8 @@ export const {
   centerAgentPermissionModeConfirmations,
   agentAccessRequests,
   agentProfileAccessGrants,
+  sensitiveOperationAuditEvents,
+  sensitiveOperationConfirmations,
   centerAgentProjectOperations,
   centerAgentProjectRemoveConfirmations,
   centerAgentConnectorActionOperations,

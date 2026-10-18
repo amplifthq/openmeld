@@ -397,6 +397,7 @@ describe("agent profile binding routes", () => {
     });
     expect(coreRpc.executeAgentProfileWorkRecovery).toHaveBeenCalledOnce();
     expect(coreRpc.executeAgentProfileWorkRecovery).toHaveBeenCalledWith({
+      requestCredential: { kind: "cli_credential" },
       agentProfileId: AGENT_PROFILE_ID,
       body: {
         action,

@@ -32,6 +32,7 @@ import type { Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
 import {
   buildCoreRpcContext,
+  buildCoreRpcCredential,
   executeRpcRoute,
   respondBadRequest,
 } from "./rpc-http.helpers";
@@ -108,6 +109,7 @@ export function registerAgentProfileBindingRoutes(
       responseSchema: agentProfileExecutionModeResponseSchema,
       execute: () =>
         c.var.coreRpc.agentProfileExecutionMode({
+          requestCredential: buildCoreRpcCredential(c),
           agentProfileId: params.data.agentProfileId,
           body,
           context: buildCoreRpcContext(c),
@@ -190,6 +192,7 @@ export function registerAgentProfileBindingRoutes(
       responseSchema: executeAgentProfileWorkRecoveryResponseSchema,
       execute: async () =>
         await c.var.coreRpc.executeAgentProfileWorkRecovery({
+          requestCredential: buildCoreRpcCredential(c),
           agentProfileId: routeParams.value.agentProfileId,
           body: body.data,
           context: buildCoreRpcContext(c),
@@ -283,6 +286,7 @@ export function registerAgentProfileBindingRoutes(
           ...parsedBody.data,
           agentProfileId: routeParams.data.agentProfileId,
           context: buildCoreRpcContext(c),
+          requestCredential: buildCoreRpcCredential(c),
         };
         return parsedBody.data.expectedBindingTarget
           ? c.var.coreRpc.updateBoundAgentProfileDefaultProject(request)
@@ -366,6 +370,7 @@ export function registerAgentProfileBindingRoutes(
       responseSchema: disableAgentProfilePrimaryBindingResponseSchema,
       execute: async () =>
         await c.var.coreRpc.disableAgentProfilePrimaryBinding({
+          requestCredential: buildCoreRpcCredential(c),
           agentProfileId: routeParams.value.agentProfileId,
           context: buildCoreRpcContext(c),
         }),
@@ -489,6 +494,7 @@ export function registerAgentProfileBindingRoutes(
       responseSchema: ensureAgentProfilePrimaryBindingResponseSchema,
       execute: async () =>
         await c.var.coreRpc.ensureAgentProfilePrimaryBinding({
+          requestCredential: buildCoreRpcCredential(c),
           agentProfileId: routeParams.value.agentProfileId,
           agentControllerRef: parsedBody.data.agentControllerRef,
           agentControllerConversationId:
@@ -583,6 +589,7 @@ export function registerAgentProfileBindingRoutes(
         execute: async () =>
           await c.var.coreRpc.updateAgentProfilePrimaryBindingAgentControllerCollaborationMode(
             {
+              requestCredential: buildCoreRpcCredential(c),
               agentProfileId: routeParams.value.agentProfileId,
               agentControllerCollaborationMode:
                 parsedBody.data.agentControllerCollaborationMode,
@@ -644,6 +651,7 @@ export function registerAgentProfileBindingRoutes(
         execute: async () =>
           await c.var.coreRpc.updateAgentProfilePrimaryBindingAgentControllerPermissionMode(
             {
+              requestCredential: buildCoreRpcCredential(c),
               agentProfileId: routeParams.value.agentProfileId,
               agentControllerPermissionMode:
                 parsedBody.data.agentControllerPermissionMode,
@@ -702,6 +710,7 @@ export function registerAgentProfileBindingRoutes(
       responseSchema: ensureAgentProfilePrimaryBindingResponseSchema,
       execute: async () =>
         await c.var.coreRpc.updateAgentProfilePrimaryBindingOpenCodePermission({
+          requestCredential: buildCoreRpcCredential(c),
           agentProfileId: routeParams.value.agentProfileId,
           context: buildCoreRpcContext(c),
           openCodePermission: parsedBody.data.openCodePermission,
@@ -757,6 +766,7 @@ export function registerAgentProfileBindingRoutes(
       responseSchema: ensureAgentProfilePrimaryBindingResponseSchema,
       execute: async () =>
         await c.var.coreRpc.updateAgentProfilePrimaryBindingModelSelection({
+          requestCredential: buildCoreRpcCredential(c),
           agentProfileId: routeParams.value.agentProfileId,
           context: buildCoreRpcContext(c),
           modelId: parsedBody.data.modelId,

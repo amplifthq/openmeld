@@ -25,6 +25,7 @@ import type { Context, Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
 import {
   buildCoreRpcContext,
+  buildCoreRpcCredential,
   executeRpcRoute,
   respondBadRequest,
 } from "./rpc-http.helpers";
@@ -123,6 +124,7 @@ export function registerAgentAccessRoutes(app: Hono<HonoBindings>): void {
       responseSchema: decideAgentAccessRequestResponseSchema,
       execute: () =>
         c.var.coreRpc.decideAgentAccessRequest({
+          requestCredential: buildCoreRpcCredential(c),
           context: buildCoreRpcContext(c),
           decision: body.data.decision,
           requestId: params.data.requestId,
@@ -235,6 +237,7 @@ export function registerAgentAccessRoutes(app: Hono<HonoBindings>): void {
       responseSchema: revokeAgentProfileAccessGrantResponseSchema,
       execute: () =>
         c.var.coreRpc.revokeAgentProfileAccessGrant({
+          requestCredential: buildCoreRpcCredential(c),
           agentProfileId: params.data.agentProfileId,
           context: buildCoreRpcContext(c),
           grantId: params.data.grantId,

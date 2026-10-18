@@ -197,6 +197,10 @@ export { routineRuns, routines } from "./routine.schema.ts";
 export { openMeldDaemonRuntimeAgentControllerReports } from "./runtime-agent-controller-report.schema.ts";
 export { openMeldDaemonRuntimeHarnessPresence } from "./runtime-harness-presence.schema.ts";
 export { openMeldDaemonRuntimeRegistryRecords } from "./runtime-registry.schema.ts";
+export {
+  sensitiveOperationAuditEvents,
+  sensitiveOperationConfirmations,
+} from "./sensitive-operation.schema.ts";
 export { spaceAttachments } from "./space-attachment.schema.ts";
 export {
   spaceIndexMemberships,
