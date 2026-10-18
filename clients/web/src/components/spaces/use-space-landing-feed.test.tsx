@@ -38,6 +38,7 @@ import {
 } from "#/query/spaces/history";
 import { MissingHistoryAnchorError } from "#/query/spaces/retry";
 import { spaceFileQueryKeys } from "#/query/spaces/space-files";
+import { spaceTaskQueryKeys } from "#/query/spaces/space-tasks";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import { spaceThreadSignalsQueryOptions } from "#/query/spaces/threads";
 import threadReconnectFixture from "./fixtures/thread-reconnect.json";
@@ -137,6 +138,10 @@ class FakeWebSocket {
 
 	async emitAccessRevoked() {
 		await this.emit("close", { code: 1008, reason: "space_access_changed" });
+	}
+
+	async emitClose(code: number, reason: string) {
+		await this.emit("close", { code, reason });
 	}
 
 	async emitMessage(data: unknown) {
@@ -1378,6 +1383,55 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		expect(windows.result.current.other.isError).toBe(true);
 		expect(readyRead).toHaveBeenCalledOnce();
 		expect(permanentRead).toHaveBeenCalledOnce();
+	});
+
+	it("re-reads mounted Tasks and files after an accepted reconnect", async () => {
+		const { queryClient } = renderFeed();
+		await openLatestSocket();
+		let version = 1;
+		const readTasks = vi.fn(async () => `tasks-v${version}`);
+		const readFiles = vi.fn(async () => `files-v${version}`);
+		const mounted = renderHook(
+			() => ({
+				files: useQuery({
+					queryKey: spaceFileQueryKeys.space("space-123"),
+					queryFn: readFiles,
+					staleTime: Number.POSITIVE_INFINITY,
+				}),
+				tasks: useQuery({
+					queryKey: spaceTaskQueryKeys.space("space-123"),
+					queryFn: readTasks,
+					staleTime: Number.POSITIVE_INFINITY,
+				}),
+			}),
+			{
+				wrapper: ({ children }: { children: ReactNode }) => (
+					<QueryClientProvider client={queryClient}>
+						{children}
+					</QueryClientProvider>
+				),
+			}
+		);
+		await flushMicrotasks();
+		await act(async () => vi.advanceTimersByTimeAsync(0));
+		expect(mounted.result.current.tasks.data).toBe("tasks-v1");
+		expect(mounted.result.current.files.data).toBe("files-v1");
+
+		// Core withheld an invalidation while it could not verify access, then
+		// closed the socket; the snapshots changed in the meantime.
+		version = 2;
+		await act(async () => {
+			await FakeWebSocket.latest.emitClose(1013, "space_access_unverified");
+			await vi.advanceTimersByTimeAsync(2000);
+		});
+		await openLatestSocket();
+		await flushMicrotasks();
+		await act(async () => vi.advanceTimersByTimeAsync(0));
+
+		expect(mounted.result.current.tasks.data).toBe("tasks-v2");
+		expect(mounted.result.current.files.data).toBe("files-v2");
+		expect(readTasks).toHaveBeenCalledTimes(2);
+		expect(readFiles).toHaveBeenCalledTimes(2);
 	});
 
 	it.each([

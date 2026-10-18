@@ -1985,16 +1985,6 @@ type WakeProgressTerminalFailureNotice = {
   updatedAtMs: number;
 };
 type Session = SpaceWebSocketSession;
-
-const LIVE_WITHHELD_INVALIDATIONS_KEY_PREFIX = "live-withheld-invalidations:";
-const LIVE_WITHHELD_INVALIDATIONS_TTL_MS = 10 * 60 * 1000;
-const LIVE_WITHHELD_INVALIDATION_TYPES = [
-  "space.meta.changed",
-  "space.members.changed",
-  "space.files.changed",
-  "space.tasks.changed",
-  "wake.progress.changed",
-] as const satisfies readonly SpaceLiveInvalidationFrame["type"][];
 type SpaceDispatchAccessOptions = {
   requestTimeContext?: SignalPublishContext["requestTimeContext"];
   includeAgentReadiness?: boolean;
@@ -17293,11 +17283,6 @@ export class Space extends DurableObject<CoreBindings> {
       session.blocked = undefined;
     }
     webSocket.send(JSON.stringify({ type: "system.hello.ack", profile }));
-    await this.replayWithheldLiveInvalidations(
-      webSocket,
-      session,
-      profile.profileId
-    );
     await this.replayActiveReplyingSignalsToSession(webSocket, session);
     await this.replayAgentRecovery(webSocket, session);
     const joinSignal = this.buildPresence("presence.join", profile);
@@ -21373,9 +21358,6 @@ export class Space extends DurableObject<CoreBindings> {
         error: formatUnknownErrorMessage(closure.error),
       });
     }
-    if (closure.code === 1013) {
-      this.rememberWithheldLiveInvalidations(target.session);
-    }
     removeFailedSpaceWebSocketSession({
       closeCode: closure.code,
       closeReason: closure.reason,
@@ -21383,57 +21365,6 @@ export class Space extends DurableObject<CoreBindings> {
       sessions: this.sessions,
       webSocket: target.webSocket,
     });
-  }
-  // A 1013 close withholds invalidations. Remember the profile so its next
-  // authorized join receives replacement invalidations; Web clients already
-  // open before this Core was deployed refresh only on those frames.
-  private rememberWithheldLiveInvalidations(session: Session): void {
-    const profileId = (session.profile ?? session.enforcedProfile)?.profileId;
-    if (!profileId) {
-      return;
-    }
-    this.ctx.waitUntil(
-      this.ctx.storage
-        .put(
-          `${LIVE_WITHHELD_INVALIDATIONS_KEY_PREFIX}${profileId}`,
-          Date.now()
-        )
-        .catch((error: unknown) => {
-          console.error("[core.space.live_withheld_marker_failed]", {
-            spaceId: this.spaceId,
-            error: formatUnknownErrorMessage(error),
-          });
-        })
-    );
-  }
-  private async replayWithheldLiveInvalidations(
-    webSocket: WebSocket,
-    session: Session,
-    profileId: string
-  ): Promise<void> {
-    const key = `${LIVE_WITHHELD_INVALIDATIONS_KEY_PREFIX}${profileId}`;
-    const withheldAtMs = await this.ctx.storage.get<number>(key);
-    if (typeof withheldAtMs !== "number") {
-      return;
-    }
-    if (Date.now() - withheldAtMs > LIVE_WITHHELD_INVALIDATIONS_TTL_MS) {
-      await this.ctx.storage.delete(key);
-      return;
-    }
-    // The marker stays until it expires so every tab of this profile that
-    // reconnects in the window catches up, not only the first one.
-    for (const type of LIVE_WITHHELD_INVALIDATION_TYPES) {
-      const frame: SpaceLiveInvalidationFrame = {
-        type,
-        spaceId: this.spaceId,
-        version: await this.nextLiveInvalidationVersion(),
-        reason: "space.live.access_reverified",
-      };
-      const encoded = this.encodeLiveMessageForSession(frame, session);
-      if (encoded !== null) {
-        webSocket.send(encoded);
-      }
-    }
   }
   private deliverAuthorizedLiveMessages(
     target: { session: Session; webSocket: WebSocket },

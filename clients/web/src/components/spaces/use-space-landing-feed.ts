@@ -1432,7 +1432,7 @@ function handleLiveInvalidationMessage(
 
 const LIVE_RECONNECT_REFRESH_REASON = "space.live.reconnected";
 
-export function refreshLiveInvalidatedSnapshotsAfterReconnect(
+function refreshLiveInvalidatedSnapshotsAfterReconnect(
 	input: Pick<
 		NonTimelineLiveMessageInput,
 		| "membersRefetch"
