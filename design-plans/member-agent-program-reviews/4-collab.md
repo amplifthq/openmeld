@@ -40,3 +40,27 @@ after and was not part of this run).
 
 - `services/core`: `tsc --noEmit`; `tests/agent-access-consent.integration.test.ts` (9 passed);
   `tests/organization-rpc.test.ts` focused cases; `tests-node/agent-access-policy.test.ts` (8 passed).
+
+## Local-stack check (2026-10-19)
+
+Local PostgreSQL stack (`pnpm dev:postgresql`) with `MEMBER_AGENTS_ENABLED`
+switched on in the working tree only, two local test accounts (Felix owns
+"PR Reviewer", Tali is a member). Setup used the local database for the
+organization membership and the Agent Profile, and Tali's Wake was posted
+through her own session because Web holds a Wake for an Agent with no
+connected computer before sending it. Everything after that went through
+the product UI.
+
+| # | Found | Disposition |
+| --- | --- | --- |
+| 1 | A held Wake showed "Working…" with Stop: Wake progress synthesized `request_sent` for a target without a dispatch. | Fixed (Core): held or closed requests report no progress. Test asserts empty progress for a held Wake. |
+| 2 | "Allow once" hung: the release flushed the dispatch outbox inside the Space's concurrency gate, and the flush calls back into the Space. | Fixed (Core): projection, broadcast and flush run after the gate. The stranded decision was then applied by repair on read, as designed. |
+| 3 | The owner's answer card rendered twice in a selected Inbox item. | Fixed (Web): detail only, short eyebrow label. |
+| 4 | Add members said the owner "Joins with selected Agent" and offered "Add 1 member". | Fixed (Web): "<owner> decides whether the Agent joins", "Send request". |
+
+Observed after the fixes: requester banner and Space list label while
+pending; urgent Inbox item with names only; owner observer view of the
+Direct Message and of a private Space ("View only", Join, answer in place);
+an observer write refused with `space.access.read_only`; Allow once released
+the held message; Let the Agent join added only the Agent; Revoke emptied the
+access list.
