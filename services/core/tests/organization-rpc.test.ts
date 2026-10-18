@@ -34,6 +34,7 @@ vi.mock("@openmeld/db/postgresql", async (importOriginal) => {
 const memberAgentsFeature = vi.hoisted(() => ({ enabled: false }));
 vi.mock("../src/member-agent/member-agents-feature", () => ({
   isMemberAgentsEnabled: () => memberAgentsFeature.enabled,
+  isRequestChainEnforced: () => memberAgentsFeature.enabled,
 }));
 function organizationFixture(env: CoreBindings) {
   const fixture =
@@ -800,6 +801,108 @@ describe("organization Core RPC", () => {
     expect(resolveProfilesByIds).toHaveBeenCalledExactlyOnceWith({
       profileIds: [AGENT_PROFILE_ID, SECOND_AGENT_PROFILE_ID],
     });
+  });
+
+  it("keeps quota numbers of another member's Agents owner-only", async () => {
+    const readUsage = vi
+      .spyOn(agentProfileUsage, "readAgentProfileUsage")
+      .mockResolvedValue([
+        {
+          key: "weekly",
+          label: "Weekly usage",
+          status: "available" as const,
+          usedPercent: 92,
+          resetsAt: "2026-09-22T00:00:00Z",
+          observedAt: "2026-09-15T00:00:00Z",
+        },
+      ]);
+    const env = await buildEnv({
+      agentProfiles: [
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-a",
+          profileHandle: "codex",
+          profileId: AGENT_PROFILE_ID,
+          profileName: "Codex",
+          status: "active",
+        },
+      ],
+      authWorker: {
+        resolveProfileById: vi.fn(),
+        resolveProfilesByIds: vi.fn(
+          async (input: { profileIds: string[] }) => ({
+            ok: true as const,
+            profiles: Object.fromEntries(
+              input.profileIds.map((profileId) => [
+                profileId,
+                {
+                  ownerUserId: "user-a",
+                  profileKind: "agent" as const,
+                  profileId,
+                  profileName: "Codex",
+                  profileHandle: "codex",
+                  status: "active" as const,
+                  defaultProjectId: null,
+                },
+              ])
+            ),
+          })
+        ),
+      },
+      members: [
+        memberRow("member-a", "org-a", "user-a"),
+        memberRow("member-b", "org-a", "user-b"),
+      ],
+    });
+    vi.spyOn(
+      runtimeTransportClient,
+      "lookupRuntimeTransportRoutesBatch"
+    ).mockResolvedValue({
+      routes: {
+        [AGENT_PROFILE_ID]: {
+          online: false,
+          reasonCode: "daemon.profile.offline",
+        },
+      },
+    });
+    vi.spyOn(
+      runtimeTransportClient,
+      "lookupRuntimeTransportOwnerService"
+    ).mockResolvedValue({
+      online: false,
+      reasonCode: "daemon.session.not_found",
+    });
+    vi.spyOn(
+      runtimeTransportClient,
+      "readRuntimeTransportAgentProfileOperationalContexts"
+    ).mockResolvedValue({ contexts: [] });
+
+    const colleagueView = await rpcGetCurrentOrganizationAgentRuntimeOverview(
+      env,
+      {
+        includeUsageLimits: true,
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          userId: "user-b",
+        }),
+      }
+    );
+    expect(colleagueView.agentProfiles.map((agent) => agent.profileId)).toEqual(
+      [AGENT_PROFILE_ID]
+    );
+    expect(colleagueView.agentProfiles[0]?.readiness).not.toHaveProperty(
+      "usageLimits"
+    );
+
+    const ownerView = await rpcGetCurrentOrganizationAgentRuntimeOverview(env, {
+      includeUsageLimits: true,
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: "user-a",
+      }),
+    });
+    expect(ownerView.agentProfiles[0]?.readiness.usageLimits).toHaveLength(1);
+    expect(readUsage).toHaveBeenCalledOnce();
   });
 
   it("does not reload the runtime catalog to check Organization Agent readiness", async () => {

@@ -539,6 +539,103 @@ describe("Colleague use of an Agent (Phase 4)", () => {
     );
   });
 
+  it("asks the owner before their Agent joins a Space, and lets the owner observe", async () => {
+    const f = await seed();
+    await withSpace(
+      f,
+      { directMessage: false, humans: [f.tali], agentMember: false },
+      async (space) => {
+        const message = await space.post(
+          f.tali,
+          "@Felix's PR Reviewer can you review the launch plan?"
+        );
+        const ownerAccess = createAuthenticatedSpaceAccessContext({
+          requestContext: space.context(f.felix),
+          spaceId: space.spaceId,
+        });
+        // Before any request the owner cannot read this private Space.
+        expect(
+          (await space.instance.authorizeSpaceAccess(ownerAccess)).ok
+        ).toBe(false);
+        const { requestId } = await space.instance.rpcRequestAgentForSpace({
+          context: space.context(f.tali),
+          organizationId: f.organizationId,
+          requester: { profileId: f.tali.profileId, userId: f.tali.userId },
+          signalId: message.id,
+          spaceId: space.spaceId,
+          target: {
+            memberAgentId: f.memberAgentId,
+            ownerUserId: f.felix.userId,
+            profileId: f.agentProfileId,
+          },
+        });
+        // No Wake and no membership before consent.
+        expect(space.outbox(message)).toHaveLength(0);
+        expect(
+          readSpaceMemberRecord(space.state.storage.sql, f.agentProfileId)
+        ).toBeNull();
+        expect((await readInboxItem(requestId))?.kind).toBe(
+          "agent_space_request"
+        );
+        // The owner observes: reads, but cannot post.
+        expect(
+          (await space.instance.authorizeSpaceAccess(ownerAccess)).ok
+        ).toBe(true);
+        const writable = await (
+          space.instance as unknown as {
+            authorizeWritableSpaceAccess(
+              access: typeof ownerAccess
+            ): Promise<{ ok: boolean; response?: Response }>;
+          }
+        ).authorizeWritableSpaceAccess(ownerAccess);
+        expect(writable.ok).toBe(false);
+        expect(await writable.response?.json()).toMatchObject({
+          code: "space.access.read_only",
+        });
+
+        const db = getPostgresDatabase(env);
+        const decided = await decideAgentAccessRequest({
+          db,
+          decision: "join",
+          deciderUserId: f.felix.userId,
+          nowMs: Date.now(),
+          organizationId: f.organizationId,
+          requestId,
+        });
+        await space.instance.rpcApplyAgentAccessDecision({
+          agentMember: {
+            agentControllerRef: "builtin:claude-code",
+            ownerName: f.felix.name,
+            ownerUserId: f.felix.userId,
+            profileId: f.agentProfileId,
+            profileKind: "agent",
+            profileName: "PR Reviewer",
+          },
+          decidedByProfileId: f.felix.profileId,
+          decidedByUserId: f.felix.userId,
+          organizationId: f.organizationId,
+          requestId,
+          spaceId: space.spaceId,
+          status: decided.request.status,
+        });
+        expect(
+          readSpaceMemberRecord(space.state.storage.sql, f.agentProfileId)
+            ?.status
+        ).toBe("active");
+        // The owner stays an observer; the bound message is dispatched with
+        // the chain [requester, Agent].
+        expect(
+          readSpaceMemberRecord(space.state.storage.sql, f.felix.profileId)
+        ).toBeNull();
+        const [dispatched] = space.outbox(message);
+        expect(dispatched?.requestChain).toEqual([
+          { kind: "human", profileId: f.tali.profileId },
+          { kind: "agent", profileId: f.agentProfileId },
+        ]);
+      }
+    );
+  });
+
   it("voids a Space request when its message is edited", async () => {
     const f = await seed();
     await withSpace(

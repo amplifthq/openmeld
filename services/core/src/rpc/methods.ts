@@ -7672,7 +7672,7 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
                 reads,
               }),
             });
-          if (input.includeUsageLimits) {
+          if (canReadAgentQuota(input, agent.ownerUserId)) {
             projectedReadiness.usageLimits = await readAgentProfileUsage({
               db: getPostgresDatabase(input.env),
               binding: readiness.primaryBinding,
@@ -7692,6 +7692,20 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
     }
   );
   return new Map(ownerResults.flat());
+}
+/**
+ * Quota numbers are owner-only (member-agent-program.md §4.10); other
+ * members see only the public usage reason.
+ */
+function canReadAgentQuota(
+  input: { includeUsageLimits?: boolean; viewerUserId: string | null },
+  ownerUserId: string | null
+): boolean {
+  return (
+    input.includeUsageLimits === true &&
+    ownerUserId !== null &&
+    ownerUserId === input.viewerUserId
+  );
 }
 async function mapWithConcurrency<Input, Output>(
   inputs: readonly Input[],

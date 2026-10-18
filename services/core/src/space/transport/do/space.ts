@@ -849,6 +849,7 @@ import {
 } from "../../infrastructure/sql/space-pending-wake-stop-repo";
 import {
   closeSpaceAgentAccessHold,
+  hasHeldSpaceJoinHoldForOwner,
   hasUnsyncedSpaceAgentAccessHolds,
   insertSpaceAgentAccessHold,
   listHeldSpaceAgentAccessHoldsForSignal,
@@ -14443,16 +14444,30 @@ export class Space extends DurableObject<CoreBindings> {
       profileId &&
         activeMembers.some((member) => member.profileId === profileId)
     );
-    const isAgentOwnerObserver = Boolean(
-      isCurrentDirectMessage &&
-        requestContext?.actorContext.profileKind === "human" &&
-        ownerUserId &&
-        !isActiveProfile &&
-        activeMembers.some(
+    // An Agent owner who is not a member observes: reads, never writes.
+    // MemberAgents widen this from a Direct Message to any Space that
+    // contains their Agent or a pending request for one.
+    const ownsAgentHere = Boolean(
+      ownerUserId &&
+        (activeMembers.some(
           (member) =>
             member.profileKindSnapshot === "agent" &&
             member.ownerUserIdSnapshot === ownerUserId
-        )
+        ) ||
+          (isMemberAgentsEnabled() &&
+            hasHeldSpaceJoinHoldForOwner(this.ctx.storage.sql, ownerUserId)))
+    );
+    const isAgentOwnerObserver = Boolean(
+      (isCurrentDirectMessage || isMemberAgentsEnabled()) &&
+        requestContext?.actorContext.profileKind === "human" &&
+        ownerUserId &&
+        !isActiveProfile &&
+        !activeMembers.some(
+          (member) =>
+            member.profileKindSnapshot === "human" &&
+            member.ownerUserIdSnapshot === ownerUserId
+        ) &&
+        ownsAgentHere
     );
     if (!isAgentOwnerObserver) {
       return accessResult;
@@ -14462,7 +14477,9 @@ export class Space extends DurableObject<CoreBindings> {
       response: this.forbiddenResponse(
         requestContext?.actorContext.requestId ?? "space-agent-owner-observer",
         "space.access.read_only",
-        "Agent owners can view this Direct Message, but must join before participating."
+        isCurrentDirectMessage
+          ? "Agent owners can view this Direct Message, but must join before participating."
+          : "You can view this Space because it has your Agent or a request for it. Join to participate."
       ),
     };
   }
@@ -21139,10 +21156,7 @@ export class Space extends DurableObject<CoreBindings> {
       organizationMember: membership.organizationPreview,
       context: input.context,
       hasActiveMemberForOwnerUserId: (ownerUserId) =>
-        hasActiveSpaceMemberRecordForOwnerUserId(
-          this.ctx.storage.sql,
-          ownerUserId
-        ),
+        this.isSpaceMemberOrAgentOwnerObserver(ownerUserId),
       meta,
       readMemberByProfileId: (profileId) =>
         readSpaceMemberRecord(this.ctx.storage.sql, profileId),
@@ -21163,6 +21177,20 @@ export class Space extends DurableObject<CoreBindings> {
       meta,
       organizationPreview: membership.organizationPreview,
     };
+  }
+  /**
+   * Read access for an account: one of its Profiles is a member, or, with
+   * MemberAgents, someone asked here for an Agent it owns (an observer).
+   */
+  private isSpaceMemberOrAgentOwnerObserver(ownerUserId: string): boolean {
+    return (
+      hasActiveSpaceMemberRecordForOwnerUserId(
+        this.ctx.storage.sql,
+        ownerUserId
+      ) ||
+      (isMemberAgentsEnabled() &&
+        hasHeldSpaceJoinHoldForOwner(this.ctx.storage.sql, ownerUserId))
+    );
   }
   private authorizeSpaceManagement(
     context: CoreRpcContextInput
