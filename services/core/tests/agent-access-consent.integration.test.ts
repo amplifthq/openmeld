@@ -6,7 +6,7 @@ import {
   type AgentAccessDecision,
 } from "@openmeld/schemas";
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
-import type { createAuthenticatedSpaceAccessContext } from "@openmeld/space";
+import { createAuthenticatedSpaceAccessContext } from "@openmeld/space";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   upsertJoinedSpaceMember,
@@ -142,6 +142,7 @@ type ConsentSpace = {
     access: ReturnType<typeof createAuthenticatedSpaceAccessContext>
   ): Promise<{ ok: boolean }>;
   rpcApplyAgentAccessDecision: Space["rpcApplyAgentAccessDecision"];
+  rpcRequestAgentForSpace: Space["rpcRequestAgentForSpace"];
   rpcMutateSpaceMessage: Space["rpcMutateSpaceMessage"];
 };
 
@@ -534,6 +535,67 @@ describe("Colleague use of an Agent (Phase 4)", () => {
         expect((await readInboxItem(requestId))?.resolution_status).toBe(
           "resolved"
         );
+      }
+    );
+  });
+
+  it("voids a Space request when its message is edited", async () => {
+    const f = await seed();
+    await withSpace(
+      f,
+      { directMessage: false, humans: [f.tali], agentMember: false },
+      async (space) => {
+        const message = await space.post(f.tali, "Ask the reviewer");
+        const { requestId } = await space.instance.rpcRequestAgentForSpace({
+          context: space.context(f.tali),
+          organizationId: f.organizationId,
+          requester: { profileId: f.tali.profileId, userId: f.tali.userId },
+          signalId: message.id,
+          spaceId: space.spaceId,
+          target: {
+            memberAgentId: f.memberAgentId,
+            ownerUserId: f.felix.userId,
+            profileId: f.agentProfileId,
+          },
+        });
+        await space.instance.rpcMutateSpaceMessage({
+          body: { action: "edit", expectedRevision: 0, text: "Never mind" },
+          signalId: message.id,
+          spaceAccess: createAuthenticatedSpaceAccessContext({
+            requestContext: space.context(f.tali),
+            spaceId: space.spaceId,
+          }),
+          spaceId: space.spaceId,
+        } as Parameters<ConsentSpace["rpcMutateSpaceMessage"]>[0]);
+        while (vi.mocked(space.state.waitUntil).mock.calls.length > 0) {
+          await Promise.all(
+            vi
+              .mocked(space.state.waitUntil)
+              .mock.calls.splice(0)
+              .map(([work]) => work)
+          );
+        }
+        expect(
+          readSpaceAgentAccessHold(space.state.storage.sql, requestId)
+        ).toMatchObject({ state: "closed", closeReason: "voided" });
+        const db = getPostgresDatabase(env);
+        expect(
+          (await readAgentAccessRequest({ db: asQueryable(db), requestId }))
+            ?.status
+        ).toBe("voided");
+        await expect(
+          decideAgentAccessRequest({
+            db,
+            decision: "join",
+            deciderUserId: f.felix.userId,
+            nowMs: Date.now(),
+            organizationId: f.organizationId,
+            requestId,
+          })
+        ).rejects.toMatchObject({ code: "agent_access.request_closed" });
+        expect(
+          readSpaceMemberRecord(space.state.storage.sql, f.agentProfileId)
+        ).toBeNull();
       }
     );
   });

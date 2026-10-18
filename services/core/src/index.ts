@@ -416,6 +416,7 @@ import type {
   WriteCurrentDeviceObservedMetadataResponse,
 } from "@openmeld/schemas/types";
 import {
+  rpcCreateSpaceAgentRequest,
   rpcDecideAgentAccessRequest,
   rpcGetAgentAccessRequest,
   rpcListAgentAccessRequests,
@@ -4465,6 +4466,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcWithdrawAgentAccessRequest(this.env, input)
     );
   }
+  createSpaceAgentRequest(
+    input: Parameters<typeof rpcCreateSpaceAgentRequest>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCreateSpaceAgentRequest(this.env, input)
+    );
+  }
   submitRuntimeProviderConversationProofs(
     input: SubmitRuntimeProviderConversationProofsInput
   ): Promise<SubmitRuntimeProviderConversationProofsResponse> {
@@ -6452,6 +6460,11 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: Parameters<typeof rpcWithdrawAgentAccessRequest>[1]
   ) {
     return super.withdrawAgentAccessRequest(input);
+  }
+  createSpaceAgentRequest(
+    input: Parameters<typeof rpcCreateSpaceAgentRequest>[1]
+  ) {
+    return super.createSpaceAgentRequest(input);
   }
   submitAgentControllerTaskLifecycleEvents(
     input: SubmitAgentControllerTaskLifecycleEventsInput

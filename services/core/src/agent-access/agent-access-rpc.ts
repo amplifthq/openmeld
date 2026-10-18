@@ -5,6 +5,8 @@ import {
 import {
   AGENT_ACCESS_REQUEST_LIST_LIMIT,
   type AgentAccessDecision,
+  type CreateSpaceAgentRequestResponse,
+  createSpaceAgentRequestBodySchema,
   type DecideAgentAccessRequestResponse,
   decideAgentAccessRequestBodySchema,
   type GetAgentAccessRequestResponse,
@@ -41,6 +43,7 @@ import {
   asQueryable,
   listAgentAccessRequests,
   readAgentAccessRequest,
+  readAgentAccessTargets,
 } from "./infrastructure/postgresql/agent-access-repo";
 
 // Colleague use of an Agent (design-plans/member-agent-program.md §4.6, §7).
@@ -220,6 +223,83 @@ export async function rpcWithdrawAgentAccessRequest(
     request: await readAgentAccessRequestView({
       db: caller.db,
       request: applied,
+      viewerUserId: caller.userId,
+    }),
+  };
+}
+
+/**
+ * Asks the owner to let their Agent join a Space, bound to the caller's
+ * message when they mentioned it. The owner adding their own Agent keeps the
+ * existing atomic add.
+ */
+export async function rpcCreateSpaceAgentRequest(
+  env: CoreBindings,
+  input: {
+    context?: CoreRpcContextInput;
+    spaceId: string;
+    agentProfileId: string;
+    signalId?: string;
+  }
+): Promise<CreateSpaceAgentRequestResponse> {
+  const caller = await requireAgentAccessCaller(env, input.context);
+  const body = createSpaceAgentRequestBodySchema.safeParse({
+    agentProfileId: input.agentProfileId,
+    ...(input.signalId === undefined ? {} : { signalId: input.signalId }),
+  });
+  if (!body.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Choose an Agent to ask for.",
+    });
+  }
+  const target = (
+    await readAgentAccessTargets({
+      db: asQueryable(caller.db),
+      organizationId: caller.organizationId,
+      profileIds: [body.data.agentProfileId],
+    })
+  ).get(body.data.agentProfileId);
+  if (!target) {
+    throw createCoreRpcHttpError({
+      status: 404,
+      code: "agent_access.agent_not_found",
+      reason: "That Agent is not available in this Organization.",
+    });
+  }
+  if (target.ownerUserId === caller.userId) {
+    throw createCoreRpcHttpError({
+      status: 409,
+      code: "agent_access.own_agent",
+      reason: "This is your Agent. Add it from Add members instead.",
+    });
+  }
+  const { stub, spaceId } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  const { requestId } = await stub.rpcRequestAgentForSpace({
+    context: caller.context,
+    organizationId: caller.organizationId,
+    requester: { profileId: caller.profileId, userId: caller.userId },
+    spaceId,
+    target: {
+      memberAgentId: target.memberAgentId,
+      ownerUserId: target.ownerUserId,
+      profileId: target.profileId,
+    },
+    ...(body.data.signalId ? { signalId: body.data.signalId } : {}),
+  });
+  const request = requireAgentAccessRequestViewer({
+    organizationId: caller.organizationId,
+    request: await readAgentAccessRequest({
+      db: asQueryable(caller.db),
+      requestId,
+    }),
+    viewerUserId: caller.userId,
+  });
+  return {
+    request: await readAgentAccessRequestView({
+      db: caller.db,
+      request,
       viewerUserId: caller.userId,
     }),
   };

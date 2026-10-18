@@ -805,6 +805,10 @@ import {
 } from "@openmeld/space";
 import type { z } from "zod/v4";
 import {
+  asQueryable,
+  readAgentAccessTargets,
+} from "../agent-access/infrastructure/postgresql/agent-access-repo";
+import {
   rpcCenterAgentListAgentActivitySessions as centerAgentListAgentActivitySessions,
   rpcCenterAgentReadAgentActivity as centerAgentReadAgentActivity,
 } from "../agent-activity/activity-center-agent-rpc";
@@ -23624,6 +23628,17 @@ async function resolveSpaceMembersWithAgentOwners(input: {
   ) {
     return [...input.members];
   }
+  if (
+    isMemberAgentsEnabled() &&
+    input.expandAgentOwnersInDirectMessageConversion !== true
+  ) {
+    await rejectNonOwnerPersonalAgentAdditions({
+      db: identityDb,
+      members: input.members,
+      organizationId: spaceMeta.organizationId,
+      rootUserId: normalizeOptionalText(input.context.actorContext.ownerUserId),
+    });
+  }
   const ownerHumans = await resolveAgentOwnerHumanMembers({
     db: identityDb,
     members: input.members,
@@ -23638,6 +23653,36 @@ async function resolveSpaceMembersWithAgentOwners(input: {
     seenProfileIds.add(member.profileId);
     return true;
   });
+}
+/**
+ * Only the owner adds their own Agent (with themselves, atomically). Anyone
+ * else asks the owner instead (design-plans/member-agent-program.md §4.6),
+ * and a caller without a human root, such as the Center Agent, cannot add
+ * another owner's Agent at all.
+ */
+async function rejectNonOwnerPersonalAgentAdditions(input: {
+  db: PostgresDatabase;
+  members: readonly ResolvedSpaceMemberProfile[];
+  organizationId: string;
+  rootUserId: string | null;
+}): Promise<void> {
+  const targets = await readAgentAccessTargets({
+    db: asQueryable(input.db),
+    organizationId: input.organizationId,
+    profileIds: input.members
+      .filter((member) => member.profileKind === "agent")
+      .map((member) => member.profileId),
+  });
+  for (const target of targets.values()) {
+    if (target.ownerUserId === input.rootUserId) {
+      continue;
+    }
+    throw createCoreRpcHttpError({
+      status: 409,
+      code: "agent_access.request_required",
+      reason: `Only ${target.ownerName} can add ${target.profileName}. Ask them from Add members or by mentioning it.`,
+    });
+  }
 }
 async function readSpaceMetaForMemberResolution(input: {
   context: CoreRpcContextInput;

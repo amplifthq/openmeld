@@ -9637,6 +9637,95 @@ describe("organization Core RPC", () => {
     });
   });
 
+  it("lets only the owner add their MemberAgent, still with the owner, once MemberAgents are on", async () => {
+    const spaceId =
+      "aeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeae";
+    const db = await createOrganizationRpcDb({
+      agentProfiles: [
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-b",
+          profileHandle: "ben-planner",
+          profileId: AGENT_PROFILE_ID,
+          profileName: "Ben Planner",
+          status: "active",
+        },
+      ],
+      members: [
+        memberRow("member-a", "org-a", "user-a", "member"),
+        memberRow("member-b", "org-a", "user-b", "member"),
+      ],
+      spaces: [
+        spaceRow({
+          organizationId: "org-a",
+          spaceId,
+          spaceName: "Planning",
+          visibility: "private",
+        }),
+      ],
+    });
+    await db.fixture.operator.query(
+      `INSERT INTO "openmeld"."member_agents" (id, organization_id, owner_user_id, harness_kind, source, created_at, updated_at) VALUES ('ma-ben', 'org-a', 'user-b', 'claude-code', 'detected', 1, 1)`
+    );
+    await db.fixture.operator.query(
+      `UPDATE "openmeld"."openmeld_profiles" SET member_agent_id = 'ma-ben' WHERE profile_id = '${AGENT_PROFILE_ID}'`
+    );
+    const spaceStub = createSpaceStub({ spaces: db.spaces });
+    const env = await buildEnv({ db, spaceStub });
+    const agent = {
+      agentControllerRef: null,
+      ownerName: "Ben",
+      ownerUserId: "user-b",
+      profileId: AGENT_PROFILE_ID,
+      profileKind: "agent" as const,
+      profileName: "Ben Planner",
+    };
+    memberAgentsFeature.enabled = true;
+    try {
+      await expect(
+        rpcAddSpaceMembers(env, {
+          context: buildContext({
+            activeOrganizationId: "org-a",
+            userId: "user-a",
+          }),
+          members: [agent],
+          spaceId,
+        })
+      ).rejects.toMatchObject({
+        code: "agent_access.request_required",
+        status: 409,
+      });
+      expect(spaceStub.rpcPostMembers).not.toHaveBeenCalled();
+
+      await expect(
+        rpcAddSpaceMembers(env, {
+          context: buildContext({
+            activeOrganizationId: "org-a",
+            userId: "user-b",
+          }),
+          members: [agent],
+          spaceId,
+        })
+      ).resolves.toMatchObject({
+        addedMemberIds: [AGENT_PROFILE_ID, SECOND_HUMAN_PROFILE_ID],
+      });
+      expect(spaceStub.rpcPostMembers).toHaveBeenCalledWith(
+        expect.objectContaining({
+          members: [
+            expect.objectContaining({ profileId: AGENT_PROFILE_ID }),
+            expect.objectContaining({
+              ownerUserId: "user-b",
+              profileId: SECOND_HUMAN_PROFILE_ID,
+              profileKind: "human",
+            }),
+          ],
+        })
+      );
+    } finally {
+      memberAgentsFeature.enabled = false;
+    }
+  });
+
   it("does not expand managed Agent Profile membership to an owner Human", async () => {
     const spaceId =
       "adadadadadadadadadadadadadadadadadadadadadadadadadadadadadadadad";

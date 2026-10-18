@@ -4,11 +4,15 @@ import {
   AGENT_ACCESS_REQUEST_WITHDRAW_ROUTE,
   AGENT_ACCESS_REQUESTS_ROUTE,
   agentAccessRequestRouteParamsSchema,
+  createSpaceAgentRequestBodySchema,
+  createSpaceAgentRequestResponseSchema,
   decideAgentAccessRequestBodySchema,
   decideAgentAccessRequestResponseSchema,
   getAgentAccessRequestResponseSchema,
   listAgentAccessRequestsQuerySchema,
   listAgentAccessRequestsResponseSchema,
+  SPACE_AGENT_REQUESTS_ROUTE,
+  spaceAgentRequestRouteParamsSchema,
   withdrawAgentAccessRequestResponseSchema,
 } from "@openmeld/schemas";
 import type { Context, Hono } from "hono";
@@ -142,6 +146,38 @@ export function registerAgentAccessRoutes(app: Hono<HonoBindings>): void {
         c.var.coreRpc.withdrawAgentAccessRequest({
           context: buildCoreRpcContext(c),
           requestId: params.data.requestId,
+        }),
+    });
+  });
+
+  app.post(SPACE_AGENT_REQUESTS_ROUTE, noStore(), async (c) => {
+    const params = spaceAgentRequestRouteParamsSchema.safeParse({
+      spaceId: c.req.param("spaceId"),
+    });
+    const raw = await readJsonRequestBody(c.req.raw);
+    const body = raw.ok
+      ? createSpaceAgentRequestBodySchema.safeParse(raw.value)
+      : null;
+    if (!(params.success && body?.success)) {
+      return respondBadRequest({
+        c,
+        route: SPACE_AGENT_REQUESTS_ROUTE,
+        method: "POST",
+        code: "invalid_payload",
+        message: "Choose an Agent to ask for.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: SPACE_AGENT_REQUESTS_ROUTE,
+      method: "POST",
+      responseSchema: createSpaceAgentRequestResponseSchema,
+      execute: () =>
+        c.var.coreRpc.createSpaceAgentRequest({
+          agentProfileId: body.data.agentProfileId,
+          context: buildCoreRpcContext(c),
+          spaceId: params.data.spaceId,
+          ...(body.data.signalId ? { signalId: body.data.signalId } : {}),
         }),
     });
   });

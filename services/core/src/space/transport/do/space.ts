@@ -405,6 +405,7 @@ import { AlarmFailureBackoff } from "../../../lib/alarm-failure-backoff";
 import type { CoreBindings } from "../../../lib/bindings";
 import { verifySpacePasswordProof } from "../../../lib/space-password-proof";
 import {
+  buildAddMemberAgentAccessRequestId,
   buildHeldAgentAccessRequestId,
   recordAgentAccessRequest,
   voidAgentAccessRequest,
@@ -854,6 +855,7 @@ import {
   listUnsyncedSpaceAgentAccessHolds,
   markSpaceAgentAccessHoldSynced,
   readHeldDirectMessageAgentAccessHold,
+  readHeldSpaceJoinHold,
   readSpaceAgentAccessHold,
   releaseSpaceAgentAccessHold,
   type SpaceAgentAccessHold,
@@ -23358,6 +23360,125 @@ export class Space extends DurableObject<CoreBindings> {
       await this.flushPendingDispatchOutbox();
     }
     return { outcome: "applied" };
+  }
+  /**
+   * Someone other than the owner asks for an Agent that is not in this
+   * Space, bound to their message when they mentioned it. Nothing joins or
+   * wakes until the owner decides.
+   */
+  async rpcRequestAgentForSpace(input: {
+    context: CoreRpcContextInput;
+    organizationId: string;
+    signalId?: string;
+    spaceId: string;
+    target: {
+      memberAgentId: string;
+      ownerUserId: string;
+      profileId: string;
+    };
+    requester: { profileId: string; userId: string };
+  }): Promise<{ requestId: string }> {
+    this.applySpaceRef(input.spaceId);
+    return await this.blockConcurrencyWithPostgres(async () => {
+      const meta = this.readSpaceMetaRecord();
+      if (meta?.organizationId !== input.organizationId) {
+        throw createCoreRpcHttpError({
+          status: 404,
+          code: "space.not_found",
+          reason: "Space was not found in the active Organization.",
+        });
+      }
+      await assertRpcSpaceAccessAuthorized(
+        await this.authorizeWritableSpaceAccess(
+          createAuthenticatedSpaceAccessContext({
+            spaceId: this.spaceId,
+            requestContext: input.context,
+          })
+        )
+      );
+      const requester = readSpaceMemberRecord(
+        this.ctx.storage.sql,
+        input.requester.profileId
+      );
+      if (
+        requester?.status !== "active" ||
+        requester.profileKindSnapshot !== "human"
+      ) {
+        throw createCoreRpcHttpError({
+          status: 403,
+          code: "space.membership_required",
+          reason: "Join this Space before asking for an Agent.",
+        });
+      }
+      if (
+        isDirectMessageSpace({
+          purpose: meta.purpose,
+          directMessageConvertedAt: meta.directMessage?.convertedAt,
+        })
+      ) {
+        throw createCoreRpcHttpError({
+          status: 409,
+          code: "agent_access.direct_message",
+          reason: "Turn this Direct Message into a Space before adding an Agent.",
+        });
+      }
+      if (
+        readSpaceMemberRecord(this.ctx.storage.sql, input.target.profileId)
+          ?.status === "active"
+      ) {
+        throw createCoreRpcHttpError({
+          status: 409,
+          code: "agent_access.already_member",
+          reason: "That Agent is already in this Space.",
+        });
+      }
+      if (input.signalId) {
+        const signal = this.readSignalById(input.signalId);
+        if (
+          !(
+            signal?.type === "signal.text" &&
+            signal.profile.profileId === input.requester.profileId &&
+            !signal.data.meta?.recalledAt
+          )
+        ) {
+          throw createCoreRpcHttpError({
+            status: 409,
+            code: "agent_access.message_unavailable",
+            reason: "Ask for the Agent from a message you sent in this Space.",
+          });
+        }
+      }
+      const existing = readHeldSpaceJoinHold(this.ctx.storage.sql, {
+        signalId: input.signalId ?? null,
+        targetProfileId: input.target.profileId,
+      });
+      if (existing) {
+        return { requestId: existing.requestId };
+      }
+      const requestId = input.signalId
+        ? await buildHeldAgentAccessRequestId({
+            spaceId: this.spaceId,
+            sourceSignalId: input.signalId,
+            agentProfileId: input.target.profileId,
+          })
+        : buildAddMemberAgentAccessRequestId();
+      insertSpaceAgentAccessHold(this.ctx.storage.sql, {
+        requestId,
+        kind: "space_join",
+        signalId: input.signalId ?? null,
+        targetProfileId: input.target.profileId,
+        memberAgentId: input.target.memberAgentId,
+        ownerUserId: input.target.ownerUserId,
+        requesterProfileId: input.requester.profileId,
+        requesterUserId: input.requester.userId,
+        requesterKind: "member",
+        requestChainJson: null,
+        createdAtMs: Date.now(),
+      });
+      // Core must hold the request before the requester sees it pending.
+      await this.flushSpaceAgentAccessHolds();
+      return { requestId };
+    });
   }
   private async readSpaceCallerContext(
     meta: SpaceMetaRecord,
