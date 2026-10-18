@@ -34,9 +34,6 @@ export type SpaceLiveDeliveryDependencies<TSession extends object, TMessage> = {
     target: SpaceLiveDeliveryTarget<TSession>,
     closure: SpaceLiveDeliveryClosure
   ) => void;
-  /** Wait before the single retry of an access check that threw. */
-  retryDelayMs: number;
-  sleep?: (ms: number) => Promise<void>;
   waitUntil?: (promise: Promise<void>) => void;
 };
 
@@ -61,8 +58,6 @@ export type SpaceLiveDeliveryClosure =
       reason: "live_delivery_failed";
       error: unknown;
     };
-
-export const SPACE_LIVE_ACCESS_RETRY_DELAY_MS = 500;
 
 type SessionQueue<TSession extends object, TMessage> = {
   target: SpaceLiveDeliveryTarget<TSession>;
@@ -114,9 +109,11 @@ export class SpaceLiveDelivery<TSession extends object, TMessage> {
         try {
           decision = await this.dependencies.authorize(queue.target.session);
         } catch {
-          await (this.dependencies.sleep ?? defaultSleep)(
-            this.dependencies.retryDelayMs
-          );
+          // Retry at once, on the rejected check's own continuation. A timer
+          // would not keep a hibernating Space awake (waitUntil does not
+          // extend a Durable Object's lifetime), so a delayed retry could be
+          // discarded with the queue, leaving the socket open and the
+          // withheld messages lost.
           batch.push(...queue.pending.splice(0));
           try {
             decision = await this.dependencies.authorize(queue.target.session);
@@ -162,8 +159,4 @@ export class SpaceLiveDelivery<TSession extends object, TMessage> {
       this.dependencies.close(queue.target, closure);
     }
   }
-}
-
-function defaultSleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

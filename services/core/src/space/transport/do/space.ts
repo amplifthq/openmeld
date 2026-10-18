@@ -931,7 +931,6 @@ import {
   toRedactedSpaceErrorMessage,
 } from "./space-error-reporting";
 import {
-  SPACE_LIVE_ACCESS_RETRY_DELAY_MS,
   SpaceLiveDelivery,
   type SpaceLiveDeliveryClosure,
 } from "./space-live-delivery";
@@ -2653,7 +2652,6 @@ export class Space extends DurableObject<CoreBindings> {
     deliver: (target, messages) =>
       this.deliverAuthorizedLiveMessages(target, messages),
     isActive: (target) => this.isActiveLiveSession(target),
-    retryDelayMs: SPACE_LIVE_ACCESS_RETRY_DELAY_MS,
     waitUntil: (promise) => this.ctx.waitUntil(promise),
   });
   private lastPostCleanupAtMs = 0;

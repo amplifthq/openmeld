@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   type SpaceLiveAccessDecision,
   SpaceLiveDelivery,
@@ -64,8 +64,6 @@ function createHarness(input: {
       ]);
     },
     isActive: (target) => !target.session.quit,
-    retryDelayMs: 500,
-    sleep: async () => undefined,
     waitUntil: (promise) => {
       drains.push(promise);
     },
@@ -95,6 +93,30 @@ function createHarness(input: {
 }
 
 describe("Space live delivery", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("closes an unverifiable session without waiting on a timer a sleeping Space would drop", async () => {
+    // Time never advances here: a hibernating Space does not run timers, so
+    // the retry and the close must not depend on one.
+    vi.useFakeTimers();
+    const alice: TestSession = { name: "alice" };
+    const harness = createHarness({
+      authorize: () => Promise.reject(transientError),
+    });
+
+    harness.enqueue([alice], "wake.progress.changed#1");
+    await flushMicrotasks();
+
+    expect(harness.attempts.get("alice")).toBe(2);
+    expect(harness.closed.get("alice")).toMatchObject({
+      code: 1013,
+      reason: "space_access_unverified",
+    });
+    expect(harness.delivered.get("alice")).toBeUndefined();
+  });
+
   it("keeps every other session open when one access check cannot reach its evidence", async () => {
     const alice: TestSession = { name: "alice" };
     const bob: TestSession = { name: "bob" };
