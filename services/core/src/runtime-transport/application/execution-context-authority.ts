@@ -11,6 +11,7 @@ import type {
   ExecutionContextScope,
   ExecutionContextTask,
 } from "@openmeld/schemas/types";
+import { isRequestChainEnforced } from "../../member-agent/member-agents-feature";
 import type { LegacyContextAssociation } from "./agent-profile-context-migration";
 import {
   buildRuntimeCoordinatorHeadLifecycleStorageKey,
@@ -361,6 +362,30 @@ function assertContextRequestScope(
   }
 }
 
+/**
+ * Invariant 4 (design-plans/member-agent-program.md §9): once the chain is
+ * enforced, every accepted context has a chain rooted at a human Profile.
+ */
+/** Per Wake: one Session can serve Wakes with different roots. */
+function withWakeRequestChain(
+  assignment: ExecutionContextAssignment,
+  request: Pick<ContextRequest, "requestChain">
+): ExecutionContextAssignment {
+  return request.requestChain
+    ? { ...assignment, requestChain: request.requestChain }
+    : assignment;
+}
+
+export function assertContextRequestChain(
+  request: Pick<ContextRequest, "requestChain">
+): void {
+  if (isRequestChainEnforced() && request.requestChain?.[0]?.kind !== "human") {
+    throw new ExecutionContextSelectionError(
+      "execution_context.request_chain_required"
+    );
+  }
+}
+
 function assertLegacyFallbackAllowed(
   input: AssignmentInput,
   reasonCode: string
@@ -397,6 +422,7 @@ export async function prepareExecutionContextAssignment(
     return { record: input.record, writes: {} };
   }
   assertContextRequestScope(input, request);
+  assertContextRequestChain(request);
   const implicitRequest =
     request.selection.mode === "auto" && request.required === false;
   if (
@@ -459,7 +485,7 @@ export async function prepareExecutionContextAssignment(
       ...input.record,
       acceptedDispatchSnapshot: {
         ...snapshot,
-        executionContext: context.assignment,
+        executionContext: withWakeRequestChain(context.assignment, request),
       },
     },
     writes: {
@@ -906,8 +932,10 @@ export async function resolveExecutionContextTask(
       "execution_context.scope_mismatch"
     );
   }
+  // The chain stays in Core; installed Services parse tasks strictly.
+  const { requestChain: _requestChain, ...serviceAssignment } = assignment;
   return {
-    ...assignment,
+    ...serviceAssignment,
     ...(context.legacyAssociation
       ? { legacyAssociation: context.legacyAssociation }
       : {}),

@@ -361,6 +361,7 @@ import {
   isLocalComponentVersionAtLeast,
   resolveCoreLocalComponentsReleaseManifest,
 } from "../../../local-components/update-projection";
+import { isRequestChainEnforced } from "../../../member-agent/member-agents-feature";
 import { resolveSpaceStub } from "../../../rpc/space-ref";
 import {
   emitSpaceExecutionRecoveryNoticeSignal,
@@ -620,6 +621,7 @@ import {
   runtimeCoordinatorInteractionAttentionCode,
 } from "../../application/runtime-coordinator-interaction-attention";
 import {
+  type InteractionRequestRoot,
   projectRuntimeCoordinatorInteractionInboxItem,
   resolveRuntimeCoordinatorInteractionInboxItem,
 } from "../../application/runtime-coordinator-interaction-inbox-producer";
@@ -892,6 +894,8 @@ type RuntimeCoordinatorInteractionInboxRepairRecord = {
    * persisted v1 repair written before thread-aware Inbox targets.
    */
   threadRootSignalId?: string | null;
+  /** Absent on records written before the request chain was enforced. */
+  requestRoot?: InteractionRequestRoot | null;
   updatedAtMs: number;
   v: 1;
 };
@@ -15159,12 +15163,48 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       payload,
     });
   }
+  /**
+   * The Wake's request chain root and Session from its accepted assignment,
+   * once the chain is enforced. Null keeps the owner-rooted legacy item.
+   */
+  private async readInteractionRequestRoot(
+    commandState: RuntimeCoordinatorRunCommandState
+  ): Promise<InteractionRequestRoot | null> {
+    if (!isRequestChainEnforced()) {
+      return null;
+    }
+    const payload = commandState.sanitizedDeliveryRequest.payload;
+    const head = await this.readRuntimeCoordinatorHeadLifecycleRecord(
+      projectTargetWakeLifecycleIdentity({
+        clientMessageId: commandState.sourceClientMessageId,
+        dispatchId: commandState.dispatchId,
+        sourceSignalId: payload.sourceEventId,
+        spaceId: payload.spaceId,
+        targetProfileId: commandState.targetProfileId,
+      }).targetWakeLifecycleId
+    );
+    const snapshot = head?.acceptedDispatchSnapshot;
+    const chain =
+      snapshot?.executionContext?.requestChain ??
+      snapshot?.contextRequest?.requestChain;
+    const root = chain?.[0];
+    return root?.kind === "human"
+      ? {
+          contextId: snapshot?.executionContext?.id ?? null,
+          rootProfileId: root.profileId,
+        }
+      : null;
+  }
   private async tryProjectRuntimeCoordinatorInteractionInboxItem(input: {
     commandState: RuntimeCoordinatorRunCommandState;
     interaction: RuntimeTransportDispatchInteractionRequest["interaction"];
     nowMs: number;
   }): Promise<void> {
+    const requestRoot = await this.readInteractionRequestRoot(
+      input.commandState
+    );
     await this.tryApplyRuntimeCoordinatorInteractionInboxRepair({
+      ...(requestRoot ? { requestRoot } : {}),
       attemptCount: 0,
       desiredStatus: "open",
       interaction: {
@@ -15197,7 +15237,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     interaction: RuntimeTransportDispatchInteractionRequest["interaction"];
     resolvedAtMs: number;
   }): Promise<void> {
+    const requestRoot = await this.readInteractionRequestRoot(
+      input.commandState
+    );
     const record: RuntimeCoordinatorInteractionInboxRepairRecord = {
+      ...(requestRoot ? { requestRoot } : {}),
       attemptCount: 0,
       desiredStatus: "resolved",
       interaction: {
@@ -15271,11 +15315,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           spaceIndexDb,
           targetProfileName: record.targetProfileName,
           threadRootSignalId: record.threadRootSignalId,
+          requestRoot: record.requestRoot ?? null,
         });
       } else {
         await resolveRuntimeCoordinatorInteractionInboxItem({
           inboxDb: targetInboxDb,
           interaction: record.interaction,
+          ownerUserId: record.ownerUserId,
+          requestRoot: record.requestRoot ?? null,
           resolvedAtMs: record.resolvedAtMs ?? record.updatedAtMs,
           runtimeCoordinatorExecutionId: record.runtimeCoordinatorExecutionId,
           spaceId: record.spaceId,

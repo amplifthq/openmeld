@@ -63,6 +63,7 @@ import {
   centerAgentMemoryPolicies,
   centerAgentMemorySubjects,
 } from "./center-agent-memory.schema.ts";
+import { centerAgentPermissionModeConfirmations } from "./center-agent-permission-mode-confirmation.schema.ts";
 import { centerAgentPublicationOperations } from "./center-agent-publication.schema.ts";
 import {
   centerAgentTaskAdmissionOutbox,
@@ -221,6 +222,9 @@ export const openMeldDaemonDispatchLedger = applicationTable(
     spaceId: text("space_id").notNull(),
     sourceEventId: text("source_event_id").notNull(),
     sourceProfileId: text("source_profile_id"),
+    // The human root of this Wake's request chain, written at admission.
+    // Null for Wakes admitted before Core recorded chains.
+    requestChainRootProfileId: text("request_chain_root_profile_id"),
     sourceClientMessageId: text("source_client_message_id"),
     dispatchOwnerKind: text("dispatch_owner_kind"),
     dispatchOwnerId: text("dispatch_owner_id"),
@@ -1811,6 +1815,7 @@ export const coreSchema = {
   agentTaskNeedsAttentionObservations,
   agentTaskTerminalOutcomes,
   centerAgentWakePublications,
+  centerAgentPermissionModeConfirmations,
   centerAgentProjectOperations,
   centerAgentProjectRemoveConfirmations,
   projects,

@@ -545,6 +545,11 @@ import {
   DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE,
   processDispatchOutboxCandidates,
 } from "../../application/dispatch-outbox-batch-service";
+import {
+  resolveDispatchOutboxRequestChain,
+  withHostedReplyRequestChainBasis,
+  withOutboxRequestChain,
+} from "../../application/dispatch-outbox-request-chain";
 import { readSpaceMessagePage } from "../../application/message-read";
 import {
   allowsExternalSpaceLinkJoin,
@@ -1347,8 +1352,15 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
           input.decision.targetProfileId
         ] ?? input.signal.data.contextSelection)
       : undefined;
+  const requestChain = resolveDispatchOutboxRequestChain({
+    callerContext: input.callerContext,
+    signal: input.signal,
+    signalContext: input.signalContext,
+    targetProfileId: input.decision.targetProfileId,
+  });
   return createDispatchOutboxRecord({
     ...(contextSelection ? { contextSelection } : {}),
+    ...(requestChain ? { requestChain } : {}),
     bindingEnabled: true,
     ...(input.signal.type === "signal.text" &&
     input.signal.data.deviceWait?.targetProfileId ===
@@ -4351,7 +4363,7 @@ export class Space extends DurableObject<CoreBindings> {
       });
     const inboxRecord =
       buildDispatchResultInboxRecordFromFinalizationCommand(command);
-    const dispatchMessage = buildAcceptedDispatchFinalizationQueueMessage({
+    const finalizedMessage = buildAcceptedDispatchFinalizationQueueMessage({
       fact: command.dispatchFact,
       inboxRecord,
       organizationId: owner.readSpaceMetaRecord()?.organizationId,
@@ -4362,12 +4374,20 @@ export class Space extends DurableObject<CoreBindings> {
         command.dispatchFact.sourceEventId
       ),
     });
-    if (!dispatchMessage) {
+    if (!finalizedMessage) {
       return buildRuntimeCoordinatorFinalizationFailureOutcome({
         finalizationCommandId: command.finalizationCommandId,
         reasonCode: "daemon.result.finalization_unavailable",
       });
     }
+    // The reply continues this Wake's chain; this Space's outbox holds it.
+    const dispatchMessage = withOutboxRequestChain(
+      finalizedMessage,
+      readDispatchOutboxRecordByDispatchId(
+        owner.ctx.storage.sql,
+        finalizedMessage.dispatchId
+      )
+    );
     const db = getPostgresDatabase(owner.bindings);
     const coordinationDb = getPostgresDatabase(owner.bindings);
     if (
@@ -4921,6 +4941,16 @@ export class Space extends DurableObject<CoreBindings> {
         ? { finalOutcomeAuthority: input.finalOutcomeAuthority }
         : {}),
       ...(sourceDispatchChainContext ? { sourceDispatchChainContext } : {}),
+      // The Agent publishes inside the Wake it is running, so that Wake's
+      // server-held chain is the basis of any Wake this message starts.
+      ...(input.dispatchMessage.requestChain
+        ? {
+            requestChainBasis: {
+              kind: "parent" as const,
+              requestChain: input.dispatchMessage.requestChain,
+            },
+          }
+        : {}),
       ...(spacePassword === undefined ? {} : { spacePassword }),
       ...(outputThreadContext
         ? {
@@ -5851,6 +5881,9 @@ export class Space extends DurableObject<CoreBindings> {
       ...(input.input.requestTimeContext
         ? { requestTimeContext: input.input.requestTimeContext }
         : {}),
+      ...(input.input.requestChainBasis
+        ? { requestChainBasis: input.input.requestChainBasis }
+        : {}),
       ...(input.input.deviceWait ? { deviceWait: input.input.deviceWait } : {}),
       ...(input.input.contextSelection
         ? { contextSelection: input.input.contextSelection }
@@ -6127,6 +6160,7 @@ export class Space extends DurableObject<CoreBindings> {
         sourceDispatchChainContext: resolveSourceDispatchChainContext(
           requestContext ?? undefined
         ),
+        requestChainBasis: input.requestChainBasis,
         ...(spacePassword === undefined ? {} : { spacePassword }),
         supportsCurrentSpaceAddressing:
           input.spaceAddressingVersion === OPENMELD_SPACE_ADDRESSING_VERSION,
@@ -22173,7 +22207,12 @@ export class Space extends DurableObject<CoreBindings> {
       });
     const preparedDispatchOutboxPlan = this.prepareDispatchOutboxPlanForSignal(
       signal,
-      signalContext,
+      withHostedReplyRequestChainBasis({
+        readWake: (dispatchId) =>
+          readDispatchOutboxRecordByDispatchId(this.ctx.storage.sql, dispatchId),
+        signal,
+        signalContext,
+      }),
       callerContext,
       automaticWakeEligible
         ? await this.readAutomaticWakePreference(signal.profile.profileId)
@@ -28605,6 +28644,9 @@ function buildDispatchQueueMessageFromOutboxRecord(
     autoRelayDepth: outboxRecord.autoRelayDepth,
     visitedProfileIds: outboxRecord.visitedProfileIds,
     visitedProfileIdsHash: outboxRecord.visitedProfileIdsHash,
+    ...(outboxRecord.requestChain
+      ? { requestChain: outboxRecord.requestChain }
+      : {}),
     dispatchContractVersion: outboxRecord.dispatchContractVersion,
     dispatchPolicy: outboxRecord.dispatchPolicy,
     ruleSource: outboxRecord.ruleSource,

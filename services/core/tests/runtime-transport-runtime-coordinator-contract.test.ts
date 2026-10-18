@@ -4448,6 +4448,96 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).rejects.toThrow("folder_requires_workspace_access");
   });
 
+  it("freezes each Wake's request chain on its assignment, never on the Session or the Service task", async () => {
+    const tali = [{ kind: "human" as const, profileId: "human-tali" }];
+    const felix = [{ kind: "human" as const, profileId: "human-felix" }];
+    const target = {
+      kind: "agent" as const,
+      profileId: TARGET_AGENT_PROFILE_ID,
+    };
+    const contextRequest = (requestChain: typeof tali) => ({
+      required: true,
+      requestChain: [...requestChain, target],
+      scope: {
+        organizationId: "org",
+        requesterProfileId: "agent-relay",
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+        threadId: null,
+      },
+      selection: { mode: "auto" as const },
+    });
+    const request = buildRuntimeCoordinatorHeadAcceptRequest({
+      acceptedDispatchSnapshot: {
+        ...buildAcceptedDispatchSnapshot({ fingerprint: "9" }),
+        contextRequest: contextRequest(tali),
+      },
+    });
+    const { hub, storageRecords } = await createContextHarness({
+      contextVersion: 6,
+    });
+    const response = (await (
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        request
+      )
+    ).json()) as { executionContext: Record<string, unknown> & { id: string } };
+    // Installed Services parse the task strictly; the chain stays in Core.
+    expect(response.executionContext).not.toHaveProperty("requestChain");
+    const key = buildRuntimeCoordinatorHeadLifecycleStorageKey(
+      request.targetWakeLifecycleIdentity.targetWakeLifecycleId
+    );
+    const accepted = storageRecords.get(
+      key
+    ) as RuntimeCoordinatorHeadLifecycleRecord;
+    expect(
+      accepted.acceptedDispatchSnapshot?.executionContext?.requestChain
+    ).toEqual([...tali, target]);
+    const session = storageRecords.get(
+      `runtime-coordinator:execution-context:v1:${response.executionContext.id}`
+    ) as { assignment: Record<string, unknown> };
+    expect(session.assignment).not.toHaveProperty("requestChain");
+
+    // The same Session serving a Wake with a different root carries that root.
+    const nextIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-felix",
+      dispatchId: "dispatch-felix",
+      sourceSignalId: "source-felix",
+      spaceId: HEX_SPACE_ID,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    const storage = (
+      hub as unknown as { ctx: { storage: DurableObjectStorage } }
+    ).ctx.storage;
+    const snapshot = request.acceptedDispatchSnapshot;
+    if (!snapshot) {
+      throw new Error("Expected accepted snapshot");
+    }
+    const next = await storage.transaction((transaction) =>
+      prepareExecutionContextAssignment({
+        contextModeActive: true,
+        storage: transaction,
+        record: {
+          ...accepted,
+          acceptedDispatchSnapshot: {
+            ...snapshot,
+            contextRequest: contextRequest(felix),
+          },
+          primaryDispatchId: "dispatch-felix",
+          targetWakeLifecycleId: nextIdentity.targetWakeLifecycleId,
+          targetWakeLifecycleIdentity: nextIdentity,
+        },
+      })
+    );
+    expect(
+      next.record.acceptedDispatchSnapshot?.executionContext
+    ).toMatchObject({
+      id: response.executionContext.id,
+      requestChain: [...felix, target],
+    });
+  });
+
   it.each([
     { restricted: false, workspace: "current", pinned: false },
     { restricted: false, workspace: "isolated", pinned: false },

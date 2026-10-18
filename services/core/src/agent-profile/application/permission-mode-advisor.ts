@@ -6,6 +6,7 @@ import {
   PERMISSION_MODE_ADVISOR_TOP_REQUESTER_LIMIT,
   permissionModeAdvisorySchema,
 } from "@openmeld/schemas";
+import { isRequestChainEnforced } from "../../member-agent/member-agents-feature";
 import {
   claimPermissionModeAdvisory,
   listPermissionInteractionTaskKeys,
@@ -26,15 +27,20 @@ export const PERMISSION_MODE_ADVISOR_THRESHOLD = 3;
 const EXECUTION_SCAN_MARGIN_MS = DAY_MS;
 
 /**
- * The requester whose ownership decides whether a waiting approval counts.
- * Phase 1 of the MemberAgent program uses the one-hop requester, the Wake
- * message author recorded in the Dispatch Ledger. Phase 3 switches this to
- * the request chain's root requester.
+ * The requester whose ownership decides whether a waiting approval counts:
+ * the request chain's root once the chain is enforced. Before that, and for
+ * Wakes admitted before Core recorded chains, the one-hop requester (the
+ * Wake message author recorded in the Dispatch Ledger).
  */
 export function resolvePermissionAdvisorRequesterProfileId(
-  execution: Pick<PermissionAdvisorExecution, "oneHopRequesterProfileId">
+  execution: Pick<
+    PermissionAdvisorExecution,
+    "oneHopRequesterProfileId" | "rootRequesterProfileId"
+  >
 ): string {
-  return execution.oneHopRequesterProfileId;
+  return isRequestChainEnforced()
+    ? (execution.rootRequesterProfileId ?? execution.oneHopRequesterProfileId)
+    : execution.oneHopRequesterProfileId;
 }
 
 export type PermissionModeAdvisorSignal = {

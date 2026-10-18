@@ -921,6 +921,7 @@ import {
   prepareCenterAgentWakePublicationBatch,
 } from "../center-agent/application/center-agent-wake-publication-service";
 import { isHostedCenterAgentExecutionTarget } from "../center-agent/application/hosted-center-agent-binding";
+import { requireCenterAgentPermissionModeConfirmation } from "../center-agent/application/permission-mode-confirmation";
 import {
   buildCenterAgentReadinessResponse,
   type CenterAgentProductOperationDeps,
@@ -1085,7 +1086,10 @@ import {
 import type { CoreBindings } from "../lib/bindings";
 import { resolveCoreRuntimeContractRollout } from "../local-components/runtime-contract-rollout";
 import { resolveLocalComponentUpdateProjection } from "../local-components/update-projection";
-import { isMemberAgentsEnabled } from "../member-agent/member-agents-feature";
+import {
+  isMemberAgentsEnabled,
+  isRequestChainEnforced,
+} from "../member-agent/member-agents-feature";
 import {
   hasStartedTutorial,
   readFirstWork,
@@ -2497,6 +2501,8 @@ export async function rpcMutateSpaceMessage(
 export type PostSignalInput = {
   /** Internal Core→Space only. Public input cannot supply a time anchor. */
   requestTimeContext?: import("@openmeld/schemas").UserRequestTimeContext;
+  /** Internal Core→Space only. Public input cannot supply a request chain. */
+  requestChainBasis?: import("../request-chain/dispatch-request-chain").RequestChainBasis;
   contextSelection?: import("@openmeld/schemas/types").ExecutionContextSelection;
   contextSelections?: Record<
     string,
@@ -13169,15 +13175,18 @@ export async function rpcCenterAgentConnectAgentProfileToLocalAgent(
       code: "invalid_payload",
     });
   }
+  const owner = await resolveCenterAgentProductOperationOwner(
+    authorization,
+    parsed.data.onBehalfOf
+  );
+  await refuseUnconfirmedCenterAgentPermissionModeChange({
+    agentProfileId: parsed.data.agentProfileId,
+    db: authorization.db,
+    ownerUserId: owner.representedUserId,
+    requestedMode: parsed.data.agentControllerPermissionMode,
+  });
   const response = await connectAgentProfileToLocalAgentOperation({
-    deps: buildCenterAgentProductOperationDeps(
-      env,
-      authorization,
-      await resolveCenterAgentProductOperationOwner(
-        authorization,
-        parsed.data.onBehalfOf
-      )
-    ),
+    deps: buildCenterAgentProductOperationDeps(env, authorization, owner),
     request: parsed.data,
   });
   const validated =
@@ -13223,6 +13232,12 @@ async function updateCenterAgentProfileRuntimeSettings(
         ? {}
         : { onBehalfOf: input.onBehalfOf }),
       openCodePermission: input.openCodePermission,
+      ...(input.permissionModeConfirmationToken === undefined
+        ? {}
+        : {
+            permissionModeConfirmationToken:
+              input.permissionModeConfirmationToken,
+          }),
       reasoningLevel: input.reasoningLevel,
       workspaceMode: input.workspaceMode,
       workspacePath: input.workspacePath,
@@ -13248,17 +13263,60 @@ async function updateCenterAgentProfileRuntimeSettings(
         "Working folder changes are temporarily unavailable during an update. Try again after the update completes.",
     });
   }
+  const owner = await resolveCenterAgentProductOperationOwner(
+    authorization,
+    parsed.data.onBehalfOf
+  );
+  const { permissionModeConfirmationToken, ...request } = parsed.data;
+  if (
+    isRequestChainEnforced() &&
+    request.agentControllerPermissionMode !== undefined
+  ) {
+    // Non-additive: the member's instruction alone never applies it.
+    const decision = await requireCenterAgentPermissionModeConfirmation({
+      db: authorization.db,
+      nativeDeliveryId: owner.sourceNativeDeliveryId,
+      nowMs: Date.now(),
+      scope: {
+        actorProfileId: authorization.actorProfileId,
+        agentControllerPermissionMode: request.agentControllerPermissionMode,
+        agentProfileId: request.agentProfileId,
+        organizationId: authorization.activeOrganization.organizationId,
+        representedProfileId: owner.representedProfileId,
+        representedUserId: owner.representedUserId,
+      },
+      ...(permissionModeConfirmationToken === undefined
+        ? {}
+        : { token: permissionModeConfirmationToken }),
+    });
+    if (decision.status === "confirmation_required") {
+      return centerAgentUpdateAgentProfileRuntimeSettingsResponseSchema.parse({
+        agentProfileId: request.agentProfileId,
+        canReply: false,
+        organizationId: authorization.activeOrganization.organizationId,
+        permissionModeConfirmation: {
+          agentControllerPermissionMode: request.agentControllerPermissionMode,
+          ...decision.confirmation,
+        },
+        status: "blocked",
+        steps: [
+          {
+            message:
+              "Nothing was changed. Changing the permission mode needs the member's separate confirmation.",
+            name: "update_agent_profile_runtime_settings",
+            nextAction:
+              "Tell the member exactly which mode this sets, ask them to confirm in their next message, then call again with the same settings and permissionModeConfirmationToken.",
+            reasonCode: "center_agent.permission_mode_confirmation_required",
+            status: "skipped",
+          },
+        ],
+      });
+    }
+  }
   const response = await updateAgentProfileRuntimeSettingsOperation({
-    deps: buildCenterAgentProductOperationDeps(
-      env,
-      authorization,
-      await resolveCenterAgentProductOperationOwner(
-        authorization,
-        parsed.data.onBehalfOf
-      )
-    ),
+    deps: buildCenterAgentProductOperationDeps(env, authorization, owner),
     organizationId: authorization.activeOrganization.organizationId,
-    request: parsed.data,
+    request,
   });
   const validated =
     centerAgentUpdateAgentProfileRuntimeSettingsResponseSchema.safeParse(
@@ -13330,7 +13388,9 @@ async function resolveCenterAgentProductOperationOwner(
     | undefined
 ): Promise<{
   representedContext: OpenMeldRequestContext;
+  representedProfileId: string;
   representedUserId: string;
+  sourceNativeDeliveryId: string | null;
 }> {
   if (!onBehalfOf) {
     throw createCoreRpcHttpError({
@@ -13352,7 +13412,29 @@ async function resolveCenterAgentProductOperationOwner(
       reason: "The requesting member is no longer available.",
     });
   }
+  const root = isRequestChainEnforced()
+    ? await readCenterAgentRequestChainRoot(authorization)
+    : null;
+  if (
+    isRequestChainEnforced() &&
+    !(
+      root &&
+      root.profileId === member.profileId &&
+      root.userId === member.ownerUserId
+    )
+  ) {
+    // The root of this turn's request chain is the member Core recorded on
+    // the native delivery, never a member named in the tool arguments.
+    throw createCoreRpcHttpError({
+      status: 403,
+      code: "center_agent.request_chain_root_mismatch",
+      reason:
+        "Only the member who asked in this conversation can change their own Agents.",
+    });
+  }
   return {
+    representedProfileId: member.profileId,
+    sourceNativeDeliveryId: root?.nativeDeliveryId ?? null,
     representedUserId: member.ownerUserId,
     representedContext: {
       activeOrganizationId: authorization.activeOrganization.organizationId,
@@ -13365,6 +13447,79 @@ async function resolveCenterAgentProductOperationOwner(
         requestId: authorization.context.actorContext.requestId,
       },
     },
+  };
+}
+/**
+ * Reconnecting an existing Binding must not change its permission mode
+ * without the member's separate confirmation, which only the runtime
+ * settings operation collects. Connecting a new Binding is additive.
+ */
+async function refuseUnconfirmedCenterAgentPermissionModeChange(input: {
+  agentProfileId: string;
+  db: PostgresDatabase;
+  ownerUserId: string;
+  requestedMode: string | undefined;
+}): Promise<void> {
+  if (!isRequestChainEnforced() || input.requestedMode === undefined) {
+    return;
+  }
+  const existing = await readPrimaryAgentProfileBindingRecord({
+    agentProfileId: input.agentProfileId,
+    db: input.db,
+    owner: { id: input.ownerUserId, kind: "owner_account" },
+  });
+  if (
+    existing &&
+    (existing.agentControllerPermissionMode ?? null) !== input.requestedMode
+  ) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.permission_mode_confirmation_required",
+      reason:
+        "Changing this Agent's permission mode needs the member's separate confirmation. Connect without a permission mode, then change it with openmeld_update_agent_profile_runtime_settings.",
+      status: 409,
+    });
+  }
+}
+/**
+ * The human root of the Center Agent's current turn: the member Core recorded
+ * on the active native delivery this tool call belongs to.
+ */
+async function readCenterAgentRequestChainRoot(
+  authorization: Awaited<
+    ReturnType<typeof requireCurrentDesignatedCenterAgentCaller>
+  >
+): Promise<{
+  nativeDeliveryId: string;
+  profileId: string;
+  userId: string;
+} | null> {
+  const submissionId =
+    authorization.context.agentControllerConversationId?.trim();
+  if (!submissionId) {
+    return null;
+  }
+  const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
+    db: authorization.db,
+    submissionId,
+  });
+  if (
+    !(
+      delivery &&
+      (delivery.status === "accepted" ||
+        delivery.status === "retry_observed") &&
+      delivery.organizationId ===
+        authorization.activeOrganization.organizationId &&
+      delivery.profileId === authorization.actorProfileId &&
+      delivery.onBehalfOfProfileId &&
+      delivery.onBehalfOfUserId
+    )
+  ) {
+    return null;
+  }
+  return {
+    nativeDeliveryId: delivery.deliveryId,
+    profileId: delivery.onBehalfOfProfileId,
+    userId: delivery.onBehalfOfUserId,
   };
 }
 function buildCenterAgentProductOperationDeps(
@@ -20702,6 +20857,7 @@ export async function rpcPostSignalOnceByClientMessageId(
     ...(input.spaceAccess ? { spaceAccess: input.spaceAccess } : {}),
   });
   const postInput = {
+    requestChainBasis: input.requestChainBasis,
     ...(input.requestTimeContext
       ? { requestTimeContext: input.requestTimeContext }
       : {}),

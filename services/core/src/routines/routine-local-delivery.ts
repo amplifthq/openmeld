@@ -7,6 +7,7 @@ import { readPrimaryAgentProfileBindingRecord } from "../agent-profile-binding/i
 import { getDispatchResultByDispatchId } from "../dispatch/application/dispatch-result-service";
 import { readPreHeadFailurePublicationState } from "../dispatch/infrastructure/postgresql/pre-head-failure-publication-outbox-repository";
 import type { CoreBindings } from "../lib/bindings";
+import { isRequestChainEnforced } from "../member-agent/member-agents-feature";
 import { rpcPostSignalOnceByClientMessageId } from "../rpc/methods";
 import { readRuntimeCoordinatorExecutionProjectionByDispatch } from "../runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo";
 import { readSpaceDispatchLookupByClientMessageId } from "../space/infrastructure/postgresql/space-dispatch-read-repo";
@@ -98,16 +99,13 @@ export async function submitLocalRoutineDelivery(input: {
     if (executor.kind !== "local_agent") {
       throw new Error("routine.executor_changed");
     }
-    const human = (
-      await db.query<{ profile_id: string; profile_name: string }>({
-        text: `SELECT p.profile_id, p.profile_name FROM openmeld.openmeld_profiles p
-        JOIN openmeld.members m ON m.user_id = p.owner_user_id AND m.organization_id = $1
-        WHERE p.owner_user_id = $2 AND p.profile_kind = 'human' AND p.status = 'active' LIMIT 1`,
-        values: [routine.organizationId, routine.createdByUserId],
-      })
-    ).rows[0];
+    const human = await readActiveRoutineCreator({
+      db,
+      organizationId: routine.organizationId,
+      userId: routine.createdByUserId,
+    });
     if (!human) {
-      throw new Error("routine.member_unavailable");
+      return await skipRunForMissingCreator({ db, nowMs: input.nowMs, run });
     }
     await createRoutineTargetSpaceEligibility({
       db,
@@ -173,8 +171,23 @@ export async function submitLocalRoutineDelivery(input: {
   const submission = routineLocalSubmissionSchema.parse(
     JSON.parse(frozen.local_submission_json)
   );
+  if (
+    await hasRoutineCreatorLeft({
+      db,
+      organizationId: run.organizationId,
+      userId: submission.context.actorContext.ownerUserId ?? "",
+    })
+  ) {
+    return await skipRunForMissingCreator({ db, nowMs: input.nowMs, run });
+  }
   const signal = await rpcPostSignalOnceByClientMessageId(input.env, {
     ...submission,
+    // Root: the creator, who authors this message; marker: this Routine.
+    requestChainBasis: {
+      kind: "source",
+      source: "routine",
+      sourceId: run.routineId,
+    },
     clientMessageId: run.id,
     authoringPolicy: "system_emitted",
     spaceAddressingVersion: OPENMELD_SPACE_ADDRESSING_VERSION,
@@ -194,6 +207,58 @@ export async function submitLocalRoutineDelivery(input: {
     values: [signal.id, run.id],
   });
   return { status: "submitted" };
+}
+
+async function readActiveRoutineCreator(input: {
+  db: PostgresDatabase;
+  organizationId: string;
+  userId: string;
+}): Promise<{ profile_id: string; profile_name: string } | null> {
+  if (!input.userId) {
+    return null;
+  }
+  const result = await input.db.query<{
+    profile_id: string;
+    profile_name: string;
+  }>({
+    text: `SELECT p.profile_id, p.profile_name FROM openmeld.openmeld_profiles p
+        JOIN openmeld.members m ON m.user_id = p.owner_user_id AND m.organization_id = $1
+        WHERE p.owner_user_id = $2 AND p.profile_kind = 'human' AND p.status = 'active' LIMIT 1`,
+    values: [input.organizationId, input.userId],
+  });
+  return result.rows[0] ?? null;
+}
+
+/** Once the chain is enforced, a frozen run re-checks its root, the creator. */
+async function hasRoutineCreatorLeft(input: {
+  db: PostgresDatabase;
+  organizationId: string;
+  userId: string;
+}): Promise<boolean> {
+  return isRequestChainEnforced() && !(await readActiveRoutineCreator(input));
+}
+
+/**
+ * The creator is the Wake's root requester; without them the Routine stops.
+ * Before the chain is enforced the run keeps its earlier failure.
+ */
+async function skipRunForMissingCreator(input: {
+  db: PostgresDatabase;
+  nowMs: number;
+  run: CenterAgentRoutineRun;
+}): Promise<{ status: "skipped" }> {
+  if (!isRequestChainEnforced()) {
+    throw new Error("routine.member_unavailable");
+  }
+  await markRoutineRunSkipped({
+    db: input.db,
+    runId: input.run.id,
+    nowMs: input.nowMs,
+    failureCode: "routine.creator_unavailable",
+    failureDetail:
+      "The person who created this Routine is no longer in this organization.",
+  });
+  return { status: "skipped" };
 }
 
 export async function recoverLocalRoutineRuns(input: {

@@ -16,6 +16,7 @@ import type {
   SignalTextData,
   SpaceSignalAuthoringPolicy,
 } from "@openmeld/schemas/types";
+import type { RequestChainRejectionReason } from "../../request-chain/request-chain";
 import type { SignalPublishContext } from "./types";
 
 export const SPACE_WAKE_TARGET_INVALID_ERROR_CODE =
@@ -35,6 +36,7 @@ export class SpaceSignalAuthoringError extends Error {
     | "space_task.invalid_draft"
     | "space.execution_input.invalid"
     | "space.execution_context.unsupported"
+    | RequestChainRejectionReason
     | typeof SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE
     | typeof SPACE_WAKE_TARGET_INVALID_ERROR_CODE
     | typeof SPACE_WAKE_HANDOFF_SEED_FAILED_ERROR_CODE
@@ -51,6 +53,7 @@ export class SpaceSignalAuthoringError extends Error {
       | "space_task.invalid_draft"
       | "space.execution_input.invalid"
       | "space.execution_context.unsupported"
+      | RequestChainRejectionReason
       | typeof SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE
       | typeof SPACE_WAKE_TARGET_INVALID_ERROR_CODE
       | typeof SPACE_WAKE_HANDOFF_SEED_FAILED_ERROR_CODE

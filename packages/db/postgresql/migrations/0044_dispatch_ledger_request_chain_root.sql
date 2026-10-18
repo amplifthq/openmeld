@@ -1,0 +1,1 @@
+ALTER TABLE "openmeld"."openMeldDaemon_dispatch_ledger" ADD COLUMN "request_chain_root_profile_id" text;

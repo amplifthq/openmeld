@@ -365,6 +365,241 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
   });
 });
 
+describe("RuntimeCoordinator interaction Inbox urgency from the request chain root", () => {
+  async function seedRootProfiles(
+    h: Awaited<ReturnType<typeof createInboxHarness>>
+  ) {
+    await h.query({
+      text: `INSERT INTO "openmeld"."openmeld_profiles" (profile_id, profile_name, profile_handle, profile_kind, owner_user_id, created_by_user_id, source, status) VALUES
+        ('00000000-0000-4000-8000-0000000000a1', 'Owner', 'owner', 'human', 'user_owner', 'user_owner', 'auth_bootstrap', 'active'),
+        ('00000000-0000-4000-8000-0000000000a2', 'Other', 'other', 'human', 'user_other', 'user_other', 'auth_bootstrap', 'active')`,
+    });
+  }
+  function question(
+    index: number,
+    contextId: string | null,
+    rootProfileId: string
+  ) {
+    return {
+      interaction: {
+        interactionId: `interaction_${index}`,
+        kind: "permission" as const,
+        requestedAtMs: 2000 + index,
+      },
+      nowMs: 2100 + index,
+      ownerUserId: "user_owner",
+      requestRoot: { contextId, rootProfileId },
+      runtimeCoordinatorExecutionId: `execution_${index}`,
+      sourceSignalId: "signal_one",
+      spaceId: "space_one",
+      targetProfileName: "Agent",
+    };
+  }
+
+  it("keeps owner-rooted questions normal, one item each, with no email", async () => {
+    const h = await createInboxHarness();
+    try {
+      await seedRootProfiles(h);
+      for (const index of [1, 2]) {
+        await projectRuntimeCoordinatorInteractionInboxItem({
+          ...question(
+            index,
+            "context_one",
+            "00000000-0000-4000-8000-0000000000a1"
+          ),
+          inboxDb: h.db,
+          spaceIndexDb: h.db,
+        });
+      }
+      expect(
+        await h.queryAll({
+          text: 'SELECT importance FROM "openmeld"."inbox_items" ORDER BY occurred_at_ms',
+        })
+      ).toEqual([{ importance: "normal" }, { importance: "normal" }]);
+      expect(
+        await h.queryAll({
+          text: 'SELECT id FROM "openmeld"."inbox_email_deliveries"',
+        })
+      ).toEqual([]);
+    } finally {
+      await h.close();
+    }
+  });
+
+  it("sends one urgent email for ten colleague-rooted questions in one Session", async () => {
+    const h = await createInboxHarness();
+    try {
+      await seedRootProfiles(h);
+      for (let index = 1; index <= 10; index += 1) {
+        await projectRuntimeCoordinatorInteractionInboxItem({
+          ...question(
+            index,
+            "context_one",
+            "00000000-0000-4000-8000-0000000000a2"
+          ),
+          inboxDb: h.db,
+          spaceIndexDb: h.db,
+        });
+        if (index < 10) {
+          await resolveRuntimeCoordinatorInteractionInboxItem({
+            ...question(
+              index,
+              "context_one",
+              "00000000-0000-4000-8000-0000000000a2"
+            ),
+            inboxDb: h.db,
+            resolvedAtMs: 2150 + index,
+            spaceIndexDb: h.db,
+          });
+        }
+      }
+      const items = await h.queryAll<{
+        importance: string;
+        preview: string;
+        resolution_status: string;
+        source_target_json: string;
+      }>({
+        text: 'SELECT importance, preview, resolution_status, source_target_json FROM "openmeld"."inbox_items"',
+      });
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({
+        importance: "urgent",
+        resolution_status: "open",
+      });
+      expect(JSON.parse(items[0]?.source_target_json ?? "{}")).toMatchObject({
+        interactionId: "interaction_10",
+        runtimeCoordinatorExecutionId: "execution_10",
+      });
+      // The email-bearing item carries fixed copy, never command text.
+      expect(items[0]?.preview).toBe(
+        "Agent needs your approval before it can continue."
+      );
+      expect(
+        await h.queryAll({
+          text: 'SELECT id FROM "openmeld"."inbox_email_deliveries"',
+        })
+      ).toHaveLength(1);
+    } finally {
+      await h.close();
+    }
+  });
+
+  it("keeps the Session item open when an older question in it ends", async () => {
+    const h = await createInboxHarness();
+    try {
+      await seedRootProfiles(h);
+      for (const index of [1, 2]) {
+        await projectRuntimeCoordinatorInteractionInboxItem({
+          ...question(
+            index,
+            "context_one",
+            "00000000-0000-4000-8000-0000000000a2"
+          ),
+          inboxDb: h.db,
+          spaceIndexDb: h.db,
+        });
+      }
+      await resolveRuntimeCoordinatorInteractionInboxItem({
+        ...question(1, "context_one", "00000000-0000-4000-8000-0000000000a2"),
+        inboxDb: h.db,
+        resolvedAtMs: 2300,
+        spaceIndexDb: h.db,
+      });
+      expect(
+        await h.queryFirst({
+          text: 'SELECT resolution_status FROM "openmeld"."inbox_items"',
+        })
+      ).toEqual({ resolution_status: "open" });
+      await resolveRuntimeCoordinatorInteractionInboxItem({
+        ...question(2, "context_one", "00000000-0000-4000-8000-0000000000a2"),
+        inboxDb: h.db,
+        resolvedAtMs: 2400,
+        spaceIndexDb: h.db,
+      });
+      expect(
+        await h.queryFirst({
+          text: 'SELECT resolution_status FROM "openmeld"."inbox_items"',
+        })
+      ).toEqual({ resolution_status: "resolved" });
+    } finally {
+      await h.close();
+    }
+  });
+
+  it("never reopens an ended question on replay or lets another task's answer close it", async () => {
+    const h = await createInboxHarness();
+    try {
+      await seedRootProfiles(h);
+      const first = question(
+        1,
+        "context_one",
+        "00000000-0000-4000-8000-0000000000a2"
+      );
+      await projectRuntimeCoordinatorInteractionInboxItem({
+        ...first,
+        inboxDb: h.db,
+        spaceIndexDb: h.db,
+      });
+      // Same interaction id, another task in the Session: not this question.
+      await resolveRuntimeCoordinatorInteractionInboxItem({
+        ...first,
+        inboxDb: h.db,
+        resolvedAtMs: 2200,
+        runtimeCoordinatorExecutionId: "execution_other",
+        spaceIndexDb: h.db,
+      });
+      expect(
+        await h.queryFirst({
+          text: 'SELECT resolution_status FROM "openmeld"."inbox_items"',
+        })
+      ).toEqual({ resolution_status: "open" });
+      await resolveRuntimeCoordinatorInteractionInboxItem({
+        ...first,
+        inboxDb: h.db,
+        resolvedAtMs: 2300,
+        spaceIndexDb: h.db,
+      });
+      await projectRuntimeCoordinatorInteractionInboxItem({
+        ...first,
+        inboxDb: h.db,
+        nowMs: 2400,
+        spaceIndexDb: h.db,
+      });
+      expect(
+        await h.queryFirst({
+          text: 'SELECT resolution_status FROM "openmeld"."inbox_items"',
+        })
+      ).toEqual({ resolution_status: "resolved" });
+    } finally {
+      await h.close();
+    }
+  });
+
+  it("gives each Session its own urgent item and email", async () => {
+    const h = await createInboxHarness();
+    try {
+      await seedRootProfiles(h);
+      for (const [index, contextId] of [
+        [1, "context_one"],
+        [2, "context_two"],
+      ] as const) {
+        await projectRuntimeCoordinatorInteractionInboxItem({
+          ...question(index, contextId, "00000000-0000-4000-8000-0000000000a2"),
+          inboxDb: h.db,
+          spaceIndexDb: h.db,
+        });
+      }
+      expect(
+        await h.queryAll({
+          text: 'SELECT id FROM "openmeld"."inbox_email_deliveries"',
+        })
+      ).toHaveLength(2);
+    } finally {
+      await h.close();
+    }
+  });
+});
+
 function buildPermissionInteraction() {
   return {
     description:

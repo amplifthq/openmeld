@@ -1245,6 +1245,7 @@ export {
   centerAgentModelConfigurationResponseSchema,
   centerAgentOnBehalfOfInputSchema,
   centerAgentOperatingStateSchema,
+  centerAgentPermissionModeConfirmationTokenSchema,
   centerAgentPostSlackChannelMessageBodySchema,
   centerAgentPostSlackChannelMessageResponseSchema,
   centerAgentPostSlackFileBodySchema,
@@ -3118,6 +3119,14 @@ export {
   profileFolderProjectionEntrySchema,
   profileFolderProjectionSchema,
 } from "./protocol/profile-folders";
+export {
+  REQUEST_CHAIN_MAX_AGENTS,
+  requestChainAgentEntrySchema,
+  requestChainEntrySchema,
+  requestChainHumanEntrySchema,
+  requestChainSchema,
+  requestChainSourceEntrySchema,
+} from "./protocol/request-chain";
 export { serverErrorFrameSchema } from "./protocol/server-error";
 export {
   AGENT_REPLY_FINAL_PURPOSE,

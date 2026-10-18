@@ -2,16 +2,25 @@ import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   OpenMeldDaemonAcceptedDispatchSnapshot,
   OpenMeldDaemonDispatchQueueMessage,
+  RequestChain,
 } from "@openmeld/schemas/types";
 import { readRecordedDelegationRequester } from "../../center-agent/application/recorded-delegation-requester";
 import type { CoreBindings } from "../../lib/bindings";
+import { isRequestChainEnforced } from "../../member-agent/member-agents-feature";
 import { readActiveRepresentedHumanSender } from "../../remote-agent/application/turn-envelope";
+import {
+  createAdmittedRequestChainDeps,
+  resolveAdmittedRequestChain,
+} from "../../request-chain/dispatch-request-chain";
+import { readRequestChainRootProfileId } from "../../request-chain/request-chain";
 
 export async function buildAcceptedDispatchSnapshot(input: {
   /** The message's selection after Core policy, such as folder stripping. */
   contextSelection?: OpenMeldDaemonDispatchQueueMessage["contextSelection"];
   message: OpenMeldDaemonDispatchQueueMessage;
   openMeldServiceRuntimeId?: string | null;
+  /** This Wake's chain from resolveAdmittedRequestChain; absent: legacy. */
+  requestChain?: RequestChain;
   runtimeKind?:
     | "hosted_center_agent"
     | "hosted_remote_agent"
@@ -46,6 +55,7 @@ export async function buildAcceptedDispatchSnapshot(input: {
             // Explicit intent must never fall back to a Binding conversation.
             // Core chooses implicit thread isolation only for supported harnesses.
             required: Boolean(input.message.contextSelection),
+            ...(input.requestChain ? { requestChain: input.requestChain } : {}),
             scope: {
               organizationId: input.message.organizationId,
               requesterProfileId: input.message.sourceSignalSnapshot.profileId,
@@ -91,6 +101,24 @@ export async function isDispatchRequestedByAgentOwner(input: {
   const db = getPostgresDatabase(env);
   if (!db) {
     return false;
+  }
+  if (isRequestChainEnforced()) {
+    // The root requester, not the message author, decides.
+    const chain = await resolveAdmittedRequestChain({
+      deps: createAdmittedRequestChainDeps(env),
+      message,
+    });
+    return (
+      chain.ok &&
+      Boolean(
+        await readActiveRepresentedHumanSender({
+          db,
+          organizationId: message.organizationId,
+          profileId: readRequestChainRootProfileId(chain.chain),
+          userId: targetOwnerUserId,
+        })
+      )
+    );
   }
   if (source.profileKind === "human") {
     return Boolean(
@@ -201,13 +229,17 @@ function stableJson(value: unknown): string {
 }
 
 /**
- * The requester whose ownership decides whether a folder choice is kept.
- * Phase 2 of the MemberAgent program uses the one-hop requester, the message
- * author. Phase 3 switches this to the request chain's root requester.
+ * The requester whose ownership decides whether a folder choice is kept: the
+ * request chain's root requester once the chain is enforced. Before that, and
+ * for a Wake without a chain, the one-hop requester (the message author).
  */
 export function resolveFolderSelectionRequesterProfileId(
-  message: OpenMeldDaemonDispatchQueueMessage
+  message: OpenMeldDaemonDispatchQueueMessage,
+  requestChain?: RequestChain
 ): string | null {
+  if (isRequestChainEnforced()) {
+    return requestChain ? readRequestChainRootProfileId(requestChain) : null;
+  }
   return message.sourceSignalSnapshot?.profileId ?? null;
 }
 
@@ -220,6 +252,7 @@ export async function applyFolderSelectionPolicy(input: {
   env?: CoreBindings;
   message: OpenMeldDaemonDispatchQueueMessage;
   readRequesterOwnerUserId?: typeof readActiveProfileOwnerUserId;
+  requestChain?: RequestChain;
   targetOwnerUserId: string;
 }): Promise<OpenMeldDaemonDispatchQueueMessage["contextSelection"]> {
   const selection = input.message.contextSelection;
@@ -227,7 +260,8 @@ export async function applyFolderSelectionPolicy(input: {
     return selection;
   }
   const requesterProfileId = resolveFolderSelectionRequesterProfileId(
-    input.message
+    input.message,
+    input.requestChain
   );
   const organizationId = input.message.organizationId;
   let ownerUserId: string | null = null;
