@@ -50,7 +50,10 @@ import {
   createAdmittedRequestChainDeps,
   resolveAdmittedRequestChain,
 } from "../../request-chain/dispatch-request-chain";
-import type { RequestChainRejectionReason } from "../../request-chain/request-chain";
+import {
+  type RequestChainRejectionReason,
+  readRequestChainRootProfileId,
+} from "../../request-chain/request-chain";
 import { resolveSpaceStub } from "../../rpc/space-ref";
 import { emitSpaceSystemNoticeSignal } from "../../rpc/space-signal-emitter";
 import { DELETED_AGENT_PROFILE_WAKE_STOP_REASON } from "../../runtime-transport/application/deleted-agent-profile-wake-cancellation";
@@ -1961,6 +1964,7 @@ const settleRuntimeCoordinatorAcceptedPayloadConflict = async (input: {
  * (agent-transport-contract.md, Request Chain).
  */
 async function admitDispatchRequestChain(input: {
+  db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
   runtimeKind?: string | null;
@@ -1976,6 +1980,11 @@ async function admitDispatchRequestChain(input: {
     message: input.dispatchMessage,
   });
   if (result.ok) {
+    await recordDispatchRequestChainRoot({
+      db: input.db,
+      message: input.dispatchMessage,
+      rootProfileId: readRequestChainRootProfileId(result.chain),
+    });
     return { status: "admitted", requestChain: result.chain };
   }
   if (isRequestChainEnforced() && input.runtimeKind === "openmeld_service") {
@@ -1986,6 +1995,38 @@ async function admitDispatchRequestChain(input: {
     };
   }
   return { status: "admitted", requestChain: undefined };
+}
+/**
+ * Projects the root into the Dispatch Ledger for root-based reads (the
+ * permission-mode advisor, plugin access). First write wins: a Wake's root
+ * never changes. A failed write leaves those readers on their fallback.
+ */
+async function recordDispatchRequestChainRoot(input: {
+  db: PostgresDatabase;
+  message: OpenMeldDaemonDispatchQueueMessage;
+  rootProfileId: string;
+}): Promise<void> {
+  try {
+    await input.db.query({
+      text: `
+        UPDATE "openmeld"."openMeldDaemon_dispatch_ledger"
+        SET request_chain_root_profile_id = $1
+        WHERE dispatch_id = $2
+          AND target_profile_id = $3
+          AND request_chain_root_profile_id IS NULL
+      `,
+      values: [
+        input.rootProfileId,
+        input.message.dispatchId,
+        input.message.targetProfileId,
+      ],
+    });
+  } catch (error) {
+    console.warn("[core.dispatch.request_chain_root_projection_failed]", {
+      dispatchId: input.message.dispatchId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 function describeRequestChainRejection(
   reasonCode: RequestChainRejectionReason

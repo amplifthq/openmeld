@@ -70,6 +70,8 @@ export async function readPermissionModeAdvisoryRowBySuggestionId(input: {
 
 export type PermissionAdvisorExecution = {
   oneHopRequesterProfileId: string;
+  /** Null for Wakes admitted before Core recorded request chains. */
+  rootRequesterProfileId: string | null;
   runtimeCoordinatorExecutionId: string;
   sourceClientMessageId: string;
   spaceId: string;
@@ -86,6 +88,7 @@ export async function listRecentPermissionAdvisorExecutions(input: {
   updatedSinceMs: number;
 }): Promise<PermissionAdvisorExecution[]> {
   const result = await input.db.query<{
+    request_chain_root_profile_id: string | null;
     runtime_coordinator_execution_id: string;
     source_client_message_id: string;
     source_profile_id: string;
@@ -96,7 +99,8 @@ export async function listRecentPermissionAdvisorExecutions(input: {
         execution.runtime_coordinator_execution_id,
         execution.space_id,
         execution.source_client_message_id,
-        ledger.source_profile_id
+        ledger.source_profile_id,
+        ledger.request_chain_root_profile_id
       FROM "openmeld"."openMeldDaemon_runtime_coordinator_executions" AS execution
       JOIN "openmeld"."openMeldDaemon_dispatch_ledger" AS ledger
         ON ledger.dispatch_id = execution.dispatch_id
@@ -112,6 +116,7 @@ export async function listRecentPermissionAdvisorExecutions(input: {
   });
   return result.rows.map((row) => ({
     oneHopRequesterProfileId: row.source_profile_id,
+    rootRequesterProfileId: row.request_chain_root_profile_id,
     runtimeCoordinatorExecutionId: row.runtime_coordinator_execution_id,
     sourceClientMessageId: row.source_client_message_id,
     spaceId: row.space_id,

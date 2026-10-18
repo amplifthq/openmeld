@@ -3,9 +3,13 @@ import {
   INBOX_CONTEXT_LABEL_MAX_CHARS,
   INBOX_PREVIEW_MAX_CHARS,
 } from "@openmeld/schemas";
-import type { AgentInteractionRequest } from "@openmeld/schemas/types";
+import type {
+  AgentInteractionRequest,
+  InboxSourceCandidate,
+} from "@openmeld/schemas/types";
 import {
   ensureInboxItem,
+  reopenCoalescedInboxItem,
   resolveInboxItemsBySource,
 } from "../../inbox/application/inbox-item-service";
 import { truncateInboxText } from "../../inbox/application/inbox-text";
@@ -31,6 +35,16 @@ type RuntimeCoordinatorInteractionInboxSource = {
    * repair records written before the thread locator was projected.
    */
   threadRootSignalId?: string | null;
+  /**
+   * The Wake's request chain root and Session, once the chain is enforced.
+   * Absent: owner-rooted legacy, one normal item per question.
+   */
+  requestRoot?: InteractionRequestRoot | null;
+};
+export type InteractionRequestRoot = {
+  /** The Session; null for a harness without Execution Contexts. */
+  contextId: string | null;
+  rootProfileId: string;
 };
 export async function projectRuntimeCoordinatorInteractionInboxItem(
   input: RuntimeCoordinatorInteractionInboxSource & {
@@ -64,40 +78,68 @@ export async function projectRuntimeCoordinatorInteractionInboxItem(
     kind: input.interaction.kind,
     targetProfileName: input.targetProfileName,
   });
+  // Only the owner answers. When someone else is the root requester the
+  // owner is asked urgently, once per Session (inbox.md, Agent owner requests).
+  const urgentSession =
+    input.requestRoot &&
+    !(await isRootRequesterOwnedBy({
+      db: input.inboxDb,
+      ownerUserId: input.ownerUserId,
+      rootProfileId: input.requestRoot.rootProfileId,
+    }))
+      ? input.requestRoot
+      : null;
+  const candidate: InboxSourceCandidate = {
+    attention: "action_required",
+    contextLabel: truncateInboxText(
+      input.targetProfileName,
+      INBOX_CONTEXT_LABEL_MAX_CHARS
+    ),
+    importance: urgentSession ? "urgent" : "normal",
+    kind: "agent_interaction",
+    occurredAtMs: input.interaction.requestedAtMs,
+    organizationId: target.organizationId,
+    // Fixed copy: never the command, path, or question text.
+    preview: truncateInboxText(presentation.preview, INBOX_PREVIEW_MAX_CHARS),
+    recipientUserId: input.ownerUserId,
+    sourceKey: urgentSession
+      ? await buildRuntimeCoordinatorSessionInboxSourceKey({
+          ...input,
+          requestRoot: urgentSession,
+        })
+      : await buildRuntimeCoordinatorInteractionInboxSourceKey(input),
+    sourceKind: RUNTIME_COORDINATOR_INTERACTION_SOURCE_KIND,
+    sourceFacts: {
+      version: 1,
+      recipientReasons: ["requester"],
+      requestCategory:
+        input.interaction.kind === "question" ? "action" : "review",
+    },
+    sourceTarget: {
+      interactionId: input.interaction.interactionId,
+      kind: "agent_interaction",
+      runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
+      sourceSignalId: input.sourceSignalId,
+      spaceId: input.spaceId,
+      ...(input.threadRootSignalId === undefined
+        ? {}
+        : { threadRootSignalId: input.threadRootSignalId }),
+    },
+    title: presentation.title,
+  };
+  if (urgentSession) {
+    // Later questions in this Session update and reopen the same item; its
+    // one email was created with the first question.
+    await reopenCoalescedInboxItem({
+      candidate,
+      db: input.inboxDb,
+      nowMs: input.nowMs,
+    });
+    return;
+  }
   await ensureInboxItem({
     allowLegacySourceClassificationRepair: true,
-    candidate: {
-      attention: "action_required",
-      contextLabel: truncateInboxText(
-        input.targetProfileName,
-        INBOX_CONTEXT_LABEL_MAX_CHARS
-      ),
-      importance: "normal",
-      kind: "agent_interaction",
-      occurredAtMs: input.interaction.requestedAtMs,
-      organizationId: target.organizationId,
-      preview: truncateInboxText(presentation.preview, INBOX_PREVIEW_MAX_CHARS),
-      recipientUserId: input.ownerUserId,
-      sourceKey: await buildRuntimeCoordinatorInteractionInboxSourceKey(input),
-      sourceKind: RUNTIME_COORDINATOR_INTERACTION_SOURCE_KIND,
-      sourceFacts: {
-        version: 1,
-        recipientReasons: ["requester"],
-        requestCategory:
-          input.interaction.kind === "question" ? "action" : "review",
-      },
-      sourceTarget: {
-        interactionId: input.interaction.interactionId,
-        kind: "agent_interaction",
-        runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
-        sourceSignalId: input.sourceSignalId,
-        spaceId: input.spaceId,
-        ...(input.threadRootSignalId === undefined
-          ? {}
-          : { threadRootSignalId: input.threadRootSignalId }),
-      },
-      title: presentation.title,
-    },
+    candidate,
     db: input.inboxDb,
     nowMs: input.nowMs,
   });
@@ -105,7 +147,11 @@ export async function projectRuntimeCoordinatorInteractionInboxItem(
 export async function resolveRuntimeCoordinatorInteractionInboxItem(
   input: Pick<
     RuntimeCoordinatorInteractionInboxSource,
-    "interaction" | "runtimeCoordinatorExecutionId" | "spaceId"
+    | "interaction"
+    | "ownerUserId"
+    | "requestRoot"
+    | "runtimeCoordinatorExecutionId"
+    | "spaceId"
   > & {
     inboxDb: PostgresDatabase;
     resolvedAtMs: number;
@@ -126,6 +172,50 @@ export async function resolveRuntimeCoordinatorInteractionInboxItem(
     sourceKey: await buildRuntimeCoordinatorInteractionInboxSourceKey(input),
     sourceKind: RUNTIME_COORDINATOR_INTERACTION_SOURCE_KIND,
   });
+  if (!input.requestRoot) {
+    return;
+  }
+  // The Session item closes only for the question it currently shows; a
+  // newer question in the same Session keeps it open.
+  await resolveInboxItemsBySource({
+    db: input.inboxDb,
+    organizationId: target.organizationId,
+    resolvedAtMs: input.resolvedAtMs,
+    sourceGuard: {
+      bindings: [input.interaction.interactionId],
+      sql: (offset) =>
+        `((source_target_json)::jsonb ->> 'interactionId') = $${offset + 1}`,
+    },
+    sourceKey: await buildRuntimeCoordinatorSessionInboxSourceKey({
+      ...input,
+      requestRoot: input.requestRoot,
+    }),
+    sourceKind: RUNTIME_COORDINATOR_INTERACTION_SOURCE_KIND,
+  });
+}
+async function isRootRequesterOwnedBy(input: {
+  db: PostgresDatabase;
+  ownerUserId: string;
+  rootProfileId: string;
+}): Promise<boolean> {
+  const result = await input.db.query<{ owner_user_id: string | null }>({
+    text: `SELECT owner_user_id FROM "openmeld"."openmeld_profiles" WHERE profile_id = $1 LIMIT 1`,
+    values: [input.rootProfileId],
+  });
+  return result.rows[0]?.owner_user_id === input.ownerUserId;
+}
+/**
+ * One urgent item per Session. A harness without Execution Contexts has no
+ * Session id, so its questions coalesce per task instead.
+ */
+async function buildRuntimeCoordinatorSessionInboxSourceKey(input: {
+  requestRoot: InteractionRequestRoot;
+  runtimeCoordinatorExecutionId: string;
+}): Promise<string> {
+  const scope = input.requestRoot.contextId
+    ? ["context", input.requestRoot.contextId]
+    : ["execution", input.runtimeCoordinatorExecutionId];
+  return `runtime_interaction_session_${await sha256Hex(JSON.stringify(scope))}`;
 }
 function resolveInteractionPresentation(input: {
   kind: AgentInteractionRequest["kind"];
@@ -160,17 +250,22 @@ async function buildRuntimeCoordinatorInteractionInboxSourceKey(
     "interaction" | "runtimeCoordinatorExecutionId"
   >
 ): Promise<string> {
-  const bytes = new TextEncoder().encode(
+  const hex = await sha256Hex(
     JSON.stringify([
       input.runtimeCoordinatorExecutionId,
       input.interaction.interactionId,
     ])
   );
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  const hex = Array.from(new Uint8Array(digest), (byte) =>
+  return `runtime_interaction_${hex}`;
+}
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value)
+  );
+  return Array.from(new Uint8Array(digest), (byte) =>
     byte.toString(16).padStart(2, "0")
   ).join("");
-  return `runtime_interaction_${hex}`;
 }
 function assertNeverInteractionKind(value: never): never {
   throw new TypeError(`Unsupported Agent Interaction kind: ${String(value)}`);

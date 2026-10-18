@@ -10,6 +10,7 @@ import { readRecordedDelegationRequester } from "../center-agent/application/rec
 import { readPluginDispatchRequester } from "../dispatch/application/plugin-request-provenance";
 import { resolveRuntimeTransportOwnerShard } from "../dispatch/infrastructure/runtime-transport/runtime-transport-shard";
 import type { CoreBindings } from "../lib/bindings";
+import { isRequestChainEnforced } from "../member-agent/member-agents-feature";
 import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import {
   readOrganizationAccountIdentityProjection,
@@ -75,11 +76,12 @@ export async function requireLocalPluginCaller(
         organizationId: member.organizationId,
       })
     : null;
-  const source = provenance
-    ? await requirePluginProfile(env, provenance.profileId)
-    : null;
+  const { rootProfileId, source } = await readPluginRequestSource(
+    env,
+    provenance
+  );
   const delegated =
-    source?.profileKind === "agent" && provenance
+    !rootProfileId && source?.profileKind === "agent" && provenance
       ? await requireLocalDelegation({
           env,
           input,
@@ -141,6 +143,30 @@ export async function requireLocalPluginCaller(
     human: identity.account.defaultHumanProfile,
     personalAllowed: representedUserId === member.userId,
     delegatedPluginActions: delegated?.actions,
+  };
+}
+
+/**
+ * The Wake's requester Profile. Once the chain is enforced it is the
+ * recorded root, so a relay through other Agents never makes an Agent's
+ * owner the requester; otherwise the one-hop author.
+ */
+async function readPluginRequestSource(
+  env: CoreBindings,
+  provenance: Awaited<ReturnType<typeof readPluginDispatchRequester>> | null
+) {
+  if (!provenance) {
+    return { rootProfileId: null, source: null };
+  }
+  const rootProfileId = isRequestChainEnforced()
+    ? provenance.rootProfileId
+    : null;
+  return {
+    rootProfileId,
+    source: await requirePluginProfile(
+      env,
+      rootProfileId ?? provenance.profileId
+    ),
   };
 }
 

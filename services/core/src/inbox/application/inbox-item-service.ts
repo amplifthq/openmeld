@@ -8,6 +8,7 @@ import {
   type InboxSourceWriteGuard,
   listOpenOrganizationDocumentDraftInboxTargets as listOpenOrganizationDocumentDraftInboxTargetsInRepo,
   prepareEnsureInboxItemStatements as prepareEnsureInboxItemStatementsInRepo,
+  prepareReopenCoalescedInboxItemStatements,
   prepareResolveInboxItemsBySourceStatements as prepareResolveInboxItemsBySourceStatementsInRepo,
   readInboxItemBySource,
   resolveOrganizationDocumentDraftInboxItemsOutsideRecipientSet as resolveOrganizationDocumentDraftInboxItemsOutsideRecipientSetInRepo,
@@ -112,12 +113,31 @@ export async function ensureInboxItem(input: {
   }
   return { deliveryId: prepared.deliveryId, itemId: prepared.itemId };
 }
+/** See prepareReopenCoalescedInboxItemStatements. */
+export async function reopenCoalescedInboxItem(input: {
+  candidate: InboxSourceCandidate;
+  db: PostgresDatabase;
+  nowMs: number;
+}): Promise<{ deliveryId: string | null; itemId: string }> {
+  assertValidTimestamp(input.nowMs, "nowMs");
+  const prepared = await prepareReopenCoalescedInboxItemStatements(input);
+  await input.db.transaction(async (client) => {
+    const results: QueryResult[] = [];
+    for (const query of prepared.statements) {
+      results.push(await client.query(query));
+    }
+    return results;
+  });
+  return { deliveryId: prepared.deliveryId, itemId: prepared.itemId };
+}
 export async function resolveInboxItemsBySource(input: {
   db: PostgresDatabase;
   organizationId: string;
   resolvedAtMs: number;
   sourceKey: string;
   sourceKind: InboxSourceKind;
+  /** Resolve only an item that still satisfies this source predicate. */
+  sourceGuard?: InboxSourceWriteGuard;
 }): Promise<number> {
   assertRequiredIdentifier(input.organizationId, "organizationId");
   assertRequiredIdentifier(input.sourceKey, "sourceKey");
