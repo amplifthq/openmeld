@@ -138,11 +138,13 @@ function useEnabledArchivedMemberAgentSessionIds(
 			})
 		),
 	});
-	return new Set(
-		archived.flatMap(
+	const key = archived
+		.flatMap(
 			(query) => query.data?.sessions.map((session) => session.spaceId) ?? []
 		)
-	);
+		.join("\n");
+	// Stable across renders until the archived Sessions change.
+	return useMemo(() => new Set(key ? key.split("\n") : []), [key]);
 }
 
 const NO_ARCHIVED_SESSIONS: ReadonlySet<string> = new Set();

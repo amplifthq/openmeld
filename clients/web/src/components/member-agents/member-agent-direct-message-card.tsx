@@ -11,8 +11,8 @@ import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
 import {
 	CheckCircleIcon,
 	CircleNotchIcon,
-	PlugsIcon,
 	WarningCircleIcon,
+	WifiSlashIcon,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { isMemberAgentsEnabled } from "#/lib/member-agents/member-agents-feature";
@@ -195,7 +195,7 @@ function resolveReasonCard(
 
 const CARD_ICON = {
 	checking: CircleNotchIcon,
-	offline: PlugsIcon,
+	offline: WifiSlashIcon,
 	repair: WarningCircleIcon,
 	welcome: CheckCircleIcon,
 } as const;

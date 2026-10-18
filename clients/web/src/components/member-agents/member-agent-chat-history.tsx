@@ -12,7 +12,7 @@ import {
 } from "@openmeld/ui/fluid/dropdown-menu";
 import { cn } from "@openmeld/ui/lib/utils";
 import { CaretDownIcon, PlusIcon } from "@phosphor-icons/react";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
@@ -92,7 +92,9 @@ export function MemberAgentChatHistory(input: {
 			agentDirectMessageSessionsQueryOptions({
 				organizationId: organization.id,
 				agentProfileId: profile.openMeldProfileId,
-				enabled: open,
+				// The current Profile's list also names the open Session.
+				enabled:
+					open || profile.openMeldProfileId === input.current.agentProfileId,
 			})
 		),
 	});
@@ -104,10 +106,27 @@ export function MemberAgentChatHistory(input: {
 		});
 	const memberAgents = useMemberAgentIndex();
 	const archivedSessionIds = useArchivedMemberAgentSessionIds(memberAgents);
+	const archivedCurrent = useQuery(
+		agentDirectMessageSessionsQueryOptions({
+			organizationId: organization.id,
+			agentProfileId: input.current.agentProfileId,
+			archived: true,
+			enabled: archivedSessionIds.has(input.spaceId),
+		})
+	);
+	// The header names the Session (a Space name, renamed or generated), not
+	// the Agent the Direct Message is with.
+	const currentSession = [
+		...sessions.flatMap((query) => query.data?.sessions ?? []),
+		...(archivedCurrent.data?.sessions ?? []),
+	].find((session) => session.spaceId === input.spaceId);
+	const title = currentSession
+		? (currentSession.name ?? "New chat")
+		: input.title;
 	const sessionActions = useDirectMessageSessionActions({
 		archived: archivedSessionIds.has(input.spaceId),
 		spaceId: input.spaceId,
-		title: input.title,
+		title,
 		onLeave: () =>
 			navigate({ to: buildOrganizationDirectMessagesPath(organization.slug) }),
 	});
@@ -137,10 +156,10 @@ export function MemberAgentChatHistory(input: {
 				<DropdownMenu modal={false} onOpenChange={setOpen} open={open}>
 					<TooltipHint content={open ? undefined : "Open chats"}>
 						<DropdownMenuTrigger
-							aria-label={`Open chats with ${memberAgent.displayName}: ${input.title}`}
+							aria-label={`Open chats with ${memberAgent.displayName}: ${title}`}
 							className="flex min-w-0 items-center rounded-full px-2 py-1 text-lg outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
 						>
-							<span className="truncate">{input.title}</span>
+							<span className="truncate">{title}</span>
 							<CaretDownIcon
 								aria-hidden="true"
 								className="ml-1 size-3.5 shrink-0 text-muted-foreground"

@@ -59,6 +59,8 @@ export function buildMemberAgentDirectory(input: {
 	/** Core's derived presence, keyed by MemberAgent id. */
 	presenceByMemberAgentId?: ReadonlyMap<string, MemberAgentPresence>;
 	directMessages?: readonly AccountSpaceItem[];
+	/** Archived Session Spaces never count as the latest Session. */
+	archivedSpaceIds?: ReadonlySet<string>;
 	conversationTitle?: (item: AccountSpaceItem) => string;
 }): MemberAgentDirectory {
 	const profilesById = new Map(
@@ -99,7 +101,9 @@ export function buildMemberAgentDirectory(input: {
 				}),
 				latestSession: resolveLatestMemberAgentSession({
 					profileIds,
-					directMessages: input.directMessages ?? [],
+					directMessages: (input.directMessages ?? []).filter(
+						(item) => !input.archivedSpaceIds?.has(item.spaceId)
+					),
 					conversationTitle:
 						input.conversationTitle ?? ((item) => item.spaceName ?? "New chat"),
 				}),

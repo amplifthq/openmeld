@@ -13,7 +13,10 @@ import {
 	buildMemberAgentDirectory,
 	type MemberAgentDirectory,
 } from "./member-agent-directory-model";
-import { useMemberAgentIndex } from "./use-member-agents";
+import {
+	useArchivedMemberAgentSessionIds,
+	useMemberAgentIndex,
+} from "./use-member-agents";
 
 type RuntimeOverviewItem =
 	OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number];
@@ -41,6 +44,7 @@ function useEnabledMemberAgentDirectory(input: {
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const memberAgents = useMemberAgentIndex();
 	const humanProfileId = memberAgents.humanProfileId ?? "";
+	const archivedSpaceIds = useArchivedMemberAgentSessionIds(memberAgents);
 	const presence = useQuery(
 		memberAgentPresenceQueryOptions({
 			organizationId: currentOrganization.id,
@@ -64,6 +68,7 @@ function useEnabledMemberAgentDirectory(input: {
 				(profile) => profile.ownerUserId === currentUserId
 			),
 			runtimeByProfileId: input.runtimeByProfileId,
+			archivedSpaceIds,
 			presenceByMemberAgentId: new Map(
 				(presence.data?.memberAgents ?? []).map((item) => [
 					item.memberAgentId,
@@ -86,5 +91,6 @@ function useEnabledMemberAgentDirectory(input: {
 		currentOrganization.id,
 		spaces.data,
 		presence.data,
+		archivedSpaceIds,
 	]);
 }

@@ -52,12 +52,12 @@ import { Route as OOrgSlugRouteImport } from './routes/o/$orgSlug'
 import { Route as SpacesSpaceIdRouteImport } from './routes/spaces/$spaceId'
 import { Route as V1SplatRouteImport } from './routes/v1/$'
 import { Route as V1ClientEnvironmentRouteImport } from './routes/v1/client-environment'
+import { Route as V1MemberAgentsRouteImport } from './routes/v1/member-agents'
 import { Route as V1OrganizationJoinLinkRouteImport } from './routes/v1/organization-join-link'
 import { Route as V1OrganizationJoinRequestsRouteImport } from './routes/v1/organization-join-requests'
 import { Route as V1OrganizationsRouteImport } from './routes/v1/organizations'
 import { Route as V1ProfilesRouteImport } from './routes/v1/profiles'
 import { Route as V1SpaceInvitationsRouteImport } from './routes/v1/space-invitations'
-import { Route as V1MemberAgentsRouteImport } from './routes/v1/member-agents'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as CliDownloadArtifactRouteImport } from './routes/cli/download/$artifact'
 import { Route as DesktopUpdatesLatestMacDotymlRouteImport } from './routes/desktop/updates/latest-mac[.yml]'
@@ -404,6 +404,11 @@ const V1ClientEnvironmentRoute = V1ClientEnvironmentRouteImport.update({
   path: '/v1/client-environment',
   getParentRoute: () => rootRouteImport,
 } as any)
+const V1MemberAgentsRoute = V1MemberAgentsRouteImport.update({
+  id: '/v1/member-agents',
+  path: '/v1/member-agents',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const V1OrganizationJoinLinkRoute = V1OrganizationJoinLinkRouteImport.update({
   id: '/v1/organization-join-link',
   path: '/v1/organization-join-link',
@@ -423,11 +428,6 @@ const V1OrganizationsRoute = V1OrganizationsRouteImport.update({
 const V1ProfilesRoute = V1ProfilesRouteImport.update({
   id: '/v1/profiles',
   path: '/v1/profiles',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const V1MemberAgentsRoute = V1MemberAgentsRouteImport.update({
-  id: '/v1/member-agents',
-  path: '/v1/member-agents',
   getParentRoute: () => rootRouteImport,
 } as any)
 const V1SpaceInvitationsRoute = V1SpaceInvitationsRouteImport.update({
@@ -1187,12 +1187,12 @@ export interface FileRoutesByFullPath {
   '/spaces/$spaceId': typeof SpacesSpaceIdRoute
   '/v1/$': typeof V1SplatRoute
   '/v1/client-environment': typeof V1ClientEnvironmentRoute
+  '/v1/member-agents': typeof V1MemberAgentsRoute
   '/v1/organization-join-link': typeof V1OrganizationJoinLinkRouteWithChildren
   '/v1/organization-join-requests': typeof V1OrganizationJoinRequestsRoute
   '/v1/organizations': typeof V1OrganizationsRouteWithChildren
   '/v1/profiles': typeof V1ProfilesRouteWithChildren
   '/v1/space-invitations': typeof V1SpaceInvitationsRoute
-  '/v1/member-agents': typeof V1MemberAgentsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/cli/download/$artifact': typeof CliDownloadArtifactRoute
   '/desktop/updates/latest-mac.yml': typeof DesktopUpdatesLatestMacDotymlRoute
@@ -1366,12 +1366,12 @@ export interface FileRoutesByTo {
   '/spaces/$spaceId': typeof SpacesSpaceIdRoute
   '/v1/$': typeof V1SplatRoute
   '/v1/client-environment': typeof V1ClientEnvironmentRoute
+  '/v1/member-agents': typeof V1MemberAgentsRoute
   '/v1/organization-join-link': typeof V1OrganizationJoinLinkRouteWithChildren
   '/v1/organization-join-requests': typeof V1OrganizationJoinRequestsRoute
   '/v1/organizations': typeof V1OrganizationsRouteWithChildren
   '/v1/profiles': typeof V1ProfilesRouteWithChildren
   '/v1/space-invitations': typeof V1SpaceInvitationsRoute
-  '/v1/member-agents': typeof V1MemberAgentsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/cli/download/$artifact': typeof CliDownloadArtifactRoute
   '/desktop/updates/latest-mac.yml': typeof DesktopUpdatesLatestMacDotymlRoute
@@ -1535,12 +1535,12 @@ export interface FileRoutesById {
   '/spaces/$spaceId': typeof SpacesSpaceIdRoute
   '/v1/$': typeof V1SplatRoute
   '/v1/client-environment': typeof V1ClientEnvironmentRoute
+  '/v1/member-agents': typeof V1MemberAgentsRoute
   '/v1/organization-join-link': typeof V1OrganizationJoinLinkRouteWithChildren
   '/v1/organization-join-requests': typeof V1OrganizationJoinRequestsRoute
   '/v1/organizations': typeof V1OrganizationsRouteWithChildren
   '/v1/profiles': typeof V1ProfilesRouteWithChildren
   '/v1/space-invitations': typeof V1SpaceInvitationsRoute
-  '/v1/member-agents': typeof V1MemberAgentsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/cli/download/$artifact': typeof CliDownloadArtifactRoute
   '/desktop/updates/latest-mac.yml': typeof DesktopUpdatesLatestMacDotymlRoute
@@ -1717,12 +1717,12 @@ export interface FileRouteTypes {
     | '/spaces/$spaceId'
     | '/v1/$'
     | '/v1/client-environment'
+    | '/v1/member-agents'
     | '/v1/organization-join-link'
     | '/v1/organization-join-requests'
     | '/v1/organizations'
     | '/v1/profiles'
     | '/v1/space-invitations'
-    | '/v1/member-agents'
     | '/api/auth/$'
     | '/cli/download/$artifact'
     | '/desktop/updates/latest-mac.yml'
@@ -1896,12 +1896,12 @@ export interface FileRouteTypes {
     | '/spaces/$spaceId'
     | '/v1/$'
     | '/v1/client-environment'
+    | '/v1/member-agents'
     | '/v1/organization-join-link'
     | '/v1/organization-join-requests'
     | '/v1/organizations'
     | '/v1/profiles'
     | '/v1/space-invitations'
-    | '/v1/member-agents'
     | '/api/auth/$'
     | '/cli/download/$artifact'
     | '/desktop/updates/latest-mac.yml'
@@ -2064,12 +2064,12 @@ export interface FileRouteTypes {
     | '/spaces/$spaceId'
     | '/v1/$'
     | '/v1/client-environment'
+    | '/v1/member-agents'
     | '/v1/organization-join-link'
     | '/v1/organization-join-requests'
     | '/v1/organizations'
     | '/v1/profiles'
     | '/v1/space-invitations'
-    | '/v1/member-agents'
     | '/api/auth/$'
     | '/cli/download/$artifact'
     | '/desktop/updates/latest-mac.yml'
@@ -2240,12 +2240,12 @@ export interface RootRouteChildren {
   SpacesSpaceIdRoute: typeof SpacesSpaceIdRoute
   V1SplatRoute: typeof V1SplatRoute
   V1ClientEnvironmentRoute: typeof V1ClientEnvironmentRoute
+  V1MemberAgentsRoute: typeof V1MemberAgentsRoute
   V1OrganizationJoinLinkRoute: typeof V1OrganizationJoinLinkRouteWithChildren
   V1OrganizationJoinRequestsRoute: typeof V1OrganizationJoinRequestsRoute
   V1OrganizationsRoute: typeof V1OrganizationsRouteWithChildren
   V1ProfilesRoute: typeof V1ProfilesRouteWithChildren
   V1SpaceInvitationsRoute: typeof V1SpaceInvitationsRoute
-  V1MemberAgentsRoute: typeof V1MemberAgentsRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   CliDownloadArtifactRoute: typeof CliDownloadArtifactRoute
   SlackIdentityStartRoute: typeof SlackIdentityStartRoute
@@ -2569,6 +2569,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof V1ClientEnvironmentRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/v1/member-agents': {
+      id: '/v1/member-agents'
+      path: '/v1/member-agents'
+      fullPath: '/v1/member-agents'
+      preLoaderRoute: typeof V1MemberAgentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/v1/organization-join-link': {
       id: '/v1/organization-join-link'
       path: '/v1/organization-join-link'
@@ -2595,13 +2602,6 @@ declare module '@tanstack/react-router' {
       path: '/v1/profiles'
       fullPath: '/v1/profiles'
       preLoaderRoute: typeof V1ProfilesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/v1/member-agents': {
-      id: '/v1/member-agents'
-      path: '/v1/member-agents'
-      fullPath: '/v1/member-agents'
-      preLoaderRoute: typeof V1MemberAgentsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/v1/space-invitations': {
@@ -4064,12 +4064,12 @@ const rootRouteChildren: RootRouteChildren = {
   SpacesSpaceIdRoute: SpacesSpaceIdRoute,
   V1SplatRoute: V1SplatRoute,
   V1ClientEnvironmentRoute: V1ClientEnvironmentRoute,
+  V1MemberAgentsRoute: V1MemberAgentsRoute,
   V1OrganizationJoinLinkRoute: V1OrganizationJoinLinkRouteWithChildren,
   V1OrganizationJoinRequestsRoute: V1OrganizationJoinRequestsRoute,
   V1OrganizationsRoute: V1OrganizationsRouteWithChildren,
   V1ProfilesRoute: V1ProfilesRouteWithChildren,
   V1SpaceInvitationsRoute: V1SpaceInvitationsRoute,
-  V1MemberAgentsRoute: V1MemberAgentsRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   CliDownloadArtifactRoute: CliDownloadArtifactRoute,
   SlackIdentityStartRoute: SlackIdentityStartRoute,
