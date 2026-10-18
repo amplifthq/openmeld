@@ -283,7 +283,16 @@ export type ParsedDispatchTask = {
   triggerMode: RuntimeDispatchPolicy;
 };
 
+/** Another direct-edit Session in this task's folder; never a path. */
+export type DispatchSharedFolderSession = {
+  executionContextId: string | null;
+  sameSpace: boolean;
+  targetLabel: string;
+};
+
 export type DispatchPromptBootstrapInput = {
+  /** Direct-edit Sessions already running in this task's folder. */
+  sharedFolderSessions?: DispatchSharedFolderSession[];
   requesterIsAgentOwner?: ParsedDispatchTask["requesterIsAgentOwner"];
   permissionModeAdvisory?: ParsedDispatchTask["permissionModeAdvisory"];
   executionContextAccess?: NonNullable<

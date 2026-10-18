@@ -274,6 +274,8 @@ export async function prepareExecutionContextConversation(input: {
 
 export async function captureExecutionContextCompletion(input: {
   context?: ExecutionContextTask;
+  /** The Service chose the workspace from Core's workspaceDefault. */
+  reportWorkspace?: boolean;
   nativeConversationId: string | null;
   agentControllerRef: string;
   workingDirectory: string;
@@ -289,6 +291,7 @@ export async function captureExecutionContextCompletion(input: {
     runtimeWorkspaceFingerprint: buildRuntimeWorkspaceFingerprint(
       input.workingDirectory
     ),
+    ...(input.reportWorkspace ? { workspace: input.context.workspace } : {}),
   };
   if (!input.providerSucceeded) {
     return completion;

@@ -98,6 +98,7 @@ describe("enqueueDispatchDeliverFrame controllerKey", () => {
         activeGlobal: 0,
         pendingCount: 0,
       }),
+      getSharedFolderSessions: () => [],
       getSnapshot: () => ({
         activeForLane: 0,
         activeGlobal: 0,
@@ -242,6 +243,7 @@ describe("enqueueDispatchDeliverFrame controllerKey", () => {
         activeGlobal: 0,
         pendingCount: 0,
       }),
+      getSharedFolderSessions: () => [],
       getSnapshot: () => ({
         activeForLane: 0,
         activeGlobal: 0,
@@ -389,6 +391,7 @@ describe("enqueueDispatchDeliverFrame controllerKey", () => {
         pendingCount: 0,
       }),
       isQuiescent: () => false,
+      getSharedFolderSessions: () => [],
       getSnapshot: () => ({
         activeForLane: 1,
         activeGlobal: 1,

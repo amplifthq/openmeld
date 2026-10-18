@@ -1,7 +1,10 @@
 import { AGENT_PROFILE_WORK_CONCURRENCY_LIMIT } from "@openmeld/agent-runtime";
 import {
   createLocalExecutionSlots,
+  describeLocalExecutionSlotWait,
+  type LocalExecutionSlotDiagnostics,
   type LocalExecutionSlotDropEvent,
+  type LocalExecutionSlotLifecycleEvent,
 } from "@openmeld/local-service";
 import { describe, expect, it, vi } from "vitest";
 
@@ -1297,5 +1300,177 @@ describe("local execution slots", () => {
 
     activeTask.resolve();
     await queue.drain();
+  });
+});
+
+describe("folder-scoped local execution slots", () => {
+  type Claim = Pick<
+    LocalExecutionSlotTaskInput,
+    "folderKey" | "folderLabel" | "resourceScope"
+  >;
+
+  function startFolderTasks(claims: Claim[]) {
+    const started: LocalExecutionSlotLifecycleEvent[] = [];
+    const queued: LocalExecutionSlotDiagnostics[] = [];
+    const queue = createLocalExecutionSlots({
+      limits: { contextConcurrency: 5, globalConcurrency: 10, queueMax: 10 },
+      onTaskQueued: (event) => {
+        if (event.localQueue.status === "queued") {
+          queued.push(event.localQueue);
+        }
+      },
+      onTaskStarted: (event) => started.push(event),
+    });
+    const completions = claims.map(() => createDeferred());
+    for (const [index, claim] of claims.entries()) {
+      requestTask(queue, {
+        ...claim,
+        adapterId: "codex",
+        attemptId: `attempt-${index}`,
+        controllerKey: "builtin:codex",
+        dispatchId: `dispatch-${index}`,
+        executionContextId: `context-${index}`,
+        localExecutionLaneKey: `context-${index}`,
+        profileId: "profile-1",
+        spaceId: `space-${index}`,
+        targetLabel: `@agent-${index}`,
+        taskId: `task-${index}`,
+        transportMode: "codex-app-server",
+        run: async () => {
+          await completions[index]?.promise;
+          return undefined;
+        },
+      });
+    }
+    const startedIds = () => started.map((event) => event.taskId);
+    const finish = async () => {
+      for (const completion of completions) {
+        completion.resolve();
+      }
+      await queue.drain();
+    };
+    return { completions, finish, queue, queued, started, startedIds };
+  }
+
+  it("runs direct-edit tasks in different folders concurrently", async () => {
+    const run = startFolderTasks([
+      { folderKey: "sha256:a", resourceScope: "exclusive" },
+      { folderKey: "sha256:b", resourceScope: "exclusive" },
+      { folderKey: "sha256:c", resourceScope: "read_only" },
+      { folderKey: "sha256:d", resourceScope: "isolated" },
+    ]);
+    expect(run.startedIds()).toEqual(["task-0", "task-1", "task-2", "task-3"]);
+    expect(run.started.every((e) => e.sharedFolderSessions.length === 0)).toBe(
+      true
+    );
+    await run.finish();
+  });
+
+  it("runs two direct-edit tasks in one folder and tells the later one about the earlier", async () => {
+    const run = startFolderTasks([
+      { folderKey: "sha256:a", resourceScope: "exclusive" },
+      { folderKey: "sha256:a", resourceScope: "exclusive" },
+    ]);
+    expect(run.startedIds()).toEqual(["task-0", "task-1"]);
+    expect(run.started[0]?.sharedFolderSessions).toEqual([]);
+    expect(run.started[1]?.sharedFolderSessions).toEqual([
+      {
+        executionContextId: "context-0",
+        profileId: "profile-1",
+        spaceId: "space-0",
+        targetLabel: "@agent-0",
+        taskId: "task-0",
+      },
+    ]);
+    expect(run.queue.getSharedFolderSessions("task-1")).toEqual(
+      run.started[1]?.sharedFolderSessions
+    );
+    expect(run.queue.getSharedFolderSessions("task-0")).toEqual([]);
+    await run.finish();
+    expect(run.queue.getSharedFolderSessions("task-1")).toEqual([]);
+  });
+
+  it("keeps read-only versus isolated and writer versus copy conflicts inside one folder", async () => {
+    const run = startFolderTasks([
+      { folderKey: "sha256:a", resourceScope: "read_only" },
+      { folderKey: "sha256:a", resourceScope: "isolated" },
+      { folderKey: "sha256:b", resourceScope: "exclusive" },
+      { folderKey: "sha256:b", resourceScope: "isolated" },
+      { folderKey: "sha256:c", resourceScope: "isolated" },
+      { folderKey: "sha256:c", resourceScope: "isolated_read" },
+    ]);
+    expect(run.startedIds()).toEqual(["task-0", "task-2", "task-4", "task-5"]);
+    expect(run.queued.map((q) => q.waitReason)).toEqual([
+      "workspace_conflict",
+      "workspace_conflict",
+    ]);
+    run.completions[0]?.resolve();
+    run.completions[2]?.resolve();
+    await vi.waitFor(() =>
+      expect(run.startedIds()).toEqual([
+        "task-0",
+        "task-2",
+        "task-4",
+        "task-5",
+        "task-1",
+        "task-3",
+      ])
+    );
+    await run.finish();
+  });
+
+  it("keeps the legacy rule: an unscoped task conflicts with a scoped one in any folder", async () => {
+    const run = startFolderTasks([
+      { folderKey: "sha256:a", resourceScope: "isolated" },
+      { resourceScope: undefined },
+    ]);
+    expect(run.startedIds()).toEqual(["task-0"]);
+    expect(run.queued[0]?.waitReason).toBe("workspace_conflict");
+    run.completions[0]?.resolve();
+    await vi.waitFor(() =>
+      expect(run.startedIds()).toEqual(["task-0", "task-1"])
+    );
+    await run.finish();
+  });
+
+  it("keeps the machine-wide writer rule when a task's folder is unknown", async () => {
+    const run = startFolderTasks([
+      { folderKey: "sha256:a", resourceScope: "exclusive" },
+      { resourceScope: "exclusive" },
+      { resourceScope: "none" },
+    ]);
+    expect(run.startedIds()).toEqual(["task-0", "task-2"]);
+    expect(run.started[0]?.sharedFolderSessions).toEqual([]);
+    run.completions[0]?.resolve();
+    await vi.waitFor(() =>
+      expect(run.startedIds()).toEqual(["task-0", "task-2", "task-1"])
+    );
+    expect(run.started[2]?.sharedFolderSessions).toEqual([]);
+    await run.finish();
+  });
+
+  it("says what a queued task waits for, naming the folder by label only", async () => {
+    const run = startFolderTasks([
+      {
+        folderKey: "sha256:a",
+        folderLabel: "folder f_1",
+        resourceScope: "exclusive",
+      },
+      {
+        folderKey: "sha256:a",
+        folderLabel: "folder f_1",
+        resourceScope: "read_only",
+      },
+    ]);
+    const waiting = run.queued[0];
+    expect(waiting).toMatchObject({
+      folderLabel: "folder f_1",
+      status: "queued",
+      waitReason: "workspace_conflict",
+    });
+    expect(waiting && describeLocalExecutionSlotWait(waiting)).toBe(
+      "waiting for another task that uses the folder in folder f_1"
+    );
+    await run.finish();
   });
 });

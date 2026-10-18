@@ -35,6 +35,7 @@ import {
   type InflightTaskControlRegistry,
   type LocalDaemonAdapterContainer,
   type LocalExecutionSlotDiagnostics,
+  type LocalExecutionSlotSharedFolderSession,
   type LocalExecutionSlots,
   type LocalExecutionSlotTaskResult,
   mergeOpenClawGatewayVisibility as mergeOpenClawGatewayVisibilityInternal,
@@ -122,6 +123,7 @@ import type {
   CurrentDaemonSocketRef,
   DaemonFrameSink,
   DaemonProfileRouteConfig,
+  DispatchSharedFolderSession,
   InflightDispatchMeta,
   LedgerPaths,
 } from "../core/types";
@@ -212,6 +214,14 @@ import type {
   SupportedRuntimeControllerSupport,
 } from "./execute-dispatch-types";
 import {
+  assertExecutionContextAdmittedFolder,
+  type ExecutionContextFolderAdmission,
+  needsExecutionContextFolderAdmission,
+  resolveExecutionContextAdmissionWithoutFolder,
+  resolveExecutionContextFolderAdmission,
+  runInLocalAdmissionOrder,
+} from "./execution-context-folder-admission";
+import {
   captureExecutionContextCompletion,
   executionContextFileAccessBoundary,
   executionContextLedgerPolicy,
@@ -284,6 +294,10 @@ const AGENT_CONTROLLER_OCCUPANCY_KEEPALIVE_REASSERT_INTERVALS = 4;
 // Keep new local-service execution helpers outside this file. This file still
 // orchestrates delivery intake, runtime preparation, Space Action handling, and
 // result evidence until those slices are split one by one.
+type EnqueueDispatchDeliverFrameInput = Parameters<
+  typeof enqueueDispatchDeliverFrame
+>[0];
+
 export function enqueueDispatchDeliverFrame(input: {
   computerFileAccessStorePath: string;
   contextStore: Map<string, string>;
@@ -316,7 +330,6 @@ export function enqueueDispatchDeliverFrame(input: {
     ),
     socket: input.socket,
   };
-  const { pendingAgentInteractionRegistry } = input;
   const parsedDeliver = runtimeTransportDeliverDispatchRequestSchema.safeParse(
     input.payload
   );
@@ -355,10 +368,96 @@ export function enqueueDispatchDeliverFrame(input: {
     phase: "received",
     presenter: input.presenter,
   });
+  const deliveredContext = deliverRequest.payload.executionContext;
+  runInLocalAdmissionOrder({
+    order: input.localExecutionSlots,
+    prepare: needsExecutionContextFolderAdmission(deliveredContext)
+      ? () =>
+          resolveExecutionContextFolderAdmission({
+            context: deliveredContext,
+            resolveFolder: async () => {
+              if (!parsedQueueTask) {
+                throw new Error("dispatch task is invalid");
+              }
+              return (
+                await resolveDispatchWorkingFolderRuntimeContext({
+                  ledgerRootPath: input.ledgerPaths.rootDirPath,
+                  controllerSnapshot: deliverRequest.payload.controllerSnapshot,
+                  defaultProjectId: parsedQueueTask.defaultProjectId,
+                  defaultProjectIdWasProvided: Object.hasOwn(
+                    deliverRequest.payload,
+                    "defaultProjectId"
+                  ),
+                  executionContext: parsedQueueTask.executionContext,
+                  ownerUserId: input.profileOwnerUserId,
+                  executionIdentity: parsedQueueTask.executionIdentity,
+                  routeConfig:
+                    input.routeByProfileId.get(deliverRequest.profileId) ??
+                    null,
+                  targetProfileId: parsedQueueTask.targetProfileId,
+                })
+              ).providerRuntimeWorkingDirectory;
+            },
+          })
+      : null,
+    ready: () =>
+      resolveExecutionContextAdmissionWithoutFolder(deliveredContext),
+    admit: (admission) =>
+      admitDispatchDeliverFrame(input, {
+        admission,
+        correlation,
+        currentSocketRef,
+        deliverRequest,
+        queueLogMeta,
+      }),
+    onError: (error) => {
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.local_execution_slot_admission_failed",
+        text: `local execution slot could not admit task ${correlation.taskId} for ${queueLogMeta.targetLabel}`,
+        payload: {
+          dispatchId: correlation.dispatchId,
+          error: error instanceof Error ? error.message : String(error),
+          taskId: correlation.taskId,
+        },
+      });
+    },
+  });
+}
+
+function admitDispatchDeliverFrame(
+  input: EnqueueDispatchDeliverFrameInput,
+  admitted: {
+    admission: ExecutionContextFolderAdmission;
+    correlation: ReturnType<typeof buildDispatchCorrelation>;
+    currentSocketRef: CurrentDaemonSocketRef;
+    deliverRequest: RuntimeTransportDeliverDispatchRequest;
+    queueLogMeta: ReturnType<typeof resolveDispatchQueueLogMeta>;
+  }
+): void {
+  const {
+    admission,
+    correlation,
+    currentSocketRef,
+    deliverRequest,
+    queueLogMeta,
+  } = admitted;
+  const { pendingAgentInteractionRegistry } = input;
+  const admittedDeliverRequest: RuntimeTransportDeliverDispatchRequest =
+    admission.context
+      ? {
+          ...deliverRequest,
+          payload: {
+            ...deliverRequest.payload,
+            executionContext: admission.context,
+          },
+        }
+      : deliverRequest;
   const enqueueResult = input.localExecutionSlots.request({
-    resourceScope: executionContextResourceScope(
-      deliverRequest.payload.executionContext
-    ),
+    executionContextId: admission.context?.id ?? null,
+    ...(admission.folderKey ? { folderKey: admission.folderKey } : {}),
+    ...(admission.folderLabel ? { folderLabel: admission.folderLabel } : {}),
+    resourceScope: executionContextResourceScope(admission.context),
     adapterId: queueLogMeta.adapterId,
     attemptId: correlation.attemptId,
     controllerKey: queueLogMeta.controllerKey,
@@ -415,7 +514,10 @@ export function enqueueDispatchDeliverFrame(input: {
         contextStore: input.contextStore,
         currentSocketRef,
         daemonSessionId: input.daemonSessionId,
-        deliverRequest,
+        deliverRequest: admittedDeliverRequest,
+        executionContextAdmission: admission,
+        readSharedFolderSessions: () =>
+          input.localExecutionSlots.getSharedFolderSessions(correlation.taskId),
         inflightDispatchMetaByTaskId: input.inflightDispatchMetaByTaskId,
         inflightTaskControlRegistry: input.inflightTaskControlRegistry,
         pendingAgentInteractionRegistry,
@@ -877,6 +979,11 @@ export async function handleDispatchDeliverFrame(input: {
   currentSocketRef: CurrentDaemonSocketRef;
   daemonSessionId: string;
   deliverRequest: RuntimeTransportDeliverDispatchRequest;
+  /** The folder this task was admitted with; absent for direct callers. */
+  executionContextAdmission?: Pick<
+    ExecutionContextFolderAdmission,
+    "folderKey" | "workspaceChosen"
+  >;
   inflightDispatchMetaByTaskId: Map<string, InflightDispatchMeta>;
   inflightTaskControlRegistry: InflightTaskControlRegistry;
   pendingAgentInteractionRegistry: PendingAgentInteractionRegistry;
@@ -885,6 +992,8 @@ export async function handleDispatchDeliverFrame(input: {
   localAdapterContainer: LocalDaemonAdapterContainer;
   profileOwnerName: string | null;
   profileOwnerUserId: string;
+  /** Direct-edit Sessions already running in this task's folder. */
+  readSharedFolderSessions?: () => LocalExecutionSlotSharedFolderSession[];
   requestCurrentWorkingFolderFactRefresh?: () => void;
   presenter: Presenter;
   routeByProfileId: Map<string, DaemonProfileRouteConfig>;
@@ -1200,6 +1309,11 @@ export async function handleDispatchDeliverFrame(input: {
       routeConfig,
       targetProfileId: parsedTask.targetProfileId,
     });
+    await assertExecutionContextAdmittedFolder({
+      admission: input.executionContextAdmission,
+      context: parsedTask.executionContext,
+      workingDirectory: dispatchRuntimeContext.providerRuntimeWorkingDirectory,
+    });
     const folderRecovery = await resolveWorkingFolderRecovery({
       agentControllerRef: parsedTask.agentControllerRef,
       nativeSessionId: parsedTask.agentControllerConversationId,
@@ -1507,6 +1621,10 @@ export async function handleDispatchDeliverFrame(input: {
         profileOwnerName: input.profileOwnerName,
         profileOwnerUserId: input.profileOwnerUserId,
         sendTargetReference,
+        sharedFolderSessions: toDispatchSharedFolderSessions(
+          input.readSharedFolderSessions,
+          parsedTask.spaceId
+        ),
         shouldInjectBootstrap: bootstrapPlan.shouldInject,
         taskWorkspace,
       }),
@@ -2158,6 +2276,7 @@ export async function handleDispatchDeliverFrame(input: {
           observedProviderConversationId;
         executionContextCompletion = await captureExecutionContextCompletion({
           context: parsedTask.executionContext,
+          reportWorkspace: input.executionContextAdmission?.workspaceChosen,
           nativeConversationId,
           agentControllerRef: parsedTask.agentControllerRef,
           workingDirectory:
@@ -2918,6 +3037,17 @@ async function resolveDispatchBootstrapContext(input: {
   };
 }
 
+function toDispatchSharedFolderSessions(
+  read: (() => LocalExecutionSlotSharedFolderSession[]) | undefined,
+  spaceId: string
+): DispatchSharedFolderSession[] {
+  return (read?.() ?? []).map((session) => ({
+    executionContextId: session.executionContextId,
+    sameSpace: session.spaceId === spaceId,
+    targetLabel: session.targetLabel,
+  }));
+}
+
 function buildDispatchRuntimePrompt(input: {
   bootstrapContext: DispatchBootstrapContext;
   imageAttachmentPreparation: DispatchImageAttachmentPreparation;
@@ -2925,10 +3055,12 @@ function buildDispatchRuntimePrompt(input: {
   profileOwnerName: string | null;
   profileOwnerUserId: string;
   sendTargetReference: DispatchSendTargetReferenceLoadResult;
+  sharedFolderSessions: DispatchSharedFolderSession[];
   shouldInjectBootstrap: boolean;
   taskWorkspace?: ExecutionContextWorkspace;
 }): DispatchPromptPlan {
   return buildDispatchPromptPlan({
+    sharedFolderSessions: input.sharedFolderSessions,
     executionContextAccess: input.parsedTask.executionContext?.access,
     projectWork: input.parsedTask.executionContext?.projectWork,
     callerContext: input.parsedTask.callerContext,

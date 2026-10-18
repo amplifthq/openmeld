@@ -583,16 +583,7 @@ function renderDispatchPrompt(input: {
   if (permissionModeAdvisorySection) {
     sections.push(permissionModeAdvisorySection);
   }
-  if (promptInput.executionContextAccess === "space_context") {
-    sections.push(
-      "Task access: Space context only. This task has no authorized project repository or project code checkout; its local working folder is scratch space, not the Agent Profile's configured working folder. Do not claim to have reviewed code or a PR diff you cannot read. If the request needs repository access, explain this task's restriction through the required Space Action. The requester can choose New task to use the Agent's current permitted settings, or provide the relevant diff. A local clone is not required when a new task has permitted remote repository tools; verify those tools before claiming access."
-    );
-  }
-  if (promptInput.projectWork) {
-    sections.push(
-      `Selected OpenMeld Project for this execution: ${promptInput.projectWork.projectId}. This execution uses one verified repository. If you create a Space Task for this work, include this Project ID in projectIds. This selection does not grant additional Space, repository, or App access.`
-    );
-  }
+  sections.push(...renderExecutionContextSections(promptInput));
   if (promptInput.shouldInjectBootstrap && isEntryBriefEnabled(promptInput)) {
     sections.push(renderEntryBriefSection(promptInput));
   }
@@ -621,6 +612,50 @@ function renderDispatchPrompt(input: {
     sections.push(completionSection);
   }
   return sections.filter(Boolean).join("\n\n");
+}
+
+function renderExecutionContextSections(
+  promptInput: DispatchPromptBootstrapInput
+): string[] {
+  const sections: string[] = [];
+  if (promptInput.executionContextAccess === "space_context") {
+    sections.push(
+      "Task access: Space context only. This task has no authorized project repository or project code checkout; its local working folder is scratch space, not the Agent Profile's configured working folder. Do not claim to have reviewed code or a PR diff you cannot read. If the request needs repository access, explain this task's restriction through the required Space Action. The requester can choose New task to use the Agent's current permitted settings, or provide the relevant diff. A local clone is not required when a new task has permitted remote repository tools; verify those tools before claiming access."
+    );
+  }
+  const sharedFolderSection = renderSharedFolderSection(promptInput);
+  if (sharedFolderSection) {
+    sections.push(sharedFolderSection);
+  }
+  if (promptInput.projectWork) {
+    sections.push(
+      `Selected OpenMeld Project for this execution: ${promptInput.projectWork.projectId}. This execution uses one verified repository. If you create a Space Task for this work, include this Project ID in projectIds. This selection does not grant additional Space, repository, or App access.`
+    );
+  }
+  return sections;
+}
+
+/**
+ * Two direct-edit Sessions may run in one folder (design-plans/member-agent-program.md
+ * §4.9). The later one learns about the earlier ones so it can coordinate with
+ * its own tools. Other Spaces stay unnamed.
+ */
+export function renderSharedFolderSection(
+  input: Pick<DispatchPromptBootstrapInput, "sharedFolderSessions">
+): string | null {
+  const sessions = input.sharedFolderSessions ?? [];
+  if (sessions.length === 0) {
+    return null;
+  }
+  return [
+    "Shared folder: other Sessions are editing this task's working folder right now.",
+    ...sessions.map(
+      (session) =>
+        `- ${JSON.stringify(session.targetLabel)}, Session ${session.executionContextId ?? "without an id"}, ${session.sameSpace ? "in this Space" : "in another Space"}.`
+    ),
+    "- Before you edit, check the folder's current state (for example `git status`) and do not overwrite or revert changes you did not make. Keep your changes small and focused, and re-check before you commit.",
+    "- If your work would collide with theirs, say so in your reply and suggest continuing this task in an isolated copy (a new task with an isolated workspace). Do not describe the other Sessions' work beyond what the requester needs.",
+  ].join("\n");
 }
 
 function renderSharedSpaceFilesSection(
