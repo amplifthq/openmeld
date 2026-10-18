@@ -16,6 +16,8 @@ import {
   getAgentProfileFoldersResponseSchema,
   getAgentProfileFoldersRouteParamsSchema,
   getAgentProfilePrimaryBindingResponseSchema,
+  manageAgentProfileFoldersBodySchema,
+  manageAgentProfileFoldersResponseSchema,
   notifyAgentProfileRouteCatalogChangedBodySchema,
   notifyAgentProfileRouteCatalogChangedResponseSchema,
   notifyAgentProfilesRouteCatalogChangedBodySchema,
@@ -232,6 +234,49 @@ export function registerAgentProfileBindingRoutes(
       });
     }
   );
+
+  app.post(AGENT_PROFILE_FOLDERS_ROUTE, async (c) => {
+    const routeParams = getAgentProfileFoldersRouteParamsSchema.safeParse({
+      agentProfileId: c.req.param("agentProfileId"),
+    });
+    const bodyResult = await readJsonRequestBody(c.req.raw);
+    if (!(routeParams.success && bodyResult.ok)) {
+      return respondBadRequest({
+        c,
+        route: AGENT_PROFILE_FOLDERS_ROUTE,
+        method: "POST",
+        code: routeParams.success ? "invalid_json" : "invalid_payload",
+        message: routeParams.success
+          ? "Invalid folder change."
+          : "Invalid Agent Profile id.",
+      });
+    }
+    const parsedBody = manageAgentProfileFoldersBodySchema.safeParse(
+      bodyResult.value
+    );
+    if (!parsedBody.success) {
+      return respondBadRequest({
+        c,
+        route: AGENT_PROFILE_FOLDERS_ROUTE,
+        method: "POST",
+        code: "invalid_payload",
+        message:
+          parsedBody.error.issues[0]?.message ?? "Invalid folder change.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: AGENT_PROFILE_FOLDERS_ROUTE,
+      method: "POST",
+      responseSchema: manageAgentProfileFoldersResponseSchema,
+      execute: () =>
+        c.var.coreRpc.manageAgentProfileFolders({
+          ...parsedBody.data,
+          agentProfileId: routeParams.data.agentProfileId,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
 
   app.patch(AGENT_PROFILE_DEFAULT_PROJECT_ROUTE, async (c) => {
     const routeParams =

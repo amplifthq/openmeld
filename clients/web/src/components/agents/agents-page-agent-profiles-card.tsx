@@ -138,8 +138,8 @@ import {
 	AgentControllerPermissionModeOutcome,
 	getAgentControllerPermissionModeOutcomeDescriptionId,
 } from "#/components/profiles/agent-controller-permission-mode-outcome";
+import { AgentProfileFoldersDialog } from "#/components/profiles/agent-profile-folders-dialog";
 import { shouldShowAgentProfileProjectSettings } from "#/components/profiles/agent-profile-project-settings";
-import { AgentProfileProjectSettingsDialog } from "#/components/profiles/agent-profile-project-settings-dialog";
 import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import { AgentProfileWorkingFolderRecoveryAction } from "#/components/profiles/agent-profile-working-folder-recovery-action";
 import {
@@ -3585,7 +3585,7 @@ function AgentProfileCardPresentation(input: {
 				onOpenChange={input.onOpenChange.details}
 				open={input.presentationState.detailsOpen}
 			/>
-			<AgentProfileProjectSettingsDialog
+			<AgentProfileFoldersDialog
 				actorProfileId={input.input.actorProfileId}
 				agentControllerRef={input.input.primaryAgentControllerRef}
 				executionTargetChangeEligibilityStatus={
@@ -4008,7 +4008,7 @@ function AgentProfileWorkspacePresentation(input: {
 				onOpenChange={input.onOpenChange.details}
 				open={input.presentationState.detailsOpen}
 			/>
-			<AgentProfileProjectSettingsDialog
+			<AgentProfileFoldersDialog
 				actorProfileId={input.input.actorProfileId}
 				agentControllerRef={input.input.primaryAgentControllerRef}
 				executionTargetChangeEligibilityStatus={

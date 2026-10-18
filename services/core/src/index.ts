@@ -822,6 +822,7 @@ import {
   type ListSpaceThreadEventsInput,
   type ListSpaceThreadSignalsInput,
   type ListSpaceThreadsInput,
+  type ManageAgentProfileFoldersInput,
   type MutateSpaceTaskInput,
   type NotifyAgentProfileRouteCatalogChangedInput,
   type NotifyAgentProfilesRouteCatalogChangedInput,
@@ -1070,6 +1071,7 @@ import {
   rpcListSpaceThreadEvents,
   rpcListSpaceThreadSignals,
   rpcListSpaceThreads,
+  rpcManageAgentProfileFolders,
   rpcManagePeopleComputerLocalAgentUpdate,
   rpcMutateSpaceMessage,
   rpcMutateSpaceTask,
@@ -4655,6 +4657,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcGetAgentProfileFolders(this.env, input)
     );
   }
+  manageAgentProfileFolders(input: ManageAgentProfileFoldersInput) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcManageAgentProfileFolders(this.env, input)
+    );
+  }
   setCurrentAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput
   ): Promise<SetCurrentAgentProfileWorkspaceResponse> {
@@ -5882,6 +5889,9 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   }
   getAgentProfileFolders(input: GetAgentProfileFoldersInput) {
     return super.getAgentProfileFolders(input);
+  }
+  manageAgentProfileFolders(input: ManageAgentProfileFoldersInput) {
+    return super.manageAgentProfileFolders(input);
   }
   setCurrentAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput & GatewaySensitiveCredential

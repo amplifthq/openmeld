@@ -64,6 +64,7 @@ export function projectProfileFolderList(
       folderId: folder.id,
       isDefault: folder.id === list.defaultFolderId,
       kind: folder.kind,
+      ...(folder.kind === "project" ? { projectId: folder.projectId } : {}),
     })),
   });
 }

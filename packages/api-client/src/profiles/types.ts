@@ -1,6 +1,8 @@
 import type {
   AgentProfileBindingTarget,
   GetAgentProfileFoldersResponse,
+  ManageAgentProfileFoldersBody,
+  ManageAgentProfileFoldersResponse,
   OpenMeldRequestContext,
   UpdateAgentProfileDefaultProjectResponse,
   UpdateProfileResponse,
@@ -32,11 +34,20 @@ export type GetAgentProfileFoldersInput = {
   requestContext?: OpenMeldRequestContext;
 };
 
+export type ManageAgentProfileFoldersInput = ManageAgentProfileFoldersBody & {
+  profileId: string;
+  requestContext?: OpenMeldRequestContext;
+};
+
 export type ProfilesApi = {
   /** Owner-only folder list of the Agent's Computer: ids and names, no paths. */
   getFolders: (
     input: GetAgentProfileFoldersInput
   ) => Promise<GetAgentProfileFoldersResponse>;
+  /** Owner-only folder change on the Agent's bound Computer. */
+  manageFolders: (
+    input: ManageAgentProfileFoldersInput
+  ) => Promise<ManageAgentProfileFoldersResponse>;
   rename: (input: RenameProfileInput) => Promise<UpdateProfileResponse>;
   updateAgentAvatar: (
     input: UpdateAgentAvatarInput

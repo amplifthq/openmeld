@@ -271,6 +271,8 @@ import {
   MEMBER_AGENTS_DISABLED_CODE,
   MEMBER_AGENTS_DISABLED_MESSAGE,
   MEMBER_AGENTS_ENABLED,
+  manageAgentProfileFoldersBodySchema,
+  manageAgentProfileFoldersResponseSchema,
   messageChannelConnectionListResponseSchema,
   messageChannelIdentityLinkConsumeBodySchema,
   messageChannelIdentityLinkConsumeResponseSchema,
@@ -1312,7 +1314,10 @@ import {
 } from "../runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 import { notifyAgentProfileWorkUsageRecoveryAvailable } from "../runtime-transport/application/agent-profile-work-usage-recovery";
 import { selectCurrentOwnerServiceSessionsByDeviceLane } from "../runtime-transport/application/current-owner-service-sessions";
-import { resolveProjectedDefaultFolder } from "../runtime-transport/application/profile-folder-projection-store";
+import {
+  resolveProjectedDefaultFolder,
+  resolveRemovableFolder,
+} from "../runtime-transport/application/profile-folder-projection-store";
 import { listActiveRuntimeCoordinatorExecutionTargetsBySpaceIds } from "../runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo";
 import { recordSensitiveOperationOutcome } from "../sensitive-operations/application/sensitive-operation-gate";
 import {
@@ -5080,6 +5085,7 @@ export async function rpcSetAgentProfileDefaultFolder(
 ): Promise<{
   agentProfileId: string;
   folderId: string;
+  observedAtMs: number;
   projection: import("@openmeld/schemas/types").ProfileFolderProjection;
 }> {
   const folderId = profileFolderIdSchema.safeParse(input.folderId);
@@ -5154,6 +5160,7 @@ export async function rpcSetAgentProfileDefaultFolder(
     return {
       agentProfileId: request.agentProfileId,
       folderId: folderId.data,
+      observedAtMs: result.record.observedAtMs,
       projection: result.record.projection,
     };
   } finally {
@@ -5176,6 +5183,158 @@ export async function rpcSetAgentProfileDefaultFolder(
     }
   }
 }
+export type ManageAgentProfileFoldersInput =
+  import("@openmeld/schemas/types").ManageAgentProfileFoldersBody & {
+    agentProfileId: string;
+    context?: CoreRpcContextInput;
+  };
+
+/**
+ * Owner folder change from Profile settings, applied by the Agent's bound
+ * Service. A new default goes through rpcSetAgentProfileDefaultFolder (id
+ * check against the projection and execution-target admission); the caller
+ * clears Default Project as the second ordered write, as for any folder save.
+ */
+export async function rpcManageAgentProfileFolders(
+  env: CoreBindings,
+  input: ManageAgentProfileFoldersInput
+): Promise<
+  import("@openmeld/schemas/types").ManageAgentProfileFoldersResponse
+> {
+  const parsed = manageAgentProfileFoldersBodySchema.safeParse({
+    expectedBindingTarget: input.expectedBindingTarget,
+    operation: input.operation,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: parsed.error.issues[0]?.message ?? "Invalid folder change.",
+    });
+  }
+  const { request } = await requireAgentProfileWorkspaceScope(env, input);
+  const bound = await resolveBoundAgentProfileComputerContext(env, input);
+  requireSameAgentProfileBindingTarget(
+    bound.bindingTarget,
+    parsed.data.expectedBindingTarget
+  );
+  const operation = parsed.data.operation;
+  if (operation.operation === "set_default") {
+    const saved = await rpcSetAgentProfileDefaultFolder(
+      env,
+      {
+        agentProfileId: request.agentProfileId,
+        context: input.context,
+        folderId: operation.folderId,
+      },
+      bound.target,
+      parsed.data.expectedBindingTarget
+    );
+    return manageAgentProfileFoldersResponseSchema.parse({
+      agentProfileId: request.agentProfileId,
+      folderId: saved.folderId,
+      observedAtMs: saved.observedAtMs,
+      projection: saved.projection,
+      target: bound.target,
+    });
+  }
+  const transport = {
+    deviceId: bound.target.deviceId,
+    env,
+    ownerUserId: request.owner.id,
+    runtimeLane: bound.target.runtimeLane,
+    targetProfileId: request.agentProfileId,
+  };
+  if (operation.operation === "remove") {
+    await requireRemovableAgentProfileFolder(env, {
+      folderId: operation.folderId,
+      transport,
+    });
+  }
+  const result = await manageRuntimeTransportProfileFolders({
+    ...transport,
+    operation,
+  });
+  if (result.status !== "accepted") {
+    throw createCoreRpcHttpError({
+      code: result.reasonCode,
+      reason: result.message,
+      status: result.reasonCode === "local_agent_control.timeout" ? 504 : 409,
+    });
+  }
+  return manageAgentProfileFoldersResponseSchema.parse({
+    agentProfileId: request.agentProfileId,
+    ...(result.payload.accepted && result.payload.folderId
+      ? { folderId: result.payload.folderId }
+      : {}),
+    observedAtMs: result.record.observedAtMs,
+    projection: result.record.projection,
+    target: bound.target,
+  });
+}
+
+/**
+ * The Service refuses to remove the default folder. A Project folder whose
+ * Project is the Default Project is where new work starts too, and only Core
+ * knows the Default Project, so Core refuses that removal. Unknown folders and
+ * an unverifiable Default Project fail closed.
+ */
+async function requireRemovableAgentProfileFolder(
+  env: CoreBindings,
+  input: {
+    folderId: string;
+    transport: Parameters<
+      typeof readRuntimeTransportProfileFolderProjection
+    >[0];
+  }
+): Promise<void> {
+  const recorded = await readRuntimeTransportProfileFolderProjection(
+    input.transport
+  );
+  const record = recorded.status === "found" ? recorded.record : null;
+  // Only a Project folder needs the Default Project, which Auth owns.
+  const needsDefaultProject = record?.projection.folders.some(
+    (item) => item.folderId === input.folderId && item.kind === "project"
+  );
+  let defaultProjectId: string | null = null;
+  if (needsDefaultProject) {
+    const scope = await resolveAgentProfileWorkRecoveryAuthScope({
+      agentProfileId: input.transport.targetProfileId,
+      authWorker: env.OPENMELD_AUTH_WORKER,
+    });
+    if (scope.status !== "valid") {
+      throw createCoreRpcHttpError({
+        status: 503,
+        code: "agent_profile.unavailable",
+        reason:
+          "OpenMeld couldn’t confirm this Agent’s Default Project. Try again.",
+      });
+    }
+    defaultProjectId = scope.scope.defaultProjectId;
+  }
+  const removable = resolveRemovableFolder({
+    defaultProjectId,
+    folderId: input.folderId,
+    record,
+  });
+  if (removable.status === "not_found") {
+    throw createCoreRpcHttpError({
+      status: 404,
+      code: "profile_folder.not_found",
+      reason:
+        "This folder isn’t in the Agent’s folder list on its Computer. Reopen Folders and try again.",
+    });
+  }
+  if (removable.status === "default_project_folder") {
+    throw createCoreRpcHttpError({
+      status: 409,
+      code: "profile_folder.default_removal_requires_replacement",
+      reason:
+        "New work starts in this Project. Make another folder the default before removing it.",
+    });
+  }
+}
+
 /** Path-free folder list for the represented owner's Center Agent turn. */
 async function readCenterAgentAgentProfileFolders(
   env: CoreBindings,

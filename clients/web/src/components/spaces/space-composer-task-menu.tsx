@@ -229,19 +229,17 @@ export function SpaceComposerAgentOptions(input: {
 						</DropdownMenuRadioGroup>
 					</FluidDropdownMenuSubContent>
 				</DropdownMenuSub>
-				{input.folders?.length ? (
-					<FolderMenu
-						disabled={spaceOnly || Boolean(preferences?.projectWork)}
-						folders={input.folders}
-						inheritsSession={inheritsSession}
-						onChoose={(folder) => {
-							const next = chooseComposerFolder({ folder, selection });
-							choose(next.selection, next.label);
-						}}
-						recorded={input.foldersRecorded === true}
-						selectedFolderId={selectedComposerFolderId(selection)}
-					/>
-				) : null}
+				<FolderMenu
+					disabled={spaceOnly || Boolean(preferences?.projectWork)}
+					folders={input.folders ?? []}
+					inheritsSession={inheritsSession}
+					onChoose={(folder) => {
+						const next = chooseComposerFolder({ folder, selection });
+						choose(next.selection, next.label);
+					}}
+					recorded={input.foldersRecorded === true}
+					selectedFolderId={selectedComposerFolderId(selection)}
+				/>
 			</FluidDropdownMenuGroup>
 			{projectWorkOpen &&
 			input.organizationId &&
@@ -342,6 +340,10 @@ function FolderMenu(input: {
 	recorded: boolean;
 	selectedFolderId?: string;
 }) {
+	// One folder leaves nothing to choose; non-owners get no folders at all.
+	if (input.folders.length < 2) {
+		return null;
+	}
 	const defaultFolder = input.folders.find((folder) => folder.isDefault);
 	const selected = input.folders.find(
 		(folder) => folder.folderId === input.selectedFolderId

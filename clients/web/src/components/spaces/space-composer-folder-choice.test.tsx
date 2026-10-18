@@ -111,9 +111,53 @@ describe("composer folder menu", () => {
 		});
 	});
 
-	it("shows no folder menu without the owner's folder list", async () => {
-		renderOptions({ onChange: vi.fn() });
+	it.each([
+		["without the owner's folder list", undefined],
+		["with only one folder", [DEFAULT_FOLDER]],
+	])("shows no folder menu %s", async (_case, folders) => {
+		renderOptions({ ...(folders ? { folders } : {}), onChange: vi.fn() });
 		await screen.findByText("Session");
 		expect(screen.queryByRole("menuitem", { name: FOLDER_MENU })).toBeNull();
+	});
+
+	it("continues an earlier session in another folder as a fork", async () => {
+		const onChange = vi.fn();
+		render(
+			<DropdownMenu>
+				<DropdownMenuTrigger>Options</DropdownMenuTrigger>
+				<FluidDropdownMenuContent>
+					<SpaceComposerAgentOptions
+						choice={{
+							label: "Review upload",
+							selection: { mode: "resume", sourceWakeId: "wake-previous" },
+							targetProfileId: "agent",
+						}}
+						folders={[DEFAULT_FOLDER, OTHER_FOLDER]}
+						onChange={onChange}
+						sources={[]}
+						supportsCurrentFolder
+						targetProfileId="agent"
+					/>
+				</FluidDropdownMenuContent>
+			</DropdownMenu>
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Options" }));
+		fireEvent.click(await screen.findByRole("menuitem", { name: FOLDER_MENU }));
+		const website = (await screen.findAllByRole("menuitemradio")).find(
+			(item) => item.textContent === "website"
+		);
+		if (!website) {
+			throw new Error("Folder choice missing");
+		}
+		fireEvent.click(website);
+		expect(onChange).toHaveBeenCalledWith({
+			label: "Continue in website",
+			selection: {
+				folderId: OTHER_FOLDER.folderId,
+				mode: "fork",
+				sourceWakeId: "wake-previous",
+			},
+			targetProfileId: "agent",
+		});
 	});
 });

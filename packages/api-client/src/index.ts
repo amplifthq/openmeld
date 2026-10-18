@@ -321,6 +321,7 @@ export { buildProfileRoute } from "./profiles/routes";
 export type {
   CreateProfilesApi,
   GetAgentProfileFoldersInput,
+  ManageAgentProfileFoldersInput,
   ProfilesApi,
   RenameProfileInput,
   UpdateAgentProfileDefaultProjectInput,
