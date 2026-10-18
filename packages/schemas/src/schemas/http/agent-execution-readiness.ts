@@ -15,6 +15,7 @@ import {
   agentProfileBindingProjectionSchema,
 } from "./agent-profile-binding";
 import { prepareReadinessRuntimeIdSchema } from "./prepare-readiness";
+import { publicWakeabilityReasonSchema } from "./public-wakeability-reason";
 
 const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
@@ -306,6 +307,9 @@ export const getAgentExecutionReadinessResponseSchema = z.strictObject({
   primaryBinding: agentProfileBindingProjectionSchema.nullable().optional(),
   primaryActionPlan: agentExecutionReadinessPrimaryActionPlanSchema,
   profileName: nullableTrimmedStringSchema,
+  // The one public blocking reason Organization members may see; absent or
+  // null when current evidence names none.
+  publicWakeabilityReason: publicWakeabilityReasonSchema.nullable().optional(),
   publicProfileConfiguration: z
     .strictObject({
       agentControllerCollaborationMode:

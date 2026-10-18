@@ -150,6 +150,7 @@ import { openMeldDaemonProviderAccessEvidence } from "./provider-access-evidence
 import { openMeldDaemonProviderConversationProofs } from "./provider-conversation-proof.schema.ts";
 import { routineRuns, routines } from "./routine.schema.ts";
 import { openMeldDaemonRuntimeAgentControllerReports } from "./runtime-agent-controller-report.schema.ts";
+import { openMeldDaemonRuntimeHarnessPresence } from "./runtime-harness-presence.schema.ts";
 import { openMeldDaemonRuntimeRegistryRecords } from "./runtime-registry.schema.ts";
 import { serviceConnectionIncidents } from "./service-connection-evidence.schema.ts";
 import { spaceAttachments } from "./space-attachment.schema.ts";
@@ -1907,6 +1908,7 @@ export const coreSchema = {
   openMeldDaemonOwnedDevices,
   openMeldDaemonRuntimeRegistryRecords,
   openMeldDaemonRuntimeAgentControllerReports,
+  openMeldDaemonRuntimeHarnessPresence,
   openMeldDaemonCurrentDeviceTargets,
   openMeldDaemonForgottenDevices,
   openMeldDaemonPrepareSessions,

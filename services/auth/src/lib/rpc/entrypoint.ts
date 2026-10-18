@@ -53,12 +53,16 @@ import {
   authRpcSendInboxUrgentEmailResultSchema,
   authRpcUpdateAgentProfileDefaultProjectInputSchema,
   buildDefaultCenterAgentProfileName,
+  type EnsureDetectedMemberAgentRpcInput,
+  type EnsureDetectedMemberAgentRpcResult,
   ensureMessageChannelMemberOrganizationMembershipRpcInputSchema,
   ensureMessageChannelMemberOrganizationMembershipRpcResponseSchema,
   ensureOrganizationJoinLinkOnBehalfOfRpcInputSchema,
   ensureOrganizationJoinLinkOnBehalfOfRpcResponseSchema,
   ensureSlackWorkspaceMemberOrganizationMembershipRpcInputSchema,
   ensureSlackWorkspaceMemberOrganizationMembershipRpcResponseSchema,
+  type ListMemberAgentOrganizationIdsRpcResult,
+  MEMBER_AGENTS_ENABLED,
   organizationLogoCommitRpcInputSchema,
   organizationLogoPrepareRpcInputSchema,
   resolvedOpenMeldProfileSchema,
@@ -117,6 +121,11 @@ import {
   buildInboxUrgentEmail,
   classifyInboxEmailError,
 } from "../inbox/urgent-email";
+import {
+  ensureDetectedMemberAgentRpc,
+  listMemberAgentOrganizationIdsRpc,
+  listOwnerMemberAgentsRpc,
+} from "../member-agents/member-agent-rpc";
 import {
   type AuthenticatedOrganizationContext,
   resolveAuthenticatedOrganizationContext,
@@ -1415,6 +1424,33 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
         return toProfileRpcError(error);
       }
     });
+  }
+  ensureDetectedMemberAgent(
+    input: EnsureDetectedMemberAgentRpcInput
+  ): Promise<EnsureDetectedMemberAgentRpcResult> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      ensureDetectedMemberAgentRpc(input, {
+        enabled: MEMBER_AGENTS_ENABLED,
+        profileService: this.getProfileService(),
+      })
+    );
+  }
+  listOwnerMemberAgents(input: {
+    organizationId?: string | null;
+    ownerUserId?: string | null;
+  }): ReturnType<typeof listOwnerMemberAgentsRpc> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      listOwnerMemberAgentsRpc(input, { enabled: MEMBER_AGENTS_ENABLED })
+    );
+  }
+  listMemberAgentOrganizationIds(input: {
+    ownerUserId?: string | null;
+  }): Promise<ListMemberAgentOrganizationIdsRpcResult> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      listMemberAgentOrganizationIdsRpc(input, {
+        enabled: MEMBER_AGENTS_ENABLED,
+      })
+    );
   }
   async ensureOrganizationJoinLinkOnBehalfOf(
     input: EnsureOrganizationJoinLinkOnBehalfOfRpcInput

@@ -1,7 +1,6 @@
 import {
   createAuthDatabase,
   createDrizzleMemberAgentRepository,
-  type OwnerMemberAgentListing,
 } from "@openmeld/auth/server";
 import {
   getPostgresDatabase,
@@ -9,7 +8,6 @@ import {
 } from "@openmeld/db/postgresql";
 import { readOpenMeldRequestedOrganizationSelector } from "@openmeld/gateway-contract";
 import {
-  type ListMemberAgentsResponse,
   listMemberAgentsResponseSchema,
   MEMBER_AGENTS_DISABLED_CODE,
   MEMBER_AGENTS_DISABLED_MESSAGE,
@@ -18,6 +16,7 @@ import {
 import type { OpenMeldRequestedOrganizationSelector } from "@openmeld/schemas/types";
 import type { Hono } from "hono";
 import type { AppContext } from "../context";
+import { toListMemberAgentsResponse } from "../member-agents/member-agent-listing";
 import { resolveAuthenticatedOrganizationContext } from "../organization/authenticated-organization-context";
 import { requireAuthenticatedUser } from "./authenticated-user";
 
@@ -134,32 +133,4 @@ async function isCurrentMember(
     values: [userId, organizationId],
   });
   return result.rows.length > 0;
-}
-
-function toListMemberAgentsResponse(
-  organizationId: string,
-  listing: OwnerMemberAgentListing
-): ListMemberAgentsResponse {
-  return {
-    ok: true,
-    organizationId,
-    memberAgents: listing.memberAgents.map((memberAgent) => ({
-      id: memberAgent.id,
-      organizationId: memberAgent.organizationId,
-      ownerUserId: memberAgent.ownerUserId,
-      harnessKind: memberAgent.harnessKind,
-      defaultProfileId: memberAgent.defaultProfileId,
-      source: memberAgent.source,
-      archivedAt: memberAgent.archivedAt?.toISOString() ?? null,
-      profiles: memberAgent.profiles.map((profile) => ({
-        openMeldProfileId: profile.profileId,
-        profileName: profile.profileName,
-        isDefault: profile.isDefault,
-      })),
-    })),
-    unassignedProfiles: listing.unassignedProfiles.map((profile) => ({
-      openMeldProfileId: profile.profileId,
-      profileName: profile.profileName,
-    })),
-  };
 }

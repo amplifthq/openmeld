@@ -439,6 +439,10 @@ export {
   spaceTraceExecutionIdentityProjectionSchema,
 } from "./daemon/execution-identity";
 export {
+  formatHarnessDisplayName,
+  HARNESS_DISPLAY_NAMES,
+} from "./daemon/harness-display-name";
+export {
   HARNESS_KINDS,
   type HarnessKind,
   HOSTED_HARNESS_KIND,
@@ -1752,6 +1756,36 @@ export {
   setLocalRuntimeDisplayNameBodySchema,
 } from "./http/local-runtimes";
 export {
+  AUTO_DETECTED_PROFILE_NAME_LOCKED_CODE,
+  buildDetectedMemberAgentIdempotencyKey,
+  type DetectedHarnessKind,
+  detectedHarnessKindSchema,
+  type EnsureDetectedMemberAgentRpcInput,
+  type EnsureDetectedMemberAgentRpcResult,
+  ensureDetectedMemberAgentRpcInputSchema,
+  ensureDetectedMemberAgentRpcResultSchema,
+  type GetMemberAgentPresenceResponse,
+  getMemberAgentPresenceResponseSchema,
+  type ListMemberAgentOrganizationIdsRpcResult,
+  listMemberAgentOrganizationIdsRpcResultSchema,
+  MEMBER_AGENT_PRESENCE_ROUTE,
+  MEMBER_AGENT_SYNC_ROUTE,
+  type MemberAgentPresence,
+  type MemberAgentPresenceState,
+  type MemberAgentSyncOutcome,
+  type MemberAgentSyncResult,
+  memberAgentPresenceComputerSchema,
+  memberAgentPresenceProfileSchema,
+  memberAgentPresenceSchema,
+  memberAgentPresenceStateSchema,
+  memberAgentPresenceWorkloadSchema,
+  memberAgentSyncOutcomeSchema,
+  memberAgentSyncResultSchema,
+  memberAgentSyncStepStatusSchema,
+  type SyncMemberAgentsResponse,
+  syncMemberAgentsResponseSchema,
+} from "./http/member-agent-sync";
+export {
   type ListMemberAgentsResponse,
   listMemberAgentsResponseSchema,
   MEMBER_AGENTS_DISABLED_CODE,
@@ -2245,6 +2279,13 @@ export {
   updateProjectResponseSchema,
   updateProjectRpcInputSchema,
 } from "./http/projects";
+export {
+  PUBLIC_WAKEABILITY_REASON_CODES,
+  type PublicWakeabilityReason,
+  type PublicWakeabilityReasonCode,
+  publicWakeabilityReasonCodeSchema,
+  publicWakeabilityReasonSchema,
+} from "./http/public-wakeability-reason";
 export { remoteAgentProviderCompletionSchema } from "./http/remote-agent-provider-completion";
 export {
   AGENT_CONTROLLER_TASK_LIFECYCLE_EVENT_BATCH_MAX_BYTES,

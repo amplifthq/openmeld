@@ -13,7 +13,11 @@ import type {
   SpaceCursor,
   SpaceMeta,
 } from "@openmeld/protocol";
-import type { SpacePreferencesRpc } from "@openmeld/schemas";
+import type {
+  GetMemberAgentPresenceResponse,
+  SpacePreferencesRpc,
+  SyncMemberAgentsResponse,
+} from "@openmeld/schemas";
 import {
   type ListCenterAgentSessionsResponse,
   type ModelCatalogReadOptions,
@@ -500,6 +504,12 @@ import {
   rpcUpdateInboxNotificationPreferences,
 } from "./inbox/transport/rpc/inbox-rpc";
 import type { CoreBindings } from "./lib/bindings";
+import {
+  type MemberAgentRpcInput,
+  rpcGetMemberAgentPresence,
+  rpcSubmitRuntimeAgentControllerReportsWithMemberAgents,
+  rpcSyncMemberAgents,
+} from "./member-agent/member-agent-rpc";
 import { rpcCenterAgentManageOrganizationDocuments } from "./organization-documents/center-agent-document-rpc";
 import {
   rpcApproveOrganizationDocumentDraft,
@@ -1126,7 +1136,6 @@ import {
   rpcSubmitAgentActivityEvents,
   rpcSubmitAgentActivitySessionReconciliation,
   rpcSubmitAgentControllerTaskLifecycleEvents,
-  rpcSubmitRuntimeAgentControllerReports,
   rpcSubmitRuntimeProviderConversationProofs,
   rpcSubmitRuntimeRegistration,
   rpcTrashSpaceFileEntry,
@@ -4362,7 +4371,21 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: SubmitRuntimeAgentControllerReportsInput
   ): Promise<SubmitRuntimeAgentControllerReportsResponse> {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
-      rpcSubmitRuntimeAgentControllerReports(this.env, input)
+      rpcSubmitRuntimeAgentControllerReportsWithMemberAgents(this.env, input)
+    );
+  }
+  syncMemberAgents(
+    input: MemberAgentRpcInput
+  ): Promise<SyncMemberAgentsResponse> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSyncMemberAgents(this.env, input)
+    );
+  }
+  getMemberAgentPresence(
+    input: MemberAgentRpcInput
+  ): Promise<GetMemberAgentPresenceResponse> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetMemberAgentPresence(this.env, input)
     );
   }
   submitRuntimeProviderConversationProofs(
@@ -6309,6 +6332,16 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: SubmitRuntimeAgentControllerReportsInput
   ): Promise<SubmitRuntimeAgentControllerReportsResponse> {
     return super.submitRuntimeAgentControllerReports(input);
+  }
+  syncMemberAgents(
+    input: MemberAgentRpcInput
+  ): Promise<SyncMemberAgentsResponse> {
+    return super.syncMemberAgents(input);
+  }
+  getMemberAgentPresence(
+    input: MemberAgentRpcInput
+  ): Promise<GetMemberAgentPresenceResponse> {
+    return super.getMemberAgentPresence(input);
   }
   submitAgentControllerTaskLifecycleEvents(
     input: SubmitAgentControllerTaskLifecycleEventsInput
