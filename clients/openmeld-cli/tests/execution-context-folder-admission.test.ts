@@ -1,5 +1,12 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -113,15 +120,35 @@ describe("Execution Context folder admission", () => {
     expect(admission.folderKey).toBeUndefined();
   });
 
-  it("leaves an unresolved folder unknown and does not choose a workspace", async () => {
+  it("keeps a pending default undecided when the folder is unresolved, so the run fails closed", async () => {
     const admission = await resolveExecutionContextFolderAdmission({
       context: { ...baseContext, workspaceDefault: "isolated_if_git" },
       resolveFolder: () =>
         Promise.reject(new Error("profile.workspace.missing")),
     });
     expect(admission.folderKey).toBeUndefined();
-    expect(admission.workspaceChosen).toBe(false);
-    expect(admission.context?.workspace).toBe("current");
+    expect(admission.workspaceChosen).toBe(true);
+    // The folder recovers before the run: it must not edit it directly.
+    const folder = await createFolder("git");
+    await expect(
+      assertExecutionContextAdmittedFolder({
+        admission,
+        context: admission.context,
+        workingDirectory: folder,
+      })
+    ).rejects.toMatchObject({
+      code: "execution_context.folder_changed_while_queued",
+    });
+  });
+
+  it("isolates a git repository even when an isolated copy cannot be made yet", async () => {
+    const folder = await createFolder("plain");
+    await execFileAsync("git", ["init", "--quiet"], { cwd: folder });
+    const admission = await resolveExecutionContextFolderAdmission({
+      context: { ...baseContext, workspaceDefault: "isolated_if_git" },
+      resolveFolder: async () => folder,
+    });
+    expect(admission.context?.workspace).toBe("isolated");
   });
 
   it("fails closed when the task would run in another folder than it was admitted with", async () => {
@@ -137,7 +164,7 @@ describe("Execution Context folder admission", () => {
         context: baseContext,
         workingDirectory: admitted,
       })
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(admitted);
     const failure = assertExecutionContextAdmittedFolder({
       admission,
       context: baseContext,
@@ -147,6 +174,33 @@ describe("Execution Context folder admission", () => {
       code: "execution_context.folder_changed_while_queued",
     });
     await expect(failure).rejects.not.toThrow(other);
+  });
+
+  it("reports a vanished folder without its path and continues in the canonical folder", async () => {
+    const admitted = await createFolder("plain");
+    const alias = join(admitted, "..", "alias");
+    await symlink(admitted, alias);
+    const admission = {
+      folderKey: executionContextFolderKey(admitted),
+      workspaceChosen: false,
+    };
+    await expect(
+      assertExecutionContextAdmittedFolder({
+        admission,
+        context: baseContext,
+        workingDirectory: alias,
+      })
+    ).resolves.toBe(admitted);
+    const missing = join(admitted, "..", "missing");
+    const failure = assertExecutionContextAdmittedFolder({
+      admission,
+      context: baseContext,
+      workingDirectory: missing,
+    });
+    await expect(failure).rejects.toMatchObject({
+      code: "execution_context.folder_changed_while_queued",
+    });
+    await expect(failure).rejects.not.toThrow("missing");
   });
 
   it("reports the chosen workspace in the completion only when the Service chose it", async () => {
@@ -220,5 +274,13 @@ describe("Execution Context folder admission", () => {
     expect(section).toContain('"@claude", Session ctx-2, in another Space.');
     expect(section).toContain("isolated copy");
     expect(renderSharedFolderSection({ sharedFolderSessions: [] })).toBeNull();
+    // A request not verified as the owner's gets no Session ids.
+    const forColleague = renderSharedFolderSection({
+      sharedFolderSessions: [
+        { executionContextId: null, sameSpace: false, targetLabel: "@codex" },
+      ],
+    });
+    expect(forColleague).toContain('"@codex", in another Space.');
+    expect(forColleague).not.toContain("Session ");
   });
 });

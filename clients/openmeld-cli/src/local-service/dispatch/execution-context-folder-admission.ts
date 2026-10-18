@@ -1,8 +1,11 @@
-import { realpath } from "node:fs/promises";
+import { lstat, realpath } from "node:fs/promises";
+import { join } from "node:path";
 import { buildRuntimeWorkspaceFingerprint } from "@openmeld/local-execution";
 import type { ExecutionContextTask } from "@openmeld/schemas/types";
 import { DaemonServiceRunError } from "../core/types";
-import { canIsolateExecutionContextFolder } from "./execution-context-workspace";
+
+// A stalled filesystem read must not hold later deliveries in admission order.
+const FOLDER_ADMISSION_TIMEOUT_MS = 10_000;
 
 /**
  * The folder facts a task is admitted with (design-plans/member-agent-program.md
@@ -36,13 +39,21 @@ export async function resolveExecutionContextFolderAdmission(input: {
   }
   let folder: string | null = null;
   try {
-    folder = await realpath(await input.resolveFolder());
+    folder = await realpath(
+      await withTimeout(input.resolveFolder(), FOLDER_ADMISSION_TIMEOUT_MS)
+    );
   } catch {
     // The run resolves the folder again and reports the failure there.
   }
   const folderLabel = executionContextFolderLabel(context);
   if (!folder) {
-    return { context, folderLabel, workspaceChosen: false };
+    // A pending default stays undecided: the run then fails closed instead of
+    // falling back to direct edit when the folder resolves later.
+    return {
+      context,
+      folderLabel,
+      workspaceChosen: workspaceDefault === "isolated_if_git",
+    };
   }
   const folderKey = executionContextFolderKey(folder);
   if (workspaceDefault !== "isolated_if_git") {
@@ -51,9 +62,7 @@ export async function resolveExecutionContextFolderAdmission(input: {
   return {
     context: {
       ...context,
-      workspace: (await canIsolateExecutionContextFolder(folder))
-        ? "isolated"
-        : "current",
+      workspace: (await isGitRepositoryFolder(folder)) ? "isolated" : "current",
     },
     folderKey,
     folderLabel,
@@ -75,25 +84,27 @@ export async function assertExecutionContextAdmittedFolder(input: {
   >;
   context?: ExecutionContextTask;
   workingDirectory: string;
-}): Promise<void> {
+}): Promise<string> {
   const admission = input.admission;
   if (
     !(admission && input.context) ||
     input.context.access === "space_context" ||
     (admission.folderKey === undefined && !admission.workspaceChosen)
   ) {
-    return;
+    return input.workingDirectory;
   }
-  const folderKey = executionContextFolderKey(
-    await realpath(input.workingDirectory)
-  );
-  if (folderKey !== admission.folderKey) {
+  // Errors carry no path: this text reaches Core-bound failure payloads.
+  const folder = await realpath(input.workingDirectory).catch(() => null);
+  if (!folder || executionContextFolderKey(folder) !== admission.folderKey) {
     throw new DaemonServiceRunError({
       code: "execution_context.folder_changed_while_queued",
       message:
-        "execution_context.folder_changed_while_queued: this task's working folder changed while it waited to start. Send the request again.",
+        "execution_context.folder_changed_while_queued: this task's working folder changed or became unavailable while it waited to start. Send the request again.",
     });
   }
+  // The run continues in the canonical folder it was admitted with, so a
+  // later symlink change cannot move it into another folder.
+  return folder;
 }
 
 export function executionContextFolderKey(canonicalFolder: string): string {
@@ -153,4 +164,31 @@ export function runInLocalAdmissionOrder<T>(input: {
       admissionTails.delete(input.order);
     }
   });
+}
+
+/**
+ * Whether the folder is a git repository root (a `.git` entry). A repository
+ * whose isolated copy then fails (for example, no commit yet) fails visibly;
+ * it never falls back to direct edit. Unreadable state counts as git.
+ */
+async function isGitRepositoryFolder(folder: string): Promise<boolean> {
+  try {
+    await lstat(join(folder, ".git"));
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ENOENT";
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("execution_context.folder_admission_timeout")),
+        ms
+      );
+    }),
+  ]).finally(() => clearTimeout(timer));
 }

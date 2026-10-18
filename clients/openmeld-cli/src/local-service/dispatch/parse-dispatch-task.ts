@@ -651,7 +651,7 @@ export function renderSharedFolderSection(
     "Shared folder: other Sessions are editing this task's working folder right now.",
     ...sessions.map(
       (session) =>
-        `- ${JSON.stringify(session.targetLabel)}, Session ${session.executionContextId ?? "without an id"}, ${session.sameSpace ? "in this Space" : "in another Space"}.`
+        `- ${JSON.stringify(session.targetLabel)}${session.executionContextId ? `, Session ${session.executionContextId}` : ""}, ${session.sameSpace ? "in this Space" : "in another Space"}.`
     ),
     "- Before you edit, check the folder's current state (for example `git status`) and do not overwrite or revert changes you did not make. Keep your changes small and focused, and re-check before you commit.",
     "- If your work would collide with theirs, say so in your reply and suggest continuing this task in an isolated copy (a new task with an isolated workspace). Do not describe the other Sessions' work beyond what the requester needs.",

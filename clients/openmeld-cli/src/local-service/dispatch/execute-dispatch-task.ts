@@ -1309,11 +1309,15 @@ export async function handleDispatchDeliverFrame(input: {
       routeConfig,
       targetProfileId: parsedTask.targetProfileId,
     });
-    await assertExecutionContextAdmittedFolder({
-      admission: input.executionContextAdmission,
-      context: parsedTask.executionContext,
-      workingDirectory: dispatchRuntimeContext.providerRuntimeWorkingDirectory,
-    });
+    dispatchRuntimeContext = {
+      providerRuntimeWorkingDirectory:
+        await assertExecutionContextAdmittedFolder({
+          admission: input.executionContextAdmission,
+          context: parsedTask.executionContext,
+          workingDirectory:
+            dispatchRuntimeContext.providerRuntimeWorkingDirectory,
+        }),
+    };
     const folderRecovery = await resolveWorkingFolderRecovery({
       agentControllerRef: parsedTask.agentControllerRef,
       nativeSessionId: parsedTask.agentControllerConversationId,
@@ -1623,7 +1627,7 @@ export async function handleDispatchDeliverFrame(input: {
         sendTargetReference,
         sharedFolderSessions: toDispatchSharedFolderSessions(
           input.readSharedFolderSessions,
-          parsedTask.spaceId
+          parsedTask
         ),
         shouldInjectBootstrap: bootstrapPlan.shouldInject,
         taskWorkspace,
@@ -3039,11 +3043,13 @@ async function resolveDispatchBootstrapContext(input: {
 
 function toDispatchSharedFolderSessions(
   read: (() => LocalExecutionSlotSharedFolderSession[]) | undefined,
-  spaceId: string
+  task: Pick<ParsedDispatchTask, "requesterIsAgentOwner" | "spaceId">
 ): DispatchSharedFolderSession[] {
+  // Context identifiers are owner-only (agent-transport-contract.md).
+  const showSessionIds = task.requesterIsAgentOwner === true;
   return (read?.() ?? []).map((session) => ({
-    executionContextId: session.executionContextId,
-    sameSpace: session.spaceId === spaceId,
+    executionContextId: showSessionIds ? session.executionContextId : null,
+    sameSpace: session.spaceId === task.spaceId,
     targetLabel: session.targetLabel,
   }));
 }

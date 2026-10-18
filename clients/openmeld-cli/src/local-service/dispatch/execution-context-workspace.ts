@@ -1037,22 +1037,6 @@ function assertSourceAllowed(
   }
 }
 
-/**
- * Whether an isolated copy can be made of this folder: the same test the copy
- * itself applies (a repository root with a commit). Used to resolve
- * workspaceDefault "isolated_if_git".
- */
-export async function canIsolateExecutionContextFolder(
-  folder: string
-): Promise<boolean> {
-  try {
-    await resolveSourceCommit(await canonicalDirectory(folder));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function resolveSourceCommit(
   source: string,
   requestedCommit?: string
