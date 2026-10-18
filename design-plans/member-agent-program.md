@@ -944,3 +944,16 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   `~/Desktop`. Agents empty state lacked Connect computer and loading showed
   "unavailable"; both fixed by 1d (`claude/map-1d-smoke-fixes`, merged).
   Service stop/repair and setup-failure presentation recorded in §13.
+- 2026-10-19, real-machine smoke round 1c (Codex gpt-6-astra, medium; worktree
+  outside `~/Desktop`): launchd Service start and Computer setup passed; six
+  MemberAgents with default Profiles and owner chats were created; Session
+  create/rename/archive/restore, first-DM consent with a fresh context,
+  revoke, Add-members request, owner observer and Let the Agent join, owner
+  versus colleague visibility, and CLI projections passed. Routed: folder
+  list UI missing (P1, to p2 `claude/map-p2-folder-ui`); nonmember mention
+  not offered, Working shown while waiting for consent, stale request cards
+  (P1/P2, to Phase 4 `claude/map-4-smoke-fixes`); default Profile rename
+  exposed and first-run folder copy (P2, to 1d `claude/map-1d-smoke-fixes-2`);
+  Codex `config/read` timeout and a silent Claude run (P1, cause unproven,
+  investigation `claude/map-smoke-harness-investigation`). Invitation page
+  approval flash is outside the program.
