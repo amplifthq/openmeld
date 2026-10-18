@@ -19604,7 +19604,7 @@ export async function rpcConvertDirectMessageToSpace(
   }
   return validated.data;
 }
-async function openDirectMessageSpaceInternal(
+export async function openDirectMessageSpaceInternal(
   env: CoreBindings,
   input: {
     context: CoreRpcContextInput;
@@ -23905,7 +23905,7 @@ export async function rpcSetSpaceAccessMode(
     context,
   });
 }
-function resolveRpcSpaceStubOrThrow(
+export function resolveRpcSpaceStubOrThrow(
   env: CoreBindings,
   rawSpaceId: string
 ): {
@@ -25695,7 +25695,7 @@ async function listCenterAgentEnabledPrimaryBindingsOrThrow(input: {
     throw error;
   }
 }
-async function requireActiveOrganizationMembershipOrThrow(input: {
+export async function requireActiveOrganizationMembershipOrThrow(input: {
   context: CoreRpcContextInput;
   env: CoreBindings;
 }): Promise<ActiveOrganization> {
@@ -25979,7 +25979,7 @@ async function requireOrganizationMembershipOrThrow(input: {
     userId,
   };
 }
-function requireHumanSpaceMemberFromContext(input: {
+export function requireHumanSpaceMemberFromContext(input: {
   context: CoreRpcContextInput;
   userId: string;
 }): ResolvedSpaceMemberProfile {
@@ -26207,7 +26207,9 @@ async function assertAgentProfileOwnerMatchesRequest(input: {
     });
   }
 }
-function requireRpcContext(context?: CoreRpcContextInput): CoreRpcContextInput {
+export function requireRpcContext(
+  context?: CoreRpcContextInput
+): CoreRpcContextInput {
   if (!context) {
     throwUnauthenticated();
   }

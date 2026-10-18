@@ -4,6 +4,7 @@ import {
 } from "@openmeld/agent-runtime";
 import type { Profile, SignalEnvelope } from "@openmeld/protocol";
 import { parseSignalText } from "@openmeld/protocol";
+import type { AGENT_ACCESS_PENDING_CODE } from "@openmeld/schemas";
 import {
   MAX_WAKE_DEVICE_WAIT_MS,
   type SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
@@ -36,6 +37,7 @@ export class SpaceSignalAuthoringError extends Error {
     | "space_task.invalid_draft"
     | "space.execution_input.invalid"
     | "space.execution_context.unsupported"
+    | typeof AGENT_ACCESS_PENDING_CODE
     | RequestChainRejectionReason
     | typeof SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE
     | typeof SPACE_WAKE_TARGET_INVALID_ERROR_CODE
@@ -53,6 +55,7 @@ export class SpaceSignalAuthoringError extends Error {
       | "space_task.invalid_draft"
       | "space.execution_input.invalid"
       | "space.execution_context.unsupported"
+      | typeof AGENT_ACCESS_PENDING_CODE
       | RequestChainRejectionReason
       | typeof SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE
       | typeof SPACE_WAKE_TARGET_INVALID_ERROR_CODE

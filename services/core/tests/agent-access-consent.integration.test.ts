@@ -1,0 +1,553 @@
+import { env, runInDurableObject } from "cloudflare:test";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
+import type { Profile, SignalEnvelope } from "@openmeld/protocol";
+import {
+  AGENT_ACCESS_PENDING_CODE,
+  type AgentAccessDecision,
+} from "@openmeld/schemas";
+import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
+import type { createAuthenticatedSpaceAccessContext } from "@openmeld/space";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  upsertJoinedSpaceMember,
+  upsertSpaceCreatorMember,
+} from "../src/space/application/space-members-service";
+import type { SignalPublishContext } from "../src/space/application/types";
+import { listDispatchOutboxRecordsBySourceSignalId } from "../src/space/infrastructure/outbox/dispatch-outbox-repo";
+import {
+  readHeldDirectMessageAgentAccessHold,
+  readSpaceAgentAccessHold,
+} from "../src/space/infrastructure/sql/space-agent-access-hold-repo";
+import { readSpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
+import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
+import type { Space } from "../src/space/transport/do/space";
+
+const feature = vi.hoisted(() => ({ enabled: true }));
+vi.mock("../src/member-agent/member-agents-feature", () => ({
+  isMemberAgentsEnabled: () => feature.enabled,
+  isRequestChainEnforced: () => feature.enabled,
+}));
+
+const {
+  decideAgentAccessRequest,
+  finishAgentAccessDecision,
+  withdrawAgentAccessRequest,
+} = await import("../src/agent-access/application/agent-access-service");
+const { readAgentAccessRequest, asQueryable } = await import(
+  "../src/agent-access/infrastructure/postgresql/agent-access-repo"
+);
+
+afterEach(() => {
+  feature.enabled = true;
+  vi.restoreAllMocks();
+});
+
+type Person = {
+  profileId: string;
+  userId: string;
+  name: string;
+};
+
+type Fixture = {
+  organizationId: string;
+  felix: Person;
+  tali: Person;
+  sam: Person;
+  agentProfileId: string;
+  memberAgentId: string;
+};
+
+const SECRET_TEXT = "Rotate the production signing key tonight";
+
+async function seed(): Promise<Fixture> {
+  const suffix = crypto.randomUUID();
+  const organizationId = `org_agent_access_${suffix}`;
+  const db = getPostgresDatabase(env);
+  const person = (name: string): Person => ({
+    name,
+    profileId: crypto.randomUUID(),
+    userId: `user_${name.toLowerCase()}_${suffix}`,
+  });
+  const felix = person("Felix");
+  const tali = person("Tali");
+  // Sam has an account but is not in the Organization: an external user.
+  const sam = person("Sam");
+  const agentProfileId = `agt_${crypto.randomUUID()}`;
+  const memberAgentId = `ma_${suffix}`;
+  const now = Date.now();
+  await db.transaction(async (client) => {
+    await client.query({
+      text: `INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, 'Agent access', $2, $3)`,
+      values: [organizationId, `agent-access-${suffix}`, now],
+    });
+    for (const member of [felix, tali, sam]) {
+      await client.query({
+        text: `INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at) VALUES ($1, $2, $3, 1, $4, $4)`,
+        values: [
+          member.userId,
+          member.name,
+          `${member.userId}@example.com`,
+          now,
+        ],
+      });
+      await client.query({
+        text: `INSERT INTO "openmeld"."openmeld_profiles" (profile_id, profile_name, profile_handle, profile_kind, is_default, status, owner_user_id, created_by_user_id, source, created_at, updated_at) VALUES ($1, $2, $3, 'human', 1, 'active', $4, $4, 'auth_bootstrap', $5, $5)`,
+        values: [
+          member.profileId,
+          member.name,
+          `${member.name.toLowerCase()}-${suffix}`,
+          member.userId,
+          now,
+        ],
+      });
+    }
+    for (const member of [felix, tali]) {
+      await client.query({
+        text: `INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, 'member', $4)`,
+        values: [`member_${member.userId}`, organizationId, member.userId, now],
+      });
+    }
+    await client.query({
+      text: `INSERT INTO "openmeld"."member_agents" (id, organization_id, owner_user_id, harness_kind, source, created_at, updated_at) VALUES ($1, $2, $3, 'claude-code', 'detected', $4, $4)`,
+      values: [memberAgentId, organizationId, felix.userId, now],
+    });
+    await client.query({
+      text: `INSERT INTO "openmeld"."openmeld_profiles" (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, created_by_user_id, source, member_agent_id, created_at, updated_at) VALUES ($1, 'PR Reviewer', $1, 'agent', 0, 'active', $2, $3, $3, 'cli_create', $4, $5, $5)`,
+      values: [
+        agentProfileId,
+        organizationId,
+        felix.userId,
+        memberAgentId,
+        now,
+      ],
+    });
+  });
+  return { organizationId, felix, tali, sam, agentProfileId, memberAgentId };
+}
+
+type ConsentSpace = {
+  spaceId: string;
+  publishTextSignal(
+    signal: SignalEnvelope,
+    context?: SignalPublishContext
+  ): Promise<void>;
+  recordOrganizationMemberHumanActivity(): Promise<void>;
+  flushPendingSpaceInboxProjectionOutbox(): Promise<void>;
+  flushPendingDispatchOutbox(): Promise<void>;
+  syncSpaceBackgroundAlarm(): Promise<void>;
+  projectCurrentSpaceIndexSnapshot(): Promise<void>;
+  broadcastSpaceMembersChanged(): Promise<void>;
+  broadcastSpaceMetaChanged(): Promise<void>;
+  authorizeSpaceAccess(
+    access: ReturnType<typeof createAuthenticatedSpaceAccessContext>
+  ): Promise<{ ok: boolean }>;
+  rpcApplyAgentAccessDecision: Space["rpcApplyAgentAccessDecision"];
+  rpcMutateSpaceMessage: Space["rpcMutateSpaceMessage"];
+};
+
+type SpaceHarness = {
+  instance: ConsentSpace;
+  state: DurableObjectState;
+  spaceId: string;
+  post(author: Person, text: string, kind?: "human"): Promise<SignalEnvelope>;
+  outbox(
+    signal: SignalEnvelope
+  ): ReturnType<typeof listDispatchOutboxRecordsBySourceSignalId>;
+  context(person: Person): OpenMeldRequestContext;
+};
+
+/** A real Space owner with one Human author and the Agent as members. */
+async function withSpace(
+  f: Fixture,
+  options: {
+    directMessage: boolean;
+    humans: Person[];
+    agentMember: boolean;
+  },
+  run: (space: SpaceHarness) => Promise<void>
+) {
+  const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+  const id = namespace.newUniqueId();
+  const spaceId = id.toString();
+  await runInDurableObject(namespace.get(id), async (object, state) => {
+    const background = vi.spyOn(state, "waitUntil");
+    const instance = object as unknown as ConsentSpace;
+    instance.spaceId = spaceId;
+    const creatorPerson = options.humans[0];
+    if (!creatorPerson) {
+      throw new Error("A Space needs a creator.");
+    }
+    const creator = {
+      kind: "human" as const,
+      profileId: creatorPerson.profileId,
+      profileName: creatorPerson.name,
+      ownerUserId: creatorPerson.userId,
+    };
+    upsertSpaceMetaRecord(state.storage.sql, {
+      v: 1,
+      spaceId,
+      name: options.directMessage ? "New chat" : "Launch room",
+      organizationId: f.organizationId,
+      creator,
+      visibility: "private",
+      accessMode: "members_only",
+      ...(options.directMessage
+        ? {
+            purpose: "openmeld_dm_space",
+            directMessage: {
+              pairKey: [creatorPerson.profileId, f.agentProfileId]
+                .sort()
+                .join(":"),
+            },
+          }
+        : {}),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    upsertSpaceCreatorMember({ sql: state.storage.sql, spaceId, creator });
+    for (const human of options.humans.slice(1)) {
+      upsertJoinedSpaceMember({
+        sql: state.storage.sql,
+        spaceId,
+        ownerUserId: human.userId,
+        profile: {
+          kind: "human",
+          profileId: human.profileId,
+          profileName: human.name,
+        },
+      });
+    }
+    if (options.agentMember) {
+      upsertJoinedSpaceMember({
+        sql: state.storage.sql,
+        spaceId,
+        ownerUserId: f.felix.userId,
+        profile: {
+          kind: "agent",
+          profileId: f.agentProfileId,
+          profileName: "PR Reviewer",
+          agentControllerRef: "builtin:claude-code",
+        },
+      });
+    }
+    for (const method of [
+      "recordOrganizationMemberHumanActivity",
+      "flushPendingSpaceInboxProjectionOutbox",
+      "flushPendingDispatchOutbox",
+      "syncSpaceBackgroundAlarm",
+      "projectCurrentSpaceIndexSnapshot",
+      "broadcastSpaceMembersChanged",
+      "broadcastSpaceMetaChanged",
+    ] as const) {
+      vi.spyOn(instance, method).mockResolvedValue();
+    }
+    const context = (person: Person): OpenMeldRequestContext => ({
+      activeOrganizationId: f.organizationId,
+      actorContext: {
+        requestId: crypto.randomUUID(),
+        openMeldProfileId: person.profileId,
+        profileKind: "human",
+        profileName: person.name,
+        ownerUserId: person.userId,
+        callerPrincipalId: person.userId,
+      },
+    });
+    const post = async (author: Person, text: string) => {
+      const profile: Profile = {
+        kind: "human",
+        profileId: author.profileId,
+        profileName: author.name,
+      };
+      const signal: SignalEnvelope = {
+        v: 1,
+        id: crypto.randomUUID(),
+        ts: Date.now(),
+        spaceId,
+        profile,
+        type: "signal.text",
+        data: {
+          text,
+          meta: { clientMessageId: crypto.randomUUID() },
+          messageEnvelope: options.agentMember
+            ? {
+                text,
+                activationTargets: [f.agentProfileId],
+                referenceTargets: [],
+                mentionTargets: [],
+              }
+            : {
+                text,
+                activationTargets: [],
+                referenceTargets: [],
+                mentionTargets: [],
+              },
+        },
+      };
+      await instance.publishTextSignal(signal, {
+        authoringPolicy: "user_authored",
+      } as SignalPublishContext);
+      return signal;
+    };
+    try {
+      await run({
+        instance,
+        state,
+        spaceId,
+        post,
+        outbox: (signal) =>
+          listDispatchOutboxRecordsBySourceSignalId(
+            state.storage.sql,
+            signal.id
+          ),
+        context,
+      });
+    } finally {
+      while (background.mock.calls.length > 0) {
+        await Promise.all(
+          background.mock.calls.splice(0).map(([work]) => work)
+        );
+      }
+      await state.storage.deleteAlarm();
+      vi.restoreAllMocks();
+    }
+  });
+}
+
+async function decide(
+  f: Fixture,
+  space: SpaceHarness,
+  requestId: string,
+  decision: AgentAccessDecision
+) {
+  const db = getPostgresDatabase(env);
+  const decided = await decideAgentAccessRequest({
+    db,
+    decision,
+    deciderUserId: f.felix.userId,
+    nowMs: Date.now(),
+    organizationId: f.organizationId,
+    requestId,
+  });
+  // The same steps as rpcDecideAgentAccessRequest: record, apply, finish.
+  const applied = await space.instance.rpcApplyAgentAccessDecision({
+    decidedByProfileId: f.felix.profileId,
+    decidedByUserId: f.felix.userId,
+    organizationId: f.organizationId,
+    requestId,
+    spaceId: space.spaceId,
+    status: decided.request.status,
+  });
+  await finishAgentAccessDecision({
+    db,
+    nowMs: Date.now(),
+    outcome: applied.outcome,
+    request: decided.request,
+  });
+  return applied;
+}
+
+async function readInboxItem(requestId: string) {
+  const result = await getPostgresDatabase(env).query<{
+    kind: string;
+    importance: string;
+    recipient_user_id: string;
+    resolution_status: string;
+    title: string;
+    preview: string;
+  }>({
+    text: `SELECT kind, importance, recipient_user_id, resolution_status, title, preview
+      FROM "openmeld"."inbox_items" WHERE source_kind = 'agent_access_request' AND source_key = $1`,
+    values: [`agent-access:${requestId}`],
+  });
+  return result.rows[0] ?? null;
+}
+
+describe("Colleague use of an Agent (Phase 4)", () => {
+  it("holds a colleague's first Direct Message until the owner allows it once", async () => {
+    const f = await seed();
+    await withSpace(
+      f,
+      { directMessage: true, humans: [f.tali], agentMember: true },
+      async (space) => {
+        const first = await space.post(f.tali, SECRET_TEXT);
+        // Stored, not dispatched; no membership change.
+        expect(space.outbox(first)).toHaveLength(0);
+        const hold = readHeldDirectMessageAgentAccessHold(
+          space.state.storage.sql,
+          { requesterUserId: f.tali.userId, targetProfileId: f.agentProfileId }
+        );
+        expect(hold).toMatchObject({ kind: "direct_message", state: "held" });
+        if (!hold) {
+          throw new Error("Expected a held Wake.");
+        }
+        const request = await readAgentAccessRequest({
+          db: asQueryable(getPostgresDatabase(env)),
+          requestId: hold.requestId,
+        });
+        expect(request).toMatchObject({
+          kind: "direct_message",
+          ownerUserId: f.felix.userId,
+          requesterUserId: f.tali.userId,
+          requesterKind: "member",
+          status: "pending",
+        });
+        const item = await readInboxItem(hold.requestId);
+        expect(item).toMatchObject({
+          kind: "agent_access_request",
+          importance: "urgent",
+          recipient_user_id: f.felix.userId,
+          resolution_status: "open",
+        });
+        // The urgent email carries the item's copy: never the message text.
+        expect(`${item?.title} ${item?.preview}`).not.toContain("signing key");
+
+        // One request per Session: the requester waits or withdraws.
+        await expect(
+          space.post(f.tali, "Are you there?")
+        ).rejects.toMatchObject({ code: AGENT_ACCESS_PENDING_CODE });
+
+        await expect(
+          decide(f, space, hold.requestId, "allow_once")
+        ).resolves.toEqual({ outcome: "applied" });
+        const [released] = space.outbox(first);
+        expect(released?.targetProfileId).toBe(f.agentProfileId);
+        // Approval always starts a new Session for the requester.
+        expect(released?.contextSelection).toEqual({ mode: "new" });
+        expect(released?.requestChain?.[0]).toEqual({
+          kind: "human",
+          profileId: f.tali.profileId,
+        });
+        expect((await readInboxItem(hold.requestId))?.resolution_status).toBe(
+          "resolved"
+        );
+        // The owner still is not a member of the Direct Message.
+        expect(
+          readSpaceMemberRecord(space.state.storage.sql, f.felix.profileId)
+        ).toBeNull();
+
+        // Allowed once covers this Session.
+        const next = await space.post(f.tali, "One more thing");
+        expect(space.outbox(next)).toHaveLength(1);
+      }
+    );
+  });
+
+  it("asks every time for an external user and never offers always allow", async () => {
+    const f = await seed();
+    await withSpace(
+      f,
+      { directMessage: false, humans: [f.felix, f.sam], agentMember: true },
+      async (space) => {
+        const first = await space.post(f.sam, "Can your Agent check this?");
+        expect(space.outbox(first)).toHaveLength(0);
+        const db = getPostgresDatabase(env);
+        const held = await db.query<{ id: string; kind: string }>({
+          text: `SELECT id, kind FROM "openmeld"."agent_access_requests" WHERE space_id = $1`,
+          values: [space.spaceId],
+        });
+        expect(held.rows).toEqual([
+          { id: expect.any(String), kind: "external_message" },
+        ]);
+        const requestId = held.rows[0]?.id ?? "";
+        await expect(
+          decideAgentAccessRequest({
+            db,
+            decision: "always_allow",
+            deciderUserId: f.felix.userId,
+            nowMs: Date.now(),
+            organizationId: f.organizationId,
+            requestId,
+          })
+        ).rejects.toMatchObject({ code: "agent_access.decision_unavailable" });
+        await decide(f, space, requestId, "allow_once");
+        expect(space.outbox(first)).toHaveLength(1);
+        // Asked again for the next message.
+        const second = await space.post(f.sam, "And this one?");
+        expect(space.outbox(second)).toHaveLength(0);
+        // The owner's own message never asks.
+        const own = await space.post(f.felix, "I'll take it from here");
+        expect(space.outbox(own)).toHaveLength(1);
+      }
+    );
+  });
+
+  it("only the owner decides and only the requester withdraws", async () => {
+    const f = await seed();
+    await withSpace(
+      f,
+      { directMessage: true, humans: [f.tali], agentMember: true },
+      async (space) => {
+        await space.post(f.tali, "Please look");
+        const hold = readHeldDirectMessageAgentAccessHold(
+          space.state.storage.sql,
+          { requesterUserId: f.tali.userId, targetProfileId: f.agentProfileId }
+        );
+        const requestId = hold?.requestId ?? "";
+        const db = getPostgresDatabase(env);
+        await expect(
+          decideAgentAccessRequest({
+            db,
+            decision: "always_allow",
+            deciderUserId: f.tali.userId,
+            nowMs: Date.now(),
+            organizationId: f.organizationId,
+            requestId,
+          })
+        ).rejects.toMatchObject({ code: "agent_access.owner_required" });
+        await expect(
+          withdrawAgentAccessRequest({
+            db,
+            nowMs: Date.now(),
+            organizationId: f.organizationId,
+            requestId,
+            requesterUserId: f.felix.userId,
+          })
+        ).rejects.toMatchObject({ code: "agent_access.requester_required" });
+        await withdrawAgentAccessRequest({
+          db,
+          nowMs: Date.now(),
+          organizationId: f.organizationId,
+          requestId,
+          requesterUserId: f.tali.userId,
+        });
+        await space.instance.rpcApplyAgentAccessDecision({
+          decidedByProfileId: f.tali.profileId,
+          decidedByUserId: f.tali.userId,
+          organizationId: f.organizationId,
+          requestId,
+          spaceId: space.spaceId,
+          status: "withdrawn",
+        });
+        expect(
+          readSpaceAgentAccessHold(space.state.storage.sql, requestId)
+        ).toMatchObject({ state: "closed", closeReason: "withdrawn" });
+        await expect(
+          decideAgentAccessRequest({
+            db,
+            decision: "allow_once",
+            deciderUserId: f.felix.userId,
+            nowMs: Date.now(),
+            organizationId: f.organizationId,
+            requestId,
+          })
+        ).rejects.toMatchObject({ code: "agent_access.request_closed" });
+        expect((await readInboxItem(requestId))?.resolution_status).toBe(
+          "resolved"
+        );
+      }
+    );
+  });
+
+  it("keeps the current behavior with MemberAgents off", async () => {
+    const f = await seed();
+    feature.enabled = false;
+    await withSpace(
+      f,
+      { directMessage: true, humans: [f.tali], agentMember: true },
+      async (space) => {
+        const message = await space.post(f.tali, "Hello");
+        expect(space.outbox(message)).toHaveLength(1);
+      }
+    );
+  });
+});

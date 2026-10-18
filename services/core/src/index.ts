@@ -415,6 +415,12 @@ import type {
   UpdateSpaceFileEntryResponse,
   WriteCurrentDeviceObservedMetadataResponse,
 } from "@openmeld/schemas/types";
+import {
+  rpcDecideAgentAccessRequest,
+  rpcGetAgentAccessRequest,
+  rpcListAgentAccessRequests,
+  rpcWithdrawAgentAccessRequest,
+} from "./agent-access/agent-access-rpc";
 import { rpcCenterAgentReadAgentActivityOverview } from "./agent-activity/activity-center-agent-rpc";
 import { acceptAgentActivitySessionInventoryMemberCleanup } from "./agent-activity/activity-session-inventory-member-cleanup-service";
 import { reconcileDeletedAgentProfile } from "./agent-profile-binding/application/deleted-profile-reconcile-service";
@@ -4433,6 +4439,32 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcGetMemberAgentPresence(this.env, input)
     );
   }
+  listAgentAccessRequests(
+    input: Parameters<typeof rpcListAgentAccessRequests>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListAgentAccessRequests(this.env, input)
+    );
+  }
+  getAgentAccessRequest(input: Parameters<typeof rpcGetAgentAccessRequest>[1]) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetAgentAccessRequest(this.env, input)
+    );
+  }
+  decideAgentAccessRequest(
+    input: Parameters<typeof rpcDecideAgentAccessRequest>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDecideAgentAccessRequest(this.env, input)
+    );
+  }
+  withdrawAgentAccessRequest(
+    input: Parameters<typeof rpcWithdrawAgentAccessRequest>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcWithdrawAgentAccessRequest(this.env, input)
+    );
+  }
   submitRuntimeProviderConversationProofs(
     input: SubmitRuntimeProviderConversationProofsInput
   ): Promise<SubmitRuntimeProviderConversationProofsResponse> {
@@ -6402,6 +6434,24 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: MemberAgentRpcInput
   ): Promise<GetMemberAgentPresenceResponse> {
     return super.getMemberAgentPresence(input);
+  }
+  listAgentAccessRequests(
+    input: Parameters<typeof rpcListAgentAccessRequests>[1]
+  ) {
+    return super.listAgentAccessRequests(input);
+  }
+  getAgentAccessRequest(input: Parameters<typeof rpcGetAgentAccessRequest>[1]) {
+    return super.getAgentAccessRequest(input);
+  }
+  decideAgentAccessRequest(
+    input: Parameters<typeof rpcDecideAgentAccessRequest>[1]
+  ) {
+    return super.decideAgentAccessRequest(input);
+  }
+  withdrawAgentAccessRequest(
+    input: Parameters<typeof rpcWithdrawAgentAccessRequest>[1]
+  ) {
+    return super.withdrawAgentAccessRequest(input);
   }
   submitAgentControllerTaskLifecycleEvents(
     input: SubmitAgentControllerTaskLifecycleEventsInput

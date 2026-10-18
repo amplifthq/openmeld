@@ -2,6 +2,7 @@ import type { Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
 import { registerSpaceAccessModeRoute } from "./rpc-http.access-mode";
 import { registerAccountAvatarRoutes } from "./rpc-http.account-avatar";
+import { registerAgentAccessRoutes } from "./rpc-http.agent-access";
 import { registerAgentActivityRoutes } from "./rpc-http.agent-activity";
 import { registerAgentInteractionRoutes } from "./rpc-http.agent-interactions";
 import { registerAgentProfileBindingRoutes } from "./rpc-http.agent-profile-bindings";
@@ -93,6 +94,7 @@ export function registerRpcHttpRoutes(app: Hono<HonoBindings>): void {
   registerPermissionModeSuggestionRoutes(app);
   registerLocalRuntimeExpectedRoutesRoutes(app);
   registerMemberAgentRoutes(app);
+  registerAgentAccessRoutes(app);
   registerOrganizationRoutes(app);
   registerOrganizationUsageRoutes(app);
   registerOrganizationDocumentRoutes(app);

@@ -42,6 +42,8 @@ const postgresqlOnlyTables = [
   { name: "agent_profile_permission_mode_advisories" },
   { name: "center_agent_permission_mode_confirmations" },
   { name: "direct_message_session_states" },
+  { name: "agent_access_requests" },
+  { name: "agent_profile_access_grants" },
 ];
 
 function csv(value) {

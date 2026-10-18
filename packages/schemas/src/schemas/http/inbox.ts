@@ -108,6 +108,8 @@ export const inboxItemKindSchema = z.enum([
   "center_agent_update",
   "document_review",
   "organization_request",
+  "agent_access_request",
+  "agent_space_request",
   "system_issue",
   "computer_connection",
   "desktop_update",
@@ -126,6 +128,7 @@ export const inboxSourceKindSchema = z.enum([
   "organization_opportunity",
   "organization_member_request",
   "agent_profile_work_recovery",
+  "agent_access_request",
   "system_attention_event",
   "computer_connection",
   "desktop_update",
@@ -207,6 +210,12 @@ export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
   desktopUpdateInboxSourceTargetSchema,
   z.strictObject({
     kind: z.literal("organization_join_request"),
+    requestId: identifierSchema,
+  }),
+  // An Agent owner's consent request; the request owns its state and its
+  // Space. No spaceId: the owner may not be in that Space.
+  z.strictObject({
+    kind: z.literal("agent_access_request"),
     requestId: identifierSchema,
   }),
   z.strictObject({

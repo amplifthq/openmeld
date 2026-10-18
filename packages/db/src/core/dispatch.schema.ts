@@ -11,6 +11,10 @@ import { organizations } from "../auth/auth.schema.ts";
 import { applicationTable } from "../postgresql/schema.ts";
 import { integerBoolean } from "../postgresql/schema-types.ts";
 import {
+  agentAccessRequests,
+  agentProfileAccessGrants,
+} from "./agent-access.schema.ts";
+import {
   agentActivityDailyAggregates,
   agentActivityDailySessionKeys,
   agentActivityDigests,
@@ -1816,6 +1820,8 @@ export const coreSchema = {
   agentTaskTerminalOutcomes,
   centerAgentWakePublications,
   centerAgentPermissionModeConfirmations,
+  agentAccessRequests,
+  agentProfileAccessGrants,
   centerAgentProjectOperations,
   centerAgentProjectRemoveConfirmations,
   projects,

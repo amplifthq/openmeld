@@ -1,6 +1,10 @@
 // biome-ignore-all lint/performance/noBarrelFile: This subpath entrypoint intentionally re-exports the canonical core db surface.
 
 export {
+  agentAccessRequests,
+  agentProfileAccessGrants,
+} from "./agent-access.schema.ts";
+export {
   agentActivityDailyAggregates,
   agentActivityDailySessionKeys,
   agentActivityDigests,

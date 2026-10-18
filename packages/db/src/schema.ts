@@ -91,6 +91,8 @@ export const {
   centerAgentAttentionRequests,
   centerAgentWakePublications,
   centerAgentPermissionModeConfirmations,
+  agentAccessRequests,
+  agentProfileAccessGrants,
   centerAgentProjectOperations,
   centerAgentProjectRemoveConfirmations,
   centerAgentConnectorActionOperations,
