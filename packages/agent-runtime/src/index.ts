@@ -293,6 +293,12 @@ export {
   projectPeopleComputersToLegacyLocalRuntimes,
 } from "./people-computer";
 export {
+  listPermissionModeAdvisorSteps,
+  MEMBER_AGENT_WELCOME_PERMISSION_MODE_LINE,
+  type PermissionModeAdvisorSuggestion,
+  resolvePermissionModeAdvisorSuggestion,
+} from "./permission-mode-advisor";
+export {
   type AllRunnableCapabilitiesPreparedStatus,
   assertPrepareOutputHasNoBindingWriteAction,
   assertPrepareOutputHasNoExecutableWorkAction,

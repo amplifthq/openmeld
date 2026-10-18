@@ -295,6 +295,13 @@
       "when": 1792338693404,
       "tag": "0041_agent_dm_session_states",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1792341501492,
+      "tag": "0042_agent_profile_permission_mode_advisories",
+      "breakpoints": true
     }
   ]
 }

@@ -14,6 +14,7 @@ import {
   localAgentReasoningStateSchema,
 } from "../http/local-agent-reasoning";
 import { organizationProtectedInformationSchema } from "../http/organization-information-protection";
+import { permissionModeAdvisorySchema } from "../http/permission-mode-advisor";
 import { spaceMentionLabelSchema } from "../http/space-mention-label";
 import { spacePasswordSchema } from "../http/space-password";
 import { postSpaceWakeStopResponseSchema } from "../http/space-wake-stop";
@@ -470,6 +471,8 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
   agentReplyContextReview: z.literal(true).optional(),
   informationProtectionPrompt: z.literal(true).optional(),
   workingLanguagePrompt: z.literal(true).optional(),
+  // The Service renders Core's permission-mode advisory block in the task prompt.
+  permissionModeAdvisoryPrompt: z.literal(true).optional(),
   verifiedRequesterContext: z.literal(true).optional(),
   localAgentInteraction: z.literal(true).optional(),
   profileConfigurationRevision: z.literal(true).optional(),
@@ -1309,6 +1312,8 @@ export const runtimeTransportDeliverDispatchPayloadSchema = z.strictObject({
   organizationProtectedInformation:
     organizationProtectedInformationSchema.optional(),
   workingLanguage: workingLanguageGuidanceSchema.optional(),
+  // Only for a Wake Core verified as owner-requested; never a permission grant.
+  permissionModeAdvisory: permissionModeAdvisorySchema.optional(),
   dispatchContractVersion: z.number().int().positive(),
   dispatchPolicy: runtimeDispatchPolicySchema,
   controllerSnapshot: openMeldDaemonDispatchControllerSnapshotSchema,

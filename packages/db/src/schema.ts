@@ -49,6 +49,7 @@ export const {
 } = authSchema;
 
 export const {
+  agentProfilePermissionModeAdvisories,
   conversationHistoryDeletions,
   directMessageSessionStates,
   firstWorkExperiences,

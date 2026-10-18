@@ -28,6 +28,7 @@ import {
   agentProfileCreationApprovalPreferences,
   agentProfileCreationRequests,
 } from "./agent-profile-creation-request.schema.ts";
+import { agentProfilePermissionModeAdvisories } from "./agent-profile-permission-mode-advisory.schema.ts";
 import {
   agentControllerTaskLifecycleEvents,
   agentControllerTasks,
@@ -1771,6 +1772,7 @@ export const agentActivityExecutionLinks = applicationTable(
 );
 
 export const coreSchema = {
+  agentProfilePermissionModeAdvisories,
   conversationHistoryDeletions,
   directMessageSessionStates,
   userTimeContexts,
