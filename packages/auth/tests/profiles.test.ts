@@ -36,6 +36,7 @@ type ProfileSeed = Omit<
   | "avatarStyle"
   | "avatarOptions"
   | "organizationId"
+  | "memberAgentId"
 > &
   Partial<
     Pick<
@@ -50,6 +51,7 @@ type ProfileSeed = Omit<
       | "avatarStyle"
       | "avatarOptions"
       | "organizationId"
+      | "memberAgentId"
     >
   >;
 
@@ -69,6 +71,7 @@ function withProfileDefaults(profile: ProfileSeed): OpenMeldProfileRecord {
     managedRole: profile.managedRole ?? null,
     avatarStyle: profile.avatarStyle ?? null,
     avatarOptions: profile.avatarOptions ?? null,
+    memberAgentId: profile.memberAgentId ?? null,
   };
 }
 
@@ -195,6 +198,7 @@ function createInMemoryRepository(
         creationActorProfileId: null,
         creatorProfileId: input.creatorProfileId ?? null,
         creationIdempotencyKey: null,
+        memberAgentId: null,
         defaultProjectId: null,
         defaultProjectRevision: 0,
         avatarStyle: null,
@@ -249,6 +253,7 @@ function createInMemoryRepository(
         creationActorProfileId: input.creationActorProfileId ?? null,
         creatorProfileId: input.creatorProfileId ?? null,
         creationIdempotencyKey: input.creationIdempotencyKey ?? null,
+        memberAgentId: null,
         defaultProjectId: null,
         defaultProjectRevision: 0,
         avatarStyle: null,
@@ -284,6 +289,7 @@ function createInMemoryRepository(
         creationActorProfileId: null,
         creatorProfileId: input.creatorProfileId ?? null,
         creationIdempotencyKey: null,
+        memberAgentId: null,
         defaultProjectId: null,
         defaultProjectRevision: 0,
         avatarStyle: null,

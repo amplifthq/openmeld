@@ -439,6 +439,13 @@ export {
   spaceTraceExecutionIdentityProjectionSchema,
 } from "./daemon/execution-identity";
 export {
+  HARNESS_KINDS,
+  type HarnessKind,
+  HOSTED_HARNESS_KIND,
+  harnessKindFromAgentControllerRef,
+  harnessKindSchema,
+} from "./daemon/harness-kind";
+export {
   localAgentSetupOperationSchema,
   localAgentSetupRequestSchema,
   localAgentSetupStateSchema,
@@ -1730,6 +1737,22 @@ export {
   setCurrentOpenMeldToolsMaintenanceResponseSchema,
   setLocalRuntimeDisplayNameBodySchema,
 } from "./http/local-runtimes";
+export {
+  type ListMemberAgentsResponse,
+  listMemberAgentsResponseSchema,
+  MEMBER_AGENTS_DISABLED_CODE,
+  MEMBER_AGENTS_DISABLED_MESSAGE,
+  MEMBER_AGENTS_ENABLED,
+  type MemberAgent,
+  type MemberAgentProfileSummary,
+  type MemberAgentSource,
+  type MemberAgentWithProfiles,
+  memberAgentProfileSummarySchema,
+  memberAgentSchema,
+  memberAgentSourceSchema,
+  memberAgentWithProfilesSchema,
+  unassignedAgentProfileSummarySchema,
+} from "./http/member-agents";
 export {
   centerAgentPostChannelFileBodySchema,
   centerAgentPostChannelFileResponseSchema,

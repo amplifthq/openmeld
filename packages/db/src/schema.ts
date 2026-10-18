@@ -24,6 +24,8 @@ export const {
   deviceCodes,
   invitations,
   invitationsRelations,
+  memberAgents,
+  memberAgentsRelations,
   organizationJoinLinks,
   organizationJoinLinksRelations,
   members,
