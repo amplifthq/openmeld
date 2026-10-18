@@ -11,6 +11,6 @@ export default defineConfig({
   sourcemap: true,
   clean: false,
   // Inferred schema responses include Zod's recursive JSON type in declarations.
-  inlineOnly: ["zod"],
+  deps: { onlyBundle: ["zod"] },
   outExtensions: () => ({ js: ".js" }),
 });

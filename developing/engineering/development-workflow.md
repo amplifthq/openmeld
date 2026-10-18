@@ -159,6 +159,25 @@ environment callback, or no coordination best fits the actual work.
   and merge through a PR before their approved `main` commit becomes a release
   source.
 
+### TypeScript compiler and tooling API
+
+The root `@typescript/native` dependency installs TypeScript 7's `tsc` binary.
+Workspace `typecheck` and `tsc` build commands use that binary. The `typescript`
+dependency is an npm alias for Microsoft's `@typescript/typescript6` compatibility
+package, so tools that import the legacy JavaScript compiler API keep working.
+It exposes `tsc6`, not `tsc`; do not replace workspace type checks with `tsc6`.
+Repository-owned AST and transpilation scripts import `@typescript/typescript6`
+explicitly and declare it in their owning package.
+
+Use `pnpm exec tsc --version` to check the active compiler. Reading the version
+from `typescript/package.json` reports the compatibility API package instead.
+Keep emitting projects' `rootDir` explicit to preserve package entrypoints.
+Path aliases are relative to their config file; do not reintroduce `baseUrl`.
+The supported build tools and compiler versions are pinned in package manifests
+and the lockfile. Follow Microsoft's
+[side-by-side guidance](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/)
+when changing this boundary.
+
 ### Resource Discipline
 
 For a new worktree, use Node from `.nvmrc`, pnpm from `packageManager`, and

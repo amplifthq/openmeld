@@ -107,7 +107,7 @@ class DesktopSpaceLiveTransport implements SpaceLiveTransport {
 			options
 		);
 	}
-	send(data: Parameters<WebSocket["send"]>[0]) {
+	send(data: unknown) {
 		if (this.closed || data !== SPACE_STREAM_KEEPALIVE_PING) {
 			throw new Error("The Space stream only accepts keepalive pings.");
 		}

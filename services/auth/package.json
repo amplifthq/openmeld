@@ -59,7 +59,7 @@
     "dotenv-cli": "^11.0.0",
     "drizzle-kit": "^0.31.9",
     "esbuild": "0.28.2",
-    "typescript": "^5.9.3",
+    "typescript": "npm:@typescript/typescript6@6.0.2",
     "vitest": "~3.2.0",
     "wrangler": "catalog:"
   }
