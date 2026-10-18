@@ -33,3 +33,12 @@ generalization. Each finding was checked against the code before acting.
 | 7 | — | Session rename accepted 160 characters; Space names cap at 80 | Verified (found while the review ran) | Fixed: rename uses the shared `spaceNameSchema` |
 
 Nothing was rejected.
+
+## Local-stack check after rebasing onto 1c (2026-10-19)
+
+Local PostgreSQL stack with the flag switched on in the working tree only and
+synthetic MemberAgents. Three defects found and fixed in `a5f2877da`: an icon
+missing from Web's curated Phosphor facade broke the dev bundle (typecheck
+and unit tests cannot see the facade); the MemberAgent DM header showed the
+Agent's name instead of the Session's name; the latest Session on a
+MemberAgent row could be an archived one.
