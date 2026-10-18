@@ -30,6 +30,7 @@ import { toast } from "sonner";
 import { AgentAccessRequestCard } from "#/components/agent-access/agent-access-request-card";
 import { AppPageHeader } from "#/components/app/app-page-header";
 import { MessageSearchButton } from "#/components/search/message-search";
+import { CredentialConfirmationCard } from "#/components/sensitive-operations/credential-confirmation-card";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { inboxItemQueryOptions } from "#/query/organizations/inbox";
 import {
@@ -68,6 +69,14 @@ function InboxSourceDetails({ target }: { target: InboxItem["sourceTarget"] }) {
 			<AgentAccessRequestCard
 				key={target.requestId}
 				requestId={target.requestId}
+			/>
+		);
+	}
+	if (target.kind === "credential_confirmation") {
+		return (
+			<CredentialConfirmationCard
+				confirmationId={target.confirmationId}
+				key={target.confirmationId}
 			/>
 		);
 	}

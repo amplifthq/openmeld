@@ -380,6 +380,11 @@ export type {
   SubmitRuntimeProviderConversationProofsInput,
   SubmitRuntimeRegistrationInput,
 } from "./runtime-reporting/types";
+export { createSensitiveOperationsApi } from "./sensitive-operations/api";
+export type {
+  CreateSensitiveOperationsApi,
+  SensitiveOperationsApi,
+} from "./sensitive-operations/types";
 export { createServiceConnectionEvidenceApi } from "./service-connection-evidence/api";
 export { createSessionHistoryApi } from "./session-history/api";
 export type {

@@ -8,6 +8,7 @@ import { useQueries } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { AppContextualSidebarNav } from "#/components/app/app-contextual-layout";
+import { SensitiveOperationAuditSection } from "#/components/sensitive-operations/sensitive-operation-audit-section";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationDirectMessagePath } from "#/lib/organizations/organization-routes";
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
@@ -103,6 +104,22 @@ export function MemberAgentDetail(input: {
 					))}
 				</ul>
 			</section>
+			<SensitiveOperationAuditSection
+				memberAgentId={row.memberAgentId}
+				profileNames={
+					new Map(
+						row.profiles.map((profile) => [
+							profile.openMeldProfileId,
+							formatMemberAgentProfileDisplayName({
+								memberAgentName: row.displayName,
+								profileName: profile.profileName,
+								isDefaultProfile:
+									profile.openMeldProfileId === row.defaultProfileId,
+							}),
+						])
+					)
+				}
+			/>
 		</div>
 	);
 }
