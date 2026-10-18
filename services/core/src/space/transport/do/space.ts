@@ -21359,7 +21359,7 @@ export class Space extends DurableObject<CoreBindings> {
       console.error("[core.space.live_access_check_failed]", {
         spaceId: this.spaceId,
         closeReason: closure.reason,
-        error: formatUnknownErrorMessage(closure.error),
+        error: toRedactedSpaceErrorMessage(closure.error),
       });
     }
     removeFailedSpaceWebSocketSession({

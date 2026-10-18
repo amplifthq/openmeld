@@ -7,7 +7,7 @@ import type {
   SpaceInvitationRpcInput,
   SpaceInvitationRpcResult,
 } from "@openmeld/schemas";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import { organizationJoinRequest } from "../src/organizations/organization-join-requests";
 import { spaceInvitation } from "../src/organizations/space-invitations";
@@ -312,11 +312,16 @@ describe("Organization Space self-join", () => {
               createCoreRpcHttpError({
                 status: 503,
                 code: "organization.context_unavailable",
-                reason: "Organization context could not be verified.",
+                // A failing lookup can echo request text into its message.
+                reason:
+                  "Organization context could not be verified. x-openmeld-space-password: hunter2",
               })
             )
           : authorize(input);
     });
+    const loggedErrors = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     const ownerInvalidation = waitForJsonMessage(
       ownerSocket,
       (message) => message.type === "space.meta.changed",
@@ -341,6 +346,11 @@ describe("Organization Space self-join", () => {
       new Promise((resolve) => setTimeout(() => resolve("open"), 50)),
     ]);
     expect(ownerOutcome).toBe("open");
+    const accessCheckLogs = loggedErrors.mock.calls.filter(
+      ([event]) => event === "[core.space.live_access_check_failed]"
+    );
+    expect(accessCheckLogs).not.toHaveLength(0);
+    expect(JSON.stringify(accessCheckLogs)).not.toContain("hunter2");
     ownerSocket.close(1000, "test_complete");
   });
 });
