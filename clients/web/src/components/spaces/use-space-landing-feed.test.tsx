@@ -909,6 +909,58 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		expect(membersRefetch).not.toHaveBeenCalled();
 	});
 
+	it("re-reads the active Wake progress summary after a first read still in flight when a reconnect is accepted", async () => {
+		const { queryClient } = renderFeed();
+		await openLatestSocket();
+		let resolveFirstRead!: (value: string) => void;
+		const readSummary = vi
+			.fn<() => Promise<string>>()
+			.mockImplementationOnce(
+				() =>
+					new Promise<string>((resolve) => {
+						resolveFirstRead = resolve;
+					})
+			)
+			.mockResolvedValue("summary-v2");
+		const mounted = renderHook(
+			() =>
+				useQuery({
+					queryKey: spaceQueryKeys.activeWakeProgressSummary(
+						"space-123",
+						"11111111-1111-1111-1111-111111111111"
+					),
+					queryFn: readSummary,
+					staleTime: Number.POSITIVE_INFINITY,
+				}),
+			{
+				wrapper: ({ children }: { children: ReactNode }) => (
+					<QueryClientProvider client={queryClient}>
+						{children}
+					</QueryClientProvider>
+				),
+			}
+		);
+		await flushMicrotasks();
+		expect(readSummary).toHaveBeenCalledTimes(1);
+
+		// The first summary read started before a withheld approval change.
+		await act(async () => {
+			await FakeWebSocket.latest.emitClose(1013, "space_access_unverified");
+			await vi.advanceTimersByTimeAsync(2000);
+		});
+		await openLatestSocket();
+		await act(async () => {
+			resolveFirstRead("summary-v1");
+			await vi.advanceTimersByTimeAsync(0);
+		});
+		await flushMicrotasks();
+		await act(async () => vi.advanceTimersByTimeAsync(0));
+
+		// The approval tray must not keep the read that predates the change.
+		expect(readSummary).toHaveBeenCalledTimes(2);
+		expect(mounted.result.current.data).toBe("summary-v2");
+	});
+
 	it("coalesces Wake progress and delegation details behind a slow refresh and keeps one final refresh", async () => {
 		const { queryClient } = renderFeed();
 		await openLatestSocket();
