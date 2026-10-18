@@ -13,5 +13,6 @@ export {
   isNotNull,
   isNull,
   lte,
+  or,
   sql,
 } from "drizzle-orm";

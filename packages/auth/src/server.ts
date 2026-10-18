@@ -67,10 +67,16 @@ export {
   OPENMELD_AUTH_HEADER_REQUEST_ID,
   readAuthClaimsHeaders,
 } from "./headers/auth-headers";
+export {
+  type EnsureDetectedMemberAgentResult,
+  ensureDetectedMemberAgent,
+} from "./member-agents/member-agent-ensure";
 export type {
+  MemberAgentOwnerHarnessKey,
   MemberAgentProfileRecord,
   MemberAgentRecord,
   MemberAgentRepository,
+  MemberAgentRowRecord,
   OwnerMemberAgentListing,
   UnassignedAgentProfileRecord,
 } from "./member-agents/member-agent-repository";
