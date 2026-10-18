@@ -535,6 +535,13 @@ stored.
 | Grant, revoke, archive | new | — | root owns; archive is non-additive and needs an explicit instruction |
 | Space actions from a task | task context file + execution token | `dispatch-space-action-context.ts` | task credential with chain |
 
+Until Phase 5, ordinary §6 endpoints authorize the signed-in account; a
+Web, App or CLI session is its own root, so those checks are the root check
+for them. The remaining gap is a colleague-rooted task running the owner's
+real CLI, which Phase 5a–5c close. Hosted Center and Remote Agent Wakes have
+no Execution Context assignment; their management calls are root-checked at
+the tool boundary instead of at admission.
+
 Implementers extend this table in the PR when they touch an operation not
 listed; reviewers reject sensitive writes that check only the immediate actor.
 
@@ -788,6 +795,16 @@ cache; Project redesign.
   accepts `includeUsageLimits` and, per 1c's review, may attach `usageLimits`
   for other members' Profiles. Verify viewer gating against §4.10 (quota
   numbers owner-only) in Phase 4 and fix if it leaks (pre-existing).
+- Personal Remote Agent rejects `autoRelayDepth >= 6`, a pre-existing hard
+  block that contradicts the Auto-Relay Loop Policy. Follow-up outside this
+  program unless Phase 4 touches hosted collaboration.
+- Inbox urgent email is at-least-once (a crash between provider acceptance
+  and `markDeliverySent` retries). Per-Session coalescing holds at the row
+  level; exactly-once delivery is a follow-up.
+- Center Agent permission-mode confirmation is bound to member, target,
+  input and a later delivery in Core, but a member who declines in words is
+  honored only by the model. A clickable confirmation card would close this;
+  follow-up.
 - Dispatch results report `effectiveRuntimeWorkingDirectory` to Core
   (`send-dispatch-result.ts`, pre-existing). Confirm it is projected to the
   owner only and decide whether it should become a folder id (Phase 3).
@@ -862,3 +879,13 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   resolves the card before writing; the CLI-credential risk is Phase 5's;
   Center Agent confirmation needs Core-bound evidence, added to Phase 3b.
   Phase 1 is complete on the program branch (migrations 0038–0042).
+- 2026-10-19, Phase 3 report and its Codex review (gpt-6-astra, high):
+  migrations 0043 (Center Agent permission-mode confirmations) and 0044
+  (dispatch ledger chain root). Fixed in the package: represented-member
+  requests must match the recorded turn member; `ca-wake:` roots verified
+  against the native delivery ledger; connect cannot change an existing
+  Binding's permission mode without confirmation; confirmations consumed
+  only by a later delivery of the same member; finalized replies keep their
+  chain; Remote Agent tools resolve the chain from their own Wake; Session
+  question items never reopen on replay; flag-off behavior unchanged. Program
+  notes added to §6 and §13.
