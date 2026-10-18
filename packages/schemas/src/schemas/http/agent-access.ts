@@ -25,6 +25,9 @@ export const AGENT_PROFILE_ACCESS_GRANT_REVOKE_ROUTE =
 
 export const AGENT_ACCESS_PENDING_CODE = "agent_access.pending_owner_consent";
 export const AGENT_ACCESS_DECLINED_CODE = "agent_access.declined";
+// The `space.meta.changed` reason a Space sends when one of its requests
+// opens or closes, so the requester's and the owner's views refetch.
+export const AGENT_ACCESS_SPACE_CHANGED_REASON = "space.agent_access.changed";
 
 /**
  * - `direct_message`: a colleague's Direct Message to the owner's Agent.

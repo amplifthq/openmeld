@@ -180,6 +180,7 @@ import {
   validateSpaceSignalClientMessageIdPolicy,
   wakeDeviceWaitAccessRequestSchema,
   AGENT_ACCESS_PENDING_CODE,
+  AGENT_ACCESS_SPACE_CHANGED_REASON,
   type AgentAccessRequestStatus,
 } from "@openmeld/schemas";
 import type {
@@ -23244,6 +23245,9 @@ export class Space extends DurableObject<CoreBindings> {
         updatedAtMs: hold.updatedAtMs,
       });
     }
+    await this.broadcastSpaceMetaChanged({
+      reason: AGENT_ACCESS_SPACE_CHANGED_REASON,
+    });
     await this.syncSpaceBackgroundAlarm();
   }
   /**
@@ -23328,6 +23332,10 @@ export class Space extends DurableObject<CoreBindings> {
       if (applied.dispatched) {
         await this.flushPendingDispatchOutbox();
       }
+    });
+    // Core recorded the decision first, so both views read the outcome.
+    await this.broadcastSpaceMetaChanged({
+      reason: AGENT_ACCESS_SPACE_CHANGED_REASON,
     });
     return { outcome: applied.outcome };
   }
