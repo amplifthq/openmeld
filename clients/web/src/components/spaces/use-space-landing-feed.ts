@@ -1121,6 +1121,11 @@ export function useSpaceLandingFeed(input: {
 
 			if (event.code === 1008) {
 				clearTransientStreams();
+			}
+			// 1013 means Core could not verify access. If access was really
+			// revoked meanwhile, the reconnect is rejected before any close code
+			// reaches the browser, so re-read access now as for 1008.
+			if (event.code === 1008 || event.code === 1013) {
 				input.statusRefetch().catch((error) => {
 					console.error(
 						"Failed to refresh Space access after session closure",

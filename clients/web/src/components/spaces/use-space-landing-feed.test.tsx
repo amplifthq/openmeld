@@ -367,6 +367,16 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		expect(statusRefetch).toHaveBeenCalledTimes(1);
 	});
 
+	it("refreshes authority when Core closes a session it could not verify", async () => {
+		const { statusRefetch } = renderFeed();
+		await openLatestSocket();
+		await act(async () =>
+			FakeWebSocket.latest.emitClose(1013, "space_access_unverified")
+		);
+		// Do not wait for an accepted reconnect: a revoked viewer never gets one.
+		expect(statusRefetch).toHaveBeenCalledTimes(1);
+	});
+
 	it("refreshes authority from the Desktop native close metadata", () => {
 		let deliver: ((event: DesktopSpaceStreamEvent) => void) | undefined;
 		const open = vi.fn().mockResolvedValue(undefined);
