@@ -1109,6 +1109,17 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 			: {}),
 	});
 	const requestAgent = useRequestAgentForSpace();
+	const agentRequestsFor = agentRequestsEnabled
+		? input.currentOwnerUserId
+		: undefined;
+	const requestedCount =
+		agentRequestsFor === undefined
+			? 0
+			: allCandidates.filter(
+					(candidate) =>
+						effectiveSelectedProfileIds.has(candidate.profileId) &&
+						isAgentRequestCandidate(candidate, agentRequestsFor)
+				).length;
 	const selectedCount = effectiveSelectedProfileIds.size;
 	const addition = useSpaceMemberAddition({
 		organizationId: organization?.id ?? "",
@@ -1312,6 +1323,8 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		setSelectedProfileIds,
 		successMessage,
 		selectedCount,
+		agentRequestsFor,
+		requestedCount,
 		toggleProfile,
 		usesOrganizationDirectory,
 	};
@@ -1328,6 +1341,7 @@ function SpaceAddProfilesSectionView({
 		<>
 			<SpaceAddProfilesDialog
 				addQuery={model.addQuery}
+				agentRequestsFor={model.agentRequestsFor}
 				candidateGroups={model.candidateGroups}
 				canSubmit={model.canSubmit}
 				dialogId={input.dialogId}
@@ -1377,6 +1391,7 @@ function SpaceAddProfilesSectionView({
 				open={input.open}
 				organizationName={model.organization?.name ?? "Organization"}
 				orgSlug={input.orgSlug}
+				requestedCount={model.requestedCount}
 				selectedCount={model.selectedCount}
 				selectedProfileIds={model.effectiveSelectedProfileIds}
 				snapshot={input.snapshot}
@@ -1436,6 +1451,9 @@ async function executeSpaceAddProfilesMutation(input: {
 }
 
 type SpaceAddProfilesDialogProps = {
+	// Set when choosing another member's Agent asks its owner.
+	agentRequestsFor?: string | null;
+	requestedCount: number;
 	onCreated: (
 		agent: SpaceAddMembersCandidateSummary,
 		selected: boolean
@@ -1586,6 +1604,7 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 					/>
 				) : null
 			}
+			agentRequestsFor={input.agentRequestsFor}
 			candidateGroups={input.candidateGroups}
 			canSubmit={input.canSubmit}
 			description={
@@ -1655,6 +1674,7 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 
 function resolveAddMembersSubmitLabel(input: {
 	isSubmitting: boolean;
+	requestedCount: number;
 	selectedCount: number;
 }): string {
 	if (input.isSubmitting) {
@@ -1662,6 +1682,11 @@ function resolveAddMembersSubmitLabel(input: {
 	}
 	if (input.selectedCount === 0) {
 		return "Add selected";
+	}
+	if (input.requestedCount > 0) {
+		return input.requestedCount === input.selectedCount
+			? "Send request"
+			: "Add and send request";
 	}
 	return input.selectedCount === 1
 		? "Add 1 member"

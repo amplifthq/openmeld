@@ -161,11 +161,16 @@ export function AgentAccessRequestCard(input: {
 	return (
 		<ApprovalCard>
 			<ApprovalCardHeader
-				description={requestDescription(request)}
+				description={
+					request.kind === "space_join" ? "Space request" : "Agent access"
+				}
 				icon={<RobotIcon />}
 				title={requestTitle(request)}
 			/>
-			<ApprovalCardBody>
+			<ApprovalCardBody className="space-y-2">
+				<p className="text-muted-foreground text-sm">
+					{requestDescription(request)}
+				</p>
 				<Link
 					className="text-muted-foreground text-sm underline-offset-4 hover:underline"
 					to={requestConversationPath(request, orgSlug)}

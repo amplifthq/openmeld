@@ -29,7 +29,6 @@ import {
 } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { MouseEvent, ReactNode } from "react";
-import { AgentAccessRequestCard } from "#/components/agent-access/agent-access-request-card";
 import { ObjectMenuItems } from "#/components/app/object-menu-items";
 import {
 	presentInboxItem,
@@ -344,8 +343,7 @@ function isInlineInvitation(
 ) {
 	return (
 		density === "default" &&
-		(item.sourceTarget.kind === "organization_join_request" ||
-			item.sourceTarget.kind === "agent_access_request") &&
+		item.sourceTarget.kind === "organization_join_request" &&
 		item.resolutionStatus === "open"
 	);
 }
@@ -359,20 +357,7 @@ function InboxInlineInvitation({
 	item: InboxItem;
 	onInteract: () => void;
 }) {
-	if (!enabled) {
-		return null;
-	}
-	if (item.sourceTarget.kind === "agent_access_request") {
-		return (
-			<div className="ps-[4.125rem] pe-4 pb-4">
-				<AgentAccessRequestCard
-					onInteract={onInteract}
-					requestId={item.sourceTarget.requestId}
-				/>
-			</div>
-		);
-	}
-	if (item.sourceTarget.kind !== "organization_join_request") {
+	if (!enabled || item.sourceTarget.kind !== "organization_join_request") {
 		return null;
 	}
 	return (
