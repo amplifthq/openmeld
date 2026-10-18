@@ -823,10 +823,16 @@ cache; Project redesign.
 - External requesters cannot yet read or withdraw their own access requests
   (request routes require Organization membership). Needs a Space-scoped
   requester read; follow-up.
-- Smoke environment: a dev-lane Service registered with launchd stalls in
-  the OS loader when its worktree lives under a macOS privacy-protected
-  folder (`~/Desktop`, `~/Documents`, `~/Downloads`); foreground start works.
-  Smoke runs use a worktree outside those folders.
+- launchd-started Service and harnesses block in `open` on any path under a
+  macOS privacy-protected folder (`~/Desktop`, `~/Documents`, `~/Downloads`),
+  including a working folder whose git metadata lives there (a linked
+  worktree of a repository under `~/Desktop`). Codex then times out on
+  `config/read`; Claude Code hangs silently. Pre-existing on main
+  (`codex-app-server-transport.ts`, `TODO(PR #225)`); not caused by this
+  program (`member-agent-program-reviews/smoke-harness-investigation.md`).
+  Product follow-up: detect the protected-folder case and tell the owner to
+  grant access or move the folder, instead of a silent timeout. Smoke runs
+  use a standalone clone outside protected folders.
 - `service stop --force` and `pnpm dev:stop` refuse a Service process that
   never published a lease ("The Service owner changed"); only
   `service repair --force` recovers (`service-stop-command.ts`,
