@@ -34,6 +34,7 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 import { APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME } from "#/components/app/app-nav-item-style";
+import { useMemberAgentProfileDisplayName } from "#/components/member-agents/use-member-agent-profile-display-name";
 import { AgentProfileListItem } from "#/components/profiles/profile-list-item";
 import { buildOpenMeldServiceSettingsPath } from "#/lib/settings-routes";
 import { resolveSpaceMemberStatusBadgeDisplay } from "#/lib/spaces/presentation";
@@ -118,6 +119,13 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 		canManageAgentProfile,
 		input,
 	});
+	const memberAgentDisplayName = useMemberAgentProfileDisplayName({
+		agentControllerRef: input.entry.agentControllerRef,
+		ownerName: input.entry.ownerName,
+		profileId: input.entry.profileId,
+		profileKind: input.entry.profileKind,
+		profileName: input.entry.profileName,
+	});
 	const detailsDialog = useSpaceProfileDetailsPopover({
 		centerAgentProfileId: input.centerAgentProfileId,
 		currentOwnerUserId: input.currentOwnerUserId,
@@ -184,7 +192,7 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 					? null
 					: presentation.primaryDetail
 			}
-			profileName={input.entry.profileName}
+			profileName={memberAgentDisplayName ?? input.entry.profileName}
 			profileNameAdornment={
 				<>
 					<AgentSpaceMemberAvailabilityIndicator presentation={presentation} />

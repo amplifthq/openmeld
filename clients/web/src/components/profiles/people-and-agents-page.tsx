@@ -6,6 +6,7 @@ import { readPendingAgentProfileCreationLocalSetup } from "#/lib/profiles/agent-
 ("use client");
 
 import type { AgentProfileOperationalContextInput } from "@openmeld/agent-profile";
+import type { HarnessKind } from "@openmeld/schemas";
 import type {
 	AuthProfileView,
 	ModelCatalog,
@@ -35,12 +36,19 @@ import { AgentProfilesCard } from "#/components/agents/agents-page-agent-profile
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { DirectoryMembersOverview } from "#/components/directory/directory-members-overview";
+import {
+	MemberAgentDetail,
+	MemberAgentProfileSessionsSidebar,
+} from "#/components/member-agents/member-agent-detail";
+import { useMemberAgentDirectory } from "#/components/member-agents/use-member-agent-directory";
+import { useMemberAgentSync } from "#/components/member-agents/use-member-agents";
 import { CreateProfileDialog } from "#/components/profiles/create-profile-dialog";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { isLocalWebOrigin } from "#/lib/local-web-origin";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationAgentCreationPath,
+	buildOrganizationAgentsPath,
 	buildOrganizationPersonAgentPath,
 	buildOrganizationPersonAgentsPath,
 	buildOrganizationPersonPath,
@@ -48,6 +56,7 @@ import {
 import { buildProfileHomeRoutes } from "#/lib/profile-routes";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 import { modelCatalogQueryOptions } from "#/query/config/model-catalog";
+import { memberAgentQueryKeys } from "#/query/organizations/member-agents";
 import {
 	organizationAgentRuntimeOverviewQueryOptions,
 	organizationProfileDirectoryQueryOptions,
@@ -78,6 +87,7 @@ export function PeopleAndAgentsPage(input: {
 	activeSectionId: ProfileHomeId;
 	focusRequestId?: string | null;
 	focusProfileId: string | null;
+	focusMemberAgentId?: string | null;
 	initialSidebarStates?: AppSidebarPersistedStates;
 	onAgentViewChange?: (view: AgentWorkspaceView, profileId?: string) => void;
 }) {
@@ -311,6 +321,7 @@ export function PeopleAndAgentsPage(input: {
 				profileDirectoryQuery={organizationProfileDirectoryQuery}
 				recovery={recovery}
 				runtimeOverviewQuery={organizationAgentRuntimeOverviewQuery}
+				selectedMemberAgentId={input.focusMemberAgentId ?? null}
 				selectedProfileId={input.focusProfileId}
 			/>
 			{createProfileDialog}
@@ -419,8 +430,11 @@ function AgentsWorkspaceHome(input: {
 	orgSlug: string;
 	recovery: ReturnType<typeof useLocalAgentRecoveryController>;
 	selectedProfileId: string | null;
+	selectedMemberAgentId: string | null;
 }) {
 	const queryClient = useQueryClient();
+	const navigate = useNavigate();
+	useMemberAgentSync();
 	const accountComputerSetupPath = buildConnectComputerPath({
 		orgSlug: input.orgSlug,
 	});
@@ -664,35 +678,125 @@ function AgentsWorkspaceHome(input: {
 		);
 	}
 
+	const runtimeOverviewByProfileId = useMemo(
+		() =>
+			new Map(
+				(input.runtimeOverviewQuery.data?.agentProfiles ?? []).map((item) => [
+					item.profileId,
+					item,
+				])
+			),
+		[input.runtimeOverviewQuery.data]
+	);
+	const memberAgentDirectory = useMemberAgentDirectory({
+		profiles: agentProfiles,
+		runtimeByProfileId: runtimeOverviewByProfileId,
+	});
+	const [pinnedHarnessKind, setPinnedHarnessKind] =
+		useState<HarnessKind | null>(null);
+	const selectedMemberAgentRow =
+		memberAgentDirectory?.rows.find(
+			(row) => row.memberAgentId === input.selectedMemberAgentId
+		) ?? null;
+	const memberAgents = memberAgentDirectory
+		? {
+				onOpenMemberAgent: (memberAgentId: string) => {
+					navigate({
+						to: buildOrganizationAgentsPath(input.orgSlug),
+						search: { memberAgentId },
+					}).catch(console.error);
+				},
+				selectedMemberAgentId: input.selectedMemberAgentId,
+				renderMemberAgentDetail: () =>
+					selectedMemberAgentRow ? (
+						<MemberAgentDetail
+							onCreateProfile={
+								selectedMemberAgentRow.harnessKind === "hosted"
+									? undefined
+									: () =>
+											setPinnedHarnessKind(selectedMemberAgentRow.harnessKind)
+							}
+							onSelectProfile={input.onSelectProfile}
+							row={selectedMemberAgentRow}
+						/>
+					) : (
+						<div className="grid min-h-full place-items-center px-6 py-12 text-center text-muted-foreground text-sm">
+							This Agent isn’t available in this Organization.
+						</div>
+					),
+				memberAgentSidebar: selectedMemberAgentRow ? (
+					<MemberAgentProfileSessionsSidebar
+						defaultProfileId={selectedMemberAgentRow.defaultProfileId}
+						displayName={selectedMemberAgentRow.displayName}
+						profiles={selectedMemberAgentRow.profiles}
+					/>
+				) : undefined,
+			}
+		: null;
 	return (
-		<AgentsWorkspaceHomeView
-			accountComputerSetupPath={accountComputerSetupPath}
-			accountServiceUpdatePath={accountServiceUpdatePath}
-			activityPresentation={activityPresentation}
-			agentControllerRefByProfileId={
-				organizationAgentProjection.agentControllerRefByProfileId
-			}
-			agentProfiles={agentProfiles}
-			creationAttentionCount={creationAttentionCount}
-			creationRequests={[
-				...optimisticCreations,
-				...(requestsQuery.data?.requests ?? []),
-			]}
-			errorByProfileId={errorByProfileId}
-			input={input}
-			operationalContextByProfileId={operationalContextByProfileId}
-			ownerAvatarUrlByUserId={
-				organizationAgentProjection.ownerAvatarUrlByUserId
-			}
-			pendingProfileIds={pendingProfileIds}
-			profilesErrorMessage={profilesErrorMessage}
-			profilesStatus={profilesStatus}
-			queryClient={queryClient}
-			readinessByProfileId={readinessByProfileId}
-			requestPanel={requestPanel}
-			sidebarAgentProfiles={sidebarAgentProfiles}
-			sidebarSelectedProfileId={sidebarSelectedProfileId}
-		/>
+		<>
+			<AgentsWorkspaceHomeView
+				accountComputerSetupPath={accountComputerSetupPath}
+				accountServiceUpdatePath={accountServiceUpdatePath}
+				activityPresentation={activityPresentation}
+				agentControllerRefByProfileId={
+					organizationAgentProjection.agentControllerRefByProfileId
+				}
+				agentProfiles={agentProfiles}
+				creationAttentionCount={creationAttentionCount}
+				creationRequests={[
+					...optimisticCreations,
+					...(requestsQuery.data?.requests ?? []),
+				]}
+				errorByProfileId={errorByProfileId}
+				input={input}
+				memberAgents={memberAgents}
+				operationalContextByProfileId={operationalContextByProfileId}
+				ownerAvatarUrlByUserId={
+					organizationAgentProjection.ownerAvatarUrlByUserId
+				}
+				pendingProfileIds={pendingProfileIds}
+				profilesErrorMessage={profilesErrorMessage}
+				profilesStatus={profilesStatus}
+				queryClient={queryClient}
+				readinessByProfileId={readinessByProfileId}
+				requestPanel={requestPanel}
+				runtimeOverviewByProfileId={runtimeOverviewByProfileId}
+				sidebarAgentProfiles={sidebarAgentProfiles}
+				sidebarSelectedProfileId={sidebarSelectedProfileId}
+			/>
+			{pinnedHarnessKind ? (
+				<CreateProfileDialog
+					agentOnly
+					allowTeammateRequests={false}
+					currentUserId={input.currentUserId}
+					onOpenChange={(open) => {
+						if (!open) {
+							setPinnedHarnessKind(null);
+						}
+					}}
+					onProfileCreated={(profile) => {
+						setPinnedHarnessKind(null);
+						Promise.all([
+							queryClient.invalidateQueries({
+								queryKey: memberAgentQueryKeys.all(input.organizationId),
+							}),
+							queryClient.invalidateQueries({
+								queryKey: organizationQueryKeys.profileDirectory(
+									input.organizationId
+								),
+							}),
+						])
+							.then(() => input.onSelectProfile(profile.openMeldProfileId))
+							.catch(console.error);
+					}}
+					open={true}
+					organizationId={input.organizationId}
+					pinnedHarnessKind={pinnedHarnessKind}
+					recovery={input.recovery}
+				/>
+			) : null}
+		</>
 	);
 }
 
@@ -730,11 +834,23 @@ function AgentsWorkspaceHomeView(input: {
 	requestPanel: ReactNode;
 	sidebarAgentProfiles: readonly AuthProfileView[];
 	sidebarSelectedProfileId: string | null;
+	runtimeOverviewByProfileId: ReadonlyMap<
+		string,
+		OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number]
+	>;
+	memberAgents: Pick<
+		AgentProfilesWorkspaceProps,
+		| "onOpenMemberAgent"
+		| "selectedMemberAgentId"
+		| "renderMemberAgentDetail"
+		| "memberAgentSidebar"
+	> | null;
 }) {
 	const workspace = input.input;
 	const wakeAvailabilityNowMs = useMinuteNowMs();
 	return (
 		<AgentProfilesWorkspace
+			{...input.memberAgents}
 			activeView={workspace.activeView}
 			agentControllerRefByProfileId={input.agentControllerRefByProfileId}
 			agentListReturn={workspace.agentListReturn}
@@ -856,6 +972,7 @@ function AgentsWorkspaceHomeView(input: {
 				/>
 			)}
 			requestPanel={input.requestPanel}
+			runtimeOverviewByProfileId={input.runtimeOverviewByProfileId}
 			selectedProfileId={input.sidebarSelectedProfileId}
 			showAgentRequests={workspace.isOrganizationContext}
 			taskActivityAvailable={Boolean(

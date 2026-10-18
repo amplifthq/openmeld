@@ -1,4 +1,9 @@
 import { useMemo } from "react";
+import { groupMemberAgentConversations } from "#/components/member-agents/member-agent-conversations";
+import {
+	useMemberAgentIndex,
+	useMemberAgentSync,
+} from "#/components/member-agents/use-member-agents";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
 import { resolveAccountSpaceRecency } from "#/lib/spaces/account-spaces";
 import { selectAccountSpaceSections } from "./account-space-sections";
@@ -26,6 +31,8 @@ export function useConversations(input: {
 		archived: false,
 		includes: () => true,
 	});
+	const memberAgents = useMemberAgentIndex();
+	useMemberAgentSync();
 	const {
 		store,
 		preferences: chatPreferences,
@@ -89,6 +96,17 @@ export function useConversations(input: {
 			),
 			url: directMessages.chatPath(chat),
 		});
+	}
+	if (memberAgents.ready) {
+		const grouped = groupMemberAgentConversations({
+			conversations: [...conversations.values()],
+			index: memberAgents.index,
+			selectedSpaceId: directMessages.selected,
+		});
+		conversations.clear();
+		for (const conversation of grouped) {
+			conversations.set(conversation.spaceId, conversation);
+		}
 	}
 	const sections = preferences
 		? conversationSections(preferences, chatPreferences)

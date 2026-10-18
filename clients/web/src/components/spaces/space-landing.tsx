@@ -45,6 +45,12 @@ import {
 	UnsavedChangesGuard,
 } from "#/components/forms/unsaved-changes-guard";
 import { usePublishInboxVisibleConversation } from "#/components/inbox/inbox-visible-conversation";
+import {
+	type DirectMessageMemberAgent,
+	MemberAgentChatHistory,
+	resolveDirectMessageMemberAgent,
+} from "#/components/member-agents/member-agent-chat-history";
+import { useMemberAgentIndex } from "#/components/member-agents/use-member-agents";
 import { useWalkthroughSpaceProgress } from "#/components/onboarding/walkthrough/use-walkthrough-space-progress";
 import { useWalkthrough } from "#/components/onboarding/walkthrough/walkthrough-context";
 import { WalkthroughGuide } from "#/components/onboarding/walkthrough/walkthrough-guide";
@@ -1637,6 +1643,12 @@ function SpaceLandingConversationShell({
 		currentProfileIsActiveSpaceMember,
 		currentProfileName,
 	} = useSpaceLandingViewerState({ controller, state });
+	const memberAgentDirectMessage = useCurrentMemberAgentDirectMessage({
+		isActiveSpaceMember: currentProfileIsActiveSpaceMember,
+		isCenterAgentDirectMessage: currentSpaceIsCenterAgentDirectMessage,
+		isDirectMessage,
+		snapshot: controller.membersSnapshot,
+	});
 	const currentSpaceControls = resolveCurrentSpaceControls({
 		isDeleted: Boolean(controller.status?.deletedAt),
 		isGuest: input.isGuest,
@@ -1803,17 +1815,14 @@ function SpaceLandingConversationShell({
 							canManageSpaceName={currentSpaceControls.canManageSpaceName}
 							conversationTitle={input.conversationTitle}
 							conversationTitleAction={input.conversationTitleAction}
-							conversationTitleControl={
-								currentSpaceIsCenterAgentDirectMessage && input.orgSlug
-									? (title) => (
-											<CenterAgentChatHistory
-												spaceId={controller.spaceId}
-												title={title}
-												titleAction={input.conversationTitleAction?.(title)}
-											/>
-										)
-									: undefined
-							}
+							conversationTitleControl={resolveConversationTitleControl({
+								centerAgent:
+									currentSpaceIsCenterAgentDirectMessage && input.orgSlug
+										? { titleAction: input.conversationTitleAction }
+										: null,
+								memberAgent: memberAgentDirectMessage,
+								spaceId: controller.spaceId,
+							})}
 							currentProfileId={input.profileId}
 							currentProfileName={currentProfileName}
 							deleteSpaceErrorMessage={controller.deleteSpaceErrorMessage}
@@ -1964,6 +1973,56 @@ function SpaceLandingConversationShell({
 			</SpaceReadingHeaderProvider>
 		</SpacePinsProvider>
 	);
+}
+
+function useCurrentMemberAgentDirectMessage(input: {
+	isActiveSpaceMember: boolean;
+	isCenterAgentDirectMessage: boolean;
+	isDirectMessage: boolean;
+	snapshot: SpaceMembersSnapshot | null;
+}): DirectMessageMemberAgent | null {
+	const memberAgents = useMemberAgentIndex();
+	// Only the Human in the Session gets its Session controls; an Agent owner
+	// observing a colleague's chat never does.
+	if (!(memberAgents.ready && input.isActiveSpaceMember)) {
+		return null;
+	}
+	return resolveDirectMessageMemberAgent({
+		index: memberAgents.index,
+		isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
+		isDirectMessage: input.isDirectMessage,
+		snapshot: input.snapshot,
+	});
+}
+
+function resolveConversationTitleControl(input: {
+	centerAgent: {
+		titleAction?: (title: string) => ReactNode;
+	} | null;
+	memberAgent: DirectMessageMemberAgent | null;
+	spaceId: string;
+}): ((title: string) => ReactNode) | undefined {
+	const centerAgent = input.centerAgent;
+	if (centerAgent) {
+		return (title) => (
+			<CenterAgentChatHistory
+				spaceId={input.spaceId}
+				title={title}
+				titleAction={centerAgent.titleAction?.(title)}
+			/>
+		);
+	}
+	const memberAgent = input.memberAgent;
+	if (memberAgent) {
+		return (title) => (
+			<MemberAgentChatHistory
+				current={memberAgent}
+				spaceId={input.spaceId}
+				title={title}
+			/>
+		);
+	}
+	return;
 }
 
 function useSpaceLandingViewerState({

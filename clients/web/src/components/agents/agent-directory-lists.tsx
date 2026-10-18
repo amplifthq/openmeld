@@ -1,10 +1,13 @@
+import type { AuthProfileView } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { TabItem, Tabs, TabsList } from "@openmeld/ui/fluid/tabs";
 import { ClockCounterClockwiseIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { type ReactNode, useMemo } from "react";
 import { CenterAgentItem } from "#/components/directory/center-agent-item";
 import { DirectorySearch } from "#/components/directory/directory-search";
+import { MemberAgentDirectorySection } from "#/components/member-agents/member-agent-directory-section";
+import { useMemberAgentDirectory } from "#/components/member-agents/use-member-agent-directory";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import {
 	localAgentSidebarState,
@@ -31,6 +34,8 @@ import type { AgentCardSelection } from "./agent-list-selection";
 import { AgentProfileSidebarItem } from "./agent-profile-sidebar-item";
 import type { AgentProfilesWorkspaceProps } from "./agent-profiles-workspace";
 import { useAgentListState } from "./use-agent-list-state";
+
+const EMPTY_RUNTIME_OVERVIEW = new Map();
 
 const DIRECTORY_AGENT_VIEW: AgentListView = {
 	...DEFAULT_AGENT_LIST_VIEW,
@@ -182,6 +187,11 @@ export function AgentDirectoryLists({
 			variant="card"
 		/>
 	);
+	const { memberAgentDirectory, renderOwnAgents } = useOwnMemberAgents({
+		input,
+		items,
+		renderCard,
+	});
 	const create =
 		input.canCreateAgent !== false ? (
 			<Button onClick={input.onCreateAgent} size="sm">
@@ -252,19 +262,25 @@ export function AgentDirectoryLists({
 		return (
 			<div className="space-y-3">
 				{toolbar}
-				<AgentList
-					defaults={view}
-					emptyAction={create}
-					hideControls
-					items={items}
-					label={scope.label}
-					onDelete={
-						input.canCreateAgent !== false ? input.onDeleteProfiles : undefined
-					}
-					renderCard={renderCard}
-					search={search}
-					viewPreferenceKey={viewPreferenceKey(scope.key)}
-				/>
+				{renderOwnAgents(
+					<AgentList
+						defaults={view}
+						emptyAction={create}
+						hideControls
+						items={items}
+						label={scope.label}
+						onDelete={
+							input.canCreateAgent !== false
+								? input.onDeleteProfiles
+								: undefined
+						}
+						renderCard={renderCard}
+						search={search}
+						viewPreferenceKey={viewPreferenceKey(scope.key)}
+					/>,
+					create,
+					isOwnAgentScope(scope, input)
+				)}
 			</div>
 		);
 	}
@@ -321,76 +337,91 @@ export function AgentDirectoryLists({
 					</div>
 				</section>
 			) : null}
-			{visibleGroups.map((group) => (
-				<AgentList
-					collapsible
-					defaults={view}
-					emptyAction={
-						group.ownerUserId === input.currentUserId ? create : undefined
-					}
-					heading={
-						<div className="flex min-w-0 flex-wrap items-center gap-2">
-							<DitherProfileAvatar
-								avatarImageUrl={group.member.user.image}
-								profileId={
-									group.member.humanProfile?.profileId ?? group.member.userId
-								}
-								profileKind="human"
-								profileName={group.name}
-								size={28}
-							/>
-							<h2 className="m-0 flex items-center truncate font-medium text-sm leading-none">
-								<Link
-									to={buildOrganizationPersonPath({
-										orgSlug: currentOrganization.slug,
-										personId:
-											group.member.humanProfile?.profileId ??
-											`member:${group.member.memberId}`,
-									})}
+			{visibleGroups.map((group) => {
+				const heading = (
+					<div className="flex min-w-0 flex-wrap items-center gap-2">
+						<DitherProfileAvatar
+							avatarImageUrl={group.member.user.image}
+							profileId={
+								group.member.humanProfile?.profileId ?? group.member.userId
+							}
+							profileKind="human"
+							profileName={group.name}
+							size={28}
+						/>
+						<h2 className="m-0 flex items-center truncate font-medium text-sm leading-none">
+							<Link
+								to={buildOrganizationPersonPath({
+									orgSlug: currentOrganization.slug,
+									personId:
+										group.member.humanProfile?.profileId ??
+										`member:${group.member.memberId}`,
+								})}
+							>
+								{group.name}
+							</Link>
+							{group.ownerUserId === input.currentUserId && (
+								<span className="ml-1 text-muted-foreground">(you)</span>
+							)}
+						</h2>
+						<span className="text-muted-foreground text-xs leading-none">
+							{group.items.length}
+						</span>
+						{group.ownerUserId === input.currentUserId &&
+							input.isOrganizationContext && (
+								<Button
+									onClick={() => input.onViewChange("requests")}
+									size="sm"
+									variant="secondary"
 								>
-									{group.name}
-								</Link>
-								{group.ownerUserId === input.currentUserId && (
-									<span className="ml-1 text-muted-foreground">(you)</span>
-								)}
-							</h2>
-							<span className="text-muted-foreground text-xs leading-none">
-								{group.items.length}
-							</span>
-							{group.ownerUserId === input.currentUserId &&
-								input.isOrganizationContext && (
-									<Button
-										onClick={() => input.onViewChange("requests")}
-										size="sm"
-										variant="secondary"
-									>
-										<ClockCounterClockwiseIcon />
-										Creation history
-										{input.creationAttentionCount > 0 && (
-											<span className="rounded-full bg-muted px-1.5 text-xs">
-												Needs attention: {input.creationAttentionCount}
-											</span>
-										)}
-									</Button>
-								)}
-						</div>
-					}
-					items={group.items}
-					key={group.ownerUserId}
-					label={`${group.name}’s Agents`}
-					onDelete={
-						group.ownerUserId === input.currentUserId
-							? input.onDeleteProfiles
-							: undefined
-					}
-					renderCard={renderCard}
-					search={search}
-					viewPreferenceKey={viewPreferenceKey(
-						group.member.humanProfile?.profileId ??
-							`member:${group.member.memberId}`
-					)}
-				/>
-			))}
+									<ClockCounterClockwiseIcon />
+									Creation history
+									{input.creationAttentionCount > 0 && (
+										<span className="rounded-full bg-muted px-1.5 text-xs">
+											Needs attention: {input.creationAttentionCount}
+										</span>
+									)}
+								</Button>
+							)}
+					</div>
+				);
+				if (group.ownerUserId === input.currentUserId && memberAgentDirectory) {
+					return (
+						<section
+							aria-label={`${group.name}’s Agents`}
+							className="space-y-3"
+							key={group.ownerUserId}
+						>
+							{heading}
+							{renderOwnAgents(null, create)}
+						</section>
+					);
+				}
+				return (
+					<AgentList
+						collapsible
+						defaults={view}
+						emptyAction={
+							group.ownerUserId === input.currentUserId ? create : undefined
+						}
+						heading={heading}
+						items={group.items}
+						key={group.ownerUserId}
+						label={`${group.name}’s Agents`}
+						onDelete={
+							group.ownerUserId === input.currentUserId
+								? input.onDeleteProfiles
+								: undefined
+						}
+						renderCard={renderCard}
+						search={search}
+						viewPreferenceKey={viewPreferenceKey(
+							group.member.humanProfile?.profileId ??
+								`member:${group.member.memberId}`
+						)}
+					/>
+				);
+			})}
 			{visibleGroups.length === 0 && !showCenter && (
 				<p className="text-muted-foreground text-sm">
 					No Agents match. Try another search or clear filters.
@@ -398,4 +429,62 @@ export function AgentDirectoryLists({
 			)}
 		</div>
 	);
+}
+
+function isOwnAgentScope(
+	scope: { myAgents: boolean; profiles: readonly AuthProfileView[] },
+	input: AgentProfilesWorkspaceProps
+): boolean {
+	return (
+		scope.myAgents ||
+		(Boolean(input.person) &&
+			scope.profiles.length > 0 &&
+			scope.profiles.every(
+				(profile) => profile.ownerUserId === input.currentUserId
+			))
+	);
+}
+
+/**
+ * The signed-in member's own Agents read one row per MemberAgent; every other
+ * surface, and this one while the listing is unavailable, keeps the
+ * per-Profile list.
+ */
+function useOwnMemberAgents(args: {
+	input: AgentProfilesWorkspaceProps;
+	items: readonly AgentListItem[];
+	renderCard: (item: AgentListItem, index: number) => ReactNode;
+}) {
+	const memberAgentDirectory = useMemberAgentDirectory({
+		profiles: args.input.profiles,
+		runtimeByProfileId:
+			args.input.runtimeOverviewByProfileId ?? EMPTY_RUNTIME_OVERVIEW,
+	});
+	const itemByProfileId = new Map(
+		args.items.map((item) => [item.profile.openMeldProfileId, item])
+	);
+	const onOpenMemberAgent = args.input.onOpenMemberAgent;
+	const renderOwnAgents = (
+		fallback: ReactNode,
+		emptyAction?: ReactNode,
+		ownScope = true
+	) =>
+		ownScope && memberAgentDirectory && onOpenMemberAgent ? (
+			<MemberAgentDirectorySection
+				directory={memberAgentDirectory}
+				emptyAction={emptyAction}
+				label="Your Agents"
+				onOpenMemberAgent={onOpenMemberAgent}
+				renderUnassignedCard={(entry, index) => {
+					const item = itemByProfileId.get(entry.profile.openMeldProfileId);
+					return item ? args.renderCard(item, index) : null;
+				}}
+			/>
+		) : (
+			fallback
+		);
+	return {
+		memberAgentDirectory: onOpenMemberAgent ? memberAgentDirectory : null,
+		renderOwnAgents,
+	};
 }

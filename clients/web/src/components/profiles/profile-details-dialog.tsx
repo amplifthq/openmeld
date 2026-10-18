@@ -55,6 +55,7 @@ import {
 	DirectoryAgentProfilesSummary,
 	DirectoryHumanProfileComputerSummary,
 } from "#/components/directory/directory-human-profile-presentation";
+import { useMemberAgentProfileDisplayName } from "#/components/member-agents/use-member-agent-profile-display-name";
 import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { ProfileDetailsCurrentSession } from "#/components/profiles/profile-details-current-session";
@@ -181,6 +182,13 @@ function AgentProfileDetailsHeader(input: {
 	onNavigate?: () => void;
 	showAvailability: boolean;
 }) {
+	const memberAgentDisplayName = useMemberAgentProfileDisplayName({
+		agentControllerRef: input.entry.agentControllerRef,
+		ownerName: input.entry.ownerName,
+		profileId: input.entry.profileId,
+		profileKind: input.isCenterAgent ? "center_agent" : input.entry.profileKind,
+		profileName: input.entry.profileName,
+	});
 	const modelSummary =
 		selectDetailsRows(input.details, ["model"])[0]?.value ??
 		input.entry.controllerDisplayName ??
@@ -249,7 +257,7 @@ function AgentProfileDetailsHeader(input: {
 					) : null}
 				</>
 			}
-			name={input.entry.profileName}
+			name={memberAgentDisplayName ?? input.entry.profileName}
 		>
 			<p className="mt-1 flex min-w-0 items-center gap-1.5 text-muted-foreground text-sm">
 				{input.isCenterAgent && (

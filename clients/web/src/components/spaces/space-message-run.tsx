@@ -21,6 +21,7 @@ import { ChatCircleIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { memo, type ReactNode, useRef } from "react";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
+import { useMemberAgentProfileDisplayName } from "#/components/member-agents/use-member-agent-profile-display-name";
 import { getSpaceConversationHistorySignalId } from "#/lib/space-conversation-position";
 import {
 	hasActiveWakeReplyForSource,
@@ -758,12 +759,23 @@ function ConversationSpeakerHeader(input: {
 	const centerAgentModelName = useCenterAgentCurrentModelName(
 		input.run.speaker.profileId
 	);
-	const agentAttribution = formatSpaceAgentAttribution({
-		centerAgentModelName,
+	const memberAgentDisplayName = useMemberAgentProfileDisplayName({
 		agentControllerRef: input.run.speaker.agentControllerRef,
 		ownerName: input.run.items[0]?.actorOwnerName ?? null,
+		profileId: input.run.speaker.profileId,
 		profileKind: input.run.speaker.profileKind,
+		profileName: input.run.speaker.displayName,
 	});
+	// A MemberAgent name already carries the owner; it replaces the owner
+	// attribution instead of repeating it.
+	const agentAttribution = memberAgentDisplayName
+		? null
+		: formatSpaceAgentAttribution({
+				centerAgentModelName,
+				agentControllerRef: input.run.speaker.agentControllerRef,
+				ownerName: input.run.items[0]?.actorOwnerName ?? null,
+				profileKind: input.run.speaker.profileKind,
+			});
 	const isCenterAgentRun = resolveIsCenterAgentConversationRun({
 		centerAgentProfileId: input.centerAgentProfileId,
 		isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
@@ -791,7 +803,7 @@ function ConversationSpeakerHeader(input: {
 			{!input.avatarOnly && (
 				<>
 					<span className="min-w-0 break-words font-normal text-muted-foreground text-xs">
-						{input.run.speaker.displayName}
+						{memberAgentDisplayName ?? input.run.speaker.displayName}
 					</span>
 					<RemoteAgentIndicator
 						agentControllerRef={input.run.speaker.agentControllerRef}

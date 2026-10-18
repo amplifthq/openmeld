@@ -125,6 +125,10 @@ import {
 	DirectoryOwnerGroup,
 } from "#/components/directory/directory-card-grid";
 import {
+	MemberAgentHarnessLock,
+	useMemberAgentHarnessLocked,
+} from "#/components/member-agents/member-agent-harness-lock";
+import {
 	AgentConfigurationCard,
 	AgentConfigurationEditorCard,
 	AgentConfigurationGrid,
@@ -3472,11 +3476,48 @@ function AgentProfileRowMoreMenu(input: AgentProfileRowMoreMenuProps) {
 	});
 	if (input.presentation === "detail") {
 		return (
-			<AgentProfileWorkspacePresentation
+			<MemberAgentHarnessLock profileId={input.profile.openMeldProfileId}>
+				<AgentProfileWorkspacePresentation
+					controllerChangeEligibilityStatus={
+						eligibility.controllerChangeEligibilityStatus
+					}
+					controllerChangeStatusLabel={eligibility.controllerChangeStatusLabel}
+					input={input}
+					onOpenChange={{
+						details: dialogs.setDetailsOpen,
+						menu: dialogs.setMenuOpen,
+						profileEdit: dialogs.setProfileEditOpen,
+						projectSettings: dialogs.setProjectSettingsOpen,
+						remove: dialogs.setRemoveOpen,
+						unbindController: dialogs.setUnbindControllerOpen,
+					}}
+					ownerAvatarUrl={
+						input.profile.ownerUserId === currentUserId
+							? (account.image ?? input.ownerAvatarUrl)
+							: input.ownerAvatarUrl
+					}
+					presentationState={{
+						...dialogs.state,
+						profileEditPending: eligibility.isProfileEditPending,
+					}}
+					runtime={runtime}
+					runtimeControllerLabel={runtimeControllerLabel}
+					workspaceOptions={{
+						showProjectSettings: eligibility.showProjectSettings,
+						unbindControllerDisabled: eligibility.unbindControllerDisabled,
+					}}
+				/>
+			</MemberAgentHarnessLock>
+		);
+	}
+	return (
+		<MemberAgentHarnessLock profileId={input.profile.openMeldProfileId}>
+			<AgentProfileCardPresentation
 				controllerChangeEligibilityStatus={
 					eligibility.controllerChangeEligibilityStatus
 				}
 				controllerChangeStatusLabel={eligibility.controllerChangeStatusLabel}
+				currentSession={currentSessionLink}
 				input={input}
 				onOpenChange={{
 					details: dialogs.setDetailsOpen,
@@ -3486,48 +3527,15 @@ function AgentProfileRowMoreMenu(input: AgentProfileRowMoreMenuProps) {
 					remove: dialogs.setRemoveOpen,
 					unbindController: dialogs.setUnbindControllerOpen,
 				}}
-				ownerAvatarUrl={
-					input.profile.ownerUserId === currentUserId
-						? (account.image ?? input.ownerAvatarUrl)
-						: input.ownerAvatarUrl
-				}
 				presentationState={{
 					...dialogs.state,
 					profileEditPending: eligibility.isProfileEditPending,
 				}}
 				runtime={runtime}
-				runtimeControllerLabel={runtimeControllerLabel}
-				workspaceOptions={{
-					showProjectSettings: eligibility.showProjectSettings,
-					unbindControllerDisabled: eligibility.unbindControllerDisabled,
-				}}
+				showProjectSettings={eligibility.showProjectSettings}
+				unbindControllerDisabled={eligibility.unbindControllerDisabled}
 			/>
-		);
-	}
-	return (
-		<AgentProfileCardPresentation
-			controllerChangeEligibilityStatus={
-				eligibility.controllerChangeEligibilityStatus
-			}
-			controllerChangeStatusLabel={eligibility.controllerChangeStatusLabel}
-			currentSession={currentSessionLink}
-			input={input}
-			onOpenChange={{
-				details: dialogs.setDetailsOpen,
-				menu: dialogs.setMenuOpen,
-				profileEdit: dialogs.setProfileEditOpen,
-				projectSettings: dialogs.setProjectSettingsOpen,
-				remove: dialogs.setRemoveOpen,
-				unbindController: dialogs.setUnbindControllerOpen,
-			}}
-			presentationState={{
-				...dialogs.state,
-				profileEditPending: eligibility.isProfileEditPending,
-			}}
-			runtime={runtime}
-			showProjectSettings={eligibility.showProjectSettings}
-			unbindControllerDisabled={eligibility.unbindControllerDisabled}
-		/>
+		</MemberAgentHarnessLock>
 	);
 }
 
@@ -5586,6 +5594,7 @@ function AgentProfileControllerChangeEditSection(input: {
 	onDraftChange: (draft: AgentProfileEditDraft) => void;
 	options: readonly AgentProfileControllerChangeOption[];
 }) {
+	const harnessLocked = useMemberAgentHarnessLocked();
 	const selectId = useId();
 	const selectedControllerRef =
 		input.activeDraft.selectedAgentControllerRef ?? "";
@@ -5606,76 +5615,83 @@ function AgentProfileControllerChangeEditSection(input: {
 			<p className="text-muted-foreground text-xs leading-5">
 				Current controller: {currentLabel}
 			</p>
-			<Select
-				disabled={input.disabled || input.options.length === 0}
-				onValueChange={(agentControllerRef) => {
-					const nextAgentControllerRef =
-						normalizeAgentProfileEditText(agentControllerRef);
-					if (!nextAgentControllerRef) {
+			{harnessLocked ? (
+				<p className="text-muted-foreground text-xs leading-5">
+					This Profile belongs to an Agent, so it always runs on that Agent’s
+					harness.
+				</p>
+			) : (
+				<Select
+					disabled={input.disabled || input.options.length === 0}
+					onValueChange={(agentControllerRef) => {
+						const nextAgentControllerRef =
+							normalizeAgentProfileEditText(agentControllerRef);
+						if (!nextAgentControllerRef) {
+							input.onDraftChange({
+								...input.activeDraft,
+								confirmed: false,
+								key: input.draftKey,
+								selectedAgentControllerRef: null,
+								selectedCollaborationMode:
+									input.currentControllerCollaborationMode?.value ?? null,
+								selectedModelId: input.currentModelSelection?.modelId ?? "",
+								selectedOpenCodePermission: null,
+								selectedPolicy:
+									input.currentControllerPermissionMode?.value ?? null,
+								selectedReasoningLevel:
+									input.currentModelSelection?.reasoningLevel ?? "",
+							});
+							return;
+						}
+						const nextPermissionMode = nextAgentControllerRef
+							? resolveDefaultAgentProfileEditPermissionMode({
+									agentControllerRef: nextAgentControllerRef,
+									modelCatalog: input.modelCatalog,
+								})
+							: null;
+						const nextCollaborationMode = nextAgentControllerRef
+							? resolveDefaultAgentProfileEditCollaborationMode({
+									agentControllerRef: nextAgentControllerRef,
+									modelCatalog: input.modelCatalog,
+								})
+							: null;
 						input.onDraftChange({
 							...input.activeDraft,
 							confirmed: false,
 							key: input.draftKey,
-							selectedAgentControllerRef: null,
-							selectedCollaborationMode:
-								input.currentControllerCollaborationMode?.value ?? null,
-							selectedModelId: input.currentModelSelection?.modelId ?? "",
+							selectedAgentControllerRef: nextAgentControllerRef,
+							selectedCollaborationMode: nextCollaborationMode,
+							selectedModelId: "",
 							selectedOpenCodePermission: null,
-							selectedPolicy:
-								input.currentControllerPermissionMode?.value ?? null,
-							selectedReasoningLevel:
-								input.currentModelSelection?.reasoningLevel ?? "",
+							selectedPolicy: nextPermissionMode,
+							selectedReasoningLevel: "",
 						});
-						return;
-					}
-					const nextPermissionMode = nextAgentControllerRef
-						? resolveDefaultAgentProfileEditPermissionMode({
-								agentControllerRef: nextAgentControllerRef,
-								modelCatalog: input.modelCatalog,
-							})
-						: null;
-					const nextCollaborationMode = nextAgentControllerRef
-						? resolveDefaultAgentProfileEditCollaborationMode({
-								agentControllerRef: nextAgentControllerRef,
-								modelCatalog: input.modelCatalog,
-							})
-						: null;
-					input.onDraftChange({
-						...input.activeDraft,
-						confirmed: false,
-						key: input.draftKey,
-						selectedAgentControllerRef: nextAgentControllerRef,
-						selectedCollaborationMode: nextCollaborationMode,
-						selectedModelId: "",
-						selectedOpenCodePermission: null,
-						selectedPolicy: nextPermissionMode,
-						selectedReasoningLevel: "",
-					});
-				}}
-				value={selectedControllerRef}
-			>
-				<SelectTrigger
-					aria-label="Change controller"
-					className="h-10 w-full px-3 text-sm"
-					displayValue={selectedLabel ?? "Change controller..."}
-					id={selectId}
-					placeholder="Change controller..."
-				/>
-				<SelectContent className="max-h-64">
-					<SelectItem index={0} value="">
-						Keep current controller
-					</SelectItem>
-					{input.options.map((option, index) => (
-						<SelectItem
-							index={index + 1}
-							key={option.agentControllerRef}
-							value={option.agentControllerRef}
-						>
-							{option.label}
+					}}
+					value={selectedControllerRef}
+				>
+					<SelectTrigger
+						aria-label="Change controller"
+						className="h-10 w-full px-3 text-sm"
+						displayValue={selectedLabel ?? "Change controller..."}
+						id={selectId}
+						placeholder="Change controller..."
+					/>
+					<SelectContent className="max-h-64">
+						<SelectItem index={0} value="">
+							Keep current controller
 						</SelectItem>
-					))}
-				</SelectContent>
-			</Select>
+						{input.options.map((option, index) => (
+							<SelectItem
+								index={index + 1}
+								key={option.agentControllerRef}
+								value={option.agentControllerRef}
+							>
+								{option.label}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+			)}
 		</div>
 	);
 }

@@ -26,6 +26,7 @@ export const Route = createFileRoute("/o/$orgSlug/agents")({
 	staticData: appShellStaticData.people,
 	validateSearch: z.object({
 		profileId: z.string().optional(),
+		memberAgentId: z.string().optional(),
 		requestId: z.string().optional(),
 		view: z.enum(["agents", "create", "requests"]).optional(),
 	}),
@@ -62,7 +63,7 @@ export const Route = createFileRoute("/o/$orgSlug/agents")({
 
 function TeamAgentsRoute() {
 	const { sidebarStates } = Route.useLoaderData();
-	const { profileId, requestId } = Route.useSearch();
+	const { profileId, memberAgentId, requestId } = Route.useSearch();
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const navigate = useNavigate();
 	const directory = useQuery(
@@ -75,6 +76,7 @@ function TeamAgentsRoute() {
 		return (
 			<PeopleAndAgentsPage
 				activeSectionId="agents"
+				focusMemberAgentId={memberAgentId ?? null}
 				focusProfileId={null}
 				focusRequestId={requestId ?? null}
 				initialSidebarStates={sidebarStates}

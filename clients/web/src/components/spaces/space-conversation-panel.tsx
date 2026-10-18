@@ -30,6 +30,12 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { resolveDirectMessageMemberAgent } from "#/components/member-agents/member-agent-chat-history";
+import {
+	MemberAgentDirectMessageCard,
+	resolveMemberAgentDirectMessageCard,
+} from "#/components/member-agents/member-agent-direct-message-card";
+import { useMemberAgentIndex } from "#/components/member-agents/use-member-agents";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 import { useSpaceConversationOpenPaint } from "#/lib/observability/use-space-open-paint";
 import { getSpaceConversationHistorySignalId } from "#/lib/space-conversation-position";
@@ -2213,9 +2219,23 @@ function renderConversationBody(input: {
 		);
 	}
 
+	const memberAgentCardItem =
+		input.isDirectMessage &&
+		!input.isCenterAgentDirectMessage &&
+		!input.readOnly ? (
+			<MemberAgentDirectMessageCardItem
+				hasMessages={input.entries.length > 0}
+				membersSnapshot={input.membersSnapshot}
+				modelCatalog={input.modelCatalog}
+				profileEntriesById={input.profileEntriesById}
+			/>
+		) : null;
 	if (input.entries.length === 0) {
 		if (centerAgentDirectMessageIntroItem) {
 			return centerAgentDirectMessageIntroItem;
+		}
+		if (memberAgentCardItem) {
+			return memberAgentCardItem;
 		}
 
 		return (
@@ -2255,6 +2275,7 @@ function renderConversationBody(input: {
 	return (
 		<>
 			{centerAgentDirectMessageIntroItem}
+			{memberAgentCardItem}
 			{input.entries.map((entry) => {
 				const createdAtMs = resolveConversationEntryCreatedAtMs(entry);
 				const date = new Date(createdAtMs);
@@ -2685,5 +2706,50 @@ function resolveDirectMessageTargetName(
 			(member) =>
 				member.status === "active" && member.profileId !== input.selfProfileId
 		)?.profileName ?? null
+	);
+}
+
+/**
+ * Welcome or repair card of a MemberAgent Direct Message: a presentation
+ * surface like the Center Agent introduction, never a published message.
+ * The welcome card shows only before the first message; a repair card stays
+ * at the top until the Agent is available again.
+ */
+function MemberAgentDirectMessageCardItem(input: {
+	hasMessages: boolean;
+	membersSnapshot: SpaceMembersSnapshot | null;
+	modelCatalog: ModelCatalog | null;
+	profileEntriesById: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
+}) {
+	const memberAgents = useMemberAgentIndex();
+	const current = memberAgents.ready
+		? resolveDirectMessageMemberAgent({
+				index: memberAgents.index,
+				isCenterAgentDirectMessage: false,
+				isDirectMessage: true,
+				snapshot: input.membersSnapshot,
+			})
+		: null;
+	const entry = current
+		? input.profileEntriesById.get(current.agentProfileId)
+		: undefined;
+	if (!(current && entry)) {
+		return null;
+	}
+	const model = resolveMemberAgentDirectMessageCard({
+		entry,
+		memberAgentName: current.memberAgent.displayName,
+		modelCatalog: input.modelCatalog,
+	});
+	if (model.kind === "welcome" && input.hasMessages) {
+		return null;
+	}
+	return (
+		<MessageScrollerItem
+			className="[content-visibility:visible]"
+			messageId="member-agent-card"
+		>
+			<MemberAgentDirectMessageCard current={current} model={model} />
+		</MessageScrollerItem>
 	);
 }

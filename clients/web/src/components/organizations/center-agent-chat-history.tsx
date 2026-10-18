@@ -10,11 +10,13 @@ import {
 } from "@openmeld/ui/fluid/dropdown-menu";
 import { cn } from "@openmeld/ui/lib/utils";
 import { CaretDownIcon, PlusIcon } from "@phosphor-icons/react";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
+import { useDirectMessageSessionActions } from "#/components/member-agents/direct-message-session-actions";
 import { resolveConversationTitle } from "#/lib/conversations/presentation";
+import { isMemberAgentsEnabled } from "#/lib/member-agents/member-agents-feature";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationCenterAgentChatPath } from "#/lib/organizations/organization-routes";
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
@@ -38,6 +40,24 @@ export function CenterAgentChatHistory({
 	const navigate = useNavigate();
 	const [open, setOpen] = useState(false);
 	const [search, setSearch] = useState("");
+	const queryClient = useQueryClient();
+	// MemberAgent program: Center Agent sessions gain the dedicated Session
+	// operations too.
+	const sessionActions = useDirectMessageSessionActions({
+		spaceId: spaceId ?? "",
+		title,
+		onLeave: () =>
+			navigate({
+				to: buildOrganizationCenterAgentChatPath(organization.slug, {
+					draft: "new",
+				}),
+			}),
+		enabled: Boolean(spaceId) && isMemberAgentsEnabled(),
+		extraRefresh: () =>
+			queryClient.invalidateQueries({
+				queryKey: ["center-agent", organization.id],
+			}),
+	});
 	const sessions = useInfiniteQuery({
 		...centerAgentSessionsQueryOptions(organization.id, profileId),
 		enabled: open && !!profileId,
@@ -225,8 +245,10 @@ export function CenterAgentChatHistory({
 								: "No chats yet."}
 						</output>
 					) : null}
+					{sessionActions.renderMenuItems(matches.length + 1)}
 				</FluidDropdownMenuContent>
 			</DropdownMenu>
+			{sessionActions.dialogs}
 			{titleAction ? (
 				<span className="pointer-events-none absolute top-1/2 right-1 flex -translate-y-1/2 overflow-clip">
 					<span className="pointer-events-none flex opacity-0 blur-[2px] transition-[opacity,transform,filter] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] [transform:translateX(-8px)] group-focus-within/chat-title:pointer-events-auto group-focus-within/chat-title:opacity-100 group-focus-within/chat-title:blur-none group-focus-within/chat-title:transition-none group-hover/chat-title:pointer-events-auto group-hover/chat-title:opacity-100 group-hover/chat-title:blur-none motion-reduce:transform-none motion-reduce:blur-none motion-reduce:transition-none group-focus-within/chat-title:[transform:translateX(0)] group-hover/chat-title:[transform:translateX(0)] [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:transform-none [@media(hover:none)]:opacity-100 [@media(hover:none)]:blur-none">

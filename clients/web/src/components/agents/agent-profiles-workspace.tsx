@@ -6,6 +6,7 @@ import type {
 	AuthProfileView,
 	GetAgentExecutionReadinessResponse,
 	ModelCatalog,
+	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
@@ -68,6 +69,16 @@ export type AgentProfilesWorkspaceProps = {
 	requestPanel: ReactNode;
 	selectedProfileId: string | null;
 	showAgentRequests?: boolean;
+	/** Per-Profile runtime reads that MemberAgent presence aggregates. */
+	runtimeOverviewByProfileId?: ReadonlyMap<
+		string,
+		OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number]
+	>;
+	/** Opens a MemberAgent's detail; present only with MEMBER_AGENTS_ENABLED. */
+	onOpenMemberAgent?: (memberAgentId: string) => void;
+	selectedMemberAgentId?: string | null;
+	renderMemberAgentDetail?: (memberAgentId: string) => ReactNode;
+	memberAgentSidebar?: ReactNode;
 };
 
 export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
@@ -81,10 +92,14 @@ export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
 	return (
 		<AppFullWidthLayout
 			contentLayout="flush"
-			defaultModuleSidebarOpen={!!input.selectedProfileId}
+			defaultModuleSidebarOpen={
+				!!input.selectedProfileId || !!input.selectedMemberAgentId
+			}
 			initialOuterSidebarState={workspaceInput.initialSidebarStates?.outer}
 			mainHeader={
-				!input.person && input.activeView === "agents" ? (
+				!input.person &&
+				input.activeView === "agents" &&
+				!input.selectedMemberAgentId ? (
 					<TeamHeader
 						actions={
 							<Button onClick={input.onCreateAgent} size="sm">
@@ -96,43 +111,7 @@ export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
 					/>
 				) : undefined
 			}
-			mainSidebar={
-				input.selectedProfileId
-					? {
-							key: "agents",
-							label: "Agents",
-							content: (
-								<AppContextualSidebarNav
-									activeItemId={input.selectedProfileId}
-									ariaLabel="Agents"
-									groups={[
-										{
-											id: "agents",
-											label: input.person
-												? `${input.person.name}’s Agents`
-												: "Agents",
-											ariaLabel: "Agent list",
-											items: input.profiles.map((profile) => ({
-												id: profile.openMeldProfileId,
-												label: profile.profileName,
-												icon: RobotIcon,
-											})),
-										},
-									]}
-									leadingContent={
-										input.profilesStatus === "loading" &&
-										input.profiles.length === 0 ? (
-											<SidebarListSkeleton label="Loading Agent list" />
-										) : null
-									}
-									onActivate={input.onSelectProfile}
-									placement="module"
-									title="Agents"
-								/>
-							),
-						}
-					: undefined
-			}
+			mainSidebar={resolveAgentsMainSidebar(input)}
 			showMainHeader={!input.person && input.activeView === "agents"}
 		>
 			<AgentWorkspaceHeader {...input} />
@@ -143,6 +122,51 @@ export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
 			/>
 		</AppFullWidthLayout>
 	);
+}
+
+function resolveAgentsMainSidebar(input: AgentProfilesWorkspaceProps) {
+	if (input.selectedMemberAgentId && input.memberAgentSidebar) {
+		return {
+			key: "member-agent",
+			label: "Profiles",
+			content: input.memberAgentSidebar,
+		};
+	}
+	return input.selectedProfileId
+		? {
+				key: "agents",
+				label: "Agents",
+				content: (
+					<AppContextualSidebarNav
+						activeItemId={input.selectedProfileId}
+						ariaLabel="Agents"
+						groups={[
+							{
+								id: "agents",
+								label: input.person
+									? `${input.person.name}’s Agents`
+									: "Agents",
+								ariaLabel: "Agent list",
+								items: input.profiles.map((profile) => ({
+									id: profile.openMeldProfileId,
+									label: profile.profileName,
+									icon: RobotIcon,
+								})),
+							},
+						]}
+						leadingContent={
+							input.profilesStatus === "loading" &&
+							input.profiles.length === 0 ? (
+								<SidebarListSkeleton label="Loading Agent list" />
+							) : null
+						}
+						onActivate={input.onSelectProfile}
+						placement="module"
+						title="Agents"
+					/>
+				),
+			}
+		: undefined;
 }
 
 function AgentProfilesWorkspaceContent(input: {
@@ -191,6 +215,14 @@ function AgentProfilesWorkspaceContent(input: {
 					</div>
 				</div>
 			</>
+		);
+	}
+	if (
+		input.input.selectedMemberAgentId &&
+		input.input.renderMemberAgentDetail
+	) {
+		return input.input.renderMemberAgentDetail(
+			input.input.selectedMemberAgentId
 		);
 	}
 	if (input.selectedProfile) {
