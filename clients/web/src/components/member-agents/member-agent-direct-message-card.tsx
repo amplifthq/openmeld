@@ -47,8 +47,24 @@ export function resolveMemberAgentDirectMessageCard(input: {
 	memberAgentName: string;
 	modelCatalog: ModelCatalog | null;
 	reason?: PublicWakeabilityReason | null;
+	/** Whether this Session already has messages. */
+	hasMessages?: boolean;
 }): MemberAgentDirectMessageCardModel {
 	const { entry } = input;
+	// A missing folder is set-up work, not a failure: before the first task
+	// nothing has failed yet.
+	if (
+		entry.availabilityReasonCode !== null &&
+		WORKING_FOLDER_MISSING_REASON_CODES.has(entry.availabilityReasonCode)
+	) {
+		return {
+			kind: "repair",
+			title: `${input.memberAgentName} needs a working folder`,
+			description: input.hasMessages
+				? "Choose a working folder before its next task."
+				: "Choose a working folder before its first task.",
+		};
+	}
 	if (input.reason && entry.availabilityCategory !== "available") {
 		return resolveReasonCard(input.reason, input.memberAgentName);
 	}
@@ -174,6 +190,11 @@ function resolveReasonCard(
 			};
 	}
 }
+
+const WORKING_FOLDER_MISSING_REASON_CODES: ReadonlySet<string> = new Set([
+	"workspace.missing",
+	"profile.workspace.missing",
+]);
 
 const CARD_ICON = {
 	checking: CircleNotchIcon,
@@ -303,6 +324,7 @@ function useEnabledMemberAgentDirectMessageCard(input: {
 		entry,
 		memberAgentName: current.memberAgent.displayName,
 		modelCatalog: input.modelCatalog,
+		hasMessages: input.hasMessages,
 		reason:
 			runtime.data?.agentProfiles.find(
 				(item) => item.profileId === current.agentProfileId

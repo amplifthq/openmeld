@@ -326,6 +326,49 @@ describe("ensureDetectedMemberAgent RPC", () => {
       )
     ).rejects.toMatchObject({ code: AUTO_DETECTED_PROFILE_NAME_LOCKED_CODE });
   });
+
+  it("locks a migrated default Profile name but not its other Profiles", async () => {
+    const created = await ensure({
+      organizationId: "one",
+      ownerUserId: "alice",
+      harnessKind: "codex",
+    });
+    if (!(created.ok && created.memberAgent.defaultProfileId)) {
+      throw new Error("setup failed");
+    }
+    const defaultProfileId = created.memberAgent.defaultProfileId;
+    // A migrated default keeps its original source; the lock follows the
+    // MemberAgent's default, not the source.
+    await harness.query({
+      text: `UPDATE "openmeld"."openmeld_profiles" SET source = 'web_create' WHERE profile_id = $1`,
+      values: [defaultProfileId],
+    });
+    await harness.query({
+      text: `INSERT INTO "openmeld"."openmeld_profiles"
+        (profile_id, profile_name, profile_handle, profile_kind, organization_id, owner_user_id, source, member_agent_id)
+        VALUES ('agt_99999999-9999-4999-8999-999999999999', 'PR Reviewer', 'pr-reviewer', 'agent', 'one', 'alice', 'web_create', $1)`,
+      values: [created.memberAgent.id],
+    });
+
+    await expect(
+      inRequest(() =>
+        profileService().updateProfileNameForOwner({
+          ownerUserId: "alice",
+          profileId: defaultProfileId,
+          profileName: "My Codex",
+        })
+      )
+    ).rejects.toMatchObject({ code: AUTO_DETECTED_PROFILE_NAME_LOCKED_CODE });
+    await expect(
+      inRequest(() =>
+        profileService().updateProfileNameForOwner({
+          ownerUserId: "alice",
+          profileId: "agt_99999999-9999-4999-8999-999999999999",
+          profileName: "Release Reviewer",
+        })
+      )
+    ).resolves.toMatchObject({ profileName: "Release Reviewer" });
+  });
 });
 
 describe("MemberAgent listing RPCs", () => {
