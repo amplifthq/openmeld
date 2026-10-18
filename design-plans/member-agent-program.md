@@ -399,21 +399,28 @@ can only perform Space actions (`openMeldSpaceEgressActionSchema`).
 
 Target:
 
-1. Tasks receive a **task credential**: short-lived, verifiable by Core,
-   carrying the request chain, valid for that task only; the stand-in uses it.
+1. Tasks receive a **task credential**: the execution's existing
+   RuntimeCoordinator execution token, retired when the execution ends. It is
+   bound to the request chain, not a copy of it: Core reads the root from the
+   execution's accepted assignment. Core verifies it only at the
+   sensitive-operation boundary; other calls ignore it.
 2. Sensitive operations (§4.6 list) accept only a task credential whose root
    is the owner, or the owner's own App or Web session.
-3. A sensitive operation made with the **CLI login credential** passes unless
-   **this computer is currently running a task whose root requester is not the
-   owner**; only then the server sends the owner a confirmation card through
-   the Inbox. Ordinary terminal use is never interrupted. A TTY elevation cache
+3. A sensitive operation made with the **CLI login credential**, or with an
+   owner-rooted task credential, passes unless **the owner currently has any
+   active task in this organization whose root requester is not the owner**;
+   only then the server sends the owner a confirmation card through the
+   Inbox. The window is owner-wide, not per computer: Core cannot bind a CLI
+   call to a computer without trusting the caller, and another task of the
+   same OS user can read an owner-rooted credential (decision 5a0). Ordinary terminal use is never interrupted. A TTY elevation cache
    is not built unless this card turns out to be frequent.
 4. Every sensitive operation is written to the audit log.
 5. Other secrets on the computer (SSH keys, harness logins, browser data) are
    not protected by OpenMeld; that is what "run any command" means natively.
    When an owner grants a colleague a full-access Profile, the UI says so once.
-6. Open item: how the Desktop app proves "in-App" to Core if it exposes a
-   local port reachable by same-machine processes (§13).
+6. The Desktop app opens no local port and reaches Core with its own
+   interactive session, like Web; CLI commands it runs are classified as the
+   CLI credential.
 
 ### 4.8 Permission-mode advisor
 
@@ -555,6 +562,13 @@ for them. The remaining gap is a colleague-rooted task running the owner's
 real CLI, which Phase 5a–5c close. Hosted Center and Remote Agent Wakes have
 no Execution Context assignment; their management calls are root-checked at
 the tool boundary instead of at admission.
+
+Phase 5 also gates: Direct Message Session archive and delete, Agent
+Profile deletion through Auth, adding the caller's own Agent to a Space,
+Space deletion, agent access decisions and revoke, execution mode writes,
+and audits the Center Agent runtime-settings write with source
+`center_agent`. Every gated operation writes an audit row
+(`sensitive_operation_audit_events`, migration 0046).
 
 Implementers extend this table in the PR when they touch an operation not
 listed; reviewers reject sensitive writes that check only the immediate actor.
@@ -795,8 +809,10 @@ cache; Project redesign.
   Service default for `contextConcurrency`.
 - C6: whether the Inbox can already answer an `agent_interaction` item
   inline (`clients/web/src/components/inbox/inbox-list.tsx`).
-- Desktop "in-App" proof: whether the Desktop app exposes a local port
-  reachable by same-machine processes (Phase 5).
+- MemberAgent archive has no write path yet; gate it as a §6 operation when
+  it lands.
+- Auth's sensitive-operation audit write has no durable retry (logged on
+  failure); follow-up.
 - Routines: whether `actorContext.openMeldProfileId` in
   `routine-request-preparation.ts` is the creator, and current behavior when
   the creator leaves (Phase 3).
@@ -963,3 +979,12 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   Codex `config/read` timeout and a silent Claude run (P1, cause unproven,
   investigation `claude/map-smoke-harness-investigation`). Invitation page
   approval flash is outside the program.
+- 2026-10-19, Phase 5 report and two Codex reviews (gpt-6-astra, high):
+  migration 0046. Decision 5a0: no per-device binding is possible, so the
+  risk window is owner-wide and read from the RuntimeCoordinator owner shard,
+  failing closed. Fixed in the package: cookie-cache replay of a CLI-held
+  session, interactive-only endpoints reading through the cache, missing
+  gates on Session archive/delete and Profile deletion, runtime-narrowed
+  window, audit gaps. §4.7, §6 and §13 updated. P2 folder UI (R1C-02) merged
+  with its Codex fixes (Default Project folder removal refused in Core,
+  frozen Binding target, revision-guarded lists).
