@@ -112,6 +112,56 @@ afterEach(() => {
 });
 
 describe("Bot avatar interaction", () => {
+  it("keeps navigation clicks still in pointer mode while following the mouse and showing work", () => {
+    const open = vi.fn();
+    const view = render(
+      <button onClick={open} type="button">
+        <BotAvatar interaction="pointer" size={32} type="flower" />
+      </button>
+    );
+    const canvas = view.container.querySelector("canvas");
+    if (!canvas) {
+      throw new Error("Missing avatar canvas");
+    }
+    const resting = canvas.dataset.pose;
+    fireEvent.click(canvas);
+    advance(160);
+    expect(open).toHaveBeenCalledOnce();
+    expect(canvas.dataset.pose).toBe(resting);
+    expect(frames.size).toBe(0);
+    fireEvent(
+      canvas,
+      Object.assign(new Event("pointermove", { bubbles: true }), {
+        pointerType: "mouse",
+        clientX: 40,
+        clientY: 0,
+      })
+    );
+    advance(240);
+    expect(JSON.parse(canvas.dataset.pose ?? "{}").lookX).toBeGreaterThan(0);
+    fireEvent.pointerLeave(canvas);
+    advance(400);
+    expect(frames.size).toBe(0);
+    view.rerender(
+      <button onClick={open} type="button">
+        <BotAvatar interaction="pointer" size={32} type="flower" working />
+      </button>
+    );
+    advance(240);
+    expect(frames.size).toBe(1);
+    expect(canvas.dataset.pose).not.toBe(resting);
+    act(() => {
+      reduced = true;
+      for (const listener of mediaListeners) {
+        listener();
+      }
+    });
+    const still = canvas.dataset.pose;
+    fireEvent.click(canvas);
+    advance(240);
+    expect(frames.size).toBe(0);
+    expect(canvas.dataset.pose).toBe(still);
+  });
   it("shows the ambient avatar's first frame before the canvas hydrates", () => {
     const markup = renderToStaticMarkup(
       <BotAvatar ambient palette="original" size={28} type="clover" />
