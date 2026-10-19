@@ -200,6 +200,25 @@ function log(message) {
   process.stdout.write(`[publish-cli] ${message}\n`);
 }
 
+async function waitForNpmGitHead({ platform, version, releaseSha, npm }) {
+  const deadline = Date.now() + NPM_VISIBILITY_TIMEOUT_MS;
+  let visible = npm;
+  while (visible?.gitHead !== releaseSha) {
+    if (visible?.gitHead) {
+      throw new Error(
+        `openmeld@${version} is already published from ${visible.gitHead}. Bump clients/openmeld-cli/package.json and release/local-components-policy.json.`
+      );
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `openmeld@${version} gitHead is still missing on the npm registry after ${NPM_VISIBILITY_TIMEOUT_MS / 1000}s. Verify \`npm view openmeld@${version} gitHead\` and rerun this command.`
+      );
+    }
+    await platform.sleep(10_000);
+    visible = platform.readNpmVersion(version);
+  }
+}
+
 // Contract changes are judged against the release users run now.
 function publishedBase(published) {
   return {
@@ -267,10 +286,8 @@ export async function publishCli({
     readFileSync(path.join(cwd, "clients/openmeld-cli/package.json"), "utf8")
   );
   const npm = platform.readNpmVersion(version);
-  if (npm && npm.gitHead !== releaseSha) {
-    throw new Error(
-      `openmeld@${version} is already published from ${npm.gitHead ?? "an unknown commit"}. Bump clients/openmeld-cli/package.json and release/local-components-policy.json.`
-    );
+  if (npm) {
+    await waitForNpmGitHead({ platform, version, releaseSha, npm });
   }
   const published = platform.readPublishedRelease();
   if (npm && published?.components.cli.packageVersion === version) {
@@ -306,15 +323,12 @@ export async function publishCli({
     log(`npm already has openmeld@${version}.`);
   } else {
     await platform.publishNpm();
-    const deadline = Date.now() + NPM_VISIBILITY_TIMEOUT_MS;
-    while (platform.readNpmVersion(version)?.gitHead !== releaseSha) {
-      if (Date.now() > deadline) {
-        throw new Error(
-          `npm accepted openmeld@${version} but it is not visible after ${NPM_VISIBILITY_TIMEOUT_MS / 1000}s. Rerun this command; it will not publish again.`
-        );
-      }
-      await platform.sleep(10_000);
-    }
+    await waitForNpmGitHead({
+      platform,
+      version,
+      releaseSha,
+      npm: platform.readNpmVersion(version),
+    });
   }
   platform.ensureTag({ tag: `v${version}`, sha: releaseSha });
   platform.writeRelease(manifest);

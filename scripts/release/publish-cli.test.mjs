@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { mock } from "node:test";
 import {
   resolveChangedLocalComponents,
   resolveTouchedLocalComponents,
@@ -18,6 +18,10 @@ const REFUSED_WITHOUT_HELPER = /Windows process helper/u;
 const MISSING_SERVICE_POLICY = /OpenMeld Service changed/u;
 const REQUIRED_FOR_EPOCH = /service\.updatePolicy must be required/u;
 const OTHER_SOURCE = /already published from d{40}/u;
+const MISSING_GIT_HEAD = /openmeld@0\.3\.265 gitHead is still missing/u;
+const VERIFY_GIT_HEAD = /npm view openmeld@0\.3\.265 gitHead/u;
+const RERUN = /rerun/u;
+const WRONG_RECOVERY = /[Bb]ump|another|unknown commit/u;
 
 // Shape of the manifest Core reads (packages/schemas local-components.ts).
 function publishedManifest() {
@@ -198,6 +202,26 @@ function createSource(version) {
   return root;
 }
 
+function commitSource(cwd) {
+  const git = (...args) =>
+    execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+  git("init", "--quiet");
+  git("add", ".");
+  git(
+    "-c",
+    "user.name=Release test",
+    "-c",
+    "user.email=release@example.test",
+    "-c",
+    "commit.gpgsign=false",
+    "commit",
+    "--quiet",
+    "-m",
+    "test: release fixture"
+  );
+  return git("rev-parse", "HEAD");
+}
+
 function createPlatform(state) {
   const calls = [];
   return {
@@ -284,6 +308,49 @@ test("detects touched components from pull request paths", () => {
     resolveTouchedLocalComponents(["clients/web/src/routes/login.tsx"]),
     []
   );
+});
+
+test("waits for missing npm gitHead and lets a timed-out release resume", async () => {
+  const cwd = createSource("0.3.265");
+  const releaseSha = commitSource(cwd);
+  mock.timers.enable({ apis: ["Date"], now: 0 });
+  const state = {
+    npm: { version: "0.3.265", gitHead: null },
+    published: publishedManifest(),
+  };
+  const { platform, calls } = createPlatform(state);
+  const input = {
+    cwd,
+    releaseSha,
+    platform,
+    collectFacts: async () => facts(),
+    readPolicy: async () => ({ version: "0.3.265", cli: CLI_POLICY }),
+  };
+  platform.sleep = (ms) => mock.timers.tick(ms);
+  try {
+    await assert.rejects(publishCli(input), (error) => {
+      assert.match(error.message, MISSING_GIT_HEAD);
+      assert.match(error.message, VERIFY_GIT_HEAD);
+      assert.match(error.message, RERUN);
+      assert.doesNotMatch(error.message, WRONG_RECOVERY);
+      return true;
+    });
+    assert.deepEqual(calls, []);
+    platform.sleep = () => {
+      state.npm.gitHead = releaseSha;
+    };
+    assert.equal((await publishCli(input)).status, "published");
+    assert.deepEqual(calls, ["build", "binary", "tag:v0.3.265", "manifest"]);
+    assert.equal(state.published.components.cli.packageVersion, "0.3.265");
+    state.npm.gitHead = null;
+    platform.sleep = () => {
+      state.npm.gitHead = OTHER_SHA;
+    };
+    await assert.rejects(publishCli(input), OTHER_SOURCE);
+  } finally {
+    mock.timers.reset();
+    rmSync(cwd, { recursive: true, force: true });
+  }
 });
 
 test("does not publish npm, a tag, or a release manifest before the binary succeeds", async () => {
