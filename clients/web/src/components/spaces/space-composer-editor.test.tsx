@@ -35,6 +35,7 @@ const FELIX_OPTION_NAME = /Felix/;
 const RUNNER_OPTION_NAME = /Runner/;
 const ALL_OPTION_NAME = /@all/;
 const BOTH_OPTION_NAME = /Both/;
+const CODEX_REQUEST_OPTION_NAME = /Felix's Codex/;
 const MENTION_ONLY_OPTION_NAME = /^Mention only\s*— Won’t wake the agent$/;
 
 describe("SpaceComposerEditor", () => {
@@ -84,6 +85,51 @@ describe("SpaceComposerEditor", () => {
 				start: 0,
 			})
 		);
+	});
+
+	it("offers a colleague's Agent outside the Space under its owner and inserts its name as text", async () => {
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		const onChange = vi.fn();
+		const onSelect = vi.fn();
+		const codex = {
+			agentControllerRef: null,
+			avatarUrl: null,
+			ownerName: "Felix",
+			ownerUserId: "felix",
+			profileHandle: null,
+			profileId: "agt_codex",
+			profileName: "Felix's Codex",
+		};
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[]}
+				agentRequestMentions={{ items: [codex], onSelect }}
+				ariaLabel="Message"
+				authoredMentions={[]}
+				composerRef={composerRef}
+				mentionPickerItems={createMentionPickerItems()}
+				onChange={onChange}
+				onSend={vi.fn()}
+				placeholder="Message"
+				text=""
+			/>
+		);
+		await act(() => {
+			composerRef.current?.insertMentionTrigger();
+		});
+		expect(
+			await screen.findByText("Felix's Agents · not in this Space")
+		).toBeTruthy();
+		const option = await screen.findByRole("option", {
+			name: CODEX_REQUEST_OPTION_NAME,
+		});
+		expect(option.textContent).toContain("Asks Felix");
+		fireEvent.click(option);
+		await waitFor(() =>
+			expect(onChange.mock.lastCall?.[0].text).toContain("@Felix's Codex")
+		);
+		expect(onChange.mock.lastCall?.[0].authoredMentions).toEqual([]);
+		expect(onSelect).toHaveBeenCalledWith(codex);
 	});
 
 	it.each([

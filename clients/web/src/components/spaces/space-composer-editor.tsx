@@ -47,6 +47,10 @@ import {
 	useRef,
 	useState,
 } from "react";
+import {
+	groupSpaceAgentRequestMentionItems,
+	type SpaceAgentRequestMentions,
+} from "#/components/agent-access/space-agent-request-mentions";
 import { Editor, EditorContainer } from "#/components/editor/ui/editor";
 import {
 	InlineCombobox,
@@ -128,6 +132,8 @@ export type SpaceComposerEditorChange = {
 };
 
 type SpaceComposerEditorProps = {
+	// Colleagues' Agents outside the Space; choosing one asks its owner.
+	agentRequestMentions?: SpaceAgentRequestMentions;
 	renderAgentOptions?: (profileId: string) => ReactNode;
 	addressingTargets: readonly SpaceComposerAddressingTarget[];
 	ariaLabel: string;
@@ -162,6 +168,7 @@ type SpaceComposerEditorProps = {
 type SpaceComposerEditorContextValue = Pick<
 	SpaceComposerEditorProps,
 	| "addressingTargets"
+	| "agentRequestMentions"
 	| "centerAgentProfileId"
 	| "mentionPickerItems"
 	| "mentionEmptyMessage"
@@ -226,6 +233,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 	const contextValue = useMemo(
 		() => ({
 			addressingTargets: input.addressingTargets,
+			agentRequestMentions: input.agentRequestMentions,
 			centerAgentProfileId: input.centerAgentProfileId,
 			mentionPickerItems: input.mentionPickerItems,
 			mentionEmptyMessage: input.mentionEmptyMessage,
@@ -236,6 +244,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 		}),
 		[
 			input.addressingTargets,
+			input.agentRequestMentions,
 			input.centerAgentProfileId,
 			input.mentionPickerItems,
 			input.mentionEmptyMessage,
@@ -1025,6 +1034,7 @@ function SpaceComposerMentionInput(props: PlateElementProps<TElement>) {
 					</InlineComboboxEmpty>
 					<SpaceComposerMentionGroup items={agentItems} title="Agents" />
 					<SpaceComposerMentionGroup items={humanItems} title="People" />
+					<SpaceComposerAgentRequestGroups />
 				</InlineComboboxContent>
 			</InlineCombobox>
 			{props.children}
@@ -1131,6 +1141,52 @@ function SpaceComposerMentionGroup(input: {
 			))}
 		</InlineComboboxGroup>
 	);
+}
+
+/**
+ * Colleagues' Agents outside this Space, under their owner. The name goes
+ * in as text; sending the message asks the owner (§5, §7).
+ */
+function SpaceComposerAgentRequestGroups() {
+	const requests = useSpaceComposerEditorContext().agentRequestMentions;
+	const editor = useEditorRef();
+	if (!requests || requests.items.length === 0) {
+		return null;
+	}
+	return groupSpaceAgentRequestMentionItems(requests.items).map((group) => (
+		<InlineComboboxGroup key={group.ownerUserId}>
+			<InlineComboboxGroupLabel>
+				{`${group.ownerName}'s Agents · not in this Space`}
+			</InlineComboboxGroupLabel>
+			{group.items.map((item) => (
+				<InlineComboboxItem
+					key={item.profileId}
+					keywords={[item.ownerName, item.profileHandle ?? item.profileName]}
+					label={item.profileName}
+					onClick={() => {
+						editor.tf.insertText(`@${item.profileName} `);
+						requests.onSelect(item);
+					}}
+					value={item.profileName}
+				>
+					<SpaceProfileIcon
+						agentControllerRef={item.agentControllerRef}
+						avatarImageUrl={item.avatarUrl}
+						className="mr-2 size-5"
+						profileId={item.profileId}
+						profileKind="agent"
+						profileName={item.profileName}
+					/>
+					<span className="min-w-0 flex-1 truncate font-medium">
+						{item.profileName}
+					</span>
+					<span className="ml-2 text-muted-foreground text-xs">
+						{`Asks ${group.ownerName}`}
+					</span>
+				</InlineComboboxItem>
+			))}
+		</InlineComboboxGroup>
+	));
 }
 
 function resolveComposerUnavailableLabel(

@@ -881,6 +881,21 @@ describe("Colleague use of an Agent (Phase 4)", () => {
             requestId,
           })
         ).rejects.toMatchObject({ code: "agent_access.request_closed" });
+        // A request that arrives after the edit cannot bind to it either.
+        await expect(
+          space.instance.rpcRequestAgentForSpace({
+            context: space.context(f.tali),
+            organizationId: f.organizationId,
+            requester: { profileId: f.tali.profileId, userId: f.tali.userId },
+            signalId: message.id,
+            spaceId: space.spaceId,
+            target: {
+              memberAgentId: f.memberAgentId,
+              ownerUserId: f.felix.userId,
+              profileId: f.agentProfileId,
+            },
+          })
+        ).rejects.toMatchObject({ code: "agent_access.message_unavailable" });
         expect(
           readSpaceMemberRecord(space.state.storage.sql, f.agentProfileId)
         ).toBeNull();

@@ -2363,6 +2363,7 @@ function SpaceLandingConversation({
 			centerAgentProfileId={centerAgentState.centerAgentProfileId}
 			className="min-w-0"
 			composerAddressingTargets={controller.composerAddressingTargets}
+			composerAgentRequestMentions={controller.composerAgentRequestMentions}
 			composerAuthoredMentions={controller.composerAuthoredMentions}
 			composerBlockedWakeProfileId={controller.composerBlockedWakeProfileId}
 			composerErrorMessage={controller.composerErrorMessage}

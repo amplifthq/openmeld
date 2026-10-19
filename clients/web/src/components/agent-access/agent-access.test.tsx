@@ -1,4 +1,10 @@
 import type { AgentAccessRequestView } from "@openmeld/schemas";
+import {
+	createSpaceMemberAgentSnapshot,
+	createSpaceMemberHumanSnapshot,
+	createSpaceMembersSnapshot,
+} from "@openmeld/schemas/testing";
+import type { WakeProgressItem } from "@openmeld/schemas/types";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -10,7 +16,17 @@ import {
 	agentAccessOutcomeCopy,
 } from "./agent-access-request-card";
 import { resolveAgentRequestSpaceLabel } from "./agent-access-space-labels";
+import {
+	collectHeldAgentAccessWakeKeys,
+	withoutHeldAgentAccessWakeProgress,
+} from "./held-agent-access-wake-progress";
 import { requesterAgentAccessCopy } from "./space-agent-access-banner";
+import {
+	addAgentRequestMentionSelection,
+	buildSpaceAgentRequestMentionItems,
+	groupSpaceAgentRequestMentionItems,
+	resolveAgentRequestMentionProfileIds,
+} from "./space-agent-request-mentions";
 
 const ALWAYS_ALLOW = /Always allow/u;
 const ASKED_EVERY_TIME = /asked every time/u;
@@ -207,5 +223,169 @@ describe("Add members with MemberAgents", () => {
 				}),
 			].sort()
 		).toEqual(["agt_1", "felix-human"]);
+	});
+});
+
+describe("A held Wake never shows as work", () => {
+	const wake = (overrides: Partial<WakeProgressItem>) =>
+		({
+			sourceSignalId: "signal-1",
+			targetProfileId: "agt_1",
+			phase: "request_sent",
+			...overrides,
+		}) as WakeProgressItem;
+
+	it("drops progress for the requester's waiting or refused Wakes only", () => {
+		const keys = collectHeldAgentAccessWakeKeys([
+			request({ viewerRole: "requester" }),
+			request({
+				id: "aar_2",
+				sourceSignalId: "signal-2",
+				status: "declined",
+				viewerRole: "requester",
+			}),
+			request({
+				id: "aar_3",
+				sourceSignalId: "signal-3",
+				status: "allowed",
+				viewerRole: "requester",
+			}),
+			request({ id: "aar_4", sourceSignalId: "signal-4" }),
+		]);
+		const items = [
+			wake({}),
+			wake({ sourceSignalId: "signal-2" }),
+			wake({ sourceSignalId: "signal-3" }),
+			wake({ sourceSignalId: "signal-4" }),
+			wake({ targetProfileId: "agt_2" }),
+		];
+		expect(
+			withoutHeldAgentAccessWakeProgress(items, keys).map(
+				(item) => `${item.sourceSignalId}:${item.targetProfileId}`
+			)
+		).toEqual(["signal-3:agt_1", "signal-4:agt_1", "signal-1:agt_2"]);
+	});
+
+	it("keeps the same list when nothing is held", () => {
+		const items = [wake({})];
+		expect(
+			withoutHeldAgentAccessWakeProgress(
+				items,
+				collectHeldAgentAccessWakeKeys([])
+			)
+		).toBe(items);
+	});
+});
+
+describe("Mentioning a colleague's Agent outside the Space", () => {
+	const profile = (
+		overrides: Partial<
+			Parameters<
+				typeof buildSpaceAgentRequestMentionItems
+			>[0]["agentProfiles"][number]
+		>
+	) => ({
+		agentControllerRef: null,
+		avatarUrl: null,
+		createdAt: "2026-10-19T00:00:00.000Z",
+		isCenterAgent: false,
+		lastUsedAt: null,
+		ownerName: "Felix",
+		ownerUserId: "felix",
+		profileHandle: null,
+		profileId: "agt_codex",
+		profileName: "Felix's Codex",
+		status: "active" as "active" | "disabled",
+		...overrides,
+	});
+	const snapshot = createSpaceMembersSnapshot({
+		humans: [
+			createSpaceMemberHumanSnapshot({
+				profileId: "tali-profile",
+				profileName: "Tali",
+			}),
+		],
+		agents: [
+			createSpaceMemberAgentSnapshot({
+				profileId: "agt_member",
+				profileName: "Felix's Reviewer",
+			}),
+		],
+	});
+
+	it("offers only other owners' active Agents not in the Space, by owner", () => {
+		const items = buildSpaceAgentRequestMentionItems({
+			agentProfiles: [
+				profile({}),
+				profile({ profileId: "agt_mine", ownerUserId: "tali" }),
+				profile({ profileId: "agt_member", profileName: "Felix's Reviewer" }),
+				profile({ profileId: "agt_same_name", profileName: "Tali" }),
+				profile({ profileId: "agt_center", isCenterAgent: true }),
+				profile({ profileId: "agt_disabled", status: "disabled" }),
+				profile({
+					profileId: "agt_ana",
+					profileName: "Ana's Cursor",
+					ownerName: "Ana",
+					ownerUserId: "ana",
+				}),
+			] as never,
+			currentUserId: "tali",
+			snapshot,
+		});
+		expect(
+			groupSpaceAgentRequestMentionItems(items).map((group) => [
+				group.ownerName,
+				group.items.map((item) => item.profileId),
+			])
+		).toEqual([
+			["Ana", ["agt_ana"]],
+			["Felix", ["agt_codex"]],
+		]);
+	});
+
+	it("never counts a longer name as a shorter chosen one", () => {
+		const selections = [
+			{ profileId: "agt_alice", profileName: "Reviewer" },
+			{ profileId: "agt_bob", profileName: "Reviewer Pro" },
+		];
+		expect(
+			resolveAgentRequestMentionProfileIds({
+				selections,
+				text: "@Reviewer Pro please look",
+			})
+		).toEqual(["agt_bob"]);
+		expect(
+			resolveAgentRequestMentionProfileIds({
+				selections,
+				text: "@Reviewer and @Reviewer Pro",
+			})
+		).toEqual(["agt_bob", "agt_alice"]);
+		expect(
+			resolveAgentRequestMentionProfileIds({
+				selections,
+				text: "@Reviewers are busy",
+			})
+		).toEqual([]);
+	});
+
+	it("keeps one choice per name, the latest", () => {
+		expect(
+			addAgentRequestMentionSelection(
+				[{ profileId: "agt_alice", profileName: "Reviewer" }],
+				{ profileId: "agt_bob", profileName: "Reviewer" }
+			)
+		).toEqual([{ profileId: "agt_bob", profileName: "Reviewer" }]);
+	});
+
+	it("asks only for chosen Agents whose mention is still in the message", () => {
+		expect(
+			resolveAgentRequestMentionProfileIds({
+				selections: [
+					{ profileId: "agt_codex", profileName: "Felix's Codex" },
+					{ profileId: "agt_ana", profileName: "Ana's Cursor" },
+				],
+				text: "@Felix's Codex can you review this?",
+			})
+		).toEqual(["agt_codex"]);
 	});
 });
