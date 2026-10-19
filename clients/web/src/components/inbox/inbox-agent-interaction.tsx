@@ -76,7 +76,9 @@ export function InboxAgentInteraction(input: {
 	if (profilesQuery.isPending || (profileId && progress.isPending)) {
 		return <SkeletonRows label="Loading the Agent's question" rows={3} />;
 	}
-	if (progress.isError) {
+	// A failed poll keeps the question already shown; only a first read that
+	// fails has nothing to show.
+	if (progress.isError && !progress.data) {
 		return (
 			<ApprovalRequestUnavailable
 				message="This question could not be loaded. Refresh to try again."
@@ -110,12 +112,9 @@ export function InboxAgentInteraction(input: {
 		);
 	}
 	return (
-		<div className="mt-3 space-y-2" data-slot="inbox-agent-interaction">
-			<SpaceAgentInteractionCard
-				item={item}
-				onRespond={respond}
-				presentation="surface"
-			/>
+		<div className="space-y-2" data-slot="inbox-agent-interaction">
+			{/* Framed like every other Inbox request (access, credentials, Plugin). */}
+			<SpaceAgentInteractionCard item={item} onRespond={respond} />
 			{openConversation}
 		</div>
 	);
