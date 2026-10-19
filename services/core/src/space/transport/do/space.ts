@@ -23275,6 +23275,15 @@ export class Space extends DurableObject<CoreBindings> {
         updatedAtMs: hold.updatedAtMs,
       });
     }
+    // The owner's open Inbox shows the request, or its end, without a reload.
+    this.ctx.waitUntil(
+      publishAccountInvalidation({
+        env: this.bindings,
+        frame: { type: "inbox.changed" },
+        organizationId: meta.organizationId,
+        userIds: holds.map((hold) => hold.ownerUserId),
+      })
+    );
     await this.broadcastSpaceMetaChanged({
       reason: AGENT_ACCESS_SPACE_CHANGED_REASON,
     });

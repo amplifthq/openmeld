@@ -20,6 +20,7 @@ import {
   type RevokeAgentProfileAccessGrantResponse,
   type WithdrawAgentAccessRequestResponse,
 } from "@openmeld/schemas";
+import { publishAccountInvalidation } from "../account-invalidation/publish-account-invalidation";
 import { readPrimaryAgentProfileBindingRecord } from "../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import { readResolvedOrganizationSpaceMember } from "../center-agent/center-agent-repository";
 import type { CoreBindings } from "../lib/bindings";
@@ -513,12 +514,20 @@ async function applyDecisionInSpace(
     ...(agentMember ? { agentMember } : {}),
     ...(targetControllerRef ? { targetControllerRef } : {}),
   });
-  return await finishAgentAccessDecision({
+  const finished = await finishAgentAccessDecision({
     db: caller.db,
     nowMs: Date.now(),
     outcome,
     request,
   });
+  // Both open Inboxes drop the answered request without a reload.
+  await publishAccountInvalidation({
+    env,
+    frame: { type: "inbox.changed" },
+    organizationId: request.organizationId,
+    userIds: [request.ownerUserId, request.requesterUserId],
+  });
+  return finished;
 }
 
 /** Reply by DM: the owner's Direct Message with the requester. */
