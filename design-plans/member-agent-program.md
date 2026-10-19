@@ -1145,3 +1145,13 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   folder with a short handoff in the same chat (not a native fork, because
   the source folder is gone). A composer pre-send notice is a follow-up.
   Final real-machine smoke (round 6) follows.
+- 2026-10-19, real-machine smoke round 6 (fe6d239be): OpenCode now completes
+  both consent paths (Let the Agent join and first-DM Allow once) and the
+  quick regression passed. Not accepted: the "Continue in <folder>" action
+  never renders in the real Message details drawer (it depends on a Profile
+  edit context the DM drawer does not provide; unit tests mounted it with
+  that context), routed to Phase 2 `claude/map-p2-repair-continue-2`; the
+  Inbox Needs action filter still resets on an access-request item, and a
+  new native question needed a reload to appear, routed to Phase 4
+  `claude/map-4-inbox-filter`. Both fixes must be verified in a browser by
+  the implementing session before they report done.
