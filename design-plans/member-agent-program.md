@@ -1115,3 +1115,10 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   request missing from Continue, a missing local back action on an unknown
   MemberAgent, and inconsistent approval framing. An owner's own reply
   showing the owner's own path is allowed.
+- 2026-10-19, smoke 4 fixes merged (`claude/map-1d-smoke-4`): Inbox
+  question survives a failed poll and uses the framed approval card; each
+  MemberAgent Session card in Direct messages reads "<Agent> · <Session
+  title>" (a collapse to one card was reverted after review: it lost unread
+  and attention of other Sessions); unknown MemberAgent page has Back to
+  Agents; Continue offers answered plain DM requests via their published
+  replies. Final real-machine smoke (round 5) follows.
