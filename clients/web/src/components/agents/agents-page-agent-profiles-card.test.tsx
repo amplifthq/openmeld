@@ -416,6 +416,10 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			screen.getByRole("button", { name: "Agent options for Research Agent" })
 		);
 		expect(screen.queryByRole("menuitem", { name: "Edit Agent" })).toBeNull();
+		// The Working folder card is the one entry to folders here.
+		expect(
+			screen.queryByRole("menuitem", { name: "Working folder" })
+		).toBeNull();
 	});
 
 	it("shows current activity before configuration and keeps the details dialog concise", () => {
@@ -2024,7 +2028,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		);
 		expect(screen.getByRole("menuitem", { name: "More details" })).toBeTruthy();
 		expect(
-			screen.getByRole("menuitem", { name: "Default Project and folder" })
+			screen.getByRole("menuitem", { name: "Working folder" })
 		).toBeTruthy();
 		expect(
 			screen.getByRole("menuitem", { name: "Unbind controller" })
@@ -2199,7 +2203,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			})
 		);
 		expect(
-			screen.queryByRole("menuitem", { name: "Default Project and folder" })
+			screen.queryByRole("menuitem", { name: "Working folder" })
 		).toBeNull();
 	});
 

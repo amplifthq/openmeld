@@ -52,11 +52,19 @@ type FoldersDialogInput = {
 	profile: AuthProfileView;
 	storageScope: string;
 	target?: PeopleComputerTarget;
+	/** Shown first when opened to recover a task that lost its folder. */
+	recoveryMessage?: string;
+	/** Called after a folder becomes the default for new work. */
+	onDefaultChanged?: () => void;
 };
 
 type FolderChange = Exclude<ProfileFolderOperation, { operation: "list" }>;
 
-/** Owner-only list of an Agent's folders on its Computer. */
+/**
+ * Owner-only Working folder surface: the Agent's folders on its Computer and
+ * which one new work starts in. The Working folder card, the list card's menu
+ * and working-folder recovery all open this one surface.
+ */
 export function AgentProfileFoldersDialog(input: FoldersDialogInput) {
 	if (
 		!shouldShowAgentProfileProjectSettings({
@@ -70,7 +78,7 @@ export function AgentProfileFoldersDialog(input: FoldersDialogInput) {
 		<Dialog onOpenChange={(open) => input.onOpenChange(open)} open={input.open}>
 			<DialogContent className="sm:max-w-lg">
 				<DialogHeader>
-					<DialogTitle>Folders</DialogTitle>
+					<DialogTitle>Working folder</DialogTitle>
 					<DialogDescription>
 						Folders {input.profile.profileName} can work in. New work starts in
 						the default folder; you can choose another folder for a task.
@@ -227,10 +235,14 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 				}
 			}
 			toast.success(`${row.displayName} is now the default folder.`);
+			input.onDefaultChanged?.();
 		});
 
 	return (
 		<div className="grid gap-4">
+			{input.recoveryMessage ? (
+				<output className="text-sm">{input.recoveryMessage}</output>
+			) : null}
 			<FolderListStatus
 				defaultProjectName={defaultProjectName}
 				error={foldersQuery.isError ? foldersQuery.error : null}
@@ -360,8 +372,8 @@ function FolderListNotes(input: {
 		<>
 			{input.targetChanged ? (
 				<output className="text-muted-foreground text-sm">
-					This Agent’s Computer or local agent changed. Close and reopen Folders
-					to review its current folders.
+					This Agent’s Computer or local agent changed. Close and reopen Working
+					folder to review its current folders.
 				</output>
 			) : null}
 			{input.eligibility === "allowed" ? null : (

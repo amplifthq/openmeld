@@ -3106,7 +3106,11 @@ function AgentProfileOptionsMenu(input: {
 	isOpen: boolean;
 	onOpenChange: (isOpen: boolean) => void;
 	onOpenDetails?: () => void;
-	onOpenProjectSettings: () => void;
+	/**
+	 * Opens Working folder. Omitted where the Working folder card is already
+	 * on screen (the detail workspace), so there is one entry.
+	 */
+	onOpenProjectSettings?: () => void;
 	onOpenRemove: () => void;
 	onOpenUnbind: () => void;
 	profileName: string;
@@ -3152,18 +3156,19 @@ function AgentProfileOptionsMenu(input: {
 			)}
 			{input.capabilities.canManage && (
 				<>
-					{input.capabilities.showProjectSettings && (
-						<FluidDropdownMenuItem
-							index={1}
-							onClick={() => {
-								input.onOpenChange(false);
-								input.onOpenProjectSettings();
-							}}
-						>
-							<WrenchIcon aria-hidden="true" />
-							Default Project and folder
-						</FluidDropdownMenuItem>
-					)}
+					{input.capabilities.showProjectSettings &&
+						input.onOpenProjectSettings && (
+							<FluidDropdownMenuItem
+								index={1}
+								onClick={() => {
+									input.onOpenChange(false);
+									input.onOpenProjectSettings?.();
+								}}
+							>
+								<FolderOpenIcon aria-hidden="true" />
+								Working folder
+							</FluidDropdownMenuItem>
+						)}
 					{input.capabilities.hasEnabledPrimaryBinding && (
 						<FluidDropdownMenuItem
 							aria-description={input.controllerChangeStatusLabel ?? undefined}
@@ -3879,7 +3884,6 @@ function AgentProfileWorkspacePresentation(input: {
 			}}
 			onOpenChange={input.onOpenChange.menu}
 			onOpenDetails={() => input.onOpenChange.details(true)}
-			onOpenProjectSettings={() => input.onOpenChange.projectSettings(true)}
 			onOpenRemove={() => input.onOpenChange.remove(true)}
 			onOpenUnbind={() => input.onOpenChange.unbindController(true)}
 			profileName={input.input.profileName}
