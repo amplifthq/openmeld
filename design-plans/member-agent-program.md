@@ -1054,3 +1054,15 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   runs like a later message. Its review found that such harnesses resume the
   owner's Binding conversation for colleague-rooted Wakes; decided in §4.3:
   non-owner roots always start a new native conversation there.
+- 2026-10-19, real-machine smoke round 3 (retest; head a461d5634): passed
+  path privacy in a colleague-visible reply, observer owner answering a
+  native permission question with the colleague receiving the real output,
+  the first released OpenCode request, OpenCode colleague conversation
+  isolation (colleague cannot recall the owner's code word; owner still can),
+  creation display after a Service restart, and the locked default Profile
+  name. Routed: an explicit folder choice is rejected with
+  `space.execution_context.unsupported` and a plain Codex DM message fails
+  with `execution_context.selection_required` (P1, Phase 2
+  `claude/map-p2-smoke-3`); Continue still lists unanswered requests (P2,
+  same); native options are not rendered inside Inbox (P2, Phase 4
+  `claude/map-4-inbox-answer`).
