@@ -94,6 +94,32 @@ test("requires the exact shared status before reporting hosted success", () => {
   assert.equal(observationExitCode(observation), 0);
 });
 
+test("waits for a newer run on the same head instead of returning the earlier success", () => {
+  const observation = buildFinalCandidateObservation({
+    annotationsByCheckRunId: new Map(),
+    commitStatuses: [
+      {
+        context: "OpenMeld Final Candidate",
+        description: `Passed standard @ ${PULL_REQUEST.head.sha.slice(0, 12)} on ${PULL_REQUEST.base.sha.slice(0, 12)}`,
+        state: "success",
+      },
+    ],
+    jobs: [],
+    pullRequest: PULL_REQUEST,
+    run: {
+      conclusion: null,
+      head_sha: PULL_REQUEST.head.sha,
+      html_url: "https://github.com/amplifthq/openmeld/actions/runs/45",
+      id: 45,
+      status: "in_progress",
+    },
+  });
+
+  assert.equal(observation.state, "waiting");
+  assert.equal(observation.reason, "run-in-progress");
+  assert.equal(observationExitCode(observation), null);
+});
+
 test("keeps an existing exact success truthful when a later hosted retry hits budget", () => {
   const observation = buildFinalCandidateObservation({
     annotationsByCheckRunId: new Map(

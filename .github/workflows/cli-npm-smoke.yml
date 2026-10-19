@@ -2,8 +2,8 @@ name: npm CLI Install Smoke
 
 on:
   pull_request:
-    # PR smoke covers CLI source only. cli-release.yml runs the install
-    # matrix against the published artifact after every release.
+    # PR smoke covers CLI source only. cli-release.yml installs the published
+    # artifact on ubuntu and windows after every release.
     paths:
       - ".github/workflows/cli-npm-smoke.yml"
       - "clients/openmeld-cli/**"
@@ -81,8 +81,9 @@ jobs:
     if: ${{ !cancelled() && needs.npm_artifact.result == 'success' }}
     strategy:
       fail-fast: false
+      # One lane per supported engine line (22.x || 24.x || 25.x) on ubuntu.
       matrix:
-        node: ["24"]
+        node: ["22.0.0", "24", "25"]
         os: [ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
@@ -113,12 +114,25 @@ jobs:
           node -e 'const expected = process.platform === "darwin" ? "arm64" : "x64"; if (process.arch !== expected) throw new Error(`Expected ${expected}, got ${process.arch}`)'
           node scripts/release/npm-cli-smoke.mjs verify "$RUNNER_TEMP/npm-consumer/openmeld.tgz"
           node --input-type=module -e 'import { prepareNpmCliArtifact } from "./scripts/release/npm-cli-artifact.mjs"; const artifact = await prepareNpmCliArtifact(); console.log(`Publisher handoff verified: ${artifact.integrity}`); artifact.cleanup();'
+      - name: Select Node 20 for the upgrade-message check
+        if: matrix.node == '22.0.0'
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20.19.2"
+          package-manager-cache: false
+      - name: Reject Node 20 before loading dependencies
+        if: matrix.node == '22.0.0'
+        shell: bash
+        run: |
+          node scripts/release/npm-cli-smoke.mjs reject "$RUNNER_TEMP/npm-consumer/openmeld.tgz"
       - name: Select Node 23 for the upgrade-message check
+        if: matrix.node == '24'
         uses: actions/setup-node@v5
         with:
           node-version: "23.11.1"
           package-manager-cache: false
       - name: Reject Node 23 before loading dependencies
+        if: matrix.node == '24'
         shell: bash
         run: |
           node scripts/release/npm-cli-smoke.mjs reject "$RUNNER_TEMP/npm-consumer/openmeld.tgz"

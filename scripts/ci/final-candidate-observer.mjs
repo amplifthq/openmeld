@@ -43,6 +43,15 @@ export function buildFinalCandidateObservation(input) {
     runUrl: input.run?.html_url ?? null,
   };
 
+  // A newer run for this head (an explicit request) leaves the earlier exact
+  // status in place until its own result reports; wait for that run.
+  if (
+    exactStatus === "success" &&
+    input.run &&
+    input.run.status !== "completed"
+  ) {
+    return { ...common, reason: "run-in-progress", state: "waiting" };
+  }
   if (exactStatus === "success") {
     return {
       ...common,
