@@ -1161,3 +1161,11 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   chat in the repaired folder; the Inbox keeps its filter when any row opens
   and refreshes live for Agent questions and requests. Round 7 retests only
   these two.
+- 2026-10-19, real-machine smoke round 7: both round-6 blockers passed
+  (Continue in the repaired folder in the same chat, with the next plain
+  message in the new folder; Inbox keeps Needs action for access, Space
+  consent and native question items, and a new question appears without
+  reload, with some delay). The OpenCode owner-DM regression failed with
+  `runtime.progress_stale` in the same minute the tester's shell saw
+  `~/Desktop` reads stall; that path passed in rounds 5 and 6 and has not
+  changed since. Recheck 7b runs with all artifacts outside `~/Desktop`.
