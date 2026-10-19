@@ -293,6 +293,11 @@ export type DispatchSharedFolderSession = {
 export type DispatchPromptBootstrapInput = {
   /** Direct-edit Sessions already running in this task's folder. */
   sharedFolderSessions?: DispatchSharedFolderSession[];
+  /**
+   * The working folder's display name, never its path, for a task whose root
+   * requester is not the owner. Absent for owner-rooted tasks.
+   */
+  workingFolderDisplayName?: string | null;
   requesterIsAgentOwner?: ParsedDispatchTask["requesterIsAgentOwner"];
   permissionModeAdvisory?: ParsedDispatchTask["permissionModeAdvisory"];
   executionContextAccess?: NonNullable<

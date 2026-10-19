@@ -14,6 +14,8 @@ import {
   parseDispatchTask,
 } from "../src/local-service/dispatch/parse-dispatch-task";
 
+const HOME_PATH = /\/(Users|home)\//u;
+
 it("names a new Session from the Wake request rather than the bootstrap instructions", () => {
   expect(
     buildDispatchSessionTitle({
@@ -100,6 +102,54 @@ it.each([
   expect(plan.userPrompt).toContain(
     "Use the tools available under your current permissions."
   );
+});
+
+it.each([
+  { requesterIsAgentOwner: true, guided: false },
+  { requesterIsAgentOwner: false, guided: true },
+  { requesterIsAgentOwner: undefined, guided: true },
+])("tells the Agent about a wider audience only for a non-owner root (owner=$requesterIsAgentOwner)", ({
+  requesterIsAgentOwner,
+  guided,
+}) => {
+  const plan = buildDispatchPromptPlan({
+    prompt: "Run ls and show me the result.",
+    requesterIsAgentOwner,
+    spaceId: "space",
+    dispatchTriggerSource: "activation_targets",
+    targetProfileId: "agt-target-a",
+    shouldInjectBootstrap: false,
+    workingFolderDisplayName: "folder-two",
+  });
+  if (!guided) {
+    expect(plan.userPrompt).not.toContain("Visible audience");
+    return;
+  }
+  expect(plan.userPrompt).toContain(
+    "someone other than the Agent owner asked for this task"
+  );
+  expect(plan.userPrompt).toContain("Do not reveal absolute local paths");
+  expect(plan.userPrompt).toContain('the working folder "folder-two"');
+  // Owner-only facts never enter the prompt, only the display name.
+  expect(plan.userPrompt).not.toMatch(HOME_PATH);
+});
+
+it.each([
+  "/Users/felix/openmeld-smoke/folders/folder-two",
+  "~/work",
+  "C:\\Users\\felix",
+])("never names a folder whose display name is a path (%s)", (displayName) => {
+  const plan = buildDispatchPromptPlan({
+    prompt: "Run ls.",
+    requesterIsAgentOwner: false,
+    spaceId: "space",
+    dispatchTriggerSource: "activation_targets",
+    targetProfileId: "agt-target-a",
+    shouldInjectBootstrap: false,
+    workingFolderDisplayName: displayName,
+  });
+  expect(plan.userPrompt).toContain("Refer to the working folder by that name");
+  expect(plan.userPrompt).not.toContain(displayName);
 });
 
 const PERMISSION_MODE_ADVISORY = {

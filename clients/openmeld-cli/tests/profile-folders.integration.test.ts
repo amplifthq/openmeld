@@ -12,6 +12,7 @@ import {
   applyProfileFolderOperation,
   ProfileFolderOperationError,
   projectProfileFolderList,
+  readProfileFolderDisplayName,
   resolveProfileFolderRuntimeForAccount,
 } from "../src/profile-workspace/folders";
 import {
@@ -146,6 +147,36 @@ describe("profile folders", () => {
         status: "valid",
       });
       expect(await readEnvelope()).toMatchObject({ v: 1 });
+    });
+  });
+
+  it("names a task's folder by display name, never its path", async () => {
+    await withTempHome(async (home) => {
+      const first = join(home, "first");
+      const second = join(home, "second");
+      await mkdir(first);
+      await mkdir(second);
+      await setCustomProfileWorkspace({
+        account: ACCOUNT,
+        customWorkspacePath: first,
+        openMeldProfileId: PROFILE_ID,
+      });
+      const added = await applyProfileFolderOperation({
+        account: ACCOUNT,
+        openMeldProfileId: PROFILE_ID,
+        operation: { operation: "add_custom", path: second },
+      });
+      const read = (folderId?: string) =>
+        readProfileFolderDisplayName({
+          account: ACCOUNT,
+          ...(folderId ? { folderId } : {}),
+          openMeldProfileId: PROFILE_ID,
+        });
+      // No selection: the Profile default.
+      expect(await read()).toBe("first");
+      expect(await read(added.folderId ?? "")).toBe("second");
+      expect(await read("6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11")).toBeNull();
+      expect(await read()).not.toContain(home);
     });
   });
 

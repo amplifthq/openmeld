@@ -639,6 +639,34 @@ function sameFolderTarget(left: ProfileFolder, right: ProfileFolder): boolean {
   return left.kind === "openmeld_managed" && right.kind === "openmeld_managed";
 }
 
+/**
+ * The display name, never the path, of the folder a task runs in: the selected
+ * folder, or the Profile default. Null when it cannot be read or does not
+ * exist; the task itself still fails closed on a missing folder elsewhere.
+ */
+export async function readProfileFolderDisplayName(input: {
+  account?: OpenMeldAccountKey;
+  folderId?: string;
+  openMeldProfileId: string;
+}): Promise<string | null> {
+  try {
+    const current = await readProfileFolderListForAccount({
+      account: await resolveAccountKey(input.account),
+      openMeldProfileId: normalizeOpenMeldProfileId(input.openMeldProfileId),
+    });
+    if (current.status !== "valid") {
+      return null;
+    }
+    const folderId = input.folderId ?? current.list.defaultFolderId;
+    return (
+      current.list.folders.find((folder) => folder.id === folderId)
+        ?.displayName ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
 async function resolveAccountKey(
   account: OpenMeldAccountKey | undefined
 ): Promise<OpenMeldAccountKey> {
