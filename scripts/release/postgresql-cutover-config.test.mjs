@@ -15,14 +15,12 @@ import { buildCoreVersionReleaseStepSpecs } from "../cloudflare/core-version-dep
 import {
   CUTOVER_CONFIG_NAME,
   cutoverConfigArgs,
-  cutoverDeploySteps,
   withPostgresqlCutoverConfig,
 } from "./postgresql-cutover-config.mjs";
-import { buildProductionDeployStepSpecs } from "./production-release.mjs";
 
 const onlyCrons = /may change only prod triggers.crons/u;
 
-test("maintenance configuration preserves actual source paths and bindings and routes all selected deployment owners", async () => {
+test("maintenance configuration preserves actual source paths and bindings for the Core deployment owner", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "pg-cutover-config-"));
   try {
     for (const scope of ["auth", "core"]) {
@@ -64,28 +62,6 @@ test("maintenance configuration preserves actual source paths and bindings and r
         "--config",
         CUTOVER_CONFIG_NAME,
       ]);
-      const steps = cutoverDeploySteps(
-        buildProductionDeployStepSpecs(["db", "auth", "core", "cli"], {
-          databaseBackend: "postgresql",
-          databaseCutoverSnapshot: "/snapshot",
-        })
-      );
-      const auth = steps.find(
-        (step) => step.releaseScope === "auth" && step.workerDeploymentArgs
-      );
-      assert.deepEqual(auth.args.slice(-2), ["--config", CUTOVER_CONFIG_NAME]);
-      assert.ok(
-        auth.workerDeploymentArgs.includes(
-          `services/auth/${CUTOVER_CONFIG_NAME}`
-        )
-      );
-      assert.ok(
-        steps
-          .find((step) => step.releaseScope === "cli")
-          .receiptWorkerDeploymentArgs.includes(
-            `services/core/${CUTOVER_CONFIG_NAME}`
-          )
-      );
       const file = path.join(root, "services/core", CUTOVER_CONFIG_NAME);
       const invalid = JSON.parse(readFileSync(file, "utf8"));
       invalid.env.prod.hyperdrive[0].id = "wrong-target";

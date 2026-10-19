@@ -148,15 +148,12 @@ environment callback, or no coordination best fits the actual work.
 - Follow `developing/engineering/agent-native-delivery.md` from final-candidate
   validation through merge, release, health, smoke, and evidence. This document
   owns the local lanes and test-selection details used inside that lifecycle.
-- Use the guarded execution entrypoint selected by
-  `developing/engineering/production-release.md`. It runs the checks for the
-  selected scope before publication. Run `release:preflight:local` only when a
-  separate, read-only local go/no-go result is useful; the subsequent deploy
-  repeats the required admission checks.
-- Hotfixes use the same guarded entrypoint. Choose focused development checks
-  by risk; do not add a whole-train check to a scoped release.
-- `main` is PR-only. Release branches pass the exact Final Candidate contract
-  and merge through a PR before their approved `main` commit becomes a release
+- Release with `pnpm run deploy` from
+  `developing/engineering/production-release.md`; `--dry-run` prints the plan
+  without deploying.
+- Hotfixes use the same command. Choose focused development checks by risk.
+- `main` is PR-only. Every change passes the exact Final Candidate contract
+  and merges through a PR before its `main` commit becomes a release
   source.
 
 ### TypeScript compiler and tooling API
@@ -1072,14 +1069,13 @@ health checks, smoke boundaries, and reporting are owned by
 The development workflow contributes two non-negotiable gates:
 
 1. local-component changes must pass `pnpm run verify:release-ready` and carry
-   a truthful `release/local-components.json` policy;
-2. any Core deploy must prove the production CLI channel can satisfy the local
-   component version Core is about to project.
+   a truthful `release/local-components-policy.json` decision;
+2. the CLI publisher writes the release manifest that Core reads only after the
+   declared binary channel and npm version are available.
 
-The guarded local and GitHub release entrypoints enforce these checks. Do not
-bypass them with raw package deploys, raw `wrangler deploy`, or raw npm publish.
-When a gate fails, fix or restamp the final release commit and rerun the same
-scoped entrypoint. Do not use a skip flag as a normal deploy path.
+`pnpm run deploy` enforces these checks. Do not bypass it with raw package
+deploys, raw `wrangler deploy`, or raw npm publish. When a gate fails, fix the
+commit and rerun the same command. Do not use a skip flag as a normal deploy path.
 
 Internal staging uses its own guarded entry point:
 
@@ -1100,7 +1096,7 @@ Complete this audit before marking an implementation done and before any manual
 deploy when the diff touches CLI, OpenMeld Service carrier files,
 OpenMeld-managed local helper skills, Organization Skill delivery,
 daemon/runtime schemas, Prepare Session schemas, shared HTTP/RPC/WebSocket
-schemas, or `release/local-components.json`.
+schemas, or `release/local-components-policy.json`.
 
 This includes Wake, setup, reconnect, auto-update, permission or approval,
 structured-reply, runtime-transport, and other critical user-path fixes when
@@ -1278,14 +1274,14 @@ local Agent Controller adapter.
   before an execution-target change, and atomically disables admitted legacy
   Bindings, installs or reuses the canonical hosted target, and carries its
   Organization authorization in one guarded PostgreSQL transaction. Do not select Database
-  in this first release. Confirm the exact merged Core SHA and health with
-  `pnpm run release:status -- --ref <merged-sha>` before continuing; this is the
+  in this first release. Confirm that Core's active version carries the merged `RELEASE_SHA`
+  before continuing; this is the
   observable bridge-propagation signal, and the old wire names keep old and new
   RuntimeTransportHub instances interoperable during the wait.
 - After the bridge is confirmed active, set the designation-only gate with
   `pnpm ops:remote-agent policy --env prod --disable-designation`, land that
   single Wrangler policy change, deploy Core with
-  `pnpm run release:deploy:local -- --scope core`, and verify an authenticated
+  `pnpm run deploy -- --scope core --lane local`, and verify an authenticated
   Remote Agent designation attempt returns
   `center_agent.remote_designation_paused`. Existing Remote Agent execution
   stays enabled; do not use the broader runtime kill switch for this rollout.
@@ -2255,12 +2251,10 @@ actually publishes the integrated feature:
 
 1. bump the CLI package version and any coupled OpenMeld Service bundle version
    required by the current release tooling and bundle contract;
-2. run the base-aware `pnpm release:local-components stamp ...` command with an
-   explicit policy; it rebuilds the packaged CLI and verifies what it writes;
+2. record an explicit policy in `release/local-components-policy.json`;
 3. run `pnpm run verify:release-ready`; and
-4. publish through `pnpm run release:deploy:local -- --scope cli` so the package,
-   binary channel, tag, manifest projection, and production Core come from the
-   same commit.
+4. publish through `pnpm run deploy -- --scope cli` so the package, binary
+   channel, tag, and release manifest come from the same commit.
 
 Compatibility review currently supports an advisory `available` policy for
 the CLI and any restamped Service bundle because existing setup and Wake work
@@ -2400,17 +2394,13 @@ After review, protected merge, and selection of the exact release SHA:
    then run from the same clean approved checkout:
    `OPENMELD_DESKTOP_RELEASE_SHA=<sha> node scripts/release/desktop-preview.mjs promote <candidate-hash> <current-version-or-none>`.
    The command verifies remote candidate metadata and hashes both public artifacts.
-   It then acquires the existing Git-backed `web` production scope lease across
-   local and hosted runners. While holding that lease, it reads the authoritative
-   R2 pointer and candidate directly through Wrangler, checks the expected current
+   It then reads the authoritative R2 pointer and candidate directly through Wrangler, checks the expected current
    version and strict version increase, and writes `desktop/promoted.json`
    last. This one atomic object replacement selects the public download, legacy
    JSON and generated `latest-mac.yml` together. Never upload builder-generated
    latest metadata or edit a parallel default manifest. Verify all three public
    projections after promotion. Public page/JSON/feed caches never authorize a
-   promotion. Lease contention fails without writing; release and expired-lease
-   recovery follow the existing production scope rules (never steal a live lease).
-   A rollback is a reviewed forward release with
+   promotion. A rollback is a reviewed forward release with
    a newer app version; do not downgrade the channel under installed clients.
 
 The fixed storage contract in `packages/schemas/src/desktop-release.ts` uses:
@@ -2442,8 +2432,7 @@ permission to deploy or publish.
 ### Native Windows Desktop candidates
 
 The approval, clean merged source, scoped Web build, immutable upload, public
-verification, explicit promotion and production-scope lease rules above also
-apply to Windows. Mac pointers/projections remain unchanged. Windows uses one
+verification, and explicit promotion rules above also apply to Windows. Mac pointers/projections remain unchanged. Windows uses one
 reviewed pointer per `windows-x64` or `windows-arm64`, never a Mac fallback.
 
 Use `pnpm desktop:package:production-preview` on native Windows with
@@ -2490,142 +2479,47 @@ validation grants release authorization.
 
 ## Local Components Release Tool
 
-Use the local components release tool before publishing a CLI release or
-deploying a hard-cut local setup change.
+Three local components release with the CLI package: the OpenMeld CLI command
+contract, the OpenMeld Service bundle and execution contract, and the
+OpenMeld-managed Skills under `clients/openmeld-cli/skills`.
 
-The tool keeps release-side intent for three local components in one tracked
-manifest:
+A pull request that changes any of them bumps `clients/openmeld-cli/package.json`
+and writes one decision per changed component in
+`release/local-components-policy.json`:
 
-- OpenMeld CLI command contract
-- OpenMeld Service bundle and execution contract
-- OpenMeld-managed skills
-
-Inspect the checked-in policy and the existing local build artifacts:
-
-```text
-pnpm release:local-components:status
+```json
+{
+  "version": "0.3.265",
+  "cli": { "updatePolicy": "available", "reason": "Adds the routine list command." },
+  "service": { "updatePolicy": "required", "reason": "Changes the Wake execution contract." }
+}
 ```
 
-`status` is diagnostic only. Its Service hash comes from the existing local CLI
-`dist`, which may predate the current source. Do not copy that hash into the
-manifest or treat status output as release-ready evidence.
-
-Use the safe, base-aware stamp command when preparing a publish or deploy:
-
-```text
-pnpm release:local-components stamp --next --cli required --service required --skills required --reason "Hard-cut local setup after the Service Thin Core refactor."
-```
-
-The command snapshots the current source, rebuilds the packaged CLI from the
-workspace, stops if the source changes during the build, writes the manifest,
-and verifies the final result. If final verification fails, it restores only
-the files it wrote and never overwrites a concurrent edit. Do not hand-edit
-bundle hashes, run a separate build after stamping, or pass `--current` to a
-stamp command. After a merge, rebase, or later local-component change, rerun the
-same stamp command against the final source before committing.
-
-The release path classifies Service ownership separately from the CLI artifact.
-When no Service-owned input changed since the selected base manifest, stamping a
-CLI-only release retains that base Service version, bundle hash, and contract
-versions. The production publisher then selects the same immutable Service raw
-and gzip artifacts and verifies them before changing the mutable channel
-manifest. Changes to Service lifecycle/runtime sources, shared Service schemas
-or runtime dependencies, the packaged-build inputs, or the lockfile remain
-Service changes and keep the stamp coupled. This conservative allowlist is the
-only release-side eligibility decision; compatibility alone is insufficient.
-
-`--next` reads npm `latest` and the R2 stable CLI manifest, selects the higher
-stable version, and increments its patch. It prints both channel facts and warns
-when they drift. Missing network, credentials, or valid channel versions fail
-closed without writing a guessed version. `--version X.Y.Z` remains the explicit
-operator-approved mode; it skips channel reads and is mutually exclusive with
-`--next`.
-
-For local-component changes without a release stamp, Final Candidate uses
-`verify:release-ready -- --defer-release --base <exact-base-sha>` mode on an
-unstamped candidate. Ordinary development pushes do not repeat this build.
-Deferred verification still rebuilds the packaged CLI and Service facts and
-runs the release-tool tests. It requires the CLI version and
-`release/local-components.json` to remain identical to the base, then reports
-source and hash changes as pending work for the final clean-`main` release. It
-does not treat the base manifest hash as release truth for changed feature
-source.
-
-The final operator-approved release stamp may share a PR with the exact stable
-local-component source and compatibility floor it describes. If the feature
-already merged, use a separate release PR. The CLI package version must match
-the manifest version, and the manifest must match the built candidate. Any
-subsequent source change requires a restamp. Final Candidate selects strict
-release-ready verification whenever the candidate changes the local-components
-manifest; otherwise local-component source and package metadata changes receive
-deferred verification. Branch spelling and release-only diffs are not release
-authority. Publication preflight still confirms the version is unpublished.
-
-The pre-push release check does not run ordinary development builds or tests.
-Agents select focused checks before Ready. Release checking remains
-strict when a push includes `refs/heads/main`, any `codex/release-*` branch,
-a tag, malformed input, or no input. A strict push
-requires every non-deletion object to resolve to checked-out `HEAD` and rejects
-uncommitted release-relevant or gate-control paths. Final Candidate passes the
-pull request's exact base SHA and chooses deferred or strict release readiness
-from the candidate diff. Release preflight, publish, Core deploy, and every
-actual release path remain strict.
-
-Inspect the exact local-component changes before choosing an advisory or
-required update:
-
-```text
-pnpm release:local-components plan --next
-```
-
-Use the printed command shape with a component-specific policy and reason for
-every touched component. `production-release.md` owns the policy meanings and
-floor behavior.
-
-Verify the tracked manifest against a freshly rebuilt package, Service bundle,
-skill bundle, and changed paths with the release-ready gate. The base resolves
-in this order: an explicit `--base`, then `OPENMELD_AFFECTED_BASE` when set, then
-the most recent `v*` release tag reachable from HEAD (created locally and
-published to `origin` automatically by the guarded CLI release; it marks the last
-actually-published state), and only then `origin/main` as the pre-tagging
-fallback. Do not treat `origin/main` as the published baseline — in a
-batched-push workflow it can lag arbitrarily far behind the last npm publish:
-
-```text
-pnpm run verify:release-ready
-```
-
-Use a current-facts-only check only when no base ref is available. Keep it on
-the release-ready entrypoint so the CLI is rebuilt first:
-
-```text
-pnpm run verify:release-ready -- --current
-```
+`pnpm run verify:release-ready` checks this from the changed paths. It passes
+when no local-component path changed or the package version is already on npm,
+and otherwise requires the bump and a decision for every changed component.
+Hashes are computed at publish time from the built package and compared with
+the published `cli/local-components.json`; never write them by hand. When no
+Service-owned input changed, the publisher keeps the published Service version
+and artifacts and verifies them before it moves the channel manifest.
 
 Current early-release policy:
 
-- Any changed CLI, Service carrier, or Skills artifact must be stamped as
-  `available` or `required`.
-- An eligible CLI-only release may advance the CLI while retaining the exact
-  selected base Service. It does not restamp newer CLI bytes as Service bytes.
-- Service bundle changes can be advisory unless the Service runtime contract
-  changes.
-- Skills bundle changes can be advisory unless the skills contract changes.
-- CLI package updates can stay advisory unless the CLI command contract changes.
 - `available` means a newer local component is available and current Wake work
-  can continue. `required` is the only release policy that blocks the affected
-  capability.
+  can continue. `required` is the only policy that blocks the affected
+  capability, and needs the matching floor (`openmeld.minRequiredCliVersion` or
+  `MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION`).
+- A CLI command, Service runtime, or Skills contract change must be `required`;
+  other changes can be `available`.
 
-Skills stamping is release-side artifact intent, not a user-store repair step.
-Stamp skills only when checked-in OpenMeld-managed skills under
-`clients/openmeld-cli/skills` change, or when the skills contract/policy changes.
-Running `openmeld skills update` or `npx -y openmeld@latest skills update` only
-updates the user's local skills store such as `~/.openmeld/skills`; it does not
-update `release/local-components.json` and does not replace the running OpenMeld
-Service bundle. A real skills artifact release must stamp `--skills available`
-or `--skills required`, commit the manifest, pass `pnpm run verify:release-ready`,
-publish/deploy through the guarded entrypoint, and deploy Core so production
-reads the same manifest.
+Skills release is artifact intent, not a user-store repair step. Running
+`openmeld skills update` only updates the user's local skills store such as
+`~/.openmeld/skills`; it does not change the published release manifest or the
+running OpenMeld Service bundle.
+
+The pre-push release check runs strict release readiness only when a push
+includes `refs/heads/main`, a tag, malformed input, or no input. Ordinary
+development pushes skip it.
 
 This tool is release workflow, not product authority. Runtime readiness,
 Service health, Space truth, and Wake execution truth remain owned by their
@@ -2641,8 +2535,7 @@ commands inside the documented isolated PostgreSQL cluster.
 
 Production database changes use the guarded scoped release owner in
 [Production Database Release](production-release.md#production-database-release).
-The legacy `db:release:prod` and `db:sync:prod` commands reject the PostgreSQL
-manifest. Shared staging uses its own PostgreSQL target through the guarded
+Shared staging uses its own PostgreSQL target through the guarded
 `pnpm staging:deploy` workflow, including migrations and runtime grants.
 
 Historical D1 files remain immutable import/recovery evidence; see

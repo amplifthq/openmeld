@@ -7,6 +7,7 @@ interface __BaseEnv_CloudflareBindings {
 	AUTH_EMAIL: SendEmail;
 	OPENMELD_OBSERVABILITY: AnalyticsEngineDataset;
 	OPENMELD_ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMITER: RateLimit;
+	RELEASE_SHA: "";
 	OPENMELD_WORKER_ENVIRONMENT: "stg" | "prod" | "local";
 	BETTER_AUTH_URL: "https://auth.staging.openmeld.ai" | "https://auth.openmeld.ai" | "http://localhost:8788";
 	WEB_APP_URL: "https://app.staging.openmeld.ai" | "https://app.openmeld.ai" | "http://localhost:3000";
@@ -38,6 +39,7 @@ declare namespace Cloudflare {
 		AUTH_EMAIL: SendEmail;
 		OPENMELD_OBSERVABILITY: AnalyticsEngineDataset;
 		OPENMELD_ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMITER: RateLimit;
+		RELEASE_SHA: "";
 		OPENMELD_WORKER_ENVIRONMENT: "stg";
 		BETTER_AUTH_URL: "https://auth.staging.openmeld.ai";
 		WEB_APP_URL: "https://app.staging.openmeld.ai";
@@ -61,6 +63,7 @@ declare namespace Cloudflare {
 		AUTH_EMAIL: SendEmail;
 		OPENMELD_OBSERVABILITY: AnalyticsEngineDataset;
 		OPENMELD_ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMITER: RateLimit;
+		RELEASE_SHA: "";
 		OPENMELD_WORKER_ENVIRONMENT: "prod";
 		BETTER_AUTH_URL: "https://auth.openmeld.ai";
 		WEB_APP_URL: "https://app.openmeld.ai";
@@ -88,7 +91,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "OPENMELD_WORKER_ENVIRONMENT" | "BETTER_AUTH_URL" | "WEB_APP_URL" | "AUTH_LEGACY_APP_ORIGIN" | "AUTH_WORKER_NODE_ENV" | "AUTH_DESKTOP_DEVELOPMENT_TARGET" | "AUTH_DEVICE_ALLOWED_CLIENT_IDS" | "OPENMELD_ADDITIONAL_HUMAN_PROFILE_CREATION_ENABLED" | "AUTH_BRAND_NAME" | "AUTH_FROM_EMAIL" | "AUTH_COOKIE_DOMAIN" | "AUTH_COOKIE_PREFIX" | "PASSKEY_RP_ID" | "AUTH_MAGIC_LINK_EXPIRES_IN_SECONDS" | "BETTER_AUTH_OPENMELD_SECRET" | "GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID" | "GOOGLE_OPENMELD_AUTH_OAUTH_CLIENT_ID" | "GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_SECRET" | "GOOGLE_OPENMELD_AUTH_OAUTH_CLIENT_SECRET">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "RELEASE_SHA" | "OPENMELD_WORKER_ENVIRONMENT" | "BETTER_AUTH_URL" | "WEB_APP_URL" | "AUTH_LEGACY_APP_ORIGIN" | "AUTH_WORKER_NODE_ENV" | "AUTH_DESKTOP_DEVELOPMENT_TARGET" | "AUTH_DEVICE_ALLOWED_CLIENT_IDS" | "OPENMELD_ADDITIONAL_HUMAN_PROFILE_CREATION_ENABLED" | "AUTH_BRAND_NAME" | "AUTH_FROM_EMAIL" | "AUTH_COOKIE_DOMAIN" | "AUTH_COOKIE_PREFIX" | "PASSKEY_RP_ID" | "AUTH_MAGIC_LINK_EXPIRES_IN_SECONDS" | "BETTER_AUTH_OPENMELD_SECRET" | "GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID" | "GOOGLE_OPENMELD_AUTH_OAUTH_CLIENT_ID" | "GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_SECRET" | "GOOGLE_OPENMELD_AUTH_OAUTH_CLIENT_SECRET">> {}
 }
 
 // Begin runtime types

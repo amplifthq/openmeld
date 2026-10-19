@@ -61,6 +61,8 @@ const CENTER_AGENT_PERFORMANCE_ANALYTICS_PROD_DATASET =
 const DESKTOP_DOWNLOADS_R2_BINDING = "OPENMELD_DESKTOP_DOWNLOADS";
 const DESKTOP_DOWNLOADS_R2_BUCKET = "openmeld-desktop-downloads-prod";
 const DESKTOP_DOWNLOADS_R2_STAGING_BUCKET = "openmeld-desktop-downloads-stg";
+const CLI_RELEASES_R2_BINDING = "OPENMELD_CLI_RELEASES";
+const CLI_RELEASES_R2_LOCAL_BUCKET = "openmeld-cli-releases-local";
 const SPACE_ATTACHMENTS_R2_BINDING = "OPENMELD_SPACE_ATTACHMENTS";
 const SPACE_ATTACHMENTS_R2_BUCKET = "openmeld-space-attachments-prod";
 const SPACE_ATTACHMENTS_R2_PREVIEW_BUCKET =
@@ -353,6 +355,16 @@ const workerPackages = [
           local: ORGANIZATION_SKILLS_R2_PREVIEW_BUCKET,
           prod: ORGANIZATION_SKILLS_R2_PREVIEW_BUCKET,
           stg: ORGANIZATION_SKILLS_R2_STAGING_BUCKET,
+        }),
+      },
+      // Core reads the published CLI release manifest from the bucket the CLI
+      // publisher writes; local development seeds its own local bucket.
+      {
+        binding: CLI_RELEASES_R2_BINDING,
+        bucket_name: expectedResourceName(environment, {
+          local: CLI_RELEASES_R2_LOCAL_BUCKET,
+          prod: DESKTOP_DOWNLOADS_R2_BUCKET,
+          stg: DESKTOP_DOWNLOADS_R2_STAGING_BUCKET,
         }),
       },
     ],
@@ -1328,50 +1340,13 @@ ensure(
   "services/remote-agent/wrangler.jsonc env.prod must not declare a second AI Gateway routing authority."
 );
 
-const workflowExpectations = [
-  {
-    workflowPath: ".github/workflows/sync-auth-worker-secrets.yml",
-    expectedSnippet: "pnpm -C services/auth run sync:secrets:prod",
-  },
-  {
-    workflowPath: ".github/workflows/sync-web-worker-secrets.yml",
-    expectedSnippet: "pnpm -C clients/web run sync:secrets:prod",
-  },
-  {
-    workflowPath: ".github/workflows/deploy-auth-worker.yml",
-    expectedSnippet: "pnpm -C services/auth run sync:config:prod",
-  },
-  {
-    workflowPath: ".github/workflows/deploy-core-worker.yml",
-    expectedSnippet: "node scripts/release/deploy-core-worker.mjs",
-  },
-  {
-    workflowPath: ".github/workflows/deploy-remote-agent-worker.yml",
-    expectedSnippet: "pnpm -C services/remote-agent run sync:config:prod",
-  },
-  {
-    workflowPath: ".github/workflows/deploy-gateway-worker.yml",
-    expectedSnippet: "pnpm -C services/gateway run sync:config:prod",
-  },
-  {
-    workflowPath: ".github/workflows/deploy-web.yml",
-    expectedSnippet: "pnpm -C clients/web run sync:config:prod",
-  },
-];
-
-for (const { workflowPath, expectedSnippet } of workflowExpectations) {
-  const workflowText = readText(workflowPath);
-  ensure(
-    workflowText.includes(expectedSnippet),
-    `${workflowPath} must call package script "${expectedSnippet}".`
-  );
-}
-
+// Production deploys run each Worker's own package deploy script through the
+// component table; deploy.yml must not grow a second, raw deploy path.
 ensure(
-  !existsSync(
-    path.join(repoRoot, ".github/workflows/sync-web-runtime-env.yml")
+  readText(".github/workflows/deploy.yml").includes(
+    "scripts/release/deploy-component.mjs"
   ),
-  ".github/workflows/sync-web-runtime-env.yml must be removed in favor of sync-web-worker-secrets.yml."
+  ".github/workflows/deploy.yml must deploy every component through scripts/release/deploy-component.mjs."
 );
 
 if (failures.length > 0) {

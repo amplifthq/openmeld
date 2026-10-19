@@ -8,7 +8,7 @@ on:
       - "scripts/vite/**"
       - "scripts/release/**"
       - ".github/workflows/docs-ci.yml"
-      - ".github/workflows/deploy-docs.yml"
+      - ".github/workflows/deploy.yml"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"

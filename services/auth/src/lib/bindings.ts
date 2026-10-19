@@ -11,6 +11,7 @@ export type AuthBindings = {
   OPENMELD_CORE_WORKER?: CoreProfileLifecycleWorker;
   OPENMELD_OBSERVABILITY?: AnalyticsEngineDataset;
   OPENMELD_WORKER_ENVIRONMENT?: string;
+  RELEASE_SHA?: string;
   BETTER_AUTH_URL?: string;
   BETTER_AUTH_OPENMELD_SECRET?: string;
   AUTH_WORKER_NODE_ENV?: string;

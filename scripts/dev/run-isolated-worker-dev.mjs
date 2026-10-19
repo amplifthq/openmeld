@@ -38,6 +38,10 @@ const remoteAgentNoSandboxConfigPath = resolve(
   "wrangler.no-sandbox.json"
 );
 const REMOTE_AGENT_SANDBOX_CLASS_NAME = "Sandbox";
+const localCliReleaseSeedPath = resolve(
+  repoRoot,
+  "scripts/dev/seed-local-cli-release.mjs"
+);
 
 if (isDirectExecution()) {
   runIsolatedWorker(process.argv[2])
@@ -108,7 +112,13 @@ export function resolveIsolatedWorkerDevPlan(input) {
           `PASSKEY_RP_ID:${new URL(requireEnvironmentValue(env, "WEB_APP_URL")).hostname}`,
         ],
         command: "pnpm",
-        preCommands: [],
+        // Core runs in this process and reads its CLI release from local R2.
+        preCommands: [
+          {
+            args: [localCliReleaseSeedPath, "--persist-to", persistTo],
+            command: process.execPath,
+          },
+        ],
       };
     case "gateway":
       return {

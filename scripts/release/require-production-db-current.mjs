@@ -1,48 +1,29 @@
 #!/usr/bin/env node
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { verifyHostedPostgresqlCliDatabase } from "./database-backend-admission.mjs";
 
 const PENDING_EVIDENCE_LIMIT = 4000;
 const NO_PENDING_D1_MIGRATIONS_PATTERN = /No migrations to apply[.!]?/iu;
 const PENDING_D1_MIGRATIONS_PATTERN =
   /Migrations to be applied:|\b\d{4}_[\w-]+\.sql\b/iu;
 
-export async function requireProductionDatabaseCurrent(input = {}) {
+export function requireProductionDatabaseCurrent(input = {}) {
   const cwd = path.resolve(input.cwd ?? process.cwd());
   const manifestPath = path.join(cwd, "release/database-backend.json");
   if (
     existsSync(manifestPath) &&
     JSON.parse(readFileSync(manifestPath, "utf8")).backend === "postgresql"
   ) {
-    return await requirePostgresqlDatabaseCurrent(input, cwd);
+    return requirePostgresqlDatabaseCurrent(input, cwd);
   }
   return requireD1DatabaseCurrent(input, cwd);
 }
 
-async function requirePostgresqlDatabaseCurrent(input, cwd) {
-  if (input.hostedCli) {
-    const sourceSha = execFileSync("git", ["rev-parse", "HEAD"], {
-      cwd,
-      encoding: "utf8",
-    }).trim();
-    if (input.sourceSha && input.sourceSha !== sourceSha) {
-      throw new Error(
-        "Hosted CLI database source does not match the release checkout"
-      );
-    }
-    return await verifyHostedPostgresqlCliDatabase({
-      root: cwd,
-      sourceSha,
-      env: input.env,
-      gitEnvironment: input.gitEnvironment,
-      readReceipts: input.readReceipts,
-    });
-  }
+function requirePostgresqlDatabaseCurrent(input, cwd) {
   const result = (input.runCommand ?? runCommand)({
     command: process.execPath,
     args: [
@@ -128,7 +109,7 @@ function requireD1DatabaseCurrent(input, cwd) {
     [
       "Production database is behind the release source.",
       "Deploying Core now could run new code against an older database schema.",
-      "Run Scoped Production Release for the exact release SHA with scope `database`, wait for it to succeed, then rerun the guarded release.",
+      "Run `pnpm run deploy -- --scope db,core --sha <sha>` with the exact release SHA. Wait for db and Core to succeed before continuing.",
       evidence,
     ]
       .filter(Boolean)
@@ -160,18 +141,16 @@ function formatProbeEvidence(result) {
   return `Migration probe evidence:\n${raw.slice(0, PENDING_EVIDENCE_LIMIT)}`;
 }
 
-function parseArguments(argv) {
-  const hostedCli = argv.includes("--hosted-cli");
-  const args = argv.filter((arg) => arg !== "--hosted-cli");
+function parseArguments(args) {
   if (
     args.length === 2 &&
     args[0] === "--release-source" &&
     String(args[1] ?? "").trim()
   ) {
-    return { cwd: args[1], hostedCli };
+    return { cwd: args[1] };
   }
   throw new Error(
-    "Usage: require-production-db-current.mjs --release-source <path> [--hosted-cli]"
+    "Usage: require-production-db-current.mjs --release-source <path>"
   );
 }
 

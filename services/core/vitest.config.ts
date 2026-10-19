@@ -13,6 +13,9 @@ export default defineWorkersConfig(async () => {
       fileParallelism: false,
       globals: true,
       include: ["src/__tests__/**/*.test.ts", "tests/**/*.test.ts"],
+      setupFiles: [
+        "./test-support/seed-published-local-components-release.setup.ts",
+      ],
       poolOptions: {
         workers: {
           // Durable Object stream tests share storage and use unique fixture ids.

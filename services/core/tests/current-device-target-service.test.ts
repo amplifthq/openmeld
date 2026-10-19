@@ -1,17 +1,12 @@
-import {
-  CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-  localComponentsReleaseManifestSchema,
-} from "@openmeld/schemas";
+import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import type {
   AgentControllerInterfaceSnapshot,
   LocalComponentsStatus,
   RuntimeTransportCapabilities,
 } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import releaseManifestJson from "../../../release/local-components.json";
 import { REQUIRED_SERVICE_UPDATE_RELEASE_MANIFEST } from "../src/__tests__/local-components-release-manifest-fixture";
-// biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
-import * as localComponentsUpdateProjection from "../src/local-components/update-projection";
+import type { CoreLocalComponentsRelease } from "../src/local-components/release-source";
 import {
   ConnectedComputerEnrollmentInvalidError,
   enrollLocalSetupDeviceUseCase,
@@ -23,6 +18,10 @@ import {
   setLocalRuntimeDisplayNameUseCase,
 } from "../src/start/application/current-device-target-service";
 import { ensureOwnedDevicePlaceholderUseCase } from "../src/start/application/owned-device-registry-service";
+import {
+  createPublishedLocalComponentsRelease,
+  PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
+} from "../test-support/published-local-components-release";
 
 const COMPATIBLE_SERVICE = {
   expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
@@ -30,8 +29,6 @@ const COMPATIBLE_SERVICE = {
   reasonCode: "daemon.runtime_contract.compatible",
   status: "compatible",
 } as const;
-const resolveLocalComponentUpdateProjection =
-  localComponentsUpdateProjection.resolveLocalComponentUpdateProjection;
 
 const CODEX_AGENT_CONTROLLER_INTERFACE = {
   agentControllerRef: "builtin:codex",
@@ -63,8 +60,9 @@ const CODEX_AGENT_CONTROLLER_INTERFACE = {
   version: "0.1.0",
 } satisfies AgentControllerInterfaceSnapshot;
 
-const CURRENT_RELEASE_MANIFEST =
-  localComponentsReleaseManifestSchema.parse(releaseManifestJson);
+const CURRENT_RELEASE_MANIFEST = PUBLISHED_LOCAL_COMPONENTS_MANIFEST;
+let publishedRelease: CoreLocalComponentsRelease =
+  createPublishedLocalComponentsRelease();
 
 const CURRENT_LOCAL_COMPONENTS_STATUS = {
   schemaVersion: 1,
@@ -118,14 +116,8 @@ const CURRENT_LOCAL_COMPONENTS_STATUS = {
 } satisfies LocalComponentsStatus;
 
 function useRequiredServiceUpdatePolicy() {
-  vi.spyOn(
-    localComponentsUpdateProjection,
-    "resolveLocalComponentUpdateProjection"
-  ).mockImplementation((input) =>
-    resolveLocalComponentUpdateProjection({
-      ...input,
-      releaseManifest: REQUIRED_SERVICE_UPDATE_RELEASE_MANIFEST,
-    })
+  publishedRelease = createPublishedLocalComponentsRelease(
+    REQUIRED_SERVICE_UPDATE_RELEASE_MANIFEST
   );
 }
 
@@ -146,6 +138,7 @@ type OwnedDeviceRegistryRecord = {
 describe("current device target service", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    publishedRelease = createPublishedLocalComponentsRelease();
   });
 
   it("returns missing when no current device target has been selected", async () => {
@@ -1199,6 +1192,7 @@ describe("current device target service", () => {
 
     await expect(
       getCurrentLocalRuntimeReplyReadinessUseCase({
+        localComponentsRelease: publishedRelease,
         lookupOwnerService: () =>
           Promise.resolve({
             online: true,
@@ -1279,6 +1273,7 @@ describe("current device target service", () => {
 
     await expect(
       getCurrentLocalRuntimeReplyReadinessUseCase({
+        localComponentsRelease: publishedRelease,
         lookupOwnerService: () =>
           Promise.resolve({
             online: true,
@@ -1445,6 +1440,7 @@ describe("current device target service", () => {
 
     await expect(
       getCurrentLocalRuntimeReplyReadinessUseCase({
+        localComponentsRelease: publishedRelease,
         lookupOwnerService: () =>
           Promise.resolve({
             online: true,
@@ -1532,6 +1528,7 @@ describe("current device target service", () => {
 
     await expect(
       getCurrentLocalRuntimeReplyReadinessUseCase({
+        localComponentsRelease: publishedRelease,
         lookupOwnerService: () =>
           Promise.resolve({
             online: true,
@@ -1611,6 +1608,7 @@ describe("current device target service", () => {
 
     await expect(
       getCurrentLocalRuntimeReplyReadinessUseCase({
+        localComponentsRelease: publishedRelease,
         lookupOwnerService: () =>
           Promise.resolve({
             online: true,
@@ -1686,6 +1684,7 @@ describe("current device target service", () => {
 
     await expect(
       getCurrentLocalRuntimeReplyReadinessUseCase({
+        localComponentsRelease: publishedRelease,
         lookupOwnerService: () =>
           Promise.resolve({
             online: true,
@@ -1785,6 +1784,7 @@ describe("current device target service", () => {
 
     await expect(
       getCurrentLocalRuntimeReplyReadinessUseCase({
+        localComponentsRelease: publishedRelease,
         lookupOwnerService: () =>
           Promise.resolve({
             online: true,
@@ -1857,6 +1857,7 @@ describe("current device target service", () => {
 
     await expect(
       getCurrentLocalRuntimeReplyReadinessUseCase({
+        localComponentsRelease: publishedRelease,
         lookupOwnerService: () =>
           Promise.resolve({
             online: true,
@@ -1925,6 +1926,7 @@ describe("current device target service", () => {
 
     await expect(
       getCurrentLocalRuntimeReplyReadinessUseCase({
+        localComponentsRelease: publishedRelease,
         lookupOwnerService: () =>
           Promise.resolve({
             online: true,
@@ -2002,6 +2004,7 @@ describe("current device target service", () => {
 
     await expect(
       getCurrentLocalRuntimeReplyReadinessUseCase({
+        localComponentsRelease: publishedRelease,
         lookupOwnerService: () =>
           Promise.resolve({
             online: true,
@@ -2083,6 +2086,7 @@ describe("current device target service", () => {
 
     await expect(
       getCurrentLocalRuntimeReplyReadinessUseCase({
+        localComponentsRelease: publishedRelease,
         target: { deviceId: "device-reconnected", runtimeLane: "canary" },
         lookupOwnerService: () =>
           Promise.resolve({
@@ -2154,6 +2158,7 @@ describe("current device target service", () => {
 
     await expect(
       getCurrentLocalRuntimeReplyReadinessUseCase({
+        localComponentsRelease: publishedRelease,
         lookupOwnerService: () =>
           Promise.resolve({
             online: false,
@@ -2206,6 +2211,7 @@ describe("current device target service", () => {
 
     await expect(
       getCurrentLocalRuntimeReplyReadinessUseCase({
+        localComponentsRelease: publishedRelease,
         lookupOwnerService: () =>
           Promise.resolve({
             online: true,
@@ -2278,6 +2284,7 @@ describe("current device target service", () => {
 
     await expect(
       getCurrentLocalRuntimeReplyReadinessUseCase({
+        localComponentsRelease: publishedRelease,
         lookupOwnerService: () =>
           Promise.resolve({
             online: true,
@@ -2355,6 +2362,7 @@ describe("current device target service", () => {
 
     await expect(
       getCurrentLocalRuntimeReplyReadinessUseCase({
+        localComponentsRelease: publishedRelease,
         lookupOwnerService: () =>
           Promise.resolve({
             online: true,

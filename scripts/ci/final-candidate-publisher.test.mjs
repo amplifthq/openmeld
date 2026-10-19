@@ -45,10 +45,7 @@ const trustedPlan = createFinalCandidatePlan({
   baseSha: BASE_SHA,
   branchName: "codex/malicious-candidate",
   candidateKind: "pull-request",
-  changedPaths: [
-    "scripts/release/production-scope-lease.mjs",
-    "pnpm-lock.yaml",
-  ],
+  changedPaths: ["scripts/release/deploy.mjs", "pnpm-lock.yaml"],
   confidence: "standard",
   headSha: HEAD_SHA,
   mode: "remote",

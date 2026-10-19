@@ -2,7 +2,6 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { executeWithProductionScopeLeases } from "./production-release.mjs";
 import {
   admitWebsiteDomainRelease,
   executeObservedDomainRelease,
@@ -252,32 +251,20 @@ async function runStagingRelease(input) {
         : ["auth", "core", "gateway", "web", "website"],
       evidencePath: input.domainEvidence,
     };
-    const workerScopes = input.scope
-      ? [input.scope]
-      : ["auth", "core", "gateway", "web", "remote-agent", "website", "docs"];
-    // Reuse the existing cross-machine leases. This intentionally serializes
-    // the two environments' domain work instead of creating another lock owner.
-    await executeWithProductionScopeLeases({
-      scopes: input.domainPhase ? ["auth", "web", "website"] : workerScopes,
-      sourceSha,
-      owner: `staging:${process.cwd()}`,
-      execute: async () => {
-        if (input.domainPhase) {
-          runStep(environmentContractStep());
-          const operation =
-            input.domainPhase === "prepare"
-              ? prepareWebsiteDomains
-              : rollbackWebsiteDomains;
-          const state = await operation(domainInput);
-          process.stdout.write(`${JSON.stringify(state)}\n`);
-          return;
-        }
-        const admission = await admitWebsiteDomainRelease(domainInput);
-        await executeObservedDomainRelease(domainInput, admission, () =>
-          executeStagingSteps(steps)
-        );
-      },
-    });
+    if (input.domainPhase) {
+      runStep(environmentContractStep());
+      const operation =
+        input.domainPhase === "prepare"
+          ? prepareWebsiteDomains
+          : rollbackWebsiteDomains;
+      const state = await operation(domainInput);
+      process.stdout.write(`${JSON.stringify(state)}\n`);
+      return;
+    }
+    const admission = await admitWebsiteDomainRelease(domainInput);
+    await executeObservedDomainRelease(domainInput, admission, () =>
+      executeStagingSteps(steps)
+    );
   } else {
     await executeStagingSteps(steps);
   }

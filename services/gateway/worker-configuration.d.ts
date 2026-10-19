@@ -12,6 +12,7 @@ interface __BaseEnv_CloudflareBindings {
 	OPENMELD_FEEDBACK_INBOX_RATE_LIMITER: RateLimit;
 	OPENMELD_SPACE_PASSWORD_RATE_LIMITER: RateLimit;
 	OPENMELD_IMAGES: ImagesBinding;
+	RELEASE_SHA: "";
 	OPENMELD_WORKER_ENVIRONMENT: "dev" | "stg" | "prod" | "local";
 	OPENMELD_CONNECTORS_BASE_URL: "https://connectors.openmeld.ai" | "https://connectors.staging.openmeld.ai";
 	OPENMELD_GATEWAY_URL: "http://localhost:8080" | "https://gateway.staging.openmeld.ai" | "https://gateway.openmeld.ai";
@@ -41,6 +42,7 @@ declare namespace Cloudflare {
 		OPENMELD_FEEDBACK_INBOX_RATE_LIMITER: RateLimit;
 		OPENMELD_SPACE_PASSWORD_RATE_LIMITER: RateLimit;
 		OPENMELD_IMAGES: ImagesBinding;
+		RELEASE_SHA: "";
 		OPENMELD_WORKER_ENVIRONMENT: "dev";
 		OPENMELD_CONNECTORS_BASE_URL: "https://connectors.openmeld.ai";
 		OPENMELD_GATEWAY_URL: "http://localhost:8080";
@@ -65,6 +67,7 @@ declare namespace Cloudflare {
 		OPENMELD_FEEDBACK_INBOX_RATE_LIMITER: RateLimit;
 		OPENMELD_SPACE_PASSWORD_RATE_LIMITER: RateLimit;
 		OPENMELD_IMAGES: ImagesBinding;
+		RELEASE_SHA: "";
 		OPENMELD_WORKER_ENVIRONMENT: "stg";
 		OPENMELD_CONNECTORS_BASE_URL: "https://connectors.staging.openmeld.ai";
 		GITHUB_OPENMELD_APP_SLUG: "openmeld-staging-flue2";
@@ -85,6 +88,7 @@ declare namespace Cloudflare {
 		OPENMELD_FEEDBACK_INBOX_RATE_LIMITER: RateLimit;
 		OPENMELD_SPACE_PASSWORD_RATE_LIMITER: RateLimit;
 		OPENMELD_IMAGES: ImagesBinding;
+		RELEASE_SHA: "";
 		OPENMELD_WORKER_ENVIRONMENT: "prod";
 		OPENMELD_CONNECTORS_BASE_URL: "https://connectors.openmeld.ai";
 		OPENMELD_GATEWAY_URL: "https://gateway.openmeld.ai";
@@ -106,7 +110,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "OPENMELD_WORKER_ENVIRONMENT" | "OPENMELD_CONNECTORS_BASE_URL" | "OPENMELD_GATEWAY_URL" | "WEB_APP_URL" | "OPENMELD_SLACK_OAUTH_REDIRECT_URL" | "SLACK_OPENMELD_OAUTH_CLIENT_ID" | "SLACK_OPENMELD_OAUTH_CLIENT_SECRET" | "SLACK_OPENMELD_SIGNING_SECRET" | "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN" | "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN" | "GITHUB_OPENMELD_APP_SLUG">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "RELEASE_SHA" | "OPENMELD_WORKER_ENVIRONMENT" | "OPENMELD_CONNECTORS_BASE_URL" | "OPENMELD_GATEWAY_URL" | "WEB_APP_URL" | "OPENMELD_SLACK_OAUTH_REDIRECT_URL" | "SLACK_OPENMELD_OAUTH_CLIENT_ID" | "SLACK_OPENMELD_OAUTH_CLIENT_SECRET" | "SLACK_OPENMELD_SIGNING_SECRET" | "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN" | "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN" | "GITHUB_OPENMELD_APP_SLUG">> {}
 }
 
 // Begin runtime types

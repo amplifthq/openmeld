@@ -4,7 +4,6 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import { isReleaseBranchRef } from "./release-branch-policy.mjs";
 import { selectPrePushReleaseVerificationPaths } from "./release-ready-paths.mjs";
 
 const MAIN_REF = "refs/heads/main";
@@ -44,7 +43,6 @@ export function resolvePrePushReleaseMode(input) {
     updates.some(
       (update) =>
         update.remoteRef === MAIN_REF ||
-        isReleaseBranchRef(update.remoteRef) ||
         !update.remoteRef.startsWith(BRANCH_REF_PREFIX)
     )
   ) {

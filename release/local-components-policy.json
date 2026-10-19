@@ -1,0 +1,15 @@
+{
+  "version": "0.3.264",
+  "cli": {
+    "updatePolicy": "available",
+    "reason": "Existing CLI commands remain wire-compatible; bounded stop, verified repair and opt-in native recovery improve diagnostics."
+  },
+  "service": {
+    "updatePolicy": "required",
+    "reason": "Native account checks must run each minute before Core can enforce the two-minute evidence lifetime; old five-minute carriers cannot satisfy it."
+  },
+  "skills": {
+    "updatePolicy": "available",
+    "reason": "Guidance clarifies existing command prefixes, addressing, and Computer operations without adding runtime authority."
+  }
+}

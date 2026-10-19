@@ -2,7 +2,9 @@ import { AUTH_SERVICE_NAME } from "@openmeld/auth/server";
 import {
   ACCOUNT_ORGANIZATION_CONTEXT_PATH,
   ACCOUNT_SESSION_PATH,
+  resolveWorkerReleaseSha,
 } from "@openmeld/schemas";
+import type { WorkerHealthResponse } from "@openmeld/schemas/types";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { prettyJSON } from "hono/pretty-json";
@@ -139,7 +141,11 @@ export function createHonoApp() {
   });
 
   app.get("/health", (c) => {
-    return c.json({ ok: true, service: AUTH_SERVICE_NAME });
+    return c.json({
+      ok: true,
+      service: AUTH_SERVICE_NAME,
+      releaseSha: resolveWorkerReleaseSha(c.env.RELEASE_SHA),
+    } satisfies WorkerHealthResponse);
   });
 
   app.notFound((c) => {

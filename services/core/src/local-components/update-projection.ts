@@ -4,8 +4,6 @@ import {
   formatLocalSetupActionDescription,
   formatLocalSetupActionLabel,
   LOCAL_COMPONENTS_SCHEMA_VERSION,
-  localComponentsAvailabilityCatalogSchema,
-  localComponentsReleaseManifestSchema,
 } from "@openmeld/schemas";
 import type {
   DaemonServiceLane,
@@ -21,18 +19,7 @@ import type {
   OpenMeldToolsMaintenanceProjection,
   OpenMeldToolsUpdateOperation,
 } from "@openmeld/schemas/types";
-import releaseManifestJson from "../../../../release/local-components.json";
-
-// The receiver-first release lane temporarily compiles the current published
-// manifest into new Core code. The final CLI publication deploy removes this
-// build-time override and compiles the checked-in manifest as usual.
-declare const OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON:
-  | string
-  | undefined;
-
-declare const OPENMELD_LOCAL_COMPONENTS_AVAILABILITY_CATALOG_JSON:
-  | string
-  | undefined;
+import type { CoreLocalComponentsRelease } from "./release-source";
 
 // The installed CLI owns distribution-aware upgrades (managed binary or npm).
 // Cloud status cannot assume Node/npm exists on the selected computer.
@@ -72,12 +59,12 @@ export function resolveLocalComponentUpdateProjection(input: {
   generatedAt: string;
   runtimeLane?: DaemonServiceLane;
   localComponentsStatus?: LocalComponentsStatus | null;
-  releaseManifest?: LocalComponentsReleaseManifest | null;
-  availabilityCatalog?: LocalComponentsAvailabilityCatalog | null;
+  // The published release read by readCoreLocalComponentsRelease().
+  release: CoreLocalComponentsRelease;
   serviceConnected: boolean;
   serviceVersion: string | null;
 }): LocalComponentUpdateProjection {
-  const manifest = resolveRequestedReleaseManifest(input.releaseManifest);
+  const manifest = input.release.manifest;
   const maintenance = input.localComponentsStatus?.maintenance ?? null;
   const updateOperation = input.localComponentsStatus?.updateOperation ?? null;
   const serviceCliReasonCodes =
@@ -132,10 +119,7 @@ export function resolveLocalComponentUpdateProjection(input: {
   const selectedPolicy = resolveInstallableComponentPolicy({
     manifest,
     source: input.localComponentsStatus?.installationSource,
-    catalog:
-      input.availabilityCatalog === undefined
-        ? resolveCoreLocalComponentsAvailabilityCatalog()
-        : input.availabilityCatalog,
+    catalog: input.release.availabilityCatalog,
   });
   const skillsPolicy = manifest.components.skills;
   const cli = mergeOpenMeldToolsUpdateFailureReasonCode({
@@ -382,43 +366,6 @@ function resolveInstallableComponentPolicy(input: {
   );
 }
 
-export function resolveCoreLocalComponentsAvailabilityCatalog(): LocalComponentsAvailabilityCatalog | null {
-  if (typeof OPENMELD_LOCAL_COMPONENTS_AVAILABILITY_CATALOG_JSON !== "string") {
-    return null;
-  }
-  try {
-    const parsed = localComponentsAvailabilityCatalogSchema.safeParse(
-      JSON.parse(OPENMELD_LOCAL_COMPONENTS_AVAILABILITY_CATALOG_JSON) as unknown
-    );
-    return parsed.success ? parsed.data : null;
-  } catch {
-    return null;
-  }
-}
-
-function resolveRequestedReleaseManifest(
-  releaseManifest: LocalComponentsReleaseManifest | null | undefined
-): LocalComponentsReleaseManifest | null {
-  return releaseManifest === undefined
-    ? resolveCoreLocalComponentsReleaseManifest()
-    : releaseManifest;
-}
-
-export function resolveCoreLocalComponentsReleaseManifest(): LocalComponentsReleaseManifest | null {
-  let source: unknown = releaseManifestJson;
-  if (typeof OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON === "string") {
-    try {
-      source = JSON.parse(
-        OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON
-      ) as unknown;
-    } catch {
-      return null;
-    }
-  }
-  const parsed = localComponentsReleaseManifestSchema.safeParse(source);
-  return parsed.success ? parsed.data : null;
-}
-
 function resolveMinimumRecoveryTargetVersion(input: {
   installedVersion: string | null;
   publishedVersion: string;
@@ -457,10 +404,10 @@ function resolveMinimumRecoveryTargetVersion(input: {
   return activeMinimumVersion;
 }
 
-// Receiver-first deploys retain the published manifest. Activate the shorter
-// native-auth lifetime only once the matching Service is available for recovery.
+// Activate the shorter native-auth lifetime only once the published manifest
+// proves the matching Service is available for recovery.
 export function isServiceAuthFreshnessRequired(
-  manifest: LocalComponentsReleaseManifest | null = resolveCoreLocalComponentsReleaseManifest()
+  manifest: LocalComponentsReleaseManifest | null
 ): boolean {
   return (
     manifest !== null &&

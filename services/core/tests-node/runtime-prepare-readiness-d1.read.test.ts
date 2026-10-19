@@ -313,6 +313,7 @@ async function writeReport(input: {
   writeNowMs?: number;
 }): Promise<void> {
   await acceptRuntimeAgentControllerReportRecord({
+    authFreshnessRequired: true,
     db: input.db,
     nowMs: input.writeNowMs ?? 2000,
     report: {

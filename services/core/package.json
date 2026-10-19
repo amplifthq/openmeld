@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "predev": "node ../../scripts/dev/run-guarded-service-predev.mjs core \"pnpm -C ../.. exec turbo run build --filter=@openmeld/core\"",
-    "dev": "wrangler dev --persist-to ../../.wrangler-dev-state --inspector-port 19331",
+    "dev": "node ../../scripts/dev/seed-local-cli-release.mjs --persist-to ../../.wrangler-dev-state && wrangler dev --persist-to ../../.wrangler-dev-state --inspector-port 19331",
     "dev:prod": "wrangler dev --env prod --persist-to ../../.wrangler-dev-state --inspector-port 19331",
     "build:lazy-runtime-modules": "node scripts/build-lazy-runtime-modules.mjs",
     "build:workspace-dependencies": "pnpm -C ../.. exec turbo run build --filter=@openmeld/core^...",

@@ -203,7 +203,6 @@ import type {
   DaemonStreamFrame,
   LocalAgentReasoningPreferences,
   LocalAgentReasoningPreferencesRpc,
-  LocalComponentsReleaseManifest,
   LocalWakeRouteReport,
   OpenMeldDaemonCancelPayload,
   OpenMeldDaemonInterruptPayload,
@@ -352,9 +351,11 @@ import { AlarmFailureBackoff } from "../../../lib/alarm-failure-backoff";
 import type { CoreBindings } from "../../../lib/bindings";
 import { resolveReleaseTriggeredOpenMeldToolsUpdateDecision } from "../../../local-components/automatic-update-trigger";
 import {
-  isLocalComponentVersionAtLeast,
-  resolveCoreLocalComponentsReleaseManifest,
-} from "../../../local-components/update-projection";
+  type CoreLocalComponentsRelease,
+  readCoreLocalComponentsRelease,
+  UNAVAILABLE_LOCAL_COMPONENTS_RELEASE,
+} from "../../../local-components/release-source";
+import { isLocalComponentVersionAtLeast } from "../../../local-components/update-projection";
 import { resolveSpaceStub } from "../../../rpc/space-ref";
 import {
   emitSpaceExecutionRecoveryNoticeSignal,
@@ -1583,6 +1584,10 @@ function requiredExecutionContextVersion(
 }
 export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private readonly state = createRuntimeTransportHubMutableState();
+  // The published CLI release decides accepted Service epochs and update
+  // policy. Loaded before this instance handles any event, then refreshed.
+  private localComponentsRelease: CoreLocalComponentsRelease =
+    UNAVAILABLE_LOCAL_COMPONENTS_RELEASE;
   private readonly currentDeviceOperationWaiters = new Map<
     string,
     CurrentDeviceOperationWaiter
@@ -1710,6 +1715,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   constructor(ctx: DurableObjectState, env: CoreBindings) {
     super(ctx, env);
     this.ctx.blockConcurrencyWhile(async () => {
+      await this.refreshLocalComponentsRelease();
       const reasoningPreference = await this.ctx.storage.get(
         "local-agent-reasoning-preferences"
       );
@@ -2645,6 +2651,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
   }
+  private async refreshLocalComponentsRelease(): Promise<CoreLocalComponentsRelease> {
+    this.localComponentsRelease = await readCoreLocalComponentsRelease(
+      this.env.OPENMELD_CLI_RELEASES
+    );
+    return this.localComponentsRelease;
+  }
   private resolveContextMigrationCapability(input: {
     allowPendingRoute?: boolean;
     ownerUserId: string;
@@ -2664,6 +2676,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         persistRuntimeRecords: this.persistRuntimeRecords,
         cleanupExpiredPendingDispatches: this.cleanupExpiredPendingDispatches,
         recordReapedReadinessProfiles: this.publishReapedReadinessProfiles,
+        localComponentsManifest: this.localComponentsRelease.manifest,
       }
     );
     if (!route.online || route.acceptingDispatches === false) {
@@ -3928,6 +3941,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         highWater + 1
       );
     }
+    const localComponentsRelease = await this.refreshLocalComponentsRelease();
     const response = handleRegisterSession(
       this.state,
       {
@@ -3942,6 +3956,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         failPendingDispatchResultWaitersForConnectionGeneration:
           this.failPendingDispatchResultWaitersForConnectionGeneration,
         closeSocket: safeCloseSocket,
+        localComponentsManifest: localComponentsRelease.manifest,
       }
     );
     // Registration must not acknowledge a fence that only exists in memory.
@@ -4003,7 +4018,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           lane: parsed.data.lane,
           ownerUserId: verifiedOwnerUserId,
         },
-        releaseManifest: resolveCoreLocalComponentsReleaseManifest(),
+        release: localComponentsRelease,
         session: registeredSession,
         socket: webSocket,
         trigger: "register",
@@ -4125,6 +4140,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         previousAcceptingDispatches:
           sessionBeforeHeartbeat?.acceptingDispatches,
       });
+    // Heartbeats stay synchronous. They use the release this instance read
+    // last and refresh it for the next frame.
+    const localComponentsRelease = this.localComponentsRelease;
+    this.ctx.waitUntil(this.refreshLocalComponentsRelease());
     const response = handleHeartbeat(
       this.state,
       {
@@ -4138,6 +4157,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         failPendingDispatchResultWaitersForConnectionGeneration:
           this.failPendingDispatchResultWaitersForConnectionGeneration,
         closeSocket: safeCloseSocket,
+        localComponentsManifest: localComponentsRelease.manifest,
       }
     );
     this.sendFrame(webSocket, {
@@ -4195,7 +4215,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
             lane: parsed.data.lane,
             ownerUserId: verifiedOwnerUserId,
           },
-          releaseManifest: resolveCoreLocalComponentsReleaseManifest(),
+          release: localComponentsRelease,
           session: sessionAfterHeartbeat,
           socket: webSocket,
           trigger: "heartbeat",
@@ -11094,10 +11114,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 400 }
       );
     }
+    const { manifest } = await this.refreshLocalComponentsRelease();
     const response = lookupRoute(this.state, parsed.data, {
       persistRuntimeRecords: this.persistRuntimeRecords,
       cleanupExpiredPendingDispatches: this.cleanupExpiredPendingDispatches,
       recordReapedReadinessProfiles: this.publishReapedReadinessProfiles,
+      localComponentsManifest: manifest,
     });
     const status = response.online ? 200 : 404;
     return Response.json(response, { status });
@@ -11111,10 +11133,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (!parsed.success) {
       return Response.json({ routes: {} }, { status: 400 });
     }
+    const { manifest } = await this.refreshLocalComponentsRelease();
     const response = lookupRoutesBatch(this.state, parsed.data, {
       persistRuntimeRecords: this.persistRuntimeRecords,
       cleanupExpiredPendingDispatches: this.cleanupExpiredPendingDispatches,
       recordReapedReadinessProfiles: this.publishReapedReadinessProfiles,
+      localComponentsManifest: manifest,
     });
     return Response.json(response, { status: 200 });
   }
@@ -11133,10 +11157,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 400 }
       );
     }
+    const { manifest } = await this.refreshLocalComponentsRelease();
     const response = lookupOwnerService(this.state, parsed.data, {
       persistRuntimeRecords: this.persistRuntimeRecords,
       cleanupExpiredPendingDispatches: this.cleanupExpiredPendingDispatches,
       recordReapedReadinessProfiles: this.publishReapedReadinessProfiles,
+      localComponentsManifest: manifest,
     });
     const validated =
       runtimeTransportLookupOwnerServiceResponseSchema.safeParse(response);
@@ -20563,7 +20589,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       RuntimeTransportSessionState,
       "daemonSessionId" | "deviceId" | "lane" | "ownerUserId"
     >;
-    releaseManifest: LocalComponentsReleaseManifest | null;
+    release: CoreLocalComponentsRelease;
     session: RuntimeTransportSessionState | null;
     socket: WebSocket;
     trigger: "heartbeat" | "register";
@@ -20582,7 +20608,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       capabilities: session.capabilities,
       generatedAt: new Date().toISOString(),
       lane: session.lane,
-      releaseManifest: input.releaseManifest,
+      release: input.release,
       serviceVersion: session.serviceVersion ?? null,
     });
     if (decision.status === "skipped") {
@@ -20794,7 +20820,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       | "automatic_update.session_socket_mismatch"
       | "automatic_update.target_already_coalesced"
       | "automatic_update.unavailable_retry_backoff";
-    releaseManifest: LocalComponentsReleaseManifest | null;
+    release: CoreLocalComponentsRelease;
     session: RuntimeTransportSessionState | null;
     socket: WebSocket;
     targetVersion?: string;
@@ -20825,9 +20851,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       ownerUserId: input.connection.ownerUserId,
       reasonCode: input.reasonCode,
       releaseCliVersion:
-        input.releaseManifest?.components.cli.packageVersion ?? null,
+        input.release.manifest?.components.cli.packageVersion ?? null,
       releaseServiceVersion:
-        input.releaseManifest?.components.service.bundleVersion ?? null,
+        input.release.manifest?.components.service.bundleVersion ?? null,
       requestAutomaticUpdateSupported:
         input.session?.capabilities.openMeldToolsControl
           ?.requestAutomaticUpdate === true,

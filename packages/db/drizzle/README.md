@@ -17,7 +17,6 @@ native PostgreSQL migrations; it does not extend this historical directory.
 
 Use the [PostgreSQL workflow](../../../developing/engineering/postgresql.md)
 and [production release owner](../../../developing/engineering/production-release.md#production-database-release)
-for current operations. The legacy `db:release:prod` and `db:sync:prod` commands
-reject the PostgreSQL manifest. Do not point production back to frozen D1 after
+for current operations. Do not point production back to frozen D1 after
 PostgreSQL has accepted new writes; follow the
 [cutover recovery boundary](../../../developing/engineering/postgresql-cutover.md#current-production-state).

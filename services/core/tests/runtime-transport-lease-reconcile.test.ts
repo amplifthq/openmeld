@@ -24,11 +24,11 @@ import {
   SESSION_HISTORY_RUNTIME_CAPABILITY,
 } from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import releaseManifestJson from "../../../release/local-components.json";
 import type { CoreBindings } from "../src/lib/bindings";
 import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 import type { RuntimeTransportHub } from "../src/runtime-transport/transport/do/runtime-transport-hub";
 import { CORE_LOG_EVENTS } from "../src/shared/observability/log-events";
+import { PUBLISHED_LOCAL_COMPONENTS_MANIFEST } from "../test-support/published-local-components-release";
 import { quiesceRuntimeTransportShard } from "./runtime-transport-test-support";
 import {
   waitForJsonMessage,
@@ -40,7 +40,7 @@ const DAEMON_TEST_PROFILE_ID = "11111111-1111-4111-8111-111111111111";
 const REQUEST_ID = "req-runtime-transport-reconcile";
 const SERVER_ROUTE_RECONCILIATION_REASON = "server_route_reconciliation";
 const CURRENT_RELEASE_SERVICE_VERSION =
-  releaseManifestJson.components.service.bundleVersion;
+  PUBLISHED_LOCAL_COMPONENTS_MANIFEST.components.service.bundleVersion;
 const touchedOwnerUserIds = new Set<string>();
 afterEach(async () => {
   for (const ownerUserId of touchedOwnerUserIds) {

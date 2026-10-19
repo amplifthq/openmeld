@@ -2165,6 +2165,7 @@ async function seedRuntimeAgentControllerReport(
     },
   });
   await acceptRuntimeAgentControllerReportRecord({
+    authFreshnessRequired: true,
     db: harness.db,
     nowMs,
     report: {

@@ -6,10 +6,9 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-const CLI_DIR = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  ".."
-);
+const CLI_DIR = process.env.OPENMELD_RELEASE_SOURCE_ROOT
+  ? path.join(process.env.OPENMELD_RELEASE_SOURCE_ROOT, "clients/openmeld-cli")
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const NATIVE_DIR = path.join(CLI_DIR, "native", "macos-keychain");
 const NATIVE_OUTPUT = path.join(
   NATIVE_DIR,

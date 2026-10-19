@@ -13,8 +13,8 @@ if (process.platform !== "win32") {
   throw new Error("Build the native Windows process helper on Windows.");
 }
 const root = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../.."
+  process.env.OPENMELD_RELEASE_SOURCE_ROOT ||
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 );
 const buildRoot = path.join(root, "dev-tmp/windows-process-helper");
 const output = path.join(root, "cli/dist");

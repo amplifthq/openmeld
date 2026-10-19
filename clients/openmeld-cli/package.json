@@ -25,8 +25,8 @@
   "scripts": {
     "build": "tsdown && node scripts/build-macos-keychain-addon.mjs --copy-npm && node scripts/copy-windows-process-helper.mjs",
     "prepack": "pnpm -C ../.. run verify:release-ready -- --force",
-    "deploy": "pnpm -C ../.. run release:deploy:local -- --scope cli",
-    "prepublishOnly": "node -e \"throw new Error('Publish the verified tarball through the root release:deploy:local -- --scope cli entrypoint, not this source directory.')\"",
+    "deploy": "pnpm -C ../.. run deploy -- --scope cli",
+    "prepublishOnly": "node -e \"throw new Error('Publish the verified tarball through the root pnpm run deploy -- --scope cli entrypoint, not this source directory.')\"",
     "verify:npm-artifact": "node ../../scripts/release/npm-cli-artifact.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check": "biome check --no-errors-on-unmatched ./ && tsc -p tsconfig.json --noEmit",

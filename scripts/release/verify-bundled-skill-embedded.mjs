@@ -11,7 +11,9 @@ import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 
-const root = fileURLToPath(new URL("../../", import.meta.url));
+const root =
+  process.env.OPENMELD_RELEASE_SOURCE_ROOT ??
+  fileURLToPath(new URL("../../", import.meta.url));
 
 export function verifyBundledSkillEmbedded() {
   const temp = mkdtempSync(join(tmpdir(), "openmeld-embedded-skills-"));

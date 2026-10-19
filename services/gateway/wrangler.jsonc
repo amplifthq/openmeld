@@ -70,6 +70,8 @@
     }
   ],
   "vars": {
+    // Production deploys set the exact source with --var RELEASE_SHA:<sha>.
+    "RELEASE_SHA": "",
     "OPENMELD_WORKER_ENVIRONMENT": "local",
     "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.openmeld.ai",
     "OPENMELD_GATEWAY_URL": "http://localhost:8080",
@@ -170,6 +172,8 @@
         }
       ],
       "vars": {
+        // Production deploys set the exact source with --var RELEASE_SHA:<sha>.
+        "RELEASE_SHA": "",
         "OPENMELD_WORKER_ENVIRONMENT": "dev",
         "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.openmeld.ai",
         "OPENMELD_GATEWAY_URL": "http://localhost:8080",
@@ -271,6 +275,8 @@
         }
       ],
       "vars": {
+        // Production deploys set the exact source with --var RELEASE_SHA:<sha>.
+        "RELEASE_SHA": "",
         "OPENMELD_WORKER_ENVIRONMENT": "stg",
         "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.staging.openmeld.ai",
         "GITHUB_OPENMELD_APP_SLUG": "openmeld-staging-flue2",
@@ -365,6 +371,8 @@
         }
       ],
       "vars": {
+        // Production deploys set the exact source with --var RELEASE_SHA:<sha>.
+        "RELEASE_SHA": "",
         "OPENMELD_WORKER_ENVIRONMENT": "prod",
         "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.openmeld.ai",
         "OPENMELD_GATEWAY_URL": "https://gateway.openmeld.ai",

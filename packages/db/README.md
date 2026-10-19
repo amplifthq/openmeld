@@ -44,8 +44,6 @@ runtime secrets and applies no migration. Do not hand-edit generated output.
 
 Production migrations use the scoped release owner described in
 [Production Database Release](../../developing/engineering/production-release.md#production-database-release).
-The old `db:release:prod` and `db:sync:prod` entrypoints are legacy D1 commands;
-they reject the PostgreSQL production manifest.
 
 ## Implementation and validation
 
