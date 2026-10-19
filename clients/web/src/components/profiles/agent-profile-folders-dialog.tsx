@@ -24,6 +24,7 @@ import { Input } from "@openmeld/ui/components/input";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
+import { clearPendingAgentProfileCreationLocalSetupForProfile } from "#/lib/profiles/agent-profile-creation-local-setup";
 import { manageAgentProfileFolders } from "#/lib/profiles/agent-profile-folders";
 import { updateAgentProfileDefaultProject } from "#/lib/profiles/update-default-project";
 import { projectsQueryOptions } from "#/query/organizations/projects";
@@ -50,19 +51,30 @@ type FoldersDialogInput = {
 	open: boolean;
 	organizationId: string;
 	profile: AuthProfileView;
+	/** Opened to recover a task that couldn't use its working folder. */
+	recovery?: WorkingFolderRecovery;
 	storageScope: string;
 	target?: PeopleComputerTarget;
 };
 
+export type WorkingFolderRecovery = {
+	message: string;
+	/** Runs after the folder new work starts in was saved. */
+	onSaved: () => void;
+	/** Why writes must wait, such as an unconfirmed or changed Computer. */
+	saveBlockedReason?: string;
+};
+
 type FolderChange = Exclude<ProfileFolderOperation, { operation: "list" }>;
+type RepairOperation = Extract<FolderChange, { operation: "repair" }>;
+
+const CONFIGURATION_INVALID = "profile_folder.configuration_invalid";
 
 /**
  * Owner-only Working folder surface: the Agent's folders on its Computer and
- * which one new work starts in. The Working folder card and the list card's
- * menu open it. Recovering a task that lost its folder still uses the
- * workspace editor (agent-profile-project-settings-dialog.tsx), the only path
- * that can repair invalid folder settings, which Core's folder operations
- * refuse to change.
+ * which one new work starts in. The Working folder card, the list card's menu
+ * and working-folder recovery open it. Folder settings that can't be read are
+ * repaired here by choosing the folder new work starts in.
  */
 export function AgentProfileFoldersDialog(input: FoldersDialogInput) {
 	if (
@@ -121,6 +133,10 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 	const [error, setError] = useState<string | null>(null);
 	const [adding, setAdding] = useState(false);
 	const response = foldersQuery.data;
+	const configurationInvalid =
+		response !== undefined &&
+		response.status !== "current" &&
+		response.reasonCode === CONFIGURATION_INVALID;
 	const projection =
 		response && response.status !== "unavailable" ? response.projection : null;
 	const rows = projection
@@ -136,9 +152,11 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 		bindingTarget,
 		input.expectedBindingTarget
 	);
+	const saveBlockedReason = input.recovery?.saveBlockedReason;
+	const reviewed =
+		Boolean(bindingTarget) && !targetChanged && !saveBlockedReason;
 	// Writes need the Computer to answer; a recorded list is read-only.
-	const writable =
-		Boolean(bindingTarget) && !targetChanged && response?.status === "current";
+	const writable = reviewed && response?.status === "current";
 	const localDefaultBlocked =
 		input.executionTargetChangeEligibilityStatus !== "allowed";
 	const defaultPath =
@@ -185,6 +203,44 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 		applied(result);
 		return result;
 	};
+	// The folder new work starts in changed: unfinished creation setup is
+	// settled, and recovery rechecks whether the Agent can take new work.
+	const defaultSaved = (message: string) => {
+		clearPendingAgentProfileCreationLocalSetupForProfile(
+			input.profile.openMeldProfileId
+		);
+		queryClient.invalidateQueries({
+			queryKey: ["private-working-folder", input.storageScope],
+		});
+		if (input.recovery) {
+			toast.success("Working folder saved. Checking Agent availability…");
+			input.onOpenChange(false);
+			input.recovery.onSaved();
+			return;
+		}
+		toast.success(message);
+	};
+	const repair = async (operation: RepairOperation) => {
+		const result = await change(operation);
+		// The repaired folder is the default only while no Default Project wins.
+		if (input.profile.defaultProjectId) {
+			try {
+				await setDefaultProject(null);
+			} catch {
+				throw new Error(
+					"The folder was saved on this Agent’s computer, but OpenMeld couldn’t confirm that the Default Project was cleared. New work may still start in that Project. Try again to finish."
+				);
+			}
+		}
+		const repaired = result.projection.folders.find(
+			(folder) => folder.folderId === result.folderId
+		);
+		defaultSaved(
+			repaired
+				? `${repaired.displayName} is now the default folder.`
+				: "Working folder updated."
+		);
+	};
 	const run = async (folderId: string, action: () => Promise<void>) => {
 		setPendingFolderId(folderId);
 		setError(null);
@@ -218,9 +274,6 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 				// A retry after a failed clear must not repeat the saved local write.
 				if (!row.isDefault) {
 					await change({ folderId: row.folderId, operation: "set_default" });
-					queryClient.invalidateQueries({
-						queryKey: ["private-working-folder", input.storageScope],
-					});
 				}
 				// Second ordered write: a Default Project would otherwise still win.
 				if (input.profile.defaultProjectId) {
@@ -233,12 +286,25 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 					}
 				}
 			}
-			toast.success(`${row.displayName} is now the default folder.`);
+			defaultSaved(`${row.displayName} is now the default folder.`);
+		});
+	const canSetUpAgain =
+		Boolean(input.recovery) && !input.profile.defaultProjectId;
+	// Recovery: prepare the current default again, recreating a missing
+	// OpenMeld folder or re-checking a custom one.
+	const setUpAgain = (row: AgentProfileFolderRow) =>
+		run(row.folderId, async () => {
+			await change({ folderId: row.folderId, operation: "set_default" });
+			defaultSaved(`${row.displayName} is ready for new work.`);
 		});
 
 	return (
 		<div className="grid gap-4">
+			{input.recovery ? (
+				<output className="text-sm">{input.recovery.message}</output>
+			) : null}
 			<FolderListStatus
+				configurationInvalid={configurationInvalid}
 				defaultProjectName={defaultProjectName}
 				error={foldersQuery.isError ? foldersQuery.error : null}
 				loading={foldersQuery.isPending}
@@ -272,6 +338,11 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 									});
 								})
 							}
+							onSetUpAgain={
+								row.isDefault && canSetUpAgain
+									? () => setUpAgain(row)
+									: undefined
+							}
 							pending={pendingFolderId === row.folderId}
 							row={row}
 						/>
@@ -283,38 +354,32 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 					No folders yet. Add one to choose where this Agent works.
 				</p>
 			) : null}
-			{adding && bindingTarget ? (
-				<AddFolderPanel
-					disabled={!writable}
-					onAdd={async (operation) => {
-						const result = await change(operation);
-						setAdding(false);
-						const added = result.projection.folders.find(
-							(folder) => folder.folderId === result.folderId
-						);
-						toast.success(
-							added ? `${added.displayName} was added.` : "Folder added."
-						);
-					}}
-					onCancel={() => setAdding(false)}
-					organizationId={input.organizationId}
-					projects={projectsQuery.data?.projects ?? []}
-					target={response?.target ?? input.target}
-				/>
-			) : (
-				<div>
-					<Button
-						disabled={!writable || pendingFolderId !== null}
-						onClick={() => setAdding(true)}
-						variant="outline"
-					>
-						Add folder
-					</Button>
-				</div>
-			)}
+			<FolderEditPanel
+				addDisabled={!writable || pendingFolderId !== null}
+				adding={adding}
+				configurationInvalid={configurationInvalid}
+				hasBindingTarget={Boolean(bindingTarget)}
+				onAdd={async (operation) => {
+					const result = await change(operation);
+					setAdding(false);
+					const added = result.projection.folders.find(
+						(folder) => folder.folderId === result.folderId
+					);
+					toast.success(
+						added ? `${added.displayName} was added.` : "Folder added."
+					);
+				}}
+				onAddingChange={setAdding}
+				onRepair={repair}
+				organizationId={input.organizationId}
+				projects={projectsQuery.data?.projects ?? []}
+				repairDisabled={!reviewed || localDefaultBlocked}
+				target={response?.target ?? input.target}
+			/>
 			<FolderListNotes
 				eligibility={input.executionTargetChangeEligibilityStatus}
 				error={error}
+				saveBlockedReason={saveBlockedReason}
 				targetChanged={targetChanged}
 			/>
 		</div>
@@ -322,13 +387,16 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 }
 
 function FolderListStatus(input: {
+	configurationInvalid: boolean;
 	defaultProjectName: string | null;
 	error: unknown;
 	loading: boolean;
 	onRetry: () => void;
 	response: GetAgentProfileFoldersResponse | undefined;
 }) {
-	const notice = folderListNotice(input.response);
+	const notice = input.configurationInvalid
+		? "This Agent’s saved folder settings on its computer can’t be read. Choose the folder new work starts in to replace them."
+		: folderListNotice(input.response);
 	return (
 		<>
 			{input.loading ? (
@@ -361,10 +429,16 @@ function FolderListStatus(input: {
 function FolderListNotes(input: {
 	eligibility: FoldersDialogInput["executionTargetChangeEligibilityStatus"];
 	error: string | null;
+	saveBlockedReason?: string;
 	targetChanged: boolean;
 }) {
 	return (
 		<>
+			{input.saveBlockedReason ? (
+				<output className="text-muted-foreground text-sm">
+					{input.saveBlockedReason}
+				</output>
+			) : null}
 			{input.targetChanged ? (
 				<output className="text-muted-foreground text-sm">
 					This Agent’s Computer or local agent changed. Close and reopen Working
@@ -397,6 +471,7 @@ function FolderRow(input: {
 	onMakeDefault: () => void;
 	onRemove: () => void;
 	onRename: (displayName: string) => void;
+	onSetUpAgain?: () => void;
 	pending: boolean;
 	row: AgentProfileFolderRow;
 }) {
@@ -492,6 +567,16 @@ function FolderRow(input: {
 			) : null}
 			{renaming || confirmingRemove ? null : (
 				<div className="flex flex-wrap gap-2">
+					{input.onSetUpAgain ? (
+						<Button
+							disabled={input.disabled || input.localDefaultBlocked}
+							onClick={input.onSetUpAgain}
+							size="sm"
+							variant="outline"
+						>
+							Set up again
+						</Button>
+					) : null}
 					{row.effectiveDefault ? null : (
 						<Button
 							disabled={
@@ -528,10 +613,71 @@ function FolderRow(input: {
 	);
 }
 
+/**
+ * Adds a folder, or, when the saved settings can't be read, repairs them by
+ * choosing the folder new work starts in.
+ */
+function FolderEditPanel(input: {
+	addDisabled: boolean;
+	adding: boolean;
+	configurationInvalid: boolean;
+	hasBindingTarget: boolean;
+	onAdd: (operation: FolderChange) => Promise<void>;
+	onAddingChange: (adding: boolean) => void;
+	onRepair: (operation: RepairOperation) => Promise<void>;
+	organizationId: string;
+	projects: Parameters<typeof AgentProfileProjectSelector>[0]["projects"];
+	repairDisabled: boolean;
+	target?: PeopleComputerTarget;
+}) {
+	if (input.configurationInvalid) {
+		return input.hasBindingTarget ? (
+			<AddFolderPanel
+				disabled={input.repairDisabled}
+				mode="repair"
+				onAdd={async (operation) => {
+					if (operation.operation === "repair") {
+						await input.onRepair(operation);
+					}
+				}}
+				organizationId={input.organizationId}
+				projects={[]}
+				target={input.target}
+			/>
+		) : null;
+	}
+	if (input.adding && input.hasBindingTarget) {
+		return (
+			<AddFolderPanel
+				disabled={input.addDisabled}
+				mode="add"
+				onAdd={input.onAdd}
+				onCancel={() => input.onAddingChange(false)}
+				organizationId={input.organizationId}
+				projects={input.projects}
+				target={input.target}
+			/>
+		);
+	}
+	return (
+		<div>
+			<Button
+				disabled={input.addDisabled}
+				onClick={() => input.onAddingChange(true)}
+				variant="outline"
+			>
+				Add folder
+			</Button>
+		</div>
+	);
+}
+
 function AddFolderPanel(input: {
 	disabled: boolean;
+	/** "repair" replaces unreadable folder settings with one default folder. */
+	mode: "add" | "repair";
 	onAdd: (operation: FolderChange) => Promise<void>;
-	onCancel: () => void;
+	onCancel?: () => void;
 	organizationId: string;
 	projects: Parameters<typeof AgentProfileProjectSelector>[0]["projects"];
 	target?: PeopleComputerTarget;
@@ -546,7 +692,19 @@ function AddFolderPanel(input: {
 	const [pending, setPending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	let operation: FolderChange | null = null;
-	if (projectId && connection) {
+	if (input.mode === "repair") {
+		if (source === "managed") {
+			operation = {
+				folder: { kind: "openmeld_managed" },
+				operation: "repair",
+			};
+		} else if (source === "advanced" && path.trim()) {
+			operation = {
+				folder: { kind: "custom", path: path.trim() },
+				operation: "repair",
+			};
+		}
+	} else if (projectId && connection) {
 		operation = {
 			operation: "add_project",
 			organizationId: input.organizationId,
@@ -561,6 +719,7 @@ function AddFolderPanel(input: {
 		<div className="grid gap-3 rounded-md border p-3">
 			<AgentProfileProjectSelector
 				disabled={pending}
+				localFoldersOnly={input.mode === "repair"}
 				manualPath={path}
 				onConnectionReady={setConnection}
 				onManualPathChange={(value) => {
@@ -589,9 +748,11 @@ function AddFolderPanel(input: {
 				</p>
 			) : null}
 			<div className="flex justify-end gap-2">
-				<Button disabled={pending} onClick={input.onCancel} variant="ghost">
-					Cancel
-				</Button>
+				{input.onCancel ? (
+					<Button disabled={pending} onClick={input.onCancel} variant="ghost">
+						Cancel
+					</Button>
+				) : null}
 				<Button
 					disabled={input.disabled || pending || operation === null}
 					onClick={async () => {
@@ -605,14 +766,14 @@ function AddFolderPanel(input: {
 						} catch (failure) {
 							setError(
 								toStructuredApiClientFailure(failure).message ||
-									"Couldn’t add this folder. Try again."
+									"Couldn’t save this folder. Try again."
 							);
 						} finally {
 							setPending(false);
 						}
 					}}
 				>
-					{pending ? "Adding…" : "Add folder"}
+					{addFolderButtonLabel(input.mode, pending)}
 				</Button>
 			</div>
 		</div>
@@ -629,4 +790,11 @@ function sameBindingTarget(
 		left?.agentControllerRef === right?.agentControllerRef &&
 		left?.agentControllerConversationId === right?.agentControllerConversationId
 	);
+}
+
+function addFolderButtonLabel(mode: "add" | "repair", pending: boolean) {
+	if (mode === "repair") {
+		return pending ? "Saving…" : "Use this folder";
+	}
+	return pending ? "Adding…" : "Add folder";
 }

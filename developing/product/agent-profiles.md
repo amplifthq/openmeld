@@ -1194,6 +1194,18 @@ preferences carry an optional `folderId`. Core strips it when the root
 requester is not the owner, so colleagues' work always uses the default folder.
 Agents, including the Center Agent, choose folders by id and display name only.
 
+Owner folder changes refuse an envelope the Service can't read. The one
+exception is the owner-only `repair` operation, which names an OpenMeld or
+custom folder (never a Project folder) and makes it the default, adding it when
+missing. On an unreadable envelope it replaces the list with just that folder
+and restarts the folder-save counter above any list Core could have recorded.
+Choosing the current default again prepares it again: a missing OpenMeld folder
+is recreated and a custom folder is re-checked. Both default changes run under
+the execution-target admission, and repair needs the Service's
+`repairProfileFolders` capability. Web's Working folder dialog is the one
+surface for these changes, including working-folder recovery from a failed
+task.
+
 A Session's folder resolves in this order and is then fixed at its first
 message: explicit choice, the folder of the Session it continues or forks, the
 Profile's default folder, then the OpenMeld-managed folder. The managed folder
