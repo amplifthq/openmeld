@@ -40,7 +40,10 @@ import {
 } from "#/lib/inbox/attention";
 import { isInboxReview } from "#/lib/inbox/review";
 import { requestInboxSourceFocus } from "#/lib/inbox/source-focus-request";
-import { buildInboxItemSourceNavigation } from "#/lib/inbox/source-target";
+import {
+	buildInboxItemSourceNavigation,
+	keepInboxFilters,
+} from "#/lib/inbox/source-target";
 import { useInboxAvatar } from "./inbox-avatars";
 import { InvitationReview } from "./invitation-review";
 
@@ -155,7 +158,11 @@ function useInboxRowNavigation(input: InboxItemRowProps) {
 			return;
 		}
 		navigate({
-			to: sourceNavigation.href,
+			to: keepInboxFilters({
+				currentPathname: window.location.pathname,
+				currentSearch: window.location.search,
+				href: sourceNavigation.href,
+			}),
 			state: requestInboxSourceFocus,
 		}).catch((error) =>
 			console.warn("[openmeld.web.inbox_navigation_failed]", { error })

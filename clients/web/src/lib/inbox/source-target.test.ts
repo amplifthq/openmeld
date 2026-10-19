@@ -4,6 +4,7 @@ import {
 	buildInboxAgentInteractionConversationHref,
 	buildInboxItemSourceNavigation,
 	isInboxItemSourceLocation,
+	keepInboxFilters,
 } from "./source-target";
 
 describe("buildInboxItemSourceNavigation", () => {
@@ -356,3 +357,25 @@ function createInboxItem(sourceTarget: InboxSourceTarget): InboxItem {
 		updatedAt: "2026-08-04T01:00:00.000Z",
 	};
 }
+
+describe("keepInboxFilters", () => {
+	it("keeps the user's view and filters when an item opens in Inbox", () => {
+		expect(
+			keepInboxFilters({
+				currentPathname: "/o/amplift/inbox",
+				currentSearch: "?view=needs-action&unread=true&item=old&requestId=r1",
+				href: "/o/amplift/inbox?item=item-123",
+			})
+		).toBe("/o/amplift/inbox?view=needs-action&unread=true&item=item-123");
+	});
+
+	it("leaves a link to another page alone", () => {
+		expect(
+			keepInboxFilters({
+				currentPathname: "/o/amplift/inbox",
+				currentSearch: "?view=needs-action",
+				href: "/o/amplift/spaces/space-1?focusSignalId=s",
+			})
+		).toBe("/o/amplift/spaces/space-1?focusSignalId=s");
+	});
+});

@@ -151,6 +151,32 @@ function resolveSettingsTargetPath(input: {
  * Files, Graph, the main timeline, and every thread share one pathname.
  * External targets (for example message_channel permalinks) never match.
  */
+/**
+ * Opening an Inbox detail from the Inbox keeps the user's filter: the
+ * current view and filters stay, and only the selected item changes.
+ */
+export function keepInboxFilters(input: {
+	currentPathname: string;
+	currentSearch: string;
+	href: string;
+}): string {
+	const [pathname = "", search = ""] = input.href.split("?", 2);
+	if (
+		normalizeSourcePathname(pathname) !==
+		normalizeSourcePathname(input.currentPathname)
+	) {
+		return input.href;
+	}
+	const params = new URLSearchParams(input.currentSearch);
+	params.delete("item");
+	params.delete("requestId");
+	for (const [key, value] of new URLSearchParams(search)) {
+		params.set(key, value);
+	}
+	const query = params.toString();
+	return query ? `${pathname}?${query}` : pathname;
+}
+
 /** The conversation an Agent's question came from, focused on it. */
 export function buildInboxAgentInteractionConversationHref(input: {
 	orgSlug: string;
