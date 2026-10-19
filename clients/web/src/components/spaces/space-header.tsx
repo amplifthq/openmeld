@@ -23,7 +23,7 @@ import {
 	useHasModuleSidebar,
 } from "#/components/app/app-module-sidebar";
 import { MessageSearchButton } from "#/components/search/message-search";
-import { ChatHeaderMenu } from "./chat-header-menu";
+import { type ChatArchiveKind, ChatHeaderMenu } from "./chat-header-menu";
 import { useConversationNames } from "./conversation-names";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
 import { SpaceDeletedLabel } from "./space-deleted-label";
@@ -169,15 +169,15 @@ function ConversationHeaderMenu(input: {
 	isDirectMessage: boolean;
 	isCenterAgent?: boolean;
 	onOpenSettings: () => void;
-	showChatArchive?: boolean;
+	chatArchiveKind?: ChatArchiveKind;
 }) {
 	const ariaLabel = input.isCenterAgent ? "Center Agent menu" : "Chat menu";
 	if (input.isDirectMessage && input.profileId) {
 		return (
 			<ChatHeaderMenu
+				archiveKind={input.chatArchiveKind}
 				ariaLabel={ariaLabel}
 				onOpenConversationInformation={input.onOpenSettings}
-				showArchive={input.showChatArchive}
 				spaceId={input.spaceId}
 			/>
 		);
@@ -208,8 +208,8 @@ export function SpaceHeader(input: {
 	isLeaveSpacePending: boolean;
 	isSpaceNamePending: boolean;
 	isCenterAgentDirectMessage?: boolean;
-	/** False hides the personal chat archive (MemberAgent Sessions). */
-	showChatArchive?: boolean;
+	/** "session" archives a MemberAgent Session through Core instead. */
+	chatArchiveKind?: ChatArchiveKind;
 	leaveSpaceErrorMessage: string | null;
 	managementControl?: ReactNode;
 	showChatSettingsMenu?: boolean;
@@ -332,6 +332,7 @@ export function SpaceHeader(input: {
 						)}
 						{showChatMenu ? (
 							<ConversationHeaderMenu
+								chatArchiveKind={input.chatArchiveKind}
 								isCenterAgent={input.isCenterAgentDirectMessage}
 								isDirectMessage={isDirectMessage}
 								onOpenSettings={() => {
@@ -339,7 +340,6 @@ export function SpaceHeader(input: {
 									setActiveDialog("settings");
 								}}
 								profileId={input.currentProfileId}
-								showChatArchive={input.showChatArchive}
 								spaceId={input.status.spaceId}
 							/>
 						) : null}

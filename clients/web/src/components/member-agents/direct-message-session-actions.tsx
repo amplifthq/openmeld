@@ -1,4 +1,3 @@
-import { AGENT_DIRECT_MESSAGE_SESSION_NAME_MAX_LENGTH } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	Dialog,
@@ -8,15 +7,9 @@ import {
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
 import { DropdownMenuSeparator } from "@openmeld/ui/components/dropdown-menu";
-import { Input } from "@openmeld/ui/components/input";
 import { DialogContent } from "@openmeld/ui/fluid/dialog";
 import { FluidDropdownMenuItem } from "@openmeld/ui/fluid/dropdown-menu";
-import {
-	ArchiveIcon,
-	ArrowCounterClockwiseIcon,
-	PencilSimpleIcon,
-	TrashIcon,
-} from "@phosphor-icons/react";
+import { TrashIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -28,32 +21,25 @@ import {
 } from "#/query/organizations/agent-direct-message-sessions";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 
-type SessionDialog = "rename" | "archive" | "delete" | null;
-
 /**
- * Rename, Archive, and Delete for the current agent Direct Message Session
- * (a MemberAgent Session or a Center Agent session). These call Core's
- * dedicated Session operations; nothing is archived automatically.
+ * Core's dedicated Session operations for the current agent Direct Message
+ * Session (a MemberAgent Session or a Center Agent session). Rename and
+ * archive plug into the existing chat-title editor and chat-menu archive;
+ * only Delete, which has no existing control, brings its own confirmation.
+ * Nothing is archived automatically.
  */
 export function useDirectMessageSessionActions(input: {
 	spaceId: string;
-	title: string;
 	onLeave: () => Promise<void> | void;
 	extraRefresh?: () => Promise<unknown>;
-	/** False renders no controls (feature off or no current Session). */
+	/** False renders no Delete control (feature off or no current Session). */
 	enabled?: boolean;
-	/**
-	 * Archive state of the current Session; null offers no archive control
-	 * (Center Agent chats keep their existing personal archive).
-	 */
-	archived: boolean | null;
 }) {
 	const { currentOrganization: organization } = useAppOrganization();
 	const queryClient = useQueryClient();
-	const [dialog, setDialog] = useState<SessionDialog>(null);
-	const [name, setName] = useState("");
-	const [pending, setPending] = useState(false);
 	const sidebar = useSidebarPreferences(organization.id);
+	const [deleteOpen, setDeleteOpen] = useState(false);
+	const [pending, setPending] = useState(false);
 	const sessionApi = createAgentDirectMessageSessionApi(organization.id);
 	const refresh = async () => {
 		await Promise.all([
@@ -66,18 +52,17 @@ export function useDirectMessageSessionActions(input: {
 	};
 	const run = async (
 		action: () => Promise<unknown>,
-		failure: string,
-		after?: () => Promise<void> | void
-	) => {
+		failure: string
+	): Promise<boolean> => {
 		setPending(true);
 		try {
 			await action();
 			await refresh();
-			setDialog(null);
-			await after?.();
+			return true;
 		} catch (error) {
 			console.error(failure, error);
 			toast.error(failure);
+			return false;
 		} finally {
 			setPending(false);
 		}
@@ -85,8 +70,7 @@ export function useDirectMessageSessionActions(input: {
 	// A Session rename is the chat's name for everyone in it; drop an older
 	// personal title so it no longer hides the new name.
 	const clearPersonalTitle = async () => {
-		const titles = sidebar.preferences?.chats?.titles;
-		if (!titles?.[input.spaceId]) {
+		if (!sidebar.preferences?.chats?.titles[input.spaceId]) {
 			return;
 		}
 		await sidebar.updateAsync((current) => {
@@ -97,56 +81,35 @@ export function useDirectMessageSessionActions(input: {
 			return { ...current, chats: { ...current.chats, titles: rest } };
 		});
 	};
+	/** For the existing chat-title editor; throws so it shows its error. */
+	const rename = async (name: string) => {
+		await sessionApi.updateSession({
+			spaceId: input.spaceId,
+			update: { operation: "rename", name },
+		});
+		await refresh();
+		await clearPersonalTitle();
+	};
+	const setArchived = (archived: boolean) =>
+		run(
+			() =>
+				sessionApi.updateSession({
+					spaceId: input.spaceId,
+					update: { operation: archived ? "archive" : "unarchive" },
+				}),
+			archived
+				? "Couldn’t archive this chat. Try again."
+				: "Couldn’t restore this chat. Try again."
+		);
 	const enabled = input.enabled !== false;
 	const renderMenuItems = (startIndex: number) =>
 		enabled ? (
 			<>
 				<DropdownMenuSeparator />
 				<FluidDropdownMenuItem
-					className="px-3 text-sm"
-					index={startIndex}
-					onClick={() => {
-						setName(input.title === "New chat" ? "" : input.title);
-						setDialog("rename");
-					}}
-				>
-					<PencilSimpleIcon aria-hidden="true" />
-					Rename chat
-				</FluidDropdownMenuItem>
-				{input.archived === false ? (
-					<FluidDropdownMenuItem
-						className="px-3 text-sm"
-						index={startIndex + 1}
-						onClick={() => setDialog("archive")}
-					>
-						<ArchiveIcon aria-hidden="true" />
-						Archive chat
-					</FluidDropdownMenuItem>
-				) : null}
-				{input.archived === true ? (
-					<FluidDropdownMenuItem
-						className="px-3 text-sm"
-						disabled={pending}
-						index={startIndex + 1}
-						onClick={() => {
-							run(
-								() =>
-									sessionApi.updateSession({
-										spaceId: input.spaceId,
-										update: { operation: "unarchive" },
-									}),
-								"Couldn’t restore this chat. Try again."
-							).catch(console.error);
-						}}
-					>
-						<ArrowCounterClockwiseIcon aria-hidden="true" />
-						Restore chat
-					</FluidDropdownMenuItem>
-				) : null}
-				<FluidDropdownMenuItem
 					className="px-3 text-destructive text-sm"
-					index={startIndex + 2}
-					onClick={() => setDialog("delete")}
+					index={startIndex}
+					onClick={() => setDeleteOpen(true)}
 				>
 					<TrashIcon aria-hidden="true" />
 					Delete chat
@@ -154,110 +117,38 @@ export function useDirectMessageSessionActions(input: {
 			</>
 		) : null;
 	const dialogs = enabled ? (
-		<Dialog
-			onOpenChange={(next) => setDialog(next ? dialog : null)}
-			open={dialog !== null}
-		>
+		<Dialog onOpenChange={setDeleteOpen} open={deleteOpen}>
 			<DialogContent size="sm">
-				{dialog === "rename" ? (
-					<form
-						className="space-y-4"
-						onSubmit={(event) => {
-							event.preventDefault();
-							if (!name.trim() || pending) {
-								return;
+				<DialogHeader>
+					<DialogTitle>Delete this chat?</DialogTitle>
+					<DialogDescription>
+						The chat and its messages are deleted for you and the Agent. This
+						can’t be undone.
+					</DialogDescription>
+				</DialogHeader>
+				<DialogFooter>
+					<Button onClick={() => setDeleteOpen(false)} variant="secondary">
+						Cancel
+					</Button>
+					<Button
+						disabled={pending}
+						onClick={async () => {
+							const deleted = await run(
+								() => sessionApi.deleteSession({ spaceId: input.spaceId }),
+								"Couldn’t delete this chat. Finish or stop its work, then try again."
+							);
+							if (deleted) {
+								setDeleteOpen(false);
+								await input.onLeave();
 							}
-							run(
-								() =>
-									sessionApi.updateSession({
-										spaceId: input.spaceId,
-										update: { operation: "rename", name: name.trim() },
-									}),
-								"Couldn’t rename this chat. Try again.",
-								clearPersonalTitle
-							).catch(console.error);
 						}}
+						variant="destructive"
 					>
-						<DialogHeader>
-							<DialogTitle>Rename chat</DialogTitle>
-						</DialogHeader>
-						<Input
-							aria-label="Chat name"
-							autoFocus
-							maxLength={AGENT_DIRECT_MESSAGE_SESSION_NAME_MAX_LENGTH}
-							onChange={(event) => setName(event.target.value)}
-							value={name}
-						/>
-						<DialogFooter>
-							<Button disabled={pending || !name.trim()} type="submit">
-								Save
-							</Button>
-						</DialogFooter>
-					</form>
-				) : null}
-				{dialog === "archive" ? (
-					<>
-						<DialogHeader>
-							<DialogTitle>Archive this chat?</DialogTitle>
-							<DialogDescription>
-								It leaves your chat list. Its messages are kept, and you can
-								restore it from the Archived tab on this Agent’s page.
-							</DialogDescription>
-						</DialogHeader>
-						<DialogFooter>
-							<Button onClick={() => setDialog(null)} variant="secondary">
-								Cancel
-							</Button>
-							<Button
-								disabled={pending}
-								onClick={() => {
-									run(
-										() =>
-											sessionApi.updateSession({
-												spaceId: input.spaceId,
-												update: { operation: "archive" },
-											}),
-										"Couldn’t archive this chat. Try again.",
-										input.onLeave
-									).catch(console.error);
-								}}
-							>
-								Archive chat
-							</Button>
-						</DialogFooter>
-					</>
-				) : null}
-				{dialog === "delete" ? (
-					<>
-						<DialogHeader>
-							<DialogTitle>Delete this chat?</DialogTitle>
-							<DialogDescription>
-								The chat and its messages are deleted for you and the Agent.
-								This can’t be undone.
-							</DialogDescription>
-						</DialogHeader>
-						<DialogFooter>
-							<Button onClick={() => setDialog(null)} variant="secondary">
-								Cancel
-							</Button>
-							<Button
-								disabled={pending}
-								onClick={() => {
-									run(
-										() => sessionApi.deleteSession({ spaceId: input.spaceId }),
-										"Couldn’t delete this chat. Finish or stop its work, then try again.",
-										input.onLeave
-									).catch(console.error);
-								}}
-								variant="destructive"
-							>
-								Delete chat
-							</Button>
-						</DialogFooter>
-					</>
-				) : null}
+						Delete chat
+					</Button>
+				</DialogFooter>
 			</DialogContent>
 		</Dialog>
 	) : null;
-	return { pending, run, renderMenuItems, dialogs };
+	return { pending, run, rename, setArchived, renderMenuItems, dialogs };
 }

@@ -1042,9 +1042,16 @@ function AgentProfileNameEditor(input: {
 	);
 	if (!canEdit) {
 		return (
-			<div className="flex min-w-0 items-center gap-1.5">
-				{heading}
-				{input.adornment}
+			<div className="min-w-0">
+				<div className="flex min-w-0 items-center gap-1.5">
+					{heading}
+					{input.adornment}
+				</div>
+				{input.canEdit && nameLocked ? (
+					<p className="text-muted-foreground text-xs">
+						The default Profile is named after its harness.
+					</p>
+				) : null}
 			</div>
 		);
 	}

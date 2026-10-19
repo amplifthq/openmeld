@@ -3867,14 +3867,9 @@ function AgentProfileWorkspacePresentation(input: {
 				remove: input.input.pendingState.remove,
 				unbindController: input.workspaceOptions.unbindControllerDisabled,
 			}}
-			editDisabled={
-				input.presentationState.profileEditPending ||
-				input.input.pendingState.disablePrimaryBinding
-			}
 			href={`/o/${currentOrganization.slug}/agents?profileId=${encodeURIComponent(input.input.profile.openMeldProfileId)}`}
 			isOpen={input.presentationState.menuOpen}
 			messageDisabled={input.input.pendingState.directMessage}
-			onEdit={() => input.onOpenChange.profileEdit(true)}
 			onMessage={() => {
 				input.input
 					.onOpenDirectMessage()
@@ -4007,31 +4002,6 @@ function AgentProfileWorkspacePresentation(input: {
 				details={input.input.details}
 				onOpenChange={input.onOpenChange.details}
 				open={input.presentationState.detailsOpen}
-			/>
-			{/* The detail page's "Edit Agent" action opens the same editor as a card. */}
-			<AgentProfileEditDialog
-				controllerChangeEligibilityStatus={
-					input.controllerChangeEligibilityStatus
-				}
-				controllerChangeOptions={input.input.controllerChangeOptions}
-				editState={input.input.editState}
-				isPending={input.presentationState.profileEditPending}
-				modelCatalog={input.input.modelCatalog}
-				modelCompatibilityContext={input.input.modelCompatibilityContext}
-				onControllerChange={input.input.onControllerChange}
-				onControllerCollaborationModeUpdate={
-					input.input.onControllerCollaborationModeUpdate
-				}
-				onControllerPermissionModeUpdate={
-					input.input.onControllerPermissionModeUpdate
-				}
-				onModelSelectionUpdate={input.input.onModelSelectionUpdate}
-				onOpenChange={input.onOpenChange.profileEdit}
-				onOpenCodePermissionUpdate={input.input.onOpenCodePermissionUpdate}
-				onRenameProfile={input.input.onRenameProfile}
-				open={input.presentationState.profileEditOpen}
-				profileName={input.input.profileName}
-				runtime={input.runtime}
 			/>
 			<AgentProfileFoldersDialog
 				actorProfileId={input.input.actorProfileId}

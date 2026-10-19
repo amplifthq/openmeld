@@ -126,6 +126,7 @@ import {
 import type { SpaceBootstrapSnapshot } from "#/query/spaces/bootstrap";
 import { spaceMemberDirectoryDisplayQueryOptions } from "#/query/spaces/member-directory-display";
 import { spaceQueryKeys } from "#/query/spaces/status";
+import type { ChatArchiveKind } from "./chat-header-menu";
 import {
 	buildDirectMessageConversionDefaultName,
 	resolveDirectMessageConversionNames,
@@ -1819,6 +1820,7 @@ function SpaceLandingConversationShell({
 							accessModeErrorMessage={controller.accessModeErrorMessage}
 							canManageSpaceAccess={currentSpaceControls.canManageSpaceAccess}
 							canManageSpaceName={currentSpaceControls.canManageSpaceName}
+							chatArchiveKind={chatArchiveKindFor(memberAgentDirectMessage)}
 							conversationTitle={input.conversationTitle}
 							conversationTitleAction={input.conversationTitleAction}
 							conversationTitleControl={resolveConversationTitleControl({
@@ -1864,7 +1866,6 @@ function SpaceLandingConversationShell({
 							onUpdateSpaceName={controller.onUpdateSpaceName}
 							renderFrame={false}
 							setupRecallAction={setupRecallAction}
-							showChatArchive={!memberAgentDirectMessage}
 							showChatSettingsMenu={currentSpaceIsCenterAgentDirectMessage}
 							showDeleteSpaceAction={
 								controller.isCurrentAccessConfirmed &&
@@ -1980,6 +1981,12 @@ function SpaceLandingConversationShell({
 			</SpaceReadingHeaderProvider>
 		</SpacePinsProvider>
 	);
+}
+
+function chatArchiveKindFor(
+	memberAgent: DirectMessageMemberAgent | null
+): ChatArchiveKind {
+	return memberAgent ? "session" : "personal";
 }
 
 function useCurrentMemberAgentDirectMessage(input: {
