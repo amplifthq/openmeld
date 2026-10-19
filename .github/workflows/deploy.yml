@@ -86,7 +86,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production
-    concurrency: { group: production-db, cancel-in-progress: false }
+    concurrency: { group: production-db, cancel-in-progress: false, queue: max }
     env:
       COMPONENT: db
       RELEASE_SHA: ${{ inputs.sha }}
@@ -144,7 +144,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production
-    concurrency: { group: production-auth, cancel-in-progress: false }
+    concurrency: { group: production-auth, cancel-in-progress: false, queue: max }
     env:
       COMPONENT: auth
       RELEASE_SHA: ${{ inputs.sha }}
@@ -171,7 +171,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: production
-    concurrency: { group: production-core, cancel-in-progress: false }
+    concurrency: { group: production-core, cancel-in-progress: false, queue: max }
     env:
       COMPONENT: core
       RELEASE_SHA: ${{ inputs.sha }}
@@ -209,7 +209,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production
-    concurrency: { group: production-gateway, cancel-in-progress: false }
+    concurrency: { group: production-gateway, cancel-in-progress: false, queue: max }
     env:
       COMPONENT: gateway
       RELEASE_SHA: ${{ inputs.sha }}
@@ -229,7 +229,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: production
-    concurrency: { group: production-remote-agent, cancel-in-progress: false }
+    concurrency: { group: production-remote-agent, cancel-in-progress: false, queue: max }
     env:
       COMPONENT: remote-agent
       RELEASE_SHA: ${{ inputs.sha }}
@@ -252,7 +252,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     environment: production
-    concurrency: { group: production-web, cancel-in-progress: false }
+    concurrency: { group: production-web, cancel-in-progress: false, queue: max }
     env:
       COMPONENT: web
       RELEASE_SHA: ${{ inputs.sha }}
@@ -282,7 +282,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: production
-    concurrency: { group: production-website, cancel-in-progress: false }
+    concurrency: { group: production-website, cancel-in-progress: false, queue: max }
     env:
       COMPONENT: website
       RELEASE_SHA: ${{ inputs.sha }}
@@ -299,7 +299,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: production
-    concurrency: { group: production-docs, cancel-in-progress: false }
+    concurrency: { group: production-docs, cancel-in-progress: false, queue: max }
     env:
       COMPONENT: docs
       RELEASE_SHA: ${{ inputs.sha }}

@@ -80,12 +80,14 @@ test("production jobs never cancel an active deployment of the same component", 
     assert.deepEqual(job.concurrency, {
       group: `production-${component.name}`,
       "cancel-in-progress": false,
+      queue: "max",
     });
     assert.equal(job.environment, "production");
   }
   assert.deepEqual(cliRelease.jobs.publish.concurrency, {
     group: "production-cli",
     "cancel-in-progress": false,
+    queue: "max",
   });
 });
 
