@@ -15,7 +15,7 @@ import {
 
 export function registerSpaceTaskRoutes(app: Hono<HonoBindings>): void {
   const collectionRoute = "/v1/spaces/:spaceId/tasks";
-  app.get(collectionRoute, (c) => {
+  app.get(collectionRoute, (c): Response | Promise<Response> => {
     const query = listSpaceTasksQuerySchema.safeParse({
       phase: c.req.query("phase"),
       taskContractVersion:
@@ -77,7 +77,7 @@ export function registerSpaceTaskRoutes(app: Hono<HonoBindings>): void {
   });
 
   const itemRoute = "/v1/spaces/:spaceId/tasks/:taskId";
-  app.get(itemRoute, (c) => {
+  app.get(itemRoute, (c): Response | Promise<Response> => {
     const taskId = spaceTaskIdSchema.safeParse(c.req.param("taskId"));
     if (!taskId.success) {
       return c.json({ message: "Invalid Task ID." }, 400);

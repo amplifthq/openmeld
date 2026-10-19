@@ -20,34 +20,36 @@ export default defineConfig({
   // The embedded-assets island uses Bun `with { type: "file" }` imports that
   // only the binary build resolves. Keep it external so the npm/tsdown bundle
   // never parses those imports; the npm runtime never reaches that branch.
-  external: [
-    /bundled-assets-embedded/,
-    /macos-native-keychain-embedded/,
-    "bun:sqlite",
-  ],
+  deps: {
+    neverBundle: [
+      /bundled-assets-embedded/,
+      /macos-native-keychain-embedded/,
+      "bun:sqlite",
+    ],
+    alwaysBundle: [
+      "@openmeld/adapter-claude-code",
+      "@openmeld/adapter-codex",
+      "@openmeld/adapter-core",
+      "@openmeld/adapter-openclaw",
+      "@openmeld/agent-runtime",
+      "@openmeld/local-execution",
+      "@openmeld/local-service",
+      "@openmeld/space-mesh",
+      "@openmeld/schemas",
+      "@openmeld/protocol",
+      "@openmeld/projects",
+      "@openmeld/gateway-contract",
+      "@openmeld/utils",
+    ],
+    // Keep workspace-owned runtime dependencies inside the self-contained CLI:
+    // croner schedules routines; smol-toml reads native Grok delivery policies.
+    // semver supplies the shared Local Agent version comparison contract.
+    // Unacknowledged transitive inlining remains a build error.
+    onlyBundle: ["croner", "semver", "smol-toml"],
+  },
   // For a Node CLI in a "type: module" package, we want dist/openmeld.js (not .mjs).
   outExtensions: () => ({ js: ".js" }),
   banner: {
     js: "#!/usr/bin/env node\n",
   },
-  noExternal: [
-    "@openmeld/adapter-claude-code",
-    "@openmeld/adapter-codex",
-    "@openmeld/adapter-core",
-    "@openmeld/adapter-openclaw",
-    "@openmeld/agent-runtime",
-    "@openmeld/local-execution",
-    "@openmeld/local-service",
-    "@openmeld/space-mesh",
-    "@openmeld/schemas",
-    "@openmeld/protocol",
-    "@openmeld/projects",
-    "@openmeld/gateway-contract",
-    "@openmeld/utils",
-  ],
-  // Keep workspace-owned runtime dependencies inside the self-contained CLI:
-  // croner schedules routines; smol-toml reads native Grok delivery policies.
-  // semver supplies the shared Local Agent version comparison contract.
-  // Unacknowledged transitive inlining remains a build error.
-  inlineOnly: ["croner", "semver", "smol-toml"],
 });

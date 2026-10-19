@@ -1,7 +1,6 @@
 {
   "extends": "../../tooling/typescript-config/base.jsonc",
   "compilerOptions": {
-    "baseUrl": ".",
     "lib": ["ESNext", "WebWorker"],
     "paths": {
       "@openmeld/gateway-contract": ["../gateway-contract/src/index.ts"],

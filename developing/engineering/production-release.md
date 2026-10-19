@@ -1494,8 +1494,10 @@ can follow as a separate guarded stage; source, artifact, lease, and receipt
 admission still apply to each stage.
 The writer inventory includes Message Channel terminal-delivery projection and
 RuntimeCoordinator Agent Interaction projection. It automatically includes Web,
-Gateway, and Core, and rejects a manually narrowed scope that omits any of those
-components. Within the selected scopes, Web deploys and passes health first,
+Gateway, and Core. Stage admission requires current receipts for any Web or
+Gateway receiver that is not selected with Core. A combined stage can admit
+selected pending receivers.
+Within the selected scopes, Web deploys and passes health first,
 Gateway deploys and passes health next, and Core deploys last. When the Message
 Channel repair migration is selected, Database migration `0128_massive_blur`
 applies before those receivers. Its nullable last-attempt field does not start

@@ -935,7 +935,7 @@ function useCreateProfileDialogController(
 			]);
 		}
 	};
-	const { computerRecovery, reconnectComputerId } =
+	const { computerRecovery, reconnectComputerId, selectCreationComputer } =
 		useAgentCreationComputerRecovery({
 			enabled: input.open && ownerMode === "self",
 			orgSlug,
@@ -1449,13 +1449,13 @@ function useCreateProfileDialogController(
 		onChangeRemoteProfileName: remoteNameDraft.update,
 		computerRecovery,
 		agentComputerSlot:
-			canChooseComputer && computerChoices.length > 1 ? (
+			canChooseComputer && computerChoices.length > 0 ? (
 				<div className="grid gap-2 text-sm">
 					<CreationComputerSelector
 						choices={computerChoices}
 						disabled={createProfileMutation.isPending}
 						onSelect={(target) => {
-							recovery.selectComputer(target);
+							selectCreationComputer(target);
 							setBoundAgentId("");
 							setAgentBindingValue("");
 							setErrorState(null);
@@ -1466,7 +1466,7 @@ function useCreateProfileDialogController(
 						choices={connectionChoices}
 						disabled={createProfileMutation.isPending}
 						onSelect={(target) => {
-							recovery.selectComputer(target);
+							selectCreationComputer(target);
 							setBoundAgentId("");
 							setAgentBindingValue("");
 							setErrorState(null);
@@ -3026,6 +3026,10 @@ function useOnlyCreationComputer(input: {
 		if (
 			!(input.enabled && input.canChooseComputer) ||
 			input.isSubmitting ||
+			!(
+				input.recovery.deviceId ||
+				input.recovery.currentDeviceTargetQuery.isSuccess
+			) ||
 			!target
 		) {
 			return;
@@ -3064,7 +3068,10 @@ function CreationComputerSelector(input: {
 	disabled: boolean;
 	onSelect: RecoveryController["selectComputer"];
 }) {
-	if (input.choices.length <= 1) {
+	if (
+		input.choices.length === 0 ||
+		(input.choices.length === 1 && input.selectedChoice)
+	) {
 		return null;
 	}
 	return (

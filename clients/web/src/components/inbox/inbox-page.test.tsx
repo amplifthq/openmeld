@@ -94,6 +94,7 @@ const observed = vi.fn();
 class TestIntersectionObserver implements IntersectionObserver {
 	readonly root = null;
 	readonly rootMargin = "0px";
+	readonly scrollMargin = "0px 0px 0px 0px";
 	readonly thresholds = [0];
 	constructor(callback: IntersectionObserverCallback) {
 		intersectionCallback = callback;

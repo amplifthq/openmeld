@@ -40,7 +40,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "5.2.0",
     "tailwindcss": "^4.1.18",
-    "typescript": "^5.9.3",
+    "typescript": "npm:@typescript/typescript6@6.0.2",
     "vite": "8.3.4",
     "wrangler": "catalog:"
   }

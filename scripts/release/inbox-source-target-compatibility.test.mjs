@@ -22,7 +22,6 @@ const NATIVE =
   "services/core/src/remote-agent/application/native-delivery-service.ts";
 const PATHS = [INBOX, NATIVE];
 const originals = new Map();
-const REQUIRED_TARGET_SCOPES = /requires the Web, Gateway, and Core scopes/u;
 const PENDING_RECEIVER = /pending prerequisite/u;
 const UNKNOWN_RECEIVER = /unresolved|unknown|prerequisite/u;
 function readOriginal(sha, file) {
@@ -59,6 +58,45 @@ function changed(file, before, after, target = TARGET) {
     throw new Error(`Real counterexample location missing: ${file}`);
   }
   return new Map([[file, original.replace(before, after)]]);
+}
+
+function assertTargetReceiverAdmission(value) {
+  const plan = buildProductionReleasePlan({
+    ...value,
+    changedPaths: PATHS,
+    scope: "core",
+    databaseBackend: "postgresql",
+  });
+  for (const receiver of ["web", "gateway"]) {
+    // biome-ignore lint/suspicious/noMisplacedAssertion: Called synchronously by the mutation contract tests below.
+    assert.ok(
+      plan.compatibilityDependencies.some(
+        ([from, to]) => from === receiver && to === "core"
+      ),
+      `${receiver} must precede the changed Core writer`
+    );
+  }
+  const stage = {
+    sourceSha: value.sourceSha,
+    selectedScopes: ["core"],
+    components: ["web", "gateway", "core"].map((scope) => ({
+      scope,
+      state: "pending",
+      compatibilityDependencies: plan.compatibilityDependencies,
+    })),
+  };
+  // biome-ignore lint/suspicious/noMisplacedAssertion: Called synchronously by the mutation contract tests below.
+  assert.throws(() => assertProductionStageAdmission(stage), PENDING_RECEIVER);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: Called synchronously by the mutation contract tests below.
+  assert.doesNotThrow(() =>
+    assertProductionStageAdmission({
+      ...stage,
+      components: stage.components.map((component) => ({
+        ...component,
+        state: component.scope === "core" ? "pending" : "current",
+      })),
+    })
+  );
 }
 
 test("actual deployed Inbox target boundaries remain equal across membership and retained time changes", () => {
@@ -112,17 +150,7 @@ test("actual legacy target repair, row mapping and route bindings keep the origi
     for (const [file, before, after] of cases) {
       const value = context(changed(file, before, after), base);
       assert.equal(hasUnchangedInboxSourceTargetContract(value), false, file);
-      assert.throws(
-        () =>
-          buildProductionReleasePlan({
-            ...value,
-            changedPaths: PATHS,
-            scope: "core",
-            databaseBackend: "postgresql",
-          }),
-        REQUIRED_TARGET_SCOPES,
-        file
-      );
+      assertTargetReceiverAdmission(value);
     }
   }
 });
@@ -173,17 +201,7 @@ test("actual target union, wrappers, writers and strict target dependencies keep
   for (const [file, before, after] of cases) {
     const value = context(changed(file, before, after));
     assert.equal(hasUnchangedInboxSourceTargetContract(value), false, file);
-    assert.throws(
-      () =>
-        buildProductionReleasePlan({
-          ...value,
-          changedPaths: PATHS,
-          scope: "core",
-          databaseBackend: "postgresql",
-        }),
-      REQUIRED_TARGET_SCOPES,
-      file
-    );
+    assertTargetReceiverAdmission(value);
   }
 });
 
@@ -509,16 +527,7 @@ test("merged query and source-read imports cannot change targets or escape the e
         false,
         `${base}:${file}:${before}`
       );
-      assert.throws(
-        () =>
-          buildProductionReleasePlan({
-            ...value,
-            changedPaths: PATHS,
-            scope: "core",
-            databaseBackend: "postgresql",
-          }),
-        REQUIRED_TARGET_SCOPES
-      );
+      assertTargetReceiverAdmission(value);
     }
   }
 });
