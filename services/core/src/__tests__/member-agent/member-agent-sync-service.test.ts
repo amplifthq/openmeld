@@ -1,4 +1,5 @@
 import {
+  type DetectedHarnessKind,
   type EnsureDetectedMemberAgentRpcResult,
   ensureDetectedMemberAgentRpcResultSchema,
   type ListMemberAgentsResponse,
@@ -41,7 +42,9 @@ function createDeps(input: {
   hasBinding?: boolean;
 }) {
   const deps = {
-    ensureDetectedMemberAgent: vi.fn(async () => ensured(true)),
+    ensureDetectedMemberAgent: vi.fn(async (harnessKind: DetectedHarnessKind) =>
+      ensured(true, harnessKind)
+    ),
     hasAnyBinding: vi.fn(async () => input.hasBinding ?? false),
     listOwnerMemberAgents: vi.fn(async () => input.existing ?? listing([])),
     listRuntimeHarnesses: vi.fn(async () =>
@@ -103,6 +106,69 @@ describe("syncMemberAgents", () => {
         reasonCodes: [],
       },
     ]);
+  });
+
+  it("creates every Harness the latest catalog reports, even when an auth check expired the report", async () => {
+    // Smoke R2B-05: Codex and Claude Code carry auth snapshots, so Core
+    // shortens their report expiry to the two-minute auth freshness. Between
+    // checks the reports read expired while the computer keeps reporting.
+    const harnesses = [
+      "antigravity",
+      "claude-code",
+      "codex",
+      "cursor",
+      "grok-build",
+      "opencode",
+    ];
+    const deps = createDeps({
+      entries: harnesses.map((harnessKind) =>
+        catalogEntry({
+          agentControllerRef: `builtin:${harnessKind}`,
+          openMeldServiceRuntimeId: "runtime-macbook",
+          ...(harnessKind === "codex" || harnessKind === "claude-code"
+            ? {
+                reportAcceptedAtMs: NOW_MS - 40_000,
+                reportExpiresAtMs: NOW_MS - 30_000,
+              }
+            : {}),
+        })
+      ),
+    });
+
+    const results = await syncMemberAgents(deps);
+
+    expect(results.map((result) => result.harnessKind)).toEqual(harnesses);
+    expect(results.every((result) => result.outcome === "created")).toBe(true);
+    expect(deps.ensureDetectedMemberAgent).toHaveBeenCalledTimes(6);
+  });
+
+  it("binds to a computer with an unexpired report before a newer expired one", async () => {
+    const deps = createDeps({
+      entries: [
+        catalogEntry({
+          agentControllerRef: "builtin:codex",
+          openMeldServiceRuntimeId: "runtime-expired",
+          reportExpiresAtMs: NOW_MS - 1,
+          reportObservedAtMs: NOW_MS - 500,
+          reportStatus: "unavailable",
+        }),
+        catalogEntry({
+          agentControllerRef: "builtin:codex",
+          openMeldServiceRuntimeId: "runtime-current",
+          reportObservedAtMs: NOW_MS - 5000,
+          reportStatus: "unavailable",
+        }),
+      ],
+    });
+
+    await syncMemberAgents(deps);
+
+    expect(deps.writeDefaultBinding).toHaveBeenCalledWith({
+      agentProfileId: DEFAULT_PROFILE_ID,
+      target: expect.objectContaining({
+        openMeldServiceRuntimeId: "runtime-current",
+      }),
+    });
   });
 
   it("adds nothing for a second computer once the MemberAgent is bound", async () => {
@@ -220,6 +286,8 @@ describe("syncMemberAgents", () => {
         catalogEntry({
           agentControllerRef: "builtin:cursor",
           openMeldServiceRuntimeId: "runtime-1",
+          // The computer stopped reporting more than ten minutes ago.
+          reportAcceptedAtMs: NOW_MS - 11 * 60_000,
           reportExpiresAtMs: NOW_MS - 1,
         }),
         catalogEntry({

@@ -1,14 +1,21 @@
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 import { isMemberAgentsEnabled } from "#/lib/member-agents/member-agents-feature";
-import { syncMemberAgents } from "#/lib/member-agents/sync-member-agents";
+import {
+	hasPendingMemberAgentSetup,
+	syncMemberAgents,
+} from "#/lib/member-agents/sync-member-agents";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { agentDirectMessageSessionsQueryOptions } from "#/query/organizations/agent-direct-message-sessions";
 import {
 	memberAgentQueryKeys,
 	memberAgentsQueryOptions,
 } from "#/query/organizations/member-agents";
-import { organizationProfileIdentityDirectoryQueryOptions } from "#/query/organizations/organization-directory";
+import {
+	organizationProfileIdentityDirectoryQueryOptions,
+	organizationQueryKeys,
+} from "#/query/organizations/organization-directory";
+import { startQueryKeys } from "#/query/query-keys";
 import {
 	buildMemberAgentIndex,
 	EMPTY_MEMBER_AGENT_INDEX,
@@ -93,21 +100,49 @@ function useEnabledMemberAgentSync(): void {
 		queryFn: ({ signal }) => syncMemberAgents({ organizationId, signal }),
 		staleTime: 5 * 60_000,
 		retry: false,
+		// A half set-up Agent is finished by another sync, for a while.
+		refetchInterval: (query) =>
+			hasPendingMemberAgentSetup(query.state.data?.response) &&
+			query.state.dataUpdateCount < MEMBER_AGENT_SETUP_SYNC_ATTEMPTS
+				? MEMBER_AGENT_SETUP_SYNC_INTERVAL_MS
+				: false,
 	});
 	useEffect(() => {
 		if (sync.data?.changed) {
-			// Never the sync query itself, which lives under the same prefix.
-			Promise.all([
-				queryClient.invalidateQueries({
-					queryKey: memberAgentQueryKeys.all(organizationId),
-					exact: true,
-				}),
-				queryClient.invalidateQueries({
-					queryKey: memberAgentQueryKeys.presence(organizationId),
-				}),
-			]).catch(console.error);
+			invalidateMemberAgentReads(queryClient, organizationId);
 		}
 	}, [sync.data, organizationId, queryClient]);
+}
+
+const MEMBER_AGENT_SETUP_SYNC_INTERVAL_MS = 10_000;
+const MEMBER_AGENT_SETUP_SYNC_ATTEMPTS = 12;
+
+/**
+ * Rereads everything a MemberAgent row is built from, so a new MemberAgent
+ * never shows without its Profiles: the listing, presence, the
+ * Organization's Profile directory and runtime overview, and the owner's
+ * Profiles. Never the sync query itself, which lives under the same prefix.
+ */
+export function invalidateMemberAgentReads(
+	queryClient: ReturnType<typeof useQueryClient>,
+	organizationId: string
+): void {
+	Promise.all([
+		queryClient.invalidateQueries({
+			queryKey: memberAgentQueryKeys.all(organizationId),
+			exact: true,
+		}),
+		queryClient.invalidateQueries({
+			queryKey: memberAgentQueryKeys.presence(organizationId),
+		}),
+		queryClient.invalidateQueries({
+			queryKey: organizationQueryKeys.profileDirectory(organizationId),
+		}),
+		queryClient.invalidateQueries({
+			queryKey: organizationQueryKeys.agentRuntimeOverview(organizationId),
+		}),
+		queryClient.invalidateQueries({ queryKey: startQueryKeys.allProfiles }),
+	]).catch(console.error);
 }
 
 function useDisabledMemberAgentSync(): void {

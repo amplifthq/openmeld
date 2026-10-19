@@ -8,6 +8,36 @@ import {
 import { buildMemberAgentDirectory } from "./member-agent-directory-model";
 import { buildMemberAgentIndex } from "./member-agent-index";
 
+function detectedListing(input: {
+	defaultProfileId: string | null;
+	profileIds: string[];
+}) {
+	return buildMemberAgentIndex({
+		listing: {
+			ok: true,
+			organizationId: "org-test",
+			memberAgents: [
+				{
+					id: "ma-codex",
+					organizationId: "org-test",
+					ownerUserId: "user-felix",
+					harnessKind: "codex",
+					defaultProfileId: input.defaultProfileId,
+					source: "detected",
+					archivedAt: null,
+					profiles: input.profileIds.map((openMeldProfileId) => ({
+						openMeldProfileId,
+						profileName: "Codex",
+						isDefault: openMeldProfileId === input.defaultProfileId,
+					})),
+				},
+			],
+			unassignedProfiles: [],
+		},
+		ownerName: "Felix Lu",
+	});
+}
+
 type RuntimeItem =
 	OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number];
 
@@ -189,5 +219,69 @@ describe("MemberAgent directory", () => {
 			directory.rows.find((row) => row.memberAgentId === "ma-claude")
 				?.latestSession
 		).toMatchObject({ spaceId: "dm-new", title: "Review PR 12" });
+	});
+
+	it("shows a new MemberAgent as setting up until its Profiles are readable", () => {
+		// Smoke R2B-05: the listing already names the default Profile while
+		// the Profile directory has not caught up.
+		const lagging = buildMemberAgentDirectory({
+			index: detectedListing({
+				defaultProfileId: "agt-codex",
+				profileIds: ["agt-codex"],
+			}),
+			ownedProfiles: [],
+			runtimeByProfileId: new Map(),
+		});
+		expect(lagging.rows[0]).toMatchObject({ profiles: [], setup: "creating" });
+
+		// The default Profile is still being written.
+		const writing = buildMemberAgentDirectory({
+			index: detectedListing({ defaultProfileId: null, profileIds: [] }),
+			ownedProfiles: [],
+			runtimeByProfileId: new Map(),
+		});
+		expect(writing.rows[0]?.setup).toBe("creating");
+
+		const ready = buildMemberAgentDirectory({
+			index: detectedListing({
+				defaultProfileId: "agt-codex",
+				profileIds: ["agt-codex"],
+			}),
+			ownedProfiles: [agentProfile("agt-codex", "Codex")],
+			runtimeByProfileId: new Map(),
+		});
+		expect(ready.rows[0]?.setup).toBe("ready");
+	});
+
+	it("never shows a migrated MemberAgent as setting up", () => {
+		// Its listed Profiles are not readable here, but it was never created
+		// automatically, so it shows what it has.
+		const lagging = buildMemberAgentDirectory({
+			index,
+			ownedProfiles: [],
+			runtimeByProfileId: new Map(),
+		});
+		expect(lagging.rows.map((row) => row.setup)).toEqual(["ready", "ready"]);
+	});
+
+	it("never shows a migrated MemberAgent without a default as setting up", () => {
+		const directory = buildMemberAgentDirectory({
+			index: buildMemberAgentIndex({
+				listing: {
+					...MIGRATED_LISTING,
+					memberAgents: [
+						{
+							...MIGRATED_LISTING.memberAgents[0],
+							defaultProfileId: null,
+							profiles: [],
+						} as (typeof MIGRATED_LISTING.memberAgents)[number],
+					],
+				},
+				ownerName: "Felix Lu",
+			}),
+			ownedProfiles: [],
+			runtimeByProfileId: new Map(),
+		});
+		expect(directory.rows[0]?.setup).toBe("ready");
 	});
 });

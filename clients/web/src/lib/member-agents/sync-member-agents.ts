@@ -38,3 +38,21 @@ export async function syncMemberAgents(input: {
 		return { changed: false, response: null };
 	}
 }
+
+/**
+ * True while a sync left a MemberAgent half set up: its Binding or owner
+ * Direct Message did not finish (for example the computer's report was
+ * between auth checks). Another sync finishes it; Core retries only the
+ * missing steps.
+ */
+export function hasPendingMemberAgentSetup(
+	response: SyncMemberAgentsResponse | null | undefined
+): boolean {
+	return (
+		response?.results.some(
+			(result) =>
+				(result.outcome === "created" || result.outcome === "completed") &&
+				(result.binding !== "succeeded" || result.directMessage !== "succeeded")
+		) ?? false
+	);
+}
