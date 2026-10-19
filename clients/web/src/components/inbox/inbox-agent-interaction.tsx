@@ -3,10 +3,10 @@ import type {
 	RespondToSpaceAgentInteractionBody,
 	WakeProgressItem,
 } from "@openmeld/schemas/types";
-import { Button } from "@openmeld/ui/components/button";
 import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { ApprovalRequestUnavailable } from "#/components/inbox/approval-request-states";
 import { SpaceAgentInteractionCard } from "#/components/spaces/space-agent-interaction-card";
 import { buildInboxAgentInteractionConversationHref } from "#/lib/inbox/source-target";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
@@ -78,21 +78,13 @@ export function InboxAgentInteraction(input: {
 	}
 	if (progress.isError) {
 		return (
-			<div className="mt-3 space-y-2 rounded-md border border-border/70 p-4">
-				<p className="text-destructive text-sm" role="alert">
-					This question could not be loaded. Refresh to try again.
-				</p>
-				<div className="flex items-center gap-3">
-					<Button
-						onClick={() => progress.refetch()}
-						size="sm"
-						variant="outline"
-					>
-						Refresh question
-					</Button>
-					{openConversation}
-				</div>
-			</div>
+			<ApprovalRequestUnavailable
+				message="This question could not be loaded. Refresh to try again."
+				onRefresh={() => progress.refetch()}
+				refreshLabel="Refresh question"
+			>
+				{openConversation}
+			</ApprovalRequestUnavailable>
 		);
 	}
 	if (!item?.pendingInteraction && progress.data?.pageInfo?.hasMore) {

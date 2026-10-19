@@ -10,15 +10,22 @@ import type { ReactNode } from "react";
 export function ApprovalRequestUnavailable(input: {
 	message: string;
 	onRefresh: () => void;
+	/** Defaults to "Refresh request". */
+	refreshLabel?: string;
+	/** Another way forward beside Refresh, e.g. Open conversation. */
+	children?: ReactNode;
 }) {
 	return (
 		<div className="mt-3 space-y-2 rounded-md border border-border/70 p-4">
 			<p className="text-destructive text-sm" role="alert">
 				{input.message}
 			</p>
-			<Button onClick={input.onRefresh} size="sm" variant="outline">
-				Refresh request
-			</Button>
+			<div className="flex items-center gap-3">
+				<Button onClick={input.onRefresh} size="sm" variant="outline">
+					{input.refreshLabel ?? "Refresh request"}
+				</Button>
+				{input.children}
+			</div>
 		</div>
 	);
 }
