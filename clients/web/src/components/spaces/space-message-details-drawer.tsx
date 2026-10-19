@@ -1,4 +1,5 @@
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
+import { resolvePublicAgentFailureRecovery } from "@openmeld/schemas";
 import type {
 	GetSpaceMessageDetailsResponse,
 	SpaceMessageDetailsStringFact,
@@ -1031,10 +1032,6 @@ function resolveNoticeRecoveryPresentation(input: {
 		input.notice.systemNoticeType === "terminal_failure" && targetProfileId
 			? (input.agentRecoveryPlansByProfileId?.get(targetProfileId) ?? null)
 			: null;
-	const currentAction =
-		currentPlan && currentPlan.kind !== "none"
-			? ({ kind: "agent_recovery", plan: currentPlan } as const)
-			: null;
 	const reasonCode = input.notice.systemNoticeReasonCode?.trim();
 	const targetLabel = targetProfileId
 		? (input.targetProfileDisplayNamesByProfileId?.get(targetProfileId) ??
@@ -1049,7 +1046,37 @@ function resolveNoticeRecoveryPresentation(input: {
 			failureReasonCode: reasonCode,
 			targetLabel,
 		});
+	const currentAction =
+		currentPlan && currentPlan.kind !== "none"
+			? ({ kind: "agent_recovery", plan: currentPlan } as const)
+			: resolveSessionFolderAction({ reasonCode, targetLabel });
 	return { action: currentAction, body };
+}
+
+/**
+ * A Session keeps its folder (smoke R5-01). When its folder is no longer the
+ * Agent's, the failure offers to continue the chat in a new Session in the
+ * current default folder. The action itself renders only for the owner.
+ */
+function resolveSessionFolderAction(input: {
+	reasonCode: string | undefined;
+	targetLabel: string;
+}): SpaceMessageWakeIssueEntry["action"] {
+	const recovery = resolvePublicAgentFailureRecovery({
+		errorCode: input.reasonCode,
+		targetLabel: input.targetLabel,
+	});
+	return recovery?.recoveryTarget === "session_folder"
+		? {
+				display: {
+					actionTarget: recovery.recoveryTarget,
+					body: recovery.body,
+					primaryActionId: recovery.primaryActionId,
+					primaryActionLabel: recovery.primaryActionLabel,
+				},
+				kind: "wake_failure",
+			}
+		: null;
 }
 
 function WakeQuotaReset(input: {
