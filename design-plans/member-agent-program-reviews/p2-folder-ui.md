@@ -138,3 +138,47 @@ Reviewed the staged diff on top of `3bb1d283d` with Codex CLI
 | 3 | P2: the button and the handoff named a folder from a recorded projection that may be stale. | Yes | Fixed: the button names a folder only from a projection the Service just confirmed; the handoff names no folder. Test added. |
 | 4 | P2: prepending the handoff to a maximum-length request exceeded the Space text limit. | Yes | Fixed: the request is shortened to fit, with a note that the full request is the message it replies to. Test added. |
 | 5 | Test gaps: rapid double click, timeout and retry deduplication. | Partly | Double clicks are blocked by an in-flight guard; a retry reuses the deterministic client message id, which the Space authoring receipt deduplicates. No separate tests added. |
+
+## Follow-up review: smoke round 6 (2026-10-19)
+
+Fix on `claude/map-p2-repair-continue-2`:
+
+- **R6-01 (R5-01 persists):** after the repair, the same-chat failure
+  explained "continue in a new session", but the drawer offered only Hand
+  off. Root cause: the Direct Message drawer shows the published
+  `terminal_failure` notice, and for a notice it took actions only from
+  the Agent recovery plans. The `session_folder` action from the round-5
+  fix was reachable only through wake issue entries, which the real page
+  does not produce for a settled failure. The edit context was not the
+  cause: the drawer is inside `SpaceAgentProfileEditProvider`, as the
+  working "Review working folder" button on the same page shows. The
+  notice path now offers the folder continuation for
+  `execution_context.workspace_changed`, after exact execution recovery
+  reports unavailable. The action still renders only for the owner.
+- **Copy:** the failure reads after "<Agent> couldn't reply:" and no
+  longer names the Agent mid-sentence ("no longer This agent's working
+  folder").
+- **Test:** a new suite mounts the drawer as the Space page does, inside
+  the real `SpaceAgentProfileEditProvider`, with the published failure
+  notice and an execution-recovery handler. It fails without the fix.
+- **Browser verification** on this branch's own dev-local lane (isolated
+  Service `com.openmeld.openmeld-background-service.dev-local.97cef30c87ea5b87`,
+  folders under `~/openmeld-smoke/r6fix`): baseline reply in folder-two;
+  folder-two renamed on disk, the next request failed with Review working
+  folder; folder-one made default; the next request in the same chat
+  failed with `execution_context.workspace_changed`; the drawer showed
+  **Continue in folder-one**; clicking it posted the handoff, Claude Code
+  replied in the same chat, and a following plain message ran in the same
+  chat with working directory `folder-one`. Screenshots:
+  `dev-tmp/member-agent-smoke/round-6-fix/screenshots/` (local, not
+  tracked).
+
+Reviewed commit `a058e0552` with Codex CLI (`gpt-6-astra`, `high`,
+read-only).
+
+| # | Finding | Verified | Disposition |
+| --- | --- | --- | --- |
+| 1 | Ownership, privacy, precedence (Agent recovery plan, then exact execution recovery, then the folder action) and shared copy consumers. | — | None found. |
+| 2 | P2: when the failure notice itself is open (for example its request is outside loaded history), the source was rejected because only a human text message counts, so no action appeared. | Yes | Fixed: a failure notice continues the request it replies to, with the recorded reply preview as the handoff text, or a pointer to the replied message when there is none. Test added. |
+| 3 | Test gap: the mounted test used a notice without a dispatch id, skipping exact recovery inspection. | Yes | Fixed: the notice carries a dispatch id and the drawer gets an execution-recovery handler that reports unavailable, as on the Space page. |
+| 4 | Space Mesh: two tests expect older `workspace.missing` / `workspace.invalid` wording. | Yes, pre-existing | Same two failures on `fe6d239be`; not touched by this change. |

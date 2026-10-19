@@ -1113,8 +1113,8 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     {
       // A Session keeps its folder. After the Agent's folder changed, the
       // owner continues the chat in a new Session in the current folder.
-      body: (targetName) =>
-        `${targetName} couldn’t continue this chat because its session works in a folder that is no longer ${targetName}’s working folder. Continue in a new session in the current folder; this chat’s earlier messages stay as context.`,
+      // Read after "<Agent> couldn't reply: ", so it names no Agent.
+      body: "This chat’s session works in a folder that is no longer the Agent’s working folder. Continue in a new session in the current folder; this chat’s earlier messages stay as context.",
       kind: "local_agent_prepare",
       patterns: ["=execution_context.workspace_changed"],
       primaryActionId: "continue_in_default_folder",

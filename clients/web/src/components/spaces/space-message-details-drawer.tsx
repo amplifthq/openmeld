@@ -1,4 +1,5 @@
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
+import { resolvePublicAgentFailureRecovery } from "@openmeld/schemas";
 import type {
 	GetSpaceMessageDetailsResponse,
 	SpaceMessageDetailsStringFact,
@@ -430,6 +431,7 @@ function MessageDetailsBody(input: {
 				profileId: input.profileId,
 				source: buildFolderContinueSource({
 					item: input.item,
+					replyContext: data.replyContext,
 					threadId: input.threadId ?? null,
 				}),
 				spaceId: input.spaceId,
@@ -1031,10 +1033,6 @@ function resolveNoticeRecoveryPresentation(input: {
 		input.notice.systemNoticeType === "terminal_failure" && targetProfileId
 			? (input.agentRecoveryPlansByProfileId?.get(targetProfileId) ?? null)
 			: null;
-	const currentAction =
-		currentPlan && currentPlan.kind !== "none"
-			? ({ kind: "agent_recovery", plan: currentPlan } as const)
-			: null;
 	const reasonCode = input.notice.systemNoticeReasonCode?.trim();
 	const targetLabel = targetProfileId
 		? (input.targetProfileDisplayNamesByProfileId?.get(targetProfileId) ??
@@ -1049,7 +1047,37 @@ function resolveNoticeRecoveryPresentation(input: {
 			failureReasonCode: reasonCode,
 			targetLabel,
 		});
+	const currentAction =
+		currentPlan && currentPlan.kind !== "none"
+			? ({ kind: "agent_recovery", plan: currentPlan } as const)
+			: resolveSessionFolderAction({ reasonCode, targetLabel });
 	return { action: currentAction, body };
+}
+
+/**
+ * A Session keeps its folder (smoke R5-01). When its folder is no longer the
+ * Agent's, the failure offers to continue the chat in a new Session in the
+ * current default folder. The action itself renders only for the owner.
+ */
+function resolveSessionFolderAction(input: {
+	reasonCode: string | undefined;
+	targetLabel: string;
+}): SpaceMessageWakeIssueEntry["action"] {
+	const recovery = resolvePublicAgentFailureRecovery({
+		errorCode: input.reasonCode,
+		targetLabel: input.targetLabel,
+	});
+	return recovery?.recoveryTarget === "session_folder"
+		? {
+				display: {
+					actionTarget: recovery.recoveryTarget,
+					body: recovery.body,
+					primaryActionId: recovery.primaryActionId,
+					primaryActionLabel: recovery.primaryActionLabel,
+				},
+				kind: "wake_failure",
+			}
+		: null;
 }
 
 function WakeQuotaReset(input: {
@@ -1617,14 +1645,36 @@ function resolveDiagnosticReportButtonText(input: {
 /** Only the requester's own sent message can be continued from here. */
 function buildFolderContinueSource(input: {
 	item: SpaceTimelineItem;
+	replyContext: GetSpaceMessageDetailsResponse["replyContext"];
 	threadId: string | null;
 }): FolderContinueSource | null {
 	const item = input.item;
-	return item.signalType === "signal.text" &&
+	if (
+		item.signalType === "signal.text" &&
 		item.actorProfileKind === "human" &&
 		item.deliveryState === "sent" &&
 		!item.recalledAt &&
 		item.text.trim()
-		? { sourceSignalId: item.id, text: item.text, threadId: input.threadId }
-		: null;
+	) {
+		return {
+			sourceSignalId: item.id,
+			text: item.text,
+			threadId: input.threadId,
+		};
+	}
+	// The failure notice itself is open, for example when its request is not
+	// in loaded history: continue the request it answers.
+	if (
+		item.signalType === "signal.system_notice" &&
+		item.systemNoticeType === "terminal_failure" &&
+		item.replyToSignalId
+	) {
+		const preview = input.replyContext.previewText;
+		return {
+			sourceSignalId: item.replyToSignalId,
+			text: preview.state === "recorded" ? (preview.value ?? "") : "",
+			threadId: input.threadId,
+		};
+	}
+	return null;
 }
