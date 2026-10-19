@@ -14,6 +14,7 @@ import {
   parseDeployArgs,
   planAutoScope,
   planLaneSegments,
+  selectAutoScope,
 } from "./deploy.mjs";
 import {
   assertReleaseCheckout,
@@ -185,6 +186,37 @@ test("auto scope diffs each component from its live SHA and falls back to --base
     }),
     LIVE_SHA_UNKNOWN
   );
+});
+
+// biome-ignore lint/style/noDoneCallback: node:test supplies a TestContext, not a done callback.
+test("auto scope warns about a migration without Core and does not widen scope", async (t) => {
+  const warnings = [];
+  t.mock.method(process.stderr, "write", (message) => {
+    warnings.push(message);
+    return true;
+  });
+  t.mock.method(process.stdout, "write", () => true);
+  for (const includeCore of [false, true]) {
+    warnings.length = 0;
+    const selected = await selectAutoScope({
+      sha: TARGET,
+      base: LIVE,
+      readLive: async () => null,
+      git: {
+        isAncestor: () => true,
+        diffNames: () => [
+          "packages/db/postgresql/migrations/0042_add.sql",
+          ...(includeCore ? ["services/core/src/index.ts"] : []),
+        ],
+      },
+    });
+    assert.deepEqual(selected, includeCore ? ["db", "core"] : ["db"]);
+    assert.equal(warnings.length, includeCore ? 0 : 1);
+    if (!includeCore) {
+      assert.ok(warnings[0].includes("live Core"));
+      assert.ok(warnings[0].includes("--scope db,core"));
+    }
+  }
 });
 
 test("runs component steps only from a clean checkout of the exact release SHA", () => {

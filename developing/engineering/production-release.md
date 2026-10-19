@@ -23,6 +23,9 @@ pnpm run deploy -- --scope <auto|cloud|name[,name]> --lane <local|github|auto> [
 - `--scope auto` diffs each component from its live release SHA (or `--base`
   when unreadable) and selects it when a changed path matches its `paths`. Root
   build inputs such as `pnpm-lock.yaml` never widen the scope.
+  If auto selects db without Core, the migration runs against the live Core.
+  Use `--scope db,core` unless the migration is safe for the Core that is live
+  now. Auto warns but does not add Core.
 - `--lane github` makes one `deploy.yml` dispatch and follows it; `--lane local`
   runs the same steps here with `openmeld-release/prd` credentials from Doppler
   (cheaper); `--lane auto` uses each component's `defaultLane`.

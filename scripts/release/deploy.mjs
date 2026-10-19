@@ -335,7 +335,7 @@ function assertLocalSource(git, sha) {
   }
 }
 
-async function selectAutoScope(input) {
+export async function selectAutoScope(input) {
   const plan = await planAutoScope(input);
   for (const entry of plan) {
     const source = entry.fromLive ? "live" : "--base";
@@ -352,9 +352,15 @@ async function selectAutoScope(input) {
       `note: root build inputs changed (${rootInputs.join(", ")}); scope is not widened. Name components explicitly if they must rebuild.\n`
     );
   }
-  return plan
+  const selected = plan
     .filter((entry) => entry.changedPaths.length > 0)
     .map((entry) => entry.name);
+  if (selected.includes("db") && !selected.includes("core")) {
+    process.stderr.write(
+      "warning: the migration will run against the live Core; use --scope db,core unless the migration is safe for the Core that is live now.\n"
+    );
+  }
+  return selected;
 }
 
 function printSegment({ segment, sha, repository, dryRun }) {
