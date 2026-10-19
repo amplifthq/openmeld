@@ -1013,3 +1013,18 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   unit tests cannot see the facade; routed to Phase 5
   (`claude/map-5-icon-fix`) with a guard test over all icon imports. Round 2
   reruns after the fix.
+- 2026-10-19, real-machine smoke round 2b (all nine scenarios attempted;
+  program head e2d523c5b): Agents and Inbox load; six MemberAgents created;
+  Sessions, colleague consent with revoke, @-request into a Space with live
+  updates on both sides, owner observer, colleague detail privacy, CLI
+  projections, and the Phase 5 CLI confirmation inside the risk window (no
+  card outside it) with audit all passed. Not a pass overall. Routed: Agent
+  reply showed the owner's absolute path to a colleague (P0, prompt guidance,
+  Phase 3 `claude/map-3-path-guidance`); observer owner gets no Inbox card for
+  a native permission question and the first released dispatch fails with
+  `controller_access_unsupported` (P1, Phase 4 `claude/map-4-smoke-2b`);
+  composer folder choice lost before the Service and Continue offers failed
+  sources (P1/P2, Phase 2 `claude/map-p2-smoke-2b`); Codex `thread/start`
+  timeout in folder tasks (P1, cause unproven, `claude/map-smoke-harness-2b`);
+  two MemberAgents created minutes late (P2, 1c `claude/map-1c-smoke-2b`);
+  Edit Agent no-op on a default Profile (P2, 1d `claude/map-1d-smoke-2b`).
