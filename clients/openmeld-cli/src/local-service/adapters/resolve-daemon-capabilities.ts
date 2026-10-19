@@ -51,6 +51,7 @@ export function resolveDaemonCapabilitiesFromAdapterIds(input: {
       readProfileWorkspace: true,
       initializeProfileWorkspace: true,
       manageProfileFolders: true,
+      repairProfileFolders: true,
     },
     localProjectControl: {
       connectCandidate: true,

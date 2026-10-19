@@ -108,6 +108,19 @@ export const profileFolderOperationSchema = z.discriminatedUnion("operation", [
     folderId: profileFolderIdSchema,
     displayName: profileFolderDisplayNameSchema,
   }),
+  // Makes an OpenMeld or custom folder the default, adding it when missing.
+  // It is the only change accepted while the saved folder settings can't be
+  // read: it then replaces them with a list holding just this folder.
+  z.strictObject({
+    operation: z.literal("repair"),
+    folder: z.discriminatedUnion("kind", [
+      z.strictObject({ kind: z.literal("openmeld_managed") }),
+      z.strictObject({
+        kind: z.literal("custom"),
+        path: profileWorkingDirectorySchema,
+      }),
+    ]),
+  }),
 ]);
 
 export const profileFolderOperationReasonCodeSchema = z.enum([

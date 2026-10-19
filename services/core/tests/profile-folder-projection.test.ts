@@ -237,6 +237,24 @@ describe("profile folder projection", () => {
     ).toBe(false);
   });
 
+  it("repairs folder settings only with an OpenMeld or custom folder", () => {
+    const parse = (folder: unknown) =>
+      manageAgentProfileFoldersBodySchema.safeParse({
+        expectedBindingTarget: {
+          agentControllerConversationId: null,
+          agentControllerRef: "builtin:codex",
+          bindingId: "binding-1",
+          openMeldServiceRuntimeId: "runtime-1",
+        },
+        operation: { folder, operation: "repair" },
+      }).success;
+    expect(parse({ kind: "openmeld_managed" })).toBe(true);
+    expect(parse({ kind: "custom", path: "/Users/me/repo" })).toBe(true);
+    // A Project folder is never the default; it repairs nothing locally.
+    expect(parse({ kind: "project", projectId: "project-1" })).toBe(false);
+    expect(parse({ kind: "custom" })).toBe(false);
+  });
+
   it("refuses to remove the Default Project's folder", () => {
     const record = profileFolderProjectionRecordSchema.parse({
       ...TARGET,

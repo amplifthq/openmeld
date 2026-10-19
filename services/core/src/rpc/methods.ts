@@ -5126,8 +5126,44 @@ export async function rpcSetAgentProfileDefaultFolder(
         "A Project folder can’t be the default folder. Set the Agent’s Default Project instead.",
     });
   }
-  const admission = await acquireAgentProfileExecutionTargetMutationAdmission({
+  const result = await applyDefaultChangingProfileFolderOperation(env, {
+    db,
+    expectedBindingTarget,
+    operation: { folderId: folderId.data, operation: "set_default" },
+    transport,
+  });
+  return {
     agentProfileId: request.agentProfileId,
+    folderId: folderId.data,
+    observedAtMs: result.record.observedAtMs,
+    projection: result.record.projection,
+  };
+}
+
+/**
+ * Runs a folder operation that can change the default under the same
+ * execution-target admission as a working-folder save. A timed-out or
+ * unreadable outcome keeps the lease: the Service may still have applied it.
+ */
+async function applyDefaultChangingProfileFolderOperation(
+  env: CoreBindings,
+  input: {
+    db: Parameters<typeof readPrimaryAgentProfileBindingRecord>[0]["db"];
+    expectedBindingTarget: import("../agent-profile-binding/application/agent-profile-binding-target").AgentProfileBindingTarget;
+    operation: Extract<
+      import("@openmeld/schemas/types").ProfileFolderOperation,
+      { operation: "repair" | "set_default" }
+    >;
+    transport: Omit<
+      Parameters<typeof manageRuntimeTransportProfileFolders>[0],
+      "operation"
+    >;
+  }
+) {
+  const agentProfileId = input.transport.targetProfileId;
+  const userId = input.transport.ownerUserId;
+  const admission = await acquireAgentProfileExecutionTargetMutationAdmission({
+    agentProfileId,
     env,
     ownerUserId: userId,
   });
@@ -5137,14 +5173,17 @@ export async function rpcSetAgentProfileDefaultFolder(
   let releaseAdmission = true;
   try {
     const currentBinding = await readPrimaryAgentProfileBindingRecord({
-      agentProfileId: request.agentProfileId,
-      db,
+      agentProfileId,
+      db: input.db,
       owner: { id: userId, kind: "owner_account" },
     });
-    requireSameAgentProfileBindingTarget(currentBinding, expectedBindingTarget);
+    requireSameAgentProfileBindingTarget(
+      currentBinding,
+      input.expectedBindingTarget
+    );
     const result = await manageRuntimeTransportProfileFolders({
-      ...transport,
-      operation: { folderId: folderId.data, operation: "set_default" },
+      ...input.transport,
+      operation: input.operation,
     });
     releaseAdmission =
       result.status === "accepted" ||
@@ -5157,16 +5196,11 @@ export async function rpcSetAgentProfileDefaultFolder(
         status: result.reasonCode === "local_agent_control.timeout" ? 504 : 409,
       });
     }
-    return {
-      agentProfileId: request.agentProfileId,
-      folderId: folderId.data,
-      observedAtMs: result.record.observedAtMs,
-      projection: result.record.projection,
-    };
+    return result;
   } finally {
     if (releaseAdmission) {
       await releaseAgentProfileExecutionTargetMutationAdmission({
-        agentProfileId: request.agentProfileId,
+        agentProfileId,
         env,
         operationId: admission.operationId,
         ownerUserId: userId,
@@ -5175,7 +5209,7 @@ export async function rpcSetAgentProfileDefaultFolder(
       console.warn(
         "[core.agent_profile.default_folder_mutation_outcome_unknown_lease_retained]",
         {
-          agentProfileId: request.agentProfileId,
+          agentProfileId,
           operationId: admission.operationId,
           ownerUserId: userId,
         }
@@ -5212,7 +5246,7 @@ export async function rpcManageAgentProfileFolders(
       reason: parsed.error.issues[0]?.message ?? "Invalid folder change.",
     });
   }
-  const { request } = await requireAgentProfileWorkspaceScope(env, input);
+  const { db, request } = await requireAgentProfileWorkspaceScope(env, input);
   const bound = await resolveBoundAgentProfileComputerContext(env, input);
   requireSameAgentProfileBindingTarget(
     bound.bindingTarget,
@@ -5245,6 +5279,25 @@ export async function rpcManageAgentProfileFolders(
     runtimeLane: bound.target.runtimeLane,
     targetProfileId: request.agentProfileId,
   };
+  if (operation.operation === "repair") {
+    // A repair names a folder by kind or path, not by a projected id: the
+    // saved list it replaces may be unreadable.
+    const repaired = await applyDefaultChangingProfileFolderOperation(env, {
+      db,
+      expectedBindingTarget: parsed.data.expectedBindingTarget,
+      operation,
+      transport,
+    });
+    return manageAgentProfileFoldersResponseSchema.parse({
+      agentProfileId: request.agentProfileId,
+      ...(repaired.payload.accepted && repaired.payload.folderId
+        ? { folderId: repaired.payload.folderId }
+        : {}),
+      observedAtMs: repaired.record.observedAtMs,
+      projection: repaired.record.projection,
+      target: bound.target,
+    });
+  }
   if (operation.operation === "remove") {
     await requireRemovableAgentProfileFolder(env, {
       folderId: operation.folderId,
