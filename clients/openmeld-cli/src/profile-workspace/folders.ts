@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { homedir, hostname, userInfo } from "node:os";
+import { basename, dirname } from "node:path";
 import {
   profileFolderProjectionSchema,
   providerDispatchRuntimeContextSchema,
@@ -658,12 +659,40 @@ export async function readProfileFolderDisplayName(input: {
       return null;
     }
     const folderId = input.folderId ?? current.list.defaultFolderId;
-    return (
-      current.list.folders.find((folder) => folder.id === folderId)
-        ?.displayName ?? null
-    );
+    const name = current.list.folders.find(
+      (folder) => folder.id === folderId
+    )?.displayName;
+    return name && !namesThisComputer(name) ? name : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * A folder named after the home directory, the OS account, or the computer
+ * (for example the folder `/Users/felix`, whose default name is `felix`)
+ * would itself reveal local identity.
+ */
+function namesThisComputer(name: string): boolean {
+  const candidate = name.trim().toLowerCase();
+  const identity = [
+    basename(homedir()),
+    safeUserName(),
+    hostname(),
+    hostname().split(".")[0] ?? "",
+  ]
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => value.length > 0);
+  return identity.some(
+    (value) => candidate === value || candidate.includes(value)
+  );
+}
+
+function safeUserName(): string {
+  try {
+    return userInfo().username;
+  } catch {
+    return "";
   }
 }
 

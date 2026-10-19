@@ -1,4 +1,5 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { profileFolderProjectionSchema } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
@@ -177,6 +178,24 @@ describe("profile folders", () => {
       expect(await read(added.folderId ?? "")).toBe("second");
       expect(await read("6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11")).toBeNull();
       expect(await read()).not.toContain(home);
+    });
+  });
+
+  it("never names a folder after this computer's account or home directory", async () => {
+    await withTempHome(async (home) => {
+      const named = join(home, userInfo().username);
+      await mkdir(named);
+      await setCustomProfileWorkspace({
+        account: ACCOUNT,
+        customWorkspacePath: named,
+        openMeldProfileId: PROFILE_ID,
+      });
+      expect(
+        await readProfileFolderDisplayName({
+          account: ACCOUNT,
+          openMeldProfileId: PROFILE_ID,
+        })
+      ).toBeNull();
     });
   });
 

@@ -239,6 +239,7 @@ import {
   releaseExecutionContextWorkspace,
 } from "./execution-context-workspace";
 import {
+  appendNonOwnerAudienceGuidance,
   buildDispatchBootstrapTemplateFacts,
   buildDispatchCorrelation,
   buildDispatchPromptPlan,
@@ -3790,7 +3791,12 @@ async function resolveRuntimeResultStructuredSpaceAction(input: {
       sendTargetReference: input.sendTargetReference,
       failureReason: initialStructuredActionFailure.failureReason,
       cliEntry: input.cliEntry,
-      runControllerRepair: ({ prompt, runtimeResult }) => {
+      runControllerRepair: ({ prompt: repairPrompt, runtimeResult }) => {
+        // A repair can start a fresh conversation without the task prompt.
+        const prompt = appendNonOwnerAudienceGuidance(
+          repairPrompt,
+          input.parsedTask
+        );
         const repairContinuation = resolveStructuredActionRepairContinuation({
           runtimeResult,
           agentControllerConversationOverride:
@@ -4091,7 +4097,11 @@ async function coordinateConcurrentAgentReply(input: {
       runtimeResult: input.runtimeResult,
     },
     observation,
-    reconsider: async (prompt, currentObservation) => {
+    reconsider: async (reconsiderationPrompt, currentObservation) => {
+      const prompt = appendNonOwnerAudienceGuidance(
+        reconsiderationPrompt,
+        input.parsedTask
+      );
       const reconsiderationStartedAtMs = Date.now();
       const recordReconsideration = (result: string) =>
         emitDaemonDispatchJournalEvent({

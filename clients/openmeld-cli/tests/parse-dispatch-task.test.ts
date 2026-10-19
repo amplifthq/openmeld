@@ -9,6 +9,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import {
+  appendNonOwnerAudienceGuidance,
   buildDispatchPromptPlan,
   buildDispatchSessionTitle,
   parseDispatchTask,
@@ -126,7 +127,7 @@ it.each([
     return;
   }
   expect(plan.userPrompt).toContain(
-    "someone other than the Agent owner asked for this task"
+    "OpenMeld did not verify that the Agent owner asked for this task"
   );
   expect(plan.userPrompt).toContain("Do not reveal absolute local paths");
   expect(plan.userPrompt).toContain('the working folder "folder-two"');
@@ -138,6 +139,8 @@ it.each([
   "/Users/felix/openmeld-smoke/folders/folder-two",
   "~/work",
   "C:\\Users\\felix",
+  "C:private",
+  "felix@example.com",
 ])("never names a folder whose display name is a path (%s)", (displayName) => {
   const plan = buildDispatchPromptPlan({
     prompt: "Run ls.",
@@ -150,6 +153,31 @@ it.each([
   });
   expect(plan.userPrompt).toContain("Refer to the working folder by that name");
   expect(plan.userPrompt).not.toContain(displayName);
+});
+
+it("keeps the guidance in repair prompts and hides the owner account id from others", () => {
+  expect(
+    appendNonOwnerAudienceGuidance("Repair the delivery.", {
+      requesterIsAgentOwner: true,
+    })
+  ).toBe("Repair the delivery.");
+  expect(
+    appendNonOwnerAudienceGuidance("Repair the delivery.", {
+      requesterIsAgentOwner: false,
+    })
+  ).toContain("Do not reveal absolute local paths");
+  const prompt = (requesterIsAgentOwner: boolean) =>
+    buildDispatchPromptPlan({
+      prompt: "Run ls.",
+      profileOwnerUserId: "user_felix_account",
+      requesterIsAgentOwner,
+      spaceId: "space",
+      dispatchTriggerSource: "activation_targets",
+      targetProfileId: "agt-target-a",
+      shouldInjectBootstrap: false,
+    }).userPrompt;
+  expect(prompt(true)).toContain("user_felix_account");
+  expect(prompt(false)).not.toContain("user_felix_account");
 });
 
 const PERMISSION_MODE_ADVISORY = {
