@@ -401,7 +401,7 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
           spaceIndexDb: harness.db,
           targetProfileName: "Codex Agent",
         })
-      ).resolves.toBeUndefined();
+      ).resolves.toBeNull();
       expect(
         (
           await harness.queryFirst<{ count: number }>({
