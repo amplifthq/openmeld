@@ -349,8 +349,9 @@ describe("Agent folders dialog", () => {
 		).toBe(true);
 	});
 
-	it("finishes a failed Default Project clear without repeating the local save", async () => {
-		// The folder is already the saved default; only the Project clear is left.
+	it("prepares the saved default folder again before clearing the Default Project", async () => {
+		// The folder is already the saved default; its OpenMeld folder may be
+		// missing, so it is prepared again before the Project clear.
 		renderDialog({ defaultProjectId: "project-old" });
 		const row = await findRow("openmeld");
 		fireEvent.click(row.getByRole("button", { name: "Make default" }));
@@ -359,7 +360,14 @@ describe("Agent folders dialog", () => {
 				expect.objectContaining({ defaultProjectId: null })
 			)
 		);
-		expect(manageFoldersMock).not.toHaveBeenCalled();
+		expect(manageFoldersMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				operation: { folderId: CUSTOM_ID, operation: "set_default" },
+			})
+		);
+		expect(manageFoldersMock.mock.invocationCallOrder[0]).toBeLessThan(
+			updateDefaultProjectMock.mock.invocationCallOrder[0] ?? 0
+		);
 	});
 
 	it("blocks writes when the Agent's computer changes while Folders is open", async () => {
@@ -454,11 +462,17 @@ describe("Agent folders dialog", () => {
 				name: "Set up again",
 			})
 		).toBeNull();
+		// The saved path is read for its owner before the button applies.
+		await row.findByText("/Users/felix/work/openmeld");
 		fireEvent.click(row.getByRole("button", { name: "Set up again" }));
 		await waitFor(() => expect(onSaved).toHaveBeenCalled());
+		// A repair, which a Service too old to prepare the folder refuses.
 		expect(manageFoldersMock).toHaveBeenCalledWith(
 			expect.objectContaining({
-				operation: { folderId: CUSTOM_ID, operation: "set_default" },
+				operation: {
+					folder: { kind: "custom", path: "/Users/felix/work/openmeld" },
+					operation: "repair",
+				},
 			})
 		);
 		expect(clearCreationSetupMock).toHaveBeenCalledWith("profile-agent");
@@ -521,5 +535,32 @@ describe("Agent folders dialog", () => {
 				.getByRole("button", { name: "Use this folder" })
 				.hasAttribute("disabled")
 		).toBe(true);
+	});
+
+	it("clears a Default Project set elsewhere and keeps a failed clear visible", async () => {
+		readFoldersMock.mockResolvedValue({
+			agentProfileId: "profile-agent",
+			message: "Repair them before changing folders.",
+			reasonCode: "profile_folder.configuration_invalid",
+			status: "unavailable",
+			target: TARGET,
+		});
+		updateDefaultProjectMock.mockRejectedValue(new Error("offline"));
+		// This opening saw no Default Project; another tab may have set one.
+		renderDialog();
+		await screen.findByText(SETTINGS_UNREADABLE);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Use the OpenMeld folder" })
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Use this folder" }));
+		// The repaired list replaces the form; the partial failure stays.
+		expect((await screen.findByRole("alert")).textContent).toContain(
+			"couldn’t confirm that the Default Project was cleared"
+		);
+		expect(updateDefaultProjectMock).toHaveBeenCalledWith(
+			expect.objectContaining({ defaultProjectId: null })
+		);
+		expect(await findRow("openmeld")).toBeTruthy();
+		expect(clearCreationSetupMock).not.toHaveBeenCalled();
 	});
 });

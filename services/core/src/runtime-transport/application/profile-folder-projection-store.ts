@@ -35,6 +35,11 @@ export function profileFolderProjectionStorageKey(
 export async function writeProfileFolderProjectionRecord(input: {
   observedAtMs: number;
   projection: ProfileFolderProjection;
+  /**
+   * A repair receipt replaces the list the Service could no longer read, so
+   * it replaces the record whatever revision Core holds.
+   */
+  replaces?: boolean;
   storage: ProjectionStorage;
   target: ProjectionTarget;
 }): Promise<ProfileFolderProjectionRecord> {
@@ -51,7 +56,11 @@ export async function writeProfileFolderProjectionRecord(input: {
   // between run under the Durable Object input gate, so this read and write
   // are not interleaved with another receipt's.
   const stored = await readProfileFolderProjectionRecord(input);
-  if (stored && stored.projection.revision > record.projection.revision) {
+  if (
+    !input.replaces &&
+    stored &&
+    stored.projection.revision > record.projection.revision
+  ) {
     return stored;
   }
   await input.storage.put(

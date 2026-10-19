@@ -138,6 +138,29 @@ describe("profile folder projection", () => {
     ).resolves.toMatchObject({ observedAtMs: 10, projection: PROJECTION });
   });
 
+  it("lets a repair replace a list with a higher revision", async () => {
+    const storage = memoryStorage();
+    await writeProfileFolderProjectionRecord({
+      observedAtMs: 10,
+      projection: PROJECTION,
+      storage,
+      target: TARGET,
+    });
+    // The repaired list can't know the lost counter; it still replaces the
+    // record, so ids the repair dropped are never served again.
+    const repaired = { defaultFolderId: null, folders: [], revision: 1 };
+    await writeProfileFolderProjectionRecord({
+      observedAtMs: 20,
+      projection: repaired,
+      replaces: true,
+      storage,
+      target: TARGET,
+    });
+    await expect(
+      readProfileFolderProjectionRecord({ storage, target: TARGET })
+    ).resolves.toMatchObject({ observedAtMs: 20, projection: repaired });
+  });
+
   it("allows a default folder only from this Computer's projection", () => {
     const record = profileFolderProjectionRecordSchema.parse({
       ...TARGET,

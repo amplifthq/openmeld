@@ -97,3 +97,17 @@ Second pass, after the folder and Inbox-answer convergence:
 | P2: a failed refresh left recovery writes enabled | Confirmed | Resolved by the same revert (its `saveBlockedReason` stays). |
 | P2: recovery no longer cleared unfinished creation setup | Confirmed | Resolved by the same revert. |
 | Inbox answer extraction | No findings | — |
+
+Third pass, recovery on the Working folder dialog (`claude/map-1d-folder-repair`,
+Codex gpt-6-astra high, `7d5b24bef..HEAD`):
+
+| Finding | Verdict | Action |
+| --- | --- | --- |
+| P1: a new Service advertising `repairProfileFolders` can't register with an older Core (strict capability schema) | Confirmed, existing release constraint | Same as every capability (`manageProfileFolders` included): Core deploys before CLI per production-release. Recorded in agent-profiles.md. |
+| P2: an older Service answers "Set up again" (`set_default` on the current default) without preparing the folder | Confirmed | "Set up again" sends `repair`, which an older Service refuses through the capability gate. |
+| P2: a Default Project set in another tab survives a repair | Confirmed | Every local default change clears Default Project, even when this opening saw none. |
+| P2: "Make default" on the saved default with a Default Project skipped preparing it | Confirmed | It always sends `set_default`, which now prepares the current default again, before the Project clear. |
+| P2: Project controls in the add panel ignored the write block | Confirmed | The source chooser gets the panel's disabled state. |
+| P2: a failed Default Project clear after repair was lost with the unmounted form | Confirmed | The partial failure is a dialog-level error. |
+| P2: a repair's restarted counter could stay below Core's recorded revision | Confirmed | Core replaces its record with a repair receipt; Web replaces its cached list too. |
+

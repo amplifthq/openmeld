@@ -169,7 +169,11 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 			)?.name ?? "its Default Project")
 		: null;
 
-	const applied = (result: ManageAgentProfileFoldersResponse) => {
+	// A repair replaces the list, so it wins over any list read before it.
+	const applied = (
+		result: ManageAgentProfileFoldersResponse,
+		replaced: boolean
+	) => {
 		const current: GetAgentProfileFoldersResponse = {
 			agentProfileId: result.agentProfileId,
 			observedAtMs: result.observedAtMs,
@@ -182,6 +186,7 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 		queryClient.setQueryData<GetAgentProfileFoldersResponse>(
 			foldersQueryOptions.queryKey,
 			(cached) =>
+				!replaced &&
 				cached &&
 				cached.status !== "unavailable" &&
 				cached.projection.revision > current.projection.revision
@@ -200,7 +205,7 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 			organizationId: input.organizationId,
 			profileId: input.profile.openMeldProfileId,
 		});
-		applied(result);
+		applied(result, operation.operation === "repair");
 		return result;
 	};
 	// The folder new work starts in changed: unfinished creation setup is
@@ -219,27 +224,6 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 			return;
 		}
 		toast.success(message);
-	};
-	const repair = async (operation: RepairOperation) => {
-		const result = await change(operation);
-		// The repaired folder is the default only while no Default Project wins.
-		if (input.profile.defaultProjectId) {
-			try {
-				await setDefaultProject(null);
-			} catch {
-				throw new Error(
-					"The folder was saved on this Agent’s computer, but OpenMeld couldn’t confirm that the Default Project was cleared. New work may still start in that Project. Try again to finish."
-				);
-			}
-		}
-		const repaired = result.projection.folders.find(
-			(folder) => folder.folderId === result.folderId
-		);
-		defaultSaved(
-			repaired
-				? `${repaired.displayName} is now the default folder.`
-				: "Working folder updated."
-		);
 	};
 	const run = async (folderId: string, action: () => Promise<void>) => {
 		setPendingFolderId(folderId);
@@ -265,38 +249,65 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 		});
 		input.onProfileUpdated(updated);
 	};
+	// Second ordered write after a local default change: a Default Project
+	// would otherwise still win. It is cleared even when this opening saw none,
+	// because another tab may have set one since.
+	const finishLocalDefault = async (message: string): Promise<boolean> => {
+		try {
+			await setDefaultProject(null);
+		} catch {
+			setError(
+				"The default folder was saved on this Agent’s computer, but OpenMeld couldn’t confirm that the Default Project was cleared. New work may still start in that Project. Choose Make default on that folder to finish."
+			);
+			return false;
+		}
+		defaultSaved(message);
+		return true;
+	};
 	const makeDefault = (row: AgentProfileFolderRow) =>
 		run(row.folderId, async () => {
 			// A Project folder becomes the default through Default Project.
 			if (row.kind === "project" && row.projectId) {
 				await setDefaultProject(row.projectId);
-			} else {
-				// A retry after a failed clear must not repeat the saved local write.
-				if (!row.isDefault) {
-					await change({ folderId: row.folderId, operation: "set_default" });
-				}
-				// Second ordered write: a Default Project would otherwise still win.
-				if (input.profile.defaultProjectId) {
-					try {
-						await setDefaultProject(null);
-					} catch {
-						throw new Error(
-							"The default folder was saved on this Agent’s computer, but OpenMeld couldn’t confirm that the Default Project was cleared. New work may still start in that Project. Choose Make default again to finish."
-						);
-					}
-				}
+				defaultSaved(`${row.displayName} is now the default folder.`);
+				return;
 			}
-			defaultSaved(`${row.displayName} is now the default folder.`);
+			// Also for the saved default: choosing it again prepares it again,
+			// so a missing OpenMeld folder is recreated before the Project clear.
+			await change({ folderId: row.folderId, operation: "set_default" });
+			await finishLocalDefault(`${row.displayName} is now the default folder.`);
 		});
+	// Replaces unreadable settings, or, from recovery, prepares the current
+	// default again. A repair is refused by a Service too old to prepare it.
+	const repair = async (operation: RepairOperation) => {
+		setError(null);
+		const result = await change(operation);
+		const repaired = result.projection.folders.find(
+			(folder) => folder.folderId === result.folderId
+		);
+		await finishLocalDefault(
+			repaired
+				? `${repaired.displayName} is now the default folder.`
+				: "Working folder updated."
+		);
+	};
+	const setUpAgain = (row: AgentProfileFolderRow, path: string | null) => {
+		if (row.kind === "custom" && !path) {
+			return undefined;
+		}
+		return () =>
+			run(row.folderId, () =>
+				repair({
+					folder:
+						row.kind === "custom" && path
+							? { kind: "custom", path }
+							: { kind: "openmeld_managed" },
+					operation: "repair",
+				})
+			);
+	};
 	const canSetUpAgain =
 		Boolean(input.recovery) && !input.profile.defaultProjectId;
-	// Recovery: prepare the current default again, recreating a missing
-	// OpenMeld folder or re-checking a custom one.
-	const setUpAgain = (row: AgentProfileFolderRow) =>
-		run(row.folderId, async () => {
-			await change({ folderId: row.folderId, operation: "set_default" });
-			defaultSaved(`${row.displayName} is ready for new work.`);
-		});
 
 	return (
 		<div className="grid gap-4">
@@ -340,7 +351,7 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 							}
 							onSetUpAgain={
 								row.isDefault && canSetUpAgain
-									? () => setUpAgain(row)
+									? setUpAgain(row, defaultPath)
 									: undefined
 							}
 							pending={pendingFolderId === row.folderId}
@@ -718,7 +729,7 @@ function AddFolderPanel(input: {
 	return (
 		<div className="grid gap-3 rounded-md border p-3">
 			<AgentProfileProjectSelector
-				disabled={pending}
+				disabled={input.disabled || pending}
 				localFoldersOnly={input.mode === "repair"}
 				manualPath={path}
 				onConnectionReady={setConnection}

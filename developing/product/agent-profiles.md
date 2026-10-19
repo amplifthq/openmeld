@@ -1198,11 +1198,16 @@ Owner folder changes refuse an envelope the Service can't read. The one
 exception is the owner-only `repair` operation, which names an OpenMeld or
 custom folder (never a Project folder) and makes it the default, adding it when
 missing. On an unreadable envelope it replaces the list with just that folder
-and restarts the folder-save counter above any list Core could have recorded.
-Choosing the current default again prepares it again: a missing OpenMeld folder
-is recreated and a custom folder is re-checked. Both default changes run under
-the execution-target admission, and repair needs the Service's
-`repairProfileFolders` capability. Web's Working folder dialog is the one
+and restarts the folder-save counter; Core replaces its recorded list with a
+repair receipt whatever revision it held. Repairing with the current default,
+or choosing it again with `set_default`, prepares it again: a missing OpenMeld
+folder is recreated and a custom folder is re-checked. Both default changes run
+under the execution-target admission. Repair needs the Service's
+`repairProfileFolders` capability, so recovery's "Set up again" uses it and an
+older Service refuses instead of reporting a folder it did not prepare. Like
+every capability, the Service advertises it only after Core that accepts it is
+deployed (Core before CLI). After a local default change Web clears Default
+Project even when it saw none, since another tab may have set one. Web's Working folder dialog is the one
 surface for these changes, including working-folder recovery from a failed
 task.
 

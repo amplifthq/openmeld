@@ -11729,6 +11729,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const record = await writeProfileFolderProjectionRecord({
       observedAtMs: Date.now(),
       projection: result.projection,
+      replaces: parsed.data.operation.operation === "repair",
       storage: this.ctx.storage,
       target: parsed.data,
     });
