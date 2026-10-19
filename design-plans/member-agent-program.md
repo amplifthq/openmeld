@@ -864,6 +864,10 @@ cache; Project redesign.
 - Web setup shows "Reconnecting..." after the CLI already exited with a
   setup failure instead of the failure and next action. Pre-existing Prepare
   presentation; follow-up.
+- A user skill folder that is a symlink into `~/Desktop`
+  (`~/.agents/skills/*`) blocks Codex session start under a launchd Service
+  for the same protected-folder reason; Codex times out on `thread/start`.
+  Same follow-up as the protected-folder item above.
 - Dispatch results report `effectiveRuntimeWorkingDirectory` to Core
   (`send-dispatch-result.ts`, pre-existing). Confirm it is projected to the
   owner only and decide whether it should become a folder id (Phase 3).
@@ -1028,3 +1032,12 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   timeout in folder tasks (P1, cause unproven, `claude/map-smoke-harness-2b`);
   two MemberAgents created minutes late (P2, 1c `claude/map-1c-smoke-2b`);
   Edit Agent no-op on a default Profile (P2, 1d `claude/map-1d-smoke-2b`).
+- 2026-10-19, smoke 2b fixes merged: task prompts for non-owner roots tell
+  the Agent its audience is wider and to name the folder by display name,
+  never a path; the owner's own composer folder choice survives dispatch
+  (human requester Profiles are matched through Organization membership; two
+  equivalent fixes arrived, the Phase 2 one was kept); Continue offers only
+  forkable tasks; first sync creates every reported harness; Edit Agent opens
+  from the Profile detail. Codex `thread/start` timeouts traced to a user
+  skill symlink into `~/Desktop` (environment, §13). Phase 4's observer
+  Inbox fix is pending.
