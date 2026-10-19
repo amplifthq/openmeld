@@ -10,6 +10,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowUpIcon } from "@phosphor-icons/react";
 import type { ComponentProps, ReactNode } from "react";
 import { useState } from "react";
+import type { SpaceAgentRequestMentions } from "#/components/agent-access/space-agent-request-mentions";
 import {
 	PromptInput,
 	PromptInputAction,
@@ -97,6 +98,7 @@ export type SpaceComposerProps = {
 		fileCleanup?: readonly ComposerFileDraftCleanup[];
 		fileRestorationError?: unknown | null;
 		hasAuthoredMentions?: boolean;
+		agentRequestMentions?: SpaceAgentRequestMentions;
 		mentionPickerItems: readonly SpaceMentionPickerItem[];
 		mentionEmptyMessage?: string;
 		text: string;
@@ -497,6 +499,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 					>
 						<SpaceComposerEditor
 							addressingTargets={input.content.addressingTargets}
+							agentRequestMentions={input.content.agentRequestMentions}
 							ariaLabel={policy.accessibleName}
 							authoredMentions={input.content.authoredMentions}
 							centerAgentProfileId={input.centerAgentProfileId}

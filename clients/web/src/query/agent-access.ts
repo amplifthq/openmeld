@@ -44,6 +44,15 @@ function hasPendingRequest(requests: readonly AgentAccessRequestView[] = []) {
 	return requests.some((request) => request.status === "pending");
 }
 
+/** Every request and grant view, in any Organization, after a live change. */
+export function invalidateAgentAccessQueries(queryClient: QueryClient): void {
+	queryClient
+		.invalidateQueries({ queryKey: ["agent-access"] })
+		.catch((error: unknown) =>
+			console.warn("Failed to refresh Agent requests.", error)
+		);
+}
+
 async function invalidateAgentAccess(input: {
 	organizationId: string;
 	queryClient: QueryClient;

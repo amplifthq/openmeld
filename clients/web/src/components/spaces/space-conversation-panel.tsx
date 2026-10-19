@@ -31,6 +31,7 @@ import {
 	useState,
 } from "react";
 import { SpaceAgentAccessBanner } from "#/components/agent-access/space-agent-access-banner";
+import type { SpaceAgentRequestMentions } from "#/components/agent-access/space-agent-request-mentions";
 import {
 	MemberAgentDirectMessageCard,
 	type MemberAgentDirectMessageCardState,
@@ -215,6 +216,7 @@ type SpaceConversationPanelResolvedProps = {
 	composerAddressingTargets?: readonly SpaceComposerAddressingTarget[];
 	composerAuthoredMentions?: readonly ComposerDraftAuthoredMention[];
 	composerMentionPickerItems?: readonly SpaceMentionPickerItem[];
+	composerAgentRequestMentions?: SpaceAgentRequestMentions;
 	composerMentionEmptyMessage?: string;
 	composerBlockedWakeProfileId: string | null;
 	composerHasAuthoredMentions?: boolean;
@@ -2007,6 +2009,7 @@ function SpaceComposerSection(input: {
 						fileCleanup: panel.composerFileCleanup,
 						fileRestorationError: panel.composerFileRestorationError,
 						hasAuthoredMentions: panel.composerHasAuthoredMentions,
+						agentRequestMentions: panel.composerAgentRequestMentions,
 						mentionPickerItems: panel.composerMentionPickerItems ?? [],
 						mentionEmptyMessage: panel.composerMentionEmptyMessage,
 						text: panel.composerText,
