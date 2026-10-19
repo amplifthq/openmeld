@@ -148,10 +148,15 @@ Every stage checks the platform first, so a rerun resumes; a version on npm
 from another commit is refused. `cli-release.yml` also checks clean npm
 installs on Ubuntu and Windows (Node 24) and the Node 20 rejection.
 
-Seed the manifest once, before the first Core that reads it is deployed:
+The repository no longer commits the manifest. Each publication writes it to
+`cli/local-components.json` and to an immutable per-version copy at
+`cli/releases/<version>/local-components.json` in the same bucket. If the
+current key is ever lost or corrupted, restore it from the latest version copy
+before deploying Core:
 
 ```sh
-pnpm run release:cli:seed-manifest --from release/local-components.json
+pnpm exec wrangler r2 object get openmeld-desktop-downloads-prod/cli/releases/<version>/local-components.json --remote --file manifest.json
+pnpm run release:cli:seed-manifest --from manifest.json
 ```
 
 ## Desktop, Windows preview, and OpenConnector
