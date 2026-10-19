@@ -1003,3 +1003,13 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   access changes broadcast to both views. A 4b defect found while testing
   (refusals thrown inside `blockConcurrencyWhile` reset the Space Durable
   Object) is fixed. Two follow-ups added to §13.
+- 2026-10-19, real-machine smoke round 2 (standalone clone outside protected
+  folders): launchd Service started in about 2 s and setup reported all six
+  harnesses, confirming the protected-folder diagnosis. Blocked by a P0: the
+  Phase 5 confirmation card imports `ShieldWarningIcon`, which the curated
+  Web icon facade (`clients/web/src/lib/phosphor-icons.ts`, aliased in
+  `vite.config.ts`) does not export, so the Agents page and the Inbox fail to
+  load for every user and MemberAgent creation never triggers. Typecheck and
+  unit tests cannot see the facade; routed to Phase 5
+  (`claude/map-5-icon-fix`) with a guard test over all icon imports. Round 2
+  reruns after the fix.
