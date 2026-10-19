@@ -352,13 +352,28 @@ async function readActiveProfileOwnerUserId(input: {
   if (!db) {
     return null;
   }
+  // A human Profile is not scoped to one Organization (organization_id is
+  // NULL); it requests work in this Organization through its owner's
+  // membership, as readActiveRepresentedHumanSender checks. Agent Profiles
+  // belong to the Organization itself.
   const result = await db.query<{ owner_user_id: string | null }>({
     text: `
-      SELECT owner_user_id
-      FROM "openmeld"."openmeld_profiles"
-      WHERE profile_id = $1
-        AND organization_id = $2
-        AND status = 'active'
+      SELECT p.owner_user_id
+      FROM "openmeld"."openmeld_profiles" p
+      WHERE p.profile_id = $1
+        AND p.status = 'active'
+        AND (
+          p.organization_id = $2
+          OR (
+            p.profile_kind = 'human'
+            AND EXISTS (
+              SELECT 1
+              FROM "openmeld"."members" m
+              WHERE m.organization_id = $2
+                AND m.user_id = p.owner_user_id
+            )
+          )
+        )
       LIMIT 1
     `,
     values: [input.profileId, input.organizationId],
