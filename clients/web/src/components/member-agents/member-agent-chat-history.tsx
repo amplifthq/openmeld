@@ -75,7 +75,8 @@ export function MemberAgentChatHistory(input: {
 	const navigate = useNavigate();
 	const [open, setOpen] = useState(false);
 	const sessions = useMemberAgentSessionGroups({
-		current: input.current,
+		memberAgent: input.current.memberAgent,
+		currentProfileId: input.current.agentProfileId,
 		spaceId: input.spaceId,
 		includeAll: open,
 	});
@@ -123,20 +124,22 @@ export function MemberAgentChatHistory(input: {
 }
 
 /**
- * Sessions of one MemberAgent grouped by Profile, for the chat header and
- * the secondary sidebar. The current Profile's list is always read so the
- * open Session is named; the others load when asked.
+ * Sessions of one MemberAgent grouped by Profile, shared by the chat header
+ * dropdown and the conversations sidebar so both list the same Sessions.
+ * The current Profile's list is always read so the open Session is named;
+ * the others load when asked.
  */
 export function useMemberAgentSessionGroups(input: {
-	current: DirectMessageMemberAgent;
+	memberAgent: IndexedMemberAgent | null;
+	currentProfileId: string | null;
 	spaceId: string | null;
 	includeAll: boolean;
 }) {
 	const { currentOrganization: organization } = useAppOrganization();
 	const { defaultHumanProfile } = useDefaultHumanProfile();
 	const humanProfileId = defaultHumanProfile?.openMeldProfileId;
-	const { memberAgent } = input.current;
-	const profiles = memberAgent.memberAgent.profiles;
+	const memberAgent = input.memberAgent;
+	const profiles = memberAgent?.memberAgent.profiles ?? [];
 	const queries = useQueries({
 		queries: profiles.map((profile) =>
 			agentDirectMessageSessionsQueryOptions({
@@ -144,7 +147,7 @@ export function useMemberAgentSessionGroups(input: {
 				agentProfileId: profile.openMeldProfileId,
 				enabled:
 					input.includeAll ||
-					profile.openMeldProfileId === input.current.agentProfileId,
+					profile.openMeldProfileId === input.currentProfileId,
 			})
 		),
 	});
@@ -153,9 +156,13 @@ export function useMemberAgentSessionGroups(input: {
 	const archivedCurrent = useQuery(
 		agentDirectMessageSessionsQueryOptions({
 			organizationId: organization.id,
-			agentProfileId: input.current.agentProfileId,
+			agentProfileId: input.currentProfileId ?? "",
 			archived: true,
-			enabled: Boolean(input.spaceId && archivedSessionIds.has(input.spaceId)),
+			enabled: Boolean(
+				input.currentProfileId &&
+					input.spaceId &&
+					archivedSessionIds.has(input.spaceId)
+			),
 		})
 	);
 	// The header names the Session (a Space name, renamed or generated), not
@@ -164,25 +171,26 @@ export function useMemberAgentSessionGroups(input: {
 		...queries.flatMap((query) => query.data?.sessions ?? []),
 		...(archivedCurrent.data?.sessions ?? []),
 	].find((session) => session.spaceId === input.spaceId);
+	const sessionPath = (spaceId: string) =>
+		buildOrganizationDirectMessagePath({
+			orgSlug: organization.slug,
+			spaceId,
+			search: { profileId: humanProfileId },
+		});
 	return {
 		currentTitle: currentSession ? (currentSession.name ?? "New chat") : null,
-		sessionPath: (spaceId: string) =>
-			buildOrganizationDirectMessagePath({
-				orgSlug: organization.slug,
-				spaceId,
-				search: { profileId: humanProfileId },
-			}),
+		sessionPath,
 		groups: profiles.map((profile, index) => {
 			const query = queries[index];
 			return {
 				id: profile.openMeldProfileId,
 				label: formatMemberAgentProfileDisplayName({
-					memberAgentName: memberAgent.displayName,
+					memberAgentName: memberAgent?.displayName ?? "",
 					profileName: profile.profileName,
 					isDefaultProfile:
 						profile.isDefault ||
 						profile.openMeldProfileId ===
-							memberAgent.memberAgent.defaultProfileId,
+							memberAgent?.memberAgent.defaultProfileId,
 				}),
 				items: (query?.data?.sessions ?? []).map((session) => ({
 					spaceId: session.spaceId,

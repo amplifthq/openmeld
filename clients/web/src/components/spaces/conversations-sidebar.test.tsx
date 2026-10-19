@@ -34,15 +34,22 @@ vi.mock("./use-conversations", async () => {
 		},
 	};
 });
+vi.mock("#/components/member-agents/member-agent-session-nav", () => ({
+	useActiveMemberAgentSessionNav: () => [],
+}));
 vi.mock("#/lib/profiles/use-default-human-profile", () => ({
 	useDefaultHumanProfile: () => ({ defaultHumanProfile: null }),
 }));
-vi.mock("#/lib/organizations/organization-context", () => ({
-	useAppOrganization: () => ({
+vi.mock("#/lib/organizations/organization-context", () => {
+	const organization = {
 		currentUserId: "viewer",
 		currentOrganization: { id: "org", slug: "test" },
-	}),
-}));
+	};
+	return {
+		useAppOrganization: () => organization,
+		useOptionalAppOrganization: () => organization,
+	};
+});
 vi.mock("@tanstack/react-router", () => ({
 	useNavigate: () => navigate,
 	useLocation: ({
