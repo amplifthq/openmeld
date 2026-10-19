@@ -241,11 +241,9 @@ For a batch, integrate compatible ready leaf changes, sync `main` once, validate
 the combined interactions, and run one FC on the batch PR. Do not pay for leaf
 FCs that will immediately become stale. Preserve directional release order: for
 example, new Space-invitation Core/Auth receivers must precede the new CLI.
-Evidence stays valid for its original base. When `main` advances, merge queue
-validates the merge group; do not sync and rerun a green candidate only to
-refresh its base. Only while strict up-to-date protection is the freshness
-owner does a green candidate need one sync and one new FC. Do not freeze
-unrelated work.
+Evidence stays valid for its original base: when `main` advances, merge queue
+validates the merge group, so do not sync a green candidate only to refresh
+its base (strict protection alone needs one sync). Do not freeze unrelated work.
 
 ## Evidence And Ownership
 
