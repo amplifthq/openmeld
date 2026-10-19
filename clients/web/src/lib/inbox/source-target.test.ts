@@ -369,6 +369,16 @@ describe("keepInboxFilters", () => {
 		).toBe("/o/amplift/inbox?view=needs-action&unread=true&item=item-123");
 	});
 
+	it("never carries a Space's focus into another item in the same Space", () => {
+		expect(
+			keepInboxFilters({
+				currentPathname: "/o/amplift/spaces/space-1",
+				currentSearch: "?focusThreadRootSignalId=root&focusInteractionId=i",
+				href: "/o/amplift/spaces/space-1?focusSignalId=s",
+			})
+		).toBe("/o/amplift/spaces/space-1?focusSignalId=s");
+	});
+
 	it("leaves a link to another page alone", () => {
 		expect(
 			keepInboxFilters({

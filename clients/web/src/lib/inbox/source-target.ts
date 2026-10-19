@@ -161,9 +161,11 @@ export function keepInboxFilters(input: {
 	href: string;
 }): string {
 	const [pathname = "", search = ""] = input.href.split("?", 2);
+	const target = normalizeSourcePathname(pathname);
+	// Only Inbox detail: a Space's focus parameters must never carry over.
 	if (
-		normalizeSourcePathname(pathname) !==
-		normalizeSourcePathname(input.currentPathname)
+		!INBOX_PATHNAME_PATTERN.test(target) ||
+		target !== normalizeSourcePathname(input.currentPathname)
 	) {
 		return input.href;
 	}
@@ -236,6 +238,7 @@ export function isInboxItemSourceLocation(input: {
 }
 
 const TRAILING_SLASHES_PATTERN = /\/+$/;
+const INBOX_PATHNAME_PATTERN = /^\/o\/[^/]+\/inbox$/;
 
 function normalizeSourcePathname(pathname: string): string {
 	let normalized = pathname;
