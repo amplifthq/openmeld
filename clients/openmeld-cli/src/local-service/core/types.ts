@@ -236,6 +236,8 @@ export type OpenMeldDaemonTaskErrorType =
 
 export type ParsedDispatchTask = {
   requesterIsAgentOwner?: boolean;
+  /** Core: a colleague's Wake that must not share the Binding conversation. */
+  separateRequesterConversation?: boolean;
   permissionModeAdvisory?: import("@openmeld/schemas").PermissionModeAdvisory;
   workHandoff?: import("@openmeld/schemas").SpaceWorkHandoff;
   workingCopyId?: string;

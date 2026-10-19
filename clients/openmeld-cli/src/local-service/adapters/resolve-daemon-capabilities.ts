@@ -23,6 +23,7 @@ export function resolveDaemonCapabilitiesFromAdapterIds(input: {
     workingLanguagePrompt: true,
     permissionModeAdvisoryPrompt: true,
     verifiedRequesterContext: true,
+    requesterConversationIsolation: true,
     localAgentInteraction: true,
     ...(input.profileConfigurationRevision === true
       ? { profileConfigurationRevision: true as const }

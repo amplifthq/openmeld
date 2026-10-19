@@ -227,6 +227,9 @@ export function parseDispatchTask(
     ...requiredFields,
     executionContext: payload.executionContext,
     requesterIsAgentOwner: payload.requesterIsAgentOwner,
+    ...(payload.separateRequesterConversation
+      ? { separateRequesterConversation: true }
+      : {}),
     ...resolveDispatchTaskPermissionModeAdvisory(payload),
     workHandoff: payload.sourceSignalSnapshot?.workHandoff,
     agentControllerConversationId,

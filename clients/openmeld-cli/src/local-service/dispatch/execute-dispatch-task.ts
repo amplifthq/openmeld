@@ -145,6 +145,10 @@ import {
 } from "../routing/resolve-controller-support";
 import { createLedgerIo } from "../state/ledger-io";
 import {
+  resolveColleagueLedgerScopeId,
+  resolveDispatchBindingConversationId,
+} from "./colleague-conversation";
+import {
   attachAgentReplyObservation,
   coordinateDispatchAgentReply,
   type DispatchAgentReplyObservation,
@@ -1517,7 +1521,7 @@ export async function handleDispatchDeliverFrame(input: {
     contextLookupKey = dispatchLedgerContext.contextLookupKey;
     const recoveredConversation = resolveRecoveredLedgerConversation({
       startNewConversation: folderRecovery.startNewConversation,
-      bindingConversationId: parsedTask.agentControllerConversationId,
+      bindingConversationId: resolveDispatchBindingConversationId(parsedTask),
       currentExecutionState: dispatchLedgerContext.currentExecutionState,
       existingContextId: dispatchLedgerContext.existingContextId,
     });
@@ -1567,6 +1571,7 @@ export async function handleDispatchDeliverFrame(input: {
       agentContextLookupKey: contextLookupKey,
     });
     const runtimeContinuation = resolveProviderRuntimeDispatchContinuation({
+      separateConversationScopeId: resolveColleagueLedgerScopeId(parsedTask),
       agentControllerConversationId: effectiveAgentControllerConversationId,
       agentControllerRef: parsedTask.agentControllerRef,
       currentPolicy: currentConversationPolicy,
@@ -2791,7 +2796,9 @@ async function loadDispatchLedgerContext(input: {
   latestScopedExecutionState: ConversationExecutionState | null;
 }> {
   const keyInput = {
-    executionContextId: input.parsedTask.executionContext?.id,
+    executionContextId:
+      input.parsedTask.executionContext?.id ??
+      resolveColleagueLedgerScopeId(input.parsedTask),
     spaceId: input.parsedTask.spaceId,
     targetProfileId: input.parsedTask.targetProfileId,
     agentControllerRef: input.parsedTask.agentControllerRef,
@@ -4933,6 +4940,7 @@ function buildDispatchRuntimeTask(input: {
 }): DispatchRuntimeTask {
   return {
     executionContext: input.parsedTask.executionContext,
+    agentContextScopeId: resolveColleagueLedgerScopeId(input.parsedTask),
     agentId: input.parsedTask.targetProfileId,
     attemptId: input.parsedTask.attemptId,
     bindingKey: `${input.parsedTask.spaceId}|${input.parsedTask.targetProfileId}`,

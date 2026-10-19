@@ -14,6 +14,7 @@ describe("resolve local service capabilities", () => {
       workingLanguagePrompt: true,
       permissionModeAdvisoryPrompt: true,
       verifiedRequesterContext: true,
+      requesterConversationIsolation: true,
       localAgentControl: {
         cancel: true,
         forkSession: true,
@@ -89,6 +90,7 @@ describe("resolve local service capabilities", () => {
       workingLanguagePrompt: true,
       permissionModeAdvisoryPrompt: true,
       verifiedRequesterContext: true,
+      requesterConversationIsolation: true,
       localAgentControl: {
         cancel: true,
         forkSession: true,

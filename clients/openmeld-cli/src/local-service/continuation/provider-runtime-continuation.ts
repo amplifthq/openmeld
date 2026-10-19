@@ -31,6 +31,7 @@ type ConversationCompatibilityRequest = {
 
 type ProviderRuntimeContinuationRequest = ConversationCompatibilityRequest & {
   runtimePreparationDetails: ProviderRuntimePreparationDetails;
+  separateConversationScopeId?: string;
   spaceId: string;
   spaceNameSnapshot: string | null;
 };
