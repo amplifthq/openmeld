@@ -118,6 +118,46 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
       await h.close();
     }
   });
+  it("moves an item filed as a review to Needs action on its own replay", async () => {
+    const h = await createInboxHarness();
+    try {
+      const source = {
+        inboxDb: h.db,
+        spaceIndexDb: h.db,
+        nowMs: 2100,
+        ownerUserId: "user_owner",
+        interaction: buildPermissionInteraction(),
+        runtimeCoordinatorExecutionId: "execution",
+        sourceSignalId: "signal_one",
+        spaceId: "space_one",
+        targetProfileName: "Agent",
+      };
+      await projectRuntimeCoordinatorInteractionInboxItem(source);
+      // As written before every kind became an action.
+      await h.query({
+        text: `UPDATE "openmeld"."inbox_items" SET source_facts_json = replace(source_facts_json, '"requestCategory":"action"', '"requestCategory":"review"')`,
+      });
+      await projectRuntimeCoordinatorInteractionInboxItem({
+        ...source,
+        nowMs: 2200,
+      });
+      expect(
+        await h.queryAll({
+          text: 'SELECT source_facts_json FROM "openmeld"."inbox_items"',
+        })
+      ).toEqual([
+        {
+          source_facts_json: JSON.stringify({
+            version: 1,
+            recipientReasons: ["requester"],
+            requestCategory: "action",
+          }),
+        },
+      ]);
+    } finally {
+      await h.close();
+    }
+  });
   it("repairs only an exact legacy source replay without resetting read, dismissal, end state or accepted email receipts", async () => {
     const h = await createInboxHarness();
     try {

@@ -13,7 +13,10 @@ import {
   readInboxItemBySource,
   resolveOrganizationDocumentDraftInboxItemsOutsideRecipientSet as resolveOrganizationDocumentDraftInboxItemsOutsideRecipientSetInRepo,
 } from "../infrastructure/postgresql/inbox-item-repo";
-import { repairLegacyInteractionAttention } from "./inbox-legacy-interaction-attention";
+import {
+  repairInteractionReviewCategory,
+  repairLegacyInteractionAttention,
+} from "./inbox-legacy-interaction-attention";
 import {
   normalizeLegacySpaceAwareness,
   repairLegacySpaceAwareness,
@@ -71,6 +74,23 @@ export async function ensureInboxItem(input: {
       existing,
       db: input.db,
       nowMs: input.nowMs,
+    }))
+  ) {
+    existing = await readInboxItemBySource({
+      db: input.db,
+      organizationId: candidate.organizationId,
+      recipientUserId: candidate.recipientUserId,
+      sourceKind: candidate.sourceKind,
+      sourceKey: candidate.sourceKey,
+    });
+  }
+  if (
+    existing &&
+    input.allowLegacySourceClassificationRepair === true &&
+    (await repairInteractionReviewCategory({
+      candidate,
+      existing,
+      db: input.db,
     }))
   ) {
     existing = await readInboxItemBySource({
