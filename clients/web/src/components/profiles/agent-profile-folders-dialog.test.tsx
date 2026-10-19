@@ -131,8 +131,7 @@ function profileFixture(
 
 function renderDialog(
 	overrides: Partial<AuthProfileView> = {},
-	bindingTarget = BINDING_TARGET,
-	recovery: { recoveryMessage?: string; onDefaultChanged?: () => void } = {}
+	bindingTarget = BINDING_TARGET
 ) {
 	const onProfileUpdated = vi.fn();
 	const view = (target: typeof BINDING_TARGET) => (
@@ -149,7 +148,6 @@ function renderDialog(
 				profile={profileFixture(overrides)}
 				storageScope="account-1"
 				target={TARGET}
-				{...recovery}
 			/>
 		</TestQueryClientProvider>
 	);
@@ -253,21 +251,11 @@ describe("Agent folders dialog", () => {
 		expect(onProfileUpdated).toHaveBeenCalled();
 	});
 
-	it("is the one Working folder surface, including working-folder recovery", async () => {
-		const onDefaultChanged = vi.fn();
-		renderDialog({}, BINDING_TARGET, {
-			onDefaultChanged,
-			recoveryMessage: "This Agent could not use its working folder.",
-		});
+	it("is titled Working folder, like the card and menu entry that open it", () => {
+		renderDialog();
 		expect(
 			screen.getByRole("heading", { name: "Working folder" })
 		).toBeTruthy();
-		expect(
-			screen.getByText("This Agent could not use its working folder.")
-		).toBeTruthy();
-		const row = await findRow("website");
-		fireEvent.click(row.getByRole("button", { name: "Make default" }));
-		await waitFor(() => expect(onDefaultChanged).toHaveBeenCalledTimes(1));
 	});
 
 	it("makes a Project folder the default through Default Project", async () => {

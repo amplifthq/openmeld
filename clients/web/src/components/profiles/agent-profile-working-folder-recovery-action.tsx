@@ -15,7 +15,7 @@ import {
 } from "@openmeld/ui/components/dialog";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { AgentProfileFoldersDialog } from "#/components/profiles/agent-profile-folders-dialog";
+import { AgentProfileProjectSettingsDialog } from "#/components/profiles/agent-profile-project-settings-dialog";
 import { projectAgentProfileBindingTarget } from "#/lib/profiles/agent-profile-primary-binding";
 import { agentExecutionReadinessBatchQueryOptions } from "#/query/agents/execution-readiness";
 import { agentProfileControllerChangeEligibilityQueryOptions } from "#/query/profiles/primary-binding";
@@ -100,8 +100,16 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 		current?.agentControllerRef,
 		bindingTarget,
 	]);
+	const saveBlockedReason = resolveFolderDraftBlockReason({
+		draftTarget,
+		currentTarget: target,
+		currentAgentControllerRef: current?.agentControllerRef ?? null,
+		currentBindingTarget: bindingTarget,
+		checking: loading,
+		failed: readiness.isError || eligibility.isError,
+	});
 	const checkSavedFolder = async () => {
-		setSavedStatus("Default folder saved. Checking Agent availability…");
+		setSavedStatus("Working folder saved. Checking Agent availability…");
 		try {
 			const result = await readiness.refetch({ throwOnError: true });
 			const item = result.data?.items.find(
@@ -109,12 +117,12 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 			);
 			setSavedStatus(
 				item?.agentWakeAvailability.status === "available_for_wake"
-					? "Default folder saved. This Agent is available for new work. Retry the failed task when you are ready."
-					: "Default folder saved. This Agent still needs attention. Review its current status before retrying the task."
+					? "Working folder saved. This Agent is available for new work. Retry the failed task when you are ready."
+					: "Working folder saved. This Agent still needs attention. Review its current status before retrying the task."
 			);
 		} catch {
 			setSavedStatus(
-				"Default folder saved, but Agent availability could not be checked. Check again before retrying the task."
+				"Working folder saved, but Agent availability could not be checked. Check again before retrying the task."
 			);
 		}
 	};
@@ -137,32 +145,21 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 				</div>
 			) : null}
 			{draftTarget ? (
-				// The shared Working folder surface. It keeps the Binding it opened
-				// with and turns read-only if the live one changes or can't be read.
-				<AgentProfileFoldersDialog
+				<AgentProfileProjectSettingsDialog
 					actorProfileId={input.actorProfileId}
 					agentControllerRef={draftTarget.agentControllerRef}
 					executionTargetChangeEligibilityStatus={
 						eligibility.data?.status ?? "unavailable"
 					}
-					expectedBindingTarget={
-						sameDraftTarget({
-							draftTarget,
-							currentTarget: target,
-							currentAgentControllerRef: current?.agentControllerRef ?? null,
-						})
-							? (bindingTarget ?? undefined)
-							: undefined
-					}
-					onDefaultChanged={() => {
-						checkSavedFolder().catch(console.error);
-					}}
+					expectedBindingTarget={draftTarget.bindingTarget}
 					onOpenChange={setOpen}
 					onProfileUpdated={input.onProfileUpdated}
+					onSaved={checkSavedFolder}
 					open={open}
 					organizationId={input.organizationId}
 					profile={input.profile}
-					recoveryMessage={`This Agent could not use its working folder on ${current?.runtimeDeviceDisplayName ?? "its computer"}. Restore the original folder or make another folder the default for new work. This does not move files or restart the failed task.`}
+					recoveryMessage={`This Agent could not use its working folder on ${current?.runtimeDeviceDisplayName ?? "its computer"}. Restore the original folder or choose one for new work. This does not move files or restart the failed task.`}
+					saveBlockedReason={saveBlockedReason}
 					storageScope={input.storageScope}
 					target={draftTarget.target}
 				/>
@@ -206,18 +203,35 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 	);
 }
 
-/** False once the Agent's Computer or local agent moved since opening. */
-function sameDraftTarget(input: {
+function resolveFolderDraftBlockReason(input: {
 	draftTarget: {
 		target: PeopleComputerTarget;
 		agentControllerRef: string | null;
-	};
+		bindingTarget: AgentProfileBindingTarget;
+	} | null;
 	currentTarget: PeopleComputerTarget | null;
 	currentAgentControllerRef: string | null;
-}): boolean {
-	return (
-		input.currentTarget?.deviceId === input.draftTarget.target.deviceId &&
-		input.currentTarget.runtimeLane === input.draftTarget.target.runtimeLane &&
-		input.currentAgentControllerRef === input.draftTarget.agentControllerRef
-	);
+	currentBindingTarget: AgentProfileBindingTarget | null;
+	checking: boolean;
+	failed: boolean;
+}): string | undefined {
+	if (!input.draftTarget) {
+		return undefined;
+	}
+	if (input.checking) {
+		return "Checking this Agent’s current Computer…";
+	}
+	if (input.failed || !input.currentTarget || !input.currentBindingTarget) {
+		return "Couldn’t confirm this Agent’s current Computer. Your changes are still here. Close and reopen Working folder to try again.";
+	}
+	if (
+		input.currentTarget.deviceId !== input.draftTarget.target.deviceId ||
+		input.currentTarget.runtimeLane !== input.draftTarget.target.runtimeLane ||
+		input.currentAgentControllerRef !== input.draftTarget.agentControllerRef ||
+		JSON.stringify(input.currentBindingTarget) !==
+			JSON.stringify(input.draftTarget.bindingTarget)
+	) {
+		return "This Agent’s Computer or local agent changed. Close and reopen Working folder to review its current settings.";
+	}
+	return undefined;
 }

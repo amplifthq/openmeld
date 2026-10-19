@@ -52,18 +52,17 @@ type FoldersDialogInput = {
 	profile: AuthProfileView;
 	storageScope: string;
 	target?: PeopleComputerTarget;
-	/** Shown first when opened to recover a task that lost its folder. */
-	recoveryMessage?: string;
-	/** Called after a folder becomes the default for new work. */
-	onDefaultChanged?: () => void;
 };
 
 type FolderChange = Exclude<ProfileFolderOperation, { operation: "list" }>;
 
 /**
  * Owner-only Working folder surface: the Agent's folders on its Computer and
- * which one new work starts in. The Working folder card, the list card's menu
- * and working-folder recovery all open this one surface.
+ * which one new work starts in. The Working folder card and the list card's
+ * menu open it. Recovering a task that lost its folder still uses the
+ * workspace editor (agent-profile-project-settings-dialog.tsx), the only path
+ * that can repair invalid folder settings, which Core's folder operations
+ * refuse to change.
  */
 export function AgentProfileFoldersDialog(input: FoldersDialogInput) {
 	if (
@@ -235,14 +234,10 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 				}
 			}
 			toast.success(`${row.displayName} is now the default folder.`);
-			input.onDefaultChanged?.();
 		});
 
 	return (
 		<div className="grid gap-4">
-			{input.recoveryMessage ? (
-				<output className="text-sm">{input.recoveryMessage}</output>
-			) : null}
 			<FolderListStatus
 				defaultProjectName={defaultProjectName}
 				error={foldersQuery.isError ? foldersQuery.error : null}
