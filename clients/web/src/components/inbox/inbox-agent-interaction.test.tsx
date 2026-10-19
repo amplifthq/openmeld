@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { InboxAgentInteraction } from "./inbox-agent-interaction";
 
 const state = vi.hoisted(() => ({
+	hasMore: false,
 	items: [] as WakeProgressItem[],
 	send: vi.fn(),
 }));
@@ -22,7 +23,10 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 vi.mock("#/query/spaces/active-wake-progress", () => ({
 	spaceActiveWakeProgressSummaryQueryOptions: (input: { spaceId: string }) => ({
 		queryKey: ["active-wake-progress", input.spaceId],
-		queryFn: async () => ({ items: state.items }),
+		queryFn: async () => ({
+			items: state.items,
+			pageInfo: { hasMore: state.hasMore },
+		}),
 	}),
 }));
 vi.mock("#/lib/spaces/agent-interaction-response", () => ({
@@ -84,9 +88,9 @@ function pendingQuestion(): WakeProgressItem {
 	};
 }
 
-function renderInteraction() {
+function renderInteraction(queryClient = new QueryClient()) {
 	return render(
-		<QueryClientProvider client={new QueryClient()}>
+		<QueryClientProvider client={queryClient}>
 			<InboxAgentInteraction target={target} />
 		</QueryClientProvider>
 	);
@@ -94,6 +98,7 @@ function renderInteraction() {
 
 afterEach(() => {
 	cleanup();
+	state.hasMore = false;
 	state.items = [];
 	state.send.mockReset();
 });
@@ -130,5 +135,25 @@ describe("Answering an Agent's question in Inbox (§4.6)", () => {
 		expect(
 			screen.getByRole("link", { name: "Open conversation" })
 		).toBeTruthy();
+	});
+
+	it("drops the options once the question is answered elsewhere", async () => {
+		state.items = [pendingQuestion()];
+		const queryClient = new QueryClient();
+		renderInteraction(queryClient);
+		await screen.findByRole("radio", { name: "Allow once" });
+		state.items = [];
+		await queryClient.refetchQueries();
+		expect(await screen.findByText(QUESTION_ENDED)).toBeTruthy();
+		expect(screen.queryByRole("radio", { name: "Allow once" })).toBeNull();
+	});
+
+	it("never calls a question ended when the conversation lists only its newest work", async () => {
+		state.hasMore = true;
+		renderInteraction();
+		expect(
+			await screen.findByText("Answer this question in the conversation.")
+		).toBeTruthy();
+		expect(screen.queryByText(QUESTION_ENDED)).toBeNull();
 	});
 });

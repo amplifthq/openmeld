@@ -1,6 +1,7 @@
 import type {
 	InboxItem,
 	RespondToSpaceAgentInteractionBody,
+	WakeProgressItem,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
@@ -13,6 +14,8 @@ import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile
 import { sendWebSpaceAgentInteractionResponse } from "#/lib/spaces/agent-interaction-response";
 import { invalidateInboxFacts } from "#/query/organizations/inbox";
 import { spaceActiveWakeProgressSummaryQueryOptions } from "#/query/spaces/active-wake-progress";
+
+const PENDING_REFETCH_MS = 5000;
 
 type AgentInteractionTarget = Extract<
 	InboxItem["sourceTarget"],
@@ -35,19 +38,19 @@ export function InboxAgentInteraction(input: {
 	const organizationId = organization?.currentOrganization.id ?? "";
 	const { defaultHumanProfile, profilesQuery } = useDefaultHumanProfile();
 	const profileId = defaultHumanProfile?.openMeldProfileId ?? "";
-	const progress = useQuery(
-		spaceActiveWakeProgressSummaryQueryOptions({
+	const progress = useQuery({
+		...spaceActiveWakeProgressSummaryQueryOptions({
 			enabled: Boolean(profileId),
 			openMeldProfileId: profileId,
 			spaceId: target.spaceId,
-		})
-	);
-	const item = progress.data?.items.find(
-		(candidate) =>
-			candidate.runtimeCoordinatorExecutionId ===
-				target.runtimeCoordinatorExecutionId &&
-			candidate.pendingInteraction?.interactionId === target.interactionId
-	);
+		}),
+		// An answer from elsewhere ends the question here too.
+		refetchInterval: (query) =>
+			findPendingInteraction(query.state.data?.items, target)
+				? PENDING_REFETCH_MS
+				: false,
+	});
+	const item = findPendingInteraction(progress.data?.items, target);
 	const respond = async (body: RespondToSpaceAgentInteractionBody) => {
 		await sendWebSpaceAgentInteractionResponse({
 			body,
@@ -92,6 +95,17 @@ export function InboxAgentInteraction(input: {
 			</div>
 		);
 	}
+	if (!item?.pendingInteraction && progress.data?.pageInfo?.hasMore) {
+		// A busy conversation lists only its newest work here.
+		return (
+			<div className="mt-3 space-y-2 rounded-md border border-border/70 p-4">
+				<p className="text-muted-foreground text-sm">
+					Answer this question in the conversation.
+				</p>
+				{openConversation}
+			</div>
+		);
+	}
 	if (!item?.pendingInteraction) {
 		return (
 			<div className="mt-3 space-y-2 rounded-md border border-border/70 p-4">
@@ -112,5 +126,17 @@ export function InboxAgentInteraction(input: {
 			/>
 			{openConversation}
 		</div>
+	);
+}
+
+function findPendingInteraction(
+	items: readonly WakeProgressItem[] | undefined,
+	target: AgentInteractionTarget
+): WakeProgressItem | undefined {
+	return items?.find(
+		(candidate) =>
+			candidate.runtimeCoordinatorExecutionId ===
+				target.runtimeCoordinatorExecutionId &&
+			candidate.pendingInteraction?.interactionId === target.interactionId
 	);
 }
