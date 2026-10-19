@@ -123,8 +123,9 @@ export async function projectRuntimeCoordinatorInteractionInboxItem(
         : {}),
       recipientReasons:
         recipientAccess.kind === "observer" ? ["agent_owner"] : ["requester"],
-      requestCategory:
-        input.interaction.kind === "question" ? "action" : "review",
+      // Only the Binding owner can answer, and the Agent waits until they
+      // do, so every kind needs their action (member-agent-program.md §4.6).
+      requestCategory: "action",
     },
     sourceTarget: {
       ...(recipientAccess.kind === "observer"

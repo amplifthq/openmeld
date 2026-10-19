@@ -105,7 +105,8 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
         source_facts_json: JSON.stringify({
           version: 1,
           recipientReasons: ["requester"],
-          requestCategory: kind === "question" ? "action" : "review",
+          // The owner must answer every kind before the Agent continues.
+          requestCategory: "action",
         }),
       });
       expect(
@@ -216,7 +217,7 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
             sourceFacts: {
               version: 1,
               recipientReasons: ["requester"],
-              requestCategory: "review",
+              requestCategory: "action",
             },
             kind: "agent_interaction",
             organizationId: "org_one",
