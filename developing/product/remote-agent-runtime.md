@@ -2505,16 +2505,10 @@ uses it.
 
 ### Model (settled 2026-07-09, revised 2026-08-13)
 
-Center Agent model traffic remains **Cloudflare AI Gateway → OpenRouter**. The
-OpenRouter provider key stays in Cloudflare AI Gateway Provider Keys under
-the environment-owned alias. Local, development, and production Remote Agent
-traffic uses the configured `openmeld-remote-agent-prod` gateway and its
-`openrouter` alias because Provider Keys are gateway-scoped; request metadata
-retains the Worker environment and Organization boundary. The Remote Agent
-worker sends the authenticated gateway token plus that exact
-`cf-aig-byok-alias` value and does not carry provider API keys in code or
-tracked config. This is OpenMeld-operated provider configuration, not user
-BYOK.
+Hosted model traffic follows [workspace AI credits and keys](../engineering/ai-billing.md#configuration-and-open-source-boundary).
+That owner defines provider authorization, optional Cloudflare AI Gateway
+routing, and secret handling. Model selection below does not change the
+workspace funding source.
 
 The repo-owned `center-agent` catalog exposes curated models from OpenAI,
 Anthropic, Google, DeepSeek, xAI, and Z.ai. Its current Center Agent default is
