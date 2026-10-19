@@ -52,11 +52,13 @@ jobs:
         run: node trusted-control/scripts/ci/final-candidate-run-context.mjs
 
       # Fetch immutable objects only. The trusted working tree remains on main.
+      # The exact base may be older than the shallow checkout, so fetch it too.
       - name: Read candidate Git objects without checkout
         if: steps.identity.outputs.valid == 'true'
         env:
+          CANDIDATE_BASE_SHA: ${{ steps.identity.outputs.base }}
           CANDIDATE_HEAD_SHA: ${{ steps.identity.outputs.head }}
-        run: git -C trusted-control -c core.hooksPath=/dev/null fetch --no-tags --no-recurse-submodules origin "$CANDIDATE_HEAD_SHA"
+        run: git -C trusted-control -c core.hooksPath=/dev/null fetch --no-tags --no-recurse-submodules origin "$CANDIDATE_HEAD_SHA" "$CANDIDATE_BASE_SHA"
 
       - name: Recompute hosted disposition from trusted control
         if: steps.identity.outputs.valid == 'true'

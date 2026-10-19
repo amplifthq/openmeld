@@ -207,8 +207,8 @@ git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- status -
 git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- wait --pr <number>
 ```
 
-Use `wait` instead of polling `gh pr checks`. No pending status is published
-while a run executes; an earlier exact success stays until the new run reports.
+Use `wait` instead of polling `gh pr checks`. Automatic runs publish no
+pending status; an explicit `request` marks the head pending until it reports.
 
 Fork and same-repository candidates run on `pull_request` with read-only job
 permissions and no production environment or secrets; the run title names the

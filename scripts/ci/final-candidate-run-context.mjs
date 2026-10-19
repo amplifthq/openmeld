@@ -98,19 +98,9 @@ function main() {
     throw new Error("Missing exact Final Candidate run identity.");
   }
   const pr = api(`${root}/pulls/${title[1]}`);
-  const liveMain = api(`${root}/commits/main`);
-  const context = resolveRunContext({
-    event,
-    run,
-    pr,
-    workflow: api(`${root}/actions/workflows/final-candidate.yml`),
-    main: liveMain,
-    tree: api(`${root}/git/commits/${title[2]}`).tree,
-    jobs: api(
-      `${root}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`
-    ).jobs,
-    baseComparison: api(`${root}/compare/${title[4]}...main`),
-  });
+  // The trusted checkout is the one main snapshot for this publication: the
+  // control disposition, the plan, and the base ancestry all use it, so a
+  // main advance during publication cannot abort an otherwise valid result.
   const trustedSha = execFileSync(
     "git",
     ["-C", "trusted-control", "rev-parse", "HEAD"],
@@ -118,11 +108,18 @@ function main() {
       encoding: "utf8",
     }
   ).trim();
-  if (trustedSha !== liveMain.sha) {
-    throw new Error(
-      "Main advanced after the publisher started; rerun against current main."
-    );
-  }
+  const context = resolveRunContext({
+    event,
+    run,
+    pr,
+    workflow: api(`${root}/actions/workflows/final-candidate.yml`),
+    main: { sha: trustedSha },
+    tree: api(`${root}/git/commits/${title[2]}`).tree,
+    jobs: api(
+      `${root}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`
+    ).jobs,
+    baseComparison: api(`${root}/compare/${title[4]}...${trustedSha}`),
+  });
   for (const [key, value] of Object.entries(context)) {
     if (typeof value !== "string" || LINE_BREAK.test(value)) {
       throw new Error(`Invalid workflow output: ${key}`);

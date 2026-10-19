@@ -2,11 +2,21 @@ name: npm CLI Install Smoke
 
 on:
   pull_request:
-    # PR smoke covers CLI source only. cli-release.yml installs the published
-    # artifact on ubuntu and windows after every release.
+    # PR smoke covers CLI source and the files this workflow runs directly.
+    # cli-release.yml installs the published artifact after every release.
     paths:
       - ".github/workflows/cli-npm-smoke.yml"
+      - ".github/actions/setup-node-pnpm/**"
       - "clients/openmeld-cli/**"
+      - "scripts/release/build-windows-process-helper.mjs"
+      - "scripts/release/bundled-skill-embedded.test.mjs"
+      - "scripts/release/npm-cli-artifact.mjs"
+      - "scripts/release/npm-cli-smoke.mjs"
+      - "scripts/release/windows-process-artifact.mjs"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+      - ".nvmrc"
   workflow_dispatch:
 
 permissions:
@@ -81,10 +91,14 @@ jobs:
     if: ${{ !cancelled() && needs.npm_artifact.result == 'success' }}
     strategy:
       fail-fast: false
-      # One lane per supported engine line (22.x || 24.x || 25.x) on ubuntu.
+      # One lane per supported engine line (22.x || 24.x || 25.x) on ubuntu,
+      # plus one macOS clean install; Windows is covered after publication.
       matrix:
         node: ["22.0.0", "24", "25"]
         os: [ubuntu-24.04]
+        include:
+          - node: "24"
+            os: macos-15
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     permissions:
