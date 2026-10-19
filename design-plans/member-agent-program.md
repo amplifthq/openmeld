@@ -48,6 +48,16 @@ Principles that decide trade-offs:
 10. The Agent knows the product better than the user and says so in context.
 11. No cost on high-frequency paths. Safety appears only inside the risk
     window it protects.
+12. **Extend existing UI; do not add parallel forms.** When an existing
+    surface already does the job (inline-editable Profile cards, the
+    Working folder control, chat history, sidebar rename/archive,
+    `ApprovalCard` / `SpaceAgentInteractionCard`, banners, toasts, error
+    notices), extend it. New surfaces only where the model is new: the
+    MemberAgent row and its secondary sidebar of Profiles and Sessions.
+13. **No dead ends.** Every page reached from Inbox, a request, a
+    notification or a deep link has a visible way back to where the user
+    came from; Session switching inside a MemberAgent is one click from the
+    secondary sidebar and the chat header.
 
 ## 2. Vocabulary
 
@@ -1066,3 +1076,11 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   `claude/map-p2-smoke-3`); Continue still lists unanswered requests (P2,
   same); native options are not rendered inside Inbox (P2, Phase 4
   `claude/map-4-inbox-answer`).
+- 2026-10-19, Felix's UI direction after smoke round 3: the default Profile
+  "Edit Agent" dialog is the wrong fix; Profile cards are edited in place.
+  Designer audit found parallel UI: a new Folders dialog beside the old
+  Working folder dialog, a copied chat history (`member-agent-chat-history`
+  vs `center-agent-chat-history`), access-request and permission-suggestion
+  cards not built on `ApprovalCard`, and a new Session rename/archive
+  dialog. Principles 12–13 added; convergence routed to 1d
+  (`claude/map-1d-ui-convergence`).
