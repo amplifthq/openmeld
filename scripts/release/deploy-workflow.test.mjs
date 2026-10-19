@@ -192,4 +192,34 @@ test("the CLI publisher builds the Windows helper in the same run", () => {
   assert.deepEqual(cliRelease.jobs.publish.needs, "windows_helper");
   assert.ok(!JSON.stringify(cliRelease).includes("windows_artifact_run_id"));
   assert.deepEqual(cliRelease.jobs.npm_consumers.needs, "publish");
+  assert.equal(
+    cliRelease.jobs.windows_helper.steps.find(
+      (step) => step.name === "Setup toolchain"
+    ).with.control_directory,
+    "release-control"
+  );
+  for (const name of ["windows_helper", "npm_consumers"]) {
+    const job = cliRelease.jobs[name];
+    assert.equal(job.defaults.run["working-directory"], "release-source");
+    const checkouts = job.steps.filter((step) =>
+      String(step.uses ?? "").startsWith("actions/checkout")
+    );
+    assert.deepEqual(
+      checkouts.map((step) => step.with.path),
+      ["release-control", "release-source"]
+    );
+    assert.equal(checkouts[0].with.ref, GITHUB_SHA_EXPRESSION);
+    assert.equal(
+      checkouts[1].with.ref,
+      cliRelease.jobs.publish.steps[1].with.ref
+    );
+    for (const step of job.steps.filter((step) =>
+      String(step.run ?? "").includes("scripts/release/")
+    )) {
+      assert.ok(step.run.includes("../release-control/scripts/release/"));
+      assert.ok(
+        step.env.OPENMELD_RELEASE_SOURCE_ROOT.endsWith("/release-source")
+      );
+    }
+  }
 });

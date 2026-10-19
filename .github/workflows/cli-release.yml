@@ -26,27 +26,29 @@ jobs:
     name: Build Windows Process Helper
     runs-on: windows-2025
     timeout-minutes: 20
+    defaults: { run: { working-directory: release-source } }
     steps:
-      - uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-          ref: ${{ inputs.release_sha }}
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v5
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
+      - name: Checkout release control
+        uses: actions/checkout@v5
+        with: { path: release-control, persist-credentials: false, ref: "${{ github.sha }}" }
+      - name: Checkout release source
+        uses: actions/checkout@v5
+        with: { path: release-source, persist-credentials: false, ref: "${{ inputs.release_sha }}" }
+      - name: Setup toolchain
+        uses: ./release-control/.github/actions/setup-node-pnpm
+        with: { working_directory: release-source, control_directory: release-control }
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.401
-      - run: pnpm install --frozen-lockfile
-      - run: node scripts/release/build-windows-process-helper.mjs
+      - run: node ../release-control/scripts/release/build-windows-process-helper.mjs
+        env:
+          OPENMELD_RELEASE_SOURCE_ROOT: ${{ github.workspace }}/release-source
       - uses: actions/upload-artifact@v4
         with:
           name: windows-process-${{ inputs.release_sha }}
           path: |
-            cli/dist/openmeld-windows-process.exe
-            cli/dist/windows-process-artifact.json
+            release-source/cli/dist/openmeld-windows-process.exe
+            release-source/cli/dist/windows-process-artifact.json
           if-no-files-found: error
           retention-days: 7
 
@@ -114,22 +116,27 @@ jobs:
         os: [ubuntu-24.04, windows-2025]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    defaults: { run: { working-directory: release-source } }
     steps:
-      - uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-          ref: ${{ inputs.release_sha }}
+      - name: Checkout release control
+        uses: actions/checkout@v5
+        with: { path: release-control, persist-credentials: false, ref: "${{ github.sha }}" }
+      - name: Checkout release source
+        uses: actions/checkout@v5
+        with: { path: release-source, persist-credentials: false, ref: "${{ inputs.release_sha }}" }
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
           package-manager-cache: false
       - name: Install the published package on a clean machine
         shell: bash
+        env:
+          OPENMELD_RELEASE_SOURCE_ROOT: ${{ github.workspace }}/release-source
         run: |
           set -euo pipefail
           version="$(node -p 'require("./clients/openmeld-cli/package.json").version')"
           npm pack "openmeld@${version}" --pack-destination "$RUNNER_TEMP"
-          node scripts/release/npm-cli-smoke.mjs verify "$RUNNER_TEMP/openmeld-${version}.tgz"
+          node ../release-control/scripts/release/npm-cli-smoke.mjs verify "$RUNNER_TEMP/openmeld-${version}.tgz"
           echo "OPENMELD_PACKAGE=$RUNNER_TEMP/openmeld-${version}.tgz" >> "$GITHUB_ENV"
       - name: Select Node 20 for the upgrade-message check
         if: matrix.os == 'ubuntu-24.04'
@@ -140,4 +147,6 @@ jobs:
       - name: Reject Node 20 before loading dependencies
         if: matrix.os == 'ubuntu-24.04'
         shell: bash
-        run: node scripts/release/npm-cli-smoke.mjs reject "$OPENMELD_PACKAGE"
+        env:
+          OPENMELD_RELEASE_SOURCE_ROOT: ${{ github.workspace }}/release-source
+        run: node ../release-control/scripts/release/npm-cli-smoke.mjs reject "$OPENMELD_PACKAGE"
