@@ -1122,3 +1122,17 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   and attention of other Sessions); unknown MemberAgent page has Back to
   Agents; Continue offers answered plain DM requests via their published
   replies. Final real-machine smoke (round 5) follows.
+- 2026-10-19, real-machine smoke round 5 (acceptance candidate e2c9b95a9):
+  all round-4 retests passed (Inbox question answerable after two minutes,
+  answered plain DM under Continue, "<Agent> · <Session title>" cards, Back
+  to Agents, framed approval cards) and the core regression passed (six
+  MemberAgents, Sessions, first-DM consent and revoke, native question in
+  Inbox, sensitive CLI confirmation with audit, colleague privacy on current
+  surfaces). Not accepted: after Working folder repair the same chat fails
+  with `execution_context.workspace_changed` with only a generic Hand off
+  (R5-01, routed to Phase 2 `claude/map-p2-repair-continue`: offer one-click
+  Continue in the current folder via the fork path); OpenCode joined through
+  Let the Agent join fails with `controller_access_unsupported` (R5-02,
+  Phase 4 `claude/map-4-space-join-release`). Noted, not program defects: a
+  Claude Code plan-review gate in Chinese comes from the user's own harness
+  configuration; an older round-2 message still shows a path in history.
