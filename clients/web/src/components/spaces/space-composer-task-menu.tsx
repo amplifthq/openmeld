@@ -43,17 +43,23 @@ export function buildSpaceTaskSources(
 	items: readonly SpaceTimelineItem[],
 	requesterProfileId: string
 ): SpaceTaskSource[] {
-	const answered = new Set(
-		items.flatMap((item) =>
+	// Agents that published a final reply to each request. A plain Direct
+	// Message wakes the peer without activation targets, so the published
+	// reply, not the request's wake targets, says who answered it.
+	const answeredBy = new Map<string, Set<string>>();
+	for (const item of items) {
+		if (
 			item.isAgentFinalReply &&
 			// A live stream is still running; only a published reply finished.
 			!item.agentStreamState &&
 			item.deliveryState === "sent" &&
 			item.replyToSignalId
-				? [`${item.replyToSignalId}:${item.actorProfileId}`]
-				: []
-		)
-	);
+		) {
+			const agents = answeredBy.get(item.replyToSignalId) ?? new Set();
+			agents.add(item.actorProfileId);
+			answeredBy.set(item.replyToSignalId, agents);
+		}
+	}
 	return items
 		.filter(
 			(item) =>
@@ -63,21 +69,28 @@ export function buildSpaceTaskSources(
 				!item.recalledAt
 		)
 		.reverse()
-		.flatMap((item) =>
-			item.wakeTargetProfileIds
-				.filter((targetProfileId) =>
-					answered.has(`${item.id}:${targetProfileId}`)
-				)
-				.map((targetProfileId) => ({
+		.flatMap((item) => {
+			const answered = answeredBy.get(item.id);
+			if (!answered) {
+				return [];
+			}
+			// Woken targets first, in the request's order; then any other answerer.
+			const targets = [
+				...item.wakeTargetProfileIds.filter((id) => answered.has(id)),
+				...[...answered].filter(
+					(id) => !item.wakeTargetProfileIds.includes(id)
+				),
+			];
+			return targets.map((targetProfileId) => ({
+				targetProfileId,
+				sourceWakeId: buildTargetWakeLifecycleId({
+					spaceId: item.spaceId,
+					sourceSignalId: item.id,
 					targetProfileId,
-					sourceWakeId: buildTargetWakeLifecycleId({
-						spaceId: item.spaceId,
-						sourceSignalId: item.id,
-						targetProfileId,
-					}),
-					label: item.text.trim().slice(0, 72) || "File request",
-				}))
-		);
+				}),
+				label: item.text.trim().slice(0, 72) || "File request",
+			}));
+		});
 }
 
 /** Execution settings belong to the recipient's existing mention menu. */

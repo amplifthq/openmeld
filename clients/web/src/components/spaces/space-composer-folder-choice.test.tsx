@@ -220,6 +220,30 @@ describe("continuation sources", () => {
 			screen.queryByRole("menuitemradio", { name: "ask-failed" })
 		).toBeNull();
 	});
+
+	it("offers a plain Direct Message the Agent answered, though it named no wake target (R4-03)", () => {
+		const sources = buildSpaceTaskSources(
+			[
+				// A plain DM wakes the peer without activation targets.
+				timelineItem({
+					actorProfileId: "human",
+					id: "plain-dm",
+					wakeTargetProfileIds: [],
+				}),
+				timelineItem({
+					actorProfileId: "codex",
+					id: "codex-reply",
+					isAgentFinalReply: true,
+					replyToSignalId: "plain-dm",
+					wakeTargetProfileIds: [],
+				}),
+			],
+			"human"
+		);
+		expect(
+			sources.map((source) => [source.label, source.targetProfileId])
+		).toEqual([["plain-dm", "codex"]]);
+	});
 });
 
 function timelineItem(
