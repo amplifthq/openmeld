@@ -1,6 +1,6 @@
 name: OpenMeld Final Candidate
 run-name: >-
-  ${{ github.event.pull_request.draft == false && (github.event.action != 'labeled' || github.event.label.name == 'final-candidate' || github.event.label.name == 'final-candidate-full') && 'Final Candidate' || 'Ignored Final Candidate' }} PR #${{ github.event.pull_request.number }} @ ${{ github.event.pull_request.head.sha }} [${{ github.event.label.name == 'final-candidate-full' && 'full' || 'standard' }}]
+  ${{ github.event.pull_request.draft == false && (github.event.action != 'labeled' || github.event.label.name == 'final-candidate' || github.event.label.name == 'final-candidate-full') && 'Final Candidate' || 'Ignored Final Candidate' }} PR #${{ github.event.pull_request.number }} @ ${{ github.event.pull_request.head.sha }} [${{ github.event.label.name == 'final-candidate-full' && 'full' || 'standard' }}] on ${{ github.event.pull_request.base.sha }}
 
 on:
   pull_request:

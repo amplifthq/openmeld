@@ -89,7 +89,9 @@ function resolveExactStatus(status, pullRequest) {
   if (status.state !== "success") {
     return status.state;
   }
-  const expectedIdentity = `@ ${pullRequest.head.sha.slice(0, 12)} on ${pullRequest.base.sha.slice(0, 12)}`;
+  // The trusted publisher bound the base and proved it is part of main. A
+  // success on an older base stays valid: merge queue owns freshness.
+  const expectedIdentity = `@ ${pullRequest.head.sha.slice(0, 12)} on `;
   return String(status.description ?? "").includes(expectedIdentity)
     ? "success"
     : "stale-success";

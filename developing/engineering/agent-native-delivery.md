@@ -155,28 +155,22 @@ FC certifies one exact `head SHA + base SHA + tree SHA`. Standard FC retains:
 - local-component release readiness when the CLI, Service, Skills, or their
   policy changes.
 
-Standard FC does not repeat broad workspace unit or integration tests. This
-keeps final merge latency separate from development feedback. Full confidence
-is explicit when remaining risk justifies a whole-repository rerun. The printed
-plan is the authority for selected/skipped commands, reasons, and durations:
-
-Release and CI script changes use focused owner tests before Ready; standard FC
-checks their exact diff and control identity without rerunning every repository
-workflow test. Dependency and task-graph controls still select the wider static
-repository contracts.
+Standard FC does not repeat broad workspace unit or integration tests; owners
+run focused tests before Ready, and full confidence is explicit when remaining
+risk justifies a whole-repository rerun. Release and CI script changes get
+their exact diff and control identity checked; dependency and task-graph
+controls still select the wider static repository contracts. The printed plan
+is the authority for selected/skipped commands, reasons, and durations:
 
 ```sh
 git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- plan
 ```
 
 Trusted control installs only the shared evidence parser's production
-dependencies. The result publisher does not restore the full development store;
-restoring that cache costs more than installing its small runtime. Candidate
-dependencies stay isolated and complete for the selected checks. Hosted
-documentation-only plans install root tooling without native rebuilds; signed
-CLI Skills, release readiness, and executable changes keep the workspace install.
-The trusted plan makes this decision for both PRs and merge groups. This changes
-neither validation coverage nor candidate credential isolation.
+dependencies. Candidate dependencies stay isolated and complete for the
+selected checks: documentation-only plans install root tooling without native
+rebuilds; signed CLI Skills, release readiness, and executable changes keep the
+workspace install. The trusted plan decides this for both PRs and merge groups.
 
 Hosted `trusted-control-entrypoints` compares the current-main control
 projection, not every workspace or lockfile byte. The isolated installer
@@ -189,22 +183,18 @@ entrypoints, install wrappers, project `.npmrc`, `package.json`
 change what native code may run (`allowBuilds`, `onlyBuiltDependencies`,
 `patchedDependencies`, and equivalents, including the referenced patch files)
 still refuse hosted certification. Native-build and patch settings are parsed
-fail-closed, including valid flow-style and complex-key YAML. The isolated
-command wrapper also forces a trusted `script-shell` so a candidate `.npmrc`
-cannot rewrite how later `pnpm run` checks execute. Those pull requests use
-the documented local explicit bootstrap. When that refuse happens, the
-required `OpenMeld Final Candidate` status names the control refuse and the
-bootstrap path. Trusted current-main control classifies that case before
-candidate dependencies or validation run, so the `Final Candidate Runner`
-check is skipped instead of showing a product-test failure. Its check output
-explains that protected local validation is required and links back to this
-fallback. [GitHub treats a skipped check as non-blocking](https://docs.github.com/en/pull-requests/reference/status-checks),
-so the Runner is not the merge authority: the repository ruleset requires only the separate
-`OpenMeld Final Candidate` commit status, which remains failed until the exact
-candidate passes the protected local bootstrap. Any ordinary test, build,
-runner, classifier, or publisher failure remains a failure and cannot publish
-green. This changes the presentation of an expected trust refusal without
-creating a second delivery process or weakening the merge gate.
+fail-closed, and the isolated command wrapper forces a trusted `script-shell`
+so a candidate `.npmrc` cannot rewrite how later `pnpm run` checks execute.
+Those pull requests use the documented local explicit bootstrap. Trusted
+current-main control classifies that case before candidate dependencies or
+validation run, so the `Final Candidate Runner` check is skipped instead of
+showing a product-test failure, and the required `OpenMeld Final Candidate`
+status names the control refuse and the bootstrap path.
+[GitHub treats a skipped check as non-blocking](https://docs.github.com/en/pull-requests/reference/status-checks),
+so the Runner is not the merge authority: only the separate commit status is
+required, and it stays failed until the exact candidate passes the protected
+local bootstrap. Any ordinary test, build, runner, classifier, or publisher
+failure remains a failure and cannot publish green.
 
 A non-draft PR targeting `main` starts standard FC on opening, new commits,
 reopening, or marking ready; no label is needed. To retry after diagnosing a
@@ -217,42 +207,45 @@ git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- status -
 git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- wait --pr <number>
 ```
 
-Use `wait` for the pending Final Candidate instead of repeatedly polling
-`gh pr checks` for the same unchanged run.
+Use `wait` instead of polling `gh pr checks` for the same unchanged run. No
+pending status is published while the source run executes.
 
 Fork and same-repository candidates run on `pull_request` with read-only job
-permissions and no production environment or secrets. A separate `workflow_run`
-result workflow runs trusted default-branch code. Its read-only verifier identifies the exact source run,
-attempt, PR, and current main through GitHub, then recomputes the control
-disposition and validation plan before accepting evidence from that run.
-The verifier reads candidate source as immutable Git objects without checking
-it out, and treats artifacts as data. It never runs candidate scripts.
-A separate status writer checks live identity and the latest run again and
-never checks out code, installs dependencies, or downloads artifacts.
-Changes to either workflow require the protected local
-bootstrap. Workflow approval for first-time contributors remains a GitHub
+permissions and no production environment or secrets; the run title names the
+exact PR, head, confidence, and base. A separate `workflow_run` result workflow
+runs trusted default-branch code once the source run completes. Its read-only
+verifier binds the exact source run, attempt, PR, head, tree, and base through
+GitHub, requires that base to be part of current `main`, then recomputes the
+control disposition and validation plan before accepting evidence. It reads
+candidate source as immutable Git objects, treats artifacts as data, and never
+runs candidate scripts. A separate status writer rechecks the live head and the
+latest run without checking out code or downloading artifacts. A finished
+result stays bound to its exact head, base, and tree: `main` advancing later
+does not turn it red, because merge queue or strict up-to-date protection owns
+freshness at merge time. Changes to either workflow require the protected
+local bootstrap. Workflow approval for first-time contributors remains a GitHub
 repository policy, separate from PR review approval.
 
-CodeQL uses `.github/workflows/codeql.yml` so fork PRs receive the same
-required `Analyze (javascript-typescript)` check as repository branches.
-Keep GitHub's default setup disabled when this advanced workflow is enabled;
-default setup excludes fork PRs and blocks uploads from advanced workflows.
-The workflow scans Actions and JavaScript/TypeScript with the default query
-suite, without installing dependencies or running repository build scripts.
+CodeQL uses `.github/workflows/codeql.yml` so fork PRs and merge groups
+receive the same required `Analyze (javascript-typescript)` check as
+repository branches. Keep GitHub's default setup disabled; it excludes fork PRs
+and blocks uploads from advanced workflows. The workflow scans without
+installing dependencies or running repository build scripts.
 
-Use the current-main entrypoint, never candidate-owned package scripts.
-GitHub Actions is the normal compute lane; the guarded local lane below is for
-Actions outages or explicit control bootstrap. A failed check, missing evidence,
-identity mismatch, or publication failure cannot become green. Local focused
-checks cannot substitute for the required FC status.
+Use the current-main entrypoint, never candidate-owned package scripts. GitHub
+Actions is the normal compute lane; the guarded local lane below is for Actions
+outages or explicit control bootstrap. A failed check, missing evidence,
+identity mismatch, or publication failure cannot become green.
 
 For a batch, integrate compatible ready leaf changes, sync `main` once, validate
 the combined interactions, and run one FC on the batch PR. Do not pay for leaf
 FCs that will immediately become stale. Preserve directional release order: for
 example, new Space-invitation Core/Auth receivers must precede the new CLI.
-If `main` advances, old evidence remains valid only for its original base;
-merge queue must validate the new group, or strict up-to-date protection requires
-syncing and validating the new candidate. Do not freeze unrelated work.
+Evidence stays valid for its original base. When `main` advances, merge queue
+validates the merge group; do not sync and rerun a green candidate only to
+refresh its base. Only while strict up-to-date protection is the freshness
+owner does a green candidate need one sync and one new FC. Do not freeze
+unrelated work.
 
 ## Evidence And Ownership
 
@@ -353,15 +346,20 @@ review requirement or a second delivery process.
 
 ### Merge queue
 
-Use merge queue only when the repository's live GitHub plan and Ruleset expose
-it. GitHub then creates an exact merge-group commit from current `main` and the
-queued changes, and the same `OpenMeld Final Candidate` policy validates that
-merge tree. If the repository cannot use merge queue, strict up-to-date branch
-protection is the freshness owner.
+Merge queue is the freshness owner for `main`. GitHub builds an exact
+merge-group commit from current `main` and the queued changes;
+`merge-group-final-candidate.yml` validates that tree with the same trusted
+current-main policy and reports the required `OpenMeld Final Candidate` check,
+and CodeQL also runs on `merge_group`. Branch protection for `main` requires
+merge queue with merge method `merge`, build concurrency 1, one to five pull
+requests per group, only non-failing pull requests, and a 60-minute status
+check timeout; "Require branches to be up to date before merging" stays off.
+A pull request enters the queue only after its own required checks pass, so a
+green candidate on an older base needs no sync. Until merge queue is required
+in GitHub, strict up-to-date protection is the freshness owner instead.
 
 Do not create a manual substitute queue, release owner, global `main` freeze,
-or polling loop. Those mechanisms serialize independent work without adding
-merge evidence.
+or polling loop; they serialize independent work without adding merge evidence.
 
 ## Merge
 
@@ -381,9 +379,9 @@ while allowing named actors to merge through a pull request without it.
 
 Immediately before merge, re-read the live head, evidence identity, status,
 mergeability, and active Ruleset. If the head changed, create a new candidate.
-If only `main` changed, let merge queue validate the new merge group or sync and
-run one new current-base candidate. Do not rerun completed checks merely to
-produce ceremonial evidence.
+If only `main` changed, let merge queue validate the new merge group; sync and
+run one new candidate only while strict up-to-date protection is the freshness
+owner. Do not rerun completed checks merely to produce ceremonial evidence.
 
 Before reporting an approval blocker, distinguish the PR's default review
 state from the current actor's effective permission. `REVIEW_REQUIRED`,
@@ -429,6 +427,7 @@ operation to local branch deletion:
 gh pr merge <pr-number> --merge --match-head-commit <verified-head-sha>
 # Only for the verified review-exemption case described above:
 gh pr merge <pr-number> --merge --admin --match-head-commit <verified-head-sha>
+# With merge queue required, merge only enqueues; confirm after the group passes:
 gh pr view <pr-number> --json state,mergedAt,mergeCommit
 ```
 
