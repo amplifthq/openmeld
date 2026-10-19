@@ -160,6 +160,7 @@ import {
   isSuccessfulRuntimeTaskResultPayload,
 } from "../rules/runtime-task-result-transition-contract";
 import { isDispatchRequestedByAgentOwner } from "./accepted-dispatch-snapshot";
+import { usesSeparateColleagueConversation } from "./colleague-conversation";
 import { emitDispatchActivitySignal } from "./dispatch-activity-signal";
 import {
   buildDispatchResultRecord,
@@ -921,6 +922,15 @@ export const deliverDispatchMessageToDaemon = async (input: {
       targetOwnerUserId: input.targetOwnerUserId,
       timing: input.timing,
     });
+  const bindingConversation = await resolveDeliveredBindingConversation({
+    binding: primaryBindingResolution.binding,
+    env: input.env,
+    executionContext: resolveExecutionContextFromRoute(route),
+    message: input.message,
+    requesterIsAgentOwner,
+    route,
+    targetOwnerUserId: input.targetOwnerUserId,
+  });
   const deliverRequest = await measureDispatchTiming({
     description: "Build the RuntimeTransport delivery request",
     name: "openmeld_dispatch_deliver_request_build",
@@ -928,8 +938,7 @@ export const deliverDispatchMessageToDaemon = async (input: {
       buildRuntimeTransportDeliverDispatchRequest({
         attemptId: input.attemptId,
         agentControllerConversationId:
-          primaryBindingResolution.binding.agentControllerConversationId ??
-          null,
+          bindingConversation.agentControllerConversationId,
         ownerUserId: input.targetOwnerUserId,
         route,
         executionIdentity: primaryBindingResolution.executionIdentity,
@@ -939,6 +948,8 @@ export const deliverDispatchMessageToDaemon = async (input: {
         workingLanguage,
         permissionModeAdvisory,
         requesterIsAgentOwner,
+        separateRequesterConversation:
+          bindingConversation.separateRequesterConversation,
         sourceSignal,
         targetProfileIsCenterAgent,
         targetProfileMentionLabel,
@@ -1077,6 +1088,51 @@ type OnlineRuntimeTransportRoute = Extract<
   }
 >;
 /** Core's requester projection for this Wake and the advisory it allows. */
+/**
+ * The Binding conversation this delivery resumes. A colleague's Wake on a
+ * harness without Execution Contexts resumes none and starts its own
+ * (member-agent-program.md §4.3); a Service that cannot keep it separate
+ * would resume the owner's, so it is refused.
+ */
+const resolveDeliveredBindingConversation = async (input: {
+  binding: AgentProfileBindingRecord;
+  env: CoreBindings;
+  executionContext: DispatchExecutionContext;
+  message: OpenMeldDaemonDispatchQueueMessage;
+  requesterIsAgentOwner: boolean | undefined;
+  route: OnlineRuntimeTransportRoute;
+  targetOwnerUserId: string;
+}): Promise<{
+  agentControllerConversationId: string | null;
+  separateRequesterConversation: boolean;
+}> => {
+  const separate = await usesSeparateColleagueConversation({
+    agentControllerRef: input.binding.agentControllerRef,
+    env: input.env,
+    message: input.message,
+    requesterIsAgentOwner: input.requesterIsAgentOwner,
+    targetOwnerUserId: input.targetOwnerUserId,
+  });
+  if (!separate) {
+    return {
+      agentControllerConversationId:
+        input.binding.agentControllerConversationId ?? null,
+      separateRequesterConversation: false,
+    };
+  }
+  if (input.route.capabilities.requesterConversationIsolation !== true) {
+    throw buildDispatchExecutionValidationError({
+      code: "agent_access.conversation_isolation_unsupported",
+      message:
+        "Update OpenMeld on the Agent owner's computer before colleagues use this Agent.",
+      executionContext: input.executionContext,
+    });
+  }
+  return {
+    agentControllerConversationId: null,
+    separateRequesterConversation: true,
+  };
+};
 const resolveDispatchRequesterContext = async (
   input: Omit<
     Parameters<typeof readDispatchPermissionModeAdvisory>[0],
@@ -4849,6 +4905,17 @@ const persistAgentControllerConversationId = async (input: {
   targetOwnerUserId: string;
 }): Promise<PersistAgentControllerConversationIdResult> => {
   if (input.runtimeResult.executionContextId) {
+    return { bindingSource: null, updateApplied: false };
+  }
+  if (
+    await usesSeparateColleagueConversation({
+      agentControllerRef: input.agentControllerRef,
+      env: input.env,
+      message: input.dispatchMessage,
+      targetOwnerUserId: input.targetOwnerUserId,
+    })
+  ) {
+    // A colleague's conversation never becomes the owner's Binding one.
     return { bindingSource: null, updateApplied: false };
   }
   const nextConversationId = normalizeOptionalText(

@@ -474,6 +474,9 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
   // The Service renders Core's permission-mode advisory block in the task prompt.
   permissionModeAdvisoryPrompt: z.literal(true).optional(),
   verifiedRequesterContext: z.literal(true).optional(),
+  // The Service runs a Wake marked separateRequesterConversation in a
+  // conversation of its own (member-agent-program.md §4.3).
+  requesterConversationIsolation: z.literal(true).optional(),
   localAgentInteraction: z.literal(true).optional(),
   profileConfigurationRevision: z.literal(true).optional(),
   localComponents: localComponentsStatusSchema.optional(),
@@ -1296,6 +1299,10 @@ export const runtimeTransportDispatchSourceSignalSchema = z.strictObject({
 export const runtimeTransportDeliverDispatchPayloadSchema = z.strictObject({
   // Core identity/delegation projection for this Wake, never a permission grant.
   requesterIsAgentOwner: z.boolean().optional(),
+  // A colleague's Wake on a harness without Execution Contexts: never resume
+  // or record the Binding or ledger conversation (§4.3). Core sends it only
+  // to a Service that declares requesterConversationIsolation.
+  separateRequesterConversation: z.literal(true).optional(),
   runtimeCoordinatorExecutionId:
     runtimeCoordinatorExecutionRecordSchema.shape.runtimeCoordinatorExecutionId,
   executionToken: runtimeCoordinatorExecutionTokenEnvelopeSchema.optional(),

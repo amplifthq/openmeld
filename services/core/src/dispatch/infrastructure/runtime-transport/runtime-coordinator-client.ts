@@ -211,6 +211,8 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
   organizationProtectedInformation?: string | null;
   workingLanguage?: WorkingLanguageGuidance | null;
   requesterIsAgentOwner?: boolean;
+  /** From usesSeparateColleagueConversation (member-agent-program.md §4.3). */
+  separateRequesterConversation?: boolean;
   permissionModeAdvisory?: PermissionModeAdvisory | null;
 }): RuntimeTransportDeliverDispatchRequest => {
   const sourceProfileHandle = normalizeOptionalText(
@@ -229,9 +231,7 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
     input.message.deliveryRecoveryReason
   );
   const payloadCandidate: RuntimeTransportDeliverDispatchPayload = {
-    ...(input.requesterIsAgentOwner !== undefined
-      ? { requesterIsAgentOwner: input.requesterIsAgentOwner }
-      : {}),
+    ...buildRequesterDeliveryFields(input),
     executionContext: input.message.executionContext,
     runtimeCoordinatorExecutionId: buildRuntimeCoordinatorExecutionId({
       dispatchId: input.message.dispatchId,
@@ -440,6 +440,22 @@ function buildRuntimeTransportSourceSignalSnapshot(input: {
   }
   const { attachments: _attachments, ...textOnlySnapshot } = snapshot;
   return textOnlySnapshot;
+}
+function buildRequesterDeliveryFields(input: {
+  requesterIsAgentOwner?: boolean;
+  separateRequesterConversation?: boolean;
+}): Pick<
+  RuntimeTransportDeliverDispatchPayload,
+  "requesterIsAgentOwner" | "separateRequesterConversation"
+> {
+  return {
+    ...(input.requesterIsAgentOwner === undefined
+      ? {}
+      : { requesterIsAgentOwner: input.requesterIsAgentOwner }),
+    ...(input.separateRequesterConversation
+      ? { separateRequesterConversation: true as const }
+      : {}),
+  };
 }
 function buildBindingConversationDeliveryFields(
   message: OpenMeldDaemonDispatchQueueMessage,
