@@ -169,7 +169,7 @@ type SpaceHarness = {
 async function withSpace(
   f: Fixture,
   options: {
-    agentControllerRef?: string;
+    agentControllerRef?: string | null;
     directMessage: boolean;
     humans: Person[];
     agentMember: boolean;
@@ -236,8 +236,13 @@ async function withSpace(
           kind: "agent",
           profileId: f.agentProfileId,
           profileName: "PR Reviewer",
-          agentControllerRef:
-            options.agentControllerRef ?? "builtin:claude-code",
+          // null: a member whose harness was not recorded.
+          ...(options.agentControllerRef === null
+            ? {}
+            : {
+                agentControllerRef:
+                  options.agentControllerRef ?? "builtin:claude-code",
+              }),
         },
       });
     }
@@ -483,6 +488,49 @@ describe("Colleague use of an Agent (Phase 4)", () => {
         const next = await space.post(f.tali, "One more thing");
         const [later] = space.outbox(next);
         expect(later?.contextSelection).toBeUndefined();
+      }
+    );
+  });
+
+  it("releases by the Binding's harness when the member does not record it", async () => {
+    const f = await seed();
+    await withSpace(
+      f,
+      {
+        agentControllerRef: null,
+        directMessage: true,
+        humans: [f.tali],
+        agentMember: true,
+      },
+      async (space) => {
+        const first = await space.post(f.tali, "Please check the build");
+        const hold = readHeldDirectMessageAgentAccessHold(
+          space.state.storage.sql,
+          { requesterUserId: f.tali.userId, targetProfileId: f.agentProfileId }
+        );
+        if (!hold) {
+          throw new Error("Expected a held Wake.");
+        }
+        const db = getPostgresDatabase(env);
+        const decided = await decideAgentAccessRequest({
+          db,
+          decision: "allow_once",
+          deciderUserId: f.felix.userId,
+          nowMs: Date.now(),
+          organizationId: f.organizationId,
+          requestId: hold.requestId,
+        });
+        // rpcDecideAgentAccessRequest passes the Binding's harness (R5-02).
+        await space.instance.rpcApplyAgentAccessDecision({
+          decidedByProfileId: f.felix.profileId,
+          decidedByUserId: f.felix.userId,
+          organizationId: f.organizationId,
+          requestId: hold.requestId,
+          spaceId: space.spaceId,
+          status: decided.request.status,
+          targetControllerRef: "builtin:opencode",
+        });
+        expect(space.outbox(first)[0]?.contextSelection).toBeUndefined();
       }
     );
   });

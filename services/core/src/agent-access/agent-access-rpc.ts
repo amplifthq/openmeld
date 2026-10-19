@@ -461,20 +461,29 @@ export async function requireRequestedAgentMember(
       reason: "This Agent is no longer available.",
     });
   }
-  // The Space releases the bound message by the joined member's harness, so
-  // it must know it: a harness without Sessions refuses an explicit new one.
-  const binding = member.ownerUserId
-    ? await readPrimaryAgentProfileBindingRecord({
-        agentProfileId: member.profileId,
-        db: caller.db,
-        owner: { id: member.ownerUserId, kind: "owner_account" },
-      })
-    : null;
   return {
     ...member,
     agentControllerRef:
-      binding?.agentControllerRef ?? member.agentControllerRef,
+      (await readRequestedAgentControllerRef(caller, request)) ??
+      member.agentControllerRef,
   };
+}
+
+/**
+ * The requested Agent's harness, from its primary Binding. The Space releases
+ * a held message by it: a harness without Sessions refuses an explicit new
+ * one (smoke R2B-04, R5-02).
+ */
+async function readRequestedAgentControllerRef(
+  caller: AgentAccessCaller,
+  request: AgentAccessRequestRecord
+): Promise<string | null> {
+  const binding = await readPrimaryAgentProfileBindingRecord({
+    agentProfileId: request.agentProfileId,
+    db: caller.db,
+    owner: { id: request.ownerUserId, kind: "owner_account" },
+  });
+  return binding?.agentControllerRef ?? null;
 }
 
 /**
@@ -489,6 +498,11 @@ async function applyDecisionInSpace(
 ): Promise<AgentAccessRequestRecord> {
   const { request } = decided;
   const { stub } = resolveRpcSpaceStubOrThrow(env, request.spaceId);
+  const releases = request.status === "allowed" || request.status === "joined";
+  const targetControllerRef = releases
+    ? (agentMember?.agentControllerRef ??
+      (await readRequestedAgentControllerRef(caller, request)))
+    : null;
   const { outcome } = await stub.rpcApplyAgentAccessDecision({
     decidedByProfileId: caller.profileId,
     decidedByUserId: caller.userId,
@@ -497,6 +511,7 @@ async function applyDecisionInSpace(
     spaceId: request.spaceId,
     status: request.status,
     ...(agentMember ? { agentMember } : {}),
+    ...(targetControllerRef ? { targetControllerRef } : {}),
   });
   return await finishAgentAccessDecision({
     db: caller.db,

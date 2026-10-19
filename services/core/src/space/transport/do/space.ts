@@ -23288,6 +23288,8 @@ export class Space extends DurableObject<CoreBindings> {
    */
   async rpcApplyAgentAccessDecision(input: {
     agentMember?: ResolvedSpaceMemberProfile;
+    /** The target's harness from its Binding; the member snapshot may lack it. */
+    targetControllerRef?: string;
     decidedByProfileId: string;
     decidedByUserId: string;
     organizationId: string;
@@ -23383,6 +23385,7 @@ export class Space extends DurableObject<CoreBindings> {
   }
   private async releaseAgentAccessHold(input: {
     agentMember?: ResolvedSpaceMemberProfile;
+    targetControllerRef?: string;
     decidedByProfileId: string;
     decidedByUserId: string;
     hold: SpaceAgentAccessHold;
@@ -23441,8 +23444,10 @@ export class Space extends DurableObject<CoreBindings> {
       const releasedSignal = sourceSignal
         ? buildReleasedAgentAccessSignal({
             controllerRef:
+              input.targetControllerRef ??
               readSpaceMemberRecord(this.ctx.storage.sql, hold.targetProfileId)
-                ?.controllerRefSnapshot ?? null,
+                ?.controllerRefSnapshot ??
+              null,
             signal: sourceSignal,
             targetProfileId: hold.targetProfileId,
           })
