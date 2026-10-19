@@ -139,6 +139,12 @@ export function planLaneSegments(
   const segments = [];
   for (const name of names) {
     const componentLane = lane === "auto" ? defaultLaneOf(name) : lane;
+    const component = COMPONENTS.find((entry) => entry.name === name);
+    if (component.lanes && !component.lanes.includes(componentLane)) {
+      throw new Error(
+        `${name} cannot run on --lane ${componentLane}. Use --lane github.`
+      );
+    }
     const last = segments.at(-1);
     if (last?.lane === componentLane) {
       last.components.push(name);

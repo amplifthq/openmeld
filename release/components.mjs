@@ -199,7 +199,8 @@ export const COMPONENTS = [
     ],
     dependsOn: ["core"],
     defaultLane: "github",
-    heavy: "about 20 minutes; a workstation needs the Apple signing identity",
+    lanes: ["github"],
+    heavy: "GitHub only: native Windows helper build and macOS signing",
     deploy: (sha) => [
       ["node", "scripts/release/publish-cli.mjs", "--release-sha", sha],
     ],

@@ -116,6 +116,15 @@ test("splits lanes into ordered segments so GitHub work waits for local dependen
   assert.deepEqual(planLaneSegments(["core", "gateway"], "local"), [
     { lane: "local", components: ["core", "gateway"] },
   ]);
+  for (const lane of ["local", "auto"]) {
+    assert.throws(
+      () => planLaneSegments(["core", "cli"], lane, () => "local"),
+      { message: "cli cannot run on --lane local. Use --lane github." }
+    );
+  }
+  assert.deepEqual(planLaneSegments(["cli"], "auto"), [
+    { lane: "github", components: ["cli"] },
+  ]);
 });
 
 test("dispatches one workflow run for a GitHub segment", () => {

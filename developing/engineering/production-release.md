@@ -95,6 +95,10 @@ ownership: [postgresql.md](postgresql.md). D1 is not a rollback target.
 
 ## CLI Release
 
+CLI and Service releases require `--scope cli --lane github`. The Windows
+process helper must be built on Windows before the macOS publish job signs
+and notarizes the binaries. The local lane cannot perform this release.
+
 A pull request that changes the CLI, Service, or Skills bumps
 `clients/openmeld-cli/package.json` and records one decision per changed
 component in `release/local-components-policy.json`:
