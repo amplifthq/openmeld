@@ -356,7 +356,8 @@ requests per group, only non-failing pull requests, and a 60-minute status
 check timeout; "Require branches to be up to date before merging" stays off.
 A pull request enters the queue only after its own required checks pass, so a
 green candidate on an older base needs no sync. Until merge queue is required
-in GitHub, strict up-to-date protection is the freshness owner instead.
+in GitHub, strict up-to-date protection is the freshness owner; never turn
+both off, because a green status on an older base is then mergeable untested.
 
 Do not create a manual substitute queue, release owner, global `main` freeze,
 or polling loop; they serialize independent work without adding merge evidence.
