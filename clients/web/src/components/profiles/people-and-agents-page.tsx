@@ -40,6 +40,7 @@ import { DirectoryMembersOverview } from "#/components/directory/directory-membe
 import {
 	MemberAgentDetail,
 	MemberAgentProfileSessionsSidebar,
+	UnknownMemberAgentNotice,
 } from "#/components/member-agents/member-agent-detail";
 import { useMemberAgentDirectory } from "#/components/member-agents/use-member-agent-directory";
 import {
@@ -736,9 +737,9 @@ function AgentsWorkspaceHome(input: {
 							row={selectedMemberAgentRow}
 						/>
 					) : (
-						<div className="grid min-h-full place-items-center px-6 py-12 text-center text-muted-foreground text-sm">
-							This Agent isn’t available in this Organization.
-						</div>
+						<UnknownMemberAgentNotice
+							agentsPath={buildOrganizationAgentsPath(input.orgSlug)}
+						/>
 					),
 				memberAgentSidebar: selectedMemberAgentRow ? (
 					<MemberAgentProfileSessionsSidebar
