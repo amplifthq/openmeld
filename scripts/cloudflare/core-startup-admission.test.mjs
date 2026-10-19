@@ -35,7 +35,8 @@ const MISSING_STARTUP_TIME_RE = /did not report Worker Startup Time/u;
 const MISSING_VERSION_UPLOAD_RE = /did not record a version-upload event/u;
 // Same no-pending Wrangler output captured by the existing CLI release guard.
 const CURRENT_DATABASE = { status: 0, stdout: "No migrations to apply.\n" };
-const PENDING_DATABASE_ERROR = /Production database is behind/u;
+const PENDING_DATABASE_ERROR =
+  /Production database is behind[\s\S]*pnpm run deploy -- --scope db,core --sha <sha>/u;
 
 test("verifies the final Core bundle module graph before startup admission", () => {
   assert.deepEqual(buildCoreBundleEvidenceStepSpec(), {

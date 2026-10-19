@@ -109,7 +109,7 @@ function requireD1DatabaseCurrent(input, cwd) {
     [
       "Production database is behind the release source.",
       "Deploying Core now could run new code against an older database schema.",
-      "Run Scoped Production Release for the exact release SHA with scope `database`, wait for it to succeed, then rerun the guarded release.",
+      "Run `pnpm run deploy -- --scope db,core --sha <sha>` with the exact release SHA. Wait for db and Core to succeed before continuing.",
       evidence,
     ]
       .filter(Boolean)
