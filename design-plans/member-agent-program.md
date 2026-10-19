@@ -811,6 +811,14 @@ cache; Project redesign.
   inline (`clients/web/src/components/inbox/inbox-list.tsx`).
 - MemberAgent archive has no write path yet; gate it as a §6 operation when
   it lands.
+- Replaying a completed Center Agent `create_configured_agent_profile`
+  request re-applies its original working folder without the Phase 5 gate
+  (`agent-profile-creation-request-rpc.ts`, `applyConfiguredShimWorkspace`)
+  and can undo a later folder choice. Pre-existing; follow-up: apply the
+  folder only on first completion, or gate it.
+- A composer draft restored after navigation keeps the text of a mention of
+  a nonmember Agent but not the choice, so it posts without asking the
+  owner (no banner appears). Needs a stored-draft field; follow-up.
 - Auth's sensitive-operation audit write has no durable retry (logged on
   failure); follow-up.
 - Routines: whether `actorContext.openMeldProfileId` in
@@ -988,3 +996,10 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   window, audit gaps. §4.7, §6 and §13 updated. P2 folder UI (R1C-02) merged
   with its Codex fixes (Default Project folder removal refused in Core,
   frozen Binding target, revision-guarded lists).
+- 2026-10-19, smoke 1c fixes merged: folder-list writes gated as
+  `working_folder_write`; @ picker lists other owners' Agents not in the
+  Space ("Asks <owner>") and posts bind the request to the message; the
+  requester sees "Waiting for <owner>" with Withdraw instead of Working;
+  access changes broadcast to both views. A 4b defect found while testing
+  (refusals thrown inside `blockConcurrencyWhile` reset the Space Durable
+  Object) is fixed. Two follow-ups added to §13.
