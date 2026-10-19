@@ -1100,3 +1100,18 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   the open MemberAgent's Profiles and Sessions in the sidebar with the
   current Session active; two dead ends fixed (Profile back to its
   MemberAgent, Session to its MemberAgent page).
+- 2026-10-19, folder repair merged (`claude/map-1d-folder-repair`): a
+  `repair` folder operation in schema, Service (capability
+  `repairProfileFolders`) and Core; working-folder recovery now opens the one
+  Working folder dialog and the old workspace editor is gone. Release order:
+  Core before CLI/Service.
+- 2026-10-19, real-machine smoke round 4 (converged UI): 7 of 9 passed,
+  including folder choice running in the chosen folder, plain Codex DM
+  messages, Continue filtering, the native question answered inside Inbox,
+  inline default Profile editing, Session sidebar and switching, one Working
+  folder surface, and a navigation map with an exit on every path. Routed to
+  1d (`claude/map-1d-smoke-4`): identical Session cards in Direct messages,
+  an Inbox question that briefly errors before refresh, an answered Codex
+  request missing from Continue, a missing local back action on an unknown
+  MemberAgent, and inconsistent approval framing. An owner's own reply
+  showing the owner's own path is allowed.
