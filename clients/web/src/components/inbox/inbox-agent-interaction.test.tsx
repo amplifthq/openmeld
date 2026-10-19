@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { InboxAgentInteraction } from "./inbox-agent-interaction";
 
 const state = vi.hoisted(() => ({
+	fail: false,
 	hasMore: false,
 	items: [] as WakeProgressItem[],
 	send: vi.fn(),
@@ -23,10 +24,14 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 vi.mock("#/query/spaces/active-wake-progress", () => ({
 	spaceActiveWakeProgressSummaryQueryOptions: (input: { spaceId: string }) => ({
 		queryKey: ["active-wake-progress", input.spaceId],
-		queryFn: async () => ({
-			items: state.items,
-			pageInfo: { hasMore: state.hasMore },
-		}),
+		queryFn: () =>
+			state.fail
+				? Promise.reject(new Error("Request timed out"))
+				: Promise.resolve({
+						items: state.items,
+						pageInfo: { hasMore: state.hasMore },
+					}),
+		retry: false,
 	}),
 }));
 vi.mock("#/lib/spaces/agent-interaction-response", () => ({
@@ -98,6 +103,7 @@ function renderInteraction(queryClient = new QueryClient()) {
 
 afterEach(() => {
 	cleanup();
+	state.fail = false;
 	state.hasMore = false;
 	state.items = [];
 	state.send.mockReset();
@@ -146,6 +152,32 @@ describe("Answering an Agent's question in Inbox (§4.6)", () => {
 		await queryClient.refetchQueries();
 		expect(await screen.findByText(QUESTION_ENDED)).toBeTruthy();
 		expect(screen.queryByRole("radio", { name: "Allow once" })).toBeNull();
+	});
+
+	it("keeps the question when a later poll fails (R4-02)", async () => {
+		state.items = [pendingQuestion()];
+		const queryClient = new QueryClient();
+		renderInteraction(queryClient);
+		await screen.findByRole("radio", { name: "Allow once" });
+		state.fail = true;
+		await queryClient.refetchQueries();
+		expect(screen.getByRole("radio", { name: "Allow once" })).toBeTruthy();
+		expect(
+			screen.queryByText(
+				"This question could not be loaded. Refresh to try again."
+			)
+		).toBeNull();
+	});
+
+	it("frames the question like the other Inbox requests (R4-06)", async () => {
+		state.items = [pendingQuestion()];
+		renderInteraction();
+		const card = await screen
+			.findByRole("group", {
+				name: "Request from @claude",
+			})
+			.catch(() => screen.getByLabelText("Request from @claude"));
+		expect(card.className).not.toContain("border-0");
 	});
 
 	it("never calls a question ended when the conversation lists only its newest work", async () => {
