@@ -190,3 +190,43 @@ export const useArchivedMemberAgentSessionIds: (
 ) => ReadonlySet<string> = isMemberAgentsEnabled()
 	? useEnabledArchivedMemberAgentSessionIds
 	: () => NO_ARCHIVED_SESSIONS;
+
+function useEnabledMemberAgentSessionTitles(
+	memberAgents: MemberAgentIndexState
+): ReadonlyMap<string, string> {
+	const organizationId =
+		useOptionalAppOrganization()?.currentOrganization.id ?? "";
+	const profileIds = [...memberAgents.index.byProfileId.keys()];
+	const sessions = useQueries({
+		queries: profileIds.map((agentProfileId) =>
+			agentDirectMessageSessionsQueryOptions({
+				organizationId,
+				agentProfileId,
+				enabled: memberAgents.ready && Boolean(organizationId),
+			})
+		),
+	});
+	const key = JSON.stringify(
+		sessions.flatMap(
+			(query) =>
+				query.data?.sessions.map((session) => [
+					session.spaceId,
+					session.name ?? "New chat",
+				]) ?? []
+		)
+	);
+	// Stable across renders until a Session is added or renamed.
+	return useMemo(() => new Map(JSON.parse(key) as [string, string][]), [key]);
+}
+
+const NO_SESSION_TITLES: ReadonlyMap<string, string> = new Map();
+
+/**
+ * Session titles of the member's MemberAgent Direct Messages, by Space
+ * (the same names the chat header shows). Empty with the feature off.
+ */
+export const useMemberAgentSessionTitles: (
+	memberAgents: MemberAgentIndexState
+) => ReadonlyMap<string, string> = isMemberAgentsEnabled()
+	? useEnabledMemberAgentSessionTitles
+	: () => NO_SESSION_TITLES;
