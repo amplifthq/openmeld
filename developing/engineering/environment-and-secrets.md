@@ -145,11 +145,11 @@ component runner reads it directly; the Turbo supervisor must not forward it
 to other components. Without it, credential storage remains unavailable.
 
 Remote Agent local and development traffic uses the checked-in
-`openmeld-remote-agent-prod` AI Gateway id because Cloudflare Provider Keys are
-gateway-scoped. The shared `openmeld-remote-agent` Doppler project supplies the
-account-scoped gateway token and the configured `openrouter` BYOK alias; it does
-not copy the OpenRouter provider key into a local file or Worker environment.
-Worker-environment and Organization metadata keep requests attributable.
+`openmeld-remote-agent-prod` AI Gateway id. The shared `openmeld-remote-agent`
+Doppler project supplies the account-scoped gateway token. Provider
+authorization and key handling follow [workspace AI credits and keys](ai-billing.md#configuration-and-open-source-boundary).
+A stored Provider Key alias is not a funding source. Worker-environment and
+Organization metadata keep requests attributable.
 
 Remote Agent content diagnostics use the optional
 `CLOUDFLARE_OPENMELD_INTERNAL_DIAGNOSTICS_ORGANIZATION_ID` in only the
