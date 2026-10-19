@@ -351,13 +351,13 @@ merge-group commit from current `main` and the queued changes;
 `merge-group-final-candidate.yml` validates that tree with the same trusted
 current-main policy and reports the required `OpenMeld Final Candidate` check,
 and CodeQL also runs on `merge_group`. Branch protection for `main` requires
-merge queue with merge method `merge`, build concurrency 1, one to five pull
-requests per group, only non-failing pull requests, and a 60-minute status
-check timeout; "Require branches to be up to date before merging" stays off.
-A pull request enters the queue only after its own required checks pass, so a
-green candidate on an older base needs no sync. Until merge queue is required
-in GitHub, strict up-to-date protection is the freshness owner; never turn
-both off, because a green status on an older base is then mergeable untested.
+merge queue (merge method `merge`, build concurrency 1, one to five pull
+requests per group, only non-failing pull requests, 60-minute status check
+timeout) with "Require branches to be up to date before merging" off. A pull
+request enters the queue after its own required checks pass, so a green
+candidate on an older base needs no sync. Until merge queue is required,
+strict up-to-date protection is the freshness owner; never turn both off, or
+a green status on an older base merges untested.
 
 Do not create a manual substitute queue, release owner, global `main` freeze,
 or polling loop; they serialize independent work without adding merge evidence.
