@@ -42,6 +42,7 @@ import {
   handlePostSignalUseCase,
   publishPresenceSignalUseCase,
   publishTextSignalUseCase,
+  resolveContextSelectionControllerRefs,
   SPACE_WAKE_TARGET_INVALID_ERROR_CODE,
   SpaceSignalAuthoringError,
 } from "../space/application/space-signal-service";
@@ -1535,6 +1536,63 @@ describe("space signal service", () => {
     expect(admitTask).not.toHaveBeenCalled();
     expect(harness.broadcastSignal).not.toHaveBeenCalled();
     expect(harness.flushPendingDispatchOutbox).not.toHaveBeenCalled();
+  });
+
+  it("accepts a folder choice for a Direct Message Agent whose member has no controller snapshot", async () => {
+    // Smoke R3-01: Direct Message members are added without a controller
+    // snapshot; the Agent's primary Binding names its harness.
+    const folderId = "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11";
+    const targetProfileId = "agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const signal = createSignal();
+    signal.data.messageEnvelope = {
+      ...TEST_MESSAGE_ENVELOPE,
+      activationTargets: [targetProfileId],
+    };
+    // The composer sends a per-target selection: a new task in that folder.
+    signal.data.contextSelections = {
+      [targetProfileId]: { folderId, mode: "new" },
+    };
+    const readBindingControllerRef = vi.fn(async () => "builtin:claude-code");
+    const member = {
+      controllerRefSnapshot: null,
+      ownerUserIdSnapshot: "owner-1",
+      profileKindSnapshot: "agent",
+    };
+    const refs = await resolveContextSelectionControllerRefs({
+      readBindingControllerRef,
+      readMember: () => member,
+      signal,
+    });
+    expect(readBindingControllerRef).toHaveBeenCalledWith({
+      ownerUserId: "owner-1",
+      profileId: targetProfileId,
+    });
+    expect(() =>
+      assertSpaceContextSelectionSupported({
+        signal,
+        readControllerRef: (profileId) => refs.get(profileId) ?? null,
+      })
+    ).not.toThrow();
+    // Without a Binding the target stays unknown and the choice is refused.
+    const unbound = await resolveContextSelectionControllerRefs({
+      readBindingControllerRef: async () => null,
+      readMember: () => member,
+      signal,
+    });
+    expect(() =>
+      assertSpaceContextSelectionSupported({
+        signal,
+        readControllerRef: (profileId) => unbound.get(profileId) ?? null,
+      })
+    ).toThrow();
+    // A recorded snapshot is used as is.
+    const readNever = vi.fn(async () => null);
+    await resolveContextSelectionControllerRefs({
+      readBindingControllerRef: readNever,
+      readMember: () => ({ ...member, controllerRefSnapshot: "builtin:codex" }),
+      signal,
+    });
+    expect(readNever).not.toHaveBeenCalled();
   });
 
   it("preserves ordinary non-session controllers and validated hosted file handoffs", async () => {

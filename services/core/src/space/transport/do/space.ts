@@ -652,6 +652,7 @@ import { measureSpaceSchemaInitialization } from "../../application/space-schema
 import { assertSameSpaceSignalReplay } from "../../application/space-signal-idempotency";
 import {
   assertSpaceContextSelectionSupported,
+  resolveContextSelectionControllerRefs,
   assertSpaceSignalNavigationActionPolicy,
   assertWakeDeviceWaitAuthoring,
   buildSignalTextOptions,
@@ -27380,11 +27381,28 @@ export class Space extends DurableObject<CoreBindings> {
         resolveFiles: (files) => this.resolveSpaceMessageFileReferences(files),
       });
     }
+    const selectionControllerRefs = await resolveContextSelectionControllerRefs(
+      {
+        readBindingControllerRef: async ({ ownerUserId, profileId }) => {
+          const db = getPostgresDatabase(this.bindings);
+          const binding = db
+            ? await readPrimaryAgentProfileBindingRecord({
+                agentProfileId: profileId,
+                db,
+                owner: { id: ownerUserId, kind: "owner_account" },
+              })
+            : null;
+          return binding?.agentControllerRef ?? null;
+        },
+        readMember: (profileId) =>
+          readSpaceMemberRecord(this.ctx.storage.sql, profileId),
+        signal,
+      }
+    );
     assertSpaceContextSelectionSupported({
       signal,
       readControllerRef: (profileId) =>
-        readSpaceMemberRecord(this.ctx.storage.sql, profileId)
-          ?.controllerRefSnapshot,
+        selectionControllerRefs.get(profileId) ?? null,
     });
     if (
       signal.type === "signal.text" &&

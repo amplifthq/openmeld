@@ -164,40 +164,6 @@ describe("composer folder menu", () => {
 			targetProfileId: "agent",
 		});
 	});
-
-	it("explains why a task without a finished reply can't move to another folder", async () => {
-		render(
-			<DropdownMenu>
-				<DropdownMenuTrigger>Options</DropdownMenuTrigger>
-				<FluidDropdownMenuContent>
-					<SpaceComposerAgentOptions
-						choice={{
-							label: "Failed task",
-							selection: { mode: "resume", sourceWakeId: "wake-failed" },
-							targetProfileId: "agent",
-						}}
-						folders={[DEFAULT_FOLDER, OTHER_FOLDER]}
-						onChange={vi.fn()}
-						sources={[
-							{
-								forkable: false,
-								label: "Failed task",
-								sourceWakeId: "wake-failed",
-								targetProfileId: "agent",
-							},
-						]}
-						supportsCurrentFolder
-						targetProfileId="agent"
-					/>
-				</FluidDropdownMenuContent>
-			</DropdownMenu>
-		);
-		fireEvent.click(screen.getByRole("button", { name: "Options" }));
-		const folderMenu = await screen.findByRole("menuitem", {
-			name: FOLDER_MENU,
-		});
-		expect(folderMenu.getAttribute("aria-disabled")).toBe("true");
-	});
 });
 
 describe("continuation sources", () => {
@@ -227,12 +193,10 @@ describe("continuation sources", () => {
 		}),
 	];
 
-	it("offers a fork only from a task the Agent finished", async () => {
+	it("offers only requests the Agent finished, to continue or fork", async () => {
 		const sources = buildSpaceTaskSources(items, "human");
-		expect(sources.map((source) => [source.label, source.forkable])).toEqual([
-			["ask-failed", false],
-			["ask-answered", true],
-		]);
+		// A failed request and one still streaming have no finished turn.
+		expect(sources.map((source) => source.label)).toEqual(["ask-answered"]);
 		render(
 			<DropdownMenu>
 				<DropdownMenuTrigger>Options</DropdownMenuTrigger>
@@ -248,14 +212,13 @@ describe("continuation sources", () => {
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Options" }));
 		fireEvent.click(await screen.findByText("Session"));
-		// Both can be continued; only the finished one can be forked.
 		expect(
-			(await screen.findAllByRole("menuitemradio", { name: "ask-failed" }))
+			(await screen.findAllByRole("menuitemradio", { name: "ask-answered" }))
 				.length
-		).toBe(1);
-		expect(
-			screen.getAllByRole("menuitemradio", { name: "ask-answered" }).length
 		).toBe(2);
+		expect(
+			screen.queryByRole("menuitemradio", { name: "ask-failed" })
+		).toBeNull();
 	});
 });
 

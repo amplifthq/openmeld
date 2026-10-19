@@ -4545,6 +4545,70 @@ describe("runtime transport runtime coordinator transport contract", () => {
     await expect(
       plan({ mode: "new", access: "space_context", folderId: folderB })
     ).rejects.toThrow("folder_requires_workspace_access");
+
+    // Smoke R3-04: once a fork adds a second Session to this scope, an
+    // ordinary message (no selection) continues the one used last, while an
+    // explicit "Automatic" choice still asks the requester to pick.
+    const fork = await storage.transaction((transaction) =>
+      prepareExecutionContextAssignment({
+        contextModeActive: true,
+        storage: transaction,
+        record: {
+          ...original,
+          // The fork's Wake is accepted after the source's.
+          createdAtMs: original.createdAtMs + 500,
+          primaryDispatchId: "dispatch-next",
+          targetWakeLifecycleId: nextIdentity.targetWakeLifecycleId,
+          targetWakeLifecycleIdentity: nextIdentity,
+          acceptedDispatchSnapshot: {
+            ...originalSnapshot,
+            contextRequest: {
+              ...sourceRequest,
+              selection: { mode: "fork", sourceWakeId, folderId: folderB },
+            },
+          },
+        },
+      })
+    );
+    for (const [key, value] of Object.entries(fork.writes)) {
+      await storage.put(key, value);
+    }
+    const forkContextId =
+      fork.record.acceptedDispatchSnapshot?.executionContext?.id;
+    const laterIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-plain",
+      dispatchId: "dispatch-plain",
+      sourceSignalId: "source-plain",
+      spaceId: HEX_SPACE_ID,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    const planPlain = (required: boolean) =>
+      storage.transaction((transaction) =>
+        prepareExecutionContextAssignment({
+          contextModeActive: true,
+          storage: transaction,
+          record: {
+            ...original,
+            createdAtMs: original.createdAtMs + 1000,
+            primaryDispatchId: "dispatch-plain",
+            targetWakeLifecycleId: laterIdentity.targetWakeLifecycleId,
+            targetWakeLifecycleIdentity: laterIdentity,
+            acceptedDispatchSnapshot: {
+              ...originalSnapshot,
+              contextRequest: {
+                ...sourceRequest,
+                required,
+                selection: { mode: "auto" },
+              },
+            },
+          },
+        })
+      );
+    expect(
+      (await planPlain(false)).record.acceptedDispatchSnapshot?.executionContext
+        ?.id
+    ).toBe(forkContextId);
+    await expect(planPlain(true)).rejects.toThrow("selection_required");
   });
 
   it("freezes each Wake's request chain on its assignment, never on the Session or the Service task", async () => {

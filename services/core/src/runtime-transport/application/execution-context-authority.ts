@@ -495,6 +495,7 @@ export async function prepareExecutionContextAssignment(
       [associationKey]: {
         contextId: context.assignment.id,
         targetWakeLifecycleId: input.record.targetWakeLifecycleId,
+        usedAtMs: input.record.createdAtMs,
       },
       [wakeContextKey(input.record.targetWakeLifecycleId)]: createWakeContext(
         input.record,
@@ -621,6 +622,41 @@ async function resumeAuthorizedWork(
   };
 }
 
+type ScopeAssociationRecord = {
+  contextId: string;
+  targetWakeLifecycleId?: string;
+  /** Acceptance time of the last Wake that used this context. */
+  usedAtMs?: number;
+};
+
+const MAX_IMPLICIT_SCOPE_CONTEXTS = 50;
+
+/**
+ * The context used most recently; associations written before usedAtMs
+ * existed fall back to their context's creation time.
+ */
+async function readLatestAssociatedContext(
+  storage: Pick<Storage, "get">,
+  associations: ScopeAssociationRecord[]
+): Promise<ContextSource | null> {
+  let latest: { context: ContextRecord; usedAtMs: number } | null = null;
+  for (const association of associations) {
+    const context = requireContext(
+      await storage.get(CONTEXT_PREFIX + association.contextId)
+    );
+    const usedAtMs = association.usedAtMs ?? context.createdAtMs;
+    if (
+      !latest ||
+      usedAtMs > latest.usedAtMs ||
+      (usedAtMs === latest.usedAtMs &&
+        context.createdAtMs > latest.context.createdAtMs)
+    ) {
+      latest = { context, usedAtMs };
+    }
+  }
+  return latest ? { context: latest.context } : null;
+}
+
 async function resolveContextSource(
   input: AssignmentInput,
   request: ContextRequest
@@ -630,23 +666,22 @@ async function resolveContextSource(
     return null;
   }
   if (selection.mode === "auto") {
-    const associations = await input.storage.list<{ contextId: string }>({
+    // An ordinary message carries no selection and must never need one:
+    // with several Sessions in this scope it continues the one used last.
+    // An explicit "Automatic" choice still asks the requester to pick.
+    const implicit = request.required === false;
+    const associations = await input.storage.list<ScopeAssociationRecord>({
       prefix: `${ASSOCIATION_PREFIX + scopeKey(request.scope)}:`,
-      limit: 2,
+      limit: implicit ? MAX_IMPLICIT_SCOPE_CONTEXTS : 2,
     });
-    if (associations.size > 1) {
+    if (associations.size > 1 && !implicit) {
       throw new ExecutionContextSelectionError(
         "execution_context.selection_required"
       );
     }
-    const association = [...associations.values()][0];
-    return association
-      ? {
-          context: requireContext(
-            await input.storage.get(CONTEXT_PREFIX + association.contextId)
-          ),
-        }
-      : null;
+    return await readLatestAssociatedContext(input.storage, [
+      ...associations.values(),
+    ]);
   }
   const wake = readWakeContext(
     await input.storage.get(wakeContextKey(selection.sourceWakeId))

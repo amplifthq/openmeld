@@ -92,7 +92,6 @@ it.each([
 							targetProfileId: "agent",
 							sourceWakeId: "wake-previous",
 							label: "Review upload",
-							forkable: true,
 						},
 					]}
 					supportsCurrentFolder
