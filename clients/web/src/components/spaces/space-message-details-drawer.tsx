@@ -431,6 +431,7 @@ function MessageDetailsBody(input: {
 				profileId: input.profileId,
 				source: buildFolderContinueSource({
 					item: input.item,
+					replyContext: data.replyContext,
 					threadId: input.threadId ?? null,
 				}),
 				spaceId: input.spaceId,
@@ -1644,14 +1645,36 @@ function resolveDiagnosticReportButtonText(input: {
 /** Only the requester's own sent message can be continued from here. */
 function buildFolderContinueSource(input: {
 	item: SpaceTimelineItem;
+	replyContext: GetSpaceMessageDetailsResponse["replyContext"];
 	threadId: string | null;
 }): FolderContinueSource | null {
 	const item = input.item;
-	return item.signalType === "signal.text" &&
+	if (
+		item.signalType === "signal.text" &&
 		item.actorProfileKind === "human" &&
 		item.deliveryState === "sent" &&
 		!item.recalledAt &&
 		item.text.trim()
-		? { sourceSignalId: item.id, text: item.text, threadId: input.threadId }
-		: null;
+	) {
+		return {
+			sourceSignalId: item.id,
+			text: item.text,
+			threadId: input.threadId,
+		};
+	}
+	// The failure notice itself is open, for example when its request is not
+	// in loaded history: continue the request it answers.
+	if (
+		item.signalType === "signal.system_notice" &&
+		item.systemNoticeType === "terminal_failure" &&
+		item.replyToSignalId
+	) {
+		const preview = input.replyContext.previewText;
+		return {
+			sourceSignalId: item.replyToSignalId,
+			text: preview.state === "recorded" ? (preview.value ?? "") : "",
+			threadId: input.threadId,
+		};
+	}
+	return null;
 }

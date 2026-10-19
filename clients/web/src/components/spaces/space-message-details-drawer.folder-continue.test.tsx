@@ -17,6 +17,7 @@ import type { AgentProfileEditDialogContext } from "#/components/agents/agent-pr
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { spaceMessageDetailsQueryOptions } from "#/query/spaces/message-details";
 import { SpaceAgentProfileEditProvider } from "./space-agent-profile-edit-context";
+import type { SpaceExecutionRecoveryHandler } from "./space-execution-recovery-actions";
 import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
 
 // Smoke R5-01 / R6-01: the owner's Direct Message drawer, mounted as
@@ -96,12 +97,16 @@ function timelineItem(
 	} as SpaceTimelineItem;
 }
 
-function messageDetails(): GetSpaceMessageDetailsResponse {
+function messageDetails(input: {
+	selectNotice: boolean;
+}): GetSpaceMessageDetailsResponse {
 	const notApplicable = {
 		source: "none",
 		state: "not_applicable",
 		value: null,
 	} as never;
+	const recorded = (value: string) =>
+		({ source: "signal", state: "recorded", value }) as never;
 	// Every agent fact is not applicable to a human's message.
 	const agentContext = new Proxy(
 		{ state: "not_applicable" },
@@ -126,13 +131,21 @@ function messageDetails(): GetSpaceMessageDetailsResponse {
 			signalType: "signal.text",
 		},
 		query: { signalId: "sig-request", spaceId: SPACE },
-		replyContext: {
-			previewText: notApplicable,
-			replyingToAuthor: notApplicable,
-			replyingToSignalId: notApplicable,
-			resolved: false,
-			state: "not_applicable",
-		},
+		replyContext: input.selectNotice
+			? {
+					previewText: recorded("Reply RECOVERED only."),
+					replyingToAuthor: recorded("Felix"),
+					replyingToSignalId: recorded("sig-request"),
+					resolved: true,
+					state: "recorded",
+				}
+			: {
+					previewText: notApplicable,
+					replyingToAuthor: notApplicable,
+					replyingToSignalId: notApplicable,
+					resolved: false,
+					state: "not_applicable",
+				},
 		wakeContext: {
 			clientMessageId: notApplicable,
 			sourceSignalId: notApplicable,
@@ -142,7 +155,41 @@ function messageDetails(): GetSpaceMessageDetailsResponse {
 	} as unknown as GetSpaceMessageDetailsResponse;
 }
 
-function renderDirectMessageDrawer(input: { ownerUserId: string }) {
+// The Space page always inspects exact recovery first; a changed folder has
+// none, so the folder continuation is the action.
+const unavailableExecutionRecovery: SpaceExecutionRecoveryHandler =
+	async () => ({
+		action: null,
+		label: null,
+		status: "unavailable",
+		warning: null,
+	});
+
+function failureNotice(): SpaceTimelineItem {
+	return timelineItem({
+		actorProfileId: AGENT,
+		actorProfileKind: "agent",
+		id: "sig-failure",
+		replyToSignalId: "sig-request",
+		signalType: "signal.system_notice",
+		systemNoticeDispatchId: "dispatch-after-repair",
+		systemNoticeFailureStage: "execution",
+		systemNoticeReasonCode: "execution_context.workspace_changed",
+		systemNoticeTargetProfileId: AGENT,
+		systemNoticeType: "terminal_failure",
+		text: "Claude Code couldn't reply: This chat’s session works in a folder that is no longer the Agent’s working folder.",
+	});
+}
+
+function renderDirectMessageDrawer(input: {
+	onRecoverExecution?: SpaceExecutionRecoveryHandler;
+	ownerUserId: string;
+	/** Open the failure notice itself instead of the request. */
+	selectNotice?: boolean;
+}) {
+	const selected = input.selectNotice
+		? failureNotice()
+		: timelineItem({ id: "sig-request", wakeTargetProfileIds: [AGENT] });
 	const queryClient = new QueryClient({
 		defaultOptions: { queries: { retry: false } },
 	});
@@ -150,10 +197,10 @@ function renderDirectMessageDrawer(input: { ownerUserId: string }) {
 		spaceMessageDetailsQueryOptions({
 			enabled: true,
 			openMeldProfileId: OWNER_HUMAN,
-			signalId: "sig-request",
+			signalId: selected.id,
 			spaceId: SPACE,
 		}).queryKey,
-		messageDetails()
+		messageDetails({ selectNotice: input.selectNotice === true })
 	);
 	const editContext = {
 		actorProfileId: OWNER_HUMAN,
@@ -176,30 +223,17 @@ function renderDirectMessageDrawer(input: { ownerUserId: string }) {
 					canStartNewTask={true}
 					diagnosticReportStatus="idle"
 					errorLogMessage="Failed to report a space message."
-					item={timelineItem({
-						id: "sig-request",
-						wakeTargetProfileIds: [AGENT],
-					})}
+					item={selected}
 					onJumpToMessage={vi.fn()}
 					onOpenChange={vi.fn()}
+					onRecoverExecution={
+						input.onRecoverExecution ?? unavailableExecutionRecovery
+					}
 					onReportMessage={vi.fn(async () => undefined)}
 					open={true}
 					openMeldProfileId={OWNER_HUMAN}
 					orgSlug="acme"
-					replyItems={[
-						timelineItem({
-							actorProfileId: AGENT,
-							actorProfileKind: "agent",
-							id: "sig-failure",
-							replyToSignalId: "sig-request",
-							signalType: "signal.system_notice",
-							systemNoticeFailureStage: "execution",
-							systemNoticeReasonCode: "execution_context.workspace_changed",
-							systemNoticeTargetProfileId: AGENT,
-							systemNoticeType: "terminal_failure",
-							text: "Claude Code couldn't reply: This chat’s session works in a folder that is no longer the Agent’s working folder.",
-						}),
-					]}
+					replyItems={input.selectNotice ? [] : [failureNotice()]}
 					spaceId={SPACE}
 					targetProfileDisplayNamesByProfileId={
 						new Map([[AGENT, "Claude Code"]])
@@ -254,6 +288,44 @@ describe("Direct Message drawer after a working-folder repair", () => {
 			},
 			spaceId: SPACE,
 		});
+	});
+
+	it("offers it once exact execution recovery is unavailable", async () => {
+		const onRecoverExecution = vi.fn<SpaceExecutionRecoveryHandler>(
+			async () => ({
+				action: null,
+				label: null,
+				status: "unavailable",
+				warning: null,
+			})
+		);
+		renderDirectMessageDrawer({
+			onRecoverExecution,
+			ownerUserId: "user-owner",
+		});
+		const activity = await screen.findByRole("region", {
+			name: "Claude Code activity",
+		});
+		expect(
+			await within(activity).findByRole("button", {
+				name: "Continue in folder-one",
+			})
+		).toBeTruthy();
+		expect(onRecoverExecution).toHaveBeenCalled();
+	});
+
+	it("continues the answered request when the failure notice itself is open", async () => {
+		renderDirectMessageDrawer({
+			ownerUserId: "user-owner",
+			selectNotice: true,
+		});
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Continue in folder-one" })
+		);
+		await waitFor(() => expect(postNormalMessage).toHaveBeenCalledTimes(1));
+		const sent = postNormalMessage.mock.calls[0]?.[0];
+		expect(sent.messageEnvelope.replyToSignalId).toBe("sig-request");
+		expect(sent.text).toContain("Reply RECOVERED only.");
 	});
 
 	it("offers nothing to a viewer who does not own the Agent", async () => {

@@ -25,6 +25,9 @@ export function buildFolderContinueText(input: { text: string }): string {
 		"",
 	].join("\n");
 	const available = MAX_TEXT_LENGTH - header.length;
+	if (!input.text.trim()) {
+		return `${header}The original request is the message this replies to.`;
+	}
 	return input.text.length <= available
 		? header + input.text
 		: header +
