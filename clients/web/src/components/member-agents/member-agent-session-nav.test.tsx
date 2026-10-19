@@ -1,4 +1,5 @@
-import { renderHook } from "@testing-library/react";
+import { render, renderHook, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { expect, it, vi } from "vitest";
 import type { Conversation } from "#/components/spaces/conversation-sidebar-model";
 import { useActiveMemberAgentSessionNav } from "./member-agent-session-nav";
@@ -6,8 +7,25 @@ import { useActiveMemberAgentSessionNav } from "./member-agent-session-nav";
 const { sessionGroups } = vi.hoisted(() => ({ sessionGroups: vi.fn() }));
 vi.mock("./use-member-agents", () => ({
 	useMemberAgentIndex: () => ({
-		index: { byId: new Map([["ma-1", { displayName: "Codex" }]]) },
+		index: {
+			byId: new Map([
+				["ma-1", { displayName: "Codex", memberAgent: { id: "ma-1" } }],
+			]),
+		},
 	}),
+}));
+vi.mock("@tanstack/react-router", () => ({
+	Link: (props: { to: string; children: ReactNode; "aria-label": string }) => (
+		<a aria-label={props["aria-label"]} href={props.to}>
+			{props.children}
+		</a>
+	),
+}));
+vi.mock("@openmeld/ui/components/tooltip", () => ({
+	TooltipHint: (props: { children: ReactNode }) => props.children,
+}));
+vi.mock("#/lib/organizations/organization-context", () => ({
+	useAppOrganization: () => ({ currentOrganization: { slug: "acme" } }),
 }));
 vi.mock("./member-agent-chat-history", () => ({
 	useMemberAgentSessionGroups: sessionGroups,
@@ -54,6 +72,11 @@ it("lists the open MemberAgent's Sessions by Profile for one-click switching", (
 		{ label: "Codex", items: [["s-1", "Plan", "/dm/s-1"]] },
 		{ label: "Codex · Review", items: [["s-2", "Audit", "/dm/s-2"]] },
 	]);
+	// The first group links back to the MemberAgent's page.
+	render(<div>{result.current[0]?.labelAccessory}</div>);
+	expect(
+		screen.getByRole("link", { name: "Open Codex" }).getAttribute("href")
+	).toBe("/o/acme/agents?memberAgentId=ma-1");
 });
 
 it("adds nothing outside a MemberAgent Session", () => {

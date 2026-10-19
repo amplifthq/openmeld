@@ -42,7 +42,10 @@ import {
 	MemberAgentProfileSessionsSidebar,
 } from "#/components/member-agents/member-agent-detail";
 import { useMemberAgentDirectory } from "#/components/member-agents/use-member-agent-directory";
-import { useMemberAgentSync } from "#/components/member-agents/use-member-agents";
+import {
+	useMemberAgentIndex,
+	useMemberAgentSync,
+} from "#/components/member-agents/use-member-agents";
 import { CreateProfileDialog } from "#/components/profiles/create-profile-dialog";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { isLocalWebOrigin } from "#/lib/local-web-origin";
@@ -69,6 +72,7 @@ import {
 	removeOptimisticAgentProfileCreation,
 } from "#/query/profiles/agent-profile-creation-requests";
 import { startQueryKeys } from "#/query/query-keys";
+import { resolveAgentListReturn } from "./agent-list-return";
 
 export type ProfileHomeId = "agents" | "people";
 type AgentWorkspaceView = "agents" | "requests";
@@ -82,6 +86,8 @@ const EMPTY_AGENT_PROFILE_READINESS_PENDING_PROFILE_IDS: ReadonlySet<string> =
 
 export function PeopleAndAgentsPage(input: {
 	returnToAgentDirectory?: boolean;
+	/** Back returns to this MemberAgent's page instead of the Agents list. */
+	returnToMemberAgentId?: string;
 	personId?: string;
 	activityPreview?: boolean;
 	activeAgentView?: AgentWorkspaceView;
@@ -97,6 +103,7 @@ export function PeopleAndAgentsPage(input: {
 	const orgSlug = currentOrganization.slug;
 	const profileHomeRoutes = buildProfileHomeRoutes(orgSlug);
 	const navigate = useNavigate();
+	const memberAgentIndex = useMemberAgentIndex();
 	const queryClient = useQueryClient();
 	const [isCreateProfileOpen, setIsCreateProfileOpen] = useState(false);
 	const [activityPreview, setActivityPreview] = useState(false);
@@ -251,11 +258,15 @@ export function PeopleAndAgentsPage(input: {
 			<AgentsWorkspaceHome
 				activeView={activeAgentView}
 				activityPreview={activityPreview}
-				agentListReturn={
-					input.returnToAgentDirectory
-						? { to: profileHomeRoutes.agents, label: "Back to Agents" }
-						: undefined
-				}
+				agentListReturn={resolveAgentListReturn({
+					agentsPath: profileHomeRoutes.agents,
+					memberAgentName: input.returnToMemberAgentId
+						? memberAgentIndex.index.byId.get(input.returnToMemberAgentId)
+								?.displayName
+						: undefined,
+					returnToAgentDirectory: input.returnToAgentDirectory,
+					returnToMemberAgentId: input.returnToMemberAgentId,
+				})}
 				currentUserId={currentUserId}
 				fallbackOwnerLabel={fallbackOwnerLabel}
 				focusRequestId={input.focusRequestId ?? null}
@@ -284,7 +295,11 @@ export function PeopleAndAgentsPage(input: {
 					navigate({
 						search:
 							input.returnToAgentDirectory || (!input.personId && personId)
-								? { from: "agents" }
+								? {
+										from: "agents",
+										// Opened from a MemberAgent's page: Back returns there.
+										memberAgentId: input.focusMemberAgentId ?? undefined,
+									}
 								: undefined,
 						to: personId
 							? buildOrganizationPersonAgentPath({
