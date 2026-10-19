@@ -36,6 +36,7 @@ vi.mock("./use-conversations", async () => {
 });
 vi.mock("#/components/member-agents/member-agent-session-nav", () => ({
 	useActiveMemberAgentSessionNav: () => [],
+	useMemberAgentSessionDisclosure: (disclosure: unknown) => disclosure,
 }));
 vi.mock("#/lib/profiles/use-default-human-profile", () => ({
 	useDefaultHumanProfile: () => ({ defaultHumanProfile: null }),

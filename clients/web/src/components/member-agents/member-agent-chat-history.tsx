@@ -1,4 +1,5 @@
 import { createDirectMessageApi } from "@openmeld/api-client";
+import { AGENT_DIRECT_MESSAGE_SESSION_NAME_MAX_LENGTH } from "@openmeld/schemas";
 import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -115,7 +116,11 @@ export function MemberAgentChatHistory(input: {
 				renderTrailingItems={sessionActions.renderMenuItems}
 				title={title}
 				titleAction={
-					<ChatTitleEditor onSave={sessionActions.rename} title={title} />
+					<ChatTitleEditor
+						maxLength={AGENT_DIRECT_MESSAGE_SESSION_NAME_MAX_LENGTH}
+						onSave={sessionActions.rename}
+						title={title}
+					/>
 				}
 			/>
 			{sessionActions.dialogs}

@@ -1,12 +1,48 @@
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { ChatCircleTextIcon, GearSixIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
+import { useState } from "react";
 import type { AppContextualNavGroup } from "#/components/app/app-contextual-layout";
 import type { Conversation } from "#/components/spaces/conversation-sidebar-model";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationAgentsPath } from "#/lib/organizations/organization-routes";
 import { useMemberAgentSessionGroups } from "./member-agent-chat-history";
 import { useMemberAgentIndex } from "./use-member-agents";
+
+const SESSION_GROUP_PREFIX = "member-agent-sessions:";
+
+/**
+ * Open-state for the conversations sidebar groups: the open MemberAgent's
+ * Session groups start open (the current Session must be visible) and fold
+ * for this visit only; every other group keeps its saved state.
+ */
+export function useMemberAgentSessionDisclosure(disclosure: {
+	isOpen: (id: string) => boolean;
+	setOpen: (id: string, open: boolean) => void;
+}) {
+	const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
+	return {
+		isOpen: (id: string) =>
+			id.includes(SESSION_GROUP_PREFIX)
+				? !folded.has(id)
+				: disclosure.isOpen(id),
+		setOpen: (id: string, open: boolean) => {
+			if (!id.includes(SESSION_GROUP_PREFIX)) {
+				disclosure.setOpen(id, open);
+				return;
+			}
+			setFolded((current) => {
+				const next = new Set(current);
+				if (open) {
+					next.delete(id);
+				} else {
+					next.add(id);
+				}
+				return next;
+			});
+		},
+	};
+}
 
 /**
  * Sidebar groups for the MemberAgent whose Session is open: one group per
@@ -39,7 +75,7 @@ export function useActiveMemberAgentSessionNav(
 	}
 	const agentPagePath = `${buildOrganizationAgentsPath(currentOrganization.slug)}?memberAgentId=${encodeURIComponent(memberAgent.memberAgent.id)}`;
 	return sessions.groups.map((group, index) => ({
-		id: `member-agent-sessions:${group.id}`,
+		id: `${SESSION_GROUP_PREFIX}${group.id}`,
 		label: group.label,
 		ariaLabel: `${group.label} Sessions`,
 		labelAccessory: (

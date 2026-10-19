@@ -51,7 +51,10 @@ import {
 import { useAgentRequestSpaceLabels } from "#/components/agent-access/agent-access-space-labels";
 import { AppModuleSidebarHeader } from "#/components/app/app-module-sidebar-header";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
-import { useActiveMemberAgentSessionNav } from "#/components/member-agents/member-agent-session-nav";
+import {
+	useActiveMemberAgentSessionNav,
+	useMemberAgentSessionDisclosure,
+} from "#/components/member-agents/member-agent-session-nav";
 import { resolveInboxAttentionTone } from "#/lib/inbox/attention";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
@@ -318,6 +321,12 @@ function collapsedEntryTitle(search: string, viewerName?: string) {
 	return search.trim() ? undefined : centerAgentEntryTitle(viewerName);
 }
 
+// Filters and search narrow the conversation list; the open MemberAgent's
+// Sessions return when they are cleared.
+function unlessFiltered<Group>(groups: Group[], hasFilters: boolean): Group[] {
+	return hasFilters ? [] : groups;
+}
+
 // The collapsed Center Agent entry stands for several chats, so it has no
 // per-chat rename or archive action.
 function isSingleChat(item: Conversation) {
@@ -423,6 +432,7 @@ export function ConversationsSidebar(
 		activeSection,
 		!!search.trim() || filter.active
 	);
+	const groupDisclosure = useMemberAgentSessionDisclosure(disclosure);
 	// The account index is the source for ordinary Spaces. Keep session-only
 	// discovery from appearing to be the complete sidebar before it resolves.
 	const discoverableConversations = shouldHoldConversationRows({
@@ -891,12 +901,12 @@ export function ConversationsSidebar(
 							}
 						}}
 					>
-						<ControlledSidebarGroupStateProvider value={disclosure}>
+						<ControlledSidebarGroupStateProvider value={groupDisclosure}>
 							<AppContextualSidebarNav
 								activeItemId={model.selected}
 								ariaLabel="Conversations"
 								groups={[
-									...memberAgentSessionGroups,
+									...unlessFiltered(memberAgentSessionGroups, hasFilters),
 									...visible.map((section) => ({
 										id: section.id,
 										label: section.name,
