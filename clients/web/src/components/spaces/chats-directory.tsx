@@ -33,6 +33,11 @@ import {
 	DirectoryCardGrid,
 	DirectoryCardItem,
 } from "#/components/directory/directory-card-grid";
+import { collapseMemberAgentChats } from "#/components/member-agents/member-agent-conversations";
+import {
+	useArchivedMemberAgentSessionIds,
+	useMemberAgentIndex,
+} from "#/components/member-agents/use-member-agents";
 import {
 	resolveInboxAttentionLabel,
 	resolveInboxAttentionTone,
@@ -91,6 +96,8 @@ export function ChatsDirectory() {
 		includes: filter.includes,
 	});
 	const now = useNowMs(60_000);
+	const memberAgents = useMemberAgentIndex();
+	const archivedSessionIds = useArchivedMemberAgentSessionIds(memberAgents);
 	const { layout, setLayout } = useSpaceLayout(model.profileId, model.org.id);
 	const { showMessagePreviews } = useMessagePreviews(
 		model.profileId,
@@ -105,7 +112,17 @@ export function ChatsDirectory() {
 		model.preferences.groups.length > 0 ||
 		model.preferences.pinned.spaceIds.length > 0;
 	const sections = model.sections
-		.map((section) => ({ ...section, chats: model.rows(section.id) }))
+		.map((section) => ({
+			...section,
+			// One card per MemberAgent, like the sidebar (inert with the flag off).
+			chats: memberAgents.ready
+				? collapseMemberAgentChats({
+						archivedSpaceIds: archivedSessionIds,
+						chats: model.rows(section.id),
+						index: memberAgents.index,
+					})
+				: model.rows(section.id),
+		}))
 		.filter(
 			(section) =>
 				section.chats.length > 0 ||

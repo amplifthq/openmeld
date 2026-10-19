@@ -1,3 +1,4 @@
+import type { Chat } from "#/components/spaces/chat-sidebar-model";
 import type { Conversation } from "#/components/spaces/conversation-sidebar-model";
 import type { MemberAgentIndex } from "./member-agent-index";
 
@@ -67,12 +68,54 @@ export function resolveConversationMemberAgentId(
 	conversation: Conversation,
 	index: MemberAgentIndex
 ): string | null {
-	if (conversation.kind !== "direct-message" || conversation.chat.session) {
+	return conversation.kind === "direct-message"
+		? resolveChatMemberAgentId(conversation.chat, index)
+		: null;
+}
+
+/** The MemberAgent a Direct Message is with, when it is one of the viewer's. */
+export function resolveChatMemberAgentId(
+	chat: Pick<Chat, "peer" | "session">,
+	index: MemberAgentIndex
+): string | null {
+	if (chat.session) {
 		return null;
 	}
-	const peerProfileId = conversation.chat.peer?.profileId;
-	if (!peerProfileId || conversation.chat.peer?.profileKind !== "agent") {
+	const peerProfileId = chat.peer?.profileId;
+	if (!peerProfileId || chat.peer?.profileKind !== "agent") {
 		return null;
 	}
 	return index.byProfileId.get(peerProfileId)?.memberAgentId ?? null;
+}
+
+/**
+ * The Direct messages directory's version of the sidebar's one row per
+ * MemberAgent: a MemberAgent's Sessions collapse into one card named after
+ * the MemberAgent, at the position of its first (already sorted) Session.
+ * The card opens that Session; the chat header and sidebar list the rest.
+ * Archived Sessions leave the card.
+ */
+export function collapseMemberAgentChats<T extends Chat>(input: {
+	chats: readonly T[];
+	index: MemberAgentIndex;
+	archivedSpaceIds?: ReadonlySet<string>;
+}): T[] {
+	const seen = new Set<string>();
+	const result: T[] = [];
+	for (const chat of input.chats) {
+		const memberAgentId = resolveChatMemberAgentId(chat, input.index);
+		if (!memberAgentId) {
+			result.push(chat);
+			continue;
+		}
+		if (seen.has(memberAgentId) || input.archivedSpaceIds?.has(chat.spaceId)) {
+			continue;
+		}
+		seen.add(memberAgentId);
+		result.push({
+			...chat,
+			name: input.index.byId.get(memberAgentId)?.displayName ?? chat.name,
+		});
+	}
+	return result;
 }

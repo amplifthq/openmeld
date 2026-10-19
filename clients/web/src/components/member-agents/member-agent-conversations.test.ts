@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { Conversation } from "#/components/spaces/conversation-sidebar-model";
 import { MIGRATED_LISTING } from "#/test-support/member-agent-fixtures";
-import { groupMemberAgentConversations } from "./member-agent-conversations";
+import {
+	collapseMemberAgentChats,
+	groupMemberAgentConversations,
+} from "./member-agent-conversations";
 import { buildMemberAgentIndex } from "./member-agent-index";
 
 const index = buildMemberAgentIndex({
@@ -117,5 +120,28 @@ describe("MemberAgent Direct Message rows", () => {
 			memberAgentId: "ma-claude",
 			activity: 20,
 		});
+	});
+});
+
+describe("collapseMemberAgentChats (Direct messages directory, R4-04)", () => {
+	it("shows one card per MemberAgent at its first Session's position", () => {
+		const chats = conversations.map((conversation) =>
+			conversation.kind === "direct-message" ? conversation.chat : null
+		);
+		const collapsed = collapseMemberAgentChats({
+			archivedSpaceIds: new Set(["dm-claude-1"]),
+			chats: chats.filter((chat) => chat !== null),
+			index,
+		});
+		const memberAgentName = (id: string) =>
+			index.byId.get(id)?.displayName ?? "";
+		const claude = collapsed.filter(
+			(chat) => chat.name === memberAgentName("ma-claude")
+		);
+		expect(claude.map((chat) => chat.spaceId)).toEqual(["dm-claude-2"]);
+		expect(collapsed.some((chat) => chat.spaceId === "dm-reviewer")).toBe(
+			false
+		);
+		expect(collapsed.some((chat) => chat.spaceId === "dm-tali")).toBe(true);
 	});
 });
