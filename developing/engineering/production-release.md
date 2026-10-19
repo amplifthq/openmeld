@@ -148,10 +148,12 @@ Every stage checks the platform first, so a rerun resumes; a version on npm
 from another commit is refused. `cli-release.yml` also checks clean npm
 installs on Ubuntu and Windows (Node 24) and the Node 20 rejection.
 
-Seed the manifest once, before the first Core that reads it is deployed:
+The published manifest in R2 is the only copy; the repository no longer
+commits one. If the bucket ever loses it, restore it from a saved copy before
+deploying Core:
 
 ```sh
-pnpm run release:cli:seed-manifest --from release/local-components.json
+pnpm run release:cli:seed-manifest --from <saved-manifest.json>
 ```
 
 ## Desktop, Windows preview, and OpenConnector
