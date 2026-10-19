@@ -30,26 +30,38 @@ export function verifyTrustedCandidateEntrypoints(input) {
 export function inspectTrustedCandidateEntrypoints(input) {
   const trustedRoot = path.resolve(input.trustedRoot);
   const candidateRoot = path.resolve(input.candidateRoot);
-  if (input.candidateRef && !EXACT_SHA_PATTERN.test(input.candidateRef)) {
-    throw new Error("Candidate data requires an exact Git commit SHA.");
+  for (const ref of [input.candidateRef, input.trustedRef]) {
+    if (ref && !EXACT_SHA_PATTERN.test(ref)) {
+      throw new Error("Candidate data requires an exact Git commit SHA.");
+    }
   }
   const paths =
     input.paths ??
-    collectControlPaths(trustedRoot, candidateRoot, input.candidateRef);
+    collectControlPaths(
+      trustedRoot,
+      input.trustedRef,
+      candidateRoot,
+      input.candidateRef
+    );
   const driftedPaths = paths.filter(
     (relativePath) =>
-      controlProjection(trustedRoot, relativePath) !==
+      controlProjection(trustedRoot, relativePath, input.trustedRef) !==
       controlProjection(candidateRoot, relativePath, input.candidateRef)
   );
   return { checkedPaths: paths, driftedPaths };
 }
 
-function collectControlPaths(trustedRoot, candidateRoot, candidateRef) {
+function collectControlPaths(
+  trustedRoot,
+  trustedRef,
+  candidateRoot,
+  candidateRef
+) {
   return [
     ...new Set([
       ".npmrc",
       "pnpm-workspace.yaml",
-      ...listTrackedControls(trustedRoot),
+      ...listTrackedControls(trustedRoot, trustedRef),
       ...listTrackedControls(candidateRoot, candidateRef),
     ]),
   ].toSorted();

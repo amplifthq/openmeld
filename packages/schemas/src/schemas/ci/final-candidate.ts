@@ -207,11 +207,12 @@ function validateSuccessfulTrustEvidence(
 ) {
   if (
     evidence.controlTrust === "explicit-bootstrap" &&
-    evidence.mode !== "local"
+    !(evidence.mode === "local" || evidence.candidateKind === "merge-group")
   ) {
     context.addIssue({
       code: "custom",
-      message: "Explicit Final Candidate bootstrap is local-only.",
+      message:
+        "Explicit Final Candidate bootstrap is local or merge-group only.",
       path: ["controlTrust"],
     });
   }
