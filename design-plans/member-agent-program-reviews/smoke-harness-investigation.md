@@ -181,3 +181,171 @@ belongs on `main`, not in this program. No code was changed on this branch.
 - Probe files are in `/Users/felix/openmeld-smoke/investigation/` (the script,
   outputs, a throwaway repository and its linked worktree). They hold no
   credentials. They can be deleted.
+
+---
+
+# Smoke round 2b · Codex `thread/start` timeout and lost folder choice
+
+Scope: R2B-03 from `dev-tmp/member-agent-smoke/round-2b/report.md`. Every
+Codex folder task failed with `runtime.thread_start_timeout` ("codex
+app-server did not acknowledge thread/start within 90000ms"). The run used a
+standalone clone (`/Users/felix/openmeld-smoke/clone`), plain test folders
+(`/Users/felix/openmeld-smoke/folders/folder-one`, `folder-two`) and a
+launchd Service that started normally. The report also notes that the task
+chose folder-one but ran in folder-two.
+
+Date: 2026-10-19. Same machine. `~/.openmeld` and the published lane were not
+touched.
+
+## Verdict
+
+These are two separate causes.
+
+1. **The `thread/start` timeout is environmental (harness and machine), not
+   program code.** All three failed app-server processes stopped during Codex
+   session start, at the point where Codex scans the user's skill folders. The
+   one Codex run that succeeded reached the same step and reported
+   `failed to scan skill path file:///Users/felix/.agents/skills/openclash-dnsfix: Interrupted system call (os error 4)`,
+   then continued. That skill is a symlink into `~/Desktop`
+   (`~/.agents/skills/openclash-dnsfix -> /Users/felix/Desktop/felix-projects/openclash-dnsfix`).
+   On this machine, opening `~/Desktop` paths blocked during the morning of
+   2026-10-19 (see round 1c, "Collateral observation"). The open either got
+   interrupted (EINTR, success) or never returned (timeout). It does not block
+   now, and the same requests no longer reproduce the timeout.
+2. **The lost folder choice is a program bug (Phase 2), fixed on this
+   branch.** Core removed the owner's own `folderId`, so the task ran in the
+   default folder.
+
+## Evidence for (1)
+
+### Service and dispatch evidence
+
+| Dispatch | Lane | Folder run | Result |
+| --- | --- | --- | --- |
+| `59324dcf` (plain request) | `agent-profile:` (no Execution Context) | folder-two | success, 24 s |
+| `5cfc1f99` | `execution-context:` | folder-two | `runtime.thread_start_timeout` |
+| `9d438e2d` | `execution-context:` | folder-two | `runtime.thread_start_timeout` |
+| `8ab025f0` | `execution-context:` | folder-two | `runtime.thread_start_timeout` |
+
+In each failure, `config/read` and `configRequirements/read` answered.
+`thread/start` was sent and never acknowledged. No stderr appeared in 90 s.
+
+### Codex's own logs (`~/.codex/logs_2.sqlite`, read-only)
+
+Per app-server process, keyed by the PID that the Service logged at
+`provider_process_spawned`:
+
+| PID | Run | Last milestones |
+| --- | --- | --- |
+| 25809 | success | shell snapshot (+2 s) → skills cache cleared → **skill scan EINTR on `openclash-dnsfix`** (+6 s) → `mcp_manager_init` → `thread/started` → `turn/start` |
+| 76328 | `5cfc1f99` | skills cache cleared → shell snapshot (+3 s) → nothing more on the request (plugin catalog at +29 s) |
+| 7401 | `9d438e2d` | skills cache cleared → shell snapshot (+2 s) → nothing more |
+| 70565 | `8ab025f0` | skills cache cleared → shell snapshot (+4 s) → nothing more |
+
+Across all Codex processes since 01:00 UTC, the log has 42
+`failed to scan skill path` entries. Every one of them names
+`~/.agents/skills/openclash-dnsfix`, including Felix's foreground Codex
+sessions around 09:30 local time. Opens of that `~/Desktop` target were
+blocking machine-wide at the time.
+
+### Reproduction by hand (now)
+
+The probe follows the same method as round 1c, extended to `thread/start`.
+It uses the Service's binary (ChatGPT.app `codex` 0.163.0-alpha) and the exact
+Execution Context launch arguments, computed by the built adapter
+(`buildCodexFileAccessBoundaryGlobalArgs`). Those arguments disable features
+and add the `openmeld_computer_boundary` permission profile with `-a never`.
+The `thread/start` parameters match the adapter: `approvalPolicy: "never"`,
+`permissions`, `runtimeWorkspaceRoots: [folder]`, and `initialize` with
+`experimentalApi`. Each probe ran from a transient launchd job.
+
+| Launch | HOME / skills | Params | `thread/start` |
+| --- | --- | --- | --- |
+| foreground | real | legacy | ok, 314 ms |
+| foreground | real | Execution Context | ok, 398 ms |
+| launchd | real | legacy | ok, 458 ms |
+| launchd | real | Execution Context | ok, 368 ms to 1.2 s |
+| launchd | empty `.agents/skills` | Execution Context | ok, 2.9 s |
+| launchd | only the `~/Desktop` skill symlink | Execution Context | ok, 373 ms |
+
+None of the probes reproduces the timeout now. This matches the machine
+state: `~/Desktop` opens no longer block, and the launchd-started dev Update
+Worker that was stuck in `dyld __open` (round 1c) is gone. The Execution
+Context parameters are not the cause. The Codex adapter, its launch arguments
+and the Service launch path are identical to `origin/main`; the program
+diff in `runtime/` touches only `local-execution-slots.ts`. Nothing in
+Phase 2, 4e (`isolated_if_git`, admitted-folder pinning) or
+`executionContextVersion` 7 runs inside the Codex process. Those tasks
+started without waiting and ran `current` workspaces in a plain folder.
+
+The proof is circumstantial. No process sample was taken during the failure,
+so the stalled `open` was not observed directly. The ordering of the log
+milestones, the EINTR on the same path in the successful run, and the
+machine-wide `~/Desktop` stall are the basis for the verdict.
+
+### What to do
+
+- Next smoke round: remove or relocate symlinks into privacy-protected
+  folders from `~/.agents/skills` (and `~/.codex/skills`), or run the round on
+  a machine without them. Check first with
+  `find ~/.agents/skills ~/.codex/skills -maxdepth 1 -type l -exec readlink {} \;`.
+  This changes Felix's own setup, so it is Felix's decision.
+- Product follow-up, pre-existing and outside this program (it extends round
+  1c's proposal): a user's harness configuration can reach a protected folder
+  even when the working folder is clean. A fixed 90 s timeout is the only
+  signal today. The Service could sample the stuck harness or attach the last
+  native log milestone to `runtime.thread_start_timeout`, so the failure names
+  the step.
+
+## Evidence for (2) and the fix
+
+- The Space stored Felix's message for `5cfc1f99` with
+  `contextSelections[<Codex Profile>] = { mode: "new", folderId: "05d2aabc-…" }`
+  (Space Durable Object state, `space_signals`).
+- The Execution Context that Core created for the same flow (context
+  `804a821c-…`, dispatch `8ab025f0`) has `access: workspace`,
+  `workspace: current`, `permissionSource: agent_settings` and **no
+  `folderId`** (RuntimeTransportHub Durable Object state). Core removed the
+  folder, and the Service ran the default folder-two.
+- Cause: `readActiveProfileOwnerUserId`
+  (`services/core/src/dispatch/application/accepted-dispatch-snapshot.ts`)
+  looked up the requester with `AND organization_id = $2`. Human Profiles have
+  `organization_id = NULL`. Other code queries them as
+  `(profile_kind = 'human' OR organization_id = …)`, and the remote-agent
+  fixtures insert them with `NULL`. The lookup therefore never found the
+  owner's human Profile, and `applyFolderSelectionPolicy` treated the owner as
+  "not the owner" and stripped every folder choice. This holds with the flag
+  on (chain root) and off (one-hop author).
+- Fix: a human Profile matches when its owner is a member of the
+  Organization, as `readActiveRepresentedHumanSender` checks. Agent Profiles
+  must belong to the Organization, as before. Colleagues and users who are not
+  members still lose the folder.
+- Test: `services/core/tests-node/folder-selection-owner.test.ts` runs
+  against PostgreSQL. It keeps the owner's folder, keeps it for the owner's
+  Agent in the Organization, and strips it for a colleague and for a human
+  whose owner is not a member. It fails on the previous query
+  (`expected { mode: 'new' } to deeply equal { folderId, mode: 'new' }`) and
+  passes with the fix.
+
+The selected source in the continuation attempt was a failed task with no
+native checkpoint, so `execution_context.fork_checkpoint_unavailable` was the
+expected rejection. That part of R2B-03 is a presentation gap (the menu offers
+failed sources), not this bug.
+
+## Checks
+
+- `pnpm -r --filter './packages/**' run build`: pass.
+- `pnpm exec tsc --noEmit -p services/core`: pass.
+- `node tooling/postgresql/local.mjs run pnpm exec vitest run --config vitest.boundary.config.ts`
+  on `folder-selection-owner`, `folder-selection-policy`,
+  `remote-agent-delegated-requester` and `execution-context-workspace-default`:
+  26 passed (local PostgreSQL only).
+
+## Cleanup
+
+- The transient launchd jobs (`ai.openmeld.investigation.codex-thread-start`)
+  were removed after each run. Their `codex app-server` children were killed;
+  ChatGPT.app's own app-server processes were left running.
+- Probe files are in `/Users/felix/openmeld-smoke/investigation/`
+  (`thread-start.mjs`, the computed launch arguments, temporary HOME
+  folders). They hold no credentials. They can be deleted.
