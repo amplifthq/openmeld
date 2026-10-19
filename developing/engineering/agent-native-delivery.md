@@ -344,18 +344,18 @@ review requirement or a second delivery process.
 
 ### Merge queue
 
-Merge queue is the freshness owner for `main`. GitHub builds an exact
-merge-group commit from current `main` and the queued changes;
-`merge-group-final-candidate.yml` validates that tree with the same trusted
-current-main policy and reports the required `OpenMeld Final Candidate` check,
-and CodeQL also runs on `merge_group`. Branch protection for `main` requires
-merge queue (merge method `merge`, build concurrency 1, one to five pull
-requests per group, only non-failing pull requests, 60-minute status check
-timeout) with "Require branches to be up to date before merging" off. A pull
-request enters the queue after its own required checks pass, so a green
-candidate on an older base needs no sync. Until merge queue is required,
-strict up-to-date protection is the freshness owner; never turn both off, or
-a green status on an older base merges untested.
+Merge queue owns freshness for `main`: a pull request queues after its own
+checks pass, so a green candidate on an older base needs no sync. CodeQL and
+`merge-group-final-candidate.yml` (the required `OpenMeld Final Candidate`
+check) validate GitHub's exact merge-group commit. Branch protection requires
+merge queue (method `merge`, build concurrency 1, one to five pull requests per
+group, only non-failing pull requests, 60-minute status check timeout) with
+"Require branches to be up to date" off; until then strict up-to-date owns
+freshness. Never turn both off. Current-main control validates a group whose FC
+control matches `main`. A group with control drift runs under its own control
+only if it is built on the `main` tip, its second parent is the queued pull
+request's live head with a successful FC status naming it (the bootstrap
+above), and each drifted control equals that head's and was changed by it.
 
 Do not create a manual substitute queue, release owner, global `main` freeze,
 or polling loop; they serialize independent work without adding merge evidence.

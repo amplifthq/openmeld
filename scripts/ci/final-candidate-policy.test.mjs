@@ -24,6 +24,7 @@ const MAIN_OR_PULL_REQUEST_BASE_ADVANCED_PATTERN =
 const MISSING_ANCESTRY_PATTERN = /does not contain current main/u;
 const NO_EXECUTABLE_SOURCE_PATTERN = /No executable workspace source/u;
 const PULL_REQUEST_HEAD_DRIFT_PATTERN = /Pull request head drifted/u;
+const HOSTED_BOOTSTRAP_PATTERN = /bootstrap is local or merge-group only/u;
 
 const createPlan = (changedPaths, overrides = {}) =>
   createFinalCandidatePlan({
@@ -321,6 +322,25 @@ test("all standard final validation lanes keep the same lightweight boundary", (
     assert.ok(!ids.includes("affected-unit-tests"));
     assert.ok(!ids.includes("affected-integration-tests"));
   }
+});
+
+test("only a merge group may carry an explicit control bootstrap into hosted validation", () => {
+  const bootstrap = {
+    bootstrapReason:
+      "Merge group carries a control change whose PR head passed the local bootstrap.",
+    controlTrust: "explicit-bootstrap",
+    mode: "remote",
+  };
+  const plan = createPlan(["scripts/ci/final-candidate.mjs"], {
+    ...bootstrap,
+    candidateKind: "merge-group",
+  });
+  assert.equal(plan.controlTrust, "explicit-bootstrap");
+  assert.equal(plan.planSourceSha, HEAD_SHA);
+  assert.throws(
+    () => createPlan(["scripts/ci/final-candidate.mjs"], bootstrap),
+    HOSTED_BOOTSTRAP_PATTERN
+  );
 });
 
 test("full confidence does not repeat its affected unit and integration subsets", () => {

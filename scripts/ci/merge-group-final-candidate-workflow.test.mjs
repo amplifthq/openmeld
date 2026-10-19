@@ -26,6 +26,17 @@ const MERGE_GROUP_EVENT_PATTERN =
 const READ_ONLY_PATTERN = /permissions:\n\s+contents: read/u;
 const RUN_BLOCK_PATTERN = /\n\s+run: \|[\s\S]*?(?=\n\s+- name:|\n\S|$)/gu;
 const STATUS_WRITE_PATTERN = /statuses: write/u;
+const ANY_WRITE_PATTERN = /:\s*write\b/u;
+const CURRENT_MAIN_CHECKOUT_PATTERN =
+  /path: current-main-control\n\s+persist-credentials: false\n\s+ref: \$\{\{ env\.CANDIDATE_BASE_SHA \}\}/u;
+const DECISION_PATTERN =
+  /node current-main-control\/scripts\/ci\/final-candidate-merge-group-control\.mjs/u;
+const DECIDED_CONTROL_PATTERN =
+  /path: trusted-control\n\s+persist-credentials: false\n\s+ref: \$\{\{ steps\.control\.outputs\.control_sha \}\}/u;
+const DECIDED_TRUST_PATTERN =
+  /--control-trust "\$CONTROL_TRUST"[\s\S]*--plan-source "\$CONTROL_SHA"/u;
+const FIXED_TRUST_PATTERN =
+  /--control-trust (?:current-main|explicit-bootstrap)/u;
 const WRAPPER_PATTERN = /run-isolated-candidate-command\.sh/u;
 
 test("validates the exact GitHub merge-group tree with one read-only required check", () => {
@@ -47,6 +58,23 @@ test("validates the exact GitHub merge-group tree with one read-only required ch
   assert.match(workflow, INSTALL_PATTERN);
   assert.match(workflow, WRAPPER_PATTERN);
   assert.match(workflow, ARTIFACT_PATTERN);
+});
+
+test("lets only current-main control decide which control validates the group", () => {
+  const workflow = readFileSync(
+    path.join(REPO_ROOT, ".github/workflows/merge-group-final-candidate.yml"),
+    "utf8"
+  );
+
+  assert.doesNotMatch(workflow, ANY_WRITE_PATTERN);
+  assert.match(workflow, CURRENT_MAIN_CHECKOUT_PATTERN);
+  assert.match(workflow, DECISION_PATTERN);
+  assert.ok(
+    workflow.search(DECISION_PATTERN) < workflow.search(DECIDED_CONTROL_PATTERN)
+  );
+  assert.match(workflow, DECIDED_CONTROL_PATTERN);
+  assert.match(workflow, DECIDED_TRUST_PATTERN);
+  assert.doesNotMatch(workflow, FIXED_TRUST_PATTERN);
 });
 
 test("does not interpolate merge-group payload values inside shell source", () => {

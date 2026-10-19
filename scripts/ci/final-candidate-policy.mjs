@@ -26,6 +26,8 @@ const DELIVERY_INFRASTRUCTURE_PATHS = new Set([
   "scripts/ci/final-candidate-control-paths.mjs",
   "scripts/ci/final-candidate-control-projection.mjs",
   "scripts/ci/final-candidate-control-yaml.mjs",
+  "scripts/ci/final-candidate-merge-group-control.mjs",
+  "scripts/ci/final-candidate-merge-group-control.test.mjs",
   "scripts/ci/final-candidate-policy.mjs",
   "scripts/ci/final-candidate-policy.test.mjs",
   "scripts/ci/final-candidate-publisher.mjs",
@@ -79,7 +81,7 @@ const DATABASE_PREFIXES = [
 
 const check = (id, command, reason) => ({ command, id, reason });
 
-function resolvePlanAuthority(input) {
+function resolvePlanAuthority(input, candidateKind) {
   const confidence = input.confidence ?? "standard";
   const mode = input.mode ?? "local";
   const controlTrust = input.controlTrust ?? "current-main";
@@ -94,8 +96,15 @@ function resolvePlanAuthority(input) {
   ) {
     throw new Error(`Unknown final-candidate control trust: ${controlTrust}`);
   }
-  if (controlTrust === "explicit-bootstrap" && mode !== "local") {
-    throw new Error("Explicit Final Candidate bootstrap is local-only.");
+  // A merge group may carry a control change only after current-main control
+  // proved that exact change already passed the local bootstrap on its PR head.
+  if (
+    controlTrust === "explicit-bootstrap" &&
+    !(mode === "local" || candidateKind === "merge-group")
+  ) {
+    throw new Error(
+      "Explicit Final Candidate bootstrap is local or merge-group only."
+    );
   }
   const bootstrapReason =
     controlTrust === "explicit-bootstrap"
@@ -114,7 +123,7 @@ export function createFinalCandidatePlan(input) {
     throw new Error(`Unknown final-candidate kind: ${candidateKind}`);
   }
   const { bootstrapReason, confidence, controlTrust, mode } =
-    resolvePlanAuthority(input);
+    resolvePlanAuthority(input, candidateKind);
 
   const context = {
     baseSha: input.baseSha,
