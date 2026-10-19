@@ -1084,3 +1084,10 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   cards not built on `ApprovalCard`, and a new Session rename/archive
   dialog. Principles 12–13 added; convergence routed to 1d
   (`claude/map-1d-ui-convergence`).
+- 2026-10-19, smoke 3 fixes merged: a folder choice in a Direct Message
+  falls back to the Agent's primary Binding when the member snapshot has no
+  controller; an ordinary message with no selection continues the most
+  recently used Session in its scope (owner-document rule updated; accepted
+  by the designer: a plain message must never stop to ask); Continue lists
+  only requests with a published reply; Inbox renders the Agent's native
+  question inline and files it under Needs action.
