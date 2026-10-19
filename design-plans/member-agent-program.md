@@ -1155,3 +1155,9 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   new native question needed a reload to appear, routed to Phase 4
   `claude/map-4-inbox-filter`. Both fixes must be verified in a browser by
   the implementing session before they report done.
+- 2026-10-19, round 6 fixes merged, both verified by their sessions in a
+  local browser: "Continue in <folder>" renders in the real Message details
+  drawer (no dependency on the Profile edit context) and continues the same
+  chat in the repaired folder; the Inbox keeps its filter when any row opens
+  and refreshes live for Agent questions and requests. Round 7 retests only
+  these two.
