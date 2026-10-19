@@ -1169,3 +1169,9 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   `runtime.progress_stale` in the same minute the tester's shell saw
   `~/Desktop` reads stall; that path passed in rounds 5 and 6 and has not
   changed since. Recheck 7b runs with all artifacts outside `~/Desktop`.
+- 2026-10-19, recheck 7b (artifacts outside `~/Desktop`): three consecutive
+  plain owner messages to OpenCode all replied (`visible_reply`), with no
+  `~/Desktop` stall during the run. Round 7's single failure coincided with a
+  machine-wide `~/Desktop` stall and is not reproduced; root cause unproven,
+  treated as environmental. All real-machine acceptance checks now pass; the
+  program is ready for Felix's acceptance.
