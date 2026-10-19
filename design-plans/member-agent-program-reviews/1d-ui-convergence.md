@@ -1,7 +1,7 @@
 # 1d · UI convergence audit
 
 Branch `claude/map-1d-ui-convergence`, cut from `origin/claude/member-agent-program`
-after `ed1e279cc`. Applies program principles 12 (extend existing UI, no
+after `ed1e279cc` and rebased onto `4687f85f7` (after p2 smoke 3 and the Inbox answer merged). Applies program principles 12 (extend existing UI, no
 parallel forms) and 13 (no dead ends; Sessions clear and switchable).
 
 Source list: `git diff --diff-filter=A --name-only origin/main...HEAD -- clients/web/src`
@@ -29,8 +29,9 @@ models are listed only when they carry a surface.
 | Agent access banner in a Space (`agent-access/space-agent-access-banner.tsx`) | Space banners | **Kept** (requester / observer states are new). |
 | Sensitive changes audit (`sensitive-operations/sensitive-operation-audit-section.tsx`) | none | **Kept** (new data). |
 | People/Agent picker MemberAgent grouping (`spaces/people-agent-picker-*.ts(x)`) | the existing picker | **Kept**, extends the picker in place. |
-| Folders dialog (`profiles/agent-profile-folders-dialog.tsx`, `agent-profile-folders-model.ts`) | the old Working folder dialog | **Pending.** Duplicated, but package p2 (`claude/map-p2-smoke-3`) is changing folder surfaces now. Not touched here; converge after p2 merges. |
-| Composer folder choice (`spaces/space-composer-folder-choice.ts`) | folder surfaces | **Pending** with the folders dialog (p2). |
+| Folders dialog (`profiles/agent-profile-folders-dialog.tsx`, `agent-profile-folders-model.ts`) vs the old Working folder dialog (`profiles/agent-profile-project-settings-dialog.tsx`) | The existing Working folder card and control | **Merged for every entry but repair** (after p2 merged). The folder list is titled "Working folder" and is the one surface behind the detail workspace's Working folder card and the list card's menu entry (renamed from "Default Project and folder"); the detail workspace drops that duplicate menu entry. **Kept with reason:** working-folder recovery (`agent-profile-working-folder-recovery-action.tsx`, from failed tasks and the Agents page) still opens the workspace editor. Core's folder operations refuse invalid settings (`profile_folder.configuration_invalid`, "Repair them before changing folders"), and only the workspace write can repair them; that editor also reapplies the current folder, rechecks availability, blocks writes on a failed refresh and clears unfinished creation setup. Converge it once the folder model has a repair operation. |
+| Composer folder choice (`spaces/space-composer-folder-choice.ts`) | Folder list model | **Kept**: per-task choice in the composer reads the same folder list; no separate editor. |
+| Inbox answer to an Agent's question (`inbox/inbox-agent-interaction.tsx`, from `claude/map-4-inbox-answer`) | `spaces/space-agent-interaction-card.tsx` | **Already shared**: it renders the Space's `SpaceAgentInteractionCard` and answers through the same Space endpoint. Its load-failure state now uses the shared `ApprovalRequestUnavailable` (with "Refresh question" beside "Open conversation"); the answered and paged-out notices stay, as nothing else covers them. |
 
 ## Navigation paths
 
@@ -57,6 +58,7 @@ Files are in the session notes folder `1d-ui-convergence-shots/`.
 | (d) Session archive | (no Archive in the chat menu for a Session) | `after-d-session-archive-existing-confirm.jpg`: existing chat-menu Archive and confirmation |
 | (e) Sidebar | `before-e-sidebar-one-row.jpg`: one MemberAgent row | `after-e-sidebar-sessions.jpg`: Profiles → Sessions, current highlighted, link to the MemberAgent |
 | (f) Profile back | `before-a-f-edit-agent-and-back-to-agents.jpg`: "Back to Agents" | `after-f-profile-back-to-memberagent.jpg`: "Back to Felix Lu's Claude Code" |
+| Working folder | `before-folders-duplicate-menu-entry.jpg`: card plus "Default Project and folder" menu entry, dialog titled "Folders" | `after-folders-working-folder-surface.jpg`: one entry (the card), dialog titled "Working folder" (the local Computer is offline, so the list can't be read) |
 | (c) Request cards | not captured: no pending Agent access or credential requests in the local data; covered by tests | |
 
 ## Checks
@@ -69,8 +71,11 @@ Files are in the session notes folder `1d-ui-convergence-shots/`.
   agents-page profile cards, conversations sidebar). The conversations sidebar
   suite was already failing on the base (its organization-context mock lacked
   `useOptionalAppOrganization`); the mock is fixed here.
-- Pre-existing, unrelated failure: `agents/selected-computer-panel.test.tsx`
-  (`ComputerPowerSettings` needs a QueryClient), present on the base.
+- Pre-existing, unrelated failures on the program head: `agents/selected-computer-panel.test.tsx`
+  (`ComputerPowerSettings` needs a QueryClient), `profiles/dither-profile-avatar.test.tsx`,
+  and seven suites under `spaces/` (device-wait locale, offline send, Center intro,
+  header DM icon, landing error boundary, delivery status, outcome row); none
+  imports a file this branch changes.
 
 ## External review (Codex, gpt-6-astra, high)
 
@@ -82,3 +87,13 @@ Codex reviewed `origin/claude/member-agent-program...HEAD` (Web) read-only.
 | P2: Session rename accepted 81–160 characters (shared editor limit 160, Session limit 80) | Confirmed | `ChatTitleEditor` takes an optional `maxLength`; MemberAgent Sessions pass `AGENT_DIRECT_MESSAGE_SESSION_NAME_MAX_LENGTH`. |
 | P2: new sidebar Session groups started collapsed, hiding the current Session | Confirmed | The open MemberAgent's groups start open and fold for the visit only (`useMemberAgentSessionDisclosure`). |
 | P2: Session groups ignored sidebar search, kind filters and the archived view | Confirmed | They are hidden while any filter or search is active. |
+
+Second pass, after the folder and Inbox-answer convergence:
+
+| Finding | Verdict | Action |
+| --- | --- | --- |
+| P1: routing recovery to the folder list loses repair of invalid folder settings | Confirmed (`clients/openmeld-cli/src/profile-workspace/folders.ts` `requireList`) | Recovery keeps the workspace editor; recorded above. |
+| P2: recovery could not reapply the current folder | Confirmed | Resolved by the same revert. |
+| P2: a failed refresh left recovery writes enabled | Confirmed | Resolved by the same revert (its `saveBlockedReason` stays). |
+| P2: recovery no longer cleared unfinished creation setup | Confirmed | Resolved by the same revert. |
+| Inbox answer extraction | No findings | — |
