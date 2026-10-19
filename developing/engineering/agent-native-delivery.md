@@ -490,9 +490,10 @@ Anything not run, with reason
 - Hosted candidate unavailable: use `status` or `wait` to preserve the exact
   GitHub reason. The trusted local fallback remains available; do not relabel
   the unchanged head repeatedly, weaken status protection, or invent success.
-- Release or health failure: the run stops at that component. Report the
-  failed fact, then roll a bad Worker back with `wrangler rollback` or release
-  a fixed SHA forward. Never continue from another commit.
+- Release or health failure: GitHub stops dependent components; independent
+  website and docs jobs still run. The local lane stops at the first failure.
+  Report the failure and follow [recovery](production-release.md#recovery).
+  Never continue from another commit.
 - npm late: the CLI release stays incomplete. Rerun the same SHA; it resumes
   without republishing, as in
   [npm submission and availability](production-release.md#npm-submission-and-availability).

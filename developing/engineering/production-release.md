@@ -13,8 +13,7 @@
 
 ## Everyday commands
 
-From a clean checkout of a `main` commit, `pnpm run deploy` (not pnpm's own
-`pnpm deploy`) selects, orders, and runs components:
+From a clean `main` checkout, use `pnpm run deploy`, not `pnpm deploy`:
 
 ```sh
 pnpm run deploy -- --scope <auto|cloud|name[,name]> --lane <local|github|auto> [--sha <sha>] [--base <sha>] [--dry-run]
@@ -40,17 +39,17 @@ files, CLI sources, embedded Skills, and native build inputs come from the
 requested product SHA. Do not set this variable by hand.
 
 ```sh
-# Typical releases.
 # A Website-only fix.
 pnpm run deploy -- --scope website --lane github
 # Core and Gateway on this workstation, to save Actions minutes.
 pnpm run deploy -- --scope core,gateway --lane local
-# Whatever the merge changed, on GitHub (the fastest path).
+# Whatever the merge changed, on GitHub.
 pnpm run deploy -- --scope auto --lane github --base <pre-merge-sha>
+# Skill content: Web serves the signed bundle under clients/web/public/skills.
+pnpm run deploy -- --scope web --lane github
+# CLI or Service changes.
+pnpm run deploy -- --scope cli --lane github
 ```
-
-Order comes only from `dependsOn` (db, auth, core, gateway and remote-agent,
-web; website and docs are independent); any other order takes two runs.
 
 ## What each component runs
 
@@ -66,26 +65,44 @@ web; website and docs are independent); any other order takes two runs.
 | web, website, docs | trusted local SSR artifact check, then `wrangler deploy` | `production-web-health.mjs` sees the SHA |
 | cli | `publish-cli.mjs` | npm `gitHead` of the version is the SHA |
 
-The platform is the release record: Worker `RELEASE_SHA`, the renderer
-`openmeld-source-sha` meta tag, and npm `gitHead`.
-
 ## Guards
 
 - The SHA must be on `main`'s first-parent history; in GitHub only `validate`
   checks it, and release control comes from `main` while product code comes
   from the SHA.
-- `concurrency: production-<name>` with `cancel-in-progress: false` runs one
-  production job per component and never cancels one.
-- A failed health check stops the run; later components do not start.
+- `concurrency: production-<name>` with `queue: max` and
+  `cancel-in-progress: false` keeps up to 100 pending jobs per component.
+- A failed component stops its dependents. Website and docs in the same
+  dispatch still run. The local lane stops at the first failure.
 - Core refuses to deploy until the CLI release manifest exists in R2.
 - The CLI is signed and notarized with the Apple identity; a changed CLI
   sub-component needs an explicit `available` or `required` decision.
-- Recovery for a bad Worker version is `wrangler rollback` to the previous
-  version, or a forward release of a fixed SHA.
+- Run one release at a time. Never run local and GitHub lanes for the same
+  component concurrently.
 
-GitHub db and core jobs need `DOPPLER_TOKEN`, `PLANETSCALE_SERVICE_TOKEN_ID`,
-and `PLANETSCALE_SERVICE_TOKEN` and name any that is missing; all jobs need the
-Cloudflare secrets, and the CLI also needs the Apple signing secrets.
+Local db/core releases use the workstation's Doppler and pscale logins.
+GitHub uses `DOPPLER_TOKEN`, `PLANETSCALE_SERVICE_TOKEN_ID`, and
+`PLANETSCALE_SERVICE_TOKEN`. Deploy steps also need Cloudflare credentials;
+CLI publication needs Apple signing secrets.
+
+## Recovery
+
+Use these package filters from the repository root, except Core:
+
+```sh
+pnpm --filter @openmeld/auth-worker exec wrangler rollback --env prod
+pnpm --filter @openmeld/gateway exec wrangler rollback --env prod
+pnpm --filter openmeld-web exec wrangler rollback --env prod
+pnpm --filter openmeld-website exec wrangler rollback --env prod
+pnpm --filter openmeld-docs exec wrangler rollback --env prod
+pnpm --filter @openmeld/remote-agent exec wrangler rollback --env prod
+# Core: run from services/core with the previous production version ID.
+pnpm exec wrangler versions deploy <previous-version-id>@100% --env prod
+```
+
+PostgreSQL migrations, npm versions, and the R2 release manifest are
+forward-only. Check compatibility with the current data and published CLI
+before a Worker rollback. Otherwise release a fixed SHA.
 
 ## Production Database Release
 
@@ -125,6 +142,8 @@ contract change must be `required`. `pnpm run verify:release-ready` checks it.
 4. writes the release manifest to `cli/local-components.json` in the CLI release
    bucket. Core reads it at runtime within one minute; no Core deploy is needed.
 
+### npm submission and availability
+
 Every stage checks the platform first, so a rerun resumes; a version on npm
 from another commit is refused. `cli-release.yml` also checks clean npm
 installs on Ubuntu and Windows (Node 24) and the Node 20 rejection.
@@ -135,29 +154,15 @@ Seed the manifest once, before the first Core that reads it is deployed:
 pnpm run release:cli:seed-manifest --from release/local-components.json
 ```
 
-### npm submission and availability
-
-The tarball is packed with pnpm, checked for workspace dependencies, and
-installed with plain npm before publication. The publisher then waits for the
-exact version and `gitHead`, and fails without republishing when npm is late.
-
 ## Desktop, Windows preview, and OpenConnector
-
 Desktop follows [its own procedure](development-workflow.md#desktop-preview-release-workflow);
 `node scripts/release/desktop-preview.mjs status` reads its promoted pointers.
-
-### Desktop release coverage
 
 A Desktop Main or packaging change must reach each affected platform's promoted
 release; a Web, shared-package, or build-script change needs a Desktop impact
 review. The Windows internal preview reads CLI and Service decisions from
 `release/local-components-policy.json`. OpenConnector keeps
 `deploy:openconnector:*`.
-
-## Website/App origin migration
-
-Website serves the root domain and Web serves `app.openmeld.ai`. Only staging
-keeps domain-phase tooling (`pnpm staging:deploy -- --domain-phase`).
 
 ## Release report
 
