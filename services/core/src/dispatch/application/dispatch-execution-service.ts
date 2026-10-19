@@ -160,7 +160,10 @@ import {
   isSuccessfulRuntimeTaskResultPayload,
 } from "../rules/runtime-task-result-transition-contract";
 import { isDispatchRequestedByAgentOwner } from "./accepted-dispatch-snapshot";
-import { usesSeparateColleagueConversation } from "./colleague-conversation";
+import {
+  keepsColleagueConversationOffBinding,
+  usesSeparateColleagueConversation,
+} from "./colleague-conversation";
 import { emitDispatchActivitySignal } from "./dispatch-activity-signal";
 import {
   buildDispatchResultRecord,
@@ -4908,7 +4911,7 @@ const persistAgentControllerConversationId = async (input: {
     return { bindingSource: null, updateApplied: false };
   }
   if (
-    await usesSeparateColleagueConversation({
+    await keepsColleagueConversationOffBinding({
       agentControllerRef: input.agentControllerRef,
       env: input.env,
       message: input.dispatchMessage,

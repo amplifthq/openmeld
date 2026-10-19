@@ -13,9 +13,22 @@ vi.mock("../src/dispatch/application/accepted-dispatch-snapshot", () => ({
   isDispatchRequestedByAgentOwner: async () => owner.rooted,
 }));
 
-const { usesSeparateColleagueConversation } = await import(
-  "../src/dispatch/application/colleague-conversation"
-);
+const roots = vi.hoisted(() => ({ ownerProfileId: "felix-human" }));
+vi.mock("@openmeld/db/postgresql", async (original) => ({
+  ...(await original<typeof import("@openmeld/db/postgresql")>()),
+  getPostgresDatabase: () => ({}),
+}));
+vi.mock("../src/remote-agent/application/turn-envelope", () => ({
+  readActiveRepresentedHumanSender: async (input: { profileId: string }) =>
+    input.profileId === roots.ownerProfileId
+      ? { profileId: input.profileId }
+      : null,
+}));
+
+const {
+  keepsColleagueConversationOffBinding,
+  usesSeparateColleagueConversation,
+} = await import("../src/dispatch/application/colleague-conversation");
 
 const message = {} as OpenMeldDaemonDispatchQueueMessage;
 const decide = (overrides: {
@@ -69,6 +82,38 @@ describe("A colleague's conversation on a harness without Sessions (§4.3)", () 
       await expect(decide({ requesterIsAgentOwner: false })).resolves.toBe(
         false
       );
+    } finally {
+      feature.enforced = true;
+    }
+  });
+});
+
+describe("Finalizing a Wake after the gate changed (§4.3)", () => {
+  const chained = (rootProfileId: string) =>
+    ({
+      organizationId: "org-1",
+      requestChain: [{ kind: "human", profileId: rootProfileId }],
+    }) as unknown as OpenMeldDaemonDispatchQueueMessage;
+  const finalize = (
+    message: OpenMeldDaemonDispatchQueueMessage,
+    agentControllerRef = "builtin:opencode"
+  ) =>
+    keepsColleagueConversationOffBinding({
+      agentControllerRef,
+      env: {} as never,
+      message,
+      targetOwnerUserId: "felix",
+    });
+
+  it("keeps a colleague-rooted conversation off the Binding", async () => {
+    feature.enforced = false;
+    try {
+      await expect(finalize(chained("tali-human"))).resolves.toBe(true);
+      await expect(finalize(chained("felix-human"))).resolves.toBe(false);
+      await expect(finalize(message)).resolves.toBe(false);
+      await expect(
+        finalize(chained("tali-human"), "builtin:codex")
+      ).resolves.toBe(false);
     } finally {
       feature.enforced = true;
     }
