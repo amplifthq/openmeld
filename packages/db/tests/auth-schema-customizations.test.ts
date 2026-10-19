@@ -2,9 +2,9 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { ModuleKind, transpileModule } from "@typescript/typescript6";
 import { is } from "drizzle-orm";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
-import { ModuleKind, transpileModule } from "typescript";
 import { describe, expect, it } from "vitest";
 import { applyAuthSchemaCustomizations } from "../src/tooling/auth-schema-customizations";
 

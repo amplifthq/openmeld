@@ -59,6 +59,8 @@ export function installedCommandEnvironment(
       ...env,
       OPENMELD_HOME: home,
       OPENMELD_ENV_PRESET: target.kind === "production" ? "prod" : "dev-local",
+      OPENMELD_AUTH_CLIENT_ID:
+        target.kind === "production" ? "openmeld-cli" : "openmeld-cli-dev",
       WEB_APP_URL: target.webOrigin,
       OPENMELD_CLI_BINARY_MANIFEST_URL: new URL(
         internalPreview

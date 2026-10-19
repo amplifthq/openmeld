@@ -32,7 +32,7 @@ describe("private packaged renderer", () => {
     if (!installedTarget) {
       throw new Error("Expected installed target");
     }
-    expect(installedTarget.webOrigin).toBe("https://openmeld.ai");
+    expect(installedTarget.webOrigin).toBe("https://app.openmeld.ai");
     writeFileSync(join(assets, "_shell.html"), "<html>Installed</html>");
     writeFileSync(
       join(assets, "desktop-build.json"),

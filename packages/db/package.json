@@ -77,10 +77,11 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.3.0",
     "@types/pg": "8.15.6",
+    "@typescript/typescript6": "6.0.2",
     "drizzle-kit": "^0.31.9",
     "oxc-resolver": "^11.0.0",
-    "tsdown": "^0.20.3",
-    "typescript": "^5.9.3",
+    "tsdown": "0.23.1",
+    "typescript": "npm:@typescript/typescript6@6.0.2",
     "vitest": "~3.2.0",
     "wrangler": "catalog:"
   }

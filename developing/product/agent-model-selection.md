@@ -422,13 +422,21 @@ reader, or a controller adapter selects the corresponding additional components.
 
 ### Practical retirement and recovery
 
+The October 18 review adds eleven native-verified OpenCode routes and defers
+three Go routes whose execution returned expired-key errors. It also confirms
+GPT-5.5 withdrawal through a native Codex ChatGPT-sign-in rejection after the
+official effective time. API-key access, defaults and saved selections remain
+unchanged. See [review #237](../../release/model-catalog-evidence/review-237.md)
+for exact IDs, reasoning variants, source evidence and acceptance limits.
+
 The October 14 follow-up review adds Liquid LFM2.5-24B-A2B and Pareto 26.9
 through OpenRouter after successful native OpenCode 1.19.0 probes. Zen Gemini
 and both Cat Jam routes are deferred because of provider credential,
 subscription and free-tier request restrictions; no adapter defect was found.
-Defaults and saved selections do not change. GPT-5.5 still completed
-a native ChatGPT-sign-in probe on its announced retirement date, so its notice
-remains announced, with a refreshed verification time. See
+Defaults and saved selections did not change. GPT-5.5 completed
+a native ChatGPT-sign-in probe before the announced retirement time that day,
+so that review retained the announced notice. The October 18 review above
+supersedes that availability evidence. See
 [the review evidence](../../release/model-catalog-evidence/review-1710.md)
 for account-specific execution results and remaining acceptance limits.
 
@@ -440,8 +448,9 @@ inventory, generic 404s, failed collection and `not_before` dates are never proo
 of withdrawal. Coverage gaps remain explicit; the collector cannot claim to
 monitor unconfigured controllers. Automatic publication remains additions-only.
 
-The initial reviewed cases are Codex `gpt-5.4` and `gpt-5.4-mini` (withdrawn from
-ChatGPT sign-in on 2026-08-31), and `gpt-5.5` (announced for 2026-10-14). The
+The reviewed cases include Codex `gpt-5.4` and `gpt-5.4-mini` (withdrawn from
+ChatGPT sign-in on 2026-08-31), and `gpt-5.5` (October 14 withdrawal confirmed
+on October 18). The
 [official source](https://learn.chatgpt.com/docs/models#deprecated-codex-models)
 was rechecked on 2026-09-23. These notices do not disable API-key access or
 same-name models in other controllers. The default model is unchanged.

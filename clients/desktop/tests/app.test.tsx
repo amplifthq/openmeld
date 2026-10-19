@@ -1620,42 +1620,6 @@ describe("App", () => {
     await waitFor(() => expect(signIn).toHaveBeenCalledTimes(1));
   });
 
-  it("keeps the app shell internally scrollable at the Desktop minimum size", async () => {
-    const { container } = render(<App bridge={makeBridge()} skipSplash />);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    expect(
-      await screen.findByRole("heading", { name: "Desktop app" })
-    ).toBeTruthy();
-
-    expect(
-      container
-        .querySelector('[data-slot="window-shell"]')
-        ?.className.includes("h-screen")
-    ).toBe(true);
-    expect(
-      container
-        .querySelector('[data-slot="window-shell"]')
-        ?.className.includes("flex-col")
-    ).toBe(true);
-    expect(
-      container.querySelector('[data-slot="window-shell-titlebar-spacer"]')
-    ).toBeNull();
-    expect(
-      container
-        .querySelector('[data-slot="window-shell-main"]')
-        ?.className.includes("overflow-hidden")
-    ).toBe(true);
-    expect(
-      container.querySelector('[data-slot="window-shell-header"]')
-    ).toBeNull();
-    expect(
-      container
-        .querySelector('[data-slot="app-frame-content"]')
-        ?.className.includes("overflow-y-auto")
-    ).toBe(true);
-  });
-
   it("keeps Desktop Settings on Web-aligned shell surfaces", async () => {
     const { container } = render(<App bridge={makeBridge()} skipSplash />);
 

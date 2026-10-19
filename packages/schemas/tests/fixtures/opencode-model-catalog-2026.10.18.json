@@ -1,0 +1,366 @@
+{
+  "capture": {
+    "harnessVersion": "1.19.0",
+    "alsoCheckedVersion": "1.19.3",
+    "observedAt": "2026-10-18",
+    "command": "opencode models --verbose (1.19.0); opencode models --pure --verbose (1.19.3)",
+    "notes": "Native fields retained; all admitted routes returned MODEL_OK with finish reason stop. Inventory and account access are separate."
+  },
+  "models": [
+    {
+      "id": "deepseek/deepseek-v4.1-flash-1017",
+      "providerID": "openrouter",
+      "name": "DeepSeek V4.1 Flash 1017",
+      "status": "active",
+      "release_date": "2026-10-17",
+      "variants": {
+        "none": {
+          "reasoning": {
+            "effort": "none"
+          }
+        },
+        "low": {
+          "reasoning": {
+            "effort": "low"
+          }
+        },
+        "high": {
+          "reasoning": {
+            "effort": "high"
+          }
+        },
+        "max": {
+          "reasoning": {
+            "effort": "max"
+          }
+        }
+      }
+    },
+    {
+      "id": "elorian/glimpse",
+      "providerID": "openrouter",
+      "name": "Glimpse",
+      "status": "active",
+      "release_date": "2026-10-17",
+      "variants": {
+        "low": {
+          "reasoning": {
+            "effort": "low"
+          }
+        },
+        "medium": {
+          "reasoning": {
+            "effort": "medium"
+          }
+        },
+        "high": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      }
+    },
+    {
+      "id": "reflection/beam-1.0-501b-a23b",
+      "providerID": "openrouter",
+      "name": "Beam 1.0 501B A23B",
+      "status": "active",
+      "release_date": "2026-10-16",
+      "variants": {
+        "low": {
+          "reasoning": {
+            "effort": "low"
+          }
+        },
+        "medium": {
+          "reasoning": {
+            "effort": "medium"
+          }
+        },
+        "high": {
+          "reasoning": {
+            "effort": "high"
+          }
+        },
+        "xhigh": {
+          "reasoning": {
+            "effort": "xhigh"
+          }
+        },
+        "max": {
+          "reasoning": {
+            "effort": "max"
+          }
+        }
+      }
+    },
+    {
+      "id": "xingchen-agi/xing4.0-29b-a4b:free",
+      "providerID": "openrouter",
+      "name": "Xing4.0 29B A4B (free)",
+      "status": "active",
+      "release_date": "2026-10-16",
+      "variants": {
+        "low": {
+          "reasoning": {
+            "effort": "low"
+          }
+        },
+        "medium": {
+          "reasoning": {
+            "effort": "medium"
+          }
+        },
+        "high": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      }
+    },
+    {
+      "id": "nemotron-3.5-super-vl-free",
+      "providerID": "opencode",
+      "name": "Nemotron 3.5 Super VL Free",
+      "status": "active",
+      "release_date": "2026-10-15",
+      "variants": {
+        "none": {
+          "reasoningEffort": "none"
+        },
+        "minimal": {
+          "reasoningEffort": "minimal"
+        },
+        "low": {
+          "reasoningEffort": "low"
+        },
+        "medium": {
+          "reasoningEffort": "medium"
+        },
+        "high": {
+          "reasoningEffort": "high"
+        },
+        "xhigh": {
+          "reasoningEffort": "xhigh"
+        }
+      }
+    },
+    {
+      "id": "meta/muse-spark-open",
+      "providerID": "openrouter",
+      "name": "Muse Spark Open",
+      "status": "active",
+      "release_date": "2026-10-15",
+      "variants": {
+        "low": {
+          "reasoning": {
+            "effort": "low"
+          }
+        },
+        "medium": {
+          "reasoning": {
+            "effort": "medium"
+          }
+        },
+        "high": {
+          "reasoning": {
+            "effort": "high"
+          }
+        },
+        "xhigh": {
+          "reasoning": {
+            "effort": "xhigh"
+          }
+        }
+      }
+    },
+    {
+      "id": "nvidia/nemotron-3.5-super-vl",
+      "providerID": "openrouter",
+      "name": "Nemotron 3.5 Super VL",
+      "status": "active",
+      "release_date": "2026-10-15",
+      "variants": {
+        "low": {
+          "reasoning": {
+            "effort": "low"
+          }
+        },
+        "medium": {
+          "reasoning": {
+            "effort": "medium"
+          }
+        },
+        "high": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      }
+    },
+    {
+      "id": "nvidia/nemotron-3.5-super-vl:free",
+      "providerID": "openrouter",
+      "name": "Nemotron 3.5 Super VL (free)",
+      "status": "active",
+      "release_date": "2026-10-15",
+      "variants": {
+        "low": {
+          "reasoning": {
+            "effort": "low"
+          }
+        },
+        "medium": {
+          "reasoning": {
+            "effort": "medium"
+          }
+        },
+        "high": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      }
+    },
+    {
+      "id": "unbiased/pareto-26.10",
+      "providerID": "openrouter",
+      "name": "Pareto 26.10",
+      "status": "active",
+      "release_date": "2026-10-15",
+      "variants": {}
+    },
+    {
+      "id": "beam-free",
+      "providerID": "opencode",
+      "name": "Beam Free",
+      "status": "active",
+      "release_date": "2026-10-05",
+      "variants": {
+        "low": {
+          "reasoningEffort": "low"
+        },
+        "medium": {
+          "reasoningEffort": "medium"
+        },
+        "high": {
+          "reasoningEffort": "high"
+        },
+        "xhigh": {
+          "reasoningEffort": "xhigh"
+        },
+        "max": {
+          "reasoningEffort": "max"
+        }
+      }
+    },
+    {
+      "id": "deepseek-v4.1-flash-free",
+      "providerID": "opencode",
+      "name": "DeepSeek V4.1 Flash Free",
+      "status": "active",
+      "release_date": "2026-09-10",
+      "variants": {
+        "low": {
+          "reasoningEffort": "low"
+        },
+        "high": {
+          "reasoningEffort": "high"
+        },
+        "max": {
+          "reasoningEffort": "max"
+        }
+      }
+    }
+  ],
+  "probes": [
+    {
+      "modelId": "openrouter/deepseek/deepseek-v4.1-flash-1017",
+      "variant": "low",
+      "observedAt": "2026-10-18T10:39:55.036661+00:00",
+      "exitCode": 0,
+      "text": "MODEL_OK",
+      "finishReason": "stop"
+    },
+    {
+      "modelId": "openrouter/elorian/glimpse",
+      "variant": "low",
+      "observedAt": "2026-10-18T10:40:02.168634+00:00",
+      "exitCode": 0,
+      "text": "MODEL_OK",
+      "finishReason": "stop"
+    },
+    {
+      "modelId": "openrouter/reflection/beam-1.0-501b-a23b",
+      "variant": "low",
+      "observedAt": "2026-10-18T10:40:33.465505+00:00",
+      "exitCode": 0,
+      "text": "MODEL_OK",
+      "finishReason": "stop"
+    },
+    {
+      "modelId": "openrouter/xingchen-agi/xing4.0-29b-a4b:free",
+      "variant": "low",
+      "observedAt": "2026-10-18T10:40:51.189801+00:00",
+      "exitCode": 0,
+      "text": "MODEL_OK",
+      "finishReason": "stop"
+    },
+    {
+      "modelId": "opencode/nemotron-3.5-super-vl-free",
+      "variant": "low",
+      "observedAt": "2026-10-18T10:38:47.319534+00:00",
+      "exitCode": 0,
+      "text": "MODEL_OK",
+      "finishReason": "stop"
+    },
+    {
+      "modelId": "openrouter/meta/muse-spark-open",
+      "variant": "low",
+      "observedAt": "2026-10-18T10:40:09.217407+00:00",
+      "exitCode": 0,
+      "text": "MODEL_OK",
+      "finishReason": "stop"
+    },
+    {
+      "modelId": "openrouter/nvidia/nemotron-3.5-super-vl",
+      "variant": "low",
+      "observedAt": "2026-10-18T10:40:16.482467+00:00",
+      "exitCode": 0,
+      "text": "MODEL_OK",
+      "finishReason": "stop"
+    },
+    {
+      "modelId": "openrouter/nvidia/nemotron-3.5-super-vl:free",
+      "variant": "low",
+      "observedAt": "2026-10-18T10:40:23.325595+00:00",
+      "exitCode": 0,
+      "text": "MODEL_OK",
+      "finishReason": "stop"
+    },
+    {
+      "modelId": "openrouter/unbiased/pareto-26.10",
+      "variant": null,
+      "observedAt": "2026-10-18T10:40:42.228639+00:00",
+      "exitCode": 0,
+      "text": "MODEL_OK",
+      "finishReason": "stop"
+    },
+    {
+      "modelId": "opencode/beam-free",
+      "variant": "low",
+      "observedAt": "2026-10-18T10:38:29.963798+00:00",
+      "exitCode": 0,
+      "text": "MODEL_OK",
+      "finishReason": "stop"
+    },
+    {
+      "modelId": "opencode/deepseek-v4.1-flash-free",
+      "variant": "low",
+      "observedAt": "2026-10-18T10:38:39.845280+00:00",
+      "exitCode": 0,
+      "text": "MODEL_OK",
+      "finishReason": "stop"
+    }
+  ]
+}

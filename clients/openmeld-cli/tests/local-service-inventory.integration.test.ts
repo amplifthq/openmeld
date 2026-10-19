@@ -1,10 +1,13 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import process from "node:process";
 import { describe, expect, it, vi } from "vitest";
-import { daemonRuntimeLeasePath } from "../src/config/daemon-runtime-lease";
+import {
+  daemonRuntimeLeasePath,
+  writeDaemonRuntimeLease,
+} from "../src/config/daemon-runtime-lease";
 import { upsertDaemonServiceContract } from "../src/config/daemon-service-contract";
 import type {
   DaemonServiceRuntimeStatus,
@@ -27,6 +30,7 @@ import type {
   DaemonServiceManager,
   DaemonServiceManagerRuntimeStatus,
 } from "../src/local-service/lifecycle/daemon-service-manager";
+import { listDaemonOwnedProcesses } from "../src/local-service/lifecycle/daemon-service-process-inventory";
 import { ensureDaemonRuntimePaths } from "../src/local-service/state/daemon-device-id";
 import { DAEMON_LOCAL_STATE_EPOCH } from "../src/local-service/state/local-state-version";
 import { withTempHome } from "./helpers/fs";
@@ -1047,6 +1051,97 @@ describe("local service inventory", () => {
           )
         ).toBe(false);
       } finally {
+        await rm(sourceRoot, { recursive: true, force: true });
+      }
+    });
+  });
+
+  it("lets start see a still-running repo-local Service in a custom OPENMELD_HOME instead of demanding repair", async () => {
+    await withTempHome(async () => {
+      // A Service that is still finishing its controlled stop when the next
+      // start inspects the lane: alive, leased, and launched from the same
+      // repo-local entry that prepared the active service files.
+      const sourceRoot = await mkdtemp(join(tmpdir(), "openmeld-dev-source-"));
+      const sourceEntryPath = join(sourceRoot, "dist", "openmeld-dev.js");
+      const service = spawn(process.execPath, [
+        "-e",
+        "setInterval(() => {}, 1000)",
+      ]);
+      try {
+        const servicePid = service.pid;
+        if (!servicePid) {
+          throw new Error("Fixture Service process did not start");
+        }
+        await mkdir(dirname(sourceEntryPath), { recursive: true });
+        await writeFile(sourceEntryPath, 'console.log("source");\n', "utf8");
+        const bundleEntryPath = `${resolveDaemonBundleRootPath("service-bundle")}/dist/openmeld-dev.js`;
+        await mkdir(dirname(bundleEntryPath), { recursive: true });
+        await writeFile(bundleEntryPath, 'console.log("bundle");\n', "utf8");
+        await mkdir(dirname(daemonServiceActiveBundlePath()), {
+          recursive: true,
+        });
+        await writeFile(
+          daemonServiceActiveBundlePath(),
+          `${JSON.stringify({
+            v: 2,
+            schema: "openmeld-daemon-active-bundle-v2",
+            bundleId: "service-bundle",
+            daemonVersion: "0.2.2",
+            entryScriptRelativePath: "dist/openmeld-dev.js",
+            bundleFormat: "self_contained_v1",
+            sourceEntryScriptPath: sourceEntryPath,
+            sourcePackageRootPath: sourceRoot,
+            sourceDistRootPath: dirname(sourceEntryPath),
+            sourceKind: "workspace",
+            createdAt: "2026-03-10T00:00:00.000Z",
+            updatedAt: "2026-03-10T00:00:00.000Z",
+          })}\n`,
+          "utf8"
+        );
+        const now = new Date().toISOString();
+        await writeDaemonRuntimeLease({
+          schema: "openmeld-daemon-runtime-lease-v1",
+          v: 1,
+          generation: 1,
+          bundleId: "service-bundle",
+          pid: servicePid,
+          mode: "foreground",
+          startedAt: now,
+          updatedAt: now,
+          heartbeatAt: now,
+          serviceController: "unknown",
+          managedBySystemService: false,
+        });
+
+        const inventory = await inspectDaemonServiceInventory({
+          expectedVersion: "0.2.2",
+          intendedMode: "foreground",
+          intent: "run_foreground",
+          readDaemonStatus: async () => INSTALLED_STATUS,
+          resolveServiceManager: async () => null,
+          listOwnedProcesses: (options) =>
+            listDaemonOwnedProcesses({
+              ...options,
+              listProcesses: async () => [
+                {
+                  pid: servicePid,
+                  parentPid: 1,
+                  command: `node ${sourceEntryPath} service start --mode foreground --gateway-url http://127.0.0.1:1 --view agent`,
+                },
+              ],
+            }),
+        });
+
+        expect(inventory.runtimeStatus).toMatchObject({
+          status: "running",
+          pid: servicePid,
+        });
+        expect(inventory.runtimeCommandEntryPath).toBe(sourceEntryPath);
+        expect(
+          inventory.anomalies.map((anomaly) => anomaly.code)
+        ).not.toContain("runtime_bundle_mismatch");
+      } finally {
+        service.kill("SIGKILL");
         await rm(sourceRoot, { recursive: true, force: true });
       }
     });
