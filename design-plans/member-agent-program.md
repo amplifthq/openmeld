@@ -1091,3 +1091,12 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   by the designer: a plain message must never stop to ask); Continue lists
   only requests with a published reply; Inbox renders the Agent's native
   question inline and files it under Needs action.
+- 2026-10-19, UI convergence (1d) merged: default Profile edited inline with
+  a read-only harness name; one shared chat history dropdown for Center and
+  MemberAgent Sessions; Session rename/archive reuse the chat title editor
+  and chat-menu archive; request, credential and suggestion cards share the
+  `ApprovalCard` states; one Working folder surface (repair entry pending a
+  folder repair operation, follow-up session `claude/charming-nash-0de0f3`);
+  the open MemberAgent's Profiles and Sessions in the sidebar with the
+  current Session active; two dead ends fixed (Profile back to its
+  MemberAgent, Session to its MemberAgent page).
