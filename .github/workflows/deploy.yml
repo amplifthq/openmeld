@@ -91,11 +91,6 @@ jobs:
       COMPONENT: db
       RELEASE_SHA: ${{ inputs.sha }}
       DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
-      PLANETSCALE_SERVICE_TOKEN_ID: ${{ secrets.PLANETSCALE_SERVICE_TOKEN_ID }}
-      PLANETSCALE_SERVICE_TOKEN: ${{ secrets.PLANETSCALE_SERVICE_TOKEN }}
     defaults: { run: { working-directory: release-source } }
     steps:
       - &checkout-control
@@ -108,6 +103,12 @@ jobs:
         with: { path: release-source, persist-credentials: false, ref: "${{ inputs.sha }}" }
       - &require-postgresql-secrets
         name: Require PostgreSQL release credentials
+        env: &release-secrets
+          DOPPLER_TOKEN: ${{ (env.COMPONENT == 'db' || env.COMPONENT == 'core') && secrets.DOPPLER_TOKEN || '' }}
+          PLANETSCALE_SERVICE_TOKEN_ID: ${{ (env.COMPONENT == 'db' || env.COMPONENT == 'core') && secrets.PLANETSCALE_SERVICE_TOKEN_ID || '' }}
+          PLANETSCALE_SERVICE_TOKEN: ${{ (env.COMPONENT == 'db' || env.COMPONENT == 'core') && secrets.PLANETSCALE_SERVICE_TOKEN || '' }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           missing=""
           for name in DOPPLER_TOKEN PLANETSCALE_SERVICE_TOKEN_ID PLANETSCALE_SERVICE_TOKEN; do
@@ -132,6 +133,7 @@ jobs:
         with: { working_directory: release-source, control_directory: release-control }
       - &deploy-component
         name: Build, deploy, and check health
+        env: *release-secrets
         run: node ../release-control/scripts/release/deploy-component.mjs "$COMPONENT" --sha "$RELEASE_SHA" $DRY_RUN
 
   auth:
@@ -149,8 +151,6 @@ jobs:
       COMPONENT: auth
       RELEASE_SHA: ${{ inputs.sha }}
       DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       # Better Auth schema generation needs placeholder values at build time.
       # Deployed Workers keep their own vars and secrets.
       BETTER_AUTH_OPENMELD_SECRET: ci_codegen_only_secret_please_do_not_use_1234567890
@@ -176,11 +176,6 @@ jobs:
       COMPONENT: core
       RELEASE_SHA: ${{ inputs.sha }}
       DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
-      PLANETSCALE_SERVICE_TOKEN_ID: ${{ secrets.PLANETSCALE_SERVICE_TOKEN_ID }}
-      PLANETSCALE_SERVICE_TOKEN: ${{ secrets.PLANETSCALE_SERVICE_TOKEN }}
     defaults: { run: { working-directory: release-source } }
     steps:
       - *checkout-control
@@ -214,8 +209,6 @@ jobs:
       COMPONENT: gateway
       RELEASE_SHA: ${{ inputs.sha }}
       DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     defaults: { run: { working-directory: release-source } }
     steps: [*checkout-control, *checkout-source, *setup-toolchain, *deploy-component]
 
@@ -234,8 +227,6 @@ jobs:
       COMPONENT: remote-agent
       RELEASE_SHA: ${{ inputs.sha }}
       DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     defaults: { run: { working-directory: release-source } }
     steps: [*checkout-control, *checkout-source, *setup-toolchain, *deploy-component]
 
@@ -257,8 +248,6 @@ jobs:
       COMPONENT: web
       RELEASE_SHA: ${{ inputs.sha }}
       DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     defaults: { run: { working-directory: release-source } }
     steps:
       - *checkout-control
@@ -287,8 +276,6 @@ jobs:
       COMPONENT: website
       RELEASE_SHA: ${{ inputs.sha }}
       DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     defaults: { run: { working-directory: release-source } }
     steps: [*checkout-control, *checkout-source, *setup-toolchain, *deploy-component, *source-maps]
 
@@ -304,8 +291,6 @@ jobs:
       COMPONENT: docs
       RELEASE_SHA: ${{ inputs.sha }}
       DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     defaults: { run: { working-directory: release-source } }
     steps: [*checkout-control, *checkout-source, *setup-toolchain, *deploy-component, *source-maps]
 

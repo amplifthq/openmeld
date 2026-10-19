@@ -155,7 +155,35 @@ test("database and Core jobs name the PostgreSQL release credentials they need",
       "PLANETSCALE_SERVICE_TOKEN",
     ]) {
       assert.ok(check.run.includes(secret), `${name} ${secret}`);
+      assert.ok(check.env[secret], `${name} check receives ${secret}`);
     }
+  }
+});
+
+test("production secrets are scoped to release steps, not dependency installation", () => {
+  for (const job of [
+    ...Object.values(deploy.jobs),
+    ...Object.values(cliRelease.jobs),
+  ]) {
+    assert.ok(!JSON.stringify(job.env ?? {}).includes("secrets."));
+    for (const step of job.steps ?? []) {
+      if (JSON.stringify(step.env ?? {}).includes("secrets.")) {
+        assert.ok(
+          [
+            "Require PostgreSQL release credentials",
+            "Build, deploy, and check health",
+            "Build, sign, publish, and check the release",
+          ].includes(step.name),
+          step.name
+        );
+      }
+    }
+  }
+  for (const entry of COMPONENTS.filter((entry) => entry.name !== "cli")) {
+    const step = deploy.jobs[jobName(entry.name)].steps.find(
+      (step) => step.name === "Build, deploy, and check health"
+    );
+    assert.ok(step.env.CLOUDFLARE_API_TOKEN, entry.name);
   }
 });
 
