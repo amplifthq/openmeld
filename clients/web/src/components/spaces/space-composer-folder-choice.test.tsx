@@ -211,6 +211,20 @@ describe("continuation sources", () => {
 			replyToSignalId: "ask-answered",
 			wakeTargetProfileIds: [],
 		}),
+		// Still streaming: no finished turn yet.
+		timelineItem({
+			actorProfileId: "agent",
+			agentStreamState: {
+				reasonCode: null,
+				sequence: 1,
+				status: "streaming",
+				streamId: "stream-1",
+			},
+			id: "stream-1",
+			isAgentFinalReply: true,
+			replyToSignalId: "ask-failed",
+			wakeTargetProfileIds: [],
+		}),
 	];
 
 	it("offers a fork only from a task the Agent finished", async () => {

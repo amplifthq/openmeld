@@ -43,3 +43,29 @@ read-only).
 | 2 | A confirmation replayed for a different folder change. | — | None found: the digest covers the operation and its fields, and approvals are single-use. |
 | 3 | `requestCredential` reaching the folder operation or logs. | — | None found. |
 | 4 | Web dialog applying anything on a confirmation refusal. | — | None found; a test pins the shown message and that Default Project is not cleared. |
+
+## Follow-up review: smoke round 2b (2026-10-19)
+
+Fixes on `claude/map-p2-smoke-2b`:
+
+- **R2B-08:** Core's folder policy read the requester's Profile with
+  `organization_id = <message Organization>`. Human Profiles have no
+  `organization_id`, so the owner's own folder choice was always stripped
+  and the task ran in the default folder. A Human requester now proves
+  Organization membership through `members`; an Agent requester through
+  its Organization.
+- **R2B-06:** the Session picker forked tasks that had no finished turn.
+  Fork choices now list only tasks the Agent finished with a published
+  final reply, and "Continue in another folder" is unavailable, with the
+  reason, for a task without one.
+
+Reviewed diff `e2d523c5b..8e1be9785` with Codex CLI (`gpt-6-astra`, `high`,
+read-only).
+
+| # | Finding | Verified | Disposition |
+| --- | --- | --- | --- |
+| 1 | A non-owner's folder surviving the new query (other member, removed member, inactive Profile, Center Agent, Phase 3 root). | — | None new. An Agent requester with the same owner still passes without a membership recheck; that predates this change and Phase 3's root requester replaces it when enforced. |
+| 2 | Another place that drops the owner's `folderId` between composer submit and the Service resolution. | — | None found; Codex traced every hop. Tests: composer submit carries `folderId`; a PostgreSQL test drives it through the policy into the accepted snapshot (fails without the fix). |
+| 3a | A live streaming reply counted as a final reply, so an unfinished task could be offered for forking. | Yes | Fixed: only a published reply (no stream state) counts. Test added. |
+| 3b | Requiring a published reply hides Codex sources that Core can fork from a retained native conversation without a frozen checkpoint, and a reply alone doesn't prove a Claude checkpoint. | Yes, trade-off | Kept. Web has no evidence of a retained native conversation, and the smoke failure was exactly such a source without one. Resume stays available for every source. Follow-up: a Core projection of fork eligibility per source would make this exact. |
+| 4 | Regression in resume choices. | — | None found. |

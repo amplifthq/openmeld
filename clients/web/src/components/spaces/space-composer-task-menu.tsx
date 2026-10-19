@@ -46,6 +46,8 @@ export function buildSpaceTaskSources(
 	const answered = new Set(
 		items.flatMap((item) =>
 			item.isAgentFinalReply &&
+			// A live stream is still running; only a published reply finished.
+			!item.agentStreamState &&
 			item.deliveryState === "sent" &&
 			item.replyToSignalId
 				? [`${item.replyToSignalId}:${item.actorProfileId}`]
