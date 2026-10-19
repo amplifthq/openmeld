@@ -6,6 +6,7 @@ import {
 import type { RuntimeHarnessCatalogEntry } from "../infrastructure/postgresql/runtime-harness-presence-repo";
 import {
   classifyHarnessReportDetection,
+  HARNESS_CATALOG_REPORT_RECENCY_MS,
   type HarnessReportDetection,
   isHarnessPresentOnRuntime,
 } from "./harness-presence-policy";
@@ -19,8 +20,11 @@ export type RuntimeHarness = {
   openMeldServiceRuntimeId: string;
   // Debounced: still counts as installed through a short absence.
   present: boolean;
-  // The latest report is current, so the computer is reporting now.
+  // The latest report has not expired; a Binding can use it now.
   reportCurrent: boolean;
+  // Core accepted a report recently, so the computer is reporting its
+  // catalog now, whatever the report's auth-check expiry says.
+  reporting: boolean;
   reportObservedAtMs: number;
   reportReady: boolean;
 };
@@ -45,6 +49,9 @@ export function projectRuntimeHarnesses(input: {
       status: entry.reportStatus,
     });
     const reportCurrent = entry.reportExpiresAtMs > input.nowMs;
+    const reporting =
+      entry.reportAcceptedAtMs + HARNESS_CATALOG_REPORT_RECENCY_MS >
+      input.nowMs;
     return [
       {
         agentControllerRef: entry.agentControllerRef,
@@ -59,6 +66,7 @@ export function projectRuntimeHarnesses(input: {
           nowMs: input.nowMs,
         }),
         reportCurrent,
+        reporting,
         reportObservedAtMs: entry.reportObservedAtMs,
         reportReady: reportCurrent && entry.reportStatus === "ready",
       },
@@ -67,9 +75,13 @@ export function projectRuntimeHarnesses(input: {
 }
 
 /**
- * Creation needs positive, current evidence: a reporting computer that
- * detects the Harness now. The debounce only delays removal.
+ * Creation needs positive, current evidence: a computer that reports its
+ * catalog now and detects the Harness. Installation does not depend on the
+ * report's expiry, which Core shortens to the Agent Controller auth-check
+ * freshness (two minutes) for controllers that report an interface
+ * snapshot; using it would skip Codex or Claude Code between checks. The
+ * debounce only delays removal.
  */
 export function isRuntimeHarnessCreatable(harness: RuntimeHarness): boolean {
-  return harness.reportCurrent && harness.currentDetection === "detected";
+  return harness.reporting && harness.currentDetection === "detected";
 }

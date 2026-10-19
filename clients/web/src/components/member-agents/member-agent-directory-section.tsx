@@ -70,6 +70,9 @@ export function formatMemberAgentWorkload(input: {
 }
 
 function describeRow(row: MemberAgentDirectoryRow): string {
+	if (row.setup === "creating") {
+		return "Setting up this Agent…";
+	}
 	const profiles = `${row.profiles.length} ${row.profiles.length === 1 ? "Profile" : "Profiles"}`;
 	const latest = row.latestSession
 		? `Latest: ${row.latestSession.title}`
@@ -135,7 +138,13 @@ export function MemberAgentDirectorySection(input: {
 								value={row.memberAgentId}
 							>
 								<AgentCard
-									badge={<MemberAgentStateBadge state={row.presence.state} />}
+									badge={
+										row.setup === "creating" ? (
+											<Badge variant="outline">Setting up</Badge>
+										) : (
+											<MemberAgentStateBadge state={row.presence.state} />
+										)
+									}
 									description={describeRow(row)}
 									name={row.displayName}
 									onClick={() => input.onOpenMemberAgent(row.memberAgentId)}

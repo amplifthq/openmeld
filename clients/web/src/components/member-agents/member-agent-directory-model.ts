@@ -28,6 +28,12 @@ export type MemberAgentDirectoryRow = {
 	defaultProfileId: string | null;
 	/** Profiles visible in this Organization, default Profile first. */
 	profiles: readonly AuthProfileView[];
+	/**
+	 * `creating` while a new MemberAgent's Profiles are not readable yet:
+	 * the default Profile is still being written, or the Profile reads have
+	 * not caught up with the listing. Such a row is never final.
+	 */
+	setup: "creating" | "ready";
 	presence: MemberAgentPresenceView;
 	latestSession: MemberAgentLatestSession | null;
 };
@@ -87,13 +93,20 @@ export function buildMemberAgentDirectory(input: {
 				placed.add(profile.openMeldProfileId);
 			}
 			const profileIds = profiles.map((profile) => profile.openMeldProfileId);
+			const archived = entry.memberAgent.archivedAt !== null;
 			return {
 				memberAgentId: entry.memberAgent.id,
 				harnessKind: entry.harnessKind,
 				displayName: entry.displayName,
-				archived: entry.memberAgent.archivedAt !== null,
+				archived,
 				defaultProfileId,
 				profiles,
+				setup: resolveMemberAgentSetup({
+					archived,
+					listedProfileCount: entry.memberAgent.profiles.length,
+					memberAgent: entry.memberAgent,
+					visibleProfileCount: profiles.length,
+				}),
 				presence: resolveMemberAgentPresence({
 					presence: input.presenceByMemberAgentId?.get(entry.memberAgent.id),
 					profileIds,
@@ -130,6 +143,23 @@ export function buildMemberAgentDirectory(input: {
 		),
 		unassigned,
 	};
+}
+
+function resolveMemberAgentSetup(input: {
+	archived: boolean;
+	listedProfileCount: number;
+	memberAgent: MemberAgentIndex["memberAgents"][number]["memberAgent"];
+	visibleProfileCount: number;
+}): MemberAgentDirectoryRow["setup"] {
+	// Only a detected MemberAgent is created automatically; a migrated or
+	// manual one always shows what it has.
+	if (input.archived || input.memberAgent.source !== "detected") {
+		return "ready";
+	}
+	return input.visibleProfileCount < input.listedProfileCount ||
+		input.memberAgent.defaultProfileId === null
+		? "creating"
+		: "ready";
 }
 
 /** The most recent Direct Message Session with any of the given Profiles. */

@@ -172,14 +172,16 @@ async function syncHarness(input: {
   };
 }
 
-// Prefer a computer whose report is ready now, then the newest report, so
-// the Binding lands where the Harness can run.
+// Prefer a computer whose report is ready now, then one whose report has
+// not expired, then the newest report, so the Binding lands where the
+// Harness can run.
 function selectBindingTarget(
   candidates: readonly RuntimeHarness[]
 ): MemberAgentBindingTarget {
   const [target] = [...candidates].sort(
     (left, right) =>
       Number(right.reportReady) - Number(left.reportReady) ||
+      Number(right.reportCurrent) - Number(left.reportCurrent) ||
       right.reportObservedAtMs - left.reportObservedAtMs ||
       left.openMeldServiceRuntimeId.localeCompare(
         right.openMeldServiceRuntimeId

@@ -19,6 +19,7 @@ export function catalogEntry(
     fact: null,
     lane: "prod",
     reasonCodes: [],
+    reportAcceptedAtMs: NOW_MS - 1000,
     reportExpiresAtMs: NOW_MS + 600_000,
     reportObservedAtMs: NOW_MS - 1000,
     reportStatus: "ready",

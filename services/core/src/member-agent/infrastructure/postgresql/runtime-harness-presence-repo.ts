@@ -14,6 +14,9 @@ export type RuntimeHarnessCatalogEntry = {
   lane: DaemonServiceLane;
   openMeldServiceRuntimeId: string;
   reasonCodes: readonly string[];
+  // Core time of the latest accepted report; unlike the expiry, it is not
+  // shortened by the Agent Controller auth-check freshness.
+  reportAcceptedAtMs: number;
   reportExpiresAtMs: number;
   reportObservedAtMs: number;
   reportStatus: RuntimeAgentControllerReportStatus;
@@ -30,6 +33,7 @@ type CatalogRow = {
   openmeld_service_runtime_id: string;
   presence_runtime_id: string | null;
   report_status: RuntimeAgentControllerReportStatus;
+  report_updated_at_ms: number | string;
   reported_reason_codes_json: string;
   undetected_report_count: number | string | null;
 };
@@ -54,6 +58,7 @@ export async function listOwnerRuntimeHarnessCatalog(input: {
         report.observed_at_ms,
         report.expires_at_ms,
         report.reported_reason_codes_json,
+        report.updated_at_ms AS report_updated_at_ms,
         presence.openmeld_service_runtime_id AS presence_runtime_id,
         presence.last_detected_at_ms,
         presence.undetected_report_count,
@@ -96,6 +101,7 @@ export async function listOwnerRuntimeHarnessCatalog(input: {
         lane: lane.data,
         openMeldServiceRuntimeId: row.openmeld_service_runtime_id,
         reasonCodes: parseReasonCodes(row.reported_reason_codes_json),
+        reportAcceptedAtMs: Number(row.report_updated_at_ms),
         reportExpiresAtMs: Number(row.expires_at_ms),
         reportObservedAtMs: Number(row.observed_at_ms),
         reportStatus: row.report_status,

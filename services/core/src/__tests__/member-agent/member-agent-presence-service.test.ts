@@ -152,6 +152,7 @@ describe("readMemberAgentPresence", () => {
           catalogEntry({
             agentControllerRef: "builtin:claude-code",
             openMeldServiceRuntimeId: "runtime-macbook",
+            reportAcceptedAtMs: NOW_MS - 11 * 60_000,
             reportExpiresAtMs: NOW_MS - 1,
           }),
         ],

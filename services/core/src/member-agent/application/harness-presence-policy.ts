@@ -8,6 +8,11 @@ export const HARNESS_MISSING_REPORT_THRESHOLD = 3;
 export const HARNESS_MISSING_CONFIRMATION_REPORTS = 2;
 export const HARNESS_MISSING_AFTER_MS = 5 * 60_000;
 
+// A computer counts as reporting its catalog while Core accepted one of its
+// reports within this window. It matches the OpenMeld Service's minimum
+// report lifetime (ten minutes); the Service reports every minute.
+export const HARNESS_CATALOG_REPORT_RECENCY_MS = 10 * 60_000;
+
 // What one accepted catalog report says about the Harness on its computer.
 // `unknown` reports neither confirm nor deny the installation and leave the
 // debounce unchanged: the controller is turned off in OpenMeld, or it is
