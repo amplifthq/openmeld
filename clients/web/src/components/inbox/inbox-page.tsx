@@ -37,6 +37,7 @@ import {
 	useMutateOrganizationInboxFeed,
 	useOrganizationInboxFeed,
 } from "#/query/organizations/inbox-feed";
+import { InboxAgentInteraction } from "./inbox-agent-interaction";
 import { InboxDesktopUpdateDetails } from "./inbox-desktop-update-details";
 import {
 	InboxFeedView,
@@ -77,6 +78,14 @@ function InboxSourceDetails({ target }: { target: InboxItem["sourceTarget"] }) {
 			<CredentialConfirmationCard
 				confirmationId={target.confirmationId}
 				key={target.confirmationId}
+			/>
+		);
+	}
+	if (target.kind === "agent_interaction") {
+		return (
+			<InboxAgentInteraction
+				key={`${target.runtimeCoordinatorExecutionId}:${target.interactionId}`}
+				target={target}
 			/>
 		);
 	}

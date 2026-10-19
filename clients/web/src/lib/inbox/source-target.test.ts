@@ -1,6 +1,7 @@
 import type { InboxItem, InboxSourceTarget } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import {
+	buildInboxAgentInteractionConversationHref,
 	buildInboxItemSourceNavigation,
 	isInboxItemSourceLocation,
 } from "./source-target";
@@ -69,23 +70,29 @@ describe("buildInboxItemSourceNavigation", () => {
 		});
 	});
 
-	it("preserves the exact agent interaction target", () => {
+	it("answers an Agent's question in Inbox and keeps its exact conversation", () => {
+		const target = {
+			interactionId: "interaction-123",
+			kind: "agent_interaction" as const,
+			runtimeCoordinatorExecutionId: "execution-123",
+			sourceSignalId: "signal-123",
+			spaceId: "space-123",
+			threadRootSignalId: "root-signal-123",
+		};
 		expect(
 			buildInboxItemSourceNavigation({
-				item: createInboxItem({
-					interactionId: "interaction-123",
-					kind: "agent_interaction",
-					runtimeCoordinatorExecutionId: "execution-123",
-					sourceSignalId: "signal-123",
-					spaceId: "space-123",
-					threadRootSignalId: "root-signal-123",
-				}),
+				item: createInboxItem(target),
 				orgSlug: "amplift",
 			})
 		).toEqual({
-			href: "/o/amplift/spaces/space-123?focusInteractionId=interaction-123&focusSignalId=signal-123&focusThreadRootSignalId=root-signal-123",
+			href: "/o/amplift/inbox?item=item-123",
 			openInNewTab: false,
 		});
+		expect(
+			buildInboxAgentInteractionConversationHref({ orgSlug: "amplift", target })
+		).toBe(
+			"/o/amplift/spaces/space-123?focusInteractionId=interaction-123&focusSignalId=signal-123&focusThreadRootSignalId=root-signal-123"
+		);
 	});
 
 	it("preserves the exact Center Agent reply target", () => {
