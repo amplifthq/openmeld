@@ -29,7 +29,7 @@ models are listed only when they carry a surface.
 | Agent access banner in a Space (`agent-access/space-agent-access-banner.tsx`) | Space banners | **Kept** (requester / observer states are new). |
 | Sensitive changes audit (`sensitive-operations/sensitive-operation-audit-section.tsx`) | none | **Kept** (new data). |
 | People/Agent picker MemberAgent grouping (`spaces/people-agent-picker-*.ts(x)`) | the existing picker | **Kept**, extends the picker in place. |
-| Folders dialog (`profiles/agent-profile-folders-dialog.tsx`, `agent-profile-folders-model.ts`) vs the old Working folder dialog (`profiles/agent-profile-project-settings-dialog.tsx`) | The existing Working folder card and control | **Merged for every entry but repair** (after p2 merged). The folder list is titled "Working folder" and is the one surface behind the detail workspace's Working folder card and the list card's menu entry (renamed from "Default Project and folder"); the detail workspace drops that duplicate menu entry. **Kept with reason:** working-folder recovery (`agent-profile-working-folder-recovery-action.tsx`, from failed tasks and the Agents page) still opens the workspace editor. Core's folder operations refuse invalid settings (`profile_folder.configuration_invalid`, "Repair them before changing folders"), and only the workspace write can repair them; that editor also reapplies the current folder, rechecks availability, blocks writes on a failed refresh and clears unfinished creation setup. Converge it once the folder model has a repair operation. |
+| Folders dialog (`profiles/agent-profile-folders-dialog.tsx`, `agent-profile-folders-model.ts`) vs the old Working folder dialog (`profiles/agent-profile-project-settings-dialog.tsx`) | The existing Working folder card and control | **Merged** (after p2 merged, repair on `claude/map-1d-folder-repair`). The folder list is titled "Working folder" and is the one surface behind the detail workspace's Working folder card, the list card's menu entry (renamed from "Default Project and folder") and working-folder recovery (`agent-profile-working-folder-recovery-action.tsx`, from failed tasks and the Agents page); the detail workspace drops its duplicate menu entry and the old dialog is deleted. Recovery keeps every ability the old editor had: a new folder `repair` operation replaces unreadable settings (Core previously refused them with `profile_folder.configuration_invalid`); "Set up again" prepares the current default again (recreating a missing OpenMeld folder); a failed readiness or eligibility refresh, or a changed Computer or local agent, blocks writes; a saved default rechecks availability; and unfinished creation setup is cleared. |
 | Composer folder choice (`spaces/space-composer-folder-choice.ts`) | Folder list model | **Kept**: per-task choice in the composer reads the same folder list; no separate editor. |
 | Inbox answer to an Agent's question (`inbox/inbox-agent-interaction.tsx`, from `claude/map-4-inbox-answer`) | `spaces/space-agent-interaction-card.tsx` | **Already shared**: it renders the Space's `SpaceAgentInteractionCard` and answers through the same Space endpoint. Its load-failure state now uses the shared `ApprovalRequestUnavailable` (with "Refresh question" beside "Open conversation"); the answered and paged-out notices stay, as nothing else covers them. |
 
@@ -97,3 +97,17 @@ Second pass, after the folder and Inbox-answer convergence:
 | P2: a failed refresh left recovery writes enabled | Confirmed | Resolved by the same revert (its `saveBlockedReason` stays). |
 | P2: recovery no longer cleared unfinished creation setup | Confirmed | Resolved by the same revert. |
 | Inbox answer extraction | No findings | — |
+
+Third pass, recovery on the Working folder dialog (`claude/map-1d-folder-repair`,
+Codex gpt-6-astra high, `7d5b24bef..HEAD`):
+
+| Finding | Verdict | Action |
+| --- | --- | --- |
+| P1: a new Service advertising `repairProfileFolders` can't register with an older Core (strict capability schema) | Confirmed, existing release constraint | Same as every capability (`manageProfileFolders` included): Core deploys before CLI per production-release. Recorded in agent-profiles.md. |
+| P2: an older Service answers "Set up again" (`set_default` on the current default) without preparing the folder | Confirmed | "Set up again" sends `repair`, which an older Service refuses through the capability gate. |
+| P2: a Default Project set in another tab survives a repair | Confirmed | Every local default change clears Default Project, even when this opening saw none. |
+| P2: "Make default" on the saved default with a Default Project skipped preparing it | Confirmed | It always sends `set_default`, which now prepares the current default again, before the Project clear. |
+| P2: Project controls in the add panel ignored the write block | Confirmed | The source chooser gets the panel's disabled state. |
+| P2: a failed Default Project clear after repair was lost with the unmounted form | Confirmed | The partial failure is a dialog-level error. |
+| P2: a repair's restarted counter could stay below Core's recorded revision | Confirmed | Core replaces its record with a repair receipt; Web replaces its cached list too. |
+

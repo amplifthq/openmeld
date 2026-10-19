@@ -138,6 +138,29 @@ describe("profile folder projection", () => {
     ).resolves.toMatchObject({ observedAtMs: 10, projection: PROJECTION });
   });
 
+  it("lets a repair replace a list with a higher revision", async () => {
+    const storage = memoryStorage();
+    await writeProfileFolderProjectionRecord({
+      observedAtMs: 10,
+      projection: PROJECTION,
+      storage,
+      target: TARGET,
+    });
+    // The repaired list can't know the lost counter; it still replaces the
+    // record, so ids the repair dropped are never served again.
+    const repaired = { defaultFolderId: null, folders: [], revision: 1 };
+    await writeProfileFolderProjectionRecord({
+      observedAtMs: 20,
+      projection: repaired,
+      replaces: true,
+      storage,
+      target: TARGET,
+    });
+    await expect(
+      readProfileFolderProjectionRecord({ storage, target: TARGET })
+    ).resolves.toMatchObject({ observedAtMs: 20, projection: repaired });
+  });
+
   it("allows a default folder only from this Computer's projection", () => {
     const record = profileFolderProjectionRecordSchema.parse({
       ...TARGET,
@@ -235,6 +258,24 @@ describe("profile folder projection", () => {
         operation: { operation: "add_openmeld_managed" },
       }).success
     ).toBe(false);
+  });
+
+  it("repairs folder settings only with an OpenMeld or custom folder", () => {
+    const parse = (folder: unknown) =>
+      manageAgentProfileFoldersBodySchema.safeParse({
+        expectedBindingTarget: {
+          agentControllerConversationId: null,
+          agentControllerRef: "builtin:codex",
+          bindingId: "binding-1",
+          openMeldServiceRuntimeId: "runtime-1",
+        },
+        operation: { folder, operation: "repair" },
+      }).success;
+    expect(parse({ kind: "openmeld_managed" })).toBe(true);
+    expect(parse({ kind: "custom", path: "/Users/me/repo" })).toBe(true);
+    // A Project folder is never the default; it repairs nothing locally.
+    expect(parse({ kind: "project", projectId: "project-1" })).toBe(false);
+    expect(parse({ kind: "custom" })).toBe(false);
   });
 
   it("refuses to remove the Default Project's folder", () => {

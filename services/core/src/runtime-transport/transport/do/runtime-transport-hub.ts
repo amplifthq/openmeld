@@ -11664,9 +11664,16 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.reapExpiredLeases(Date.now());
     const session = this.resolveLocalAgentControlSession({
       ...parsed.data,
-      capability: "manageProfileFolders",
+      // Older Services ignore an operation they can't parse, so a repair
+      // needs its own capability instead of timing out.
+      capability:
+        parsed.data.operation.operation === "repair"
+          ? "repairProfileFolders"
+          : "manageProfileFolders",
       unsupportedMessage:
-        "Update OpenMeld Service to manage this Agent’s folders.",
+        parsed.data.operation.operation === "repair"
+          ? "Update OpenMeld Service to repair this Agent’s folder settings."
+          : "Update OpenMeld Service to manage this Agent’s folders.",
       updateRequiredMessage:
         "Update OpenMeld Service to manage this Agent’s folders.",
     });
@@ -11722,6 +11729,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const record = await writeProfileFolderProjectionRecord({
       observedAtMs: Date.now(),
       projection: result.projection,
+      replaces: parsed.data.operation.operation === "repair",
       storage: this.ctx.storage,
       target: parsed.data,
     });
@@ -22020,7 +22028,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       | "initializeProfileWorkspace"
       | "setProfileWorkspace"
       | "readProfileWorkspace"
-      | "manageProfileFolders";
+      | "manageProfileFolders"
+      | "repairProfileFolders";
     ownerUserId: string;
     deviceId: string;
     lane: string;

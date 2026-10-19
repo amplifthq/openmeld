@@ -474,6 +474,8 @@ export type ProfileFolderListMutation<T> =
       list: ProfileFolderList;
       origin?: ProfileWorkspaceOrigin;
       result: T;
+      /** Overrides the next folder-save counter; repairs restart above it. */
+      revision?: number;
       updatedAt: string;
     };
 
@@ -527,7 +529,8 @@ export async function mutateProfileFolderListForAccount<T>(input: {
         workspaceOrigin: mutation.origin,
         folders: mutation.list.folders.map(buildFolderPayload),
         defaultFolderId: mutation.list.defaultFolderId ?? undefined,
-        foldersRevision: nextProfileFolderRevision(current),
+        foldersRevision:
+          mutation.revision ?? nextProfileFolderRevision(current),
       };
       await mkdir(dirname(path), { recursive: true });
       const tempPath = `${path}.tmp-${process.pid}-${Date.now()}-${randomUUID()}`;

@@ -15,7 +15,7 @@ import {
 } from "@openmeld/ui/components/dialog";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { AgentProfileProjectSettingsDialog } from "#/components/profiles/agent-profile-project-settings-dialog";
+import { AgentProfileFoldersDialog } from "#/components/profiles/agent-profile-folders-dialog";
 import { projectAgentProfileBindingTarget } from "#/lib/profiles/agent-profile-primary-binding";
 import { agentExecutionReadinessBatchQueryOptions } from "#/query/agents/execution-readiness";
 import { agentProfileControllerChangeEligibilityQueryOptions } from "#/query/profiles/primary-binding";
@@ -145,7 +145,7 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 				</div>
 			) : null}
 			{draftTarget ? (
-				<AgentProfileProjectSettingsDialog
+				<AgentProfileFoldersDialog
 					actorProfileId={input.actorProfileId}
 					agentControllerRef={draftTarget.agentControllerRef}
 					executionTargetChangeEligibilityStatus={
@@ -154,12 +154,14 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 					expectedBindingTarget={draftTarget.bindingTarget}
 					onOpenChange={setOpen}
 					onProfileUpdated={input.onProfileUpdated}
-					onSaved={checkSavedFolder}
 					open={open}
 					organizationId={input.organizationId}
 					profile={input.profile}
-					recoveryMessage={`This Agent could not use its working folder on ${current?.runtimeDeviceDisplayName ?? "its computer"}. Restore the original folder or choose one for new work. This does not move files or restart the failed task.`}
-					saveBlockedReason={saveBlockedReason}
+					recovery={{
+						message: `This Agent could not use its working folder on ${current?.runtimeDeviceDisplayName ?? "its computer"}. Set up its folder again or choose another one for new work. This does not move files or restart the failed task.`,
+						onSaved: checkSavedFolder,
+						saveBlockedReason,
+					}}
 					storageScope={input.storageScope}
 					target={draftTarget.target}
 				/>

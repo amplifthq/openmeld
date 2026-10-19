@@ -57,6 +57,11 @@ type ProjectSelectorInput = {
 	target?: PeopleComputerTarget;
 	disabled: boolean;
 	localFolderChangesBlocked?: boolean;
+	/**
+	 * Offers only an OpenMeld or custom folder. Repairing folder settings
+	 * needs a default folder, which a Project folder can't be.
+	 */
+	localFoldersOnly?: boolean;
 	manualPath: string;
 	onConnectionReady: (connection: LocalProjectControlConnection | null) => void;
 	onManualPathChange: (path: string) => void;
@@ -608,6 +613,7 @@ const FOLDER_SOURCES = [
 function ProjectSourceControls(input: {
 	disabled: boolean;
 	localFolderChangesBlocked?: boolean;
+	localFoldersOnly?: boolean;
 	source: "project" | "custom" | "managed" | "";
 	organizationId: string;
 	projectId: string;
@@ -622,7 +628,9 @@ function ProjectSourceControls(input: {
 				<WorkingFolderSelect
 					disabled={input.disabled}
 					id="working-folder-source"
-					items={FOLDER_SOURCES.map((source) => ({
+					items={FOLDER_SOURCES.filter(
+						(source) => !(input.localFoldersOnly && source.value === "project")
+					).map((source) => ({
 						...source,
 						disabled:
 							input.localFolderChangesBlocked && source.value !== "project",

@@ -497,6 +497,7 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
       readProfileWorkspace: z.literal(true).optional(),
       initializeProfileWorkspace: z.literal(true).optional(),
       manageProfileFolders: z.literal(true).optional(),
+      repairProfileFolders: z.literal(true).optional(),
     })
     .optional(),
   localProjectControl: z

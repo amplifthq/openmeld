@@ -19,7 +19,10 @@ import {
 	createTestQueryClient,
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
-import { AgentProfileFoldersDialog } from "./agent-profile-folders-dialog";
+import {
+	AgentProfileFoldersDialog,
+	type WorkingFolderRecovery,
+} from "./agent-profile-folders-dialog";
 import { buildAgentProfileFolderRows } from "./agent-profile-folders-model";
 
 const readFoldersMock = vi.hoisted(() => vi.fn());
@@ -27,10 +30,14 @@ const manageFoldersMock = vi.hoisted(() => vi.fn());
 const updateDefaultProjectMock = vi.hoisted(() => vi.fn());
 const readWorkspaceMock = vi.hoisted(() => vi.fn());
 const listProjectsMock = vi.hoisted(() => vi.fn());
+const clearCreationSetupMock = vi.hoisted(() => vi.fn());
 
 vi.mock("#/lib/profiles/agent-profile-folders", () => ({
 	manageAgentProfileFolders: manageFoldersMock,
 	readAgentProfileFolders: readFoldersMock,
+}));
+vi.mock("#/lib/profiles/agent-profile-creation-local-setup", () => ({
+	clearPendingAgentProfileCreationLocalSetupForProfile: clearCreationSetupMock,
 }));
 vi.mock("#/lib/profiles/update-default-project", () => ({
 	updateAgentProfileDefaultProject: updateDefaultProjectMock,
@@ -58,6 +65,8 @@ vi.mock("./agent-profile-project-selector", () => ({
 const MAKE_ANOTHER_DEFAULT = /Make another folder/;
 const COMPUTER_CHANGED_MESSAGE = /Computer or local agent changed/;
 const DEFAULT_FOLDER_REASON = /default folder/;
+const SETTINGS_UNREADABLE =
+	/saved folder settings on its computer can’t be read/;
 const CUSTOM_ID = "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11";
 const OTHER_ID = "3c2e8f8a-6b55-4b8e-9a43-0f3f2c9d7e21";
 const PROJECT_ID = "0397cc3e-6689-4a06-a6c3-1ca0e265606b";
@@ -131,9 +140,11 @@ function profileFixture(
 
 function renderDialog(
 	overrides: Partial<AuthProfileView> = {},
-	bindingTarget = BINDING_TARGET
+	bindingTarget = BINDING_TARGET,
+	recovery?: WorkingFolderRecovery
 ) {
 	const onProfileUpdated = vi.fn();
+	const onOpenChange = vi.fn();
 	const view = (target: typeof BINDING_TARGET) => (
 		<TestQueryClientProvider queryClient={queryClient}>
 			<AgentProfileFoldersDialog
@@ -141,11 +152,12 @@ function renderDialog(
 				agentControllerRef="builtin:codex"
 				executionTargetChangeEligibilityStatus="allowed"
 				expectedBindingTarget={target}
-				onOpenChange={vi.fn()}
+				onOpenChange={onOpenChange}
 				onProfileUpdated={onProfileUpdated}
 				open
 				organizationId="org-1"
 				profile={profileFixture(overrides)}
+				recovery={recovery}
 				storageScope="account-1"
 				target={TARGET}
 			/>
@@ -154,6 +166,7 @@ function renderDialog(
 	const queryClient = createTestQueryClient();
 	const { rerender } = render(view(bindingTarget));
 	return {
+		onOpenChange,
 		onProfileUpdated,
 		rebind: (target: typeof BINDING_TARGET) => rerender(view(target)),
 	};
@@ -336,8 +349,9 @@ describe("Agent folders dialog", () => {
 		).toBe(true);
 	});
 
-	it("finishes a failed Default Project clear without repeating the local save", async () => {
-		// The folder is already the saved default; only the Project clear is left.
+	it("prepares the saved default folder again before clearing the Default Project", async () => {
+		// The folder is already the saved default; its OpenMeld folder may be
+		// missing, so it is prepared again before the Project clear.
 		renderDialog({ defaultProjectId: "project-old" });
 		const row = await findRow("openmeld");
 		fireEvent.click(row.getByRole("button", { name: "Make default" }));
@@ -346,7 +360,14 @@ describe("Agent folders dialog", () => {
 				expect.objectContaining({ defaultProjectId: null })
 			)
 		);
-		expect(manageFoldersMock).not.toHaveBeenCalled();
+		expect(manageFoldersMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				operation: { folderId: CUSTOM_ID, operation: "set_default" },
+			})
+		);
+		expect(manageFoldersMock.mock.invocationCallOrder[0]).toBeLessThan(
+			updateDefaultProjectMock.mock.invocationCallOrder[0] ?? 0
+		);
 	});
 
 	it("blocks writes when the Agent's computer changes while Folders is open", async () => {
@@ -378,5 +399,168 @@ describe("Agent folders dialog", () => {
 		);
 		expect(updateDefaultProjectMock).not.toHaveBeenCalled();
 		expect((await findRow("openmeld")).getByText("Default")).toBeTruthy();
+	});
+
+	it("repairs unreadable folder settings with the folder new work starts in", async () => {
+		readFoldersMock.mockResolvedValue({
+			agentProfileId: "profile-agent",
+			message:
+				"The working folder settings are invalid (invalid_schema). Repair them before changing folders.",
+			reasonCode: "profile_folder.configuration_invalid",
+			status: "unavailable",
+			target: TARGET,
+		});
+		manageFoldersMock.mockResolvedValue({
+			agentProfileId: "profile-agent",
+			folderId: CUSTOM_ID,
+			observedAtMs: 2,
+			projection: { ...PROJECTION, revision: 1_800_000_000_000 },
+			target: TARGET,
+		});
+		const { onProfileUpdated } = renderDialog({
+			defaultProjectId: "project-old",
+		});
+		expect(await screen.findByText(SETTINGS_UNREADABLE)).toBeTruthy();
+		// Ordinary changes can't apply to settings that can't be read.
+		expect(screen.queryByRole("button", { name: "Add folder" })).toBeNull();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Use the OpenMeld folder" })
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Use this folder" }));
+		await waitFor(() => expect(updateDefaultProjectMock).toHaveBeenCalled());
+		expect(manageFoldersMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				expectedBindingTarget: BINDING_TARGET,
+				operation: {
+					folder: { kind: "openmeld_managed" },
+					operation: "repair",
+				},
+			})
+		);
+		// The repaired folder only starts new work once no Default Project wins.
+		expect(updateDefaultProjectMock).toHaveBeenCalledWith(
+			expect.objectContaining({ defaultProjectId: null })
+		);
+		expect(onProfileUpdated).toHaveBeenCalled();
+		expect(clearCreationSetupMock).toHaveBeenCalledWith("profile-agent");
+		expect(await findRow("openmeld")).toBeTruthy();
+	});
+
+	it("sets up the current folder again from recovery and rechecks the Agent", async () => {
+		const onSaved = vi.fn();
+		const { onOpenChange } = renderDialog({}, BINDING_TARGET, {
+			message: "This Agent could not use its working folder.",
+			onSaved,
+		});
+		expect(
+			screen.getByText("This Agent could not use its working folder.")
+		).toBeTruthy();
+		const row = await findRow("openmeld");
+		// Only the folder new work starts in can be set up again.
+		expect(
+			(await findRow("website")).queryByRole("button", {
+				name: "Set up again",
+			})
+		).toBeNull();
+		// The saved path is read for its owner before the button applies.
+		await row.findByText("/Users/felix/work/openmeld");
+		fireEvent.click(row.getByRole("button", { name: "Set up again" }));
+		await waitFor(() => expect(onSaved).toHaveBeenCalled());
+		// A repair, which a Service too old to prepare the folder refuses.
+		expect(manageFoldersMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				operation: {
+					folder: { kind: "custom", path: "/Users/felix/work/openmeld" },
+					operation: "repair",
+				},
+			})
+		);
+		expect(clearCreationSetupMock).toHaveBeenCalledWith("profile-agent");
+		expect(onOpenChange).toHaveBeenCalledWith(false);
+	});
+
+	it("rechecks the Agent after recovery makes another folder the default", async () => {
+		const onSaved = vi.fn();
+		renderDialog({}, BINDING_TARGET, { message: "Recover.", onSaved });
+		fireEvent.click(
+			(await findRow("website")).getByRole("button", { name: "Make default" })
+		);
+		await waitFor(() => expect(onSaved).toHaveBeenCalled());
+	});
+
+	it("blocks recovery writes while the Agent's Computer can't be confirmed", async () => {
+		const blocked =
+			"Couldn’t confirm this Agent’s current Computer. Close and reopen Working folder to try again.";
+		renderDialog({}, BINDING_TARGET, {
+			message: "Recover.",
+			onSaved: vi.fn(),
+			saveBlockedReason: blocked,
+		});
+		const row = await findRow("openmeld");
+		expect(screen.getByText(blocked)).toBeTruthy();
+		expect(
+			row.getByRole("button", { name: "Set up again" }).hasAttribute("disabled")
+		).toBe(true);
+		expect(
+			(await findRow("website"))
+				.getByRole("button", { name: "Make default" })
+				.hasAttribute("disabled")
+		).toBe(true);
+		expect(
+			screen
+				.getByRole("button", { name: "Add folder" })
+				.hasAttribute("disabled")
+		).toBe(true);
+	});
+
+	it("blocks repair while the Agent's Computer can't be confirmed", async () => {
+		readFoldersMock.mockResolvedValue({
+			agentProfileId: "profile-agent",
+			message: "Repair them before changing folders.",
+			reasonCode: "profile_folder.configuration_invalid",
+			status: "unavailable",
+			target: TARGET,
+		});
+		renderDialog({}, BINDING_TARGET, {
+			message: "Recover.",
+			onSaved: vi.fn(),
+			saveBlockedReason: "Checking this Agent’s current Computer…",
+		});
+		await screen.findByText(SETTINGS_UNREADABLE);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Use the OpenMeld folder" })
+		);
+		expect(
+			screen
+				.getByRole("button", { name: "Use this folder" })
+				.hasAttribute("disabled")
+		).toBe(true);
+	});
+
+	it("clears a Default Project set elsewhere and keeps a failed clear visible", async () => {
+		readFoldersMock.mockResolvedValue({
+			agentProfileId: "profile-agent",
+			message: "Repair them before changing folders.",
+			reasonCode: "profile_folder.configuration_invalid",
+			status: "unavailable",
+			target: TARGET,
+		});
+		updateDefaultProjectMock.mockRejectedValue(new Error("offline"));
+		// This opening saw no Default Project; another tab may have set one.
+		renderDialog();
+		await screen.findByText(SETTINGS_UNREADABLE);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Use the OpenMeld folder" })
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Use this folder" }));
+		// The repaired list replaces the form; the partial failure stays.
+		expect((await screen.findByRole("alert")).textContent).toContain(
+			"couldn’t confirm that the Default Project was cleared"
+		);
+		expect(updateDefaultProjectMock).toHaveBeenCalledWith(
+			expect.objectContaining({ defaultProjectId: null })
+		);
+		expect(await findRow("openmeld")).toBeTruthy();
+		expect(clearCreationSetupMock).not.toHaveBeenCalled();
 	});
 });

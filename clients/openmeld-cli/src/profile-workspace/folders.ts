@@ -150,6 +150,13 @@ async function planProfileFolderMutation(input: {
   prepared: { folder?: ProfileFolder };
 }): Promise<FolderMutation> {
   const current = input.current;
+  const operation = input.operation;
+  if (operation.operation === "repair") {
+    return await planRepairFolder({
+      ...input,
+      candidate: input.prepared.folder,
+    });
+  }
   const list = requireList(current);
   const nextRevision = nextProfileFolderRevision(current);
   const plan: FolderMutationPlan = {
@@ -181,7 +188,6 @@ async function planProfileFolderMutation(input: {
       },
     }),
   };
-  const operation = input.operation;
   switch (operation.operation) {
     case "add_custom":
     case "add_project":
@@ -217,6 +223,70 @@ function planAddFolder(
   );
 }
 
+/**
+ * Makes an OpenMeld or custom folder the default and prepares it again, so a
+ * missing OpenMeld folder is recreated and a custom folder is re-checked even
+ * when it already is the default. Saved settings that can't be read are
+ * replaced by a list holding only this folder; the lost save counter is
+ * unknown, so the counter restarts above any it could have reported.
+ */
+async function planRepairFolder(input: {
+  account: OpenMeldAccountKey;
+  candidate: ProfileFolder | undefined;
+  current: ProfileFolderListReadResult;
+  now: string;
+  openMeldProfileId: string;
+}): Promise<FolderMutation> {
+  const candidate = input.candidate;
+  if (!candidate) {
+    throw new Error("A prepared folder is required.");
+  }
+  const current = input.current;
+  if (current.status === "invalid") {
+    await prepareDefaultFolder({
+      account: input.account,
+      folder: candidate,
+      openMeldProfileId: input.openMeldProfileId,
+    });
+    const revision = Math.max(nextProfileFolderRevision(current), Date.now());
+    return {
+      ...changeDefault({
+        folder: candidate,
+        list: { defaultFolderId: null, folders: [candidate] },
+        plan: { nextRevision: revision, now: input.now },
+      }),
+      revision,
+    };
+  }
+  const list = requireList(current);
+  const existing = list.folders.find((folder) =>
+    sameFolderTarget(folder, candidate)
+  );
+  const folder = existing ?? candidate;
+  await prepareDefaultFolder({
+    account: input.account,
+    folder,
+    openMeldProfileId: input.openMeldProfileId,
+  });
+  if (list.defaultFolderId === folder.id) {
+    return {
+      kind: "unchanged",
+      result: {
+        folderId: folder.id,
+        projection: projectProfileFolderList(
+          list,
+          current.status === "valid" ? current.revision : 0
+        ),
+      },
+    };
+  }
+  return changeDefault({
+    folder,
+    list: existing ? list : { ...list, folders: [...list.folders, candidate] },
+    plan: { nextRevision: nextProfileFolderRevision(current), now: input.now },
+  });
+}
+
 function planRenameFolder(
   plan: FolderMutationPlan,
   operation: { displayName: string; folderId: string }
@@ -243,14 +313,16 @@ async function planSetDefaultFolder(
   folderId: string
 ): Promise<FolderMutation> {
   const folder = requireFolder(plan.list, folderId);
-  if (plan.list.defaultFolderId === folder.id) {
-    return plan.unchanged(folder.id);
-  }
+  // Choosing the current default again prepares it again: a missing OpenMeld
+  // folder is recreated and a custom folder is re-checked.
   await prepareDefaultFolder({
     account: plan.account,
     folder,
     openMeldProfileId: plan.openMeldProfileId,
   });
+  if (plan.list.defaultFolderId === folder.id) {
+    return plan.unchanged(folder.id);
+  }
   return changeDefault({ folder, list: plan.list, plan });
 }
 
@@ -528,6 +600,15 @@ async function prepareOperationInput(input: {
         },
       };
     }
+    case "repair":
+      if (operation.folder.kind === "custom") {
+        return await prepareOperationInput({
+          operation: { operation: "add_custom", path: operation.folder.path },
+        });
+      }
+      return await prepareOperationInput({
+        operation: { operation: "add_openmeld_managed" },
+      });
     case "add_openmeld_managed":
       return {
         folder: {
@@ -585,7 +666,7 @@ function changeDefault(input: {
   folder: ProfileFolder;
   list: ProfileFolderList;
   plan: Pick<FolderMutationPlan, "nextRevision" | "now">;
-}): ProfileFolderListMutation<ProfileFolderOperationOutcome> {
+}): Extract<FolderMutation, { kind: "write" }> {
   const next = { ...input.list, defaultFolderId: input.folder.id };
   return {
     kind: "write",

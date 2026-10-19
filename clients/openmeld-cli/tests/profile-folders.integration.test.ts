@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { profileFolderProjectionSchema } from "@openmeld/schemas";
@@ -600,6 +600,123 @@ describe("profile folders", () => {
       ).rejects.toMatchObject({
         reasonCode: "profile_folder.configuration_invalid",
       });
+    });
+  });
+
+  it("repairs unreadable folder settings with the chosen folder as the only default", async () => {
+    await withTempHome(async (home) => {
+      const folder = join(home, "repo-repair");
+      await mkdir(folder);
+      await writeEnvelope({
+        folders: [{ id: "not-a-uuid", kind: "custom", path: "/tmp" }],
+        foldersRevision: 7,
+        openMeldProfileId: PROFILE_ID,
+        updatedAt: "2026-10-01T00:00:00.000Z",
+        v: 2,
+        workspace: { mode: "openmeld_managed" },
+      });
+
+      const repaired = await applyProfileFolderOperation({
+        account: ACCOUNT,
+        openMeldProfileId: PROFILE_ID,
+        operation: {
+          folder: { kind: "custom", path: folder },
+          operation: "repair",
+        },
+        updatedAt: "2026-10-19T00:00:00.000Z",
+      });
+
+      expect(repaired.projection.folders).toEqual([
+        {
+          displayName: "repo-repair",
+          folderId: repaired.folderId,
+          isDefault: true,
+          kind: "custom",
+        },
+      ]);
+      // The unreadable counter is lost; the repair must still outrank any
+      // list Core recorded before the settings broke.
+      expect(repaired.projection.revision).toBeGreaterThan(1_000_000);
+      const saved = await readProfileWorkspaceConfigForAccount({
+        account: ACCOUNT,
+        openMeldProfileId: PROFILE_ID,
+      });
+      expect(saved).toMatchObject({
+        status: "valid",
+        value: { customWorkspacePath: folder, mode: "custom" },
+      });
+      // Ordinary folder changes work again and keep counting up.
+      const added = await applyProfileFolderOperation({
+        account: ACCOUNT,
+        openMeldProfileId: PROFILE_ID,
+        operation: { operation: "add_openmeld_managed" },
+      });
+      expect(added.projection.revision).toBe(repaired.projection.revision + 1);
+    });
+  });
+
+  it("repairs a readable list by adding or reusing the folder as the default", async () => {
+    await withTempHome(async (home) => {
+      const folder = join(home, "repo-keep");
+      await mkdir(folder);
+      await setCustomProfileWorkspace({
+        account: ACCOUNT,
+        customWorkspacePath: folder,
+        openMeldProfileId: PROFILE_ID,
+      });
+      const before = await applyProfileFolderOperation({
+        account: ACCOUNT,
+        openMeldProfileId: PROFILE_ID,
+        operation: { operation: "list" },
+      });
+
+      const repaired = await applyProfileFolderOperation({
+        account: ACCOUNT,
+        openMeldProfileId: PROFILE_ID,
+        operation: {
+          folder: { kind: "openmeld_managed" },
+          operation: "repair",
+        },
+      });
+
+      expect(repaired.projection.folders).toHaveLength(2);
+      expect(repaired.projection.defaultFolderId).toBe(repaired.folderId);
+      expect(
+        repaired.projection.folders.find((item) => item.kind === "custom")
+          ?.folderId
+      ).toBe(before.projection.defaultFolderId);
+      await expect(
+        stat(accountProfileWorkspacePath(ACCOUNT, PROFILE_ID))
+      ).resolves.toBeTruthy();
+    });
+  });
+
+  it("recreates a missing OpenMeld folder when the current default is chosen again", async () => {
+    await withTempHome(async () => {
+      await setOpenMeldManagedProfileWorkspace({
+        account: ACCOUNT,
+        openMeldProfileId: PROFILE_ID,
+      });
+      const workspace = accountProfileWorkspacePath(ACCOUNT, PROFILE_ID);
+      await rm(workspace, { force: true, recursive: true });
+      const listed = await applyProfileFolderOperation({
+        account: ACCOUNT,
+        openMeldProfileId: PROFILE_ID,
+        operation: { operation: "list" },
+      });
+      const defaultFolderId = listed.projection.defaultFolderId;
+      if (!defaultFolderId) {
+        throw new Error("Expected a default folder.");
+      }
+
+      const again = await applyProfileFolderOperation({
+        account: ACCOUNT,
+        openMeldProfileId: PROFILE_ID,
+        operation: { folderId: defaultFolderId, operation: "set_default" },
+      });
+
+      expect(again.projection.revision).toBe(listed.projection.revision);
+      await expect(stat(workspace)).resolves.toBeTruthy();
     });
   });
 
