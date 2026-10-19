@@ -320,6 +320,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { createDispatchContinuationSpaceAccessContext } from "@openmeld/space";
 import { buildSystemNoticeText } from "@openmeld/space-mesh";
+import { publishAccountInvalidation } from "../../../account-invalidation/publish-account-invalidation";
 import { linkAcceptedAgentActivityExecutions } from "../../../agent-activity/activity-execution-link-repository";
 import {
   clearAgentExecutionReadinessImpactForExecutionRunning,
@@ -15394,13 +15395,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return;
     }
     try {
+      let changed: { organizationId: string } | null;
       if (record.desiredStatus === "open") {
         if (!record.sourceSignalId) {
           throw new Error(
             "runtime_coordinator.interaction_inbox.source_signal_unavailable"
           );
         }
-        await projectRuntimeCoordinatorInteractionInboxItem({
+        changed = await projectRuntimeCoordinatorInteractionInboxItem({
           inboxDb: targetInboxDb,
           interaction: record.interaction,
           nowMs: record.updatedAtMs,
@@ -15414,7 +15416,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           requestRoot: record.requestRoot ?? null,
         });
       } else {
-        await resolveRuntimeCoordinatorInteractionInboxItem({
+        changed = await resolveRuntimeCoordinatorInteractionInboxItem({
           inboxDb: targetInboxDb,
           interaction: record.interaction,
           ownerUserId: record.ownerUserId,
@@ -15426,6 +15428,17 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         });
       }
       await this.removeRuntimeCoordinatorInteractionInboxRepair(record);
+      if (changed) {
+        // An open Inbox shows the question, or its end, without a reload.
+        this.ctx.waitUntil(
+          publishAccountInvalidation({
+            env: this.env,
+            frame: { type: "inbox.changed" },
+            organizationId: changed.organizationId,
+            userIds: [record.ownerUserId],
+          })
+        );
+      }
     } catch (error) {
       await this.deferRuntimeCoordinatorInteractionInboxRepair(record);
       console.warn(

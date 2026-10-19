@@ -460,7 +460,12 @@ function InboxItemSourceLink(input: {
 		}
 		event.preventDefault();
 		navigate({
-			to: input.href,
+			// Opening an Inbox detail keeps the user's view and filters.
+			to: keepInboxFilters({
+				currentPathname: window.location.pathname,
+				currentSearch: window.location.search,
+				href: input.href,
+			}),
 			state: requestInboxSourceFocus,
 		}).catch((error: unknown) =>
 			console.warn("[openmeld.web.inbox_navigation_failed]", { error })

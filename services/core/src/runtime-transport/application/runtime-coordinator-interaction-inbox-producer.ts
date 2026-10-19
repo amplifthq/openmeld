@@ -55,7 +55,7 @@ export async function projectRuntimeCoordinatorInteractionInboxItem(
     nowMs: number;
     spaceIndexDb: PostgresDatabase;
   }
-): Promise<void> {
+): Promise<{ organizationId: string } | null> {
   const target = await readSpaceIndexOrganizationJoinTarget({
     db: input.spaceIndexDb,
     spaceId: input.spaceId,
@@ -71,7 +71,7 @@ export async function projectRuntimeCoordinatorInteractionInboxItem(
     spaceId: input.spaceId,
   });
   if (recipientAccess.kind === "removed") {
-    return;
+    return null;
   }
   if (recipientAccess.kind === "missing") {
     throw new Error(
@@ -150,7 +150,7 @@ export async function projectRuntimeCoordinatorInteractionInboxItem(
       db: input.inboxDb,
       nowMs: input.nowMs,
     });
-    return;
+    return { organizationId: target.organizationId };
   }
   await ensureInboxItem({
     allowLegacySourceClassificationRepair: true,
@@ -158,6 +158,7 @@ export async function projectRuntimeCoordinatorInteractionInboxItem(
     db: input.inboxDb,
     nowMs: input.nowMs,
   });
+  return { organizationId: target.organizationId };
 }
 /**
  * The Binding owner answers questions from their own Agent. A member gets
@@ -205,7 +206,7 @@ export async function resolveRuntimeCoordinatorInteractionInboxItem(
     resolvedAtMs: number;
     spaceIndexDb: PostgresDatabase;
   }
-): Promise<void> {
+): Promise<{ organizationId: string }> {
   const target = await readSpaceIndexOrganizationJoinTarget({
     db: input.spaceIndexDb,
     spaceId: input.spaceId,
@@ -221,7 +222,7 @@ export async function resolveRuntimeCoordinatorInteractionInboxItem(
     sourceKind: RUNTIME_COORDINATOR_INTERACTION_SOURCE_KIND,
   });
   if (!input.requestRoot) {
-    return;
+    return { organizationId: target.organizationId };
   }
   // The Session item closes only for the question it currently shows; a
   // newer question in the same Session keeps it open.
@@ -244,6 +245,7 @@ export async function resolveRuntimeCoordinatorInteractionInboxItem(
     }),
     sourceKind: RUNTIME_COORDINATOR_INTERACTION_SOURCE_KIND,
   });
+  return { organizationId: target.organizationId };
 }
 async function isRootRequesterOwnedBy(input: {
   db: PostgresDatabase;
