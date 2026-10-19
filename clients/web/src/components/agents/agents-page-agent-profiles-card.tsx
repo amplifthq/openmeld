@@ -4008,6 +4008,31 @@ function AgentProfileWorkspacePresentation(input: {
 				onOpenChange={input.onOpenChange.details}
 				open={input.presentationState.detailsOpen}
 			/>
+			{/* The detail page's "Edit Agent" action opens the same editor as a card. */}
+			<AgentProfileEditDialog
+				controllerChangeEligibilityStatus={
+					input.controllerChangeEligibilityStatus
+				}
+				controllerChangeOptions={input.input.controllerChangeOptions}
+				editState={input.input.editState}
+				isPending={input.presentationState.profileEditPending}
+				modelCatalog={input.input.modelCatalog}
+				modelCompatibilityContext={input.input.modelCompatibilityContext}
+				onControllerChange={input.input.onControllerChange}
+				onControllerCollaborationModeUpdate={
+					input.input.onControllerCollaborationModeUpdate
+				}
+				onControllerPermissionModeUpdate={
+					input.input.onControllerPermissionModeUpdate
+				}
+				onModelSelectionUpdate={input.input.onModelSelectionUpdate}
+				onOpenChange={input.onOpenChange.profileEdit}
+				onOpenCodePermissionUpdate={input.input.onOpenCodePermissionUpdate}
+				onRenameProfile={input.input.onRenameProfile}
+				open={input.presentationState.profileEditOpen}
+				profileName={input.input.profileName}
+				runtime={input.runtime}
+			/>
 			<AgentProfileFoldersDialog
 				actorProfileId={input.input.actorProfileId}
 				agentControllerRef={input.input.primaryAgentControllerRef}
@@ -5446,8 +5471,7 @@ function AgentProfileEditDialogFields(input: {
 						<p className="text-sm">
 							{input.activeDraft.profileName}
 							<span className="mt-1 block text-muted-foreground text-xs">
-								This is the Agent’s default Profile, so it keeps the harness
-								name.
+								The default Profile is named after its harness.
 							</span>
 						</p>
 					) : (

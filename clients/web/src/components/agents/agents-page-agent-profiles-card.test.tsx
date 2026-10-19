@@ -404,6 +404,20 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBeNull();
 	});
 
+	it("opens the Agent editor from the detail workspace's Edit Agent action", async () => {
+		renderAgentProfilesCard(
+			{},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{ presentation: "detail" }
+		);
+		await screen.findByTestId("agent-profile-workspace-detail");
+		fireEvent.click(
+			screen.getByRole("button", { name: "Agent options for Research Agent" })
+		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Edit Agent" }));
+		expect(await screen.findByRole("dialog")).toBeTruthy();
+	});
+
 	it("shows current activity before configuration and keeps the details dialog concise", () => {
 		renderAgentProfilesCard(
 			{},
