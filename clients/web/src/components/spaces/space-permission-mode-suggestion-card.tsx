@@ -1,6 +1,7 @@
 import type { PermissionModeSuggestion } from "@openmeld/schemas";
 import {
 	ApprovalCard,
+	ApprovalCardBody,
 	ApprovalCardFooter,
 	ApprovalCardHeader,
 } from "@openmeld/ui/components/approval-card";
@@ -67,7 +68,7 @@ export function SpacePermissionModeSuggestionCard(input: {
 				icon={<ShieldCheckIcon aria-hidden="true" />}
 				title={`Switch to ${input.suggestedOption.label}?`}
 			/>
-			<div className="grid gap-1 px-1 text-sm">
+			<ApprovalCardBody className="space-y-1 text-sm">
 				<p>
 					Other people's tasks waited for your approval{" "}
 					{count === 1 ? "once" : `${count} times`} this week.
@@ -80,22 +81,24 @@ export function SpacePermissionModeSuggestionCard(input: {
 						{input.restoredFailure.errorMessage}
 					</p>
 				) : null}
-			</div>
+			</ApprovalCardBody>
 			<ApprovalCardFooter>
 				<Button
 					disabled={pending}
-					onClick={() => submit("dismissed")}
-					type="button"
-					variant="ghost"
-				>
-					Not now
-				</Button>
-				<Button
-					disabled={pending}
 					onClick={() => submit("applied")}
+					size="sm"
 					type="button"
 				>
 					Apply
+				</Button>
+				<Button
+					disabled={pending}
+					onClick={() => submit("dismissed")}
+					size="sm"
+					type="button"
+					variant="outline"
+				>
+					Not now
 				</Button>
 			</ApprovalCardFooter>
 		</ApprovalCard>

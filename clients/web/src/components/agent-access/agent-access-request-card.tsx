@@ -13,6 +13,11 @@ import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { RobotIcon } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import {
+	ApprovalRequestErrors,
+	ApprovalRequestOutcome,
+	ApprovalRequestUnavailable,
+} from "#/components/inbox/approval-request-states";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationDirectMessagePath,
@@ -123,14 +128,10 @@ export function AgentAccessRequestCard(input: {
 	}
 	if (!request) {
 		return (
-			<div className="space-y-2">
-				<p className="text-destructive text-sm" role="alert">
-					{query.error?.message ?? "This request is unavailable."}
-				</p>
-				<Button onClick={() => query.refetch()} size="sm" variant="outline">
-					Try again
-				</Button>
-			</div>
+			<ApprovalRequestUnavailable
+				message={query.error?.message ?? "This request is unavailable."}
+				onRefresh={() => query.refetch()}
+			/>
 		);
 	}
 	const respond = async (decision: AgentAccessDecision) => {
@@ -195,20 +196,15 @@ export function AgentAccessRequestCard(input: {
 					))}
 				</ApprovalCardFooter>
 			) : (
-				<output className="block border-border/70 border-t pt-3 text-sm">
+				<ApprovalRequestOutcome>
 					{agentAccessOutcomeCopy(request)}
-				</output>
+				</ApprovalRequestOutcome>
 			)}
-			{error ? (
-				<p className="text-destructive text-sm" role="alert">
-					{error}
-				</p>
-			) : null}
-			{query.isRefetchError ? (
-				<p className="text-destructive text-sm" role="alert">
-					Couldn't refresh this request. Confirm its status before answering.
-				</p>
-			) : null}
+			<ApprovalRequestErrors
+				error={error}
+				onRefresh={() => query.refetch()}
+				refetchFailed={query.isRefetchError}
+			/>
 		</ApprovalCard>
 	);
 }

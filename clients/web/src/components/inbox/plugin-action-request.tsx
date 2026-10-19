@@ -9,6 +9,11 @@ import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { ShieldCheckIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { usePluginActionRequest } from "#/query/organizations/plugin-action-requests";
+import {
+	ApprovalRequestErrors,
+	ApprovalRequestOutcome,
+	ApprovalRequestUnavailable,
+} from "./approval-request-states";
 
 const STATE_COPY = {
 	approved:
@@ -56,14 +61,10 @@ export function PluginActionRequest({
 	}
 	if (!request) {
 		return (
-			<div className="mt-3 space-y-2 rounded-md border border-border/70 p-4">
-				<p className="text-destructive text-sm" role="alert">
-					This request could not be loaded. Refresh to try again.
-				</p>
-				<Button onClick={() => query.refetch()} size="sm" variant="outline">
-					Refresh request
-				</Button>
-			</div>
+			<ApprovalRequestUnavailable
+				message="This request could not be loaded. Refresh to try again."
+				onRefresh={() => query.refetch()}
+			/>
 		);
 	}
 	return (
@@ -141,7 +142,7 @@ export function PluginActionRequest({
 					</Button>
 				</ApprovalCardFooter>
 			) : (
-				<output className="block border-border/70 border-t pt-3 text-sm">
+				<ApprovalRequestOutcome>
 					{request.state === "approved" && request.continuation
 						? {
 								pending:
@@ -152,24 +153,13 @@ export function PluginActionRequest({
 									"Approved, but the original request can no longer continue. Send a new message to the Agent.",
 							}[request.continuation]
 						: STATE_COPY[request.state]}
-				</output>
+				</ApprovalRequestOutcome>
 			)}
-			{error ? (
-				<p className="text-destructive text-sm" role="alert">
-					{error}
-				</p>
-			) : null}
-			{query.isRefetchError ? (
-				<div className="space-y-2">
-					<p className="text-destructive text-sm" role="alert">
-						Couldn’t refresh this request. Confirm its current status before
-						responding.
-					</p>
-					<Button onClick={() => query.refetch()} size="sm" variant="outline">
-						Refresh request
-					</Button>
-				</div>
-			) : null}
+			<ApprovalRequestErrors
+				error={error}
+				onRefresh={() => query.refetch()}
+				refetchFailed={query.isRefetchError}
+			/>
 		</ApprovalCard>
 	);
 }

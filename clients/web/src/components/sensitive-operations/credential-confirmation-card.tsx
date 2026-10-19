@@ -14,6 +14,11 @@ import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { ShieldWarningIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import {
+	ApprovalRequestErrors,
+	ApprovalRequestOutcome,
+	ApprovalRequestUnavailable,
+} from "#/components/inbox/approval-request-states";
+import {
 	useCredentialConfirmation,
 	useDecideCredentialConfirmation,
 } from "#/query/sensitive-operations";
@@ -78,14 +83,10 @@ export function CredentialConfirmationCard(input: { confirmationId: string }) {
 	}
 	if (!confirmation) {
 		return (
-			<div className="space-y-2">
-				<p className="text-destructive text-sm" role="alert">
-					{query.error?.message ?? "This confirmation is unavailable."}
-				</p>
-				<Button onClick={() => query.refetch()} size="sm" variant="outline">
-					Try again
-				</Button>
-			</div>
+			<ApprovalRequestUnavailable
+				message={query.error?.message ?? "This confirmation is unavailable."}
+				onRefresh={() => query.refetch()}
+			/>
 		);
 	}
 	const respond = async (decision: CredentialConfirmationDecision) => {
@@ -137,15 +138,15 @@ export function CredentialConfirmationCard(input: { confirmationId: string }) {
 					</Button>
 				</ApprovalCardFooter>
 			) : (
-				<output className="block border-border/70 border-t pt-3 text-sm">
+				<ApprovalRequestOutcome>
 					{credentialConfirmationOutcomeCopy(confirmation)}
-				</output>
+				</ApprovalRequestOutcome>
 			)}
-			{error ? (
-				<p className="text-destructive text-sm" role="alert">
-					{error}
-				</p>
-			) : null}
+			<ApprovalRequestErrors
+				error={error}
+				onRefresh={() => query.refetch()}
+				refetchFailed={query.isRefetchError}
+			/>
 		</ApprovalCard>
 	);
 }
