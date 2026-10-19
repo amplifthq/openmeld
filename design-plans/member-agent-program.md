@@ -1136,3 +1136,12 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   Phase 4 `claude/map-4-space-join-release`). Noted, not program defects: a
   Claude Code plan-review gate in Chinese comes from the user's own harness
   configuration; an older round-2 message still shows a path in history.
+- 2026-10-19, round 5 blockers fixed and merged: every consent release
+  (Direct Message allow once and Let the Agent join) reads the harness from
+  the Agent's Binding, so harnesses without Sessions run the released
+  message; Inbox keeps the user's filter when opening an item; after a
+  Working folder repair, the owner's failed request offers "Continue in
+  <current folder>", which starts a new Session in the current default
+  folder with a short handoff in the same chat (not a native fork, because
+  the source folder is gone). A composer pre-send notice is a follow-up.
+  Final real-machine smoke (round 6) follows.
