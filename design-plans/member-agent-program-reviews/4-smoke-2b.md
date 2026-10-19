@@ -114,3 +114,52 @@ Branch: `claude/map-4-colleague-conversation`, on the program head
     `resolve-local-service-capabilities`: 14 passed.
   - Dispatch, ledger and continuation suites: 300, with 0 new failures.
 - Not run: a smoke with a real OpenCode Binding.
+
+## Space-join release and Inbox filter (round 5: R5-02, R5-03)
+
+Branch: `claude/map-4-space-join-release`, on the program head `3bb1d283d`.
+
+**R5-02 (acceptance blocker):** Let the Agent join on OpenCode failed with
+`execution_context.controller_access_unsupported`.
+- Cause: the requested member was resolved without its harness
+  (`agentControllerRef: null`). The Space therefore treated the harness as
+  unknown, and for an unknown harness it still asks for a new Session.
+- Fix: Core now reads the requested Agent's harness from its primary
+  Binding and passes it to the Space for every release (`targetControllerRef`).
+  This covers joins, Direct Messages and external requests. The Space
+  prefers it over the member record.
+- The release then follows the same rule as the first Direct Message and as
+  a later message. A colleague-rooted Wake keeps its separate conversation,
+  because the release preserves the chain `[requester, Agent]`.
+- The only explicit new-Session request in Phase 4 is
+  `space/application/agent-access-release.ts`.
+
+**R5-03:** opening an item from Needs action reset the filter to All.
+Opening an Inbox detail now keeps the current view and filters, and only the
+selected item changes.
+
+**Review** (Codex, `gpt-6-astra`, `high`, read-only). It found two issues,
+both fixed:
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| 1 | P1. Only joins read the Binding. A Direct Message `allow_once` still relied on the member snapshot, which can be null. | Fixed. Every release passes the Binding's harness. Test: a Direct Message whose member has no recorded harness releases OpenCode without an explicit new Session. |
+| 2 | P2. Filter keeping matched any same-path link, so the Space's own list could carry an old focus. | Fixed. It now applies only to `/o/<org>/inbox`. Test covers it. |
+
+Codex found these fine: the Binding source (exact owner and Profile,
+`enabled_primary` only), colleague isolation after the release, and Inbox
+paths.
+
+**Checks**
+
+- **Core:**
+  - `tsc --noEmit` passed.
+  - `tests/agent-access-consent.integration.test.ts`: 12 passed. They
+    include Let the Agent join on OpenCode, which reads the harness from a
+    seeded Binding, and the Direct Message release without a recorded
+    harness.
+- **Web:**
+  - `tsc --noEmit` passed.
+  - `source-target` and `inbox-page`: 52 passed. The one failure
+    (organization document route) also fails on the clean base.
+- **Not run:** a browser smoke.
