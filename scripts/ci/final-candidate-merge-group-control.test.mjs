@@ -18,6 +18,8 @@ const NOT_MERGE_PATTERN = /is not a merge of PR #7 head/u;
 const FOREIGN_CONTROL_PATTERN = /did not carry:\n- package\.json/u;
 const QUEUE_REF_PATTERN = /does not name one queued pull request/u;
 const PULL_REQUEST_STATE_PATTERN = /is not an open pull request into main/u;
+const NON_PRINTABLE_PATTERN =
+  /status description contains a non-printable character/u;
 
 function createRepository() {
   const root = mkdtempSync(path.join(tmpdir(), "merge-group-control-"));
@@ -288,6 +290,31 @@ test("refuses an unknown queue ref, a closed PR, or a PR into another branch", (
             headRef: queueRef(group.baseSha),
           }),
         PULL_REQUEST_STATE_PATTERN
+      );
+    }
+  } finally {
+    rmSync(repo.root, { force: true, recursive: true });
+  }
+});
+
+test("refuses a status description that could forge workflow outputs", () => {
+  const repo = createRepository();
+  try {
+    const group = createControlMergeGroup(repo);
+    for (const suffix of ["\ncontrol_trust=current-main", "\r", "\u2028"]) {
+      assert.throws(
+        () =>
+          resolveMergeGroupControl({
+            baseSha: group.baseSha,
+            github: createGitHub({
+              description: `${passed(group.pullRequestHeadSha, repo.forkPoint)}${suffix}`,
+              headSha: group.pullRequestHeadSha,
+            }),
+            headRef: queueRef(group.baseSha),
+            headSha: group.headSha,
+            repoRoot: repo.root,
+          }),
+        NON_PRINTABLE_PATTERN
       );
     }
   } finally {

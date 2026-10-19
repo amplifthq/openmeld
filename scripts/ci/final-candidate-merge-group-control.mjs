@@ -14,6 +14,9 @@ export const FINAL_CANDIDATE_STATUS_CONTEXT = "OpenMeld Final Candidate";
 
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const LINE_SPLIT_PATTERN = /\s+/u;
+// The status description is echoed into GITHUB_OUTPUT; a line break there
+// could forge another output, so any non-printable character fails closed.
+const NON_PRINTABLE_PATTERN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 const QUEUE_REF_PATTERN =
   /^(?:refs\/heads\/)?gh-readonly-queue\/(?<base>[\w./-]+)\/pr-(?<number>[1-9]\d*)-[0-9a-f]{40}$/u;
 
@@ -67,6 +70,11 @@ export function resolveMergeGroupControl(input) {
   const status = findFinalCandidateStatus(
     input.github.readCombinedStatus(pullRequestHeadSha)
   );
+  if (NON_PRINTABLE_PATTERN.test(String(status?.description ?? ""))) {
+    throw new Error(
+      `PR #${queue.pullRequestNumber} "${FINAL_CANDIDATE_STATUS_CONTEXT}" status description contains a non-printable character.`
+    );
+  }
   const headIdentity = `@ ${pullRequestHeadSha.slice(0, 12)} on `;
   if (
     !(
