@@ -43,6 +43,15 @@ export function buildFinalCandidateObservation(input) {
     runUrl: input.run?.html_url ?? null,
   };
 
+  // A newer run for this head (an explicit request) leaves the earlier exact
+  // status in place until its own result reports; wait for that run.
+  if (
+    exactStatus === "success" &&
+    input.run &&
+    input.run.status !== "completed"
+  ) {
+    return { ...common, reason: "run-in-progress", state: "waiting" };
+  }
   if (exactStatus === "success") {
     return {
       ...common,
@@ -89,7 +98,9 @@ function resolveExactStatus(status, pullRequest) {
   if (status.state !== "success") {
     return status.state;
   }
-  const expectedIdentity = `@ ${pullRequest.head.sha.slice(0, 12)} on ${pullRequest.base.sha.slice(0, 12)}`;
+  // The trusted publisher bound the base and proved it is part of main. A
+  // success on an older base stays valid: merge queue owns freshness.
+  const expectedIdentity = `@ ${pullRequest.head.sha.slice(0, 12)} on `;
   return String(status.description ?? "").includes(expectedIdentity)
     ? "success"
     : "stale-success";

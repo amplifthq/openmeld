@@ -94,6 +94,32 @@ test("requires the exact shared status before reporting hosted success", () => {
   assert.equal(observationExitCode(observation), 0);
 });
 
+test("waits for a newer run on the same head instead of returning the earlier success", () => {
+  const observation = buildFinalCandidateObservation({
+    annotationsByCheckRunId: new Map(),
+    commitStatuses: [
+      {
+        context: "OpenMeld Final Candidate",
+        description: `Passed standard @ ${PULL_REQUEST.head.sha.slice(0, 12)} on ${PULL_REQUEST.base.sha.slice(0, 12)}`,
+        state: "success",
+      },
+    ],
+    jobs: [],
+    pullRequest: PULL_REQUEST,
+    run: {
+      conclusion: null,
+      head_sha: PULL_REQUEST.head.sha,
+      html_url: "https://github.com/amplifthq/openmeld/actions/runs/45",
+      id: 45,
+      status: "in_progress",
+    },
+  });
+
+  assert.equal(observation.state, "waiting");
+  assert.equal(observation.reason, "run-in-progress");
+  assert.equal(observationExitCode(observation), null);
+});
+
 test("keeps an existing exact success truthful when a later hosted retry hits budget", () => {
   const observation = buildFinalCandidateObservation({
     annotationsByCheckRunId: new Map(
@@ -123,13 +149,39 @@ test("keeps an existing exact success truthful when a later hosted retry hits bu
   assert.doesNotMatch(output, AVAILABLE_FALLBACK_PATTERN);
 });
 
-test("rejects a green status that belongs to an older validation base", () => {
+test("keeps a green status that was validated on an older base", () => {
   const observation = buildFinalCandidateObservation({
     annotationsByCheckRunId: new Map(),
     commitStatuses: [
       {
         context: "OpenMeld Final Candidate",
         description: `Passed executable @ ${PULL_REQUEST.head.sha.slice(0, 12)} on 111111111111`,
+        state: "success",
+      },
+    ],
+    jobs: [],
+    pullRequest: PULL_REQUEST,
+    run: {
+      conclusion: "success",
+      head_sha: PULL_REQUEST.head.sha,
+      html_url: "https://github.com/amplifthq/openmeld/actions/runs/44",
+      id: 44,
+      status: "completed",
+    },
+  });
+
+  assert.equal(observation.state, "success");
+  assert.equal(observation.exactStatus, "success");
+  assert.equal(observation.reason, "exact-status-success");
+});
+
+test("rejects a green status that names a different head", () => {
+  const observation = buildFinalCandidateObservation({
+    annotationsByCheckRunId: new Map(),
+    commitStatuses: [
+      {
+        context: "OpenMeld Final Candidate",
+        description: `Passed executable @ ${"c".repeat(12)} on ${PULL_REQUEST.base.sha.slice(0, 12)}`,
         state: "success",
       },
     ],
