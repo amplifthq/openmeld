@@ -8,7 +8,11 @@ import {
   resolveChangedLocalComponents,
   resolveTouchedLocalComponents,
 } from "./local-components.mjs";
-import { planCliPublication, publishCli } from "./publish-cli.mjs";
+import {
+  createPlatform as createReleasePlatform,
+  planCliPublication,
+  publishCli,
+} from "./publish-cli.mjs";
 import { verifyReleaseReady } from "./verify-release-ready.mjs";
 
 const SHA = "c".repeat(40);
@@ -22,6 +26,32 @@ const MISSING_GIT_HEAD = /openmeld@0\.3\.265 gitHead is still missing/u;
 const VERIFY_GIT_HEAD = /npm view openmeld@0\.3\.265 gitHead/u;
 const RERUN = /rerun/u;
 const WRONG_RECOVERY = /[Bb]ump|another|unknown commit/u;
+
+test("only treats the exact Wrangler missing-key error as an absent object", () => {
+  // Wrangler 4.147.0 emits this UserError for an object GET that returns null.
+  // R2 also identifies NoSuchKey as code 10007.
+  for (const stderr of [
+    "[ERROR] The specified key does not exist.",
+    "[ERROR] The specified key does not exist. [code: 10007]",
+    'Command "wrangler" not found',
+    "Bucket not found [code: 10006]",
+    "Authentication failed [code: 10002]",
+  ]) {
+    const platform = createReleasePlatform({
+      cwd: process.cwd(),
+      env: {},
+      bucket: "test-bucket",
+      spawn: () => ({ status: 1, stderr, stdout: "" }),
+    });
+    if (stderr.startsWith("[ERROR] The specified key does not exist.")) {
+      assert.equal(platform.readPublishedRelease(), null);
+    } else {
+      assert.throws(() => platform.readPublishedRelease(), {
+        message: `Reading test-bucket/cli/local-components.json failed: ${stderr}`,
+      });
+    }
+  }
+});
 
 // Shape of the manifest Core reads (packages/schemas local-components.ts).
 function publishedManifest() {

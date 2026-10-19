@@ -43,11 +43,11 @@ import {
 export const LOCAL_COMPONENTS_RELEASE_OBJECT_KEY = "cli/local-components.json";
 const FULL_SHA = /^[0-9a-f]{40}$/u;
 const NPM_VISIBILITY_TIMEOUT_MS = 120_000;
-const R2_OBJECT_MISSING = /specified key does not exist|not found/iu;
+const R2_OBJECT_MISSING = /The specified key does not exist\./u;
 
-function createPlatform({ cwd, env, bucket }) {
+export function createPlatform({ cwd, env, bucket, spawn = spawnSync }) {
   const run = (command, args, options = {}) => {
-    const result = spawnSync(command, args, {
+    const result = spawn(command, args, {
       cwd,
       env,
       encoding: "utf8",
@@ -67,7 +67,7 @@ function createPlatform({ cwd, env, bucket }) {
     const directory = mkdtempSync(path.join(tmpdir(), "openmeld-cli-release-"));
     const file = path.join(directory, "object.json");
     try {
-      const result = spawnSync(
+      const result = spawn(
         "pnpm",
         [
           "exec",
@@ -148,7 +148,7 @@ function createPlatform({ cwd, env, bucket }) {
         ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
         { capture: true }
       ).trim();
-      const existing = spawnSync(
+      const existing = spawn(
         "gh",
         [
           "api",
