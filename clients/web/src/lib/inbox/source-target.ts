@@ -88,16 +88,14 @@ export function buildInboxItemSourceNavigation(input: {
 				openInNewTab: false,
 			};
 		case "agent_interaction":
+			// The owner answers in Inbox detail, which also opens the conversation.
 			return {
-				href: buildOrganizationSpacePath({
-					orgSlug: input.orgSlug,
-					search: {
-						focusInteractionId: target.interactionId,
-						focusSignalId: target.sourceSignalId,
-						focusThreadRootSignalId: target.threadRootSignalId ?? undefined,
-					},
-					spaceId: target.spaceId,
-				}),
+				href: input.item.id
+					? `${buildOrganizationInboxPath(input.orgSlug)}?item=${encodeURIComponent(input.item.id)}`
+					: buildInboxAgentInteractionConversationHref({
+							orgSlug: input.orgSlug,
+							target,
+						}),
 				openInNewTab: false,
 			};
 		case "organization_document":
@@ -153,6 +151,22 @@ function resolveSettingsTargetPath(input: {
  * Files, Graph, the main timeline, and every thread share one pathname.
  * External targets (for example message_channel permalinks) never match.
  */
+/** The conversation an Agent's question came from, focused on it. */
+export function buildInboxAgentInteractionConversationHref(input: {
+	orgSlug: string;
+	target: Extract<InboxItem["sourceTarget"], { kind: "agent_interaction" }>;
+}): string {
+	return buildOrganizationSpacePath({
+		orgSlug: input.orgSlug,
+		search: {
+			focusInteractionId: input.target.interactionId,
+			focusSignalId: input.target.sourceSignalId,
+			focusThreadRootSignalId: input.target.threadRootSignalId ?? undefined,
+		},
+		spaceId: input.target.spaceId,
+	});
+}
+
 export function isInboxItemSourceLocation(input: {
 	item: InboxItem;
 	orgSlug: string;
