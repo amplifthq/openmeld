@@ -13,7 +13,9 @@ import {
   resolveInboxItemsBySource,
 } from "../../inbox/application/inbox-item-service";
 import { truncateInboxText } from "../../inbox/application/inbox-text";
+import { isMemberAgentsEnabled } from "../../member-agent/member-agents-feature";
 import {
+  hasActiveOwnedAgentMembership,
   readHumanSpaceMembershipAccessForOwner,
   readSpaceIndexOrganizationJoinTarget,
 } from "../../space-index/space-index-repository";
@@ -60,7 +62,7 @@ export async function projectRuntimeCoordinatorInteractionInboxItem(
   if (!target) {
     throw new Error("runtime_coordinator.interaction_inbox.space_unavailable");
   }
-  const recipientAccess = await readHumanSpaceMembershipAccessForOwner({
+  const recipientAccess = await readRecipientAccess({
     db: input.spaceIndexDb,
     organizationId: target.organizationId,
     ownerUserId: input.ownerUserId,
@@ -143,6 +145,23 @@ export async function projectRuntimeCoordinatorInteractionInboxItem(
     db: input.inboxDb,
     nowMs: input.nowMs,
   });
+}
+/**
+ * The Binding owner answers questions from their own Agent. A member gets
+ * the item; so does an owner who only observes the Space through an Agent
+ * they own there (member-agent-program.md §4.6).
+ */
+async function readRecipientAccess(input: {
+  db: PostgresDatabase;
+  organizationId: string;
+  ownerUserId: string;
+  spaceId: string;
+}): Promise<"active" | "missing" | "removed"> {
+  const humanAccess = await readHumanSpaceMembershipAccessForOwner(input);
+  if (humanAccess === "active" || !isMemberAgentsEnabled()) {
+    return humanAccess;
+  }
+  return (await hasActiveOwnedAgentMembership(input)) ? "active" : humanAccess;
 }
 export async function resolveRuntimeCoordinatorInteractionInboxItem(
   input: Pick<

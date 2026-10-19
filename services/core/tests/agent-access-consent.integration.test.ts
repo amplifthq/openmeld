@@ -4,6 +4,7 @@ import type { Profile, SignalEnvelope } from "@openmeld/protocol";
 import {
   AGENT_ACCESS_PENDING_CODE,
   type AgentAccessDecision,
+  buildRuntimeCoordinatorExecutionId,
 } from "@openmeld/schemas";
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { createAuthenticatedSpaceAccessContext } from "@openmeld/space";
@@ -146,6 +147,7 @@ type ConsentSpace = {
   rpcRequestAgentForSpace: Space["rpcRequestAgentForSpace"];
   rpcMutateSpaceMessage: Space["rpcMutateSpaceMessage"];
   rpcGetWakeProgress: Space["rpcGetWakeProgress"];
+  rpcRespondToAgentInteraction: Space["rpcRespondToAgentInteraction"];
   isAgentOwnerObserver(actor: OpenMeldRequestContext["actorContext"]): boolean;
   ensureAgentOwnerMembershipPolicy(meta: unknown): Promise<void>;
   readSpaceMetaRecord(): unknown;
@@ -166,6 +168,7 @@ type SpaceHarness = {
 async function withSpace(
   f: Fixture,
   options: {
+    agentControllerRef?: string;
     directMessage: boolean;
     humans: Person[];
     agentMember: boolean;
@@ -232,7 +235,8 @@ async function withSpace(
           kind: "agent",
           profileId: f.agentProfileId,
           profileName: "PR Reviewer",
-          agentControllerRef: "builtin:claude-code",
+          agentControllerRef:
+            options.agentControllerRef ?? "builtin:claude-code",
         },
       });
     }
@@ -445,6 +449,39 @@ describe("Colleague use of an Agent (Phase 4)", () => {
         // Allowed once covers this Session.
         const next = await space.post(f.tali, "One more thing");
         expect(space.outbox(next)).toHaveLength(1);
+      }
+    );
+  });
+
+  it("releases to a harness without Sessions exactly like a later message", async () => {
+    const f = await seed();
+    await withSpace(
+      f,
+      {
+        agentControllerRef: "builtin:opencode",
+        directMessage: true,
+        humans: [f.tali],
+        agentMember: true,
+      },
+      async (space) => {
+        const first = await space.post(f.tali, "Please check the build");
+        const hold = readHeldDirectMessageAgentAccessHold(
+          space.state.storage.sql,
+          { requesterUserId: f.tali.userId, targetProfileId: f.agentProfileId }
+        );
+        if (!hold) {
+          throw new Error("Expected a held Wake.");
+        }
+        await expect(
+          decide(f, space, hold.requestId, "allow_once")
+        ).resolves.toEqual({ outcome: "applied" });
+        // An explicit new Session is refused by this harness (R2B-04).
+        const [released] = space.outbox(first);
+        expect(released?.targetProfileId).toBe(f.agentProfileId);
+        expect(released?.contextSelection).toBeUndefined();
+        const next = await space.post(f.tali, "One more thing");
+        const [later] = space.outbox(next);
+        expect(later?.contextSelection).toBeUndefined();
       }
     );
   });
@@ -713,6 +750,28 @@ describe("Colleague use of an Agent (Phase 4)", () => {
           { kind: "human", profileId: f.tali.profileId },
           { kind: "agent", profileId: f.agentProfileId },
         ]);
+        // The observing owner reaches the answer path for their Agent's
+        // questions; the runtime accepts only the Binding owner's answer.
+        await expect(
+          space.instance.rpcRespondToAgentInteraction({
+            body: {
+              interactionId: "interaction-1",
+              response: { kind: "permission", optionId: "allow_once" },
+              runtimeCoordinatorExecutionId: buildRuntimeCoordinatorExecutionId(
+                {
+                  dispatchId: "dispatch-missing",
+                  spaceId: space.spaceId,
+                  targetProfileId: f.agentProfileId,
+                }
+              ),
+            },
+            context: space.context(f.felix),
+            spaceId: space.spaceId,
+          } as Parameters<ConsentSpace["rpcRespondToAgentInteraction"]>[0])
+        ).resolves.toMatchObject({ ok: false, status: "not_found" });
+        expect(
+          readSpaceMemberRecord(space.state.storage.sql, f.felix.profileId)
+        ).toBeNull();
         // The one-time owner-participation repair never adds the observer.
         await space.instance.ensureAgentOwnerMembershipPolicy(
           space.instance.readSpaceMetaRecord()

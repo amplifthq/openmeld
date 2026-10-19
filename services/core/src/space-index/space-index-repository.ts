@@ -556,6 +556,34 @@ export async function readHumanSpaceMembershipAccessForOwner(input: {
   }
   return Number(row?.membership_count ?? 0) > 0 ? "removed" : "missing";
 }
+/**
+ * Whether the owner has an active Agent in an active Space. An owner who is
+ * not a member observes such a Space (member-agent-program.md §4.6).
+ */
+export async function hasActiveOwnedAgentMembership(input: {
+  db: PostgresDatabase;
+  organizationId: string;
+  ownerUserId: string;
+  spaceId: string;
+}): Promise<boolean> {
+  const result = await input.db.query<{ found: number }>({
+    text: `
+        SELECT 1 AS found
+        FROM "openmeld"."space_index_spaces" AS space
+        JOIN "openmeld"."space_index_memberships" AS membership
+          ON membership.space_id = space.space_id
+        WHERE space.space_id = $1
+          AND space.organization_id = $2
+          AND space.status = 'active'
+          AND membership.owner_user_id_snapshot = $3
+          AND membership.profile_kind_snapshot = 'agent'
+          AND membership.status = 'active'
+        LIMIT 1
+      `,
+    values: [input.spaceId, input.organizationId, input.ownerUserId],
+  });
+  return result.rows.length > 0;
+}
 // Space authorization read for the auth worker (Knife 1 split-brain fix): auth
 // must not read this core-owned projections table directly — after cutover the
 // writer is openmeld-projections while auth still binds openmeld-db. Auth calls this via

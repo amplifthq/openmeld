@@ -1,12 +1,20 @@
 import { readFile } from "node:fs/promises";
 import { URL } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createInboxService } from "../src/inbox/application/inbox-service";
 import {
   projectRuntimeCoordinatorInteractionInboxItem,
   resolveRuntimeCoordinatorInteractionInboxItem,
 } from "../src/runtime-transport/application/runtime-coordinator-interaction-inbox-producer";
 import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
+
+const memberAgents = vi.hoisted(() => ({ enabled: true }));
+vi.mock("../src/member-agent/member-agents-feature", async (original) => ({
+  ...(await original<
+    typeof import("../src/member-agent/member-agents-feature")
+  >()),
+  isMemberAgentsEnabled: () => memberAgents.enabled,
+}));
 
 describe("RuntimeCoordinator interaction Inbox producer", () => {
   it.each([
@@ -361,6 +369,79 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
       ).toBe(0);
     } finally {
       await harness.close();
+    }
+  });
+});
+
+describe("RuntimeCoordinator interaction Inbox for an observing Agent owner", () => {
+  // Felix's Agent joined Tali's Space on her request; Felix only observes.
+  async function observeThroughOwnAgent(
+    h: Awaited<ReturnType<typeof createInboxHarness>>
+  ) {
+    await h.query({
+      text: `DELETE FROM "openmeld"."space_index_memberships" WHERE profile_id = 'profile_owner'`,
+    });
+    await h.query({
+      text: `
+        INSERT INTO "openmeld"."space_index_memberships" (
+          space_id, profile_id, profile_kind_snapshot, profile_name_snapshot,
+          owner_user_id_snapshot, status, member_source, added_at_ms,
+          source_updated_at_ms, projected_at_ms, projection_event_id
+        ) VALUES (
+          'space_one', 'agt_owner', 'agent', 'Claude Code', 'user_owner',
+          'active', 'joined_directly', 1000, 1000, 1000, 'membership_agent'
+        )
+      `,
+    });
+  }
+  const colleagueQuestion = {
+    interaction: buildPermissionInteraction(),
+    nowMs: 2100,
+    ownerUserId: "user_owner",
+    runtimeCoordinatorExecutionId: "execution",
+    sourceSignalId: "signal_one",
+    spaceId: "space_one",
+    targetProfileName: "Claude Code",
+  };
+
+  it("asks the Binding owner in Inbox although they are not a member", async () => {
+    const h = await createInboxHarness();
+    try {
+      await observeThroughOwnAgent(h);
+      await projectRuntimeCoordinatorInteractionInboxItem({
+        ...colleagueQuestion,
+        inboxDb: h.db,
+        spaceIndexDb: h.db,
+      });
+      expect(
+        await h.queryAll({
+          text: 'SELECT recipient_user_id, kind FROM "openmeld"."inbox_items"',
+        })
+      ).toEqual([
+        { recipient_user_id: "user_owner", kind: "agent_interaction" },
+      ]);
+    } finally {
+      await h.close();
+    }
+  });
+
+  it("keeps the membership requirement while MemberAgents are off", async () => {
+    const h = await createInboxHarness();
+    memberAgents.enabled = false;
+    try {
+      await observeThroughOwnAgent(h);
+      await expect(
+        projectRuntimeCoordinatorInteractionInboxItem({
+          ...colleagueQuestion,
+          inboxDb: h.db,
+          spaceIndexDb: h.db,
+        })
+      ).rejects.toThrow(
+        "runtime_coordinator.interaction_inbox.membership_projection_unavailable"
+      );
+    } finally {
+      memberAgents.enabled = true;
+      await h.close();
     }
   });
 });
