@@ -23266,59 +23266,18 @@ export class Space extends DurableObject<CoreBindings> {
     status: AgentAccessRequestStatus;
   }): Promise<{ outcome: "applied" | "voided" | "closed" }> {
     this.applySpaceRef(input.spaceId);
-    const applied = await this.blockConcurrencyWithPostgres(
-      async (): Promise<AgentAccessApplication> => {
-      const meta = this.readSpaceMetaRecord();
-      if (meta?.organizationId !== input.organizationId) {
-        throw new Error("Agent access request Space mismatch.");
+    // A throw inside the gate resets the Space, so refusals leave it first.
+    const gated = await this.blockConcurrencyWithPostgres(async () => {
+      try {
+        return { value: await this.applyAgentAccessDecision(input) };
+      } catch (error) {
+        return { error };
       }
-      const hold = readSpaceAgentAccessHold(
-        this.ctx.storage.sql,
-        input.requestId
-      );
-      if (!hold) {
-        throw createCoreRpcHttpError({
-          status: 404,
-          code: "agent_access.request_not_found",
-          reason: "This request is unavailable.",
-        });
-      }
-      if (hold.state !== "held") {
-        return {
-          outcome:
-            hold.state === "released"
-              ? "applied"
-              : hold.closeReason === "voided"
-                ? "voided"
-                : "closed",
-        };
-      }
-      const nowMs = Date.now();
-      if (input.status === "allowed" || input.status === "joined") {
-        return await this.releaseAgentAccessHold({
-          ...input,
-          hold,
-          meta,
-          nowMs,
-        });
-      }
-      if (
-        input.status === "declined" ||
-        input.status === "withdrawn" ||
-        input.status === "ignored" ||
-        input.status === "replied_by_dm"
-      ) {
-        closeSpaceAgentAccessHold(this.ctx.storage.sql, {
-          nowMs,
-          reason: input.status,
-          requestId: hold.requestId,
-          syncPending: false,
-        });
-        return { outcome: "closed" };
-      }
-      throw new Error("Agent access decision is not applicable.");
-      }
-    );
+    });
+    if ("error" in gated) {
+      throw gated.error;
+    }
+    const applied = gated.value;
     // Projection and dispatch can call back into this Space, so they run
     // after the gate opens.
     await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, async () => {
@@ -23338,6 +23297,59 @@ export class Space extends DurableObject<CoreBindings> {
       reason: AGENT_ACCESS_SPACE_CHANGED_REASON,
     });
     return { outcome: applied.outcome };
+  }
+  private async applyAgentAccessDecision(
+    input: Parameters<Space["rpcApplyAgentAccessDecision"]>[0]
+  ): Promise<AgentAccessApplication> {
+    const meta = this.readSpaceMetaRecord();
+    if (meta?.organizationId !== input.organizationId) {
+      throw new Error("Agent access request Space mismatch.");
+    }
+    const hold = readSpaceAgentAccessHold(
+      this.ctx.storage.sql,
+      input.requestId
+    );
+    if (!hold) {
+      throw createCoreRpcHttpError({
+        status: 404,
+        code: "agent_access.request_not_found",
+        reason: "This request is unavailable.",
+      });
+    }
+    if (hold.state !== "held") {
+      return {
+        outcome:
+          hold.state === "released"
+            ? "applied"
+            : hold.closeReason === "voided"
+              ? "voided"
+              : "closed",
+      };
+    }
+    const nowMs = Date.now();
+    if (input.status === "allowed" || input.status === "joined") {
+      return await this.releaseAgentAccessHold({
+        ...input,
+        hold,
+        meta,
+        nowMs,
+      });
+    }
+    if (
+      input.status === "declined" ||
+      input.status === "withdrawn" ||
+      input.status === "ignored" ||
+      input.status === "replied_by_dm"
+    ) {
+      closeSpaceAgentAccessHold(this.ctx.storage.sql, {
+        nowMs,
+        reason: input.status,
+        requestId: hold.requestId,
+        syncPending: false,
+      });
+      return { outcome: "closed" };
+    }
+    throw new Error("Agent access decision is not applicable.");
   }
   private async releaseAgentAccessHold(input: {
     agentMember?: ResolvedSpaceMemberProfile;
@@ -23478,106 +23490,122 @@ export class Space extends DurableObject<CoreBindings> {
     requester: { profileId: string; userId: string };
   }): Promise<{ requestId: string }> {
     this.applySpaceRef(input.spaceId);
-    return await this.blockConcurrencyWithPostgres(async () => {
-      const meta = this.readSpaceMetaRecord();
-      if (meta?.organizationId !== input.organizationId) {
-        throw createCoreRpcHttpError({
-          status: 404,
-          code: "space.not_found",
-          reason: "Space was not found in the active Organization.",
-        });
+    // A throw inside the gate resets the Space, so refusals leave it first.
+    const outcome = await this.blockConcurrencyWithPostgres(async () => {
+      try {
+        return { value: await this.requestAgentForSpace(input) };
+      } catch (error) {
+        return { error };
       }
-      await assertRpcSpaceAccessAuthorized(
-        await this.authorizeWritableSpaceAccess(
-          createAuthenticatedSpaceAccessContext({
-            spaceId: this.spaceId,
-            requestContext: input.context,
-          })
-        )
-      );
-      const requester = readSpaceMemberRecord(
-        this.ctx.storage.sql,
-        input.requester.profileId
-      );
-      if (
-        requester?.status !== "active" ||
-        requester.profileKindSnapshot !== "human"
-      ) {
-        throw createCoreRpcHttpError({
-          status: 403,
-          code: "space.membership_required",
-          reason: "Join this Space before asking for an Agent.",
-        });
-      }
-      if (
-        isDirectMessageSpace({
-          purpose: meta.purpose,
-          directMessageConvertedAt: meta.directMessage?.convertedAt,
-        })
-      ) {
-        throw createCoreRpcHttpError({
-          status: 409,
-          code: "agent_access.direct_message",
-          reason: "Turn this Direct Message into a Space before adding an Agent.",
-        });
-      }
-      if (
-        readSpaceMemberRecord(this.ctx.storage.sql, input.target.profileId)
-          ?.status === "active"
-      ) {
-        throw createCoreRpcHttpError({
-          status: 409,
-          code: "agent_access.already_member",
-          reason: "That Agent is already in this Space.",
-        });
-      }
-      if (input.signalId) {
-        const signal = this.readSignalById(input.signalId);
-        if (
-          !(
-            signal?.type === "signal.text" &&
-            signal.profile.profileId === input.requester.profileId &&
-            !signal.data.meta?.recalledAt
-          )
-        ) {
-          throw createCoreRpcHttpError({
-            status: 409,
-            code: "agent_access.message_unavailable",
-            reason: "Ask for the Agent from a message you sent in this Space.",
-          });
-        }
-      }
-      const existing = readHeldSpaceJoinHold(this.ctx.storage.sql, {
-        signalId: input.signalId ?? null,
-        targetProfileId: input.target.profileId,
-      });
-      if (existing) {
-        return { requestId: existing.requestId };
-      }
-      const requestId = input.signalId
-        ? await buildHeldAgentAccessRequestId({
-            spaceId: this.spaceId,
-            sourceSignalId: input.signalId,
-            agentProfileId: input.target.profileId,
-          })
-        : buildAddMemberAgentAccessRequestId();
-      insertSpaceAgentAccessHold(this.ctx.storage.sql, {
-        requestId,
-        kind: "space_join",
-        signalId: input.signalId ?? null,
-        targetProfileId: input.target.profileId,
-        memberAgentId: input.target.memberAgentId,
-        ownerUserId: input.target.ownerUserId,
-        requesterProfileId: input.requester.profileId,
-        requesterUserId: input.requester.userId,
-        requesterKind: "member",
-        requestChainJson: null,
-        createdAtMs: Date.now(),
-      });
-      // Core must hold the request before the requester sees it pending.
-      await this.flushSpaceAgentAccessHolds();
-      return { requestId };
     });
+    if ("error" in outcome) {
+      throw outcome.error;
+    }
+    return outcome.value;
+  }
+  private async requestAgentForSpace(
+    input: Parameters<Space["rpcRequestAgentForSpace"]>[0]
+  ): Promise<{ requestId: string }> {
+    const meta = this.readSpaceMetaRecord();
+    if (meta?.organizationId !== input.organizationId) {
+      throw createCoreRpcHttpError({
+        status: 404,
+        code: "space.not_found",
+        reason: "Space was not found in the active Organization.",
+      });
+    }
+    await assertRpcSpaceAccessAuthorized(
+      await this.authorizeWritableSpaceAccess(
+        createAuthenticatedSpaceAccessContext({
+          spaceId: this.spaceId,
+          requestContext: input.context,
+        })
+      )
+    );
+    const requester = readSpaceMemberRecord(
+      this.ctx.storage.sql,
+      input.requester.profileId
+    );
+    if (
+      requester?.status !== "active" ||
+      requester.profileKindSnapshot !== "human"
+    ) {
+      throw createCoreRpcHttpError({
+        status: 403,
+        code: "space.membership_required",
+        reason: "Join this Space before asking for an Agent.",
+      });
+    }
+    if (
+      isDirectMessageSpace({
+        purpose: meta.purpose,
+        directMessageConvertedAt: meta.directMessage?.convertedAt,
+      })
+    ) {
+      throw createCoreRpcHttpError({
+        status: 409,
+        code: "agent_access.direct_message",
+        reason: "Turn this Direct Message into a Space before adding an Agent.",
+      });
+    }
+    if (
+      readSpaceMemberRecord(this.ctx.storage.sql, input.target.profileId)
+        ?.status === "active"
+    ) {
+      throw createCoreRpcHttpError({
+        status: 409,
+        code: "agent_access.already_member",
+        reason: "That Agent is already in this Space.",
+      });
+    }
+    if (input.signalId) {
+      const signal = this.readSignalById(input.signalId);
+      if (
+        !(
+          signal?.type === "signal.text" &&
+          signal.profile.profileId === input.requester.profileId &&
+          !signal.data.meta?.recalledAt &&
+          // An edit voids a request, so an edited message cannot start one.
+          !signal.data.meta?.editedAt
+        )
+      ) {
+        throw createCoreRpcHttpError({
+          status: 409,
+          code: "agent_access.message_unavailable",
+          reason: "Ask for the Agent from a message you sent in this Space.",
+        });
+      }
+    }
+    const existing = readHeldSpaceJoinHold(this.ctx.storage.sql, {
+      signalId: input.signalId ?? null,
+      targetProfileId: input.target.profileId,
+    });
+    if (existing) {
+      return { requestId: existing.requestId };
+    }
+    const requestId = input.signalId
+      ? await buildHeldAgentAccessRequestId({
+          spaceId: this.spaceId,
+          sourceSignalId: input.signalId,
+          agentProfileId: input.target.profileId,
+        })
+      : buildAddMemberAgentAccessRequestId();
+    insertSpaceAgentAccessHold(this.ctx.storage.sql, {
+      requestId,
+      kind: "space_join",
+      signalId: input.signalId ?? null,
+      targetProfileId: input.target.profileId,
+      memberAgentId: input.target.memberAgentId,
+      ownerUserId: input.target.ownerUserId,
+      requesterProfileId: input.requester.profileId,
+      requesterUserId: input.requester.userId,
+      requesterKind: "member",
+      requestChainJson: null,
+      createdAtMs: Date.now(),
+    });
+    // Core must hold the request before the requester sees it pending.
+    await this.flushSpaceAgentAccessHolds();
+    return { requestId };
   }
   private async readSpaceCallerContext(
     meta: SpaceMetaRecord,
