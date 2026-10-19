@@ -60,6 +60,24 @@ const REPORT_POINTER_COPY_PATTERN = /Message text is not included/;
 const COMPUTERS_RECOVERY_HREF_PATTERN = /\/computers$/u;
 const REFERENCED_SPACE_ID = "d".repeat(64);
 
+vi.mock("./continue-in-default-folder-action", async (importOriginal) => {
+	const actual =
+		await importOriginal<
+			typeof import("./continue-in-default-folder-action")
+		>();
+	return {
+		...actual,
+		// Shows where the owner's folder continuation would be posted.
+		ContinueInDefaultFolderAction: () => {
+			const target = actual.useFolderContinueTarget();
+			return (
+				<output data-testid="folder-continue-target">
+					{JSON.stringify(target?.source ?? null)}
+				</output>
+			);
+		},
+	};
+});
 vi.mock("#/lib/clipboard", () => ({
 	copyTextToClipboard: copyTextToClipboardMock,
 }));
@@ -1440,6 +1458,49 @@ describe("SpaceMessageDetailsDrawer", () => {
 		expect(within(issue).getByText(namedRecovery)).toBeTruthy();
 	});
 
+	it.each([
+		["the main timeline", undefined, null],
+		["a thread", "thread-7", "thread-7"],
+	])("continues a request from %s in a new Session in the same place (smoke R5-01)", (_place, threadId, expected) => {
+		useQueryMock.mockReturnValue(
+			createQueryResult({ data: createHumanMessageDetails() })
+		);
+		renderMessageDetailsPanel({
+			item: createTimelineItem({ id: "sig-human", text: "Summarize" }),
+			profileId: "human-owner",
+			threadId,
+			wakeIssueEntries: [
+				{
+					action: {
+						display: {
+							actionTarget: "session_folder",
+							body: "Runner couldn’t continue this chat.",
+							primaryActionId: "continue_in_default_folder",
+							primaryActionLabel: "Continue in the default folder",
+						},
+						kind: "wake_failure",
+					},
+					body: "Runner couldn’t continue this chat.",
+					key: "agt_runner:execution_context.workspace_changed",
+					message: "Runner couldn’t continue this chat.",
+					targetLabel: "Runner",
+					targetProfileId: "agt_runner",
+				},
+			],
+		});
+		expect(
+			JSON.parse(
+				within(getActivityRegion("Runner")).getByTestId(
+					"folder-continue-target"
+				).textContent ?? "null"
+			)
+		).toEqual({
+			sourceSignalId: "sig-human",
+			text: "Summarize",
+			threadId: expected,
+		});
+	});
+
 	it("keeps a Computer recovery action scoped to the affected Agent Profile", () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
@@ -2070,6 +2131,7 @@ function renderMessageDetailsPanel(input?: {
 	replyItems?: readonly SpaceTimelineItem[];
 	spaceReferencesById?: SpaceMessageReferencesById;
 	targetProfileDisplayNamesByProfileId?: ReadonlyMap<string, string>;
+	threadId?: string;
 	threadRootSignalId?: string;
 	wakeFailureTargetContextsByProfileId?: ReadonlyMap<
 		string,
@@ -2108,6 +2170,7 @@ function renderMessageDetailsPanel(input?: {
 				targetProfileDisplayNamesByProfileId={
 					input?.targetProfileDisplayNamesByProfileId
 				}
+				threadId={input?.threadId}
 				threadRootSignalId={input?.threadRootSignalId}
 				wakeFailureTargetContextsByProfileId={
 					input?.wakeFailureTargetContextsByProfileId

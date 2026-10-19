@@ -32,6 +32,7 @@ import { toast } from "sonner";
 import { Drawer } from "vaul";
 import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import { copyTextToClipboard } from "#/lib/clipboard";
+import type { FolderContinueSource } from "#/lib/spaces/continue-in-default-folder";
 import {
 	isSpaceOutcomeNoticeItem,
 	type SpaceTimelineItem,
@@ -47,6 +48,7 @@ import type {
 } from "#/lib/spaces/wake-progress-presentation";
 import type { SpaceWakeStopTargetResolution } from "#/lib/spaces/wake-stop-target";
 import { spaceMessageDetailsQueryOptions } from "#/query/spaces/message-details";
+import { FolderContinueProvider } from "./continue-in-default-folder-action";
 import { OpenMeldSystemIcon } from "./openmeld-system-icon";
 import {
 	type SpaceAgentProfileBindingRecoveryPlan,
@@ -313,6 +315,7 @@ export function SpaceMessageDetailsDrawer(input: {
 								targetProfileDisplayNamesByProfileId={
 									input.targetProfileDisplayNamesByProfileId
 								}
+								threadId={input.threadId}
 								wakeFailureTargetContextsByProfileId={
 									input.wakeFailureTargetContextsByProfileId
 								}
@@ -333,6 +336,8 @@ function MessageDetailsBody(input: {
 	profileId?: string;
 	spaceId: string;
 	spacePassword?: string;
+	/** The thread the drawer opened in; a continuation stays there. */
+	threadId?: string;
 	agentRecoveryPlansByProfileId?: ReadonlyMap<
 		string,
 		AgentProfileReplyRecoveryPlan
@@ -420,73 +425,85 @@ function MessageDetailsBody(input: {
 		item: primaryOutcomeNotice ?? input.item,
 	});
 	return (
-		<div className="flex flex-col gap-5">
-			<OriginalErrorsSection wakeContext={data.wakeContext} />
-			{data.delegations ? (
-				<SpaceMessageDelegations
+		<FolderContinueProvider
+			value={{
+				profileId: input.profileId,
+				source: buildFolderContinueSource({
+					item: input.item,
+					threadId: input.threadId ?? null,
+				}),
+				spaceId: input.spaceId,
+				spacePassword: input.spacePassword,
+			}}
+		>
+			<div className="flex flex-col gap-5">
+				<OriginalErrorsSection wakeContext={data.wakeContext} />
+				{data.delegations ? (
+					<SpaceMessageDelegations
+						canJumpToMessage={input.canJumpToMessage}
+						data={data.delegations}
+						onJumpToMessage={input.onJumpToMessage}
+						onWakeStopRequest={input.onWakeStopRequest}
+						openMeldProfileId={input.profileId}
+						profileNames={input.targetProfileDisplayNamesByProfileId}
+						signalId={input.item.id}
+						spaceId={input.spaceId}
+						spacePassword={input.spacePassword}
+					/>
+				) : null}
+				{data.wakeContext.targets.some((target) => target.taskContext) ? (
+					<SpaceMessageTaskContext
+						canStartNewTask={input.canStartNewTask}
+						data={data}
+						profileId={input.profileId}
+						spaceId={input.spaceId}
+						spacePassword={input.spacePassword}
+					/>
+				) : null}
+				<ActivitySection
+					actionNotices={actionNotices}
+					agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
 					canJumpToMessage={input.canJumpToMessage}
-					data={data.delegations}
+					entries={input.wakeIssueEntries}
+					isAgentRecoveryPending={input.isAgentRecoveryPending}
+					isPersonalContext={input.isPersonalContext}
+					items={presentation.activityItems}
+					notices={presentation.wakeFailureNoticeItems}
+					onAgentRecoveryAction={input.onAgentRecoveryAction}
 					onJumpToMessage={input.onJumpToMessage}
+					onRecoverExecution={input.onRecoverExecution}
 					onWakeStopRequest={input.onWakeStopRequest}
-					openMeldProfileId={input.profileId}
-					profileNames={input.targetProfileDisplayNamesByProfileId}
-					signalId={input.item.id}
-					spaceId={input.spaceId}
-					spacePassword={input.spacePassword}
+					orgSlug={input.orgSlug}
+					prepareSetupHref={input.prepareSetupHref}
+					replyContext={data.replyContext}
+					sourceItem={input.item}
+					spaceReferencesById={spaceReferencesById}
+					targetProfileDisplayNamesByProfileId={
+						input.targetProfileDisplayNamesByProfileId
+					}
+					wakeFailureTargetContextsByProfileId={
+						input.wakeFailureTargetContextsByProfileId
+					}
+					wakeStopTarget={input.wakeStopTarget}
 				/>
-			) : null}
-			{data.wakeContext.targets.some((target) => target.taskContext) ? (
-				<SpaceMessageTaskContext
-					canStartNewTask={input.canStartNewTask}
-					data={data}
-					profileId={input.profileId}
-					spaceId={input.spaceId}
-					spacePassword={input.spacePassword}
+				<MessageLinkSection messageLink={input.messageLink} />
+				<SourceNotLoadedSection
+					canJumpToMessage={input.canJumpToMessage}
+					item={input.item}
 				/>
-			) : null}
-			<ActivitySection
-				actionNotices={actionNotices}
-				agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
-				canJumpToMessage={input.canJumpToMessage}
-				entries={input.wakeIssueEntries}
-				isAgentRecoveryPending={input.isAgentRecoveryPending}
-				isPersonalContext={input.isPersonalContext}
-				items={presentation.activityItems}
-				notices={presentation.wakeFailureNoticeItems}
-				onAgentRecoveryAction={input.onAgentRecoveryAction}
-				onJumpToMessage={input.onJumpToMessage}
-				onRecoverExecution={input.onRecoverExecution}
-				onWakeStopRequest={input.onWakeStopRequest}
-				orgSlug={input.orgSlug}
-				prepareSetupHref={input.prepareSetupHref}
-				replyContext={data.replyContext}
-				sourceItem={input.item}
-				spaceReferencesById={spaceReferencesById}
-				targetProfileDisplayNamesByProfileId={
-					input.targetProfileDisplayNamesByProfileId
-				}
-				wakeFailureTargetContextsByProfileId={
-					input.wakeFailureTargetContextsByProfileId
-				}
-				wakeStopTarget={input.wakeStopTarget}
-			/>
-			<MessageLinkSection messageLink={input.messageLink} />
-			<SourceNotLoadedSection
-				canJumpToMessage={input.canJumpToMessage}
-				item={input.item}
-			/>
-			<TechnicalDetailsSection
-				detailsId={technicalDetailsId}
-				fields={technicalDetailFields}
-			/>
-			<DiagnosticReportSection
-				errorLogMessage={input.errorLogMessage}
-				isPending={input.diagnosticReportStatus === "pending"}
-				isSent={input.diagnosticReportStatus === "sent"}
-				item={input.item}
-				onReportMessage={input.onReportMessage}
-			/>
-		</div>
+				<TechnicalDetailsSection
+					detailsId={technicalDetailsId}
+					fields={technicalDetailFields}
+				/>
+				<DiagnosticReportSection
+					errorLogMessage={input.errorLogMessage}
+					isPending={input.diagnosticReportStatus === "pending"}
+					isSent={input.diagnosticReportStatus === "sent"}
+					item={input.item}
+					onReportMessage={input.onReportMessage}
+				/>
+			</div>
+		</FolderContinueProvider>
 	);
 }
 
@@ -1595,4 +1612,19 @@ function resolveDiagnosticReportButtonText(input: {
 		return "Issue reported";
 	}
 	return input.isPending ? "Sending report..." : "Send report";
+}
+
+/** Only the requester's own sent message can be continued from here. */
+function buildFolderContinueSource(input: {
+	item: SpaceTimelineItem;
+	threadId: string | null;
+}): FolderContinueSource | null {
+	const item = input.item;
+	return item.signalType === "signal.text" &&
+		item.actorProfileKind === "human" &&
+		item.deliveryState === "sent" &&
+		!item.recalledAt &&
+		item.text.trim()
+		? { sourceSignalId: item.id, text: item.text, threadId: input.threadId }
+		: null;
 }

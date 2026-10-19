@@ -99,3 +99,42 @@ read-only).
 | 3 | Associations written before `usedAtMs` fall back to their context's creation time, which can rank a resumed older Session below a newer one once. | Yes | Accepted: no stored last-use exists to migrate; the next Wake on either Session writes `usedAtMs`. Pre-launch data only. |
 | 4 | The published-reply filter hides failed, stopped or interrupted requests that the backend could resume, or Codex could fork from retained history. | Yes, trade-off | Kept as requested by the smoke finding: such requests failed for users when chosen from the composer. Interrupted work keeps its Work Recovery actions. A Core projection of per-source continuation eligibility would make the composer exact. |
 | 5 | The implicit policy conflicted with the owner document's "multiple retained branches require an explicit source choice". | Yes | Resolved by updating that owner-document rule in this change; flagged for the designer. |
+
+## Follow-up review: smoke round 5 (2026-10-19)
+
+Fix on `claude/map-p2-repair-continue`:
+
+- **R5-01:** after Working folder repair made folder-one the default, the
+  next message in the same chat failed with
+  `execution_context.workspace_changed` and offered only a generic Hand off.
+  A Session keeps its folder, so Core still resumes the old Session and the
+  Service refuses it. The failure now maps to one owner action, "Continue in
+  <default folder>". It posts a new message in the same chat (and the same
+  thread) that replies to the failed request, selects a new Session without
+  a folder id, and carries a short handoff. The Service starts that Session
+  in the Agent's current default folder; later plain messages follow it as
+  the Session used last (R3-04). Colleagues see only the explanation, since
+  their requests already start fresh in the default folder.
+- **Deviation from the request:** this is a new Session with a handoff
+  message, not the native fork used by "Continue in another folder". That
+  fork needs the source Session's folder and checkpoint, and here the folder
+  is gone or no longer the Agent's.
+- **Not done:** a pre-send notice in the composer.
+- **End-to-end coverage** is a chain of tests, not one cross-process test:
+  the Core authority test walks folder-two Session → repair → plain message
+  resumes the old Session → `new` creates a Session without a folder id →
+  the next plain message follows it; the Service test refuses the old
+  Session in folder-one and starts the new one there; the Web tests cover
+  the mapping (owner versus colleague), the drawer source and thread, the
+  posted payload, and the owner-only button.
+
+Reviewed the staged diff on top of `3bb1d283d` with Codex CLI
+(`gpt-6-astra`, `high`, read-only), then a re-check of the fixes (`medium`).
+
+| # | Finding | Verified | Disposition |
+| --- | --- | --- | --- |
+| 1 | Owner gating, folder policy, error-code mapping, new-Session resolution. | — | None found: colleagues get no action, the server policy is unchanged, the mapping matches the Service error exactly and shadows nothing, and Core plus the Service start the new Session in the current default folder. |
+| 2 | P1: in a thread, the action posted to the main timeline because the drawer read `threadContext`, which message details never request. The thread's next message would still resume the broken Session. | Yes | Fixed: the drawer passes the thread it opened in, as the existing Hand off does. Test added for main timeline and thread. |
+| 3 | P2: the button and the handoff named a folder from a recorded projection that may be stale. | Yes | Fixed: the button names a folder only from a projection the Service just confirmed; the handoff names no folder. Test added. |
+| 4 | P2: prepending the handoff to a maximum-length request exceeded the Space text limit. | Yes | Fixed: the request is shortened to fit, with a note that the full request is the message it replies to. Test added. |
+| 5 | Test gaps: rapid double click, timeout and retry deduplication. | Partly | Double clicks are blocked by an in-flight guard; a retry reuses the deterministic client message id, which the Space authoring receipt deduplicates. No separate tests added. |
