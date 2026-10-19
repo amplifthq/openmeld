@@ -5,11 +5,15 @@ import {
 import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import {
 	chooseComposerFolder,
 	composerFolderOptions,
 } from "./space-composer-folder-choice";
-import { SpaceComposerAgentOptions } from "./space-composer-task-menu";
+import {
+	buildSpaceTaskSources,
+	SpaceComposerAgentOptions,
+} from "./space-composer-task-menu";
 
 const DEFAULT_FOLDER = {
 	displayName: "openmeld",
@@ -160,4 +164,99 @@ describe("composer folder menu", () => {
 			targetProfileId: "agent",
 		});
 	});
+
+	it("explains why a task without a finished reply can't move to another folder", async () => {
+		render(
+			<DropdownMenu>
+				<DropdownMenuTrigger>Options</DropdownMenuTrigger>
+				<FluidDropdownMenuContent>
+					<SpaceComposerAgentOptions
+						choice={{
+							label: "Failed task",
+							selection: { mode: "resume", sourceWakeId: "wake-failed" },
+							targetProfileId: "agent",
+						}}
+						folders={[DEFAULT_FOLDER, OTHER_FOLDER]}
+						onChange={vi.fn()}
+						sources={[
+							{
+								forkable: false,
+								label: "Failed task",
+								sourceWakeId: "wake-failed",
+								targetProfileId: "agent",
+							},
+						]}
+						supportsCurrentFolder
+						targetProfileId="agent"
+					/>
+				</FluidDropdownMenuContent>
+			</DropdownMenu>
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Options" }));
+		const folderMenu = await screen.findByRole("menuitem", {
+			name: FOLDER_MENU,
+		});
+		expect(folderMenu.getAttribute("aria-disabled")).toBe("true");
+	});
 });
+
+describe("continuation sources", () => {
+	const items = [
+		timelineItem({ id: "ask-answered", actorProfileId: "human" }),
+		timelineItem({ id: "ask-failed", actorProfileId: "human" }),
+		timelineItem({
+			actorProfileId: "agent",
+			id: "reply-1",
+			isAgentFinalReply: true,
+			replyToSignalId: "ask-answered",
+			wakeTargetProfileIds: [],
+		}),
+	];
+
+	it("offers a fork only from a task the Agent finished", async () => {
+		const sources = buildSpaceTaskSources(items, "human");
+		expect(sources.map((source) => [source.label, source.forkable])).toEqual([
+			["ask-failed", false],
+			["ask-answered", true],
+		]);
+		render(
+			<DropdownMenu>
+				<DropdownMenuTrigger>Options</DropdownMenuTrigger>
+				<FluidDropdownMenuContent>
+					<SpaceComposerAgentOptions
+						onChange={vi.fn()}
+						sources={sources}
+						supportsCurrentFolder
+						targetProfileId="agent"
+					/>
+				</FluidDropdownMenuContent>
+			</DropdownMenu>
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Options" }));
+		fireEvent.click(await screen.findByText("Session"));
+		// Both can be continued; only the finished one can be forked.
+		expect(
+			(await screen.findAllByRole("menuitemradio", { name: "ask-failed" }))
+				.length
+		).toBe(1);
+		expect(
+			screen.getAllByRole("menuitemradio", { name: "ask-answered" }).length
+		).toBe(2);
+	});
+});
+
+function timelineItem(
+	overrides: Partial<SpaceTimelineItem> & {
+		actorProfileId: string;
+		id: string;
+	}
+): SpaceTimelineItem {
+	return {
+		deliveryState: "sent",
+		signalType: "signal.text",
+		spaceId: "space-1",
+		text: overrides.id,
+		wakeTargetProfileIds: ["agent"],
+		...overrides,
+	} as SpaceTimelineItem;
+}

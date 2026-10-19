@@ -27,6 +27,11 @@ export type SpaceTaskSource = {
 	sourceWakeId: string;
 	targetProfileId: string;
 	label: string;
+	/**
+	 * The Agent published a final reply to this request, so its session has a
+	 * finished turn to fork from. A failed or unanswered task has none.
+	 */
+	forkable: boolean;
 };
 export type SpaceComposerTaskChoice = {
 	selection: ExecutionContextSelection;
@@ -38,6 +43,15 @@ export function buildSpaceTaskSources(
 	items: readonly SpaceTimelineItem[],
 	requesterProfileId: string
 ): SpaceTaskSource[] {
+	const answered = new Set(
+		items.flatMap((item) =>
+			item.isAgentFinalReply &&
+			item.deliveryState === "sent" &&
+			item.replyToSignalId
+				? [`${item.replyToSignalId}:${item.actorProfileId}`]
+				: []
+		)
+	);
 	return items
 		.filter(
 			(item) =>
@@ -56,6 +70,7 @@ export function buildSpaceTaskSources(
 					targetProfileId,
 				}),
 				label: item.text.trim().slice(0, 72) || "File request",
+				forkable: answered.has(`${item.id}:${targetProfileId}`),
 			}))
 		);
 }
@@ -239,6 +254,10 @@ export function SpaceComposerAgentOptions(input: {
 					}}
 					recorded={input.foldersRecorded === true}
 					selectedFolderId={selectedComposerFolderId(selection)}
+					unavailableReason={continuedSourceFolderReason(
+						selection,
+						input.sources
+					)}
 				/>
 			</FluidDropdownMenuGroup>
 			{projectWorkOpen &&
@@ -334,6 +353,7 @@ function newTaskAccessSelection(
 
 function FolderMenu(input: {
 	disabled: boolean;
+	unavailableReason?: string;
 	folders: readonly ComposerFolderOption[];
 	inheritsSession: boolean;
 	onChoose: (folder: ComposerFolderOption) => void;
@@ -356,12 +376,22 @@ function FolderMenu(input: {
 	} else if (defaultFolder) {
 		label = defaultFolder.displayName;
 	}
+	const trigger = (
+		<FluidDropdownMenuSubTrigger
+			disabled={input.disabled || Boolean(input.unavailableReason)}
+			index={3}
+		>
+			<span className="min-w-0 flex-1">Folder</span>
+			<span className="max-w-36 truncate text-muted-foreground">{label}</span>
+		</FluidDropdownMenuSubTrigger>
+	);
 	return (
 		<DropdownMenuSub>
-			<FluidDropdownMenuSubTrigger disabled={input.disabled} index={3}>
-				<span className="min-w-0 flex-1">Folder</span>
-				<span className="max-w-36 truncate text-muted-foreground">{label}</span>
-			</FluidDropdownMenuSubTrigger>
+			{input.unavailableReason ? (
+				<TooltipHint content={input.unavailableReason}>{trigger}</TooltipHint>
+			) : (
+				trigger
+			)}
 			<FluidDropdownMenuSubContent className="w-64">
 				<p className="px-2 py-1 text-muted-foreground text-xs">
 					{input.inheritsSession
@@ -545,6 +575,25 @@ function SessionGuidance({
 	);
 }
 
+/**
+ * Continuing a task in another folder forks it, which needs a finished turn.
+ * Say so before submission instead of letting the fork fail.
+ */
+function continuedSourceFolderReason(
+	selection: ExecutionContextSelection | undefined,
+	sources: readonly SpaceTaskSource[]
+): string | undefined {
+	if (!(selection?.mode === "resume" || selection?.mode === "fork")) {
+		return;
+	}
+	const source = sources.find(
+		(item) => item.sourceWakeId === selection.sourceWakeId
+	);
+	return source?.forkable === false
+		? "This task has no finished reply to continue from, so it can only continue in its own folder."
+		: undefined;
+}
+
 function TaskHistoryChoices({
 	sources,
 	supportsFork,
@@ -552,6 +601,8 @@ function TaskHistoryChoices({
 	sources: readonly SpaceTaskSource[];
 	supportsFork?: boolean;
 }) {
+	// A fork starts from a finished turn; failed or unanswered tasks have none.
+	const forkable = sources.filter((source) => source.forkable);
 	return (
 		<>
 			{sources.length ? (
@@ -572,14 +623,14 @@ function TaskHistoryChoices({
 							</FluidDropdownMenuRadioItem>
 						))}
 					</FluidDropdownMenuGroup>
-					{supportsFork !== false ? (
+					{supportsFork !== false && forkable.length > 0 ? (
 						<>
 							<DropdownMenuSeparator />
 							<p className="px-2 py-1 text-muted-foreground text-xs">
 								Fork previous
 							</p>
 							<FluidDropdownMenuGroup>
-								{sources.map((source, index) => (
+								{forkable.map((source, index) => (
 									<TooltipHint
 										content="Start an independent session with this history."
 										key={source.sourceWakeId}
