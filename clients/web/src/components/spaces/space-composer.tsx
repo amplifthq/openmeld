@@ -455,6 +455,8 @@ export function SpaceComposer(input: SpaceComposerProps) {
 				className={input.presentation?.className}
 				data-slot={input.presentation?.dataSlot}
 			>
+				{/* An Agent owner who only observes still answers their Agent. */}
+				{input.slots?.pendingActionSurface}
 				<div className="flex items-center justify-between gap-4 rounded-lg border border-border p-3">
 					<p className="text-muted-foreground text-sm">{policy.placeholder}</p>
 					{input.slots?.primaryAction}

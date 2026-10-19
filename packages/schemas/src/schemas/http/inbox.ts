@@ -244,6 +244,8 @@ export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
     threadRootSignalId: identifierSchema.optional(),
   }),
   z.strictObject({
+    // Set when the Agent owner only observes the Space through their Agent.
+    agentOwnerActivity: z.boolean().optional(),
     interactionId: identifierSchema,
     kind: z.literal("agent_interaction"),
     runtimeCoordinatorExecutionId: identifierSchema,

@@ -683,7 +683,11 @@ function ConversationBubbleContent(input: {
 						item={interactionItem}
 						key={resolveSpacePendingAgentActionIdentity(interactionItem)}
 						onRespond={
-							parent.readOnly ? undefined : parent.onAgentInteractionResponse
+							// Core offers an answer only to the Agent's owner, who may
+							// be observing this Space without being a member.
+							parent.readOnly && !interactionItem.pendingInteraction?.canRespond
+								? undefined
+								: parent.onAgentInteractionResponse
 						}
 					/>
 				)

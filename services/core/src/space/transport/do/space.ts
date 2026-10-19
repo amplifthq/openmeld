@@ -440,6 +440,7 @@ import {
   readRemoteAgentNativeDeliveryByIdempotencyKey,
 } from "../../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { createCoreRpcHttpError } from "../../../rpc/errors";
+import { buildReleasedAgentAccessSignal } from "../../application/agent-access-release";
 import type {
   AddSpaceMembersInput,
   ApplySpaceAgentStreamDeltaInput,
@@ -15957,7 +15958,7 @@ export class Space extends DurableObject<CoreBindings> {
     if (request.method !== "POST") {
       return this.methodNotAllowed();
     }
-    const accessResult = await this.authorizeWritableSpaceAccess(
+    const accessResult = await this.authorizeAgentInteractionAnswerAccess(
       resolved.spaceAccess
     );
     if (!accessResult.ok) {
@@ -16002,6 +16003,34 @@ export class Space extends DurableObject<CoreBindings> {
     return Response.json(
       respondToSpaceAgentInteractionResponseSchema.parse(response)
     );
+  }
+  /**
+   * A member may answer, and so may an Agent owner who only observes this
+   * Space: the runtime then accepts the answer only from the Binding owner
+   * (member-agent-program.md §4.6). Observing never makes them a member.
+   */
+  private async authorizeAgentInteractionAnswerAccess(
+    spaceAccess: SpaceAccessContext
+  ): Promise<PasswordAuthorizationResult> {
+    const writable = await this.authorizeWritableSpaceAccess(spaceAccess);
+    const actor = getSpaceAccessRequestContext(spaceAccess)?.actorContext;
+    if (
+      writable.ok ||
+      !isMemberAgentsEnabled() ||
+      !this.isAgentOwnerObserver(actor)
+    ) {
+      return writable;
+    }
+    try {
+      requireWritableSpaceActor(spaceAccess);
+    } catch {
+      return writable;
+    }
+    const access = await this.authorizeSpaceAccess(spaceAccess);
+    if (!access.ok || this.readSpaceMetaRecord()?.deletedAt) {
+      return writable;
+    }
+    return access;
   }
   private async respondToAgentInteraction(input: {
     actorOwnerUserId: string;
@@ -23381,25 +23410,12 @@ export class Space extends DurableObject<CoreBindings> {
     if (joining && input.agentMember?.profileId !== hold.targetProfileId) {
       throw new Error("Agent access join requires the requested Agent.");
     }
-    const releasedSignal =
-      signal?.type === "signal.text"
-        ? ({
-            ...signal,
-            data: {
-              ...signal.data,
-              // Consent starts a new Session; it never continues an old one.
-              contextSelections: {
-                ...signal.data.contextSelections,
-                [hold.targetProfileId]: { mode: "new" },
-              },
-            },
-          } as SignalEnvelope)
-        : null;
-    const callerContext = releasedSignal
+    const sourceSignal = signal?.type === "signal.text" ? signal : null;
+    const callerContext = sourceSignal
       ? await this.readSpaceCallerContext(
           input.meta,
-          releasedSignal.profile.profileId,
-          releasedSignal.profile.kind
+          sourceSignal.profile.profileId,
+          sourceSignal.profile.kind
         )
       : undefined;
     const parentChain = hold.requestChainJson
@@ -23420,6 +23436,16 @@ export class Space extends DurableObject<CoreBindings> {
           liveSessions: this.sessions.values(),
         }).addedMemberIds;
       }
+      // Read after a join so the new member's harness is known.
+      const releasedSignal = sourceSignal
+        ? buildReleasedAgentAccessSignal({
+            controllerRef:
+              readSpaceMemberRecord(this.ctx.storage.sql, hold.targetProfileId)
+                ?.controllerRefSnapshot ?? null,
+            signal: sourceSignal,
+            targetProfileId: hold.targetProfileId,
+          })
+        : null;
       if (releasedSignal) {
         const placement = readSpaceThreadSignalPlacementBySignalId(
           this.ctx.storage.sql,
