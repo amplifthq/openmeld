@@ -20,6 +20,7 @@ import {
   type RevokeAgentProfileAccessGrantResponse,
   type WithdrawAgentAccessRequestResponse,
 } from "@openmeld/schemas";
+import { readPrimaryAgentProfileBindingRecord } from "../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import { readResolvedOrganizationSpaceMember } from "../center-agent/center-agent-repository";
 import type { CoreBindings } from "../lib/bindings";
 import { isMemberAgentsEnabled } from "../member-agent/member-agents-feature";
@@ -443,7 +444,8 @@ async function requireOwnedAgentProfile(
   }
 }
 
-async function requireRequestedAgentMember(
+/** The requested Agent as the Space will add it, harness included. */
+export async function requireRequestedAgentMember(
   caller: AgentAccessCaller,
   request: AgentAccessRequestRecord
 ) {
@@ -459,7 +461,20 @@ async function requireRequestedAgentMember(
       reason: "This Agent is no longer available.",
     });
   }
-  return member;
+  // The Space releases the bound message by the joined member's harness, so
+  // it must know it: a harness without Sessions refuses an explicit new one.
+  const binding = member.ownerUserId
+    ? await readPrimaryAgentProfileBindingRecord({
+        agentProfileId: member.profileId,
+        db: caller.db,
+        owner: { id: member.ownerUserId, kind: "owner_account" },
+      })
+    : null;
+  return {
+    ...member,
+    agentControllerRef:
+      binding?.agentControllerRef ?? member.agentControllerRef,
+  };
 }
 
 /**

@@ -9,6 +9,7 @@ import {
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { createAuthenticatedSpaceAccessContext } from "@openmeld/space";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { requireRequestedAgentMember } from "../src/agent-access/agent-access-rpc";
 import {
   upsertJoinedSpaceMember,
   upsertSpaceCreatorMember,
@@ -794,6 +795,75 @@ describe("Colleague use of an Agent (Phase 4)", () => {
         expect(
           readSpaceMemberRecord(space.state.storage.sql, f.felix.profileId)
         ).toBeNull();
+      }
+    );
+  });
+
+  it("lets an Agent without Sessions join and runs the bound message like a later one", async () => {
+    const f = await seed();
+    const db = getPostgresDatabase(env);
+    await db.query({
+      text: `INSERT INTO "openmeld"."openMeldDaemon_agent_profile_bindings"
+        (binding_id, owner_kind, owner_id, agent_profile_id, openmeld_service_runtime_id,
+         runtime_kind, agent_controller_ref, configuration_revision, binding_state,
+         created_at_ms, updated_at_ms)
+        VALUES ('binding-opencode', 'owner_account', $1, $2, 'runtime-felix',
+         'openmeld_service', 'builtin:opencode', 1, 'enabled_primary', 1, 1)`,
+      values: [f.felix.userId, f.agentProfileId],
+    });
+    await withSpace(
+      f,
+      { directMessage: false, humans: [f.tali], agentMember: false },
+      async (space) => {
+        const message = await space.post(
+          f.tali,
+          "@PR Reviewer can you check this?"
+        );
+        const { requestId } = await space.instance.rpcRequestAgentForSpace({
+          context: space.context(f.tali),
+          organizationId: f.organizationId,
+          requester: { profileId: f.tali.profileId, userId: f.tali.userId },
+          signalId: message.id,
+          spaceId: space.spaceId,
+          target: {
+            memberAgentId: f.memberAgentId,
+            ownerUserId: f.felix.userId,
+            profileId: f.agentProfileId,
+          },
+        });
+        const decided = await decideAgentAccessRequest({
+          db,
+          decision: "join",
+          deciderUserId: f.felix.userId,
+          nowMs: Date.now(),
+          organizationId: f.organizationId,
+          requestId,
+        });
+        // As rpcDecideAgentAccessRequest resolves it (smoke R5-02).
+        const agentMember = await requireRequestedAgentMember(
+          { db, organizationId: f.organizationId } as never,
+          decided.request
+        );
+        expect(agentMember.agentControllerRef).toBe("builtin:opencode");
+        await expect(
+          space.instance.rpcApplyAgentAccessDecision({
+            agentMember,
+            decidedByProfileId: f.felix.profileId,
+            decidedByUserId: f.felix.userId,
+            organizationId: f.organizationId,
+            requestId,
+            spaceId: space.spaceId,
+            status: decided.request.status,
+          })
+        ).resolves.toEqual({ outcome: "applied" });
+        const [released] = space.outbox(message);
+        expect(released?.targetProfileId).toBe(f.agentProfileId);
+        // No explicit new Session, which this harness would refuse.
+        expect(released?.contextSelection).toBeUndefined();
+        expect(released?.requestChain).toEqual([
+          { kind: "human", profileId: f.tali.profileId },
+          { kind: "agent", profileId: f.agentProfileId },
+        ]);
       }
     );
   });
