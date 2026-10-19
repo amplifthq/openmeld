@@ -12,7 +12,7 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
-import { useRef, useState } from "react";
+import { createRef, useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
@@ -629,3 +629,37 @@ function SendHarness(input: {
 		/>
 	);
 }
+
+it("shows an observing Agent owner their Agent's questions above the read-only bar", () => {
+	render(
+		<SpaceComposer
+			actions={{ onEditorChange: vi.fn(), onSubmit: vi.fn() }}
+			availability={{
+				canSendMessage: false,
+				fileLimitReached: false,
+				isSendingMessage: false,
+				sendBlocked: false,
+			}}
+			centerAgentProfileId={null}
+			composerRef={createRef<SpaceComposerEditorHandle>()}
+			content={{
+				addressingTargets: [],
+				authoredMentions: [],
+				files: [],
+				mentionPickerItems: [],
+				text: "",
+			}}
+			context={{
+				conversationKind: "space",
+				placement: "conversation",
+				readOnly: true,
+				readOnlyPlaceholder: "Join to participate in this Space.",
+			}}
+			slots={{
+				pendingActionSurface: <p>Claude Code asks to run a command</p>,
+			}}
+		/>
+	);
+	expect(screen.getByText("Claude Code asks to run a command")).toBeTruthy();
+	expect(screen.getByText("Join to participate in this Space.")).toBeTruthy();
+});
