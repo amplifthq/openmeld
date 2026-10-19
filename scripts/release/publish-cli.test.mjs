@@ -278,9 +278,10 @@ function createPlatform(state) {
 
 test("resumes at the same SHA without republishing and refuses a version from another commit", async () => {
   const cwd = createSource("0.3.265");
+  const releaseSha = commitSource(cwd);
   try {
     const finished = createPlatform({
-      npm: { version: "0.3.265", gitHead: SHA },
+      npm: { version: "0.3.265", gitHead: releaseSha },
       published: {
         ...publishedManifest(),
         components: {
@@ -295,7 +296,7 @@ test("resumes at the same SHA without republishing and refuses a version from an
     assert.equal(
       (
         await publishCli({
-          releaseSha: SHA,
+          releaseSha,
           cwd,
           dryRun: true,
           platform: finished.platform,
@@ -303,6 +304,14 @@ test("resumes at the same SHA without republishing and refuses a version from an
       ).status,
       "current"
     );
+    assert.deepEqual(finished.calls, []);
+    const tags = new Map();
+    finished.platform.ensureTag = ({ tag, sha }) => tags.set(tag, sha);
+    const input = { releaseSha, cwd, platform: finished.platform };
+    assert.equal((await publishCli(input)).status, "current");
+    assert.equal(tags.get("v0.3.265"), releaseSha);
+    assert.equal((await publishCli(input)).status, "current");
+    assert.equal(tags.size, 1);
     assert.deepEqual(finished.calls, []);
 
     const foreign = createPlatform({

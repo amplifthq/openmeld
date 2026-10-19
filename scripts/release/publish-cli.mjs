@@ -291,6 +291,9 @@ export async function publishCli({
   }
   const published = platform.readPublishedRelease();
   if (npm && published?.components.cli.packageVersion === version) {
+    if (!dryRun) {
+      platform.ensureTag({ tag: `v${version}`, sha: releaseSha });
+    }
     log(
       `openmeld@${version} and its release manifest are already published from ${releaseSha}.`
     );
