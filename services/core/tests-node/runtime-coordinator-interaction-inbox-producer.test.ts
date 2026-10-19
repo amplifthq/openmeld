@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { URL } from "node:url";
+import { buildRuntimeCoordinatorExecutionId } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import { createInboxService } from "../src/inbox/application/inbox-service";
 import {
@@ -375,11 +376,16 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
 
 describe("RuntimeCoordinator interaction Inbox for an observing Agent owner", () => {
   // Felix's Agent joined Tali's Space on her request; Felix only observes.
+  const agentProfileId = "agt_00000000-0000-4000-8000-0000000000b1";
   async function observeThroughOwnAgent(
     h: Awaited<ReturnType<typeof createInboxHarness>>
   ) {
     await h.query({
       text: `DELETE FROM "openmeld"."space_index_memberships" WHERE profile_id = 'profile_owner'`,
+    });
+    await h.query({
+      values: [agentProfileId],
+      text: `INSERT INTO "openmeld"."openmeld_profiles" (profile_id, profile_name, profile_handle, profile_kind, owner_user_id, created_by_user_id, organization_id, source, status) VALUES ($1, 'Claude Code', 'claude-code', 'agent', 'user_owner', 'user_owner', 'org_one', 'local_agent_create', 'active')`,
     });
     await h.query({
       text: `
@@ -388,17 +394,22 @@ describe("RuntimeCoordinator interaction Inbox for an observing Agent owner", ()
           owner_user_id_snapshot, status, member_source, added_at_ms,
           source_updated_at_ms, projected_at_ms, projection_event_id
         ) VALUES (
-          'space_one', 'agt_owner', 'agent', 'Claude Code', 'user_owner',
+          'space_one', $1, 'agent', 'Claude Code', 'user_owner',
           'active', 'joined_directly', 1000, 1000, 1000, 'membership_agent'
         )
       `,
+      values: [agentProfileId],
     });
   }
   const colleagueQuestion = {
     interaction: buildPermissionInteraction(),
     nowMs: 2100,
     ownerUserId: "user_owner",
-    runtimeCoordinatorExecutionId: "execution",
+    runtimeCoordinatorExecutionId: buildRuntimeCoordinatorExecutionId({
+      dispatchId: "dispatch_one",
+      spaceId: "space_one",
+      targetProfileId: agentProfileId,
+    }),
     sourceSignalId: "signal_one",
     spaceId: "space_one",
     targetProfileName: "Claude Code",
@@ -413,13 +424,29 @@ describe("RuntimeCoordinator interaction Inbox for an observing Agent owner", ()
         inboxDb: h.db,
         spaceIndexDb: h.db,
       });
-      expect(
-        await h.queryAll({
-          text: 'SELECT recipient_user_id, kind FROM "openmeld"."inbox_items"',
-        })
-      ).toEqual([
-        { recipient_user_id: "user_owner", kind: "agent_interaction" },
+      // Read through the Inbox, which also gates the email.
+      const ownerInbox = await createInboxService({ db: h.db }).list({
+        organizationId: "org_one",
+        recipientUserId: "user_owner",
+        view: "all",
+      });
+      expect(ownerInbox.items).toMatchObject([
+        {
+          kind: "agent_interaction",
+          sourceFacts: { personalAgentProfileIds: [agentProfileId] },
+          sourceTarget: { agentOwnerActivity: true },
+        },
       ]);
+      // Another person sees nothing.
+      expect(
+        (
+          await createInboxService({ db: h.db }).list({
+            organizationId: "org_one",
+            recipientUserId: "user_other",
+            view: "all",
+          })
+        ).items
+      ).toEqual([]);
     } finally {
       await h.close();
     }

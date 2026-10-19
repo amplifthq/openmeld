@@ -602,6 +602,7 @@ export {
   buildRuntimeCoordinatorExecutionId,
   RUNTIME_COORDINATOR_CREATION_DIAGNOSTIC_MODEL_VERSION,
   RUNTIME_COORDINATOR_EXECUTION_MODEL_VERSION,
+  readRuntimeCoordinatorExecutionIdParts,
   runtimeCoordinatorCancellationStateSchema,
   runtimeCoordinatorCancellationStatusSchema,
   runtimeCoordinatorDeliveryRouteEvidenceSchema,

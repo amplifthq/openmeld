@@ -16014,7 +16014,11 @@ export class Space extends DurableObject<CoreBindings> {
   ): Promise<PasswordAuthorizationResult> {
     const writable = await this.authorizeWritableSpaceAccess(spaceAccess);
     const actor = getSpaceAccessRequestContext(spaceAccess)?.actorContext;
-    if (writable.ok || !this.isAgentOwnerObserver(actor)) {
+    if (
+      writable.ok ||
+      !isMemberAgentsEnabled() ||
+      !this.isAgentOwnerObserver(actor)
+    ) {
       return writable;
     }
     try {

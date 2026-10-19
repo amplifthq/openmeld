@@ -557,10 +557,11 @@ export async function readHumanSpaceMembershipAccessForOwner(input: {
   return Number(row?.membership_count ?? 0) > 0 ? "removed" : "missing";
 }
 /**
- * Whether the owner has an active Agent in an active Space. An owner who is
- * not a member observes such a Space (member-agent-program.md §4.6).
+ * Whether this Agent of the owner is active in an active Space. An owner who
+ * is not a member observes such a Space (member-agent-program.md §4.6).
  */
 export async function hasActiveOwnedAgentMembership(input: {
+  agentProfileId: string;
   db: PostgresDatabase;
   organizationId: string;
   ownerUserId: string;
@@ -577,10 +578,16 @@ export async function hasActiveOwnedAgentMembership(input: {
           AND space.status = 'active'
           AND membership.owner_user_id_snapshot = $3
           AND membership.profile_kind_snapshot = 'agent'
+          AND membership.profile_id = $4
           AND membership.status = 'active'
         LIMIT 1
       `,
-    values: [input.spaceId, input.organizationId, input.ownerUserId],
+    values: [
+      input.spaceId,
+      input.organizationId,
+      input.ownerUserId,
+      input.agentProfileId,
+    ],
   });
   return result.rows.length > 0;
 }

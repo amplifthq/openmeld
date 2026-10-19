@@ -232,6 +232,49 @@ export const buildRuntimeCoordinatorExecutionId = (input: {
   ].join("|");
 };
 
+/** The parts of an id from buildRuntimeCoordinatorExecutionId, or null. */
+export const readRuntimeCoordinatorExecutionIdParts = (
+  runtimeCoordinatorExecutionId: string
+): { dispatchId: string; spaceId: string; targetProfileId: string } | null => {
+  const prefix = "rce_v1|";
+  if (!runtimeCoordinatorExecutionId.startsWith(prefix)) {
+    return null;
+  }
+  const parts: string[] = [];
+  let position = prefix.length;
+  while (parts.length < 3) {
+    const separator = runtimeCoordinatorExecutionId.indexOf(":", position);
+    const length = Number(
+      runtimeCoordinatorExecutionId.slice(position, separator)
+    );
+    if (separator < 0 || !Number.isSafeInteger(length) || length <= 0) {
+      return null;
+    }
+    const end = separator + 1 + length;
+    parts.push(runtimeCoordinatorExecutionId.slice(separator + 1, end));
+    position = end + 1;
+  }
+  const [spaceId = "", dispatchId = "", targetProfileId = ""] = parts;
+  // Only an exact round trip is an id this builder made.
+  return buildRuntimeCoordinatorExecutionIdOrNull({
+    dispatchId,
+    spaceId,
+    targetProfileId,
+  }) === runtimeCoordinatorExecutionId
+    ? { dispatchId, spaceId, targetProfileId }
+    : null;
+};
+
+const buildRuntimeCoordinatorExecutionIdOrNull = (
+  input: Parameters<typeof buildRuntimeCoordinatorExecutionId>[0]
+): string | null => {
+  try {
+    return buildRuntimeCoordinatorExecutionId(input);
+  } catch {
+    return null;
+  }
+};
+
 export const buildRuntimeCoordinatorExecutionEventId = (input: {
   eventType: z.infer<typeof runtimeCoordinatorExecutionEventTypeSchema>;
   idempotencyKey: string;

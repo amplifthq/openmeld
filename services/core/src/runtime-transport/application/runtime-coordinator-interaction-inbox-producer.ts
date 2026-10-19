@@ -2,6 +2,7 @@ import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   INBOX_CONTEXT_LABEL_MAX_CHARS,
   INBOX_PREVIEW_MAX_CHARS,
+  readRuntimeCoordinatorExecutionIdParts,
 } from "@openmeld/schemas";
 import type {
   AgentInteractionRequest,
@@ -66,12 +67,13 @@ export async function projectRuntimeCoordinatorInteractionInboxItem(
     db: input.spaceIndexDb,
     organizationId: target.organizationId,
     ownerUserId: input.ownerUserId,
+    runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
     spaceId: input.spaceId,
   });
-  if (recipientAccess === "removed") {
+  if (recipientAccess.kind === "removed") {
     return;
   }
-  if (recipientAccess === "missing") {
+  if (recipientAccess.kind === "missing") {
     throw new Error(
       "runtime_coordinator.interaction_inbox.membership_projection_unavailable"
     );
@@ -113,11 +115,21 @@ export async function projectRuntimeCoordinatorInteractionInboxItem(
     sourceKind: RUNTIME_COORDINATOR_INTERACTION_SOURCE_KIND,
     sourceFacts: {
       version: 1,
-      recipientReasons: ["requester"],
+      ...(recipientAccess.kind === "observer"
+        ? {
+            agentProfileIds: [recipientAccess.agentProfileId],
+            personalAgentProfileIds: [recipientAccess.agentProfileId],
+          }
+        : {}),
+      recipientReasons:
+        recipientAccess.kind === "observer" ? ["agent_owner"] : ["requester"],
       requestCategory:
         input.interaction.kind === "question" ? "action" : "review",
     },
     sourceTarget: {
+      ...(recipientAccess.kind === "observer"
+        ? { agentOwnerActivity: true }
+        : {}),
       interactionId: input.interaction.interactionId,
       kind: "agent_interaction",
       runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
@@ -148,20 +160,36 @@ export async function projectRuntimeCoordinatorInteractionInboxItem(
 }
 /**
  * The Binding owner answers questions from their own Agent. A member gets
- * the item; so does an owner who only observes the Space through an Agent
- * they own there (member-agent-program.md §4.6).
+ * the item; so does an owner who only observes the Space through this Agent
+ * (member-agent-program.md §4.6). The observer's item names the Agent so
+ * Inbox reads and email admit it the way they admit owner activity.
  */
 async function readRecipientAccess(input: {
   db: PostgresDatabase;
   organizationId: string;
   ownerUserId: string;
+  runtimeCoordinatorExecutionId: string;
   spaceId: string;
-}): Promise<"active" | "missing" | "removed"> {
+}): Promise<
+  | { kind: "member" }
+  | { kind: "observer"; agentProfileId: string }
+  | { kind: "missing" | "removed" }
+> {
   const humanAccess = await readHumanSpaceMembershipAccessForOwner(input);
-  if (humanAccess === "active" || !isMemberAgentsEnabled()) {
-    return humanAccess;
+  if (humanAccess === "active") {
+    return { kind: "member" };
   }
-  return (await hasActiveOwnedAgentMembership(input)) ? "active" : humanAccess;
+  const agentProfileId = readRuntimeCoordinatorExecutionIdParts(
+    input.runtimeCoordinatorExecutionId
+  )?.targetProfileId;
+  if (
+    isMemberAgentsEnabled() &&
+    agentProfileId &&
+    (await hasActiveOwnedAgentMembership({ ...input, agentProfileId }))
+  ) {
+    return { kind: "observer", agentProfileId };
+  }
+  return { kind: humanAccess };
 }
 export async function resolveRuntimeCoordinatorInteractionInboxItem(
   input: Pick<
