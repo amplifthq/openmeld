@@ -35,9 +35,29 @@ afterEach(cleanup);
 vi.mock("./space-composer-agent-options", () => ({
 	SpaceComposerAgentOptionsWithProject: (
 		props: Parameters<typeof SpaceComposerAgentOptions>[0]
-	) => <SpaceComposerAgentOptions {...props} projectName="OpenMeld" />,
+	) => (
+		<SpaceComposerAgentOptions
+			{...props}
+			folders={COMPOSER_FOLDERS}
+			projectName="OpenMeld"
+		/>
+	),
 }));
 const TASK_ACCESS_MENU = /^Access/;
+const FOLDER_MENU = /^Folder/;
+// The owner's folders as the folder read returns them (smoke R2B-08).
+const COMPOSER_FOLDERS = vi.hoisted(() => [
+	{
+		displayName: "folder-two",
+		folderId: "3c2e8f8a-6b55-4b8e-9a43-0f3f2c9d7e21",
+		isDefault: true,
+	},
+	{
+		displayName: "folder-one",
+		folderId: "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11",
+		isDefault: false,
+	},
+]);
 
 it.each([
 	false,
@@ -72,6 +92,7 @@ it.each([
 							targetProfileId: "agent",
 							sourceWakeId: "wake-previous",
 							label: "Review upload",
+							forkable: true,
 						},
 					]}
 					supportsCurrentFolder
@@ -200,6 +221,29 @@ it("keeps two agents' session choices independent and sends without a task by de
 		},
 	});
 	expect(onSubmit.mock.calls[0]?.[0]?.taskDraft).toBeUndefined();
+});
+
+it("sends the chosen folder with the message for that agent", async () => {
+	const onSubmit = vi.fn<(options?: SpaceComposerSendOptions) => void>();
+	render(<MultiAgentHarness onSubmit={onSubmit} />);
+	fireEvent.click(
+		screen.getByRole("button", { name: "Change relation for Engineer" })
+	);
+	fireEvent.click(await screen.findByRole("menuitem", { name: FOLDER_MENU }));
+	const folderOne = (await screen.findAllByRole("menuitemradio")).find(
+		(item) => item.textContent === "folder-one"
+	);
+	if (!folderOne) {
+		throw new Error("Folder choice missing");
+	}
+	fireEvent.click(folderOne);
+	fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+	expect(onSubmit.mock.calls[0]?.[0]?.contextSelections).toEqual({
+		[agentTargets[0].profileId]: {
+			folderId: "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11",
+			mode: "new",
+		},
+	});
 });
 
 it.each([
