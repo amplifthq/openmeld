@@ -1470,8 +1470,10 @@ native histories.
 The Web Task menu offers new work and source-specific continuation or fork for
 supported local Agents. CLI sends use `--new-task`, `--continue-from <signal-id>`,
 or `--fork-from <signal-id>` with one explicit `--wake` target. Source selection
-never copies permissions, active work, or publication authority. Multiple retained
-branches in the same discussion require an explicit source choice.
+never copies permissions, active work, or publication authority. When the same
+discussion holds several retained branches, an explicit Automatic choice requires
+an explicit source, while an ordinary message without any choice continues the
+branch a Wake used most recently; it never fails for lack of a selection.
 
 Official Antigravity ACP supports new and continued Execution Contexts using
 Agent settings, including managed working copies. It does not support history

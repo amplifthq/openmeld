@@ -614,6 +614,7 @@ async function resumeAuthorizedWork(
       },
     },
     writes: {
+      ...(await refreshScopeAssociationUse(input, assignment)),
       [wakeContextKey(input.record.targetWakeLifecycleId)]: createWakeContext(
         input.record,
         assignment.id
@@ -622,14 +623,35 @@ async function resumeAuthorizedWork(
   };
 }
 
+/**
+ * An authorized continuation uses its Session too, so a later ordinary
+ * message continues it. A retired association is never recreated.
+ */
+async function refreshScopeAssociationUse(
+  input: AssignmentInput,
+  assignment: ExecutionContextAssignment
+): Promise<Record<string, ScopeAssociationRecord>> {
+  const key = `${ASSOCIATION_PREFIX}${scopeKey(assignment.scope)}:${assignment.id}`;
+  const existing = (await input.storage.get(key)) as
+    | ScopeAssociationRecord
+    | undefined;
+  return existing
+    ? {
+        [key]: {
+          ...existing,
+          targetWakeLifecycleId: input.record.targetWakeLifecycleId,
+          usedAtMs: input.record.createdAtMs,
+        },
+      }
+    : {};
+}
+
 type ScopeAssociationRecord = {
   contextId: string;
   targetWakeLifecycleId?: string;
   /** Acceptance time of the last Wake that used this context. */
   usedAtMs?: number;
 };
-
-const MAX_IMPLICIT_SCOPE_CONTEXTS = 50;
 
 /**
  * The context used most recently; associations written before usedAtMs
@@ -670,9 +692,11 @@ async function resolveContextSource(
     // with several Sessions in this scope it continues the one used last.
     // An explicit "Automatic" choice still asks the requester to pick.
     const implicit = request.required === false;
+    // Keys sort by context id, not by use, so the implicit choice reads the
+    // whole scope; a scope holds only its requester's Sessions in one place.
     const associations = await input.storage.list<ScopeAssociationRecord>({
       prefix: `${ASSOCIATION_PREFIX + scopeKey(request.scope)}:`,
-      limit: implicit ? MAX_IMPLICIT_SCOPE_CONTEXTS : 2,
+      ...(implicit ? {} : { limit: 2 }),
     });
     if (associations.size > 1 && !implicit) {
       throw new ExecutionContextSelectionError(

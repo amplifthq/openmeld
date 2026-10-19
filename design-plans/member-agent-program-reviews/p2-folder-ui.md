@@ -69,3 +69,33 @@ read-only).
 | 3a | A live streaming reply counted as a final reply, so an unfinished task could be offered for forking. | Yes | Fixed: only a published reply (no stream state) counts. Test added. |
 | 3b | Requiring a published reply hides Codex sources that Core can fork from a retained native conversation without a frozen checkpoint, and a reply alone doesn't prove a Claude checkpoint. | Yes, trade-off | Kept. Web has no evidence of a retained native conversation, and the smoke failure was exactly such a source without one. Resume stays available for every source. Follow-up: a Core projection of fork eligibility per source would make this exact. |
 | 4 | Regression in resume choices. | — | None found. |
+
+## Follow-up review: smoke round 3 (2026-10-19)
+
+Fixes on `claude/map-p2-smoke-3`:
+
+- **R3-01:** a folder choice for Claude Code in the owner's Direct Message
+  was rejected with `space.execution_context.unsupported`. Direct Message
+  members are added without a controller snapshot, so the selection check
+  saw no harness. It now falls back to the Agent's primary Binding (same
+  owner, enabled primary) when the snapshot is empty.
+- **R3-04:** a plain message failed with `execution_context.selection_required`
+  once a fork left a second Session in the scope. Scope associations record
+  when a Wake last used them; an ordinary message without a selection
+  continues the Session used last. An explicit "Automatic" choice still asks.
+  `developing/product/agent-profiles.md` (Execution Context selection) now
+  states this rule.
+- **R3-02:** Continue previous lists only requests the Agent finished with a
+  published reply.
+
+Reviewed diff `1c0f7d7ac..9257d063e` with Codex CLI (`gpt-6-astra`, `high`,
+read-only).
+
+| # | Finding | Verified | Disposition |
+| --- | --- | --- | --- |
+| 1 | Binding fallback accepting an unsupported harness or a foreign Binding, or blocking messages without a selection. | — | None found: the fallback reads only for targets of a selection, uses the member's recorded owner and the enabled primary Binding, and the harness check still applies. |
+| 2a | The 50-association bound could exclude the latest Session (keys sort by context id). | Yes | Fixed: the implicit choice reads the whole scope. |
+| 2b | An authorized recovery resume did not refresh recency, so the next ordinary message could pick an older Session. | Yes | Fixed: a resume refreshes its existing association's last use; a retired association is never recreated. |
+| 3 | Associations written before `usedAtMs` fall back to their context's creation time, which can rank a resumed older Session below a newer one once. | Yes | Accepted: no stored last-use exists to migrate; the next Wake on either Session writes `usedAtMs`. Pre-launch data only. |
+| 4 | The published-reply filter hides failed, stopped or interrupted requests that the backend could resume, or Codex could fork from retained history. | Yes, trade-off | Kept as requested by the smoke finding: such requests failed for users when chosen from the composer. Interrupted work keeps its Work Recovery actions. A Core projection of per-source continuation eligibility would make the composer exact. |
+| 5 | The implicit policy conflicted with the owner document's "multiple retained branches require an explicit source choice". | Yes | Resolved by updating that owner-document rule in this change; flagged for the designer. |
