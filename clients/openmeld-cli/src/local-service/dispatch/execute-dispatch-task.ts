@@ -90,6 +90,7 @@ import {
   resolveForkSourceWorkingDirectory,
 } from "../../local-service/execution/dispatch-runtime-preparation";
 import { toTaskExecutionError as toTaskExecutionErrorInternal } from "../../local-service/execution/task-execution-error";
+import { readProfileFolderDisplayName } from "../../profile-workspace/folders";
 import { buildDispatchOwnedRuntimeEnv } from "../../runtime/dispatch-owned-runtime";
 import { DISPATCH_SPACE_ACTION_CLI_FALLBACK_COMMAND } from "../../runtime/dispatch-runtime-env";
 import {
@@ -238,6 +239,7 @@ import {
   releaseExecutionContextWorkspace,
 } from "./execution-context-workspace";
 import {
+  appendNonOwnerAudienceGuidance,
   buildDispatchBootstrapTemplateFacts,
   buildDispatchCorrelation,
   buildDispatchPromptPlan,
@@ -1619,6 +1621,8 @@ export async function handleDispatchDeliverFrame(input: {
     });
     const baseRuntimePromptPlan = applyDispatchSkillInstructions(
       buildDispatchRuntimePrompt({
+        workingFolderDisplayName:
+          await resolveNonOwnerWorkingFolderDisplayName(parsedTask),
         bootstrapContext,
         imageAttachmentPreparation,
         parsedTask,
@@ -3054,7 +3058,33 @@ function toDispatchSharedFolderSessions(
   }));
 }
 
+/**
+ * Only a task whose root requester is not the owner needs the folder's name
+ * in its prompt, so other people can be told about it without its path.
+ * Space-only and Project tasks have no user folder to name.
+ */
+async function resolveNonOwnerWorkingFolderDisplayName(
+  task: Pick<
+    ParsedDispatchTask,
+    "executionContext" | "requesterIsAgentOwner" | "targetProfileId"
+  >
+): Promise<string | null> {
+  const context = task.executionContext;
+  if (
+    task.requesterIsAgentOwner === true ||
+    context?.access === "space_context" ||
+    context?.projectWork
+  ) {
+    return null;
+  }
+  return await readProfileFolderDisplayName({
+    ...(context?.folderId ? { folderId: context.folderId } : {}),
+    openMeldProfileId: task.targetProfileId,
+  });
+}
+
 function buildDispatchRuntimePrompt(input: {
+  workingFolderDisplayName: string | null;
   bootstrapContext: DispatchBootstrapContext;
   imageAttachmentPreparation: DispatchImageAttachmentPreparation;
   parsedTask: ParsedDispatchTask;
@@ -3067,6 +3097,7 @@ function buildDispatchRuntimePrompt(input: {
 }): DispatchPromptPlan {
   return buildDispatchPromptPlan({
     sharedFolderSessions: input.sharedFolderSessions,
+    workingFolderDisplayName: input.workingFolderDisplayName,
     executionContextAccess: input.parsedTask.executionContext?.access,
     projectWork: input.parsedTask.executionContext?.projectWork,
     callerContext: input.parsedTask.callerContext,
@@ -3760,7 +3791,12 @@ async function resolveRuntimeResultStructuredSpaceAction(input: {
       sendTargetReference: input.sendTargetReference,
       failureReason: initialStructuredActionFailure.failureReason,
       cliEntry: input.cliEntry,
-      runControllerRepair: ({ prompt, runtimeResult }) => {
+      runControllerRepair: ({ prompt: repairPrompt, runtimeResult }) => {
+        // A repair can start a fresh conversation without the task prompt.
+        const prompt = appendNonOwnerAudienceGuidance(
+          repairPrompt,
+          input.parsedTask
+        );
         const repairContinuation = resolveStructuredActionRepairContinuation({
           runtimeResult,
           agentControllerConversationOverride:
@@ -4061,7 +4097,11 @@ async function coordinateConcurrentAgentReply(input: {
       runtimeResult: input.runtimeResult,
     },
     observation,
-    reconsider: async (prompt, currentObservation) => {
+    reconsider: async (reconsiderationPrompt, currentObservation) => {
+      const prompt = appendNonOwnerAudienceGuidance(
+        reconsiderationPrompt,
+        input.parsedTask
+      );
       const reconsiderationStartedAtMs = Date.now();
       const recordReconsideration = (result: string) =>
         emitDaemonDispatchJournalEvent({

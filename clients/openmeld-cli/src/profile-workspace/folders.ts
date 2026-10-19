@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { homedir, hostname, userInfo } from "node:os";
+import { basename, dirname } from "node:path";
 import {
   profileFolderProjectionSchema,
   providerDispatchRuntimeContextSchema,
@@ -637,6 +638,62 @@ function sameFolderTarget(left: ProfileFolder, right: ProfileFolder): boolean {
     return left.projectId === right.projectId;
   }
   return left.kind === "openmeld_managed" && right.kind === "openmeld_managed";
+}
+
+/**
+ * The display name, never the path, of the folder a task runs in: the selected
+ * folder, or the Profile default. Null when it cannot be read or does not
+ * exist; the task itself still fails closed on a missing folder elsewhere.
+ */
+export async function readProfileFolderDisplayName(input: {
+  account?: OpenMeldAccountKey;
+  folderId?: string;
+  openMeldProfileId: string;
+}): Promise<string | null> {
+  try {
+    const current = await readProfileFolderListForAccount({
+      account: await resolveAccountKey(input.account),
+      openMeldProfileId: normalizeOpenMeldProfileId(input.openMeldProfileId),
+    });
+    if (current.status !== "valid") {
+      return null;
+    }
+    const folderId = input.folderId ?? current.list.defaultFolderId;
+    const name = current.list.folders.find(
+      (folder) => folder.id === folderId
+    )?.displayName;
+    return name && !namesThisComputer(name) ? name : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A folder named after the home directory, the OS account, or the computer
+ * (for example the folder `/Users/felix`, whose default name is `felix`)
+ * would itself reveal local identity.
+ */
+function namesThisComputer(name: string): boolean {
+  const candidate = name.trim().toLowerCase();
+  const identity = [
+    basename(homedir()),
+    safeUserName(),
+    hostname(),
+    hostname().split(".")[0] ?? "",
+  ]
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => value.length > 0);
+  return identity.some(
+    (value) => candidate === value || candidate.includes(value)
+  );
+}
+
+function safeUserName(): string {
+  try {
+    return userInfo().username;
+  } catch {
+    return "";
+  }
 }
 
 async function resolveAccountKey(
