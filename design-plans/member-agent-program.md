@@ -205,6 +205,12 @@ Target:
   them too. No automatic archiving.
 - Owners continue or fork their own Sessions; colleagues continue only their
   own and always start fresh. Sharing a Session is later work.
+- **Harnesses without Execution Contexts** (for example OpenCode) keep one
+  Binding conversation. A Wake whose root requester is not the owner never
+  resumes that conversation: it starts a new native conversation and does
+  not write its id back to the Binding, so a colleague never sees the
+  owner's history and the owner's next task does not continue the
+  colleague's. Decided by the designer on 2026-10-19 (privacy by default).
 
 ### 4.4 Folders
 
@@ -1041,3 +1047,10 @@ advisor in Phase 1; all work in one draft PR. Detail: this document.
   from the Profile detail. Codex `thread/start` timeouts traced to a user
   skill symlink into `~/Desktop` (environment, §13). Phase 4's observer
   Inbox fix is pending.
+- 2026-10-19, Phase 4 smoke 2b fixes merged: an observing owner receives
+  the native permission question in Inbox (`agentOwnerActivity`, narrowed to
+  the Agent that asked) and can answer from Inbox and the observer view
+  without becoming a member; a consent release on a harness without Sessions
+  runs like a later message. Its review found that such harnesses resume the
+  owner's Binding conversation for colleague-rooted Wakes; decided in §4.3:
+  non-owner roots always start a new native conversation there.
