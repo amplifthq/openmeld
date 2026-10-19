@@ -27,20 +27,29 @@ test("selected jobs accept omitted dependencies but reject failed or cancelled a
       result: "success",
       outputs: { scopes: `,${component.name},` },
     };
-    for (const outcome of ["success", "failure", "cancelled"]) {
-      const admitted = runInNewContext(job.if, {
-        needs,
-        always: () => true,
-        failure: () => outcome === "failure",
-        cancelled: () => outcome === "cancelled",
-        contains: (value, item) => value.includes(item),
-        fromJSON: JSON.parse,
-      });
-      assert.equal(
-        admitted,
-        outcome === "success",
-        `${component.name}: ${outcome}`
-      );
+    for (const dependency of component.dependsOn) {
+      for (const [result, selected, expected] of [
+        ["success", true, true],
+        ["skipped", false, true],
+        ["skipped", true, false],
+        ["failure", true, false],
+        ["cancelled", true, false],
+      ]) {
+        needs[jobName(dependency)].result = result;
+        needs.validate.outputs.scopes = `,${component.name},${selected ? `${dependency},` : ""}`;
+        const admitted = runInNewContext(job.if, {
+          needs,
+          always: () => true,
+          cancelled: () => false,
+          contains: (value, item) => value.includes(item),
+        });
+        assert.equal(
+          admitted,
+          expected,
+          `${component.name}: ${dependency} ${result}, selected=${selected}`
+        );
+      }
+      needs[jobName(dependency)].result = "skipped";
     }
   }
 });

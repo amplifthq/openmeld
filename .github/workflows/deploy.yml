@@ -138,9 +138,9 @@ jobs:
     name: Auth
     needs: [validate, db]
     if: >-
-      always() && !failure() && !cancelled() && needs.validate.result == 'success' &&
+      always() && !cancelled() && needs.validate.result == 'success' &&
       contains(needs.validate.outputs.scopes, ',auth,') &&
-      contains(fromJSON('["success","skipped"]'), needs.db.result)
+      (needs.db.result == 'success' || (needs.db.result == 'skipped' && !contains(needs.validate.outputs.scopes, ',db,')))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production
@@ -164,10 +164,10 @@ jobs:
     name: Core
     needs: [validate, db, auth]
     if: >-
-      always() && !failure() && !cancelled() && needs.validate.result == 'success' &&
+      always() && !cancelled() && needs.validate.result == 'success' &&
       contains(needs.validate.outputs.scopes, ',core,') &&
-      contains(fromJSON('["success","skipped"]'), needs.db.result) &&
-      contains(fromJSON('["success","skipped"]'), needs.auth.result)
+      (needs.db.result == 'success' || (needs.db.result == 'skipped' && !contains(needs.validate.outputs.scopes, ',db,'))) &&
+      (needs.auth.result == 'success' || (needs.auth.result == 'skipped' && !contains(needs.validate.outputs.scopes, ',auth,')))
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: production
@@ -203,9 +203,9 @@ jobs:
     name: Gateway
     needs: [validate, core]
     if: >-
-      always() && !failure() && !cancelled() && needs.validate.result == 'success' &&
+      always() && !cancelled() && needs.validate.result == 'success' &&
       contains(needs.validate.outputs.scopes, ',gateway,') &&
-      contains(fromJSON('["success","skipped"]'), needs.core.result)
+      (needs.core.result == 'success' || (needs.core.result == 'skipped' && !contains(needs.validate.outputs.scopes, ',core,')))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production
@@ -223,9 +223,9 @@ jobs:
     name: Remote Agent
     needs: [validate, core]
     if: >-
-      always() && !failure() && !cancelled() && needs.validate.result == 'success' &&
+      always() && !cancelled() && needs.validate.result == 'success' &&
       contains(needs.validate.outputs.scopes, ',remote-agent,') &&
-      contains(fromJSON('["success","skipped"]'), needs.core.result)
+      (needs.core.result == 'success' || (needs.core.result == 'skipped' && !contains(needs.validate.outputs.scopes, ',core,')))
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: production
@@ -243,12 +243,12 @@ jobs:
     name: Web
     needs: [validate, auth, core, gateway, remote_agent]
     if: >-
-      always() && !failure() && !cancelled() && needs.validate.result == 'success' &&
+      always() && !cancelled() && needs.validate.result == 'success' &&
       contains(needs.validate.outputs.scopes, ',web,') &&
-      contains(fromJSON('["success","skipped"]'), needs.auth.result) &&
-      contains(fromJSON('["success","skipped"]'), needs.core.result) &&
-      contains(fromJSON('["success","skipped"]'), needs.gateway.result) &&
-      contains(fromJSON('["success","skipped"]'), needs.remote_agent.result)
+      (needs.auth.result == 'success' || (needs.auth.result == 'skipped' && !contains(needs.validate.outputs.scopes, ',auth,'))) &&
+      (needs.core.result == 'success' || (needs.core.result == 'skipped' && !contains(needs.validate.outputs.scopes, ',core,'))) &&
+      (needs.gateway.result == 'success' || (needs.gateway.result == 'skipped' && !contains(needs.validate.outputs.scopes, ',gateway,'))) &&
+      (needs.remote_agent.result == 'success' || (needs.remote_agent.result == 'skipped' && !contains(needs.validate.outputs.scopes, ',remote-agent,')))
     runs-on: ubuntu-latest
     timeout-minutes: 40
     environment: production
@@ -313,9 +313,9 @@ jobs:
     name: CLI
     needs: [validate, core]
     if: >-
-      always() && !failure() && !cancelled() && needs.validate.result == 'success' &&
+      always() && !cancelled() && needs.validate.result == 'success' &&
       contains(needs.validate.outputs.scopes, ',cli,') &&
-      contains(fromJSON('["success","skipped"]'), needs.core.result)
+      (needs.core.result == 'success' || (needs.core.result == 'skipped' && !contains(needs.validate.outputs.scopes, ',core,')))
     permissions:
       contents: write
       id-token: write
