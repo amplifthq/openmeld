@@ -353,9 +353,9 @@ group, only non-failing pull requests, 60-minute status check timeout) with
 "Require branches to be up to date" off; until then strict up-to-date owns
 freshness. Never turn both off. Current-main control validates a group whose FC
 control matches `main`. A group with control drift runs under its own control
-only if its second parent is the queued pull request's live head, that head has
-a successful FC status naming it (the bootstrap above), and each drifted control
-equals that head's and was changed by it. Otherwise it fails; requeue it alone.
+only if it is built on the `main` tip, its second parent is the queued pull
+request's live head with a successful FC status naming it (the bootstrap
+above), and each drifted control equals that head's and was changed by it.
 
 Do not create a manual substitute queue, release owner, global `main` freeze,
 or polling loop; they serialize independent work without adding merge evidence.

@@ -18,6 +18,8 @@ const NOT_MERGE_PATTERN = /is not a merge of PR #7 head/u;
 const FOREIGN_CONTROL_PATTERN = /did not carry:\n- package\.json/u;
 const QUEUE_REF_PATTERN = /does not name one queued pull request/u;
 const PULL_REQUEST_STATE_PATTERN = /is not an open pull request into main/u;
+const NOT_TARGET_TIP_PATTERN =
+  /is not the main tip .*; control-changing pull requests validate only directly on the target branch/u;
 const NON_PRINTABLE_PATTERN =
   /status description contains a non-printable character/u;
 
@@ -81,10 +83,17 @@ function createGitHub({
   baseRef = "main",
   description,
   headSha,
+  mainTipSha,
   state = "success",
   pullRequestState = "open",
 }) {
   return {
+    readBranchSha: (ref) => {
+      if (ref !== "main") {
+        throw new Error(`Unexpected branch ${ref}`);
+      }
+      return mainTipSha;
+    },
     readCombinedStatus: (sha) => ({
       statuses:
         sha === headSha && description
@@ -123,6 +132,7 @@ test("runs a merge group without control drift under current-main control", () =
     const result = resolveMergeGroupControl({
       baseSha: group.baseSha,
       github: {
+        readBranchSha: () => assert.fail("no API read without drift"),
         readCombinedStatus: () => assert.fail("no API read without drift"),
         readPullRequest: () => assert.fail("no API read without drift"),
       },
@@ -150,6 +160,7 @@ test("lets a control change run under its own control after the PR head passed t
       github: createGitHub({
         description: passed(group.pullRequestHeadSha, repo.forkPoint),
         headSha: group.pullRequestHeadSha,
+        mainTipSha: group.baseSha,
       }),
       headRef: queueRef(group.baseSha),
       headSha: group.headSha,
@@ -178,19 +189,25 @@ test("refuses a control change whose PR head has no exact successful status", ()
       repoRoot: repo.root,
     };
     for (const github of [
-      createGitHub({ headSha: group.pullRequestHeadSha }),
+      createGitHub({
+        headSha: group.pullRequestHeadSha,
+        mainTipSha: group.baseSha,
+      }),
       createGitHub({
         description: passed(group.pullRequestHeadSha, repo.forkPoint),
         headSha: group.pullRequestHeadSha,
+        mainTipSha: group.baseSha,
         state: "failure",
       }),
       createGitHub({
         description: passed(repo.forkPoint, repo.forkPoint),
         headSha: group.pullRequestHeadSha,
+        mainTipSha: group.baseSha,
       }),
       createGitHub({
         description: `Requested standard Final Candidate @ ${group.pullRequestHeadSha.slice(0, 12)} on x`,
         headSha: group.pullRequestHeadSha,
+        mainTipSha: group.baseSha,
       }),
     ]) {
       assert.throws(
@@ -214,6 +231,7 @@ test("refuses when the merge group does not merge the PR's current head", () => 
           github: createGitHub({
             description: passed(group.baseSha, repo.forkPoint),
             headSha: group.baseSha,
+            mainTipSha: group.baseSha,
           }),
           headRef: queueRef(group.baseSha),
           headSha: group.headSha,
@@ -244,6 +262,7 @@ test("refuses control drift that another queued change carries in", () => {
           github: createGitHub({
             description: passed(group.pullRequestHeadSha, repo.forkPoint),
             headSha: group.pullRequestHeadSha,
+            mainTipSha: group.baseSha,
           }),
           headRef: queueRef(group.baseSha),
           headSha,
@@ -268,6 +287,7 @@ test("refuses an unknown queue ref, a closed PR, or a PR into another branch", (
     const github = createGitHub({
       description: passed(group.pullRequestHeadSha, repo.forkPoint),
       headSha: group.pullRequestHeadSha,
+      mainTipSha: group.baseSha,
     });
     assert.throws(
       () =>
@@ -285,6 +305,7 @@ test("refuses an unknown queue ref, a closed PR, or a PR into another branch", (
             github: createGitHub({
               description: passed(group.pullRequestHeadSha, repo.forkPoint),
               headSha: group.pullRequestHeadSha,
+              mainTipSha: group.baseSha,
               ...overrides,
             }),
             headRef: queueRef(group.baseSha),
@@ -309,6 +330,7 @@ test("refuses a status description that could forge workflow outputs", () => {
             github: createGitHub({
               description: `${passed(group.pullRequestHeadSha, repo.forkPoint)}${suffix}`,
               headSha: group.pullRequestHeadSha,
+              mainTipSha: group.baseSha,
             }),
             headRef: queueRef(group.baseSha),
             headSha: group.headSha,
@@ -317,6 +339,30 @@ test("refuses a status description that could forge workflow outputs", () => {
         NON_PRINTABLE_PATTERN
       );
     }
+  } finally {
+    rmSync(repo.root, { force: true, recursive: true });
+  }
+});
+
+test("refuses a control change queued behind another entry", () => {
+  const repo = createRepository();
+  try {
+    const group = createControlMergeGroup(repo);
+    assert.throws(
+      () =>
+        resolveMergeGroupControl({
+          baseSha: group.baseSha,
+          github: createGitHub({
+            description: passed(group.pullRequestHeadSha, repo.forkPoint),
+            headSha: group.pullRequestHeadSha,
+            mainTipSha: repo.forkPoint,
+          }),
+          headRef: queueRef(group.baseSha),
+          headSha: group.headSha,
+          repoRoot: repo.root,
+        }),
+      NOT_TARGET_TIP_PATTERN
+    );
   } finally {
     rmSync(repo.root, { force: true, recursive: true });
   }

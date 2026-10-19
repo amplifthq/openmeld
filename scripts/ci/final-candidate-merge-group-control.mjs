@@ -47,6 +47,15 @@ export function resolveMergeGroupControl(input) {
   }
 
   const queue = parseQueueRef(input.headRef);
+  // An entry queued behind another is based on that entry's temporary merge,
+  // which may carry uncertified control. Only a group built directly on the
+  // target branch tip can carry a control change.
+  const targetTipSha = input.github.readBranchSha(queue.baseRef);
+  if (targetTipSha !== input.baseSha) {
+    throw new Error(
+      `Merge group base ${input.baseSha} is not the ${queue.baseRef} tip ${String(targetTipSha)}; control-changing pull requests validate only directly on the target branch. Requeue when the queue ahead is empty.`
+    );
+  }
   const pullRequest = input.github.readPullRequest(queue.pullRequestNumber);
   const pullRequestHeadSha = String(pullRequest?.head?.sha ?? "");
   if (
@@ -168,6 +177,7 @@ function createGitHubReader(repository) {
     );
   return {
     readCombinedStatus: (sha) => api(`commits/${sha}/status?per_page=100`),
+    readBranchSha: (ref) => api(`git/ref/heads/${ref}`).object.sha,
     readPullRequest: (number) => api(`pulls/${String(number)}`),
   };
 }
