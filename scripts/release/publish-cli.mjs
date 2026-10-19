@@ -41,6 +41,10 @@ import {
 } from "./upload-cli-binary.mjs";
 
 export const LOCAL_COMPONENTS_RELEASE_OBJECT_KEY = "cli/local-components.json";
+// Every published manifest is also kept under its CLI version, so the current
+// key can be restored from the bucket itself if it is ever lost or corrupted.
+export const releaseHistoryObjectKey = (version) =>
+  `cli/releases/${version}/local-components.json`;
 const FULL_SHA = /^[0-9a-f]{40}$/u;
 const NPM_VISIBILITY_TIMEOUT_MS = 120_000;
 const R2_OBJECT_MISSING = /The specified key does not exist\./u;
@@ -123,8 +127,13 @@ export function createPlatform({ cwd, env, bucket, spawn = spawnSync }) {
         ? cliBinaryManifestSchema.parse(value).channels.stable.version
         : null;
     },
-    writeRelease: (manifest) =>
-      writeObject(LOCAL_COMPONENTS_RELEASE_OBJECT_KEY, manifest),
+    writeRelease: (manifest) => {
+      writeObject(
+        releaseHistoryObjectKey(manifest.components.cli.packageVersion),
+        manifest
+      );
+      writeObject(LOCAL_COMPONENTS_RELEASE_OBJECT_KEY, manifest);
+    },
     readNpmVersion,
     buildPackagedCli: () => buildPackagedOpenMeldCli({ repoRoot: cwd, env }),
     uploadBinary: (releaseManifest) =>
