@@ -143,6 +143,7 @@ export { RobotIcon } from "@phosphor-icons/react/Robot";
 export { ShareNetworkIcon } from "@phosphor-icons/react/ShareNetwork";
 export { ShieldCheckIcon } from "@phosphor-icons/react/ShieldCheck";
 export { ShieldSlashIcon } from "@phosphor-icons/react/ShieldSlash";
+export { ShieldWarningIcon } from "@phosphor-icons/react/ShieldWarning";
 export { SidebarIcon } from "@phosphor-icons/react/Sidebar";
 export { SidebarSimpleIcon } from "@phosphor-icons/react/SidebarSimple";
 export { SignInIcon } from "@phosphor-icons/react/SignIn";
