@@ -430,7 +430,11 @@ export async function deploy(options, { cwd = process.cwd(), readLive } = {}) {
   }
   if (segments.some((segment) => segment.lane === "local")) {
     assertLocalSource(git, sha);
-    const controlGit = createGit(path.resolve(SCRIPT_DIRECTORY, "../.."));
+    const controlRoot = path.resolve(SCRIPT_DIRECTORY, "../..");
+    const controlGit = createGit(controlRoot);
+    if (controlRoot !== path.resolve(cwd)) {
+      controlGit.run(["fetch", "--quiet", "origin", "main"]);
+    }
     if (
       controlGit.run(["rev-parse", "HEAD"]) !==
         controlGit.run(["rev-parse", "refs/remotes/origin/main"]) ||
