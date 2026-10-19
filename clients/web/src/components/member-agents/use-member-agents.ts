@@ -197,13 +197,18 @@ function useEnabledMemberAgentSessionTitles(
 	const organizationId =
 		useOptionalAppOrganization()?.currentOrganization.id ?? "";
 	const profileIds = [...memberAgents.index.byProfileId.keys()];
+	// Archived Sessions keep their title too; that list is already read for
+	// useArchivedMemberAgentSessionIds, so it shares the cache.
 	const sessions = useQueries({
-		queries: profileIds.map((agentProfileId) =>
-			agentDirectMessageSessionsQueryOptions({
-				organizationId,
-				agentProfileId,
-				enabled: memberAgents.ready && Boolean(organizationId),
-			})
+		queries: [false, true].flatMap((archived) =>
+			profileIds.map((agentProfileId) =>
+				agentDirectMessageSessionsQueryOptions({
+					organizationId,
+					agentProfileId,
+					archived,
+					enabled: memberAgents.ready && Boolean(organizationId),
+				})
+			)
 		),
 	});
 	const key = JSON.stringify(

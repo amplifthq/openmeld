@@ -111,3 +111,27 @@ Codex gpt-6-astra high, `7d5b24bef..HEAD`):
 | P2: a failed Default Project clear after repair was lost with the unmounted form | Confirmed | The partial failure is a dialog-level error. |
 | P2: a repair's restarted counter could stay below Core's recorded revision | Confirmed | Core replaces its record with a repair receipt; Web replaces its cached list too. |
 
+
+## Smoke round 4 fixes (`claude/map-1d-smoke-4`)
+
+Findings from `dev-tmp/member-agent-smoke/round-4/report.md`. R4-01 (the owner's
+own path in the owner's own DM) is not a defect.
+
+| Finding | Root cause | Fix |
+| --- | --- | --- |
+| R4-02 (P2) Inbox question renders, then becomes a load error | The Inbox question polls the shared active-wake-progress query every 5 s with `retry: false`; one failed or timed-out poll set `isError`, and the component let that replace the question it already had. | A failed poll keeps the question; only a first read with no data shows the load error. |
+| R4-06 (P3) different outer framing for the Inbox question and access request | The Inbox question rendered the Space interaction card with `presentation="surface"` (no frame); every other Inbox request (access, credential, Plugin) uses the framed ApprovalCard. | The Inbox question uses the framed card. |
+| R4-04 (P2) identical "OpenCode" cards in Direct messages | Each Session is its own DM Space and its card was named after the peer Profile. | Each MemberAgent Session's card reads "<Agent> · <Session title>", the title the chat header shows. A first attempt collapsed Sessions into one card per section; Codex showed it lost other Sessions' unread and attention, duplicated the MemberAgent across pinned/grouped sections and broke search and personal titles, so it was reverted. |
+| R4-05 (P3) unknown MemberAgent page has no local return | The placeholder had only text. | `UnknownMemberAgentNotice` offers "Back to Agents", like other Agent detail pages. |
+| R4-03 (P2) answered plain Codex request missing from Continue previous | A plain DM wakes the peer without activation targets (runtime evidence: `activationTargetCount: 0`, `messageEnvelopePresent: false`), so the request had no `wakeTargetProfileIds` and `buildSpaceTaskSources` never offered it, although Core linked the published reply to it (`finalVisibleLinkage=matched_published_signal`). | Continuation targets come from the published final replies that answer the request (`replyToSignalId`), ordered by any named wake targets. |
+
+### External review (Codex, gpt-6-astra)
+
+| Finding | Verdict | Action |
+| --- | --- | --- |
+| P2: collapsed cards lose other Sessions' unread and attention | Confirmed | Collapse reverted; per-Session titles instead. |
+| P2: pinned/grouped sections duplicate the collapsed MemberAgent card | Confirmed | Same. |
+| P2: collapsed name ignored personal titles and search | Confirmed | Same; the new name flows through `useChats`, so search and personal titles apply per Session. |
+| R4-02, R4-03, R4-05, R4-06 | No findings | — |
+| P2 (second pass): Core-archived Sessions lost their distinguishing title | Confirmed | The title map also reads the archived Session lists, which `useArchivedMemberAgentSessionIds` already loads. |
+| P2 (second pass): a rename made on another client can stay stale in the directory until the Session list refetches (30 s stale time, refetch on focus/mount) | Accepted as a known limit | Same-client renames invalidate it. The chat header has the same cache, so the two never disagree. |
