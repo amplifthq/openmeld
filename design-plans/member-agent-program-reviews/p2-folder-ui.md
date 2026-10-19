@@ -28,3 +28,18 @@ Branch: `claude/map-p2-folder-ui`, reviewed diff `e38b50124..4eb7e9c7e`.
 | 5c | "Continue in another folder" unreachable. | — | None found. |
 
 Nothing was rejected.
+
+## Follow-up review: sensitive-operation gate (2026-10-19)
+
+Change: the folder route's Gateway entrypoint `manageAgentProfileFolders`
+now runs through `runGatewaySensitiveOperation` as `working_folder_write`,
+and the Gateway route passes the caller's `requestCredential`. Reviewed
+diff `a8bc7da7c..0d72ab371` with Codex CLI (`gpt-6-astra`, `high`,
+read-only).
+
+| # | Finding | Verified | Disposition |
+| --- | --- | --- | --- |
+| 1 | Folder writes that skip the gate. The folder route and the people-computer workspace variants are gated; the Center Agent runtime-settings path checks the human root and audits separately. One pre-existing path remains: replaying a completed Center Agent `create_configured_agent_profile` request re-applies its original working folder through `rpcSetCurrentAgentProfileWorkspace` without the gate (`agent-profile-creation-request-rpc.ts`, `applyConfiguredShimWorkspace`), which can undo a later folder choice. | Yes | Not changed here: it predates this route and belongs to the Center Agent creation shim. Recorded for the designer as a follow-up (gate it, or apply the folder only on the request's first completion). |
+| 2 | A confirmation replayed for a different folder change. | — | None found: the digest covers the operation and its fields, and approvals are single-use. |
+| 3 | `requestCredential` reaching the folder operation or logs. | — | None found. |
+| 4 | Web dialog applying anything on a confirmation refusal. | — | None found; a test pins the shown message and that Default Project is not cleared. |
