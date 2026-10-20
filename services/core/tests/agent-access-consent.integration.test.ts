@@ -33,6 +33,7 @@ vi.mock("../src/member-agent/member-agents-feature", () => ({
 const {
   decideAgentAccessRequest,
   finishAgentAccessDecision,
+  isAgentAccessRequestStillGranted,
   withdrawAgentAccessRequest,
 } = await import("../src/agent-access/application/agent-access-service");
 const { readAgentAccessRequest, revokeAgentProfileAccessGrant, asQueryable } =
@@ -596,6 +597,81 @@ describe("Colleague use of an Agent (Phase 4)", () => {
             targetProfileId: f.agentProfileId,
           })
         ).not.toBeNull();
+      }
+    );
+  });
+
+  it("closes, never releases, an allow replayed after its grant was revoked", async () => {
+    const f = await seed();
+    await withSpace(
+      f,
+      { directMessage: true, humans: [f.tali], agentMember: true },
+      async (space) => {
+        const first = await space.post(f.tali, SECRET_TEXT);
+        const hold = readHeldDirectMessageAgentAccessHold(
+          space.state.storage.sql,
+          { requesterUserId: f.tali.userId, targetProfileId: f.agentProfileId }
+        );
+        if (!hold) {
+          throw new Error("Expected a held Wake.");
+        }
+        const db = getPostgresDatabase(env);
+        // The owner allows once; the Space call is lost, so nothing applies.
+        const decided = await decideAgentAccessRequest({
+          db,
+          decision: "allow_once",
+          deciderUserId: f.felix.userId,
+          nowMs: Date.now(),
+          organizationId: f.organizationId,
+          requestId: hold.requestId,
+        });
+        const grant = await db.query<{ id: string }>({
+          text: `SELECT id FROM "openmeld"."agent_profile_access_grants" WHERE request_id = $1`,
+          values: [hold.requestId],
+        });
+        const grantId = grant.rows[0]?.id;
+        if (!grantId) {
+          throw new Error("Expected a grant.");
+        }
+        // The owner revokes before any read repairs the lost call.
+        await revokeAgentProfileAccessGrant({
+          db: asQueryable(db),
+          grantId,
+          nowMs: Date.now(),
+          profileId: f.agentProfileId,
+          revokedByUserId: f.felix.userId,
+        });
+        // The repair replays the recorded allow, as applyDecisionInSpace does.
+        await expect(
+          isAgentAccessRequestStillGranted({ db, request: decided.request })
+        ).resolves.toBe(false);
+        const applied = await space.instance.rpcApplyAgentAccessDecision({
+          accessRevoked: true,
+          decidedByProfileId: f.felix.profileId,
+          decidedByUserId: f.felix.userId,
+          organizationId: f.organizationId,
+          requestId: hold.requestId,
+          spaceId: space.spaceId,
+          status: decided.request.status,
+        });
+        expect(applied).toEqual({ outcome: "closed" });
+        expect(space.outbox(first)).toHaveLength(0);
+        expect(
+          readSpaceAgentAccessHold(space.state.storage.sql, hold.requestId)
+        ).toMatchObject({ closeReason: "revoked", state: "closed" });
+        await finishAgentAccessDecision({
+          db,
+          nowMs: Date.now(),
+          outcome: applied.outcome,
+          request: decided.request,
+        });
+        // The decision stays on record; only the release never happened.
+        expect(
+          await readAgentAccessRequest({
+            db: asQueryable(db),
+            requestId: hold.requestId,
+          })
+        ).toMatchObject({ decision: "allow_once", status: "allowed" });
       }
     );
   });

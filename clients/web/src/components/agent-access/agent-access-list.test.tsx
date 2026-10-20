@@ -156,7 +156,8 @@ describe("owner access entries", () => {
 			],
 		});
 		expect(entry?.rule).toBe("removed");
-		expect(entry?.decidedAt).toBe("2026-10-20T11:30:00.000Z");
+		// No time on removed access, so the row never claims a wrong one.
+		expect(entry?.decidedAt).toBeNull();
 		expect(entry?.person?.userId).toBe(TALI_USER);
 	});
 
@@ -238,7 +239,7 @@ describe("requester access entries", () => {
 		).toBe("always");
 	});
 
-	it("shows revoked access as removed, with when it was taken back", () => {
+	it("shows revoked access as removed, without a time", () => {
 		const revoked = request({
 			viewerRole: "requester",
 			status: "allowed",
@@ -253,9 +254,8 @@ describe("requester access entries", () => {
 			spaces: [],
 		});
 		expect(entry?.rule).toBe("removed");
-		expect(entry && agentAccessRowDetail(entry, NOW)).toBe(
-			"Access removed · 30m ago"
-		);
+		// The removed grant may be a standing grant, not this request's.
+		expect(entry && agentAccessRowDetail(entry, NOW)).toBe("Access removed");
 	});
 
 	it("makes no row before a request is sent", () => {

@@ -15,6 +15,8 @@ export type SpaceAgentAccessHoldCloseReason =
   | "declined"
   | "withdrawn"
   | "voided"
+  // An allow replayed after its grant was revoked.
+  | "revoked"
   | "ignored"
   | "replied_by_dm";
 

@@ -17,7 +17,12 @@ import {
 	PromptInputActions,
 } from "#/components/ibelick/prompt-input";
 import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
+import {
+	formatPublicWakeabilityReason,
+	usePublicWakeabilityReason,
+} from "#/lib/agents/agent-viewer-access";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
+import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	isSpaceComposerFileFailed,
 	type SpaceComposerFile,
@@ -396,8 +401,15 @@ export function SpaceComposer(input: SpaceComposerProps) {
 	const membersPending = hasPendingComposerMembers(input);
 	const { recommendations, recommended, acceptRecommendation } =
 		useComposerWakeSuggestion(input);
-	const deviceWaitPresentation =
-		buildSpaceComposerDeviceWaitPresentation(input);
+	const viewerUserId = useComposerViewerUserId();
+	const blockedWakeViewer: BlockedWakeViewer = {
+		publicReasonText: null,
+		userId: viewerUserId,
+	};
+	const deviceWaitPresentation = buildSpaceComposerDeviceWaitPresentation(
+		input,
+		blockedWakeViewer
+	);
 	const submit = () => {
 		if (
 			deviceWaitPresentation.disabled ||
@@ -468,7 +480,9 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		fileLimitReached: input.availability.fileLimitReached,
 	});
 	const blockedWakeHint = resolveSpaceComposerBlockedWakeHint(
-		input.content.addressingTargets
+		input.content.addressingTargets,
+		undefined,
+		blockedWakeViewer
 	);
 	const composerHint =
 		fileHint ??
@@ -642,6 +656,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 								hint={blockedWakeHint}
 								recovery={input.recovery}
 								target={blockedWakeTarget}
+								viewerUserId={viewerUserId}
 							/>
 							{input.content.addressingTargets
 								.filter(
@@ -677,7 +692,10 @@ export function SpaceComposer(input: SpaceComposerProps) {
 									</span>
 								</TooltipHint>
 							) : null}
-							<SpaceComposerMentionOnlyAction {...input} />
+							<SpaceComposerMentionOnlyAction
+								{...input}
+								viewerUserId={viewerUserId}
+							/>
 							<div className="min-w-0 break-words text-right empty:hidden">
 								<ComposerFeedback
 									error={input.slots?.error}
@@ -737,9 +755,23 @@ function ComposerRecovery(input: {
 	hint: string | null;
 	recovery: SpaceComposerProps["recovery"];
 	target: SpaceComposerAddressingTarget | undefined;
+	viewerUserId: string | null;
 }) {
 	// A retained failed-send target is not authority for the current draft.
 	const profileId = input.target?.profileId;
+	// Only the owner can fix a colleague's Agent; the viewer sees the reason.
+	if (
+		input.target &&
+		input.hint &&
+		isColleagueAgentTarget(input.target, input.viewerUserId)
+	) {
+		return (
+			<ColleagueBlockedWakeHint
+				target={input.target}
+				viewerUserId={input.viewerUserId}
+			/>
+		);
+	}
 	if (!(profileId && input.recovery)) {
 		return input.target && input.hint ? (
 			<span className="ml-2 text-muted-foreground text-xs">{input.hint}</span>
@@ -762,9 +794,67 @@ function isBlockedWakeTarget(target: SpaceComposerAddressingTarget): boolean {
 	);
 }
 
-function resolveSpaceComposerBlockedWakeHint(
+function useComposerViewerUserId(): string | null {
+	return useOptionalAppOrganization()?.currentUserId ?? null;
+}
+
+/** The neutral hint, with the public reason once the shared overview has it. */
+function ColleagueBlockedWakeHint(input: {
+	target: SpaceComposerAddressingTarget;
+	viewerUserId: string | null;
+}) {
+	const publicReason = usePublicWakeabilityReason({
+		enabled: true,
+		profileId: input.target.profileId,
+	});
+	const hint = resolveSpaceComposerBlockedWakeHint([input.target], undefined, {
+		publicReasonText: publicReason
+			? formatPublicWakeabilityReason(publicReason)
+			: null,
+		userId: input.viewerUserId,
+	});
+	return hint ? (
+		<span className="ml-2 text-muted-foreground text-xs">{hint}</span>
+	) : null;
+}
+
+/** Who is composing, so a colleague's Agent shows only the public reason. */
+type BlockedWakeViewer = {
+	publicReasonText: string | null;
+	userId: string | null;
+};
+
+/**
+ * A colleague's Agent: owned by a person other than the viewer. Its owner's
+ * setup details and fix steps are not the viewer's to see or act on
+ * (developing/product/space-collaboration.md).
+ */
+export function isColleagueAgentTarget(
+	target: Pick<SpaceComposerAddressingTarget, "ownerUserId">,
+	viewerUserId: string | null
+): boolean {
+	return Boolean(
+		viewerUserId && target.ownerUserId && target.ownerUserId !== viewerUserId
+	);
+}
+
+/** Whether the draft wakes a colleague's Agent that can't take work now. */
+export function hasBlockedColleagueWake(
 	targets: readonly SpaceComposerAddressingTarget[],
-	deviceWait?: WakeDeviceWait
+	viewerUserId: string | null
+): boolean {
+	return targets.some(
+		(target) =>
+			isBlockedWakeTarget(target) &&
+			!createSpaceComposerDeviceWait(target) &&
+			isColleagueAgentTarget(target, viewerUserId)
+	);
+}
+
+export function resolveSpaceComposerBlockedWakeHint(
+	targets: readonly SpaceComposerAddressingTarget[],
+	deviceWait?: WakeDeviceWait,
+	viewer?: BlockedWakeViewer
 ): string | null {
 	const blockedWakeTarget = targets.find(
 		(target) =>
@@ -773,6 +863,11 @@ function resolveSpaceComposerBlockedWakeHint(
 	);
 	if (!blockedWakeTarget) {
 		return null;
+	}
+	if (viewer && isColleagueAgentTarget(blockedWakeTarget, viewer.userId)) {
+		return `${blockedWakeTarget.profileName} can’t start work right now${
+			viewer.publicReasonText ? ` · ${viewer.publicReasonText}` : ""
+		}`;
 	}
 
 	const reason = blockedWakeTarget.wakeAvailability.reasonText?.trim();
@@ -795,10 +890,13 @@ function resolvePerAgentComposerHint(
 		: fallback;
 }
 
-function SpaceComposerMentionOnlyAction(input: SpaceComposerProps) {
+function SpaceComposerMentionOnlyAction(
+	input: SpaceComposerProps & { viewerUserId: string | null }
+) {
 	const targets = input.content.addressingTargets.filter(
 		(target) =>
 			isBlockedWakeTarget(target) &&
+			!isColleagueAgentTarget(target, input.viewerUserId) &&
 			Boolean(target.agentControllerRef) &&
 			!isHostedAgentControllerRef(target.agentControllerRef) &&
 			target.allowedRelations.reference
@@ -866,7 +964,10 @@ function renderSpaceComposerSendAction(input: {
 	);
 }
 
-function buildSpaceComposerDeviceWaitPresentation(input: SpaceComposerProps): {
+function buildSpaceComposerDeviceWaitPresentation(
+	input: SpaceComposerProps,
+	viewer: BlockedWakeViewer
+): {
 	target: SpaceComposerAddressingTarget | null;
 	disabled: boolean;
 	hint: string | null;
@@ -878,6 +979,11 @@ function buildSpaceComposerDeviceWaitPresentation(input: SpaceComposerProps): {
 	};
 	if (!input.availability.canSendMessage) {
 		return ordinary;
+	}
+	// A colleague's unavailable Agent can't take the message; block sending up
+	// front instead of letting it fail (developing/product/space-collaboration.md).
+	if (hasBlockedColleagueWake(input.content.addressingTargets, viewer.userId)) {
+		return { ...ordinary, disabled: true };
 	}
 	const targets = input.content.addressingTargets.filter(
 		(target) =>
@@ -899,7 +1005,8 @@ function buildSpaceComposerDeviceWaitPresentation(input: SpaceComposerProps): {
 	}
 	const hint = resolveSpaceComposerBlockedWakeHint(
 		input.content.addressingTargets,
-		createSpaceComposerDeviceWait(target)
+		createSpaceComposerDeviceWait(target),
+		viewer
 	);
 	return {
 		target,

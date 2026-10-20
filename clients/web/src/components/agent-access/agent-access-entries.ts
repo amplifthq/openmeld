@@ -243,10 +243,10 @@ function resolveOwnerDecidedAt(input: {
 				input.request?.decidedAt ??
 				null
 			);
+		// The grant that was removed may not be the request's, so no time
+		// is shown rather than a wrong one.
 		case "removed":
-			return (
-				input.request?.grant?.revokedAt ?? input.request?.decidedAt ?? null
-			);
+			return null;
 		default:
 			return input.request?.decidedAt ?? null;
 	}
@@ -351,11 +351,10 @@ function requesterDecidedAt(
 	rule: AgentAccessRule,
 	request: AgentAccessRequestView | null
 ): string | null {
-	if (rule === "waiting") {
+	// Removed access shows no time: the grant that was removed may not be
+	// the request's, and a wrong time is worse than none.
+	if (rule === "waiting" || rule === "removed") {
 		return null;
-	}
-	if (rule === "removed") {
-		return request?.grant?.revokedAt ?? request?.decidedAt ?? null;
 	}
 	return request?.decidedAt ?? null;
 }
