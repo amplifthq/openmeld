@@ -5,6 +5,7 @@ import {
 import type {
 	AuthProfileView,
 	GetAgentProfileFoldersResponse,
+	ProfileFolderProjection,
 } from "@openmeld/schemas/types";
 import {
 	cleanup,
@@ -63,6 +64,7 @@ vi.mock("./agent-profile-project-selector", () => ({
 }));
 
 const MAKE_ANOTHER_DEFAULT = /Make another folder/;
+const NO_FOLDERS_YET = /No folders yet/;
 const COMPUTER_CHANGED_MESSAGE = /Computer or local agent changed/;
 const DEFAULT_FOLDER_REASON = /default folder/;
 const SETTINGS_UNREADABLE =
@@ -104,7 +106,7 @@ const PROJECTION = {
 };
 
 function current(
-	projection: typeof PROJECTION
+	projection: ProfileFolderProjection
 ): GetAgentProfileFoldersResponse {
 	return {
 		agentProfileId: "profile-agent",
@@ -329,6 +331,64 @@ describe("Agent folders dialog", () => {
 				})
 			)
 		);
+	});
+
+	it("makes the first folder added to an Agent with none its default", async () => {
+		const added = {
+			displayName: "OpenMeld folder",
+			folderId: OTHER_ID,
+			isDefault: false,
+			kind: "openmeld_managed" as const,
+		};
+		readFoldersMock.mockResolvedValue(
+			current({ ...PROJECTION, defaultFolderId: null, folders: [] })
+		);
+		manageFoldersMock.mockImplementation(({ operation }) =>
+			Promise.resolve({
+				agentProfileId: "profile-agent",
+				folderId: operation.folderId ?? OTHER_ID,
+				observedAtMs: 2,
+				projection: {
+					defaultFolderId: operation.folderId ?? null,
+					folders: [
+						{ ...added, isDefault: operation.operation === "set_default" },
+					],
+					revision: 5,
+				},
+				target: TARGET,
+			})
+		);
+		renderDialog();
+		await screen.findByText(NO_FOLDERS_YET);
+		fireEvent.click(screen.getByRole("button", { name: "Add folder" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Use the OpenMeld folder" })
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Add folder" }));
+		await waitFor(() =>
+			expect(manageFoldersMock).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					operation: { folderId: OTHER_ID, operation: "set_default" },
+				})
+			)
+		);
+		await waitFor(() =>
+			expect(updateDefaultProjectMock).toHaveBeenCalledWith(
+				expect.objectContaining({ defaultProjectId: null })
+			)
+		);
+	});
+
+	it("keeps the current default when another folder is added", async () => {
+		renderDialog();
+		await findRow("openmeld");
+		fireEvent.click(screen.getByRole("button", { name: "Add folder" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Use the OpenMeld folder" })
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Add folder" }));
+		await waitFor(() => expect(manageFoldersMock).toHaveBeenCalledTimes(1));
+		expect(updateDefaultProjectMock).not.toHaveBeenCalled();
 	});
 
 	it("keeps a recorded list read-only while the computer is offline", async () => {

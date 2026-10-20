@@ -13,8 +13,9 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { AgentProfileFoldersDialog } from "#/components/profiles/agent-profile-folders-dialog";
 import { projectAgentProfileBindingTarget } from "#/lib/profiles/agent-profile-primary-binding";
 import { agentExecutionReadinessBatchQueryOptions } from "#/query/agents/execution-readiness";
@@ -32,7 +33,6 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 	profile: AuthProfileView;
 }) {
 	const [open, setOpen] = useState(false);
-	const [savedStatus, setSavedStatus] = useState<string | null>(null);
 	// This is the folder draft's frozen target, not a replacement for Core's
 	// current readiness. Refreshes must neither reset it nor retarget the draft.
 	const [draftTarget, setDraftTarget] = useState<{
@@ -111,31 +111,48 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 		checking: loading,
 		failed: readiness.isError || eligibility.isError,
 	});
-	const checkSavedFolder = async () => {
-		setSavedStatus("Working folder saved. Checking Agent availability…");
+	const queryClient = useQueryClient();
+	// The fix usually clears the problem, so this action unmounts with the card
+	// or footer that showed it. The check and its result must not depend on
+	// it: they go through the query client and a toast.
+	const checkSavedFolder = async (): Promise<void> => {
+		const checkAgain = {
+			label: "Check again",
+			onClick: () => {
+				checkSavedFolder().catch(() => undefined);
+			},
+		};
 		try {
-			const result = await readiness.refetch({ throwOnError: true });
-			const item = result.data?.items.find(
+			const result = await queryClient.fetchQuery({
+				...agentExecutionReadinessBatchQueryOptions({
+					agentProfileIds: [input.profile.openMeldProfileId],
+					enabled: true,
+					organizationId: input.organizationId,
+					storageScope: input.storageScope,
+				}),
+				staleTime: 0,
+			});
+			const item = result.items.find(
 				(entry) => entry.agentProfileId === input.profile.openMeldProfileId
 			);
-			const available =
-				item?.agentWakeAvailability.status === "available_for_wake";
-			if (input.folderMissing) {
-				setSavedStatus(
-					available
+			if (item?.agentWakeAvailability.status === "available_for_wake") {
+				toast.success(
+					input.folderMissing
 						? "Working folder saved. This Agent is ready for new work."
-						: "Working folder saved. This Agent still needs attention. Review its current status."
+						: "Working folder saved. This Agent is available for new work. Retry the failed task when you are ready."
 				);
 				return;
 			}
-			setSavedStatus(
-				available
-					? "Working folder saved. This Agent is available for new work. Retry the failed task when you are ready."
-					: "Working folder saved. This Agent still needs attention. Review its current status before retrying the task."
+			toast.warning(
+				input.folderMissing
+					? "Working folder saved. This Agent still needs attention. Review its current status."
+					: "Working folder saved. This Agent still needs attention. Review its current status before retrying the task.",
+				{ action: checkAgain }
 			);
 		} catch {
-			setSavedStatus(
-				"Working folder saved, but Agent availability could not be checked. Check again before retrying the task."
+			toast.warning(
+				"Working folder saved, but Agent availability could not be checked. Check again before retrying the task.",
+				{ action: checkAgain }
 			);
 		}
 	};
@@ -152,14 +169,6 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 						? "Choose working folder"
 						: "Review working folder")}
 			</Button>
-			{savedStatus ? (
-				<div className="grid gap-2">
-					<output className="text-sm">{savedStatus}</output>
-					<Button onClick={checkSavedFolder} size="sm" variant="ghost">
-						Check again
-					</Button>
-				</div>
-			) : null}
 			{draftTarget ? (
 				<AgentProfileFoldersDialog
 					actorProfileId={input.actorProfileId}

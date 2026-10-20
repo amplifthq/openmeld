@@ -9,6 +9,7 @@ import type {
 	ManageAgentProfileFoldersResponse,
 	PeopleComputerTarget,
 	ProfileFolderOperation,
+	ProfileFolderProjectionEntry,
 } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
@@ -264,19 +265,32 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 		defaultSaved(message);
 		return true;
 	};
+	const setDefaultFolder = async (
+		row: Pick<
+			ProfileFolderProjectionEntry,
+			"displayName" | "folderId" | "kind" | "projectId"
+		>
+	) => {
+		// A Project folder becomes the default through Default Project.
+		if (row.kind === "project" && row.projectId) {
+			await setDefaultProject(row.projectId);
+			defaultSaved(`${row.displayName} is now the default folder.`);
+			return;
+		}
+		// Also for the saved default: choosing it again prepares it again,
+		// so a missing OpenMeld folder is recreated before the Project clear.
+		await change({ folderId: row.folderId, operation: "set_default" });
+		await finishLocalDefault(`${row.displayName} is now the default folder.`);
+	};
 	const makeDefault = (row: AgentProfileFolderRow) =>
-		run(row.folderId, async () => {
-			// A Project folder becomes the default through Default Project.
-			if (row.kind === "project" && row.projectId) {
-				await setDefaultProject(row.projectId);
-				defaultSaved(`${row.displayName} is now the default folder.`);
-				return;
-			}
-			// Also for the saved default: choosing it again prepares it again,
-			// so a missing OpenMeld folder is recreated before the Project clear.
-			await change({ folderId: row.folderId, operation: "set_default" });
-			await finishLocalDefault(`${row.displayName} is now the default folder.`);
-		});
+		run(row.folderId, () => setDefaultFolder(row));
+	// An Agent with no folder has no default either, so the first folder
+	// added becomes the default: new work then has somewhere to start.
+	const firstFolderBecomesDefault =
+		response?.status === "current" &&
+		rows.length === 0 &&
+		!input.profile.defaultProjectId &&
+		!localDefaultBlocked;
 	// Replaces unreadable settings, or, from recovery, prepares the current
 	// default again. A repair is refused by a Service too old to prepare it.
 	const repair = async (operation: RepairOperation) => {
@@ -376,6 +390,10 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 					const added = result.projection.folders.find(
 						(folder) => folder.folderId === result.folderId
 					);
+					if (added && !added.isDefault && firstFolderBecomesDefault) {
+						await run(added.folderId, () => setDefaultFolder(added));
+						return;
+					}
 					toast.success(
 						added ? `${added.displayName} was added.` : "Folder added."
 					);
