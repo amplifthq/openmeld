@@ -715,9 +715,11 @@ async function readLatestScopeContextId(
     throw new ExecutionContextSelectionError(HISTORY_SELECTION_REQUIRED);
   }
   // Each association names the last Wake accepted into its context; that
-  // Wake's head was written in the same transaction, so its creation time
-  // orders the contexts. A context's own creation time does not move when it
-  // is continued, so it cannot stand in for this order.
+  // Wake's head was created in the same transaction that wrote the association
+  // and the latest index, so its creation time orders the contexts the way the
+  // index does. The head's `acceptedAtMs` moves when a waiting Wake is later
+  // promoted, and a context's own creation time does not move when it is
+  // continued, so neither can stand in for this order.
   const accepted = associations.map(readScopeAssociation);
   const heads = await storage.get<unknown>(
     accepted.map((association) =>
@@ -737,7 +739,9 @@ async function readLatestScopeContextId(
     if (
       !isRuntimeCoordinatorHeadLifecycleRecord(head) ||
       head.acceptedDispatchSnapshot?.executionContext?.id !==
-        association.contextId
+        association.contextId ||
+      !Number.isSafeInteger(head.createdAtMs) ||
+      head.createdAtMs < 0
     ) {
       throw new ExecutionContextSelectionError(HISTORY_SELECTION_REQUIRED);
     }
