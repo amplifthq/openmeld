@@ -210,7 +210,7 @@ visible name already exists for that owner, the creation surface adds the
 first available numeric suffix such as `(1)` or `(2)`.
 
 The name field appears after local agent selection in the single-page creation
-form, before the collapsed Advanced Agent Settings. Configuration changes never
+form, before Advanced Agent Settings, which start expanded. Configuration changes never
 rewrite the owner's text. When the Center Agent or another assistant creates an
 Agent from an explicit work goal, it may infer a short practical role name such
 as `Release Reviewer` or `API Debugger`. An explicit user-provided name always
