@@ -214,9 +214,10 @@ import {
   captureExecutionContextCompletion,
   executionContextFileAccessBoundary,
   executionContextLedgerPolicy,
-  executionContextResourceScope,
+  executionContextResourceClaim,
   executionContextWorkingDirectory,
   prepareExecutionContextConversation,
+  resolveQueuedWorkingDirectory,
 } from "./execution-context-session";
 import {
   deriveExecutionContextComputerFileAccessPolicy,
@@ -355,9 +356,12 @@ export function enqueueDispatchDeliverFrame(input: {
     presenter: input.presenter,
   });
   const enqueueResult = input.localExecutionSlots.request({
-    resourceScope: executionContextResourceScope(
-      deliverRequest.payload.executionContext
-    ),
+    resourceClaim: executionContextResourceClaim({
+      context: deliverRequest.payload.executionContext,
+      currentWorkingDirectory: resolveQueuedWorkingDirectory(
+        input.routeByProfileId.get(deliverRequest.profileId)
+      ),
+    }),
     adapterId: queueLogMeta.adapterId,
     attemptId: correlation.attemptId,
     controllerKey: queueLogMeta.controllerKey,

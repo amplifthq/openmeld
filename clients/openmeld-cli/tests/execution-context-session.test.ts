@@ -2,6 +2,7 @@ import { mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildRuntimeWorkspaceFingerprint } from "@openmeld/local-execution";
+import type { LocalExecutionResourceClaim } from "@openmeld/local-service";
 import type {
   ExecutionContextTask,
   RuntimeAgentControllerLaunchContract,
@@ -10,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   captureExecutionContextCompletion,
   executionContextFileAccessBoundary,
+  executionContextResourceClaim,
   executionContextWorkingDirectory,
   prepareExecutionContextConversation,
 } from "../src/local-service/dispatch/execution-context-session";
@@ -58,6 +60,63 @@ afterEach(async () => {
 });
 
 describe("Execution Context local authority", () => {
+  it.each<{
+    name: string;
+    task: ExecutionContextTask | undefined;
+    claim: LocalExecutionResourceClaim;
+  }>([
+    {
+      name: "an ordinary current-folder Wake claims only that folder",
+      task: { ...context, access: "workspace", workspace: "current" },
+      claim: { kind: "shared", access: "write", root: "/work/repo" },
+    },
+    {
+      name: "a current-folder reader claims that folder for reading",
+      task: { ...context, access: "read_only", workspace: "current" },
+      claim: { kind: "shared", access: "read", root: "/work/repo" },
+    },
+    {
+      name: "Space-only work claims nothing shared",
+      task: { ...context, access: "space_context", workspace: "isolated" },
+      claim: { kind: "private" },
+    },
+    {
+      name: "an isolated copy claims nothing shared",
+      task: context,
+      claim: { kind: "private" },
+    },
+    {
+      name: "a selected Project folder is unknown until preparation",
+      task: {
+        ...context,
+        access: "workspace",
+        workspace: "current",
+        projectWork: {
+          projectId: "project-1",
+          repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+        },
+      },
+      claim: { kind: "shared", access: "write", root: null },
+    },
+    {
+      name: "pre-Context work claims its Binding folder as legacy",
+      task: undefined,
+      claim: {
+        kind: "shared",
+        access: "write",
+        legacy: true,
+        root: "/work/repo",
+      },
+    },
+  ])("$name", ({ task, claim }) => {
+    expect(
+      executionContextResourceClaim({
+        context: task,
+        currentWorkingDirectory: "/work/repo",
+      })
+    ).toEqual(claim);
+  });
+
   it("rejects a Project fork in a folder that differs from its frozen source before native execution", async () => {
     const root = await mkdtemp(join(tmpdir(), "openmeld-project-fork-"));
     roots.push(root);

@@ -1,27 +1,70 @@
+import { sep } from "node:path";
+
 const LOCAL_EXECUTION_LANE_CONCURRENCY_LIMIT = 1;
 
-function resourcesConflict(
-  left: LocalExecutionSlotTask["resourceScope"],
-  right: LocalExecutionSlotTask["resourceScope"]
+/**
+ * The local files one task may touch, for coordinating OpenMeld-launched work.
+ *
+ * `private` work uses only a Service-owned root of its own Execution Context
+ * (a Space-only scratch folder or an isolated copy), so it never overlaps other
+ * work. `shared` work uses a user folder: readers overlap freely, and a writer
+ * excludes every overlapping reader and writer. A `null` root is unknown and
+ * overlaps every shared root. `legacy` marks pre-Context work, which local
+ * lanes already serialize per Profile, so two legacy tasks never conflict here.
+ * These claims coordinate OpenMeld's own work; they are not a sandbox.
+ */
+export type LocalExecutionResourceClaim =
+  | { kind: "private" }
+  | {
+      kind: "shared";
+      access: "read" | "write";
+      legacy?: true;
+      root: string | null;
+    };
+
+const UNRESOLVED_LEGACY_CLAIM: LocalExecutionResourceClaim = {
+  kind: "shared",
+  access: "write",
+  legacy: true,
+  root: null,
+};
+
+function sharedRootsOverlap(left: string | null, right: string | null) {
+  if (left === null || right === null) {
+    return true;
+  }
+  const normalize = (root: string) =>
+    process.platform === "win32" ? root.toLowerCase() : root;
+  const isWithin = (child: string, parent: string) =>
+    child === parent ||
+    child.startsWith(parent.endsWith(sep) ? parent : `${parent}${sep}`);
+  const a = normalize(left);
+  const b = normalize(right);
+  return isWithin(a, b) || isWithin(b, a);
+}
+
+function isExecutionContextClaim(
+  claim: LocalExecutionResourceClaim | undefined
 ): boolean {
-  // Preserve legacy-to-legacy scheduling, but never overlap unverified legacy
-  // work with a new context that promises isolation.
-  if (left === undefined && right === undefined) {
+  return claim !== undefined && !(claim.kind === "shared" && claim.legacy);
+}
+
+function resourcesConflict(
+  leftClaim: LocalExecutionResourceClaim | undefined,
+  rightClaim: LocalExecutionResourceClaim | undefined
+): boolean {
+  const left = leftClaim ?? UNRESOLVED_LEGACY_CLAIM;
+  const right = rightClaim ?? UNRESOLVED_LEGACY_CLAIM;
+  if (left.kind === "private" || right.kind === "private") {
     return false;
   }
-  if (left === undefined || right === undefined) {
-    return true;
-  }
-  if (left === "exclusive" || right === "exclusive") {
-    return true;
-  }
-  if (left === "none" || right === "none") {
+  if (
+    (left.legacy && right.legacy) ||
+    (left.access === "read" && right.access === "read")
+  ) {
     return false;
   }
-  return (
-    (left === "read_only" && right === "isolated") ||
-    (right === "read_only" && left === "isolated")
-  );
+  return sharedRootsOverlap(left.root, right.root);
 }
 
 export type LocalServiceDispatchLimits = {
@@ -31,12 +74,8 @@ export type LocalServiceDispatchLimits = {
 };
 
 export type LocalExecutionSlotTask = {
-  resourceScope?:
-    | "none"
-    | "isolated"
-    | "isolated_read"
-    | "read_only"
-    | "exclusive";
+  /** Absent for pre-Context work whose folder is not known yet. */
+  resourceClaim?: LocalExecutionResourceClaim;
   adapterId: string | null;
   attemptId: string;
   controllerKey: string;
@@ -167,7 +206,7 @@ export function createLocalExecutionSlots(input: {
   const activeCountByProfileId = new Map<string, number>();
   const activeResources = new Map<
     string,
-    LocalExecutionSlotTask["resourceScope"]
+    LocalExecutionSlotTask["resourceClaim"]
   >();
   const adapterOperationIds = new Set<string>();
   const ownedAttemptKeys = new Set<string>();
@@ -215,34 +254,49 @@ export function createLocalExecutionSlots(input: {
     };
   };
 
-  const resolveWaitReason = (inputWait: {
-    profileId?: string;
-    resourceScope?: LocalExecutionSlotTask["resourceScope"];
-    adapterId: string | null;
-    localExecutionLaneKey: string;
-  }): LocalExecutionSlotWaitReason => {
-    if (inputWait.adapterId && adapterOperationIds.has(inputWait.adapterId)) {
+  // An older pending task keeps its place ahead of younger work that touches
+  // the same files, so a writer cannot be bypassed indefinitely by readers or
+  // other writers arriving after it.
+  const conflictsWithOlderPendingWork = (
+    task: LocalExecutionSlotTask
+  ): boolean => {
+    for (const pending of pendingTasks) {
+      if (pending.task === task) {
+        return false;
+      }
+      if (resourcesConflict(pending.task.resourceClaim, task.resourceClaim)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const resolveWaitReason = (
+    task: LocalExecutionSlotTask
+  ): LocalExecutionSlotWaitReason => {
+    if (task.adapterId && adapterOperationIds.has(task.adapterId)) {
       return "agent_controller_maintenance";
     }
     if (activeGlobal >= input.limits.globalConcurrency) {
       return "global_concurrency";
     }
     if (
-      inputWait.resourceScope !== undefined &&
-      (activeCountByProfileId.get(inputWait.profileId ?? "") ?? 0) >=
+      isExecutionContextClaim(task.resourceClaim) &&
+      (activeCountByProfileId.get(task.profileId) ?? 0) >=
         (input.limits.contextConcurrency ?? 0)
     ) {
       return "agent_profile_concurrency";
     }
     if (
       [...activeResources.values()].some((active) =>
-        resourcesConflict(active, inputWait.resourceScope)
-      )
+        resourcesConflict(active, task.resourceClaim)
+      ) ||
+      conflictsWithOlderPendingWork(task)
     ) {
       return "workspace_conflict";
     }
     if (
-      resolveActiveForLane(inputWait.localExecutionLaneKey) >=
+      resolveActiveForLane(task.localExecutionLaneKey) >=
       LOCAL_EXECUTION_LANE_CONCURRENCY_LIMIT
     ) {
       return "local_execution_lane_concurrency";
@@ -250,28 +304,20 @@ export function createLocalExecutionSlots(input: {
     return "none";
   };
 
-  const buildLocalQueueDiagnostics = (inputDiagnostics: {
-    profileId?: string;
-    resourceScope?: LocalExecutionSlotTask["resourceScope"];
-    adapterId: string | null;
-    localExecutionLaneKey: string;
-    queuePosition: number | null;
-    status?: "queued" | "starting_runtime";
-    waitReason?: LocalExecutionSlotWaitReason;
-  }): LocalExecutionSlotDiagnostics => {
-    const waitReason =
-      inputDiagnostics.waitReason ??
-      resolveWaitReason({
-        profileId: inputDiagnostics.profileId,
-        resourceScope: inputDiagnostics.resourceScope,
-        adapterId: inputDiagnostics.adapterId,
-        localExecutionLaneKey: inputDiagnostics.localExecutionLaneKey,
-      });
+  const buildLocalQueueDiagnostics = (
+    task: LocalExecutionSlotTask,
+    inputDiagnostics: {
+      queuePosition: number | null;
+      status?: "queued" | "starting_runtime";
+      waitReason?: LocalExecutionSlotWaitReason;
+    }
+  ): LocalExecutionSlotDiagnostics => {
+    const waitReason = inputDiagnostics.waitReason ?? resolveWaitReason(task);
     const status =
       inputDiagnostics.status ??
       (waitReason === "none" ? "starting_runtime" : "queued");
     return {
-      ...buildSnapshot(inputDiagnostics.localExecutionLaneKey),
+      ...buildSnapshot(task.localExecutionLaneKey),
       queuePosition:
         status === "queued" ? inputDiagnostics.queuePosition : null,
       status,
@@ -293,11 +339,7 @@ export function createLocalExecutionSlots(input: {
       controllerKey: task.controllerKey,
       dispatchId: task.dispatchId,
       localExecutionLaneKey: task.localExecutionLaneKey,
-      localQueue: buildLocalQueueDiagnostics({
-        profileId: task.profileId,
-        resourceScope: task.resourceScope,
-        adapterId: task.adapterId,
-        localExecutionLaneKey: task.localExecutionLaneKey,
+      localQueue: buildLocalQueueDiagnostics(task, {
         queuePosition: inputEvent.queuePosition,
         status: inputEvent.status,
         waitReason: inputEvent.waitReason,
@@ -392,7 +434,7 @@ export function createLocalExecutionSlots(input: {
       const selectedTask = selectedPendingTask.task;
 
       activeGlobal += 1;
-      activeResources.set(selectedTask.taskId, selectedTask.resourceScope);
+      activeResources.set(selectedTask.taskId, selectedTask.resourceClaim);
       activeCountByProfileId.set(
         selectedTask.profileId,
         (activeCountByProfileId.get(selectedTask.profileId) ?? 0) + 1

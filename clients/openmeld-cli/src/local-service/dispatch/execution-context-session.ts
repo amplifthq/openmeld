@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { lstat, mkdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -15,12 +16,14 @@ import type {
   RuntimeAgentControllerLaunchContract,
 } from "@openmeld/adapter-core";
 import { buildRuntimeWorkspaceFingerprint } from "@openmeld/local-execution";
+import type { LocalExecutionResourceClaim } from "@openmeld/local-service";
 import type {
   ComputerFileAccessPolicy,
   ExecutionContextCompletion,
   ExecutionContextTask,
 } from "@openmeld/schemas/types";
 import { isSameOrDescendantPath } from "../../lib/path-containment";
+import type { DaemonProfileRouteConfig } from "../core/types";
 import { runAgentSessionForkOperation } from "../session-control/session-fork-operation-store";
 import {
   type ExecutionContextWorkspace,
@@ -31,21 +34,51 @@ export function executionContextLedgerPolicy(context?: ExecutionContextTask) {
   return context ? ("throw" as const) : ("backup_and_reset" as const);
 }
 
-export function executionContextResourceScope(context?: ExecutionContextTask) {
+/**
+ * The local files a delivered Wake may touch, claimed before it is admitted.
+ *
+ * `currentWorkingDirectory` is the Profile's effective working folder from the
+ * current route, already canonical, or null when it is not known. A selected
+ * Project folder is resolved only during preparation, so its root stays unknown
+ * here and overlaps every shared folder.
+ */
+export function resolveQueuedWorkingDirectory(
+  route: DaemonProfileRouteConfig | null | undefined
+): string | null {
+  const runtime = route?.workingFolderRuntime;
+  if (runtime?.status !== "ready") {
+    return null;
+  }
+  try {
+    return realpathSync.native(
+      runtime.runtimeContext.providerRuntimeWorkingDirectory
+    );
+  } catch {
+    return null;
+  }
+}
+
+export function executionContextResourceClaim(input: {
+  context?: ExecutionContextTask;
+  currentWorkingDirectory: string | null;
+}): LocalExecutionResourceClaim {
+  const { context } = input;
   if (!context) {
-    return undefined;
+    return {
+      kind: "shared",
+      access: "write",
+      legacy: true,
+      root: input.currentWorkingDirectory,
+    };
   }
-  if (context.access === "space_context") {
-    return "none" as const;
+  if (context.access === "space_context" || context.workspace === "isolated") {
+    return { kind: "private" };
   }
-  if (context.workspace === "isolated") {
-    return context.access === "workspace"
-      ? ("isolated" as const)
-      : ("isolated_read" as const);
-  }
-  return context.access === "workspace"
-    ? ("exclusive" as const)
-    : ("read_only" as const);
+  return {
+    kind: "shared",
+    access: context.access === "workspace" ? "write" : "read",
+    root: context.projectWork ? null : input.currentWorkingDirectory,
+  };
 }
 
 export function executionContextFileAccessBoundary(input: {

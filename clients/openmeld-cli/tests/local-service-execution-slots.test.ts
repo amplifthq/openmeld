@@ -1,6 +1,7 @@
 import { AGENT_PROFILE_WORK_CONCURRENCY_LIMIT } from "@openmeld/agent-runtime";
 import {
   createLocalExecutionSlots,
+  type LocalExecutionResourceClaim,
   type LocalExecutionSlotDropEvent,
 } from "@openmeld/local-service";
 import { describe, expect, it, vi } from "vitest";
@@ -40,7 +41,164 @@ function requestTask(
   });
 }
 
+const SHARED_REPO_WRITE: LocalExecutionResourceClaim = {
+  kind: "shared",
+  access: "write",
+  root: "/work/repo",
+};
+
 describe("local execution slots", () => {
+  it.each<{
+    name: string;
+    first: LocalExecutionResourceClaim | undefined;
+    second: LocalExecutionResourceClaim | undefined;
+    together: boolean;
+  }>([
+    {
+      name: "a current-folder writer and Space-only work",
+      first: SHARED_REPO_WRITE,
+      second: { kind: "private" },
+      together: true,
+    },
+    {
+      name: "writers in unrelated folders",
+      first: SHARED_REPO_WRITE,
+      second: { kind: "shared", access: "write", root: "/work/other" },
+      together: true,
+    },
+    {
+      name: "a writer and a writer in a nested folder",
+      first: SHARED_REPO_WRITE,
+      second: { kind: "shared", access: "write", root: "/work/repo/app" },
+      together: false,
+    },
+    {
+      name: "a writer and a reader of the same folder",
+      first: SHARED_REPO_WRITE,
+      second: { kind: "shared", access: "read", root: "/work/repo" },
+      together: false,
+    },
+    {
+      name: "two readers of the same folder",
+      first: { kind: "shared", access: "read", root: "/work/repo" },
+      second: { kind: "shared", access: "read", root: "/work/repo" },
+      together: true,
+    },
+    {
+      name: "a writer whose folder is unknown and a reader elsewhere",
+      first: { kind: "shared", access: "write", root: null },
+      second: { kind: "shared", access: "read", root: "/work/other" },
+      together: false,
+    },
+    {
+      name: "two pre-Context Profiles in one folder",
+      first: { ...SHARED_REPO_WRITE, legacy: true },
+      second: { ...SHARED_REPO_WRITE, legacy: true },
+      together: true,
+    },
+    {
+      name: "pre-Context work and a Context writer in one folder",
+      first: { ...SHARED_REPO_WRITE, legacy: true },
+      second: SHARED_REPO_WRITE,
+      together: false,
+    },
+    {
+      name: "pre-Context work with no known folder and Space-only work",
+      first: undefined,
+      second: { kind: "private" },
+      together: true,
+    },
+  ])("starts $name together: $together", async ({
+    first,
+    second,
+    together,
+  }) => {
+    const started: string[] = [];
+    const queue = createLocalExecutionSlots({
+      limits: { contextConcurrency: 5, globalConcurrency: 4, queueMax: 10 },
+      onTaskStarted: (event) => started.push(event.taskId),
+    });
+    const completions = [createDeferred(), createDeferred()] as const;
+    for (const [index, resourceClaim] of [first, second].entries()) {
+      requestTask(queue, {
+        adapterId: "codex",
+        attemptId: `attempt-${index}`,
+        controllerKey: "builtin:codex",
+        dispatchId: `dispatch-${index}`,
+        localExecutionLaneKey: `lane-${index}`,
+        profileId: `profile-${index}`,
+        ...(resourceClaim ? { resourceClaim } : {}),
+        spaceId: "space-1",
+        targetLabel: `@agent-${index}`,
+        taskId: `task-${index}`,
+        transportMode: "codex-app-server",
+        run: async () => {
+          await completions[index]?.promise;
+          return undefined;
+        },
+      });
+    }
+    expect(started).toEqual(together ? ["task-0", "task-1"] : ["task-0"]);
+    for (const completion of completions) {
+      completion.resolve();
+    }
+    await queue.drain();
+  });
+
+  it("keeps a waiting writer ahead of later readers of the same folder", async () => {
+    const started: string[] = [];
+    const waits = new Map<string, string>();
+    const queue = createLocalExecutionSlots({
+      limits: { contextConcurrency: 5, globalConcurrency: 4, queueMax: 10 },
+      onTaskStarted: (event) => started.push(event.taskId),
+    });
+    const completions = new Map<string, () => void>();
+    const reader = {
+      kind: "shared",
+      access: "read",
+      root: "/work/repo",
+    } as const;
+    for (const [taskId, resourceClaim] of [
+      ["reader-1", reader],
+      ["writer", SHARED_REPO_WRITE],
+      ["reader-2", reader],
+    ] as const) {
+      const completion = createDeferred();
+      completions.set(taskId, completion.resolve);
+      requestTask(queue, {
+        adapterId: "codex",
+        attemptId: `attempt-${taskId}`,
+        controllerKey: "builtin:codex",
+        dispatchId: `dispatch-${taskId}`,
+        localExecutionLaneKey: `lane-${taskId}`,
+        onQueued: (event) => {
+          waits.set(taskId, event.localQueue.waitReason);
+          return undefined;
+        },
+        profileId: `profile-${taskId}`,
+        resourceClaim,
+        spaceId: "space-1",
+        targetLabel: `@${taskId}`,
+        taskId,
+        transportMode: "codex-app-server",
+        run: async () => {
+          await completion.promise;
+          return undefined;
+        },
+      });
+    }
+    expect(started).toEqual(["reader-1"]);
+    expect(waits.get("reader-2")).toBe("workspace_conflict");
+    completions.get("reader-1")?.();
+    await vi.waitFor(() => expect(started).toEqual(["reader-1", "writer"]));
+    completions.get("writer")?.();
+    await vi.waitFor(() =>
+      expect(started).toEqual(["reader-1", "writer", "reader-2"])
+    );
+    completions.get("reader-2")?.();
+    await queue.drain();
+  });
+
   it("serializes current-folder writers across distinct Profile and Project work labels", async () => {
     const started: string[] = [];
     const waiting: string[] = [];
@@ -62,7 +220,7 @@ describe("local execution slots", () => {
           return undefined;
         },
         profileId: `profile-${index}`,
-        resourceScope: "exclusive",
+        resourceClaim: SHARED_REPO_WRITE,
         spaceId: `space-${index}`,
         targetLabel: `@project-${index}`,
         taskId: `task-${index}`,
@@ -114,7 +272,7 @@ describe("local execution slots", () => {
         targetLabel: "@agent",
         transportMode: "codex-app-server",
         localExecutionLaneKey: `context-${index}`,
-        resourceScope: index === 6 ? "exclusive" : "isolated",
+        resourceClaim: index >= 5 ? SHARED_REPO_WRITE : { kind: "private" },
         run: async () => {
           await completion.promise;
           return undefined;
