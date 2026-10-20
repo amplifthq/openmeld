@@ -37,7 +37,12 @@ import {
 	useState,
 	useSyncExternalStore,
 } from "react";
-import { useDirectMessageConsentEmptyState } from "#/components/agent-access/direct-message-consent-empty-state";
+import {
+	type DirectMessageAccessRequest,
+	directMessageAccessBadge,
+	directMessageAccessRequestCopy,
+	useDirectMessageAccessRequest,
+} from "#/components/agent-access/direct-message-access-request";
 import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { AppMainContent } from "#/components/app/app-main-content";
@@ -1668,6 +1673,7 @@ function SpaceLandingConversationShell({
 		currentHumanViewer,
 		currentProfileIsActiveSpaceMember,
 		currentProfileName,
+		directMessageAccessRequest,
 		directMessageJoinPrompt,
 		viewerMembership,
 	} = useSpaceLandingViewerState({ controller, state });
@@ -1963,6 +1969,7 @@ function SpaceLandingConversationShell({
 								controller={controller}
 								currentProfileName={currentProfileName}
 								currentSpaceControls={currentSpaceControls}
+								directMessageAccessRequest={directMessageAccessRequest}
 								directMessageJoinPrompt={directMessageJoinPrompt}
 								historyErrorMessage={historyErrorMessage}
 								input={conversationInput}
@@ -2145,18 +2152,29 @@ function useSpaceLandingViewerState({
 		onJoin: state.handleConvertDirectMessageToSpace,
 		presentation: directMessageJoinPresentation,
 	});
+	const directMessageAccessRequest = useDirectMessageAccessRequest({
+		isCenterAgentDirectMessage: state.currentSpaceIsCenterAgentDirectMessage,
+		isDirectMessage: state.isDirectMessage,
+		snapshot: controller.membersSnapshot,
+		spaceId: controller.spaceId,
+	});
 	return {
 		agentOwnerDirectMessageJoin,
+		directMessageAccessRequest,
 		directMessageJoinPrompt: directMessageJoinPresentation?.prompt ?? null,
 		viewerMembership: viewerMembership.membership,
 		agentOwnerDirectMessageObserver,
-		agentOwnerVisibilityLabel: resolveAgentOwnerVisibilityLabel({
-			currentOwnerUserId: state.currentOwnerUserId,
-			isObserver: Boolean(agentOwnerDirectMessageObserver),
-			isCenterAgentDirectMessage: state.currentSpaceIsCenterAgentDirectMessage,
-			isDirectMessage: state.isDirectMessage,
-			snapshot: controller.membersSnapshot,
-		}),
+		agentOwnerVisibilityLabel:
+			(directMessageAccessRequest &&
+				directMessageAccessBadge(directMessageAccessRequest.access.state)) ??
+			resolveAgentOwnerVisibilityLabel({
+				currentOwnerUserId: state.currentOwnerUserId,
+				isObserver: Boolean(agentOwnerDirectMessageObserver),
+				isCenterAgentDirectMessage:
+					state.currentSpaceIsCenterAgentDirectMessage,
+				isDirectMessage: state.isDirectMessage,
+				snapshot: controller.membersSnapshot,
+			}),
 		currentHumanViewer,
 		currentProfileIsActiveSpaceMember,
 		currentProfileName: currentHumanViewer.profileName,
@@ -2306,6 +2324,7 @@ function SpaceLandingConversation({
 	controller,
 	currentProfileName,
 	currentSpaceControls,
+	directMessageAccessRequest,
 	directMessageJoinPrompt,
 	historyErrorMessage,
 	input,
@@ -2325,6 +2344,7 @@ function SpaceLandingConversation({
 	controller: SpaceConversationController;
 	currentProfileName: string | null;
 	currentSpaceControls: ReturnType<typeof resolveCurrentSpaceControls>;
+	directMessageAccessRequest: DirectMessageAccessRequest | null;
 	directMessageJoinPrompt: string | null;
 	historyErrorMessage: string | null;
 	input: SpaceLandingInput;
@@ -2358,11 +2378,10 @@ function SpaceLandingConversation({
 		wakeFailureTargetContextsByProfileId,
 	} = state;
 	const welcomeStep = useWelcomeSpace(recovery.storageScope, input.spaceId);
-	const consentEmptyState = useDirectMessageConsentEmptyState({
-		isCenterAgentDirectMessage: currentSpaceIsCenterAgentDirectMessage,
-		isDirectMessage,
-		snapshot: controller.membersSnapshot,
-	});
+	const consentEmptyState =
+		directMessageAccessRequest?.access.state === "draft"
+			? directMessageAccessRequestCopy(directMessageAccessRequest)
+			: null;
 	const tutorial = useWalkthrough();
 	const tutorialActive = Boolean(
 		tutorial?.record &&
@@ -2482,9 +2501,10 @@ function SpaceLandingConversation({
 			composerReplyToSignalId={controller.composerReplyToSignalId}
 			composerText={controller.composerText}
 			currentOwnerUserId={currentOwnerUserId}
+			directMessageAccessRequest={directMessageAccessRequest}
 			emptyStateAlignment={welcomeStep ? "start" : "center"}
 			emptyStateDescription={
-				consentEmptyState?.description ??
+				consentEmptyState?.emptyStateDescription ??
 				resolveReadySpaceEmptyStateDescription({
 					hasWelcomeStep: Boolean(welcomeStep),
 					isAgentOwnerDirectMessageObserver:
@@ -2493,7 +2513,7 @@ function SpaceLandingConversation({
 				})
 			}
 			emptyStateTitle={
-				isDirectMessage ? consentEmptyState?.title : EMPTY_SPACE_TITLE
+				isDirectMessage ? consentEmptyState?.emptyStateTitle : EMPTY_SPACE_TITLE
 			}
 			ephemeralActivityItems={controller.presentedWakeProgressItems}
 			files={

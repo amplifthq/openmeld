@@ -150,6 +150,8 @@ type SpaceMessageRunInput = {
 		string,
 		readonly SpaceTimelineItem[]
 	>;
+	/** Rows under a message's bubble, such as the request card's status. */
+	messageFootersBySignalId?: ReadonlyMap<string, ReactNode>;
 	centerAgentProfileId: string | null;
 	currentOwnerUserId: string | null;
 	addressingWakeProgressItems: readonly SpaceEphemeralActivityItem[];
@@ -496,6 +498,7 @@ export const SpaceMessageRun = memo(function SpaceMessageRun(
 															}
 														/>
 													</Bubble>
+													{input.messageFootersBySignalId?.get(item.id) ?? null}
 													{rowProgressStatus}
 													{renderConversationMessageFooter({
 														anchoredOutcomeNotices,

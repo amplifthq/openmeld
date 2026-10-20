@@ -113,6 +113,8 @@ export type SpaceComposerProps = {
 		 * input that may turn into a Join prompt a moment later.
 		 */
 		accessPending?: boolean;
+		/** The first message to a teammate's Agent is a request to its owner. */
+		requestPlaceholder?: string;
 		targetName?: string | null;
 	};
 	presentation?: {
@@ -443,6 +445,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		isSendingMessage: input.availability.isSendingMessage,
 		placement: input.context.placement,
 		readOnlyPlaceholder: input.context.readOnlyPlaceholder,
+		requestPlaceholder: input.context.requestPlaceholder,
 		targetName: input.context.targetName,
 		text: input.content.text,
 	});
@@ -838,9 +841,10 @@ function renderSpaceComposerSendAction(input: {
 	const label = input.waitForComputer
 		? "Send and wait"
 		: input.policy.sendButtonLabel;
+	const labelled = input.waitForComputer || label === "Send request";
 	return (
 		<PromptInputAction
-			className={input.waitForComputer ? "shrink-0" : "hidden sm:inline-flex"}
+			className={labelled ? "shrink-0" : "hidden sm:inline-flex"}
 			tooltip={input.waitTooltip ?? input.policy.sendButtonTooltip}
 		>
 			<Button
@@ -852,10 +856,10 @@ function renderSpaceComposerSendAction(input: {
 					input.waitDisabled
 				}
 				onClick={input.onSubmit}
-				size={input.waitForComputer ? "sm" : "icon-sm"}
+				size={labelled ? "sm" : "icon-sm"}
 				type="button"
 			>
-				{input.waitForComputer ? label : null}
+				{labelled ? label : null}
 				<ArrowUpIcon aria-hidden="true" weight="bold" />
 			</Button>
 		</PromptInputAction>
