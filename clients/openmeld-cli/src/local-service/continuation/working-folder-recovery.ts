@@ -20,6 +20,22 @@ import { assertComputerFileAccessWorkingDirectoryAllowed } from "../file-access/
 
 type FolderChoice = { workingDirectory: string; startNewConversation: boolean };
 
+/**
+ * Whether the task may move to its conversation's earlier folder once the owner
+ * answers, so its working folder is not known before it starts.
+ */
+export function mayRecoverWorkingFolder(input: {
+  agentControllerRef: string;
+  nativeSessionId: string | null;
+  hasExecutionContext?: boolean;
+}): boolean {
+  return (
+    !input.hasExecutionContext &&
+    input.agentControllerRef === "builtin:opencode" &&
+    Boolean(input.nativeSessionId)
+  );
+}
+
 /** Admission asks the owner before any prompt, attachment, or bootstrap uses a folder. */
 export async function resolveWorkingFolderRecovery(input: {
   agentControllerRef: string;
@@ -36,14 +52,10 @@ export async function resolveWorkingFolderRecovery(input: {
     workingDirectory: input.workingDirectory,
     startNewConversation: false,
   };
-  if (
-    input.hasExecutionContext ||
-    input.agentControllerRef !== "builtin:opencode" ||
-    !input.nativeSessionId
-  ) {
+  const nativeSessionId = input.nativeSessionId;
+  if (!(nativeSessionId && mayRecoverWorkingFolder(input))) {
     return unchanged;
   }
-  const nativeSessionId = input.nativeSessionId;
   const inspect = () =>
     (input.inspectSession ?? inspectRetainedOpenCodeSession)(nativeSessionId);
   const session = await inspect();
