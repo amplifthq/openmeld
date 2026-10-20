@@ -158,8 +158,9 @@ function folderDetailsPending(input: {
 }
 
 /**
- * The dialog's layout while its folders load: the same message, a folder
- * row and the Add folder button, so content replaces it in place.
+ * The dialog's layout while its folders load: the same message, two folder
+ * rows, the Add folder button and the footnote, so the loaded content
+ * replaces it in place at about the same height.
  */
 function FoldersDialogSkeleton(input: { message?: string }) {
 	return (
@@ -172,16 +173,31 @@ function FoldersDialogSkeleton(input: { message?: string }) {
 				<output className="text-sm">{input.message}</output>
 			) : null}
 			<output className="sr-only">Loading folders…</output>
-			<div className="grid gap-2 rounded-md border p-3">
+			<div className="grid min-w-0 grid-cols-1 gap-2">
+				<FolderRowSkeleton withPath />
+				<FolderRowSkeleton />
+			</div>
+			<Skeleton className="h-8 w-24" />
+			<p className="text-muted-foreground text-xs">
+				{FUTURE_WAKES_PROJECT_SETTINGS_NOTICE}
+			</p>
+		</div>
+	);
+}
+
+function FolderRowSkeleton(input: { withPath?: boolean }) {
+	return (
+		<div className="grid gap-2 rounded-md border p-3">
+			<div className="grid gap-1.5">
 				<Skeleton className="h-4 w-32" />
 				<Skeleton className="h-3 w-40" />
-				<Skeleton className="h-3 w-64" />
-				<div className="flex gap-2 pt-1">
-					<Skeleton className="h-8 w-24" />
-					<Skeleton className="h-8 w-16" />
-				</div>
+				{input.withPath ? <Skeleton className="h-3 w-72" /> : null}
 			</div>
-			<Skeleton className="h-9 w-28" />
+			<div className="flex gap-2">
+				<Skeleton className="h-7 w-24" />
+				<Skeleton className="h-7 w-16" />
+				<Skeleton className="h-7 w-16" />
+			</div>
 		</div>
 	);
 }
