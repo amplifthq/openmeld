@@ -441,7 +441,8 @@ export function AgentList(input: {
 	const [presentation, setPresentation] = useBrowserPreference(
 		input.viewPreferenceKey
 	);
-	const expandAll = presentation === "expanded";
+	// List is the default for every owner; "grouped" is an explicit choice.
+	const expandAll = presentation !== "grouped";
 	const contentId = useId();
 	const {
 		view: override,
@@ -474,7 +475,8 @@ export function AgentList(input: {
 		setOverride(next);
 	};
 	const results = selectAgentListBody({
-		custom: selection.active ? undefined : input.renderResults,
+		// The grouped view uses the same tiles for every owner.
+		custom: selection.active || !expandAll ? undefined : input.renderResults,
 		displayed,
 		total: input.items.length,
 		cards: () => (
@@ -526,7 +528,7 @@ export function AgentList(input: {
 						>
 							<ExpandAllControl
 								expanded={expandAll}
-								grouping={input.renderResults ? "none" : view.grouping}
+								grouping={view.grouping}
 								label={input.label}
 								onClick={() => {
 									selection.reset();

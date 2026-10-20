@@ -187,6 +187,10 @@ export function AgentDirectoryLists({
 			}
 			selection={selection}
 			variant="card"
+			workload={resolveVisibleWorkload(
+				input.runtimeOverviewByProfileId?.get(item.profile.openMeldProfileId)
+					?.workload
+			)}
 		/>
 	);
 	const renderMemberAgents = useOwnMemberAgentResults({
@@ -414,6 +418,26 @@ export function AgentDirectoryLists({
 			)}
 		</div>
 	);
+}
+
+/** Counts only when the overview reports work the viewer may see. */
+function resolveVisibleWorkload(
+	workload:
+		| NonNullable<
+				ReturnType<
+					NonNullable<
+						AgentProfilesWorkspaceProps["runtimeOverviewByProfileId"]
+					>["get"]
+				>
+		  >["workload"]
+		| undefined
+) {
+	return workload?.status === "ready"
+		? {
+				runningCount: workload.activeCount,
+				queuedCount: workload.queuedMessageCount,
+			}
+		: undefined;
 }
 
 function ownAgentResults<Render>(input: {

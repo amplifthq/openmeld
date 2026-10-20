@@ -45,10 +45,14 @@ export function AgentCard(input: {
 						className={`mt-0.5 flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs ${group ? "justify-center" : ""}`}
 					>
 						<span className="max-w-full shrink-0">{input.meta}</span>
-						<span aria-hidden="true">·</span>
-						<TooltipHint content={input.description}>
-							<span className="min-w-0 truncate">{input.description}</span>
-						</TooltipHint>
+						{input.description ? (
+							<>
+								<span aria-hidden="true">·</span>
+								<TooltipHint content={input.description}>
+									<span className="min-w-0 truncate">{input.description}</span>
+								</TooltipHint>
+							</>
+						) : null}
 					</span>
 				) : (
 					<TooltipHint content={input.description}>

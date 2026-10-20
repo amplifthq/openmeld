@@ -277,9 +277,7 @@ describe("AgentProfilesWorkspace", () => {
 
 		const item = screen.getByRole("button", { name: "Open Felix Agent" });
 		expect(item.textContent).toContain("Codex · GPT-5.6 Sol · model default");
-		expect(
-			within(item).getByRole("img", { name: AVAILABLE_STATUS_NAME })
-		).toBeTruthy();
+		expect(within(item).getByText(AVAILABLE_STATUS_NAME)).toBeTruthy();
 		expect(item.textContent).not.toContain("Idle");
 		expect(
 			within(item).queryByTestId("agent-profile-operational-status")
@@ -308,9 +306,7 @@ describe("AgentProfilesWorkspace", () => {
 		});
 
 		const item = screen.getByRole("button", { name: "Open Felix Agent" });
-		expect(
-			within(item).getByRole("img", { name: AVAILABLE_STATUS_NAME })
-		).toBeTruthy();
+		expect(within(item).getByText(AVAILABLE_STATUS_NAME)).toBeTruthy();
 		expect(item.textContent).not.toContain("checked 3 minutes ago");
 		expect(item.textContent).not.toContain("Refreshing…");
 	});
@@ -373,7 +369,7 @@ describe("AgentProfilesWorkspace", () => {
 		expect(item.textContent).toContain("high");
 	});
 
-	it("labels an unselected model as Controller default without guessing the active conversation model", () => {
+	it("names only the controller for an unselected model without guessing the active conversation model", () => {
 		const readiness = createReadiness();
 		if (!readiness.primaryBinding) {
 			throw new Error("Expected a primary Binding fixture");
@@ -395,7 +391,8 @@ describe("AgentProfilesWorkspace", () => {
 		});
 
 		const item = screen.getByRole("button", { name: "Open Felix Agent" });
-		expect(item.textContent).toContain("Codex · Controller default");
+		expect(item.textContent).toContain("Codex");
+		expect(item.textContent).not.toContain("Controller default");
 	});
 
 	it("keeps Controller branding without repeating an initial runtime check", () => {
@@ -534,9 +531,7 @@ describe("AgentProfilesWorkspace", () => {
 		});
 
 		const item = screen.getByRole("button", { name: "Open Felix Agent" });
-		expect(
-			within(item).getByRole("img", { name: AVAILABLE_STATUS_NAME })
-		).toBeTruthy();
+		expect(within(item).getByText(AVAILABLE_STATUS_NAME)).toBeTruthy();
 		expect(item.textContent).not.toContain("checked just now");
 		expect(item.textContent).not.toContain("Couldn’t refresh availability.");
 		expect(within(item).queryByRole("alert")).toBeNull();
@@ -551,9 +546,7 @@ describe("AgentProfilesWorkspace", () => {
 		});
 
 		const item = screen.getByRole("button", { name: "Open Felix Agent" });
-		expect(
-			within(item).getByRole("img", { name: "Couldn’t check availability." })
-		).toBeTruthy();
+		expect(within(item).getByText("Couldn’t check")).toBeTruthy();
 		expect(item.textContent).not.toContain("Unavailable");
 	});
 
@@ -608,9 +601,10 @@ describe("AgentProfilesWorkspace", () => {
 		});
 
 		const item = screen.getByRole("button", { name: "Open Felix Agent" });
-		expect(
-			within(item).getByRole("img", { name: "Unavailable" }).className
-		).toContain("text-muted-foreground");
+		// The same quiet outline pill as a MemberAgent row, never alarm red.
+		expect(within(item).getByText("Unavailable").className).toContain(
+			"border-border"
+		);
 		expect(within(item).getByText("Felix Agent").className).toContain(
 			"text-foreground"
 		);

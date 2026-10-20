@@ -39,6 +39,10 @@ import {
 } from "#/components/app/app-nav-item-style";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
 import { ProfileMenuItems } from "#/components/app/profile-menu-items";
+import {
+	AgentAvailabilityBadge,
+	formatAgentWorkloadParts,
+} from "#/components/member-agents/member-agent-directory-section";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import { formatPublicWakeabilityReason } from "#/lib/agents/agent-viewer-access";
 import {
@@ -74,6 +78,8 @@ export function AgentProfileSidebarItemComponent(input: {
 	actionsDisabled?: boolean;
 	onToggleStar?: () => void;
 	onChat?: () => void;
+	/** Running and queued work the viewer may see, for the card variant. */
+	workload?: { runningCount: number | null; queuedCount: number | null };
 }) {
 	const { dismiss } = useAppNavigationPresentation();
 	const { currentOrganization } = useAppOrganization();
@@ -179,9 +185,28 @@ export function AgentProfileSidebarItemComponent(input: {
 						value={input.profile.openMeldProfileId}
 					>
 						<AgentCard
+							badge={renderAvailabilityPill({
+								errorMessage: input.readinessErrorMessage,
+								id: availabilityDescriptionId,
+								presentation,
+							})}
 							describedBy={availabilityDescriptionId}
-							description={presentation.controllerModelSummary}
-							indicators={indicators}
+							description={describeAgentCard({
+								colleague: Boolean(colleagueAccess),
+								summary: presentation.controllerModelSummary,
+								workload: input.workload,
+							})}
+							indicators={
+								<>
+									<RemoteAgentIndicator
+										agentControllerRef={agentControllerRef}
+									/>
+									<AgentProfileOperationalStatusIndicator
+										className="shrink-0"
+										operationalContext={input.operationalContext}
+									/>
+								</>
+							}
 							meta={renderColleagueAccessMeta(colleagueAccess)}
 							name={input.profile.profileName}
 							onClick={() => {
@@ -293,6 +318,44 @@ export function AgentProfileSidebarItemComponent(input: {
 			{menu}
 		</FluidContextMenu>
 	);
+}
+
+/**
+ * The card's status pill. Quiet until availability is read; a failed first
+ * read shows a neutral pill, never a guessed verdict.
+ */
+function renderAvailabilityPill(input: {
+	errorMessage: string | null;
+	id: string;
+	presentation: ReturnType<typeof resolveAgentProfileSidebarPresentation>;
+}) {
+	const { presentation } = input;
+	if (!(presentation.availabilityCategory || input.errorMessage)) {
+		return null;
+	}
+	return (
+		<AgentAvailabilityBadge
+			category={presentation.availabilityCategory}
+			id={input.id}
+			label="Couldn’t check"
+			tooltip={presentation.availabilityTooltip}
+		/>
+	);
+}
+
+/**
+ * A colleague's card leads with access, so its line carries only work; the
+ * viewer's own card names its controller and model too.
+ */
+function describeAgentCard(input: {
+	colleague: boolean;
+	summary: string | null;
+	workload?: { runningCount: number | null; queuedCount: number | null };
+}): string {
+	const work = input.workload ? formatAgentWorkloadParts(input.workload) : [];
+	return [input.colleague ? null : input.summary, ...work]
+		.filter(Boolean)
+		.join(" · ");
 }
 
 function renderColleagueAccessMeta(

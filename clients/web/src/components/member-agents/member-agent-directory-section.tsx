@@ -1,7 +1,8 @@
-import type { HarnessKind } from "@openmeld/schemas";
+import { formatHarnessDisplayName, type HarnessKind } from "@openmeld/schemas";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import { RobotIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
@@ -59,25 +60,57 @@ export function MemberAgentStateBadge(input: { state: MemberAgentState }) {
 	);
 }
 
-export function formatMemberAgentWorkload(input: {
+const AVAILABILITY_BADGE = {
+	available: { label: "Available", variant: "secondary" },
+	checking: { label: "Checking", variant: "outline" },
+	offline: { label: "Offline", variant: "outline" },
+	unavailable: { label: "Unavailable", variant: "outline" },
+} as const;
+
+/**
+ * The same status pill as a MemberAgent row, for a single Agent Profile.
+ * Without a category it shows `label` as a neutral pill, e.g. a failed check.
+ */
+export function AgentAvailabilityBadge(input: {
+	category: keyof typeof AVAILABILITY_BADGE | null;
+	label?: string;
+	id?: string;
+	tooltip?: string;
+}) {
+	const badge = input.category
+		? AVAILABILITY_BADGE[input.category]
+		: { label: input.label ?? "", variant: "outline" as const };
+	return (
+		<TooltipHint content={input.tooltip}>
+			<Badge className="shrink-0" id={input.id} variant={badge.variant}>
+				{badge.label}
+			</Badge>
+		</TooltipHint>
+	);
+}
+
+/** Running and queued work, each only when non-zero and reported. */
+export function formatAgentWorkloadParts(input: {
 	runningCount: number | null;
 	queuedCount: number | null;
-}): string {
-	if (input.runningCount === null || input.queuedCount === null) {
-		return "Work not reported";
-	}
-	return `${input.runningCount} running · ${input.queuedCount} queued`;
+}): string[] {
+	return [
+		input.runningCount ? `${input.runningCount} running` : null,
+		input.queuedCount ? `${input.queuedCount} queued` : null,
+	].filter((part): part is string => part !== null);
 }
 
 function describeRow(row: MemberAgentDirectoryRow): string {
 	if (row.setup === "creating") {
 		return "Setting up this Agent…";
 	}
-	const profiles = `${row.profiles.length} ${row.profiles.length === 1 ? "Profile" : "Profiles"}`;
-	const latest = row.latestSession
-		? `Latest: ${row.latestSession.title}`
-		: "No chats yet";
-	return `${profiles} · ${formatMemberAgentWorkload(row.presence)} · ${latest}`;
+	return [
+		row.profiles.length > 1 ? `${row.profiles.length} Profiles` : null,
+		...formatAgentWorkloadParts(row.presence),
+		row.latestSession ? `Latest: ${row.latestSession.title}` : "No chats yet",
+	]
+		.filter(Boolean)
+		.join(" · ");
 }
 
 /**
@@ -141,7 +174,8 @@ export function MemberAgentDirectorySection(input: {
 									)
 								}
 								description={describeRow(row)}
-								name={row.displayName}
+								// The owner group's header names the owner.
+								name={formatHarnessDisplayName(row.harnessKind)}
 								onClick={() => input.onOpenMemberAgent(row.memberAgentId)}
 								profileId={row.memberAgentId}
 								renderAvatar={(size) => (
