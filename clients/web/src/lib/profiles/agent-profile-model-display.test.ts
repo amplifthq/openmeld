@@ -41,7 +41,7 @@ describe("resolveAgentProfileControllerModelDetail", () => {
 				modelCatalog: buildModelCatalog(),
 				modelSelection: null,
 			})
-		).toBe("Codex · Controller default");
+		).toBe("Codex");
 	});
 
 	it("does not invent reasoning effort for models without reasoning support", () => {
@@ -65,9 +65,11 @@ describe("resolveAgentProfileControllerModelDetail", () => {
 				modelCatalog: buildModelCatalog(),
 				modelSelection: null,
 			})
-		).toBe("Cursor · Controller default");
+		).toBe("Cursor");
 	});
 });
+
+const DEFAULT_WORD = /default/i;
 
 describe("resolveAgentProfileModelCardValue", () => {
 	it("shows the saved model and reasoning without the controller", () => {
@@ -80,17 +82,17 @@ describe("resolveAgentProfileModelCardValue", () => {
 					reasoningLevel: "high",
 				},
 			})
-		).toEqual({ value: "GPT-5.3 Codex Spark · High", isDefault: false });
+		).toEqual({ value: "GPT-5.3 Codex Spark · High" });
 	});
 
-	it("marks the catalog default when no model is saved", () => {
+	it("names the model in effect when no model is saved, with no tag", () => {
 		const card = resolveAgentProfileModelCardValue({
 			agentControllerRef: "builtin:codex",
 			modelCatalog: buildModelCatalog(),
 			modelSelection: null,
 		});
-		expect(card?.isDefault).toBe(true);
-		expect(card?.value).not.toContain("Controller default");
+		expect(card?.value).toBeTruthy();
+		expect(card?.value).not.toMatch(DEFAULT_WORD);
 	});
 });
 

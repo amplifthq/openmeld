@@ -21,14 +21,14 @@ export function resolveAgentProfileControllerModelDetail(input: {
 			? "Remote"
 			: input.controllerDisplayName
 	);
+	// With no saved model the harness picks one, which may not be the
+	// catalog default: name only the controller, with no jargon.
 	if (
 		input.agentControllerRef &&
 		!isHostedAgentControllerRef(input.agentControllerRef) &&
 		!normalizeDisplayPart(input.modelSelection?.modelId)
 	) {
-		return [controllerDisplayName, "Controller default"]
-			.filter(Boolean)
-			.join(" · ");
+		return controllerDisplayName;
 	}
 	const effectiveModel = resolveAgentProfileModel({
 		agentControllerRef: input.agentControllerRef ?? null,
@@ -118,13 +118,14 @@ function normalizeDisplayPart(value: string | null | undefined): string | null {
 
 /**
  * The Model card's value: the model and reasoning a new chat uses, without the
- * controller name. `isDefault` when the Agent saves no model of its own.
+ * controller name. With no saved reasoning the harness picks its own, which
+ * local harnesses do not report, so the value names only the model.
  */
 export function resolveAgentProfileModelCardValue(input: {
 	agentControllerRef: string | null;
 	modelCatalog: ModelCatalog | null;
 	modelSelection: AgentProfileBindingModelSelection | null;
-}): { value: string; isDefault: boolean } | null {
+}): { value: string } | null {
 	const effectiveModel = resolveAgentProfileModel(input);
 	const modelDisplayName =
 		normalizeDisplayPart(effectiveModel.catalogModel?.displayName) ??
@@ -142,6 +143,5 @@ export function resolveAgentProfileModelCardValue(input: {
 		]
 			.filter(Boolean)
 			.join(" · "),
-		isDefault: !normalizeDisplayPart(input.modelSelection?.modelId),
 	};
 }

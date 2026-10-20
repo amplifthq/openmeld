@@ -20,7 +20,13 @@ import {
 	CheckCircleIcon,
 	PencilSimpleIcon,
 } from "@phosphor-icons/react";
-import type { ReactNode } from "react";
+import {
+	type ReactNode,
+	type RefObject,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 
 const ATTENTION_TONE_CLASSES = {
 	danger: {
@@ -95,8 +101,8 @@ export function AgentConfigurationCard(input: {
 	children?: ReactNode;
 	className?: string;
 	/**
-	 * One-line value and at most one muted line, so a row of cards keeps one
-	 * height; long text truncates with a tooltip.
+	 * A value of at most two lines and at most one muted line, so a row of
+	 * cards keeps one height; longer text clamps with a tooltip.
 	 */
 	compact?: boolean;
 	description?: string;
@@ -112,8 +118,6 @@ export function AgentConfigurationCard(input: {
 	readOnly?: boolean;
 	status?: "idle" | "saving" | "saved";
 	summary: string;
-	/** A small tag after the value, such as "Default". */
-	summaryAccessory?: ReactNode;
 	summaryClassName?: string;
 	summaryTitle?: string;
 }) {
@@ -153,7 +157,6 @@ export function AgentConfigurationCard(input: {
 					description={input.description}
 					descriptionClassName={attentionTextClassName}
 					summary={input.summary}
-					summaryAccessory={input.summaryAccessory}
 					summaryClassName={input.summaryClassName}
 					summaryTitle={input.summaryTitle}
 				/>
@@ -196,12 +199,15 @@ export function AgentConfigurationCard(input: {
 	return (
 		<MorphingDialog onOpenChange={input.onOpenChange} open={input.open}>
 			<AgentConfigurationSurface
-				className="has-[[data-popup-open]]:opacity-0"
+				// Only the dialog trigger hides the card while its dialog morphs
+				// out; a value tooltip also publishes data-popup-open.
+				className="has-[[data-configuration-dialog-trigger][data-popup-open]]:opacity-0"
 				itemId={input.itemId}
 			>
 				<MorphingDialogTrigger
 					aria-label={input.actionLabel ?? defaultActionLabel}
 					className="h-full w-full min-w-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+					data-configuration-dialog-trigger=""
 					disabled={input.disabled}
 					type="button"
 				>
@@ -312,29 +318,31 @@ function AgentConfigurationCardValue(input: {
 	description?: string;
 	descriptionClassName: string;
 	summary: string;
-	summaryAccessory?: ReactNode;
 	summaryClassName?: string;
 	summaryTitle?: string;
 }) {
+	const summaryRef = useRef<HTMLSpanElement>(null);
+	const truncated = useTextTruncated(summaryRef, input.summary);
 	return (
 		<>
 			<span className="mt-1 flex min-w-0 items-center gap-2">
 				<TooltipHint
 					content={
-						input.summaryTitle ?? (input.compact ? input.summary : undefined)
+						input.summaryTitle ??
+						(input.compact && truncated ? input.summary : undefined)
 					}
 				>
 					<span
 						className={cn(
 							"block min-w-0 font-medium text-sm leading-5",
-							input.compact ? "truncate" : "break-words",
+							input.compact ? "line-clamp-2 break-words" : "break-words",
 							input.summaryClassName
 						)}
+						ref={summaryRef}
 					>
 						{input.summary}
 					</span>
 				</TooltipHint>
-				{input.summaryAccessory}
 			</span>
 			{input.description ? (
 				<span
@@ -350,6 +358,35 @@ function AgentConfigurationCardValue(input: {
 			) : null}
 		</>
 	);
+}
+
+/** Whether a clamped value is cut off at the card's current size. */
+function useTextTruncated(
+	ref: RefObject<HTMLElement | null>,
+	text: string
+): boolean {
+	const [truncated, setTruncated] = useState(false);
+	useEffect(() => {
+		const element = ref.current;
+		// A new value can overflow at the same width, so measure again.
+		if (!(element && text)) {
+			setTruncated(false);
+			return;
+		}
+		const measure = () =>
+			setTruncated(
+				element.scrollHeight > element.clientHeight + 1 ||
+					element.scrollWidth > element.clientWidth + 1
+			);
+		measure();
+		if (typeof ResizeObserver === "undefined") {
+			return;
+		}
+		const observer = new ResizeObserver(measure);
+		observer.observe(element);
+		return () => observer.disconnect();
+	}, [ref, text]);
+	return truncated;
 }
 
 function AgentConfigurationCardInlineContent(input: { children?: ReactNode }) {
