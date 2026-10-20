@@ -327,11 +327,97 @@ export async function resolveNextAgentProfileContextMigrationAlarmAtMs(input: {
       continue;
     }
     const leaseExpiry = admission.executionTargetMutation?.expiresAtMs ?? 0;
-    const retryAt =
-      leaseExpiry > input.nowMs ? leaseExpiry : input.nowMs + 5000;
+    const failure = parseContextMigrationFailure(
+      await input.storage.get(
+        buildContextMigrationFailureStorageKey(profile.targetProfileId)
+      )
+    );
+    const retryAt = Math.max(
+      leaseExpiry > input.nowMs
+        ? leaseExpiry
+        : input.nowMs + CONTEXT_MIGRATION_RETRY_BASE_MS,
+      failure?.nextAttemptAtMs ?? 0
+    );
     next = next === null ? retryAt : Math.min(next, retryAt);
   }
   return next;
+}
+
+const CONTEXT_MIGRATION_FAILURE_STORAGE_PREFIX =
+  "runtime-coordinator:agent-profile-context-migration-failure:v1:";
+const CONTEXT_MIGRATION_RETRY_BASE_MS = 5000;
+const CONTEXT_MIGRATION_RETRY_MAX_MS = 10 * 60_000;
+const CONTEXT_MIGRATION_FAILURE_REASON_MAX_LENGTH = 160;
+
+type AgentProfileContextMigrationFailure = {
+  attempts: number;
+  nextAttemptAtMs: number;
+  reasonCode: string;
+};
+
+function buildContextMigrationFailureStorageKey(
+  targetProfileId: string
+): string {
+  return `${CONTEXT_MIGRATION_FAILURE_STORAGE_PREFIX}${encodeURIComponent(targetProfileId)}`;
+}
+
+function parseContextMigrationFailure(
+  value: unknown
+): AgentProfileContextMigrationFailure | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const record = value as Partial<AgentProfileContextMigrationFailure>;
+  return isPositiveInteger(record.attempts) &&
+    isNonnegativeInteger(record.nextAttemptAtMs) &&
+    typeof record.reasonCode === "string"
+    ? {
+        attempts: record.attempts,
+        nextAttemptAtMs: record.nextAttemptAtMs,
+        reasonCode: record.reasonCode,
+      }
+    : null;
+}
+
+/** Records a failed activation attempt for one Profile and backs off its retry. */
+export async function recordAgentProfileContextMigrationFailure(input: {
+  nowMs: number;
+  reasonCode: string;
+  storage: Pick<DurableObjectStorage, "get" | "put">;
+  targetProfileId: string;
+}): Promise<AgentProfileContextMigrationFailure> {
+  const key = buildContextMigrationFailureStorageKey(input.targetProfileId);
+  const attempts =
+    (parseContextMigrationFailure(await input.storage.get(key))?.attempts ??
+      0) + 1;
+  const failure = {
+    attempts,
+    nextAttemptAtMs:
+      input.nowMs +
+      Math.min(
+        CONTEXT_MIGRATION_RETRY_BASE_MS * 2 ** (attempts - 1),
+        CONTEXT_MIGRATION_RETRY_MAX_MS
+      ),
+    reasonCode: input.reasonCode.slice(
+      0,
+      CONTEXT_MIGRATION_FAILURE_REASON_MAX_LENGTH
+    ),
+  };
+  await input.storage.put(key, failure);
+  return failure;
+}
+
+export async function isAgentProfileContextMigrationRetryDue(input: {
+  nowMs: number;
+  storage: Pick<DurableObjectStorage, "get">;
+  targetProfileId: string;
+}): Promise<boolean> {
+  const failure = parseContextMigrationFailure(
+    await input.storage.get(
+      buildContextMigrationFailureStorageKey(input.targetProfileId)
+    )
+  );
+  return !failure || failure.nextAttemptAtMs <= input.nowMs;
 }
 
 async function hasUnresolvedLegacyWork(
@@ -472,35 +558,39 @@ export async function activateAgentProfileContextMigration(input: {
     ) {
       return false;
     }
+    // Work accepted for an earlier Binding keeps its place but is not attached
+    // to this Binding's legacy association; promotion rechecks the current
+    // Binding and settles it with a visible no-execution outcome.
+    const currentBindingContextIds = new Set<string>();
     for (const item of admission.workItems) {
       const head = await transaction.get(
         buildRuntimeCoordinatorHeadLifecycleStorageKey(
           item.targetWakeLifecycleId
         )
       );
+      if (!isRuntimeCoordinatorHeadLifecycleRecord(head)) {
+        throw new Error(EXECUTION_STATE_UNAVAILABLE_REASON);
+      }
       if (
-        !isRuntimeCoordinatorHeadLifecycleRecord(head) ||
-        head.acceptedDispatchSnapshot?.controllerSnapshot.bindingId !==
-          input.association.bindingId ||
-        head.acceptedDispatchSnapshot.controllerSnapshot.agentControllerRef !==
-          input.association.agentControllerRef ||
-        head.acceptedDispatchSnapshot.openMeldServiceRuntimeId !==
+        item.executionContextId &&
+        head.acceptedDispatchSnapshot?.controllerSnapshot.bindingId ===
+          input.association.bindingId &&
+        head.acceptedDispatchSnapshot.controllerSnapshot.agentControllerRef ===
+          input.association.agentControllerRef &&
+        head.acceptedDispatchSnapshot.openMeldServiceRuntimeId ===
           input.association.openMeldServiceRuntimeId
       ) {
-        throw new ExecutionContextSelectionError(
-          "execution_context.migration_binding_changed"
-        );
+        currentBindingContextIds.add(item.executionContextId);
       }
     }
     await claimLegacyExecutionContext({
       association: input.association,
       storage: transaction,
     });
-    for (const contextId of new Set(
-      admission.workItems
-        .map((item) => item.executionContextId)
-        .filter((id): id is string => Boolean(id))
-    )) {
+    await transaction.delete(
+      buildContextMigrationFailureStorageKey(input.targetProfileId)
+    );
+    for (const contextId of currentBindingContextIds) {
       await attachLegacyAssociationToExecutionContext({
         contextId,
         association: input.association,

@@ -382,6 +382,7 @@ import {
   authorizeRuntimeCoordinatorAgentProfileWorkContinuation,
   completeRuntimeCoordinatorAgentProfileWorkRecoveryInboxProjection,
   handOffRuntimeCoordinatorOccupiedAgentProfileWork,
+  isAgentProfileContextMigrationRetryDue,
   listDrainingAgentProfileContextMigrations,
   markRuntimeCoordinatorAgentProfileWorkContinuationNeedsAttention,
   markRuntimeCoordinatorAgentProfileWorkControllerConversationOccupancy,
@@ -393,6 +394,7 @@ import {
   readRuntimeCoordinatorAgentProfileOperationalContextsFromAdmission,
   readRuntimeCoordinatorAgentProfileWorkControllerConversationOccupied,
   readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmission,
+  recordAgentProfileContextMigrationFailure,
   releaseRuntimeCoordinatorAgentProfileExecutionTargetMutation,
   resolveNextAgentProfileContextMigrationAlarmAtMs,
   retireRuntimeCoordinatorAgentProfileHeadHistoryReference,
@@ -2594,6 +2596,39 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         })
       );
     });
+  }
+  /**
+   * Attempts one Profile's Context activation. A failure is recorded for that
+   * Profile with its own backoff, so it never stops other Profiles' migrations
+   * or the Wake acceptance that triggered the attempt.
+   */
+  private async attemptAgentProfileContextMigration(input: {
+    ownerUserId: string;
+    targetProfileId: string;
+  }): Promise<boolean> {
+    try {
+      return await this.reconcileAgentProfileContextMigration(input);
+    } catch (error) {
+      let reasonCode = String(error);
+      if (error instanceof ExecutionContextSelectionError) {
+        reasonCode = error.reasonCode;
+      } else if (error instanceof Error) {
+        reasonCode = error.message;
+      }
+      const failure = await recordAgentProfileContextMigrationFailure({
+        nowMs: Date.now(),
+        reasonCode,
+        storage: this.ctx.storage,
+        targetProfileId: input.targetProfileId,
+      });
+      console.warn("[core.runtime_transport.context_migration_failed]", {
+        attempts: failure.attempts,
+        nextAttemptAtMs: failure.nextAttemptAtMs,
+        reasonCode: failure.reasonCode,
+        targetProfileId: input.targetProfileId,
+      });
+      return false;
+    }
   }
   private async reconcileAgentProfileContextMigration(input: {
     ownerUserId: string;
@@ -12718,7 +12753,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     let migrationActivated = false;
     if (
       admission.status === "queued" &&
-      (await this.reconcileAgentProfileContextMigration({
+      (await this.attemptAgentProfileContextMigration({
         ownerUserId: request.ownerUserId,
         targetProfileId: identity.targetProfileId,
       }))
@@ -18934,12 +18969,21 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       this.ctx.storage
     )) {
       if (
+        !(await isAgentProfileContextMigrationRetryDue({
+          nowMs: Date.now(),
+          storage: this.ctx.storage,
+          targetProfileId: profile.targetProfileId,
+        }))
+      ) {
+        continue;
+      }
+      if (
         run &&
         !this.reserveHousekeepingAlarmWorkUnit(run, "context_migration")
       ) {
         return;
       }
-      await this.reconcileAgentProfileContextMigration(profile);
+      await this.attemptAgentProfileContextMigration(profile);
     }
   }
   private async processAgentProfileWorkPromotionAlarm(

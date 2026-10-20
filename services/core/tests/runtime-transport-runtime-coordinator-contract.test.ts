@@ -12672,6 +12672,80 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toMatchObject({ migration: "draining" });
   });
 
+  it("activates Context mode past a Wake accepted for an earlier Binding and leaves it to the promotion recheck", async () => {
+    const { hub, storageRecords } = await createContextHarness();
+    const request = contextMigrationRequest("earlier-binding");
+    const snapshot = request.acceptedDispatchSnapshot;
+    if (!snapshot) {
+      throw new Error("Expected an accepted dispatch snapshot");
+    }
+    await fetchRuntimeTransportJson(hub, "/runtime-coordinator/head/accept", {
+      ...request,
+      acceptedDispatchSnapshot: {
+        ...snapshot,
+        controllerSnapshot: {
+          ...snapshot.controllerSnapshot,
+          bindingId: "binding-earlier",
+        },
+      },
+    });
+    expect(
+      await (
+        hub as unknown as RuntimeTransportHub
+      ).rpcAgentProfileExecutionMode({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).toMatchObject({ migration: "contexts" });
+    expect(
+      storageRecords.get(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          request.targetWakeLifecycleIdentity.targetWakeLifecycleId
+        )
+      )
+    ).toMatchObject({ status: "accepted" });
+  });
+
+  it("isolates a failing Context activation to its Profile and backs off its retry", async () => {
+    const { hub } = await createContextHarness({
+      onBindingRead: () => {
+        throw new Error("binding temporarily unavailable");
+      },
+    });
+    const acceptedAtMs = Date.now();
+    expect(
+      await (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          contextMigrationRequest("failing-activation")
+        )
+      ).json()
+    ).toMatchObject({ status: "queued" });
+    const storage = (hub as unknown as { ctx: DurableObjectState }).ctx.storage;
+    const nextAlarmAtMs =
+      await executionAdmission.resolveNextAgentProfileContextMigrationAlarmAtMs(
+        { storage, nowMs: acceptedAtMs }
+      );
+    expect(nextAlarmAtMs).toBeGreaterThanOrEqual(acceptedAtMs + 5000);
+    await (hub as unknown as RuntimeTransportHub).alarm();
+    expect(
+      await executionAdmission.isAgentProfileContextMigrationRetryDue({
+        nowMs: Date.now(),
+        storage,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).toBe(false);
+    expect(
+      await (
+        hub as unknown as RuntimeTransportHub
+      ).rpcAgentProfileExecutionMode({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).toMatchObject({ migration: "draining" });
+  });
+
   it("keeps pre-marker Context history scoped after its old admission record is pruned", async () => {
     const { hub, storageRecords } = await createContextHarness();
     const prior = contextMigrationRequest("pre-marker-context");
