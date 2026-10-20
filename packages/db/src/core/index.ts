@@ -1,6 +1,10 @@
 // biome-ignore-all lint/performance/noBarrelFile: This subpath entrypoint intentionally re-exports the canonical core db surface.
 
 export {
+  agentAccessRequests,
+  agentProfileAccessGrants,
+} from "./agent-access.schema.ts";
+export {
   agentActivityDailyAggregates,
   agentActivityDailySessionKeys,
   agentActivityDigests,
@@ -42,6 +46,7 @@ export {
   centerAgentMemoryPolicies,
   centerAgentMemorySubjects,
 } from "./center-agent-memory.schema.ts";
+export { centerAgentPermissionModeConfirmations } from "./center-agent-permission-mode-confirmation.schema.ts";
 export { centerAgentPublicationOperations } from "./center-agent-publication.schema.ts";
 export {
   centerAgentTaskAdmissionOutbox,
@@ -190,7 +195,12 @@ export { openMeldDaemonProviderAccessEvidence } from "./provider-access-evidence
 export { openMeldDaemonProviderConversationProofs } from "./provider-conversation-proof.schema.ts";
 export { routineRuns, routines } from "./routine.schema.ts";
 export { openMeldDaemonRuntimeAgentControllerReports } from "./runtime-agent-controller-report.schema.ts";
+export { openMeldDaemonRuntimeHarnessPresence } from "./runtime-harness-presence.schema.ts";
 export { openMeldDaemonRuntimeRegistryRecords } from "./runtime-registry.schema.ts";
+export {
+  sensitiveOperationAuditEvents,
+  sensitiveOperationConfirmations,
+} from "./sensitive-operation.schema.ts";
 export { spaceAttachments } from "./space-attachment.schema.ts";
 export {
   spaceIndexMemberships,

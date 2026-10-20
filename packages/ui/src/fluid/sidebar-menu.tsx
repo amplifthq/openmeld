@@ -1198,7 +1198,8 @@ const SidebarMenuButton = forwardRef<HTMLButtonElement, SidebarMenuButtonProps>(
 
     // Exact trailing reservation: at rest, hover-revealed actions claim no
     // width (the label owns the row); once revealed the row widens to
-    // --row-gutter-hover.
+    // --row-gutter-hover. Reveal tracks the row's own button and actions,
+    // not its <li>, which also wraps any nested sub-menu.
     const gutterHover = rowGutter(
       item?.actionCount ?? 0,
       item?.hasBadge ?? false
@@ -1290,10 +1291,10 @@ const SidebarMenuButton = forwardRef<HTMLButtonElement, SidebarMenuButtonProps>(
           scope?.activeLayoutId && "isolate",
           actionLayout === "row" &&
             gutterRest !== gutterHover &&
-            "group-focus-within/menu-sub-item:pr-[var(--row-gutter-hover)] group-hover/menu-item:pr-[var(--row-gutter-hover)] group-hover/menu-sub-item:pr-[var(--row-gutter-hover)] group-has-[>[data-sidebar=menu-button]:focus-visible,>[data-sidebar=menu-actions]:focus-within,>[data-sidebar=menu-action]:focus-visible]/menu-item:pr-[var(--row-gutter-hover)] group-has-[[data-sidebar=menu-action]:is([data-state=open],[data-popup-open],[aria-expanded=true])]/menu-item:pr-[var(--row-gutter-hover)] group-has-[[data-sidebar=menu-action]:is([data-state=open],[data-popup-open],[aria-expanded=true])]/menu-sub-item:pr-[var(--row-gutter-hover)] [@media(hover:none)]:pr-[var(--row-gutter-hover)]",
+            "hover:pr-[var(--row-gutter-hover)] group-focus-within/menu-sub-item:pr-[var(--row-gutter-hover)] group-hover/menu-sub-item:pr-[var(--row-gutter-hover)] group-has-[>[data-sidebar=menu-action]:hover]/menu-item:pr-[var(--row-gutter-hover)] group-has-[>[data-sidebar=menu-actions]:hover]/menu-item:pr-[var(--row-gutter-hover)] group-has-[>[data-sidebar=menu-button]:focus-visible,>[data-sidebar=menu-actions]:focus-within,>[data-sidebar=menu-action]:focus-visible]/menu-item:pr-[var(--row-gutter-hover)] group-has-[[data-sidebar=menu-action]:is([data-state=open],[data-popup-open],[aria-expanded=true])]/menu-item:pr-[var(--row-gutter-hover)] group-has-[[data-sidebar=menu-action]:is([data-state=open],[data-popup-open],[aria-expanded=true])]/menu-sub-item:pr-[var(--row-gutter-hover)] [@media(hover:none)]:pr-[var(--row-gutter-hover)]",
           heightClass,
           actionLayout === "heading" &&
-            "pr-2 [&_[data-sidebar=menu-heading]]:pr-[calc(var(--row-gutter)-8px)] [&_[data-sidebar=menu-heading]]:transition-[padding] [&_[data-sidebar=menu-heading]]:duration-80 group-hover/menu-item:[&_[data-sidebar=menu-heading]]:pr-[calc(var(--row-gutter-hover)-8px)] group-has-[>[data-sidebar=menu-button]:focus-visible,>[data-sidebar=menu-actions]:focus-within,>[data-sidebar=menu-action]:focus-visible]/menu-item:[&_[data-sidebar=menu-heading]]:pr-[calc(var(--row-gutter-hover)-8px)] group-has-[[data-sidebar=menu-action]:is([data-state=open],[data-popup-open],[aria-expanded=true])]/menu-item:[&_[data-sidebar=menu-heading]]:pr-[calc(var(--row-gutter-hover)-8px)] motion-reduce:[&_[data-sidebar=menu-heading]]:transition-none [@media(hover:none)]:[&_[data-sidebar=menu-heading]]:pr-[calc(var(--row-gutter-hover)-8px)]",
+            "pr-2 [&_[data-sidebar=menu-heading]]:pr-[calc(var(--row-gutter)-8px)] [&_[data-sidebar=menu-heading]]:transition-[padding] [&_[data-sidebar=menu-heading]]:duration-80 hover:[&_[data-sidebar=menu-heading]]:pr-[calc(var(--row-gutter-hover)-8px)] group-has-[>[data-sidebar=menu-actions]:hover]/menu-item:[&_[data-sidebar=menu-heading]]:pr-[calc(var(--row-gutter-hover)-8px)] group-has-[>[data-sidebar=menu-button]:focus-visible,>[data-sidebar=menu-actions]:focus-within,>[data-sidebar=menu-action]:focus-visible]/menu-item:[&_[data-sidebar=menu-heading]]:pr-[calc(var(--row-gutter-hover)-8px)] group-has-[[data-sidebar=menu-action]:is([data-state=open],[data-popup-open],[aria-expanded=true])]/menu-item:[&_[data-sidebar=menu-heading]]:pr-[calc(var(--row-gutter-hover)-8px)] motion-reduce:[&_[data-sidebar=menu-heading]]:transition-none [@media(hover:none)]:[&_[data-sidebar=menu-heading]]:pr-[calc(var(--row-gutter-hover)-8px)]",
           shape.item,
           className
         ),
@@ -1712,6 +1713,7 @@ const SidebarMenuSubButton = forwardRef<
     ref
   ) => {
     const item = useContext(MenuItemContext);
+    const scope = useContext(MenuScopeContext);
     const shape = useShape();
     const sizeClasses = {
       variant: "compact" as string,
@@ -1777,12 +1779,21 @@ const SidebarMenuSubButton = forwardRef<
             "group-focus-within/menu-sub-item:pr-[var(--row-gutter-hover)] group-hover/menu-sub-item:pr-[var(--row-gutter-hover)] group-has-[[data-sidebar=menu-action]:is([data-state=open],[data-popup-open],[aria-expanded=true])]/menu-sub-item:pr-[var(--row-gutter-hover)]",
           "h-6",
           shape.item,
+          // A layoutId menu draws selection inside the row (see
+          // SidebarMenuButton), so sub-rows need their own background too.
+          scope?.activeLayoutId && "isolate",
           className
         ),
         ...props,
         style: { ...gutterVars, ...(props.style ?? {}) },
       },
       <>
+        {isActive && scope?.activeLayoutId && (
+          <SidebarSelectionBackground
+            className={cn(shape.bg, scope.activeIndicatorClassName)}
+            layoutId={scope.activeLayoutId}
+          />
+        )}
         {Icon && (
           <Icon
             className={cn(

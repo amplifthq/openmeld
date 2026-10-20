@@ -8,11 +8,12 @@ import type {
   RuntimeAdapter,
 } from "@openmeld/adapter-core";
 
-type Receipt = {
-  resolve: (value: AgentExecutionSteerResponse) => void;
-  timer: ReturnType<typeof setTimeout>;
-};
+type Receipt = (value: AgentExecutionSteerResponse) => void;
 const CLAUDE_VERSION = /^(\d+)\.(\d+)\.(\d+)/;
+// After a priority message yields the old turn, Claude starts the continuation
+// at once. Its replay can follow much later (after thinking), so only a missing
+// continuation start closes input.
+const CONTINUATION_START_TIMEOUT_MS = 10_000;
 
 // One input stream belongs to one invocation. Keeping it open allows native
 // priority messages without starting or resuming a second query.
@@ -24,7 +25,7 @@ export function createClaudeLiveInput(taskId: string, prompt: string) {
   let closed = false;
   let sessionId: string | undefined;
   let supported = false;
-  let resultWhilePending = false;
+  let continuationGuard: ReturnType<typeof setTimeout> | undefined;
 
   function unconfirmed(): AgentExecutionSteerResponse {
     return {
@@ -37,11 +38,11 @@ export function createClaudeLiveInput(taskId: string, prompt: string) {
 
   function close() {
     closed = true;
+    clearTimeout(continuationGuard);
     messages.length = 0;
     wake?.();
-    for (const receipt of pending.values()) {
-      clearTimeout(receipt.timer);
-      receipt.resolve(unconfirmed());
+    for (const resolve of pending.values()) {
+      resolve(unconfirmed());
     }
     pending.clear();
     awaitingResults.clear();
@@ -65,17 +66,10 @@ export function createClaudeLiveInput(taskId: string, prompt: string) {
     // Space input IDs are not necessarily UUIDs. Claude requires native UUIDs;
     // the Service receipt owns inputId deduplication across transport retries.
     const uuid = randomUUID();
+    // The receipt waits for native consumption or the end of this input
+    // stream. A fixed timeout would report consumed input as unconfirmed.
     return await new Promise<AgentExecutionSteerResponse>((resolve) => {
-      const timer = setTimeout(() => {
-        pending.delete(uuid);
-        awaitingResults.delete(uuid);
-        resolve(unconfirmed());
-        if (resultWhilePending && awaitingResults.size === 0) {
-          close();
-        }
-      }, 10_000);
-      timer.unref?.();
-      pending.set(uuid, { resolve, timer });
+      pending.set(uuid, resolve);
       awaitingResults.add(uuid);
       messages.push({ ...userMessage(input.text, uuid), priority: "now" });
       wake?.();
@@ -92,7 +86,9 @@ export function createClaudeLiveInput(taskId: string, prompt: string) {
     // Native priority input may yield the old turn before consuming the
     // message in its continuation. Wait for that continuation's result.
     if (!message.is_error && awaitingResults.size > 0) {
-      resultWhilePending = true;
+      clearTimeout(continuationGuard);
+      continuationGuard = setTimeout(close, CONTINUATION_START_TIMEOUT_MS);
+      continuationGuard.unref?.();
     } else {
       close();
     }
@@ -116,6 +112,7 @@ export function createClaudeLiveInput(taskId: string, prompt: string) {
     },
     observe(message: SDKMessage) {
       if (message.type === "system" && message.subtype === "init") {
+        clearTimeout(continuationGuard);
         sessionId = message.session_id;
         // 2.1.290 fixes replay acknowledgements before actual consumption.
         supported = supportsConsumedInputReceipt(message.claude_code_version);
@@ -127,12 +124,10 @@ export function createClaudeLiveInput(taskId: string, prompt: string) {
         message.parent_tool_use_id === null &&
         message.session_id === sessionId
       ) {
-        const receipt = pending.get(message.uuid);
-        if (receipt) {
-          clearTimeout(receipt.timer);
+        const resolve = pending.get(message.uuid);
+        if (resolve) {
           pending.delete(message.uuid);
-          resultWhilePending = false;
-          receipt.resolve({
+          resolve({
             status: "applied",
             taskId,
             threadId: message.session_id,

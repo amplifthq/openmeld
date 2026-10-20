@@ -33,6 +33,7 @@ import type { Context } from "hono";
 import type { z } from "zod/v4";
 import type { CoreRpcContextInput } from "../../../core/src/rpc/methods";
 import { logAuditEvent } from "../audit";
+import { resolveRequestCredentialKind } from "../lib/auth-rpc-client";
 import type { HonoBindings } from "../lib/bindings";
 import { readSpacePasswordHeader as readSpacePasswordHeaderValue } from "../lib/space-password-header";
 import { withUpstreamRetry } from "../lib/upstream-retry";
@@ -181,6 +182,10 @@ const DIRECT_GATEWAY_ERROR_CODES = [
   "direct_message.self_not_allowed",
   "direct_message.target_not_found",
   "direct_message.conversion_required",
+  "direct_message_session.agent_not_found",
+  "direct_message_session.forbidden",
+  "direct_message_session.not_found",
+  "member_agents.disabled",
   "invalid_password_payload",
   "space.forbidden",
   "space.not_found",
@@ -574,6 +579,26 @@ export function buildCoreRpcContext(
   c: Context<HonoBindings>
 ): CoreRpcContextInput {
   return c.var.openMeldRequestContext;
+}
+
+/**
+ * For sensitive operations only (design-plans/member-agent-program.md §4.7).
+ * The claims' credential kind can come from Auth's cookie cache, which may
+ * predate the CLI marker, so an interactive session is re-checked against
+ * the database here; anything else stays the CLI credential.
+ */
+export async function buildCoreRpcCredential(
+  c: Context<HonoBindings>
+): Promise<HonoBindings["Variables"]["requestCredential"]> {
+  const credential = c.var.requestCredential;
+  if (credential.kind !== "interactive_session") {
+    return credential;
+  }
+  const kind = await resolveRequestCredentialKind({
+    authRpc: c.var.authRpc,
+    headers: c.req.raw.headers,
+  }).catch(() => "cli_credential" as const);
+  return { ...credential, kind };
 }
 
 function mapCoreRpcError(input: CoreRpcErrorInput): Response {
@@ -1020,5 +1045,56 @@ function validateSuccessResponseForRequestId(input: {
       message: "upstream returned invalid response payload",
       requestId: input.requestId,
     }),
+  };
+}
+
+type JsonBodyParseResult<T> =
+  | {
+      data: T;
+      ok: true;
+    }
+  | {
+      ok: false;
+      response: Response;
+    };
+
+export async function parseJsonBody<T>(
+  c: Context<HonoBindings>,
+  schema: z.ZodType<T>
+): Promise<JsonBodyParseResult<T>> {
+  let body: unknown = {};
+  const rawBody = (await c.req.text()).trim();
+  if (rawBody.length > 0) {
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return {
+        ok: false,
+        response: respondBadRequest({
+          c,
+          route: c.req.path,
+          method: c.req.method as "POST" | "PUT" | "PATCH",
+          code: "invalid_json",
+          message: "Invalid JSON",
+        }),
+      };
+    }
+  }
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      response: respondBadRequest({
+        c,
+        route: c.req.path,
+        method: c.req.method as "POST" | "PUT" | "PATCH",
+        code: "invalid_payload",
+        message: parsed.error.issues[0]?.message ?? "Invalid payload.",
+      }),
+    };
+  }
+  return {
+    data: parsed.data,
+    ok: true,
   };
 }

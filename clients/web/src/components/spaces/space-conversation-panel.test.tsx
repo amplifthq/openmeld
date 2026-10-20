@@ -119,6 +119,7 @@ vi.mock("@tanstack/react-router", () => ({
 		</a>
 	),
 	useElementScrollRestoration: () => undefined,
+	useNavigate: () => vi.fn(),
 }));
 
 vi.mock("./center-agent-computer-setup-card", async (importOriginal) => {

@@ -101,6 +101,22 @@ describe("resolveWakeProgressStatus", () => {
 		);
 	});
 
+	it("shows a task queued behind another task in its folder as waiting, not working", () => {
+		expect(
+			resolveWakeProgressStatus(
+				createWakeProgressItem({
+					phase: "connecting",
+					waitReasonCode: "runtime.local_queue.workspace_conflict",
+				})
+			)
+		).toEqual(
+			expect.objectContaining({
+				kind: "queued",
+				label: "runner · Waiting for another task in its folder",
+			})
+		);
+	});
+
 	it.each([
 		"failed",
 		"publication_unknown",

@@ -26,6 +26,10 @@ import { resolveStatusToneTextClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleTextIcon, StarIcon } from "@phosphor-icons/react";
 import { memo } from "react";
+import {
+	AgentAccessIndicator,
+	useColleagueAgentAccess,
+} from "#/components/agent-access/agent-access-indicator";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { AgentProfileOperationalStatusIndicator } from "#/components/agents/agent-profile-operational-status";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
@@ -35,7 +39,12 @@ import {
 } from "#/components/app/app-nav-item-style";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
 import { ProfileMenuItems } from "#/components/app/profile-menu-items";
+import {
+	AgentAvailabilityBadge,
+	formatAgentWorkloadParts,
+} from "#/components/member-agents/member-agent-directory-section";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
+import { formatPublicWakeabilityReason } from "#/lib/agents/agent-viewer-access";
 import {
 	localAgentSidebarState,
 	useAgentSidebarPreviewReady,
@@ -69,6 +78,8 @@ export function AgentProfileSidebarItemComponent(input: {
 	actionsDisabled?: boolean;
 	onToggleStar?: () => void;
 	onChat?: () => void;
+	/** Running and queued work the viewer may see, for the card variant. */
+	workload?: { runningCount: number | null; queuedCount: number | null };
 }) {
 	const { dismiss } = useAppNavigationPresentation();
 	const { currentOrganization } = useAppOrganization();
@@ -99,6 +110,10 @@ export function AgentProfileSidebarItemComponent(input: {
 		isPending: input.readinessIsPending,
 		modelCatalog: input.modelCatalog,
 		readiness: input.readiness,
+	});
+	const colleagueAccess = useColleagueAgentAccess({
+		ownerUserId: input.profile.ownerUserId,
+		profileId: input.profile.openMeldProfileId,
 	});
 	const previewReady = useAgentSidebarPreviewReady();
 	const preview = localAgentSidebarState(
@@ -170,9 +185,29 @@ export function AgentProfileSidebarItemComponent(input: {
 						value={input.profile.openMeldProfileId}
 					>
 						<AgentCard
+							badge={renderAvailabilityPill({
+								errorMessage: input.readinessErrorMessage,
+								id: availabilityDescriptionId,
+								presentation,
+							})}
 							describedBy={availabilityDescriptionId}
-							description={presentation.controllerModelSummary}
-							indicators={indicators}
+							description={describeAgentCard({
+								colleague: Boolean(colleagueAccess),
+								summary: presentation.controllerModelSummary,
+								workload: input.workload,
+							})}
+							indicators={
+								<>
+									<RemoteAgentIndicator
+										agentControllerRef={agentControllerRef}
+									/>
+									<AgentProfileOperationalStatusIndicator
+										className="shrink-0"
+										operationalContext={input.operationalContext}
+									/>
+								</>
+							}
+							meta={renderColleagueAccessMeta(colleagueAccess)}
 							name={input.profile.profileName}
 							onClick={() => {
 								input.onSelectProfile(input.profile.openMeldProfileId);
@@ -285,6 +320,50 @@ export function AgentProfileSidebarItemComponent(input: {
 	);
 }
 
+/**
+ * The card's status pill. Quiet until availability is read; a failed first
+ * read shows a neutral pill, never a guessed verdict.
+ */
+function renderAvailabilityPill(input: {
+	errorMessage: string | null;
+	id: string;
+	presentation: ReturnType<typeof resolveAgentProfileSidebarPresentation>;
+}) {
+	const { presentation } = input;
+	if (!(presentation.availabilityCategory || input.errorMessage)) {
+		return null;
+	}
+	return (
+		<AgentAvailabilityBadge
+			category={presentation.availabilityCategory}
+			id={input.id}
+			label="Couldn’t check"
+			tooltip={presentation.availabilityTooltip}
+		/>
+	);
+}
+
+/**
+ * A colleague's card leads with access, so its line carries only work; the
+ * viewer's own card names its controller and model too.
+ */
+function describeAgentCard(input: {
+	colleague: boolean;
+	summary: string | null;
+	workload?: { runningCount: number | null; queuedCount: number | null };
+}): string {
+	const work = input.workload ? formatAgentWorkloadParts(input.workload) : [];
+	return [input.colleague ? null : input.summary, ...work]
+		.filter(Boolean)
+		.join(" · ");
+}
+
+function renderColleagueAccessMeta(
+	access: ReturnType<typeof useColleagueAgentAccess>
+) {
+	return access ? <AgentAccessIndicator access={access} /> : null;
+}
+
 function resolveSidebarAvatarModelId(
 	readiness: GetAgentExecutionReadinessResponse | null,
 	catalog: ModelCatalog | null
@@ -352,7 +431,9 @@ function resolveAgentProfileSidebarPresentation(input: {
 				? resolveStatusToneTextClassName("warning")
 				: resolveAvailabilityClassName(category),
 		availabilityLabel: resolveSidebarAvailabilityLabel(wakeAvailability),
-		availabilityTooltip: wakeAvailability.tooltip,
+		availabilityTooltip: input.readiness?.publicWakeabilityReason
+			? `${wakeAvailability.badgeLabel}: ${formatPublicWakeabilityReason(input.readiness.publicWakeabilityReason)}`
+			: wakeAvailability.tooltip,
 		controllerModelSummary,
 	};
 }

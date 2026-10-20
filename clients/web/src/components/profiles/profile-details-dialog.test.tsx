@@ -1,3 +1,4 @@
+import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
 import type {
 	OrganizationComputersResponse,
 	OrganizationProfileDirectoryResponse,
@@ -20,6 +21,7 @@ import {
 	AgentProfileDetailsContent,
 	HumanProfileDetailsPopover,
 } from "#/components/profiles/profile-details-dialog";
+import { SpaceAgentRecoveryProvider } from "#/components/spaces/space-agent-recovery-context";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 
 vi.mock("@tanstack/react-router", () => ({
@@ -199,6 +201,74 @@ describe("HumanProfileDetailsPopover", () => {
 		});
 		expect(chatLink.className).toContain("h-8");
 		expect(chatLink.className).not.toContain("min-h-10");
+	});
+});
+
+describe("AgentProfileDetailsContent issue footer", () => {
+	afterEach(cleanup);
+
+	const reportMissingPlan: AgentProfileReplyRecoveryPlan = {
+		body: "Codex is connected, but OpenMeld has no current local agent report from its computer.",
+		kind: "prepare_agent_profile",
+		primaryActionId: "check_status",
+		primaryActionLabel: "Check status",
+		profileId: "agent-codex",
+		profileName: "Codex Design Reviewer",
+		recoveryReasonCode: "agent_profile_binding.agent_controller_report_missing",
+		secondaryLabel: "Needs setup on this computer",
+		title: "Codex needs setup on this computer",
+	};
+
+	function renderIssue(
+		plans: ReadonlyMap<string, AgentProfileReplyRecoveryPlan>
+	) {
+		return render(
+			<QueryClientProvider client={new QueryClient()}>
+				<SpaceAgentRecoveryProvider
+					isAgentRecoveryPending={() => false}
+					onAgentRecoveryAction={vi.fn(async () => undefined)}
+					orgSlug="acme"
+					plansByProfileId={plans}
+				>
+					<AgentProfileDetailsContent
+						details={buildAgentDetails()}
+						entry={{
+							...buildAgentEntry(),
+							availabilityBadgeLabel: "Setup needed",
+							availabilityCategory: "unavailable",
+						}}
+					/>
+				</SpaceAgentRecoveryProvider>
+			</QueryClientProvider>
+		);
+	}
+
+	it("shows the reason once, in the footer, next to the shared fix", () => {
+		renderIssue(new Map([["agent-codex", reportMissingPlan]]));
+
+		const footer = screen
+			.getByText("Setup needed")
+			.closest("[data-slot='agent-profile-issue-footer']");
+		expect(footer).toBeTruthy();
+		expect(screen.getAllByText("Setup needed")).toHaveLength(1);
+		expect(
+			within(footer as HTMLElement)
+				.getByRole("link", { name: "Check status" })
+				.getAttribute("href")
+		).toBe("/o/acme/computers");
+		expect(
+			screen.queryByText("Connect a local agent before this profile can reply.")
+		).toBeNull();
+	});
+
+	it("explains the next step when this viewer has no fix", () => {
+		renderIssue(new Map());
+
+		expect(screen.getByText("Setup needed")).toBeTruthy();
+		expect(
+			screen.getByText("Connect a local agent before this profile can reply.")
+		).toBeTruthy();
+		expect(screen.queryByRole("link", { name: "Check status" })).toBeNull();
 	});
 });
 

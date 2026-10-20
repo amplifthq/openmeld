@@ -30,6 +30,8 @@ export type ProviderSpecificRuntimeContinuationRequest = {
   latestKnownRuntimeWorkspaceFingerprint?: string | null;
   runtimeContext: ProviderDispatchRuntimeContext;
   runtimePreparationDetails: ProviderRuntimePreparationDetails;
+  /** A colleague's Wake: a conversation of its own (member-agent-program.md §4.3). */
+  separateConversationScopeId?: string;
   spaceId: string;
   spaceNameSnapshot: string | null;
   standardLocalRuntimeContextPlan: LocalRuntimeContextPlan;

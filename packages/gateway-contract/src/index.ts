@@ -73,6 +73,14 @@ export {
   ORGANIZATION_PROFILE_DIRECTORY_INCLUDE_MODEL_SELECTION_QUERY_PARAMETER,
 } from "./query-parameters";
 export {
+  encodeTaskCredentialHeader,
+  OPENMELD_HEADER_CREDENTIAL_CONFIRMATION,
+  OPENMELD_HEADER_TASK_CREDENTIAL,
+  readCredentialConfirmationHeader,
+  readTaskCredentialHeader,
+  type TaskCredentialHeaderReadResult,
+} from "./sensitive-operation-headers";
+export {
   buildUserTimeZoneObservationHeaders,
   OPENMELD_HEADER_USER_TIME_ZONE,
   OPENMELD_HEADER_USER_TIME_ZONE_SOURCE,

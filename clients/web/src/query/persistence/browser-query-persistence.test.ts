@@ -19,7 +19,12 @@ import { organizationQueryKeys } from "#/query/organizations/organization-direct
 import { organizationPluginConnectionQueryKeys } from "#/query/organizations/plugin-connections";
 import { startQueryKeys } from "#/query/query-keys";
 import { spaceConversationDisplaySnapshotSchema } from "#/query/spaces/display-snapshot";
+import { spaceHeaderTitleDisplayQueryKey } from "#/query/spaces/header-title-display";
 import { spaceQueryKeys } from "#/query/spaces/status";
+import {
+	accountMemberSpacesDisplayQueryKey,
+	spaceViewerMembershipDisplayQueryKey,
+} from "#/query/spaces/viewer-membership-display";
 import {
 	BROWSER_QUERY_CACHE_BUSTER,
 	buildSpaceConversationQueryCacheScopeId,
@@ -397,6 +402,24 @@ describe("BrowserQueryPersistenceController", () => {
 			spaceStorage,
 			spaceQueryKeys.historyNavigation("space-a", "profile-a")
 		);
+		const membership = { version: 1, membership: "member" };
+		sourceQueryClient.setQueryData(
+			spaceViewerMembershipDisplayQueryKey("space-a", "profile-a"),
+			membership
+		);
+		await waitForStoredQuery(
+			spaceStorage,
+			spaceViewerMembershipDisplayQueryKey("space-a", "profile-a")
+		);
+		const headerTitle = { version: 1, title: "New chat" };
+		sourceQueryClient.setQueryData(
+			spaceHeaderTitleDisplayQueryKey("space-a", "profile-a"),
+			headerTitle
+		);
+		await waitForStoredQuery(
+			spaceStorage,
+			spaceHeaderTitleDisplayQueryKey("space-a", "profile-a")
+		);
 
 		await sourceController.activateSpaceConversation({
 			organizationId: "organization-a",
@@ -483,6 +506,16 @@ describe("BrowserQueryPersistenceController", () => {
 				spaceQueryKeys.historyNavigation("space-a", "profile-a")
 			)
 		).toEqual(navigation);
+		expect(
+			restoredQueryClient.getQueryData(
+				spaceViewerMembershipDisplayQueryKey("space-a", "profile-a")
+			)
+		).toEqual(membership);
+		expect(
+			restoredQueryClient.getQueryData(
+				spaceHeaderTitleDisplayQueryKey("space-a", "profile-a")
+			)
+		).toEqual(headerTitle);
 		expect(
 			restoredQueryClient.getQueryData(
 				spaceQueryKeys.members("space-a", "profile-a")
@@ -1026,6 +1059,14 @@ describe("BrowserQueryPersistenceController", () => {
 			accountSidebarQueryKey("account-a", "organization-a"),
 			savedSidebar
 		);
+		const memberSpaces = {
+			version: 1,
+			spaces: [{ spaceId: "space-a", profileIds: ["profile-a"] }],
+		};
+		sourceQueryClient.setQueryData(
+			accountMemberSpacesDisplayQueryKey("account-a", "organization-a"),
+			memberSpaces
+		);
 		sourceQueryClient.setQueryData(
 			organizationPluginConnectionQueryKeys.statusSummary("organization-a"),
 			{
@@ -1079,6 +1120,15 @@ describe("BrowserQueryPersistenceController", () => {
 					scopeKind: "organization",
 				}),
 				accountSidebarQueryKey("account-a", "organization-a")
+			),
+			waitForStoredQuery(
+				store.createStorage({
+					ownerAccountId: "account-a",
+					scopeAlias: "organization-a",
+					scopeId: "organization-a",
+					scopeKind: "organization",
+				}),
+				accountMemberSpacesDisplayQueryKey("account-a", "organization-a")
 			),
 			waitForStoredQuery(
 				store.createStorage({
@@ -1172,6 +1222,11 @@ describe("BrowserQueryPersistenceController", () => {
 				startQueryKeys.localRuntimes("account-a")
 			)
 		).toBeUndefined();
+		expect(
+			restoredQueryClient.getQueryData(
+				accountMemberSpacesDisplayQueryKey("account-a", "organization-a")
+			)
+		).toEqual(memberSpaces);
 		expect(
 			restoredQueryClient.getQueryData(
 				organizationPluginConnectionQueryKeys.statusSummary("organization-a")

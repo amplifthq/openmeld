@@ -82,6 +82,11 @@ export type RuntimeTask = {
   bindingKey: string;
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary;
   executionContext?: AdapterDispatchRequest["executionContext"];
+  /**
+   * A ledger scope of this Wake's own, so its conversation is neither
+   * resumed from nor recorded into the Profile's shared one. A UUID.
+   */
+  agentContextScopeId?: string;
   dispatchId?: string;
   deliveryRecoveryReason?: OpenMeldDaemonDispatchDeliveryRecoveryReason;
   executionMode?: AdapterDispatchExecutionMode;
@@ -594,7 +599,8 @@ const resolvePostDispatchAgentContextResolution = (input: {
       agentControllerRef:
         input.postDispatchAgentContext.route.agentControllerRef,
       executionContextId:
-        input.postDispatchAgentContext.task.executionContext?.id,
+        input.postDispatchAgentContext.task.executionContext?.id ??
+        input.postDispatchAgentContext.task.agentContextScopeId,
       runtimeWorkspaceFingerprint:
         input.postDispatchAgentContext.route.runtimeWorkspaceFingerprint ??
         buildRuntimeWorkspaceFingerprint(
@@ -753,7 +759,9 @@ const prepareRuntimeTaskExecution = async (input: {
         ? resolveAgentContextForDispatch({
             key: {
               agentControllerRef: input.route.agentControllerRef,
-              executionContextId: input.task.executionContext?.id,
+              executionContextId:
+                input.task.executionContext?.id ??
+                input.task.agentContextScopeId,
               runtimeWorkspaceFingerprint:
                 input.route.runtimeWorkspaceFingerprint ??
                 buildRuntimeWorkspaceFingerprint(
@@ -929,7 +937,9 @@ const settleRuntimeTaskState = async (input: {
     invalidStateStrategy:
       input.committedAgentContextResolution?.agentContextLookupKey.startsWith(
         "execution-context|"
-      ) || input.postDispatchAgentContext?.task.executionContext
+      ) ||
+      input.postDispatchAgentContext?.task.executionContext ||
+      input.postDispatchAgentContext?.task.agentContextScopeId
         ? "throw"
         : "backup_and_reset",
     io: input.io,

@@ -24,6 +24,8 @@ export const {
   deviceCodes,
   invitations,
   invitationsRelations,
+  memberAgents,
+  memberAgentsRelations,
   organizationJoinLinks,
   organizationJoinLinksRelations,
   members,
@@ -47,7 +49,9 @@ export const {
 } = authSchema;
 
 export const {
+  agentProfilePermissionModeAdvisories,
   conversationHistoryDeletions,
+  directMessageSessionStates,
   firstWorkExperiences,
   userTimeContexts,
   aiUsageRecords,
@@ -86,6 +90,11 @@ export const {
   agentTaskTerminalOutcomes,
   centerAgentAttentionRequests,
   centerAgentWakePublications,
+  centerAgentPermissionModeConfirmations,
+  agentAccessRequests,
+  agentProfileAccessGrants,
+  sensitiveOperationAuditEvents,
+  sensitiveOperationConfirmations,
   centerAgentProjectOperations,
   centerAgentProjectRemoveConfirmations,
   centerAgentConnectorActionOperations,
@@ -189,6 +198,7 @@ export const {
   openMeldDaemonPrepareSessionTokens,
   openMeldDaemonRuntimeRegistryRecords,
   openMeldDaemonRuntimeAgentControllerReports,
+  openMeldDaemonRuntimeHarnessPresence,
   openMeldDaemonCurrentDeviceTargets,
   spaceAttachments,
   spaceIndexSpaces,

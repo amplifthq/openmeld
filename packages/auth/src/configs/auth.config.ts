@@ -52,6 +52,7 @@ import {
   resolveUserDisplayName,
 } from "../organization/personal-organization";
 import { createActiveAccountPlugin } from "../plugins/active-account";
+import { createCliCredentialPlugin } from "../plugins/cli-credential";
 import { createOpenMeldEmailIdentityPlugin } from "../plugins/openmeld-email-identity";
 import { createOrganizationMemberDeparturePlugin } from "../plugins/organization-member-departure";
 import { createDrizzleOpenMeldProfileRepository } from "../profiles/profile-repository";
@@ -1036,6 +1037,7 @@ export function createAuthConfig(
         db: env.AUTH_SCHEMA_CODEGEN ? undefined : getPostgresDatabase(env),
       }),
       bearer(),
+      createCliCredentialPlugin(),
       username(),
       multiSession({
         maximumSessions: 5,

@@ -7,6 +7,7 @@ import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import {
+	isAgentRequestCandidate,
 	resolveAgentCandidateDescription,
 	resolvePersonActivityLabel,
 	type SpaceAddMembersCandidateGroups,
@@ -21,6 +22,7 @@ export function SpaceAddMembersCandidates(input: {
 	onToggle: (profileId: string) => void;
 	searchActive: boolean;
 	includeAgentOwners?: boolean;
+	agentRequestsFor?: string | null;
 	selectedProfileIds: ReadonlySet<string>;
 	selectionScope?: "space" | "desk";
 }) {
@@ -88,6 +90,7 @@ export function SpaceAddMembersCandidates(input: {
 								input.searchActive || !collapsedGroupIds.has(group.id);
 							return (
 								<SpaceAddMembersPersonGroupView
+									agentRequestsFor={input.agentRequestsFor}
 									expanded={expanded}
 									group={group}
 									includeAgentOwners={input.includeAgentOwners}
@@ -117,6 +120,7 @@ export function SpaceAddMembersCandidates(input: {
 }
 
 function SpaceAddMembersPersonGroupView(input: {
+	agentRequestsFor?: string | null;
 	includeAgentOwners?: boolean;
 	expanded: boolean;
 	group: SpaceAddMembersPersonGroup;
@@ -125,11 +129,17 @@ function SpaceAddMembersPersonGroupView(input: {
 	selectedProfileIds: ReadonlySet<string>;
 	selectionScope?: "space" | "desk";
 }) {
-	const selectedAgentCount = input.group.agentCandidates.filter(
+	const selectedAgents = input.group.agentCandidates.filter(
 		(candidate) =>
 			candidate.ownerHumanProfileId === input.group.humanCandidate?.profileId &&
 			input.selectedProfileIds.has(candidate.profileId)
-	).length;
+	);
+	const requestsOwner =
+		input.agentRequestsFor !== undefined &&
+		selectedAgents.some((candidate) =>
+			isAgentRequestCandidate(candidate, input.agentRequestsFor)
+		);
+	const selectedAgentCount = selectedAgents.length;
 	let humanDescription = resolvePersonActivityLabel(input.group.lastActiveAt);
 	if (
 		input.group.humanAlreadyMember ||
@@ -137,6 +147,8 @@ function SpaceAddMembersPersonGroupView(input: {
 	) {
 		humanDescription =
 			input.selectionScope === "desk" ? "On your Desk" : "In this Space";
+	} else if (requestsOwner) {
+		humanDescription = `${input.group.name} decides whether the Agent joins`;
 	} else if (input.includeAgentOwners && selectedAgentCount > 0) {
 		humanDescription = `Joins with ${selectedAgentCount === 1 ? "selected Agent" : `${String(selectedAgentCount)} selected Agents`}`;
 	}

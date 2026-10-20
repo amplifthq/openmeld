@@ -130,6 +130,26 @@ export function resolveIsolatedWebDopplerCommand(
   );
 }
 
+export const WEB_DEV_HEAP_LIMIT_MB = 8192;
+const HEAP_LIMIT_OPTION_PATTERN = /(^|\s)--max-old-space-size(=|\s)/;
+
+/**
+ * Vite's dev server can run out of the default Node heap under heavy HMR.
+ * Raises the limit for the Web dev runtime only, and keeps any NODE_OPTIONS
+ * already set; a heap size chosen there wins.
+ */
+export function withWebDevHeapLimit(env = process.env) {
+  const nodeOptions = env.NODE_OPTIONS?.trim() ?? "";
+  if (HEAP_LIMIT_OPTION_PATTERN.test(nodeOptions)) {
+    return env;
+  }
+  const heapOption = `--max-old-space-size=${WEB_DEV_HEAP_LIMIT_MB}`;
+  return {
+    ...env,
+    NODE_OPTIONS: nodeOptions ? `${nodeOptions} ${heapOption}` : heapOption,
+  };
+}
+
 export function resolveIsolatedWebScript(env = process.env) {
   return env.OPENMELD_DESKTOP_PILOT === "1" ? "desktop:pilot" : "dev:isolated";
 }

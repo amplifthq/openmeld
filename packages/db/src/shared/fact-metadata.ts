@@ -35,7 +35,7 @@ export const SHARED_DB_DATABASE_NAME = "openmeld-db-prod";
  * Keep in sync with packages/db/drizzle/meta/_journal.json; the shared migration
  * history integrity test guards the two against drift.
  */
-export const LATEST_SHARED_MIGRATION_ID = 192;
+export const LATEST_SHARED_MIGRATION_ID = 193;
 export const SHARED_DB_SCHEMA_ENTRYPOINT_PATH = "packages/db/src/schema.ts";
 export const SHARED_DB_RELEASE_NOTES = [
   "Root db:* commands now report the shared OPENMELD_DB schema and migration contract instead of an auth-only view.",

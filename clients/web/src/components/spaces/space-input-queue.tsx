@@ -19,6 +19,16 @@ import type {
 	SpaceInputQueueResponse,
 	WakeProgressItem,
 } from "@openmeld/schemas/types";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@openmeld/ui/components/alert-dialog";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
@@ -35,6 +45,7 @@ import { springs } from "@openmeld/ui/lib/springs";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowBendUpRightIcon,
+	ArrowClockwiseIcon,
 	ArrowDownIcon,
 	ArrowUpIcon,
 	DotsSixVerticalIcon,
@@ -54,19 +65,25 @@ import { useSpaceInputQueue } from "./use-space-input-queue";
 import { useSpaceWorkRecovery } from "./use-space-work-recovery";
 
 type Item = SpaceInputQueueResponse["items"][number];
+type QueueProgress = Pick<
+	WakeProgressItem,
+	| "dispatchId"
+	| "targetProfileId"
+	| "targetLabel"
+	| "terminal"
+	| "phase"
+	| "waitReasonCode"
+	| "pendingInteraction"
+>;
 const MotionTray = motion.create(SpaceComposerTray);
 const rowTransition = { ...springs.slow, bounce: 0 };
 
+type QueueAgent = { profileId: string; profileName: string };
+
 export function SpaceInputQueue(input: {
-	progressItems: readonly Pick<
-		WakeProgressItem,
-		| "dispatchId"
-		| "targetProfileId"
-		| "terminal"
-		| "phase"
-		| "waitReasonCode"
-		| "pendingInteraction"
-	>[];
+	/** Names the Agent once its response has ended and left the progress list. */
+	agents?: readonly QueueAgent[];
+	progressItems: readonly QueueProgress[];
 	threadId?: string | null;
 	spaceId: string;
 	profileId: string;
@@ -111,6 +128,8 @@ export function SpaceInputQueue(input: {
 				setAnnouncement("Message moved to the composer for editing.");
 			} else if (mutation.action === "delete") {
 				setAnnouncement("Queued message deleted.");
+			} else if (mutation.action === "retry") {
+				setAnnouncement("Message is back in the queue.");
 			}
 		} catch (cause) {
 			// Retain the text after a lost response. Retrying confirms the
@@ -122,6 +141,22 @@ export function SpaceInputQueue(input: {
 				cause instanceof Error
 					? cause.message
 					: "Couldn't update queued messages. Try again."
+			);
+		} finally {
+			setSaving(false);
+		}
+	}
+	async function sendNow(item: Item) {
+		setSaving(true);
+		setError(null);
+		try {
+			await queue.sendNow(item);
+			setAnnouncement("Queued message sent.");
+		} catch (cause) {
+			setError(
+				cause instanceof Error
+					? cause.message
+					: "Couldn't send this message now. It's still queued."
 			);
 		} finally {
 			setSaving(false);
@@ -189,19 +224,8 @@ export function SpaceInputQueue(input: {
 							>
 								<div className="relative max-h-60 overflow-y-auto overscroll-contain px-1.5 pb-1">
 									<AnimatePresence initial={false} mode="popLayout" propagate>
-										{items.map((item) => (
+										{items.map((item, position) => (
 											<QueuedMessage
-												canSendNow={input.progressItems.some(
-													(progress) =>
-														progress.dispatchId === item.target.dispatchId &&
-														progress.targetProfileId ===
-															item.target.targetProfileId &&
-														(progress.phase === "running" ||
-															progress.phase === "writing") &&
-														!progress.terminal &&
-														!progress.waitReasonCode &&
-														!progress.pendingInteraction
-												)}
 												index={pendingIds.indexOf(item.inputId)}
 												item={item}
 												key={item.inputId}
@@ -210,6 +234,19 @@ export function SpaceInputQueue(input: {
 												mutate={mutate}
 												pendingCount={pendingIds.length}
 												saving={saving}
+												sendNow={sendNow}
+												sendNowState={resolveSendNowState(
+													item,
+													input.progressItems,
+													{
+														agents: input.agents,
+														paused: isPausedBehind(items, position),
+													}
+												)}
+												status={queuedMessageStatus(item, input.progressItems, {
+													agents: input.agents,
+													paused: isPausedBehind(items, position),
+												})}
 											/>
 										))}
 									</AnimatePresence>
@@ -245,20 +282,132 @@ export function SpaceInputQueue(input: {
 	);
 }
 
-function queuedMessageStatus(item: Item): string | null {
+/**
+ * An input waits behind an earlier one for the same response whose delivery
+ * is not settled; it moves once that one is delivered, retried or removed.
+ */
+export function isPausedBehind(
+	items: readonly Pick<Item, "state" | "target">[],
+	index: number
+): boolean {
+	const item = items[index];
+	return Boolean(
+		item &&
+			item.state === "queued" &&
+			items
+				.slice(0, index)
+				.some(
+					(earlier) =>
+						earlier.state !== "queued" &&
+						earlier.target.dispatchId === item.target.dispatchId &&
+						earlier.target.targetProfileId === item.target.targetProfileId
+				)
+	);
+}
+
+function queuedAgentName(
+	item: Pick<Item, "target">,
+	progressItems: readonly QueueProgress[],
+	agents: readonly QueueAgent[] = []
+): string {
+	const progress = progressItems.find(
+		(candidate) =>
+			candidate.dispatchId === item.target.dispatchId &&
+			candidate.targetProfileId === item.target.targetProfileId
+	);
+	return (
+		progress?.targetLabel.replace(LEADING_MENTION, "") ||
+		agents.find((agent) => agent.profileId === item.target.targetProfileId)
+			?.profileName ||
+		"the agent"
+	);
+}
+
+/** The line under a queued message: its real delivery state, if not plain queued. */
+export function queuedMessageStatus(
+	item: Pick<Item, "blocked" | "delivery" | "state" | "target">,
+	progressItems: readonly QueueProgress[],
+	options: { agents?: readonly QueueAgent[]; paused?: boolean } = {}
+): string | null {
+	const name = queuedAgentName(item, progressItems, options.agents);
 	if (item.state === "claimed") {
 		return "Confirming delivery…";
 	}
 	if (item.state === "unconfirmed") {
-		return "Delivery isn't confirmed. This message and later messages are paused.";
+		return item.delivery === "undecided"
+			? `Couldn't confirm that ${name} received this. Retry it or remove it; later messages wait until you do.`
+			: `Checking whether ${name} received this…`;
+	}
+	if (options.paused) {
+		return "Waiting for the message above.";
 	}
 	return item.blocked
 		? "Still queued. Edit and send it to start a new response."
 		: null;
 }
 
+type SendNowState = { available: boolean; hint: string };
+const LEADING_MENTION = /^@/;
+
+/** Says whether "Send now" can reach the response, and why not when it can't. */
+export function resolveSendNowState(
+	item: Pick<Item, "blocked" | "target"> &
+		Partial<Pick<Item, "delivery" | "state">>,
+	progressItems: readonly QueueProgress[],
+	options: { agents?: readonly QueueAgent[]; paused?: boolean } = {}
+): SendNowState {
+	const progress = progressItems.find(
+		(candidate) =>
+			candidate.dispatchId === item.target.dispatchId &&
+			candidate.targetProfileId === item.target.targetProfileId
+	);
+	const name = queuedAgentName(item, progressItems, options.agents);
+	if (item.state === "claimed" || item.state === "unconfirmed") {
+		return {
+			available: false,
+			hint:
+				item.delivery === "undecided"
+					? "Retry or remove this message first."
+					: `Checking whether ${name} received this…`,
+		};
+	}
+	if (options.paused) {
+		return {
+			available: false,
+			hint: "Sent after the message above is delivered, retried, or removed.",
+		};
+	}
+	if (item.blocked || !progress || progress.terminal) {
+		return {
+			available: false,
+			hint: "This response has ended. The message is sent when the next one starts.",
+		};
+	}
+	if (progress.pendingInteraction) {
+		return {
+			available: false,
+			hint: `${name} is waiting for your input. Answer it first, then send this message.`,
+		};
+	}
+	if (
+		progress.waitReasonCode ||
+		(progress.phase !== "running" && progress.phase !== "writing")
+	) {
+		return {
+			available: false,
+			hint: `Available when ${name} is working again.`,
+		};
+	}
+	return {
+		available: true,
+		hint: `Send this message to ${name} while it works`,
+	};
+}
+
 function QueuedMessage({
-	canSendNow,
+	sendNowState,
+	status,
+	sendNow,
 	item,
 	saving,
 	mutate,
@@ -268,7 +417,9 @@ function QueuedMessage({
 	keyboardReorder,
 	ref,
 }: {
-	canSendNow: boolean;
+	sendNowState: SendNowState;
+	status: string | null;
+	sendNow: (item: Item) => Promise<void>;
 	item: Item;
 	saving: boolean;
 	mutate: (mutation: SpaceInputQueueMutation, editing?: Item) => Promise<void>;
@@ -283,7 +434,10 @@ function QueuedMessage({
 	const isPresent = useIsPresent();
 	const [expanded, setExpanded] = useState(false);
 	const pending = item.state === "queued";
+	const undecided =
+		item.state === "unconfirmed" && item.delivery === "undecided";
 	const disabled = !pending || saving || !isPresent;
+	const [confirmRemove, setConfirmRemove] = useState(false);
 	const sortable = useSortable({
 		id: item.inputId,
 		disabled,
@@ -291,7 +445,6 @@ function QueuedMessage({
 			? null
 			: { duration: 160, easing: "cubic-bezier(0.23, 1, 0.32, 1)" },
 	});
-	const status = queuedMessageStatus(item);
 	return (
 		<motion.div
 			animate={{ opacity: 1, transform: "translateY(0px) scale(1)" }}
@@ -352,7 +505,9 @@ function QueuedMessage({
 						<span
 							className={cn(
 								"block",
-								expanded ? "whitespace-pre-wrap break-words" : "truncate"
+								// Both states collapse runs of spaces the same way, so
+								// expanding never moves the first line sideways.
+								expanded ? "whitespace-pre-line break-words" : "truncate"
 							)}
 						>
 							{item.text}
@@ -370,91 +525,200 @@ function QueuedMessage({
 						expanded && "max-sm:justify-self-end"
 					)}
 				>
-					<TooltipHint
-						content={
-							canSendNow
-								? "Send this message while the agent is working"
-								: "Available when this response is running"
-						}
-					>
-						<Button
-							className="gap-1 px-1.5 transition-colors"
-							disabled={disabled || item.blocked || !canSendNow}
-							onClick={() =>
-								mutate({
-									action: "steer",
-									inputId: item.inputId,
-									target: item.target,
-								})
-							}
-							size="sm"
-							variant="ghost"
-						>
-							<ArrowBendUpRightIcon size={14} />
-							Send now
-						</Button>
-					</TooltipHint>
-					<Button
-						aria-label="Delete queued message"
-						className="transition-colors"
-						disabled={disabled}
-						onClick={() => mutate({ action: "delete", inputId: item.inputId })}
-						size="icon-sm"
-						variant="ghost"
-					>
-						<TrashIcon size={14} />
-					</Button>
-					<DropdownMenu>
-						<DropdownMenuTrigger
-							render={
-								<Button
-									aria-label="Queued message options"
-									className="transition-colors"
-									disabled={disabled}
-									size="icon-sm"
-									variant="ghost"
-								>
-									<DotsThreeIcon size={16} />
-								</Button>
-							}
+					{undecided ? (
+						<UndecidedQueuedMessageActions
+							confirmRemove={confirmRemove}
+							item={item}
+							mutate={mutate}
+							onConfirmRemoveChange={setConfirmRemove}
+							saving={saving || !isPresent}
 						/>
-						<FluidDropdownMenuContent align="end">
-							<FluidDropdownMenuGroup>
-								<FluidDropdownMenuItem
-									disabled={disabled}
-									index={0}
-									onClick={() =>
-										mutate({ action: "delete", inputId: item.inputId }, item)
-									}
-								>
-									<PencilSimpleIcon />
-									Edit message
-								</FluidDropdownMenuItem>
-							</FluidDropdownMenuGroup>
-							<DropdownMenuSeparator />
-							<FluidDropdownMenuGroup>
-								<FluidDropdownMenuItem
-									disabled={disabled || index <= 0}
-									index={0}
-									onClick={() => move(item.inputId, index - 1)}
-								>
-									<ArrowUpIcon />
-									Move up
-								</FluidDropdownMenuItem>
-								<FluidDropdownMenuItem
-									disabled={disabled || index >= pendingCount - 1}
-									index={1}
-									onClick={() => move(item.inputId, index + 1)}
-								>
-									<ArrowDownIcon />
-									Move down
-								</FluidDropdownMenuItem>
-							</FluidDropdownMenuGroup>
-						</FluidDropdownMenuContent>
-					</DropdownMenu>
+					) : (
+						<PendingQueuedMessageActions
+							disabled={disabled}
+							index={index}
+							item={item}
+							move={move}
+							mutate={mutate}
+							pendingCount={pendingCount}
+							sendNow={sendNow}
+							sendNowState={sendNowState}
+						/>
+					)}
 				</div>
 			</div>
 		</motion.div>
+	);
+}
+
+/** Send now, delete, edit and reorder for a message still in the queue. */
+function PendingQueuedMessageActions({
+	disabled,
+	index,
+	item,
+	move,
+	mutate,
+	pendingCount,
+	sendNow,
+	sendNowState,
+}: {
+	disabled: boolean;
+	index: number;
+	item: Item;
+	move: (inputId: string, to: number) => Promise<void> | undefined;
+	mutate: (mutation: SpaceInputQueueMutation, editing?: Item) => Promise<void>;
+	pendingCount: number;
+	sendNow: (item: Item) => Promise<void>;
+	sendNowState: SendNowState;
+}) {
+	return (
+		<>
+			{/* A disabled button gets no pointer events, so the wrapper owns
+			the tooltip and stays focusable to explain why it is off. */}
+			<TooltipHint content={sendNowState.hint}>
+				<span
+					className={cn(
+						"inline-flex rounded-md outline-none focus-visible:ring-1 focus-visible:ring-ring",
+						!sendNowState.available && "cursor-not-allowed"
+					)}
+					data-slot="queued-send-now"
+					tabIndex={sendNowState.available ? undefined : 0}
+				>
+					<Button
+						className="gap-1 px-1.5 text-foreground transition-colors disabled:text-muted-foreground"
+						disabled={disabled || !sendNowState.available}
+						onClick={() => sendNow(item)}
+						size="sm"
+						variant="ghost"
+					>
+						<ArrowBendUpRightIcon size={14} />
+						Send now
+					</Button>
+				</span>
+			</TooltipHint>
+			<Button
+				aria-label="Delete queued message"
+				className="transition-colors"
+				disabled={disabled}
+				onClick={() => mutate({ action: "delete", inputId: item.inputId })}
+				size="icon-sm"
+				variant="ghost"
+			>
+				<TrashIcon size={14} />
+			</Button>
+			<DropdownMenu>
+				<DropdownMenuTrigger
+					render={
+						<Button
+							aria-label="Queued message options"
+							className="transition-colors"
+							disabled={disabled}
+							size="icon-sm"
+							variant="ghost"
+						>
+							<DotsThreeIcon size={16} />
+						</Button>
+					}
+				/>
+				<FluidDropdownMenuContent align="end">
+					<FluidDropdownMenuGroup>
+						<FluidDropdownMenuItem
+							disabled={disabled}
+							index={0}
+							onClick={() =>
+								mutate({ action: "delete", inputId: item.inputId }, item)
+							}
+						>
+							<PencilSimpleIcon />
+							Edit message
+						</FluidDropdownMenuItem>
+					</FluidDropdownMenuGroup>
+					<DropdownMenuSeparator />
+					<FluidDropdownMenuGroup>
+						<FluidDropdownMenuItem
+							disabled={disabled || index <= 0}
+							index={0}
+							onClick={() => move(item.inputId, index - 1)}
+						>
+							<ArrowUpIcon />
+							Move up
+						</FluidDropdownMenuItem>
+						<FluidDropdownMenuItem
+							disabled={disabled || index >= pendingCount - 1}
+							index={1}
+							onClick={() => move(item.inputId, index + 1)}
+						>
+							<ArrowDownIcon />
+							Move down
+						</FluidDropdownMenuItem>
+					</FluidDropdownMenuGroup>
+				</FluidDropdownMenuContent>
+			</DropdownMenu>
+		</>
+	);
+}
+
+/**
+ * Core could not tell whether the Agent got this message. The author puts it
+ * back in the queue or removes it; removing asks once, since the Agent may
+ * have seen it.
+ */
+function UndecidedQueuedMessageActions(input: {
+	item: Item;
+	saving: boolean;
+	confirmRemove: boolean;
+	onConfirmRemoveChange: (open: boolean) => void;
+	mutate: (mutation: SpaceInputQueueMutation) => Promise<void>;
+}) {
+	return (
+		<>
+			<Button
+				className="gap-1 px-1.5 text-foreground"
+				disabled={input.saving}
+				onClick={() =>
+					input.mutate({ action: "retry", inputId: input.item.inputId })
+				}
+				size="sm"
+				variant="ghost"
+			>
+				<ArrowClockwiseIcon size={14} />
+				Retry
+			</Button>
+			<Button
+				aria-label="Remove from queue"
+				disabled={input.saving}
+				onClick={() => input.onConfirmRemoveChange(true)}
+				size="icon-sm"
+				variant="ghost"
+			>
+				<TrashIcon size={14} />
+			</Button>
+			<AlertDialog
+				onOpenChange={input.onConfirmRemoveChange}
+				open={input.confirmRemove}
+			>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Remove from queue?</AlertDialogTitle>
+						<AlertDialogDescription>
+							The agent may have already seen this message. Removing it only
+							takes it out of the queue.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Keep</AlertDialogCancel>
+						<AlertDialogAction
+							onClick={() => {
+								input.onConfirmRemoveChange(false);
+								input.mutate({ action: "delete", inputId: input.item.inputId });
+							}}
+						>
+							Remove from queue
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+		</>
 	);
 }
 

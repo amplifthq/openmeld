@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { mock } from "node:test";
 import { createClaudeLiveInput } from "../dist/transport/claude-live-input.js";
 
 const init = (version = "2.1.291") => ({
@@ -68,4 +68,44 @@ test("Claude live input fails closed before init, on older CLIs, and after an un
   input.close();
   assert.equal((await receipt).status, "unconfirmed");
   assert.equal((await input.prompt().next()).done, true);
+});
+
+test("Claude live input confirms a replay that follows the yielded turn after thinking", async () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const input = createClaudeLiveInput("task", "Write a long list.");
+  const stream = input.prompt();
+  await stream.next();
+  input.observe(init());
+  const receipt = input.steer(request);
+  const message = (await stream.next()).value;
+  // Observed with Claude Code 2.1.303: the old turn yields, the continuation
+  // starts, and the replay arrives only after more than ten seconds of thinking.
+  input.observe({ type: "result", is_error: false });
+  input.observe(init());
+  mock.timers.tick(60_000);
+  input.observe({ ...message, isReplay: true, session_id: "native-session" });
+  assert.deepEqual(await receipt, {
+    status: "applied",
+    taskId: "task",
+    threadId: "native-session",
+    turnId: message.uuid,
+  });
+  input.observe({ type: "result", user_message_uuids: [message.uuid] });
+  assert.equal((await stream.next()).done, true);
+  mock.timers.reset();
+});
+
+test("Claude live input closes when no continuation starts after the yielded turn", async () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const input = createClaudeLiveInput("task", "Write a long list.");
+  const stream = input.prompt();
+  await stream.next();
+  input.observe(init());
+  const receipt = input.steer(request);
+  await stream.next();
+  input.observe({ type: "result", is_error: false });
+  mock.timers.tick(10_000);
+  assert.equal((await receipt).status, "unconfirmed");
+  assert.equal((await stream.next()).done, true);
+  mock.timers.reset();
 });

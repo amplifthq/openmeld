@@ -74,6 +74,7 @@ export function ConversationNamesProvider({
 				? resolveDirectMessagePresentation({
 						item,
 						profileDirectory: directory.data,
+						viewerUserId: currentUserId,
 						viewerProfileId: resolveAccountSpaceViewerProfileId({
 							currentProfileId: profileId,
 							item,

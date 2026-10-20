@@ -71,11 +71,42 @@ function resourcesConflict(
   }
   if (
     (left.legacy && right.legacy) ||
-    (left.access === "read" && right.access === "read")
+    (left.access === "read" && right.access === "read") ||
+    isSharedFolder(left, right)
   ) {
     return false;
   }
   return sharedRootsOverlap(left.roots, right.roots);
+}
+
+/**
+ * Two direct-edit Execution Context tasks with the same known roots share the
+ * folder and both run (design-plans/member-agent-program.md §4.9); the later
+ * one is told about the other (`shared_folder`). Legacy work, unknown roots and
+ * nested or partly overlapping roots keep the exclusive writer rule.
+ */
+function isSharedFolder(
+  leftClaim: LocalExecutionResourceClaim | undefined,
+  rightClaim: LocalExecutionResourceClaim | undefined
+): boolean {
+  if (
+    leftClaim?.kind !== "shared" ||
+    rightClaim?.kind !== "shared" ||
+    leftClaim.legacy ||
+    rightClaim.legacy ||
+    leftClaim.access !== "write" ||
+    rightClaim.access !== "write" ||
+    leftClaim.roots === null ||
+    rightClaim.roots === null
+  ) {
+    return false;
+  }
+  const left = [...leftClaim.roots].sort();
+  const right = [...rightClaim.roots].sort();
+  return (
+    left.length === right.length &&
+    left.every((root, index) => root === right[index])
+  );
 }
 
 export type LocalServiceDispatchLimits = {
@@ -87,6 +118,10 @@ export type LocalServiceDispatchLimits = {
 export type LocalExecutionSlotTask = {
   /** Absent for pre-Context work whose folder is not known yet. */
   resourceClaim?: LocalExecutionResourceClaim;
+  /** The Execution Context (Session) this task runs, when it has one. */
+  executionContextId?: string | null;
+  /** Owner-safe folder name for diagnostics text; never a path. */
+  folderLabel?: string;
   adapterId: string | null;
   attemptId: string;
   controllerKey: string;
@@ -142,9 +177,19 @@ export type LocalExecutionSlotAdapterOperationResult<T> =
     };
 
 export type LocalExecutionSlotDiagnostics = LocalExecutionSlotSnapshot & {
+  folderLabel: string | null;
   queuePosition: number | null;
   status: "queued" | "starting_runtime";
   waitReason: LocalExecutionSlotWaitReason;
+};
+
+/** Another direct-edit Session that was already running in the same folder. */
+export type LocalExecutionSlotSharedFolderSession = {
+  executionContextId: string | null;
+  profileId: string;
+  spaceId: string | null;
+  targetLabel: string;
+  taskId: string;
 };
 
 export type LocalExecutionSlotLifecycleEvent = LocalExecutionSlotSnapshot & {
@@ -155,6 +200,8 @@ export type LocalExecutionSlotLifecycleEvent = LocalExecutionSlotSnapshot & {
   localExecutionLaneKey: string;
   localQueue: LocalExecutionSlotDiagnostics;
   profileId: string;
+  /** Set when the task started: earlier direct-edit Sessions in its folder. */
+  sharedFolderSessions: LocalExecutionSlotSharedFolderSession[];
   spaceId: string | null;
   taskId: string;
   targetLabel: string;
@@ -206,6 +253,7 @@ export function createLocalExecutionSlots(input: {
   onChanged?: () => void;
   onTaskCompleted?: (event: LocalExecutionSlotCompletionEvent) => void;
   onTaskDropped?: (event: LocalExecutionSlotDropEvent) => void;
+  onTaskQueued?: (event: LocalExecutionSlotLifecycleEvent) => void;
   onTaskStarted?: (event: LocalExecutionSlotLifecycleEvent) => void;
 }) {
   const pendingTasks: Array<{
@@ -215,9 +263,12 @@ export function createLocalExecutionSlots(input: {
   const activeCountByAdapterId = new Map<string, number>();
   const activeCountByLaneKey = new Map<string, number>();
   const activeCountByProfileId = new Map<string, number>();
-  const activeResources = new Map<
+  const activeTasks = new Map<
     string,
-    LocalExecutionSlotTask["resourceClaim"]
+    {
+      sharedFolderSessions: LocalExecutionSlotSharedFolderSession[];
+      task: LocalExecutionSlotTask;
+    }
   >();
   const adapterOperationIds = new Set<string>();
   const ownedAttemptKeys = new Set<string>();
@@ -299,8 +350,8 @@ export function createLocalExecutionSlots(input: {
       return "agent_profile_concurrency";
     }
     if (
-      [...activeResources.values()].some((active) =>
-        resourcesConflict(active, task.resourceClaim)
+      [...activeTasks.values()].some((active) =>
+        resourcesConflict(active.task.resourceClaim, task.resourceClaim)
       ) ||
       conflictsWithOlderPendingWork(task)
     ) {
@@ -329,6 +380,7 @@ export function createLocalExecutionSlots(input: {
       (waitReason === "none" ? "starting_runtime" : "queued");
     return {
       ...buildSnapshot(task.localExecutionLaneKey),
+      folderLabel: task.folderLabel ?? null,
       queuePosition:
         status === "queued" ? inputDiagnostics.queuePosition : null,
       status,
@@ -356,6 +408,10 @@ export function createLocalExecutionSlots(input: {
         waitReason: inputEvent.waitReason,
       }),
       profileId: task.profileId,
+      sharedFolderSessions:
+        activeTasks.get(task.taskId)?.task === task
+          ? (activeTasks.get(task.taskId)?.sharedFolderSessions ?? [])
+          : [],
       spaceId: task.spaceId,
       taskId: task.taskId,
       targetLabel: task.targetLabel,
@@ -363,6 +419,21 @@ export function createLocalExecutionSlots(input: {
       ...buildSnapshot(task.localExecutionLaneKey),
     };
   };
+
+  const resolveSharedFolderSessions = (
+    task: LocalExecutionSlotTask
+  ): LocalExecutionSlotSharedFolderSession[] =>
+    [...activeTasks.values()]
+      .filter((active) =>
+        isSharedFolder(active.task.resourceClaim, task.resourceClaim)
+      )
+      .map(({ task: active }) => ({
+        executionContextId: active.executionContextId ?? null,
+        profileId: active.profileId,
+        spaceId: active.spaceId,
+        targetLabel: active.targetLabel,
+        taskId: active.taskId,
+      }));
 
   const buildTaskOwnerSnapshot = (owner: {
     attemptId: string;
@@ -445,7 +516,10 @@ export function createLocalExecutionSlots(input: {
       const selectedTask = selectedPendingTask.task;
 
       activeGlobal += 1;
-      activeResources.set(selectedTask.taskId, selectedTask.resourceClaim);
+      activeTasks.set(selectedTask.taskId, {
+        sharedFolderSessions: resolveSharedFolderSessions(selectedTask),
+        task: selectedTask,
+      });
       activeCountByProfileId.set(
         selectedTask.profileId,
         (activeCountByProfileId.get(selectedTask.profileId) ?? 0) + 1
@@ -501,7 +575,9 @@ export function createLocalExecutionSlots(input: {
         .finally(() => {
           releaseTaskOwnership(selectedTask);
           activeGlobal = Math.max(0, activeGlobal - 1);
-          activeResources.delete(selectedTask.taskId);
+          if (activeTasks.get(selectedTask.taskId)?.task === selectedTask) {
+            activeTasks.delete(selectedTask.taskId);
+          }
           activeCountByProfileId.set(
             selectedTask.profileId,
             Math.max(
@@ -543,6 +619,15 @@ export function createLocalExecutionSlots(input: {
   };
 
   return {
+    /**
+     * Direct-edit Sessions that were already running in this task's folder
+     * when it started. Empty for a task that is not running.
+     */
+    getSharedFolderSessions(
+      taskId: string
+    ): LocalExecutionSlotSharedFolderSession[] {
+      return activeTasks.get(taskId)?.sharedFolderSessions ?? [];
+    },
     isQuiescent,
     getAdapterOperationStatus(
       adapterId: string
@@ -626,6 +711,11 @@ export function createLocalExecutionSlots(input: {
       pendingTasks.push(pendingTask);
       input.onChanged?.();
       const snapshot = buildSnapshot(task.localExecutionLaneKey);
+      input.onTaskQueued?.(
+        buildTaskLifecycleEvent(task, {
+          queuePosition: pendingTasks.indexOf(pendingTask) + 1,
+        })
+      );
       if (task.onQueued) {
         try {
           const queuePosition = pendingTasks.indexOf(pendingTask) + 1;
@@ -772,4 +862,30 @@ function toPendingDropReason(value: unknown): string {
   }
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : "queue.drop";
+}
+
+/**
+ * Plain text for what a queued task waits for, for local diagnostics. It names
+ * the folder by its owner-safe label, never by path.
+ */
+export function describeLocalExecutionSlotWait(
+  diagnostics: LocalExecutionSlotDiagnostics
+): string {
+  const folder = diagnostics.folderLabel
+    ? ` in ${diagnostics.folderLabel}`
+    : "";
+  switch (diagnostics.waitReason) {
+    case "workspace_conflict":
+      return `waiting for another task that uses the folder${folder}`;
+    case "agent_profile_concurrency":
+      return `waiting for one of this Agent's ${diagnostics.limits.contextConcurrency ?? 0} running tasks to finish${folder}`;
+    case "global_concurrency":
+      return `waiting for one of this computer's ${diagnostics.limits.globalConcurrency} running tasks to finish${folder}`;
+    case "local_execution_lane_concurrency":
+      return `waiting for the previous turn of this conversation to finish${folder}`;
+    case "agent_controller_maintenance":
+      return `waiting for Agent controller maintenance to finish${folder}`;
+    default:
+      return `starting${folder}`;
+  }
 }

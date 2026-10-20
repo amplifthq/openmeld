@@ -10,13 +10,19 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowUpIcon } from "@phosphor-icons/react";
 import type { ComponentProps, ReactNode } from "react";
 import { useState } from "react";
+import type { SpaceAgentRequestMentions } from "#/components/agent-access/space-agent-request-mentions";
 import {
 	PromptInput,
 	PromptInputAction,
 	PromptInputActions,
 } from "#/components/ibelick/prompt-input";
 import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
+import {
+	formatPublicWakeabilityReason,
+	usePublicWakeabilityReason,
+} from "#/lib/agents/agent-viewer-access";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
+import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	isSpaceComposerFileFailed,
 	type SpaceComposerFile,
@@ -97,6 +103,7 @@ export type SpaceComposerProps = {
 		fileCleanup?: readonly ComposerFileDraftCleanup[];
 		fileRestorationError?: unknown | null;
 		hasAuthoredMentions?: boolean;
+		agentRequestMentions?: SpaceAgentRequestMentions;
 		mentionPickerItems: readonly SpaceMentionPickerItem[];
 		mentionEmptyMessage?: string;
 		text: string;
@@ -106,6 +113,13 @@ export type SpaceComposerProps = {
 		placement: SpaceComposerPlacement;
 		readOnly?: boolean;
 		readOnlyPlaceholder?: string;
+		/**
+		 * Membership is not known yet: render a neutral bar instead of an
+		 * input that may turn into a Join prompt a moment later.
+		 */
+		accessPending?: boolean;
+		/** The first message to a teammate's Agent is a request to its owner. */
+		requestPlaceholder?: string;
 		targetName?: string | null;
 	};
 	presentation?: {
@@ -115,6 +129,11 @@ export type SpaceComposerProps = {
 	};
 	slots?: {
 		attachmentAction?: ReactNode;
+		/**
+		 * Composer trays stack top to bottom: Agent requests, pending Agent
+		 * actions, queued messages. Each tucks under the next one.
+		 */
+		agentRequests?: ReactNode;
 		pendingActionSurface?: ReactNode;
 		queuedMessages?: ReactNode;
 		beforeInput?: ReactNode;
@@ -327,6 +346,53 @@ function composerPlaceholder(
 	return draft ? "Describe the work…" : placeholder;
 }
 
+/** Undefined shows the input; null shows the neutral loading bar. */
+function resolveReadOnlyBarPlaceholder(
+	context: SpaceComposerProps["context"],
+	placeholder: string
+): string | null | undefined {
+	if (context.accessPending) {
+		return null;
+	}
+	return context.readOnly ? placeholder : undefined;
+}
+
+/**
+ * The bar shown instead of the input: a Join prompt, a deleted Space, or a
+ * neutral placeholder while membership is still loading. Composer trays tuck
+ * under it exactly as they tuck under the input.
+ */
+function SpaceComposerReadOnlyBar(input: {
+	composer: SpaceComposerProps;
+	placeholder: string | null;
+}) {
+	const { composer } = input;
+	const pending = input.placeholder === null;
+	return (
+		<div
+			className={composer.presentation?.className}
+			data-slot={composer.presentation?.dataSlot}
+		>
+			{/* An Agent owner who only observes still answers their Agent. */}
+			{composer.slots?.agentRequests}
+			{composer.slots?.pendingActionSurface}
+			<div
+				aria-busy={pending || undefined}
+				className="relative flex min-h-14 items-center justify-between gap-4 rounded-lg border border-border bg-background p-3"
+				data-slot="space-composer-read-only-bar"
+			>
+				{pending ? null : (
+					<>
+						<p className="text-muted-foreground text-sm">{input.placeholder}</p>
+						{composer.slots?.primaryAction}
+					</>
+				)}
+			</div>
+			{pending ? null : composer.slots?.error}
+		</div>
+	);
+}
+
 export function SpaceComposer(input: SpaceComposerProps) {
 	const [editorFailed, setEditorFailed] = useState(false);
 	const [taskDraft, setTaskDraft] = useState<SpaceTaskDraft | null>(null);
@@ -335,8 +401,15 @@ export function SpaceComposer(input: SpaceComposerProps) {
 	const membersPending = hasPendingComposerMembers(input);
 	const { recommendations, recommended, acceptRecommendation } =
 		useComposerWakeSuggestion(input);
-	const deviceWaitPresentation =
-		buildSpaceComposerDeviceWaitPresentation(input);
+	const viewerUserId = useComposerViewerUserId();
+	const blockedWakeViewer: BlockedWakeViewer = {
+		publicReasonText: null,
+		userId: viewerUserId,
+	};
+	const deviceWaitPresentation = buildSpaceComposerDeviceWaitPresentation(
+		input,
+		blockedWakeViewer
+	);
 	const submit = () => {
 		if (
 			deviceWaitPresentation.disabled ||
@@ -384,6 +457,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		isSendingMessage: input.availability.isSendingMessage,
 		placement: input.context.placement,
 		readOnlyPlaceholder: input.context.readOnlyPlaceholder,
+		requestPlaceholder: input.context.requestPlaceholder,
 		targetName: input.context.targetName,
 		text: input.content.text,
 	});
@@ -406,7 +480,9 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		fileLimitReached: input.availability.fileLimitReached,
 	});
 	const blockedWakeHint = resolveSpaceComposerBlockedWakeHint(
-		input.content.addressingTargets
+		input.content.addressingTargets,
+		undefined,
+		blockedWakeViewer
 	);
 	const composerHint =
 		fileHint ??
@@ -446,19 +522,18 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		),
 		policy,
 	});
-	const feedbackLayout = resolveComposerFeedbackLayout(input, membersPending);
-	if (input.context.readOnly) {
+	const feedbackLayout = resolveComposerFeedbackLayout(
+		input,
+		membersPending,
+		Boolean(deviceWaitPresentation.hint)
+	);
+	const readOnlyBar = resolveReadOnlyBarPlaceholder(
+		input.context,
+		policy.placeholder
+	);
+	if (readOnlyBar !== undefined) {
 		return (
-			<div
-				className={input.presentation?.className}
-				data-slot={input.presentation?.dataSlot}
-			>
-				<div className="flex items-center justify-between gap-4 rounded-lg border border-border p-3">
-					<p className="text-muted-foreground text-sm">{policy.placeholder}</p>
-					{input.slots?.primaryAction}
-				</div>
-				{input.slots?.error}
-			</div>
+			<SpaceComposerReadOnlyBar composer={input} placeholder={readOnlyBar} />
 		);
 	}
 
@@ -467,6 +542,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 			className={input.presentation?.className}
 			data-slot={input.presentation?.dataSlot}
 		>
+			{input.slots?.agentRequests}
 			{input.slots?.pendingActionSurface}
 			{input.slots?.queuedMessages}
 			<div className="relative">
@@ -497,6 +573,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 					>
 						<SpaceComposerEditor
 							addressingTargets={input.content.addressingTargets}
+							agentRequestMentions={input.content.agentRequestMentions}
 							ariaLabel={policy.accessibleName}
 							authoredMentions={input.content.authoredMentions}
 							centerAgentProfileId={input.centerAgentProfileId}
@@ -583,6 +660,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 								hint={blockedWakeHint}
 								recovery={input.recovery}
 								target={blockedWakeTarget}
+								viewerUserId={viewerUserId}
 							/>
 							{input.content.addressingTargets
 								.filter(
@@ -618,7 +696,10 @@ export function SpaceComposer(input: SpaceComposerProps) {
 									</span>
 								</TooltipHint>
 							) : null}
-							<SpaceComposerMentionOnlyAction {...input} />
+							<SpaceComposerMentionOnlyAction
+								{...input}
+								viewerUserId={viewerUserId}
+							/>
 							<div className="min-w-0 break-words text-right empty:hidden">
 								<ComposerFeedback
 									error={input.slots?.error}
@@ -641,9 +722,13 @@ function hasPendingComposerMembers(input: SpaceComposerProps) {
 
 function resolveComposerFeedbackLayout(
 	input: SpaceComposerProps,
-	membersPending: boolean
+	membersPending: boolean,
+	hasDeviceWaitHint: boolean
 ) {
+	// Trailing text truncates in the remaining width; the leading buttons
+	// never shrink under it.
 	if (
+		hasDeviceWaitHint ||
 		input.slots?.error ||
 		(membersPending && input.members?.state === "error")
 	) {
@@ -678,9 +763,23 @@ function ComposerRecovery(input: {
 	hint: string | null;
 	recovery: SpaceComposerProps["recovery"];
 	target: SpaceComposerAddressingTarget | undefined;
+	viewerUserId: string | null;
 }) {
 	// A retained failed-send target is not authority for the current draft.
 	const profileId = input.target?.profileId;
+	// Only the owner can fix a colleague's Agent; the viewer sees the reason.
+	if (
+		input.target &&
+		input.hint &&
+		isColleagueAgentTarget(input.target, input.viewerUserId)
+	) {
+		return (
+			<ColleagueBlockedWakeHint
+				target={input.target}
+				viewerUserId={input.viewerUserId}
+			/>
+		);
+	}
 	if (!(profileId && input.recovery)) {
 		return input.target && input.hint ? (
 			<span className="ml-2 text-muted-foreground text-xs">{input.hint}</span>
@@ -703,9 +802,67 @@ function isBlockedWakeTarget(target: SpaceComposerAddressingTarget): boolean {
 	);
 }
 
-function resolveSpaceComposerBlockedWakeHint(
+function useComposerViewerUserId(): string | null {
+	return useOptionalAppOrganization()?.currentUserId ?? null;
+}
+
+/** The neutral hint, with the public reason once the shared overview has it. */
+function ColleagueBlockedWakeHint(input: {
+	target: SpaceComposerAddressingTarget;
+	viewerUserId: string | null;
+}) {
+	const publicReason = usePublicWakeabilityReason({
+		enabled: true,
+		profileId: input.target.profileId,
+	});
+	const hint = resolveSpaceComposerBlockedWakeHint([input.target], undefined, {
+		publicReasonText: publicReason
+			? formatPublicWakeabilityReason(publicReason)
+			: null,
+		userId: input.viewerUserId,
+	});
+	return hint ? (
+		<span className="ml-2 text-muted-foreground text-xs">{hint}</span>
+	) : null;
+}
+
+/** Who is composing, so a colleague's Agent shows only the public reason. */
+type BlockedWakeViewer = {
+	publicReasonText: string | null;
+	userId: string | null;
+};
+
+/**
+ * A colleague's Agent: owned by a person other than the viewer. Its owner's
+ * setup details and fix steps are not the viewer's to see or act on
+ * (developing/product/space-collaboration.md).
+ */
+export function isColleagueAgentTarget(
+	target: Pick<SpaceComposerAddressingTarget, "ownerUserId">,
+	viewerUserId: string | null
+): boolean {
+	return Boolean(
+		viewerUserId && target.ownerUserId && target.ownerUserId !== viewerUserId
+	);
+}
+
+/** Whether the draft wakes a colleague's Agent that can't take work now. */
+export function hasBlockedColleagueWake(
 	targets: readonly SpaceComposerAddressingTarget[],
-	deviceWait?: WakeDeviceWait
+	viewerUserId: string | null
+): boolean {
+	return targets.some(
+		(target) =>
+			isBlockedWakeTarget(target) &&
+			!createSpaceComposerDeviceWait(target) &&
+			isColleagueAgentTarget(target, viewerUserId)
+	);
+}
+
+export function resolveSpaceComposerBlockedWakeHint(
+	targets: readonly SpaceComposerAddressingTarget[],
+	deviceWait?: WakeDeviceWait,
+	viewer?: BlockedWakeViewer
 ): string | null {
 	const blockedWakeTarget = targets.find(
 		(target) =>
@@ -714,6 +871,11 @@ function resolveSpaceComposerBlockedWakeHint(
 	);
 	if (!blockedWakeTarget) {
 		return null;
+	}
+	if (viewer && isColleagueAgentTarget(blockedWakeTarget, viewer.userId)) {
+		return `${blockedWakeTarget.profileName} can’t start work right now${
+			viewer.publicReasonText ? ` · ${viewer.publicReasonText}` : ""
+		}`;
 	}
 
 	const reason = blockedWakeTarget.wakeAvailability.reasonText?.trim();
@@ -736,10 +898,13 @@ function resolvePerAgentComposerHint(
 		: fallback;
 }
 
-function SpaceComposerMentionOnlyAction(input: SpaceComposerProps) {
+function SpaceComposerMentionOnlyAction(
+	input: SpaceComposerProps & { viewerUserId: string | null }
+) {
 	const targets = input.content.addressingTargets.filter(
 		(target) =>
 			isBlockedWakeTarget(target) &&
+			!isColleagueAgentTarget(target, input.viewerUserId) &&
 			Boolean(target.agentControllerRef) &&
 			!isHostedAgentControllerRef(target.agentControllerRef) &&
 			target.allowedRelations.reference
@@ -782,9 +947,10 @@ function renderSpaceComposerSendAction(input: {
 	const label = input.waitForComputer
 		? "Send and wait"
 		: input.policy.sendButtonLabel;
+	const labelled = input.waitForComputer || label === "Send request";
 	return (
 		<PromptInputAction
-			className={input.waitForComputer ? "shrink-0" : "hidden sm:inline-flex"}
+			className={labelled ? "shrink-0" : "hidden sm:inline-flex"}
 			tooltip={input.waitTooltip ?? input.policy.sendButtonTooltip}
 		>
 			<Button
@@ -796,17 +962,20 @@ function renderSpaceComposerSendAction(input: {
 					input.waitDisabled
 				}
 				onClick={input.onSubmit}
-				size={input.waitForComputer ? "sm" : "icon-sm"}
+				size={labelled ? "sm" : "icon-sm"}
 				type="button"
 			>
-				{input.waitForComputer ? label : null}
+				{labelled ? label : null}
 				<ArrowUpIcon aria-hidden="true" weight="bold" />
 			</Button>
 		</PromptInputAction>
 	);
 }
 
-function buildSpaceComposerDeviceWaitPresentation(input: SpaceComposerProps): {
+function buildSpaceComposerDeviceWaitPresentation(
+	input: SpaceComposerProps,
+	viewer: BlockedWakeViewer
+): {
 	target: SpaceComposerAddressingTarget | null;
 	disabled: boolean;
 	hint: string | null;
@@ -818,6 +987,11 @@ function buildSpaceComposerDeviceWaitPresentation(input: SpaceComposerProps): {
 	};
 	if (!input.availability.canSendMessage) {
 		return ordinary;
+	}
+	// A colleague's unavailable Agent can't take the message; block sending up
+	// front instead of letting it fail (developing/product/space-collaboration.md).
+	if (hasBlockedColleagueWake(input.content.addressingTargets, viewer.userId)) {
+		return { ...ordinary, disabled: true };
 	}
 	const targets = input.content.addressingTargets.filter(
 		(target) =>
@@ -839,7 +1013,8 @@ function buildSpaceComposerDeviceWaitPresentation(input: SpaceComposerProps): {
 	}
 	const hint = resolveSpaceComposerBlockedWakeHint(
 		input.content.addressingTargets,
-		createSpaceComposerDeviceWait(target)
+		createSpaceComposerDeviceWait(target),
+		viewer
 	);
 	return {
 		target,

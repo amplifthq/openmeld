@@ -31,6 +31,24 @@ export const GROK_BUILD_DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE =
 export const DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE =
   CLAUDE_CODE_DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE;
 
+const ASK_FIRST_AGENT_CONTROLLER_PERMISSION_MODES: ReadonlySet<string> =
+  new Set([
+    CLAUDE_CODE_DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE,
+    CODEX_DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE,
+    CURSOR_DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE,
+    GROK_BUILD_DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE,
+  ]);
+
+/**
+ * True for each harness's default mode, which asks the owner before actions
+ * that need permission ("Ask first").
+ */
+export function isAskFirstAgentControllerPermissionMode(
+  value: string | null | undefined
+): boolean {
+  return value ? ASK_FIRST_AGENT_CONTROLLER_PERMISSION_MODES.has(value) : false;
+}
+
 const CLAUDE_CODE_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
   {
     description:

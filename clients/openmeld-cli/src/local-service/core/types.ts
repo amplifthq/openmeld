@@ -236,6 +236,9 @@ export type OpenMeldDaemonTaskErrorType =
 
 export type ParsedDispatchTask = {
   requesterIsAgentOwner?: boolean;
+  /** Core: a colleague's Wake that must not share the Binding conversation. */
+  separateRequesterConversation?: boolean;
+  permissionModeAdvisory?: import("@openmeld/schemas").PermissionModeAdvisory;
   workHandoff?: import("@openmeld/schemas").SpaceWorkHandoff;
   workingCopyId?: string;
   executionContext?: import("@openmeld/schemas/types").ExecutionContextTask;
@@ -282,8 +285,23 @@ export type ParsedDispatchTask = {
   triggerMode: RuntimeDispatchPolicy;
 };
 
+/** Another direct-edit Session in this task's folder; never a path. */
+export type DispatchSharedFolderSession = {
+  executionContextId: string | null;
+  sameSpace: boolean;
+  targetLabel: string;
+};
+
 export type DispatchPromptBootstrapInput = {
+  /** Direct-edit Sessions already running in this task's folder. */
+  sharedFolderSessions?: DispatchSharedFolderSession[];
+  /**
+   * The working folder's display name, never its path, for a task whose root
+   * requester is not the owner. Absent for owner-rooted tasks.
+   */
+  workingFolderDisplayName?: string | null;
   requesterIsAgentOwner?: ParsedDispatchTask["requesterIsAgentOwner"];
+  permissionModeAdvisory?: ParsedDispatchTask["permissionModeAdvisory"];
   executionContextAccess?: NonNullable<
     ParsedDispatchTask["executionContext"]
   >["access"];

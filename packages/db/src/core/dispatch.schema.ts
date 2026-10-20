@@ -11,6 +11,10 @@ import { organizations } from "../auth/auth.schema.ts";
 import { applicationTable } from "../postgresql/schema.ts";
 import { integerBoolean } from "../postgresql/schema-types.ts";
 import {
+  agentAccessRequests,
+  agentProfileAccessGrants,
+} from "./agent-access.schema.ts";
+import {
   agentActivityDailyAggregates,
   agentActivityDailySessionKeys,
   agentActivityDigests,
@@ -28,6 +32,7 @@ import {
   agentProfileCreationApprovalPreferences,
   agentProfileCreationRequests,
 } from "./agent-profile-creation-request.schema.ts";
+import { agentProfilePermissionModeAdvisories } from "./agent-profile-permission-mode-advisory.schema.ts";
 import {
   agentControllerTaskLifecycleEvents,
   agentControllerTasks,
@@ -62,6 +67,7 @@ import {
   centerAgentMemoryPolicies,
   centerAgentMemorySubjects,
 } from "./center-agent-memory.schema.ts";
+import { centerAgentPermissionModeConfirmations } from "./center-agent-permission-mode-confirmation.schema.ts";
 import { centerAgentPublicationOperations } from "./center-agent-publication.schema.ts";
 import {
   centerAgentTaskAdmissionOutbox,
@@ -82,6 +88,7 @@ import {
 } from "./connector-connection.schema.ts";
 import { conversationHistoryDeletions } from "./conversation-history.schema.ts";
 import { openMeldDaemonCurrentDeviceTargets } from "./current-device-target.schema.ts";
+import { directMessageSessionStates } from "./direct-message-session.schema.ts";
 import { evalReports } from "./eval-report.schema.ts";
 import {
   openMeldFeedbackInboxes,
@@ -150,7 +157,12 @@ import { openMeldDaemonProviderAccessEvidence } from "./provider-access-evidence
 import { openMeldDaemonProviderConversationProofs } from "./provider-conversation-proof.schema.ts";
 import { routineRuns, routines } from "./routine.schema.ts";
 import { openMeldDaemonRuntimeAgentControllerReports } from "./runtime-agent-controller-report.schema.ts";
+import { openMeldDaemonRuntimeHarnessPresence } from "./runtime-harness-presence.schema.ts";
 import { openMeldDaemonRuntimeRegistryRecords } from "./runtime-registry.schema.ts";
+import {
+  sensitiveOperationAuditEvents,
+  sensitiveOperationConfirmations,
+} from "./sensitive-operation.schema.ts";
 import { serviceConnectionIncidents } from "./service-connection-evidence.schema.ts";
 import { spaceAttachments } from "./space-attachment.schema.ts";
 import {
@@ -218,6 +230,9 @@ export const openMeldDaemonDispatchLedger = applicationTable(
     spaceId: text("space_id").notNull(),
     sourceEventId: text("source_event_id").notNull(),
     sourceProfileId: text("source_profile_id"),
+    // The human root of this Wake's request chain, written at admission.
+    // Null for Wakes admitted before Core recorded chains.
+    requestChainRootProfileId: text("request_chain_root_profile_id"),
     sourceClientMessageId: text("source_client_message_id"),
     dispatchOwnerKind: text("dispatch_owner_kind"),
     dispatchOwnerId: text("dispatch_owner_id"),
@@ -1769,7 +1784,9 @@ export const agentActivityExecutionLinks = applicationTable(
 );
 
 export const coreSchema = {
+  agentProfilePermissionModeAdvisories,
   conversationHistoryDeletions,
+  directMessageSessionStates,
   userTimeContexts,
   firstWorkExperiences,
   aiUsageRecords,
@@ -1806,6 +1823,11 @@ export const coreSchema = {
   agentTaskNeedsAttentionObservations,
   agentTaskTerminalOutcomes,
   centerAgentWakePublications,
+  centerAgentPermissionModeConfirmations,
+  agentAccessRequests,
+  agentProfileAccessGrants,
+  sensitiveOperationAuditEvents,
+  sensitiveOperationConfirmations,
   centerAgentProjectOperations,
   centerAgentProjectRemoveConfirmations,
   projects,
@@ -1907,6 +1929,7 @@ export const coreSchema = {
   openMeldDaemonOwnedDevices,
   openMeldDaemonRuntimeRegistryRecords,
   openMeldDaemonRuntimeAgentControllerReports,
+  openMeldDaemonRuntimeHarnessPresence,
   openMeldDaemonCurrentDeviceTargets,
   openMeldDaemonForgottenDevices,
   openMeldDaemonPrepareSessions,
