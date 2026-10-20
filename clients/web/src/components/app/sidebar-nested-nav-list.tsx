@@ -1,6 +1,5 @@
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
-	SidebarMenuBadge,
 	SidebarMenuSub,
 	SidebarMenuSubButton,
 	SidebarMenuSubItem,
@@ -8,12 +7,16 @@ import {
 import { cn } from "@openmeld/ui/lib/utils";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { SidebarConversationTime } from "#/components/spaces/sidebar-conversation-time";
+import { useNowMs } from "#/lib/spaces/use-now-ms";
 import { useAppNavigationPresentation } from "./app-navigation-presentation";
 
 export type SidebarNestedNavItem = {
 	id: string;
 	label: string;
 	to: string;
+	/** Last-message time, shown like the conversation rows' time. */
+	timestamp?: number | null;
 	/** Trailing marks, e.g. SpaceStatusIndicator. */
 	accessory?: ReactNode;
 	/** Include accessory meaning when the visible label alone is insufficient. */
@@ -48,6 +51,7 @@ export function SidebarNestedNavList(input: {
 	id?: string;
 }) {
 	const { dismiss } = useAppNavigationPresentation();
+	const nowMs = useNowMs(60_000);
 	const labeled = input.sections.length > 1;
 	return (
 		<ScrollArea
@@ -111,13 +115,23 @@ export function SidebarNestedNavList(input: {
 									to={item.to}
 								>
 									{item.label}
+									{item.timestamp == null && !item.accessory ? null : (
+										// The trailing slot flows after the label, so a wide status
+										// (attention dot and Wake orb) never covers the time.
+										<span className="pointer-events-none ml-auto flex shrink-0 items-center gap-2 pr-0.5">
+											{item.timestamp == null ? null : (
+												<SidebarConversationTime
+													hideOlderUntilHover
+													hoverRow="sub-item"
+													now={new Date(nowMs)}
+													timestamp={item.timestamp}
+												/>
+											)}
+											{item.accessory}
+										</span>
+									)}
 								</Link>
 							</SidebarMenuSubButton>
-							{item.accessory ? (
-								<SidebarMenuBadge className="pointer-events-none">
-									{item.accessory}
-								</SidebarMenuBadge>
-							) : null}
 						</SidebarMenuSubItem>
 					)),
 				])}

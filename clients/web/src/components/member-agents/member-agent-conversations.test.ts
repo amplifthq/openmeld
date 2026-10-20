@@ -119,3 +119,24 @@ describe("MemberAgent Direct Message rows", () => {
 		});
 	});
 });
+
+it("carries each Session's last-message time for the nested chat rows", () => {
+	const withPreview = (conversation: Conversation, timestamp: number) =>
+		({
+			...conversation,
+			preview: { data: { text: "hi", timestamp } },
+		}) as Conversation;
+	const rows = groupMemberAgentConversations({
+		conversations: [
+			withPreview(conversations[0] as Conversation, 1000),
+			conversations[1] as Conversation,
+			withPreview(conversations[2] as Conversation, 3000),
+		],
+		index,
+		selectedSpaceId: null,
+	});
+	expect([...(rows[0]?.memberAgentSessionTimestamps ?? [])]).toEqual([
+		["dm-claude-1", 1000],
+		["dm-reviewer", 3000],
+	]);
+});

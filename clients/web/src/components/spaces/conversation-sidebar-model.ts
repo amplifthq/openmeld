@@ -14,6 +14,8 @@ export type Conversation = {
 	memberAgentId?: string;
 	/** Every Session Space the MemberAgent row stands for. */
 	memberAgentSessionIds?: readonly string[];
+	/** Last-message time of each of those Sessions, from the live chat list. */
+	memberAgentSessionTimestamps?: ReadonlyMap<string, number>;
 } & (
 	| { kind: "space"; item: AccountSpaceItem }
 	| {

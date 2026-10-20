@@ -55,6 +55,17 @@ export function groupMemberAgentConversations(input: {
 			...representative,
 			memberAgentId: entry.groupOf,
 			memberAgentSessionIds: sessions.map((session) => session.spaceId),
+			memberAgentSessionTimestamps: new Map(
+				sessions.flatMap((session) => {
+					const timestamp =
+						session.kind === "direct-message"
+							? session.preview?.data?.timestamp
+							: undefined;
+					return timestamp === undefined
+						? []
+						: [[session.spaceId, timestamp] as const];
+				})
+			),
 			title:
 				input.index.byId.get(entry.groupOf)?.displayName ??
 				representative.title,

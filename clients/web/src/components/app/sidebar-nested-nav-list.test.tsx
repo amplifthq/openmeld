@@ -76,3 +76,62 @@ it("nests chats under the parent row with their status and the open one current"
 		within(nav).getByRole("link", { name: "Plan" }).getAttribute("aria-current")
 	).toBeNull();
 });
+
+it("shows each chat's last-message time before its status, older ones on hover", () => {
+	vi.stubGlobal(
+		"ResizeObserver",
+		class {
+			observe = vi.fn();
+			unobserve = vi.fn();
+			disconnect = vi.fn();
+		}
+	);
+	const today = new Date();
+	today.setHours(9, 5, 0, 0);
+	const older = new Date(today);
+	older.setDate(older.getDate() - 7);
+	render(
+		<SidebarMenu>
+			<SidebarMenuItem>
+				<SidebarNestedNavList
+					activeItemId={null}
+					ariaLabel="Chats with Codex"
+					sections={[
+						{
+							id: "p-default",
+							items: [
+								{
+									id: "s-1",
+									label: "Today chat",
+									to: "/dm/s-1",
+									timestamp: today.getTime(),
+									accessory: <span data-testid="s-1-status" />,
+								},
+								{
+									id: "s-2",
+									label: "Older chat",
+									to: "/dm/s-2",
+									timestamp: older.getTime(),
+								},
+								{ id: "s-3", label: "Empty chat", to: "/dm/s-3" },
+							],
+						},
+					]}
+				/>
+			</SidebarMenuItem>
+		</SidebarMenu>
+	);
+	const todayRow = screen.getByRole("link", { name: "Today chat" });
+	const todayTime = todayRow.querySelector("time");
+	expect(todayTime?.textContent).toBe("09:05");
+	expect(todayTime?.className).not.toContain("hidden");
+	// The time and the status share one trailing slot, time first.
+	expect(todayTime?.nextElementSibling).toBe(screen.getByTestId("s-1-status"));
+	expect(
+		screen.getByRole("link", { name: "Older chat" }).querySelector("time")
+			?.className
+	).toContain("group-hover/menu-sub-item:inline-flex");
+	expect(
+		screen.getByRole("link", { name: "Empty chat" }).querySelector("time")
+	).toBeNull();
+});

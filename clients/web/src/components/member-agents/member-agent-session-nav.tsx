@@ -18,7 +18,9 @@ type MemberAgentSessionGroups = ReturnType<typeof useMemberAgentSessionGroups>;
  */
 export function buildMemberAgentSessionSections(
 	sessions: MemberAgentSessionGroups,
-	statusSources: SpaceStatusSources
+	statusSources: SpaceStatusSources,
+	/** Fresher last-message times, e.g. the sidebar's live chat previews. */
+	timestamps?: ReadonlyMap<string, number>
 ): SidebarNestedNavSection[] {
 	return sessions.groups.map((group) => ({
 		id: group.id,
@@ -33,6 +35,7 @@ export function buildMemberAgentSessionSections(
 			return {
 				id: item.spaceId,
 				label: item.title,
+				timestamp: timestamps?.get(item.spaceId) ?? item.timestamp,
 				accessory: <SpaceStatusIndicator indicators={indicators} />,
 				ariaLabel: statusLabel ? `${item.title}, ${statusLabel}` : undefined,
 				to: sessions.sessionPath(item.spaceId),
@@ -70,7 +73,11 @@ export function useActiveMemberAgentSessionList(
 	}
 	return {
 		memberAgentId: memberAgent.memberAgent.id,
-		sections: buildMemberAgentSessionSections(sessions, statusSources),
+		sections: buildMemberAgentSessionSections(
+			sessions,
+			statusSources,
+			active?.memberAgentSessionTimestamps
+		),
 	};
 }
 

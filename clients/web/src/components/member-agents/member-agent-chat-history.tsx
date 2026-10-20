@@ -237,6 +237,7 @@ export function useMemberAgentSessionGroups(input: {
 					spaceId: session.spaceId,
 					title: session.name ?? "New chat",
 					createdAt: session.createdAt,
+					timestamp: session.messagePreview?.timestamp ?? null,
 				})),
 				isLoading: query?.isFetching === true && !query.data,
 				isError: query?.isError === true,
