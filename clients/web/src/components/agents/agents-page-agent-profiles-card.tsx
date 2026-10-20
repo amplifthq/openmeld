@@ -6628,7 +6628,11 @@ function AgentProfileSetupActionLink(input: {
 	if (input.action.recoveryTarget === "working_folder") {
 		return (
 			<div className="flex justify-start pt-1">
-				<AgentProfileWorkingFolderRecoveryAction {...input.folderRecovery} />
+				{/* Shown from the Agent's readiness: no failed task to retry. */}
+				<AgentProfileWorkingFolderRecoveryAction
+					{...input.folderRecovery}
+					fromReadiness
+				/>
 			</div>
 		);
 	}
