@@ -32,14 +32,53 @@ const workItem = (index: number) => ({
 
 describe("fork continuation follow-ups", () => {
   it.each([
-    { outcome: "succeeded", successorContext: "replacement", resumes: true },
-    { outcome: "succeeded", successorContext: "unrelated", resumes: false },
-    { outcome: "stopped", successorContext: "replacement", resumes: false },
-    { outcome: "failed", successorContext: "replacement", resumes: false },
+    {
+      outcome: "succeeded",
+      successorContext: "replacement",
+      gate: null,
+      runs: true,
+    },
+    {
+      outcome: "succeeded",
+      successorContext: "unrelated",
+      gate: null,
+      runs: true,
+    },
+    {
+      outcome: "succeeded",
+      successorContext: "original",
+      gate: "awaiting_owner_approval",
+      runs: false,
+    },
+    {
+      outcome: "stopped",
+      successorContext: "replacement",
+      gate: null,
+      runs: true,
+    },
+    {
+      outcome: "stopped",
+      successorContext: "original",
+      gate: "awaiting_owner_approval",
+      runs: false,
+    },
+    {
+      outcome: "failed",
+      successorContext: "replacement",
+      gate: "continuation_needs_attention",
+      runs: true,
+    },
+    {
+      outcome: "failed",
+      successorContext: "original",
+      gate: "continuation_needs_attention",
+      runs: false,
+    },
   ] as const)("settles $outcome with $successorContext follow-up", ({
     outcome,
     successorContext,
-    resumes,
+    gate,
+    runs,
   }) => {
     let coordinator = createAgentProfileWorkCoordinator({
       nowMs: 1,
@@ -78,17 +117,80 @@ describe("fork continuation follow-ups", () => {
       targetWakeLifecycleId: "wake-2",
       nowMs: 7,
     });
-    if (resumes) {
-      expect(result.coordinator.recoveryGate).toBeNull();
-      expect(result.promotedItem?.targetWakeLifecycleId).toBe("wake-3");
-    } else {
-      expect(result.coordinator.recoveryGate?.status).toBe(
-        outcome === "failed"
-          ? "continuation_needs_attention"
-          : "awaiting_owner_approval"
-      );
-      expect(result.promotedItems).toEqual([]);
+    // The gate holds only the occupied context; other contexts are not held.
+    expect(result.coordinator.recoveryGate?.status ?? null).toBe(gate);
+    expect(
+      reservedAgentProfileWork(result.coordinator).map(
+        (item) => item.targetWakeLifecycleId
+      )
+    ).toEqual(runs ? ["wake-3"] : []);
+  });
+
+  it("limits an occupancy gate to its context until usage is exhausted", () => {
+    let coordinator = createAgentProfileWorkCoordinator({
+      nowMs: 1,
+      targetProfileId: PROFILE_ID,
+    });
+    const accept = (index: number, context: string) => {
+      const result = acceptAgentProfileWork({
+        coordinator,
+        item: { ...workItem(index), executionContextId: context },
+        nowMs: 1 + index,
+      });
+      coordinator = result.coordinator;
+      return result.status;
+    };
+    expect([accept(1, "context-a"), accept(2, "context-b")]).toEqual([
+      "start",
+      "start",
+    ]);
+    coordinator = settleAgentProfileWork({
+      coordinator,
+      outcome: "controller_conversation_occupied",
+      targetWakeLifecycleId: "wake-1",
+      nowMs: 10,
+    }).coordinator;
+    expect(coordinator.recoveryGate?.status).toBe(
+      "awaiting_occupancy_decision"
+    );
+    expect([accept(3, "context-c"), accept(4, "context-a")]).toEqual([
+      "start",
+      "queued",
+    ]);
+
+    coordinator = settleAgentProfileWork({
+      coordinator,
+      outcome: "usage_exhausted",
+      targetWakeLifecycleId: "wake-2",
+      nowMs: 20,
+    }).coordinator;
+    expect(accept(5, "context-d")).toBe("queued");
+  });
+
+  it("gives the occupied context's reservation to waiting work of another context", () => {
+    let coordinator = createAgentProfileWorkCoordinator({
+      nowMs: 1,
+      targetProfileId: PROFILE_ID,
+    });
+    for (const index of [1, 2, 3, 4, 5, 6]) {
+      coordinator = acceptAgentProfileWork({
+        coordinator,
+        item: { ...workItem(index), executionContextId: `context-${index}` },
+        nowMs: 1 + index,
+      }).coordinator;
     }
+    const result = settleAgentProfileWork({
+      coordinator,
+      outcome: "controller_conversation_occupied",
+      targetWakeLifecycleId: "wake-1",
+      nowMs: 10,
+    });
+    expect(result.coordinator.recoveryGate?.status).toBe(
+      "awaiting_occupancy_decision"
+    );
+    expect(
+      result.promotedItems.map((item) => item.targetWakeLifecycleId)
+    ).toEqual(["wake-6"]);
   });
 });
 

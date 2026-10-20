@@ -81,6 +81,7 @@ import {
   runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema,
   runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema,
   runtimeTransportAgentProfileExecutionTargetMutationRequestSchema,
+  runtimeTransportAgentProfileLegacyConversationMutationRequestSchema,
   runtimeTransportAgentProfileOperationalContextsRequestSchema,
   runtimeTransportAgentProfileOperationalContextsResponseSchema,
   runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema,
@@ -235,6 +236,7 @@ import type {
   RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse,
   RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse,
   RuntimeTransportAgentProfileExecutionTargetMutationRequest,
+  RuntimeTransportAgentProfileLegacyConversationMutationRequest,
   RuntimeTransportAgentProfileOperationalContextsRequest,
   RuntimeTransportAgentProfileOperationalContextsResponse,
   RuntimeTransportAgentProfileWorkContinuationAuthorizeRequest,
@@ -380,6 +382,7 @@ import {
   authorizeRuntimeCoordinatorAgentProfileWorkContinuation,
   completeRuntimeCoordinatorAgentProfileWorkRecoveryInboxProjection,
   handOffRuntimeCoordinatorOccupiedAgentProfileWork,
+  isAgentProfileContextMigrationRetryDue,
   listDrainingAgentProfileContextMigrations,
   markRuntimeCoordinatorAgentProfileWorkContinuationNeedsAttention,
   markRuntimeCoordinatorAgentProfileWorkControllerConversationOccupancy,
@@ -391,6 +394,7 @@ import {
   readRuntimeCoordinatorAgentProfileOperationalContextsFromAdmission,
   readRuntimeCoordinatorAgentProfileWorkControllerConversationOccupied,
   readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmission,
+  recordAgentProfileContextMigrationFailure,
   releaseRuntimeCoordinatorAgentProfileExecutionTargetMutation,
   resolveNextAgentProfileContextMigrationAlarmAtMs,
   retireRuntimeCoordinatorAgentProfileHeadHistoryReference,
@@ -2567,15 +2571,74 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
   }
   async rpcAcquireAgentProfileLegacyConversationMutation(
-    input: RuntimeTransportAgentProfileExecutionTargetMutationRequest
+    input: RuntimeTransportAgentProfileLegacyConversationMutationRequest
   ): Promise<RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse> {
     return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
-      return await this.acquireAgentProfileMutation({
-        input,
-        acquire:
-          acquireRuntimeCoordinatorAgentProfileLegacyConversationMutation,
-      });
+      const parsed =
+        runtimeTransportAgentProfileLegacyConversationMutationRequestSchema.safeParse(
+          input
+        );
+      if (!parsed.success) {
+        return {
+          reasonCode:
+            "runtime_coordinator.execution_target_mutation_request_invalid",
+          status: "unavailable",
+        };
+      }
+      return this.settleAgentProfileMutationAcquire(
+        await acquireRuntimeCoordinatorAgentProfileLegacyConversationMutation({
+          agentControllerRef: parsed.data.agentControllerRef,
+          nowMs: Date.now(),
+          operationId: parsed.data.operationId,
+          ownerUserId: parsed.data.ownerUserId,
+          storage: this.ctx.storage,
+          targetProfileId: parsed.data.targetProfileId,
+        })
+      );
     });
+  }
+  /**
+   * Attempts one Profile's Context activation. A failure is recorded for that
+   * Profile with its own backoff, so it never stops other Profiles' migrations
+   * or the Wake acceptance that triggered the attempt, and later queued Wakes
+   * wait out that backoff instead of retrying on every acceptance.
+   */
+  private async attemptAgentProfileContextMigration(input: {
+    ownerUserId: string;
+    targetProfileId: string;
+  }): Promise<boolean> {
+    if (
+      !(await isAgentProfileContextMigrationRetryDue({
+        nowMs: Date.now(),
+        storage: this.ctx.storage,
+        targetProfileId: input.targetProfileId,
+      }))
+    ) {
+      return false;
+    }
+    try {
+      return await this.reconcileAgentProfileContextMigration(input);
+    } catch (error) {
+      let reasonCode = String(error);
+      if (error instanceof ExecutionContextSelectionError) {
+        reasonCode = error.reasonCode;
+      } else if (error instanceof Error) {
+        reasonCode = error.message;
+      }
+      const failure = await recordAgentProfileContextMigrationFailure({
+        nowMs: Date.now(),
+        reasonCode,
+        storage: this.ctx.storage,
+        targetProfileId: input.targetProfileId,
+      });
+      console.warn("[core.runtime_transport.context_migration_failed]", {
+        attempts: failure.attempts,
+        nextAttemptAtMs: failure.nextAttemptAtMs,
+        reasonCode: failure.reasonCode,
+        targetProfileId: input.targetProfileId,
+      });
+      return false;
+    }
   }
   private async reconcileAgentProfileContextMigration(input: {
     ownerUserId: string;
@@ -2712,13 +2775,19 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "unavailable",
       };
     }
-    const response = await input.acquire({
-      nowMs: Date.now(),
-      operationId: parsed.data.operationId,
-      ownerUserId: parsed.data.ownerUserId,
-      storage: this.ctx.storage,
-      targetProfileId: parsed.data.targetProfileId,
-    });
+    return this.settleAgentProfileMutationAcquire(
+      await input.acquire({
+        nowMs: Date.now(),
+        operationId: parsed.data.operationId,
+        ownerUserId: parsed.data.ownerUserId,
+        storage: this.ctx.storage,
+        targetProfileId: parsed.data.targetProfileId,
+      })
+    );
+  }
+  private settleAgentProfileMutationAcquire(
+    response: RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse
+  ): RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse {
     if (
       response.status === "unavailable" &&
       (response.reasonCode ===
@@ -10053,7 +10122,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       writeRuntimeCoordinatorExecutionEventFromParts({
         db,
         eventType,
-        idempotencyKey: `lifecycle:${request.dispatchId}:${request.attemptId}:${request.phase}:${request.agentControllerConversationOccupancy?.state ?? "progress"}`,
+        idempotencyKey: buildCoordinatorLifecycleEventIdempotencyKey(request),
         observedAtMs: nowMs,
         payload: {
           agentControllerConversationOccupancy:
@@ -12694,7 +12763,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     let migrationActivated = false;
     if (
       admission.status === "queued" &&
-      (await this.reconcileAgentProfileContextMigration({
+      (await this.attemptAgentProfileContextMigration({
         ownerUserId: request.ownerUserId,
         targetProfileId: identity.targetProfileId,
       }))
@@ -14112,7 +14181,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       writeRuntimeCoordinatorExecutionEventFromParts({
         db,
         eventType,
-        idempotencyKey: `lifecycle:${input.request.dispatchId}:${input.request.attemptId}:${input.request.phase}:${input.request.agentControllerConversationOccupancy?.state ?? "progress"}`,
+        idempotencyKey: buildCoordinatorLifecycleEventIdempotencyKey(
+          input.request
+        ),
         observedAtMs: nowMs,
         payload: {
           agentControllerConversationOccupancy:
@@ -18908,12 +18979,21 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       this.ctx.storage
     )) {
       if (
+        !(await isAgentProfileContextMigrationRetryDue({
+          nowMs: Date.now(),
+          storage: this.ctx.storage,
+          targetProfileId: profile.targetProfileId,
+        }))
+      ) {
+        continue;
+      }
+      if (
         run &&
         !this.reserveHousekeepingAlarmWorkUnit(run, "context_migration")
       ) {
         return;
       }
-      await this.reconcileAgentProfileContextMigration(profile);
+      await this.attemptAgentProfileContextMigration(profile);
     }
   }
   private async processAgentProfileWorkPromotionAlarm(
@@ -22842,6 +22922,19 @@ const resolveCoordinatorLifecycleEventType = (
   }
   return "lifecycle_completed_local";
 };
+// A Wake held in the Service's local queue records that wait separately, so the
+// frame sent when it leaves the queue is not deduplicated into the wait.
+const buildCoordinatorLifecycleEventIdempotencyKey = (
+  request: RuntimeTransportDispatchLifecycleRequest
+): string =>
+  [
+    "lifecycle",
+    request.dispatchId,
+    request.attemptId,
+    request.phase,
+    request.agentControllerConversationOccupancy?.state ?? "progress",
+    ...(request.localQueue?.status === "queued" ? ["queued"] : []),
+  ].join(":");
 const resolveResultIdentityEchoMismatch = (input: {
   authoritative: CompletedDispatchResultState["executionIdentity"];
   echoed: RuntimeTransportSubmitTaskResultRequest["executionIdentityEcho"];

@@ -4242,6 +4242,31 @@ describe("runtime transport runtime coordinator transport contract", () => {
         )
       ).rejects.toThrow("controller_access_unsupported");
     }
+    // A Profile that used Contexts with an earlier harness keeps ordinary
+    // serial Binding work after switching to this one.
+    const switchedIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-after-context-activation",
+      dispatchId: "dispatch-after-context-activation",
+      sourceSignalId: "signal-after-context-activation",
+      spaceId: HEX_SPACE_ID,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    const afterActivation = await storage.transaction((transaction) =>
+      prepareExecutionContextAssignment({
+        contextModeActive: true,
+        storage: transaction,
+        record: {
+          ...head,
+          primaryDispatchId: "dispatch-after-context-activation",
+          targetWakeLifecycleId: switchedIdentity.targetWakeLifecycleId,
+          targetWakeLifecycleIdentity: switchedIdentity,
+        },
+      })
+    );
+    expect(
+      afterActivation.record.acceptedDispatchSnapshot?.executionContext
+    ).toBeUndefined();
+    expect(afterActivation.writes).toEqual({});
   });
 
   it.each([
@@ -4499,10 +4524,16 @@ describe("runtime transport runtime coordinator transport contract", () => {
       spaceId: HEX_SPACE_ID,
       targetProfileId: TARGET_AGENT_PROFILE_ID,
     });
-    const selectNextContext = (mode: "auto" | "resume" = "auto") =>
+    const selectNextContext = (
+      mode: "auto" | "resume" = "auto",
+      outstandingExecutionContextIds: string[] = []
+    ) =>
       storage.transaction((transaction) =>
         prepareExecutionContextAssignment({
           contextModeActive: true,
+          outstandingExecutionContextIds: new Set(
+            outstandingExecutionContextIds
+          ),
           storage: transaction,
           record: {
             ...fork.record,
@@ -4529,7 +4560,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
           },
         })
       );
-    await expect(selectNextContext()).rejects.toThrow("selection_required");
+    // Both branches are ambiguous only while the original still holds work.
+    await expect(
+      selectNextContext("auto", [response.executionContext.id])
+    ).rejects.toThrow("selection_required");
     const replacement = fork.record.acceptedDispatchSnapshot?.executionContext;
     if (!replacement) {
       throw new Error("Expected replacement context");
@@ -4550,6 +4584,164 @@ describe("runtime transport runtime coordinator transport contract", () => {
       (await selectNextContext("resume")).record.acceptedDispatchSnapshot
         ?.executionContext?.id
     ).toBe(response.executionContext.id);
+  });
+  it("continues the latest accepted discussion context, including history from before the latest index, and starts fresh once its execution target changes", async () => {
+    const { hub, storageRecords } = await createContextHarness();
+    const root = contextMigrationRequest("latest-root");
+    await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      root
+    );
+    const head = storageRecords.get(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        root.targetWakeLifecycleIdentity.targetWakeLifecycleId
+      )
+    ) as RuntimeCoordinatorHeadLifecycleRecord;
+    const snapshot = head.acceptedDispatchSnapshot;
+    const rootContextId = snapshot?.executionContext?.id;
+    if (!(snapshot?.contextRequest && rootContextId)) {
+      throw new Error("Expected the accepted root context");
+    }
+    const contextRequest = snapshot.contextRequest;
+    const storage = (
+      hub as unknown as { ctx: { storage: DurableObjectStorage } }
+    ).ctx.storage;
+    const headKeyFor = (id: string) =>
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        projectTargetWakeLifecycleIdentity({
+          clientMessageId: id,
+          dispatchId: id,
+          sourceSignalId: id,
+          spaceId: HEX_SPACE_ID,
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        }).targetWakeLifecycleId
+      );
+    // Scopes accepted before the latest index existed have no pointer.
+    const dropLatestIndex = () => {
+      for (const key of [...storageRecords.keys()]) {
+        if (
+          key.startsWith(
+            "runtime-coordinator:execution-context-scope-latest:v1:"
+          )
+        ) {
+          storageRecords.delete(key);
+        }
+      }
+    };
+    let acceptedWakes = 0;
+    const admit = async (
+      id: string,
+      selection: NonNullable<typeof snapshot.contextRequest>["selection"],
+      input: {
+        openMeldServiceRuntimeId?: string;
+        outstanding?: string[];
+      } = {}
+    ) => {
+      const identity = projectTargetWakeLifecycleIdentity({
+        clientMessageId: id,
+        dispatchId: id,
+        sourceSignalId: id,
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      });
+      acceptedWakes += 1;
+      const createdAtMs = head.createdAtMs + acceptedWakes;
+      const plan = await storage.transaction((transaction) =>
+        prepareExecutionContextAssignment({
+          contextModeActive: true,
+          outstandingExecutionContextIds: new Set(input.outstanding ?? []),
+          storage: transaction,
+          record: {
+            ...head,
+            createdAtMs,
+            primaryDispatchId: id,
+            targetWakeLifecycleId: identity.targetWakeLifecycleId,
+            targetWakeLifecycleIdentity: identity,
+            acceptedDispatchSnapshot: {
+              ...snapshot,
+              executionContext: undefined,
+              openMeldServiceRuntimeId:
+                input.openMeldServiceRuntimeId ??
+                snapshot.openMeldServiceRuntimeId,
+              contextRequest: {
+                ...contextRequest,
+                required: selection.mode !== "auto",
+                selection,
+              },
+            },
+          },
+        })
+      );
+      for (const [writeKey, value] of Object.entries(plan.writes)) {
+        await storage.put(writeKey, value);
+      }
+      await storage.put(headKeyFor(id), plan.record);
+      return plan.record.acceptedDispatchSnapshot?.executionContext?.id;
+    };
+
+    const fresh = await admit("latest-fresh", {
+      mode: "new",
+      access: "space_context",
+      workspace: "isolated",
+    });
+    expect(fresh).toBeDefined();
+    expect(fresh).not.toBe(rootContextId);
+    // A plain mention continues the newest branch rather than failing.
+    expect(await admit("latest-plain", { mode: "auto" })).toBe(fresh);
+    // Another branch of the discussion that still holds work is ambiguous.
+    await expect(
+      admit(
+        "latest-ambiguous",
+        { mode: "auto" },
+        { outstanding: [rootContextId] }
+      )
+    ).rejects.toThrow("execution_context.selection_required");
+    // Continuing the older root makes it the latest accepted context, even
+    // though the other branch was created after it.
+    expect(
+      await admit("latest-resume-root", {
+        mode: "resume",
+        sourceWakeId: root.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+      })
+    ).toBe(rootContextId);
+    dropLatestIndex();
+    expect(await admit("latest-backfilled", { mode: "auto" })).toBe(
+      rootContextId
+    );
+    // The newest branch belongs to another Service runtime: start fresh. Work
+    // the root still holds there is not a choice this runtime could continue.
+    const moved = await admit(
+      "latest-moved",
+      { mode: "auto" },
+      {
+        openMeldServiceRuntimeId: "runtime-moved",
+        outstanding: [rootContextId],
+      }
+    );
+    expect(moved).toBeDefined();
+    expect([rootContextId, fresh]).not.toContain(moved);
+    expect(
+      await admit(
+        "latest-after-move",
+        { mode: "auto" },
+        {
+          openMeldServiceRuntimeId: "runtime-moved",
+          outstanding: [rootContextId],
+        }
+      )
+    ).toBe(moved);
+    // Without the latest index and without the acceptance record that orders
+    // a context, the requester chooses instead of a guess.
+    dropLatestIndex();
+    storageRecords.delete(headKeyFor("latest-after-move"));
+    await expect(
+      admit(
+        "latest-unverifiable",
+        { mode: "auto" },
+        { openMeldServiceRuntimeId: "runtime-moved" }
+      )
+    ).rejects.toThrow("execution_context.history_selection_required");
   });
   it.each([
     { agentControllerRef: "builtin:codex", confirmsOwnBoundary: true },
@@ -12647,6 +12839,85 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toMatchObject({ migration: "draining" });
   });
 
+  it("activates Context mode past a Wake accepted for an earlier Binding and leaves it to the promotion recheck", async () => {
+    const { hub, storageRecords } = await createContextHarness();
+    const request = contextMigrationRequest("earlier-binding");
+    const snapshot = request.acceptedDispatchSnapshot;
+    if (!snapshot) {
+      throw new Error("Expected an accepted dispatch snapshot");
+    }
+    await fetchRuntimeTransportJson(hub, "/runtime-coordinator/head/accept", {
+      ...request,
+      acceptedDispatchSnapshot: {
+        ...snapshot,
+        controllerSnapshot: {
+          ...snapshot.controllerSnapshot,
+          bindingId: "binding-earlier",
+        },
+      },
+    });
+    expect(
+      await (
+        hub as unknown as RuntimeTransportHub
+      ).rpcAgentProfileExecutionMode({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).toMatchObject({ migration: "contexts" });
+    expect(
+      storageRecords.get(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          request.targetWakeLifecycleIdentity.targetWakeLifecycleId
+        )
+      )
+    ).toMatchObject({ status: "accepted" });
+  });
+
+  it("isolates a failing Context activation to its Profile and backs off its retry", async () => {
+    let activationAttempts = 0;
+    const { hub } = await createContextHarness({
+      onBindingRead: () => {
+        activationAttempts += 1;
+        throw new Error("binding temporarily unavailable");
+      },
+    });
+    const acceptedAtMs = Date.now();
+    for (const id of ["failing-activation", "queued-during-backoff"]) {
+      expect(
+        await (
+          await fetchRuntimeTransportJson(
+            hub,
+            "/runtime-coordinator/head/accept",
+            contextMigrationRequest(id)
+          )
+        ).json()
+      ).toMatchObject({ status: "queued" });
+    }
+    expect(activationAttempts).toBe(1);
+    const storage = (hub as unknown as { ctx: DurableObjectState }).ctx.storage;
+    const nextAlarmAtMs =
+      await executionAdmission.resolveNextAgentProfileContextMigrationAlarmAtMs(
+        { storage, nowMs: acceptedAtMs }
+      );
+    expect(nextAlarmAtMs).toBeGreaterThanOrEqual(acceptedAtMs + 5000);
+    await (hub as unknown as RuntimeTransportHub).alarm();
+    expect(
+      await executionAdmission.isAgentProfileContextMigrationRetryDue({
+        nowMs: Date.now(),
+        storage,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).toBe(false);
+    expect(
+      await (
+        hub as unknown as RuntimeTransportHub
+      ).rpcAgentProfileExecutionMode({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).toMatchObject({ migration: "draining" });
+  });
+
   it("keeps pre-marker Context history scoped after its old admission record is pruned", async () => {
     const { hub, storageRecords } = await createContextHarness();
     const prior = contextMigrationRequest("pre-marker-context");
@@ -12981,17 +13252,67 @@ describe("runtime transport runtime coordinator transport contract", () => {
         )
       ).json()
     ).toMatchObject({ status: "already_accepted", action: "create_execution" });
+    // After switching to a harness without Context support, ordinary Wakes are
+    // admitted as serial Binding work instead of being refused.
+    const switchedHarnessIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "opencode-after-activation",
+      dispatchId: "opencode-after-activation",
+      sourceSignalId: "opencode-after-activation",
+      spaceId: HEX_SPACE_ID,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    expect(
+      await (
+        await fetchRuntimeTransportJson(
+          restarted.hub,
+          "/runtime-coordinator/head/accept",
+          buildRuntimeCoordinatorHeadAcceptRequest({
+            dispatchId: "opencode-after-activation",
+            idempotencyKey: "opencode-after-activation",
+            targetWakeLifecycleIdentity: switchedHarnessIdentity,
+            acceptedDispatchSnapshot: {
+              ...buildAcceptedDispatchSnapshot({
+                agentControllerRef: "builtin:opencode",
+                fingerprint: "e",
+              }),
+              contextRequest: {
+                required: false,
+                scope: {
+                  organizationId: "org",
+                  requesterProfileId: "human",
+                  spaceId: HEX_SPACE_ID,
+                  targetProfileId: TARGET_AGENT_PROFILE_ID,
+                  threadId: null,
+                },
+                selection: { mode: "auto" },
+              },
+            },
+          })
+        )
+      ).json()
+    ).toMatchObject({ status: "queued" });
     expect(
       await (
         restarted.hub as unknown as RuntimeTransportHub
       ).rpcAcquireAgentProfileLegacyConversationMutation({
         ...modeRequest,
+        agentControllerRef: "builtin:codex",
         operationId: "late-result",
       })
     ).toMatchObject({
       status: "blocked",
       reasonCode: "execution_context.legacy_association_frozen",
     });
+    // A harness without Context support keeps its own Binding conversation.
+    expect(
+      await (
+        restarted.hub as unknown as RuntimeTransportHub
+      ).rpcAcquireAgentProfileLegacyConversationMutation({
+        ...modeRequest,
+        agentControllerRef: "builtin:opencode",
+        operationId: "opencode-binding-conversation",
+      })
+    ).toMatchObject({ status: "acquired" });
   });
 
   it("persists serial rollback without revoking reservations and keeps Context mode after idle pruning", async () => {

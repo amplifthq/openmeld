@@ -17,6 +17,8 @@ export type AgentProfileWorkCoordinatorItem = {
 };
 
 export type AgentProfileWorkRecoveryGate = {
+  /** Present when another app occupying one native conversation opened the gate. */
+  cause?: "controller_conversation_occupied";
   continuationClientMessageId: string | null;
   forkInterruptedConversation?: boolean;
   interruptedWork: AgentProfileWorkCoordinatorItem;
@@ -305,11 +307,12 @@ export function removeAgentProfileWork(input: {
   const workItems = input.coordinator.workItems.filter(
     (_item, index) => index !== removedIndex
   );
+  const currentGate = input.coordinator.recoveryGate;
   const recoveryGate =
-    input.coordinator.recoveryGate?.status === "awaiting_owner_approval" &&
-    workItems.length === 0
-      ? nextInterruptedWorkGate(input.coordinator.recoveryGate, input.nowMs)
-      : input.coordinator.recoveryGate;
+    currentGate?.status === "awaiting_owner_approval" &&
+    workItems.every((item) => !recoveryGateHoldsWork(currentGate, item))
+      ? nextInterruptedWorkGate(currentGate, input.nowMs)
+      : currentGate;
   const next = refillAgentProfileWork({
     coordinator: {
       ...input.coordinator,
@@ -367,6 +370,45 @@ export function dropRetiredAgentProfileWork(input: {
   return { ...next, removedItems };
 }
 
+/**
+ * The context a recovery gate is limited to, or null when it holds the Profile.
+ *
+ * Another app occupying one native conversation blocks only that conversation's
+ * context. Usage exhaustion is a shared capability fact, so any usage-interrupted
+ * work recorded on the gate keeps it Profile-wide, as does legacy work that has
+ * no context of its own.
+ */
+function recoveryGateContextScope(
+  gate: AgentProfileWorkRecoveryGate
+): string | null {
+  return gate.cause === "controller_conversation_occupied" &&
+    !gate.additionalInterruptedWork?.length &&
+    gate.interruptedWork.executionContextId
+    ? gate.interruptedWork.executionContextId
+    : null;
+}
+
+export function isAgentProfileWorkRecoveryGateProfileWide(
+  gate: AgentProfileWorkRecoveryGate | null
+): boolean {
+  return Boolean(gate && recoveryGateContextScope(gate) === null);
+}
+
+function recoveryGateHoldsWork(
+  gate: AgentProfileWorkRecoveryGate | null,
+  item: AgentProfileWorkCoordinatorItem
+): boolean {
+  if (!gate) {
+    return false;
+  }
+  const contextScope = recoveryGateContextScope(gate);
+  return (
+    contextScope === null ||
+    !item.executionContextId ||
+    item.executionContextId === contextScope
+  );
+}
+
 function canResumeReplacementFollowUps(input: {
   continuation: AgentProfileWorkCoordinatorItem;
   gate: AgentProfileWorkRecoveryGate | null;
@@ -374,29 +416,83 @@ function canResumeReplacementFollowUps(input: {
   outcome: string;
   queuedWork: AgentProfileWorkCoordinatorItem[];
 }): boolean {
+  const gate = input.gate;
   return Boolean(
     input.continuationRunning &&
       input.outcome === "succeeded" &&
-      input.gate?.forkInterruptedConversation &&
+      gate?.forkInterruptedConversation &&
       input.continuation.executionContextId &&
       input.continuation.executionContextId !==
-        input.gate.interruptedWork.executionContextId &&
+        gate.interruptedWork.executionContextId &&
       input.queuedWork.every(
         (item) =>
-          item.executionContextId === input.continuation.executionContextId
+          item.executionContextId === input.continuation.executionContextId ||
+          !recoveryGateHoldsWork(gate, item)
       )
   );
 }
 
+function settleRunningContinuation(input: {
+  coordinator: AgentProfileWorkCoordinator;
+  gate: AgentProfileWorkRecoveryGate;
+  nowMs: number;
+  outcome: AgentProfileWorkSettleOutcome;
+  queuedWork: AgentProfileWorkCoordinatorItem[];
+}): {
+  coordinator: AgentProfileWorkCoordinator;
+  promotedItem: AgentProfileWorkCoordinatorItem | null;
+  promotedItems: AgentProfileWorkCoordinatorItem[];
+  removed: boolean;
+} {
+  const awaitingOwnerApproval =
+    input.outcome === "stopped" || input.outcome === "succeeded";
+  const heldWork = input.queuedWork.filter((item) =>
+    recoveryGateHoldsWork(input.gate, item)
+  );
+  // A continuation that exhausts usage turns the gate into a shared hold.
+  const { cause: _cause, ...gateWithoutCause } = input.gate;
+  const nextGate =
+    awaitingOwnerApproval && heldWork.length === 0
+      ? nextInterruptedWorkGate(input.gate, input.nowMs)
+      : {
+          ...(input.outcome === "usage_exhausted"
+            ? gateWithoutCause
+            : input.gate),
+          continuationClientMessageId: null,
+          status: awaitingOwnerApproval
+            ? ("awaiting_owner_approval" as const)
+            : ("continuation_needs_attention" as const),
+          updatedAtMs: input.nowMs,
+        };
+  const next = refillAgentProfileWork({
+    coordinator: {
+      ...input.coordinator,
+      recoveryGate: nextGate,
+      revision: input.coordinator.revision + 1,
+      updatedAtMs: input.nowMs,
+      workItems: input.queuedWork,
+    },
+    previouslyReserved: reservedAgentProfileWork(input.coordinator),
+  });
+  return {
+    coordinator: next.coordinator,
+    promotedItem: next.promotedItems[0] ?? null,
+    promotedItems: next.promotedItems,
+    removed: true,
+  };
+}
+
+export type AgentProfileWorkSettleOutcome =
+  | "controller_conversation_occupied"
+  | "failed"
+  | "stopped"
+  | "succeeded"
+  | "usage_exhausted";
+
 export function settleAgentProfileWork(input: {
   coordinator: AgentProfileWorkCoordinator;
   nowMs: number;
-  outcome:
-    | "controller_conversation_occupied"
-    | "failed"
-    | "stopped"
-    | "succeeded"
-    | "usage_exhausted";
+  outcome: AgentProfileWorkSettleOutcome;
   targetWakeLifecycleId: string;
 }): {
   coordinator: AgentProfileWorkCoordinator;
@@ -456,37 +552,15 @@ export function settleAgentProfileWork(input: {
       },
     });
   }
-  if (continuationRunning) {
-    const interruptedContinuationWork =
-      input.coordinator.recoveryGate?.interruptedWork ?? interruptedWork;
-    const awaitingOwnerApproval =
-      input.outcome === "stopped" || input.outcome === "succeeded";
-    return {
-      coordinator: {
-        ...input.coordinator,
-        recoveryGate:
-          awaitingOwnerApproval && queuedWork.length === 0
-            ? nextInterruptedWorkGate(
-                input.coordinator.recoveryGate,
-                input.nowMs
-              )
-            : {
-                ...input.coordinator.recoveryGate,
-                continuationClientMessageId: null,
-                interruptedWork: interruptedContinuationWork,
-                status: awaitingOwnerApproval
-                  ? "awaiting_owner_approval"
-                  : "continuation_needs_attention",
-                updatedAtMs: input.nowMs,
-              },
-        revision: input.coordinator.revision + 1,
-        updatedAtMs: input.nowMs,
-        workItems: queuedWork,
-      },
-      promotedItem: null,
-      promotedItems: [],
-      removed: true,
-    };
+  const runningGate = input.coordinator.recoveryGate;
+  if (continuationRunning && runningGate) {
+    return settleRunningContinuation({
+      coordinator: input.coordinator,
+      gate: runningGate,
+      nowMs: input.nowMs,
+      outcome: input.outcome,
+      queuedWork,
+    });
   }
 
   if (input.outcome === "controller_conversation_occupied") {
@@ -498,10 +572,11 @@ export function settleAgentProfileWork(input: {
     // With a gate already open this settles plainly and the notice carries the
     // cause instead.
     if (!input.coordinator.recoveryGate) {
-      return {
+      const next = refillAgentProfileWork({
         coordinator: {
           ...input.coordinator,
           recoveryGate: {
+            cause: "controller_conversation_occupied",
             continuationClientMessageId: null,
             interruptedWork,
             status: "awaiting_occupancy_decision",
@@ -511,8 +586,12 @@ export function settleAgentProfileWork(input: {
           updatedAtMs: input.nowMs,
           workItems: queuedWork,
         },
-        promotedItem: null,
-        promotedItems: [],
+        previouslyReserved: reservedAgentProfileWork(input.coordinator),
+      });
+      return {
+        coordinator: next.coordinator,
+        promotedItem: next.promotedItems[0] ?? null,
+        promotedItems: next.promotedItems,
         removed: true,
       };
     }
@@ -796,7 +875,7 @@ function canReserveAgentProfileWork(
   coordinator: AgentProfileWorkCoordinator,
   item: AgentProfileWorkCoordinatorItem
 ): boolean {
-  if (coordinator.recoveryGate) {
+  if (recoveryGateHoldsWork(coordinator.recoveryGate, item)) {
     return false;
   }
   const reserved = reservedAgentProfileWork(coordinator);
