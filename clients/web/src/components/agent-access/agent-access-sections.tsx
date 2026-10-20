@@ -189,6 +189,40 @@ function AgentProfileAccessOverviewContent(input: {
 		return null;
 	}
 	const heading = input.isOwner ? "Access" : "Your access";
+	let content: ReactNode;
+	if (state.isPending) {
+		content = <SkeletonRows label="Loading access" rows={2} />;
+	} else if (state.entries.length === 0) {
+		content = (
+			<p className="text-muted-foreground text-xs">
+				No colleagues have access yet. They can ask to use this Agent from a
+				chat.
+			</p>
+		);
+	} else {
+		content = (
+			<AgentAccessList
+				aria-label={heading}
+				avatars={state.avatars}
+				entries={state.entries}
+				readOnly
+				renderFooter={(entry) => (
+					<SpaceChips
+						entry={entry}
+						highlight
+						label={(space) =>
+							input.isOwner
+								? `Manage in ${ownerChatName(entry, space, state.spaceNames)}`
+								: (sessionNames.get(space.spaceId) ??
+									state.spaceNames.get(space.spaceId) ??
+									"Open chat")
+						}
+						orgSlug={orgSlug}
+					/>
+				)}
+			/>
+		);
+	}
 	return (
 		<section
 			aria-labelledby="agent-access-heading"
@@ -197,30 +231,7 @@ function AgentProfileAccessOverviewContent(input: {
 			<h2 className="font-medium text-sm" id="agent-access-heading">
 				{heading}
 			</h2>
-			{state.isPending ? (
-				<SkeletonRows label="Loading access" rows={2} />
-			) : (
-				<AgentAccessList
-					aria-label={heading}
-					avatars={state.avatars}
-					entries={state.entries}
-					readOnly
-					renderFooter={(entry) => (
-						<SpaceChips
-							entry={entry}
-							highlight
-							label={(space) =>
-								input.isOwner
-									? `Manage in ${ownerChatName(entry, space, state.spaceNames)}`
-									: (sessionNames.get(space.spaceId) ??
-										state.spaceNames.get(space.spaceId) ??
-										"Open chat")
-							}
-							orgSlug={orgSlug}
-						/>
-					)}
-				/>
-			)}
+			{content}
 			{input.isOwner && input.children ? (
 				<Accordion>
 					<AccordionItem value="recent-changes">
