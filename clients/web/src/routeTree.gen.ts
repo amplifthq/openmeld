@@ -167,6 +167,7 @@ import { Route as OOrgSlugSkillsIndexRouteImport } from './routes/o/$orgSlug/ski
 import { Route as OOrgSlugSkillsSkillIdRouteImport } from './routes/o/$orgSlug/skills.$skillId'
 import { Route as OOrgSlugSpacesIndexRouteImport } from './routes/o/$orgSlug/spaces/index'
 import { Route as OOrgSlugSpacesSpaceIdRouteImport } from './routes/o/$orgSlug/spaces/$spaceId'
+import { Route as V1MemberAgentsMemberAgentIdProfilesRouteImport } from './routes/v1/member-agents/$memberAgentId/profiles'
 import { Route as V1ProfilesAgentsProfileIdRouteImport } from './routes/v1/profiles/agents/$profileId'
 import { Route as V1SpacesSpaceIdStreamRouteImport } from './routes/v1/spaces/$spaceId/stream'
 import { Route as OOrgSlugCenterAgentCenterAgentIndexRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.index'
@@ -1023,6 +1024,12 @@ const OOrgSlugSpacesSpaceIdRoute = OOrgSlugSpacesSpaceIdRouteImport.update({
   path: '/spaces/$spaceId',
   getParentRoute: () => OOrgSlugRoute,
 } as any)
+const V1MemberAgentsMemberAgentIdProfilesRoute =
+  V1MemberAgentsMemberAgentIdProfilesRouteImport.update({
+    id: '/$memberAgentId/profiles',
+    path: '/$memberAgentId/profiles',
+    getParentRoute: () => V1MemberAgentsRoute,
+  } as any)
 const V1ProfilesAgentsProfileIdRoute =
   V1ProfilesAgentsProfileIdRouteImport.update({
     id: '/$profileId',
@@ -1187,7 +1194,7 @@ export interface FileRoutesByFullPath {
   '/spaces/$spaceId': typeof SpacesSpaceIdRoute
   '/v1/$': typeof V1SplatRoute
   '/v1/client-environment': typeof V1ClientEnvironmentRoute
-  '/v1/member-agents': typeof V1MemberAgentsRoute
+  '/v1/member-agents': typeof V1MemberAgentsRouteWithChildren
   '/v1/organization-join-link': typeof V1OrganizationJoinLinkRouteWithChildren
   '/v1/organization-join-requests': typeof V1OrganizationJoinRequestsRoute
   '/v1/organizations': typeof V1OrganizationsRouteWithChildren
@@ -1289,6 +1296,7 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/settings/usage': typeof OOrgSlugSettingsUsageRoute
   '/o/$orgSlug/skills/$skillId': typeof OOrgSlugSkillsSkillIdRoute
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
+  '/v1/member-agents/$memberAgentId/profiles': typeof V1MemberAgentsMemberAgentIdProfilesRoute
   '/v1/profiles/agents/$profileId': typeof V1ProfilesAgentsProfileIdRouteWithChildren
   '/v1/spaces/$spaceId/stream': typeof V1SpacesSpaceIdStreamRoute
   '/o/$orgSlug/': typeof OOrgSlugCenterAgentIndexRoute
@@ -1366,7 +1374,7 @@ export interface FileRoutesByTo {
   '/spaces/$spaceId': typeof SpacesSpaceIdRoute
   '/v1/$': typeof V1SplatRoute
   '/v1/client-environment': typeof V1ClientEnvironmentRoute
-  '/v1/member-agents': typeof V1MemberAgentsRoute
+  '/v1/member-agents': typeof V1MemberAgentsRouteWithChildren
   '/v1/organization-join-link': typeof V1OrganizationJoinLinkRouteWithChildren
   '/v1/organization-join-requests': typeof V1OrganizationJoinRequestsRoute
   '/v1/organizations': typeof V1OrganizationsRouteWithChildren
@@ -1458,6 +1466,7 @@ export interface FileRoutesByTo {
   '/o/$orgSlug/settings/usage': typeof OOrgSlugSettingsUsageRoute
   '/o/$orgSlug/skills/$skillId': typeof OOrgSlugSkillsSkillIdRoute
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
+  '/v1/member-agents/$memberAgentId/profiles': typeof V1MemberAgentsMemberAgentIdProfilesRoute
   '/v1/profiles/agents/$profileId': typeof V1ProfilesAgentsProfileIdRouteWithChildren
   '/v1/spaces/$spaceId/stream': typeof V1SpacesSpaceIdStreamRoute
   '/o/$orgSlug/agent-activity': typeof OOrgSlugAgentActivityIndexRoute
@@ -1535,7 +1544,7 @@ export interface FileRoutesById {
   '/spaces/$spaceId': typeof SpacesSpaceIdRoute
   '/v1/$': typeof V1SplatRoute
   '/v1/client-environment': typeof V1ClientEnvironmentRoute
-  '/v1/member-agents': typeof V1MemberAgentsRoute
+  '/v1/member-agents': typeof V1MemberAgentsRouteWithChildren
   '/v1/organization-join-link': typeof V1OrganizationJoinLinkRouteWithChildren
   '/v1/organization-join-requests': typeof V1OrganizationJoinRequestsRoute
   '/v1/organizations': typeof V1OrganizationsRouteWithChildren
@@ -1638,6 +1647,7 @@ export interface FileRoutesById {
   '/o/$orgSlug/settings/usage': typeof OOrgSlugSettingsUsageRoute
   '/o/$orgSlug/skills/$skillId': typeof OOrgSlugSkillsSkillIdRoute
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
+  '/v1/member-agents/$memberAgentId/profiles': typeof V1MemberAgentsMemberAgentIdProfilesRoute
   '/v1/profiles/agents/$profileId': typeof V1ProfilesAgentsProfileIdRouteWithChildren
   '/v1/spaces/$spaceId/stream': typeof V1SpacesSpaceIdStreamRoute
   '/o/$orgSlug/_center-agent/': typeof OOrgSlugCenterAgentIndexRoute
@@ -1819,6 +1829,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/usage'
     | '/o/$orgSlug/skills/$skillId'
     | '/o/$orgSlug/spaces/$spaceId'
+    | '/v1/member-agents/$memberAgentId/profiles'
     | '/v1/profiles/agents/$profileId'
     | '/v1/spaces/$spaceId/stream'
     | '/o/$orgSlug/'
@@ -1988,6 +1999,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/usage'
     | '/o/$orgSlug/skills/$skillId'
     | '/o/$orgSlug/spaces/$spaceId'
+    | '/v1/member-agents/$memberAgentId/profiles'
     | '/v1/profiles/agents/$profileId'
     | '/v1/spaces/$spaceId/stream'
     | '/o/$orgSlug/agent-activity'
@@ -2167,6 +2179,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/usage'
     | '/o/$orgSlug/skills/$skillId'
     | '/o/$orgSlug/spaces/$spaceId'
+    | '/v1/member-agents/$memberAgentId/profiles'
     | '/v1/profiles/agents/$profileId'
     | '/v1/spaces/$spaceId/stream'
     | '/o/$orgSlug/_center-agent/'
@@ -2240,7 +2253,7 @@ export interface RootRouteChildren {
   SpacesSpaceIdRoute: typeof SpacesSpaceIdRoute
   V1SplatRoute: typeof V1SplatRoute
   V1ClientEnvironmentRoute: typeof V1ClientEnvironmentRoute
-  V1MemberAgentsRoute: typeof V1MemberAgentsRoute
+  V1MemberAgentsRoute: typeof V1MemberAgentsRouteWithChildren
   V1OrganizationJoinLinkRoute: typeof V1OrganizationJoinLinkRouteWithChildren
   V1OrganizationJoinRequestsRoute: typeof V1OrganizationJoinRequestsRoute
   V1OrganizationsRoute: typeof V1OrganizationsRouteWithChildren
@@ -3374,6 +3387,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OOrgSlugSpacesSpaceIdRouteImport
       parentRoute: typeof OOrgSlugRoute
     }
+    '/v1/member-agents/$memberAgentId/profiles': {
+      id: '/v1/member-agents/$memberAgentId/profiles'
+      path: '/$memberAgentId/profiles'
+      fullPath: '/v1/member-agents/$memberAgentId/profiles'
+      preLoaderRoute: typeof V1MemberAgentsMemberAgentIdProfilesRouteImport
+      parentRoute: typeof V1MemberAgentsRoute
+    }
     '/v1/profiles/agents/$profileId': {
       id: '/v1/profiles/agents/$profileId'
       path: '/$profileId'
@@ -3931,6 +3951,19 @@ const OOrgSlugRouteWithChildren = OOrgSlugRoute._addFileChildren(
   OOrgSlugRouteChildren,
 )
 
+interface V1MemberAgentsRouteChildren {
+  V1MemberAgentsMemberAgentIdProfilesRoute: typeof V1MemberAgentsMemberAgentIdProfilesRoute
+}
+
+const V1MemberAgentsRouteChildren: V1MemberAgentsRouteChildren = {
+  V1MemberAgentsMemberAgentIdProfilesRoute:
+    V1MemberAgentsMemberAgentIdProfilesRoute,
+}
+
+const V1MemberAgentsRouteWithChildren = V1MemberAgentsRoute._addFileChildren(
+  V1MemberAgentsRouteChildren,
+)
+
 interface V1OrganizationJoinLinkRouteChildren {
   V1OrganizationJoinLinkAcceptRoute: typeof V1OrganizationJoinLinkAcceptRoute
   V1OrganizationJoinLinkEnsureRoute: typeof V1OrganizationJoinLinkEnsureRoute
@@ -4064,7 +4097,7 @@ const rootRouteChildren: RootRouteChildren = {
   SpacesSpaceIdRoute: SpacesSpaceIdRoute,
   V1SplatRoute: V1SplatRoute,
   V1ClientEnvironmentRoute: V1ClientEnvironmentRoute,
-  V1MemberAgentsRoute: V1MemberAgentsRoute,
+  V1MemberAgentsRoute: V1MemberAgentsRouteWithChildren,
   V1OrganizationJoinLinkRoute: V1OrganizationJoinLinkRouteWithChildren,
   V1OrganizationJoinRequestsRoute: V1OrganizationJoinRequestsRoute,
   V1OrganizationsRoute: V1OrganizationsRouteWithChildren,

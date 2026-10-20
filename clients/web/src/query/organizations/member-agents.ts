@@ -1,7 +1,9 @@
 import { createMemberAgentsApi } from "@openmeld/api-client";
 import {
+	buildMemberAgentProfilesRoute,
 	getMemberAgentPresenceResponseSchema,
 	MEMBER_AGENT_PRESENCE_ROUTE,
+	resolveMemberAgentProfilesResponseSchema,
 } from "@openmeld/schemas";
 import { queryOptions } from "@tanstack/react-query";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
@@ -13,6 +15,12 @@ export const memberAgentQueryKeys = {
 		[...memberAgentQueryKeys.all(organizationId), "presence"] as const,
 	sync: (organizationId: string) =>
 		[...memberAgentQueryKeys.all(organizationId), "sync"] as const,
+	profiles: (organizationId: string, memberAgentId: string) =>
+		[
+			...memberAgentQueryKeys.all(organizationId),
+			"profiles",
+			memberAgentId,
+		] as const,
 };
 
 /** The signed-in member's MemberAgents and unassigned Profiles (owner-only). */
@@ -59,6 +67,40 @@ export function memberAgentPresenceQueryOptions(input: {
 		staleTime: 15_000,
 		refetchInterval: 30_000,
 		refetchIntervalInBackground: false,
+		gcTime: DISPLAY_REVISIT_GC_TIME_MS,
+	});
+}
+
+/**
+ * Resolves any MemberAgent of the current Organization, not only the signed-in
+ * member's, to the Profiles they can see. A MemberAgent link from a teammate
+ * opens through it.
+ */
+export function memberAgentProfilesQueryOptions(input: {
+	organizationId: string;
+	memberAgentId: string;
+	enabled: boolean;
+}) {
+	return queryOptions({
+		queryKey: memberAgentQueryKeys.profiles(
+			input.organizationId,
+			input.memberAgentId
+		),
+		enabled: input.enabled,
+		queryFn: ({ signal }) =>
+			createOrganizationScopedWebOpenMeldApiFoundation({
+				organizationId: input.organizationId,
+			}).requestJson({
+				url: buildMemberAgentProfilesRoute(input.memberAgentId),
+				method: "GET",
+				operation: "member_agents.profiles",
+				signal,
+				schema: resolveMemberAgentProfilesResponseSchema,
+				invalidMessage: "OpenMeld couldn't open this Agent.",
+			}),
+		// A missing or hidden MemberAgent answers 404; retrying will not help.
+		retry: false,
+		staleTime: 30_000,
 		gcTime: DISPLAY_REVISIT_GC_TIME_MS,
 	});
 }

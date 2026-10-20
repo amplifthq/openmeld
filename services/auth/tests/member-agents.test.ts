@@ -1,5 +1,10 @@
 import { withPostgresRequest } from "@openmeld/db/postgresql";
-import { listMemberAgentsResponseSchema } from "@openmeld/schemas";
+import {
+  buildMemberAgentProfilesRoute,
+  listMemberAgentsResponseSchema,
+  MEMBER_AGENT_NOT_FOUND_CODE,
+  resolveMemberAgentProfilesResponseSchema,
+} from "@openmeld/schemas";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -93,11 +98,12 @@ function createApp(input: {
 
 async function request(
   app: Hono<AppContext>,
-  headers: Record<string, string> = {}
+  headers: Record<string, string> = {},
+  path = "/v1/member-agents"
 ) {
   return await withPostgresRequest(harness.binding, async () => {
     const response = await app.request(
-      "/v1/member-agents",
+      path,
       { headers },
       { OPENMELD_POSTGRESQL: harness.binding }
     );
@@ -361,5 +367,99 @@ describe("GET /v1/member-agents", () => {
       code: "member_agents.disabled",
       message: "Agents grouped by harness are not available yet.",
     });
+  });
+});
+
+describe("GET /v1/member-agents/:memberAgentId/profiles", () => {
+  const resolve = (
+    memberAgentId: string,
+    input: { userId: string; organizationId: string; enabled?: boolean }
+  ) =>
+    request(
+      createApp({
+        enabled: input.enabled ?? true,
+        userId: input.userId,
+        activeOrganizationId: input.organizationId,
+      }),
+      {},
+      buildMemberAgentProfilesRoute(memberAgentId)
+    );
+
+  it("resolves a teammate's MemberAgent to the Profiles All Agents shows", async () => {
+    // A disabled Profile is not in All Agents, so it is not resolved either.
+    await assign(agentProfileId("8"), "ma-alice-one-claude");
+
+    const { status, body } = await resolve("ma-alice-one-claude", {
+      userId: "bob",
+      organizationId: "one",
+    });
+
+    expect(status).toBe(200);
+    expect(resolveMemberAgentProfilesResponseSchema.parse(body)).toEqual({
+      ok: true,
+      organizationId: "one",
+      memberAgentId: "ma-alice-one-claude",
+      ownerUserId: "alice",
+      harnessKind: "claude-code",
+      defaultProfileId: agentProfileId("1"),
+      profileIds: [agentProfileId("2"), agentProfileId("1")],
+    });
+  });
+
+  it("hides a default Profile the caller cannot see", async () => {
+    await harness.query({
+      text: `UPDATE "openmeld"."openmeld_profiles" SET status = 'disabled' WHERE profile_id = $1`,
+      values: [agentProfileId("3")],
+    });
+
+    const { status, body } = await resolve("ma-alice-one-codex", {
+      userId: "bob",
+      organizationId: "one",
+    });
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ defaultProfileId: null, profileIds: [] });
+  });
+
+  it("reads a MemberAgent of another organization as not found", async () => {
+    const { status, body } = await resolve("ma-alice-two-claude", {
+      userId: "bob",
+      organizationId: "one",
+    });
+
+    expect(status).toBe(404);
+    expect(body).toMatchObject({
+      ok: false,
+      code: MEMBER_AGENT_NOT_FOUND_CODE,
+    });
+    expect(
+      (await resolve("ma-missing", { userId: "bob", organizationId: "one" }))
+        .status
+    ).toBe(404);
+  });
+
+  it("rejects a caller who is not a member of the organization", async () => {
+    await harness.query({
+      text: `DELETE FROM "openmeld"."members" WHERE id = 'bob-one'`,
+    });
+
+    const { status, body } = await resolve("ma-alice-one-claude", {
+      userId: "bob",
+      organizationId: "one",
+    });
+
+    expect(status).toBe(403);
+    expect(body.code).toBe("organization.membership_required");
+    expect(body).not.toHaveProperty("profileIds");
+  });
+
+  it("is unavailable while the MemberAgent flag is off", async () => {
+    const { status } = await resolve("ma-alice-one-claude", {
+      userId: "bob",
+      organizationId: "one",
+      enabled: false,
+    });
+
+    expect(status).toBe(404);
   });
 });

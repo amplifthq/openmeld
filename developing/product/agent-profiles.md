@@ -98,6 +98,14 @@ reads as missing. Unassigned Profiles sit in their own section at the bottom of
 the Agents list, with the controller switcher as their assignment action. The
 system never guesses an assignment.
 
+The MemberAgent list and presence are owner reads. A MemberAgent link
+(`/agents?memberAgentId=`) still opens for any member of its Organization:
+`GET /v1/member-agents/:memberAgentId/profiles` resolves it to the Profiles the
+caller can see, with the same rule as All Agents (active Agent Profiles of the
+current Organization). A teammate lands on the read-only page of the default
+Profile, or the oldest visible one. A MemberAgent of another Organization
+reads as not found, and a non-member is refused.
+
 Every other Profile belongs to the MemberAgent of its Binding's harness. When
 Core accepts a Binding write (Create, a Personal Remote Agent, the controller
 switcher, or catalog sync), it asks Auth to assign the Profile to the owner's

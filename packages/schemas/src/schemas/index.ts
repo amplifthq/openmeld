@@ -1835,6 +1835,12 @@ export {
   setLocalRuntimeDisplayNameBodySchema,
 } from "./http/local-runtimes";
 export {
+  buildMemberAgentProfilesRoute,
+  MEMBER_AGENT_NOT_FOUND_CODE,
+  type ResolveMemberAgentProfilesResponse,
+  resolveMemberAgentProfilesResponseSchema,
+} from "./http/member-agent-profiles";
+export {
   type AssignAgentProfileMemberAgentOutcome,
   type AssignAgentProfileMemberAgentRpcInput,
   type AssignAgentProfileMemberAgentRpcResult,

@@ -20,6 +20,7 @@ import {
 	buildOrganizationPersonAgentsPath,
 } from "#/lib/organizations/organization-routes";
 import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
+import { memberAgentProfilesQueryOptions } from "#/query/organizations/member-agents";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 
 export const Route = createFileRoute("/o/$orgSlug/agents")({
@@ -72,6 +73,29 @@ function TeamAgentsRoute() {
 			organizationId: currentOrganization.id,
 		})
 	);
+	const memberAgentLink = useTeammateMemberAgentLink({
+		currentUserId,
+		memberAgentId: profileId ? null : (memberAgentId ?? null),
+		organizationId: currentOrganization.id,
+	});
+	if (memberAgentLink.status === "pending") {
+		return (
+			<AgentResolutionPage
+				detail
+				initialSidebarStates={sidebarStates}
+				isPending
+			/>
+		);
+	}
+	if (memberAgentLink.status === "teammate") {
+		return (
+			<Navigate
+				replace
+				search={{ profileId: memberAgentLink.profileId }}
+				to={buildOrganizationAgentsPath(currentOrganization.slug)}
+			/>
+		);
+	}
 	if (!profileId) {
 		return (
 			<PeopleAndAgentsPage
@@ -156,4 +180,33 @@ function TeamAgentsRoute() {
 			}
 		/>
 	);
+}
+
+// A MemberAgent link may name a teammate's Agent, which the owner-only
+// MemberAgent reads cannot see. It resolves to that Agent's visible Profile,
+// whose page is read-only for teammates. The member's own Agents, and links
+// that resolve to nothing, stay on the Agents page.
+function useTeammateMemberAgentLink(input: {
+	currentUserId: string;
+	memberAgentId: string | null;
+	organizationId: string;
+}): { status: "none" | "pending" } | { status: "teammate"; profileId: string } {
+	const link = useQuery(
+		memberAgentProfilesQueryOptions({
+			enabled: input.memberAgentId !== null,
+			memberAgentId: input.memberAgentId ?? "",
+			organizationId: input.organizationId,
+		})
+	);
+	if (input.memberAgentId === null) {
+		return { status: "none" };
+	}
+	if (link.isPending) {
+		return { status: "pending" };
+	}
+	const profileId =
+		link.data && link.data.ownerUserId !== input.currentUserId
+			? (link.data.defaultProfileId ?? link.data.profileIds[0] ?? null)
+			: null;
+	return profileId ? { status: "teammate", profileId } : { status: "none" };
 }
