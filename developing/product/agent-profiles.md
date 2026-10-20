@@ -95,14 +95,15 @@ the Agents list, with the controller switcher as their assignment action. The
 system never guesses an assignment.
 
 Every other Profile belongs to the MemberAgent of its Binding's harness. When
-Core accepts a Binding write (Create, the controller switcher, or catalog
-sync), it asks Auth to assign the Profile to the owner's existing MemberAgent
-for that harness in the Profile's Organization. A Profile created on purpose
-therefore joins the existing Agent as one more Profile; it never creates a
-second MemberAgent. The assignment never creates a MemberAgent and never moves
-an assigned Profile. A failed assignment does not fail the Binding write:
-each catalog sync assigns any bound Profile still unassigned whose harness has
-a MemberAgent.
+Core accepts a Binding write (Create, a Personal Remote Agent, the controller
+switcher, or catalog sync), it asks Auth to assign the Profile to the owner's
+existing MemberAgent for that harness in the Profile's Organization. A Profile
+created on purpose therefore joins the existing Agent as one more Profile; it
+never creates a second MemberAgent. The assignment never creates a MemberAgent
+and never moves an assigned Profile. A failed assignment does not fail the
+Binding write: each catalog sync, with or without a connected Computer,
+assigns any bound Profile still unassigned whose harness has a MemberAgent,
+grouping by the same Binding as the migration.
 
 Nothing is configurable on the MemberAgent itself. Space participants remain
 Agent Profiles: a MemberAgent is a grouping, never a Space member, message

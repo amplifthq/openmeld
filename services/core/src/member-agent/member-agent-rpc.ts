@@ -52,7 +52,7 @@ import { projectRuntimeHarnesses } from "./application/runtime-harness-catalog";
 import {
   hasAnyAgentProfileBinding,
   listOwnerRuntimeHarnessCatalog,
-  readEnabledAgentProfileControllerRef,
+  readAgentProfileGroupingControllerRef,
   recordRuntimeHarnessObservation,
 } from "./infrastructure/postgresql/runtime-harness-presence-repo";
 import { assignBoundProfileToMemberAgent } from "./member-agent-profile-assignment";
@@ -335,8 +335,8 @@ function createSyncDeps(
       });
       return { spaceId: opened.spaceId };
     },
-    readEnabledControllerRef: (agentProfileId) =>
-      readEnabledAgentProfileControllerRef({
+    readGroupingControllerRef: (agentProfileId) =>
+      readAgentProfileGroupingControllerRef({
         agentProfileId,
         db: caller.db,
         ownerUserId: caller.ownerUserId,

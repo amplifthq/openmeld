@@ -240,9 +240,11 @@ export async function hasAnyAgentProfileBinding(input: {
   return result.rows.length > 0;
 }
 
-// The controller ref of the Profile's enabled primary Binding under this
-// owner, or null when the Profile has none.
-export async function readEnabledAgentProfileControllerRef(input: {
+// The controller ref that groups the Profile: its enabled primary Binding,
+// else its most recent Binding (a disabled Binding keeps its harness), or
+// null when the Profile never bound under this owner. Same order as the
+// MemberAgent backfill.
+export async function readAgentProfileGroupingControllerRef(input: {
   agentProfileId: string;
   db: PostgresDatabase;
   ownerUserId: string;
@@ -254,7 +256,10 @@ export async function readEnabledAgentProfileControllerRef(input: {
       WHERE owner_kind = 'owner_account'
         AND owner_id = $1
         AND agent_profile_id = $2
-        AND binding_state = 'enabled_primary'
+      ORDER BY (binding_state = 'enabled_primary') DESC,
+        created_at_ms DESC,
+        updated_at_ms DESC,
+        binding_id DESC
       LIMIT 1
     `,
     values: [input.ownerUserId, input.agentProfileId],

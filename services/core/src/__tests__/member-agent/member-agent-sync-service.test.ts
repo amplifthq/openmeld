@@ -53,7 +53,7 @@ function createDeps(input: {
       projectRuntimeHarnesses({ entries: input.entries, nowMs: NOW_MS })
     ),
     openDirectMessage: vi.fn(async () => ({ spaceId: "space-dm" })),
-    readEnabledControllerRef: vi.fn(
+    readGroupingControllerRef: vi.fn(
       async (agentProfileId: string) =>
         input.controllerRefs?.[agentProfileId] ?? null
     ),
@@ -252,6 +252,67 @@ describe("syncMemberAgents", () => {
     });
   });
 
+  it("assigns bound Profiles while no Harness is detected", async () => {
+    // The computer is offline: the Binding and the MemberAgent still decide.
+    const deps = createDeps({
+      controllerRefs: { "agt-second-cursor": "builtin:cursor" },
+      entries: [],
+      existing: {
+        ...listing([
+          memberAgent({
+            defaultProfileId: DEFAULT_PROFILE_ID,
+            harnessKind: "cursor",
+            id: "ma-cursor",
+          }),
+        ]),
+        unassignedProfiles: [
+          { openMeldProfileId: "agt-second-cursor", profileName: "Second" },
+        ],
+      },
+    });
+
+    expect(await syncMemberAgents(deps)).toEqual({
+      assignedProfileIds: ["agt-second-cursor"],
+      results: [],
+    });
+  });
+
+  it("assigns a bound Profile to the MemberAgent this sync created", async () => {
+    const before = {
+      ...listing([]),
+      unassignedProfiles: [
+        { openMeldProfileId: "agt-codex-helper", profileName: "Helper" },
+      ],
+    };
+    const after = {
+      ...listing([
+        memberAgent({
+          defaultProfileId: DEFAULT_PROFILE_ID,
+          harnessKind: "codex",
+          id: "ma-1",
+        }),
+      ]),
+      unassignedProfiles: before.unassignedProfiles,
+    };
+    const deps = createDeps({
+      controllerRefs: { "agt-codex-helper": "builtin:codex" },
+      entries: [
+        catalogEntry({
+          agentControllerRef: "builtin:codex",
+          openMeldServiceRuntimeId: "runtime-1",
+        }),
+      ],
+    });
+    deps.listOwnerMemberAgents
+      .mockResolvedValueOnce(before)
+      .mockResolvedValueOnce(after);
+
+    const { assignedProfileIds, results } = await syncMemberAgents(deps);
+
+    expect(results[0]?.outcome).toBe("created");
+    expect(assignedProfileIds).toEqual(["agt-codex-helper"]);
+  });
+
   it("finishes the Binding of a detected MemberAgent that has none", async () => {
     const deps = createDeps({
       entries: [
@@ -366,7 +427,6 @@ describe("syncMemberAgents", () => {
       assignedProfileIds: [],
       results: [],
     });
-    expect(deps.listOwnerMemberAgents).not.toHaveBeenCalled();
     expect(deps.ensureDetectedMemberAgent).not.toHaveBeenCalled();
   });
 

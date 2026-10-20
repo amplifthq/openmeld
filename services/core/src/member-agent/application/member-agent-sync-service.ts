@@ -35,7 +35,9 @@ export type MemberAgentSyncDeps = {
   listOwnerMemberAgents: () => Promise<ListMemberAgentsResponse>;
   listRuntimeHarnesses: () => Promise<readonly RuntimeHarness[]>;
   openDirectMessage: (agentProfileId: string) => Promise<{ spaceId: string }>;
-  readEnabledControllerRef: (agentProfileId: string) => Promise<string | null>;
+  // The enabled primary Binding's controller ref, else the most recent
+  // Binding's; null when the Profile never bound.
+  readGroupingControllerRef: (agentProfileId: string) => Promise<string | null>;
   // Writes the default Profile's first Binding with the Harness defaults.
   writeDefaultBinding: (input: {
     agentProfileId: string;
@@ -75,9 +77,8 @@ export async function syncMemberAgents(
     list.push(harness);
     byHarnessKind.set(harness.harnessKind, list);
   }
-  if (byHarnessKind.size === 0) {
-    return { assignedProfileIds: [], results: [] };
-  }
+  // The listing is read even with no Harness detected: assigning bound
+  // Profiles needs only their Bindings and the existing MemberAgents.
   const listing = await deps.listOwnerMemberAgents();
   const results: MemberAgentSyncResult[] = [];
   for (const [harnessKind, candidates] of [...byHarnessKind].sort(([a], [b]) =>
@@ -96,7 +97,13 @@ export async function syncMemberAgents(
     );
   }
   return {
-    assignedProfileIds: await assignUnassignedBoundProfiles(deps, listing),
+    assignedProfileIds: await assignUnassignedBoundProfiles(
+      deps,
+      // A MemberAgent created now can take Profiles already bound to it.
+      results.some((result) => result.outcome === "created")
+        ? await deps.listOwnerMemberAgents()
+        : listing
+    ),
     results,
   };
 }
@@ -114,7 +121,7 @@ async function assignUnassignedBoundProfiles(
     listing.memberAgents.map((memberAgent) => memberAgent.harnessKind)
   );
   for (const profile of listing.unassignedProfiles) {
-    const agentControllerRef = await deps.readEnabledControllerRef(
+    const agentControllerRef = await deps.readGroupingControllerRef(
       profile.openMeldProfileId
     );
     const harnessKind = harnessKindFromAgentControllerRef(agentControllerRef);

@@ -54,6 +54,7 @@ import { validateAgentModelSelection } from "../config/agent-model-availability"
 import { readAuthoredModelCatalog } from "../config/model-catalog";
 import { forkRuntimeTransportAgentSession } from "../dispatch/infrastructure/runtime-transport/runtime-transport-client";
 import type { CoreBindings } from "../lib/bindings";
+import { assignBoundProfileToMemberAgent } from "../member-agent/member-agent-profile-assignment";
 import { createPersonalRemoteAgentBinding } from "../remote-agent/application/personal-remote-agent-binding";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
@@ -878,6 +879,12 @@ async function completeRequestedAgentProfileSetup(input: {
       modelId: input.request.configuration.modelId,
       reasoningLevel: input.request.configuration.reasoningLevel,
       organizationId: input.request.organizationId,
+      ownerUserId: input.request.targetOwnerUserId,
+    });
+    // This Binding write does not go through the primary Binding RPC.
+    await assignBoundProfileToMemberAgent(input.env, {
+      agentControllerRef,
+      agentProfileId: input.agentProfileId,
       ownerUserId: input.request.targetOwnerUserId,
     });
     return;
