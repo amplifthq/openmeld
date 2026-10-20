@@ -82,10 +82,120 @@ it.each([
       if (git) {
         expect(alarm).toBeGreaterThanOrEqual(now + 15_000);
         expect(alarm).toBeLessThan(now + 16_000);
+      } else if (paused) {
+        expect(alarm).toBeGreaterThanOrEqual(next);
       } else {
-        expect(alarm).toBe(paused ? null : next);
+        expect(alarm).toBe(next);
       }
     } finally {
+      await state.storage.deleteAlarm();
+    }
+  });
+});
+
+it("closes an idle Workspace after the grace period and retains its files", async () => {
+  await runInDurableObject(computerStub(), async (computer, state) => {
+    await computer.writeComputerFile("/computer/keep.txt", "saved");
+    const close = vi.spyOn(computer.workspace, "close");
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now");
+    try {
+      await computer.alarm();
+      expect(close).not.toHaveBeenCalled();
+      clock.mockReturnValue(now + 121_000);
+      await computer.alarm();
+      expect(close).toHaveBeenCalledOnce();
+      expect(await state.storage.getAlarm()).toBeNull();
+      await computer.workspace.ready();
+      expect(
+        await computer.workspace.fs.readFile("/computer/keep.txt", "utf8")
+      ).toBe("saved");
+    } finally {
+      clock.mockRestore();
+      close.mockRestore();
+      await state.storage.deleteAlarm();
+    }
+  });
+});
+
+it("keeps the Workspace open during a slow file write and pending synchronization", async () => {
+  await runInDurableObject(computerStub(), async (computer, state) => {
+    await computer.workspace.ready();
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const originalWrite = computer.workspace.fs.writeFile.bind(
+      computer.workspace.fs
+    );
+    const write = vi
+      .spyOn(computer.workspace.fs, "writeFile")
+      .mockImplementation(async (...args) => {
+        entered.resolve();
+        await release.promise;
+        return await originalWrite(...args);
+      });
+    const close = vi.spyOn(computer.workspace, "close");
+    const startedAt = Date.now();
+    const clock = vi.spyOn(Date, "now");
+    let maintenance: ReturnType<typeof vi.spyOn> | undefined;
+    try {
+      const pending = computer.writeComputerFile(
+        "/computer/slow.txt",
+        "retained"
+      );
+      await entered.promise;
+      clock.mockReturnValue(startedAt + 3_600_000);
+      await computer.alarm();
+      expect(close).not.toHaveBeenCalled();
+      release.resolve();
+      await pending;
+      clock.mockReturnValue(startedAt + 3_721_000);
+      maintenance = vi
+        .spyOn(computer.workspace, "maintainSync")
+        .mockResolvedValue(true);
+      await computer.alarm();
+      expect(close).not.toHaveBeenCalled();
+      maintenance.mockRestore();
+      await computer.alarm();
+      expect(close).toHaveBeenCalledOnce();
+      expect(
+        await computer.workspace.fs.readFile("/computer/slow.txt", "utf8")
+      ).toBe("retained");
+    } finally {
+      release.resolve();
+      write.mockRestore();
+      close.mockRestore();
+      clock.mockRestore();
+      maintenance?.mockRestore();
+      await state.storage.deleteAlarm();
+    }
+  });
+});
+
+it.each([
+  "container",
+  "worker-shell",
+  "worker-javascript",
+])("does not close a Computer with an unfinished %s command even when collection is paused", async (backend) => {
+  await runInDurableObject(computerStub(), async (computer, state) => {
+    const storage = new ComputerCommandSqlStorage(state.storage.sql);
+    await storage.put(`${COMPUTER_COMMAND_PREFIX}idle:work`, {
+      id: "work",
+      key: "work",
+      fingerprint: "work",
+      createdAt: Date.now(),
+      collectable: false,
+      backend,
+      collection: { unconfirmedAttempts: 8, nextAttemptAtMs: null },
+    });
+    const close = vi.spyOn(computer.workspace, "close");
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 3_600_000);
+    try {
+      await computer.alarm();
+      expect(close).not.toHaveBeenCalled();
+      expect(await state.storage.getAlarm()).not.toBeNull();
+    } finally {
+      clock.mockRestore();
+      close.mockRestore();
       await state.storage.deleteAlarm();
     }
   });

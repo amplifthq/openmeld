@@ -9,6 +9,7 @@ import type { HonoBindings } from "./lib/bindings";
 import { OpenConnectorClient } from "./lib/openconnector-client";
 import { gatewayAuthMiddleware } from "./middlewares/auth";
 import { gatewayContextMiddleware } from "./middlewares/context";
+import { publicReadRateLimitMiddleware } from "./middlewares/public-read-rate-limit";
 import { registerDaemonStreamRoute } from "./routes/daemon-stream";
 import { registerGitHubAppRoutes } from "./routes/github-app";
 import { registerLarkPlatformWebhookRoutes } from "./routes/lark-platform-webhooks";
@@ -25,6 +26,7 @@ import { registerWebSocketRoute } from "./routes/ws-stream";
 
 const app = new Hono<HonoBindings>();
 app.use("/v1/*", gatewayContextMiddleware);
+app.use("/v1/*", publicReadRateLimitMiddleware);
 app.use("/v1/*", async (c, next) => {
   await next();
   if (parseAnonymousSpaceReadRoute(c.req.raw)) {
