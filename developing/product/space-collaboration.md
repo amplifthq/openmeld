@@ -473,6 +473,17 @@ grant. The owner is a read-only observer of the DM and may Join, which converts
 it as described above. Anonymous visitors are rejected at the entrance.
 No Wake and no membership exist before consent.
 
+The grant list of a Profile is owner-only. A member reads only their own
+standing grants through `GET /v1/organizations/current/agent-access-grants/mine`:
+unrevoked `always` grants in the active Organization, on active Agent Profiles
+only. Clients use it to show "You can use" or "Asks <owner>" on a colleague's
+Agent, and to label the primary action **Ask to use** when the owner answers
+first. It never shows another member's grants. When a colleague's Agent cannot
+start work, clients show only the closed public reason set
+(`publicWakeabilityReason`), worded neutrally with no fix steps, and disable
+chat while the Agent is unavailable. An offline Agent keeps chat, because the
+message waits for its computer.
+
 ## Space Identity
 
 The Space name is Space-owned identity. It is the same canonical value used in

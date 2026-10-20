@@ -469,7 +469,7 @@ export async function insertAgentProfileAccessGrant(input: {
   });
 }
 
-/** The grantee's own standing grants in one Organization, newest first. */
+/** The grantee's own standing grants on active Agent profiles, newest first. */
 export async function listActiveAlwaysAgentAccessGrantsForGrantee(input: {
   db: Queryable;
   organizationId: string;
@@ -482,6 +482,10 @@ export async function listActiveAlwaysAgentAccessGrantsForGrantee(input: {
   }>({
     text: `SELECT grant_row.profile_id, MAX(grant_row.granted_at_ms) AS granted_at_ms
       FROM "openmeld"."agent_profile_access_grants" AS grant_row
+      INNER JOIN "openmeld"."openmeld_profiles" AS profile
+        ON profile.profile_id = grant_row.profile_id
+        AND profile.organization_id = grant_row.organization_id
+        AND profile.profile_kind = 'agent' AND profile.status = 'active'
       WHERE grant_row.organization_id = $1 AND grant_row.grantee_user_id = $2
         AND grant_row.scope = 'always' AND grant_row.revoked_at_ms IS NULL
       GROUP BY grant_row.profile_id
