@@ -11,7 +11,7 @@ import {
 import { Button } from "@openmeld/ui/components/button";
 import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { RobotIcon } from "@phosphor-icons/react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import {
 	ApprovalRequestErrors,
@@ -23,6 +23,7 @@ import {
 	buildOrganizationDirectMessagePath,
 	buildOrganizationSpacePath,
 } from "#/lib/organizations/organization-routes";
+import { useOpenDirectMessage } from "#/lib/spaces/use-open-direct-message";
 import {
 	useAgentAccessRequest,
 	useDecideAgentAccessRequest,
@@ -41,13 +42,35 @@ export function agentAccessDecisionLabel(
 			return "Decline";
 		case "join":
 			return "Add to Space";
-		case "reply_by_dm":
-			return `Reply to ${request.requesterName} by DM`;
 		case "ignore":
 			return "Don't add";
 		default:
 			throw new Error("Unknown Agent access decision");
 	}
+}
+
+/**
+ * Messaging the requester is a conversation, not a decision: the request
+ * stays pending. Offered on a colleague's pending Space request.
+ */
+export function canMessageAgentAccessRequester(
+	request: Pick<
+		AgentAccessRequestView,
+		"kind" | "requesterKind" | "status" | "viewerRole"
+	>
+): boolean {
+	return (
+		request.kind === "space_join" &&
+		request.requesterKind === "member" &&
+		request.status === "pending" &&
+		request.viewerRole === "owner"
+	);
+}
+
+export function agentAccessMessageRequesterLabel(
+	request: Pick<AgentAccessRequestView, "requesterName">
+): string {
+	return `Message ${request.requesterName}`;
 }
 
 function requestTitle(request: AgentAccessRequestView): string {
@@ -120,7 +143,10 @@ export function AgentAccessRequestCard(input: {
 	const orgSlug = organization?.currentOrganization.slug ?? "";
 	const query = useAgentAccessRequest(input.requestId);
 	const decide = useDecideAgentAccessRequest();
-	const navigate = useNavigate();
+	const directMessage = useOpenDirectMessage({
+		organizationId: organization?.currentOrganization.id ?? null,
+		orgSlug,
+	});
 	const [error, setError] = useState<string | null>(null);
 	const request = query.data;
 	if (query.isPending) {
@@ -138,18 +164,10 @@ export function AgentAccessRequestCard(input: {
 		input.onInteract?.();
 		setError(null);
 		try {
-			const response = await decide.mutateAsync({
+			await decide.mutateAsync({
 				decision,
 				requestId: request.id,
 			});
-			if (response.directMessageSpaceId) {
-				await navigate({
-					to: buildOrganizationDirectMessagePath({
-						orgSlug,
-						spaceId: response.directMessageSpaceId,
-					}),
-				});
-			}
 		} catch (failure) {
 			setError(
 				failure instanceof Error
@@ -194,6 +212,19 @@ export function AgentAccessRequestCard(input: {
 							{agentAccessDecisionLabel(decision, request)}
 						</Button>
 					))}
+					{canMessageAgentAccessRequester(request) ? (
+						<Button
+							disabled={directMessage.pendingProfileId !== null}
+							onClick={() => {
+								input.onInteract?.();
+								directMessage.open(request.requesterProfileId);
+							}}
+							size="sm"
+							variant="outline"
+						>
+							{agentAccessMessageRequesterLabel(request)}
+						</Button>
+					) : null}
 				</ApprovalCardFooter>
 			) : (
 				<ApprovalRequestOutcome>

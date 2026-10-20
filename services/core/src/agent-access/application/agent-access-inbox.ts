@@ -80,7 +80,7 @@ function resolveAgentAccessInboxCopy(input: {
     case "space_join":
       return {
         title: `${requesterName} wants ${agentProfileName} in a Space`,
-        preview: `${requesterName} asked to add ${agentProfileName} to a Space it isn't in. Add it, reply by DM, or don't add it. It won't join or run until you choose.`,
+        preview: `${requesterName} asked to add ${agentProfileName} to a Space it isn't in. Add it or don't add it. It won't join or run until you choose.`,
       };
     default:
       throw new Error("Unknown Agent access request kind");

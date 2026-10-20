@@ -1,6 +1,11 @@
 import type {
 	AgentAccessDecision,
 	AgentAccessRequestView,
+	HarnessKind,
+} from "@openmeld/schemas";
+import {
+	HOSTED_HARNESS_KIND,
+	HOSTED_REMOTE_AGENT_CONTROLLER_REF,
 } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
 import {
@@ -12,11 +17,11 @@ import {
 	FluidDropdownMenuGroup,
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
-import { DotsThreeIcon, RobotIcon } from "@phosphor-icons/react";
-import { useNavigate } from "@tanstack/react-router";
+import { cn } from "@openmeld/ui/lib/utils";
+import { DotsThreeIcon } from "@phosphor-icons/react";
 import { useReducedMotion } from "motion/react";
 import { useState } from "react";
-import { HarnessLogo } from "#/components/member-agents/member-agent-directory-section";
+import { RemoteAgentAvatar } from "#/components/agents/remote-agent-avatar";
 import { useMemberAgentIndex } from "#/components/member-agents/use-member-agents";
 import {
 	Message,
@@ -25,15 +30,23 @@ import {
 } from "#/components/spaces/primitives/message";
 import { MessageScrollerItem } from "#/components/spaces/primitives/message-scroller";
 import { SpaceComposerTray } from "#/components/spaces/space-composer-tray";
-import { SPACE_MESSAGE_CONTENT_PADDING_CLASS } from "#/components/spaces/space-message-bubble-style";
+import {
+	resolveSpaceMessageBubblePresentationClass,
+	SPACE_MESSAGE_CONTENT_PADDING_CLASS,
+} from "#/components/spaces/space-message-bubble-style";
+import { SpaceMessageProfileAvatar } from "#/components/spaces/space-message-profile-avatar";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
-import { buildOrganizationDirectMessagePath } from "#/lib/organizations/organization-routes";
+import { useOpenDirectMessage } from "#/lib/spaces/use-open-direct-message";
 import {
 	useAgentAccessRequests,
 	useDecideAgentAccessRequest,
 	useWithdrawAgentAccessRequest,
 } from "#/query/agent-access";
-import { agentAccessDecisionLabel } from "./agent-access-request-card";
+import {
+	agentAccessDecisionLabel,
+	agentAccessMessageRequesterLabel,
+	canMessageAgentAccessRequester,
+} from "./agent-access-request-card";
 
 const RECENT_OUTCOME_MS = 24 * 60 * 60 * 1000;
 
@@ -134,6 +147,9 @@ export type SpaceAgentAccessRequestsState = {
 		decision: AgentAccessDecision
 	) => Promise<void>;
 	withdraw: (request: AgentAccessRequestView) => void;
+	/** Opens the owner's Direct Message with the requester; nothing is decided. */
+	messageRequester: (request: AgentAccessRequestView) => void;
+	messagePending: boolean;
 };
 
 /**
@@ -150,8 +166,11 @@ export function useSpaceAgentAccessRequests(
 	);
 	const decideMutation = useDecideAgentAccessRequest();
 	const withdrawMutation = useWithdrawAgentAccessRequest();
-	const navigate = useNavigate();
-	const orgSlug = useOptionalAppOrganization()?.currentOrganization.slug ?? "";
+	const organization = useOptionalAppOrganization()?.currentOrganization;
+	const directMessage = useOpenDirectMessage({
+		organizationId: organization?.id ?? null,
+		orgSlug: organization?.slug,
+	});
 	const [nowMs] = useState(() => Date.now());
 	const requests = spaceId
 		? selectVisibleSpaceAgentAccessRequests(query.data ?? [], nowMs)
@@ -164,22 +183,18 @@ export function useSpaceAgentAccessRequests(
 		decide: async (request, decision) => {
 			withdrawMutation.reset();
 			// A failed answer is shown from the mutation state.
-			const response = await decideMutation
+			await decideMutation
 				.mutateAsync({ decision, requestId: request.id })
 				.catch(() => null);
-			if (response?.directMessageSpaceId) {
-				await navigate({
-					to: buildOrganizationDirectMessagePath({
-						orgSlug,
-						spaceId: response.directMessageSpaceId,
-					}),
-				});
-			}
 		},
 		withdraw: (request) => {
 			decideMutation.reset();
 			withdrawMutation.mutate(request.id);
 		},
+		messageRequester: (request) => {
+			directMessage.open(request.requesterProfileId);
+		},
+		messagePending: directMessage.pendingProfileId !== null,
 	};
 }
 
@@ -187,22 +202,51 @@ function agentAccessPreviewElementId(requestId: string): string {
 	return `agent-access-request-${requestId}`;
 }
 
-function RequestedAgentAvatar(input: { profileId: string; size: number }) {
+/**
+ * The requested Agent drawn with the same avatar as its message rows. The
+ * Agent is not in this Space yet, so its Harness supplies the controller
+ * when the saved profile is not loaded.
+ */
+function RequestedAgentAvatar(input: {
+	profileId: string;
+	profileName: string;
+	/** Fixed size for the composer bar; message rows size it responsively. */
+	size?: number;
+}) {
 	const harnessKind = useMemberAgentIndex().index.byProfileId.get(
 		input.profileId
 	)?.harnessKind;
-	if (harnessKind) {
-		return <HarnessLogo harnessKind={harnessKind} size={input.size} />;
+	const agentControllerRef = agentControllerRefForHarness(harnessKind);
+	if (input.size) {
+		return (
+			<RemoteAgentAvatar
+				agentControllerRef={agentControllerRef}
+				profileId={input.profileId}
+				profileName={input.profileName}
+				size={input.size}
+			/>
+		);
 	}
 	return (
-		<span
-			aria-hidden="true"
-			className="grid shrink-0 place-items-center rounded-md bg-muted text-muted-foreground"
-			style={{ height: input.size, width: input.size }}
-		>
-			<RobotIcon className="size-1/2" />
-		</span>
+		<SpaceMessageProfileAvatar
+			agentControllerRef={agentControllerRef}
+			displayName={input.profileName}
+			profileId={input.profileId}
+			profileKind="agent"
+			responsive
+		/>
 	);
+}
+
+function agentControllerRefForHarness(
+	harnessKind: HarnessKind | undefined
+): string | null {
+	if (!harnessKind) {
+		return null;
+	}
+	return harnessKind === HOSTED_HARNESS_KIND
+		? HOSTED_REMOTE_AGENT_CONTROLLER_REF
+		: `builtin:${harnessKind}`;
 }
 
 /** One primary decision, the rest in an overflow menu. */
@@ -217,6 +261,7 @@ function AgentAccessDecisionActions(input: {
 		return null;
 	}
 	const { request, state } = input;
+	const canMessage = canMessageAgentAccessRequester(request);
 	return (
 		<div className="flex shrink-0 items-center gap-1">
 			<Button
@@ -226,7 +271,7 @@ function AgentAccessDecisionActions(input: {
 			>
 				{agentAccessDecisionLabel(primary, request)}
 			</Button>
-			{secondary.length > 0 ? (
+			{secondary.length > 0 || canMessage ? (
 				<DropdownMenu>
 					<DropdownMenuTrigger
 						render={
@@ -242,10 +287,19 @@ function AgentAccessDecisionActions(input: {
 					/>
 					<FluidDropdownMenuContent align="end">
 						<FluidDropdownMenuGroup>
+							{canMessage ? (
+								<FluidDropdownMenuItem
+									disabled={state.messagePending}
+									index={0}
+									onClick={() => state.messageRequester(request)}
+								>
+									{agentAccessMessageRequesterLabel(request)}
+								</FluidDropdownMenuItem>
+							) : null}
 							{secondary.map((decision, index) => (
 								<FluidDropdownMenuItem
 									disabled={state.busy}
-									index={index}
+									index={index + (canMessage ? 1 : 0)}
 									key={decision}
 									onClick={() => state.decide(request, decision)}
 								>
@@ -278,7 +332,6 @@ export function SpaceAgentAccessBar(input: {
 		<SpaceComposerTray
 			aria-label="Agent requests"
 			aria-live="polite"
-			className="mx-0 sm:mx-0"
 			data-slot="space-agent-access-bar"
 		>
 			<ul className="px-1.5 pt-1">
@@ -290,6 +343,7 @@ export function SpaceAgentAccessBar(input: {
 					>
 						<RequestedAgentAvatar
 							profileId={request.agentProfileId}
+							profileName={request.agentProfileName}
 							size={20}
 						/>
 						{request.viewerRole === "owner" ? (
@@ -325,7 +379,10 @@ function OwnerBarRow(input: {
 		<>
 			{input.previewVisible ? (
 				<button
-					className={`${className} rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-ring`}
+					className={cn(
+						className,
+						"cursor-pointer rounded-sm border-0 bg-transparent p-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+					)}
 					onClick={() =>
 						document
 							.getElementById(agentAccessPreviewElementId(input.request.id))
@@ -411,14 +468,10 @@ export function SpaceAgentAccessPreviews(input: {
 			>
 				<MessageContent className="w-full min-w-0 gap-0">
 					<MessageHeader className="items-center gap-1.5 px-0">
-						<span data-slot="message-speaker-avatar">
-							<span data-slot="message-speaker-avatar-content">
-								<RequestedAgentAvatar
-									profileId={request.agentProfileId}
-									size={32}
-								/>
-							</span>
-						</span>
+						<RequestedAgentAvatar
+							profileId={request.agentProfileId}
+							profileName={request.agentProfileName}
+						/>
 						<span className="min-w-0 truncate text-foreground text-xs">
 							{request.agentProfileName}
 						</span>
@@ -430,7 +483,11 @@ export function SpaceAgentAccessPreviews(input: {
 						</span>
 					</MessageHeader>
 					<div
-						className={`flex w-fit max-w-full flex-col gap-3 rounded-2xl border border-border border-dashed bg-card text-sm ${SPACE_MESSAGE_CONTENT_PADDING_CLASS}`}
+						className={cn(
+							resolveSpaceMessageBubblePresentationClass({ isSelf: false }),
+							"flex w-fit max-w-full flex-col gap-3 border-border border-dashed bg-card text-sm",
+							SPACE_MESSAGE_CONTENT_PADDING_CLASS
+						)}
 					>
 						<p className="text-muted-foreground">
 							{ownerAgentAccessDescription(request)}

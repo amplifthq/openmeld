@@ -23380,6 +23380,7 @@ export class Space extends DurableObject<CoreBindings> {
       input.status === "declined" ||
       input.status === "withdrawn" ||
       input.status === "ignored" ||
+      // Requests answered by the retired Reply by DM decision still close.
       input.status === "replied_by_dm"
     ) {
       closeSpaceAgentAccessHold(this.ctx.storage.sql, {

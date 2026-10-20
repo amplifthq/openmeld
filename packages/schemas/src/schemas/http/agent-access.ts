@@ -52,6 +52,7 @@ export const agentAccessRequestStatusSchema = z.enum([
   "withdrawn",
   "voided",
   "joined",
+  // Retired Reply by DM decision; kept so earlier requests stay readable.
   "replied_by_dm",
   "ignored",
 ]);
@@ -69,7 +70,6 @@ export const agentAccessDecisionSchema = z.enum([
   "always_allow",
   "decline",
   "join",
-  "reply_by_dm",
   "ignore",
 ]);
 export type AgentAccessDecision = z.infer<typeof agentAccessDecisionSchema>;
@@ -80,7 +80,9 @@ export function listAgentAccessDecisions(input: {
   requesterKind: AgentAccessGranteeKind;
 }): AgentAccessDecision[] {
   if (input.kind === "space_join") {
-    return ["join", "reply_by_dm", "ignore"];
+    // Messaging the requester is a conversation, not a decision: the owner
+    // opens their Direct Message and the request stays pending.
+    return ["join", "ignore"];
   }
   return input.requesterKind === "external"
     ? ["allow_once", "decline"]
@@ -99,8 +101,6 @@ export function resolveAgentAccessDecisionStatus(
       return "declined";
     case "join":
       return "joined";
-    case "reply_by_dm":
-      return "replied_by_dm";
     case "ignore":
       return "ignored";
     default:
@@ -172,8 +172,6 @@ export type DecideAgentAccessRequestBody = z.infer<
 
 export const decideAgentAccessRequestResponseSchema = z.strictObject({
   request: agentAccessRequestViewSchema,
-  // Reply by DM: the owner's Direct Message with the requester.
-  directMessageSpaceId: identifierSchema.optional(),
 });
 export type DecideAgentAccessRequestResponse = z.infer<
   typeof decideAgentAccessRequestResponseSchema

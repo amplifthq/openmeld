@@ -93,7 +93,7 @@ describe("Agent access policy (member-agent-program.md §4.6)", () => {
     ).toEqual(["allow_once", "always_allow", "decline"]);
     expect(
       listAgentAccessDecisions({ kind: "space_join", requesterKind: "member" })
-    ).toEqual(["join", "reply_by_dm", "ignore"]);
+    ).toEqual(["join", "ignore"]);
   });
 });
 

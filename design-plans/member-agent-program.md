@@ -376,7 +376,8 @@ Bringing the Agent into a Space: **the owner adding their own Agent keeps the
 current atomic join.** Anyone else mentioning or adding it creates a request
 bound to the message id (edited or deleted message voids it); the Agent is
 not woken and not added; the owner becomes a read-only observer of that Space
-and chooses **Let the Agent join / Reply by DM / Ignore**. The observer
+and chooses **Add to Space / Don't add**; **Message <requester>** opens the
+owner's DM with the requester and leaves the request pending. The observer
 condition widens from "current DM" to "ordinary Space containing an Agent I
 own or a pending request for one". Observers are not members, so the
 "owner cannot leave before the Agent" rule does not apply to them.

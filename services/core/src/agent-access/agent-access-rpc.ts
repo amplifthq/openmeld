@@ -28,7 +28,6 @@ import { isMemberAgentsEnabled } from "../member-agent/member-agents-feature";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   type CoreRpcContextInput,
-  openDirectMessageSpaceInternal,
   requireActiveOrganizationMembershipOrThrow,
   requireHumanSpaceMemberFromContext,
   requireRpcContext,
@@ -255,17 +254,12 @@ export async function rpcDecideAgentAccessRequest(
       ? await requireRequestedAgentMember(caller, decided.request)
       : undefined;
   const applied = await applyDecisionInSpace(env, caller, decided, agentMember);
-  const directMessageSpaceId =
-    applied.status === "replied_by_dm"
-      ? await openReplyDirectMessage(env, caller, applied)
-      : undefined;
   return {
     request: await readAgentAccessRequestView({
       db: caller.db,
       request: applied,
       viewerUserId: caller.userId,
     }),
-    ...(directMessageSpaceId ? { directMessageSpaceId } : {}),
   };
 }
 
@@ -528,38 +522,4 @@ async function applyDecisionInSpace(
     userIds: [request.ownerUserId, request.requesterUserId],
   });
   return finished;
-}
-
-/** Reply by DM: the owner's Direct Message with the requester. */
-async function openReplyDirectMessage(
-  env: CoreBindings,
-  caller: AgentAccessCaller,
-  request: AgentAccessRequestRecord
-): Promise<string> {
-  const [member, targetMember] = await Promise.all([
-    readResolvedOrganizationSpaceMember({
-      db: caller.db,
-      organizationId: caller.organizationId,
-      profileId: caller.profileId,
-    }),
-    readResolvedOrganizationSpaceMember({
-      db: caller.db,
-      organizationId: caller.organizationId,
-      profileId: request.requesterProfileId,
-    }),
-  ]);
-  if (!(member && targetMember)) {
-    throw createCoreRpcHttpError({
-      status: 409,
-      code: "agent_access.requester_unavailable",
-      reason: "The person who asked is no longer in this organization.",
-    });
-  }
-  const opened = await openDirectMessageSpaceInternal(env, {
-    context: caller.context,
-    member,
-    organizationId: caller.organizationId,
-    targetMember,
-  });
-  return opened.spaceId;
 }
