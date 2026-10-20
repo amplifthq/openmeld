@@ -8,6 +8,7 @@ import type {
 } from "@openmeld/schemas";
 import {
   harnessKindFromAgentControllerRef,
+  MEMBER_AGENT_SYNC_HARNESS_NOT_DETECTED_REASON,
   resolveBuiltinAgentControllerConversationCapability,
 } from "@openmeld/schemas";
 import {
@@ -55,20 +56,27 @@ export const MEMBER_AGENT_SYNC_CONVERSATION_REQUIRED_REASON =
 /**
  * Reconcile the signed-in member's MemberAgents in one Organization with the
  * Harnesses their computers report (design-plans/member-agent-program.md
- * §4.5). For each builtin Harness detected now with no MemberAgent, ask Auth
- * to ensure the MemberAgent and its default Profile, then write that
- * Profile's Binding to one of the reporting computers and open the owner's
- * Direct Message with it. A second computer with the same Harness adds
- * nothing. Hosted and custom controllers never appear in the catalog.
+ * §4.5). Only the Harnesses the member chose (`createHarnessKinds`, from
+ * setup or "add") get a new MemberAgent: Auth ensures it with its keyed
+ * default Profile, Core binds that Profile to one of the reporting computers
+ * and assigns it under the Profile's assignment lock, Auth then sets the
+ * default, and Core opens the owner's Direct Message with it. Every call
+ * also finishes existing detected MemberAgents and assigns bound Profiles.
+ * Other detected Harnesses are reported as addable. A second computer with
+ * the same Harness adds nothing. Hosted and custom controllers never appear
+ * in the catalog.
  */
 export type MemberAgentSyncReport = {
+  // Detected Harnesses with no MemberAgent that the member can add.
+  addableHarnessKinds: DetectedHarnessKind[];
   // Unassigned Profiles this call put under their Harness's MemberAgent.
   assignedProfileIds: string[];
   results: MemberAgentSyncResult[];
 };
 
 export async function syncMemberAgents(
-  deps: MemberAgentSyncDeps
+  deps: MemberAgentSyncDeps,
+  input: { createHarnessKinds?: readonly DetectedHarnessKind[] } = {}
 ): Promise<MemberAgentSyncReport> {
   const harnesses = (await deps.listRuntimeHarnesses()).filter(
     isRuntimeHarnessCreatable
@@ -79,26 +87,45 @@ export async function syncMemberAgents(
     list.push(harness);
     byHarnessKind.set(harness.harnessKind, list);
   }
+  const requested = new Set(input.createHarnessKinds ?? []);
   // The listing is read even with no Harness detected: assigning bound
   // Profiles needs only their Bindings and the existing MemberAgents.
   const listing = await deps.listOwnerMemberAgents();
   const results: MemberAgentSyncResult[] = [];
+  const addableHarnessKinds: DetectedHarnessKind[] = [];
   for (const [harnessKind, candidates] of [...byHarnessKind].sort(([a], [b]) =>
     a.localeCompare(b)
   )) {
+    const existing =
+      listing.memberAgents.find(
+        (memberAgent) => memberAgent.harnessKind === harnessKind
+      ) ?? null;
+    if (!(existing || requested.has(harnessKind))) {
+      if (!requiresChosenConversation(harnessKind)) {
+        addableHarnessKinds.push(harnessKind);
+      }
+      continue;
+    }
     results.push(
-      await syncHarness({
-        candidates,
-        deps,
-        existing:
-          listing.memberAgents.find(
-            (memberAgent) => memberAgent.harnessKind === harnessKind
-          ) ?? null,
-        harnessKind,
-      })
+      await syncHarness({ candidates, deps, existing, harnessKind })
     );
   }
+  for (const harnessKind of [...requested].sort()) {
+    if (!byHarnessKind.has(harnessKind)) {
+      results.push({
+        binding: "not_attempted",
+        defaultProfileId: null,
+        directMessage: "not_attempted",
+        directMessageSpaceId: null,
+        harnessKind,
+        memberAgentId: null,
+        outcome: "skipped",
+        reasonCodes: [MEMBER_AGENT_SYNC_HARNESS_NOT_DETECTED_REASON],
+      });
+    }
+  }
   return {
+    addableHarnessKinds,
     assignedProfileIds: await assignUnassignedBoundProfiles(
       deps,
       // A MemberAgent created now can take Profiles already bound to it.
@@ -154,10 +181,7 @@ async function syncHarness(input: {
     memberAgentId: input.existing?.id ?? null,
     reasonCodes: [],
   } satisfies Omit<MemberAgentSyncResult, "outcome">;
-  if (
-    resolveBuiltinAgentControllerConversationCapability(input.harnessKind)
-      ?.conversationScope === "account_shared"
-  ) {
+  if (requiresChosenConversation(input.harnessKind)) {
     return {
       ...base,
       outcome: "skipped",
@@ -165,18 +189,35 @@ async function syncHarness(input: {
     };
   }
 
-  let memberAgent = input.existing;
-  let created = false;
-  if (!memberAgent || isInterruptedDetectedCreation(memberAgent)) {
-    const ensured = await input.deps.ensureDetectedMemberAgent(
-      input.harnessKind
-    );
-    if (!ensured.ok) {
-      return { ...base, outcome: "skipped", reasonCodes: [ensured.code] };
+  const reasonCodes: string[] = [];
+  const bindDefaultProfile = async (
+    agentProfileId: string
+  ): Promise<MemberAgentSyncResult["binding"]> => {
+    try {
+      const written = await input.deps.writeDefaultBinding({
+        agentProfileId,
+        target: selectBindingTarget(input.candidates),
+      });
+      reasonCodes.push(...written.reasonCodes);
+      return written.status === "accepted" ? "succeeded" : "rejected";
+    } catch (error) {
+      reasonCodes.push(readErrorCode(error, "member_agent.binding_failed"));
+      return "failed";
     }
-    memberAgent = ensured.memberAgent;
-    created = ensured.created;
+  };
+
+  const ensured = await ensureMemberAgent({
+    bindDefaultProfile,
+    deps: input.deps,
+    existing: input.existing,
+    harnessKind: input.harnessKind,
+    reasonCodes,
+  });
+  if (!ensured.ok) {
+    return { ...base, outcome: "skipped", reasonCodes: [ensured.code] };
   }
+  const { created, memberAgent } = ensured;
+  let { binding } = ensured;
   const defaultProfileId = memberAgent.defaultProfileId;
   const identified = {
     ...base,
@@ -185,48 +226,129 @@ async function syncHarness(input: {
   };
   // Only a detected MemberAgent's default Profile is set up here. A
   // migrated or manual one keeps whatever Binding its owner chose.
-  if (
-    memberAgent.source !== "detected" ||
-    memberAgent.archivedAt !== null ||
-    !defaultProfileId ||
-    (await input.deps.hasAnyBinding(defaultProfileId))
-  ) {
-    return { ...identified, outcome: created ? "created" : "unchanged" };
+  if (binding === "not_attempted") {
+    const unchanged = {
+      ...identified,
+      outcome: created ? "created" : "unchanged",
+      reasonCodes: [...new Set(reasonCodes)],
+    } satisfies MemberAgentSyncResult;
+    if (
+      memberAgent.source !== "detected" ||
+      memberAgent.archivedAt !== null ||
+      !defaultProfileId
+    ) {
+      return unchanged;
+    }
+    if (!(await input.deps.hasAnyBinding(defaultProfileId))) {
+      binding = await bindDefaultProfile(defaultProfileId);
+    } else if (!ensured.finishedCreation) {
+      // A creation this call finished still opens the Direct Message, even
+      // when an interrupted earlier call already wrote the Binding.
+      return unchanged;
+    }
   }
 
-  const target = selectBindingTarget(input.candidates);
-  const reasonCodes: string[] = [];
-  let binding: MemberAgentSyncResult["binding"] = "failed";
-  try {
-    const written = await input.deps.writeDefaultBinding({
-      agentProfileId: defaultProfileId,
-      target,
-    });
-    binding = written.status === "accepted" ? "succeeded" : "rejected";
-    reasonCodes.push(...written.reasonCodes);
-  } catch (error) {
-    reasonCodes.push(readErrorCode(error, "member_agent.binding_failed"));
+  const directMessage = defaultProfileId
+    ? await openDirectMessage(input.deps, defaultProfileId, reasonCodes)
+    : // The Direct Message waits for a default Profile; the next sync opens it.
+      { directMessage: "not_attempted" as const, directMessageSpaceId: null };
+  return {
+    ...identified,
+    ...directMessage,
+    binding,
+    outcome: created ? "created" : "completed",
+    reasonCodes: [...new Set(reasonCodes)],
+  };
+}
+
+// Ensures the MemberAgent through Auth when it is missing or its creation
+// was interrupted. Auth never assigns the keyed default Profile itself: Core
+// binds it, and the Binding write assigns it under the Profile's assignment
+// lock. A Profile that already has a Binding is assigned through the same
+// lock, which re-reads that Binding's Harness. Auth then sets the default
+// only if the Profile landed under this MemberAgent.
+async function ensureMemberAgent(input: {
+  bindDefaultProfile: (
+    agentProfileId: string
+  ) => Promise<MemberAgentSyncResult["binding"]>;
+  deps: MemberAgentSyncDeps;
+  existing: MemberAgent | null;
+  harnessKind: DetectedHarnessKind;
+  reasonCodes: string[];
+}): Promise<
+  | {
+      ok: true;
+      binding: MemberAgentSyncResult["binding"];
+      created: boolean;
+      finishedCreation: boolean;
+      memberAgent: MemberAgent;
+    }
+  | { ok: false; code: string }
+> {
+  if (input.existing && !isInterruptedDetectedCreation(input.existing)) {
+    return {
+      ok: true,
+      binding: "not_attempted",
+      created: false,
+      finishedCreation: false,
+      memberAgent: input.existing,
+    };
   }
-  let directMessage: MemberAgentSyncResult["directMessage"] = "failed";
-  let directMessageSpaceId: string | null = null;
+  const ensured = await input.deps.ensureDetectedMemberAgent(input.harnessKind);
+  if (!ensured.ok) {
+    return ensured;
+  }
+  let memberAgent = ensured.memberAgent;
+  let binding: MemberAgentSyncResult["binding"] = "not_attempted";
+  const candidateId = ensured.defaultProfileCandidateId;
+  if (candidateId && isInterruptedDetectedCreation(memberAgent)) {
+    if (await input.deps.hasAnyBinding(candidateId)) {
+      await input.deps.assignBoundProfile(candidateId);
+    } else {
+      binding = await input.bindDefaultProfile(candidateId);
+    }
+    const finished = await input.deps.ensureDetectedMemberAgent(
+      input.harnessKind
+    );
+    if (finished.ok) {
+      memberAgent = finished.memberAgent;
+    } else {
+      input.reasonCodes.push(finished.code);
+    }
+  }
+  return {
+    ok: true,
+    binding,
+    created: ensured.created,
+    finishedCreation: memberAgent.defaultProfileId !== null,
+    memberAgent,
+  };
+}
+
+async function openDirectMessage(
+  deps: MemberAgentSyncDeps,
+  agentProfileId: string,
+  reasonCodes: string[]
+): Promise<
+  Pick<MemberAgentSyncResult, "directMessage" | "directMessageSpaceId">
+> {
   try {
-    directMessageSpaceId = (
-      await input.deps.openDirectMessage(defaultProfileId)
-    ).spaceId;
-    directMessage = "succeeded";
+    const { spaceId } = await deps.openDirectMessage(agentProfileId);
+    return { directMessage: "succeeded", directMessageSpaceId: spaceId };
   } catch (error) {
     reasonCodes.push(
       readErrorCode(error, "member_agent.direct_message_failed")
     );
+    return { directMessage: "failed", directMessageSpaceId: null };
   }
-  return {
-    ...identified,
-    binding,
-    directMessage,
-    directMessageSpaceId,
-    outcome: created ? "created" : "completed",
-    reasonCodes: [...new Set(reasonCodes)],
-  };
+}
+
+// A shared-account Harness needs a provider conversation the owner chooses.
+function requiresChosenConversation(harnessKind: DetectedHarnessKind) {
+  return (
+    resolveBuiltinAgentControllerConversationCapability(harnessKind)
+      ?.conversationScope === "account_shared"
+  );
 }
 
 // Prefer a computer whose report is ready now, then one whose report has

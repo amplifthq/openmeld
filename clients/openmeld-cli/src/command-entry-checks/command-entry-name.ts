@@ -31,6 +31,7 @@ const COMMAND_ENTRY_NAME_BY_ROUTE = {
   "center-agent pause": "center_agent.pause",
   "center-agent resume": "center_agent.resume",
   "center-agent audit": "center_agent.audit",
+  "agent add": "member_agents.add",
   "agent list": "member_agents.list",
   "agent ls": "member_agents.list",
   "agent show": "member_agents.show",

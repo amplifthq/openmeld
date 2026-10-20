@@ -267,19 +267,24 @@ Current: the Service reports its harness catalog continuously. The invariant
 
 Target:
 
-- The catalog report is the single source for MemberAgent existence and
-  state.
-- Creation: when Core receives a catalog update and the member has no
-  MemberAgent for that harness **in the current organization**, Core asks Auth
-  to create the MemberAgent, default Profile, Binding and the owner's DM, with
-  the deterministic idempotency key `auto:{organizationId}:{harnessKind}`.
-  The unique key's conditional insert makes two simultaneous computers safe.
-- **Lazy per organization.** Creation happens when the member opens an
-  organization's Agents or DM surface with a connected computer, never as a
-  broadcast to every organization on connect. After that, a catalog update
-  reconciles every organization where the owner already has a non-archived
-  MemberAgent, including migrated ones; owning a MemberAgent there counts as
-  having opened it. No separate surface-open fact is stored.
+- The catalog report is the single source for MemberAgent state; the member's
+  choice decides existence.
+- Creation: only for a harness the member chose. Setup sends the selected
+  local agents (`--local-agent`, or the Connect page selection), and
+  `openmeld agent add <harness>` or the web add action sends one more. When
+  the catalog reports a requested harness **in the current organization** and
+  the member has no MemberAgent for it, Core asks Auth to create the
+  MemberAgent and default Profile with the deterministic idempotency key
+  `auto:{organizationId}:{harnessKind}`, writes the Binding (which assigns the
+  Profile under the assignment lock), and opens the owner's DM. The unique
+  key's conditional insert makes two simultaneous computers safe. Other
+  detected harnesses are reported as addable, never created.
+- **Per organization.** A sync without requested harnesses (opening an
+  organization's Agents or DM surface, a catalog update) creates nothing. It
+  finishes interrupted creations, assigns bound Profiles, and lists the
+  addable harnesses. A catalog update reconciles every organization where the
+  owner already has a non-archived MemberAgent, including migrated ones; it
+  never broadcasts to every organization on connect.
 - Rewrite the explicit-intent invariant: the default Profile is created with
   the MemberAgent; every other Profile still needs explicit intent. Add
   `auto_detected` to the Profile `source` enum.

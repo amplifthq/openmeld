@@ -1854,6 +1854,7 @@ export {
   type ListMemberAgentOrganizationIdsRpcResult,
   listMemberAgentOrganizationIdsRpcResultSchema,
   MEMBER_AGENT_PRESENCE_ROUTE,
+  MEMBER_AGENT_SYNC_HARNESS_NOT_DETECTED_REASON,
   MEMBER_AGENT_SYNC_ROUTE,
   type MemberAgentPresence,
   type MemberAgentPresenceState,
@@ -1867,7 +1868,9 @@ export {
   memberAgentSyncOutcomeSchema,
   memberAgentSyncResultSchema,
   memberAgentSyncStepStatusSchema,
+  type SyncMemberAgentsRequest,
   type SyncMemberAgentsResponse,
+  syncMemberAgentsRequestSchema,
   syncMemberAgentsResponseSchema,
 } from "./http/member-agent-sync";
 export {

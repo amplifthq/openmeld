@@ -160,6 +160,7 @@ import { runPendingDaemonServiceUpdate } from "./local-service/lifecycle/daemon-
 import { runServiceAccountCarrier } from "./local-service/lifecycle/service-account-authorization";
 import {
   resolveProfileCreateMemberAgentController,
+  runAgentAdd,
   runAgentList,
   runAgentShow,
 } from "./member-agents/command";
@@ -5293,6 +5294,21 @@ memberAgentCmd
       routeTokens: ["agent", "list"],
       view,
       run: () => runAgentList({ view }),
+    });
+  });
+
+memberAgentCmd
+  .command("add")
+  .description(
+    "Add an Agent for a harness found on your computer, such as codex."
+  )
+  .argument("<harness>", "Harness to add, such as claude-code or codex")
+  .action(async (harness: string) => {
+    const view = getGlobalViewOption();
+    await runMemberAgentCommand({
+      routeTokens: ["agent", "add"],
+      view,
+      run: () => runAgentAdd({ harness, view }),
     });
   });
 

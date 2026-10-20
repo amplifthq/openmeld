@@ -12,7 +12,9 @@ import {
   MEMBER_AGENTS_ENABLED,
   type MemberAgentSyncResult,
   openMeldRequestContextSchema,
+  type SyncMemberAgentsRequest,
   type SyncMemberAgentsResponse,
+  syncMemberAgentsRequestSchema,
   syncMemberAgentsResponseSchema,
 } from "@openmeld/schemas";
 import type {
@@ -80,21 +82,38 @@ export type MemberAgentRpcInput = {
 // Tests opt in explicitly; production follows the shared release decision.
 export type MemberAgentRpcOptions = { enabled?: boolean };
 
+export type SyncMemberAgentsRpcInput = MemberAgentRpcInput &
+  SyncMemberAgentsRequest;
+
 export async function rpcSyncMemberAgents(
   env: CoreBindings,
-  input: MemberAgentRpcInput,
+  input: SyncMemberAgentsRpcInput,
   options: MemberAgentRpcOptions = {}
 ): Promise<SyncMemberAgentsResponse> {
   const caller = await requireMemberAgentCaller(env, input.context, options);
-  const { assignedProfileIds, results } = await syncMemberAgents(
-    createSyncDeps(env, caller)
+  const request = syncMemberAgentsRequestSchema.safeParse({
+    createHarnessKinds: input.createHarnessKinds,
+  });
+  if (!request.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: request.error.issues[0]?.message ?? "Invalid Agent sync request.",
+    });
+  }
+  const { addableHarnessKinds, assignedProfileIds, results } =
+    await syncMemberAgents(createSyncDeps(env, caller), request.data);
+  logSyncResults(
+    caller,
+    request.data.createHarnessKinds.length > 0 ? "create" : "surface_open",
+    results
   );
-  logSyncResults(caller, "surface_open", results);
   return syncMemberAgentsResponseSchema.parse({
     ok: true,
     organizationId: caller.organizationId,
     results,
     assignedProfileIds,
+    addableHarnessKinds,
   });
 }
 
@@ -476,7 +495,7 @@ async function listRuntimeHarnesses(caller: MemberAgentCaller, nowMs: number) {
 
 function logSyncResults(
   caller: Pick<MemberAgentCaller, "organizationId" | "ownerUserId">,
-  trigger: "catalog_update" | "surface_open",
+  trigger: "catalog_update" | "create" | "surface_open",
   results: readonly MemberAgentSyncResult[]
 ): void {
   const changed = results.filter((result) => result.outcome !== "unchanged");

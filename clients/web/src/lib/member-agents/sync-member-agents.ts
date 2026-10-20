@@ -6,10 +6,11 @@ import {
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 /**
- * Asks Core (`syncMemberAgents`) to create any MemberAgent the member's
- * connected computers report for this Organization; creation is lazy per
- * Organization. Pages work without it: a failure leaves the existing
- * MemberAgents as they are.
+ * Asks Core (`syncMemberAgents`) to finish the member's MemberAgents in this
+ * Organization and assign bound Profiles. It creates no MemberAgent: only
+ * setup and "add" request one. `addableHarnessKinds` lists the detected
+ * Harnesses the member can add. Pages work without it: a failure leaves the
+ * existing MemberAgents as they are.
  */
 export async function syncMemberAgents(input: {
 	organizationId: string;

@@ -1,8 +1,10 @@
 import {
+  type AssignAgentProfileMemberAgentOutcome,
   type DetectedHarnessKind,
   type EnsureDetectedMemberAgentRpcResult,
   ensureDetectedMemberAgentRpcResultSchema,
   type ListMemberAgentsResponse,
+  MEMBER_AGENT_SYNC_HARNESS_NOT_DETECTED_REASON,
 } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -23,13 +25,17 @@ const DEFAULT_PROFILE_ID = "agt_00000000-0000-4000-8000-000000000001";
 
 function ensured(
   created: boolean,
-  harnessKind = "claude-code"
+  harnessKind = "claude-code",
+  options: { defaultProfileCandidateId?: string } = {}
 ): EnsureDetectedMemberAgentRpcResult {
+  const candidate = options.defaultProfileCandidateId ?? null;
   return ensureDetectedMemberAgentRpcResultSchema.parse({
     ok: true,
     created,
+    defaultProfileCandidateId: candidate,
     memberAgent: memberAgent({
-      defaultProfileId: DEFAULT_PROFILE_ID,
+      // Auth sets the default only after Core assigned the candidate.
+      defaultProfileId: candidate ? null : DEFAULT_PROFILE_ID,
       harnessKind: harnessKind as "claude-code",
       id: "ma-1",
     }),
@@ -43,7 +49,10 @@ function createDeps(input: {
   hasBinding?: boolean;
 }) {
   const deps = {
-    assignBoundProfile: vi.fn(async () => "assigned" as const),
+    assignBoundProfile: vi.fn(
+      async (): Promise<AssignAgentProfileMemberAgentOutcome | null> =>
+        "assigned"
+    ),
     ensureDetectedMemberAgent: vi.fn(async (harnessKind: DetectedHarnessKind) =>
       ensured(true, harnessKind)
     ),
@@ -86,7 +95,9 @@ describe("syncMemberAgents", () => {
       ],
     });
 
-    const { results } = await syncMemberAgents(deps);
+    const { results } = await syncMemberAgents(deps, {
+      createHarnessKinds: ["claude-code"],
+    });
 
     expect(deps.ensureDetectedMemberAgent).toHaveBeenCalledTimes(1);
     expect(deps.ensureDetectedMemberAgent).toHaveBeenCalledWith("claude-code");
@@ -114,7 +125,7 @@ describe("syncMemberAgents", () => {
     ]);
   });
 
-  it("creates every Harness the latest catalog reports, even when an auth check expired the report", async () => {
+  it("creates every requested Harness the latest catalog reports, even when an auth check expired the report", async () => {
     // Smoke R2B-05: Codex and Claude Code carry auth snapshots, so Core
     // shortens their report expiry to the two-minute auth freshness. Between
     // checks the reports read expired while the computer keeps reporting.
@@ -141,7 +152,9 @@ describe("syncMemberAgents", () => {
       ),
     });
 
-    const { results } = await syncMemberAgents(deps);
+    const { results } = await syncMemberAgents(deps, {
+      createHarnessKinds: harnesses as DetectedHarnessKind[],
+    });
 
     expect(results.map((result) => result.harnessKind)).toEqual(harnesses);
     expect(results.every((result) => result.outcome === "created")).toBe(true);
@@ -167,7 +180,7 @@ describe("syncMemberAgents", () => {
       ],
     });
 
-    await syncMemberAgents(deps);
+    await syncMemberAgents(deps, { createHarnessKinds: ["codex"] });
 
     expect(deps.writeDefaultBinding).toHaveBeenCalledWith({
       agentProfileId: DEFAULT_PROFILE_ID,
@@ -269,6 +282,7 @@ describe("syncMemberAgents", () => {
     });
 
     expect(await syncMemberAgents(deps)).toEqual({
+      addableHarnessKinds: [],
       assignedProfileIds: ["agt-second-cursor"],
       results: [],
     });
@@ -304,7 +318,9 @@ describe("syncMemberAgents", () => {
       .mockResolvedValueOnce(before)
       .mockResolvedValueOnce(after);
 
-    const { assignedProfileIds, results } = await syncMemberAgents(deps);
+    const { assignedProfileIds, results } = await syncMemberAgents(deps, {
+      createHarnessKinds: ["codex"],
+    });
 
     expect(results[0]?.outcome).toBe("created");
     expect(assignedProfileIds).toEqual(["agt-codex-helper"]);
@@ -420,9 +436,23 @@ describe("syncMemberAgents", () => {
       ],
     });
 
-    expect(await syncMemberAgents(deps)).toEqual({
+    expect(
+      await syncMemberAgents(deps, {
+        createHarnessKinds: ["cursor", "opencode", "openclaw"],
+      })
+    ).toEqual({
+      addableHarnessKinds: [],
       assignedProfileIds: [],
-      results: [],
+      results: ["cursor", "openclaw", "opencode"].map((harnessKind) => ({
+        binding: "not_attempted",
+        defaultProfileId: null,
+        directMessage: "not_attempted",
+        directMessageSpaceId: null,
+        harnessKind,
+        memberAgentId: null,
+        outcome: "skipped",
+        reasonCodes: [MEMBER_AGENT_SYNC_HARNESS_NOT_DETECTED_REASON],
+      })),
     });
     expect(deps.ensureDetectedMemberAgent).not.toHaveBeenCalled();
   });
@@ -438,10 +468,14 @@ describe("syncMemberAgents", () => {
     });
 
     const {
+      addableHarnessKinds,
       results: [result],
-    } = await syncMemberAgents(deps);
+    } = await syncMemberAgents(deps, { createHarnessKinds: ["grok-bot"] });
 
     expect(deps.ensureDetectedMemberAgent).not.toHaveBeenCalled();
+    // Unrequested, it is not offered either.
+    expect((await syncMemberAgents(deps)).addableHarnessKinds).toEqual([]);
+    expect(addableHarnessKinds).toEqual([]);
     expect(result).toMatchObject({
       harnessKind: "grok-bot",
       outcome: "skipped",
@@ -463,7 +497,10 @@ describe("syncMemberAgents", () => {
       code: "organization.membership_required",
       message: "not a member",
     });
-    expect((await syncMemberAgents(refused)).results[0]).toMatchObject({
+    expect(
+      (await syncMemberAgents(refused, { createHarnessKinds: ["codex"] }))
+        .results[0]
+    ).toMatchObject({
       outcome: "skipped",
       reasonCodes: ["organization.membership_required"],
     });
@@ -488,7 +525,13 @@ describe("syncMemberAgents", () => {
         code: "direct_message.target_not_found",
       })
     );
-    expect((await syncMemberAgents(rejected)).results[0]).toMatchObject({
+    expect(
+      (
+        await syncMemberAgents(rejected, {
+          createHarnessKinds: ["claude-code"],
+        })
+      ).results[0]
+    ).toMatchObject({
       binding: "rejected",
       directMessage: "failed",
       outcome: "created",
@@ -496,6 +539,161 @@ describe("syncMemberAgents", () => {
         "agent_profile_binding.agent_controller_report_unavailable",
         "direct_message.target_not_found",
       ],
+    });
+  });
+  it("creates only the requested Harnesses and offers the others", async () => {
+    // Smoke: setup with --local-agent claude-code codex opencode created
+    // all six detected Harnesses, and each opened a Direct Message.
+    const deps = createDeps({
+      entries: ["claude-code", "codex", "cursor", "grok-bot", "opencode"].map(
+        (harnessKind) =>
+          catalogEntry({
+            agentControllerRef: `builtin:${harnessKind}`,
+            openMeldServiceRuntimeId: "runtime-1",
+          })
+      ),
+    });
+
+    const report = await syncMemberAgents(deps, {
+      createHarnessKinds: ["claude-code", "codex", "opencode"],
+    });
+
+    expect(report.results.map((result) => result.harnessKind)).toEqual([
+      "claude-code",
+      "codex",
+      "opencode",
+    ]);
+    expect(deps.ensureDetectedMemberAgent).toHaveBeenCalledTimes(3);
+    expect(deps.openDirectMessage).toHaveBeenCalledTimes(3);
+    // A shared-account Harness needs a chosen conversation, so it is not
+    // offered as a one-click add.
+    expect(report.addableHarnessKinds).toEqual(["cursor"]);
+  });
+
+  it("creates nothing without a request", async () => {
+    const deps = createDeps({
+      entries: [
+        catalogEntry({
+          agentControllerRef: "builtin:codex",
+          openMeldServiceRuntimeId: "runtime-1",
+        }),
+      ],
+    });
+
+    expect(await syncMemberAgents(deps)).toEqual({
+      addableHarnessKinds: ["codex"],
+      assignedProfileIds: [],
+      results: [],
+    });
+    expect(deps.ensureDetectedMemberAgent).not.toHaveBeenCalled();
+  });
+
+  it("binds the keyed Profile Auth hands back, then lets Auth set the default", async () => {
+    const deps = createDeps({
+      entries: [
+        catalogEntry({
+          agentControllerRef: "builtin:codex",
+          openMeldServiceRuntimeId: "runtime-1",
+        }),
+      ],
+    });
+    deps.ensureDetectedMemberAgent
+      .mockResolvedValueOnce(
+        ensured(true, "codex", {
+          defaultProfileCandidateId: DEFAULT_PROFILE_ID,
+        })
+      )
+      .mockResolvedValueOnce(ensured(false, "codex"));
+
+    const {
+      results: [result],
+    } = await syncMemberAgents(deps, { createHarnessKinds: ["codex"] });
+
+    // The Binding write assigns the Profile under its assignment lock.
+    expect(deps.writeDefaultBinding).toHaveBeenCalledTimes(1);
+    expect(deps.writeDefaultBinding).toHaveBeenCalledWith(
+      expect.objectContaining({ agentProfileId: DEFAULT_PROFILE_ID })
+    );
+    expect(deps.assignBoundProfile).not.toHaveBeenCalled();
+    expect(deps.ensureDetectedMemberAgent).toHaveBeenCalledTimes(2);
+    expect(deps.openDirectMessage).toHaveBeenCalledWith(DEFAULT_PROFILE_ID);
+    expect(result).toMatchObject({
+      binding: "succeeded",
+      defaultProfileId: DEFAULT_PROFILE_ID,
+      directMessage: "succeeded",
+      outcome: "created",
+    });
+  });
+
+  it("assigns an already bound keyed Profile through the locked path and opens the Direct Message", async () => {
+    // An earlier sync wrote the Binding but stopped before Auth set the
+    // default. The Binding may since have moved to another Harness, so the
+    // assignment re-reads it under the lock instead of trusting the key.
+    const deps = createDeps({
+      entries: [
+        catalogEntry({
+          agentControllerRef: "builtin:codex",
+          openMeldServiceRuntimeId: "runtime-1",
+        }),
+      ],
+      existing: listing([memberAgent({ harnessKind: "codex", id: "ma-1" })]),
+      hasBinding: true,
+    });
+    deps.ensureDetectedMemberAgent
+      .mockResolvedValueOnce(
+        ensured(false, "codex", {
+          defaultProfileCandidateId: DEFAULT_PROFILE_ID,
+        })
+      )
+      .mockResolvedValueOnce(ensured(false, "codex"));
+
+    const {
+      results: [result],
+    } = await syncMemberAgents(deps);
+
+    expect(deps.assignBoundProfile).toHaveBeenCalledWith(DEFAULT_PROFILE_ID);
+    expect(deps.writeDefaultBinding).not.toHaveBeenCalled();
+    expect(deps.openDirectMessage).toHaveBeenCalledWith(DEFAULT_PROFILE_ID);
+    expect(result).toMatchObject({
+      binding: "not_attempted",
+      directMessage: "succeeded",
+      outcome: "completed",
+    });
+  });
+
+  it("leaves the creation unfinished when the keyed Profile went to another Harness", async () => {
+    const deps = createDeps({
+      entries: [
+        catalogEntry({
+          agentControllerRef: "builtin:codex",
+          openMeldServiceRuntimeId: "runtime-1",
+        }),
+      ],
+      existing: listing([memberAgent({ harnessKind: "codex", id: "ma-1" })]),
+      hasBinding: true,
+    });
+    deps.assignBoundProfile.mockResolvedValueOnce("assigned_elsewhere");
+    const interrupted = ensured(false, "codex", {
+      defaultProfileCandidateId: DEFAULT_PROFILE_ID,
+    });
+    deps.ensureDetectedMemberAgent
+      .mockResolvedValueOnce(interrupted)
+      .mockResolvedValueOnce(
+        ensureDetectedMemberAgentRpcResultSchema.parse({
+          ...interrupted,
+          defaultProfileCandidateId: null,
+        })
+      );
+
+    const {
+      results: [result],
+    } = await syncMemberAgents(deps);
+
+    expect(deps.openDirectMessage).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      defaultProfileId: null,
+      directMessage: "not_attempted",
+      outcome: "unchanged",
     });
   });
 });

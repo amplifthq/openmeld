@@ -28,12 +28,22 @@ function profileService() {
 }
 
 async function ensureMemberAgent(harnessKind: string) {
-  const result = await inRequest(() =>
-    ensureDetectedMemberAgentRpc(
-      { organizationId: "one", ownerUserId: "alice", harnessKind },
-      { enabled: true, profileService: profileService() }
-    )
-  );
+  const ensureOnce = () =>
+    inRequest(() =>
+      ensureDetectedMemberAgentRpc(
+        { organizationId: "one", ownerUserId: "alice", harnessKind },
+        { enabled: true, profileService: profileService() }
+      )
+    );
+  const first = await ensureOnce();
+  if (!first.ok) {
+    throw new Error(first.code);
+  }
+  // Core assigns the keyed default Profile; Auth then sets the default.
+  if (first.defaultProfileCandidateId) {
+    await assign({ harnessKind, profileId: first.defaultProfileCandidateId });
+  }
+  const result = await ensureOnce();
   if (!result.ok) {
     throw new Error(result.code);
   }

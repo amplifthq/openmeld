@@ -92,6 +92,7 @@ export async function ensureDetectedMemberAgentRpc(
       ok: true,
       created: result.created,
       memberAgent: toMemberAgentProjection(result.memberAgent),
+      defaultProfileCandidateId: result.defaultProfileCandidateId,
     });
   } catch (error) {
     const { body, status } = toProfileHttpErrorResponse(error);

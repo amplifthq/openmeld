@@ -174,6 +174,12 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     cliUpdateAction: "showing an Agent",
     serviceAction: null,
   },
+  "member_agents.add": {
+    signInAction: "adding an Agent",
+    profileAction: null,
+    cliUpdateAction: "adding an Agent",
+    serviceAction: null,
+  },
   "member_agents.sessions.list": {
     signInAction: "listing your Sessions",
     profileAction: null,

@@ -72,18 +72,22 @@ so a PATH hiccup or an upgrade never greys the Agent. The display name
 Human Profile name and the harness display name. It is English only and never
 stored.
 
-The OpenMeld Service's harness catalog report is the single source for
-MemberAgent existence. When Core receives a catalog update and the member has
-no MemberAgent for that harness in the current Organization, Core asks Auth to
-create the MemberAgent, its default Agent Profile, its Binding, and the owner's
-Direct Message with the deterministic idempotency key
-`auto:{organizationId}:{harnessKind}`. The conditional insert on the unique key
-makes two Computers connecting at once converge on one MemberAgent. Creation is
-lazy per Organization: it happens when the member opens that Organization's
-Agents or Direct Message surface with a connected Computer, never as a
-broadcast to every Organization on connect. MemberAgent `source` is
-`detected`, `migrated`, or `manual`; the default Profile's `source` is
-`auto_detected`. No other trigger creates a MemberAgent.
+A MemberAgent exists only for a harness the member chose. Setup creates one
+for each local agent the member selected (`--local-agent`, or the agents
+chosen on the Connect page), and `openmeld agent add <harness>` or the web add
+action creates one later. Each of these sends the harnesses to create to the
+catalog sync, and Core creates a MemberAgent only for a requested harness that
+the OpenMeld Service's harness catalog report shows on a connected Computer.
+Core asks Auth to create the MemberAgent and its default Agent Profile with the
+deterministic idempotency key `auto:{organizationId}:{harnessKind}`; the
+conditional insert on the unique key makes two Computers converge on one
+MemberAgent. Core then writes the Binding and assigns the default Profile under
+the same lock as every other assignment, and opens the owner's Direct Message.
+A sync without requested harnesses (surface open, catalog update) never
+creates a MemberAgent: it finishes interrupted creations, repairs unassigned
+bound Profiles, and reports the other detected harnesses as addable.
+MemberAgent `source` is `detected`, `migrated`, or `manual`; the default
+Profile's `source` is `auto_detected`.
 
 Personal Remote Agents are MemberAgents with `harnessKind = hosted` and
 `source = manual`. The Organization-owned Center Agent has no owner and stays

@@ -11,6 +11,7 @@ import {
   type PostgresHarness,
 } from "../../../tooling/postgresql/test-harness";
 import {
+  assignAgentProfileMemberAgentRpc,
   ensureDetectedMemberAgentRpc,
   listMemberAgentOrganizationIdsRpc,
   listOwnerMemberAgentsRpc,
@@ -28,16 +29,50 @@ function profileService() {
   );
 }
 
-function ensure(
-  input: { organizationId: string; ownerUserId: string; harnessKind: string },
-  options: { enabled?: boolean } = {}
-) {
+type EnsureInput = {
+  organizationId: string;
+  ownerUserId: string;
+  harnessKind: string;
+};
+
+// One Auth call, as Core makes it.
+function ensureOnce(input: EnsureInput, options: { enabled?: boolean } = {}) {
   return inRequest(() =>
     ensureDetectedMemberAgentRpc(input, {
       enabled: options.enabled ?? true,
       profileService: profileService(),
     })
   );
+}
+
+function assign(input: {
+  harnessKind: string;
+  ownerUserId: string;
+  profileId: string;
+}) {
+  return inRequest(() =>
+    assignAgentProfileMemberAgentRpc(input, { enabled: true })
+  );
+}
+
+// The whole creation as catalog sync runs it: Auth creates the MemberAgent
+// and its keyed Profile, Core assigns the Profile under its lock, and a
+// second Auth call sets the default.
+async function ensure(
+  input: EnsureInput,
+  options: { enabled?: boolean } = {}
+): ReturnType<typeof ensureOnce> {
+  const first = await ensureOnce(input, options);
+  if (!(first.ok && first.defaultProfileCandidateId)) {
+    return first;
+  }
+  await assign({
+    harnessKind: input.harnessKind,
+    ownerUserId: input.ownerUserId,
+    profileId: first.defaultProfileCandidateId,
+  });
+  const finished = await ensureOnce(input, options);
+  return finished.ok ? { ...finished, created: first.created } : finished;
 }
 
 async function rows<T>(text: string, values: unknown[] = []): Promise<T[]> {
@@ -107,6 +142,85 @@ describe("ensureDetectedMemberAgent RPC", () => {
     });
     // Invariant 3: the default Profile belongs to its own MemberAgent.
     expect(profile?.member_agent_id).toBe(result.memberAgent.id);
+  });
+
+  it("leaves the assignment to Core and sets the default only after it", async () => {
+    const key = {
+      organizationId: "one",
+      ownerUserId: "alice",
+      harnessKind: "codex",
+    };
+    const first = await ensureOnce(key);
+    if (!(first.ok && first.defaultProfileCandidateId)) {
+      throw new Error("expected a default Profile candidate");
+    }
+    expect(first.memberAgent.defaultProfileId).toBeNull();
+    const [unassigned] = await rows<{ member_agent_id: string | null }>(
+      `SELECT member_agent_id FROM "openmeld"."openmeld_profiles" WHERE profile_id = $1`,
+      [first.defaultProfileCandidateId]
+    );
+    expect(unassigned?.member_agent_id).toBeNull();
+    // Until Core assigns it, a retry changes nothing.
+    expect(await ensureOnce(key)).toMatchObject({
+      ok: true,
+      created: false,
+      memberAgent: { defaultProfileId: null },
+      defaultProfileCandidateId: first.defaultProfileCandidateId,
+    });
+
+    await assign({
+      harnessKind: "codex",
+      ownerUserId: "alice",
+      profileId: first.defaultProfileCandidateId,
+    });
+
+    expect(await ensureOnce(key)).toMatchObject({
+      ok: true,
+      memberAgent: { defaultProfileId: first.defaultProfileCandidateId },
+      defaultProfileCandidateId: null,
+    });
+  });
+
+  it("never groups a keyed Profile the owner moved to another harness", async () => {
+    // Race: creation was interrupted before Core assigned the keyed Cursor
+    // Profile, and the owner switched that Profile to Codex meanwhile. Core's
+    // Binding follow-up assigned it to the Codex Agent.
+    const cursor = {
+      organizationId: "one",
+      ownerUserId: "alice",
+      harnessKind: "cursor",
+    };
+    const interrupted = await ensureOnce(cursor);
+    const codex = await ensure({ ...cursor, harnessKind: "codex" });
+    if (
+      !(interrupted.ok && interrupted.defaultProfileCandidateId && codex.ok)
+    ) {
+      throw new Error("setup failed");
+    }
+    const keyedProfileId = interrupted.defaultProfileCandidateId;
+    expect(
+      await assign({
+        harnessKind: "codex",
+        ownerUserId: "alice",
+        profileId: keyedProfileId,
+      })
+    ).toMatchObject({
+      outcome: "assigned",
+      memberAgentId: codex.memberAgent.id,
+    });
+
+    const resumed = await ensureOnce(cursor);
+
+    expect(resumed).toMatchObject({
+      ok: true,
+      memberAgent: { id: interrupted.memberAgent.id, defaultProfileId: null },
+      defaultProfileCandidateId: null,
+    });
+    const [profile] = await rows<{ member_agent_id: string | null }>(
+      `SELECT member_agent_id FROM "openmeld"."openmeld_profiles" WHERE profile_id = $1`,
+      [keyedProfileId]
+    );
+    expect(profile?.member_agent_id).toBe(codex.memberAgent.id);
   });
 
   it("returns the existing row on repeat without a second Profile", async () => {

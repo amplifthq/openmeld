@@ -523,6 +523,7 @@ import {
   rpcGetMemberAgentPresence,
   rpcSubmitRuntimeAgentControllerReportsWithMemberAgents,
   rpcSyncMemberAgents,
+  type SyncMemberAgentsRpcInput,
 } from "./member-agent/member-agent-rpc";
 import { rpcCenterAgentManageOrganizationDocuments } from "./organization-documents/center-agent-document-rpc";
 import {
@@ -4452,7 +4453,7 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     );
   }
   syncMemberAgents(
-    input: MemberAgentRpcInput
+    input: SyncMemberAgentsRpcInput
   ): Promise<SyncMemberAgentsResponse> {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcSyncMemberAgents(this.env, input)
@@ -6688,7 +6689,7 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.submitRuntimeAgentControllerReports(input);
   }
   syncMemberAgents(
-    input: MemberAgentRpcInput
+    input: SyncMemberAgentsRpcInput
   ): Promise<SyncMemberAgentsResponse> {
     return super.syncMemberAgents(input);
   }

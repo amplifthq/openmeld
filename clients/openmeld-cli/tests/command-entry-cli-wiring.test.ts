@@ -41,6 +41,9 @@ const runMocks = vi.hoisted(() => ({
   runAgentList: vi.fn<MemberAgentCommandModule["runAgentList"]>(
     async () => undefined
   ),
+  runAgentAdd: vi.fn<MemberAgentCommandModule["runAgentAdd"]>(
+    async () => undefined
+  ),
   runAgentShow: vi.fn<MemberAgentCommandModule["runAgentShow"]>(
     async () => undefined
   ),
@@ -193,6 +196,7 @@ vi.mock("../src/member-agents/command", async (importOriginal) => {
   return {
     ...actual,
     runAgentList: runMocks.runAgentList,
+    runAgentAdd: runMocks.runAgentAdd,
     runAgentShow: runMocks.runAgentShow,
   };
 });
@@ -847,6 +851,15 @@ describe("command entry CLI wiring", () => {
     expect(runMocks.runAgentShow).toHaveBeenCalledWith({
       memberAgent: "codex",
       view: "agent",
+    });
+
+    await runCli(["agent", "add", "opencode"], "human");
+    expect(runCommandWithEntryChecksMock.mock.calls.at(-1)?.[0]).toMatchObject({
+      routeTokens: ["agent", "add"],
+    });
+    expect(runMocks.runAgentAdd).toHaveBeenCalledWith({
+      harness: "opencode",
+      view: "human",
     });
   });
 

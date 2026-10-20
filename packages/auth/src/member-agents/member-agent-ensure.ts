@@ -11,12 +11,17 @@ import type {
 } from "./member-agent-repository";
 
 export type EnsureDetectedMemberAgentResult =
-  | { status: "ensured"; created: boolean; memberAgent: MemberAgentRowRecord }
+  | {
+      status: "ensured";
+      created: boolean;
+      memberAgent: MemberAgentRowRecord;
+      defaultProfileCandidateId: string | null;
+    }
   | { status: "membership_required" };
 
 /**
- * Ensure the detected MemberAgent of one (organization, owner, harness) with
- * its default Agent Profile (design-plans/member-agent-program.md §4.5).
+ * Ensure the detected MemberAgent of one (organization, owner, harness) and
+ * its keyed default Agent Profile (design-plans/member-agent-program.md §4.5).
  *
  * Every step is a conditional write keyed by a unique constraint, so a retry
  * resumes an interrupted creation and two concurrent callers converge on one
@@ -27,8 +32,13 @@ export type EnsureDetectedMemberAgentResult =
  *    same row.
  * 2. The MemberAgent insert is conditional on the unique
  *    (organization, owner, harness) key; the winner's row is read back.
- * 3. The Profile is assigned before it becomes the default, which keeps
- *    invariant 3 (the default Profile belongs to its own MemberAgent).
+ * 3. Auth never assigns the Profile here. It returns it as
+ *    `defaultProfileCandidateId`; Core binds it and assigns it through the
+ *    Profile's assignment lock, which re-reads the Binding, so a Profile the
+ *    owner moved to another harness meanwhile is never grouped here.
+ * 4. A later call sets the default once the Profile belongs to this
+ *    MemberAgent, which keeps invariant 3 (the default Profile belongs to its
+ *    own MemberAgent).
  *
  * Because the Profile precedes the MemberAgent, a detected MemberAgent with
  * no default is resumed only while its keyed Profile still exists and is
@@ -65,7 +75,12 @@ export async function ensureDetectedMemberAgent(input: {
   const creationIdempotencyKey = buildDetectedMemberAgentIdempotencyKey(key);
   const existing = await input.repository.findByOwnerHarness(key);
   if (existing && !isInterruptedDetectedCreation(existing)) {
-    return { status: "ensured", created: false, memberAgent: existing };
+    return {
+      status: "ensured",
+      created: false,
+      memberAgent: existing,
+      defaultProfileCandidateId: null,
+    };
   }
 
   let created = false;
@@ -95,24 +110,26 @@ export async function ensureDetectedMemberAgent(input: {
     // removed after the first check.
     return { status: "membership_required" };
   }
+  let defaultProfileCandidateId: string | null = null;
   if (
     profile?.status === "active" &&
     profile.organizationId === input.organizationId &&
     isInterruptedDetectedCreation(memberAgent)
   ) {
-    await input.repository.assignProfile({
-      memberAgentId: memberAgent.id,
-      profileId: profile.profileId,
-    });
-    await input.repository.setDefaultProfileIfUnset({
-      memberAgentId: memberAgent.id,
-      profileId: profile.profileId,
-    });
+    if (profile.memberAgentId === memberAgent.id) {
+      await input.repository.setDefaultProfileIfUnset({
+        memberAgentId: memberAgent.id,
+        profileId: profile.profileId,
+      });
+    } else if (profile.memberAgentId === null) {
+      defaultProfileCandidateId = profile.profileId;
+    }
   }
   return {
     status: "ensured",
     created,
     memberAgent: await requireMemberAgent(input.repository, key),
+    defaultProfileCandidateId,
   };
 }
 

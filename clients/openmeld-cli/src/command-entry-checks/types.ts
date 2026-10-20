@@ -68,6 +68,7 @@ export type CommandEntryName =
   | "center_agent.audit"
   | "member_agents.list"
   | "member_agents.show"
+  | "member_agents.add"
   | "member_agents.sessions.list"
   | "member_agents.sessions.rename"
   | "member_agents.sessions.archive"

@@ -2,6 +2,7 @@ import {
   HOSTED_HARNESS_KIND,
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   harnessKindFromAgentControllerRef,
+  MEMBER_AGENT_SYNC_HARNESS_NOT_DETECTED_REASON,
 } from "@openmeld/schemas";
 import {
   listOpenMeldProfiles,
@@ -16,6 +17,7 @@ import { renderInfoCard } from "../ui/info-card";
 import {
   buildMemberAgentListingView,
   findMemberAgentView,
+  formatHarnessDisplayName,
   isMemberAgentsEnabled,
   MemberAgentCommandError,
   type MemberAgentListingView,
@@ -23,6 +25,7 @@ import {
   type MemberAgentView,
   readMemberAgentListing,
 } from "./read";
+import { harnessKindsFromLocalAgentIds, syncMemberAgents } from "./sync";
 
 export class MemberAgentNotFoundError extends MemberAgentCommandError {
   constructor(selector: string) {
@@ -97,6 +100,80 @@ export async function runAgentShow(input: {
       memberAgent,
       presenter,
       unassignedProfileCount: view.unassignedProfiles.length,
+    });
+  } catch (error) {
+    emitMemberAgentCommandError({ error, presenter });
+  }
+}
+
+/**
+ * `openmeld agent add <harness>`: add an Agent for a Harness this member's
+ * computer detects. Setup adds only the selected Harnesses; this adds the
+ * others one at a time.
+ */
+export async function runAgentAdd(input: {
+  harness: string;
+  view?: string;
+}): Promise<void> {
+  const runtime = await resolveRuntimeContext({ view: input.view });
+  const presenter = createPresenter(runtime);
+  try {
+    const [harnessKind] = harnessKindsFromLocalAgentIds([input.harness]);
+    if (!harnessKind) {
+      throw new MemberAgentCommandError({
+        code: "member_agents.harness_unknown",
+        message: `"${input.harness}" is not a harness OpenMeld can add as an Agent.`,
+        nextStep:
+          "Run `openmeld agent list` to see the harnesses found on your computers.",
+        title: "Unknown Harness",
+      });
+    }
+    const response = await syncMemberAgents({
+      createHarnessKinds: [harnessKind],
+    });
+    const result = response.results.find(
+      (candidate) => candidate.harnessKind === harnessKind
+    );
+    if (!result?.memberAgentId) {
+      throw new MemberAgentCommandError({
+        code: result?.reasonCodes[0] ?? "member_agents.add_failed",
+        message:
+          result?.reasonCodes[0] ===
+          MEMBER_AGENT_SYNC_HARNESS_NOT_DETECTED_REASON
+            ? `None of your connected computers has ${formatHarnessDisplayName(harnessKind)} right now.`
+            : `OpenMeld couldn't add ${formatHarnessDisplayName(harnessKind)}.`,
+        nextStep:
+          "Install or sign in to the harness, keep your computer connected, then try again.",
+        title: "Agent Not Added",
+      });
+    }
+    if (presenter.view === "agent") {
+      presenter.data({
+        code: "member_agents.add",
+        payload: {
+          organizationId: response.organizationId,
+          result,
+        },
+      });
+      return;
+    }
+    renderInfoCard({
+      codePrefix: "member_agents.add.card",
+      minContentWidth: 64,
+      presenter,
+      rows: [
+        { label: "Harness", value: formatHarnessDisplayName(harnessKind) },
+        {
+          label: "Status",
+          value:
+            result.outcome === "created"
+              ? "Added. Its Direct Message is ready in OpenMeld."
+              : "You already have this Agent.",
+        },
+        { label: "Agent ID", value: result.memberAgentId },
+      ],
+      sanitize: true,
+      title: "Agent Added",
     });
   } catch (error) {
     emitMemberAgentCommandError({ error, presenter });

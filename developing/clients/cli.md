@@ -216,11 +216,17 @@ Implementation status: MemberAgent program, PR #236, in progress.
 
 `openmeld profiles create/list/show/set/update/delete` keep their contracts and
 also print each Profile's parent MemberAgent, or say that the Profile is
-unassigned. A default Agent Profile is created with its MemberAgent from the
-harness catalog report, so `profiles create` creates only additional Profiles,
+unassigned. A default Agent Profile is created with its MemberAgent, so
+`profiles create` creates only additional Profiles,
 each with an explicit short name. `profiles create --member-agent <agent>`
 refuses an Agent Controller whose harness differs from the parent's. Core
 refuses an update that would move an assigned Profile to another harness.
+
+`openmeld setup` adds a MemberAgent only for each local agent the member
+selected, with `--local-agent <id...>` or on the Connect page; `--local-agents
+all` selects every detected harness. Setup prints the other detected harnesses,
+and `openmeld agent add <harness>` adds one of them. A MemberAgent step that
+fails never fails setup; the next sync finishes it.
 
 `openmeld agent list` prints one row per MemberAgent in the current
 Organization with its derived state, running and queued counts, and latest

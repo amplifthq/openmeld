@@ -160,13 +160,47 @@ describe("rpcSyncMemberAgents", () => {
     ).rejects.toMatchObject({ code: "member_agents.human_caller_required" });
   });
 
-  it("creates only in the organization the member opened", async () => {
+  it("offers a detected Harness without creating it", async () => {
     const f = await seed();
     const worker = authWorker({ organizationIds: [] });
 
     const response = await rpcSyncMemberAgents(
       withAuth(worker),
       { context: f.context(f.opened) },
+      { enabled: true }
+    );
+
+    expect(worker.ensureDetectedMemberAgent).not.toHaveBeenCalled();
+    expect(response).toMatchObject({
+      addableHarnessKinds: ["codex"],
+      ok: true,
+      results: [],
+    });
+  });
+
+  it("rejects an unknown Harness to create", async () => {
+    const f = await seed();
+    const worker = authWorker({ organizationIds: [] });
+    await expect(
+      rpcSyncMemberAgents(
+        withAuth(worker),
+        {
+          context: f.context(f.opened),
+          createHarnessKinds: ["hosted" as "codex"],
+        },
+        { enabled: true }
+      )
+    ).rejects.toMatchObject({ code: "invalid_payload" });
+    expect(worker.ensureDetectedMemberAgent).not.toHaveBeenCalled();
+  });
+
+  it("creates a requested Harness only in the organization the member opened", async () => {
+    const f = await seed();
+    const worker = authWorker({ organizationIds: [] });
+
+    const response = await rpcSyncMemberAgents(
+      withAuth(worker),
+      { context: f.context(f.opened), createHarnessKinds: ["codex"] },
       { enabled: true }
     );
 
@@ -185,7 +219,7 @@ describe("rpcSyncMemberAgents", () => {
 });
 
 describe("recordMemberAgentCatalogReports", () => {
-  it("reconciles a newly present Harness only where the owner already has MemberAgents", async () => {
+  it("reconciles a newly present Harness only where the owner already has MemberAgents, without creating it", async () => {
     const f = await seed();
     const worker = authWorker({ organizationIds: [f.opened] });
     const report = {
@@ -205,8 +239,10 @@ describe("recordMemberAgentCatalogReports", () => {
       reports: [report],
     });
 
-    expect(worker.ensureDetectedMemberAgent).toHaveBeenCalledTimes(1);
-    expect(worker.ensureDetectedMemberAgent).toHaveBeenCalledWith(
+    // Only the member chooses which Harnesses become Agents.
+    expect(worker.ensureDetectedMemberAgent).not.toHaveBeenCalled();
+    expect(worker.listOwnerMemberAgents).toHaveBeenCalledTimes(1);
+    expect(worker.listOwnerMemberAgents).toHaveBeenCalledWith(
       expect.objectContaining({ organizationId: f.opened })
     );
 
@@ -219,7 +255,7 @@ describe("recordMemberAgentCatalogReports", () => {
       ownerUserId: f.userId,
       reports: [{ ...report, observedAtMs: f.nowMs + 60_000 }],
     });
-    expect(worker.ensureDetectedMemberAgent).toHaveBeenCalledTimes(1);
+    expect(worker.listOwnerMemberAgents).toHaveBeenCalledTimes(1);
     expect(worker.listMemberAgentOrganizationIds).toHaveBeenCalledTimes(1);
   });
 

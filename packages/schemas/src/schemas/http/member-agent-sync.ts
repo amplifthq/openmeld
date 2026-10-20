@@ -58,6 +58,10 @@ export const ensureDetectedMemberAgentRpcResultSchema = z.discriminatedUnion(
       // True only when this call inserted the MemberAgent row.
       created: z.boolean(),
       memberAgent: memberAgentSchema,
+      // While the MemberAgent has no default Profile: its keyed default
+      // Profile, which Core binds and assigns under the Profile's
+      // assignment lock. Auth sets the default only once Core assigned it.
+      defaultProfileCandidateId: identifierSchema.nullable().default(null),
     }),
     z.strictObject({
       ok: z.literal(false),
@@ -138,8 +142,25 @@ export type ListMemberAgentOrganizationIdsRpcResult = z.infer<
 >;
 
 // `POST MEMBER_AGENT_SYNC_ROUTE` (Core `syncMemberAgents`). Web calls it when
-// the member opens the Agents or Direct Message surface of an Organization.
-// It is idempotent; the body is empty.
+// the member opens the Agents or Direct Message surface of an Organization,
+// with an empty body: that finishes and repairs existing Agents but creates
+// none. Setup and "add" name the detected Harnesses the member chose in
+// `createHarnessKinds`; only those get a new MemberAgent. It is idempotent.
+export const syncMemberAgentsRequestSchema = z.strictObject({
+  createHarnessKinds: z
+    .array(detectedHarnessKindSchema)
+    .max(detectedHarnessKindSchema.options.length)
+    .default([]),
+});
+export type SyncMemberAgentsRequest = z.input<
+  typeof syncMemberAgentsRequestSchema
+>;
+
+// A Harness named in `createHarnessKinds` that no computer of the member
+// detects now.
+export const MEMBER_AGENT_SYNC_HARNESS_NOT_DETECTED_REASON =
+  "member_agent.harness_not_detected";
+
 export const memberAgentSyncOutcomeSchema = z.enum([
   // This call created the MemberAgent and its default Profile.
   "created",
@@ -180,6 +201,8 @@ export const syncMemberAgentsResponseSchema = z.strictObject({
   // Bound Profiles that were unassigned and now belong to the MemberAgent of
   // their Binding's Harness.
   assignedProfileIds: z.array(identifierSchema).default([]),
+  // Detected Harnesses with no MemberAgent that the member can add.
+  addableHarnessKinds: z.array(detectedHarnessKindSchema).default([]),
 });
 export type SyncMemberAgentsResponse = z.infer<
   typeof syncMemberAgentsResponseSchema
