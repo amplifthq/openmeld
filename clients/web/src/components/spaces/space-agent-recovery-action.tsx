@@ -35,6 +35,22 @@ export function isWorkingFolderMissingReasonCode(
 	);
 }
 
+const WORKING_FOLDER_INVALID_REASON_CODES: ReadonlySet<string> = new Set([
+	"workspace.invalid",
+	"profile.workspace.invalid",
+]);
+
+/** A folder was set up but can't be used now: moved, deleted or unreadable. */
+export function isWorkingFolderInvalidReasonCode(
+	reasonCode: string | null | undefined
+): boolean {
+	return (
+		reasonCode !== null &&
+		reasonCode !== undefined &&
+		WORKING_FOLDER_INVALID_REASON_CODES.has(reasonCode)
+	);
+}
+
 function isWorkingFolderRecovery(reasonCode: string): boolean {
 	return (
 		resolvePublicAgentFailureRecovery({ errorCode: reasonCode })
@@ -45,6 +61,7 @@ function isWorkingFolderRecovery(reasonCode: string): boolean {
 function renderProfileSettingsRecoveryAction(input: {
 	actionLabel?: string;
 	className?: string;
+	fromReadiness?: boolean;
 	orgSlug: string;
 	plan: Exclude<AgentProfileReplyRecoveryPlan, { kind: "none" }>;
 }) {
@@ -55,6 +72,7 @@ function renderProfileSettingsRecoveryAction(input: {
 				folderMissing={isWorkingFolderMissingReasonCode(
 					input.plan.recoveryReasonCode
 				)}
+				fromReadiness={input.fromReadiness}
 				label={input.actionLabel}
 				profileId={input.plan.profileId}
 			/>
@@ -121,6 +139,11 @@ export function SpaceAgentRecoveryActionControl(input: {
 	actionLabel?: string;
 	allowComputerAction?: boolean;
 	className?: string;
+	/**
+	 * The plan comes from the Agent's current readiness, not a failed task,
+	 * so the fix must not talk about retrying one.
+	 */
+	fromReadiness?: boolean;
 	isPending: boolean;
 	onAction?: (plan: SpaceAgentProfileBindingRecoveryPlan) => Promise<void>;
 	orgSlug: string;
@@ -161,6 +184,7 @@ export function SpaceAgentRecoveryActionControl(input: {
 	const settingsAction = renderProfileSettingsRecoveryAction({
 		actionLabel: input.actionLabel,
 		className: input.className,
+		fromReadiness: input.fromReadiness,
 		orgSlug,
 		plan,
 	});

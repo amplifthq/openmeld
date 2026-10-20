@@ -28,6 +28,8 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 	actorProfileId: string | null;
 	/** No folder is set yet, so nothing has failed: ask to choose one. */
 	folderMissing?: boolean;
+	/** Shown for the Agent's current readiness, not after a failed task. */
+	fromReadiness?: boolean;
 	label?: string;
 	organizationId: string;
 	storageScope: string;
@@ -114,6 +116,14 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 		failed: readiness.isError || eligibility.isError,
 	});
 	const queryClient = useQueryClient();
+	const afterFailedTask = !(input.folderMissing || input.fromReadiness);
+	const device = current?.runtimeDeviceDisplayName ?? "its computer";
+	let recoveryMessage = `This Agent could not use its working folder on ${device}. Set up its folder again or choose another one for new work. This does not move files or restart the failed task.`;
+	if (input.folderMissing) {
+		recoveryMessage = `Choose the folder on ${device} where this Agent starts new work.`;
+	} else if (input.fromReadiness) {
+		recoveryMessage = `This Agent can’t use its working folder on ${device}. It may have been moved or deleted. Set it up again or choose another folder for new work. This does not move files.`;
+	}
 	// The fix usually clears the problem, so this action unmounts with the card
 	// or footer that showed it. The check and its result must not depend on
 	// it: they go through the query client and one toast, updated in place.
@@ -146,16 +156,18 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 				)?.agentWakeAvailability.status ?? null;
 		} catch {
 			toast.warning(
-				"Working folder saved, but Agent availability could not be checked. Check again before retrying the task.",
+				afterFailedTask
+					? "Working folder saved, but Agent availability could not be checked. Check again before retrying the task."
+					: "Working folder saved, but Agent availability could not be checked.",
 				{ action: checkAgain, id: toastId }
 			);
 			return;
 		}
 		if (status === "available_for_wake") {
 			toast.success(
-				input.folderMissing
-					? "Working folder saved. This Agent is ready for new work."
-					: "Working folder saved. This Agent is available for new work. Retry the failed task when you are ready.",
+				afterFailedTask
+					? "Working folder saved. This Agent is available for new work. Retry the failed task when you are ready."
+					: "Working folder saved. This Agent is ready for new work.",
 				{ id: toastId }
 			);
 			return;
@@ -169,9 +181,9 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 			return;
 		}
 		toast.warning(
-			input.folderMissing
-				? "Working folder saved. This Agent still needs attention. Review its current status."
-				: "Working folder saved. This Agent still needs attention. Review its current status before retrying the task.",
+			afterFailedTask
+				? "Working folder saved. This Agent still needs attention. Review its current status before retrying the task."
+				: "Working folder saved. This Agent still needs attention. Review its current status.",
 			{ action: checkAgain, id: toastId }
 		);
 	};
@@ -202,9 +214,7 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 					organizationId={input.organizationId}
 					profile={input.profile}
 					recovery={{
-						message: input.folderMissing
-							? `Choose the folder on ${current?.runtimeDeviceDisplayName ?? "its computer"} where this Agent starts new work.`
-							: `This Agent could not use its working folder on ${current?.runtimeDeviceDisplayName ?? "its computer"}. Set up its folder again or choose another one for new work. This does not move files or restart the failed task.`,
+						message: recoveryMessage,
 						onSaved: checkSavedFolder,
 						saveBlockedReason,
 					}}

@@ -6,6 +6,7 @@ import { useOptionalSpaceAgentProfileEditContext } from "./space-agent-profile-e
 export function AgentWorkingFolderRecoveryAction(input: {
 	className?: string;
 	folderMissing?: boolean;
+	fromReadiness?: boolean;
 	label?: string;
 	profileId?: string;
 }) {
@@ -26,6 +27,7 @@ export function AgentWorkingFolderRecoveryAction(input: {
 			actorProfileId={context.actorProfileId}
 			className={input.className}
 			folderMissing={input.folderMissing}
+			fromReadiness={input.fromReadiness}
 			key={profile.openMeldProfileId}
 			label={input.label}
 			onProfileUpdated={(updated) => {

@@ -78,13 +78,18 @@ function readiness(status: string) {
 	};
 }
 
-function renderAction() {
+function renderAction(
+	options: { folderMissing?: boolean; fromReadiness?: boolean } = {
+		folderMissing: true,
+	}
+) {
 	const queryClient = createTestQueryClient();
 	return render(
 		<TestQueryClientProvider queryClient={queryClient}>
 			<AgentProfileWorkingFolderRecoveryAction
 				actorProfileId={null}
-				folderMissing
+				folderMissing={options.folderMissing}
+				fromReadiness={options.fromReadiness}
 				onProfileUpdated={vi.fn()}
 				organizationId="org-1"
 				profile={{ openMeldProfileId: "profile-agent" } as AuthProfileView}
@@ -111,6 +116,26 @@ describe("AgentProfileWorkingFolderRecoveryAction", () => {
 				"Choose the folder on Felix’s MacBook Pro where this Agent starts new work."
 			)
 		).toBeTruthy();
+	});
+
+	it("says a folder found unusable by readiness may have moved, without a failed task", async () => {
+		readReadinessMock.mockResolvedValue(readiness("unavailable_for_wake"));
+		renderAction({ fromReadiness: true });
+		fireEvent.click(
+			screen.getByRole("button", { name: "Review working folder" })
+		);
+		expect(
+			await screen.findByText(
+				"This Agent can’t use its working folder on Felix’s MacBook Pro. It may have been moved or deleted. Set it up again or choose another folder for new work. This does not move files."
+			)
+		).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Save folder" }));
+		await waitFor(() =>
+			expect(toastMock.warning).toHaveBeenCalledWith(
+				"Working folder saved. This Agent still needs attention. Review its current status.",
+				expect.objectContaining({ id: "toast-1" })
+			)
+		);
 	});
 
 	it("still confirms the save after the fix unmounts the action", async () => {

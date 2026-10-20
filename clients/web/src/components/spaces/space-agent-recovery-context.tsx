@@ -86,6 +86,7 @@ export function SpaceAgentIssueRecoveryAction(input: {
 			actionLabel={input.actionLabel}
 			allowComputerAction
 			className={input.className}
+			fromReadiness
 			isPending={recovery.isAgentRecoveryPending(plan.profileId)}
 			onAction={recovery.onAgentRecoveryAction}
 			orgSlug={recovery.orgSlug}

@@ -19,7 +19,10 @@ import {
 	MessageContent,
 	MessageHeader,
 } from "#/components/spaces/primitives/message";
-import { isWorkingFolderMissingReasonCode } from "#/components/spaces/space-agent-recovery-action";
+import {
+	isWorkingFolderInvalidReasonCode,
+	isWorkingFolderMissingReasonCode,
+} from "#/components/spaces/space-agent-recovery-action";
 import { SpaceAgentIssueRecoveryAction } from "#/components/spaces/space-agent-recovery-context";
 import { resolveSpaceMessageRowLayoutClassName } from "#/components/spaces/space-message-bubble-style";
 import { SpaceMessageProfileAvatar } from "#/components/spaces/space-message-profile-avatar";
@@ -71,6 +74,15 @@ export function resolveMemberAgentDirectMessageCard(input: {
 			description: input.hasMessages
 				? "Choose a working folder before the next task."
 				: "Choose a working folder before the first task.",
+		};
+	}
+	// The folder was set up, then moved, deleted or made unreadable.
+	if (isWorkingFolderInvalidReasonCode(entry.availabilityReasonCode)) {
+		return {
+			kind: "repair",
+			title: entry.availabilityBadgeLabel ?? "Working folder unavailable",
+			description:
+				"This Agent can’t use its working folder. It may have been moved or deleted.",
 		};
 	}
 	if (input.reason && entry.availabilityCategory !== "available") {

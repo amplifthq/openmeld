@@ -89,6 +89,25 @@ describe("MemberAgent Direct Message card", () => {
 		});
 	});
 
+	it("says a set-up folder that can't be used now may have been moved or deleted", () => {
+		expect(
+			resolveMemberAgentDirectMessageCard({
+				entry: entry({
+					availabilityBadgeLabel: "Working folder unavailable",
+					availabilityCategory: "unavailable",
+					availabilityReasonCode: "profile.workspace.invalid",
+					availabilitySummary: "Review this Agent’s working folder.",
+				}),
+				modelCatalog: null,
+			})
+		).toEqual({
+			kind: "repair",
+			title: "Working folder unavailable",
+			description:
+				"This Agent can’t use its working folder. It may have been moved or deleted.",
+		});
+	});
+
 	it("names a non-default permission mode instead of promising prompts", () => {
 		expect(
 			resolveMemberAgentDirectMessageCard({
