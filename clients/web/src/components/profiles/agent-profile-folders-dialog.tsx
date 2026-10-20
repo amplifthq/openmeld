@@ -219,7 +219,7 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 			queryKey: ["private-working-folder", input.storageScope],
 		});
 		if (input.recovery) {
-			toast.success("Working folder saved. Checking Agent availability…");
+			// Recovery confirms the save itself, once readiness settles.
 			input.onOpenChange(false);
 			input.recovery.onSaved();
 			return;

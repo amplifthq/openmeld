@@ -2,7 +2,9 @@
 
 import type {
 	AgentProfileBindingTarget,
+	AgentWakeAvailabilityStatus,
 	AuthProfileView,
+	GetAgentExecutionReadinessBatchResponse,
 	PeopleComputerTarget,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
@@ -114,47 +116,64 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 	const queryClient = useQueryClient();
 	// The fix usually clears the problem, so this action unmounts with the card
 	// or footer that showed it. The check and its result must not depend on
-	// it: they go through the query client and a toast.
+	// it: they go through the query client and one toast, updated in place.
 	const checkSavedFolder = async (): Promise<void> => {
+		const toastId = toast.loading(
+			"Working folder saved. Checking availability…"
+		);
 		const checkAgain = {
 			label: "Check again",
 			onClick: () => {
 				checkSavedFolder().catch(() => undefined);
 			},
 		};
+		let status: AgentWakeAvailabilityStatus | null;
 		try {
-			const result = await queryClient.fetchQuery({
-				...agentExecutionReadinessBatchQueryOptions({
-					agentProfileIds: [input.profile.openMeldProfileId],
-					enabled: true,
-					organizationId: input.organizationId,
-					storageScope: input.storageScope,
-				}),
-				staleTime: 0,
-			});
-			const item = result.items.find(
-				(entry) => entry.agentProfileId === input.profile.openMeldProfileId
+			const items = await waitForSettledWakeAvailability(() =>
+				queryClient.fetchQuery({
+					...agentExecutionReadinessBatchQueryOptions({
+						agentProfileIds: [input.profile.openMeldProfileId],
+						enabled: true,
+						organizationId: input.organizationId,
+						storageScope: input.storageScope,
+					}),
+					staleTime: 0,
+				})
 			);
-			if (item?.agentWakeAvailability.status === "available_for_wake") {
-				toast.success(
-					input.folderMissing
-						? "Working folder saved. This Agent is ready for new work."
-						: "Working folder saved. This Agent is available for new work. Retry the failed task when you are ready."
-				);
-				return;
-			}
-			toast.warning(
-				input.folderMissing
-					? "Working folder saved. This Agent still needs attention. Review its current status."
-					: "Working folder saved. This Agent still needs attention. Review its current status before retrying the task.",
-				{ action: checkAgain }
-			);
+			status =
+				items.find(
+					(entry) => entry.agentProfileId === input.profile.openMeldProfileId
+				)?.agentWakeAvailability.status ?? null;
 		} catch {
 			toast.warning(
 				"Working folder saved, but Agent availability could not be checked. Check again before retrying the task.",
-				{ action: checkAgain }
+				{ action: checkAgain, id: toastId }
 			);
+			return;
 		}
+		if (status === "available_for_wake") {
+			toast.success(
+				input.folderMissing
+					? "Working folder saved. This Agent is ready for new work."
+					: "Working folder saved. This Agent is available for new work. Retry the failed task when you are ready.",
+				{ id: toastId }
+			);
+			return;
+		}
+		if (status === "checking_connection" || status === null) {
+			// Still settling, not a problem: say so neutrally.
+			toast.info(
+				"Working folder saved. OpenMeld is still checking this Agent.",
+				{ action: checkAgain, id: toastId }
+			);
+			return;
+		}
+		toast.warning(
+			input.folderMissing
+				? "Working folder saved. This Agent still needs attention. Review its current status."
+				: "Working folder saved. This Agent still needs attention. Review its current status before retrying the task.",
+			{ action: checkAgain, id: toastId }
+		);
 	};
 	return (
 		<>
@@ -263,4 +282,32 @@ function resolveFolderDraftBlockReason(input: {
 		return "This Agent’s Computer or local agent changed. Close and reopen Working folder to review its current settings.";
 	}
 	return undefined;
+}
+
+const SETTLE_CHECK_ATTEMPTS = 6;
+const SETTLE_CHECK_INTERVAL_MS = 2000;
+
+/**
+ * Readiness right after a save is often still "checking". Reads it a few
+ * times, briefly, until it settles; returns the last read either way.
+ */
+async function waitForSettledWakeAvailability(
+	read: () => Promise<GetAgentExecutionReadinessBatchResponse>
+): Promise<GetAgentExecutionReadinessBatchResponse["items"]> {
+	let items: GetAgentExecutionReadinessBatchResponse["items"] = [];
+	for (let attempt = 0; attempt < SETTLE_CHECK_ATTEMPTS; attempt += 1) {
+		if (attempt > 0) {
+			await new Promise((resolve) =>
+				setTimeout(resolve, SETTLE_CHECK_INTERVAL_MS)
+			);
+		}
+		items = (await read()).items;
+		const settled = items.every(
+			(item) => item.agentWakeAvailability.status !== "checking_connection"
+		);
+		if (items.length > 0 && settled) {
+			return items;
+		}
+	}
+	return items;
 }

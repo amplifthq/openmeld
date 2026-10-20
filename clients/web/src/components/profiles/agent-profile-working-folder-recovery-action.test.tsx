@@ -14,7 +14,12 @@ import {
 import { AgentProfileWorkingFolderRecoveryAction } from "./agent-profile-working-folder-recovery-action";
 
 const readReadinessMock = vi.hoisted(() => vi.fn());
-const toastMock = vi.hoisted(() => ({ success: vi.fn(), warning: vi.fn() }));
+const toastMock = vi.hoisted(() => ({
+	info: vi.fn(),
+	loading: vi.fn(() => "toast-1"),
+	success: vi.fn(),
+	warning: vi.fn(),
+}));
 
 vi.mock("sonner", () => ({ toast: toastMock }));
 vi.mock("#/query/agents/execution-readiness", () => ({
@@ -96,7 +101,7 @@ beforeEach(() => {
 
 describe("AgentProfileWorkingFolderRecoveryAction", () => {
 	it("asks to choose a folder when none is set, without talking about a failure", async () => {
-		readReadinessMock.mockResolvedValue(readiness("unavailable"));
+		readReadinessMock.mockResolvedValue(readiness("unavailable_for_wake"));
 		renderAction();
 		fireEvent.click(
 			screen.getByRole("button", { name: "Choose working folder" })
@@ -109,7 +114,7 @@ describe("AgentProfileWorkingFolderRecoveryAction", () => {
 	});
 
 	it("still confirms the save after the fix unmounts the action", async () => {
-		readReadinessMock.mockResolvedValue(readiness("unavailable"));
+		readReadinessMock.mockResolvedValue(readiness("unavailable_for_wake"));
 		const view = renderAction();
 		fireEvent.click(
 			screen.getByRole("button", { name: "Choose working folder" })
@@ -121,13 +126,14 @@ describe("AgentProfileWorkingFolderRecoveryAction", () => {
 		view.unmount();
 		await waitFor(() =>
 			expect(toastMock.success).toHaveBeenCalledWith(
-				"Working folder saved. This Agent is ready for new work."
+				"Working folder saved. This Agent is ready for new work.",
+				{ id: "toast-1" }
 			)
 		);
 	});
 
 	it("keeps a way to check again when the Agent still needs attention", async () => {
-		readReadinessMock.mockResolvedValue(readiness("unavailable"));
+		readReadinessMock.mockResolvedValue(readiness("unavailable_for_wake"));
 		renderAction();
 		fireEvent.click(
 			screen.getByRole("button", { name: "Choose working folder" })
@@ -136,8 +142,62 @@ describe("AgentProfileWorkingFolderRecoveryAction", () => {
 		await waitFor(() =>
 			expect(toastMock.warning).toHaveBeenCalledWith(
 				"Working folder saved. This Agent still needs attention. Review its current status.",
-				{ action: expect.objectContaining({ label: "Check again" }) }
+				{
+					action: expect.objectContaining({ label: "Check again" }),
+					id: "toast-1",
+				}
 			)
 		);
+	});
+
+	it("waits out a checking readiness instead of warning, then confirms in place", async () => {
+		readReadinessMock.mockResolvedValue(readiness("unavailable_for_wake"));
+		renderAction();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Choose working folder" })
+		);
+		const save = await screen.findByRole("button", { name: "Save folder" });
+		vi.useFakeTimers();
+		try {
+			readReadinessMock
+				.mockResolvedValueOnce(readiness("checking_connection"))
+				.mockResolvedValueOnce(readiness("checking_connection"))
+				.mockResolvedValue(readiness("available_for_wake"));
+			fireEvent.click(save);
+			expect(toastMock.loading).toHaveBeenCalledWith(
+				"Working folder saved. Checking availability…"
+			);
+			await vi.advanceTimersByTimeAsync(5000);
+		} finally {
+			vi.useRealTimers();
+		}
+		expect(toastMock.success).toHaveBeenCalledWith(
+			"Working folder saved. This Agent is ready for new work.",
+			{ id: "toast-1" }
+		);
+		expect(toastMock.warning).not.toHaveBeenCalled();
+	});
+
+	it("stays neutral when readiness is still checking after the last read", async () => {
+		readReadinessMock.mockResolvedValue(readiness("unavailable_for_wake"));
+		renderAction();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Choose working folder" })
+		);
+		const save = await screen.findByRole("button", { name: "Save folder" });
+		vi.useFakeTimers();
+		try {
+			readReadinessMock.mockResolvedValue(readiness("checking_connection"));
+			fireEvent.click(save);
+			await vi.advanceTimersByTimeAsync(20_000);
+		} finally {
+			vi.useRealTimers();
+		}
+		expect(toastMock.info).toHaveBeenCalledWith(
+			"Working folder saved. OpenMeld is still checking this Agent.",
+			expect.objectContaining({ id: "toast-1" })
+		);
+		expect(toastMock.warning).not.toHaveBeenCalled();
+		expect(toastMock.success).not.toHaveBeenCalled();
 	});
 });
