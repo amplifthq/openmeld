@@ -2022,9 +2022,6 @@ function SpaceComposerSection(input: {
 			data-slot="space-composer-section"
 			ref={traySpace.sectionRef}
 		>
-			{traySpace.reservedHeight > 0 ? (
-				<div aria-hidden="true" style={{ height: traySpace.reservedHeight }} />
-			) : null}
 			<div
 				className="flex w-full flex-col gap-3 py-4"
 				data-space-conversation-content-width=""
@@ -2090,7 +2087,10 @@ function SpaceComposerSection(input: {
 					}
 					slots={{
 						agentRequests: (
-							<SpaceComposerTrayHold held={panel.composerTraysHeld}>
+							<SpaceComposerTrayHold
+								held={panel.composerTraysHeld}
+								reservedHeight={traySpace.reservedHeight}
+							>
 								{input.agentRequests}
 							</SpaceComposerTrayHold>
 						),
@@ -2155,14 +2155,28 @@ function SpaceComposerSection(input: {
 
 /**
  * Keeps a held tray mounted, so its read still runs, but out of the layout.
+ * The first tray slot also keeps the trays' saved space, in the place the
+ * trays appear, so nothing above or below them moves when they are released.
  * Once released the tray renders unwrapped, so the composer's tray stacking
  * and sibling order stay exactly as without a hold.
  */
-function SpaceComposerTrayHold(input: { children: ReactNode; held?: boolean }) {
+function SpaceComposerTrayHold(input: {
+	children: ReactNode;
+	held?: boolean;
+	/** Space the trays took last time, kept where the first tray appears. */
+	reservedHeight?: number;
+}) {
 	if (!input.held) {
 		return input.children;
 	}
-	return <div hidden>{input.children}</div>;
+	return (
+		<>
+			{input.reservedHeight ? (
+				<div aria-hidden="true" style={{ height: input.reservedHeight }} />
+			) : null}
+			<div hidden>{input.children}</div>
+		</>
+	);
 }
 
 // Until membership is known the viewer may be an observer, who gets no
