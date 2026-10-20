@@ -109,6 +109,22 @@ describe("Execution Context folder admission", () => {
     expect(admission.folderKey).toBe(executionContextFolderKey(folder));
   });
 
+  it("gives a task without an Execution Context the folder key of its working folder", async () => {
+    const folder = await createFolder("plain");
+    const admission = await resolveExecutionContextFolderAdmission({
+      resolveFolder: async () => folder,
+    });
+    expect(admission).toEqual({
+      context: undefined,
+      folderKey: executionContextFolderKey(folder),
+      workspaceChosen: false,
+    });
+    const unresolved = await resolveExecutionContextFolderAdmission({
+      resolveFolder: () => Promise.reject(new Error("no route")),
+    });
+    expect(unresolved).toEqual({ context: undefined, workspaceChosen: false });
+  });
+
   it("gives Space-only work no folder and drops a stray workspace default", () => {
     const admission = resolveExecutionContextAdmissionWithoutFolder({
       ...baseContext,

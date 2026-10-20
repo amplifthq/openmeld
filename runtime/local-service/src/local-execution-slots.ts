@@ -16,12 +16,13 @@ function resourcesConflict(
   right: LocalExecutionSlotResourceClaim
 ): boolean {
   // Preserve legacy-to-legacy scheduling, but never overlap unverified legacy
-  // work with a new context that promises isolation.
+  // work with a new context that promises isolation in the same folder. When
+  // both folders are known and differ, the tasks cannot touch each other.
   if (left.resourceScope === undefined && right.resourceScope === undefined) {
     return false;
   }
   if (left.resourceScope === undefined || right.resourceScope === undefined) {
-    return true;
+    return !isKnownOtherFolder(left, right);
   }
   // Space-only work has no user folder.
   if (left.resourceScope === "none" || right.resourceScope === "none") {
@@ -45,6 +46,17 @@ function resourcesConflict(
     (left.resourceScope === "read_only" &&
       right.resourceScope === "isolated") ||
     (right.resourceScope === "read_only" && left.resourceScope === "isolated")
+  );
+}
+
+function isKnownOtherFolder(
+  left: LocalExecutionSlotResourceClaim,
+  right: LocalExecutionSlotResourceClaim
+): boolean {
+  return (
+    left.folderKey !== undefined &&
+    right.folderKey !== undefined &&
+    left.folderKey !== right.folderKey
   );
 }
 

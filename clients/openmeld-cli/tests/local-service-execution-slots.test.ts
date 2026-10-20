@@ -1419,7 +1419,22 @@ describe("folder-scoped local execution slots", () => {
     await run.finish();
   });
 
-  it("keeps the legacy rule: an unscoped task conflicts with a scoped one in any folder", async () => {
+  it("runs an unscoped task next to a scoped one in a known other folder", async () => {
+    const run = startFolderTasks([
+      { folderKey: "sha256:a", resourceScope: "exclusive" },
+      { folderKey: "sha256:b", resourceScope: undefined },
+      { folderKey: "sha256:a", resourceScope: undefined },
+    ]);
+    expect(run.startedIds()).toEqual(["task-0", "task-1"]);
+    expect(run.queued.map((q) => q.waitReason)).toEqual(["workspace_conflict"]);
+    run.completions[0]?.resolve();
+    await vi.waitFor(() =>
+      expect(run.startedIds()).toEqual(["task-0", "task-1", "task-2"])
+    );
+    await run.finish();
+  });
+
+  it("keeps the legacy rule when the unscoped task's folder is unknown", async () => {
     const run = startFolderTasks([
       { folderKey: "sha256:a", resourceScope: "isolated" },
       { resourceScope: undefined },

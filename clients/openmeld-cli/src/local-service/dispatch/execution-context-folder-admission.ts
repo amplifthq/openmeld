@@ -31,20 +31,22 @@ export async function resolveExecutionContextFolderAdmission(input: {
 }): Promise<ExecutionContextFolderAdmission> {
   const original = input.context;
   if (!original) {
-    return { context: undefined, workspaceChosen: false };
+    // A task without an Execution Context still runs in a folder. Knowing it
+    // keeps that task from blocking contexts in other folders.
+    const folder = await resolveAdmissionFolder(input.resolveFolder);
+    return folder
+      ? {
+          context: undefined,
+          folderKey: executionContextFolderKey(folder),
+          workspaceChosen: false,
+        }
+      : { context: undefined, workspaceChosen: false };
   }
   const { workspaceDefault, ...context } = original;
   if (context.access === "space_context") {
     return { context, workspaceChosen: false };
   }
-  let folder: string | null = null;
-  try {
-    folder = await realpath(
-      await withTimeout(input.resolveFolder(), FOLDER_ADMISSION_TIMEOUT_MS)
-    );
-  } catch {
-    // The run resolves the folder again and reports the failure there.
-  }
+  const folder = await resolveAdmissionFolder(input.resolveFolder);
   const folderLabel = executionContextFolderLabel(context);
   if (!folder) {
     // A pending default stays undecided: the run then fails closed instead of
@@ -68,6 +70,19 @@ export async function resolveExecutionContextFolderAdmission(input: {
     folderLabel,
     workspaceChosen: true,
   };
+}
+
+async function resolveAdmissionFolder(
+  resolveFolder: () => Promise<string>
+): Promise<string | null> {
+  try {
+    return await realpath(
+      await withTimeout(resolveFolder(), FOLDER_ADMISSION_TIMEOUT_MS)
+    );
+  } catch {
+    // The run resolves the folder again and reports the failure there.
+    return null;
+  }
 }
 
 /**
@@ -132,7 +147,7 @@ export function resolveExecutionContextAdmissionWithoutFolder(
 export function needsExecutionContextFolderAdmission(
   context?: ExecutionContextTask
 ): boolean {
-  return Boolean(context && context.access !== "space_context");
+  return context?.access !== "space_context";
 }
 
 const admissionTails = new WeakMap<object, Promise<void>>();
