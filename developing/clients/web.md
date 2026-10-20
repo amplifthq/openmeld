@@ -1957,6 +1957,9 @@ message content, including grouped messages and either self-message placement.
 Narrow Threads keep the compact size even on a wide desktop. Human, Agent,
 system, and pending first-message avatars share this presentation; inline
 mentions, reaction lists, profile popovers, and sidebar sizes are independent.
+An Agent avatar without an image, Fluid art, or a Bot draws its controller or
+model logo on the same raised tile as the Harness logo (one shared surface
+class); human avatars keep their own style.
 Direct Messages, including Center
 Agent chats, use content-sized bubbles up to the available conversation width
 with a dedicated avatar column. The first
@@ -6218,13 +6221,16 @@ conversation as a request preview: it reads like a message from the requested
 Agent (its avatar and name, `Not in this Space yet` in place of a timestamp)
 but is never a published message. It explains the request and holds the
 decisions: the first Core decision is the primary button, and the rest sit in
-an overflow menu. A one-line Agent requests bar above the Composer repeats the
-summary and the same actions; while the latest messages are shown, its text
+an overflow menu. For a member's Space request the overflow starts with
+`Message <requester>`, which opens the owner's Direct Message with the
+requester and leaves the request pending. The preview uses the Agent message
+avatar and the message bubble radius with a dashed border. A one-line Agent
+requests bar above the Composer repeats the summary and the same actions; while the latest messages are shown, its text
 scrolls to the preview. The requester
 sees only the bar, with `Withdraw` while the request is pending. Composer trays
 stack top to bottom as Agent requests, pending Agent actions, then queued
-messages, each tucked under the next, and an answer from either presentation
-disables both.
+messages, each tucked under the next with the same inset, and an answer from
+either presentation disables both.
 
 Permission cards show the native choices; question cards collect every answer
 in bounded steps; plan cards show the bounded plan and support approval or

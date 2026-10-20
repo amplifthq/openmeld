@@ -371,9 +371,10 @@ its source owner; reading or Dismissing never decides it.
   **Allow once**, **Always allow <colleague> for this Profile**, and
   **Decline**; external users get only **Allow once** and **Decline**.
 - `agent_space_request`: someone other than the owner mentioned or added the
-  owner's Agent in a Space it is not in. Responses are **Add to Space**,
-  **Reply to <requester> by DM**, and **Don't add**. Editing or deleting the bound message voids
-  the request and resolves the item.
+  owner's Agent in a Space it is not in. Responses are **Add to Space** and
+  **Don't add**. **Message <requester>** opens the Direct Message with the
+  requester and keeps the item open. Editing or deleting the bound message
+  voids the request and resolves the item.
 - `credential_confirmation`: a sensitive operation made with the CLI login
   credential while that computer runs a task whose root requester is not the
   owner. The owner confirms or rejects that exact operation.

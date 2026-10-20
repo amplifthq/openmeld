@@ -21,6 +21,7 @@ import {
 import {
 	AgentAccessRequestCard,
 	agentAccessOutcomeCopy,
+	canMessageAgentAccessRequester,
 } from "./agent-access-request-card";
 import { resolveAgentRequestSpaceLabel } from "./agent-access-space-labels";
 import {
@@ -49,6 +50,7 @@ const JOIN_TO_POST = /join to post/u;
 const state = vi.hoisted(() => ({
 	request: null as AgentAccessRequestView | null,
 	decide: vi.fn(),
+	openDirectMessage: vi.fn(),
 }));
 vi.mock("#/query/agent-access", () => ({
 	useAgentAccessRequest: () => ({
@@ -76,6 +78,12 @@ vi.mock("#/components/member-agents/use-member-agents", () => ({
 		},
 	}),
 }));
+vi.mock("#/lib/spaces/use-open-direct-message", () => ({
+	useOpenDirectMessage: () => ({
+		open: state.openDirectMessage,
+		pendingProfileId: null,
+	}),
+}));
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useOptionalAppOrganization: () => ({
 		currentOrganization: { id: "org-1", slug: "acme" },
@@ -86,6 +94,7 @@ afterEach(() => {
 	cleanup();
 	state.request = null;
 	state.decide.mockReset();
+	state.openDirectMessage.mockReset();
 });
 
 function request(
@@ -158,7 +167,7 @@ describe("Owner answer to a Space request", () => {
 	const spaceJoin = (overrides: Partial<AgentAccessRequestView> = {}) =>
 		request({
 			kind: "space_join",
-			availableDecisions: ["join", "reply_by_dm", "ignore"],
+			availableDecisions: ["join", "ignore"],
 			...overrides,
 		});
 	function inConversation(children: ReactNode) {
@@ -181,13 +190,16 @@ describe("Owner answer to a Space request", () => {
 			error: null,
 			decide: vi.fn(async () => undefined),
 			withdraw: vi.fn(),
+			messageRequester: vi.fn(),
+			messagePending: false,
 		};
 	}
 
 	it("keeps every Core decision: one primary, the rest in the overflow", () => {
-		expect(
-			splitAgentAccessDecisions(["join", "reply_by_dm", "ignore"])
-		).toEqual({ primary: "join", secondary: ["reply_by_dm", "ignore"] });
+		expect(splitAgentAccessDecisions(["join", "ignore"])).toEqual({
+			primary: "join",
+			secondary: ["ignore"],
+		});
 		expect(splitAgentAccessDecisions([])).toEqual({
 			primary: null,
 			secondary: [],
@@ -199,7 +211,30 @@ describe("Owner answer to a Space request", () => {
 		render(<AgentAccessRequestCard requestId="aar_1" />);
 		expect(
 			screen.getAllByRole("button").map((button) => button.textContent)
-		).toEqual(["Add to Space", "Reply to Tali by DM", "Don't add"]);
+		).toEqual(["Add to Space", "Don't add", "Message Tali"]);
+	});
+
+	it("opens the DM with the requester without answering the request", () => {
+		state.request = spaceJoin();
+		render(<AgentAccessRequestCard requestId="aar_1" />);
+		fireEvent.click(screen.getByRole("button", { name: "Message Tali" }));
+		expect(state.openDirectMessage).toHaveBeenCalledWith("tali-profile");
+		expect(state.decide).not.toHaveBeenCalled();
+		expect(screen.getByRole("button", { name: "Add to Space" })).toBeTruthy();
+	});
+
+	it("only offers Message <requester> to the owner of a pending member request", () => {
+		expect(canMessageAgentAccessRequester(spaceJoin())).toBe(true);
+		expect(
+			canMessageAgentAccessRequester(spaceJoin({ status: "joined" }))
+		).toBe(false);
+		expect(
+			canMessageAgentAccessRequester(spaceJoin({ viewerRole: "requester" }))
+		).toBe(false);
+		expect(
+			canMessageAgentAccessRequester(spaceJoin({ requesterKind: "external" }))
+		).toBe(false);
+		expect(canMessageAgentAccessRequester(request())).toBe(false);
 	});
 
 	it("shows the owner one line about the Agent, with one primary action", () => {
@@ -216,6 +251,22 @@ describe("Owner answer to a Space request", () => {
 			requestState.requests[0],
 			"join"
 		);
+	});
+
+	it("puts Message <requester> first in the overflow and leaves the request open", async () => {
+		const requestState = spaceState([spaceJoin()]);
+		render(<SpaceAgentAccessBar state={requestState} />);
+		fireEvent.click(screen.getByRole("button", { name: "More choices" }));
+		const items = await screen.findAllByRole("menuitem");
+		expect(items.map((item) => item.textContent)).toEqual([
+			"Message Tali",
+			"Don't add",
+		]);
+		fireEvent.click(items[0] as HTMLElement);
+		expect(requestState.messageRequester).toHaveBeenCalledWith(
+			requestState.requests[0]
+		);
+		expect(requestState.decide).not.toHaveBeenCalled();
 	});
 
 	it("keeps the summary as plain text while older history hides the preview", () => {
