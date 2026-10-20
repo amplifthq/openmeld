@@ -1,5 +1,10 @@
 import type { AuthProfileView } from "@openmeld/schemas/types";
 import { Input } from "@openmeld/ui/components/input";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@openmeld/ui/components/tooltip";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import {
 	SidebarMenuAction,
@@ -15,7 +20,7 @@ import {
 	ChatCircleTextIcon,
 	ChatsCircleIcon,
 } from "@phosphor-icons/react";
-import { useId, useState } from "react";
+import { type ComponentProps, useEffect, useId, useRef, useState } from "react";
 import {
 	type AppContextualNavGroup,
 	AppContextualSidebarNav,
@@ -34,6 +39,9 @@ import { formatMemberAgentProfileDisplayName } from "./member-agent-display-name
 import { useMemberAgentPageSessionList } from "./member-agent-session-nav";
 
 type SessionState = "active" | "archived";
+
+/** Below this tab-list width a tab shows only its icon. */
+const ICON_ONLY_TABS_MAX_WIDTH_PX = 160;
 
 /** Sessions whose title contains the search term; every section stays. */
 export function filterMemberAgentSessionSections(
@@ -123,27 +131,7 @@ export function MemberAgentPageSidebar(input: {
 			groups={groups}
 			leadingContent={
 				<div className="space-y-2 px-1">
-					<Tabs
-						onValueChange={(value) =>
-							setState(value === "archived" ? "archived" : "active")
-						}
-						value={state}
-					>
-						<TabsList aria-label="Chat state" className="flex w-full">
-							<TabItem
-								className="min-w-0 flex-1 justify-center"
-								icon={ChatsCircleIcon}
-								label="Active"
-								value="active"
-							/>
-							<TabItem
-								className="min-w-0 flex-1 justify-center"
-								icon={ArchiveIcon}
-								label="Archived"
-								value="archived"
-							/>
-						</TabsList>
-					</Tabs>
+					<SessionStateTabs onChange={setState} value={state} />
 					<Input
 						aria-label="Search chats"
 						className="h-8"
@@ -164,6 +152,89 @@ export function MemberAgentPageSidebar(input: {
 			placement="module"
 			title={input.displayName}
 		/>
+	);
+}
+
+/**
+ * Active and Archived split the width evenly. Icons keep their size; labels
+ * truncate first, and at the narrowest width move into a tooltip.
+ */
+function SessionStateTabs(input: {
+	value: SessionState;
+	onChange: (value: SessionState) => void;
+}) {
+	const listRef = useRef<HTMLDivElement>(null);
+	const [iconOnly, setIconOnly] = useState(false);
+	useEffect(() => {
+		const node = listRef.current;
+		if (!node) {
+			return;
+		}
+		const observer = new ResizeObserver(([entry]) => {
+			if (entry) {
+				setIconOnly(entry.contentRect.width < ICON_ONLY_TABS_MAX_WIDTH_PX);
+			}
+		});
+		observer.observe(node);
+		return () => observer.disconnect();
+	}, []);
+	return (
+		<div ref={listRef}>
+			<Tabs
+				onValueChange={(value) =>
+					input.onChange(value === "archived" ? "archived" : "active")
+				}
+				value={input.value}
+			>
+				<TabsList aria-label="Chat state" className="flex w-full">
+					<SessionStateTab
+						icon={ChatsCircleIcon}
+						iconOnly={iconOnly}
+						label="Active"
+						value="active"
+					/>
+					<SessionStateTab
+						icon={ArchiveIcon}
+						iconOnly={iconOnly}
+						label="Archived"
+						value="archived"
+					/>
+				</TabsList>
+			</Tabs>
+		</div>
+	);
+}
+
+function SessionStateTab({
+	icon: Icon,
+	iconOnly,
+	label,
+	...props
+}: Omit<ComponentProps<typeof TabItem>, "icon" | "children"> & {
+	icon: typeof ArchiveIcon;
+	iconOnly: boolean;
+}) {
+	const tab = (
+		<TabItem
+			{...props}
+			aria-label={label}
+			className="min-w-0 flex-1 justify-center text-muted-foreground hover:text-foreground aria-selected:font-semibold aria-selected:text-foreground"
+			label={label}
+		>
+			<Icon aria-hidden="true" className="size-4 shrink-0" />
+			{iconOnly ? null : (
+				<span className="min-w-0 truncate text-sm">{label}</span>
+			)}
+		</TabItem>
+	);
+	if (!iconOnly) {
+		return tab;
+	}
+	return (
+		<Tooltip>
+			<TooltipTrigger render={tab} />
+			<TooltipContent side="bottom">{label}</TooltipContent>
+		</Tooltip>
 	);
 }
 
