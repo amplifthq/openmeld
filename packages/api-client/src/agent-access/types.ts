@@ -1,5 +1,6 @@
 import type {
   AgentAccessDecision,
+  CreateAgentProfileAccessGrantResponse,
   CreateSpaceAgentRequestResponse,
   DecideAgentAccessRequestResponse,
   GetAgentAccessRequestResponse,
@@ -35,6 +36,14 @@ export type AgentAccessApi = {
   ) => Promise<ListAgentProfileAccessGrantsResponse>;
   /** Colleagues' Agents the caller may start work with without asking. */
   listViewerGrants: () => Promise<ListViewerAgentAccessGrantsResponse>;
+  /**
+   * The owner always allows a member: a new standing grant, or the active
+   * one. The request that led to it keeps its decision.
+   */
+  alwaysAllow: (
+    agentProfileId: string,
+    granteeUserId: string
+  ) => Promise<CreateAgentProfileAccessGrantResponse>;
   revokeGrant: (
     agentProfileId: string,
     grantId: string

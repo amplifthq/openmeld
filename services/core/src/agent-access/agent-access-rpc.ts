@@ -6,7 +6,10 @@ import {
   AGENT_ACCESS_REQUEST_LIST_LIMIT,
   AGENT_PROFILE_ACCESS_GRANT_LIST_LIMIT,
   type AgentAccessDecision,
+  type AgentProfileAccessGrantView,
+  type CreateAgentProfileAccessGrantResponse,
   type CreateSpaceAgentRequestResponse,
+  createAgentProfileAccessGrantBodySchema,
   createSpaceAgentRequestBodySchema,
   type DecideAgentAccessRequestResponse,
   decideAgentAccessRequestBodySchema,
@@ -36,6 +39,7 @@ import {
 } from "../rpc/methods";
 import {
   type AgentAccessDecisionResult,
+  alwaysAllowAgentProfileMember,
   decideAgentAccessRequest,
   finishAgentAccessDecision,
   readAgentAccessRequestView,
@@ -45,10 +49,12 @@ import {
 } from "./application/agent-access-service";
 import {
   type AgentAccessRequestRecord,
+  type AgentProfileAccessGrantRecord,
   asQueryable,
   listActiveAgentProfileAccessGrants,
   listActiveAlwaysAgentAccessGrantsForGrantee,
   listAgentAccessRequests,
+  listAgentAccessSpaceIds,
   readAgentAccessRequest,
   readAgentAccessTargets,
   revokeAgentProfileAccessGrant,
@@ -377,16 +383,96 @@ export async function rpcListAgentProfileAccessGrants(
   });
   return {
     profileId: input.agentProfileId,
-    grants: grants.map((grant) => ({
-      id: grant.id,
-      profileId: grant.profileId,
-      granteeUserId: grant.granteeUserId,
-      granteeName: grant.granteeName,
-      granteeKind: grant.granteeKind,
-      scope: grant.scope,
-      grantedAt: new Date(grant.grantedAtMs).toISOString(),
-    })),
+    grants: grants.map(toAgentProfileAccessGrantView),
   };
+}
+
+function toAgentProfileAccessGrantView(
+  grant: AgentProfileAccessGrantRecord
+): AgentProfileAccessGrantView {
+  return {
+    id: grant.id,
+    profileId: grant.profileId,
+    granteeUserId: grant.granteeUserId,
+    granteeName: grant.granteeName,
+    granteeKind: grant.granteeKind,
+    scope: grant.scope,
+    grantedAt: new Date(grant.grantedAtMs).toISOString(),
+  };
+}
+
+/**
+ * The owner always allows a member, for example after Allow once. A new
+ * standing grant with its own lifecycle; the request that led to it keeps
+ * its decision. Idempotent while a standing grant is active.
+ */
+export async function rpcCreateAgentProfileAccessGrant(
+  env: CoreBindings,
+  input: {
+    context?: CoreRpcContextInput;
+    agentProfileId: string;
+    body: unknown;
+  }
+): Promise<CreateAgentProfileAccessGrantResponse> {
+  const body = createAgentProfileAccessGrantBodySchema.safeParse(input.body);
+  if (!body.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Choose a teammate to always allow.",
+    });
+  }
+  const caller = await requireAgentAccessCaller(env, input.context);
+  await requireOwnedAgentProfile(caller, input.agentProfileId);
+  const { granteeUserId } = body.data;
+  const ensured = await alwaysAllowAgentProfileMember({
+    db: caller.db,
+    granteeUserId,
+    nowMs: Date.now(),
+    organizationId: caller.organizationId,
+    ownerUserId: caller.userId,
+    profileId: input.agentProfileId,
+  });
+  if (ensured.created) {
+    await broadcastAgentAccessChanged(env, caller, {
+      granteeUserId,
+      profileId: input.agentProfileId,
+    });
+  }
+  return {
+    grant: toAgentProfileAccessGrantView(ensured.grant),
+    created: ensured.created,
+  };
+}
+
+/**
+ * Open views of the Spaces where the grantee asked for this Agent refetch
+ * their access. A refresh signal only: a failed broadcast never fails the
+ * write, and each view reads Core again.
+ */
+async function broadcastAgentAccessChanged(
+  env: CoreBindings,
+  caller: AgentAccessCaller,
+  input: { granteeUserId: string; profileId: string }
+): Promise<void> {
+  const spaceIds = await listAgentAccessSpaceIds({
+    db: asQueryable(caller.db),
+    profileId: input.profileId,
+    requesterUserId: input.granteeUserId,
+  });
+  await Promise.all(
+    spaceIds.map(async (spaceId) => {
+      try {
+        const { stub } = resolveRpcSpaceStubOrThrow(env, spaceId);
+        await stub.rpcBroadcastAgentAccessChanged({ spaceId });
+      } catch (error) {
+        console.warn("[core.agent_access.broadcast_failed]", {
+          error: error instanceof Error ? error.message : String(error),
+          spaceId,
+        });
+      }
+    })
+  );
 }
 
 /**
@@ -439,6 +525,10 @@ export async function rpcRevokeAgentProfileAccessGrant(
       reason: "This access was already removed.",
     });
   }
+  await broadcastAgentAccessChanged(env, caller, {
+    granteeUserId: revoked.granteeUserId,
+    profileId: input.agentProfileId,
+  });
   return {
     grantId: revoked.id,
     revokedAt: new Date(revoked.revokedAtMs).toISOString(),

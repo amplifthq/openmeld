@@ -23295,6 +23295,15 @@ export class Space extends DurableObject<CoreBindings> {
     });
     await this.syncSpaceBackgroundAlarm();
   }
+  /** Core changed an Agent access grant this Space shows; views refetch it. */
+  async rpcBroadcastAgentAccessChanged(input: {
+    spaceId: string;
+  }): Promise<void> {
+    this.applySpaceRef(input.spaceId);
+    await this.broadcastSpaceMetaChanged({
+      reason: AGENT_ACCESS_SPACE_CHANGED_REASON,
+    });
+  }
   /**
    * Applies an Agent owner's decision that Core already recorded. Allowing
    * dispatches the held message to that Agent, in a new Session; joining

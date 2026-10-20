@@ -5,6 +5,7 @@ import {
   AGENT_ACCESS_REQUESTS_ROUTE,
   AGENT_PROFILE_ACCESS_GRANT_REVOKE_ROUTE,
   AGENT_PROFILE_ACCESS_GRANTS_ROUTE,
+  createAgentProfileAccessGrantResponseSchema,
   createSpaceAgentRequestResponseSchema,
   decideAgentAccessRequestResponseSchema,
   getAgentAccessRequestResponseSchema,
@@ -102,6 +103,16 @@ export const createAgentAccessApi: CreateAgentAccessApi = (client) => ({
       operation: "agent_access.list_viewer_grants",
       schema: listViewerAgentAccessGrantsResponseSchema,
       url: VIEWER_AGENT_ACCESS_GRANTS_ROUTE,
+    }),
+  alwaysAllow: async (agentProfileId, granteeUserId) =>
+    await client.requestJson({
+      body: JSON.stringify({ granteeUserId, scope: "always" }),
+      headers: JSON_HEADERS,
+      invalidMessage: "Invalid Agent access grant response.",
+      method: "POST",
+      operation: "agent_access.always_allow",
+      schema: createAgentProfileAccessGrantResponseSchema,
+      url: fill(AGENT_PROFILE_ACCESS_GRANTS_ROUTE, { agentProfileId }),
     }),
   revokeGrant: async (agentProfileId, grantId) =>
     await client.requestJson({

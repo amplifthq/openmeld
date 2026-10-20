@@ -240,6 +240,20 @@ export type AgentProfileAccessGrantView = z.infer<
 export const agentProfileAccessGrantsRouteParamsSchema = z.strictObject({
   agentProfileId: identifierSchema,
 });
+
+/**
+ * The owner always allows a member, for example after Allow once. It writes
+ * a new standing grant with its own lifecycle; the request that led to it
+ * keeps its decision. Members only; an existing active standing grant is
+ * returned as it is.
+ */
+export const createAgentProfileAccessGrantBodySchema = z.strictObject({
+  granteeUserId: identifierSchema,
+  scope: z.literal("always"),
+});
+export type CreateAgentProfileAccessGrantBody = z.infer<
+  typeof createAgentProfileAccessGrantBodySchema
+>;
 export const agentProfileAccessGrantRevokeRouteParamsSchema = z.strictObject({
   agentProfileId: identifierSchema,
   grantId: identifierSchema,
@@ -255,6 +269,15 @@ export const listAgentProfileAccessGrantsResponseSchema = z.strictObject({
 });
 export type ListAgentProfileAccessGrantsResponse = z.infer<
   typeof listAgentProfileAccessGrantsResponseSchema
+>;
+
+export const createAgentProfileAccessGrantResponseSchema = z.strictObject({
+  grant: agentProfileAccessGrantViewSchema,
+  // False when an active standing grant already existed.
+  created: z.boolean(),
+});
+export type CreateAgentProfileAccessGrantResponse = z.infer<
+  typeof createAgentProfileAccessGrantResponseSchema
 >;
 
 export const revokeAgentProfileAccessGrantResponseSchema = z.strictObject({

@@ -417,6 +417,7 @@ import type {
   WriteCurrentDeviceObservedMetadataResponse,
 } from "@openmeld/schemas/types";
 import {
+  rpcCreateAgentProfileAccessGrant,
   rpcCreateSpaceAgentRequest,
   rpcDecideAgentAccessRequest,
   rpcGetAgentAccessRequest,
@@ -4513,6 +4514,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcListViewerAgentAccessGrants(this.env, input)
     );
   }
+  createAgentProfileAccessGrant(
+    input: Parameters<typeof rpcCreateAgentProfileAccessGrant>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCreateAgentProfileAccessGrant(this.env, input)
+    );
+  }
   revokeAgentProfileAccessGrant(
     input: Parameters<typeof rpcRevokeAgentProfileAccessGrant>[1]
   ) {
@@ -6736,6 +6744,20 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: Parameters<typeof rpcListViewerAgentAccessGrants>[1]
   ) {
     return super.listViewerAgentAccessGrants(input);
+  }
+  createAgentProfileAccessGrant(
+    input: Parameters<typeof rpcCreateAgentProfileAccessGrant>[1] &
+      GatewaySensitiveCredential
+  ) {
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "agent_access_decision",
+      },
+      (operationInput) => super.createAgentProfileAccessGrant(operationInput)
+    );
   }
   revokeAgentProfileAccessGrant(
     input: Parameters<typeof rpcRevokeAgentProfileAccessGrant>[1] &

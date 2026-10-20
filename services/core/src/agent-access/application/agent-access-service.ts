@@ -11,9 +11,12 @@ import {
   type AgentAccessRequestGrantState,
   type AgentAccessRequestNames,
   type AgentAccessRequestRecord,
+  type AgentProfileAccessGrantRecord,
   asQueryable,
+  ensureStandingAgentProfileAccessGrant,
   insertAgentAccessRequest,
   insertAgentProfileAccessGrant,
+  isOrganizationMember,
   markAgentAccessRequestApplied,
   readAgentAccessRequest,
   readAgentAccessRequestGrants,
@@ -196,6 +199,54 @@ function buildDecisionGrant(input: {
     grantedByUserId: input.deciderUserId,
     grantedAtMs: input.nowMs,
   };
+}
+
+/**
+ * The owner always allows a member of the Organization, for example after
+ * Allow once. A new standing grant with its own lifecycle; no request's
+ * decision changes. The caller has checked that `ownerUserId` owns the
+ * Profile. Idempotent while a standing grant is active.
+ */
+export async function alwaysAllowAgentProfileMember(input: {
+  db: PostgresDatabase;
+  granteeUserId: string;
+  nowMs: number;
+  organizationId: string;
+  ownerUserId: string;
+  profileId: string;
+}): Promise<{ grant: AgentProfileAccessGrantRecord; created: boolean }> {
+  if (input.granteeUserId === input.ownerUserId) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "agent_access.grantee_is_owner",
+      reason: "You already own this Agent.",
+    });
+  }
+  const db = asQueryable(input.db);
+  if (
+    !(await isOrganizationMember({
+      db,
+      organizationId: input.organizationId,
+      userId: input.granteeUserId,
+    }))
+  ) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "agent_access.decision_unavailable",
+      reason: "People outside your organization can only be allowed once.",
+    });
+  }
+  return await ensureStandingAgentProfileAccessGrant({
+    db,
+    grant: {
+      id: `apg_${crypto.randomUUID().replaceAll("-", "")}`,
+      organizationId: input.organizationId,
+      profileId: input.profileId,
+      granteeUserId: input.granteeUserId,
+      grantedByUserId: input.ownerUserId,
+      grantedAtMs: input.nowMs,
+    },
+  });
 }
 
 /**

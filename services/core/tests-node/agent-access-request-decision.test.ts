@@ -3,6 +3,7 @@ import { URL } from "node:url";
 import type { AgentAccessDecision } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import {
+  alwaysAllowAgentProfileMember,
   decideAgentAccessRequest,
   readAgentAccessRequestView,
   withdrawAgentAccessRequest,
@@ -20,6 +21,8 @@ type Harness = Awaited<ReturnType<typeof createPostgresHarness>>;
 const ORG = "org_access";
 const OWNER = "user_tali";
 const REQUESTER = "user_felix";
+// Has an account but is not in the Organization.
+const EXTERNAL = "user_sam";
 const AGENT = "agt_7d3c1a40-5f2e-4b8a-9c61-0e4b2d9f8a17";
 const HUMAN_PROFILES: Record<string, string> = {
   [OWNER]: "2a9e6f10-3b4c-4d5e-8f60-71a2b3c4d5e6",
@@ -216,6 +219,91 @@ describe("Agent access request decisions (member-agent-program.md §7)", () => {
   });
 });
 
+describe("Always allowing a member after the fact", () => {
+  it("writes a standing grant with its own lifecycle and keeps the request's decision", async () => {
+    await withHarness(async (harness) => {
+      const requestId = await insertRequest(harness, "aar_1");
+      await decide(harness, requestId, "allow_once");
+      const first = await alwaysAllow(harness, REQUESTER);
+      expect(first).toMatchObject({
+        created: true,
+        grant: {
+          granteeUserId: REQUESTER,
+          granteeKind: "member",
+          scope: "always",
+          requestId: null,
+          revokedAtMs: null,
+        },
+      });
+      const view = await readAgentAccessRequestView({
+        db: harness.db,
+        request: await read(harness, requestId),
+        viewerUserId: REQUESTER,
+      });
+      // The one-chat answer and its grant stay as they were.
+      expect(view).toMatchObject({
+        status: "allowed",
+        decision: "allow_once",
+        grant: { status: "active" },
+      });
+      const again = await alwaysAllow(harness, REQUESTER);
+      expect(again).toMatchObject({
+        created: false,
+        grant: { id: first.grant.id },
+      });
+      expect(
+        await harness.queryAll({
+          text: `SELECT scope FROM "openmeld"."agent_profile_access_grants" WHERE grantee_user_id = $1 ORDER BY scope`,
+          values: [REQUESTER],
+        })
+      ).toEqual([{ scope: "always" }, { scope: "once" }]);
+    });
+  });
+
+  it("writes a new grant after the standing one was revoked", async () => {
+    await withHarness(async (harness) => {
+      const first = await alwaysAllow(harness, REQUESTER);
+      await revokeAgentProfileAccessGrant({
+        db: asQueryable(harness.db),
+        grantId: first.grant.id,
+        nowMs: 5000,
+        profileId: AGENT,
+        revokedByUserId: OWNER,
+      });
+      const next = await alwaysAllow(harness, REQUESTER);
+      expect(next.created).toBe(true);
+      expect(next.grant.id).not.toBe(first.grant.id);
+    });
+  });
+
+  it("refuses external users and the owner", async () => {
+    await withHarness(async (harness) => {
+      await expect(alwaysAllow(harness, EXTERNAL)).rejects.toMatchObject({
+        code: "agent_access.decision_unavailable",
+      });
+      await expect(alwaysAllow(harness, OWNER)).rejects.toMatchObject({
+        code: "agent_access.grantee_is_owner",
+      });
+      expect(
+        await harness.queryAll({
+          text: `SELECT id FROM "openmeld"."agent_profile_access_grants"`,
+        })
+      ).toEqual([]);
+    });
+  });
+});
+
+async function alwaysAllow(harness: Harness, granteeUserId: string) {
+  return await alwaysAllowAgentProfileMember({
+    db: harness.db,
+    granteeUserId,
+    nowMs: 4000,
+    organizationId: ORG,
+    ownerUserId: OWNER,
+    profileId: AGENT,
+  });
+}
+
 async function withHarness(run: (harness: Harness) => Promise<void>) {
   const harness = await createPostgresHarness();
   try {
@@ -248,6 +336,10 @@ async function seed(harness: Harness) {
       values: [`member_${userId}`, ORG, userId],
     });
   }
+  await harness.query({
+    text: `INSERT INTO "openmeld"."users" (id, name, email) VALUES ($1, 'Sam', $2)`,
+    values: [EXTERNAL, `${EXTERNAL}@example.test`],
+  });
   await harness.query({
     text: `INSERT INTO "openmeld"."openmeld_profiles" (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, created_by_user_id, source, created_at, updated_at) VALUES ($1, 'Codex', $1, 'agent', 0, 'active', $2, $3, $3, 'cli_create', 1000, 1000)`,
     values: [AGENT, ORG, OWNER],

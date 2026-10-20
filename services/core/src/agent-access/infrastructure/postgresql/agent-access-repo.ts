@@ -485,7 +485,8 @@ export async function insertAgentProfileAccessGrant(input: {
     granteeUserId: string;
     granteeKind: AgentAccessGranteeKind;
     scope: "always" | "once";
-    requestId: string;
+    // Null for a standing grant the owner gave outside a request.
+    requestId: string | null;
     spaceId: string | null;
     sourceSignalId: string | null;
     grantedByUserId: string;
@@ -513,6 +514,84 @@ export async function insertAgentProfileAccessGrant(input: {
       grant.grantedAtMs,
     ],
   });
+}
+
+/**
+ * The active standing grant of one member for one Profile, writing one when
+ * none exists. The partial unique index keeps a concurrent writer from adding
+ * a second; either way the active row is returned.
+ */
+export async function ensureStandingAgentProfileAccessGrant(input: {
+  db: Queryable;
+  grant: {
+    id: string;
+    organizationId: string;
+    profileId: string;
+    granteeUserId: string;
+    grantedByUserId: string;
+    grantedAtMs: number;
+  };
+}): Promise<{ grant: AgentProfileAccessGrantRecord; created: boolean }> {
+  const { grant } = input;
+  const inserted = await input.db.query<{ id: string }>({
+    text: `INSERT INTO "openmeld"."agent_profile_access_grants" (
+        id, organization_id, profile_id, grantee_user_id, grantee_kind, scope,
+        request_id, space_id, source_signal_id, granted_by_user_id, granted_at_ms
+      ) VALUES ($1, $2, $3, $4, 'member', 'always', NULL, NULL, NULL, $5, $6)
+      ON CONFLICT DO NOTHING
+      RETURNING id`,
+    values: [
+      grant.id,
+      grant.organizationId,
+      grant.profileId,
+      grant.granteeUserId,
+      grant.grantedByUserId,
+      grant.grantedAtMs,
+    ],
+  });
+  const active = (
+    await listActiveAgentProfileAccessGrants({
+      db: input.db,
+      granteeUserId: grant.granteeUserId,
+      limit: 1,
+      profileId: grant.profileId,
+      scope: "always",
+    })
+  )[0];
+  if (!active) {
+    throw new Error("agent_access.standing_grant_missing");
+  }
+  return { grant: active, created: inserted.rows.length > 0 };
+}
+
+/** Whether a user belongs to the Organization (an external user does not). */
+export async function isOrganizationMember(input: {
+  db: Queryable;
+  organizationId: string;
+  userId: string;
+}): Promise<boolean> {
+  const result = await input.db.query<{ member: boolean }>({
+    text: `SELECT EXISTS (
+        SELECT 1 FROM "openmeld"."members"
+        WHERE organization_id = $1 AND user_id = $2
+      ) AS member`,
+    values: [input.organizationId, input.userId],
+  });
+  return result.rows[0]?.member === true;
+}
+
+/** The Spaces where a person asked to use a Profile: their access shows there. */
+export async function listAgentAccessSpaceIds(input: {
+  db: Queryable;
+  profileId: string;
+  requesterUserId: string;
+}): Promise<string[]> {
+  const result = await input.db.query<{ space_id: string }>({
+    text: `SELECT DISTINCT space_id FROM "openmeld"."agent_access_requests"
+      WHERE agent_profile_id = $1 AND requester_user_id = $2`,
+    values: [input.profileId, input.requesterUserId],
+  });
+  return result.rows.map((row) => row.space_id);
 }
 
 /** The grantee's own standing grants on active Agent profiles, newest first. */
@@ -549,6 +628,8 @@ export async function listActiveAgentProfileAccessGrants(input: {
   db: Queryable;
   profileId: string;
   limit: number;
+  granteeUserId?: string;
+  scope?: "always" | "once";
 }): Promise<AgentProfileAccessGrantRecord[]> {
   const result = await input.db.query<{
     id: string;
@@ -570,9 +651,16 @@ export async function listActiveAgentProfileAccessGrants(input: {
       FROM "openmeld"."agent_profile_access_grants" AS grant_row
       INNER JOIN "openmeld"."users" AS grantee ON grantee.id = grant_row.grantee_user_id
       WHERE grant_row.profile_id = $1 AND grant_row.revoked_at_ms IS NULL
+        AND ($3::text IS NULL OR grant_row.grantee_user_id = $3)
+        AND ($4::text IS NULL OR grant_row.scope = $4)
       ORDER BY grant_row.granted_at_ms DESC, grant_row.id DESC
       LIMIT $2`,
-    values: [input.profileId, input.limit],
+    values: [
+      input.profileId,
+      input.limit,
+      input.granteeUserId ?? null,
+      input.scope ?? null,
+    ],
   });
   return result.rows.map((row) => ({
     id: row.id,
@@ -596,12 +684,20 @@ export async function revokeAgentProfileAccessGrant(input: {
   profileId: string;
   revokedByUserId: string;
   nowMs: number;
-}): Promise<{ id: string; revokedAtMs: number } | null> {
-  const result = await input.db.query<{ id: string; revoked_at_ms: string }>({
+}): Promise<{
+  id: string;
+  granteeUserId: string;
+  revokedAtMs: number;
+} | null> {
+  const result = await input.db.query<{
+    id: string;
+    grantee_user_id: string;
+    revoked_at_ms: string;
+  }>({
     text: `UPDATE "openmeld"."agent_profile_access_grants"
       SET revoked_at_ms = GREATEST($3, granted_at_ms), revoked_by_user_id = $4
       WHERE id = $1 AND profile_id = $2 AND revoked_at_ms IS NULL
-      RETURNING id, revoked_at_ms`,
+      RETURNING id, grantee_user_id, revoked_at_ms`,
     values: [
       input.grantId,
       input.profileId,
@@ -610,7 +706,13 @@ export async function revokeAgentProfileAccessGrant(input: {
     ],
   });
   const row = result.rows[0];
-  return row ? { id: row.id, revokedAtMs: Number(row.revoked_at_ms) } : null;
+  return row
+    ? {
+        id: row.id,
+        granteeUserId: row.grantee_user_id,
+        revokedAtMs: Number(row.revoked_at_ms),
+      }
+    : null;
 }
 
 export function asQueryable(db: PostgresDatabase | PoolClient): Queryable {

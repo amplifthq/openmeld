@@ -499,6 +499,15 @@ decision. An allowed request whose grant was revoked is `revoked` (shown as
 **Access removed**), and the requester asks again from their next message. An
 `allow_once` covers only the request's own DM; a new DM starts unsent.
 
+The owner can turn a member's access into a standing grant later, for example
+after **Allow once**, with owner-only
+`POST /v1/agent-profiles/:agentProfileId/access-grants` and body
+`{ granteeUserId, scope: "always" }`. It writes a new `always` grant with its
+own lifecycle and never rewrites the decision of the request that led to it.
+External users are refused, and an active standing grant is returned as it
+is. Writing or revoking a grant broadcasts `space.agent_access.changed` to the
+Spaces where that person asked for the Agent, so open views refetch.
+
 ## Space Identity
 
 The Space name is Space-owned identity. It is the same canonical value used in

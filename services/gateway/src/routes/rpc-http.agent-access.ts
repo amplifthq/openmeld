@@ -8,6 +8,8 @@ import {
   agentAccessRequestRouteParamsSchema,
   agentProfileAccessGrantRevokeRouteParamsSchema,
   agentProfileAccessGrantsRouteParamsSchema,
+  createAgentProfileAccessGrantBodySchema,
+  createAgentProfileAccessGrantResponseSchema,
   createSpaceAgentRequestBodySchema,
   createSpaceAgentRequestResponseSchema,
   decideAgentAccessRequestBodySchema,
@@ -226,6 +228,38 @@ export function registerAgentAccessRoutes(app: Hono<HonoBindings>): void {
       execute: () =>
         c.var.coreRpc.listAgentProfileAccessGrants({
           agentProfileId: params.data.agentProfileId,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
+
+  app.post(AGENT_PROFILE_ACCESS_GRANTS_ROUTE, noStore(), async (c) => {
+    const params = agentProfileAccessGrantsRouteParamsSchema.safeParse({
+      agentProfileId: c.req.param("agentProfileId"),
+    });
+    const raw = await readJsonRequestBody(c.req.raw);
+    const body = raw.ok
+      ? createAgentProfileAccessGrantBodySchema.safeParse(raw.value)
+      : null;
+    if (!(params.success && body?.success)) {
+      return respondBadRequest({
+        c,
+        route: AGENT_PROFILE_ACCESS_GRANTS_ROUTE,
+        method: "POST",
+        code: "invalid_payload",
+        message: "Choose a teammate to always allow.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: AGENT_PROFILE_ACCESS_GRANTS_ROUTE,
+      method: "POST",
+      responseSchema: createAgentProfileAccessGrantResponseSchema,
+      execute: async () =>
+        c.var.coreRpc.createAgentProfileAccessGrant({
+          requestCredential: await buildCoreRpcCredential(c),
+          agentProfileId: params.data.agentProfileId,
+          body: body.data,
           context: buildCoreRpcContext(c),
         }),
     });
