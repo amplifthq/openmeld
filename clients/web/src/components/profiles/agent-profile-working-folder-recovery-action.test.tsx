@@ -11,7 +11,11 @@ import {
 	createTestQueryClient,
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
-import { AgentProfileWorkingFolderRecoveryAction } from "./agent-profile-working-folder-recovery-action";
+import {
+	AgentProfileWorkingFolderDialogHost,
+	AgentProfileWorkingFolderRecoveryAction,
+} from "./agent-profile-working-folder-recovery-action";
+import { resetWorkingFolderDialogHostForTests } from "./working-folder-dialog-host";
 
 const readReadinessMock = vi.hoisted(() => vi.fn());
 const readFoldersMock = vi.hoisted(() => vi.fn(() => Promise.resolve({})));
@@ -50,12 +54,23 @@ vi.mock("#/lib/profiles/agent-profile-primary-binding", () => ({
 // The dialog's own behavior has its own tests; here it only reports a save.
 vi.mock("#/components/profiles/agent-profile-folders-dialog", () => ({
 	AgentProfileFoldersDialog: (input: {
+		onOpenChange: (open: boolean) => void;
+		onOpenChangeComplete?: (open: boolean) => void;
 		open: boolean;
 		preparing?: { failed: boolean };
 		recovery: { message: string; onSaved: () => void };
 	}) =>
 		input.open ? (
 			<div role="dialog">
+				<button
+					onClick={() => {
+						input.onOpenChange(false);
+						input.onOpenChangeComplete?.(false);
+					}}
+					type="button"
+				>
+					Done
+				</button>
 				{input.preparing ? (
 					<p>Preparing</p>
 				) : (
@@ -121,12 +136,82 @@ function renderAction(
 	);
 }
 
-afterEach(cleanup);
+afterEach(() => {
+	cleanup();
+	resetWorkingFolderDialogHostForTests();
+});
 beforeEach(() => {
 	vi.clearAllMocks();
 });
 
 describe("AgentProfileWorkingFolderRecoveryAction", () => {
+	it("keeps the open dialog when readiness hides the action that opened it", async () => {
+		readReadinessMock.mockResolvedValue(readiness("unavailable_for_wake"));
+		const queryClient = createTestQueryClient();
+		const view = (showAction: boolean) => (
+			<TestQueryClientProvider queryClient={queryClient}>
+				<AgentProfileWorkingFolderDialogHost />
+				{showAction ? (
+					<AgentProfileWorkingFolderRecoveryAction
+						actorProfileId={null}
+						folderMissing
+						onProfileUpdated={vi.fn()}
+						organizationId="org-1"
+						profile={{ openMeldProfileId: "profile-agent" } as AuthProfileView}
+						storageScope="account-1"
+					/>
+				) : null}
+			</TestQueryClientProvider>
+		);
+		const { rerender } = render(view(true));
+		await waitFor(() => expect(readFoldersMock).toHaveBeenCalled());
+		fireEvent.click(
+			screen.getByRole("button", { name: "Choose working folder" })
+		);
+		expect(screen.getByRole("button", { name: "Save folder" })).toBeTruthy();
+		// Readiness flips to "Checking" and back: the action goes and returns.
+		rerender(view(false));
+		expect(screen.getByRole("button", { name: "Save folder" })).toBeTruthy();
+		rerender(view(true));
+		expect(screen.getAllByRole("dialog")).toHaveLength(1);
+		rerender(view(false));
+		fireEvent.click(screen.getByRole("button", { name: "Save folder" }));
+		await waitFor(() =>
+			expect(toastMock.warning).toHaveBeenCalledWith(
+				"Working folder saved. This Agent still needs attention. Review its current status.",
+				expect.objectContaining({ id: "toast-1" })
+			)
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Done" }));
+		expect(screen.queryByRole("dialog")).toBeNull();
+	});
+
+	it("does not read readiness again each time readiness shows the action again", async () => {
+		readReadinessMock.mockResolvedValue(readiness("unavailable_for_wake"));
+		const queryClient = createTestQueryClient();
+		const view = (showAction: boolean) => (
+			<TestQueryClientProvider queryClient={queryClient}>
+				{showAction ? (
+					<AgentProfileWorkingFolderRecoveryAction
+						actorProfileId={null}
+						folderMissing
+						onProfileUpdated={vi.fn()}
+						organizationId="org-1"
+						profile={{ openMeldProfileId: "profile-agent" } as AuthProfileView}
+						storageScope="account-1"
+					/>
+				) : null}
+			</TestQueryClientProvider>
+		);
+		const { rerender } = render(view(true));
+		await waitFor(() => expect(readReadinessMock).toHaveBeenCalledTimes(1));
+		for (const show of [false, true, false, true]) {
+			rerender(view(show));
+		}
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(readReadinessMock).toHaveBeenCalledTimes(1);
+	});
+
 	it("asks to choose a folder when none is set, without talking about a failure", async () => {
 		readReadinessMock.mockResolvedValue(readiness("unavailable_for_wake"));
 		renderAction();
