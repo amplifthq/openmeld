@@ -14,6 +14,7 @@ import {
 } from "@openmeld/ui/fluid/dropdown-menu";
 import { DotsThreeIcon, RobotIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
+import { useReducedMotion } from "motion/react";
 import { useState } from "react";
 import { HarnessLogo } from "#/components/member-agents/member-agent-directory-section";
 import { useMemberAgentIndex } from "#/components/member-agents/use-member-agents";
@@ -265,6 +266,8 @@ function AgentAccessDecisionActions(input: {
  * Agent actions and queued messages.
  */
 export function SpaceAgentAccessBar(input: {
+	/** Whether the request previews are mounted, so the summary can reveal one. */
+	previewsVisible?: boolean;
 	state: SpaceAgentAccessRequestsState;
 }) {
 	const { state } = input;
@@ -290,7 +293,11 @@ export function SpaceAgentAccessBar(input: {
 							size={20}
 						/>
 						{request.viewerRole === "owner" ? (
-							<OwnerBarRow request={request} state={state} />
+							<OwnerBarRow
+								previewVisible={input.previewsVisible !== false}
+								request={request}
+								state={state}
+							/>
 						) : (
 							<RequesterBarRow request={request} state={state} />
 						)}
@@ -307,24 +314,37 @@ export function SpaceAgentAccessBar(input: {
 }
 
 function OwnerBarRow(input: {
+	previewVisible: boolean;
 	request: AgentAccessRequestView;
 	state: SpaceAgentAccessRequestsState;
 }) {
+	const reduceMotion = useReducedMotion();
 	const summary = ownerAgentAccessSummary(input.request);
+	const className = "min-w-0 flex-1 truncate text-left text-[13px] leading-5";
 	return (
 		<>
-			<button
-				className="min-w-0 flex-1 truncate rounded-sm text-left text-[13px] leading-5 outline-none focus-visible:ring-1 focus-visible:ring-ring"
-				onClick={() =>
-					document
-						.getElementById(agentAccessPreviewElementId(input.request.id))
-						?.scrollIntoView({ behavior: "smooth", block: "nearest" })
-				}
-				title={summary}
-				type="button"
-			>
-				{summary}
-			</button>
+			{input.previewVisible ? (
+				<button
+					className={`${className} rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-ring`}
+					onClick={() =>
+						document
+							.getElementById(agentAccessPreviewElementId(input.request.id))
+							?.scrollIntoView({
+								behavior: reduceMotion ? "auto" : "smooth",
+								block: "nearest",
+							})
+					}
+					title={summary}
+					type="button"
+				>
+					{summary}
+				</button>
+			) : (
+				// Older history is shown, so there is no preview to reveal.
+				<p className={className} title={summary}>
+					{summary}
+				</p>
+			)}
 			<AgentAccessDecisionActions request={input.request} state={input.state} />
 		</>
 	);

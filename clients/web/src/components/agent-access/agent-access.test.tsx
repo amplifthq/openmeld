@@ -218,6 +218,21 @@ describe("Owner answer to a Space request", () => {
 		);
 	});
 
+	it("keeps the summary as plain text while older history hides the preview", () => {
+		render(
+			<SpaceAgentAccessBar
+				previewsVisible={false}
+				state={spaceState([spaceJoin()])}
+			/>
+		);
+		expect(
+			screen.queryByRole("button", {
+				name: "Tali asked to add PR Reviewer here",
+			})
+		).toBeNull();
+		expect(screen.getByText("Tali asked to add PR Reviewer here")).toBeTruthy();
+	});
+
 	it("lets the requester withdraw from the same bar", () => {
 		const pending = spaceJoin({
 			viewerRole: "requester",

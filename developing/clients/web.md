@@ -6219,7 +6219,8 @@ Agent (its avatar and name, `Not in this Space yet` in place of a timestamp)
 but is never a published message. It explains the request and holds the
 decisions: the first Core decision is the primary button, and the rest sit in
 an overflow menu. A one-line Agent requests bar above the Composer repeats the
-summary and the same actions; its text scrolls to the preview. The requester
+summary and the same actions; while the latest messages are shown, its text
+scrolls to the preview. The requester
 sees only the bar, with `Withdraw` while the request is pending. Composer trays
 stack top to bottom as Agent requests, pending Agent actions, then queued
 messages, each tucked under the next, and an answer from either presentation

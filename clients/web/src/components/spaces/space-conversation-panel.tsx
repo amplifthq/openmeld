@@ -863,7 +863,12 @@ function SpaceConversationPanelContent(
 
 			{showComposer ? (
 				<SpaceComposerSection
-					agentRequests={<SpaceAgentAccessBar state={agentAccess} />}
+					agentRequests={
+						<SpaceAgentAccessBar
+							previewsVisible={showsLatestConversation(input)}
+							state={agentAccess}
+						/>
+					}
 					canSendMessage={canSendMessage}
 					canUploadFiles={canUploadFiles}
 					composerContext={composerContext}
