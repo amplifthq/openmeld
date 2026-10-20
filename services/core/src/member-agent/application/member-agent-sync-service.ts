@@ -1,11 +1,15 @@
 import type {
+  AssignAgentProfileMemberAgentOutcome,
   DetectedHarnessKind,
   EnsureDetectedMemberAgentRpcResult,
   ListMemberAgentsResponse,
   MemberAgent,
   MemberAgentSyncResult,
 } from "@openmeld/schemas";
-import { resolveBuiltinAgentControllerConversationCapability } from "@openmeld/schemas";
+import {
+  harnessKindFromAgentControllerRef,
+  resolveBuiltinAgentControllerConversationCapability,
+} from "@openmeld/schemas";
 import {
   isRuntimeHarnessCreatable,
   type RuntimeHarness,
@@ -17,6 +21,11 @@ export type MemberAgentBindingTarget = Pick<
 >;
 
 export type MemberAgentSyncDeps = {
+  // Puts a bound Profile under the MemberAgent of its Binding's Harness.
+  assignBoundProfile: (input: {
+    agentControllerRef: string;
+    agentProfileId: string;
+  }) => Promise<AssignAgentProfileMemberAgentOutcome | null>;
   ensureDetectedMemberAgent: (
     harnessKind: DetectedHarnessKind
   ) => Promise<EnsureDetectedMemberAgentRpcResult>;
@@ -26,6 +35,7 @@ export type MemberAgentSyncDeps = {
   listOwnerMemberAgents: () => Promise<ListMemberAgentsResponse>;
   listRuntimeHarnesses: () => Promise<readonly RuntimeHarness[]>;
   openDirectMessage: (agentProfileId: string) => Promise<{ spaceId: string }>;
+  readEnabledControllerRef: (agentProfileId: string) => Promise<string | null>;
   // Writes the default Profile's first Binding with the Harness defaults.
   writeDefaultBinding: (input: {
     agentProfileId: string;
@@ -47,9 +57,15 @@ export const MEMBER_AGENT_SYNC_CONVERSATION_REQUIRED_REASON =
  * Direct Message with it. A second computer with the same Harness adds
  * nothing. Hosted and custom controllers never appear in the catalog.
  */
+export type MemberAgentSyncReport = {
+  // Unassigned Profiles this call put under their Harness's MemberAgent.
+  assignedProfileIds: string[];
+  results: MemberAgentSyncResult[];
+};
+
 export async function syncMemberAgents(
   deps: MemberAgentSyncDeps
-): Promise<MemberAgentSyncResult[]> {
+): Promise<MemberAgentSyncReport> {
   const harnesses = (await deps.listRuntimeHarnesses()).filter(
     isRuntimeHarnessCreatable
   );
@@ -60,7 +76,7 @@ export async function syncMemberAgents(
     byHarnessKind.set(harness.harnessKind, list);
   }
   if (byHarnessKind.size === 0) {
-    return [];
+    return { assignedProfileIds: [], results: [] };
   }
   const listing = await deps.listOwnerMemberAgents();
   const results: MemberAgentSyncResult[] = [];
@@ -79,7 +95,42 @@ export async function syncMemberAgents(
       })
     );
   }
-  return results;
+  return {
+    assignedProfileIds: await assignUnassignedBoundProfiles(deps, listing),
+    results,
+  };
+}
+
+// A Profile bound to a Harness belongs to that Harness's MemberAgent. The
+// Binding write assigns it; this repairs Profiles bound before that or whose
+// assignment failed. Profiles without a Binding, with a `custom` controller,
+// or whose Harness has no MemberAgent stay unassigned: nothing is guessed.
+async function assignUnassignedBoundProfiles(
+  deps: MemberAgentSyncDeps,
+  listing: ListMemberAgentsResponse
+): Promise<string[]> {
+  const assigned: string[] = [];
+  const harnessKinds = new Set(
+    listing.memberAgents.map((memberAgent) => memberAgent.harnessKind)
+  );
+  for (const profile of listing.unassignedProfiles) {
+    const agentControllerRef = await deps.readEnabledControllerRef(
+      profile.openMeldProfileId
+    );
+    const harnessKind = harnessKindFromAgentControllerRef(agentControllerRef);
+    if (
+      agentControllerRef &&
+      harnessKind &&
+      harnessKinds.has(harnessKind) &&
+      (await deps.assignBoundProfile({
+        agentControllerRef,
+        agentProfileId: profile.openMeldProfileId,
+      })) === "assigned"
+    ) {
+      assigned.push(profile.openMeldProfileId);
+    }
+  }
+  return assigned;
 }
 
 async function syncHarness(input: {

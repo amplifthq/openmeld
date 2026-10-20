@@ -1830,7 +1830,13 @@ export {
   setLocalRuntimeDisplayNameBodySchema,
 } from "./http/local-runtimes";
 export {
+  type AssignAgentProfileMemberAgentOutcome,
+  type AssignAgentProfileMemberAgentRpcInput,
+  type AssignAgentProfileMemberAgentRpcResult,
   AUTO_DETECTED_PROFILE_NAME_LOCKED_CODE,
+  assignAgentProfileMemberAgentOutcomeSchema,
+  assignAgentProfileMemberAgentRpcInputSchema,
+  assignAgentProfileMemberAgentRpcResultSchema,
   buildDetectedMemberAgentIdempotencyKey,
   type DetectedHarnessKind,
   detectedHarnessKindSchema,

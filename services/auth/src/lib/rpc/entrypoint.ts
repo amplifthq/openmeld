@@ -31,6 +31,8 @@ import {
   withPostgresRequest,
 } from "@openmeld/db/postgresql";
 import {
+  type AssignAgentProfileMemberAgentRpcInput,
+  type AssignAgentProfileMemberAgentRpcResult,
   accountAvatarCommitRpcInputSchema,
   accountAvatarPrepareRpcInputSchema,
   agentAvatarStyleSchema,
@@ -124,6 +126,7 @@ import {
   classifyInboxEmailError,
 } from "../inbox/urgent-email";
 import {
+  assignAgentProfileMemberAgentRpc,
   ensureDetectedMemberAgentRpc,
   listMemberAgentOrganizationIdsRpc,
   listOwnerMemberAgentsRpc,
@@ -1434,6 +1437,15 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
       ensureDetectedMemberAgentRpc(input, {
         enabled: MEMBER_AGENTS_ENABLED,
         profileService: this.getProfileService(),
+      })
+    );
+  }
+  assignAgentProfileMemberAgent(
+    input: AssignAgentProfileMemberAgentRpcInput
+  ): Promise<AssignAgentProfileMemberAgentRpcResult> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      assignAgentProfileMemberAgentRpc(input, {
+        enabled: MEMBER_AGENTS_ENABLED,
       })
     );
   }

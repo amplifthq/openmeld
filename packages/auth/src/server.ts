@@ -68,6 +68,10 @@ export {
   readAuthClaimsHeaders,
 } from "./headers/auth-headers";
 export {
+  type AssignAgentProfileMemberAgentResult,
+  assignAgentProfileToMemberAgent,
+} from "./member-agents/member-agent-assign";
+export {
   type EnsureDetectedMemberAgentResult,
   ensureDetectedMemberAgent,
 } from "./member-agents/member-agent-ensure";

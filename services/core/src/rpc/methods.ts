@@ -1092,6 +1092,7 @@ import {
 import type { CoreBindings } from "../lib/bindings";
 import { resolveCoreRuntimeContractRollout } from "../local-components/runtime-contract-rollout";
 import { resolveLocalComponentUpdateProjection } from "../local-components/update-projection";
+import { assignBoundProfileToMemberAgent } from "../member-agent/member-agent-profile-assignment";
 import {
   isMemberAgentsEnabled,
   isRequestChainEnforced,
@@ -20482,6 +20483,11 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
         ownerUserId: request.owner.id,
         error: toErrorMessage(error),
       });
+    });
+    await assignBoundProfileToMemberAgent(env, {
+      agentControllerRef: body.data.agentControllerRef,
+      agentProfileId: request.agentProfileId,
+      ownerUserId: request.owner.id,
     });
     return buildAcceptedAgentProfileBindingResponse({
       binding: mapAgentProfileBindingLookupResultToProjection(lookupResult),

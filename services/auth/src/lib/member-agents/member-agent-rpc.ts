@@ -1,4 +1,5 @@
 import {
+  assignAgentProfileToMemberAgent,
   createAuthDatabase,
   createDrizzleMemberAgentRepository,
   createDrizzleOpenMeldProfileRepository,
@@ -8,6 +9,9 @@ import {
   type OpenMeldProfileService,
 } from "@openmeld/auth/server";
 import {
+  type AssignAgentProfileMemberAgentRpcResult,
+  assignAgentProfileMemberAgentRpcInputSchema,
+  assignAgentProfileMemberAgentRpcResultSchema,
   type EnsureDetectedMemberAgentRpcResult,
   ensureDetectedMemberAgentRpcInputSchema,
   ensureDetectedMemberAgentRpcResultSchema,
@@ -97,6 +101,49 @@ export async function ensureDetectedMemberAgentRpc(
         error,
         harnessKind: parsed.data.harnessKind,
         organizationId: parsed.data.organizationId,
+      });
+    }
+    return { ok: false, code: body.code, message: body.message };
+  }
+}
+
+export async function assignAgentProfileMemberAgentRpc(
+  input: unknown,
+  deps: Pick<MemberAgentRpcDeps, "enabled" | "repository">
+): Promise<AssignAgentProfileMemberAgentRpcResult> {
+  if (!deps.enabled) {
+    return DISABLED;
+  }
+  const parsed = assignAgentProfileMemberAgentRpcInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      code: "member_agents.invalid_input",
+      message: parsed.error.issues[0]?.message ?? "Invalid MemberAgent input.",
+    };
+  }
+  const db = createAuthDatabase();
+  const profileRepository = createDrizzleOpenMeldProfileRepository(db);
+  try {
+    const result = await assignAgentProfileToMemberAgent({
+      findProfile: (profileId) => profileRepository.findByProfileId(profileId),
+      harnessKind: parsed.data.harnessKind,
+      ownerUserId: parsed.data.ownerUserId,
+      profileId: parsed.data.profileId,
+      repository: deps.repository ?? createDrizzleMemberAgentRepository(db),
+    });
+    return assignAgentProfileMemberAgentRpcResultSchema.parse({
+      ok: true,
+      ...result,
+    });
+  } catch (error) {
+    const { body, status } = toProfileHttpErrorResponse(error);
+    if (status >= 500) {
+      logError({
+        event: "auth.member_agents.assign_failed",
+        error,
+        harnessKind: parsed.data.harnessKind,
+        profileId: parsed.data.profileId,
       });
     }
     return { ok: false, code: body.code, message: body.message };

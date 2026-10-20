@@ -70,6 +70,54 @@ export type EnsureDetectedMemberAgentRpcResult = z.infer<
   typeof ensureDetectedMemberAgentRpcResultSchema
 >;
 
+// Core -> Auth RPC: put a bound Agent Profile under the owner's existing
+// MemberAgent for the Harness of its Binding. Core calls it after it accepts
+// a Binding write, and catalog sync calls it for Profiles still unassigned.
+// It never creates a MemberAgent and never moves an assigned Profile.
+export const assignAgentProfileMemberAgentRpcInputSchema = z.strictObject({
+  ownerUserId: identifierSchema,
+  profileId: identifierSchema,
+  harnessKind: harnessKindSchema,
+});
+export type AssignAgentProfileMemberAgentRpcInput = z.infer<
+  typeof assignAgentProfileMemberAgentRpcInputSchema
+>;
+
+export const assignAgentProfileMemberAgentOutcomeSchema = z.enum([
+  // This call set the Profile's MemberAgent.
+  "assigned",
+  // The Profile already belongs to the MemberAgent of this Harness.
+  "unchanged",
+  // The owner has no MemberAgent for this Harness in the Profile's
+  // Organization; only catalog sync creates one.
+  "no_member_agent",
+  // The Profile belongs to the MemberAgent of another Harness.
+  "assigned_elsewhere",
+  // Not an active ordinary Agent Profile of this owner in an Organization
+  // the owner is a member of.
+  "not_eligible",
+]);
+export type AssignAgentProfileMemberAgentOutcome = z.infer<
+  typeof assignAgentProfileMemberAgentOutcomeSchema
+>;
+
+export const assignAgentProfileMemberAgentRpcResultSchema =
+  z.discriminatedUnion("ok", [
+    z.strictObject({
+      ok: z.literal(true),
+      outcome: assignAgentProfileMemberAgentOutcomeSchema,
+      memberAgentId: identifierSchema.nullable(),
+    }),
+    z.strictObject({
+      ok: z.literal(false),
+      code: reasonCodeSchema,
+      message: z.string().min(1),
+    }),
+  ]);
+export type AssignAgentProfileMemberAgentRpcResult = z.infer<
+  typeof assignAgentProfileMemberAgentRpcResultSchema
+>;
+
 // Core -> Auth RPC: Organizations where the owner already has a MemberAgent.
 // A catalog update reconciles only these; it never broadcasts to every
 // Organization of the member.
@@ -129,6 +177,9 @@ export const syncMemberAgentsResponseSchema = z.strictObject({
   ok: z.literal(true),
   organizationId: identifierSchema,
   results: z.array(memberAgentSyncResultSchema),
+  // Bound Profiles that were unassigned and now belong to the MemberAgent of
+  // their Binding's Harness.
+  assignedProfileIds: z.array(identifierSchema).default([]),
 });
 export type SyncMemberAgentsResponse = z.infer<
   typeof syncMemberAgentsResponseSchema

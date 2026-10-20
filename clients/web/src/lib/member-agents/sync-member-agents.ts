@@ -26,17 +26,26 @@ export async function syncMemberAgents(input: {
 			schema: syncMemberAgentsResponseSchema,
 			invalidMessage: "OpenMeld couldn't refresh your Agents.",
 		});
-		return {
-			changed: response.results.some(
-				(result) =>
-					result.outcome === "created" || result.outcome === "completed"
-			),
-			response,
-		};
+		return { changed: didMemberAgentSyncChange(response), response };
 	} catch (error) {
 		console.warn("MemberAgent sync is unavailable.", error);
 		return { changed: false, response: null };
 	}
+}
+
+/**
+ * True when a sync changed what the MemberAgent reads show: it created or
+ * finished an Agent, or put an unassigned Profile under its Agent.
+ */
+export function didMemberAgentSyncChange(
+	response: SyncMemberAgentsResponse
+): boolean {
+	return (
+		response.assignedProfileIds.length > 0 ||
+		response.results.some(
+			(result) => result.outcome === "created" || result.outcome === "completed"
+		)
+	);
 }
 
 /**

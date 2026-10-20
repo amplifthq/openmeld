@@ -3,14 +3,19 @@ import {
 	syncMemberAgentsResponseSchema,
 } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
-import { hasPendingMemberAgentSetup } from "./sync-member-agents";
+import {
+	didMemberAgentSyncChange,
+	hasPendingMemberAgentSetup,
+} from "./sync-member-agents";
 
 function response(
-	result: Partial<SyncMemberAgentsResponse["results"][number]>
+	result: Partial<SyncMemberAgentsResponse["results"][number]>,
+	assignedProfileIds: string[] = []
 ): SyncMemberAgentsResponse {
 	return syncMemberAgentsResponseSchema.parse({
 		ok: true,
 		organizationId: "org-test",
+		assignedProfileIds,
 		results: [
 			{
 				binding: "succeeded",
@@ -56,5 +61,24 @@ describe("hasPendingMemberAgentSetup", () => {
 			)
 		).toBe(false);
 		expect(hasPendingMemberAgentSetup(null)).toBe(false);
+	});
+});
+
+describe("didMemberAgentSyncChange", () => {
+	const unchanged = {
+		binding: "not_attempted",
+		directMessage: "not_attempted",
+		outcome: "unchanged",
+	} as const;
+
+	it("refreshes the Agent reads after an unassigned Profile joins its Agent", () => {
+		expect(
+			didMemberAgentSyncChange(response(unchanged, ["agt-second-cursor"]))
+		).toBe(true);
+	});
+
+	it("refreshes after a created or finished Agent, not after no change", () => {
+		expect(didMemberAgentSyncChange(response({}))).toBe(true);
+		expect(didMemberAgentSyncChange(response(unchanged))).toBe(false);
 	});
 });

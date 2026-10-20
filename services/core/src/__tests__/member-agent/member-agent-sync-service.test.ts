@@ -38,10 +38,12 @@ function ensured(
 
 function createDeps(input: {
   entries: RuntimeHarnessCatalogEntry[];
+  controllerRefs?: Record<string, string>;
   existing?: ListMemberAgentsResponse;
   hasBinding?: boolean;
 }) {
   const deps = {
+    assignBoundProfile: vi.fn(async () => "assigned" as const),
     ensureDetectedMemberAgent: vi.fn(async (harnessKind: DetectedHarnessKind) =>
       ensured(true, harnessKind)
     ),
@@ -51,6 +53,10 @@ function createDeps(input: {
       projectRuntimeHarnesses({ entries: input.entries, nowMs: NOW_MS })
     ),
     openDirectMessage: vi.fn(async () => ({ spaceId: "space-dm" })),
+    readEnabledControllerRef: vi.fn(
+      async (agentProfileId: string) =>
+        input.controllerRefs?.[agentProfileId] ?? null
+    ),
     writeDefaultBinding: vi.fn(
       async (): Promise<{
         reasonCodes: string[];
@@ -80,7 +86,7 @@ describe("syncMemberAgents", () => {
       ],
     });
 
-    const results = await syncMemberAgents(deps);
+    const { results } = await syncMemberAgents(deps);
 
     expect(deps.ensureDetectedMemberAgent).toHaveBeenCalledTimes(1);
     expect(deps.ensureDetectedMemberAgent).toHaveBeenCalledWith("claude-code");
@@ -135,7 +141,7 @@ describe("syncMemberAgents", () => {
       ),
     });
 
-    const results = await syncMemberAgents(deps);
+    const { results } = await syncMemberAgents(deps);
 
     expect(results.map((result) => result.harnessKind)).toEqual(harnesses);
     expect(results.every((result) => result.outcome === "created")).toBe(true);
@@ -189,7 +195,7 @@ describe("syncMemberAgents", () => {
       hasBinding: true,
     });
 
-    const results = await syncMemberAgents(deps);
+    const { results } = await syncMemberAgents(deps);
 
     expect(deps.ensureDetectedMemberAgent).not.toHaveBeenCalled();
     expect(deps.writeDefaultBinding).not.toHaveBeenCalled();
@@ -197,6 +203,52 @@ describe("syncMemberAgents", () => {
     expect(results[0]).toMatchObject({
       memberAgentId: "ma-codex",
       outcome: "unchanged",
+    });
+  });
+
+  it("assigns an unassigned Profile bound to a Harness that has a MemberAgent", async () => {
+    // Smoke: "Cursor (folder moved)" was created from the web and bound to
+    // builtin:cursor, but stayed outside the existing Cursor MemberAgent.
+    const existing = {
+      ...listing([
+        memberAgent({
+          defaultProfileId: DEFAULT_PROFILE_ID,
+          harnessKind: "cursor",
+          id: "ma-cursor",
+        }),
+      ]),
+      unassignedProfiles: [
+        { openMeldProfileId: "agt-second-cursor", profileName: "Second" },
+        { openMeldProfileId: "agt-custom", profileName: "Custom" },
+        { openMeldProfileId: "agt-codex", profileName: "Codex Helper" },
+        { openMeldProfileId: "agt-never-bound", profileName: "Draft" },
+      ],
+    };
+    const deps = createDeps({
+      controllerRefs: {
+        "agt-codex": "builtin:codex",
+        "agt-custom": "custom:my-runner",
+        "agt-second-cursor": "builtin:cursor",
+      },
+      entries: [
+        catalogEntry({
+          agentControllerRef: "builtin:cursor",
+          openMeldServiceRuntimeId: "runtime-1",
+        }),
+      ],
+      existing,
+      hasBinding: true,
+    });
+
+    const { assignedProfileIds } = await syncMemberAgents(deps);
+
+    expect(assignedProfileIds).toEqual(["agt-second-cursor"]);
+    // Custom controllers, never-bound Profiles, and Harnesses without a
+    // MemberAgent stay unassigned.
+    expect(deps.assignBoundProfile).toHaveBeenCalledTimes(1);
+    expect(deps.assignBoundProfile).toHaveBeenCalledWith({
+      agentControllerRef: "builtin:cursor",
+      agentProfileId: "agt-second-cursor",
     });
   });
 
@@ -217,7 +269,9 @@ describe("syncMemberAgents", () => {
       ]),
     });
 
-    const [result] = await syncMemberAgents(deps);
+    const {
+      results: [result],
+    } = await syncMemberAgents(deps);
 
     expect(deps.ensureDetectedMemberAgent).not.toHaveBeenCalled();
     expect(deps.writeDefaultBinding).toHaveBeenCalledTimes(1);
@@ -245,7 +299,9 @@ describe("syncMemberAgents", () => {
       ]),
     });
 
-    const [result] = await syncMemberAgents(deps);
+    const {
+      results: [result],
+    } = await syncMemberAgents(deps);
 
     expect(deps.hasAnyBinding).not.toHaveBeenCalled();
     expect(deps.writeDefaultBinding).not.toHaveBeenCalled();
@@ -266,7 +322,9 @@ describe("syncMemberAgents", () => {
     });
     deps.ensureDetectedMemberAgent.mockResolvedValueOnce(ensured(false));
 
-    const [result] = await syncMemberAgents(deps);
+    const {
+      results: [result],
+    } = await syncMemberAgents(deps);
 
     expect(deps.ensureDetectedMemberAgent).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({ outcome: "completed" });
@@ -304,7 +362,10 @@ describe("syncMemberAgents", () => {
       ],
     });
 
-    expect(await syncMemberAgents(deps)).toEqual([]);
+    expect(await syncMemberAgents(deps)).toEqual({
+      assignedProfileIds: [],
+      results: [],
+    });
     expect(deps.listOwnerMemberAgents).not.toHaveBeenCalled();
     expect(deps.ensureDetectedMemberAgent).not.toHaveBeenCalled();
   });
@@ -319,7 +380,9 @@ describe("syncMemberAgents", () => {
       ],
     });
 
-    const [result] = await syncMemberAgents(deps);
+    const {
+      results: [result],
+    } = await syncMemberAgents(deps);
 
     expect(deps.ensureDetectedMemberAgent).not.toHaveBeenCalled();
     expect(result).toMatchObject({
@@ -343,7 +406,7 @@ describe("syncMemberAgents", () => {
       code: "organization.membership_required",
       message: "not a member",
     });
-    expect((await syncMemberAgents(refused))[0]).toMatchObject({
+    expect((await syncMemberAgents(refused)).results[0]).toMatchObject({
       outcome: "skipped",
       reasonCodes: ["organization.membership_required"],
     });
@@ -368,7 +431,7 @@ describe("syncMemberAgents", () => {
         code: "direct_message.target_not_found",
       })
     );
-    expect((await syncMemberAgents(rejected))[0]).toMatchObject({
+    expect((await syncMemberAgents(rejected)).results[0]).toMatchObject({
       binding: "rejected",
       directMessage: "failed",
       outcome: "created",

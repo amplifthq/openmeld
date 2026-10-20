@@ -124,6 +124,7 @@ import {
 import { modelCatalogQueryOptions } from "#/query/config/model-catalog";
 import { currentLocalRuntimeReplyReadinessQueryOptions } from "#/query/connect/local-runtimes";
 import { agentActivitySessionsQueryOptions } from "#/query/organizations/agent-activity";
+import { memberAgentQueryKeys } from "#/query/organizations/member-agents";
 import {
 	organizationComputersQueryOptions,
 	organizationDirectoryQueryFilters,
@@ -2858,6 +2859,13 @@ async function refreshAgentProfileCreationRequestCaches(input: {
 		refreshes.push(
 			input.queryClient.invalidateQueries({
 				queryKey: startQueryKeys.profilesForStorageScope(input.storageScope),
+				refetchType: "active",
+			}),
+			// Core assigned the new Profile to its Harness's Agent when it
+			// accepted the Binding.
+			input.queryClient.invalidateQueries({
+				queryKey: memberAgentQueryKeys.all(input.organizationId),
+				exact: true,
 				refetchType: "active",
 			}),
 			refreshWebAgentReadinessSharedCaches({

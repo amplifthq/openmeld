@@ -52,8 +52,10 @@ import { projectRuntimeHarnesses } from "./application/runtime-harness-catalog";
 import {
   hasAnyAgentProfileBinding,
   listOwnerRuntimeHarnessCatalog,
+  readEnabledAgentProfileControllerRef,
   recordRuntimeHarnessObservation,
 } from "./infrastructure/postgresql/runtime-harness-presence-repo";
+import { assignBoundProfileToMemberAgent } from "./member-agent-profile-assignment";
 
 // Core operations of the MemberAgent catalog sync
 // (design-plans/member-agent-program.md §4.1, §4.5), gated by
@@ -84,12 +86,15 @@ export async function rpcSyncMemberAgents(
   options: MemberAgentRpcOptions = {}
 ): Promise<SyncMemberAgentsResponse> {
   const caller = await requireMemberAgentCaller(env, input.context, options);
-  const results = await syncMemberAgents(createSyncDeps(env, caller));
+  const { assignedProfileIds, results } = await syncMemberAgents(
+    createSyncDeps(env, caller)
+  );
   logSyncResults(caller, "surface_open", results);
   return syncMemberAgentsResponseSchema.parse({
     ok: true,
     organizationId: caller.organizationId,
     results,
+    assignedProfileIds,
   });
 }
 
@@ -222,7 +227,7 @@ async function reconcileKnownOrganizations(
     logSyncResults(
       caller,
       "catalog_update",
-      await syncMemberAgents(createSyncDeps(env, caller))
+      (await syncMemberAgents(createSyncDeps(env, caller))).results
     );
   }
 }
@@ -295,6 +300,12 @@ function createSyncDeps(
   caller: MemberAgentCaller
 ): MemberAgentSyncDeps {
   return {
+    assignBoundProfile: ({ agentControllerRef, agentProfileId }) =>
+      assignBoundProfileToMemberAgent(env, {
+        agentControllerRef,
+        agentProfileId,
+        ownerUserId: caller.ownerUserId,
+      }),
     ensureDetectedMemberAgent: (harnessKind: DetectedHarnessKind) =>
       callRequiredAuthWorkerRpc({
         authWorker: env.OPENMELD_AUTH_WORKER,
@@ -324,6 +335,12 @@ function createSyncDeps(
       });
       return { spaceId: opened.spaceId };
     },
+    readEnabledControllerRef: (agentProfileId) =>
+      readEnabledAgentProfileControllerRef({
+        agentProfileId,
+        db: caller.db,
+        ownerUserId: caller.ownerUserId,
+      }),
     writeDefaultBinding: async ({ agentProfileId, target }) => {
       const written = await rpcEnsureAgentProfilePrimaryBinding(env, {
         agentControllerRef: target.agentControllerRef,

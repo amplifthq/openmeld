@@ -100,6 +100,11 @@ type CoreAuthDispatchBindingRpc = {
   ensureDetectedMemberAgent?(
     input: import("@openmeld/schemas").EnsureDetectedMemberAgentRpcInput
   ): Promise<import("@openmeld/schemas").EnsureDetectedMemberAgentRpcResult>;
+  assignAgentProfileMemberAgent?(
+    input: import("@openmeld/schemas").AssignAgentProfileMemberAgentRpcInput
+  ): Promise<
+    import("@openmeld/schemas").AssignAgentProfileMemberAgentRpcResult
+  >;
   listOwnerMemberAgents?(input: {
     organizationId?: string | null;
     ownerUserId?: string | null;

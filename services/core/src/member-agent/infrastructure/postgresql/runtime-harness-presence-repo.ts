@@ -239,3 +239,25 @@ export async function hasAnyAgentProfileBinding(input: {
   });
   return result.rows.length > 0;
 }
+
+// The controller ref of the Profile's enabled primary Binding under this
+// owner, or null when the Profile has none.
+export async function readEnabledAgentProfileControllerRef(input: {
+  agentProfileId: string;
+  db: PostgresDatabase;
+  ownerUserId: string;
+}): Promise<string | null> {
+  const result = await input.db.query<{ agent_controller_ref: string }>({
+    text: `
+      SELECT agent_controller_ref
+      FROM "openmeld"."openMeldDaemon_agent_profile_bindings"
+      WHERE owner_kind = 'owner_account'
+        AND owner_id = $1
+        AND agent_profile_id = $2
+        AND binding_state = 'enabled_primary'
+      LIMIT 1
+    `,
+    values: [input.ownerUserId, input.agentProfileId],
+  });
+  return result.rows[0]?.agent_controller_ref ?? null;
+}
