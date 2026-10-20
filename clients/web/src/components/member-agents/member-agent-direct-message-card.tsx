@@ -8,7 +8,6 @@ import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	CheckCircleIcon,
-	CircleNotchIcon,
 	WarningCircleIcon,
 	WifiSlashIcon,
 } from "@phosphor-icons/react";
@@ -45,7 +44,7 @@ export type MemberAgentDirectMessageCardModel =
 			note: string | null;
 	  }
 	| {
-			kind: "checking" | "offline" | "repair";
+			kind: "offline" | "repair";
 			title: string;
 			description: string;
 	  };
@@ -55,7 +54,8 @@ export type MemberAgentDirectMessageCardModel =
  * updated in place; never a published message. Driven by the Profile's four
  * Wakeability states and, when Core has exact evidence, its public
  * Wakeability reason. The card is shown as posted by the Agent, so titles
- * name the state, not the Agent.
+ * name the state, not the Agent. Checking or unknown readiness is not news
+ * for the member: it gets no card (null); the members panel shows it.
  */
 export function resolveMemberAgentDirectMessageCard(input: {
 	entry: SpaceMemberDirectoryEntry;
@@ -63,7 +63,7 @@ export function resolveMemberAgentDirectMessageCard(input: {
 	reason?: PublicWakeabilityReason | null;
 	/** Whether this Session already has messages. */
 	hasMessages?: boolean;
-}): MemberAgentDirectMessageCardModel {
+}): MemberAgentDirectMessageCardModel | null {
 	const { entry } = input;
 	// A missing folder is set-up work, not a failure: before the first task
 	// nothing has failed yet.
@@ -137,12 +137,61 @@ export function resolveMemberAgentDirectMessageCard(input: {
 					"This Agent can’t start work right now. Open its settings to fix it.",
 			};
 		default:
-			return {
-				kind: "checking",
-				title: "Checking availability",
-				description: "OpenMeld is checking whether this Agent can start work.",
-			};
+			return null;
 	}
+}
+
+/**
+ * What the card shows across readiness reads for one Agent's Direct Message.
+ * A read that is checking or refreshing keeps the last settled card, so a
+ * background refresh never makes the card flash. The welcome is for an Agent
+ * that was ready when the member arrived; it is not posted later just because
+ * a check finished.
+ */
+export type SettledDirectMessageCard = {
+	key: string | null;
+	model: MemberAgentDirectMessageCardModel | null;
+	/** A check came before the first settled state. */
+	settledAfterCheck: boolean;
+};
+
+export function nextSettledDirectMessageCard(
+	previous: SettledDirectMessageCard | null,
+	read: {
+		key: string | null;
+		/** Null while readiness is checking, unknown, or refreshing. */
+		model: MemberAgentDirectMessageCardModel | null;
+	}
+): SettledDirectMessageCard {
+	// No Direct Message Agent known yet (still loading): nothing to change.
+	if (previous && read.key === null) {
+		return previous;
+	}
+	if (previous?.key !== read.key) {
+		return {
+			key: read.key,
+			model: read.model,
+			settledAfterCheck: read.model === null,
+		};
+	}
+	if (read.model === null) {
+		return previous;
+	}
+	return { ...previous, model: read.model };
+}
+
+/** The card to render, or null; "Ready to work" only for an empty Session. */
+export function visibleDirectMessageCardModel(
+	settled: SettledDirectMessageCard,
+	hasMessages: boolean
+): MemberAgentDirectMessageCardModel | null {
+	if (
+		settled.model?.kind === "welcome" &&
+		(hasMessages || settled.settledAfterCheck)
+	) {
+		return null;
+	}
+	return settled.model;
 }
 
 function resolvePermissionModeNote(
@@ -213,7 +262,6 @@ function resolveReasonCard(
 }
 
 const CARD_ICON = {
-	checking: CircleNotchIcon,
 	offline: WifiSlashIcon,
 	repair: WarningCircleIcon,
 	welcome: CheckCircleIcon,
@@ -298,14 +346,12 @@ export function MemberAgentDirectMessageCard(input: {
 							<p className="mt-1 text-muted-foreground">
 								{input.model.description}
 							</p>
-							{input.model.kind === "checking" ? null : (
-								<div className="mt-3 flex flex-col items-start gap-2 empty:hidden">
-									<SpaceAgentIssueRecoveryAction
-										className="mt-0"
-										profileId={input.entry.profileId}
-									/>
-								</div>
-							)}
+							<div className="mt-3 flex flex-col items-start gap-2 empty:hidden">
+								<SpaceAgentIssueRecoveryAction
+									className="mt-0"
+									profileId={input.entry.profileId}
+								/>
+							</div>
 						</>
 					)}
 				</section>
@@ -373,32 +419,44 @@ function useEnabledMemberAgentDirectMessageCard(input: {
 			organizationId,
 		})
 	);
-	if (!memberAgents.ready || input.readOnly === true) {
-		return null;
-	}
-	const current = resolveDirectMessageMemberAgent({
-		index: memberAgents.index,
-		isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
-		isDirectMessage: input.isDirectMessage,
-		snapshot: input.membersSnapshot,
-	});
+	const current =
+		memberAgents.ready && input.readOnly !== true
+			? resolveDirectMessageMemberAgent({
+					index: memberAgents.index,
+					isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
+					isDirectMessage: input.isDirectMessage,
+					snapshot: input.membersSnapshot,
+				})
+			: null;
 	const entry = current
 		? input.profileEntriesById.get(current.agentProfileId)
 		: undefined;
-	if (!(current && entry)) {
-		return null;
+	const model =
+		current && entry && !entry.availabilityIsRefreshing
+			? resolveMemberAgentDirectMessageCard({
+					entry,
+					modelCatalog: input.modelCatalog,
+					hasMessages: input.hasMessages,
+					reason:
+						runtime.data?.agentProfiles.find(
+							(item) => item.profileId === current.agentProfileId
+						)?.readiness.publicWakeabilityReason ?? null,
+				})
+			: null;
+	const read = { key: current?.agentProfileId ?? null, model };
+	const [settled, setSettled] = useState<SettledDirectMessageCard>(() =>
+		nextSettledDirectMessageCard(null, read)
+	);
+	const next = nextSettledDirectMessageCard(settled, read);
+	if (
+		next.key !== settled.key ||
+		next.settledAfterCheck !== settled.settledAfterCheck ||
+		JSON.stringify(next.model) !== JSON.stringify(settled.model)
+	) {
+		setSettled(next);
 	}
-	const model = resolveMemberAgentDirectMessageCard({
-		entry,
-		modelCatalog: input.modelCatalog,
-		hasMessages: input.hasMessages,
-		reason:
-			runtime.data?.agentProfiles.find(
-				(item) => item.profileId === current.agentProfileId
-			)?.readiness.publicWakeabilityReason ?? null,
-	});
-	// The welcome card belongs to an empty Session; repair cards stay.
-	return model.kind === "welcome" && input.hasMessages
-		? null
-		: { current, entry, model };
+	const visible = visibleDirectMessageCardModel(next, input.hasMessages);
+	return current && entry && visible
+		? { current, entry, model: visible }
+		: null;
 }

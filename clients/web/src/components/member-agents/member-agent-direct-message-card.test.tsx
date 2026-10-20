@@ -9,7 +9,11 @@ import { SpaceAgentRecoveryProvider } from "#/components/spaces/space-agent-reco
 import type { DirectMessageMemberAgent } from "./member-agent-chat-history";
 import {
 	MemberAgentDirectMessageCard,
+	type MemberAgentDirectMessageCardModel,
+	nextSettledDirectMessageCard,
 	resolveMemberAgentDirectMessageCard,
+	type SettledDirectMessageCard,
+	visibleDirectMessageCardModel,
 } from "./member-agent-direct-message-card";
 
 vi.mock("@tanstack/react-router", () => ({
@@ -61,7 +65,6 @@ describe("MemberAgent Direct Message card", () => {
 	it.each([
 		["offline", "offline", "Offline"],
 		["unavailable", "repair", "Needs attention"],
-		["checking", "checking", "Checking availability"],
 	])("shows one %s card", (category, kind, title) => {
 		expect(
 			resolveMemberAgentDirectMessageCard({
@@ -69,6 +72,18 @@ describe("MemberAgent Direct Message card", () => {
 				modelCatalog: null,
 			})
 		).toMatchObject({ kind, title });
+	});
+
+	it.each([
+		"checking",
+		null,
+	])("shows no card while readiness is %s", (category) => {
+		expect(
+			resolveMemberAgentDirectMessageCard({
+				entry: entry({ availabilityCategory: category }),
+				modelCatalog: null,
+			})
+		).toBeNull();
 	});
 
 	it("names the shared readiness reason for any other unavailable state", () => {
@@ -180,6 +195,75 @@ describe("MemberAgent Direct Message card", () => {
 	});
 });
 
+describe("MemberAgent Direct Message card across readiness reads", () => {
+	const welcome = resolveMemberAgentDirectMessageCard({
+		entry: entry({}),
+		modelCatalog: null,
+	});
+	const missing = resolveMemberAgentDirectMessageCard({
+		entry: entry({
+			availabilityCategory: "unavailable",
+			availabilityReasonCode: "profile.workspace.missing",
+		}),
+		modelCatalog: null,
+	});
+	function replay(
+		reads: readonly (MemberAgentDirectMessageCardModel | null)[],
+		key = "agt-1"
+	): SettledDirectMessageCard {
+		let settled: SettledDirectMessageCard | null = null;
+		for (const model of reads) {
+			settled = nextSettledDirectMessageCard(settled, { key, model });
+		}
+		if (!settled) {
+			throw new Error("No reads");
+		}
+		return settled;
+	}
+
+	it("shows nothing while checking and posts no welcome after the check", () => {
+		expect(visibleDirectMessageCardModel(replay([null]), false)).toBeNull();
+		expect(
+			visibleDirectMessageCardModel(replay([null, welcome]), false)
+		).toBeNull();
+	});
+
+	it("welcomes an Agent that was ready on arrival, in an empty Session only", () => {
+		expect(visibleDirectMessageCardModel(replay([welcome]), false)).toEqual(
+			welcome
+		);
+		expect(visibleDirectMessageCardModel(replay([welcome]), true)).toBeNull();
+	});
+
+	it("shows a problem once it settles and keeps it through a background refresh", () => {
+		expect(
+			visibleDirectMessageCardModel(replay([null, missing]), true)
+		).toEqual(missing);
+		expect(
+			visibleDirectMessageCardModel(replay([missing, null, null]), true)
+		).toEqual(missing);
+	});
+
+	it("does not flash a problem while a ready Agent refreshes", () => {
+		expect(
+			visibleDirectMessageCardModel(replay([welcome, null, welcome]), true)
+		).toBeNull();
+	});
+
+	it("starts over for another Agent's Direct Message", () => {
+		const first = replay([missing]);
+		const other = nextSettledDirectMessageCard(first, {
+			key: "agt-2",
+			model: null,
+		});
+		expect(visibleDirectMessageCardModel(other, true)).toBeNull();
+		// While the Direct Message Agent is not known yet, nothing changes.
+		expect(
+			nextSettledDirectMessageCard(first, { key: null, model: null })
+		).toBe(first);
+	});
+});
+
 describe("MemberAgent Direct Message card view", () => {
 	afterEach(cleanup);
 
@@ -208,6 +292,13 @@ describe("MemberAgent Direct Message card view", () => {
 			profileId: "agt-1",
 			profileName: "Codex",
 		});
+		const cardModel = resolveMemberAgentDirectMessageCard({
+			entry: cardEntry,
+			modelCatalog: null,
+		});
+		if (!cardModel) {
+			throw new Error("Expected a card");
+		}
 		render(
 			<QueryClientProvider client={new QueryClient()}>
 				<SpaceAgentRecoveryProvider
@@ -219,10 +310,7 @@ describe("MemberAgent Direct Message card view", () => {
 					<MemberAgentDirectMessageCard
 						current={current}
 						entry={cardEntry}
-						model={resolveMemberAgentDirectMessageCard({
-							entry: cardEntry,
-							modelCatalog: null,
-						})}
+						model={cardModel}
 					/>
 				</SpaceAgentRecoveryProvider>
 			</QueryClientProvider>
