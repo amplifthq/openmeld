@@ -734,7 +734,7 @@ temporary branches.
 | No local tools; bounded, authorized Space context only | May answer while a folder-writing task runs, if the Controller demonstrably enforces that tool policy. Uses one of the five slots. |
 | Enforced read-only local access | Multiple readers may run. A writer of an overlapping root excludes readers as well, so a review is not presented as a stable view while that root changes. |
 | Writes within known bounded roots | One writer per overlapping root; disjoint roots may run concurrently when the native sandbox enforces those roots. |
-| Unrestricted or unverified filesystem access | Conservatively exclusive within the local Service's filesystem execution scope. Do not call it isolated because its configured cwd is different. |
+| Unrestricted or unverified filesystem access | One writer per overlapping root: its claim covers the Git checkout containing the configured working folder (or that folder outside any checkout) and the repository's common Git directory, so sibling folders and linked worktrees of one repository take turns while independent repositories, unrelated folders, and Space-only work still run. The claim coordinates OpenMeld-launched work only; it is not isolation and does not confine native permissions that allow writes elsewhere. Unreadable Git metadata or an unknown folder overlaps every user folder. |
 
 Access classification comes from enforceable Controller policy and admitted
 tool capabilities. A prompt saying "just review" or a model's own classification
