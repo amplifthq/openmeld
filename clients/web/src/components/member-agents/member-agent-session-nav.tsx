@@ -13,6 +13,7 @@ import {
 import { useSpaceStatusSources } from "#/components/spaces/use-space-status-sources";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
+	type ColleagueSessionAgent,
 	openMemberAgentChat,
 	sortChatsByActivity,
 	useMemberAgentSessionGroups,
@@ -177,12 +178,17 @@ export function useActiveMemberAgentSessionList(
  * Agent page sidebar. Sections keep the MemberAgent's Profile order.
  */
 export function useMemberAgentPageSessionList(input: {
-	memberAgentId: string;
+	/** Null for a colleague's Agent, listed by `colleagueAgent` instead. */
+	memberAgentId: string | null;
+	colleagueAgent?: ColleagueSessionAgent | null;
 	archived: boolean;
 }): SidebarNestedNavSection[] {
 	const memberAgents = useMemberAgentIndex();
-	const memberAgent = memberAgents.index.byId.get(input.memberAgentId) ?? null;
+	const memberAgent = input.memberAgentId
+		? (memberAgents.index.byId.get(input.memberAgentId) ?? null)
+		: null;
 	const sessions = useMemberAgentSessionGroups({
+		colleagueAgent: input.colleagueAgent,
 		memberAgent,
 		currentProfileId: null,
 		spaceId: null,

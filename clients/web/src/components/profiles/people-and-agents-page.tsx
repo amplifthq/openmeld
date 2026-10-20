@@ -37,6 +37,7 @@ import { AgentProfilesCard } from "#/components/agents/agents-page-agent-profile
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { DirectoryMembersOverview } from "#/components/directory/directory-members-overview";
+import { ColleagueAgentPageSidebar } from "#/components/member-agents/colleague-agent-page-sidebar";
 import { UnknownMemberAgentNotice } from "#/components/member-agents/member-agent-detail";
 import { MemberAgentPageProvider } from "#/components/member-agents/member-agent-page-context";
 import { MemberAgentPageSidebar } from "#/components/member-agents/member-agent-page-sidebar";
@@ -742,7 +743,17 @@ function AgentsWorkspaceHome(input: {
 						onSelectProfile={input.onSelectProfile}
 						profiles={memberAgentPageRow.profiles}
 					/>
-				) : undefined,
+				) : (
+					renderColleagueAgentSidebar({
+						agentControllerRefByProfileId:
+							organizationAgentProjection.agentControllerRefByProfileId,
+						currentUserId: input.currentUserId,
+						members: input.profileDirectoryQuery.data?.members ?? [],
+						onSelectProfile: input.onSelectProfile,
+						profiles: agentProfiles,
+						selectedProfileId: input.selectedProfileId,
+					})
+				),
 			}
 		: null;
 	const memberAgentPage = memberAgentPageRow
@@ -999,6 +1010,38 @@ function AgentsWorkspaceHomeView(input: {
 			taskActivityAvailable={resolveTaskActivityAvailability(
 				workspace.runtimeOverviewQuery.data
 			)}
+		/>
+	);
+}
+
+/**
+ * A colleague's Agent page gets the same chats sidebar as the viewer's own
+ * Agent, never the folded list of the owner's Agents.
+ */
+function renderColleagueAgentSidebar(input: {
+	agentControllerRefByProfileId: ReadonlyMap<string, string | null>;
+	currentUserId: string;
+	members: NonNullable<
+		OrganizationProfileDirectoryQueryState["data"]
+	>["members"];
+	onSelectProfile: (profileId: string) => void;
+	profiles: readonly AuthProfileView[];
+	selectedProfileId: string | null;
+}): ReactNode {
+	const ownerUserId = input.profiles.find(
+		(profile) => profile.openMeldProfileId === input.selectedProfileId
+	)?.ownerUserId;
+	if (!ownerUserId || ownerUserId === input.currentUserId) {
+		return undefined;
+	}
+	const owner = input.members.find((member) => member.userId === ownerUserId);
+	return (
+		<ColleagueAgentPageSidebar
+			agentControllerRefByProfileId={input.agentControllerRefByProfileId}
+			onSelectProfile={input.onSelectProfile}
+			ownerName={owner?.humanProfile?.profileName ?? owner?.user.name ?? ""}
+			profiles={input.profiles}
+			selectedProfileId={input.selectedProfileId}
 		/>
 	);
 }

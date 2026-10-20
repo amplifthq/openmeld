@@ -2,10 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { agentProfile } from "#/test-support/member-agent-fixtures";
-import {
-	filterMemberAgentSessionSections,
-	MemberAgentPageSidebar,
-} from "./member-agent-page-sidebar";
+import { MemberAgentPageSidebar } from "./member-agent-page-sidebar";
 
 const { sessionList } = vi.hoisted(() => ({ sessionList: vi.fn() }));
 vi.mock("./member-agent-session-nav", () => ({
@@ -135,16 +132,52 @@ describe("MemberAgentPageSidebar", () => {
 		fireEvent.click(screen.getByRole("tab", { name: "Archived" }));
 		expect(sessionList).toHaveBeenLastCalledWith({
 			memberAgentId: "ma-1",
+			colleagueAgent: null,
 			archived: true,
 		});
 		expect(screen.getByText("No archived chats.")).toBeTruthy();
 	});
-});
 
-it("filters chats by title and keeps every Profile section", () => {
-	expect(
-		filterMemberAgentSessionSections(sections(), "audit").map((section) =>
-			section.items.map((item) => item.id)
-		)
-	).toEqual([[], ["s-2"]]);
+	it("has no chat search; global search finds chats", () => {
+		sessionList.mockReturnValue(sections().slice(0, 1));
+		render(
+			<MemberAgentPageSidebar
+				activeProfileId={null}
+				defaultProfileId="p-default"
+				displayName="Felix’s Claude Code"
+				memberAgentId="ma-1"
+				onSelectProfile={vi.fn()}
+				profiles={[DEFAULT]}
+			/>
+		);
+		expect(screen.queryByRole("textbox")).toBeNull();
+	});
+
+	it("lists the viewer's own chats with a colleague's Agent by its Profiles", () => {
+		sessionList.mockReturnValue([{ id: "p-default", items: [] }]);
+		render(
+			<MemberAgentPageSidebar
+				activeProfileId="p-default"
+				defaultProfileId="p-default"
+				displayName="Tali’s Claude Code"
+				emptyAction={<button type="button">Ask to use</button>}
+				memberAgentId={null}
+				onSelectProfile={vi.fn()}
+				profiles={[DEFAULT]}
+			/>
+		);
+		expect(sessionList).toHaveBeenLastCalledWith({
+			memberAgentId: null,
+			colleagueAgent: {
+				displayName: "Tali’s Claude Code",
+				defaultProfileId: "p-default",
+				profiles: [DEFAULT],
+			},
+			archived: false,
+		});
+		expect(screen.getByText("No chats yet.")).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Ask to use" })).toBeTruthy();
+		fireEvent.click(screen.getByRole("tab", { name: "Archived" }));
+		expect(screen.queryByRole("button", { name: "Ask to use" })).toBeNull();
+	});
 });

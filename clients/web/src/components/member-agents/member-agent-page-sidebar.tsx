@@ -1,5 +1,4 @@
 import type { AuthProfileView } from "@openmeld/schemas/types";
-import { Input } from "@openmeld/ui/components/input";
 import {
 	Tooltip,
 	TooltipContent,
@@ -20,7 +19,14 @@ import {
 	ChatCircleTextIcon,
 	ChatsCircleIcon,
 } from "@phosphor-icons/react";
-import { type ComponentProps, useEffect, useId, useRef, useState } from "react";
+import {
+	type ComponentProps,
+	type ReactNode,
+	useEffect,
+	useId,
+	useRef,
+	useState,
+} from "react";
 import {
 	type AppContextualNavGroup,
 	AppContextualSidebarNav,
@@ -43,46 +49,39 @@ type SessionState = "active" | "archived";
 /** Below this tab-list width a tab shows only its icon. */
 const ICON_ONLY_TABS_MAX_WIDTH_PX = 160;
 
-/** Sessions whose title contains the search term; every section stays. */
-export function filterMemberAgentSessionSections(
-	sections: readonly SidebarNestedNavSection[],
-	search: string
-): SidebarNestedNavSection[] {
-	const term = search.trim().toLocaleLowerCase();
-	return sections.map((section) => ({
-		...section,
-		items: term
-			? section.items.filter((item) =>
-					item.label.toLocaleLowerCase().includes(term)
-				)
-			: section.items,
-	}));
-}
-
 /**
  * Sidebar of an Agent's page. With one Profile it lists that Profile's chats
  * directly. With several, each Profile is a row that opens its page, with its
  * chats nested under it on the sub-menu guide line and a chevron at the far
- * right that folds them away.
+ * right that folds them away. A colleague's Agent lists the viewer's own
+ * chats with it the same way.
  */
 export function MemberAgentPageSidebar(input: {
-	memberAgentId: string;
+	/** Null for a colleague's Agent, whose MemberAgent the viewer can't read. */
+	memberAgentId: string | null;
 	displayName: string;
 	profiles: readonly AuthProfileView[];
 	defaultProfileId: string | null;
 	activeProfileId: string | null;
 	onSelectProfile: (profileId: string) => void;
+	/** Shown with the empty state when there are no active chats yet. */
+	emptyAction?: ReactNode;
 }) {
 	const [state, setState] = useState<SessionState>("active");
-	const [search, setSearch] = useState("");
-	const sections = filterMemberAgentSessionSections(
-		useMemberAgentPageSessionList({
-			memberAgentId: input.memberAgentId,
-			archived: state === "archived",
-		}),
-		search
-	);
-	const emptyLabel = resolveEmptyLabel({ state, search });
+	const sections = useMemberAgentPageSessionList({
+		memberAgentId: input.memberAgentId,
+		colleagueAgent: input.memberAgentId
+			? null
+			: {
+					displayName: input.displayName,
+					defaultProfileId: input.defaultProfileId,
+					profiles: input.profiles,
+				},
+		archived: state === "archived",
+	});
+	const emptyLabel =
+		state === "archived" ? "No archived chats." : "No chats yet.";
+	const noChats = sections.every((section) => section.items.length === 0);
 	const groups: AppContextualNavGroup[] =
 		input.profiles.length > 1
 			? [
@@ -132,13 +131,6 @@ export function MemberAgentPageSidebar(input: {
 			leadingContent={
 				<div className="space-y-2 px-1">
 					<SessionStateTabs onChange={setState} value={state} />
-					<Input
-						aria-label="Search chats"
-						className="h-8"
-						onChange={(event) => setSearch(event.target.value)}
-						placeholder="Search chats"
-						value={search}
-					/>
 					{singleSection?.notice ? (
 						<p className="px-1 text-muted-foreground text-xs">
 							{singleSection.notice}
@@ -146,6 +138,9 @@ export function MemberAgentPageSidebar(input: {
 					) : null}
 					{singleSection && singleSection.items.length === 0 ? (
 						<p className="px-1 text-muted-foreground text-xs">{emptyLabel}</p>
+					) : null}
+					{state === "active" && noChats && input.emptyAction ? (
+						<div className="px-1">{input.emptyAction}</div>
 					) : null}
 				</div>
 			}
@@ -236,16 +231,6 @@ function SessionStateTab({
 			<TooltipContent side="bottom">{label}</TooltipContent>
 		</Tooltip>
 	);
-}
-
-function resolveEmptyLabel(input: {
-	state: SessionState;
-	search: string;
-}): string {
-	if (input.search.trim()) {
-		return "No chats match.";
-	}
-	return input.state === "archived" ? "No archived chats." : "No chats yet.";
 }
 
 function MemberAgentProfileNav(input: {

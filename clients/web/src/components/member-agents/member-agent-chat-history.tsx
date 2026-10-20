@@ -239,6 +239,16 @@ export function sortChatsByActivity<
 }
 
 /**
+ * A colleague's Agent as its Profiles, for a viewer who can't read the
+ * owner's MemberAgent: the viewer's own chats group the same way.
+ */
+export type ColleagueSessionAgent = {
+	displayName: string;
+	defaultProfileId: string | null;
+	profiles: readonly { openMeldProfileId: string; profileName: string }[];
+};
+
+/**
  * Sessions of one MemberAgent grouped by Profile, shared by the chat header
  * dropdown and the conversations sidebar so both list the same Sessions.
  * The current Profile's list is always read so the open Session is named;
@@ -246,6 +256,8 @@ export function sortChatsByActivity<
  */
 export function useMemberAgentSessionGroups(input: {
 	memberAgent: IndexedMemberAgent | null;
+	/** Used when `memberAgent` is null, e.g. a colleague's Agent. */
+	colleagueAgent?: ColleagueSessionAgent | null;
 	currentProfileId: string | null;
 	spaceId: string | null;
 	includeAll: boolean;
@@ -256,7 +268,12 @@ export function useMemberAgentSessionGroups(input: {
 	const { defaultHumanProfile } = useDefaultHumanProfile();
 	const humanProfileId = defaultHumanProfile?.openMeldProfileId;
 	const memberAgent = input.memberAgent;
-	const profiles = memberAgent?.memberAgent.profiles ?? [];
+	const colleague = memberAgent ? null : (input.colleagueAgent ?? null);
+	const profiles =
+		memberAgent?.memberAgent.profiles ?? colleague?.profiles ?? [];
+	const agentName = memberAgent?.displayName ?? colleague?.displayName ?? "";
+	const defaultProfileId =
+		memberAgent?.memberAgent.defaultProfileId ?? colleague?.defaultProfileId;
 	const queries = useQueries({
 		queries: profiles.map((profile) =>
 			agentDirectMessageSessionsQueryOptions({
@@ -304,12 +321,11 @@ export function useMemberAgentSessionGroups(input: {
 				id: profile.openMeldProfileId,
 				profileName: profile.profileName,
 				label: formatMemberAgentProfileDisplayName({
-					memberAgentName: memberAgent?.displayName ?? "",
+					memberAgentName: agentName,
 					profileName: profile.profileName,
 					isDefaultProfile:
-						profile.isDefault ||
-						profile.openMeldProfileId ===
-							memberAgent?.memberAgent.defaultProfileId,
+						("isDefault" in profile && profile.isDefault === true) ||
+						profile.openMeldProfileId === defaultProfileId,
 				}),
 				items: (query?.data?.sessions ?? []).map((session) => ({
 					spaceId: session.spaceId,
