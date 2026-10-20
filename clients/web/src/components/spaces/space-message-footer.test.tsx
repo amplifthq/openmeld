@@ -117,6 +117,32 @@ describe("floating message actions position", () => {
 		expect(visibleFullWidthEnd.top + visibleEndContainer.top).toBe(410);
 	});
 
+	it("centers a side-placed toolbar on the first text line when asked", () => {
+		const toolbar = rect(0, 0, 28, 28);
+		const container = rect(0, 100, 600, 44);
+		const bubble = rect(300, 100, 280, 44);
+
+		const atBubbleTop = resolveToolbarPosition({
+			bubble,
+			container,
+			preferredSide: "before",
+			toolbar,
+		});
+		expect(atBubbleTop.placement).toBe("before");
+		expect(atBubbleTop.top).toBe(0);
+
+		const onFirstLine = resolveToolbarPosition({
+			bubble,
+			container,
+			firstLine: { height: 24, top: 108 },
+			preferredSide: "before",
+			toolbar,
+		});
+		expect(onFirstLine.placement).toBe("before");
+		expect(onFirstLine.left).toBe(266);
+		expect(onFirstLine.top).toBe(6);
+	});
+
 	it("repositions the active toolbar when its message viewport scrolls", () => {
 		let rowTop = 100;
 		const view = render(
@@ -315,8 +341,73 @@ describe("SpaceMessageFooter", () => {
 		).toBeTruthy();
 	});
 
+	it("shows only the failure signal at rest and reveals the other actions on hover or focus", () => {
+		const view = render(
+			<SpaceMessageFooter
+				addressingTargets={[]}
+				details={{ hasProblem: true, onSelect: vi.fn() }}
+				failureSummary="Review Codex couldn’t reply"
+				onCopy={vi.fn()}
+			/>
+		);
+
+		const footer = view.container.querySelector(
+			'[data-slot="message-footer"]'
+		) as HTMLElement;
+		expect(footer.className).toContain("bg-transparent");
+		expect(footer.className).toContain("border-transparent");
+		expect(footer.className).toContain("group-hover/message-row:bg-popover");
+		expect(footer.className).toContain(
+			"group-focus-within/message-row:bg-popover"
+		);
+		const problem = view.container.querySelector(
+			'[data-slot="message-footer-problem"]'
+		) as HTMLElement;
+		expect(
+			within(problem)
+				.getAllByRole("button")
+				.map((button) => button.getAttribute("aria-label"))
+		).toEqual(["View error details: Review Codex couldn’t reply"]);
+		const reveal = view.container.querySelector(
+			'[data-slot="message-footer-reveal-actions"]'
+		) as HTMLElement;
+		expect(reveal.className.split(" ")).toContain("sr-only");
+		expect(reveal.className).toContain("group-hover/message-row:contents");
+		expect(reveal.className).toContain(
+			"group-focus-within/message-row:contents"
+		);
+		expect(reveal.className).toContain(
+			"has-[[aria-haspopup][aria-expanded=true]]:contents"
+		);
+		expect(
+			within(reveal).getByRole("button", { name: "More actions" })
+		).toBeTruthy();
+		// Tab moves from the failure signal into the revealed actions.
+		expect(problem.nextElementSibling).toBe(reveal);
+	});
+
+	it("keeps a normal footer free of the failed rest state", () => {
+		const view = render(
+			<SpaceMessageFooter addressingTargets={[]} onCopy={vi.fn()} />
+		);
+
+		const footer = view.container.querySelector(
+			'[data-slot="message-footer"]'
+		) as HTMLElement;
+		expect(footer.className).toContain("bg-popover");
+		expect(footer.className).not.toContain("bg-transparent");
+		expect(
+			view.container.querySelector('[data-slot="message-footer-problem"]')
+		).toBeNull();
+		expect(
+			view.container.querySelector(
+				'[data-slot="message-footer-reveal-actions"]'
+			)
+		).toBeNull();
+	});
+
 	it("keeps an accessible failure icon when Message details is unavailable", () => {
-		render(
+		const view = render(
 			<SpaceMessageFooter
 				addressingTargets={[]}
 				failureSummary="Agent couldn’t reply"
@@ -333,6 +424,15 @@ describe("SpaceMessageFooter", () => {
 				name: "View error details: Agent couldn’t reply",
 			})
 		).toBeNull();
+		// The icon is not focusable, so the hidden actions must stay in the tab
+		// order for keyboard users to reveal the toolbar.
+		const reveal = view.container.querySelector(
+			'[data-slot="message-footer-reveal-actions"]'
+		) as HTMLElement;
+		expect(reveal.className.split(" ")).not.toContain("hidden");
+		expect(
+			within(reveal).getByRole("button", { name: "More actions" })
+		).toBeTruthy();
 	});
 
 	it("promotes Message details only when it reports a problem", () => {

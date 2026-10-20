@@ -118,6 +118,17 @@ type SpaceMessageFooterDetailsAction = {
 const FOOTER_BUTTON_CLASS_NAME =
 	"size-7 border-0 bg-transparent p-1.5 text-muted-foreground shadow-none hover:bg-muted hover:text-foreground focus-visible:border-0 max-lg:min-h-7 max-lg:min-w-7";
 
+// A persistent (failed) footer shows no toolbar chrome at rest. The chrome
+// and the secondary actions come back on hover, keyboard focus, an open menu,
+// and on coarse pointers, the same triggers that show a normal footer.
+const MESSAGE_FOOTER_RESTING_CHROME_CLASS_NAME =
+	"border-transparent bg-transparent shadow-none group-focus-within/message-row:border-border group-focus-within/message-row:bg-popover group-focus-within/message-row:shadow-sm group-hover/message-row:border-border group-hover/message-row:bg-popover group-hover/message-row:shadow-sm has-[[aria-haspopup][aria-expanded=true]]:border-border has-[[aria-haspopup][aria-expanded=true]]:bg-popover has-[[aria-haspopup][aria-expanded=true]]:shadow-sm [@media(pointer:coarse)]:border-border [@media(pointer:coarse)]:bg-popover [@media(pointer:coarse)]:shadow-sm";
+
+// Visually hidden, not display:none, so Tab still reaches the actions and the
+// resulting focus-within reveals them.
+const MESSAGE_FOOTER_RESTING_HIDDEN_CLASS_NAME =
+	"sr-only group-focus-within/message-row:contents group-hover/message-row:contents has-[[aria-haspopup][aria-expanded=true]]:contents [@media(pointer:coarse)]:contents";
+
 type SpaceMessageFooterProps = {
 	item?: SpaceTimelineItem;
 	reaction?: MessageReactionInput;
@@ -247,11 +258,14 @@ type ToolbarPosition = {
 export function resolveToolbarPosition(input: {
 	bubble: DOMRect;
 	container: DOMRect;
+	/** Centers a side-placed toolbar on this line box instead of the bubble top. */
+	firstLine?: { height: number; top: number };
 	preferredSide: "after" | "before";
 	toolbar: DOMRect;
 	viewport?: DOMRect;
 }): ToolbarPosition {
-	const { bubble, container, preferredSide, toolbar, viewport } = input;
+	const { bubble, container, firstLine, preferredSide, toolbar, viewport } =
+		input;
 	const edgeOverlap = 10;
 	const visibleBottom = viewport
 		? Math.min(bubble.bottom, viewport.bottom)
@@ -284,7 +298,12 @@ export function resolveToolbarPosition(input: {
 						? bubble.right - container.left + 6
 						: bubble.left - container.left - toolbar.width - 6,
 				placement: side,
-				top: verticalTop(bubble.top, 0),
+				top: verticalTop(
+					firstLine
+						? firstLine.top + (firstLine.height - toolbar.height) / 2
+						: bubble.top,
+					0
+				),
 			};
 		}
 	}
@@ -303,6 +322,20 @@ export function resolveToolbarPosition(input: {
 			bubble.top - toolbar.height + edgeOverlap,
 			toolbar.height - edgeOverlap
 		),
+	};
+}
+
+function resolveFirstLineBox(element: HTMLElement) {
+	const style = getComputedStyle(element);
+	const lineHeight = Number.parseFloat(style.lineHeight);
+	if (!Number.isFinite(lineHeight)) {
+		return;
+	}
+	return {
+		height: lineHeight,
+		top:
+			element.getBoundingClientRect().top +
+			(Number.parseFloat(style.paddingTop) || 0),
 	};
 }
 
@@ -390,6 +423,10 @@ function MessageFooterActions({
 			const next = resolveToolbarPosition({
 				bubble: anchor,
 				container: container.getBoundingClientRect(),
+				firstLine:
+					persistent && hasMessageText && textSurface
+						? resolveFirstLineBox(textSurface)
+						: undefined,
 				preferredSide,
 				toolbar: toolbarRect,
 				viewport: viewport?.getBoundingClientRect(),
@@ -397,6 +434,8 @@ function MessageFooterActions({
 			toolbar.style.insetInlineStart = `${next.left}px`;
 			toolbar.style.insetBlockStart = `${next.top}px`;
 			toolbar.dataset.placement = next.placement;
+			toolbar.dataset.side =
+				next.placement === "overlay" ? preferredSide : next.placement;
 		};
 		const activate = () => {
 			position();
@@ -404,6 +443,9 @@ function MessageFooterActions({
 				observer = new ResizeObserver(position);
 				observer.observe(container);
 				observer.observe(bubble);
+				// A persistent footer changes width when its secondary actions
+				// appear on hover or focus, so it must be placed again.
+				observer.observe(toolbar);
 				if (attachmentStrip) {
 					observer.observe(attachmentStrip);
 				}
@@ -447,13 +489,56 @@ function MessageFooterActions({
 			window.removeEventListener("resize", position);
 		};
 	}, [hasMessageText, inline, persistent]);
+	const revealOnly = persistent ? MESSAGE_FOOTER_RESTING_HIDDEN_CLASS_NAME : "";
+	const secondaryActions = (
+		<>
+			{pending ? (
+				<MessageFooterIconAction
+					disabled
+					icon={<MessageReactionIcon />}
+					label="Add reaction after sending"
+					onSelect={() => undefined}
+				/>
+			) : null}
+			{showPicker && !pending ? (
+				<MessageReactionPicker
+					buttonClassName={FOOTER_BUTTON_CLASS_NAME}
+					state={reactions}
+				/>
+			) : null}
+			{persistent ? null : (
+				<span className="contents" data-slot="message-footer-standard-actions">
+					<MessageFooterStandardActions input={input} />
+				</span>
+			)}
+			<MessageFooterOverflowActions
+				hasReactions={hasReactions}
+				input={input}
+				onAddReaction={
+					showPicker && !pending
+						? () => reactions.setPickerOpen(true)
+						: undefined
+				}
+				persistent={persistent}
+				reactions={reactions}
+				toolbarRef={toolbarRef}
+			/>
+			{input.item ? (
+				<SpaceMessageTime
+					createdAtMs={input.item.createdAtMs}
+					isDirectMessage={input.isDirectMessage === true}
+					placement="toolbar"
+				/>
+			) : null}
+		</>
+	);
 	return (
 		<div
 			className={cn(
 				"pointer-events-none z-20 flex h-7 w-max max-w-full items-center rounded-md border border-border bg-popover opacity-0 shadow-sm group-focus-within/message-row:pointer-events-auto group-focus-within/message-row:opacity-100 group-hover/message-row:pointer-events-auto group-hover/message-row:opacity-100 has-[[aria-haspopup][aria-expanded=true]]:pointer-events-auto has-[[aria-haspopup][aria-expanded=true]]:opacity-100 [@media(pointer:coarse)]:pointer-events-auto [@media(pointer:coarse)]:opacity-100",
 				inline ? "relative mt-1" : "absolute",
-				persistent && "pointer-events-auto opacity-100",
-				persistent && "gap-2"
+				persistent && "group/message-footer pointer-events-auto opacity-100",
+				persistent && MESSAGE_FOOTER_RESTING_CHROME_CLASS_NAME
 			)}
 			data-layout={inline ? "inline" : "floating"}
 			data-persistent={persistent ? "true" : undefined}
@@ -466,52 +551,36 @@ function MessageFooterActions({
 				)}
 				data-slot="message-footer-primary-actions"
 			>
-				{input.deviceWaitOutcome ? (
-					<SpaceDeviceWaitOutcome {...input.deviceWaitOutcome} />
-				) : null}
-				{pending ? (
-					<MessageFooterIconAction
-						disabled
-						icon={<MessageReactionIcon />}
-						label="Add reaction after sending"
-						onSelect={() => undefined}
-					/>
-				) : null}
-				{showPicker && !pending ? (
-					<MessageReactionPicker
-						buttonClassName={FOOTER_BUTTON_CLASS_NAME}
-						state={reactions}
-					/>
-				) : null}
-				{persistent ? detailsButton : null}
-
-				{persistent ? null : (
-					<span
-						className="contents"
-						data-slot="message-footer-standard-actions"
-					>
-						<MessageFooterStandardActions input={input} />
-					</span>
+				{persistent ? (
+					<>
+						{/* A failed message keeps only its problem signal on screen at
+						rest. It sits on the bubble side of the toolbar, so revealing the
+						other actions on hover or focus does not move it while the
+						toolbar fits beside the bubble. */}
+						<span
+							className="flex shrink-0 items-center gap-2 group-data-[side=before]/message-footer:order-last group-data-[side=before]/message-footer:flex-row-reverse"
+							data-slot="message-footer-problem"
+						>
+							{detailsButton}
+							{input.deviceWaitOutcome ? (
+								<SpaceDeviceWaitOutcome {...input.deviceWaitOutcome} />
+							) : null}
+						</span>
+						<span
+							className={revealOnly}
+							data-slot="message-footer-reveal-actions"
+						>
+							{secondaryActions}
+						</span>
+					</>
+				) : (
+					<>
+						{input.deviceWaitOutcome ? (
+							<SpaceDeviceWaitOutcome {...input.deviceWaitOutcome} />
+						) : null}
+						{secondaryActions}
+					</>
 				)}
-				<MessageFooterOverflowActions
-					hasReactions={hasReactions}
-					input={input}
-					onAddReaction={
-						showPicker && !pending
-							? () => reactions.setPickerOpen(true)
-							: undefined
-					}
-					persistent={persistent}
-					reactions={reactions}
-					toolbarRef={toolbarRef}
-				/>
-				{input.item ? (
-					<SpaceMessageTime
-						createdAtMs={input.item.createdAtMs}
-						isDirectMessage={input.isDirectMessage === true}
-						placement="toolbar"
-					/>
-				) : null}
 			</div>
 		</div>
 	);
