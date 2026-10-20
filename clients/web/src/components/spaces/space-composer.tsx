@@ -522,7 +522,11 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		),
 		policy,
 	});
-	const feedbackLayout = resolveComposerFeedbackLayout(input, membersPending);
+	const feedbackLayout = resolveComposerFeedbackLayout(
+		input,
+		membersPending,
+		Boolean(deviceWaitPresentation.hint)
+	);
 	const readOnlyBar = resolveReadOnlyBarPlaceholder(
 		input.context,
 		policy.placeholder
@@ -718,9 +722,13 @@ function hasPendingComposerMembers(input: SpaceComposerProps) {
 
 function resolveComposerFeedbackLayout(
 	input: SpaceComposerProps,
-	membersPending: boolean
+	membersPending: boolean,
+	hasDeviceWaitHint: boolean
 ) {
+	// Trailing text truncates in the remaining width; the leading buttons
+	// never shrink under it.
 	if (
+		hasDeviceWaitHint ||
 		input.slots?.error ||
 		(membersPending && input.members?.state === "error")
 	) {
