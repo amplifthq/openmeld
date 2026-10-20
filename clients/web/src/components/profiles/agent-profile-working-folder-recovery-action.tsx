@@ -8,20 +8,15 @@ import type {
 	PeopleComputerTarget,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
-import {
-	Dialog,
-	DialogContent,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from "@openmeld/ui/components/dialog";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AgentProfileFoldersDialog } from "#/components/profiles/agent-profile-folders-dialog";
 import { projectAgentProfileBindingTarget } from "#/lib/profiles/agent-profile-primary-binding";
 import { agentExecutionReadinessBatchQueryOptions } from "#/query/agents/execution-readiness";
+import { agentProfileFoldersQueryOptions } from "#/query/profiles/agent-profile-folders";
 import { agentProfileControllerChangeEligibilityQueryOptions } from "#/query/profiles/primary-binding";
+import { agentProfileWorkingFolderQueryOptions } from "#/query/profiles/working-folder";
 
 export function AgentProfileWorkingFolderRecoveryAction(input: {
 	className?: string;
@@ -44,10 +39,12 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 		agentControllerRef: string | null;
 		bindingTarget: AgentProfileBindingTarget;
 	} | null>(null);
+	// Read while the fix is on screen, not only once it is clicked, so the
+	// dialog opens in its final layout instead of loading in front of the user.
 	const readiness = useQuery({
 		...agentExecutionReadinessBatchQueryOptions({
 			agentProfileIds: [input.profile.openMeldProfileId],
-			enabled: open,
+			enabled: true,
 			organizationId: input.organizationId,
 			storageScope: input.storageScope,
 		}),
@@ -58,7 +55,7 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 	const eligibility = useQuery({
 		...agentProfileControllerChangeEligibilityQueryOptions({
 			agentProfileId: input.profile.openMeldProfileId,
-			enabled: open,
+			enabled: true,
 			organizationId: input.organizationId,
 			storageScope: input.storageScope,
 		}),
@@ -79,40 +76,53 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 	const bindingTarget = projectAgentProfileBindingTarget(
 		current?.primaryBinding
 	);
+	const readyDraftTarget =
+		readiness.isError || eligibility.isError || !eligibility.data
+			? null
+			: resolveFolderDraftTarget({
+					agentControllerRef: current?.agentControllerRef ?? null,
+					bindingTarget,
+					target,
+				});
+	// The dialog's folder list and default path, read ahead with the keys
+	// the dialog itself uses.
+	useQuery(
+		agentProfileFoldersQueryOptions({
+			enabled: readyDraftTarget !== null,
+			organizationId: input.organizationId,
+			profileId: input.profile.openMeldProfileId,
+			storageScope: input.storageScope,
+		})
+	);
+	useQuery(
+		agentProfileWorkingFolderQueryOptions({
+			actorProfileId: input.actorProfileId,
+			enabled: readyDraftTarget !== null,
+			expectedBindingTarget: readyDraftTarget?.bindingTarget,
+			organizationId: input.organizationId,
+			profileId: input.profile.openMeldProfileId,
+			storageScope: input.storageScope,
+			target: readyDraftTarget?.target,
+		})
+	);
 	useEffect(() => {
 		if (!open) {
 			setDraftTarget(null);
 			return;
 		}
-		if (
-			!(draftTarget || loading || readiness.isError || eligibility.isError) &&
-			target &&
-			bindingTarget &&
-			eligibility.data
-		) {
-			setDraftTarget({
-				target,
-				agentControllerRef: current?.agentControllerRef ?? null,
-				bindingTarget,
-			});
+		// Opened before the reads finished: freeze the target once they have.
+		if (!draftTarget && readyDraftTarget) {
+			setDraftTarget(readyDraftTarget);
 		}
-	}, [
-		open,
-		draftTarget,
-		loading,
-		readiness.isError,
-		eligibility.isError,
-		target,
-		eligibility.data,
-		current?.agentControllerRef,
-		bindingTarget,
-	]);
+	}, [open, draftTarget, readyDraftTarget]);
 	const saveBlockedReason = resolveFolderDraftBlockReason({
 		draftTarget,
 		currentTarget: target,
 		currentAgentControllerRef: current?.agentControllerRef ?? null,
 		currentBindingTarget: bindingTarget,
-		checking: loading,
+		// A background refresh doesn't pause writes or post a note: the Service
+		// still checks the expected binding on every write.
+		checking: readiness.isPending || eligibility.isPending,
 		failed: readiness.isError || eligibility.isError,
 	});
 	const queryClient = useQueryClient();
@@ -191,7 +201,12 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 		<>
 			<Button
 				className={input.className}
-				onClick={() => setOpen(true)}
+				onClick={() => {
+					// Freeze the target from data already read, so the dialog's
+					// first frame is its final layout.
+					setDraftTarget(readyDraftTarget);
+					setOpen(true);
+				}}
 				size="sm"
 				variant="outline"
 			>
@@ -200,65 +215,68 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 						? "Choose working folder"
 						: "Review working folder")}
 			</Button>
-			{draftTarget ? (
-				<AgentProfileFoldersDialog
-					actorProfileId={input.actorProfileId}
-					agentControllerRef={draftTarget.agentControllerRef}
-					executionTargetChangeEligibilityStatus={
-						eligibility.data?.status ?? "unavailable"
-					}
-					expectedBindingTarget={draftTarget.bindingTarget}
-					onOpenChange={setOpen}
-					onProfileUpdated={input.onProfileUpdated}
-					open={open}
-					organizationId={input.organizationId}
-					profile={input.profile}
-					recovery={{
-						message: recoveryMessage,
-						onSaved: checkSavedFolder,
-						saveBlockedReason,
-					}}
-					storageScope={input.storageScope}
-					target={draftTarget.target}
-				/>
-			) : (
-				<Dialog onOpenChange={setOpen} open={open}>
-					<DialogContent className="sm:max-w-lg">
-						<DialogHeader>
-							<DialogTitle>Working folder</DialogTitle>
-						</DialogHeader>
-						<output className="text-muted-foreground text-sm">
-							{loading
-								? "Checking the Computer that runs this Agent…"
-								: "Couldn’t confirm this Agent’s Computer and settings. Try again."}
-						</output>
-						<DialogFooter>
-							<Button onClick={() => setOpen(false)} variant="ghost">
-								Cancel
-							</Button>
-							{loading ? null : (
-								<Button
-									onClick={() => {
-										Promise.all([
-											readiness.refetch(),
-											eligibility.refetch(),
-										]).catch((error: unknown) => {
-											console.error(
-												"Failed to reload working-folder settings.",
-												error
-											);
-										});
-									}}
-								>
-									Try again
-								</Button>
-							)}
-						</DialogFooter>
-					</DialogContent>
-				</Dialog>
-			)}
+			{/* One dialog from the first frame: while the Agent's Computer is read
+			    it shows its loading layout, not a separate dialog. */}
+			<AgentProfileFoldersDialog
+				actorProfileId={input.actorProfileId}
+				agentControllerRef={
+					draftTarget?.agentControllerRef ?? current?.agentControllerRef ?? null
+				}
+				executionTargetChangeEligibilityStatus={
+					eligibility.data?.status ?? "unavailable"
+				}
+				expectedBindingTarget={draftTarget?.bindingTarget}
+				onOpenChange={setOpen}
+				onProfileUpdated={input.onProfileUpdated}
+				open={open}
+				organizationId={input.organizationId}
+				preparing={
+					draftTarget
+						? undefined
+						: {
+								failed: !loading,
+								onRetry: () => {
+									Promise.all([
+										readiness.refetch(),
+										eligibility.refetch(),
+									]).catch((error: unknown) => {
+										console.error(
+											"Failed to reload working-folder settings.",
+											error
+										);
+									});
+								},
+							}
+				}
+				profile={input.profile}
+				recovery={{
+					message: recoveryMessage,
+					onSaved: checkSavedFolder,
+					saveBlockedReason,
+				}}
+				storageScope={input.storageScope}
+				target={draftTarget?.target}
+			/>
 		</>
 	);
+}
+
+function resolveFolderDraftTarget(input: {
+	agentControllerRef: string | null;
+	bindingTarget: AgentProfileBindingTarget | null;
+	target: PeopleComputerTarget | null;
+}): {
+	target: PeopleComputerTarget;
+	agentControllerRef: string | null;
+	bindingTarget: AgentProfileBindingTarget;
+} | null {
+	return input.target && input.bindingTarget
+		? {
+				agentControllerRef: input.agentControllerRef,
+				bindingTarget: input.bindingTarget,
+				target: input.target,
+			}
+		: null;
 }
 
 function resolveFolderDraftBlockReason(input: {

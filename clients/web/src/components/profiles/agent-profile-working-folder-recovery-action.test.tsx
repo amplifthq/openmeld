@@ -14,6 +14,7 @@ import {
 import { AgentProfileWorkingFolderRecoveryAction } from "./agent-profile-working-folder-recovery-action";
 
 const readReadinessMock = vi.hoisted(() => vi.fn());
+const readFoldersMock = vi.hoisted(() => vi.fn(() => Promise.resolve({})));
 const toastMock = vi.hoisted(() => ({
 	info: vi.fn(),
 	loading: vi.fn(() => "toast-1"),
@@ -50,16 +51,37 @@ vi.mock("#/lib/profiles/agent-profile-primary-binding", () => ({
 vi.mock("#/components/profiles/agent-profile-folders-dialog", () => ({
 	AgentProfileFoldersDialog: (input: {
 		open: boolean;
+		preparing?: { failed: boolean };
 		recovery: { message: string; onSaved: () => void };
 	}) =>
 		input.open ? (
 			<div role="dialog">
-				<p>{input.recovery.message}</p>
-				<button onClick={input.recovery.onSaved} type="button">
-					Save folder
-				</button>
+				{input.preparing ? (
+					<p>Preparing</p>
+				) : (
+					<>
+						<p>{input.recovery.message}</p>
+						<button onClick={input.recovery.onSaved} type="button">
+							Save folder
+						</button>
+					</>
+				)}
 			</div>
 		) : null,
+}));
+vi.mock("#/query/profiles/agent-profile-folders", () => ({
+	agentProfileFoldersQueryOptions: (input: { enabled: boolean }) => ({
+		enabled: input.enabled,
+		queryFn: readFoldersMock,
+		queryKey: ["folders", "profile-agent"],
+	}),
+}));
+vi.mock("#/query/profiles/working-folder", () => ({
+	agentProfileWorkingFolderQueryOptions: (input: { enabled: boolean }) => ({
+		enabled: input.enabled,
+		queryFn: () => Promise.resolve({ workspace: { status: "configured" } }),
+		queryKey: ["working-folder", "profile-agent"],
+	}),
 }));
 
 function readiness(status: string) {
@@ -136,6 +158,37 @@ describe("AgentProfileWorkingFolderRecoveryAction", () => {
 				expect.objectContaining({ id: "toast-1" })
 			)
 		);
+	});
+
+	it("reads ahead, so a click opens the dialog in its final layout", async () => {
+		readReadinessMock.mockResolvedValue(readiness("unavailable_for_wake"));
+		renderAction();
+		// Read while the fix is on screen, before any click.
+		await waitFor(() => expect(readFoldersMock).toHaveBeenCalled());
+		fireEvent.click(
+			screen.getByRole("button", { name: "Choose working folder" })
+		);
+		expect(screen.getByRole("button", { name: "Save folder" })).toBeTruthy();
+		expect(screen.queryByText("Preparing")).toBeNull();
+	});
+
+	it("shows the same dialog's loading layout when clicked before the reads finish", async () => {
+		let resolveReadiness: (value: unknown) => void = () => undefined;
+		readReadinessMock.mockReturnValue(
+			new Promise((resolve) => {
+				resolveReadiness = resolve;
+			})
+		);
+		renderAction();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Choose working folder" })
+		);
+		expect(screen.getByText("Preparing")).toBeTruthy();
+		resolveReadiness(readiness("unavailable_for_wake"));
+		expect(
+			await screen.findByRole("button", { name: "Save folder" })
+		).toBeTruthy();
+		expect(screen.getAllByRole("dialog")).toHaveLength(1);
 	});
 
 	it("still confirms the save after the fix unmounts the action", async () => {

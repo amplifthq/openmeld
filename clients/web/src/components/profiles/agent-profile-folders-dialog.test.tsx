@@ -273,6 +273,25 @@ describe("Agent folders dialog", () => {
 		expect(onProfileUpdated).toHaveBeenCalled();
 	});
 
+	it("keeps its loading layout until the folders and default path are read", async () => {
+		let resolveFolders: (value: unknown) => void = () => undefined;
+		readFoldersMock.mockReturnValue(
+			new Promise((resolve) => {
+				resolveFolders = resolve;
+			})
+		);
+		renderDialog();
+		expect(
+			document.querySelector("[data-slot='folders-dialog-skeleton']")
+		).not.toBeNull();
+		expect(screen.queryByRole("list", { name: "Folders" })).toBeNull();
+		resolveFolders(current(PROJECTION));
+		await findRow("openmeld");
+		expect(
+			document.querySelector("[data-slot='folders-dialog-skeleton']")
+		).toBeNull();
+	});
+
 	it("is titled Working folder, like the card and menu entry that open it", () => {
 		renderDialog();
 		expect(

@@ -22,6 +22,7 @@ import {
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
+import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -52,6 +53,11 @@ type FoldersDialogInput = {
 	onProfileUpdated: (profile: AuthProfileView) => void;
 	open: boolean;
 	organizationId: string;
+	/**
+	 * The caller is still reading the Agent's Computer: the dialog shows its
+	 * loading layout, or the failure with a retry, instead of the folders.
+	 */
+	preparing?: { failed: boolean; onRetry: () => void };
 	profile: AuthProfileView;
 	/** Opened to recover a task that couldn't use its working folder. */
 	recovery?: WorkingFolderRecovery;
@@ -97,7 +103,7 @@ export function AgentProfileFoldersDialog(input: FoldersDialogInput) {
 						the default folder; you can choose another folder for a task.
 					</DialogDescription>
 				</DialogHeader>
-				{input.open ? <FoldersDialogBody {...input} /> : null}
+				{input.open ? <FoldersDialogBodyOrPreparing {...input} /> : null}
 				<DialogFooter>
 					<Button onClick={() => input.onOpenChange(false)} variant="ghost">
 						Done
@@ -105,6 +111,78 @@ export function AgentProfileFoldersDialog(input: FoldersDialogInput) {
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+function FoldersDialogBodyOrPreparing(input: FoldersDialogInput) {
+	if (!input.preparing) {
+		return <FoldersDialogBody {...input} />;
+	}
+	if (!input.preparing.failed) {
+		return <FoldersDialogSkeleton message={input.recovery?.message} />;
+	}
+	return (
+		<p className="text-muted-foreground text-sm" role="alert">
+			Couldn’t confirm this Agent’s Computer and settings.{" "}
+			<button
+				className="underline"
+				onClick={input.preparing.onRetry}
+				type="button"
+			>
+				Try again
+			</button>
+		</p>
+	);
+}
+
+function resolveFolderRows(input: {
+	defaultProjectId: string | null | undefined;
+	response: GetAgentProfileFoldersResponse | undefined;
+}): AgentProfileFolderRow[] {
+	const response = input.response;
+	if (!response || response.status === "unavailable") {
+		return [];
+	}
+	return buildAgentProfileFolderRows({
+		defaultProjectId: input.defaultProjectId,
+		projection: response.projection,
+	});
+}
+
+function folderDetailsPending(input: {
+	defaultPathPending: boolean;
+	foldersPending: boolean;
+	hasTarget: boolean;
+}): boolean {
+	return input.foldersPending || (input.hasTarget && input.defaultPathPending);
+}
+
+/**
+ * The dialog's layout while its folders load: the same message, a folder
+ * row and the Add folder button, so content replaces it in place.
+ */
+function FoldersDialogSkeleton(input: { message?: string }) {
+	return (
+		<div
+			aria-busy="true"
+			className="grid min-w-0 grid-cols-1 gap-4"
+			data-slot="folders-dialog-skeleton"
+		>
+			{input.message ? (
+				<output className="text-sm">{input.message}</output>
+			) : null}
+			<output className="sr-only">Loading folders…</output>
+			<div className="grid gap-2 rounded-md border p-3">
+				<Skeleton className="h-4 w-32" />
+				<Skeleton className="h-3 w-40" />
+				<Skeleton className="h-3 w-64" />
+				<div className="flex gap-2 pt-1">
+					<Skeleton className="h-8 w-24" />
+					<Skeleton className="h-8 w-16" />
+				</div>
+			</div>
+			<Skeleton className="h-9 w-28" />
+		</div>
 	);
 }
 
@@ -139,14 +217,10 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 		response !== undefined &&
 		response.status !== "current" &&
 		response.reasonCode === CONFIGURATION_INVALID;
-	const projection =
-		response && response.status !== "unavailable" ? response.projection : null;
-	const rows = projection
-		? buildAgentProfileFolderRows({
-				defaultProjectId: input.profile.defaultProjectId,
-				projection,
-			})
-		: [];
+	const rows = resolveFolderRows({
+		defaultProjectId: input.profile.defaultProjectId,
+		response,
+	});
 	// Writes keep the Binding this opening was reviewed against. A changed
 	// Computer or local agent blocks them until Folders is reopened.
 	const [bindingTarget] = useState(input.expectedBindingTarget);
@@ -323,6 +397,17 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 	};
 	const canSetUpAgain =
 		Boolean(input.recovery) && !input.profile.defaultProjectId;
+	// Show the folders once they and the default's path are read, not piece
+	// by piece: the list, path and notes would otherwise pop in.
+	if (
+		folderDetailsPending({
+			defaultPathPending: defaultPathQuery.isPending,
+			foldersPending: foldersQuery.isPending,
+			hasTarget: Boolean(input.target),
+		})
+	) {
+		return <FoldersDialogSkeleton message={input.recovery?.message} />;
+	}
 
 	// Grids here use minmax(0, 1fr) columns and min-w-0 so a long folder path
 	// truncates inside the dialog instead of widening it.
