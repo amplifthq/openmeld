@@ -80,6 +80,8 @@ export type SpaceComposerAddressingTarget = {
 	deviceWaitTarget?: import("@openmeld/schemas/types").WakeDeviceWaitTarget;
 	runtimeDeviceDisplayName?: string | null;
 	allowedRelations: SpaceSendTargetAllowedRelations;
+	/** The Agent's owner; a colleague's Agent never shows owner setup copy. */
+	ownerUserId?: string | null;
 	primaryMentionLabel: string;
 	profileId: string;
 	profileName: string;
@@ -699,6 +701,7 @@ export function buildSpaceComposerAddressingTargets(input: {
 			deviceWaitTarget: member?.deviceWaitTarget,
 			runtimeDeviceDisplayName: target.runtimeDeviceDisplayName,
 			allowedRelations: target.allowedRelations,
+			ownerUserId: member?.ownerUserId ?? null,
 			primaryMentionLabel: target.primaryMentionLabel,
 			profileId: target.profileId,
 			profileName: target.profileName,
