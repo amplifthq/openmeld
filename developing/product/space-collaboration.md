@@ -503,7 +503,10 @@ The owner can turn a member's access into a standing grant later, for example
 after **Allow once**, with owner-only
 `POST /v1/agent-profiles/:agentProfileId/access-grants` and body
 `{ granteeUserId, scope: "always" }`. It writes a new `always` grant with its
-own lifecycle and never rewrites the decision of the request that led to it.
+own lifecycle and retires the member's active one-chat grants for that
+Profile, so removing the standing grant later removes access in every chat,
+including the original DM. It never rewrites the decision of the request that
+led to it.
 External users are refused, and an active standing grant is returned as it
 is. Writing or revoking a grant broadcasts `space.agent_access.changed` to the
 Spaces where that person asked for the Agent, so open views refetch.

@@ -564,6 +564,33 @@ export async function ensureStandingAgentProfileAccessGrant(input: {
   return { grant: active, created: inserted.rows.length > 0 };
 }
 
+/**
+ * A standing grant replaces the member's one-chat grants for the Profile, so
+ * removing it later removes access in every chat. The requests keep their
+ * decisions.
+ */
+export async function revokeSupersededOnceAgentAccessGrants(input: {
+  db: Queryable;
+  granteeUserId: string;
+  profileId: string;
+  revokedByUserId: string;
+  nowMs: number;
+}): Promise<number> {
+  const result = await input.db.query({
+    text: `UPDATE "openmeld"."agent_profile_access_grants"
+      SET revoked_at_ms = GREATEST($3, granted_at_ms), revoked_by_user_id = $4
+      WHERE profile_id = $1 AND grantee_user_id = $2 AND scope = 'once'
+        AND grantee_kind = 'member' AND revoked_at_ms IS NULL`,
+    values: [
+      input.profileId,
+      input.granteeUserId,
+      input.nowMs,
+      input.revokedByUserId,
+    ],
+  });
+  return result.rowCount ?? 0;
+}
+
 /** Whether a user belongs to the Organization (an external user does not). */
 export async function isOrganizationMember(input: {
   db: Queryable;

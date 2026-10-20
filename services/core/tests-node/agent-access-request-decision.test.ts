@@ -11,6 +11,7 @@ import {
 import {
   asQueryable,
   insertAgentAccessRequest,
+  readActiveAgentAccessGrants,
   readAgentAccessRequest,
   revokeAgentProfileAccessGrant,
 } from "../src/agent-access/infrastructure/postgresql/agent-access-repo";
@@ -220,7 +221,7 @@ describe("Agent access request decisions (member-agent-program.md §7)", () => {
 });
 
 describe("Always allowing a member after the fact", () => {
-  it("writes a standing grant with its own lifecycle and keeps the request's decision", async () => {
+  it("writes a standing grant that retires the one-chat grant and keeps the request's decision", async () => {
     await withHarness(async (harness) => {
       const requestId = await insertRequest(harness, "aar_1");
       await decide(harness, requestId, "allow_once");
@@ -240,11 +241,11 @@ describe("Always allowing a member after the fact", () => {
         request: await read(harness, requestId),
         viewerUserId: REQUESTER,
       });
-      // The one-chat answer and its grant stay as they were.
+      // The answer stays; the standing grant replaces its one-chat grant.
       expect(view).toMatchObject({
         status: "allowed",
         decision: "allow_once",
-        grant: { status: "active" },
+        grant: { status: "revoked", revokedAt: new Date(4000).toISOString() },
       });
       const again = await alwaysAllow(harness, REQUESTER);
       expect(again).toMatchObject({
@@ -257,6 +258,46 @@ describe("Always allowing a member after the fact", () => {
           values: [REQUESTER],
         })
       ).toEqual([{ scope: "always" }, { scope: "once" }]);
+    });
+  });
+
+  it("leaves no access in the original chat after the standing grant is revoked", async () => {
+    await withHarness(async (harness) => {
+      const requestId = await insertRequest(harness, "aar_1");
+      await decide(harness, requestId, "allow_once");
+      const standing = await alwaysAllow(harness, REQUESTER);
+      const before = await readActiveAgentAccessGrants({
+        db: asQueryable(harness.db),
+        granteeUserId: REQUESTER,
+        profileId: AGENT,
+        spaceId: "dm_aar_1",
+      });
+      expect(before).toEqual({ always: true, session: false });
+      await revokeAgentProfileAccessGrant({
+        db: asQueryable(harness.db),
+        grantId: standing.grant.id,
+        nowMs: 5000,
+        profileId: AGENT,
+        revokedByUserId: OWNER,
+      });
+      expect(
+        await readActiveAgentAccessGrants({
+          db: asQueryable(harness.db),
+          granteeUserId: REQUESTER,
+          profileId: AGENT,
+          spaceId: "dm_aar_1",
+        })
+      ).toEqual({ always: false, session: false });
+      expect(
+        await readAgentAccessRequestView({
+          db: harness.db,
+          request: await read(harness, requestId),
+          viewerUserId: REQUESTER,
+        })
+      ).toMatchObject({
+        decision: "allow_once",
+        grant: { status: "revoked" },
+      });
     });
   });
 

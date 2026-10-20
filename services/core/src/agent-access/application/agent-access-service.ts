@@ -21,6 +21,7 @@ import {
   readAgentAccessRequest,
   readAgentAccessRequestGrants,
   readAgentAccessRequestNames,
+  revokeSupersededOnceAgentAccessGrants,
   revokeVoidedRequestOnceGrants,
   transitionPendingAgentAccessRequest,
   voidUnappliedAgentAccessRequest,
@@ -203,8 +204,9 @@ function buildDecisionGrant(input: {
 
 /**
  * The owner always allows a member of the Organization, for example after
- * Allow once. A new standing grant with its own lifecycle; no request's
- * decision changes. The caller has checked that `ownerUserId` owns the
+ * Allow once. A new standing grant with its own lifecycle that retires the
+ * member's one-chat grants for the Profile, so removing it later removes
+ * access in every chat; no request's decision changes. The caller has checked that `ownerUserId` owns the
  * Profile. Idempotent while a standing grant is active.
  */
 export async function alwaysAllowAgentProfileMember(input: {
@@ -236,16 +238,27 @@ export async function alwaysAllowAgentProfileMember(input: {
       reason: "People outside your organization can only be allowed once.",
     });
   }
-  return await ensureStandingAgentProfileAccessGrant({
-    db,
-    grant: {
-      id: `apg_${crypto.randomUUID().replaceAll("-", "")}`,
-      organizationId: input.organizationId,
-      profileId: input.profileId,
+  return await input.db.transaction(async (client) => {
+    const tx = asQueryable(client);
+    const ensured = await ensureStandingAgentProfileAccessGrant({
+      db: tx,
+      grant: {
+        id: `apg_${crypto.randomUUID().replaceAll("-", "")}`,
+        organizationId: input.organizationId,
+        profileId: input.profileId,
+        granteeUserId: input.granteeUserId,
+        grantedByUserId: input.ownerUserId,
+        grantedAtMs: input.nowMs,
+      },
+    });
+    await revokeSupersededOnceAgentAccessGrants({
+      db: tx,
       granteeUserId: input.granteeUserId,
-      grantedByUserId: input.ownerUserId,
-      grantedAtMs: input.nowMs,
-    },
+      nowMs: input.nowMs,
+      profileId: input.profileId,
+      revokedByUserId: input.ownerUserId,
+    });
+    return ensured;
   });
 }
 

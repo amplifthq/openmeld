@@ -103,6 +103,21 @@ describe("resolveColleagueAccessState", () => {
 		);
 	});
 
+	it("is revoked in the original chat after an upgrade to always and its removal", () => {
+		// Upgrading retired the one-chat grant; the standing grant decides.
+		const upgraded = allowedOnce({ grant: revokedGrant });
+		expect(
+			resolve({
+				standingGrantProfileIds: ["agt_codex"],
+				requests: [upgraded],
+				spaceId: "dm_1",
+			})
+		).toBe("always_allowed");
+		// The owner removed the standing grant.
+		expect(resolve({ requests: [upgraded], spaceId: "dm_1" })).toBe("revoked");
+		expect(resolve({ requests: [upgraded] })).toBe("revoked");
+	});
+
 	it("never reads an allowed request without its grant as access", () => {
 		expect(resolve({ requests: [alwaysAllowed({ grant: null })] })).toBe(
 			"revoked"
