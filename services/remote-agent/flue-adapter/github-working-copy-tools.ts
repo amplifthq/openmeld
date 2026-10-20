@@ -754,6 +754,7 @@ async function prepareRequesterCheckoutObjects(input: {
   const imported = await advanceGitPackTransfer({
     storage: dependencies.storage,
     workspaceAccess: dependencies.workspaceAccess,
+    invocationId: dependencies.context.submissionId,
     operationId,
     location: record,
     expiresAtMs: record.expiresAtMs,

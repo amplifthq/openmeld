@@ -82,7 +82,7 @@ describe("Git pack working-copy transport", () => {
       new Response(gitUploadPackBytes(failure, () => undefined)).arrayBuffer()
     ).rejects.toThrow("github.checkout.git_remote_rejected");
   });
-  it("restarts a lost retained transfer at most once per retry", async () => {
+  it("does not replay a historical detached import without a Computer receipt", async () => {
     const storage = new InMemoryDurableObjectStorage();
     const exec = vi.fn(async () => ({ [Symbol.dispose]: () => undefined }));
     const getExec = vi.fn(() =>
@@ -97,6 +97,7 @@ describe("Git pack working-copy transport", () => {
     } as unknown as WorkspaceClient;
     const input = {
       storage,
+      invocationId: "new-invocation",
       workspaceAccess: {
         withWorkspace: async <T>(run: (value: WorkspaceClient) => Promise<T>) =>
           await run(workspace),
@@ -116,10 +117,16 @@ describe("Git pack working-copy transport", () => {
       },
       expiresAtMs: Date.now() + 60_000,
     };
-    expect(await advanceGitPackTransfer(input)).toBe("running");
-    expect(await advanceGitPackTransfer(input)).toBe("running");
-    expect(exec).toHaveBeenCalledTimes(2);
-    expect(getExec).toHaveBeenCalledTimes(1);
+    await storage.put("github-working-copy:git-transfer:operation-2", {
+      id: "historical-native-id",
+      operationId: "operation-2",
+      attempt: 1,
+    });
+    await expect(advanceGitPackTransfer(input)).rejects.toThrow(
+      "github.checkout.git_transfer_result_unconfirmed"
+    );
+    expect(exec).not.toHaveBeenCalled();
+    expect(getExec).not.toHaveBeenCalled();
   });
 
   it("fetches pinned source and baseline objects without storing credentials or upstream history as the working copy", () => {

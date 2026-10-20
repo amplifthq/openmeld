@@ -26,6 +26,7 @@ export const gatewayErrorCodeSchema = z.enum([
   "invalid_space_id",
   "hello_required",
   "gateway.misconfigured",
+  "gateway.public_read_rate_limited",
   "auth.invalid_origin",
   "auth.unauthenticated",
   "account.avatar.conflict",

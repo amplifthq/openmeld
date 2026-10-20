@@ -798,6 +798,21 @@ and release evidence are owned by
 
 ## Known Guardrails
 
+Public read cost controls use native Rate Limiting bindings, not KV counters.
+Gateway's `OPENMELD_PUBLIC_READ_RATE_LIMITER` (namespace `1005`) allows 1,200
+public-readable Space requests per client IP per minute before Auth/Core calls.
+Web's `OPENMELD_CLI_DOWNLOAD_RATE_LIMITER` (namespace `1006`) allows 600 CLI
+release requests per client IP per minute. Environment prefixes separate keys.
+Both bindings are declared in every owning Worker environment. The generous
+limits accommodate shared networks; they are per Cloudflare location and are
+not account spending caps. They do not affect writes, task execution, or streams.
+
+Web caches only successful public CLI GET responses. The stable manifest retains
+its 60-second cache lifetime; immutable artifacts retain their existing lifetime.
+Unknown query parameters do not change the cache key, while the Windows preview
+channel stays separate. HEAD misses read only R2 metadata and never populate
+bodyless GET entries. Space responses remain private and uncached.
+
 1. `services/core` must not depend on an implicit `NODE_ENV`; Cloudflare Workers only expose what the Worker config or secret storage provides.
 2. `clients/web` URL config is not secret. Keep it in `wrangler.jsonc`, not in Cloudflare secret storage.
 3. Wrangler `secrets.required` currently emits an experimental warning in `wrangler` `4.82.0`. Use it as a contract guard, not as a replacement for real Cloudflare Worker secret storage.

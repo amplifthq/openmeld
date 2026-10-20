@@ -1,4 +1,7 @@
-import { cloudComputerRecoveryResultSchema } from "@openmeld/schemas";
+import {
+  type CloudComputerOperation,
+  cloudComputerRecoveryResultSchema,
+} from "@openmeld/schemas";
 import { optional, parse, picklist, strictObject, string } from "valibot";
 import {
   type RemoteAgentCallbackContext,
@@ -26,6 +29,38 @@ type RecoveryInput = {
   env: { AGENT_COMPUTER?: unknown };
   computerName?: string;
 };
+
+/** An original invocation/key is also a recovery address when a launch reply
+ * was lost. It needs the same scope check as a complete command reference. */
+export async function authorizeComputerObservation(
+  input: Omit<RecoveryInput, "storage"> & {
+    storage?: RemoteAgentStorage;
+    operation: CloudComputerOperation;
+  }
+): Promise<CloudComputerOperation> {
+  const operation = input.operation;
+  if (
+    operation.action !== "command" ||
+    operation.command.action === "start" ||
+    operation.command.action === "list"
+  ) {
+    return operation;
+  }
+  const invocationId =
+    operation.command.reference?.invocationId ?? operation.invocationId;
+  if (invocationId === input.context.submissionId) {
+    return { ...operation, invocationId };
+  }
+  if (!input.storage) {
+    throw new Error("computer.recovery_storage_unavailable");
+  }
+  const original = await requireComputerRecoveryContext({
+    ...input,
+    storage: input.storage,
+    invocationId,
+  });
+  return { ...operation, invocationId: original.submissionId };
+}
 
 async function readRecoveryTarget(input: RecoveryInput) {
   if (!input.computerName) {

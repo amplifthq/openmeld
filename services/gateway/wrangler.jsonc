@@ -54,6 +54,11 @@
   ],
   "ratelimits": [
     {
+      "name": "OPENMELD_PUBLIC_READ_RATE_LIMITER",
+      "namespace_id": "1005",
+      "simple": { "limit": 1200, "period": 60 }
+    },
+    {
       "name": "OPENMELD_FEEDBACK_IP_RATE_LIMITER",
       "namespace_id": "1001",
       "simple": { "limit": 10, "period": 60 }
@@ -155,6 +160,11 @@
         }
       ],
       "ratelimits": [
+        {
+          "name": "OPENMELD_PUBLIC_READ_RATE_LIMITER",
+          "namespace_id": "1005",
+          "simple": { "limit": 1200, "period": 60 }
+        },
         {
           "name": "OPENMELD_FEEDBACK_IP_RATE_LIMITER",
           "namespace_id": "1001",
@@ -259,6 +269,11 @@
       ],
       "ratelimits": [
         {
+          "name": "OPENMELD_PUBLIC_READ_RATE_LIMITER",
+          "namespace_id": "1005",
+          "simple": { "limit": 1200, "period": 60 }
+        },
+        {
           "name": "OPENMELD_FEEDBACK_IP_RATE_LIMITER",
           "namespace_id": "2001",
           "simple": { "limit": 10, "period": 60 }
@@ -354,6 +369,11 @@
         }
       ],
       "ratelimits": [
+        {
+          "name": "OPENMELD_PUBLIC_READ_RATE_LIMITER",
+          "namespace_id": "1005",
+          "simple": { "limit": 1200, "period": 60 }
+        },
         {
           "name": "OPENMELD_FEEDBACK_IP_RATE_LIMITER",
           "namespace_id": "1001",
