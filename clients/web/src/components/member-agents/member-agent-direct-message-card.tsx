@@ -5,6 +5,7 @@ import type {
 	SpaceMembersSnapshot,
 } from "@openmeld/schemas/types";
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
+import { cn } from "@openmeld/ui/lib/utils";
 import {
 	CheckCircleIcon,
 	CircleNotchIcon,
@@ -12,6 +13,16 @@ import {
 	WifiSlashIcon,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import {
+	Message,
+	MessageContent,
+	MessageHeader,
+} from "#/components/spaces/primitives/message";
+import { SpaceAgentIssueRecoveryAction } from "#/components/spaces/space-agent-recovery-context";
+import { resolveSpaceMessageRowLayoutClassName } from "#/components/spaces/space-message-bubble-style";
+import { SpaceMessageProfileAvatar } from "#/components/spaces/space-message-profile-avatar";
+import { SpaceMessageTime } from "#/components/spaces/space-message-time";
 import { isMemberAgentsEnabled } from "#/lib/member-agents/member-agents-feature";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { resolveAgentProfileModel } from "#/lib/profiles/agent-profile-model-display";
@@ -20,7 +31,6 @@ import {
 	type DirectMessageMemberAgent,
 	resolveDirectMessageMemberAgent,
 } from "./member-agent-chat-history";
-import { HarnessLogo } from "./member-agent-directory-section";
 import { useMemberAgentIndex } from "./use-member-agents";
 
 export type MemberAgentDirectMessageCardModel =
@@ -34,17 +44,19 @@ export type MemberAgentDirectMessageCardModel =
 			kind: "checking" | "offline" | "repair";
 			title: string;
 			description: string;
+			/** Overrides the recovery plan's own action label. */
+			actionLabel?: string;
 	  };
 
 /**
  * One presentation card per problem for a MemberAgent Direct Message,
  * updated in place; never a published message. Driven by the Profile's four
  * Wakeability states and, when Core has exact evidence, its public
- * Wakeability reason.
+ * Wakeability reason. The card is shown as posted by the Agent, so titles
+ * name the state, not the Agent.
  */
 export function resolveMemberAgentDirectMessageCard(input: {
 	entry: SpaceMemberDirectoryEntry;
-	memberAgentName: string;
 	modelCatalog: ModelCatalog | null;
 	reason?: PublicWakeabilityReason | null;
 	/** Whether this Session already has messages. */
@@ -59,14 +71,15 @@ export function resolveMemberAgentDirectMessageCard(input: {
 	) {
 		return {
 			kind: "repair",
-			title: `${input.memberAgentName} needs a working folder`,
+			title: "Working folder missing",
 			description: input.hasMessages
-				? "Choose a working folder before its next task."
-				: "Choose a working folder before its first task.",
+				? "Choose a working folder before the next task."
+				: "Choose a working folder before the first task.",
+			actionLabel: "Choose working folder",
 		};
 	}
 	if (input.reason && entry.availabilityCategory !== "available") {
-		return resolveReasonCard(input.reason, input.memberAgentName);
+		return resolveReasonCard(input.reason);
 	}
 	switch (entry.availabilityCategory) {
 		case "available": {
@@ -93,7 +106,7 @@ export function resolveMemberAgentDirectMessageCard(input: {
 			];
 			return {
 				kind: "welcome",
-				title: `${input.memberAgentName} is ready`,
+				title: "Ready to work",
 				details,
 				note: resolvePermissionModeNote(entry),
 			};
@@ -101,15 +114,17 @@ export function resolveMemberAgentDirectMessageCard(input: {
 		case "offline":
 			return {
 				kind: "offline",
-				title: `${input.memberAgentName} is offline`,
+				title: entry.availabilityBadgeLabel ?? "Offline",
 				description:
 					entry.availabilitySummary ??
 					"Its computer isn’t connected. Messages wait until it’s back.",
 			};
 		case "unavailable":
+			// Harness missing, setup failed, and the other readiness reasons
+			// carry their own shared public copy on the directory entry.
 			return {
 				kind: "repair",
-				title: `${input.memberAgentName} needs attention`,
+				title: entry.availabilityBadgeLabel ?? "Needs attention",
 				description:
 					entry.availabilitySummary ??
 					"This Agent can’t start work right now. Open its settings to fix it.",
@@ -117,7 +132,7 @@ export function resolveMemberAgentDirectMessageCard(input: {
 		default:
 			return {
 				kind: "checking",
-				title: `Checking ${input.memberAgentName}`,
+				title: "Checking availability",
 				description: "OpenMeld is checking whether this Agent can start work.",
 			};
 	}
@@ -133,48 +148,47 @@ function resolvePermissionModeNote(
 }
 
 function resolveReasonCard(
-	reason: PublicWakeabilityReason,
-	memberAgentName: string
+	reason: PublicWakeabilityReason
 ): MemberAgentDirectMessageCardModel {
 	switch (reason.code) {
 		case "computer_offline":
 			return {
 				kind: "offline",
-				title: `${memberAgentName} is offline`,
+				title: "Offline",
 				description:
 					"Its computer isn’t connected. Messages wait until it’s back.",
 			};
 		case "not_signed_in":
 			return {
 				kind: "repair",
-				title: `${memberAgentName} needs you to sign in`,
+				title: "Not signed in",
 				description:
 					"The harness isn’t signed in on its computer. Sign in there, then send your message again.",
 			};
 		case "no_subscription":
 			return {
 				kind: "repair",
-				title: `${memberAgentName} has no active plan`,
+				title: "No active plan",
 				description:
 					"The harness account on its computer has no active subscription. Renew it, then try again.",
 			};
 		case "org_disabled":
 			return {
 				kind: "repair",
-				title: `${memberAgentName} is turned off here`,
+				title: "Turned off here",
 				description:
 					"This harness is turned off for its account’s organization. Ask that account’s admin to turn it on.",
 			};
 		case "version_too_old":
 			return {
 				kind: "repair",
-				title: `${memberAgentName} needs an update`,
+				title: "Update needed",
 				description: `The installed harness can’t run ${reason.modelId}. Update it on its computer, or choose another model.`,
 			};
 		case "usage_exhausted":
 			return {
 				kind: "repair",
-				title: `${memberAgentName} reached its usage limit`,
+				title: "Usage limit reached",
 				description: reason.resetAt
 					? `It can work again after ${new Date(reason.resetAt).toLocaleString(
 							"en-US",
@@ -185,7 +199,7 @@ function resolveReasonCard(
 		default:
 			return {
 				kind: "repair",
-				title: `${memberAgentName} needs attention`,
+				title: "Needs attention",
 				description: "This Agent can’t start work right now.",
 			};
 	}
@@ -203,61 +217,114 @@ const CARD_ICON = {
 	welcome: CheckCircleIcon,
 } as const;
 
+/**
+ * The card as a message row posted by the Agent: its avatar, name, and the
+ * time this view first showed the state, with the card as the body. The time
+ * is presentation only; nothing is published.
+ */
 export function MemberAgentDirectMessageCard(input: {
 	current: DirectMessageMemberAgent;
+	entry: SpaceMemberDirectoryEntry;
 	model: MemberAgentDirectMessageCardModel;
 }) {
+	const [shownAtMs] = useState(() => Date.now());
 	const Icon = CARD_ICON[input.model.kind];
+	const name = input.current.memberAgent.displayName;
 	return (
-		<section
-			aria-label={input.model.title}
-			className="mx-auto my-4 w-full max-w-2xl rounded-xl border bg-card px-5 py-4 text-sm"
+		<Message
+			className={cn(
+				resolveSpaceMessageRowLayoutClassName({
+					isFirstInGroup: true,
+					isLastInGroup: true,
+				}),
+				"px-0"
+			)}
 			data-member-agent-card={input.model.kind}
 		>
-			<div className="flex items-center gap-3">
-				<HarnessLogo
-					harnessKind={input.current.memberAgent.harnessKind}
-					size={32}
-				/>
-				<h2 className="flex min-w-0 flex-1 items-center gap-2 font-medium">
-					<span className="truncate">{input.model.title}</span>
-					<Icon
-						aria-hidden="true"
-						className={
-							input.model.kind === "repair"
-								? "size-4 shrink-0 text-destructive"
-								: "size-4 shrink-0 text-muted-foreground"
-						}
+			<MessageContent className="w-full min-w-0 gap-1.5">
+				<MessageHeader className="items-center gap-1.5 px-0">
+					<SpaceMessageProfileAvatar
+						agentControllerRef={input.entry.agentControllerRef}
+						avatarImageUrl={input.entry.avatarUrl}
+						avatarModelId={input.entry.avatarModelId}
+						avatarStyle={input.entry.avatarStyle}
+						displayName={name}
+						profileId={input.entry.profileId}
+						profileKind="agent"
+						responsive
 					/>
-				</h2>
-			</div>
-			{input.model.kind === "welcome" ? (
-				<>
-					<dl className="mt-3 grid gap-x-4 gap-y-1.5 sm:grid-cols-[auto_1fr]">
-						{input.model.details.map((detail) => (
-							<div className="contents" key={detail.label}>
-								<dt className="text-muted-foreground">{detail.label}</dt>
-								<dd className="min-w-0 truncate">{detail.value}</dd>
-							</div>
-						))}
-					</dl>
-					{input.model.note ? (
-						<p className="mt-3 text-muted-foreground text-xs">
-							{input.model.note}
-						</p>
-					) : null}
-				</>
-			) : (
-				<p className="mt-2 text-muted-foreground">{input.model.description}</p>
-			)}
-		</section>
+					<span className="min-w-0 truncate">{name}</span>
+					<SpaceMessageTime
+						createdAtMs={shownAtMs}
+						isDirectMessage={false}
+						placement="header"
+					/>
+				</MessageHeader>
+				<section
+					aria-label={input.model.title}
+					className="w-full max-w-xl rounded-lg border bg-card px-4 py-3 text-sm"
+				>
+					<h2 className="flex min-w-0 items-center gap-2 font-medium">
+						<Icon
+							aria-hidden="true"
+							className={
+								input.model.kind === "repair"
+									? "size-4 shrink-0 text-destructive"
+									: "size-4 shrink-0 text-muted-foreground"
+							}
+						/>
+						<span className="truncate">{input.model.title}</span>
+					</h2>
+					{input.model.kind === "welcome" ? (
+						<>
+							<dl className="mt-3 grid gap-x-4 gap-y-1.5 sm:grid-cols-[auto_1fr]">
+								{input.model.details.map((detail) => (
+									<div className="contents" key={detail.label}>
+										<dt className="text-muted-foreground">{detail.label}</dt>
+										<dd className="min-w-0 truncate">{detail.value}</dd>
+									</div>
+								))}
+							</dl>
+							{input.model.note ? (
+								<p className="mt-3 text-muted-foreground text-xs">
+									{input.model.note}
+								</p>
+							) : null}
+						</>
+					) : (
+						<>
+							<p className="mt-1 text-muted-foreground">
+								{input.model.description}
+							</p>
+							{input.model.kind === "checking" ? null : (
+								<div className="mt-3 flex flex-col items-start gap-2 empty:hidden">
+									<SpaceAgentIssueRecoveryAction
+										actionLabel={input.model.actionLabel}
+										className="mt-0"
+										profileId={input.entry.profileId}
+									/>
+								</div>
+							)}
+						</>
+					)}
+				</section>
+			</MessageContent>
+		</Message>
 	);
 }
 
 export type MemberAgentDirectMessageCardState = {
 	current: DirectMessageMemberAgent;
+	entry: SpaceMemberDirectoryEntry;
 	model: MemberAgentDirectMessageCardModel;
 };
+
+/** Whether the card reports a problem, so it owns that problem's fix. */
+export function isMemberAgentIssueCard(
+	card: MemberAgentDirectMessageCardState | null
+): boolean {
+	return card?.model.kind === "repair" || card?.model.kind === "offline";
+}
 
 /**
  * The card for the signed-in member's current MemberAgent Direct Message, or
@@ -322,7 +389,6 @@ function useEnabledMemberAgentDirectMessageCard(input: {
 	}
 	const model = resolveMemberAgentDirectMessageCard({
 		entry,
-		memberAgentName: current.memberAgent.displayName,
 		modelCatalog: input.modelCatalog,
 		hasMessages: input.hasMessages,
 		reason:
@@ -333,5 +399,5 @@ function useEnabledMemberAgentDirectMessageCard(input: {
 	// The welcome card belongs to an empty Session; repair cards stay.
 	return model.kind === "welcome" && input.hasMessages
 		? null
-		: { current, model };
+		: { current, entry, model };
 }

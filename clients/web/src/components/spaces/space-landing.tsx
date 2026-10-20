@@ -135,6 +135,7 @@ import { DirectMessageConversionDialog } from "./direct-message-conversion-dialo
 import { isManualOnlyAgentRecoveryPlan } from "./space-agent-manual-participation";
 import { SpaceAgentProfileEditProvider } from "./space-agent-profile-edit-context";
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
+import { SpaceAgentRecoveryProvider } from "./space-agent-recovery-context";
 import type { SpaceAutomaticWakeComposerHintKind } from "./space-composer-copy";
 import type { SpaceComposerEditorHandle } from "./space-composer-editor";
 import { SpaceConversationPanel } from "./space-conversation-panel";
@@ -1977,7 +1978,17 @@ function SpaceLandingConversationShell({
 				spaceId={controller.spaceId}
 				view={spaceView}
 			>
-				<MessageActionTooltipProvider>{content}</MessageActionTooltipProvider>
+				<MessageActionTooltipProvider>
+					<SpaceAgentRecoveryProvider
+						isAgentRecoveryPending={controller.isAgentRecoveryPending}
+						onAgentRecoveryAction={state.handleAgentRecoveryAction}
+						orgSlug={input.orgSlug}
+						plansByProfileId={state.agentRecoveryPlansByProfileId}
+						prepareSetupHref={prepareSetupHref}
+					>
+						{content}
+					</SpaceAgentRecoveryProvider>
+				</MessageActionTooltipProvider>
 			</SpaceReadingHeaderProvider>
 		</SpacePinsProvider>
 	);
