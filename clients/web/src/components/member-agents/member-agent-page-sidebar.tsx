@@ -79,9 +79,15 @@ export function MemberAgentPageSidebar(input: {
 				},
 		archived: state === "archived",
 	});
-	const emptyLabel =
-		state === "archived" ? "No archived chats." : "No chats yet.";
 	const noChats = sections.every((section) => section.items.length === 0);
+	// An empty list with an action shows only the action, never both.
+	const showEmptyAction =
+		state === "active" && noChats && Boolean(input.emptyAction);
+	let emptyLabel: string | undefined =
+		state === "archived" ? "No archived chats." : "No chats yet.";
+	if (showEmptyAction) {
+		emptyLabel = undefined;
+	}
 	const groups: AppContextualNavGroup[] =
 		input.profiles.length > 1
 			? [
@@ -136,12 +142,10 @@ export function MemberAgentPageSidebar(input: {
 							{singleSection.notice}
 						</p>
 					) : null}
-					{singleSection && singleSection.items.length === 0 ? (
+					{emptyLabel && singleSection && singleSection.items.length === 0 ? (
 						<p className="px-1 text-muted-foreground text-xs">{emptyLabel}</p>
 					) : null}
-					{state === "active" && noChats && input.emptyAction ? (
-						<div className="px-1">{input.emptyAction}</div>
-					) : null}
+					{showEmptyAction ? input.emptyAction : null}
 				</div>
 			}
 			placement="module"
@@ -239,7 +243,7 @@ function MemberAgentProfileNav(input: {
 	defaultProfileId: string | null;
 	activeProfileId: string | null;
 	sections: readonly SidebarNestedNavSection[];
-	emptyLabel: string;
+	emptyLabel: string | undefined;
 	onSelectProfile: (profileId: string) => void;
 }) {
 	const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());

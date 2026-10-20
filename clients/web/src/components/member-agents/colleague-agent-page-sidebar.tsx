@@ -95,6 +95,7 @@ function ColleagueAgentChatButton(input: { profile: AuthProfileView }) {
 			: "Chat";
 	const button = (
 		<Button
+			className="w-full"
 			disabled={
 				unavailable !== null ||
 				directMessage.pendingProfileId === input.profile.openMeldProfileId
@@ -113,7 +114,7 @@ function ColleagueAgentChatButton(input: { profile: AuthProfileView }) {
 	);
 	return unavailable ? (
 		<TooltipHint content={`Can’t start work right now: ${unavailable}.`}>
-			<span className="inline-flex">{button}</span>
+			<span className="flex w-full">{button}</span>
 		</TooltipHint>
 	) : (
 		button

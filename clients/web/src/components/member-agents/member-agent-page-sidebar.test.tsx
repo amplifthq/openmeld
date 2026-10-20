@@ -175,9 +175,10 @@ describe("MemberAgentPageSidebar", () => {
 			},
 			archived: false,
 		});
-		expect(screen.getByText("No chats yet.")).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Ask to use" })).toBeTruthy();
+		expect(screen.queryByText("No chats yet.")).toBeNull();
 		fireEvent.click(screen.getByRole("tab", { name: "Archived" }));
 		expect(screen.queryByRole("button", { name: "Ask to use" })).toBeNull();
+		expect(screen.getByText("No archived chats.")).toBeTruthy();
 	});
 });
