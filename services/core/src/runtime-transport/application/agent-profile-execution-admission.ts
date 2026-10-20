@@ -2892,6 +2892,21 @@ function resolveContextMigrationAdmission(input: {
   return { plan: input.plan, reasonCode };
 }
 
+function collectOutstandingExecutionContextIds(
+  admission: AgentProfileExecutionAdmissionRecord
+): Set<string> {
+  const gate = admission.recoveryGate;
+  return new Set(
+    [
+      ...admission.workItems,
+      ...(gate ? [gate.interruptedWork] : []),
+      ...(gate?.additionalInterruptedWork ?? []),
+    ].flatMap((item) =>
+      item.executionContextId ? [item.executionContextId] : []
+    )
+  );
+}
+
 function shouldStartIndependentClaudeContext(input: {
   admission: AgentProfileExecutionAdmissionRecord;
   record: RuntimeCoordinatorHeadLifecycleRecord;
@@ -2961,6 +2976,8 @@ async function writeRuntimeCoordinatorHeadLifecycleWithAdmissionInTransaction(in
   try {
     contextPlan = await prepareExecutionContextAssignment({
       contextModeActive,
+      outstandingExecutionContextIds:
+        collectOutstandingExecutionContextIds(admission),
       startIndependentClaudeContext: shouldStartIndependentClaudeContext({
         admission,
         record: input.record,

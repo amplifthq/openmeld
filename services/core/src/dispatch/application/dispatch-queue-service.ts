@@ -1717,7 +1717,9 @@ const settleRuntimeCoordinatorHeadAdmissionResponse = async (input: {
       status: "context_rejected",
       reasonCode: response.reasonCode,
       errorMessage:
-        "This task's background could not be verified. Choose a task from this conversation to continue or fork, or start a new task.",
+        response.reasonCode === "execution_context.selection_required"
+          ? "This Agent has more than one task in progress in this conversation. Choose the task to continue, or start a new task."
+          : "This task's background could not be verified. Choose a task from this conversation to continue or fork, or start a new task.",
     };
   }
   if (!response.ok && response.status === "retry_later") {

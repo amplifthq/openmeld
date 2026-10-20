@@ -4524,10 +4524,16 @@ describe("runtime transport runtime coordinator transport contract", () => {
       spaceId: HEX_SPACE_ID,
       targetProfileId: TARGET_AGENT_PROFILE_ID,
     });
-    const selectNextContext = (mode: "auto" | "resume" = "auto") =>
+    const selectNextContext = (
+      mode: "auto" | "resume" = "auto",
+      outstandingExecutionContextIds: string[] = []
+    ) =>
       storage.transaction((transaction) =>
         prepareExecutionContextAssignment({
           contextModeActive: true,
+          outstandingExecutionContextIds: new Set(
+            outstandingExecutionContextIds
+          ),
           storage: transaction,
           record: {
             ...fork.record,
@@ -4554,7 +4560,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
           },
         })
       );
-    await expect(selectNextContext()).rejects.toThrow("selection_required");
+    // Both branches are ambiguous only while the original still holds work.
+    await expect(
+      selectNextContext("auto", [response.executionContext.id])
+    ).rejects.toThrow("selection_required");
     const replacement = fork.record.acceptedDispatchSnapshot?.executionContext;
     if (!replacement) {
       throw new Error("Expected replacement context");
@@ -4575,6 +4584,107 @@ describe("runtime transport runtime coordinator transport contract", () => {
       (await selectNextContext("resume")).record.acceptedDispatchSnapshot
         ?.executionContext?.id
     ).toBe(response.executionContext.id);
+  });
+  it("continues the latest discussion context and starts fresh once its execution target changes", async () => {
+    const { hub, storageRecords } = await createContextHarness();
+    const root = contextMigrationRequest("latest-root");
+    await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      root
+    );
+    const head = storageRecords.get(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        root.targetWakeLifecycleIdentity.targetWakeLifecycleId
+      )
+    ) as RuntimeCoordinatorHeadLifecycleRecord;
+    const snapshot = head.acceptedDispatchSnapshot;
+    const rootContextId = snapshot?.executionContext?.id;
+    if (!(snapshot?.contextRequest && rootContextId)) {
+      throw new Error("Expected the accepted root context");
+    }
+    const contextRequest = snapshot.contextRequest;
+    const storage = (
+      hub as unknown as { ctx: { storage: DurableObjectStorage } }
+    ).ctx.storage;
+    const admit = async (
+      id: string,
+      selection: NonNullable<typeof snapshot.contextRequest>["selection"],
+      input: {
+        openMeldServiceRuntimeId?: string;
+        outstanding?: string[];
+      } = {}
+    ) => {
+      const identity = projectTargetWakeLifecycleIdentity({
+        clientMessageId: id,
+        dispatchId: id,
+        sourceSignalId: id,
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      });
+      const plan = await storage.transaction((transaction) =>
+        prepareExecutionContextAssignment({
+          contextModeActive: true,
+          outstandingExecutionContextIds: new Set(input.outstanding ?? []),
+          storage: transaction,
+          record: {
+            ...head,
+            primaryDispatchId: id,
+            targetWakeLifecycleId: identity.targetWakeLifecycleId,
+            targetWakeLifecycleIdentity: identity,
+            acceptedDispatchSnapshot: {
+              ...snapshot,
+              executionContext: undefined,
+              openMeldServiceRuntimeId:
+                input.openMeldServiceRuntimeId ??
+                snapshot.openMeldServiceRuntimeId,
+              contextRequest: {
+                ...contextRequest,
+                required: selection.mode !== "auto",
+                selection,
+              },
+            },
+          },
+        })
+      );
+      for (const [writeKey, value] of Object.entries(plan.writes)) {
+        await storage.put(writeKey, value);
+      }
+      return plan.record.acceptedDispatchSnapshot?.executionContext?.id;
+    };
+
+    const fresh = await admit("latest-fresh", {
+      mode: "new",
+      access: "space_context",
+      workspace: "isolated",
+    });
+    expect(fresh).toBeDefined();
+    expect(fresh).not.toBe(rootContextId);
+    // A plain mention continues the newest branch rather than failing.
+    expect(await admit("latest-plain", { mode: "auto" })).toBe(fresh);
+    // Another branch of the discussion that still holds work is ambiguous.
+    await expect(
+      admit(
+        "latest-ambiguous",
+        { mode: "auto" },
+        { outstanding: [rootContextId] }
+      )
+    ).rejects.toThrow("execution_context.selection_required");
+    // The newest branch belongs to another Service runtime: start fresh.
+    const moved = await admit(
+      "latest-moved",
+      { mode: "auto" },
+      { openMeldServiceRuntimeId: "runtime-moved" }
+    );
+    expect(moved).toBeDefined();
+    expect([rootContextId, fresh]).not.toContain(moved);
+    expect(
+      await admit(
+        "latest-after-move",
+        { mode: "auto" },
+        { openMeldServiceRuntimeId: "runtime-moved" }
+      )
+    ).toBe(moved);
   });
   it.each([
     { agentControllerRef: "builtin:codex", confirmsOwnBoundary: true },
