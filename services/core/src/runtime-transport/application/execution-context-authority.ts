@@ -30,8 +30,11 @@ const ASSOCIATION_PREFIX = "runtime-coordinator:execution-context-scope:v1:";
 const LATEST_ASSOCIATION_PREFIX =
   "runtime-coordinator:execution-context-scope-latest:v1:";
 // Scopes accepted before the latest index existed are resolved by a bounded
-// scan; a larger history asks for an explicit choice instead of guessing.
+// scan; a larger or unverifiable history asks for an explicit choice instead of
+// guessing.
 const LATEST_ASSOCIATION_BACKFILL_LIMIT = 32;
+const HISTORY_SELECTION_REQUIRED =
+  "execution_context.history_selection_required";
 const WAKE_CONTEXT_PREFIX = "runtime-coordinator:execution-context-wake:v1:";
 type ContextRecord = {
   legacyAssociation?: LegacyContextAssociation;
@@ -430,7 +433,7 @@ export async function prepareExecutionContextAssignment(
       "execution_context.fork_unsupported"
     );
   }
-  const source = await resolveContextSource(input, request);
+  const source = await resolveContextSource(input, request, snapshot);
   if (source) {
     assertContextBinding(source.context, snapshot);
     if (!sameScope(source.context.assignment.scope, request.scope)) {
@@ -609,14 +612,15 @@ async function resumeAuthorizedWork(
 
 async function resolveContextSource(
   input: AssignmentInput,
-  request: ContextRequest
+  request: ContextRequest,
+  snapshot: AcceptedSnapshot
 ): Promise<ContextSource | null> {
   const selection = request.selection;
   if (selection.mode === "new") {
     return null;
   }
   if (selection.mode === "auto") {
-    return await resolveAutoContextSource(input, request);
+    return await resolveAutoContextSource(input, request, snapshot);
   }
   const wake = readWakeContext(
     await input.storage.get(wakeContextKey(selection.sourceWakeId))
@@ -640,21 +644,23 @@ async function resolveContextSource(
 /**
  * Continues the discussion's most recently accepted context.
  *
- * Another context of the same scope that still holds work makes the choice
- * ambiguous, so the requester must pick one. A latest context bound to another
- * Binding, Service runtime, or Controller cannot run here: the Wake starts a
- * fresh context instead of failing, and the retained history stays queryable.
+ * Another context of the same scope that still holds work on this execution
+ * target makes the choice ambiguous, so the requester must pick one. A latest
+ * context bound to another Binding, Service runtime, or Controller cannot run
+ * here: the Wake starts a fresh context instead of failing, and the retained
+ * history stays queryable.
  */
 async function resolveAutoContextSource(
   input: AssignmentInput,
-  request: ContextRequest
+  request: ContextRequest,
+  snapshot: AcceptedSnapshot
 ): Promise<ContextSource | null> {
   const latestContextId = await readLatestScopeContextId(
     input.storage,
     request.scope
   );
   const candidates = new Set(
-    await listOutstandingScopeContextIds(input, request.scope)
+    await listOutstandingScopeContextIds(input, request.scope, snapshot)
   );
   if (latestContextId) {
     candidates.add(latestContextId);
@@ -671,8 +677,7 @@ async function resolveAutoContextSource(
   const context = requireContext(
     await input.storage.get(CONTEXT_PREFIX + contextId)
   );
-  const snapshot = input.record.acceptedDispatchSnapshot;
-  if (snapshot && !isContextOnExecutionTarget(context, snapshot)) {
+  if (!isContextOnExecutionTarget(context, snapshot)) {
     console.info(
       "[core.runtime_transport.execution_context_auto_fresh_after_target_change]",
       {
@@ -695,35 +700,89 @@ async function readLatestScopeContextId(
   if (typeof pointer?.contextId === "string" && pointer.contextId) {
     return pointer.contextId;
   }
-  const associations = await storage.list<{ contextId: string }>({
-    prefix: `${ASSOCIATION_PREFIX + scopeKey(scope)}:`,
-    limit: LATEST_ASSOCIATION_BACKFILL_LIMIT + 1,
-  });
-  if (associations.size > LATEST_ASSOCIATION_BACKFILL_LIMIT) {
-    throw new ExecutionContextSelectionError(
-      "execution_context.selection_required"
-    );
-  }
-  const contextKeys = [...associations.values()].map(
-    (association) => CONTEXT_PREFIX + association.contextId
-  );
-  if (contextKeys.length === 0) {
+  const associations = [
+    ...(
+      await storage.list<unknown>({
+        prefix: `${ASSOCIATION_PREFIX + scopeKey(scope)}:`,
+        limit: LATEST_ASSOCIATION_BACKFILL_LIMIT + 1,
+      })
+    ).values(),
+  ];
+  if (associations.length === 0) {
     return null;
   }
-  const contexts = await storage.get<unknown>(contextKeys);
-  let latest: ContextRecord | null = null;
-  for (const key of contextKeys) {
-    const context = requireContext(contexts.get(key));
-    if (!latest || context.createdAtMs > latest.createdAtMs) {
-      latest = context;
+  if (associations.length > LATEST_ASSOCIATION_BACKFILL_LIMIT) {
+    throw new ExecutionContextSelectionError(HISTORY_SELECTION_REQUIRED);
+  }
+  // Each association names the last Wake accepted into its context; that
+  // Wake's head was written in the same transaction, so its creation time
+  // orders the contexts. A context's own creation time does not move when it
+  // is continued, so it cannot stand in for this order.
+  const accepted = associations.map(readScopeAssociation);
+  const heads = await storage.get<unknown>(
+    accepted.map((association) =>
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        association.targetWakeLifecycleId
+      )
+    )
+  );
+  let latest: { contextId: string; acceptedAtMs: number } | null = null;
+  let tied = false;
+  for (const association of accepted) {
+    const head = heads.get(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        association.targetWakeLifecycleId
+      )
+    );
+    if (
+      !isRuntimeCoordinatorHeadLifecycleRecord(head) ||
+      head.acceptedDispatchSnapshot?.executionContext?.id !==
+        association.contextId
+    ) {
+      throw new ExecutionContextSelectionError(HISTORY_SELECTION_REQUIRED);
+    }
+    if (!latest || head.createdAtMs > latest.acceptedAtMs) {
+      latest = {
+        contextId: association.contextId,
+        acceptedAtMs: head.createdAtMs,
+      };
+      tied = false;
+    } else if (head.createdAtMs === latest.acceptedAtMs) {
+      tied = true;
     }
   }
-  return latest?.assignment.id ?? null;
+  if (tied) {
+    throw new ExecutionContextSelectionError(HISTORY_SELECTION_REQUIRED);
+  }
+  return latest?.contextId ?? null;
+}
+
+function readScopeAssociation(value: unknown): {
+  contextId: string;
+  targetWakeLifecycleId: string;
+} {
+  const record =
+    value && typeof value === "object"
+      ? (value as { contextId?: unknown; targetWakeLifecycleId?: unknown })
+      : {};
+  if (
+    typeof record.contextId !== "string" ||
+    !record.contextId ||
+    typeof record.targetWakeLifecycleId !== "string" ||
+    !record.targetWakeLifecycleId
+  ) {
+    throw new ExecutionContextSelectionError(HISTORY_SELECTION_REQUIRED);
+  }
+  return {
+    contextId: record.contextId,
+    targetWakeLifecycleId: record.targetWakeLifecycleId,
+  };
 }
 
 async function listOutstandingScopeContextIds(
   input: AssignmentInput,
-  scope: ExecutionContextScope
+  scope: ExecutionContextScope,
+  snapshot: AcceptedSnapshot
 ): Promise<string[]> {
   const contextIds = [...(input.outstandingExecutionContextIds ?? [])];
   if (contextIds.length === 0) {
@@ -732,11 +791,17 @@ async function listOutstandingScopeContextIds(
   const contexts = await input.storage.get<unknown>(
     contextIds.map((contextId) => CONTEXT_PREFIX + contextId)
   );
+  // Work held on another Binding, Service runtime, or Controller cannot be
+  // continued here, so it is not a choice this Wake could offer.
   return contextIds.filter((contextId) => {
     const raw = contexts.get(CONTEXT_PREFIX + contextId);
+    if (raw === undefined) {
+      return false;
+    }
+    const context = requireContext(raw);
     return (
-      raw !== undefined &&
-      sameScope(requireContext(raw).assignment.scope, scope)
+      sameScope(context.assignment.scope, scope) &&
+      isContextOnExecutionTarget(context, snapshot)
     );
   });
 }

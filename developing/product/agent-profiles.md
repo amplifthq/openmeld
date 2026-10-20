@@ -1309,10 +1309,14 @@ or `--fork-from <signal-id>` with one explicit `--wake` target. Source selection
 never copies permissions, active work, or publication authority. A plain mention
 continues the discussion's most recently accepted Context. It requires an
 explicit source choice only while another Context of the same requester and
-discussion still holds reserved, waiting, or recovery-held work. When that
-latest Context belongs to another Binding, Service runtime, or Controller, the
-plain mention starts a fresh Context instead of failing; the earlier Context
-stays available through explicit continuation and work history.
+discussion still holds reserved, waiting, or recovery-held work on the same
+Binding, Service runtime, and Controller. When that latest Context belongs to
+another Binding, Service runtime, or Controller, the plain mention starts a
+fresh Context instead of failing; the earlier Context stays available through
+explicit continuation and work history. A discussion accepted before Core kept
+its latest-Context index is ordered by the acceptance records of the Wakes last
+accepted into each Context, never by when a Context was created. When those
+records are missing, tied, or too many to read, the requester chooses a source.
 
 Official Antigravity ACP supports new and continued Execution Contexts using
 Agent settings, including managed working copies. It does not support history

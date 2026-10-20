@@ -4585,7 +4585,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         ?.executionContext?.id
     ).toBe(response.executionContext.id);
   });
-  it("continues the latest discussion context and starts fresh once its execution target changes", async () => {
+  it("continues the latest accepted discussion context, including history from before the latest index, and starts fresh once its execution target changes", async () => {
     const { hub, storageRecords } = await createContextHarness();
     const root = contextMigrationRequest("latest-root");
     await fetchRuntimeTransportJson(
@@ -4607,6 +4607,29 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const storage = (
       hub as unknown as { ctx: { storage: DurableObjectStorage } }
     ).ctx.storage;
+    const headKeyFor = (id: string) =>
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        projectTargetWakeLifecycleIdentity({
+          clientMessageId: id,
+          dispatchId: id,
+          sourceSignalId: id,
+          spaceId: HEX_SPACE_ID,
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        }).targetWakeLifecycleId
+      );
+    // Scopes accepted before the latest index existed have no pointer.
+    const dropLatestIndex = () => {
+      for (const key of [...storageRecords.keys()]) {
+        if (
+          key.startsWith(
+            "runtime-coordinator:execution-context-scope-latest:v1:"
+          )
+        ) {
+          storageRecords.delete(key);
+        }
+      }
+    };
+    let acceptedWakes = 0;
     const admit = async (
       id: string,
       selection: NonNullable<typeof snapshot.contextRequest>["selection"],
@@ -4622,6 +4645,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
         spaceId: HEX_SPACE_ID,
         targetProfileId: TARGET_AGENT_PROFILE_ID,
       });
+      acceptedWakes += 1;
+      const createdAtMs = head.createdAtMs + acceptedWakes;
       const plan = await storage.transaction((transaction) =>
         prepareExecutionContextAssignment({
           contextModeActive: true,
@@ -4629,6 +4654,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
           storage: transaction,
           record: {
             ...head,
+            createdAtMs,
             primaryDispatchId: id,
             targetWakeLifecycleId: identity.targetWakeLifecycleId,
             targetWakeLifecycleIdentity: identity,
@@ -4650,6 +4676,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       for (const [writeKey, value] of Object.entries(plan.writes)) {
         await storage.put(writeKey, value);
       }
+      await storage.put(headKeyFor(id), plan.record);
       return plan.record.acceptedDispatchSnapshot?.executionContext?.id;
     };
 
@@ -4670,11 +4697,27 @@ describe("runtime transport runtime coordinator transport contract", () => {
         { outstanding: [rootContextId] }
       )
     ).rejects.toThrow("execution_context.selection_required");
-    // The newest branch belongs to another Service runtime: start fresh.
+    // Continuing the older root makes it the latest accepted context, even
+    // though the other branch was created after it.
+    expect(
+      await admit("latest-resume-root", {
+        mode: "resume",
+        sourceWakeId: root.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+      })
+    ).toBe(rootContextId);
+    dropLatestIndex();
+    expect(await admit("latest-backfilled", { mode: "auto" })).toBe(
+      rootContextId
+    );
+    // The newest branch belongs to another Service runtime: start fresh. Work
+    // the root still holds there is not a choice this runtime could continue.
     const moved = await admit(
       "latest-moved",
       { mode: "auto" },
-      { openMeldServiceRuntimeId: "runtime-moved" }
+      {
+        openMeldServiceRuntimeId: "runtime-moved",
+        outstanding: [rootContextId],
+      }
     );
     expect(moved).toBeDefined();
     expect([rootContextId, fresh]).not.toContain(moved);
@@ -4682,9 +4725,23 @@ describe("runtime transport runtime coordinator transport contract", () => {
       await admit(
         "latest-after-move",
         { mode: "auto" },
-        { openMeldServiceRuntimeId: "runtime-moved" }
+        {
+          openMeldServiceRuntimeId: "runtime-moved",
+          outstanding: [rootContextId],
+        }
       )
     ).toBe(moved);
+    // Without the latest index and without the acceptance record that orders
+    // a context, the requester chooses instead of a guess.
+    dropLatestIndex();
+    storageRecords.delete(headKeyFor("latest-after-move"));
+    await expect(
+      admit(
+        "latest-unverifiable",
+        { mode: "auto" },
+        { openMeldServiceRuntimeId: "runtime-moved" }
+      )
+    ).rejects.toThrow("execution_context.history_selection_required");
   });
   it.each([
     { agentControllerRef: "builtin:codex", confirmsOwnBoundary: true },
