@@ -1712,6 +1712,7 @@ const SidebarMenuSubButton = forwardRef<
     ref
   ) => {
     const item = useContext(MenuItemContext);
+    const scope = useContext(MenuScopeContext);
     const shape = useShape();
     const sizeClasses = {
       variant: "compact" as string,
@@ -1777,12 +1778,21 @@ const SidebarMenuSubButton = forwardRef<
             "group-focus-within/menu-sub-item:pr-[var(--row-gutter-hover)] group-hover/menu-sub-item:pr-[var(--row-gutter-hover)] group-has-[[data-sidebar=menu-action]:is([data-state=open],[data-popup-open],[aria-expanded=true])]/menu-sub-item:pr-[var(--row-gutter-hover)]",
           "h-6",
           shape.item,
+          // A layoutId menu draws selection inside the row (see
+          // SidebarMenuButton), so sub-rows need their own background too.
+          scope?.activeLayoutId && "isolate",
           className
         ),
         ...props,
         style: { ...gutterVars, ...(props.style ?? {}) },
       },
       <>
+        {isActive && scope?.activeLayoutId && (
+          <SidebarSelectionBackground
+            className={cn(shape.bg, scope.activeIndicatorClassName)}
+            layoutId={scope.activeLayoutId}
+          />
+        )}
         {Icon && (
           <Icon
             className={cn(

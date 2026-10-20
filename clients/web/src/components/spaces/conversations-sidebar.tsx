@@ -51,10 +51,7 @@ import {
 import { useAgentRequestSpaceLabels } from "#/components/agent-access/agent-access-space-labels";
 import { AppModuleSidebarHeader } from "#/components/app/app-module-sidebar-header";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
-import {
-	useActiveMemberAgentSessionNav,
-	useMemberAgentSessionDisclosure,
-} from "#/components/member-agents/member-agent-session-nav";
+import { useActiveMemberAgentSessionList } from "#/components/member-agents/member-agent-session-nav";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationNewSpacePath,
@@ -68,6 +65,7 @@ import { SidebarDrag, SidebarDropSection } from "../app/sidebar-drag";
 import { moveSidebarGroup } from "../app/sidebar-drop-target";
 import { useSidebarFilter } from "../app/sidebar-filter";
 import { SidebarListSkeleton } from "../app/sidebar-list-skeleton";
+import { SidebarNestedNavList } from "../app/sidebar-nested-nav-list";
 import {
 	SidebarSearchInput,
 	useSidebarSearchDisclosure,
@@ -286,10 +284,22 @@ function collapsedEntryTitle(search: string, viewerName?: string) {
 	return search.trim() ? undefined : centerAgentEntryTitle(viewerName);
 }
 
-// Filters and search narrow the conversation list; the open MemberAgent's
-// Sessions return when they are cleared.
-function unlessFiltered<Group>(groups: Group[], hasFilters: boolean): Group[] {
-	return hasFilters ? [] : groups;
+// The open MemberAgent's chats nest under its row in a list section. Filters
+// and search narrow the conversation list; the chats return when cleared.
+function nestsMemberAgentSessions(input: {
+	item: Conversation;
+	selected: string | null | undefined;
+	memberAgentId: string | undefined;
+	layout: "grid" | "list";
+	hasFilters: boolean;
+}) {
+	return (
+		!input.hasFilters &&
+		input.layout === "list" &&
+		Boolean(input.memberAgentId) &&
+		input.item.memberAgentId === input.memberAgentId &&
+		input.item.spaceId === input.selected
+	);
 }
 
 // The collapsed Center Agent entry stands for several chats, so it has no
@@ -381,7 +391,7 @@ export function ConversationsSidebar(
 		(item) => item.spaceId === model.selected
 	);
 	const activeSection = active ? model.owner(active) : null;
-	const memberAgentSessionGroups = useActiveMemberAgentSessionNav(active, {
+	const memberAgentSessionList = useActiveMemberAgentSessionList(active, {
 		...dm.indicators,
 		attentionById: dm.attentionById,
 	});
@@ -400,7 +410,6 @@ export function ConversationsSidebar(
 		activeSection,
 		!!search.trim() || filter.active
 	);
-	const groupDisclosure = useMemberAgentSessionDisclosure(disclosure);
 	// The account index is the source for ordinary Spaces. Keep session-only
 	// discovery from appearing to be the complete sidebar before it resolves.
 	const discoverableConversations = shouldHoldConversationRows({
@@ -869,12 +878,11 @@ export function ConversationsSidebar(
 							}
 						}}
 					>
-						<ControlledSidebarGroupStateProvider value={groupDisclosure}>
+						<ControlledSidebarGroupStateProvider value={disclosure}>
 							<AppContextualSidebarNav
 								activeItemId={model.selected}
 								ariaLabel="Conversations"
 								groups={[
-									...unlessFiltered(memberAgentSessionGroups, hasFilters),
 									...visible.map((section) => ({
 										id: section.id,
 										label: section.name,
@@ -944,7 +952,24 @@ export function ConversationsSidebar(
 												/>
 												<ConversationSidebarMenu
 													activeLayoutId="conversation-selection"
-													activeValue={model.selected}
+													// The open chat is highlighted among the nested chats instead.
+													activeValue={
+														rows(section).some((item) =>
+															nestsMemberAgentSessions({
+																item,
+																selected: model.selected,
+																memberAgentId:
+																	memberAgentSessionList?.memberAgentId,
+																layout:
+																	section.id === "pinned"
+																		? pinnedLayout
+																		: "list",
+																hasFilters,
+															})
+														)
+															? null
+															: model.selected
+													}
 													aria-label={section.name}
 													layout={
 														section.id === "pinned" ? pinnedLayout : "list"
@@ -988,6 +1013,27 @@ export function ConversationsSidebar(
 																memberAppearances={memberAppearances}
 																messageUnreadCount={
 																	indicators.messageUnreadCount
+																}
+																nestedNavigation={
+																	memberAgentSessionList &&
+																	nestsMemberAgentSessions({
+																		item,
+																		selected: model.selected,
+																		memberAgentId:
+																			memberAgentSessionList.memberAgentId,
+																		layout:
+																			section.id === "pinned"
+																				? pinnedLayout
+																				: "list",
+																		hasFilters,
+																	}) ? (
+																		<SidebarNestedNavList
+																			activeItemId={model.selected ?? null}
+																			ariaLabel={`Chats with ${item.title}`}
+																			className="ml-[21px]"
+																			sections={memberAgentSessionList.sections}
+																		/>
+																	) : undefined
 																}
 																onArchive={
 																	isSingleChat(item)

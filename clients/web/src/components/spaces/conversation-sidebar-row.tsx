@@ -34,6 +34,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
 	memo,
+	type ReactNode,
 	useEffect,
 	useLayoutEffect,
 	useMemo,
@@ -97,6 +98,8 @@ type ConversationSidebarRowProps = {
 	conversation: Conversation;
 	dragDisabled?: boolean;
 	memberAppearances?: ReadonlyMap<string, SpaceMemberAppearance>;
+	/** Children shown under the row, e.g. the open MemberAgent's chats. */
+	nestedNavigation?: ReactNode;
 	title: string;
 	section: string;
 	selected: boolean;
@@ -391,6 +394,7 @@ const ConversationSidebarRowContent = memo(
 				<ConversationRowStatus input={input} presentation={presentation} />
 
 				<ConversationRowActions {...input} />
+				{input.nestedNavigation}
 			</FluidNavMenuItem>
 		);
 		return (
