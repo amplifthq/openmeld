@@ -44,7 +44,7 @@ function requestTask(
 const SHARED_REPO_WRITE: LocalExecutionResourceClaim = {
   kind: "shared",
   access: "write",
-  root: "/work/repo",
+  roots: ["/work/repo"],
 };
 
 describe("local execution slots", () => {
@@ -63,31 +63,55 @@ describe("local execution slots", () => {
     {
       name: "writers in unrelated folders",
       first: SHARED_REPO_WRITE,
-      second: { kind: "shared", access: "write", root: "/work/other" },
+      second: { kind: "shared", access: "write", roots: ["/work/other"] },
       together: true,
     },
     {
       name: "a writer and a writer in a nested folder",
       first: SHARED_REPO_WRITE,
-      second: { kind: "shared", access: "write", root: "/work/repo/app" },
+      second: { kind: "shared", access: "write", roots: ["/work/repo/app"] },
+      together: false,
+    },
+    {
+      name: "a main checkout writer and a linked worktree writer",
+      first: SHARED_REPO_WRITE,
+      second: {
+        kind: "shared",
+        access: "write",
+        roots: ["/work/repo-feature", "/work/repo/.git"],
+      },
+      together: false,
+    },
+    {
+      name: "writers in two linked worktrees of one repository",
+      first: {
+        kind: "shared",
+        access: "write",
+        roots: ["/work/repo-a", "/work/repo/.git"],
+      },
+      second: {
+        kind: "shared",
+        access: "write",
+        roots: ["/work/repo-b", "/work/repo/.git"],
+      },
       together: false,
     },
     {
       name: "a writer and a reader of the same folder",
       first: SHARED_REPO_WRITE,
-      second: { kind: "shared", access: "read", root: "/work/repo" },
+      second: { kind: "shared", access: "read", roots: ["/work/repo"] },
       together: false,
     },
     {
       name: "two readers of the same folder",
-      first: { kind: "shared", access: "read", root: "/work/repo" },
-      second: { kind: "shared", access: "read", root: "/work/repo" },
+      first: { kind: "shared", access: "read", roots: ["/work/repo"] },
+      second: { kind: "shared", access: "read", roots: ["/work/repo"] },
       together: true,
     },
     {
       name: "a writer whose folder is unknown and a reader elsewhere",
-      first: { kind: "shared", access: "write", root: null },
-      second: { kind: "shared", access: "read", root: "/work/other" },
+      first: { kind: "shared", access: "write", roots: null },
+      second: { kind: "shared", access: "read", roots: ["/work/other"] },
       together: false,
     },
     {
@@ -156,7 +180,7 @@ describe("local execution slots", () => {
     const reader = {
       kind: "shared",
       access: "read",
-      root: "/work/repo",
+      roots: ["/work/repo"],
     } as const;
     for (const [taskId, resourceClaim] of [
       ["reader-1", reader],

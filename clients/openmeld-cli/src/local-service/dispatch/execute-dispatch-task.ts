@@ -217,7 +217,7 @@ import {
   executionContextResourceClaim,
   executionContextWorkingDirectory,
   prepareExecutionContextConversation,
-  resolveQueuedWorkingDirectory,
+  resolveQueuedFolderRoots,
 } from "./execution-context-session";
 import {
   deriveExecutionContextComputerFileAccessPolicy,
@@ -358,7 +358,7 @@ export function enqueueDispatchDeliverFrame(input: {
   const enqueueResult = input.localExecutionSlots.request({
     resourceClaim: executionContextResourceClaim({
       context: deliverRequest.payload.executionContext,
-      currentWorkingDirectory: resolveQueuedWorkingDirectory(
+      currentFolderRoots: resolveQueuedFolderRoots(
         input.routeByProfileId.get(deliverRequest.profileId)
       ),
     }),

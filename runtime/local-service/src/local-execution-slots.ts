@@ -7,9 +7,11 @@ const LOCAL_EXECUTION_LANE_CONCURRENCY_LIMIT = 1;
  *
  * `private` work uses only a Service-owned root of its own Execution Context
  * (a Space-only scratch folder or an isolated copy), so it never overlaps other
- * work. `shared` work uses a user folder: readers overlap freely, and a writer
- * excludes every overlapping reader and writer. A `null` root is unknown and
- * overlaps every shared root. `legacy` marks pre-Context work, which local
+ * work. `shared` work uses user folders: readers overlap freely, and a writer
+ * excludes every reader and writer with an overlapping root. `roots` are every
+ * canonical root the task shares with other work, such as the Git checkout of
+ * its folder and that checkout's Git metadata. `null` roots are unknown and
+ * overlap every shared root. `legacy` marks pre-Context work, which local
  * lanes already serialize per Profile, so two legacy tasks never conflict here.
  * These claims coordinate OpenMeld's own work; they are not a sandbox.
  */
@@ -19,20 +21,17 @@ export type LocalExecutionResourceClaim =
       kind: "shared";
       access: "read" | "write";
       legacy?: true;
-      root: string | null;
+      roots: readonly string[] | null;
     };
 
 const UNRESOLVED_LEGACY_CLAIM: LocalExecutionResourceClaim = {
   kind: "shared",
   access: "write",
   legacy: true,
-  root: null,
+  roots: null,
 };
 
-function sharedRootsOverlap(left: string | null, right: string | null) {
-  if (left === null || right === null) {
-    return true;
-  }
+function rootsOverlap(left: string, right: string): boolean {
   const normalize = (root: string) =>
     process.platform === "win32" ? root.toLowerCase() : root;
   const isWithin = (child: string, parent: string) =>
@@ -41,6 +40,18 @@ function sharedRootsOverlap(left: string | null, right: string | null) {
   const a = normalize(left);
   const b = normalize(right);
   return isWithin(a, b) || isWithin(b, a);
+}
+
+function sharedRootsOverlap(
+  left: readonly string[] | null,
+  right: readonly string[] | null
+): boolean {
+  if (left === null || right === null) {
+    return true;
+  }
+  return left.some((leftRoot) =>
+    right.some((rightRoot) => rootsOverlap(leftRoot, rightRoot))
+  );
 }
 
 function isExecutionContextClaim(
@@ -64,7 +75,7 @@ function resourcesConflict(
   ) {
     return false;
   }
-  return sharedRootsOverlap(left.root, right.root);
+  return sharedRootsOverlap(left.roots, right.roots);
 }
 
 export type LocalServiceDispatchLimits = {

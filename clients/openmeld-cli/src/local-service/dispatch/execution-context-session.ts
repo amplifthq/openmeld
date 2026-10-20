@@ -1,6 +1,6 @@
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import { lstat, mkdir, realpath } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   forkSession,
   getSessionInfo,
@@ -35,32 +35,98 @@ export function executionContextLedgerPolicy(context?: ExecutionContextTask) {
 }
 
 /**
- * The local files a delivered Wake may touch, claimed before it is admitted.
- *
- * `currentWorkingDirectory` is the Profile's effective working folder from the
- * current route, already canonical, or null when it is not known. A selected
- * Project folder is resolved only during preparation, so its root stays unknown
- * here and overlaps every shared folder.
+ * The shared roots of the Profile's effective working folder from the current
+ * route, or null when that folder is not known yet.
  */
-export function resolveQueuedWorkingDirectory(
+export function resolveQueuedFolderRoots(
   route: DaemonProfileRouteConfig | null | undefined
-): string | null {
+): string[] | null {
   const runtime = route?.workingFolderRuntime;
   if (runtime?.status !== "ready") {
     return null;
   }
   try {
-    return realpathSync.native(
-      runtime.runtimeContext.providerRuntimeWorkingDirectory
+    return resolveFolderResourceRoots(
+      realpathSync.native(
+        runtime.runtimeContext.providerRuntimeWorkingDirectory
+      )
     );
   } catch {
     return null;
   }
 }
 
+/**
+ * The canonical roots a task in `folder` shares with other local work.
+ *
+ * Every folder inside one Git checkout shares its files, index, and HEAD, so
+ * the claim covers the whole checkout, found the way Git finds it from the
+ * nearest `.git`. The claim also covers the repository's common Git directory:
+ * linked worktrees share its refs, stash, and configuration with each other and
+ * with the main checkout. A folder outside any checkout claims only itself.
+ * Git metadata that cannot be read throws, so callers treat the roots as unknown.
+ */
+export function resolveFolderResourceRoots(folder: string): string[] {
+  for (let directory = folder; ; directory = dirname(directory)) {
+    const marker = join(directory, ".git");
+    const markerInfo = statIfPresent(marker);
+    if (markerInfo) {
+      const gitDirectory = markerInfo.isDirectory()
+        ? realpathSync.native(marker)
+        : readGitDirectoryPointer(directory, marker);
+      const commonDirectory = readGitCommonDirectory(gitDirectory);
+      return isSameOrDescendantPath(commonDirectory, directory)
+        ? [directory]
+        : [directory, commonDirectory];
+    }
+    if (dirname(directory) === directory) {
+      return [folder];
+    }
+  }
+}
+
+function statIfPresent(path: string) {
+  try {
+    return statSync(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+function readGitDirectoryPointer(directory: string, marker: string): string {
+  const pointer = readFileSync(marker, "utf8").trim();
+  if (!pointer.startsWith("gitdir: ") || pointer.length > 4096) {
+    throw new Error("execution_context.git_metadata_unreadable");
+  }
+  return realpathSync.native(
+    resolve(directory, pointer.slice("gitdir: ".length))
+  );
+}
+
+function readGitCommonDirectory(gitDirectory: string): string {
+  const pointerPath = join(gitDirectory, "commondir");
+  if (!statIfPresent(pointerPath)) {
+    return gitDirectory;
+  }
+  return realpathSync.native(
+    resolve(gitDirectory, readFileSync(pointerPath, "utf8").trim())
+  );
+}
+
+/**
+ * The local files a delivered Wake may touch, claimed before it is admitted.
+ *
+ * `currentFolderRoots` are the shared roots of the Profile's working folder,
+ * or null when they are not known. A selected Project folder is resolved only
+ * during preparation, so its roots stay unknown here and overlap every shared
+ * root.
+ */
 export function executionContextResourceClaim(input: {
   context?: ExecutionContextTask;
-  currentWorkingDirectory: string | null;
+  currentFolderRoots: string[] | null;
 }): LocalExecutionResourceClaim {
   const { context } = input;
   if (!context) {
@@ -68,7 +134,7 @@ export function executionContextResourceClaim(input: {
       kind: "shared",
       access: "write",
       legacy: true,
-      root: input.currentWorkingDirectory,
+      roots: input.currentFolderRoots,
     };
   }
   if (context.access === "space_context" || context.workspace === "isolated") {
@@ -77,7 +143,7 @@ export function executionContextResourceClaim(input: {
   return {
     kind: "shared",
     access: context.access === "workspace" ? "write" : "read",
-    root: context.projectWork ? null : input.currentWorkingDirectory,
+    roots: context.projectWork ? null : input.currentFolderRoots,
   };
 }
 
