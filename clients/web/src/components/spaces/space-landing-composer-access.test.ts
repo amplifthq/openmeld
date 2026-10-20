@@ -2,32 +2,17 @@ import { describe, expect, it } from "vitest";
 import { isSpaceComposerAccessPending } from "./use-space-composer-region";
 
 describe("isSpaceComposerAccessPending", () => {
-	const base = {
-		isAccessConfirmed: true,
-		isDeleted: false,
-		membersFailed: false,
-	} as const;
+	const base = { isDeleted: false, membersFailed: false } as const;
 
-	it("waits while membership is unknown or a non-member's access settles", () => {
+	it("waits only while membership is unknown", () => {
 		expect(
 			isSpaceComposerAccessPending({ ...base, membershipState: "unknown" })
-		).toBe(true);
-		expect(
-			isSpaceComposerAccessPending({
-				...base,
-				isAccessConfirmed: false,
-				membershipState: "nonmember",
-			})
 		).toBe(true);
 	});
 
 	it("shows the input or the Join prompt once membership is known", () => {
 		expect(
-			isSpaceComposerAccessPending({
-				...base,
-				isAccessConfirmed: false,
-				membershipState: "member",
-			})
+			isSpaceComposerAccessPending({ ...base, membershipState: "member" })
 		).toBe(false);
 		expect(
 			isSpaceComposerAccessPending({ ...base, membershipState: "nonmember" })

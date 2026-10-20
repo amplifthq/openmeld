@@ -6,10 +6,13 @@ import {
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, expect, it } from "vitest";
+import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
+import { spaceQueryKeys } from "#/query/spaces/status";
 import { spaceViewerMembershipDisplayQueryKey } from "#/query/spaces/viewer-membership-display";
 import {
-	useSpaceComposerMembershipState,
 	useSpaceComposerTraysHeld,
+	useSpaceViewerMembership,
 } from "./use-space-composer-region";
 
 afterEach(cleanup);
@@ -28,25 +31,33 @@ function deferred<T>() {
 	return { promise, resolve };
 }
 
+function renderViewerMembership(
+	client: QueryClient,
+	confirmed: "member" | "nonmember" | "unknown" = "unknown"
+) {
+	return renderHook(
+		(props: { confirmed: "member" | "nonmember" | "unknown" }) =>
+			useSpaceViewerMembership({
+				confirmed: props.confirmed,
+				organizationId: "org",
+				profileId: "human",
+				spaceId: "space",
+			}),
+		{ initialProps: { confirmed }, wrapper: createWrapper(client) }
+	);
+}
+
 it("paints with the saved membership until the members read confirms it", async () => {
 	const client = new QueryClient();
 	client.setQueryData(spaceViewerMembershipDisplayQueryKey("space", "human"), {
 		version: 1,
 		membership: "member",
 	});
-	const { result, rerender } = renderHook(
-		(props: { confirmed: "member" | "nonmember" | "unknown" }) =>
-			useSpaceComposerMembershipState({
-				confirmed: props.confirmed,
-				profileId: "human",
-				spaceId: "space",
-			}),
-		{ initialProps: { confirmed: "unknown" }, wrapper: createWrapper(client) }
-	);
-	expect(result.current).toBe("member");
+	const { result, rerender } = renderViewerMembership(client);
+	expect(result.current.membership).toBe("member");
 
 	rerender({ confirmed: "nonmember" });
-	expect(result.current).toBe("nonmember");
+	expect(result.current.membership).toBe("nonmember");
 	await waitFor(() =>
 		expect(
 			client.getQueryData(
@@ -56,17 +67,82 @@ it("paints with the saved membership until the members read confirms it", async 
 	);
 });
 
-it("stays unknown without a saved membership", () => {
-	const { result } = renderHook(
-		() =>
-			useSpaceComposerMembershipState({
-				confirmed: "unknown",
-				profileId: "human",
+it("knows a member from the cached account Spaces list or member directory", () => {
+	const listed = new QueryClient();
+	listed.setQueryData(accountSpaceQueryKeys.items("human", "account"), {
+		pinnedItems: [],
+		spaceItems: [
+			{
+				joinedProfiles: [{ profileId: "human" }],
 				spaceId: "space",
-			}),
-		{ wrapper: createWrapper(new QueryClient()) }
+			},
+		],
+	});
+	expect(renderViewerMembership(listed).result.current.membership).toBe(
+		"member"
 	);
-	expect(result.current).toBe("unknown");
+
+	const directory = new QueryClient();
+	directory.setQueryData(
+		spaceQueryKeys.memberDirectoryDisplay("space", "human"),
+		{ version: 1, members: [{ profileId: "human" }] }
+	);
+	expect(renderViewerMembership(directory).result.current.membership).toBe(
+		"member"
+	);
+});
+
+it("prefers the account Spaces list over a saved non-member state", () => {
+	const client = new QueryClient();
+	client.setQueryData(spaceViewerMembershipDisplayQueryKey("space", "human"), {
+		version: 1,
+		membership: "nonmember",
+	});
+	const { result } = renderViewerMembership(client);
+	expect(result.current.membership).toBe("nonmember");
+	act(() => {
+		client.setQueryData(accountSpaceQueryKeys.items("human", "account"), {
+			pinnedItems: [],
+			spaceItems: [
+				{
+					directMessageProfileIds: ["human", "agent"],
+					joinedProfiles: [],
+					spaceId: "space",
+				},
+			],
+		});
+	});
+	expect(result.current.membership).toBe("member");
+});
+
+it("stays unknown without cached data, then reads the Organization directory", () => {
+	const client = new QueryClient();
+	const { result } = renderViewerMembership(client);
+	expect(result.current.membership).toBe("unknown");
+	act(() => {
+		client.setQueryData(organizationQueryKeys.spaces("org"), {
+			spaces: [{ joined: false, spaceId: "space" }],
+		});
+	});
+	expect(result.current.membership).toBe("nonmember");
+});
+
+it("returns the saved direct message Join prompt only for a non-member", () => {
+	const client = new QueryClient();
+	const join = {
+		defaultName: "Tali and Codex",
+		prompt: "Join to send",
+		selectedNames: ["Felix"],
+	};
+	client.setQueryData(spaceViewerMembershipDisplayQueryKey("space", "human"), {
+		version: 1,
+		membership: "nonmember",
+		directMessageJoin: join,
+	});
+	const { result, rerender } = renderViewerMembership(client);
+	expect(result.current.savedDirectMessageJoin).toEqual(join);
+	rerender({ confirmed: "member" });
+	expect(result.current.savedDirectMessageJoin).toBeUndefined();
 });
 
 it("holds the trays until every tray read answers, then never holds again", async () => {

@@ -1,101 +1,220 @@
+import type { OrganizationSpaceDirectoryWithMemberCountsResponse } from "@openmeld/schemas/types";
 import {
 	type Query,
 	type QueryClient,
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
+import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
+import type { SpaceMemberDirectoryDisplay } from "#/query/spaces/member-directory-display";
 import { spaceQueryKeys } from "#/query/spaces/status";
-import { spaceViewerMembershipDisplayQueryOptions } from "#/query/spaces/viewer-membership-display";
+import {
+	type SpaceViewerMembershipDisplay,
+	spaceViewerMembershipDisplayQueryKey,
+	spaceViewerMembershipDisplayQueryOptions,
+} from "#/query/spaces/viewer-membership-display";
 
-type ViewerMembershipState = "member" | "nonmember" | "unknown";
+export type ViewerMembershipState = "member" | "nonmember" | "unknown";
 
 /**
- * Until membership is known, neither the input nor the Join prompt is safe to
- * show: a non-member would see the input flash before the Join prompt.
- * A known member keeps the input while access settles, and a failed member
- * load falls back to the input with its own retry.
+ * Only an unknown membership keeps the neutral bar: a member gets the input and
+ * a non-member the Join prompt as soon as either is known, from a confirmed
+ * read or from cached data. A deleted Space or a failed member load never
+ * waits.
  */
 export function isSpaceComposerAccessPending(input: {
-	isAccessConfirmed: boolean;
 	isDeleted: boolean;
 	membersFailed: boolean;
 	membershipState: ViewerMembershipState;
 }): boolean {
-	if (
-		input.isDeleted ||
-		input.membersFailed ||
-		input.membershipState === "member"
-	) {
-		return false;
-	}
-	return input.membershipState === "unknown" || !input.isAccessConfirmed;
+	return (
+		!(input.isDeleted || input.membersFailed) &&
+		input.membershipState === "unknown"
+	);
 }
 
 /**
  * What the composer region paints during a load: whether the bar is still the
- * neutral placeholder and whether the trays are still held. An input is shown
- * as soon as membership is known (saved or confirmed). Any other bar (Join,
- * observer) arrives together with the trays, so the region changes once.
+ * neutral placeholder and whether the trays are still held.
  */
 export function useSpaceComposerRegion(input: {
-	confirmedMembership: ViewerMembershipState;
-	isAccessConfirmed: boolean;
 	isDeleted: boolean;
 	membersFailed: boolean;
+	membershipState: ViewerMembershipState;
 	profileId: string;
 	spaceId: string;
 }): { barPending: boolean; traysHeld: boolean } {
-	const membershipState = useSpaceComposerMembershipState({
-		confirmed: input.confirmedMembership,
-		profileId: input.profileId,
-		spaceId: input.spaceId,
-	});
-	const accessPending = isSpaceComposerAccessPending({
-		isAccessConfirmed: input.isAccessConfirmed,
-		isDeleted: input.isDeleted,
-		membersFailed: input.membersFailed,
-		membershipState,
-	});
+	const barPending = isSpaceComposerAccessPending(input);
 	const traysHeld = useSpaceComposerTraysHeld({
-		accessPending,
+		accessPending: barPending,
 		profileId: input.profileId,
 		spaceId: input.spaceId,
 	});
-	return {
-		barPending: accessPending || (traysHeld && membershipState !== "member"),
-		traysHeld,
-	};
+	return { barPending, traysHeld };
 }
 
+export type SavedDirectMessageJoin = NonNullable<
+	SpaceViewerMembershipDisplay["directMessageJoin"]
+>;
+
 /**
- * The membership the composer region paints with. A confirmed members read
- * wins; until it arrives the viewer's last confirmed membership, saved with
- * the conversation, picks the bar so a hard refresh does not flip it. Only
- * presentation reads this: send, join and read-only decisions keep using the
- * confirmed state.
+ * The membership the conversation paints with. A confirmed members read wins.
+ * Until it arrives, cached data picks the bar so the first frame already has
+ * the input or the Join prompt: the account's Spaces list, the Space's member
+ * directory, the viewer's last confirmed membership (saved with the
+ * conversation), then the Organization's Space directory. Only presentation
+ * reads this; the server still decides every send and join.
  */
-export function useSpaceComposerMembershipState(input: {
+export function useSpaceViewerMembership(input: {
 	confirmed: ViewerMembershipState;
+	organizationId: string | null;
 	profileId: string;
 	spaceId: string;
-}): ViewerMembershipState {
+}): {
+	membership: ViewerMembershipState;
+	savedDirectMessageJoin: SavedDirectMessageJoin | undefined;
+} {
 	const queryClient = useQueryClient();
 	const options = spaceViewerMembershipDisplayQueryOptions(
 		input.spaceId,
 		input.profileId
 	);
-	const saved = useQuery(options).data?.membership;
+	const saved = useQuery(options).data;
+	const savedMembership = saved?.membership;
+	const settled = input.confirmed !== "unknown";
+	const subscribe = useCallback(
+		(onChange: () => void) =>
+			settled
+				? () => undefined
+				: queryClient.getQueryCache().subscribe(onChange),
+		[queryClient, settled]
+	);
+	const cached = useSyncExternalStore(subscribe, () =>
+		settled
+			? input.confirmed
+			: readCachedSpaceMembership(queryClient, {
+					organizationId: input.organizationId,
+					profileId: input.profileId,
+					savedMembership,
+					spaceId: input.spaceId,
+				})
+	);
 	useEffect(() => {
-		if (input.confirmed === "unknown" || input.confirmed === saved) {
+		if (input.confirmed === "unknown" || input.confirmed === savedMembership) {
 			return;
 		}
 		queryClient.setQueryData(options.queryKey, {
 			version: 1,
 			membership: input.confirmed,
 		});
-	}, [input.confirmed, options.queryKey, queryClient, saved]);
-	return input.confirmed === "unknown" ? (saved ?? "unknown") : input.confirmed;
+	}, [input.confirmed, options.queryKey, queryClient, savedMembership]);
+	const membership = settled ? input.confirmed : cached;
+	return {
+		membership,
+		savedDirectMessageJoin:
+			membership === "nonmember" ? saved?.directMessageJoin : undefined,
+	};
+}
+
+/** Saves the Join prompt a confirmed observer sees, for the next load. */
+export function useSaveDirectMessageJoin(input: {
+	join: SavedDirectMessageJoin | null;
+	profileId: string;
+	spaceId: string;
+}): void {
+	const queryClient = useQueryClient();
+	const serialized = input.join ? JSON.stringify(input.join) : null;
+	useEffect(() => {
+		if (!serialized) {
+			return;
+		}
+		const key = spaceViewerMembershipDisplayQueryKey(
+			input.spaceId,
+			input.profileId
+		);
+		const current = queryClient.getQueryData<SpaceViewerMembershipDisplay>(key);
+		if (
+			current?.membership === "nonmember" &&
+			JSON.stringify(current.directMessageJoin) === serialized
+		) {
+			return;
+		}
+		queryClient.setQueryData<SpaceViewerMembershipDisplay>(key, {
+			version: 1,
+			membership: "nonmember",
+			directMessageJoin: JSON.parse(serialized) as SavedDirectMessageJoin,
+		});
+	}, [input.profileId, input.spaceId, queryClient, serialized]);
+}
+
+function readCachedSpaceMembership(
+	queryClient: QueryClient,
+	input: {
+		organizationId: string | null;
+		profileId: string;
+		savedMembership: "member" | "nonmember" | undefined;
+		spaceId: string;
+	}
+): ViewerMembershipState {
+	if (
+		isInCachedAccountSpaces(queryClient, input.spaceId, input.profileId) ||
+		isInCachedMemberDirectory(queryClient, input.spaceId, input.profileId)
+	) {
+		return "member";
+	}
+	if (input.savedMembership) {
+		return input.savedMembership;
+	}
+	const joined = input.organizationId
+		? queryClient
+				.getQueryData<OrganizationSpaceDirectoryWithMemberCountsResponse>(
+					organizationQueryKeys.spaces(input.organizationId)
+				)
+				?.spaces.find((space) => space.spaceId === input.spaceId)?.joined
+		: undefined;
+	if (joined === undefined) {
+		return "unknown";
+	}
+	return joined ? "member" : "nonmember";
+}
+
+function isInCachedAccountSpaces(
+	queryClient: QueryClient,
+	spaceId: string,
+	profileId: string
+): boolean {
+	return queryClient
+		.getQueriesData<AccountSpaceSections>({
+			queryKey: accountSpaceQueryKeys.all,
+		})
+		.some(([, sections]) =>
+			[...(sections?.pinnedItems ?? []), ...(sections?.spaceItems ?? [])].some(
+				(item) =>
+					item.spaceId === spaceId &&
+					!item.deletedAt &&
+					(item.joinedProfiles.some(
+						(joined) => joined.profileId === profileId
+					) ||
+						item.directMessageProfileIds?.includes(profileId) === true)
+			)
+		);
+}
+
+function isInCachedMemberDirectory(
+	queryClient: QueryClient,
+	spaceId: string,
+	profileId: string
+): boolean {
+	return (
+		queryClient
+			.getQueryData<SpaceMemberDirectoryDisplay>(
+				spaceQueryKeys.memberDirectoryDisplay(spaceId, profileId)
+			)
+			?.members.some((member) => member.profileId === profileId) === true
+	);
 }
 
 /**

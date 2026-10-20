@@ -4,9 +4,18 @@ import { PERSISTED_DISPLAY_QUERY_GC_TIME_MS } from "#/query/query-config";
 
 // Layout only. The viewer's last confirmed membership picks which composer bar
 // to paint before the members read returns; it never grants or blocks actions.
+// A non-member who owns the Agent in a direct message also keeps the Join
+// prompt, so the bar and its Join dialog render before the members read.
 export const spaceViewerMembershipDisplaySchema = z.strictObject({
 	version: z.literal(1),
 	membership: z.enum(["member", "nonmember"]),
+	directMessageJoin: z
+		.strictObject({
+			defaultName: z.string(),
+			prompt: z.string(),
+			selectedNames: z.array(z.string()),
+		})
+		.optional(),
 });
 export type SpaceViewerMembershipDisplay = z.infer<
 	typeof spaceViewerMembershipDisplaySchema
