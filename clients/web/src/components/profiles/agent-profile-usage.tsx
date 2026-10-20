@@ -1,8 +1,8 @@
 import { parseAgentControllerRef } from "@openmeld/agent-runtime";
 import { Button } from "@openmeld/ui/components/button";
 import {
+	SettingsLocalAgentUsageCompactReadout,
 	SettingsLocalAgentUsageLimits,
-	SettingsLocalAgentUsageReadout,
 	SettingsLocalAgentUsageSummary,
 } from "@openmeld/ui/components/settings-computers";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
@@ -118,7 +118,7 @@ function AgentUsageCard({
 		<AgentConfigurationReadoutCard compact itemId="usage" label="Usage limits">
 			{usage.loading ? <AgentUsageSkeleton /> : null}
 			{!usage.loading && usage.limits ? (
-				<SettingsLocalAgentUsageReadout
+				<SettingsLocalAgentUsageCompactReadout
 					agentName={usage.agentName}
 					limits={usage.limits}
 					nowMs={nowMs}
