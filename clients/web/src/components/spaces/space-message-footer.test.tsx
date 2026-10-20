@@ -393,37 +393,39 @@ describe("SpaceMessageFooter", () => {
 
 	it.each([
 		{
-			// Agent message: opened toolbar fits right of the bubble.
+			// Left-aligned message: badge centered on the bubble's right edge,
+			// opening to the right.
 			bubble: rect(100, 0, 300, 44),
-			expectedPlacement: "after",
-			expectedStart: "406px",
+			expectedInset: "385px",
+			expectedPlacement: "edge-after",
 			selfAligned: false,
 		},
 		{
-			// Own right-aligned message: just above the bubble's top-left corner.
+			// Own right-aligned message: badge centered on the bubble's left
+			// edge, opening to the left.
 			bubble: rect(300, 0, 280, 44),
-			expectedPlacement: "corner",
-			expectedStart: "300px",
+			expectedInset: "285px",
+			expectedPlacement: "edge-before",
 			selfAligned: true,
 		},
 		{
-			// Own wide message: the same corner slot.
-			bubble: rect(80, 0, 500, 44),
-			expectedPlacement: "corner",
-			expectedStart: "80px",
+			// Own wide message: the same edge slot.
+			bubble: rect(150, 0, 430, 44),
+			expectedInset: "435px",
+			expectedPlacement: "edge-before",
 			selfAligned: true,
 		},
 		{
-			// Own short message: kept inside the row when opened.
+			// Own short message: the same edge slot.
 			bubble: rect(540, 0, 50, 44),
-			expectedPlacement: "corner",
-			expectedStart: "460px",
+			expectedInset: "45px",
+			expectedPlacement: "edge-before",
 			selfAligned: true,
 		},
-	])("keeps a failed footer in one $expectedPlacement slot at rest and when opened", ({
+	])("pins a failed footer badge to one $expectedPlacement slot at rest and when opened", ({
 		bubble: bubbleRect,
+		expectedInset,
 		expectedPlacement,
-		expectedStart,
 		selfAligned,
 	}) => {
 		if (selfAligned) {
@@ -466,20 +468,17 @@ describe("SpaceMessageFooter", () => {
 		reveal.getBoundingClientRect = () => rect(0, 0, revealWidth, 28);
 
 		fireEvent.pointerEnter(row);
-		const rest = [footer.style.insetInlineStart, footer.style.insetBlockStart];
+		const inset =
+			expectedPlacement === "edge-before"
+				? () => footer.style.insetInlineEnd
+				: () => footer.style.insetInlineStart;
+		const rest = [inset(), footer.style.insetBlockStart];
 		expect(footer.dataset.placement).toBe(expectedPlacement);
-		expect(rest[0]).toBe(expectedStart);
+		expect(rest).toEqual([expectedInset, "0px"]);
 		for (const width of [40, 110]) {
 			revealWidth = width;
 			fireEvent.pointerEnter(row);
-			expect([
-				footer.style.insetInlineStart,
-				footer.style.insetBlockStart,
-			]).toEqual(rest);
-		}
-		if (expectedPlacement === "corner") {
-			// Bottom edge stays inside the bubble's 8px top padding.
-			expect(Number.parseFloat(rest[1] ?? "")).toBe(-22);
+			expect([inset(), footer.style.insetBlockStart]).toEqual(rest);
 		}
 	});
 

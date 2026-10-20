@@ -124,6 +124,11 @@ const FOOTER_BUTTON_CLASS_NAME =
 // or a coarse pointer. They stay focusable, so Tab from the icon reveals them.
 // Keyboard focus uses :focus-visible, so focus that returns to the icon after a
 // mouse-opened drawer closes does not hold the actions open.
+// A failed footer left of its bubble opens to the left, so its badge and
+// actions read outward from the bubble edge.
+const FAILED_FOOTER_OUTWARD_CLASS_NAME =
+	"group-data-[placement=edge-before]/message-footer:flex-row-reverse";
+
 const MESSAGE_FOOTER_REVEAL_CLASS_NAME =
 	"grid grid-cols-[0fr] opacity-0 transition-[grid-template-columns,opacity] duration-150 ease-out motion-reduce:transition-none group-has-[:focus-visible]/message-row:grid-cols-[1fr] group-has-[:focus-visible]/message-row:opacity-100 group-hover/message-row:grid-cols-[1fr] group-hover/message-row:opacity-100 has-[[aria-haspopup][aria-expanded=true]]:grid-cols-[1fr] has-[[aria-haspopup][aria-expanded=true]]:opacity-100 [@media(pointer:coarse)]:grid-cols-[1fr] [@media(pointer:coarse)]:opacity-100";
 
@@ -263,7 +268,7 @@ function SpaceMessageFooterContent(
 
 type ToolbarPosition = {
 	left: number;
-	placement: "after" | "before" | "corner" | "overlay";
+	placement: "after" | "before" | "overlay";
 	top: number;
 };
 
@@ -351,35 +356,44 @@ function resolveFirstLineBox(element: HTMLElement) {
 	};
 }
 
-// How far a corner-anchored toolbar reaches into the bubble's top padding. It
-// stays above the first text line.
-const CORNER_TOOLBAR_BUBBLE_OVERLAP = 6;
-
-// Places a failed message's toolbar by its opened width, so one slot holds at
-// rest and on hover. The failure icon is the toolbar's first item and the
-// toolbar is anchored by its start, so the icon never moves and the other
-// actions open away from it. On a right-aligned own message the toolbar always
-// sits just above the bubble's top-left corner and opens to the right, above
-// the text. Otherwise it uses the normal slot for its opened width: beside the
-// bubble when it fits there, else above the bubble.
-export function resolvePersistentToolbarPosition(
-	input: Parameters<typeof resolveToolbarPosition>[0]
-): ToolbarPosition {
-	const { bubble, container, toolbar } = input;
-	if (input.preferredSide !== "before") {
-		return resolveToolbarPosition(input);
+// Places a failed message's toolbar so its failure badge is pinned to the
+// bubble. The badge is centered on the bubble's outer leading edge (the left
+// edge of a right-aligned own message, else the right edge) and on its first
+// text line, so it never reaches above the bubble. The toolbar is anchored at
+// the badge's outer side: the other actions open outward, away from the text,
+// and the badge stays in one place at rest and on hover.
+export function resolvePersistentToolbarPosition(input: {
+	bubble: DOMRect;
+	container: DOMRect;
+	firstLine?: { height: number; top: number };
+	openWidth: number;
+	preferredSide: "after" | "before";
+	restWidth: number;
+	toolbarHeight: number;
+	viewport?: DOMRect;
+}): { inset: number; placement: "edge-after" | "edge-before"; top: number } {
+	const { bubble, container, openWidth, restWidth, toolbarHeight } = input;
+	// The opened toolbar may reach past the row into the visible gutter. It
+	// only shifts toward the bubble when it would leave that area.
+	const bounds = input.viewport ?? container;
+	const lineTop = input.firstLine
+		? input.firstLine.top + (input.firstLine.height - toolbarHeight) / 2
+		: bubble.top;
+	const top = Math.max(bubble.top, lineTop) - container.top;
+	if (input.preferredSide === "before") {
+		// Anchored by its end, so the toolbar grows to the left.
+		const end = bubble.left + restWidth / 2;
+		return {
+			inset: container.right - Math.max(end, bounds.left + openWidth),
+			placement: "edge-before",
+			top,
+		};
 	}
+	const start = bubble.right - restWidth / 2;
 	return {
-		left: Math.max(
-			0,
-			Math.min(bubble.left - container.left, container.width - toolbar.width)
-		),
-		placement: "corner",
-		top:
-			bubble.top -
-			container.top -
-			toolbar.height +
-			CORNER_TOOLBAR_BUBBLE_OVERLAP,
+		inset: Math.min(start, bounds.right - openWidth) - container.left,
+		placement: "edge-after",
+		top,
 	};
 }
 
@@ -392,35 +406,37 @@ function placePersistentToolbar(input: {
 	viewport?: HTMLElement | null;
 }) {
 	const { toolbar } = input;
+	const widths = resolvePersistentToolbarWidths(toolbar);
 	const next = resolvePersistentToolbarPosition({
 		bubble: input.anchor,
 		container: input.container.getBoundingClientRect(),
 		firstLine: input.textSurface
 			? resolveFirstLineBox(input.textSurface)
 			: undefined,
+		openWidth: widths.open,
 		preferredSide: input.preferredSide,
-		toolbar: {
-			height: toolbar.getBoundingClientRect().height,
-			width: resolvePersistentToolbarOpenWidth(toolbar),
-		} as DOMRect,
+		restWidth: widths.rest,
+		toolbarHeight: toolbar.getBoundingClientRect().height,
 		viewport: input.viewport?.getBoundingClientRect(),
 	});
-	toolbar.style.insetInlineStart = `${next.left}px`;
+	const before = next.placement === "edge-before";
+	toolbar.style.insetInlineStart = before ? "auto" : `${next.inset}px`;
+	toolbar.style.insetInlineEnd = before ? `${next.inset}px` : "auto";
 	toolbar.style.insetBlockStart = `${next.top}px`;
 	toolbar.dataset.placement = next.placement;
 }
 
-export function resolvePersistentToolbarOpenWidth(toolbar: HTMLElement) {
+export function resolvePersistentToolbarWidths(toolbar: HTMLElement) {
 	const reveal = toolbar.querySelector<HTMLElement>(
 		'[data-slot="message-footer-reveal-actions"]'
 	);
 	const content = toolbar.querySelector<HTMLElement>(
 		'[data-slot="message-footer-reveal-content"]'
 	);
-	const restWidth =
+	const rest =
 		toolbar.getBoundingClientRect().width -
 		(reveal?.getBoundingClientRect().width ?? 0);
-	return restWidth + (content?.getBoundingClientRect().width ?? 0);
+	return { open: rest + (content?.getBoundingClientRect().width ?? 0), rest };
 }
 
 function MessageFooterActions({
@@ -631,7 +647,7 @@ function MessageFooterActions({
 	return (
 		<div
 			className={cn(
-				"pointer-events-none z-20 flex h-7 w-max max-w-full items-center rounded-md border border-border bg-popover opacity-0 shadow-sm group-focus-within/message-row:pointer-events-auto group-focus-within/message-row:opacity-100 group-hover/message-row:pointer-events-auto group-hover/message-row:opacity-100 has-[[aria-haspopup][aria-expanded=true]]:pointer-events-auto has-[[aria-haspopup][aria-expanded=true]]:opacity-100 [@media(pointer:coarse)]:pointer-events-auto [@media(pointer:coarse)]:opacity-100",
+				"group/message-footer pointer-events-none z-20 flex h-7 w-max max-w-full items-center rounded-md border border-border bg-popover opacity-0 shadow-sm group-focus-within/message-row:pointer-events-auto group-focus-within/message-row:opacity-100 group-hover/message-row:pointer-events-auto group-hover/message-row:opacity-100 has-[[aria-haspopup][aria-expanded=true]]:pointer-events-auto has-[[aria-haspopup][aria-expanded=true]]:opacity-100 [@media(pointer:coarse)]:pointer-events-auto [@media(pointer:coarse)]:opacity-100",
 				inline ? "relative mt-1" : "absolute",
 				persistent && "pointer-events-auto opacity-100"
 			)}
@@ -642,14 +658,15 @@ function MessageFooterActions({
 		>
 			<div
 				className={cn(
-					"flex min-w-0 max-w-full shrink-0 items-center text-muted-foreground text-xs"
+					"flex min-w-0 max-w-full shrink-0 items-center text-muted-foreground text-xs",
+					persistent && FAILED_FOOTER_OUTWARD_CLASS_NAME
 				)}
 				data-slot="message-footer-primary-actions"
 			>
 				{persistent ? (
 					<>
-						{/* The failure icon is always first and keeps its place. The
-						other actions open away from it. */}
+						{/* The failure badge is always first and keeps its place. The
+						other actions open outward from it, away from the bubble. */}
 						<span
 							className="flex shrink-0 items-center gap-2"
 							data-slot="message-footer-problem"
@@ -666,9 +683,12 @@ function MessageFooterActions({
 							)}
 							data-slot="message-footer-reveal-actions"
 						>
-							<div className="min-w-0 overflow-hidden">
+							<div className="flex min-w-0 overflow-hidden group-data-[placement=edge-before]/message-footer:justify-end">
 								<div
-									className="flex w-max items-center"
+									className={cn(
+										"flex w-max items-center",
+										FAILED_FOOTER_OUTWARD_CLASS_NAME
+									)}
 									data-slot="message-footer-reveal-content"
 								>
 									{secondaryActions}
