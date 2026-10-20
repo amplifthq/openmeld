@@ -172,6 +172,8 @@ export function useMemberAgentSessionGroups(input: {
 	currentProfileId: string | null;
 	spaceId: string | null;
 	includeAll: boolean;
+	/** Lists archived Sessions instead of active ones. */
+	archived?: boolean;
 }) {
 	const { currentOrganization: organization } = useAppOrganization();
 	const { defaultHumanProfile } = useDefaultHumanProfile();
@@ -183,6 +185,7 @@ export function useMemberAgentSessionGroups(input: {
 			agentDirectMessageSessionsQueryOptions({
 				organizationId: organization.id,
 				agentProfileId: profile.openMeldProfileId,
+				archived: input.archived === true,
 				enabled:
 					input.includeAll ||
 					profile.openMeldProfileId === input.currentProfileId,

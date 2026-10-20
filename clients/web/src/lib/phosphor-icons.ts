@@ -40,6 +40,7 @@ export { ChatIcon } from "@phosphor-icons/react/Chat";
 export { ChatCircleIcon } from "@phosphor-icons/react/ChatCircle";
 export { ChatCircleDotsIcon } from "@phosphor-icons/react/ChatCircleDots";
 export { ChatCircleTextIcon } from "@phosphor-icons/react/ChatCircleText";
+export { ChatsCircleIcon } from "@phosphor-icons/react/ChatsCircle";
 export { CheckIcon } from "@phosphor-icons/react/Check";
 export { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 export { CheckSquareIcon } from "@phosphor-icons/react/CheckSquare";

@@ -42,17 +42,28 @@ export function SidebarNestedNavList(input: {
 	/** Aligns the guide line under the parent row's icon. */
 	className?: string;
 	maxHeightClassName?: string;
+	/** Collapses the children under their parent row; defaults to open. */
+	open?: boolean;
+	/** For the parent row's toggle to reference with aria-controls. */
+	id?: string;
 }) {
 	const { dismiss } = useAppNavigationPresentation();
 	const labeled = input.sections.length > 1;
 	return (
 		<ScrollArea
 			aria-label={input.ariaLabel}
-			className={cn("mt-0.5", input.maxHeightClassName ?? "max-h-64")}
+			className={cn(
+				input.open === false ? null : "mt-0.5",
+				input.maxHeightClassName ?? "max-h-64"
+			)}
 			data-slot="sidebar-nested-nav-list"
+			id={input.id}
 			role="navigation"
 		>
-			<SidebarMenuSub className={cn("border-foreground/15", input.className)}>
+			<SidebarMenuSub
+				className={cn("border-foreground/15", input.className)}
+				open={input.open}
+			>
 				{input.sections.flatMap((section) => [
 					...(labeled && section.label
 						? [
