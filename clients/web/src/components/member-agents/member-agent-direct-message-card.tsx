@@ -214,6 +214,18 @@ function resolveReasonCard(
 				description:
 					"Its computer isn’t connected. Messages wait until it’s back.",
 			};
+		case "harness_turned_off":
+			return {
+				kind: "repair",
+				title: "Turned off",
+				description: "This harness is turned off on its computer.",
+			};
+		case "no_working_folder":
+			return {
+				kind: "repair",
+				title: "No working folder",
+				description: "This Agent has no working folder on its computer.",
+			};
 		case "not_signed_in":
 			return {
 				kind: "repair",

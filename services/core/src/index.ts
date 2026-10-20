@@ -422,6 +422,7 @@ import {
   rpcGetAgentAccessRequest,
   rpcListAgentAccessRequests,
   rpcListAgentProfileAccessGrants,
+  rpcListViewerAgentAccessGrants,
   rpcRevokeAgentProfileAccessGrant,
   rpcWithdrawAgentAccessRequest,
 } from "./agent-access/agent-access-rpc";
@@ -4504,6 +4505,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcListAgentProfileAccessGrants(this.env, input)
     );
   }
+  listViewerAgentAccessGrants(
+    input: Parameters<typeof rpcListViewerAgentAccessGrants>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListViewerAgentAccessGrants(this.env, input)
+    );
+  }
   revokeAgentProfileAccessGrant(
     input: Parameters<typeof rpcRevokeAgentProfileAccessGrant>[1]
   ) {
@@ -6722,6 +6730,11 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: Parameters<typeof rpcListAgentProfileAccessGrants>[1]
   ) {
     return super.listAgentProfileAccessGrants(input);
+  }
+  listViewerAgentAccessGrants(
+    input: Parameters<typeof rpcListViewerAgentAccessGrants>[1]
+  ) {
+    return super.listViewerAgentAccessGrants(input);
   }
   revokeAgentProfileAccessGrant(
     input: Parameters<typeof rpcRevokeAgentProfileAccessGrant>[1] &

@@ -26,6 +26,10 @@ import { resolveStatusToneTextClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleTextIcon, StarIcon } from "@phosphor-icons/react";
 import { memo } from "react";
+import {
+	AgentAccessIndicator,
+	useColleagueAgentAccess,
+} from "#/components/agent-access/agent-access-indicator";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { AgentProfileOperationalStatusIndicator } from "#/components/agents/agent-profile-operational-status";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
@@ -36,6 +40,7 @@ import {
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
 import { ProfileMenuItems } from "#/components/app/profile-menu-items";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
+import { formatPublicWakeabilityReason } from "#/lib/agents/agent-viewer-access";
 import {
 	localAgentSidebarState,
 	useAgentSidebarPreviewReady,
@@ -99,6 +104,10 @@ export function AgentProfileSidebarItemComponent(input: {
 		isPending: input.readinessIsPending,
 		modelCatalog: input.modelCatalog,
 		readiness: input.readiness,
+	});
+	const colleagueAccess = useColleagueAgentAccess({
+		ownerUserId: input.profile.ownerUserId,
+		profileId: input.profile.openMeldProfileId,
 	});
 	const previewReady = useAgentSidebarPreviewReady();
 	const preview = localAgentSidebarState(
@@ -173,6 +182,7 @@ export function AgentProfileSidebarItemComponent(input: {
 							describedBy={availabilityDescriptionId}
 							description={presentation.controllerModelSummary}
 							indicators={indicators}
+							meta={renderColleagueAccessMeta(colleagueAccess)}
 							name={input.profile.profileName}
 							onClick={() => {
 								input.onSelectProfile(input.profile.openMeldProfileId);
@@ -285,6 +295,12 @@ export function AgentProfileSidebarItemComponent(input: {
 	);
 }
 
+function renderColleagueAccessMeta(
+	access: ReturnType<typeof useColleagueAgentAccess>
+) {
+	return access ? <AgentAccessIndicator access={access} /> : null;
+}
+
 function resolveSidebarAvatarModelId(
 	readiness: GetAgentExecutionReadinessResponse | null,
 	catalog: ModelCatalog | null
@@ -352,7 +368,9 @@ function resolveAgentProfileSidebarPresentation(input: {
 				? resolveStatusToneTextClassName("warning")
 				: resolveAvailabilityClassName(category),
 		availabilityLabel: resolveSidebarAvailabilityLabel(wakeAvailability),
-		availabilityTooltip: wakeAvailability.tooltip,
+		availabilityTooltip: input.readiness?.publicWakeabilityReason
+			? `${wakeAvailability.badgeLabel}: ${formatPublicWakeabilityReason(input.readiness.publicWakeabilityReason)}`
+			: wakeAvailability.tooltip,
 		controllerModelSummary,
 	};
 }

@@ -15,6 +15,8 @@ describe("resolvePublicWakeabilityReason", () => {
       { code: "no_subscription" },
     ],
     ["provider_account.organization_access_disabled", { code: "org_disabled" }],
+    ["controller.registry.disabled", { code: "harness_turned_off" }],
+    ["profile.workspace.missing", { code: "no_working_folder" }],
   ] as const)("names the exact owner reason %s", (reasonCode, expected) => {
     const reason = resolvePublicWakeabilityReason({
       availability: { category: "unavailable", reasonCode },

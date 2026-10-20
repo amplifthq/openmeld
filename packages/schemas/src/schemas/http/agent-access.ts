@@ -23,6 +23,8 @@ export const AGENT_PROFILE_ACCESS_GRANTS_ROUTE =
 export const AGENT_PROFILE_ACCESS_GRANT_REVOKE_ROUTE =
   "/v1/agent-profiles/:agentProfileId/access-grants/:grantId/revoke";
 
+export const VIEWER_AGENT_ACCESS_GRANTS_ROUTE =
+  "/v1/organizations/current/agent-access-grants/mine";
 export const AGENT_ACCESS_PENDING_CODE = "agent_access.pending_owner_consent";
 export const AGENT_ACCESS_DECLINED_CODE = "agent_access.declined";
 // The `space.meta.changed` reason a Space sends when one of its requests
@@ -243,4 +245,27 @@ export const revokeAgentProfileAccessGrantResponseSchema = z.strictObject({
 });
 export type RevokeAgentProfileAccessGrantResponse = z.infer<
   typeof revokeAgentProfileAccessGrantResponseSchema
+>;
+
+/**
+ * The signed-in member's own standing grants: colleagues' Agents they may
+ * start work with without asking. One-chat grants stay out; they cover a
+ * single conversation, not the Agent.
+ */
+export const viewerAgentAccessGrantViewSchema = z.strictObject({
+  profileId: identifierSchema,
+  grantedAt: isoDateTimeSchema,
+});
+export type ViewerAgentAccessGrantView = z.infer<
+  typeof viewerAgentAccessGrantViewSchema
+>;
+
+export const listViewerAgentAccessGrantsResponseSchema = z.strictObject({
+  organizationId: identifierSchema,
+  grants: z
+    .array(viewerAgentAccessGrantViewSchema)
+    .max(AGENT_PROFILE_ACCESS_GRANT_LIST_LIMIT),
+});
+export type ListViewerAgentAccessGrantsResponse = z.infer<
+  typeof listViewerAgentAccessGrantsResponseSchema
 >;

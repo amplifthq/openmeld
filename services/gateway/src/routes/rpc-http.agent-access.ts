@@ -16,9 +16,11 @@ import {
   listAgentAccessRequestsQuerySchema,
   listAgentAccessRequestsResponseSchema,
   listAgentProfileAccessGrantsResponseSchema,
+  listViewerAgentAccessGrantsResponseSchema,
   revokeAgentProfileAccessGrantResponseSchema,
   SPACE_AGENT_REQUESTS_ROUTE,
   spaceAgentRequestRouteParamsSchema,
+  VIEWER_AGENT_ACCESS_GRANTS_ROUTE,
   withdrawAgentAccessRequestResponseSchema,
 } from "@openmeld/schemas";
 import type { Context, Hono } from "hono";
@@ -189,6 +191,19 @@ export function registerAgentAccessRoutes(app: Hono<HonoBindings>): void {
         }),
     });
   });
+
+  app.get(VIEWER_AGENT_ACCESS_GRANTS_ROUTE, noStore(), (c) =>
+    executeRpcRoute({
+      c,
+      route: VIEWER_AGENT_ACCESS_GRANTS_ROUTE,
+      method: "GET",
+      responseSchema: listViewerAgentAccessGrantsResponseSchema,
+      execute: () =>
+        c.var.coreRpc.listViewerAgentAccessGrants({
+          context: buildCoreRpcContext(c),
+        }),
+    })
+  );
 
   app.get(AGENT_PROFILE_ACCESS_GRANTS_ROUTE, noStore(), (c) => {
     const params = agentProfileAccessGrantsRouteParamsSchema.safeParse({

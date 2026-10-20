@@ -14,6 +14,7 @@ import {
   type ListAgentAccessRequestsQuery,
   type ListAgentAccessRequestsResponse,
   type ListAgentProfileAccessGrantsResponse,
+  type ListViewerAgentAccessGrantsResponse,
   listAgentAccessRequestsQuerySchema,
   MEMBER_AGENTS_DISABLED_CODE,
   MEMBER_AGENTS_DISABLED_MESSAGE,
@@ -46,6 +47,7 @@ import {
   type AgentAccessRequestRecord,
   asQueryable,
   listActiveAgentProfileAccessGrants,
+  listActiveAlwaysAgentAccessGrantsForGrantee,
   listAgentAccessRequests,
   readAgentAccessRequest,
   readAgentAccessTargets,
@@ -382,6 +384,31 @@ export async function rpcListAgentProfileAccessGrants(
       granteeName: grant.granteeName,
       granteeKind: grant.granteeKind,
       scope: grant.scope,
+      grantedAt: new Date(grant.grantedAtMs).toISOString(),
+    })),
+  };
+}
+
+/**
+ * The caller's own standing grants, so their clients can tell a colleague's
+ * Agent they may use from one that asks its owner first. Only the grantee
+ * reads these; the grant list itself stays owner-only.
+ */
+export async function rpcListViewerAgentAccessGrants(
+  env: CoreBindings,
+  input: { context?: CoreRpcContextInput }
+): Promise<ListViewerAgentAccessGrantsResponse> {
+  const caller = await requireAgentAccessCaller(env, input.context);
+  const grants = await listActiveAlwaysAgentAccessGrantsForGrantee({
+    db: asQueryable(caller.db),
+    granteeUserId: caller.userId,
+    limit: AGENT_PROFILE_ACCESS_GRANT_LIST_LIMIT,
+    organizationId: caller.organizationId,
+  });
+  return {
+    organizationId: caller.organizationId,
+    grants: grants.map((grant) => ({
+      profileId: grant.profileId,
       grantedAt: new Date(grant.grantedAtMs).toISOString(),
     })),
   };

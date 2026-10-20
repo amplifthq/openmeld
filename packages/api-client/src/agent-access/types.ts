@@ -6,6 +6,7 @@ import type {
   ListAgentAccessRequestsQuery,
   ListAgentAccessRequestsResponse,
   ListAgentProfileAccessGrantsResponse,
+  ListViewerAgentAccessGrantsResponse,
   RevokeAgentProfileAccessGrantResponse,
   WithdrawAgentAccessRequestResponse,
 } from "@openmeld/schemas";
@@ -32,6 +33,8 @@ export type AgentAccessApi = {
   listGrants: (
     agentProfileId: string
   ) => Promise<ListAgentProfileAccessGrantsResponse>;
+  /** Colleagues' Agents the caller may start work with without asking. */
+  listViewerGrants: () => Promise<ListViewerAgentAccessGrantsResponse>;
   revokeGrant: (
     agentProfileId: string,
     grantId: string

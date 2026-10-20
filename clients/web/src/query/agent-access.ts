@@ -32,6 +32,8 @@ export const agentAccessQueryKeys = {
 		[...agentAccessQueryKeys.all(organizationId), "list", query] as const,
 	grants: (organizationId: string, profileId: string) =>
 		[...agentAccessQueryKeys.all(organizationId), "grants", profileId] as const,
+	viewerGrants: (organizationId: string) =>
+		[...agentAccessQueryKeys.all(organizationId), "viewer-grants"] as const,
 };
 
 function agentAccessApi(organizationId: string) {
@@ -165,6 +167,22 @@ export function useAgentProfileAccessGrants(profileId: string) {
 		queryFn: async () =>
 			(await agentAccessApi(organizationId).listGrants(profileId)).grants,
 		retry: false,
+	});
+}
+
+/** Profile IDs of colleagues' Agents the viewer may use without asking. */
+export function useViewerAgentAccessGrants() {
+	const organizationId =
+		useOptionalAppOrganization()?.currentOrganization.id ?? "";
+	return useQuery({
+		queryKey: agentAccessQueryKeys.viewerGrants(organizationId),
+		enabled: Boolean(organizationId) && isMemberAgentsEnabled(),
+		queryFn: async () =>
+			(await agentAccessApi(organizationId).listViewerGrants()).grants.map(
+				(grant) => grant.profileId
+			),
+		retry: false,
+		staleTime: 30_000,
 	});
 }
 

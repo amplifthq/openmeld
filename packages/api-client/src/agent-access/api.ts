@@ -10,8 +10,10 @@ import {
   getAgentAccessRequestResponseSchema,
   listAgentAccessRequestsResponseSchema,
   listAgentProfileAccessGrantsResponseSchema,
+  listViewerAgentAccessGrantsResponseSchema,
   revokeAgentProfileAccessGrantResponseSchema,
   SPACE_AGENT_REQUESTS_ROUTE,
+  VIEWER_AGENT_ACCESS_GRANTS_ROUTE,
   withdrawAgentAccessRequestResponseSchema,
 } from "@openmeld/schemas";
 import type { CreateAgentAccessApi } from "./types";
@@ -92,6 +94,14 @@ export const createAgentAccessApi: CreateAgentAccessApi = (client) => ({
       operation: "agent_access.list_grants",
       schema: listAgentProfileAccessGrantsResponseSchema,
       url: fill(AGENT_PROFILE_ACCESS_GRANTS_ROUTE, { agentProfileId }),
+    }),
+  listViewerGrants: async () =>
+    await client.requestJson({
+      invalidMessage: "Invalid Agent access list.",
+      method: "GET",
+      operation: "agent_access.list_viewer_grants",
+      schema: listViewerAgentAccessGrantsResponseSchema,
+      url: VIEWER_AGENT_ACCESS_GRANTS_ROUTE,
     }),
   revokeGrant: async (agentProfileId, grantId) =>
     await client.requestJson({

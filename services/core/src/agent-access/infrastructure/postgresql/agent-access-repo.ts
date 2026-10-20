@@ -469,6 +469,32 @@ export async function insertAgentProfileAccessGrant(input: {
   });
 }
 
+/** The grantee's own standing grants in one Organization, newest first. */
+export async function listActiveAlwaysAgentAccessGrantsForGrantee(input: {
+  db: Queryable;
+  organizationId: string;
+  granteeUserId: string;
+  limit: number;
+}): Promise<{ profileId: string; grantedAtMs: number }[]> {
+  const result = await input.db.query<{
+    profile_id: string;
+    granted_at_ms: string | number;
+  }>({
+    text: `SELECT grant_row.profile_id, MAX(grant_row.granted_at_ms) AS granted_at_ms
+      FROM "openmeld"."agent_profile_access_grants" AS grant_row
+      WHERE grant_row.organization_id = $1 AND grant_row.grantee_user_id = $2
+        AND grant_row.scope = 'always' AND grant_row.revoked_at_ms IS NULL
+      GROUP BY grant_row.profile_id
+      ORDER BY MAX(grant_row.granted_at_ms) DESC, grant_row.profile_id
+      LIMIT $3`,
+    values: [input.organizationId, input.granteeUserId, input.limit],
+  });
+  return result.rows.map((row) => ({
+    profileId: row.profile_id,
+    grantedAtMs: Number(row.granted_at_ms),
+  }));
+}
+
 export async function listActiveAgentProfileAccessGrants(input: {
   db: Queryable;
   profileId: string;

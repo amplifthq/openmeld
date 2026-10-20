@@ -13,9 +13,18 @@ type WakeAvailability = Pick<
 // Exact owner-side Wakeability reasons that may be named to other
 // Organization members. Anything else stays the generic public state.
 const UNAVAILABLE_REASON_MAP: Readonly<
-  Record<string, "no_subscription" | "not_signed_in" | "org_disabled">
+  Record<
+    string,
+    | "harness_turned_off"
+    | "no_subscription"
+    | "no_working_folder"
+    | "not_signed_in"
+    | "org_disabled"
+  >
 > = {
   "controller.auth.unauthenticated": "not_signed_in",
+  "controller.registry.disabled": "harness_turned_off",
+  "profile.workspace.missing": "no_working_folder",
   "provider_account.organization_access_disabled": "org_disabled",
   "provider_account.subscription_access_unavailable": "no_subscription",
 };
