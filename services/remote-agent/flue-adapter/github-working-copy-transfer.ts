@@ -1,20 +1,25 @@
-import type {
-  WorkspaceClient,
-  WorkspaceRuntimeExecHandle,
-} from "@cloudflare/computer";
+import {
+  type CloudComputerCommandReference,
+  cloudComputerOperationResultSchema,
+} from "@openmeld/schemas";
 import type { RemoteAgentStorage } from "../agent-core/callback-context";
 import type { AgentComputerWorkspaceAccess } from "./agent-computer-workspace-access";
-import { readCommandSlice } from "./computer-command";
 import { AGENT_COMPUTER_CONTAINER_BACKEND_ID } from "./computer-workspace-config";
 import type { GitWorkingCopyLocation } from "./github-working-copy-computer";
 
-type Transfer = { id: string; operationId: string; attempt: number };
+type Transfer = {
+  operationId: string;
+  invocationId: string;
+  reference?: CloudComputerCommandReference;
+};
 const PREFIX = "github-working-copy:git-transfer:";
 
-/** A retained Computer process owns the pack transfer. Tool calls only start or poll it. */
+/** Keep only the original receipt address here. The Computer owns execution,
+ * collection, Stop and idle eligibility, including between checkout polls. */
 export async function advanceGitPackTransfer(input: {
   storage: RemoteAgentStorage;
   workspaceAccess: AgentComputerWorkspaceAccess;
+  invocationId: string;
   operationId: string;
   packPath: string;
   location: GitWorkingCopyLocation;
@@ -22,9 +27,8 @@ export async function advanceGitPackTransfer(input: {
 }): Promise<"running" | "completed"> {
   const key = `${PREFIX}${input.operationId}`;
   const candidate: Transfer = {
-    id: crypto.randomUUID(),
     operationId: input.operationId,
-    attempt: 1,
+    invocationId: input.invocationId,
   };
   const created = await input.storage.putIfAbsentExpiring(
     key,
@@ -35,82 +39,63 @@ export async function advanceGitPackTransfer(input: {
   if (!transfer || transfer.operationId !== input.operationId) {
     throw new Error("github.checkout.git_transfer_state_unavailable");
   }
-  return await input.workspaceAccess.withWorkspace(async (workspace) => {
-    if (created) {
-      await startGitPackTransfer(workspace, transfer, input);
-      return "running";
-    }
-    const state = await pollGitPackTransfer(workspace, transfer);
-    if (state !== "retry") {
-      return state;
-    }
-    if (transfer.attempt >= 3) {
-      throw new Error("github.checkout.git_transfer_failed_after_retries");
-    }
-    const retry: Transfer = {
-      id: crypto.randomUUID(),
-      operationId: transfer.operationId,
-      attempt: transfer.attempt + 1,
-    };
-    if (
-      await input.storage.compareAndSetExpiring(
-        key,
-        transfer,
-        retry,
-        input.expiresAtMs
-      )
-    ) {
-      await startGitPackTransfer(workspace, retry, input);
-    }
-    return "running";
-  });
-}
-
-async function startGitPackTransfer(
-  workspace: WorkspaceClient,
-  transfer: Transfer,
-  input: Parameters<typeof gitPackTransferCommand>[0]
-): Promise<void> {
-  // Identity is persisted before dispatch. An uncertain spawn is inspected
-  // on retry, never blindly started again against the same object store.
-  const handle = await workspace.runtime.exec(gitPackTransferCommand(input), {
-    id: transfer.id,
-    backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
-    encoding: "utf8",
-    timeoutMs: 30 * 60 * 1000,
-  });
-  handle[Symbol.dispose]();
-}
-
-async function pollGitPackTransfer(
-  workspace: WorkspaceClient,
-  transfer: Transfer
-): Promise<"running" | "completed" | "retry"> {
-  let handle: WorkspaceRuntimeExecHandle<"utf8">;
-  try {
-    handle = await workspace.runtime.getExec(transfer.id, {
-      backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
-      encoding: "utf8",
-    });
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      "code" in error &&
-      error.code === "EEXEC_BUSY"
-    ) {
-      return "running";
-    }
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return "retry";
-    }
-    throw error;
+  // Old detached imports have no receipt. Never silently launch a second import
+  // or claim the old one completed. Deployment must settle those operations.
+  if (
+    !transfer.invocationId ||
+    (!transfer.reference && transfer.invocationId !== input.invocationId)
+  ) {
+    throw new Error("github.checkout.git_transfer_result_unconfirmed");
   }
-  const result = await readCommandSlice(handle, transfer.operationId, 0, 1000);
+  const operation = input.workspaceAccess.computerOperation;
+  if (!operation) {
+    throw new Error("computer.operations_unavailable");
+  }
+  const commandKey = `git-import:${input.operationId}`;
+  const result = cloudComputerOperationResultSchema.parse(
+    await operation({
+      action: "command",
+      invocationId: transfer.invocationId,
+      command: transfer.reference
+        ? {
+            action: "poll",
+            key: commandKey,
+            reference: transfer.reference,
+            waitSeconds: 0,
+          }
+        : {
+            action: "start",
+            key: commandKey,
+            command: gitPackTransferCommand(input),
+            backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
+            timeoutSeconds: 30 * 60,
+          },
+    })
+  );
+  if (Array.isArray(result) || !("status" in result)) {
+    throw new Error("computer.invalid_command_result");
+  }
+  if (result.reference && !transfer.reference) {
+    await input.storage.compareAndSetExpiring(
+      key,
+      transfer,
+      { ...transfer, reference: result.reference },
+      input.expiresAtMs
+    );
+  }
+  if (result.syncError || result.nextAction === "inspect") {
+    throw new Error(
+      `github.checkout.git_transfer_result_unconfirmed: ${JSON.stringify({
+        reference: result.reference,
+        code: result.syncError,
+      })}`
+    );
+  }
   if (result.status !== "completed") {
     return "running";
   }
   if (result.exitCode !== 0) {
-    return "retry";
+    throw new Error("github.checkout.git_transfer_failed");
   }
   return "completed";
 }

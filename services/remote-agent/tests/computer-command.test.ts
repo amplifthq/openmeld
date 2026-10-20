@@ -59,6 +59,7 @@ import {
   useRemoteAgentExecutionFinish,
 } from "../flue-adapter/execution-finish";
 import { reconcileRemoteAgentExecution } from "../flue-adapter/execution-reconciliation";
+import { advanceGitPackTransfer } from "../flue-adapter/github-working-copy-transfer";
 import { extractAssistantText } from "../flue-adapter/observation";
 import {
   executeRemoteAgentToolDefinition,
@@ -257,6 +258,68 @@ function fixture(databasePath = ":memory:") {
 }
 
 describe("retained Computer commands", () => {
+  it.each([
+    false,
+    true,
+  ])("keeps a detached Git import in the command owner until its retained result completes (lost acknowledgement=%s)", async (loseAcknowledgement) => {
+    const f = fixture();
+    let dropReply = loseAcknowledgement;
+    const input = {
+      storage: f.storage,
+      workspaceAccess: {
+        ...f.workspaceAccess,
+        computerOperation: async (
+          request: import("@openmeld/schemas").CloudComputerOperation
+        ) => {
+          if (request.action !== "command") {
+            throw new Error("Expected command");
+          }
+          const result = await f
+            .tool(request.invocationId)
+            .execute(request.command);
+          if (dropReply) {
+            dropReply = false;
+            throw new Error("Lost launch acknowledgement");
+          }
+          return result;
+        },
+      },
+      invocationId: "git-import",
+      operationId: "checkout",
+      packPath: "/computer/transfer/pack-1.pack",
+      location: {
+        directory: "/computer/repo",
+        transportDirectory: "/computer/transfer",
+        manifestDigest: "a".repeat(64),
+        sourceCommit: "a".repeat(40),
+        sourceTree: "b".repeat(40),
+        baselineBranch: "main",
+        baselineCommit: "c".repeat(40),
+        baselineTree: "d".repeat(40),
+        baselineManifestDigest: "e".repeat(64),
+      },
+      expiresAtMs: Date.now() + 3_600_000,
+    };
+    if (loseAcknowledgement) {
+      await expect(advanceGitPackTransfer(input)).rejects.toThrow(
+        "Lost launch acknowledgement"
+      );
+      expect(f.storage.hasUnfinishedCommands()).toBe(true);
+    }
+    expect(await advanceGitPackTransfer(input)).toBe("running");
+    // This is the same durable predicate the idle alarm uses after two minutes.
+    expect(f.storage.hasUnfinishedCommands()).toBe(true);
+    expect(await f.storage.nextCollectionAt()).not.toBeNull();
+    const resumed = { ...input, invocationId: "later-checkout-turn" };
+    expect(await advanceGitPackTransfer(resumed)).toBe("running");
+    expect(f.exec).toHaveBeenCalledOnce();
+    f.getExec.mockImplementation((id) =>
+      Promise.resolve(handle(id, [{ id, seq: 1, name: "exit", code: 0 }], true))
+    );
+    expect(await advanceGitPackTransfer(resumed)).toBe("completed");
+    expect(f.storage.hasUnfinishedCommands()).toBe(false);
+    expect(f.exec).toHaveBeenCalledOnce();
+  });
   it.each([
     false,
     true,

@@ -274,6 +274,12 @@ erase files, or impose a task execution deadline. A later request reconnects
 through the SDK. Processes must remain under the command owner's supervision;
 shell backgrounding must not bypass that lifecycle.
 
+Git pack imports use the same retained command receipts as other native
+commands. Checkout keeps only the original receipt address; later calls poll
+that command, including from a later authorized turn. The Computer collector
+continues without checkout polling. Missing or uncertain results require
+inspection and never authorize a new import against the same working copy.
+
 The next Linux command must see synchronized file contents, existence and size.
 The native backend refreshes FUSE attributes using
 `COMPUTERD_FUSE_ATTR_TIMEOUT=0` and prevents file-data cache reuse across opens
