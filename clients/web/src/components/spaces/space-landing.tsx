@@ -199,6 +199,7 @@ import {
 	SPACE_WAKE_STATUS_REFRESH_WINDOW_MS,
 } from "./space-wake-status-refresh";
 import { SpaceWorkBookmarksProvider } from "./space-work-bookmarks";
+import { useSavedConversationTitle } from "./use-saved-conversation-title";
 import {
 	type SavedDirectMessageJoin,
 	useSaveDirectMessageJoin,
@@ -1675,6 +1676,14 @@ function SpaceLandingConversationShell({
 		showDeleteSpaceAction: controller.showDeleteSpaceAction,
 	});
 	const historyErrorMessage = resolveSpaceHistoryErrorMessage(controller);
+	// A MemberAgent session's saved title holds the header until its Session
+	// controls load, so the name does not change on the way.
+	const savedConversationTitle = useSavedConversationTitle({
+		known: null,
+		profileId: controller.profileId,
+		spaceId: controller.spaceId,
+	});
+	const conversationTitle = input.conversationTitle ?? savedConversationTitle;
 	const membersControl = (
 		<SpaceLandingMembersControl
 			isDesktopMembersPanel={isDesktopMembersPanel}
@@ -1831,7 +1840,7 @@ function SpaceLandingConversationShell({
 							canManageSpaceAccess={currentSpaceControls.canManageSpaceAccess}
 							canManageSpaceName={currentSpaceControls.canManageSpaceName}
 							chatArchiveKind={chatArchiveKindFor(memberAgentDirectMessage)}
-							conversationTitle={input.conversationTitle}
+							conversationTitle={conversationTitle}
 							conversationTitleAction={input.conversationTitleAction}
 							conversationTitleControl={resolveConversationTitleControl({
 								centerAgent:
@@ -1839,6 +1848,7 @@ function SpaceLandingConversationShell({
 										? { titleAction: input.conversationTitleAction }
 										: null,
 								memberAgent: memberAgentDirectMessage,
+								profileId: controller.profileId,
 								spaceId: controller.spaceId,
 							})}
 							currentProfileId={input.profileId}
@@ -2036,6 +2046,7 @@ function resolveConversationTitleControl(input: {
 		titleAction?: (title: string) => ReactNode;
 	} | null;
 	memberAgent: DirectMessageMemberAgent | null;
+	profileId: string;
 	spaceId: string;
 }): ((title: string) => ReactNode) | undefined {
 	const centerAgent = input.centerAgent;
@@ -2053,6 +2064,7 @@ function resolveConversationTitleControl(input: {
 		return (title) => (
 			<MemberAgentChatHistory
 				current={memberAgent}
+				profileId={input.profileId}
 				spaceId={input.spaceId}
 				title={title}
 			/>

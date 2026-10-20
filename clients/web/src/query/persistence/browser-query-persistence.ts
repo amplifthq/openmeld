@@ -33,6 +33,10 @@ import { PERSISTED_DISPLAY_QUERY_GC_TIME_MS } from "#/query/query-config";
 import { startQueryKeys } from "#/query/query-keys";
 import { spaceConversationDisplaySnapshotSchema } from "#/query/spaces/display-snapshot";
 import {
+	spaceHeaderTitleDisplayQueryKey,
+	spaceHeaderTitleDisplaySchema,
+} from "#/query/spaces/header-title-display";
+import {
 	mergeSpaceHistorySnapshots,
 	SPACE_SAVED_HISTORY_MAX_BYTES,
 	SPACE_SAVED_THREAD_DISPLAY_MAX_BYTES,
@@ -543,6 +547,7 @@ export function createBrowserQueryPersistenceController(
 					spaceQueryKeys.memberDirectoryDisplay(spaceId, openMeldProfileId),
 					spaceQueryKeys.historyNavigation(spaceId, openMeldProfileId),
 					spaceViewerMembershipDisplayQueryKey(spaceId, openMeldProfileId),
+					spaceHeaderTitleDisplayQueryKey(spaceId, openMeldProfileId),
 				],
 			});
 		});
@@ -1154,6 +1159,10 @@ function serializeSpacePersistedDisplayData(data: unknown): unknown {
 	if (membership.success) {
 		return membership.data;
 	}
+	const headerTitle = spaceHeaderTitleDisplaySchema.safeParse(data);
+	if (headerTitle.success) {
+		return headerTitle.data;
+	}
 	const displaySnapshot =
 		spaceConversationDisplaySnapshotSchema.safeParse(data);
 	if (displaySnapshot.success) {
@@ -1230,6 +1239,10 @@ function isApprovedSuccessfulQuery(
 			}
 			if (targetQueryKey[1] === "history") {
 				return spaceHistorySnapshotSchema.safeParse(query.state.data).success;
+			}
+			if (targetQueryKey[1] === "header-title-display") {
+				return spaceHeaderTitleDisplaySchema.safeParse(query.state.data)
+					.success;
 			}
 			if (targetQueryKey[1] === "viewer-membership-display") {
 				return spaceViewerMembershipDisplaySchema.safeParse(query.state.data)

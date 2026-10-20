@@ -12,6 +12,7 @@ import {
 	resolveSpaceStatusIndicators,
 	resolveSpaceStatusLabel,
 } from "#/components/spaces/space-status-indicators";
+import { useSavedConversationTitle } from "#/components/spaces/use-saved-conversation-title";
 import { useSpaceStatusSources } from "#/components/spaces/use-space-status-sources";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -80,6 +81,8 @@ export function resolveDirectMessageMemberAgent(input: {
  */
 export function MemberAgentChatHistory(input: {
 	spaceId: string;
+	/** The viewer's Profile, which scopes the saved title. */
+	profileId: string;
 	title: string;
 	current: DirectMessageMemberAgent;
 }) {
@@ -102,7 +105,12 @@ export function MemberAgentChatHistory(input: {
 	});
 	const titleStatus = resolveSpaceStatusIndicators(sessionIds, statusSources);
 	const titleStatusLabel = resolveSpaceStatusLabel(titleStatus);
-	const title = sessions.currentTitle ?? input.title;
+	const title =
+		useSavedConversationTitle({
+			known: sessions.currentTitle,
+			profileId: input.profileId,
+			spaceId: input.spaceId,
+		}) ?? input.title;
 	// Any way in counts, a direct link included: the Agent's entries reopen it.
 	const lastChatScope = useMemberAgentLastChatScope();
 	const organizationId = lastChatScope?.organizationId;

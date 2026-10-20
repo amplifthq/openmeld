@@ -19,6 +19,7 @@ import { organizationQueryKeys } from "#/query/organizations/organization-direct
 import { organizationPluginConnectionQueryKeys } from "#/query/organizations/plugin-connections";
 import { startQueryKeys } from "#/query/query-keys";
 import { spaceConversationDisplaySnapshotSchema } from "#/query/spaces/display-snapshot";
+import { spaceHeaderTitleDisplayQueryKey } from "#/query/spaces/header-title-display";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import {
 	accountMemberSpacesDisplayQueryKey,
@@ -410,6 +411,15 @@ describe("BrowserQueryPersistenceController", () => {
 			spaceStorage,
 			spaceViewerMembershipDisplayQueryKey("space-a", "profile-a")
 		);
+		const headerTitle = { version: 1, title: "New chat" };
+		sourceQueryClient.setQueryData(
+			spaceHeaderTitleDisplayQueryKey("space-a", "profile-a"),
+			headerTitle
+		);
+		await waitForStoredQuery(
+			spaceStorage,
+			spaceHeaderTitleDisplayQueryKey("space-a", "profile-a")
+		);
 
 		await sourceController.activateSpaceConversation({
 			organizationId: "organization-a",
@@ -501,6 +511,11 @@ describe("BrowserQueryPersistenceController", () => {
 				spaceViewerMembershipDisplayQueryKey("space-a", "profile-a")
 			)
 		).toEqual(membership);
+		expect(
+			restoredQueryClient.getQueryData(
+				spaceHeaderTitleDisplayQueryKey("space-a", "profile-a")
+			)
+		).toEqual(headerTitle);
 		expect(
 			restoredQueryClient.getQueryData(
 				spaceQueryKeys.members("space-a", "profile-a")
