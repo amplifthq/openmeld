@@ -1556,14 +1556,17 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(
 			screen.getByRole("heading", { name: "How this Agent works" })
 		).toBeTruthy();
-		expect(screen.getAllByText("Codex · GPT-5.5 · high")).toHaveLength(2);
+		// The header names the controller; the Model card names the model a
+		// colleague's Agent saved, with its effort.
+		expect(screen.getAllByText("Codex · GPT-5.5 · high")).toHaveLength(1);
+		expect(screen.getByText("GPT-5.5 · High")).toBeTruthy();
 		expect(screen.getByText("Approve for me")).toBeTruthy();
-		const usage = within(
-			screen.getByTestId("agent-configuration-overview")
-		).getByRole("region", { name: "Usage limits" });
-		expect(usage.closest("[data-fluid-card-item]")).toBeTruthy();
+		// A teammate sees no quota while the Agent has room to spare.
 		expect(
-			within(usage).queryByRole("button", { name: "Edit Usage limits" })
+			within(screen.getByTestId("agent-configuration-overview")).queryByRole(
+				"region",
+				{ name: "Usage limits" }
+			)
 		).toBeNull();
 		expect(
 			document.querySelector('img[src="https://example.com/felix-avatar.png"]')

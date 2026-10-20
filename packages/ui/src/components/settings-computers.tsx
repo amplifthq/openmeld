@@ -362,7 +362,8 @@ export type SettingsLocalAgentRow = {
   summaryStatuses?: readonly SettingsLocalAgentRowSummaryStatus[];
 };
 
-const LOW_CAPACITY_REMAINING_THRESHOLD_PERCENT = 20;
+/** A usage limit at or below this percent left reads as Low. */
+export const LOW_CAPACITY_REMAINING_THRESHOLD_PERCENT = 20;
 const US_USAGE_PERCENT_FORMATTER = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 1,
 });

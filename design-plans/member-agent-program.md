@@ -470,7 +470,10 @@ New, first phase, prompt-only:
 Current: `resourcesConflict`
 (`runtime/local-service/src/local-execution-slots.ts:3`) treats `exclusive`
 as conflicting with every other task machine-wide, `none` included, and
-treats an undefined legacy scope as conflicting with any defined one; `resourceScope` derives
+treats an undefined legacy scope as conflicting with any defined one (since
+the 4e acceptance fix, only when the folders are the same or either is
+unknown: tasks without an Execution Context now also get a `folderKey`);
+`resourceScope` derives
 from access and workspace (`execution-context-session.ts:34`). Limits:
 `DEFAULT_RUNTIME_DAEMON_GLOBAL_CONCURRENCY = 10`,
 `DEFAULT_RUNTIME_DAEMON_QUEUE_MAX = 50`

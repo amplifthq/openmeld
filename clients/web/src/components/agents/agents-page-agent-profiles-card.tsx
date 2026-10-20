@@ -38,7 +38,6 @@ import type {
 	ProfileDetailsSnapshot,
 	ProfileDetailsViewerScope,
 } from "@openmeld/schemas/types";
-import { Badge } from "@openmeld/ui/components/badge";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
 	Dialog,
@@ -3870,7 +3869,7 @@ function AgentProfileWorkspacePresentation(input: {
 		<AgentProfileUsage
 			agentControllerRef={input.input.primaryAgentControllerRef}
 			profileId={input.input.profile.openMeldProfileId}
-			variant="card"
+			variant={input.input.capabilities.canManage ? "owner-card" : "card"}
 		/>
 	);
 	const overflowActions = (
@@ -3962,9 +3961,13 @@ function AgentProfileWorkspacePresentation(input: {
 						/>
 					) : (
 						<AgentProfileReadOnlyConfigurationOverview
-							controllerModelSummary={controllerModelSummary}
 							details={input.input.details}
 							isLoading={input.input.readinessIsPending}
+							modelValue={resolvePublicModelCardValue({
+								modelCatalog: input.input.modelCatalog,
+								publicProfileConfiguration:
+									input.input.publicProfileConfiguration,
+							})}
 							publicProfileConfiguration={
 								input.input.publicProfileConfiguration
 							}
@@ -4352,10 +4355,12 @@ function resolveConfigurationDraftSummary(input: {
 				input.editState?.modelSelection?.agentControllerId ?? ""
 			];
 		const modelId = input.draft.selectedModelId;
-		const model = catalog?.models.find((entry) => entry.id === modelId);
+		const model = catalog?.models.find(
+			(entry) => entry.id === (modelId || catalog.defaultModelId)
+		);
 		return [
 			input.controllerDisplayName,
-			model?.displayName ?? (modelId || "Controller default"),
+			model?.displayName ?? modelId,
 			input.draft.selectedReasoningLevel,
 		]
 			.filter(Boolean)
@@ -4365,7 +4370,7 @@ function resolveConfigurationDraftSummary(input: {
 		return (
 			input.editState?.controllerCollaborationMode?.options.find(
 				(option) => option.value === input.draft.selectedCollaborationMode
-			)?.label ?? "Controller default"
+			)?.label ?? "Default"
 		);
 	}
 	if (input.draft.selectedPolicy && input.editState?.controllerPermissionMode) {
@@ -4379,7 +4384,7 @@ function resolveConfigurationDraftSummary(input: {
 	}
 	return input.draft.selectedOpenCodePermission
 		? "Custom permissions"
-		: "Controller default";
+		: "Default";
 }
 
 function scopeConfigurationDraft(
@@ -4539,10 +4544,31 @@ function resolveWorkingFolderSummary(
 	};
 }
 
+/** The model a colleague's Agent saved, or null when it saved none. */
+function resolvePublicModelCardValue(input: {
+	modelCatalog: ModelCatalog | null;
+	publicProfileConfiguration: NonNullable<
+		GetAgentExecutionReadinessResponse["publicProfileConfiguration"]
+	> | null;
+}): string | null {
+	const configuration = input.publicProfileConfiguration;
+	if (!configuration?.modelSelection?.modelId) {
+		return null;
+	}
+	return (
+		resolveAgentProfileModelCardValue({
+			agentControllerRef: configuration.agentControllerRef ?? null,
+			modelCatalog: input.modelCatalog,
+			modelSelection: configuration.modelSelection,
+		})?.value ?? null
+	);
+}
+
 function AgentProfileReadOnlyConfigurationOverview(input: {
 	usageCard?: ReactNode;
 	isLoading?: boolean;
-	controllerModelSummary: string;
+	/** Hidden when unknown: a viewer can't see the harness's own default. */
+	modelValue: string | null;
 	details: ProfileDetailsSnapshot;
 	publicProfileConfiguration: NonNullable<
 		GetAgentExecutionReadinessResponse["publicProfileConfiguration"]
@@ -4572,18 +4598,17 @@ function AgentProfileReadOnlyConfigurationOverview(input: {
 		>
 			<h2 className="font-medium text-sm">How this Agent works</h2>
 			<AgentConfigurationGrid className="lg:grid-cols-2">
-				{isLoading ? (
-					<AgentConfigurationSkeletonCard label="Model" />
-				) : (
+				{isLoading ? <AgentConfigurationSkeletonCard label="Model" /> : null}
+				{!isLoading && input.modelValue ? (
 					<AgentConfigurationCard
 						compact
 						icon={<BrainIcon aria-hidden="true" />}
 						itemId="model"
 						label="Model"
 						readOnly
-						summary={input.controllerModelSummary}
+						summary={input.modelValue}
 					/>
-				)}
+				) : null}
 				{input.usageCard}
 				{isLoading ? (
 					<AgentConfigurationSkeletonCard label="Permissions" />
@@ -4755,13 +4780,6 @@ function AgentProfileModelConfigurationCard(input: {
 				editor.pendingEdit?.editor === "model"
 					? editor.pendingEdit.summary
 					: (cardValue?.value ?? props.controllerModelSummary)
-			}
-			summaryAccessory={
-				cardValue?.isDefault && editor.pendingEdit?.editor !== "model" ? (
-					<Badge className="shrink-0" variant="secondary">
-						Default
-					</Badge>
-				) : null
 			}
 		>
 			<AgentProfileModelSelectionEditSection
