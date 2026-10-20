@@ -76,6 +76,7 @@ import {
   type LocalSpaceExecutionInput,
   listSignalsQuerySchema,
   listSpaceThreadSignalsQuerySchema,
+  LOCAL_EXECUTION_INPUT_PENDING_DIAGNOSTIC,
   localExecutionInputBindingSchema,
   localExecutionInputResponseSchema,
   MENTION_DISPATCH_ERROR_CODES,
@@ -8653,6 +8654,11 @@ export class Space extends DurableObject<CoreBindings> {
     } else if (operation === "apply" && receipt?.status === "not_applied") {
       outcome = "rejected";
     }
+    // A slow native consumption outlasts the apply wait. Keep reading the
+    // Execution Host's receipt until it settles; never apply again.
+    const pending =
+      receipt?.status === "unconfirmed" &&
+      receipt.diagnosticCode === LOCAL_EXECUTION_INPUT_PENDING_DIAGNOSTIC;
     const published = this.ctx.storage.transactionSync(() => {
       const settled = settleQueuedSpaceExecutionInput(
         this.ctx.storage.sql,
@@ -8663,7 +8669,7 @@ export class Space extends DurableObject<CoreBindings> {
       updateSpaceExecutionInput(this.ctx.storage.sql, {
         inputId: item.inputId,
         nextAttemptAtMs:
-          operation === "apply" && outcome === "unconfirmed"
+          outcome === "unconfirmed" && (operation === "apply" || pending)
             ? Date.now() + 1000
             : null,
       });

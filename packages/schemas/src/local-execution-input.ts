@@ -5,6 +5,9 @@ const id = z.string().min(1).max(1024);
 
 export const LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER =
   "x-openmeld-local-execution-input";
+// The Execution Host still waits for native consumption. Space keeps reading.
+export const LOCAL_EXECUTION_INPUT_PENDING_DIAGNOSTIC =
+  "service.execution_input.pending";
 
 // Only Core resolves these private selectors. Source identifies the original
 // requester and effect; it is not an authorization token.

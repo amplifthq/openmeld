@@ -571,6 +571,7 @@ describe("Center Agent execution input in the Space owner", () => {
     "delete-retired-target",
     "claude-applied",
     "claude-enqueue",
+    "claude-pending",
   ] as const)("settles Local %s through the same durable queue without replaying apply", async (scenario) => {
     const controllerRef = scenario.startsWith("claude-")
       ? "builtin:claude-code"
@@ -1067,6 +1068,58 @@ describe("Center Agent execution input in the Space owner", () => {
         expect(
           listQueuedSpaceExecutionInputs(state.storage.sql)[0]?.state
         ).toBe("queued");
+        return;
+      }
+      if (result === "claude-pending") {
+        const applied = {
+          inputId,
+          status: "applied",
+          taskId: "task-local",
+          threadId: "thread-local",
+          turnId: "turn-local",
+        };
+        // The apply wait ends before Claude consumes the input; the Execution
+        // Host then reports it pending until the native replay arrives.
+        transport
+          .mockReset()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({
+            inputId,
+            taskId: "task-local",
+            status: "unconfirmed",
+            reasonCode: "execution_input.application_unconfirmed",
+            diagnosticCode: "service.execution_input.pending",
+          })
+          .mockResolvedValueOnce(applied);
+        await instance.steerQueuedExecutionInput(inputId);
+        vi.mocked(instance.flushPendingExecutionInputs).mockRestore();
+        for (const expected of ["unconfirmed", "unconfirmed"]) {
+          expect(
+            listQueuedSpaceExecutionInputs(state.storage.sql)[0]?.state
+          ).toBe(expected);
+          expect(readNextSpaceExecutionInputAlarm(state.storage.sql)).not.toBe(
+            null
+          );
+          state.storage.sql.exec(
+            "UPDATE space_execution_input_outbox SET queue_receipt_due_at_ms = 0"
+          );
+          await instance.flushPendingExecutionInputs();
+        }
+        // Reads may also come from the Space alarm; apply is never repeated.
+        expect(
+          transport.mock.calls.map(
+            ([call]) => (call.body as { operation?: string }).operation
+          )
+        ).toEqual([
+          "apply",
+          ...transport.mock.calls.slice(1).map(() => "read"),
+        ]);
+        expect(listQueuedSpaceExecutionInputs(state.storage.sql)).toEqual([]);
+        expect(
+          state.storage.sql
+            .exec("SELECT id FROM space_signals WHERE id = ?", signal.id)
+            .toArray()
+        ).toHaveLength(1);
         return;
       }
       await instance.steerQueuedExecutionInput(inputId);
