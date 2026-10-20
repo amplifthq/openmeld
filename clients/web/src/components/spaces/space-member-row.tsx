@@ -260,11 +260,15 @@ function resolveAgentSpaceMemberRowPresentation(input: {
 			"wake_route.registration_expired" &&
 		rawDisplayedMemberTransientState === null;
 
+	// Compact rows show a problem only as the status dot; its reason is in
+	// the dot's tooltip and its fix in the profile popover.
 	const statusDetailIsInTooltip =
 		input.input.density === "compact" &&
 		(visualDisplayedMemberTransientState === "checking" ||
 			visualDisplayedMemberTransientState === "active_wake_in_progress" ||
-			visualEntry.presenceStatus === "checking_connection");
+			visualEntry.presenceStatus === "checking_connection" ||
+			visualEntry.availabilityCategory === "unavailable" ||
+			visualEntry.availabilityCategory === "offline");
 	const primaryDetail =
 		input.input.variant === "compact"
 			? resolveCompactDetail(visualEntry, false)

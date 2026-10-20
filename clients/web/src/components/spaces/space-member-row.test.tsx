@@ -1173,6 +1173,7 @@ describe("SpaceMemberRow", () => {
 				availabilityBadgeLabel: "Unavailable",
 				availabilityCategory: "unavailable",
 				availabilityReasonCode: "controller.binding.disabled",
+				availabilitySummary: "Turn on this Agent's local agent.",
 				presenceStatus: "unavailable",
 			}),
 		});
@@ -1180,6 +1181,7 @@ describe("SpaceMemberRow", () => {
 		expect(getAgentAvailabilityIndicator().getAttribute("aria-label")).toBe(
 			"Unavailable"
 		);
+		expect(screen.queryByText("Turn on this Agent's local agent.")).toBeNull();
 		expect(screen.queryByText("Needs attention")).toBeNull();
 		expect(screen.queryByText("Needs connection")).toBeNull();
 		expect(

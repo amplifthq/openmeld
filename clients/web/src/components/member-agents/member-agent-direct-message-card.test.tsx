@@ -148,7 +148,6 @@ describe("MemberAgent Direct Message card", () => {
 			kind: "repair",
 			title: "Working folder missing",
 			description: "Choose a working folder before the first task.",
-			actionLabel: "Choose working folder",
 		});
 		const card = resolveMemberAgentDirectMessageCard({
 			entry: missing,

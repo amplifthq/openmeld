@@ -23,6 +23,8 @@ import { agentProfileControllerChangeEligibilityQueryOptions } from "#/query/pro
 export function AgentProfileWorkingFolderRecoveryAction(input: {
 	className?: string;
 	actorProfileId: string | null;
+	/** No folder is set yet, so nothing has failed: ask to choose one. */
+	folderMissing?: boolean;
 	label?: string;
 	organizationId: string;
 	storageScope: string;
@@ -116,8 +118,18 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 			const item = result.data?.items.find(
 				(entry) => entry.agentProfileId === input.profile.openMeldProfileId
 			);
+			const available =
+				item?.agentWakeAvailability.status === "available_for_wake";
+			if (input.folderMissing) {
+				setSavedStatus(
+					available
+						? "Working folder saved. This Agent is ready for new work."
+						: "Working folder saved. This Agent still needs attention. Review its current status."
+				);
+				return;
+			}
 			setSavedStatus(
-				item?.agentWakeAvailability.status === "available_for_wake"
+				available
 					? "Working folder saved. This Agent is available for new work. Retry the failed task when you are ready."
 					: "Working folder saved. This Agent still needs attention. Review its current status before retrying the task."
 			);
@@ -135,7 +147,10 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 				size="sm"
 				variant="outline"
 			>
-				{input.label ?? "Review working folder"}
+				{input.label ??
+					(input.folderMissing
+						? "Choose working folder"
+						: "Review working folder")}
 			</Button>
 			{savedStatus ? (
 				<div className="grid gap-2">
@@ -159,7 +174,9 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 					organizationId={input.organizationId}
 					profile={input.profile}
 					recovery={{
-						message: `This Agent could not use its working folder on ${current?.runtimeDeviceDisplayName ?? "its computer"}. Set up its folder again or choose another one for new work. This does not move files or restart the failed task.`,
+						message: input.folderMissing
+							? `Choose the folder on ${current?.runtimeDeviceDisplayName ?? "its computer"} where this Agent starts new work.`
+							: `This Agent could not use its working folder on ${current?.runtimeDeviceDisplayName ?? "its computer"}. Set up its folder again or choose another one for new work. This does not move files or restart the failed task.`,
 						onSaved: checkSavedFolder,
 						saveBlockedReason,
 					}}

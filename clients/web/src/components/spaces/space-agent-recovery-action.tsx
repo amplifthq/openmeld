@@ -19,6 +19,22 @@ export type SpaceAgentProfileBindingRecoveryPlan = Extract<
 	}
 >;
 
+const WORKING_FOLDER_MISSING_REASON_CODES: ReadonlySet<string> = new Set([
+	"workspace.missing",
+	"profile.workspace.missing",
+]);
+
+/** No working folder is set yet: set-up work, not a failure. */
+export function isWorkingFolderMissingReasonCode(
+	reasonCode: string | null | undefined
+): boolean {
+	return (
+		reasonCode !== null &&
+		reasonCode !== undefined &&
+		WORKING_FOLDER_MISSING_REASON_CODES.has(reasonCode)
+	);
+}
+
 function isWorkingFolderRecovery(reasonCode: string): boolean {
 	return (
 		resolvePublicAgentFailureRecovery({ errorCode: reasonCode })
@@ -36,6 +52,9 @@ function renderProfileSettingsRecoveryAction(input: {
 		return (
 			<AgentWorkingFolderRecoveryAction
 				className={input.className}
+				folderMissing={isWorkingFolderMissingReasonCode(
+					input.plan.recoveryReasonCode
+				)}
 				label={input.actionLabel}
 				profileId={input.plan.profileId}
 			/>

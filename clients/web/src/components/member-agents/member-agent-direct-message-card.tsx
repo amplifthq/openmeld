@@ -19,6 +19,7 @@ import {
 	MessageContent,
 	MessageHeader,
 } from "#/components/spaces/primitives/message";
+import { isWorkingFolderMissingReasonCode } from "#/components/spaces/space-agent-recovery-action";
 import { SpaceAgentIssueRecoveryAction } from "#/components/spaces/space-agent-recovery-context";
 import { resolveSpaceMessageRowLayoutClassName } from "#/components/spaces/space-message-bubble-style";
 import { SpaceMessageProfileAvatar } from "#/components/spaces/space-message-profile-avatar";
@@ -44,8 +45,6 @@ export type MemberAgentDirectMessageCardModel =
 			kind: "checking" | "offline" | "repair";
 			title: string;
 			description: string;
-			/** Overrides the recovery plan's own action label. */
-			actionLabel?: string;
 	  };
 
 /**
@@ -65,17 +64,13 @@ export function resolveMemberAgentDirectMessageCard(input: {
 	const { entry } = input;
 	// A missing folder is set-up work, not a failure: before the first task
 	// nothing has failed yet.
-	if (
-		entry.availabilityReasonCode !== null &&
-		WORKING_FOLDER_MISSING_REASON_CODES.has(entry.availabilityReasonCode)
-	) {
+	if (isWorkingFolderMissingReasonCode(entry.availabilityReasonCode)) {
 		return {
 			kind: "repair",
 			title: "Working folder missing",
 			description: input.hasMessages
 				? "Choose a working folder before the next task."
 				: "Choose a working folder before the first task.",
-			actionLabel: "Choose working folder",
 		};
 	}
 	if (input.reason && entry.availabilityCategory !== "available") {
@@ -205,11 +200,6 @@ function resolveReasonCard(
 	}
 }
 
-const WORKING_FOLDER_MISSING_REASON_CODES: ReadonlySet<string> = new Set([
-	"workspace.missing",
-	"profile.workspace.missing",
-]);
-
 const CARD_ICON = {
 	checking: CircleNotchIcon,
 	offline: WifiSlashIcon,
@@ -299,7 +289,6 @@ export function MemberAgentDirectMessageCard(input: {
 							{input.model.kind === "checking" ? null : (
 								<div className="mt-3 flex flex-col items-start gap-2 empty:hidden">
 									<SpaceAgentIssueRecoveryAction
-										actionLabel={input.model.actionLabel}
 										className="mt-0"
 										profileId={input.entry.profileId}
 									/>
