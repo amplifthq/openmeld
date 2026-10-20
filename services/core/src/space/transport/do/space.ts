@@ -23357,6 +23357,8 @@ export class Space extends DurableObject<CoreBindings> {
    * [requester, Agent]. A changed or deleted message voids instead.
    */
   async rpcApplyAgentAccessDecision(input: {
+    /** Core found the allowed request's access revoked; close, never release. */
+    accessRevoked?: boolean;
     agentMember?: ResolvedSpaceMemberProfile;
     /** The target's harness from its Binding; the member snapshot may lack it. */
     targetControllerRef?: string;
@@ -23429,6 +23431,15 @@ export class Space extends DurableObject<CoreBindings> {
       };
     }
     const nowMs = Date.now();
+    if (input.status === "allowed" && input.accessRevoked) {
+      closeSpaceAgentAccessHold(this.ctx.storage.sql, {
+        nowMs,
+        reason: "revoked",
+        requestId: hold.requestId,
+        syncPending: false,
+      });
+      return { outcome: "closed" };
+    }
     if (input.status === "allowed" || input.status === "joined") {
       return await this.releaseAgentAccessHold({
         ...input,

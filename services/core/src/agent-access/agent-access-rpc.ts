@@ -42,6 +42,7 @@ import {
   alwaysAllowAgentProfileMember,
   decideAgentAccessRequest,
   finishAgentAccessDecision,
+  isAgentAccessRequestStillGranted,
   readAgentAccessRequestView,
   readAgentAccessRequestViews,
   requireAgentAccessRequestViewer,
@@ -610,7 +611,15 @@ async function applyDecisionInSpace(
 ): Promise<AgentAccessRequestRecord> {
   const { request } = decided;
   const { stub } = resolveRpcSpaceStubOrThrow(env, request.spaceId);
-  const releases = request.status === "allowed" || request.status === "joined";
+  // A replayed allow whose access was revoked since closes the hold instead,
+  // so the held message never starts work after revocation.
+  const accessRevoked =
+    request.status === "allowed" &&
+    !decided.transitioned &&
+    !(await isAgentAccessRequestStillGranted({ db: caller.db, request }));
+  const releases =
+    (request.status === "allowed" && !accessRevoked) ||
+    request.status === "joined";
   const targetControllerRef = releases
     ? (agentMember?.agentControllerRef ??
       (await readRequestedAgentControllerRef(caller, request)))
@@ -622,6 +631,7 @@ async function applyDecisionInSpace(
     requestId: request.id,
     spaceId: request.spaceId,
     status: request.status,
+    ...(accessRevoked ? { accessRevoked } : {}),
     ...(agentMember ? { agentMember } : {}),
     ...(targetControllerRef ? { targetControllerRef } : {}),
   });

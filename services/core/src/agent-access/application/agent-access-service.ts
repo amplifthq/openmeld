@@ -17,6 +17,7 @@ import {
   insertAgentAccessRequest,
   insertAgentProfileAccessGrant,
   isOrganizationMember,
+  listActiveAgentProfileAccessGrants,
   markAgentAccessRequestApplied,
   readAgentAccessRequest,
   readAgentAccessRequestGrants,
@@ -266,6 +267,33 @@ export async function alwaysAllowAgentProfileMember(input: {
  * Records what the Space did with a decision: applied (the item closes
  * everywhere) or voided because its message changed or is gone.
  */
+/**
+ * Whether an allowed request may still release its held message: its own
+ * grant is active, or the requester holds an active standing grant (an
+ * upgrade retires the one-chat grant). A grant revoked before a lost Space
+ * call is replayed must not start the task.
+ */
+export async function isAgentAccessRequestStillGranted(input: {
+  db: PostgresDatabase;
+  request: AgentAccessRequestRecord;
+}): Promise<boolean> {
+  const db = asQueryable(input.db);
+  const own = (
+    await readAgentAccessRequestGrants({ db, requestIds: [input.request.id] })
+  ).get(input.request.id);
+  if (own && own.revokedAtMs === null) {
+    return true;
+  }
+  const standing = await listActiveAgentProfileAccessGrants({
+    db,
+    granteeUserId: input.request.requesterUserId,
+    limit: 1,
+    profileId: input.request.agentProfileId,
+    scope: "always",
+  });
+  return standing.length > 0;
+}
+
 export async function finishAgentAccessDecision(input: {
   db: PostgresDatabase;
   nowMs: number;
