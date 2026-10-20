@@ -6,11 +6,18 @@ import {
 } from "@openmeld/schemas/testing";
 import type { WakeProgressItem } from "@openmeld/schemas/types";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	isAgentRequestCandidate,
 	resolveEffectiveAddMemberProfileIds,
 } from "#/components/spaces/people-agent-picker-model";
+import {
+	MessageScroller,
+	MessageScrollerContent,
+	MessageScrollerProvider,
+	MessageScrollerViewport,
+} from "#/components/spaces/primitives/message-scroller";
 import {
 	AgentAccessRequestCard,
 	agentAccessOutcomeCopy,
@@ -20,7 +27,13 @@ import {
 	collectHeldAgentAccessWakeKeys,
 	withoutHeldAgentAccessWakeProgress,
 } from "./held-agent-access-wake-progress";
-import { requesterAgentAccessCopy } from "./space-agent-access-banner";
+import {
+	requesterAgentAccessCopy,
+	SpaceAgentAccessBar,
+	SpaceAgentAccessPreviews,
+	type SpaceAgentAccessRequestsState,
+	splitAgentAccessDecisions,
+} from "./space-agent-access-requests";
 import {
 	addAgentRequestMentionSelection,
 	buildSpaceAgentRequestMentionItems,
@@ -31,6 +44,7 @@ import {
 const ALWAYS_ALLOW = /Always allow/u;
 const ASKED_EVERY_TIME = /asked every time/u;
 const EDITED_OR_DELETED = /edited or deleted/u;
+const JOIN_TO_POST = /join to post/u;
 
 const state = vi.hoisted(() => ({
 	request: null as AgentAccessRequestView | null,
@@ -54,6 +68,13 @@ vi.mock("@tanstack/react-router", () => ({
 		<a href={props.to}>{props.children as string}</a>
 	),
 	useNavigate: () => vi.fn(),
+}));
+vi.mock("#/components/member-agents/use-member-agents", () => ({
+	useMemberAgentIndex: () => ({
+		index: {
+			byProfileId: new Map([["agt_1", { harnessKind: "claude-code" }]]),
+		},
+	}),
 }));
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useOptionalAppOrganization: () => ({
@@ -133,6 +154,129 @@ describe("Agent owner answer card", () => {
 	});
 });
 
+describe("Owner answer to a Space request", () => {
+	const spaceJoin = (overrides: Partial<AgentAccessRequestView> = {}) =>
+		request({
+			kind: "space_join",
+			availableDecisions: ["join", "reply_by_dm", "ignore"],
+			...overrides,
+		});
+	function inConversation(children: ReactNode) {
+		return (
+			<MessageScrollerProvider>
+				<MessageScroller>
+					<MessageScrollerViewport>
+						<MessageScrollerContent>{children}</MessageScrollerContent>
+					</MessageScrollerViewport>
+				</MessageScroller>
+			</MessageScrollerProvider>
+		);
+	}
+	function spaceState(
+		requests: AgentAccessRequestView[]
+	): SpaceAgentAccessRequestsState {
+		return {
+			requests,
+			busy: false,
+			error: null,
+			decide: vi.fn(async () => undefined),
+			withdraw: vi.fn(),
+		};
+	}
+
+	it("keeps every Core decision: one primary, the rest in the overflow", () => {
+		expect(
+			splitAgentAccessDecisions(["join", "reply_by_dm", "ignore"])
+		).toEqual({ primary: "join", secondary: ["reply_by_dm", "ignore"] });
+		expect(splitAgentAccessDecisions([])).toEqual({
+			primary: null,
+			secondary: [],
+		});
+	});
+
+	it("labels the Space decisions plainly in the Inbox too", () => {
+		state.request = spaceJoin();
+		render(<AgentAccessRequestCard requestId="aar_1" />);
+		expect(
+			screen.getAllByRole("button").map((button) => button.textContent)
+		).toEqual(["Add to Space", "Reply to Tali by DM", "Don't add"]);
+	});
+
+	it("shows the owner one line about the Agent, with one primary action", () => {
+		const requestState = spaceState([spaceJoin()]);
+		render(<SpaceAgentAccessBar state={requestState} />);
+		expect(screen.getByText("Tali asked to add PR Reviewer here")).toBeTruthy();
+		expect(screen.queryByText(JOIN_TO_POST)).toBeNull();
+		expect(
+			screen.getAllByRole("button").map((button) => button.textContent)
+		).toEqual(["Tali asked to add PR Reviewer here", "Add to Space", ""]);
+		expect(screen.getByRole("button", { name: "More choices" })).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Add to Space" }));
+		expect(requestState.decide).toHaveBeenCalledWith(
+			requestState.requests[0],
+			"join"
+		);
+	});
+
+	it("lets the requester withdraw from the same bar", () => {
+		const pending = spaceJoin({
+			viewerRole: "requester",
+			availableDecisions: [],
+		});
+		const requestState = spaceState([pending]);
+		render(<SpaceAgentAccessBar state={requestState} />);
+		expect(
+			screen.getByText("Waiting for Felix to add PR Reviewer.")
+		).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Withdraw" }));
+		expect(requestState.withdraw).toHaveBeenCalledWith(pending);
+	});
+
+	it("previews the requested Agent in the conversation for its owner only", () => {
+		const requestState = spaceState([
+			spaceJoin(),
+			spaceJoin({
+				id: "aar_2",
+				viewerRole: "requester",
+				availableDecisions: [],
+			}),
+		]);
+		render(inConversation(<SpaceAgentAccessPreviews state={requestState} />));
+		const previews = screen.getAllByRole("group");
+		expect(previews).toHaveLength(1);
+		expect(previews[0]?.getAttribute("aria-label")).toBe(
+			"Request to add PR Reviewer"
+		);
+		expect(screen.getByText("Not in this Space yet")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"Tali asked to add it to this Space. If you add it, it joins and answers their message."
+			)
+		).toBeTruthy();
+		expect(screen.queryByText(JOIN_TO_POST)).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Add to Space" }));
+		expect(requestState.decide).toHaveBeenCalledWith(
+			requestState.requests[0],
+			"join"
+		);
+	});
+
+	it("disables both places while an answer is in flight", () => {
+		const requestState = { ...spaceState([spaceJoin()]), busy: true };
+		render(
+			<>
+				{inConversation(<SpaceAgentAccessPreviews state={requestState} />)}
+				<SpaceAgentAccessBar state={requestState} />
+			</>
+		);
+		for (const button of screen.getAllByRole("button", {
+			name: "Add to Space",
+		})) {
+			expect((button as HTMLButtonElement).disabled).toBe(true);
+		}
+	});
+});
+
 describe("Requester copy", () => {
 	it("says who the requester waits for, and what happened", () => {
 		expect(requesterAgentAccessCopy(request({ viewerRole: "requester" }))).toBe(
@@ -142,7 +286,7 @@ describe("Requester copy", () => {
 			requesterAgentAccessCopy(
 				request({ viewerRole: "requester", kind: "space_join" })
 			)
-		).toBe("Requested Felix. PR Reviewer joins once they agree.");
+		).toBe("Waiting for Felix to add PR Reviewer.");
 		expect(
 			requesterAgentAccessCopy(
 				request({ viewerRole: "requester", status: "voided" })

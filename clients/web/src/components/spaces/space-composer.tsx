@@ -117,6 +117,11 @@ export type SpaceComposerProps = {
 	};
 	slots?: {
 		attachmentAction?: ReactNode;
+		/**
+		 * Composer trays stack top to bottom: Agent requests, pending Agent
+		 * actions, queued messages. Each tucks under the next one.
+		 */
+		agentRequests?: ReactNode;
 		pendingActionSurface?: ReactNode;
 		queuedMessages?: ReactNode;
 		beforeInput?: ReactNode;
@@ -456,6 +461,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 				data-slot={input.presentation?.dataSlot}
 			>
 				{/* An Agent owner who only observes still answers their Agent. */}
+				{input.slots?.agentRequests}
 				{input.slots?.pendingActionSurface}
 				<div className="flex items-center justify-between gap-4 rounded-lg border border-border p-3">
 					<p className="text-muted-foreground text-sm">{policy.placeholder}</p>
@@ -471,6 +477,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 			className={input.presentation?.className}
 			data-slot={input.presentation?.dataSlot}
 		>
+			{input.slots?.agentRequests}
 			{input.slots?.pendingActionSurface}
 			{input.slots?.queuedMessages}
 			<div className="relative">

@@ -80,12 +80,18 @@ export function useAgentAccessRequest(requestId: string) {
 }
 
 /** Requests the viewer can see, as owner or requester, optionally for one Space. */
-export function useAgentAccessRequests(query: ListAgentAccessRequestsQuery) {
+export function useAgentAccessRequests(
+	query: ListAgentAccessRequestsQuery,
+	options: { enabled?: boolean } = {}
+) {
 	const organizationId =
 		useOptionalAppOrganization()?.currentOrganization.id ?? "";
 	return useQuery({
 		queryKey: agentAccessQueryKeys.list(organizationId, query),
-		enabled: Boolean(organizationId) && isMemberAgentsEnabled(),
+		enabled:
+			(options.enabled ?? true) &&
+			Boolean(organizationId) &&
+			isMemberAgentsEnabled(),
 		queryFn: async () =>
 			(await agentAccessApi(organizationId).list(query)).requests,
 		staleTime: 10_000,

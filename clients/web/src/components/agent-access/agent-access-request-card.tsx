@@ -40,11 +40,11 @@ export function agentAccessDecisionLabel(
 		case "decline":
 			return "Decline";
 		case "join":
-			return "Let the Agent join";
+			return "Add to Space";
 		case "reply_by_dm":
-			return "Reply by DM";
+			return `Reply to ${request.requesterName} by DM`;
 		case "ignore":
-			return "Ignore";
+			return "Don't add";
 		default:
 			throw new Error("Unknown Agent access decision");
 	}
@@ -90,7 +90,7 @@ export function agentAccessOutcomeCopy(
 		case "replied_by_dm":
 			return `You replied to ${request.requesterName} by DM.`;
 		case "ignored":
-			return "Ignored. The Agent stays out of the Space.";
+			return `Not added. ${request.agentProfileName} stays out of the Space.`;
 		default:
 			return "";
 	}

@@ -374,8 +374,8 @@ creates a request bound to the exact message id (or the add operation), stored
 on the MemberAgent; editing or deleting that message voids the request and its
 author sees that it was voided. The mention chip shows "Requested <owner>". The
 owner receives an `agent_space_request` Inbox item and becomes a read-only
-observer of that Space, then chooses **Let the Agent join**, **Reply by DM**, or
-**Ignore**. Letting the Agent join adds its default Profile (or the mentioned
+observer of that Space, then chooses **Add to Space**, **Reply to <requester> by DM**, or
+**Don't add**. Adding the Agent adds its default Profile (or the mentioned
 Profile) and dispatches the original message with the request chain
 `[requester, Agent]`; the owner remains an observer rather than becoming a
 member. Invitations and organization self-join never add another owner's

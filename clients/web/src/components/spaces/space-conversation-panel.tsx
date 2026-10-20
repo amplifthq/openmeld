@@ -30,7 +30,11 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { SpaceAgentAccessBanner } from "#/components/agent-access/space-agent-access-banner";
+import {
+	SpaceAgentAccessBar,
+	SpaceAgentAccessPreviews,
+	useSpaceAgentAccessRequests,
+} from "#/components/agent-access/space-agent-access-requests";
 import type { SpaceAgentRequestMentions } from "#/components/agent-access/space-agent-request-mentions";
 import {
 	MemberAgentDirectMessageCard,
@@ -396,6 +400,16 @@ function resolveWritableSpaceAction<T>(
 	return action;
 }
 
+/** Live request previews belong after the newest loaded message only. */
+function showsLatestConversation(input: {
+	historyIsPending?: boolean;
+	historyNavigation?: SpaceHistoryNavigationController;
+}): boolean {
+	return !(
+		input.historyIsPending || input.historyNavigation?.activeWindow?.hasAfter
+	);
+}
+
 function shouldRenderSpaceComposer(input: {
 	activeView: SpaceView;
 	isReadOnly: boolean;
@@ -626,6 +640,7 @@ function SpaceConversationPanelContent(
 		modelCatalog: input.modelCatalog,
 		profileEntriesById: presentation.profileEntriesById,
 	});
+	const agentAccess = useSpaceAgentAccessRequests(input.spaceId);
 	const conversationBody = renderPanelConversationBody({
 		emptyStateActions: setupGuidance.emptyStateActions,
 		memberAgentCard,
@@ -829,6 +844,10 @@ function SpaceConversationPanelContent(
 									data-space-conversation-content-width=""
 								>
 									{conversationBody}
+									<SpaceAgentAccessPreviews
+										showsLatestMessages={showsLatestConversation(input)}
+										state={agentAccess}
+									/>
 									<LoadNewerMessagesControl
 										history={input.historyNavigation}
 										scrollElement={conversationScrollElement}
@@ -842,9 +861,9 @@ function SpaceConversationPanelContent(
 				tasks={input.tasks}
 			/>
 
-			<SpaceAgentAccessBanner spaceId={input.spaceId} />
 			{showComposer ? (
 				<SpaceComposerSection
+					agentRequests={<SpaceAgentAccessBar state={agentAccess} />}
 					canSendMessage={canSendMessage}
 					canUploadFiles={canUploadFiles}
 					composerContext={composerContext}
@@ -1961,6 +1980,7 @@ function SpaceConversationTopOverlay(input: {
 }
 
 function SpaceComposerSection(input: {
+	agentRequests: ReactNode;
 	canUploadFiles: boolean;
 	canSendMessage: boolean;
 	composerContext: SpaceComposerConversationKind;
@@ -2035,6 +2055,7 @@ function SpaceComposerSection(input: {
 						prepareSetupHref: panel.prepareSetupHref,
 					}}
 					slots={{
+						agentRequests: input.agentRequests,
 						pendingActionSurface: panel.pendingActionSurface,
 						queuedMessages:
 							!panel.readOnly && panel.spaceId ? (

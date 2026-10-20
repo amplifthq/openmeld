@@ -706,3 +706,43 @@ it("shows an observing Agent owner their Agent's questions above the read-only b
 	expect(screen.getByText("Claude Code asks to run a command")).toBeTruthy();
 	expect(screen.getByText("Join to participate in this Space.")).toBeTruthy();
 });
+
+it("stacks Agent requests, pending actions and queued messages above the input, in that order", () => {
+	render(
+		<SpaceComposer
+			actions={{ onEditorChange: vi.fn(), onSubmit: vi.fn() }}
+			availability={{
+				canSendMessage: true,
+				fileLimitReached: false,
+				isSendingMessage: false,
+				sendBlocked: true,
+			}}
+			centerAgentProfileId={null}
+			composerRef={createRef<SpaceComposerEditorHandle>()}
+			content={{
+				addressingTargets: [],
+				authoredMentions: [],
+				files: [],
+				mentionPickerItems: [],
+				text: "",
+			}}
+			context={{ conversationKind: "space", placement: "conversation" }}
+			slots={{
+				agentRequests: <p>Tali asked to add Claude Code here</p>,
+				pendingActionSurface: <p>1 action needs you</p>,
+				queuedMessages: <p>Queued: ship it</p>,
+			}}
+		/>
+	);
+	const order = [
+		screen.getByText("Tali asked to add Claude Code here"),
+		screen.getByText("1 action needs you"),
+		screen.getByText("Queued: ship it"),
+		screen.getByRole("textbox"),
+	];
+	for (const [index, element] of order.slice(1).entries()) {
+		expect(order[index]?.compareDocumentPosition(element)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
+	}
+});
