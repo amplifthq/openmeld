@@ -1627,9 +1627,22 @@ Working-copy placement alone never invokes the bounded Claude project shell.
 
 The existing local slot owner enforces the five-context Profile cap and local
 resource exclusions. Isolated task folders have distinct canonical roots and
-must not be symlinks. Shared current-folder writers run exclusively; current-folder
-readers wait for potentially overlapping writers. These local checks implement
-Core's reservation, rather than creating another durable admission queue.
+must not be symlinks. Each delivered Wake claims the folder it touches when it
+is enqueued: Space-only work and isolated copies claim only their own
+Service-owned root and never conflict with other work. A current-folder Wake
+claims the canonical effective working folder from the current route; a
+writer excludes every reader and writer whose folder is the same, an ancestor,
+or a descendant, and readers of one folder run together. A selected Project
+folder that is resolved only during preparation, or an unknown folder,
+overlaps every user folder. Pre-Context Wakes claim their Binding folder but
+never conflict with each other, because their lanes already serialize each
+Profile. An older waiting task keeps precedence over younger work whose claim
+overlaps it, so a writer is not bypassed indefinitely. These claims coordinate
+OpenMeld-launched work; they are not a filesystem sandbox, and an Agent whose
+native permissions allow writes elsewhere is not confined by them. The local
+wait reason `workspace_conflict` names a folder wait. These local checks
+implement Core's reservation, rather than creating another durable admission
+queue.
 The slot and scoped Core reservation stay occupied until native execution has
 settled, even when a Space Action proposal was saved earlier. Workspace deletion
 requires stronger, explicit process-tree quiescence evidence; a provider result
