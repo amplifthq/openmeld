@@ -572,7 +572,7 @@ export function settleAgentProfileWork(input: {
     // With a gate already open this settles plainly and the notice carries the
     // cause instead.
     if (!input.coordinator.recoveryGate) {
-      return {
+      const next = refillAgentProfileWork({
         coordinator: {
           ...input.coordinator,
           recoveryGate: {
@@ -586,8 +586,12 @@ export function settleAgentProfileWork(input: {
           updatedAtMs: input.nowMs,
           workItems: queuedWork,
         },
-        promotedItem: null,
-        promotedItems: [],
+        previouslyReserved: reservedAgentProfileWork(input.coordinator),
+      });
+      return {
+        coordinator: next.coordinator,
+        promotedItem: next.promotedItems[0] ?? null,
+        promotedItems: next.promotedItems,
         removed: true,
       };
     }

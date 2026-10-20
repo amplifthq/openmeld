@@ -166,6 +166,32 @@ describe("fork continuation follow-ups", () => {
     }).coordinator;
     expect(accept(5, "context-d")).toBe("queued");
   });
+
+  it("gives the occupied context's reservation to waiting work of another context", () => {
+    let coordinator = createAgentProfileWorkCoordinator({
+      nowMs: 1,
+      targetProfileId: PROFILE_ID,
+    });
+    for (const index of [1, 2, 3, 4, 5, 6]) {
+      coordinator = acceptAgentProfileWork({
+        coordinator,
+        item: { ...workItem(index), executionContextId: `context-${index}` },
+        nowMs: 1 + index,
+      }).coordinator;
+    }
+    const result = settleAgentProfileWork({
+      coordinator,
+      outcome: "controller_conversation_occupied",
+      targetWakeLifecycleId: "wake-1",
+      nowMs: 10,
+    });
+    expect(result.coordinator.recoveryGate?.status).toBe(
+      "awaiting_occupancy_decision"
+    );
+    expect(
+      result.promotedItems.map((item) => item.targetWakeLifecycleId)
+    ).toEqual(["wake-6"]);
+  });
 });
 
 describe("independent execution context reservations", () => {
