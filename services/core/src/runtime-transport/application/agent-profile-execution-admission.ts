@@ -26,12 +26,14 @@ import {
   type AgentProfileWorkCoordinatorItem,
   type AgentProfileWorkHandoffStatus,
   type AgentProfileWorkRecoveryGate,
+  type AgentProfileWorkSettleOutcome,
   acceptAgentProfileWork,
   approveAgentProfileWorkQueue,
   authorizeAgentProfileWorkContinuation,
   createAgentProfileWorkCoordinator,
   dropRetiredAgentProfileWork,
   handOffOccupiedAgentProfileWork,
+  isAgentProfileWorkRecoveryGateProfileWide,
   markAgentProfileWorkContinuationNeedsAttention,
   markAgentProfileWorkControllerConversationOccupancy,
   markAgentProfileWorkUsageAvailable,
@@ -4147,13 +4149,6 @@ export async function writeRuntimeCoordinatorTokenAuthorityWithAdmissionInTransa
   return terminalTransition.pendingPromotion;
 }
 
-type AgentProfileWorkSettleOutcome =
-  | "controller_conversation_occupied"
-  | "failed"
-  | "stopped"
-  | "succeeded"
-  | "usage_exhausted";
-
 function resolveAgentProfileWorkTerminalOutcome(
   terminalOutcome: NonNullable<
     import("@openmeld/schemas/types").RuntimeCoordinatorExecutionTokenAuthorityRecord["terminalOutcome"]
@@ -5074,9 +5069,10 @@ async function removeTerminalExecutionAgentProfileWorkAndPromoteSuccessor(input:
  * Planning stays read-only: the caller applies the promotions once it knows
  * the surrounding admission transition will be persisted.
  *
- * A paused Coordinator is left untouched. Its recovery gate already holds the
- * reservation for a decision only the owner can make, and answering that
- * decision belongs to the recovery path.
+ * A Coordinator paused Profile-wide is left untouched. Its recovery gate already
+ * holds the reservation for a decision only the owner can make, and answering
+ * that decision belongs to the recovery path. A gate limited to one occupied
+ * context still lets the other contexts reconcile.
  */
 async function resolveAgentProfileWorkReconciliation(input: {
   admission: AgentProfileExecutionAdmissionRecord;
@@ -5090,7 +5086,7 @@ async function resolveAgentProfileWorkReconciliation(input: {
   if (
     !input.isNewAdmission ||
     input.admission.workItems.length === 0 ||
-    input.admission.recoveryGate
+    isAgentProfileWorkRecoveryGateProfileWide(input.admission.recoveryGate)
   ) {
     return { admission: input.admission, promotedItems: [] };
   }
@@ -5692,6 +5688,9 @@ function parseAgentProfileWorkRecoveryGateOrLegacy(
         gate.continuationClientMessageId === null)
   ) {
     return {
+      ...(gate.cause === "controller_conversation_occupied"
+        ? { cause: gate.cause }
+        : {}),
       continuationClientMessageId: gate.continuationClientMessageId ?? null,
       ...(gate.forkInterruptedConversation !== undefined
         ? {
