@@ -129,7 +129,7 @@ export function MemberAgentPageSidebar(input: {
 			ariaLabel={`${input.displayName} chats`}
 			groups={groups}
 			leadingContent={
-				<div className="space-y-2 px-1">
+				<div className="space-y-2 px-1 pb-2">
 					<SessionStateTabs onChange={setState} value={state} />
 					{singleSection?.notice ? (
 						<p className="px-1 text-muted-foreground text-xs">
