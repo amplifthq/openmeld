@@ -746,3 +746,69 @@ it("stacks Agent requests, pending actions and queued messages above the input, 
 		);
 	}
 });
+
+function readOnlyComposer(context: {
+	accessPending?: boolean;
+	readOnly?: boolean;
+	readOnlyPlaceholder?: string;
+}) {
+	return (
+		<SpaceComposer
+			actions={{ onEditorChange: vi.fn(), onSubmit: vi.fn() }}
+			availability={{
+				canSendMessage: false,
+				fileLimitReached: false,
+				isSendingMessage: false,
+				sendBlocked: false,
+			}}
+			centerAgentProfileId={null}
+			composerRef={createRef<SpaceComposerEditorHandle>()}
+			content={{
+				addressingTargets: [],
+				authoredMentions: [],
+				files: [],
+				mentionPickerItems: [],
+				text: "",
+			}}
+			context={{
+				conversationKind: "space",
+				placement: "conversation",
+				...context,
+			}}
+			slots={{
+				agentRequests: <p>Tali wants to use Codex</p>,
+				primaryAction: <button type="button">Join</button>,
+			}}
+		/>
+	);
+}
+
+it("shows a neutral bar, never the input, while membership is loading", () => {
+	render(readOnlyComposer({ accessPending: true }));
+	expect(screen.queryByRole("textbox")).toBeNull();
+	expect(screen.queryByRole("button", { name: "Join" })).toBeNull();
+	const bar = document.querySelector(
+		'[data-slot="space-composer-read-only-bar"]'
+	);
+	expect(bar?.getAttribute("aria-busy")).toBe("true");
+});
+
+it("keeps Agent request trays above the Join bar so the bar covers their foot", () => {
+	render(
+		readOnlyComposer({
+			readOnly: true,
+			readOnlyPlaceholder: "Join this conversation to send messages.",
+		})
+	);
+	const tray = screen.getByText("Tali wants to use Codex");
+	const bar = document.querySelector(
+		'[data-slot="space-composer-read-only-bar"]'
+	) as HTMLElement;
+	expect(tray.compareDocumentPosition(bar)).toBe(
+		Node.DOCUMENT_POSITION_FOLLOWING
+	);
+	// The bar paints over the tray's tucked foot instead of under it.
+	expect(bar.className).toContain("relative");
+	expect(bar.className).toContain("bg-background");
+	expect(screen.getByRole("button", { name: "Join" })).toBeTruthy();
+});

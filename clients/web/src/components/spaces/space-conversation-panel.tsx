@@ -317,6 +317,8 @@ type SpaceConversationPanelResolvedProps = {
 	liveNotice?: ReactNode;
 	readOnly?: boolean;
 	readOnlyComposerPlaceholder?: string;
+	/** Membership is still loading; the composer shows a neutral bar. */
+	composerAccessPending?: boolean;
 	allowSendWhileAccessSettles?: boolean;
 	renderSetupGuidance?: (
 		presentation: OnboardingSetupPresentation
@@ -352,6 +354,7 @@ type SpaceConversationPanelViewState = Pick<
 	| "isPersonalContext"
 	| "isSendingMessage"
 	| "readOnly"
+	| "composerAccessPending"
 	| "threadsIsLoading"
 	| "unreadStateReady"
 >;
@@ -2046,6 +2049,7 @@ function SpaceComposerSection(input: {
 					context={{
 						conversationKind: input.composerContext,
 						placement: "conversation",
+						accessPending: panel.composerAccessPending,
 						readOnly: panel.readOnly,
 						readOnlyPlaceholder: panel.readOnly
 							? panel.readOnlyComposerPlaceholder

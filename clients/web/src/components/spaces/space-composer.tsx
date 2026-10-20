@@ -108,6 +108,11 @@ export type SpaceComposerProps = {
 		placement: SpaceComposerPlacement;
 		readOnly?: boolean;
 		readOnlyPlaceholder?: string;
+		/**
+		 * Membership is not known yet: render a neutral bar instead of an
+		 * input that may turn into a Join prompt a moment later.
+		 */
+		accessPending?: boolean;
 		targetName?: string | null;
 	};
 	presentation?: {
@@ -334,6 +339,53 @@ function composerPlaceholder(
 	return draft ? "Describe the work…" : placeholder;
 }
 
+/** Undefined shows the input; null shows the neutral loading bar. */
+function resolveReadOnlyBarPlaceholder(
+	context: SpaceComposerProps["context"],
+	placeholder: string
+): string | null | undefined {
+	if (context.accessPending) {
+		return null;
+	}
+	return context.readOnly ? placeholder : undefined;
+}
+
+/**
+ * The bar shown instead of the input: a Join prompt, a deleted Space, or a
+ * neutral placeholder while membership is still loading. Composer trays tuck
+ * under it exactly as they tuck under the input.
+ */
+function SpaceComposerReadOnlyBar(input: {
+	composer: SpaceComposerProps;
+	placeholder: string | null;
+}) {
+	const { composer } = input;
+	const pending = input.placeholder === null;
+	return (
+		<div
+			className={composer.presentation?.className}
+			data-slot={composer.presentation?.dataSlot}
+		>
+			{/* An Agent owner who only observes still answers their Agent. */}
+			{composer.slots?.agentRequests}
+			{composer.slots?.pendingActionSurface}
+			<div
+				aria-busy={pending || undefined}
+				className="relative flex min-h-14 items-center justify-between gap-4 rounded-lg border border-border bg-background p-3"
+				data-slot="space-composer-read-only-bar"
+			>
+				{pending ? null : (
+					<>
+						<p className="text-muted-foreground text-sm">{input.placeholder}</p>
+						{composer.slots?.primaryAction}
+					</>
+				)}
+			</div>
+			{pending ? null : composer.slots?.error}
+		</div>
+	);
+}
+
 export function SpaceComposer(input: SpaceComposerProps) {
 	const [editorFailed, setEditorFailed] = useState(false);
 	const [taskDraft, setTaskDraft] = useState<SpaceTaskDraft | null>(null);
@@ -454,21 +506,13 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		policy,
 	});
 	const feedbackLayout = resolveComposerFeedbackLayout(input, membersPending);
-	if (input.context.readOnly) {
+	const readOnlyBar = resolveReadOnlyBarPlaceholder(
+		input.context,
+		policy.placeholder
+	);
+	if (readOnlyBar !== undefined) {
 		return (
-			<div
-				className={input.presentation?.className}
-				data-slot={input.presentation?.dataSlot}
-			>
-				{/* An Agent owner who only observes still answers their Agent. */}
-				{input.slots?.agentRequests}
-				{input.slots?.pendingActionSurface}
-				<div className="flex items-center justify-between gap-4 rounded-lg border border-border p-3">
-					<p className="text-muted-foreground text-sm">{policy.placeholder}</p>
-					{input.slots?.primaryAction}
-				</div>
-				{input.slots?.error}
-			</div>
+			<SpaceComposerReadOnlyBar composer={input} placeholder={readOnlyBar} />
 		);
 	}
 

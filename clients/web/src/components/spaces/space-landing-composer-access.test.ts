@@ -1,0 +1,53 @@
+import { describe, expect, it } from "vitest";
+import { isSpaceComposerAccessPending } from "./space-landing";
+
+describe("isSpaceComposerAccessPending", () => {
+	const base = {
+		isAccessConfirmed: true,
+		isDeleted: false,
+		membersFailed: false,
+	} as const;
+
+	it("waits while membership is unknown or a non-member's access settles", () => {
+		expect(
+			isSpaceComposerAccessPending({ ...base, membershipState: "unknown" })
+		).toBe(true);
+		expect(
+			isSpaceComposerAccessPending({
+				...base,
+				isAccessConfirmed: false,
+				membershipState: "nonmember",
+			})
+		).toBe(true);
+	});
+
+	it("shows the input or the Join prompt once membership is known", () => {
+		expect(
+			isSpaceComposerAccessPending({
+				...base,
+				isAccessConfirmed: false,
+				membershipState: "member",
+			})
+		).toBe(false);
+		expect(
+			isSpaceComposerAccessPending({ ...base, membershipState: "nonmember" })
+		).toBe(false);
+	});
+
+	it("never blocks a deleted Space or a failed member load", () => {
+		expect(
+			isSpaceComposerAccessPending({
+				...base,
+				isDeleted: true,
+				membershipState: "unknown",
+			})
+		).toBe(false);
+		expect(
+			isSpaceComposerAccessPending({
+				...base,
+				membersFailed: true,
+				membershipState: "unknown",
+			})
+		).toBe(false);
+	});
+});

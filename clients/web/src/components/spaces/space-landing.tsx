@@ -2591,6 +2591,12 @@ function SpaceLandingConversation({
 					Boolean(controller.status?.deletedAt) ||
 					(controller.isCurrentAccessConfirmed &&
 						controller.currentProfileMembershipState === "nonmember"),
+				composerAccessPending: isSpaceComposerAccessPending({
+					isAccessConfirmed: controller.isCurrentAccessConfirmed,
+					isDeleted: Boolean(controller.status?.deletedAt),
+					membersFailed: Boolean(controller.membersError),
+					membershipState: controller.currentProfileMembershipState,
+				}),
 				threadsIsLoading: controller.threadsIsLoading,
 				unreadStateReady: controller.unreadStateReady,
 			}}
@@ -2664,6 +2670,28 @@ function resolveCurrentProfileLeaveAction(input: {
 	return input.isAccessConfirmed && input.isActiveSpaceMember
 		? input.onLeaveSpace
 		: undefined;
+}
+
+/**
+ * Until membership is known, neither the input nor the Join prompt is safe to
+ * show: a non-member would see the input flash before the Join prompt.
+ * A known member keeps the input while access settles, and a failed member
+ * load falls back to the input with its own retry.
+ */
+export function isSpaceComposerAccessPending(input: {
+	isAccessConfirmed: boolean;
+	isDeleted: boolean;
+	membersFailed: boolean;
+	membershipState: "member" | "nonmember" | "unknown";
+}): boolean {
+	if (
+		input.isDeleted ||
+		input.membersFailed ||
+		input.membershipState === "member"
+	) {
+		return false;
+	}
+	return input.membershipState === "unknown" || !input.isAccessConfirmed;
 }
 
 function SpaceHumanJoinAction(input: {
