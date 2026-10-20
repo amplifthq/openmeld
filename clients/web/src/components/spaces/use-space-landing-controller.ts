@@ -182,6 +182,11 @@ import {
 import { resolveMissingSpaceMembersMessage } from "./space-members-error-copy";
 import { persistSpaceNameUpdate } from "./space-name-update";
 import {
+	type PendingOutgoingSignal,
+	pendingOutgoingSignalsQueryKey,
+	resolvePendingOutgoingProfile,
+} from "./space-pending-outgoing-signals";
+import {
 	completeSpaceSend,
 	markSpaceSendPending,
 	setSpaceSendFailure,
@@ -241,12 +246,6 @@ import { useSpaceThreadPanelSelection } from "./use-space-thread-panel-selection
 import { useSpaceUnread } from "./use-space-unread";
 
 type TextSignalEnvelope = Extract<SignalEnvelope, { type: "signal.text" }>;
-
-type PendingOutgoingSignal = {
-	filePreviewUrlsById: ReadonlyMap<string, string>;
-	clientMessageId: string;
-	signal: TextSignalEnvelope;
-};
 
 type SpaceMentionAuthoringController = ReturnType<
 	typeof useSpaceMentionAuthoring
@@ -484,55 +483,6 @@ function buildNormalMessagePostInput(input: {
 			? { contextSelections: input.contextSelections }
 			: {}),
 		...(input.taskDraft ? { taskDraft: input.taskDraft } : {}),
-	};
-}
-
-function resolvePendingOutgoingProfile(input: {
-	membersSnapshot: SpaceMembersSnapshot | null;
-	profileId: string;
-}): TextSignalEnvelope["profile"] {
-	const human = input.membersSnapshot?.humans.find(
-		(member) => member.profileId === input.profileId
-	);
-	if (human) {
-		return {
-			kind: "human",
-			profileId: human.profileId,
-			profileName: human.profileName,
-			...(human.avatarUrl ? { avatarUrl: human.avatarUrl } : {}),
-		};
-	}
-
-	const agent = input.membersSnapshot?.agents.find(
-		(member) => member.profileId === input.profileId
-	);
-	if (agent) {
-		return {
-			kind: "agent",
-			profileId: agent.profileId,
-			profileName: agent.profileName,
-			...(agent.ownerUserId ? { owner: agent.ownerUserId } : {}),
-			...(agent.ownerName ? { ownerName: agent.ownerName } : {}),
-			...(agent.agentControllerRef
-				? { agentControllerRef: agent.agentControllerRef }
-				: {}),
-			...(agent.agentControllerConversationId
-				? {
-						agentControllerConversationId: agent.agentControllerConversationId,
-					}
-				: {}),
-			...(agent.workingDirectory
-				? { workingDirectory: agent.workingDirectory }
-				: {}),
-		};
-	}
-
-	const normalizedProfileId =
-		normalizeOptionalText(input.profileId) ?? input.profileId;
-	return {
-		kind: normalizedProfileId.startsWith("agt_") ? "agent" : "human",
-		profileId: normalizedProfileId,
-		profileName: normalizedProfileId,
 	};
 }
 
@@ -5277,7 +5227,7 @@ function usePendingOutgoingSignals(
 ) {
 	const queryClient = useQueryClient();
 	const queryKey = useMemo(
-		() => ["spaces", "pending-outgoing", spaceId, profileId, threadId] as const,
+		() => pendingOutgoingSignalsQueryKey(spaceId, profileId, threadId),
 		[spaceId, profileId, threadId]
 	);
 	const query = useQuery({

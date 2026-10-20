@@ -54,19 +54,21 @@ import { useSpaceInputQueue } from "./use-space-input-queue";
 import { useSpaceWorkRecovery } from "./use-space-work-recovery";
 
 type Item = SpaceInputQueueResponse["items"][number];
+type QueueProgress = Pick<
+	WakeProgressItem,
+	| "dispatchId"
+	| "targetProfileId"
+	| "targetLabel"
+	| "terminal"
+	| "phase"
+	| "waitReasonCode"
+	| "pendingInteraction"
+>;
 const MotionTray = motion.create(SpaceComposerTray);
 const rowTransition = { ...springs.slow, bounce: 0 };
 
 export function SpaceInputQueue(input: {
-	progressItems: readonly Pick<
-		WakeProgressItem,
-		| "dispatchId"
-		| "targetProfileId"
-		| "terminal"
-		| "phase"
-		| "waitReasonCode"
-		| "pendingInteraction"
-	>[];
+	progressItems: readonly QueueProgress[];
 	threadId?: string | null;
 	spaceId: string;
 	profileId: string;
@@ -122,6 +124,22 @@ export function SpaceInputQueue(input: {
 				cause instanceof Error
 					? cause.message
 					: "Couldn't update queued messages. Try again."
+			);
+		} finally {
+			setSaving(false);
+		}
+	}
+	async function sendNow(item: Item) {
+		setSaving(true);
+		setError(null);
+		try {
+			await queue.sendNow(item);
+			setAnnouncement("Queued message sent.");
+		} catch (cause) {
+			setError(
+				cause instanceof Error
+					? cause.message
+					: "Couldn't send this message now. It's still queued."
 			);
 		} finally {
 			setSaving(false);
@@ -191,17 +209,6 @@ export function SpaceInputQueue(input: {
 									<AnimatePresence initial={false} mode="popLayout" propagate>
 										{items.map((item) => (
 											<QueuedMessage
-												canSendNow={input.progressItems.some(
-													(progress) =>
-														progress.dispatchId === item.target.dispatchId &&
-														progress.targetProfileId ===
-															item.target.targetProfileId &&
-														(progress.phase === "running" ||
-															progress.phase === "writing") &&
-														!progress.terminal &&
-														!progress.waitReasonCode &&
-														!progress.pendingInteraction
-												)}
 												index={pendingIds.indexOf(item.inputId)}
 												item={item}
 												key={item.inputId}
@@ -210,6 +217,11 @@ export function SpaceInputQueue(input: {
 												mutate={mutate}
 												pendingCount={pendingIds.length}
 												saving={saving}
+												sendNow={sendNow}
+												sendNowState={resolveSendNowState(
+													item,
+													input.progressItems
+												)}
 											/>
 										))}
 									</AnimatePresence>
@@ -257,8 +269,51 @@ function queuedMessageStatus(item: Item): string | null {
 		: null;
 }
 
+type SendNowState = { available: boolean; hint: string };
+const LEADING_MENTION = /^@/;
+
+/** Says whether "Send now" can reach the response, and why not when it can't. */
+export function resolveSendNowState(
+	item: Pick<Item, "blocked" | "target">,
+	progressItems: readonly QueueProgress[]
+): SendNowState {
+	const progress = progressItems.find(
+		(candidate) =>
+			candidate.dispatchId === item.target.dispatchId &&
+			candidate.targetProfileId === item.target.targetProfileId
+	);
+	const name =
+		progress?.targetLabel.replace(LEADING_MENTION, "") || "the agent";
+	if (item.blocked || !progress || progress.terminal) {
+		return {
+			available: false,
+			hint: "This response has ended. The message is sent when the next one starts.",
+		};
+	}
+	if (progress.pendingInteraction) {
+		return {
+			available: false,
+			hint: `${name} is waiting for your input. Answer it first, then send this message.`,
+		};
+	}
+	if (
+		progress.waitReasonCode ||
+		(progress.phase !== "running" && progress.phase !== "writing")
+	) {
+		return {
+			available: false,
+			hint: `Available when ${name} is working again.`,
+		};
+	}
+	return {
+		available: true,
+		hint: `Send this message to ${name} while it works`,
+	};
+}
+
 function QueuedMessage({
-	canSendNow,
+	sendNowState,
+	sendNow,
 	item,
 	saving,
 	mutate,
@@ -268,7 +323,8 @@ function QueuedMessage({
 	keyboardReorder,
 	ref,
 }: {
-	canSendNow: boolean;
+	sendNowState: SendNowState;
+	sendNow: (item: Item) => Promise<void>;
 	item: Item;
 	saving: boolean;
 	mutate: (mutation: SpaceInputQueueMutation, editing?: Item) => Promise<void>;
@@ -352,7 +408,9 @@ function QueuedMessage({
 						<span
 							className={cn(
 								"block",
-								expanded ? "whitespace-pre-wrap break-words" : "truncate"
+								// Both states collapse runs of spaces the same way, so
+								// expanding never moves the first line sideways.
+								expanded ? "whitespace-pre-line break-words" : "truncate"
 							)}
 						>
 							{item.text}
@@ -370,29 +428,28 @@ function QueuedMessage({
 						expanded && "max-sm:justify-self-end"
 					)}
 				>
-					<TooltipHint
-						content={
-							canSendNow
-								? "Send this message while the agent is working"
-								: "Available when this response is running"
-						}
-					>
-						<Button
-							className="gap-1 px-1.5 transition-colors"
-							disabled={disabled || item.blocked || !canSendNow}
-							onClick={() =>
-								mutate({
-									action: "steer",
-									inputId: item.inputId,
-									target: item.target,
-								})
-							}
-							size="sm"
-							variant="ghost"
+					{/* A disabled button gets no pointer events, so the wrapper owns
+					the tooltip and stays focusable to explain why it is off. */}
+					<TooltipHint content={sendNowState.hint}>
+						<span
+							className={cn(
+								"inline-flex rounded-md outline-none focus-visible:ring-1 focus-visible:ring-ring",
+								!sendNowState.available && "cursor-not-allowed"
+							)}
+							data-slot="queued-send-now"
+							tabIndex={sendNowState.available ? undefined : 0}
 						>
-							<ArrowBendUpRightIcon size={14} />
-							Send now
-						</Button>
+							<Button
+								className="gap-1 px-1.5 text-foreground transition-colors disabled:text-muted-foreground"
+								disabled={disabled || !sendNowState.available}
+								onClick={() => sendNow(item)}
+								size="sm"
+								variant="ghost"
+							>
+								<ArrowBendUpRightIcon size={14} />
+								Send now
+							</Button>
+						</span>
 					</TooltipHint>
 					<Button
 						aria-label="Delete queued message"
