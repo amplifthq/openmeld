@@ -93,9 +93,28 @@ it.each([
   });
 });
 
-it("closes an idle Workspace after the grace period and retains its files", async () => {
+it.each([
+  false,
+  true,
+])("closes an idle Workspace and retains files after terminal sync refusal: %s", async (syncRefused) => {
   await runInDurableObject(computerStub(), async (computer, state) => {
     await computer.writeComputerFile("/computer/keep.txt", "saved");
+    if (syncRefused) {
+      const storage = new ComputerCommandSqlStorage(state.storage.sql);
+      await storage.put(`${COMPUTER_COMMAND_PREFIX}idle:refused`, {
+        id: "refused",
+        key: "refused",
+        fingerprint: "refused",
+        createdAt: Date.now(),
+        collectable: true,
+        backend: "container",
+        observation: {
+          status: "running",
+          exitCode: 0,
+          syncError: "ESYNC_READ_ONLY",
+        },
+      });
+    }
     const close = vi.spyOn(computer.workspace, "close");
     const now = Date.now();
     const clock = vi.spyOn(Date, "now");
@@ -172,10 +191,14 @@ it("keeps the Workspace open during a slow file write and pending synchronizatio
 });
 
 it.each([
-  "container",
-  "worker-shell",
-  "worker-javascript",
-])("does not close a Computer with an unfinished %s command even when collection is paused", async (backend) => {
+  { backend: "container", syncError: undefined },
+  { backend: "worker-shell", syncError: undefined },
+  { backend: "worker-javascript", syncError: undefined },
+  { backend: "container", syncError: "ENOENT" },
+])("does not close an unfinished $backend command with paused collection (syncError=$syncError)", async ({
+  backend,
+  syncError,
+}) => {
   await runInDurableObject(computerStub(), async (computer, state) => {
     const storage = new ComputerCommandSqlStorage(state.storage.sql);
     await storage.put(`${COMPUTER_COMMAND_PREFIX}idle:work`, {
@@ -185,6 +208,16 @@ it.each([
       createdAt: Date.now(),
       collectable: false,
       backend,
+      ...(syncError
+        ? {
+            observation: {
+              status: "running",
+              exitCode: 0,
+              syncPending: true,
+              syncError,
+            },
+          }
+        : {}),
       collection: { unconfirmedAttempts: 8, nextAttemptAtMs: null },
     });
     const close = vi.spyOn(computer.workspace, "close");

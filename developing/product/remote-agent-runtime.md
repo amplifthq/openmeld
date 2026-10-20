@@ -264,8 +264,10 @@ state are not promised to survive runtime recreation. Shared Organization or
 Space Computers, other providers and human desktop UI remain separate work.
 
 AgentComputer releases Workspace connections after two minutes without foreground
-activity, only when all command receipts are complete or confirmed lost, no Git
-transfer is pending, and SDK synchronization is settled. Paused collection,
+activity, only when all command receipts are complete, confirmed lost, or exited
+with a terminal read-only synchronization refusal, no Git transfer is pending,
+and SDK synchronization is settled. A terminal refusal remains visible as a file
+sync failure; releasing the connection does not turn it into success. Paused collection,
 uncertain starts and foreground worker-shell commands are not idle evidence.
 This closes SDK heartbeats and sockets; it does not destroy the container,
 erase files, or impose a task execution deadline. A later request reconnects

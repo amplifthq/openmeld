@@ -18,6 +18,7 @@ const UNFINISHED = `key >= '${COMPUTER_COMMAND_PREFIX}'
   AND key < '${COMPUTER_COMMAND_PREFIX}\uffff'
   AND COALESCE(json_extract(value_json, '$.completed'), 0) != 1
   AND COALESCE(json_extract(value_json, '$.observation.status'), '') != 'completed'
+  AND COALESCE(json_extract(value_json, '$.observation.syncError'), '') != 'ESYNC_READ_ONLY'
   AND COALESCE(json_extract(value_json, '$.lossConfirmed'), 0) != 1`;
 // This index is a read projection of the existing receipt, not another queue.
 // An absent collection field keeps historical receipts eligible. Explicit null

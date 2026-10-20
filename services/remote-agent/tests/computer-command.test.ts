@@ -709,7 +709,10 @@ describe("retained Computer commands", () => {
     expect(f.processes.size).toBe(0);
   });
 
-  it("retains a read-only refusal without losing successful output or reporting every file saved", async () => {
+  it.each([
+    false,
+    true,
+  ])("retains a read-only refusal without losing output or cleanup confirmation (cleanupLoss=%s)", async (cleanupLoss) => {
     const f = fixture();
     vi.mocked(f.workspace.resumeExecutionSync).mockResolvedValue({
       status: "complete",
@@ -728,6 +731,17 @@ describe("retained Computer commands", () => {
       },
     });
     f.getExec.mockImplementation(async (id) => {
+      if (cleanupLoss) {
+        const key =
+          "openmeld:remote-agent:computer-command:execution-a:readonly";
+        const command = await f.storage.get<Record<string, unknown>>(key);
+        // Cleanup can confirm loss while an earlier native observation is in flight.
+        await f.storage.put(key, {
+          ...command,
+          lossConfirmed: true,
+          lostDuringCleanup: true,
+        });
+      }
       const execution = handle(
         id,
         [
@@ -771,6 +785,13 @@ describe("retained Computer commands", () => {
       syncSkipped: { paths: ["/protected/result.txt"], truncated: false },
     });
     expect(result).not.toHaveProperty("syncError");
+    if (cleanupLoss) {
+      expect(
+        await f.storage.get(
+          "openmeld:remote-agent:computer-command:execution-a:readonly"
+        )
+      ).toMatchObject({ lossConfirmed: true, lostDuringCleanup: true });
+    }
     const observations = f.getExec.mock.calls.length;
     await expect(
       f.tool().execute({ action: "poll", key: "readonly", waitSeconds: 1 })
