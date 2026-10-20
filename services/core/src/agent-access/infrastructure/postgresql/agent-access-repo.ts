@@ -6,6 +6,7 @@ import type {
   QueryResultRow,
 } from "@openmeld/db/postgresql";
 import type {
+  AgentAccessDecision,
   AgentAccessGranteeKind,
   AgentAccessRequestKind,
   AgentAccessRequestStatus,
@@ -49,6 +50,8 @@ export type AgentAccessRequestRecord = {
   requesterProfileId: string;
   requesterKind: AgentAccessGranteeKind;
   status: AgentAccessRequestStatus;
+  // The owner's answer; never changes once given.
+  decision: AgentAccessDecision | null;
   createdAtMs: number;
   decidedAtMs: number | null;
   decidedByUserId: string | null;
@@ -77,7 +80,7 @@ export type AgentProfileAccessGrantRecord = {
 
 const REQUEST_COLUMNS = `id, organization_id, kind, space_id, source_signal_id,
   agent_profile_id, member_agent_id, owner_user_id, requester_user_id,
-  requester_profile_id, requester_kind, status, created_at_ms, decided_at_ms,
+  requester_profile_id, requester_kind, status, decision, created_at_ms, decided_at_ms,
   decided_by_user_id, applied_at_ms`;
 
 type RequestRow = {
@@ -93,6 +96,7 @@ type RequestRow = {
   requester_profile_id: string;
   requester_kind: AgentAccessGranteeKind;
   status: AgentAccessRequestStatus;
+  decision: AgentAccessDecision | null;
   created_at_ms: string | number;
   decided_at_ms: string | number | null;
   decided_by_user_id: string | null;
@@ -113,6 +117,7 @@ function toRequestRecord(row: RequestRow): AgentAccessRequestRecord {
     requesterProfileId: row.requester_profile_id,
     requesterKind: row.requester_kind,
     status: row.status,
+    decision: row.decision,
     createdAtMs: Number(row.created_at_ms),
     decidedAtMs: row.decided_at_ms === null ? null : Number(row.decided_at_ms),
     decidedByUserId: row.decided_by_user_id,
@@ -237,7 +242,7 @@ export async function insertAgentAccessRequest(input: {
   db: Queryable;
   request: Omit<
     AgentAccessRequestRecord,
-    "status" | "decidedAtMs" | "decidedByUserId" | "appliedAtMs"
+    "status" | "decision" | "decidedAtMs" | "decidedByUserId" | "appliedAtMs"
   >;
 }): Promise<AgentAccessRequestRecord> {
   const { request } = input;
@@ -325,6 +330,37 @@ export async function readAgentAccessRequestNames(input: {
   return names;
 }
 
+/** The current state of the grant each request wrote, if it wrote one. */
+export type AgentAccessRequestGrantState = {
+  revokedAtMs: number | null;
+};
+
+export async function readAgentAccessRequestGrants(input: {
+  db: Queryable;
+  requestIds: readonly string[];
+}): Promise<Map<string, AgentAccessRequestGrantState>> {
+  const grants = new Map<string, AgentAccessRequestGrantState>();
+  if (input.requestIds.length === 0) {
+    return grants;
+  }
+  const result = await input.db.query<{
+    request_id: string;
+    revoked_at_ms: string | number | null;
+  }>({
+    text: `SELECT request_id, revoked_at_ms
+      FROM "openmeld"."agent_profile_access_grants"
+      WHERE request_id = ANY($1::text[])`,
+    values: [[...new Set(input.requestIds)]],
+  });
+  for (const row of result.rows) {
+    grants.set(row.request_id, {
+      revokedAtMs:
+        row.revoked_at_ms === null ? null : Number(row.revoked_at_ms),
+    });
+  }
+  return grants;
+}
+
 export async function listAgentAccessRequests(input: {
   db: Queryable;
   organizationId: string;
@@ -356,20 +392,30 @@ export async function listAgentAccessRequests(input: {
   return result.rows.map(toRequestRecord);
 }
 
-/** Moves a request out of `pending` once. Null: it was no longer pending. */
+/**
+ * Moves a request out of `pending` once. `decision` is the owner's answer,
+ * null when the requester withdraws. Null: it was no longer pending.
+ */
 export async function transitionPendingAgentAccessRequest(input: {
   db: Queryable;
   requestId: string;
   status: Exclude<AgentAccessRequestStatus, "pending">;
+  decision: AgentAccessDecision | null;
   decidedByUserId: string | null;
   nowMs: number;
 }): Promise<AgentAccessRequestRecord | null> {
   const result = await input.db.query<RequestRow>({
     text: `UPDATE "openmeld"."agent_access_requests"
-      SET status = $2, decided_at_ms = $3, decided_by_user_id = $4
+      SET status = $2, decided_at_ms = $3, decided_by_user_id = $4, decision = $5
       WHERE id = $1 AND status = 'pending'
       RETURNING ${REQUEST_COLUMNS}`,
-    values: [input.requestId, input.status, input.nowMs, input.decidedByUserId],
+    values: [
+      input.requestId,
+      input.status,
+      input.nowMs,
+      input.decidedByUserId,
+      input.decision,
+    ],
   });
   const row = result.rows[0];
   return row ? toRequestRecord(row) : null;

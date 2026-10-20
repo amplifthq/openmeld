@@ -18,9 +18,15 @@ import { organizationProfileIdentityDirectoryQueryOptions } from "#/query/organi
  * - `none`: no Direct Message with the Agent yet.
  * - `draft`: a Direct Message exists and no request was sent from it.
  * - `waiting`: the request waits for the owner.
- * - `approved_once`: the owner allowed one chat.
+ * - `approved_once`: the owner allowed one chat: the request's own Direct
+ *   Message, never another one.
  * - `always_allowed`: the owner always lets the viewer use the Agent.
  * - `declined`: the owner declined the latest request.
+ * - `revoked`: the owner allowed the latest request, then took that access
+ *   back.
+ *
+ * The owner's decision is history; the grant it wrote is the current fact.
+ * An active standing grant wins over any request.
  */
 export type ColleagueAccessState =
 	| "not_required"
@@ -29,7 +35,8 @@ export type ColleagueAccessState =
 	| "waiting"
 	| "approved_once"
 	| "always_allowed"
-	| "declined";
+	| "declined"
+	| "revoked";
 
 export type ColleagueAccess = {
 	state: ColleagueAccessState;
@@ -60,21 +67,36 @@ export function resolveColleagueAccessState(input: {
 		return { state: "always_allowed", request: null };
 	}
 	const request = latestDirectMessageRequest(input);
-	switch (request?.status) {
-		case "pending":
-			return { state: "waiting", request };
-		// Without a standing grant, an allowed request covers one chat.
-		case "allowed":
-			return { state: "approved_once", request };
-		case "declined":
-			return { state: "declined", request };
-		default:
-			break;
+	const state = request ? resolveRequestState(request) : null;
+	if (request && state) {
+		return { state, request };
 	}
 	// Withdrawn, voided, or no request: back to an unsent Direct Message.
 	const hasDirectMessage =
 		Boolean(input.spaceId) || (input.directMessageCount ?? 0) > 0;
 	return { state: hasDirectMessage ? "draft" : "none", request: null };
+}
+
+function resolveRequestState(
+	request: AgentAccessRequestView
+): Exclude<ColleagueAccessState, "not_required" | "none" | "draft"> | null {
+	switch (request.status) {
+		case "pending":
+			return "waiting";
+		case "declined":
+			return "declined";
+		case "allowed":
+			break;
+		default:
+			return null;
+	}
+	// An allowed request without its grant is not access.
+	if (request.grant?.status !== "active") {
+		return "revoked";
+	}
+	return request.decision === "always_allow"
+		? "always_allowed"
+		: "approved_once";
 }
 
 function latestDirectMessageRequest(input: {
@@ -161,7 +183,7 @@ export function useColleagueAccessState(input: {
 	if (!asksOwner) {
 		return { state: "not_required", request: null, ownerName: null };
 	}
-	if (!(grants.data && requests.data) || !(input.spaceId || sessions.data)) {
+	if (!(grants.data && requests.data && (input.spaceId || sessions.data))) {
 		return null;
 	}
 	const resolved = resolveColleagueAccessState({

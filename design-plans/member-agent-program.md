@@ -604,7 +604,11 @@ listed; reviewers reject sensitive writes that check only the immediate actor.
 creates the DM Space in `pending_owner_consent` → Tali's message is stored,
 not dispatched → Inbox item (urgent) + email to Felix → Felix answers in Inbox
 → grant recorded (`always`) or not (`once`) → Core creates a fresh Execution
-Context for Tali and dispatches → Felix observes read-only.
+Context for Tali and dispatches → Felix observes read-only. The request keeps
+Felix's `decision` for good; the grant keeps its own lifecycle. If Felix later
+revokes an `always` grant, Tali's state is `revoked` (**Access removed**) and
+her next message asks again. `allow_once` covers only that DM; a new DM
+starts unsent.
 
 **Bringing an Agent into a Space.** Tali mentions `Felix Lu's Claude Code` in
 Space S → message posts; mention chip shows "Requested Felix"; no Wake →
@@ -631,6 +635,11 @@ in Inbox with the native option → Service resumes → Tali's view shows
 - The backfill is idempotent and prints counts (created, grouped, unassigned
   by reason). Pre-launch data is small; no separate dump analysis is required,
   the counts from the staging run are the record.
+- Migration `0047` adds `agent_access_requests.decision` and backfills it
+  from the status and the grant each request wrote: an `always` grant is
+  `always_allow`, a `once` grant or an allowed request without a grant is
+  `allow_once`; declined, joined and ignored map to their answers. Withdrawn
+  requests and requests void before an answer stay null.
 - Rollback per phase: a feature flag hides MemberAgent surfaces; the column
   stays nullable; projections (presence, folder index) are recomputable.
   Phase 1 ships behind the flag and can be disabled without a migration.

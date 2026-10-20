@@ -484,6 +484,21 @@ start work, clients show only the closed public reason set
 chat while the Agent is unavailable. An offline Agent keeps chat, because the
 message waits for its computer.
 
+A request keeps the owner's answer apart from what is true now. Its
+`decision` (`allow_once`, `always_allow`, `decline`, `join`, or `ignore`) is
+written once with the answer and never changes; it is null while the request
+is pending and when it closed without an answer (withdrawn, or void before
+one). Its `status` is where the request is now. The grant it wrote keeps its
+own lifecycle, and the request view carries that grant as it is now:
+`grant.status` `active` or `revoked`, with `revokedAt`. The requester's state
+is derived from these facts in one shared place: an active standing grant
+means always allowed; otherwise the latest Direct Message request decides. A
+pending request is waiting, a decline is declined, and an allowed request
+whose grant is active is always allowed or allowed for that chat by its
+decision. An allowed request whose grant was revoked is `revoked` (shown as
+**Access removed**), and the requester asks again from their next message. An
+`allow_once` covers only the request's own DM; a new DM starts unsent.
+
 ## Space Identity
 
 The Space name is Space-owned identity. It is the same canonical value used in

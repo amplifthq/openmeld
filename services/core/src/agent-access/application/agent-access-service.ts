@@ -8,6 +8,7 @@ import {
 } from "@openmeld/schemas";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 import {
+  type AgentAccessRequestGrantState,
   type AgentAccessRequestNames,
   type AgentAccessRequestRecord,
   asQueryable,
@@ -15,6 +16,7 @@ import {
   insertAgentProfileAccessGrant,
   markAgentAccessRequestApplied,
   readAgentAccessRequest,
+  readAgentAccessRequestGrants,
   readAgentAccessRequestNames,
   revokeVoidedRequestOnceGrants,
   transitionPendingAgentAccessRequest,
@@ -81,8 +83,8 @@ export type AgentAccessDecisionResult = {
 /**
  * The owner's decision, from `pending` only. Only the Agent owner decides;
  * external users are never always allowed. Grants are written in the same
- * transaction as the decision. Retrying the same decision returns the
- * stored one so the Space can apply it.
+ * transaction as the decision, which is stored and never changes. Retrying
+ * the same decision returns the stored one so the Space can apply it.
  */
 export async function decideAgentAccessRequest(input: {
   db: PostgresDatabase;
@@ -108,13 +110,14 @@ export async function decideAgentAccessRequest(input: {
     if (request.status !== "pending") {
       // A retry of the same answer (a lost response, or a Space that did
       // not apply it yet) returns it so the Space can apply it again.
-      if (request.status === status) {
+      if (request.decision === input.decision && request.status === status) {
         return { request, transitioned: false };
       }
       throw requestClosedError(request);
     }
     const decided = await transitionPendingAgentAccessRequest({
       db,
+      decision: input.decision,
       decidedByUserId: input.deciderUserId,
       nowMs: input.nowMs,
       requestId: request.id,
@@ -257,6 +260,7 @@ export async function withdrawAgentAccessRequest(input: {
   }
   const withdrawn = await transitionPendingAgentAccessRequest({
     db: asQueryable(input.db),
+    decision: null,
     decidedByUserId: input.requesterUserId,
     nowMs: input.nowMs,
     requestId: request.id,
@@ -310,12 +314,15 @@ export async function readAgentAccessRequestView(input: {
   request: AgentAccessRequestRecord;
   viewerUserId: string;
 }): Promise<AgentAccessRequestView> {
-  const names = await readNames(input.db, input.request);
-  return toAgentAccessRequestView({
-    names,
-    request: input.request,
+  const [view] = await readAgentAccessRequestViews({
+    db: input.db,
+    requests: [input.request],
     viewerUserId: input.viewerUserId,
   });
+  if (!view) {
+    throw new Error("agent_access.request_view_missing");
+  }
+  return view;
 }
 
 export async function readAgentAccessRequestViews(input: {
@@ -323,12 +330,19 @@ export async function readAgentAccessRequestViews(input: {
   requests: readonly AgentAccessRequestRecord[];
   viewerUserId: string;
 }): Promise<AgentAccessRequestView[]> {
-  const names = await readAgentAccessRequestNames({
-    db: asQueryable(input.db),
-    requests: input.requests,
-  });
+  const [names, grants] = await Promise.all([
+    readAgentAccessRequestNames({
+      db: asQueryable(input.db),
+      requests: input.requests,
+    }),
+    readAgentAccessRequestGrants({
+      db: asQueryable(input.db),
+      requestIds: input.requests.map((request) => request.id),
+    }),
+  ]);
   return input.requests.map((request) =>
     toAgentAccessRequestView({
+      grant: grants.get(request.id) ?? null,
       names: names.get(request.id) ?? FALLBACK_NAMES,
       request,
       viewerUserId: input.viewerUserId,
@@ -343,6 +357,7 @@ const FALLBACK_NAMES: AgentAccessRequestNames = {
 };
 
 export function toAgentAccessRequestView(input: {
+  grant: AgentAccessRequestGrantState | null;
   names: AgentAccessRequestNames;
   request: AgentAccessRequestRecord;
   viewerUserId: string;
@@ -354,6 +369,14 @@ export function toAgentAccessRequestView(input: {
     id: request.id,
     kind: request.kind,
     status: request.status,
+    decision: request.decision,
+    grant: input.grant && {
+      status: input.grant.revokedAtMs === null ? "active" : "revoked",
+      revokedAt:
+        input.grant.revokedAtMs === null
+          ? null
+          : new Date(input.grant.revokedAtMs).toISOString(),
+    },
     spaceId: request.spaceId,
     sourceSignalId: request.sourceSignalId,
     agentProfileId: request.agentProfileId,

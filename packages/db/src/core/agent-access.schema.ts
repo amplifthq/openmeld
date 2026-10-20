@@ -26,6 +26,15 @@ export const AGENT_ACCESS_REQUEST_STATUSES = [
 export type AgentAccessRequestStatusValue =
   (typeof AGENT_ACCESS_REQUEST_STATUSES)[number];
 
+export const AGENT_ACCESS_DECISIONS = [
+  "allow_once",
+  "always_allow",
+  "decline",
+  "join",
+  "ignore",
+] as const;
+export type AgentAccessDecisionValue = (typeof AGENT_ACCESS_DECISIONS)[number];
+
 export const AGENT_ACCESS_GRANTEE_KINDS = ["member", "external"] as const;
 export type AgentAccessGranteeKindValue =
   (typeof AGENT_ACCESS_GRANTEE_KINDS)[number];
@@ -34,7 +43,9 @@ export type AgentAccessGranteeKindValue =
  * A request for an Agent owner's consent (developing/product/inbox.md, Agent
  * owner requests). The Space that holds the Wake writes it; only the owner
  * decides it, once, from `pending`. The Space then applies the decision and
- * records `applied_at_ms`.
+ * records `applied_at_ms`. `decision` is the owner's answer and never
+ * changes; `status` is where the request is now, and a grant written from it
+ * keeps its own lifecycle (revoked or not).
  */
 export const agentAccessRequests = applicationTable(
   "agent_access_requests",
@@ -67,6 +78,8 @@ export const agentAccessRequests = applicationTable(
       .$type<AgentAccessGranteeKindValue>()
       .notNull(),
     status: text("status").$type<AgentAccessRequestStatusValue>().notNull(),
+    // Null while pending, and for a request closed without an owner answer.
+    decision: text("decision").$type<AgentAccessDecisionValue>(),
     createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
     decidedAtMs: bigint("decided_at_ms", { mode: "number" }),
     decidedByUserId: text("decided_by_user_id").references(() => users.id, {
@@ -116,6 +129,16 @@ export const agentAccessRequests = applicationTable(
       "agent_access_requests_decision_check",
       sql`("status" = 'pending' and "decided_at_ms" is null and "applied_at_ms" is null)
         or ("status" <> 'pending' and "decided_at_ms" is not null)`
+    ),
+    // An owner answer is one of the decisions and agrees with the status it
+    // moved the request to; a void request keeps the answer it had.
+    check(
+      "agent_access_requests_owner_decision_check",
+      sql`("decision" is null and "status" in ('pending', 'withdrawn', 'voided', 'replied_by_dm'))
+        or ("decision" in ('allow_once', 'always_allow') and "status" in ('allowed', 'voided'))
+        or ("decision" = 'decline' and "status" = 'declined')
+        or ("decision" = 'join' and "status" in ('joined', 'voided'))
+        or ("decision" = 'ignore' and "status" = 'ignored')`
     ),
   ]
 );

@@ -12,6 +12,8 @@ const request = (
 	id: "req_1",
 	kind: "direct_message",
 	status: "pending",
+	decision: null,
+	grant: null,
 	spaceId: "dm_1",
 	sourceSignalId: "sig_1",
 	agentProfileId: "agt_codex",
@@ -57,10 +59,93 @@ describe("resolveColleagueAccessState", () => {
 		expect(resolve({ requests: [request()] })).toBe("waiting");
 	});
 
-	it("is approved_once when the owner allowed a chat without a standing grant", () => {
-		expect(resolve({ requests: [request({ status: "allowed" })] })).toBe(
+	const allowedOnce = (overrides: Partial<AgentAccessRequestView> = {}) =>
+		request({
+			status: "allowed",
+			decision: "allow_once",
+			grant: { status: "active", revokedAt: null },
+			decidedAt: "2026-10-20T10:05:00.000Z",
+			...overrides,
+		});
+	const alwaysAllowed = (overrides: Partial<AgentAccessRequestView> = {}) =>
+		allowedOnce({ decision: "always_allow", ...overrides });
+	const revokedGrant = {
+		status: "revoked",
+		revokedAt: "2026-10-20T10:30:00.000Z",
+	} as const;
+
+	it("is approved_once in the request's own Direct Message only", () => {
+		expect(resolve({ requests: [allowedOnce()] })).toBe("approved_once");
+		expect(resolve({ requests: [allowedOnce()], spaceId: "dm_1" })).toBe(
 			"approved_once"
 		);
+		// A new Direct Message asks again.
+		expect(resolve({ requests: [allowedOnce()], spaceId: "dm_2" })).toBe(
+			"draft"
+		);
+	});
+
+	it("is always_allowed from an Always allow request whose grant is active", () => {
+		expect(resolve({ requests: [alwaysAllowed()] })).toBe("always_allowed");
+	});
+
+	it("is revoked when the owner took back an Always allow grant", () => {
+		const requests = [alwaysAllowed({ grant: revokedGrant })];
+		expect(resolve({ requests })).toBe("revoked");
+		expect(resolve({ requests, spaceId: "dm_1" })).toBe("revoked");
+		// Another Direct Message never had that answer.
+		expect(resolve({ requests, spaceId: "dm_2" })).toBe("draft");
+	});
+
+	it("is revoked when the owner took back a one-chat grant in its chat", () => {
+		expect(resolve({ requests: [allowedOnce({ grant: revokedGrant })] })).toBe(
+			"revoked"
+		);
+	});
+
+	it("never reads an allowed request without its grant as access", () => {
+		expect(resolve({ requests: [alwaysAllowed({ grant: null })] })).toBe(
+			"revoked"
+		);
+	});
+
+	it("leaves revoked for waiting once the viewer asks again", () => {
+		expect(
+			resolve({
+				requests: [
+					alwaysAllowed({ id: "old", grant: revokedGrant }),
+					request({ id: "new", createdAt: "2026-10-20T11:00:00.000Z" }),
+				],
+			})
+		).toBe("waiting");
+	});
+
+	it("follows the owner's answer to the new request after a revoke", () => {
+		const old = alwaysAllowed({ id: "old", grant: revokedGrant });
+		const later = { id: "new", createdAt: "2026-10-20T11:00:00.000Z" };
+		expect(resolve({ requests: [old, allowedOnce(later)] })).toBe(
+			"approved_once"
+		);
+		expect(resolve({ requests: [old, alwaysAllowed(later)] })).toBe(
+			"always_allowed"
+		);
+		expect(
+			resolve({
+				requests: [
+					old,
+					request({ ...later, status: "declined", decision: "decline" }),
+				],
+			})
+		).toBe("declined");
+	});
+
+	it("is always_allowed with a standing grant even after an older revoke", () => {
+		expect(
+			resolve({
+				standingGrantProfileIds: ["agt_codex"],
+				requests: [alwaysAllowed({ grant: revokedGrant })],
+			})
+		).toBe("always_allowed");
 	});
 
 	it("is always_allowed with a standing grant, whatever the requests say", () => {
@@ -100,16 +185,14 @@ describe("resolveColleagueAccessState", () => {
 				status: "declined",
 				createdAt: "2026-10-20T12:00:00.000Z",
 			}),
-			request({
+			allowedOnce({
 				id: "other",
 				agentProfileId: "agt_other",
-				status: "allowed",
 				createdAt: "2026-10-20T12:00:00.000Z",
 			}),
-			request({
+			allowedOnce({
 				id: "owner",
 				viewerRole: "owner",
-				status: "allowed",
 				createdAt: "2026-10-20T12:00:00.000Z",
 			}),
 		];

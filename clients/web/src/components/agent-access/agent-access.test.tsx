@@ -104,6 +104,8 @@ function request(
 		id: "aar_1",
 		kind: "direct_message",
 		status: "pending",
+		decision: null,
+		grant: null,
 		spaceId: "space-1",
 		sourceSignalId: "signal-1",
 		agentProfileId: "agt_1",

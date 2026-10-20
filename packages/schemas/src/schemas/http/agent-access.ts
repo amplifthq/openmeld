@@ -110,10 +110,28 @@ export function resolveAgentAccessDecisionStatus(
   }
 }
 
+/**
+ * The grant a request wrote, as it is now. Consent can be taken back after
+ * it was given, so the owner's decision alone does not say whether it still
+ * holds.
+ */
+export const agentAccessRequestGrantViewSchema = z.strictObject({
+  status: z.enum(["active", "revoked"]),
+  revokedAt: isoDateTimeSchema.nullable(),
+});
+export type AgentAccessRequestGrantView = z.infer<
+  typeof agentAccessRequestGrantViewSchema
+>;
+
 export const agentAccessRequestViewSchema = z.strictObject({
   id: identifierSchema,
   kind: agentAccessRequestKindSchema,
   status: agentAccessRequestStatusSchema,
+  // The owner's answer; it never changes. Null while pending, and when the
+  // request closed without one (withdrawn, or void before an answer).
+  decision: agentAccessDecisionSchema.nullable(),
+  // Null when the request wrote no grant (not allowed).
+  grant: agentAccessRequestGrantViewSchema.nullable(),
   spaceId: identifierSchema,
   sourceSignalId: identifierSchema.nullable(),
   agentProfileId: identifierSchema,
