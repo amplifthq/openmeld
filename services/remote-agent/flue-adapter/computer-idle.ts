@@ -9,14 +9,25 @@ export class ComputerIdleGuard {
     this.#lastActivityAt = Date.now();
   }
 
-  async run<T>(operation: () => Promise<T>): Promise<T> {
+  acquire(): () => void {
     this.#active++;
     this.touch();
+    let released = false;
+    return () => {
+      if (!released) {
+        released = true;
+        this.#active--;
+        this.touch();
+      }
+    };
+  }
+
+  async run<T>(operation: () => Promise<T>): Promise<T> {
+    const release = this.acquire();
     try {
       return await operation();
     } finally {
-      this.#active--;
-      this.touch();
+      release();
     }
   }
 

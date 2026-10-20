@@ -273,12 +273,20 @@ This closes SDK heartbeats and sockets; it does not destroy the container,
 erase files, or impose a task execution deadline. A later request reconnects
 through the SDK. Processes must remain under the command owner's supervision;
 shell backgrounding must not bypass that lifecycle.
+Remote Workspace clients hold foreground activity until the SDK disposes their
+RPC target, including while a file stream or external callback is still pending.
+RPC event cleanup releases abandoned clients. The quiet period begins again
+when the last client is released.
 
 Git pack imports use the same retained command receipts as other native
 commands. Checkout keeps only the original receipt address; later calls poll
-that command, including from a later authorized turn. The Computer collector
-continues without checkout polling. Missing or uncertain results require
-inspection and never authorize a new import against the same working copy.
+that command, including from a later authorized turn. A lost launch response can
+be recovered by polling the original invocation and stable command key through
+the same authorization boundary. The Computer collector continues without
+checkout polling. Missing or uncertain results require inspection and never
+authorize a new import against the same working copy. A confirmed nonzero exit
+with settled synchronization may retry under a fresh retained receipt, bounded
+to three attempts. Concurrent polls choose the next attempt with compare-and-set.
 
 The next Linux command must see synchronized file contents, existence and size.
 The native backend refreshes FUSE attributes using

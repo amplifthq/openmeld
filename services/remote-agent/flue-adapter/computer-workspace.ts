@@ -1,10 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { posix } from "node:path";
-import {
-  getWorkspace,
-  Workspace,
-  type WorkspaceStub,
-} from "@cloudflare/computer";
+import { getWorkspace, Workspace, WorkspaceStub } from "@cloudflare/computer";
 import {
   LegacyContainerBackend,
   withLegacyWorkspaceContainer,
@@ -120,6 +116,25 @@ type AgentComputerEnv = {
 const GIT_TRANSFER_GRANT_PREFIX = "openmeld:git-transfer-grant:";
 const GIT_PACK_JOB_PREFIX = "openmeld:git-pack-job:";
 const GIT_PACK_RETRY_AFTER_MS = 13 * 60 * 1000;
+
+// The SDK disposes this target when its remote Workspace client is released.
+// Workers RPC also disposes targets when their caller's event ends.
+class ActiveWorkspaceStub extends WorkspaceStub {
+  readonly #release: () => void;
+
+  constructor(workspace: Workspace, release: () => void) {
+    super(workspace);
+    this.#release = release;
+  }
+
+  override [Symbol.dispose]() {
+    try {
+      super[Symbol.dispose]();
+    } finally {
+      this.#release();
+    }
+  }
+}
 
 function parseGitEgressRoute(request: Request):
   | {
@@ -1005,9 +1020,14 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
    */
   async __getWorkspaceStub(): Promise<WorkspaceStub> {
     await requireRetainedAccountStorage(this.ctx.storage);
-    this.#idle.touch();
-    await this.scheduleAlarm(this.#idle.closeAt);
-    await this.workspace.ready();
-    return this.workspace.stub();
+    const release = this.#idle.acquire();
+    try {
+      await this.scheduleAlarm(this.#idle.closeAt);
+      await this.workspace.ready();
+      return new ActiveWorkspaceStub(this.workspace, release);
+    } catch (error) {
+      release();
+      throw error;
+    }
   }
 }

@@ -10,6 +10,7 @@ import type { GitWorkingCopyLocation } from "./github-working-copy-computer";
 type Transfer = {
   operationId: string;
   invocationId: string;
+  attempt?: number;
   reference?: CloudComputerCommandReference;
 };
 const PREFIX = "github-working-copy:git-transfer:";
@@ -29,61 +30,97 @@ export async function advanceGitPackTransfer(input: {
   const candidate: Transfer = {
     operationId: input.operationId,
     invocationId: input.invocationId,
+    attempt: 1,
   };
   const created = await input.storage.putIfAbsentExpiring(
     key,
     candidate,
     input.expiresAtMs
   );
-  const transfer = created ? candidate : await input.storage.get<Transfer>(key);
+  let transfer = created ? candidate : await input.storage.get<Transfer>(key);
   if (!transfer || transfer.operationId !== input.operationId) {
     throw new Error("github.checkout.git_transfer_state_unavailable");
   }
   // Old detached imports have no receipt. Never silently launch a second import
   // or claim the old one completed. Deployment must settle those operations.
-  if (
-    !transfer.invocationId ||
-    (!transfer.reference && transfer.invocationId !== input.invocationId)
-  ) {
+  if (!transfer.invocationId) {
     throw new Error("github.checkout.git_transfer_result_unconfirmed");
   }
   const operation = input.workspaceAccess.computerOperation;
   if (!operation) {
     throw new Error("computer.operations_unavailable");
   }
-  const commandKey = `git-import:${input.operationId}`;
-  const result = cloudComputerOperationResultSchema.parse(
+  const attempt = transfer.attempt ?? 1;
+  const commandKey = `git-import:${input.operationId}${attempt > 1 ? `:${attempt}` : ""}`;
+  const result = readGitImportResult(
     await operation({
       action: "command",
       invocationId: transfer.invocationId,
-      command: transfer.reference
-        ? {
-            action: "poll",
-            key: commandKey,
-            reference: transfer.reference,
-            waitSeconds: 0,
-          }
-        : {
-            action: "start",
-            key: commandKey,
-            command: gitPackTransferCommand(input),
-            backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
-            timeoutSeconds: 30 * 60,
-          },
+      command:
+        transfer.reference || transfer.invocationId !== input.invocationId
+          ? {
+              action: "poll",
+              key: commandKey,
+              reference: transfer.reference,
+              waitSeconds: 0,
+            }
+          : {
+              action: "start",
+              key: commandKey,
+              command: gitPackTransferCommand(input),
+              backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
+              timeoutSeconds: 30 * 60,
+            },
     })
   );
+  if (result.reference && !transfer.reference) {
+    const addressed = { ...transfer, reference: result.reference };
+    if (
+      await input.storage.compareAndSetExpiring(
+        key,
+        transfer,
+        addressed,
+        input.expiresAtMs
+      )
+    ) {
+      transfer = addressed;
+    }
+  }
+  if (result.status !== "completed") {
+    return "running";
+  }
+  if (result.exitCode !== 0) {
+    if (attempt < 3) {
+      // Only a confirmed, synchronized process exit permits another attempt.
+      // CAS makes concurrent checkout polls select one next receipt.
+      await input.storage.compareAndSetExpiring(
+        key,
+        transfer,
+        {
+          operationId: input.operationId,
+          invocationId: input.invocationId,
+          attempt: attempt + 1,
+        } satisfies Transfer,
+        input.expiresAtMs
+      );
+      return "running";
+    }
+    throw new Error("github.checkout.git_transfer_failed");
+  }
+  return "completed";
+}
+
+function readGitImportResult(value: unknown) {
+  const result = cloudComputerOperationResultSchema.parse(value);
   if (Array.isArray(result) || !("status" in result)) {
     throw new Error("computer.invalid_command_result");
   }
-  if (result.reference && !transfer.reference) {
-    await input.storage.compareAndSetExpiring(
-      key,
-      transfer,
-      { ...transfer, reference: result.reference },
-      input.expiresAtMs
-    );
-  }
-  if (result.syncError || result.nextAction === "inspect") {
+  if (
+    result.syncError ||
+    result.nextAction === "inspect" ||
+    (result.status === "completed" &&
+      (typeof result.exitCode !== "number" || result.syncPending))
+  ) {
     throw new Error(
       `github.checkout.git_transfer_result_unconfirmed: ${JSON.stringify({
         reference: result.reference,
@@ -91,13 +128,7 @@ export async function advanceGitPackTransfer(input: {
       })}`
     );
   }
-  if (result.status !== "completed") {
-    return "running";
-  }
-  if (result.exitCode !== 0) {
-    throw new Error("github.checkout.git_transfer_failed");
-  }
-  return "completed";
+  return result;
 }
 
 function gitPackTransferCommand(input: {

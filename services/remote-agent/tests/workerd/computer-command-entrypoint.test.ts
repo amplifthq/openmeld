@@ -1,7 +1,8 @@
 import { env, runInDurableObject } from "cloudflare:test";
-import type {
-  WorkspaceRuntimeEvent,
-  WorkspaceRuntimeExecHandle,
+import {
+  getWorkspace,
+  type WorkspaceRuntimeEvent,
+  type WorkspaceRuntimeExecHandle,
 } from "@cloudflare/computer";
 import { expect, it, vi } from "vitest";
 import {
@@ -45,6 +46,41 @@ function computerStub() {
   ).AGENT_COMPUTER;
   return namespace.get(namespace.newUniqueId());
 }
+
+it("keeps a remote Workspace client active until its RPC stub is disposed", async () => {
+  const stub = computerStub();
+  const workspace = await getWorkspace(
+    stub as unknown as Parameters<typeof getWorkspace>[0]
+  );
+  try {
+    await runInDurableObject(stub, async (computer, state) => {
+      const close = vi.spyOn(computer.workspace, "close");
+      const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 180_000);
+      try {
+        await computer.alarm();
+        expect(close).not.toHaveBeenCalled();
+      } finally {
+        close.mockRestore();
+        clock.mockRestore();
+        await state.storage.deleteAlarm();
+      }
+    });
+  } finally {
+    workspace[Symbol.dispose]();
+  }
+  await runInDurableObject(stub, async (computer, state) => {
+    const close = vi.spyOn(computer.workspace, "close");
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 180_000);
+    try {
+      await computer.alarm();
+      expect(close).toHaveBeenCalledOnce();
+    } finally {
+      close.mockRestore();
+      clock.mockRestore();
+      await state.storage.deleteAlarm();
+    }
+  });
+});
 
 it.each([
   { paused: false, git: false },
