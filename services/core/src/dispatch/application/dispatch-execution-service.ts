@@ -4792,6 +4792,7 @@ const persistAgentControllerConversationId = async (input: {
   const operationId = `legacy-conversation:${crypto.randomUUID()}`;
   const mutation =
     await acquireRuntimeTransportAgentProfileLegacyConversationMutation({
+      agentControllerRef: input.agentControllerRef,
       env: input.env,
       operationId,
       ownerUserId: input.targetOwnerUserId,

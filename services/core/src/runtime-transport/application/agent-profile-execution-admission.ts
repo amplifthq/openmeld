@@ -1,6 +1,7 @@
 import {
   AGENT_PROFILE_WORK_MAX_WAITING,
   AGENT_PROFILE_WORK_READABLE_RESERVATION_LIMIT,
+  supportsExecutionContextSelection,
 } from "@openmeld/agent-runtime";
 import {
   buildRuntimeCoordinatorExecutionId,
@@ -1330,14 +1331,20 @@ export async function acquireRuntimeCoordinatorAgentProfileFutureWorkSettingsMut
 }
 
 export async function acquireRuntimeCoordinatorAgentProfileLegacyConversationMutation(input: {
+  agentControllerRef: string;
   nowMs: number;
   operationId: string;
   ownerUserId: string;
   storage: ExecutionAdmissionStorage;
   targetProfileId: string;
 }): Promise<RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse> {
+  const { agentControllerRef, ...mutationInput } = input;
   return await acquireRuntimeCoordinatorAgentProfileMutation({
-    ...input,
+    ...mutationInput,
+    // The frozen association belongs to a Context-capable harness. A harness
+    // without Context support keeps writing its own Binding conversation.
+    legacyAssociationFrozen:
+      supportsExecutionContextSelection(agentControllerRef),
     mutationKind: "legacy_conversation",
   });
 }
@@ -1367,6 +1374,7 @@ function prepareMutationRecovery(input: {
 }
 
 async function acquireRuntimeCoordinatorAgentProfileMutation(input: {
+  legacyAssociationFrozen?: boolean;
   mutationKind:
     | "execution_target"
     | "future_work_settings"
@@ -1454,6 +1462,7 @@ async function acquireRuntimeCoordinatorAgentProfileMutation(input: {
     const admission = prepared.admission;
     if (
       input.mutationKind === "legacy_conversation" &&
+      input.legacyAssociationFrozen !== false &&
       admission.contextMigration?.status === "contexts"
     ) {
       return {
@@ -2709,10 +2718,20 @@ function rejectsNewLegacyAdmission(input: {
   admission: AgentProfileExecutionAdmissionRecord;
   record: RuntimeCoordinatorHeadLifecycleRecord;
 }): boolean {
+  const snapshot = input.record.acceptedDispatchSnapshot;
+  // A harness without Execution Context support keeps ordinary serial Binding
+  // work, even after an earlier harness of this Profile activated Contexts.
+  const harnessRunsOnlyLegacyWork = Boolean(
+    snapshot &&
+      !supportsExecutionContextSelection(
+        snapshot.controllerSnapshot.agentControllerRef
+      )
+  );
   return Boolean(
     input.isNewAdmission &&
       input.contextModeActive &&
-      !input.record.acceptedDispatchSnapshot?.executionContext &&
+      !harnessRunsOnlyLegacyWork &&
+      !snapshot?.executionContext &&
       input.admission.recoveryGate?.continuationClientMessageId !==
         input.record.targetWakeLifecycleIdentity.clientMessageId
   );

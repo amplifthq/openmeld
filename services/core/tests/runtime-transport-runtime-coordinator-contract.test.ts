@@ -4242,6 +4242,31 @@ describe("runtime transport runtime coordinator transport contract", () => {
         )
       ).rejects.toThrow("controller_access_unsupported");
     }
+    // A Profile that used Contexts with an earlier harness keeps ordinary
+    // serial Binding work after switching to this one.
+    const switchedIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-after-context-activation",
+      dispatchId: "dispatch-after-context-activation",
+      sourceSignalId: "signal-after-context-activation",
+      spaceId: HEX_SPACE_ID,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    const afterActivation = await storage.transaction((transaction) =>
+      prepareExecutionContextAssignment({
+        contextModeActive: true,
+        storage: transaction,
+        record: {
+          ...head,
+          primaryDispatchId: "dispatch-after-context-activation",
+          targetWakeLifecycleId: switchedIdentity.targetWakeLifecycleId,
+          targetWakeLifecycleIdentity: switchedIdentity,
+        },
+      })
+    );
+    expect(
+      afterActivation.record.acceptedDispatchSnapshot?.executionContext
+    ).toBeUndefined();
+    expect(afterActivation.writes).toEqual({});
   });
 
   it.each([
@@ -12981,17 +13006,67 @@ describe("runtime transport runtime coordinator transport contract", () => {
         )
       ).json()
     ).toMatchObject({ status: "already_accepted", action: "create_execution" });
+    // After switching to a harness without Context support, ordinary Wakes are
+    // admitted as serial Binding work instead of being refused.
+    const switchedHarnessIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "opencode-after-activation",
+      dispatchId: "opencode-after-activation",
+      sourceSignalId: "opencode-after-activation",
+      spaceId: HEX_SPACE_ID,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    expect(
+      await (
+        await fetchRuntimeTransportJson(
+          restarted.hub,
+          "/runtime-coordinator/head/accept",
+          buildRuntimeCoordinatorHeadAcceptRequest({
+            dispatchId: "opencode-after-activation",
+            idempotencyKey: "opencode-after-activation",
+            targetWakeLifecycleIdentity: switchedHarnessIdentity,
+            acceptedDispatchSnapshot: {
+              ...buildAcceptedDispatchSnapshot({
+                agentControllerRef: "builtin:opencode",
+                fingerprint: "e",
+              }),
+              contextRequest: {
+                required: false,
+                scope: {
+                  organizationId: "org",
+                  requesterProfileId: "human",
+                  spaceId: HEX_SPACE_ID,
+                  targetProfileId: TARGET_AGENT_PROFILE_ID,
+                  threadId: null,
+                },
+                selection: { mode: "auto" },
+              },
+            },
+          })
+        )
+      ).json()
+    ).toMatchObject({ status: "queued" });
     expect(
       await (
         restarted.hub as unknown as RuntimeTransportHub
       ).rpcAcquireAgentProfileLegacyConversationMutation({
         ...modeRequest,
+        agentControllerRef: "builtin:codex",
         operationId: "late-result",
       })
     ).toMatchObject({
       status: "blocked",
       reasonCode: "execution_context.legacy_association_frozen",
     });
+    // A harness without Context support keeps its own Binding conversation.
+    expect(
+      await (
+        restarted.hub as unknown as RuntimeTransportHub
+      ).rpcAcquireAgentProfileLegacyConversationMutation({
+        ...modeRequest,
+        agentControllerRef: "builtin:opencode",
+        operationId: "opencode-binding-conversation",
+      })
+    ).toMatchObject({ status: "acquired" });
   });
 
   it("persists serial rollback without revoking reservations and keeps Context mode after idle pruning", async () => {

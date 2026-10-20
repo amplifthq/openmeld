@@ -81,6 +81,7 @@ import {
   runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema,
   runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema,
   runtimeTransportAgentProfileExecutionTargetMutationRequestSchema,
+  runtimeTransportAgentProfileLegacyConversationMutationRequestSchema,
   runtimeTransportAgentProfileOperationalContextsRequestSchema,
   runtimeTransportAgentProfileOperationalContextsResponseSchema,
   runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema,
@@ -235,6 +236,7 @@ import type {
   RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse,
   RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse,
   RuntimeTransportAgentProfileExecutionTargetMutationRequest,
+  RuntimeTransportAgentProfileLegacyConversationMutationRequest,
   RuntimeTransportAgentProfileOperationalContextsRequest,
   RuntimeTransportAgentProfileOperationalContextsResponse,
   RuntimeTransportAgentProfileWorkContinuationAuthorizeRequest,
@@ -2567,14 +2569,30 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
   }
   async rpcAcquireAgentProfileLegacyConversationMutation(
-    input: RuntimeTransportAgentProfileExecutionTargetMutationRequest
+    input: RuntimeTransportAgentProfileLegacyConversationMutationRequest
   ): Promise<RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse> {
     return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
-      return await this.acquireAgentProfileMutation({
-        input,
-        acquire:
-          acquireRuntimeCoordinatorAgentProfileLegacyConversationMutation,
-      });
+      const parsed =
+        runtimeTransportAgentProfileLegacyConversationMutationRequestSchema.safeParse(
+          input
+        );
+      if (!parsed.success) {
+        return {
+          reasonCode:
+            "runtime_coordinator.execution_target_mutation_request_invalid",
+          status: "unavailable",
+        };
+      }
+      return this.settleAgentProfileMutationAcquire(
+        await acquireRuntimeCoordinatorAgentProfileLegacyConversationMutation({
+          agentControllerRef: parsed.data.agentControllerRef,
+          nowMs: Date.now(),
+          operationId: parsed.data.operationId,
+          ownerUserId: parsed.data.ownerUserId,
+          storage: this.ctx.storage,
+          targetProfileId: parsed.data.targetProfileId,
+        })
+      );
     });
   }
   private async reconcileAgentProfileContextMigration(input: {
@@ -2712,13 +2730,19 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         status: "unavailable",
       };
     }
-    const response = await input.acquire({
-      nowMs: Date.now(),
-      operationId: parsed.data.operationId,
-      ownerUserId: parsed.data.ownerUserId,
-      storage: this.ctx.storage,
-      targetProfileId: parsed.data.targetProfileId,
-    });
+    return this.settleAgentProfileMutationAcquire(
+      await input.acquire({
+        nowMs: Date.now(),
+        operationId: parsed.data.operationId,
+        ownerUserId: parsed.data.ownerUserId,
+        storage: this.ctx.storage,
+        targetProfileId: parsed.data.targetProfileId,
+      })
+    );
+  }
+  private settleAgentProfileMutationAcquire(
+    response: RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse
+  ): RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse {
     if (
       response.status === "unavailable" &&
       (response.reasonCode ===

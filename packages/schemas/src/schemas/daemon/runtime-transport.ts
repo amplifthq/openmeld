@@ -391,6 +391,13 @@ export const runtimeTransportAgentProfileExecutionTargetMutationRequestSchema =
     targetProfileId: agentProfileIdSchema,
   });
 
+// Names the harness whose Binding conversation is written: a harness without
+// Execution Context support keeps that conversation after Context activation.
+export const runtimeTransportAgentProfileLegacyConversationMutationRequestSchema =
+  runtimeTransportAgentProfileExecutionTargetMutationRequestSchema.extend({
+    agentControllerRef: agentControllerRefSchema,
+  });
+
 export const runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema =
   z.discriminatedUnion("status", [
     z.strictObject({

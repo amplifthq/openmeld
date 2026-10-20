@@ -1,4 +1,7 @@
-import { supportsExecutionContextAccess as supportsContextAccess } from "@openmeld/agent-runtime";
+import {
+  supportsExecutionContextAccess as supportsContextAccess,
+  supportsExecutionContextSelection,
+} from "@openmeld/agent-runtime";
 import {
   executionContextAssignmentSchema,
   executionContextCompletionSchema,
@@ -401,18 +404,13 @@ export async function prepareExecutionContextAssignment(
     request.selection.mode === "auto" && request.required === false;
   if (
     implicitRequest &&
-    !supportsContextAccess(
-      snapshot.controllerSnapshot.agentControllerRef,
-      "workspace",
-      "agent_settings"
+    !supportsExecutionContextSelection(
+      snapshot.controllerSnapshot.agentControllerRef
     )
   ) {
-    // An unsupported harness keeps its existing Binding conversation. Do not
-    // select retained Context history from a previously configured harness.
-    assertLegacyFallbackAllowed(
-      input,
-      "execution_context.harness_unsupported_after_activation"
-    );
+    // An unsupported harness keeps its existing Binding conversation, even when
+    // an earlier harness of this Profile used Contexts. Retained Context history
+    // belongs to that earlier harness and is never selected here.
     return { record: input.record, writes: {} };
   }
   if (
