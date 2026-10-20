@@ -1898,7 +1898,6 @@ function SpaceMembersList(input: {
 				density="compact"
 				entriesByProfileId={entriesByProfileId}
 				entry={entry}
-				isAgentRecoveryPending={input.isAgentRecoveryPending(entry.profileId)}
 				isAgentWakeAvailabilityCheckPending={input.isAgentWakeAvailabilityCheckPending(
 					entry.profileId
 				)}
@@ -1908,11 +1907,9 @@ function SpaceMembersList(input: {
 					memberTransientStatesByProfileId,
 				})}
 				modelCatalog={input.modelCatalog}
-				onAgentRecoveryAction={input.onAgentRecoveryAction}
 				onCheckAgentWakeAvailability={input.onCheckAgentWakeAvailability}
 				onRemoveFromSpace={removeMemberAction}
 				orgSlug={input.orgSlug}
-				prepareSetupHref={input.prepareSetupHref}
 				showAgentConnectionDetail={false}
 				variant="full"
 				wakeDisplayEntry={wakeDisplayEntry}

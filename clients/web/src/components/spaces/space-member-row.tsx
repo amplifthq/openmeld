@@ -1,6 +1,5 @@
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
 import { isAgentProfileWorkspaceBlockerReasonCode } from "@openmeld/agent-runtime";
-import { isAgentRecoveryConnectionAction } from "@openmeld/schemas";
 import type { ModelCatalog } from "@openmeld/schemas/types";
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
 import { Button } from "@openmeld/ui/components/button";
@@ -44,10 +43,6 @@ import {
 	MANUAL_ONLY_AGENT_BADGE_LABEL,
 } from "./space-agent-manual-participation";
 import {
-	type SpaceAgentProfileBindingRecoveryPlan,
-	SpaceAgentRecoveryActionControl,
-} from "./space-agent-recovery-action";
-import {
 	SpaceAgentAvailabilityIndicator,
 	SpaceMemberInlineStatusText,
 } from "./space-member-inline-status-text";
@@ -70,15 +65,10 @@ type SpaceMemberRowProps = {
 	entry: SpaceMemberDirectoryEntry;
 	entriesByProfileId?: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
 	isAgentWakeAvailabilityCheckPending: boolean;
-	isAgentRecoveryPending: boolean;
 	modelCatalog?: ModelCatalog | null;
-	onAgentRecoveryAction: (
-		plan: SpaceAgentProfileBindingRecoveryPlan
-	) => Promise<void>;
 	onCheckAgentWakeAvailability: (profileId: string) => Promise<void>;
 	onRemoveFromSpace?: (profileId: string) => Promise<SpaceRemoveMemberResult>;
 	orgSlug: string;
-	prepareSetupHref?: string;
 	memberTransientState: SpaceWakeStatusTransientState | null;
 	showAgentConnectionDetail?: boolean;
 	variant: "compact" | "full";
@@ -184,14 +174,7 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 					profileName={input.entry.profileName}
 				/>
 			}
-			primaryDetail={
-				input.density === "compact" &&
-				shouldShowAgentRecoveryActionControl(
-					presentation.displayedAgentRecoveryPlan
-				)
-					? null
-					: presentation.primaryDetail
-			}
+			primaryDetail={presentation.primaryDetail}
 			profileName={memberAgentDisplayName ?? input.entry.profileName}
 			profileNameAdornment={
 				<>
@@ -206,12 +189,7 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 			profileSummaryTrigger={
 				detailsDialog.profileDetailsPopoverTrigger ?? undefined
 			}
-		>
-			<AgentSpaceMemberRecoveryAction
-				input={input}
-				presentation={presentation}
-			/>
-		</AgentProfileListItem>
+		/>
 	);
 }
 
@@ -339,46 +317,6 @@ function AgentSpaceMemberAvailabilityIndicator(input: {
 			tone={input.presentation.availabilityIndicatorTone}
 			tooltip={input.presentation.availabilityIndicatorTooltip}
 		/>
-	);
-}
-
-function AgentSpaceMemberRecoveryAction(input: {
-	input: AgentSpaceMemberRowProps;
-	presentation: AgentSpaceMemberRowPresentation;
-}) {
-	if (
-		input.input.variant !== "full" ||
-		!shouldShowAgentRecoveryActionControl(
-			input.presentation.displayedAgentRecoveryPlan
-		) ||
-		input.presentation.rawDisplayedMemberTransientState !== null
-	) {
-		return null;
-	}
-	const action = (
-		<SpaceAgentRecoveryActionControl
-			className={input.input.density === "compact" ? "mt-0" : undefined}
-			isPending={input.input.isAgentRecoveryPending}
-			onAction={input.input.onAgentRecoveryAction}
-			orgSlug={input.input.orgSlug}
-			plan={input.presentation.displayedAgentRecoveryPlan}
-			prepareSetupHref={input.input.prepareSetupHref}
-		/>
-	);
-	if (input.input.density !== "compact") {
-		return action;
-	}
-	return (
-		<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs">
-			<span>
-				{isAgentRecoveryConnectionAction(
-					input.presentation.displayedAgentRecoveryPlan.primaryActionId
-				)
-					? "Needs connection"
-					: "Needs attention"}
-			</span>
-			{action}
-		</div>
 	);
 }
 
@@ -854,17 +792,6 @@ function resolvePresenceIndicatorHref(input: {
 	return buildOpenMeldServiceSettingsPath({ orgSlug: input.orgSlug });
 }
 
-function isRouteReconnectRecoveryReasonCode(reasonCode: string): boolean {
-	return (
-		reasonCode === "agent_execution.route_missing" ||
-		reasonCode === "agent_execution.route_offline" ||
-		reasonCode === "agent_execution.route_unavailable" ||
-		reasonCode === "route.not_registered" ||
-		reasonCode === "route.offline" ||
-		reasonCode === "route.unavailable"
-	);
-}
-
 function resolvePresenceIndicatorTone(input: {
 	agentRecoveryPlan: AgentProfileReplyRecoveryPlan | null;
 	entry: SpaceMemberDirectoryEntry;
@@ -1046,15 +973,6 @@ function shouldShowAgentRecoveryAction(
 	plan: AgentProfileReplyRecoveryPlan | null
 ): plan is Exclude<AgentProfileReplyRecoveryPlan, { kind: "none" }> {
 	return Boolean(plan && plan.kind !== "none");
-}
-
-function shouldShowAgentRecoveryActionControl(
-	plan: AgentProfileReplyRecoveryPlan | null
-): plan is Exclude<AgentProfileReplyRecoveryPlan, { kind: "none" }> {
-	return (
-		shouldShowAgentRecoveryAction(plan) &&
-		!isRouteReconnectRecoveryReasonCode(plan.recoveryReasonCode)
-	);
 }
 
 function isOwnedByCurrentUser(input: {

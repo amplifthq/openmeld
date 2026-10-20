@@ -37,6 +37,7 @@ import {
 } from "#/components/agent-access/space-agent-access-requests";
 import type { SpaceAgentRequestMentions } from "#/components/agent-access/space-agent-request-mentions";
 import {
+	isMemberAgentIssueCard,
 	MemberAgentDirectMessageCard,
 	type MemberAgentDirectMessageCardState,
 	useMemberAgentDirectMessageCard,
@@ -876,6 +877,7 @@ function SpaceConversationPanelContent(
 					composerTargetName={composerTargetName}
 					input={input}
 					profilePresentationsById={profilePresentationsById}
+					recoveryShownInConversation={isMemberAgentIssueCard(memberAgentCard)}
 					submitComposer={submitComposer}
 				/>
 			) : null}
@@ -1996,6 +1998,8 @@ function SpaceComposerSection(input: {
 		string,
 		SpaceCollaborationProfilePresentation
 	>;
+	/** The Agent issue card already offers the fix; the composer keeps only its hint. */
+	recoveryShownInConversation: boolean;
 	submitComposer: (options?: SpaceComposerSendOptions) => void;
 }) {
 	const panel = input.input;
@@ -2051,14 +2055,19 @@ function SpaceComposerSection(input: {
 					key={`${panel.spaceId}:${panel.selfProfileId}`}
 					members={panel.composerMembers}
 					organizationId={panel.organizationId}
-					recovery={{
-						blockedWakeProfileId: panel.composerBlockedWakeProfileId,
-						agentRecoveryPlansByProfileId: panel.agentRecoveryPlansByProfileId,
-						isAgentRecoveryPending: panel.isAgentRecoveryPending,
-						onAgentRecoveryAction: panel.onAgentRecoveryAction,
-						orgSlug: panel.orgSlug,
-						prepareSetupHref: panel.prepareSetupHref,
-					}}
+					recovery={
+						input.recoveryShownInConversation
+							? undefined
+							: {
+									blockedWakeProfileId: panel.composerBlockedWakeProfileId,
+									agentRecoveryPlansByProfileId:
+										panel.agentRecoveryPlansByProfileId,
+									isAgentRecoveryPending: panel.isAgentRecoveryPending,
+									onAgentRecoveryAction: panel.onAgentRecoveryAction,
+									orgSlug: panel.orgSlug,
+									prepareSetupHref: panel.prepareSetupHref,
+								}
+					}
 					slots={{
 						agentRequests: input.agentRequests,
 						pendingActionSurface: panel.pendingActionSurface,
@@ -2263,7 +2272,8 @@ function renderConversationBody(input: {
 		);
 	}
 
-	// A MemberAgent welcome or repair card: presentation, never a message.
+	// A MemberAgent welcome or repair card, shown as posted by the Agent:
+	// presentation, never a published message.
 	const memberAgentCardItem = input.memberAgentCard ? (
 		<MessageScrollerItem
 			className="[content-visibility:visible]"
@@ -2271,6 +2281,9 @@ function renderConversationBody(input: {
 		>
 			<MemberAgentDirectMessageCard
 				current={input.memberAgentCard.current}
+				entry={input.memberAgentCard.entry}
+				// A new state is a new post, with its own time.
+				key={`${input.memberAgentCard.model.kind}:${input.memberAgentCard.model.title}`}
 				model={input.memberAgentCard.model}
 			/>
 		</MessageScrollerItem>
@@ -2316,11 +2329,14 @@ function renderConversationBody(input: {
 	}
 	let previousDateKey: string | null = null;
 	let unreadBoundaryRendered = false;
+	// The welcome opens the Session; a problem is the Agent's latest post,
+	// next to the composer it blocks.
+	const memberAgentCardIsIssue = isMemberAgentIssueCard(input.memberAgentCard);
 
 	return (
 		<>
 			{centerAgentDirectMessageIntroItem}
-			{memberAgentCardItem}
+			{memberAgentCardIsIssue ? null : memberAgentCardItem}
 			{input.entries.map((entry) => {
 				const createdAtMs = resolveConversationEntryCreatedAtMs(entry);
 				const date = new Date(createdAtMs);
@@ -2476,6 +2492,7 @@ function renderConversationBody(input: {
 					/>
 				);
 			})}
+			{memberAgentCardIsIssue ? memberAgentCardItem : null}
 		</>
 	);
 }

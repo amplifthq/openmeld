@@ -36,6 +36,7 @@ function renderProfileSettingsRecoveryAction(input: {
 		return (
 			<AgentWorkingFolderRecoveryAction
 				className={input.className}
+				label={input.actionLabel}
 				profileId={input.plan.profileId}
 			/>
 		);

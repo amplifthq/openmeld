@@ -23,6 +23,7 @@ import { agentProfileControllerChangeEligibilityQueryOptions } from "#/query/pro
 export function AgentProfileWorkingFolderRecoveryAction(input: {
 	className?: string;
 	actorProfileId: string | null;
+	label?: string;
 	organizationId: string;
 	storageScope: string;
 	onProfileUpdated: (profile: AuthProfileView) => void;
@@ -134,7 +135,7 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 				size="sm"
 				variant="outline"
 			>
-				Review working folder
+				{input.label ?? "Review working folder"}
 			</Button>
 			{savedStatus ? (
 				<div className="grid gap-2">

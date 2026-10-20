@@ -33,6 +33,7 @@ import {
 	CopyIcon,
 	GearIcon,
 	PencilSimpleIcon,
+	WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -61,6 +62,10 @@ import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar
 import { ProfileDetailsCurrentSession } from "#/components/profiles/profile-details-current-session";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
 import { useAppSettings } from "#/components/settings/use-app-settings";
+import {
+	SpaceAgentIssueRecoveryAction,
+	useSpaceAgentRecoveryPlan,
+} from "#/components/spaces/space-agent-recovery-context";
 import { resolveSpaceMemberInlineStatusTextClassName } from "#/components/spaces/space-member-status-tone";
 import { SpaceProfileIcon } from "#/components/spaces/space-profile-icon";
 import { copyTextToClipboard } from "#/lib/clipboard";
@@ -127,8 +132,13 @@ export function AgentProfileDetailsContent(input: {
 	const canEdit = input.details.viewerScope === "owner_self";
 	const showAvailability =
 		!input.isCenterAgent || input.entry.availabilityCategory !== "available";
+	// A problem has one place in the popover: the footer, next to its fix.
+	const issueLabel = showAvailability
+		? resolveAgentIssueLabel(input.entry)
+		: null;
 	const availabilitySummary =
 		showAvailability &&
+		issueLabel === null &&
 		input.entry.availabilitySummary !== resolveAgentPresenceSummary(input.entry)
 			? input.entry.availabilitySummary
 			: null;
@@ -146,7 +156,7 @@ export function AgentProfileDetailsContent(input: {
 				isCenterAgent={input.isCenterAgent === true}
 				moreDetailsHref={input.moreDetailsHref}
 				onNavigate={input.onNavigate}
-				showAvailability={showAvailability}
+				showAvailability={showAvailability && issueLabel === null}
 			/>
 			<AgentProfileDirectMessageAction
 				href={input.chatHref}
@@ -169,8 +179,62 @@ export function AgentProfileDetailsContent(input: {
 				</div>
 			)}
 			<AgentTaskActivitySummary profileId={input.entry.profileId} />
+			{issueLabel ? (
+				<AgentProfileIssueFooter entry={input.entry} label={issueLabel} />
+			) : null}
 		</ScrollArea>
 	);
+}
+
+/**
+ * Why this Agent can't work right now, with the same fix the Space offers
+ * everywhere else. Without a fix for this viewer, the shared summary says
+ * what to do instead.
+ */
+function AgentProfileIssueFooter(input: {
+	entry: SpaceMemberDirectoryEntry;
+	label: string;
+}) {
+	const hasRecovery = useSpaceAgentRecoveryPlan(input.entry.profileId) !== null;
+	return (
+		<div
+			className="mt-3 flex min-w-0 items-center gap-2 border-border border-t pt-3"
+			data-slot="agent-profile-issue-footer"
+		>
+			<div className="grid min-w-0 flex-1 gap-0.5">
+				<p
+					className={cn(
+						"flex min-w-0 items-center gap-1.5 font-medium text-xs",
+						resolveSpaceMemberInlineStatusTextClassName(input.entry)
+					)}
+				>
+					<WarningCircleIcon aria-hidden="true" className="size-3.5 shrink-0" />
+					<span className="truncate">{input.label}</span>
+				</p>
+				{!hasRecovery && input.entry.availabilitySummary ? (
+					<p className="text-muted-foreground text-xs">
+						{input.entry.availabilitySummary}
+					</p>
+				) : null}
+			</div>
+			<SpaceAgentIssueRecoveryAction
+				className="mt-0 shrink-0"
+				profileId={input.entry.profileId}
+			/>
+		</div>
+	);
+}
+
+function resolveAgentIssueLabel(
+	entry: SpaceMemberDirectoryEntry
+): string | null {
+	if (
+		entry.availabilityCategory !== "unavailable" &&
+		entry.availabilityCategory !== "offline"
+	) {
+		return null;
+	}
+	return entry.availabilityBadgeLabel ?? resolveAgentPresenceSummary(entry);
 }
 
 function AgentProfileDetailsHeader(input: {
