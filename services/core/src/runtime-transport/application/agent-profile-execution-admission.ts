@@ -1421,7 +1421,7 @@ export async function acquireRuntimeCoordinatorAgentProfileFutureWorkSettingsMut
 }
 
 export async function acquireRuntimeCoordinatorAgentProfileLegacyConversationMutation(input: {
-  agentControllerRef: string;
+  agentControllerRef?: string;
   nowMs: number;
   operationId: string;
   ownerUserId: string;
@@ -1434,6 +1434,7 @@ export async function acquireRuntimeCoordinatorAgentProfileLegacyConversationMut
     // The frozen association belongs to a Context-capable harness. A harness
     // without Context support keeps writing its own Binding conversation.
     legacyAssociationFrozen:
+      agentControllerRef === undefined ||
       supportsExecutionContextSelection(agentControllerRef),
     mutationKind: "legacy_conversation",
   });

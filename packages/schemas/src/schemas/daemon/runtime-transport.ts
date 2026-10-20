@@ -393,9 +393,10 @@ export const runtimeTransportAgentProfileExecutionTargetMutationRequestSchema =
 
 // Names the harness whose Binding conversation is written: a harness without
 // Execution Context support keeps that conversation after Context activation.
+// Optional so a caller that omits it keeps the frozen-association fence.
 export const runtimeTransportAgentProfileLegacyConversationMutationRequestSchema =
   runtimeTransportAgentProfileExecutionTargetMutationRequestSchema.extend({
-    agentControllerRef: agentControllerRefSchema,
+    agentControllerRef: agentControllerRefSchema.optional(),
   });
 
 export const runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema =
