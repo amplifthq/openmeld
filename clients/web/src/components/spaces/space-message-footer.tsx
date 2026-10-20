@@ -335,26 +335,117 @@ function resolveFirstLineBox(element: HTMLElement) {
 	};
 }
 
-// A persistent toolbar is placed by its rest width, the width without the
-// revealed actions. Its start edge, and so the failure icon, then stays put
-// while the actions open on hover or focus.
-function resolvePersistentToolbarRestRect(toolbar: HTMLElement): DOMRect {
-	const rect = toolbar.getBoundingClientRect();
+type PersistentToolbarPosition = {
+	/** Distance from the container's inline end, for a toolbar left of the bubble. */
+	end?: number;
+	placement: ToolbarPosition["placement"];
+	side: "after" | "before";
+	/** Distance from the container's inline start. */
+	start?: number;
+	top: number;
+};
+
+// Places a failed message's toolbar. The failure icon sits at the bubble end of
+// the toolbar and the other actions open away from it, so they never cover the
+// text. Left of the bubble the toolbar is anchored by its end and grows left;
+// right of it, by its start and grows right. When the opened toolbar does not
+// fit beside the bubble, the icon stays beside it at rest and the opened
+// toolbar uses the overlay slot above the bubble.
+export function resolvePersistentToolbarPosition(input: {
+	bubble: DOMRect;
+	container: DOMRect;
+	firstLine?: { height: number; top: number };
+	fullWidth: number;
+	height: number;
+	preferredSide: "after" | "before";
+	restWidth: number;
+	revealed: boolean;
+	viewport?: DOMRect;
+}): PersistentToolbarPosition {
+	const place = (width: number) =>
+		resolveToolbarPosition({
+			bubble: input.bubble,
+			container: input.container,
+			firstLine: input.firstLine,
+			preferredSide: input.preferredSide,
+			toolbar: { height: input.height, width } as DOMRect,
+			viewport: input.viewport,
+		});
+	const beside = (next: ToolbarPosition): PersistentToolbarPosition =>
+		next.placement === "before"
+			? {
+					end: input.container.right - input.bubble.left + 6,
+					placement: "before",
+					side: "before",
+					top: next.top,
+				}
+			: {
+					placement: next.placement,
+					side: "after",
+					start: next.left,
+					top: next.top,
+				};
+	const full = place(input.fullWidth);
+	if (full.placement !== "overlay") {
+		return beside(full);
+	}
+	const rest = place(input.restWidth);
+	if (!input.revealed && rest.placement !== "overlay") {
+		return beside(rest);
+	}
+	return {
+		placement: "overlay",
+		side: input.preferredSide,
+		start: full.left,
+		top: full.top,
+	};
+}
+
+function placePersistentToolbar(input: {
+	anchor: DOMRect;
+	container: HTMLElement;
+	preferredSide: "after" | "before";
+	row: HTMLElement;
+	textSurface: HTMLElement | null;
+	toolbar: HTMLElement;
+	viewport?: HTMLElement | null;
+}) {
+	const { row, toolbar } = input;
+	const next = resolvePersistentToolbarPosition({
+		bubble: input.anchor,
+		container: input.container.getBoundingClientRect(),
+		firstLine: input.textSurface
+			? resolveFirstLineBox(input.textSurface)
+			: undefined,
+		...resolvePersistentToolbarWidths(toolbar),
+		height: toolbar.getBoundingClientRect().height,
+		preferredSide: input.preferredSide,
+		revealed:
+			row.matches(":hover") ||
+			row.contains(document.activeElement) ||
+			Boolean(toolbar.querySelector('[aria-expanded="true"]')) ||
+			Boolean(window.matchMedia?.("(pointer: coarse)").matches),
+		viewport: input.viewport?.getBoundingClientRect(),
+	});
+	toolbar.style.insetInlineStart =
+		next.start === undefined ? "auto" : `${next.start}px`;
+	toolbar.style.insetInlineEnd =
+		next.end === undefined ? "auto" : `${next.end}px`;
+	toolbar.style.insetBlockStart = `${next.top}px`;
+	toolbar.dataset.placement = next.placement;
+	toolbar.dataset.side = next.side;
+}
+
+function resolvePersistentToolbarWidths(toolbar: HTMLElement) {
+	const width = toolbar.getBoundingClientRect().width;
 	const reveal = toolbar.querySelector<HTMLElement>(
 		'[data-slot="message-footer-reveal-actions"]'
 	);
-	if (!reveal) {
-		return rect;
-	}
-	const width = rect.width - reveal.getBoundingClientRect().width;
+	const restWidth = width - (reveal?.getBoundingClientRect().width ?? 0);
 	return {
-		bottom: rect.bottom,
-		height: rect.height,
-		left: rect.left,
-		right: rect.left + width,
-		top: rect.top,
-		width,
-	} as DOMRect;
+		fullWidth: restWidth + (reveal?.firstElementChild?.scrollWidth ?? 0),
+		restWidth,
+	};
 }
 
 function MessageFooterActions({
@@ -402,7 +493,7 @@ function MessageFooterActions({
 		}
 		let observer: ResizeObserver | null = null;
 		const position = () => {
-			const toolbarRect = resolvePersistentToolbarRestRect(toolbar);
+			const toolbarRect = toolbar.getBoundingClientRect();
 			const textSurface = bubble.querySelector<HTMLElement>(
 				"[data-slot='space-message-text-surface']"
 			);
@@ -438,13 +529,21 @@ function MessageFooterActions({
 							attachmentStrip ??
 							bubble
 						).getBoundingClientRect();
+			if (persistent) {
+				placePersistentToolbar({
+					anchor,
+					container,
+					preferredSide,
+					row,
+					textSurface: hasMessageText ? textSurface : null,
+					toolbar,
+					viewport,
+				});
+				return;
+			}
 			const next = resolveToolbarPosition({
 				bubble: anchor,
 				container: container.getBoundingClientRect(),
-				firstLine:
-					persistent && hasMessageText && textSurface
-						? resolveFirstLineBox(textSurface)
-						: undefined,
 				preferredSide,
 				toolbar: toolbarRect,
 				viewport: viewport?.getBoundingClientRect(),
@@ -459,8 +558,8 @@ function MessageFooterActions({
 				observer = new ResizeObserver(position);
 				observer.observe(container);
 				observer.observe(bubble);
-				// A persistent footer is placed by its rest width, so a change in
-				// the failure content must place it again.
+				// A persistent footer changes width as its actions open or close,
+				// which can change its slot.
 				observer.observe(toolbar);
 				if (attachmentStrip) {
 					observer.observe(attachmentStrip);
@@ -473,11 +572,11 @@ function MessageFooterActions({
 			}
 		};
 		const deactivate = () => {
-			if (
-				persistent ||
-				row.matches(":hover") ||
-				row.contains(document.activeElement)
-			) {
+			if (persistent) {
+				position();
+				return;
+			}
+			if (row.matches(":hover") || row.contains(document.activeElement)) {
 				return;
 			}
 			observer?.disconnect();
@@ -552,7 +651,7 @@ function MessageFooterActions({
 			className={cn(
 				"pointer-events-none z-20 flex h-7 w-max max-w-full items-center rounded-md border border-border bg-popover opacity-0 shadow-sm group-focus-within/message-row:pointer-events-auto group-focus-within/message-row:opacity-100 group-hover/message-row:pointer-events-auto group-hover/message-row:opacity-100 has-[[aria-haspopup][aria-expanded=true]]:pointer-events-auto has-[[aria-haspopup][aria-expanded=true]]:opacity-100 [@media(pointer:coarse)]:pointer-events-auto [@media(pointer:coarse)]:opacity-100",
 				inline ? "relative mt-1" : "absolute",
-				persistent && "pointer-events-auto opacity-100"
+				persistent && "group/message-footer pointer-events-auto opacity-100"
 			)}
 			data-layout={inline ? "inline" : "floating"}
 			data-persistent={persistent ? "true" : undefined}
@@ -561,16 +660,19 @@ function MessageFooterActions({
 		>
 			<div
 				className={cn(
-					"flex min-w-0 max-w-full shrink-0 items-center text-muted-foreground text-xs"
+					"flex min-w-0 max-w-full shrink-0 items-center text-muted-foreground text-xs",
+					persistent &&
+						"group-data-[side=before]/message-footer:flex-row-reverse"
 				)}
 				data-slot="message-footer-primary-actions"
 			>
 				{persistent ? (
 					<>
-						{/* The failure icon comes first and keeps its place. The other
-						actions open away from it on hover or focus. */}
+						{/* The failure icon sits at the bubble end and keeps its place.
+						The other actions open away from it, mirrored left of the
+						bubble, so they never cover the message text. */}
 						<span
-							className="flex shrink-0 items-center gap-2"
+							className="flex shrink-0 items-center gap-2 group-data-[side=before]/message-footer:flex-row-reverse"
 							data-slot="message-footer-problem"
 						>
 							{detailsButton}
@@ -582,7 +684,7 @@ function MessageFooterActions({
 							className={MESSAGE_FOOTER_REVEAL_CLASS_NAME}
 							data-slot="message-footer-reveal-actions"
 						>
-							<div className="flex min-w-0 items-center overflow-hidden">
+							<div className="flex min-w-0 items-center overflow-hidden group-data-[side=before]/message-footer:flex-row-reverse">
 								{secondaryActions}
 							</div>
 						</div>

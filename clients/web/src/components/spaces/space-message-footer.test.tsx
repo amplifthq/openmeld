@@ -10,6 +10,7 @@ import {
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	resolvePersistentToolbarPosition,
 	resolveToolbarPosition,
 	SpaceMessageFooter,
 	type SpaceMessageFooterAddressingTarget,
@@ -141,6 +142,76 @@ describe("floating message actions position", () => {
 		expect(onFirstLine.placement).toBe("before");
 		expect(onFirstLine.left).toBe(266);
 		expect(onFirstLine.top).toBe(6);
+	});
+
+	it("opens a failed toolbar left of a right-aligned bubble away from its text", () => {
+		const container = rect(0, 100, 600, 44);
+		const bubble = rect(300, 100, 280, 44);
+		const base = {
+			bubble,
+			container,
+			height: 28,
+			preferredSide: "before" as const,
+			restWidth: 30,
+		};
+
+		for (const revealed of [false, true]) {
+			const position = resolvePersistentToolbarPosition({
+				...base,
+				fullWidth: 140,
+				revealed,
+			});
+			// Anchored by its end next to the bubble, so it grows left.
+			expect(position).toMatchObject({
+				end: 306,
+				placement: "before",
+				side: "before",
+			});
+			expect(position.start).toBeUndefined();
+		}
+	});
+
+	it("keeps a failed icon beside a wide bubble at rest and opens above it", () => {
+		const container = rect(0, 100, 600, 44);
+		const bubble = rect(80, 100, 500, 44);
+		const base = {
+			bubble,
+			container,
+			fullWidth: 140,
+			height: 28,
+			preferredSide: "before" as const,
+			restWidth: 30,
+		};
+
+		expect(
+			resolvePersistentToolbarPosition({ ...base, revealed: false })
+		).toMatchObject({ end: 526, placement: "before", side: "before" });
+		const opened = resolvePersistentToolbarPosition({
+			...base,
+			revealed: true,
+		});
+		expect(opened.placement).toBe("overlay");
+		expect(opened.end).toBeUndefined();
+		// The opened toolbar sits above the bubble, not over its text.
+		expect(opened.top).toBeLessThan(0);
+	});
+
+	it("opens a failed toolbar right of a left-aligned bubble from its start", () => {
+		const position = resolvePersistentToolbarPosition({
+			bubble: rect(100, 100, 280, 44),
+			container: rect(0, 100, 600, 44),
+			fullWidth: 140,
+			height: 28,
+			preferredSide: "after",
+			restWidth: 30,
+			revealed: true,
+		});
+		expect(position).toMatchObject({
+			placement: "after",
+			side: "after",
+			start: 386,
+		});
+		expect(position.end).toBeUndefined();
 	});
 
 	it("repositions the active toolbar when its message viewport scrolls", () => {
