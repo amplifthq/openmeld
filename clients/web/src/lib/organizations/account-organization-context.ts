@@ -5,6 +5,7 @@ import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/clien
 export const readCurrentAccountOrganizationContext = createIsomorphicFn()
 	.client((_routeFamily: string, signal?: AbortSignal) =>
 		readAccountOrganizationContext(createUnscopedWebOpenMeldApiFoundation(), {
+			deferSessionRefresh: true,
 			signal,
 			timeoutMs: 5000,
 		})
@@ -14,6 +15,7 @@ export const readCurrentAccountOrganizationContext = createIsomorphicFn()
 			"./account-organization-context.server"
 		);
 		return readAccountOrganizationContextFromRequest(routeFamily, {
+			deferSessionRefresh: true,
 			signal,
 			timeoutMs: 5000,
 		});

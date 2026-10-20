@@ -94,6 +94,24 @@ describe("app query client", () => {
 				}),
 				queryKey: accountSpaceQueryKeys.items("profile-private", "account"),
 			},
+			{
+				category: "account_organization_context",
+				error: Object.assign(new Error("token-private"), {
+					code: "network.timeout",
+					requestId: "req-organization-context-timeout",
+				}),
+				queryKey: ["account-organization-context"],
+			},
+			{
+				category: "account_session",
+				error: new OpenMeldApiClientHttpError({
+					code: "gateway.http_error",
+					message: "token-private",
+					rawBody: "raw-body-private",
+					status: 503,
+				}),
+				queryKey: ["user", "session"],
+			},
 		] as const;
 
 		for (const input of cases) {
@@ -128,6 +146,11 @@ describe("app query client", () => {
 			code: "gateway.invalid_response",
 			requestId: "req-invalid-response",
 			status: 200,
+		});
+		expect(reports[4]?.query?.failure).toEqual({
+			code: "network.timeout",
+			requestId: "req-organization-context-timeout",
+			status: null,
 		});
 
 		const serializedReports = JSON.stringify(reports);

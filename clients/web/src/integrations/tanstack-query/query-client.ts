@@ -20,6 +20,12 @@ export function createAppQueryClient() {
 function resolveApplicationErrorQueryCategory(
 	queryKey: QueryKey
 ): WebApplicationErrorQueryCategory | null {
+	if (queryKey[0] === "account-organization-context") {
+		return "account_organization_context";
+	}
+	if (queryKey[0] === "user" && queryKey[1] === "session") {
+		return "account_session";
+	}
 	if (queryKey[0] === "inbox") {
 		return "inbox";
 	}

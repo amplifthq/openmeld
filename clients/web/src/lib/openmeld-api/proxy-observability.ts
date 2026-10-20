@@ -1,4 +1,6 @@
 import {
+	ACCOUNT_ORGANIZATION_CONTEXT_PATH,
+	ACCOUNT_SESSION_PATH,
 	clientMessageIdSchema,
 	gatewayErrorEnvelopeSchema,
 } from "@openmeld/schemas";
@@ -79,6 +81,30 @@ export async function executeObservedWebProxyRequest(input: {
 		protectedSpaceAccessStatus: "not_applicable",
 		lastStage: null,
 	};
+	const requestEvidence = readWebCloudflareRequestEvidence(
+		input.request.headers
+	);
+	const recordAccountReadStage = () => {
+		if (
+			diagnosticsState.path !== ACCOUNT_ORGANIZATION_CONTEXT_PATH &&
+			diagnosticsState.path !== ACCOUNT_SESSION_PATH
+		) {
+			return;
+		}
+		emitWebCloudflareRuntimeEvidence(input.cloudflareRuntimeEvidence, {
+			...requestEvidence,
+			event: "web.openmeld.proxy_stage",
+			runtimeKind: "http",
+			status: "started",
+			method: diagnosticsState.method,
+			route: diagnosticsState.path,
+			requestId:
+				requestEvidence.requestId ?? diagnosticsState.webProxyRequestId,
+			reasonCode: diagnosticsState.lastStage ?? "request_received",
+			durationMs: Date.now() - diagnosticsState.startedAtMs,
+		});
+	};
+	recordAccountReadStage();
 
 	const diagnosticsContext: ObservedWebProxyContext = {
 		webProxyRequestId: diagnosticsState.webProxyRequestId,
@@ -96,6 +122,7 @@ export async function executeObservedWebProxyRequest(input: {
 		},
 		setLastStage: (stage) => {
 			diagnosticsState.lastStage = stage;
+			recordAccountReadStage();
 		},
 	};
 

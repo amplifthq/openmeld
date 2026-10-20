@@ -1,4 +1,33 @@
-import type { WebApplicationErrorReport } from "@openmeld/schemas";
+import { toStructuredApiClientFailure } from "@openmeld/api-client";
+import type {
+	WebApplicationErrorQueryDiagnostic,
+	WebApplicationErrorReport,
+} from "@openmeld/schemas";
+
+const DIAGNOSTIC_REQUEST_ID = /^[A-Za-z0-9_.:-]+$/;
+
+export function readApplicationErrorRequestFailure(
+	error: unknown
+): WebApplicationErrorQueryDiagnostic["failure"] {
+	const failure = toStructuredApiClientFailure(error);
+	const requestId = failure.requestId?.trim() ?? "";
+	return {
+		code: failure.code,
+		requestId:
+			requestId.length > 0 &&
+			requestId.length <= 256 &&
+			DIAGNOSTIC_REQUEST_ID.test(requestId)
+				? requestId
+				: null,
+		status:
+			typeof failure.status === "number" &&
+			Number.isInteger(failure.status) &&
+			failure.status >= 100 &&
+			failure.status <= 599
+				? failure.status
+				: null,
+	};
+}
 
 declare const __OPENMELD_WEB_BUILD__: {
 	id: string;

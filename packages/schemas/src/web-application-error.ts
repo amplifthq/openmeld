@@ -23,6 +23,8 @@ export const webApplicationErrorSourceSchema = z.enum([
 ]);
 
 export const webApplicationErrorQueryCategorySchema = z.enum([
+  "account_organization_context",
+  "account_session",
   "account_spaces",
   "inbox",
   "space_live",

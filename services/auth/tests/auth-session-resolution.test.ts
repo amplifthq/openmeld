@@ -226,6 +226,27 @@ describe("auth session resolution", () => {
     expect(runWithAuthRequestStateMock).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    "false",
+    "1",
+  ])("rejects an invalid Organization renewal opt-in %s before session access", async (value) => {
+    const response = await createAuthWorkerTestApp().fetch(
+      new Request(
+        `http://local/v1/account/organization-context?deferSessionRefresh=${value}`
+      ),
+      TEST_ENV,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    await expect(response.json()).resolves.toMatchObject({
+      code: "invalid_query",
+      ok: false,
+    });
+    expect(authMock.api.getSession).not.toHaveBeenCalled();
+  });
+
   it("returns 401 when profile routes are genuinely unauthenticated", async () => {
     authMock.api.getSession.mockResolvedValue(null);
     const app = createAuthWorkerTestApp();

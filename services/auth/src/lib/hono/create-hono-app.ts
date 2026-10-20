@@ -22,6 +22,7 @@ import { openMeldAuthCors } from "../middlewares/cors";
 import {
   emitAuthCloudflareRuntimeEvidence,
   readCloudflareRequestEvidence,
+  startAccountReadStage,
 } from "../observability/cloudflare-runtime-evidence";
 import { profileServiceMiddleware } from "../profiles/service";
 import { registerAccountDeletionRoutes } from "./account-deletion-routes";
@@ -58,6 +59,7 @@ export function createHonoApp() {
     .use("*", async (c, next) => {
       const startedAt = Date.now();
       const runtimeEvidence = readCloudflareRequestEvidence(c.req.raw);
+      const completeAccountRead = startAccountReadStage(c, "request");
       let thrownError: unknown = null;
       try {
         await next();
@@ -66,6 +68,10 @@ export function createHonoApp() {
         throw error;
       } finally {
         const statusCode = thrownError ? 500 : c.res.status;
+        completeAccountRead(
+          statusCode >= 400 ? "failed" : "succeeded",
+          statusCode >= 400 ? `http_${statusCode}` : undefined
+        );
         const requestId =
           c.res.headers.get("x-openmeld-request-id") ??
           c.res.headers.get("x-request-id") ??

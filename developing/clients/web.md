@@ -1012,6 +1012,13 @@ Query key, not one membership-list copy per Organization slug. The existing
 account reset cancels and removes that query; it is not persisted. Logo and
 confirmed membership mutations update or invalidate that same snapshot.
 Invitation acceptance must not optimistically invent a membership.
+The authorized shell observes the existing Account Session query in the
+background, including stale reads after completed path navigation, focus, and
+reconnect. Pending or failed renewal never gates the page or invents a logged-out
+state. With that observer in place, Web sends `deferSessionRefresh=true` on the
+Organization context read so session KV renewal writes cannot block route
+admission. Auth still confirms current identity and membership; older callers
+without the opt-in retain their existing renewal behavior.
 Optional anonymous entry returns
 null, authenticated entry without Organizations remains an explicit error,
 and an unknown Organization URL remains a denied scope. Required anonymous
@@ -1033,6 +1040,18 @@ not repeat that activation in a hydration effect. The loader checks cancellation
 before entering persistence activation and before returning its scope; the
 persistence owner serializes scope changes. An anonymous result clears account-private state
 before the sanitized login redirect.
+
+Ordinary primary-button or keyboard activation of a rail link whose complete
+resolved URL already matches the current URL is a no-op for routing and still
+closes an open navigation drawer. Modified clicks and new-tab targets retain
+native behavior. Section highlighting alone must not suppress navigation from
+a child page or a different query/hash. This prevents an accidental same-URL
+navigation from forcing another parent admission read; explicit refresh and
+account/Organization changes retain their existing checks.
+
+Each Organization context request carries a client-generated request ID through
+Web and Auth. The ID survives a timeout before headers and is included in
+copyable error details and the existing sanitized error-report projection.
 
 The
 Auth-owned account `lastSelectedOrganizationId` is the default entry preference

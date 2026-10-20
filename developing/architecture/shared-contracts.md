@@ -630,6 +630,42 @@ Missing authentication is 401; unavailable backend state stays an error. An
 authenticated empty list has a null default. Web/shared client code owns URL
 construction, login redirects, and the authorized/denied route projection.
 
+`accountOrganizationContextQuerySchema` owns the optional
+`deferSessionRefresh=true` query. A caller that observes the existing Account
+Session HTTP query may opt in to a current identity and membership read without
+synchronous session renewal. Auth still bypasses the session-data cookie cache
+and checks expiry, revocation, account existence, and membership. Missing or
+expired sessions retain 401 and the vendor's deletion cookies. Invalid opt-in
+values return a private, non-cacheable 400 without resolving the session.
+Omitting the query preserves renewal for older Web and Desktop clients.
+
+Web keeps the existing Account Session query observed in the authorized shell.
+Mount, focus, reconnect, and completed path navigation refresh it according to
+its existing stale time without blocking the current page. Only this new caller
+opts out of renewal in the Organization context read; no new session writer,
+storage, endpoint, or cached authorization fallback is introduced.
+Account Session reads forward Query cancellation to HTTP, including account
+changes and observer teardown.
+
+The API client generates an `x-request-id` before sending either account read
+and retains it on failures before response headers or during body consumption.
+Web forwards it to Auth; it is diagnostic correlation, never identity or authority. The
+existing application-error query diagnostic adds the
+`account_organization_context` and `account_session` categories. Route and
+manual Organization-context error reports retain the same sanitized request ID.
+
+Rollout remains additive: new Web works with old Auth (which ignores the opt-in
+and continues renewal), and old Web/Desktop work with new Auth (missing opt-in
+retains renewal). New telemetry categories require the matching Web report
+receiver; an older receiver may reject that diagnostic report without changing
+the application outcome. CLI, Service, Skills, Core, Gateway, and Wake/setup
+protocols remain compatible in both directions; no contract epoch or required
+local update is introduced. Shared schema/API-client paths still select the
+Service bundle verification gate. The CLI carrier and Service declare an
+`available` update in `release/local-components-policy.json`, with existing
+required floors and the Skills policy preserved. Publication computes artifact
+hashes from the eventual release source.
+
 Contract impact: this additive Auth route must be available before releasing
 the new Web/Desktop consumers. Old clients retain their existing reads and
 preference writes. CLI, Service, Skills, Core, Gateway, setup, Wake, Space
