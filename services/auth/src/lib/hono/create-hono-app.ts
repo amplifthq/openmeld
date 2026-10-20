@@ -98,7 +98,7 @@ export function createHonoApp() {
   // Hono wildcard mounts also match the base path, so a single mount keeps
   // exact `/v1/profiles` requests from resolving the session twice.
   app.use(`${PROFILE_ROUTE_BASE}/*`, authContextMiddleware);
-  app.use(MEMBER_AGENT_ROUTE_BASE, authContextMiddleware);
+  app.use(`${MEMBER_AGENT_ROUTE_BASE}/*`, authContextMiddleware);
   for (const path of [
     ACCOUNT_ORGANIZATION_CONTEXT_PATH,
     ACCOUNT_SESSION_PATH,
