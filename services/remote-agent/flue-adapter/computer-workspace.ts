@@ -1015,8 +1015,8 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
 
   /**
    * Typed RPC door for `getWorkspace(stub)` callers: the worker-shell
-   * isolate's WorkspaceServiceProxy, the container's WorkspaceProxy
-   * egress, and the Flue adapter all land here.
+   * isolate's WorkspaceServiceProxy and the Flue adapter land here.
+   * The container's WorkspaceProxy uses fetch and does not acquire this client.
    */
   async __getWorkspaceStub(): Promise<WorkspaceStub> {
     await requireRetainedAccountStorage(this.ctx.storage);

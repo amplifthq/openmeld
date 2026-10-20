@@ -287,6 +287,8 @@ checkout polling. Missing or uncertain results require inspection and never
 authorize a new import against the same working copy. A confirmed nonzero exit
 with settled synchronization may retry under a fresh retained receipt, bounded
 to three attempts. Concurrent polls choose the next attempt with compare-and-set.
+The winner admits that attempt before returning, so the next turn can recover
+an existing receipt rather than polling a key that has never started.
 
 The next Linux command must see synchronized file contents, existence and size.
 The native backend refreshes FUSE attributes using

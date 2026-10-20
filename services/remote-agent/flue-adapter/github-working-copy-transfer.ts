@@ -10,7 +10,7 @@ import type { GitWorkingCopyLocation } from "./github-working-copy-computer";
 type Transfer = {
   operationId: string;
   invocationId: string;
-  attempt?: number;
+  attempt: number;
   reference?: CloudComputerCommandReference;
 };
 const PREFIX = "github-working-copy:git-transfer:";
@@ -50,7 +50,7 @@ export async function advanceGitPackTransfer(input: {
   if (!operation) {
     throw new Error("computer.operations_unavailable");
   }
-  const attempt = transfer.attempt ?? 1;
+  const attempt = transfer.attempt;
   const commandKey = `git-import:${input.operationId}${attempt > 1 ? `:${attempt}` : ""}`;
   const result = readGitImportResult(
     await operation({
@@ -93,16 +93,22 @@ export async function advanceGitPackTransfer(input: {
     if (attempt < 3) {
       // Only a confirmed, synchronized process exit permits another attempt.
       // CAS makes concurrent checkout polls select one next receipt.
-      await input.storage.compareAndSetExpiring(
-        key,
-        transfer,
-        {
-          operationId: input.operationId,
-          invocationId: input.invocationId,
-          attempt: attempt + 1,
-        } satisfies Transfer,
-        input.expiresAtMs
-      );
+      if (
+        await input.storage.compareAndSetExpiring(
+          key,
+          transfer,
+          {
+            operationId: input.operationId,
+            invocationId: input.invocationId,
+            attempt: attempt + 1,
+          } satisfies Transfer,
+          input.expiresAtMs
+        )
+      ) {
+        // Admit the retry in this turn. A later turn can then poll its receipt
+        // even when this response is lost, rather than finding an unstarted key.
+        return await advanceGitPackTransfer(input);
+      }
       return "running";
     }
     throw new Error("github.checkout.git_transfer_failed");

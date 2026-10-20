@@ -348,6 +348,30 @@ describe("retained Computer commands", () => {
       })
     ).rejects.toThrow("computer.recovery_identity_mismatch");
   });
+  it("admits a confirmed Git retry before a later turn polls it", async () => {
+    const f = fixture();
+    const input = gitImportInput(f);
+    let attempts = 0;
+    f.exec.mockImplementation((_source, { id }) => {
+      f.processes.add(id);
+      attempts++;
+      return Promise.resolve(
+        attempts === 1
+          ? handle(id, [{ id, seq: 1, name: "exit", code: 1 }], true)
+          : handle(id)
+      );
+    });
+    expect(await advanceGitPackTransfer(input)).toBe("running");
+    expect(f.exec).toHaveBeenCalledTimes(2);
+    expect(f.storage.hasUnfinishedCommands()).toBe(true);
+    f.getExec.mockImplementation((id) =>
+      Promise.resolve(handle(id, [{ id, seq: 1, name: "exit", code: 0 }], true))
+    );
+    expect(
+      await advanceGitPackTransfer({ ...input, invocationId: "later-turn" })
+    ).toBe("completed");
+    expect(f.exec).toHaveBeenCalledTimes(2);
+  });
   it.each([
     { loseAcknowledgement: false, recoverLater: false },
     { loseAcknowledgement: true, recoverLater: false },
@@ -406,9 +430,6 @@ describe("retained Computer commands", () => {
         )
       )
     );
-    for (let attempt = 1; attempt < Math.min(failures + 1, 3); attempt++) {
-      expect(await advanceGitPackTransfer(input)).toBe("running");
-    }
     if (failures === 3) {
       await expect(advanceGitPackTransfer(input)).rejects.toThrow(
         "github.checkout.git_transfer_failed"
