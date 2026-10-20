@@ -356,7 +356,7 @@ function readPublicLandingHeader() {
 			.getByRole("link", { name: "Go to OpenMeld homepage" })
 			.getAttribute("href"),
 		appEntryHref: screen
-			.getByRole("link", { name: "Login" })
+			.getByRole("link", { name: "Log in" })
 			.getAttribute("href"),
 		oldTabs: OLD_HEADER_TAB_NAMES.map((label) =>
 			screen.queryByRole("tab", { name: label })
