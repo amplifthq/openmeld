@@ -5,13 +5,15 @@ import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { ChatCircleTextIcon } from "@phosphor-icons/react";
 import {
 	resolveAgentChatActionLabel,
+	resolveColleagueRequestSpaceId,
 	useColleagueAgentAccess,
-	useColleagueAgentChatProgress,
+	useOpenColleagueRequestSpace,
 } from "#/components/agent-access/agent-access-indicator";
 import {
 	formatPublicWakeabilityReason,
 	usePublicWakeabilityReason,
 } from "#/lib/agents/agent-viewer-access";
+import { useColleagueAccessState } from "#/lib/agents/colleague-access-state";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { useOpenDirectMessage } from "#/lib/spaces/use-open-direct-message";
 import { formatMemberAgentDisplayName } from "./member-agent-display-name";
@@ -67,7 +69,7 @@ export function ColleagueAgentPageSidebar(input: {
 	);
 }
 
-/** "Ask to use" or "Chat": the same rules as the Agent page header. */
+/** The Agent page header's chat action, full width in the empty sidebar. */
 function ColleagueAgentChatButton(input: { profile: AuthProfileView }) {
 	const { currentOrganization } = useAppOrganization();
 	const directMessage = useOpenDirectMessage({
@@ -87,18 +89,21 @@ function ColleagueAgentChatButton(input: { profile: AuthProfileView }) {
 		reason && reason.code !== "computer_offline"
 			? formatPublicWakeabilityReason(reason)
 			: null;
-	const progress = useColleagueAgentChatProgress({
-		enabled: access?.kind === "asks_owner",
+	const colleagueAccess = useColleagueAccessState({
+		ownerUserId: input.profile.ownerUserId ?? null,
 		profileId: input.profile.openMeldProfileId,
 	});
-	const label =
-		access?.kind === "asks_owner"
-			? resolveAgentChatActionLabel({
-					access,
-					profileName: input.profile.profileName,
-					progress,
-				})
-			: "Chat";
+	const openRequestSpace = useOpenColleagueRequestSpace();
+	// The label depends on the request state; wait for it instead of flashing.
+	if (access?.kind === "asks_owner" && colleagueAccess === null) {
+		return null;
+	}
+	const requestSpaceId = resolveColleagueRequestSpaceId(colleagueAccess);
+	const label = resolveAgentChatActionLabel({
+		access,
+		colleagueAccess,
+		profileName: input.profile.profileName,
+	});
 	const button = (
 		<Button
 			className="w-full"
@@ -107,6 +112,10 @@ function ColleagueAgentChatButton(input: { profile: AuthProfileView }) {
 				directMessage.pendingProfileId === input.profile.openMeldProfileId
 			}
 			onClick={() => {
+				if (requestSpaceId) {
+					openRequestSpace(requestSpaceId);
+					return;
+				}
 				directMessage
 					.open(input.profile.openMeldProfileId)
 					.catch(console.error);

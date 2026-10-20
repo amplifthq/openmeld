@@ -2,13 +2,14 @@ import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { cn } from "@openmeld/ui/lib/utils";
 import { HandIcon, KeyIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import {
 	type AgentViewerAccess,
 	useAgentViewerAccess,
 } from "#/lib/agents/agent-viewer-access";
+import type { ColleagueAccess } from "#/lib/agents/colleague-access-state";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
-import { useAgentAccessRequests } from "#/query/agent-access";
-import { agentDirectMessageSessionsQueryOptions } from "#/query/organizations/agent-direct-message-sessions";
+import { buildOrganizationDirectMessagePath } from "#/lib/organizations/organization-routes";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 
 /** "You can use" or "Asks <owner>" for a colleague's Agent, in a meta line. */
@@ -43,68 +44,56 @@ export function AgentAccessIndicator(input: {
 	);
 }
 
-/**
- * How far the viewer got with an Agent whose owner answers first:
- * - `none`: no Direct Message with the Profile yet.
- * - `chat_open`: a Direct Message exists and nothing waits for the owner.
- * - `waiting`: the viewer's message waits for the owner's decision.
- */
-export type ColleagueAgentChatProgress = "none" | "chat_open" | "waiting";
-
 /** The colleague-facing label of the primary chat action. */
 export function resolveAgentChatActionLabel(input: {
 	access: AgentViewerAccess | null;
 	profileName: string;
-	progress?: ColleagueAgentChatProgress;
+	/** The shared colleague state; without it the label follows `access`. */
+	colleagueAccess?: ColleagueAccess | null;
 }): string {
+	const chat = `Chat with ${input.profileName}`;
 	if (input.access?.kind !== "asks_owner") {
-		return `Chat with ${input.profileName}`;
+		return chat;
 	}
-	if (input.progress === "waiting") {
-		return `Waiting for ${input.access.ownerName}`;
+	switch (input.colleagueAccess?.state) {
+		case "waiting":
+			return `Waiting for ${input.colleagueAccess.ownerName ?? input.access.ownerName}`;
+		case "approved_once":
+		case "always_allowed":
+		case "not_required":
+			return chat;
+		case "declined":
+			return "Declined";
+		default:
+			return "Ask to use";
 	}
-	return input.progress === "chat_open" ? "Open chat" : "Ask to use";
 }
 
 /**
- * The viewer's progress with a colleague's Agent, from their pending
- * requests and their Direct Messages with the Profile.
+ * The Direct Message a colleague's chat action opens directly: the request's
+ * own Space while it waits or after a decline. Null opens the current one.
  */
-export function useColleagueAgentChatProgress(input: {
-	enabled: boolean;
-	profileId: string;
-}): ColleagueAgentChatProgress {
-	const organizationId =
-		useOptionalAppOrganization()?.currentOrganization.id ?? "";
-	const requests = useAgentAccessRequests(
-		{ role: "requester", status: "pending" },
-		{ enabled: input.enabled }
-	);
-	const sessions = useQuery(
-		agentDirectMessageSessionsQueryOptions({
-			organizationId,
-			agentProfileId: input.profileId,
-			enabled: input.enabled && Boolean(organizationId),
-		})
-	);
-	return resolveColleagueAgentChatProgress({
-		hasDirectMessage: (sessions.data?.sessions.length ?? 0) > 0,
-		pendingProfileIds: (requests.data ?? []).map(
-			(request) => request.agentProfileId
-		),
-		profileId: input.profileId,
-	});
+export function resolveColleagueRequestSpaceId(
+	colleagueAccess: ColleagueAccess | null | undefined
+): string | null {
+	const state = colleagueAccess?.state;
+	return state === "waiting" || state === "declined"
+		? (colleagueAccess?.request?.spaceId ?? null)
+		: null;
 }
 
-export function resolveColleagueAgentChatProgress(input: {
-	hasDirectMessage: boolean;
-	pendingProfileIds: readonly string[];
-	profileId: string;
-}): ColleagueAgentChatProgress {
-	if (input.pendingProfileIds.includes(input.profileId)) {
-		return "waiting";
-	}
-	return input.hasDirectMessage ? "chat_open" : "none";
+/** Opens a colleague's request Direct Message by its Space. */
+export function useOpenColleagueRequestSpace() {
+	const navigate = useNavigate();
+	const orgSlug = useOptionalAppOrganization()?.currentOrganization.slug;
+	return (spaceId: string) => {
+		if (!orgSlug) {
+			return;
+		}
+		navigate({
+			to: buildOrganizationDirectMessagePath({ orgSlug, spaceId }),
+		}).catch(console.error);
+	};
 }
 
 /** Access to a colleague's Agent, naming its owner from the directory. */

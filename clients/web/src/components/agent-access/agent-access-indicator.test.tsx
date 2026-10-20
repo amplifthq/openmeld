@@ -1,10 +1,15 @@
+import type { AgentAccessRequestView } from "@openmeld/schemas";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { formatPublicWakeabilityReason } from "#/lib/agents/agent-viewer-access";
+import type {
+	ColleagueAccess,
+	ColleagueAccessState,
+} from "#/lib/agents/colleague-access-state";
 import {
 	AgentAccessIndicator,
 	resolveAgentChatActionLabel,
-	resolveColleagueAgentChatProgress,
+	resolveColleagueRequestSpaceId,
 } from "./agent-access-indicator";
 
 describe("AgentAccessIndicator", () => {
@@ -52,49 +57,57 @@ describe("AgentAccessIndicator", () => {
 });
 
 describe("colleague chat action states", () => {
-	const asksOwner = { kind: "asks_owner", ownerName: "Tali Smoke" } as const;
-	const label = (
-		progress: ReturnType<typeof resolveColleagueAgentChatProgress>,
-		access: Parameters<
-			typeof resolveAgentChatActionLabel
-		>[0]["access"] = asksOwner
-	) => resolveAgentChatActionLabel({ access, profileName: "Codex", progress });
-
-	it("asks to use before any Direct Message exists", () => {
-		const progress = resolveColleagueAgentChatProgress({
-			hasDirectMessage: false,
-			pendingProfileIds: [],
-			profileId: "agt_codex",
+	const asksOwner = { kind: "asks_owner", ownerName: "Tali" } as const;
+	const colleague = (
+		state: ColleagueAccessState,
+		spaceId: string | null = null
+	): ColleagueAccess => ({
+		state,
+		ownerName: "Tali Smoke",
+		request: spaceId ? ({ spaceId } as AgentAccessRequestView) : null,
+	});
+	const label = (state: ColleagueAccessState) =>
+		resolveAgentChatActionLabel({
+			access: asksOwner,
+			colleagueAccess: colleague(state),
+			profileName: "Codex",
 		});
-		expect(progress).toBe("none");
-		expect(label(progress)).toBe("Ask to use");
+
+	it.each([
+		["none", "Ask to use"],
+		["draft", "Ask to use"],
+		["waiting", "Waiting for Tali Smoke"],
+		["approved_once", "Chat with Codex"],
+		["always_allowed", "Chat with Codex"],
+		["not_required", "Chat with Codex"],
+		["declined", "Declined"],
+	] as const)("labels %s as %s", (state, expected) => {
+		expect(label(state)).toBe(expected);
 	});
 
-	it("opens the chat once a Direct Message exists and nothing waits", () => {
-		const progress = resolveColleagueAgentChatProgress({
-			hasDirectMessage: true,
-			pendingProfileIds: ["agt_other"],
-			profileId: "agt_codex",
-		});
-		expect(progress).toBe("chat_open");
-		expect(label(progress)).toBe("Open chat");
+	it("chats directly with an Agent that does not ask its owner", () => {
+		expect(
+			resolveAgentChatActionLabel({
+				access: { kind: "can_use", ownerName: "Tali Smoke" },
+				colleagueAccess: colleague("none"),
+				profileName: "Codex",
+			})
+		).toBe("Chat with Codex");
 	});
 
-	it("waits for the owner while the viewer's request is pending", () => {
-		const progress = resolveColleagueAgentChatProgress({
-			hasDirectMessage: true,
-			pendingProfileIds: ["agt_codex"],
-			profileId: "agt_codex",
-		});
-		expect(progress).toBe("waiting");
-		expect(label(progress)).toBe("Waiting for Tali Smoke");
-	});
-
-	it("chats directly with an always grant or an Agent that does not ask", () => {
-		expect(label("waiting", { kind: "can_use", ownerName: "Tali Smoke" })).toBe(
-			"Chat with Codex"
+	it("opens the request's own Direct Message only while waiting or declined", () => {
+		expect(resolveColleagueRequestSpaceId(colleague("waiting", "dm-1"))).toBe(
+			"dm-1"
 		);
-		expect(label("chat_open", null)).toBe("Chat with Codex");
+		expect(resolveColleagueRequestSpaceId(colleague("declined", "dm-1"))).toBe(
+			"dm-1"
+		);
+		// A draft reopens the current Direct Message instead of a new one.
+		expect(resolveColleagueRequestSpaceId(colleague("draft"))).toBeNull();
+		expect(
+			resolveColleagueRequestSpaceId(colleague("approved_once", "dm-1"))
+		).toBeNull();
+		expect(resolveColleagueRequestSpaceId(null)).toBeNull();
 	});
 });
 

@@ -43,9 +43,9 @@ import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
 	AgentAccessIndicator,
-	type ColleagueAgentChatProgress,
 	resolveAgentChatActionLabel,
-	useColleagueAgentChatProgress,
+	resolveColleagueRequestSpaceId,
+	useOpenColleagueRequestSpace,
 } from "#/components/agent-access/agent-access-indicator";
 import { AgentProfileAccessSection } from "#/components/agent-access/agent-profile-access-section";
 import { AgentAvatarEditor } from "#/components/agents/agent-avatar-editor";
@@ -69,6 +69,10 @@ import {
 	useAgentViewerAccess,
 	usePublicWakeabilityReason,
 } from "#/lib/agents/agent-viewer-access";
+import {
+	type ColleagueAccess,
+	useColleagueAccessState,
+} from "#/lib/agents/colleague-access-state";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
 import { updateAgentAvatar } from "#/lib/profiles/update-agent-avatar";
@@ -136,11 +140,11 @@ function useColleagueAgentState(input: {
 		input.isColleagueAgent && input.availabilityCategory === "unavailable"
 			? (reason ?? "This Agent is unavailable")
 			: null;
-	const progress = useColleagueAgentChatProgress({
-		enabled: input.isColleagueAgent && access?.kind === "asks_owner",
+	const colleagueAccess = useColleagueAccessState({
+		ownerUserId: input.isColleagueAgent ? input.ownerUserId : null,
 		profileId: input.profileId,
 	});
-	return { access, chatUnavailableReason, progress, reason };
+	return { access, chatUnavailableReason, colleagueAccess, reason };
 }
 
 /**
@@ -150,15 +154,24 @@ function useColleagueAgentState(input: {
 function AgentProfileChatAction(input: {
 	access: AgentViewerAccess | null;
 	isPending: boolean;
+	colleagueAccess: ColleagueAccess | null;
 	onOpen: () => void;
 	profileName: string;
-	progress: ColleagueAgentChatProgress;
 	unavailableReason: string | null;
 }) {
+	const openRequestSpace = useOpenColleagueRequestSpace();
+	const asksOwner = input.access?.kind === "asks_owner";
+	// The label depends on the request state; wait for it instead of flashing.
+	if (asksOwner && input.colleagueAccess === null) {
+		return null;
+	}
+	const requestSpaceId = resolveColleagueRequestSpaceId(input.colleagueAccess);
 	const button = (
 		<Button
 			disabled={input.isPending || input.unavailableReason !== null}
-			onClick={input.onOpen}
+			onClick={() =>
+				requestSpaceId ? openRequestSpace(requestSpaceId) : input.onOpen()
+			}
 			size="sm"
 			type="button"
 			variant="default"
@@ -166,8 +179,8 @@ function AgentProfileChatAction(input: {
 			<ChatCircleTextIcon aria-hidden="true" data-icon="inline-start" />
 			{resolveAgentChatActionLabel({
 				access: input.access,
+				colleagueAccess: input.colleagueAccess,
 				profileName: input.profileName,
-				progress: input.progress,
 			})}
 		</Button>
 	);
@@ -175,10 +188,10 @@ function AgentProfileChatAction(input: {
 	if (input.unavailableReason !== null) {
 		tooltip = `Can’t start work right now: ${input.unavailableReason}.`;
 	} else if (input.access?.kind === "asks_owner") {
-		tooltip =
-			input.progress === "waiting"
-				? `${input.access.ownerName} hasn’t answered your request yet.`
-				: `${input.access.ownerName} approves before it starts work for you.`;
+		tooltip = resolveColleagueChatTooltip({
+			ownerName: input.colleagueAccess?.ownerName ?? input.access.ownerName,
+			state: input.colleagueAccess?.state,
+		});
 	}
 	return tooltip ? (
 		<TooltipHint content={tooltip}>
@@ -187,6 +200,24 @@ function AgentProfileChatAction(input: {
 	) : (
 		button
 	);
+}
+
+function resolveColleagueChatTooltip(input: {
+	ownerName: string;
+	state: ColleagueAccess["state"] | undefined;
+}): string | null {
+	switch (input.state) {
+		case "waiting":
+			return `${input.ownerName} hasn’t answered your request yet.`;
+		case "declined":
+			return `${input.ownerName} declined your request.`;
+		case "approved_once":
+		case "always_allowed":
+		case "not_required":
+			return null;
+		default:
+			return `${input.ownerName} approves before it starts work for you.`;
+	}
 }
 
 export function AgentProfileWorkspaceDetail(input: {
@@ -382,10 +413,10 @@ export function AgentProfileWorkspaceDetail(input: {
 								{input.directMessageEnabled !== false && (
 									<AgentProfileChatAction
 										access={colleague.access}
+										colleagueAccess={colleague.colleagueAccess}
 										isPending={input.isDirectMessagePending}
 										onOpen={input.onOpenDirectMessage}
 										profileName={input.profile.profileName}
-										progress={colleague.progress}
 										unavailableReason={colleague.chatUnavailableReason}
 									/>
 								)}

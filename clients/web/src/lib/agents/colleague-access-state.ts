@@ -161,7 +161,7 @@ export function useColleagueAccessState(input: {
 	if (!asksOwner) {
 		return { state: "not_required", request: null, ownerName: null };
 	}
-	if (!(grants.data && requests.data && (input.spaceId || sessions.data))) {
+	if (!(grants.data && requests.data) || !(input.spaceId || sessions.data)) {
 		return null;
 	}
 	const resolved = resolveColleagueAccessState({
