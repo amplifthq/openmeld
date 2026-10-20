@@ -43,6 +43,8 @@ export type RuntimeCoordinatorExecutionWakeProgressSelector = {
   runningAtMs: number | null;
   dispatchId: string;
   latestDispatchAttemptStatus: string | null;
+  /** The Service holds this accepted execution in its local queue. */
+  locallyQueued: boolean;
   runtimeCoordinatorExecutionId: string;
   sourceClientMessageId: string | null;
   sourceEventId: string | null;
@@ -57,6 +59,7 @@ type RuntimeCoordinatorExecutionWakeProgressSelectorRow = {
   running_at_ms?: unknown;
   dispatch_id?: unknown;
   latest_dispatch_attempt_status?: unknown;
+  latest_local_queue_status?: unknown;
   latest_occupancy_payload_json?: unknown;
   runtime_coordinator_execution_id?: unknown;
   source_client_message_id?: unknown;
@@ -649,7 +652,17 @@ export const listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace =
             ORDER BY occupancy_event.observed_at_ms DESC NULLS LAST,
               occupancy_event.event_id DESC NULLS LAST
             LIMIT 1
-          ) AS latest_occupancy_payload_json
+          ) AS latest_occupancy_payload_json,
+          CASE WHEN executions.status = 'accepted_local' THEN (
+            SELECT (local_queue_event.payload_json)::jsonb #>> '{localQueue,status}'
+            FROM "openmeld"."openMeldDaemon_runtime_coordinator_execution_events" AS local_queue_event
+            WHERE local_queue_event.runtime_coordinator_execution_id =
+              executions.runtime_coordinator_execution_id
+              AND local_queue_event.event_type = 'lifecycle_accepted_local'
+            ORDER BY local_queue_event.observed_at_ms DESC NULLS LAST,
+              local_queue_event.event_id DESC NULLS LAST
+            LIMIT 1
+          ) END AS latest_local_queue_status
         FROM "openmeld"."openMeldDaemon_runtime_coordinator_executions" AS executions
         LEFT JOIN "openmeld"."openMeldDaemon_dispatch_ledger" AS ledger
           ON ledger.space_id = executions.space_id
@@ -971,6 +984,7 @@ const mapRuntimeCoordinatorExecutionWakeProgressSelectorRow = (
         row.latest_dispatch_attempt_status.trim().length > 0
           ? row.latest_dispatch_attempt_status.trim()
           : null,
+      locallyQueued: isLocallyQueuedSelectorRow(status, row),
       runtimeCoordinatorExecutionId,
       sourceClientMessageId:
         typeof row.source_client_message_id === "string" &&
@@ -992,6 +1006,11 @@ const mapRuntimeCoordinatorExecutionWakeProgressSelectorRow = (
     },
   ];
 };
+const isLocallyQueuedSelectorRow = (
+  status: RuntimeCoordinatorExecutionStatus,
+  row: RuntimeCoordinatorExecutionWakeProgressSelectorRow
+): boolean =>
+  status === "accepted_local" && row.latest_local_queue_status === "queued";
 const resolveWakeProgressWaitReasonCodeFromOccupancyPayload = (
   value: unknown
 ): WakeProgressWaitReasonCode | null => {

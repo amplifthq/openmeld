@@ -1813,6 +1813,33 @@ function resolveDispatchOrAttemptRunningReasonCode(
   return null;
 }
 
+function readLatestAcceptedLocalQueue(
+  trace: SpaceDispatchTraceSnapshot | null
+): Record<string, unknown> | null {
+  if (trace?.runtimeCoordinatorExecution?.status !== "accepted_local") {
+    return null;
+  }
+  const lifecycleEvent = trace.runtimeCoordinatorEvents
+    .filter((event) => event.eventType === "lifecycle_accepted_local")
+    .at(-1);
+  return lifecycleEvent
+    ? readPayloadObject(
+        parseRuntimeCoordinatorEventPayload(lifecycleEvent),
+        "localQueue"
+      )
+    : null;
+}
+
+/** The Service still holds this accepted execution in its local queue. */
+export function isRuntimeCoordinatorExecutionLocallyQueued(
+  trace: SpaceDispatchTraceSnapshot | null
+): boolean {
+  return (
+    readPayloadString(readLatestAcceptedLocalQueue(trace), "status") ===
+    "queued"
+  );
+}
+
 function resolveRuntimeCoordinatorLocalQueueReasonCode(
   trace: SpaceDispatchTraceSnapshot | null
 ): string | null {
@@ -1821,17 +1848,10 @@ function resolveRuntimeCoordinatorLocalQueueReasonCode(
   if (conversationOccupancyReasonCode) {
     return conversationOccupancyReasonCode;
   }
-  if (trace?.runtimeCoordinatorExecution?.status !== "accepted_local") {
+  const localQueue = readLatestAcceptedLocalQueue(trace);
+  if (!localQueue) {
     return null;
   }
-  const lifecycleEvent = trace.runtimeCoordinatorEvents
-    .filter((event) => event.eventType === "lifecycle_accepted_local")
-    .at(-1);
-  if (!lifecycleEvent) {
-    return null;
-  }
-  const payload = parseRuntimeCoordinatorEventPayload(lifecycleEvent);
-  const localQueue = readPayloadObject(payload, "localQueue");
   const status = readPayloadString(localQueue, "status");
   if (status === "starting_runtime") {
     return "runtime.local_queue.starting_runtime";

@@ -8,7 +8,10 @@ import type {
   SpaceDispatchTraceSnapshot,
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
-import { projectWakeTraceWaterfall } from "../space/application/wake-trace-waterfall";
+import {
+  isRuntimeCoordinatorExecutionLocallyQueued,
+  projectWakeTraceWaterfall,
+} from "../space/application/wake-trace-waterfall";
 import type { OpenMeldDaemonDispatchOutboxRecoveryCandidate } from "../space/infrastructure/outbox/dispatch-outbox-repo";
 
 const CLIENT_MESSAGE_ID = "cm_01J00000000000000000000001";
@@ -988,6 +991,28 @@ describe("wake trace waterfall projection", () => {
       terminalStep: null,
       reasonCode,
     });
+    expect(isRuntimeCoordinatorExecutionLocallyQueued(trace)).toBe(true);
+    // The frame sent when the Service starts the Wake ends the local wait.
+    const [queuedEvent] = trace.runtimeCoordinatorEvents;
+    if (!queuedEvent) {
+      throw new Error("Expected the queued lifecycle event");
+    }
+    expect(
+      isRuntimeCoordinatorExecutionLocallyQueued({
+        ...trace,
+        runtimeCoordinatorEvents: [
+          queuedEvent,
+          {
+            ...queuedEvent,
+            eventId: "event-local-start",
+            payloadJson: JSON.stringify({
+              localQueue: null,
+              phase: "accepted_local",
+            }),
+          },
+        ],
+      })
+    ).toBe(false);
   });
 
   it("projects an occupied Agent Controller conversation as nonterminal running work", () => {

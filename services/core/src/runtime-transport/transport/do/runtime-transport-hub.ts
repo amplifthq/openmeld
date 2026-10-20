@@ -10077,7 +10077,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       writeRuntimeCoordinatorExecutionEventFromParts({
         db,
         eventType,
-        idempotencyKey: `lifecycle:${request.dispatchId}:${request.attemptId}:${request.phase}:${request.agentControllerConversationOccupancy?.state ?? "progress"}`,
+        idempotencyKey: buildCoordinatorLifecycleEventIdempotencyKey(request),
         observedAtMs: nowMs,
         payload: {
           agentControllerConversationOccupancy:
@@ -14136,7 +14136,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       writeRuntimeCoordinatorExecutionEventFromParts({
         db,
         eventType,
-        idempotencyKey: `lifecycle:${input.request.dispatchId}:${input.request.attemptId}:${input.request.phase}:${input.request.agentControllerConversationOccupancy?.state ?? "progress"}`,
+        idempotencyKey: buildCoordinatorLifecycleEventIdempotencyKey(
+          input.request
+        ),
         observedAtMs: nowMs,
         payload: {
           agentControllerConversationOccupancy:
@@ -22866,6 +22868,19 @@ const resolveCoordinatorLifecycleEventType = (
   }
   return "lifecycle_completed_local";
 };
+// A Wake held in the Service's local queue records that wait separately, so the
+// frame sent when it leaves the queue is not deduplicated into the wait.
+const buildCoordinatorLifecycleEventIdempotencyKey = (
+  request: RuntimeTransportDispatchLifecycleRequest
+): string =>
+  [
+    "lifecycle",
+    request.dispatchId,
+    request.attemptId,
+    request.phase,
+    request.agentControllerConversationOccupancy?.state ?? "progress",
+    ...(request.localQueue?.status === "queued" ? ["queued"] : []),
+  ].join(":");
 const resolveResultIdentityEchoMismatch = (input: {
   authoritative: CompletedDispatchResultState["executionIdentity"];
   echoed: RuntimeTransportSubmitTaskResultRequest["executionIdentityEcho"];
