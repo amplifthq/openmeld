@@ -469,6 +469,11 @@ bypassing admission or inventing a successful result.
 
 ## Remaining release and maintenance acceptance
 
+The cutover release options in this section (`release:plan --database-cutover`,
+`--database-cutover-snapshot`, and `--database-cutover-restore-crons`) were
+retired with the previous release engine. The section records how the cutover
+ran; current PostgreSQL releases use `pnpm run deploy -- --scope db`.
+
 The existing `release:plan -- --database-cutover --base <fixed-baseline> --json`
 entrypoint now produces a read-only PG preparation plan. It reuses the existing
 source-impact and rolling-order owners and the native migration journal reader.
@@ -554,12 +559,8 @@ node tooling/postgresql/cutover.mjs verify
 node tooling/postgresql/cutover.mjs completion <private-snapshot.sqlite>
 node tooling/postgresql/cutover.mjs reconcile <private-snapshot.sqlite>
 
-# Actual receipt-based coordinated scope; db,auth,core are mandatory.
-pnpm release:preflight:local -- --scope <reviewed-scopes> --database-cutover-snapshot <private-snapshot.sqlite>
-pnpm release:deploy:local -- --scope <reviewed-scopes> --database-cutover-snapshot <private-snapshot.sqlite>
-
-# Only after explicit product acceptance. This does not open HTTP/Queue ingress.
-pnpm release:deploy:local -- --scope auth,core --database-cutover-restore-crons
+# The coordinated db,auth,core release and Cron restore used the retired
+# --database-cutover-snapshot and --database-cutover-restore-crons options.
 ```
 
 The snapshot is created exclusively with mode `0600`. Its adjacent JSON manifest

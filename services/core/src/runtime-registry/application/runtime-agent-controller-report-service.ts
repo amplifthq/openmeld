@@ -7,7 +7,6 @@ import {
 } from "@openmeld/agent-runtime";
 import { AGENT_CONTROLLER_AUTH_STALE_AFTER_MS } from "@openmeld/schemas";
 import type { AgentControllerInterfaceSnapshot } from "@openmeld/schemas/types";
-import { isServiceAuthFreshnessRequired } from "../../local-components/update-projection";
 import {
   lookupRuntime,
   type RuntimeLookupStore,
@@ -63,6 +62,8 @@ export type RuntimeAgentControllerReportAcceptanceResult =
     };
 
 export type RuntimeAgentControllerReportStoreInput = {
+  // True once the published Service enforces native-auth freshness.
+  authFreshnessRequired: boolean;
   nowMs: number;
   report: AcceptedRuntimeAgentControllerReport;
 };
@@ -81,6 +82,7 @@ const RUNTIME_AGENT_CONTROLLER_REPORT_STATUSES = new Set<string>([
 ]);
 
 export async function acceptRuntimeAgentControllerReport(input: {
+  authFreshnessRequired: boolean;
   nowMs: number;
   report: RuntimeAgentControllerReportInput;
   reportStore: RuntimeAgentControllerReportStore;
@@ -135,6 +137,7 @@ export async function acceptRuntimeAgentControllerReport(input: {
   }
 
   const report = resolveCurrentReport({
+    authFreshnessRequired: input.authFreshnessRequired,
     nowMs: input.nowMs,
     report: input.report,
     openMeldServiceRuntimeId: openMeldServiceRuntimeId.value,
@@ -153,6 +156,7 @@ export async function acceptRuntimeAgentControllerReport(input: {
   }
 
   return input.reportStore.acceptRuntimeAgentControllerReport({
+    authFreshnessRequired: input.authFreshnessRequired,
     nowMs: input.nowMs,
     report: report.value,
   });
@@ -186,6 +190,7 @@ function resolveAuthorityOpenMeldServiceRuntimeId(input: {
 }
 
 function resolveCurrentReport(input: {
+  authFreshnessRequired: boolean;
   nowMs: number;
   report: RuntimeAgentControllerReportInput;
   openMeldServiceRuntimeId: AuthorityOpenMeldServiceRuntimeId;
@@ -238,7 +243,7 @@ function resolveCurrentReport(input: {
 
   let expiresAtMs = input.report.expiresAtMs;
   const checkedAt = input.report.agentControllerInterface?.checkedAt;
-  if (checkedAt && isServiceAuthFreshnessRequired()) {
+  if (checkedAt && input.authFreshnessRequired) {
     // Both source times use the same device clock. Their difference preserves
     // cached observation age without trusting that clock against Core time.
     const ageMs = input.report.observedAtMs - Date.parse(checkedAt);

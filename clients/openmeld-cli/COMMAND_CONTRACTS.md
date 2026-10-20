@@ -208,8 +208,8 @@ closed set of blocked codes is owned by `cliJsonEntryCheckBlockedErrorCodeSchema
 
 The CLI-update check turns into a hard block only when the running version is
 below the published required-update floor — `openmeld.minRequiredCliVersion` on the
-npm `latest` manifest, which is the release-time projection of
-`release/local-components.json`'s `cli.updatePolicy`. The floor must be a plain
+npm `latest` manifest, which is the release-time projection of the
+`cli.updatePolicy` decision in `release/local-components-policy.json`. The floor must be a plain
 published release version (`X.Y.Z`, no prerelease or build metadata); a
 non-plain or malformed floor is treated as no signal (fails open) and rejected
 by release `verify`. When the floor is breached

@@ -52,6 +52,10 @@ import {
   lookupRuntimeTransportRoute,
 } from "../../dispatch/infrastructure/runtime-transport/runtime-transport-client";
 import type { CoreBindings } from "../../lib/bindings";
+import {
+  type CoreLocalComponentsRelease,
+  readCoreLocalComponentsRelease,
+} from "../../local-components/release-source";
 import { resolveCoreRuntimeContractRollout } from "../../local-components/runtime-contract-rollout";
 import { resolveLocalComponentUpdateProjection } from "../../local-components/update-projection";
 import { resolveRemoteAgentRuntimeAvailability } from "../../remote-agent/application/remote-agent-runtime-policy";
@@ -171,6 +175,7 @@ type ResolveAgentBindingSnapshotInput = {
   includeRuntimeDeviceDisplayName: boolean;
   targetRuntime: AgentExecutionTargetRuntimeContext | null;
   timing: ReadinessTimingRecorder;
+  localComponentsRelease: CoreLocalComponentsRelease;
 };
 
 type LocalExecutionServiceEvidenceResolution = {
@@ -271,7 +276,11 @@ export async function resolveCoreAgentExecutionReadiness(input: {
 }): Promise<CoreAgentExecutionReadiness> {
   const startedAtMs = Date.now();
   const timing: ReadinessTimingRecorder = { durationsMs: {} };
+  const localComponentsRelease = await readCoreLocalComponentsRelease(
+    input.env.OPENMELD_CLI_RELEASES
+  );
   const bindingSnapshot = await resolveAgentBindingSnapshot({
+    localComponentsRelease,
     reads: input.reads ?? createAgentExecutionReadinessReads(),
     activeOrganizationId: input.activeOrganizationId ?? null,
     agent: input.agent,
@@ -348,7 +357,8 @@ export async function resolveCoreAgentExecutionReadiness(input: {
     routeLane: bindingSnapshot.routeLane,
     runtimeDeviceDisplayName: bindingSnapshot.runtimeDeviceDisplayName,
     spaceMemberAgentExecutionReadiness: toSpaceMemberAgentExecutionReadiness(
-      agentExecutionReadiness
+      agentExecutionReadiness,
+      localComponentsRelease
     ),
   };
 }
@@ -417,6 +427,7 @@ async function resolveAgentBindingSnapshot(
       return createProfileIdentityOnlyBindingSnapshot({
         agent: input.agent,
         generatedAt: input.generatedAt,
+        localComponentsRelease: input.localComponentsRelease,
         ownerUserId,
         profileEvidence,
         profileName,
@@ -492,6 +503,7 @@ function createEnrichAgentBindingSnapshotInput(input: {
     snapshot: input.snapshot,
     targetRuntime: input.input.targetRuntime,
     timing: input.input.timing,
+    localComponentsRelease: input.input.localComponentsRelease,
   };
 }
 
@@ -509,6 +521,7 @@ function resolveProfileIdentityLookupFailureBindingSnapshot(input: {
     return createProfileIdentityOnlyBindingSnapshot({
       agent: input.input.agent,
       generatedAt: input.input.generatedAt,
+      localComponentsRelease: input.input.localComponentsRelease,
       ownerUserId: null,
       profileEvidence,
       profileName: input.input.agent.profileNameSnapshot,
@@ -575,6 +588,7 @@ function createProfileIdentitySnapshot(input: {
 function createProfileIdentityOnlyBindingSnapshot(input: {
   agent: AgentExecutionReadinessAgentInput;
   generatedAt: string;
+  localComponentsRelease: CoreLocalComponentsRelease;
   ownerUserId: string | null;
   profileEvidence: AgentExecutionProfileEvidence;
   profileName: string | null;
@@ -598,7 +612,7 @@ function createProfileIdentityOnlyBindingSnapshot(input: {
     providerConversation: null,
     readinessImpact: null,
     runtimeReadiness: null,
-    service: createNotCheckedServiceEvidence(),
+    service: createNotCheckedServiceEvidence(input.localComponentsRelease),
   };
 }
 
@@ -646,6 +660,7 @@ async function enrichAgentBindingSnapshot(input: {
   snapshot: ProfileIdentitySnapshot;
   targetRuntime: AgentExecutionTargetRuntimeContext | null;
   timing: ReadinessTimingRecorder;
+  localComponentsRelease: CoreLocalComponentsRelease;
 }): Promise<AgentBindingSnapshot> {
   const bindingStartedAtMs = Date.now();
   const { evidence: agentExecutionBinding, configurationRevision } =
@@ -683,6 +698,7 @@ async function enrichAgentBindingSnapshot(input: {
       ...createProfileIdentityOnlyBindingSnapshot({
         agent: input.agent,
         generatedAt: input.generatedAt,
+        localComponentsRelease: input.localComponentsRelease,
         ownerUserId: input.snapshot.ownerUserId,
         profileEvidence: input.snapshot.profileEvidence,
         profileName: input.snapshot.profileName,
@@ -723,6 +739,7 @@ async function enrichAgentBindingSnapshot(input: {
         })
     );
     return await createHostedAgentBindingSnapshot({
+      localComponentsRelease: input.localComponentsRelease,
       activeOrganizationId: input.activeOrganizationId,
       agent: input.agent,
       agentControllerRef: parsedAgentControllerRef?.ref ?? null,
@@ -813,6 +830,7 @@ async function enrichAgentBindingSnapshot(input: {
       })
     ),
     resolveAgentLocalExecutionServiceEvidence({
+      localComponentsRelease: input.localComponentsRelease,
       reads: input.reads,
       binding: agentExecutionBinding,
       env: input.env,
@@ -902,6 +920,7 @@ async function enrichAgentBindingSnapshot(input: {
 }
 
 async function createHostedAgentBindingSnapshot(input: {
+  localComponentsRelease: CoreLocalComponentsRelease;
   activeOrganizationId: string | null;
   agent: AgentExecutionReadinessAgentInput;
   agentControllerRef: string | null;
@@ -980,7 +999,7 @@ async function createHostedAgentBindingSnapshot(input: {
           reasonCodes: readiness.reasonCodes,
         }
       : null,
-    service: createNotCheckedServiceEvidence(),
+    service: createNotCheckedServiceEvidence(input.localComponentsRelease),
   };
 }
 
@@ -1939,6 +1958,7 @@ function mergeAgentProfileOrganizationClaimFailure(input: {
 }
 
 async function resolveAgentLocalExecutionServiceEvidence(input: {
+  localComponentsRelease: CoreLocalComponentsRelease;
   reads: AgentExecutionReadinessReads;
   binding: AgentExecutionBindingEvidence | null;
   env: CoreBindings;
@@ -1960,7 +1980,7 @@ async function resolveAgentLocalExecutionServiceEvidence(input: {
   if (!isAgentProfileBindingProjection(input.binding)) {
     return {
       localService: null,
-      service: createNotCheckedServiceEvidence(),
+      service: createNotCheckedServiceEvidence(input.localComponentsRelease),
     };
   }
   const executionTarget = input.binding.executionTarget;
@@ -1972,7 +1992,7 @@ async function resolveAgentLocalExecutionServiceEvidence(input: {
         reasonCodes: [],
         source: "not_checked",
       },
-      service: createNotCheckedServiceEvidence(),
+      service: createNotCheckedServiceEvidence(input.localComponentsRelease),
     };
   }
 
@@ -1985,7 +2005,7 @@ async function resolveAgentLocalExecutionServiceEvidence(input: {
         reasonCodes: ["local_service.unavailable"],
         source: "unavailable",
       },
-      service: createUnavailableServiceEvidence(),
+      service: createUnavailableServiceEvidence(input.localComponentsRelease),
     };
   }
 
@@ -2003,7 +2023,7 @@ async function resolveAgentLocalExecutionServiceEvidence(input: {
           reasonCodes: ["local_service.identity_mismatch"],
           source: "runtime_transport",
         },
-        service: createNotCheckedServiceEvidence(),
+        service: createNotCheckedServiceEvidence(input.localComponentsRelease),
       };
     }
 
@@ -2022,11 +2042,12 @@ async function resolveAgentLocalExecutionServiceEvidence(input: {
           reasonCodes: ["local_service.identity_mismatch"],
           source: "runtime_transport",
         },
-        service: createNotCheckedServiceEvidence(),
+        service: createNotCheckedServiceEvidence(input.localComponentsRelease),
       };
     }
 
     const routeServiceEvidence = resolveRouteLocalExecutionServiceEvidence({
+      localComponentsRelease: input.localComponentsRelease,
       bindingRuntime: bindingRuntime.record,
       routeDeviceId: input.routeDeviceId,
       routeLane: input.routeLane,
@@ -2055,11 +2076,12 @@ async function resolveAgentLocalExecutionServiceEvidence(input: {
           reasonCodes: ["local_service.unavailable"],
           source: "unavailable",
         },
-        service: createUnavailableServiceEvidence(),
+        service: createUnavailableServiceEvidence(input.localComponentsRelease),
       };
     }
     if (!ownerService.online) {
       return createRuntimeTransportMissServiceEvidence({
+        localComponentsRelease: input.localComponentsRelease,
         reasonCode: "local_service.not_connected_for_account",
         runtimeReadiness,
       });
@@ -2073,6 +2095,7 @@ async function resolveAgentLocalExecutionServiceEvidence(input: {
     );
     if (!targetRuntimeSession) {
       return createMissingRuntimeSessionServiceEvidence({
+        localComponentsRelease: input.localComponentsRelease,
         bindingRuntime: bindingRuntime.record,
         hasFreshRouteLease: input.hasFreshRouteLease,
         pendingFirstReportOwnerService: input.pendingFirstReportOwnerService,
@@ -2082,6 +2105,7 @@ async function resolveAgentLocalExecutionServiceEvidence(input: {
     }
 
     const service = createServiceEvidenceFromLiveSession({
+      localComponentsRelease: input.localComponentsRelease,
       compatibility: targetRuntimeSession.executionCompatibility,
       localComponentsStatus:
         targetRuntimeSession.capabilities.localComponents ?? null,
@@ -2106,12 +2130,13 @@ async function resolveAgentLocalExecutionServiceEvidence(input: {
         reasonCodes: ["local_service.unavailable"],
         source: "unavailable",
       },
-      service: createUnavailableServiceEvidence(),
+      service: createUnavailableServiceEvidence(input.localComponentsRelease),
     };
   }
 }
 
 function createRuntimeTransportMissServiceEvidence(input: {
+  localComponentsRelease: CoreLocalComponentsRelease;
   reasonCode:
     | "local_service.identity_mismatch"
     | "local_service.not_connected_for_account";
@@ -2125,7 +2150,7 @@ function createRuntimeTransportMissServiceEvidence(input: {
         reasonCodes: ["local_service.refresh_in_progress"],
         source: "runtime_transport",
       },
-      service: createNotCheckedServiceEvidence(),
+      service: createNotCheckedServiceEvidence(input.localComponentsRelease),
     };
   }
   return {
@@ -2135,11 +2160,12 @@ function createRuntimeTransportMissServiceEvidence(input: {
       reasonCodes: [input.reasonCode],
       source: "runtime_transport",
     },
-    service: createNotCheckedServiceEvidence(),
+    service: createNotCheckedServiceEvidence(input.localComponentsRelease),
   };
 }
 
 function createMissingRuntimeSessionServiceEvidence(input: {
+  localComponentsRelease: CoreLocalComponentsRelease;
   bindingRuntime: RuntimeRegistryRecord;
   hasFreshRouteLease: boolean;
   pendingFirstReportOwnerService: {
@@ -2160,6 +2186,7 @@ function createMissingRuntimeSessionServiceEvidence(input: {
     (input.hasFreshRouteLease || hasMatchingPendingFirstReportOwnerService)
   ) {
     return createRuntimeTransportMissServiceEvidence({
+      localComponentsRelease: input.localComponentsRelease,
       reasonCode: "local_service.not_connected_for_account",
       runtimeReadiness: input.runtimeReadiness,
     });
@@ -2172,12 +2199,14 @@ function createMissingRuntimeSessionServiceEvidence(input: {
       ? "local_service.not_connected_for_account"
       : "local_service.identity_mismatch";
   return createRuntimeTransportMissServiceEvidence({
+    localComponentsRelease: input.localComponentsRelease,
     reasonCode,
     runtimeReadiness: null,
   });
 }
 
 function resolveRouteLocalExecutionServiceEvidence(input: {
+  localComponentsRelease: CoreLocalComponentsRelease;
   bindingRuntime: RuntimeRegistryRecord;
   routeDeviceId: string | null;
   routeLane: string | null;
@@ -2190,6 +2219,7 @@ function resolveRouteLocalExecutionServiceEvidence(input: {
 } | null {
   if (input.routeDeviceId && input.routeLane) {
     const service = createServiceEvidenceFromLiveSession({
+      localComponentsRelease: input.localComponentsRelease,
       compatibility: input.serviceCompatibility,
       localComponentsStatus: input.localComponentsStatus,
       serviceVersion: input.serviceVersion,
@@ -2225,7 +2255,8 @@ function resolveRouteLocalExecutionServiceEvidence(input: {
   }
 
   const service = createServiceEvidenceFromCompatibility(
-    input.serviceCompatibility
+    input.serviceCompatibility,
+    input.localComponentsRelease
   );
   return {
     localService: {
@@ -2241,10 +2272,11 @@ function resolveRouteLocalExecutionServiceEvidence(input: {
 }
 
 function createServiceEvidenceFromCompatibility(
-  compatibility: DaemonExecutionCompatibility | null
+  compatibility: DaemonExecutionCompatibility | null,
+  localComponentsRelease: CoreLocalComponentsRelease
 ): AgentExecutionServiceEvidence {
   if (!compatibility) {
-    return createNotCheckedServiceEvidence();
+    return createNotCheckedServiceEvidence(localComponentsRelease);
   }
 
   if (compatibility.status === "compatible") {
@@ -2267,16 +2299,21 @@ function createServiceEvidenceFromCompatibility(
 }
 
 function createServiceEvidenceFromLiveSession(input: {
+  localComponentsRelease: CoreLocalComponentsRelease;
   compatibility: DaemonExecutionCompatibility | null;
   localComponentsStatus: LocalComponentsStatus | null;
   serviceVersion: string | null;
 }): AgentExecutionServiceEvidence {
-  const service = createServiceEvidenceFromCompatibility(input.compatibility);
+  const service = createServiceEvidenceFromCompatibility(
+    input.compatibility,
+    input.localComponentsRelease
+  );
   if (!service.executionCompatible) {
     return service;
   }
 
   const localComponents = resolveLocalComponentUpdateProjection({
+    release: input.localComponentsRelease,
     generatedAt: new Date().toISOString(),
     localComponentsStatus: input.localComponentsStatus,
     serviceConnected: true,
@@ -2323,20 +2360,26 @@ function doesBindingRuntimeMatchTargetRuntime(input: {
   );
 }
 
-function createNotCheckedServiceEvidence(): AgentExecutionServiceEvidence {
+function createNotCheckedServiceEvidence(
+  release: CoreLocalComponentsRelease
+): AgentExecutionServiceEvidence {
   return {
     executionCompatible: true,
-    expectedEpoch: resolveCoreRuntimeContractRollout().expectedEpoch,
+    expectedEpoch: resolveCoreRuntimeContractRollout(release.manifest)
+      .expectedEpoch,
     observedEpoch: null,
     reasonCodes: [],
     source: "not_checked",
   };
 }
 
-function createUnavailableServiceEvidence(): AgentExecutionServiceEvidence {
+function createUnavailableServiceEvidence(
+  release: CoreLocalComponentsRelease
+): AgentExecutionServiceEvidence {
   return {
     executionCompatible: true,
-    expectedEpoch: resolveCoreRuntimeContractRollout().expectedEpoch,
+    expectedEpoch: resolveCoreRuntimeContractRollout(release.manifest)
+      .expectedEpoch,
     observedEpoch: null,
     reasonCodes: [],
     source: "unavailable",
@@ -2398,7 +2441,8 @@ function createAgentExecutionRouteEvidence(input: {
 }
 
 function toSpaceMemberAgentExecutionReadiness(
-  readiness: AgentExecutionStatusProjection
+  readiness: AgentExecutionStatusProjection,
+  localComponentsRelease: CoreLocalComponentsRelease
 ): SpaceMemberAgentExecutionReadiness {
   return {
     agentProfileId: readiness.agentProfileId,
@@ -2460,7 +2504,9 @@ function toSpaceMemberAgentExecutionReadiness(
       },
       service: {
         executionCompatible: readiness.facts.service.executionCompatible,
-        expectedEpoch: resolveCoreRuntimeContractRollout().expectedEpoch,
+        expectedEpoch: resolveCoreRuntimeContractRollout(
+          localComponentsRelease.manifest
+        ).expectedEpoch,
         observedEpoch: readiness.facts.service.observedEpoch,
         reasonCodes: [...readiness.facts.service.reasonCodes],
         source: readiness.facts.service.source,

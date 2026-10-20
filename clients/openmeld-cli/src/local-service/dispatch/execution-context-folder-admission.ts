@@ -3,21 +3,25 @@ import { join } from "node:path";
 import { buildRuntimeWorkspaceFingerprint } from "@openmeld/local-execution";
 import type { ExecutionContextTask } from "@openmeld/schemas/types";
 import { DaemonServiceRunError } from "../core/types";
+import { resolveFolderResourceRoots } from "./execution-context-session";
 
 // A stalled filesystem read must not hold later deliveries in admission order.
 const FOLDER_ADMISSION_TIMEOUT_MS = 10_000;
 
 /**
  * The folder facts a task is admitted with (design-plans/member-agent-program.md
- * §4.9). The local execution slots compare `folderKey` to schedule only tasks
- * in one folder against each other, so the task must later run in exactly this
- * folder: `assertExecutionContextAdmittedFolder` fails closed otherwise.
+ * §4.9). The local execution slots claim `folderRoots` to schedule only tasks
+ * with overlapping roots against each other, so the task must later run in
+ * exactly this folder (`folderKey`): `assertExecutionContextAdmittedFolder`
+ * fails closed otherwise.
  */
 export type ExecutionContextFolderAdmission = {
   /** The task as it runs: a workspaceDefault is resolved and removed. */
   context: ExecutionContextTask | undefined;
   /** Absent: the folder is unknown or the task has no user folder. */
   folderKey?: string;
+  /** The shared roots of the admitted folder; absent or null when unknown. */
+  folderRoots?: string[] | null;
   /** Owner-safe name for local diagnostics; never a path. */
   folderLabel?: string;
   /** The Service chose the workspace and reports it in the completion. */
@@ -31,16 +35,7 @@ export async function resolveExecutionContextFolderAdmission(input: {
 }): Promise<ExecutionContextFolderAdmission> {
   const original = input.context;
   if (!original) {
-    // A task without an Execution Context still runs in a folder. Knowing it
-    // keeps that task from blocking contexts in other folders.
-    const folder = await resolveAdmissionFolder(input.resolveFolder);
-    return folder
-      ? {
-          context: undefined,
-          folderKey: executionContextFolderKey(folder),
-          workspaceChosen: false,
-        }
-      : { context: undefined, workspaceChosen: false };
+    return { context: undefined, workspaceChosen: false };
   }
   const { workspaceDefault, ...context } = original;
   if (context.access === "space_context") {
@@ -58,8 +53,15 @@ export async function resolveExecutionContextFolderAdmission(input: {
     };
   }
   const folderKey = executionContextFolderKey(folder);
+  const folderRoots = resolveAdmittedFolderRoots(folder);
   if (workspaceDefault !== "isolated_if_git") {
-    return { context, folderKey, folderLabel, workspaceChosen: false };
+    return {
+      context,
+      folderKey,
+      folderLabel,
+      folderRoots,
+      workspaceChosen: false,
+    };
   }
   return {
     context: {
@@ -68,8 +70,18 @@ export async function resolveExecutionContextFolderAdmission(input: {
     },
     folderKey,
     folderLabel,
+    folderRoots,
     workspaceChosen: true,
   };
+}
+
+function resolveAdmittedFolderRoots(folder: string): string[] | null {
+  try {
+    return resolveFolderResourceRoots(folder);
+  } catch {
+    // Unreadable Git metadata: unknown roots overlap every shared root.
+    return null;
+  }
 }
 
 async function resolveAdmissionFolder(
@@ -147,7 +159,7 @@ export function resolveExecutionContextAdmissionWithoutFolder(
 export function needsExecutionContextFolderAdmission(
   context?: ExecutionContextTask
 ): boolean {
-  return context?.access !== "space_context";
+  return Boolean(context && context.access !== "space_context");
 }
 
 const admissionTails = new WeakMap<object, Promise<void>>();

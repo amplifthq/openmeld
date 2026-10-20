@@ -6,6 +6,7 @@ import type {
   PeopleComputerTarget,
   RuntimeTransportLookupOwnerServiceResponse,
 } from "@openmeld/schemas/types";
+import type { CoreLocalComponentsRelease } from "../local-components/release-source";
 import { resolveLocalComponentUpdateProjection } from "../local-components/update-projection";
 import { selectCurrentOwnerServiceSessionsByDeviceLane } from "../runtime-transport/application/current-owner-service-sessions";
 import { projectPeopleComputerControls } from "./control-policy";
@@ -23,10 +24,14 @@ export function resolvePeopleComputerTarget(input: {
     : { availability: "missing" };
 }
 
-export function projectPeopleComputerConnection(input: {
+// Connection status needs only live sessions; the per-session Service update
+// projection also needs the published release.
+export function resolvePeopleComputerConnectionStatus(input: {
   deviceIds: readonly string[];
   ownerService: RuntimeTransportLookupOwnerServiceResponse | null;
-}): PeopleComputerConnection {
+}): Pick<PeopleComputerConnection, "status" | "reasonCodes"> & {
+  sessions: ReturnType<typeof selectCurrentOwnerServiceSessionsByDeviceLane>;
+} {
   if (input.ownerService === null) {
     return {
       status: "unknown",
@@ -48,10 +53,27 @@ export function projectPeopleComputerConnection(input: {
   }
   const sessions = selectCurrentOwnerServiceSessionsByDeviceLane(
     input.ownerService
-  )
-    .filter((session) => input.deviceIds.includes(session.deviceId))
-    .map((session) => {
+  ).filter((session) => input.deviceIds.includes(session.deviceId));
+  return {
+    status: sessions.length > 0 ? "connected" : "disconnected",
+    reasonCodes:
+      sessions.length > 0 ? [] : ["computer.connection.no_live_session"],
+    sessions,
+  };
+}
+
+export function projectPeopleComputerConnection(input: {
+  deviceIds: readonly string[];
+  localComponentsRelease: CoreLocalComponentsRelease;
+  ownerService: RuntimeTransportLookupOwnerServiceResponse | null;
+}): PeopleComputerConnection {
+  const connection = resolvePeopleComputerConnectionStatus(input);
+  return {
+    status: connection.status,
+    reasonCodes: connection.reasonCodes,
+    sessions: connection.sessions.map((session) => {
       const updates = resolveLocalComponentUpdateProjection({
+        release: input.localComponentsRelease,
         runtimeLane: session.lane,
         generatedAt: new Date(session.lastHeartbeatMs).toISOString(),
         serviceConnected: true,
@@ -70,18 +92,14 @@ export function projectPeopleComputerConnection(input: {
           reasonCodes: updates.service.reasonCodes,
         },
       };
-    });
-  return {
-    status: sessions.length > 0 ? "connected" : "disconnected",
-    reasonCodes:
-      sessions.length > 0 ? [] : ["computer.connection.no_live_session"],
-    sessions,
+    }),
   };
 }
 
 export function projectPeopleComputers(input: {
   generatedAt: string;
   inventory: LocalRuntimesResponse;
+  localComponentsRelease: CoreLocalComponentsRelease;
   ownerService: RuntimeTransportLookupOwnerServiceResponse | null;
 }): PeopleComputersResponse {
   return {
@@ -104,6 +122,7 @@ export function projectPeopleComputers(input: {
             ...(computer.legacyDeviceIds ?? []),
             ...executionTargets.map((target) => target.deviceId),
           ],
+          localComponentsRelease: input.localComponentsRelease,
           ownerService: input.ownerService,
         }),
         executionTargets: executionTargets.map(

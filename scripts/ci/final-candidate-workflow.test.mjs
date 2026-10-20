@@ -46,6 +46,8 @@ const RETIRED_MANDATORY_REVIEW_LANGUAGE = [
 test("required CodeQL scans include forks without executing repository build scripts", () => {
   const workflow = parse(readRepoFile(".github/workflows/codeql.yml"));
   assert.deepEqual(workflow.on.pull_request, { branches: ["main"] });
+  // The required check must also report on merge-queue groups.
+  assert.deepEqual(workflow.on.merge_group, { types: ["checks_requested"] });
   assert.equal(workflow.on.pull_request_target, undefined);
   const job = workflow.jobs.analyze;
   assert.equal(
@@ -253,6 +255,9 @@ test("keeps status credentials out of candidate commands", () => {
   assert.ok(finalJob.includes("if: always() &&"));
   assert.ok(finalJob.includes("state=failure"));
   assert.ok(finalJob.includes('"$VERIFIER_RESULT" = success'));
+  // A finished result is bound to its exact base; main advancing is not a failure.
+  assert.ok(!finalJob.includes("commits/main"));
+  assert.ok(!finalJob.includes("state=pending"));
   const verifier = readJob(finalJob, "verify", "publish");
   assert.ok(!verifier.includes(": write"));
   assert.ok(verifier.includes("--output-only true"));
@@ -310,41 +315,14 @@ test("skips only the hosted Runner when trusted control requires local validatio
   assert.ok(!candidateJob.includes("statuses: write"));
 });
 
-test("rejects premature release stamps before dependency setup", () => {
+test("leaves local-component release decisions to the release-ready check", () => {
   const workflow = readRepoFile(".github/workflows/final-candidate.yml");
   const candidateJob = readJob(workflow, "candidate", null);
-  const preflight = candidateJob.indexOf(
-    "Check release branch policy before dependency setup"
-  );
-  const dependencySetup = candidateJob.indexOf("Setup pnpm");
-
-  assert.ok(preflight >= 0);
-  assert.ok(dependencySetup >= 0);
-  assert.ok(preflight < dependencySetup);
-  assert.ok(
-    candidateJob.includes(
-      "node trusted-control/scripts/ci/final-candidate-release-policy.mjs"
-    )
-  );
-  assert.ok(candidateJob.includes('"$CANDIDATE_TREE_SHA"'));
-  assert.ok(
-    candidateJob.includes(
-      `CANDIDATE_TREE_SHA: ${GITHUB_EXPRESSION_PREFIX} needs.publish_pending.outputs.candidate_tree }}`
-    )
-  );
-  assert.ok(
-    candidateJob.includes(
-      '--evidence "$RUNNER_TEMP/final-candidate-control/final-candidate-evidence.json"'
-    )
-  );
+  assert.ok(!candidateJob.includes("release branch policy"));
+  assert.ok(!candidateJob.includes("final-candidate-release-policy.mjs"));
   assert.ok(
     candidateJob.indexOf("Preserve exact candidate evidence and command logs") >
-      dependencySetup
-  );
-  assert.ok(
-    candidateJob.includes(
-      `path: ${GITHUB_EXPRESSION_PREFIX} runner.temp }}/final-candidate-control/`
-    )
+      candidateJob.indexOf("Setup pnpm")
   );
 });
 
@@ -397,7 +375,7 @@ test("trusted result publication fails closed and never executes candidate scrip
   const result = readRepoFile(".github/workflows/final-candidate-result.yml");
   for (const required of [
     "workflow_run:",
-    "types: [in_progress, completed]",
+    "types: [completed]",
     "final-candidate-run-context.mjs",
     "github.event.workflow_run.id",
     "steps.identity.outputs.valid == 'true'",
@@ -517,6 +495,16 @@ test("carries hosted standard and full confidence through distinct labels", () =
   );
   assert.ok(workflow.includes("confidence_args+=(--full)"));
   assert.ok(workflow.includes('if [ "$CANDIDATE_CONFIDENCE" = "full" ]'));
+});
+
+test("names the exact base in the run title for the completed-event verifier", () => {
+  const workflow = readRepoFile(".github/workflows/final-candidate.yml");
+  const runName = workflow.split("\nrun-name: >-\n")[1].split("\n\n")[0];
+  assert.ok(
+    runName.includes(
+      `] on ${GITHUB_EXPRESSION_PREFIX} github.event.pull_request.base.sha }}`
+    )
+  );
 });
 
 test("does not execute a candidate-owned runner or package candidate script", () => {

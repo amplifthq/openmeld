@@ -148,61 +148,27 @@ describe("auth db tooling proxies", () => {
     ).toBe(false);
   });
 
-  it("keeps production database release explicit and separate from component deploys", () => {
-    const releaseOnMainWorkflow = fs.readFileSync(
-      path.resolve(
-        repoRootDirectoryPath,
-        ".github/workflows/release-on-main.yml"
-      ),
-      "utf8"
-    );
-    const authDeployWorkflow = fs.readFileSync(
-      path.resolve(
-        repoRootDirectoryPath,
-        ".github/workflows/deploy-auth-worker.yml"
-      ),
-      "utf8"
-    );
-    const coreDeployWorkflow = fs.readFileSync(
-      path.resolve(
-        repoRootDirectoryPath,
-        ".github/workflows/deploy-core-worker.yml"
-      ),
-      "utf8"
-    );
-    const sharedDbAction = fs.readFileSync(
-      path.resolve(
-        repoRootDirectoryPath,
-        ".github/actions/shared-db-gate/action.yml"
-      ),
-      "utf8"
-    );
+  it("keeps production database release explicit and separate from component deploys", async () => {
+    const { COMPONENTS } = (await import(
+      path.resolve(repoRootDirectoryPath, "release/components.mjs")
+    )) as {
+      COMPONENTS: Array<{ name: string; deploy: (sha: string) => string[][] }>;
+    };
+    const steps = (name: string) =>
+      COMPONENTS.find((component) => component.name === name)
+        ?.deploy("a".repeat(40))
+        .map((command) => command.join(" ")) ?? [];
 
-    expect(releaseOnMainWorkflow).toContain("          - database");
-    expect(releaseOnMainWorkflow).toContain("          - database-auth");
-    expect(releaseOnMainWorkflow).toContain("          - database-core");
-    expect(releaseOnMainWorkflow).toContain("          - full");
-    expect(releaseOnMainWorkflow).toContain(
-      "uses: ./release-control/.github/actions/shared-db-gate"
-    );
-    expect(releaseOnMainWorkflow).toContain(
-      "working_directory: release-source"
-    );
-    expect(sharedDbAction).toContain(
-      // biome-ignore lint/suspicious/noTemplateCurlyInString: this asserts the literal GitHub Actions expression text in the composite action.
-      "DB_RELEASE_WORKING_DIRECTORY: ${{ inputs.working_directory }}"
-    );
-    expect(sharedDbAction).toContain('cd "$DB_RELEASE_WORKING_DIRECTORY"');
-    expect(sharedDbAction).toContain(
-      'node "$GITHUB_ACTION_PATH/../../../scripts/release/production-db.mjs"'
-    );
-    expect(releaseOnMainWorkflow).not.toContain("space_index_ready");
-    expect(releaseOnMainWorkflow).not.toContain("deploy:space-index-ready");
-
-    for (const workerWorkflow of [authDeployWorkflow, coreDeployWorkflow]) {
-      expect(workerWorkflow).not.toContain("run_db_gate");
-      expect(workerWorkflow).not.toContain("shared-db-gate");
-      expect(workerWorkflow).not.toContain("db:migrate:prod");
+    expect(steps("db")).toEqual([
+      "node tooling/postgresql/cutover.mjs migrate",
+      "node tooling/postgresql/cutover.mjs grant-runtime",
+    ]);
+    for (const worker of ["auth", "core"]) {
+      expect(steps(worker).length).toBeGreaterThan(0);
+      for (const command of steps(worker)) {
+        expect(command).not.toContain("migrate");
+        expect(command).not.toContain("cutover.mjs");
+      }
     }
   });
 

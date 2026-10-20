@@ -108,6 +108,7 @@ Use these owner documents:
 | Production release lane selection, scoped local/GitHub deploys, database and CLI rollout, Desktop impact assessment, health checks, and release reporting | `developing/engineering/production-release.md` |
 | OpenMeld Changelog authoring, publication, historical backfill, generated projections, and GitHub release-note handoff | `developing/engineering/changelog.md`, then `.agents/skills/openmeld-changelog/SKILL.md` |
 | Environment variables, Doppler local development, secret ownership, contributor onboarding, and production secret readiness | `developing/engineering/environment-and-secrets.md` |
+| Hosted AI credits, workspace BYOK, provider admission, and real AI smoke | `developing/engineering/ai-billing.md` |
 | Internal staging scope, isolation, guarded deployment, and staging evidence | `developing/engineering/staging-environment.md` |
 | Dev Server setup, resource budgets, status and shutdown; parallel-agent worktree ownership, OpenMeld development Spaces, local lanes, validation gates, contract rollouts, `OPENMELD_HOME`, real-user smoke, local component releases, DB workflow, Fresh Web Start | `developing/engineering/development-workflow.md` |
 | Code style, lint, and formatting standards (Ultracite/Biome) | `developing/engineering/code-standards.md` |
@@ -305,7 +306,7 @@ change must leave those signals cleaner and less ambiguous.
     `pnpm run test:integration:affected` for changed-package validation
   - `pnpm run verify:release-ready` when the diff touches CLI, OpenMeld Service
     carrier files, OpenMeld-managed skills, daemon schemas, or
-    `release/local-components.json`
+    `release/local-components-policy.json`
   - `pnpm run verify:pre-push` or `pnpm run verify:pr` for broader gates
 - Use the trusted current-main Final Candidate entrypoint from
   `developing/engineering/agent-native-delivery.md` for planning, the one normal
@@ -313,17 +314,13 @@ change must leave those signals cleaner and less ambiguous.
   guarded control plane through candidate-owned package scripts.
 - If affected scripts need a base ref, fetch it or set `OPENMELD_AFFECTED_BASE`.
 - `pnpm run verify:release-ready` is the single release-readiness command for
-  local components. It builds the packaged OpenMeld CLI, verifies
-  `release/local-components.json`, and skips only when no local component path
-  changed in the selected base diff or current worktree.
-- Never hand-edit local component hashes or stamp an existing CLI `dist` as if
-  it were current. Use the base-aware `pnpm release:local-components stamp ...`
-  command: it rebuilds the packaged CLI, rejects source drift and `--current`,
-  writes the manifest, and verifies the result. Rerun it after a merge, rebase,
-  or any later local-component change before running `verify:release-ready`.
+  local components. When a CLI, Service, or Skills path changed, it requires a
+  version bump and one explicit `available` or `required` decision with a reason
+  per changed component in `release/local-components-policy.json`. Hashes are
+  computed at publish time; never write them by hand.
 - When a change touches CLI, OpenMeld Service carrier files, OpenMeld-managed skills,
   daemon/runtime schemas, Prepare Session schemas, shared HTTP/RPC/WebSocket
-  schemas, or `release/local-components.json`, complete the Contract Impact
+  schemas, or `release/local-components-policy.json`, complete the Contract Impact
   Audit in `developing/engineering/development-workflow.md` before declaring
   the change done or deploying. Do not treat unchanged contract constants as
   proof that no contract changed; explicitly decide whether old and new CLI,

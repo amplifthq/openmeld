@@ -23,6 +23,39 @@ import { useAgentCreationComputerRecovery } from "./use-agent-creation-computer-
 afterEach(cleanup);
 
 describe("Agent creation computer recovery", () => {
+	it("leaves the old setup journey when the user selects a ready computer", () => {
+		const onSelect = vi.fn();
+		const recovery = agentCreationRecoveryFixture({
+			computers: [agentCreationComputerFixture()],
+			deviceId: "office-mac",
+			onSelect,
+		});
+		const { result, rerender } = renderHook(
+			({ ready }) =>
+				useAgentCreationComputerRecovery({
+					enabled: true,
+					recovery,
+					guidance: ready ? "set_up_local_agents" : "connect_computer",
+					hasLocalAgents: ready,
+					isPending: false,
+					onRetry: vi.fn(),
+				}),
+			{ initialProps: { ready: false } }
+		);
+		expect(result.current.computerRecovery?.setup).toBeTruthy();
+		act(() =>
+			result.current.selectCreationComputer({
+				deviceId: "online-device",
+				runtimeLane: "dev-local",
+			})
+		);
+		expect(onSelect).toHaveBeenCalledExactlyOnceWith({
+			deviceId: "online-device",
+			runtimeLane: "dev-local",
+		});
+		rerender({ ready: true });
+		expect(result.current.computerRecovery).toBeUndefined();
+	});
 	it("refreshes both projections after connection until the agent is ready", async () => {
 		vi.useFakeTimers();
 		const recovery = agentCreationRecoveryFixture({

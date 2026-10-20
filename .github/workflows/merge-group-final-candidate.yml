@@ -12,17 +12,19 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
+      pull-requests: read
+      statuses: read
     env:
       CANDIDATE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
       CANDIDATE_BRANCH: ${{ github.event.merge_group.head_ref }}
       CANDIDATE_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
       CANDIDATE_REPOSITORY: ${{ github.repository }}
     steps:
-      - name: Checkout trusted control from the exact merge-group base
+      - name: Checkout current-main control from the exact merge-group base
         uses: actions/checkout@v5
         with:
-          fetch-depth: 0
-          path: trusted-control
+          fetch-depth: 1
+          path: current-main-control
           persist-credentials: false
           ref: ${{ env.CANDIDATE_BASE_SHA }}
 
@@ -45,6 +47,31 @@ jobs:
         with:
           node-version: "24"
 
+      # Current-main control decides which control may validate this group:
+      # main's own, or the group's when its control change is exactly what
+      # one PR head already passed the protected local bootstrap with.
+      - name: Decide merge-group control with current-main control
+        id: control
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node current-main-control/scripts/ci/final-candidate-merge-group-control.mjs \
+            --repo-root "$GITHUB_WORKSPACE/untrusted-candidate" \
+            --repository "$CANDIDATE_REPOSITORY" \
+            --base "$CANDIDATE_BASE_SHA" \
+            --head "$CANDIDATE_HEAD_SHA" \
+            --head-ref "$CANDIDATE_BRANCH"
+
+      - name: Checkout the decided trusted control
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          path: trusted-control
+          persist-credentials: false
+          ref: ${{ steps.control.outputs.control_sha }}
+
       - name: Install trusted evidence parser
         shell: bash
         run: |
@@ -63,6 +90,9 @@ jobs:
 
       - name: Validate the exact merge-group candidate without write credentials
         env:
+          BOOTSTRAP_REASON: ${{ steps.control.outputs.bootstrap_reason }}
+          CONTROL_SHA: ${{ steps.control.outputs.control_sha }}
+          CONTROL_TRUST: ${{ steps.control.outputs.control_trust }}
           GH_TOKEN: ${{ github.token }}
           OPENMELD_AFFECTED_BASE: ${{ env.CANDIDATE_BASE_SHA }}
           OPENMELD_CANDIDATE_HOME: ${{ runner.temp }}/merge-group-final-candidate-home
@@ -73,13 +103,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          bootstrap_args=()
+          if [ "$CONTROL_TRUST" = "explicit-bootstrap" ]; then
+            bootstrap_args=(--bootstrap-reason "$BOOTSTRAP_REASON")
+          fi
           node trusted-control/scripts/ci/final-candidate.mjs run \
             --mode remote \
             --candidate-kind merge-group \
             --candidate-root "$GITHUB_WORKSPACE/untrusted-candidate" \
             --command-wrapper "$GITHUB_WORKSPACE/trusted-control/scripts/ci/run-isolated-candidate-command.sh" \
-            --control-trust current-main \
-            --plan-source "$CANDIDATE_BASE_SHA" \
+            --control-trust "$CONTROL_TRUST" \
+            "${bootstrap_args[@]}" \
+            --plan-source "$CONTROL_SHA" \
             --repository "$CANDIDATE_REPOSITORY" \
             --branch "$CANDIDATE_BRANCH" \
             --head "$CANDIDATE_HEAD_SHA" \

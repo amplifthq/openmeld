@@ -9,7 +9,6 @@ import {
 import type { PostgresDatabase, QueryResult } from "@openmeld/db/postgresql";
 import { agentControllerInterfaceSnapshotSchema } from "@openmeld/schemas";
 import type { AgentControllerInterfaceSnapshot } from "@openmeld/schemas/types";
-import { isServiceAuthFreshnessRequired } from "../../../local-components/update-projection";
 import type {
   AcceptedRuntimeAgentControllerReport,
   RuntimeAgentControllerReportAcceptanceResult,
@@ -28,11 +27,13 @@ type RuntimeAgentControllerReportRow = {
   updated_at_ms: number;
 };
 export function acceptRuntimeAgentControllerReportRecord(input: {
+  authFreshnessRequired: boolean;
   db: PostgresDatabase;
   nowMs: number;
   report: AcceptedRuntimeAgentControllerReport;
 }): Promise<RuntimeAgentControllerReportAcceptanceResult> {
   return writeCurrentAgentControllerReport({
+    authFreshnessRequired: input.authFreshnessRequired,
     db: input.db,
     nowMs: input.nowMs,
     report: input.report,
@@ -139,6 +140,7 @@ async function writeCurrentAgentControllerReport(
   const writeInput = {
     ...input,
     report: preserveObservationEvidence({
+      authFreshnessRequired: input.authFreshnessRequired,
       currentReport: existing,
       nextReport: input.report,
     }),
@@ -247,7 +249,7 @@ async function updateNewerCurrentAgentControllerReport(
         input.report.openMeldServiceRuntimeId.value,
         input.report.agentControllerRef,
         input.report.observedAtMs,
-        isServiceAuthFreshnessRequired(),
+        input.authFreshnessRequired,
       ],
     }
   );
@@ -278,6 +280,7 @@ async function resolveConcurrentAgentControllerReportWrite(
   const writeInput = {
     ...input,
     report: preserveObservationEvidence({
+      authFreshnessRequired: input.authFreshnessRequired,
       currentReport,
       nextReport: input.report,
     }),
@@ -298,13 +301,14 @@ async function resolveConcurrentAgentControllerReportWrite(
   };
 }
 function preserveObservationEvidence(input: {
+  authFreshnessRequired: boolean;
   currentReport: AcceptedRuntimeAgentControllerReport | null;
   nextReport: AcceptedRuntimeAgentControllerReport;
 }): AcceptedRuntimeAgentControllerReport {
   let nextReport = input.nextReport;
   // Republishing the same native observation must not renew its authority.
   if (
-    isServiceAuthFreshnessRequired() &&
+    input.authFreshnessRequired &&
     input.currentReport?.agentControllerInterface?.checkedAt &&
     input.currentReport.agentControllerInterface.checkedAt ===
       input.nextReport.agentControllerInterface?.checkedAt

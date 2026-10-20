@@ -71,6 +71,12 @@
       "binding": "OPENMELD_ORGANIZATION_SKILLS",
       "bucket_name": "openmeld-organization-skills-preview",
       "preview_bucket_name": "openmeld-organization-skills-preview"
+    },
+    // Local development only. scripts/dev/seed-local-cli-release.mjs writes
+    // this worktree's release manifest before wrangler dev starts.
+    {
+      "binding": "OPENMELD_CLI_RELEASES",
+      "bucket_name": "openmeld-cli-releases-local"
     }
   ],
   "vars": {
@@ -253,6 +259,10 @@
           "binding": "OPENMELD_ORGANIZATION_SKILLS",
           "bucket_name": "openmeld-organization-skills-stg",
           "preview_bucket_name": "openmeld-organization-skills-stg"
+        },
+        {
+          "binding": "OPENMELD_CLI_RELEASES",
+          "bucket_name": "openmeld-desktop-downloads-stg"
         }
       ],
       "vars": {
@@ -395,6 +405,11 @@
           "binding": "OPENMELD_ORGANIZATION_SKILLS",
           "bucket_name": "openmeld-organization-skills-prod",
           "preview_bucket_name": "openmeld-organization-skills-preview"
+        },
+        // Read-only use: the published CLI release manifest and channels.
+        {
+          "binding": "OPENMELD_CLI_RELEASES",
+          "bucket_name": "openmeld-desktop-downloads-prod"
         }
       ],
       "vars": {

@@ -60,6 +60,7 @@ const FINAL_CERTIFICATION_PATTERN =
 const PRACTICAL_TRIGGER_PATTERN =
   /Practical trigger: keep development and batch leaves in draft; ready PRs run automatically\. Observe an existing run before requesting a retry\./u;
 const PENDING_STATUS_PATTERN = /state=pending/u;
+const REQUEST_PENDING_PATTERN = /Head status: pending/u;
 const SANDBOX_DENIED_PATTERN = /sandbox denied/u;
 const SUCCESS_STATUS_PATTERN = /state=success/u;
 const TOKEN_ABSENCE_PATTERN = /GH_TOKEN=absent GITHUB_TOKEN=absent/u;
@@ -272,6 +273,13 @@ test("a hosted request prints the authoritative remote plan from current main", 
       result.stdout,
       new RegExp(`Plan source: ${fixture.headSha}`, "u")
     );
+    // The completed-only result workflow never publishes pending, so the
+    // request marks the head pending before the hosted run starts.
+    assert.match(
+      readFileSync(fixture.ghLogPath, "utf8"),
+      PENDING_STATUS_PATTERN
+    );
+    assert.match(result.stdout, REQUEST_PENDING_PATTERN);
   } finally {
     fixture.cleanup();
   }

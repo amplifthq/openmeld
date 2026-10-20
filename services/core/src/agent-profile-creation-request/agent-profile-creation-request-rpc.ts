@@ -54,6 +54,7 @@ import { validateAgentModelSelection } from "../config/agent-model-availability"
 import { readAuthoredModelCatalog } from "../config/model-catalog";
 import { forkRuntimeTransportAgentSession } from "../dispatch/infrastructure/runtime-transport/runtime-transport-client";
 import type { CoreBindings } from "../lib/bindings";
+import { readCoreLocalComponentsRelease } from "../local-components/release-source";
 import { assignBoundProfileToMemberAgent } from "../member-agent/member-agent-profile-assignment";
 import { createPersonalRemoteAgentBinding } from "../remote-agent/application/personal-remote-agent-binding";
 import { createCoreRpcHttpError } from "../rpc/errors";
@@ -613,6 +614,9 @@ function createService(env: CoreBindings, db: PostgresDatabase) {
   const inboxProjection =
     createPostgresAgentProfileCreationRequestInboxProjectionService({ db });
   return createAgentProfileCreationRequestService({
+    readLocalComponentsManifest: async () =>
+      (await readCoreLocalComponentsRelease(env.OPENMELD_CLI_RELEASES))
+        .manifest,
     validateRetryConfiguration: async ({ current, configuration }) => {
       if (!current.createdAgentProfileId) {
         return;
@@ -896,6 +900,9 @@ async function completeRequestedAgentProfileSetup(input: {
     });
     const configuration = input.request.configuration;
     await rememberAgentProfileCreationDefaults({
+      localComponentsManifest: (
+        await readCoreLocalComponentsRelease(input.env.OPENMELD_CLI_RELEASES)
+      ).manifest,
       agentControllerRef,
       db: requireDb(input.env),
       nowMs: Date.now(),

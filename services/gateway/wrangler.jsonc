@@ -54,6 +54,11 @@
   ],
   "ratelimits": [
     {
+      "name": "OPENMELD_PUBLIC_READ_RATE_LIMITER",
+      "namespace_id": "1005",
+      "simple": { "limit": 1200, "period": 60 }
+    },
+    {
       "name": "OPENMELD_FEEDBACK_IP_RATE_LIMITER",
       "namespace_id": "1001",
       "simple": { "limit": 10, "period": 60 }
@@ -70,6 +75,8 @@
     }
   ],
   "vars": {
+    // Production deploys set the exact source with --var RELEASE_SHA:<sha>.
+    "RELEASE_SHA": "",
     "OPENMELD_WORKER_ENVIRONMENT": "local",
     "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.openmeld.ai",
     "OPENMELD_GATEWAY_URL": "http://localhost:8080",
@@ -154,6 +161,11 @@
       ],
       "ratelimits": [
         {
+          "name": "OPENMELD_PUBLIC_READ_RATE_LIMITER",
+          "namespace_id": "1005",
+          "simple": { "limit": 1200, "period": 60 }
+        },
+        {
           "name": "OPENMELD_FEEDBACK_IP_RATE_LIMITER",
           "namespace_id": "1001",
           "simple": { "limit": 10, "period": 60 }
@@ -170,6 +182,8 @@
         }
       ],
       "vars": {
+        // Production deploys set the exact source with --var RELEASE_SHA:<sha>.
+        "RELEASE_SHA": "",
         "OPENMELD_WORKER_ENVIRONMENT": "dev",
         "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.openmeld.ai",
         "OPENMELD_GATEWAY_URL": "http://localhost:8080",
@@ -255,6 +269,11 @@
       ],
       "ratelimits": [
         {
+          "name": "OPENMELD_PUBLIC_READ_RATE_LIMITER",
+          "namespace_id": "1005",
+          "simple": { "limit": 1200, "period": 60 }
+        },
+        {
           "name": "OPENMELD_FEEDBACK_IP_RATE_LIMITER",
           "namespace_id": "2001",
           "simple": { "limit": 10, "period": 60 }
@@ -271,6 +290,8 @@
         }
       ],
       "vars": {
+        // Production deploys set the exact source with --var RELEASE_SHA:<sha>.
+        "RELEASE_SHA": "",
         "OPENMELD_WORKER_ENVIRONMENT": "stg",
         "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.staging.openmeld.ai",
         "GITHUB_OPENMELD_APP_SLUG": "openmeld-staging-flue2",
@@ -349,6 +370,11 @@
       ],
       "ratelimits": [
         {
+          "name": "OPENMELD_PUBLIC_READ_RATE_LIMITER",
+          "namespace_id": "1005",
+          "simple": { "limit": 1200, "period": 60 }
+        },
+        {
           "name": "OPENMELD_FEEDBACK_IP_RATE_LIMITER",
           "namespace_id": "1001",
           "simple": { "limit": 10, "period": 60 }
@@ -365,6 +391,8 @@
         }
       ],
       "vars": {
+        // Production deploys set the exact source with --var RELEASE_SHA:<sha>.
+        "RELEASE_SHA": "",
         "OPENMELD_WORKER_ENVIRONMENT": "prod",
         "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.openmeld.ai",
         "OPENMELD_GATEWAY_URL": "https://gateway.openmeld.ai",

@@ -120,8 +120,8 @@ export function buildCoreStartupAdmissionStepSpec(input) {
       "--minify",
       "--env",
       "prod",
-      ...(input.tag ? ["--tag", input.tag] : []),
-      ...input.defines.flatMap((definition) => ["--define", definition]),
+      "--var",
+      `RELEASE_SHA:${input.releaseSha}`,
       ...(input.configArgs ?? []),
     ],
     command: "pnpm",
@@ -159,8 +159,7 @@ export async function runCoreStartupAdmission(input) {
         cwd: input.cwd ?? REPOSITORY_ROOT,
         env: input.env ?? process.env,
       }),
-      defines: input.defines ?? [],
-      tag: input.tag,
+      releaseSha: input.releaseSha,
     });
     const commandInput = {
       ...step,
@@ -250,17 +249,13 @@ async function main() {
 
 function parseArguments(argumentsList) {
   const options = {
-    defines: [],
     output: "dev-tmp/core-startup-admission.json",
     releaseSha: "",
   };
   for (let index = 0; index < argumentsList.length; index += 1) {
     const argument = argumentsList[index];
     const value = argumentsList[index + 1];
-    if (argument === "--define") {
-      options.defines.push(requireArgumentValue(argument, value));
-      index += 1;
-    } else if (argument === "--output") {
+    if (argument === "--output") {
       options.output = requireArgumentValue(argument, value);
       index += 1;
     } else if (argument === "--release-sha") {

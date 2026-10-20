@@ -24,6 +24,7 @@ const MAIN_OR_PULL_REQUEST_BASE_ADVANCED_PATTERN =
 const MISSING_ANCESTRY_PATTERN = /does not contain current main/u;
 const NO_EXECUTABLE_SOURCE_PATTERN = /No executable workspace source/u;
 const PULL_REQUEST_HEAD_DRIFT_PATTERN = /Pull request head drifted/u;
+const HOSTED_BOOTSTRAP_PATTERN = /bootstrap is local or merge-group only/u;
 
 const createPlan = (changedPaths, overrides = {}) =>
   createFinalCandidatePlan({
@@ -60,7 +61,7 @@ test("documentation tooling needs only root dependencies; executable checks reta
     ["clients/web/src/sidebar.tsx"],
     ["package.json", "README.md"],
     ["release/openmeld-cli-skill/playbooks/agent-onboarding.md"],
-    ["release/local-components.json"],
+    ["release/local-components-policy.json"],
     ["scripts/docs/verify-docs-lifecycle.mjs"],
   ]) {
     assert.equal(
@@ -157,15 +158,7 @@ test("shared schema changes retain database and release guards without broad rer
     plan.selectedChecks.find(
       (check) => check.id === "local-components-release-ready"
     ).command,
-    [
-      "pnpm",
-      "run",
-      "verify:release-ready",
-      "--",
-      "--defer-release",
-      "--base",
-      BASE_SHA,
-    ]
+    ["pnpm", "run", "verify:release-ready", "--", "--base", BASE_SHA]
   );
   assert.deepEqual(plan.riskTags, [
     "executable",
@@ -178,7 +171,7 @@ test("shared schema changes retain database and release guards without broad rer
 test("keeps engineering-only schemas out of product integration and release gates", () => {
   const plan = createPlan([
     "packages/schemas/src/schemas/ci/final-candidate.ts",
-    "packages/schemas/src/schemas/release/production-scope-lease.ts",
+    "packages/schemas/src/schemas/release/website-domain-migration.ts",
   ]);
 
   assert.deepEqual(checkIds(plan), [
@@ -214,26 +207,16 @@ test("a product change with docs and Changelog runs only their static contracts"
   ]);
 });
 
-test("a stamped candidate uses strict release-ready verification on any branch", () => {
-  const plan = createPlan(
-    ["clients/openmeld-cli/package.json", "release/local-components.json"],
-    { branchName: "codex/feature-and-release" }
-  );
-
+test("a CLI version bump with its release policy checks the same release-ready gate", () => {
+  const plan = createPlan([
+    "clients/openmeld-cli/package.json",
+    "release/local-components-policy.json",
+  ]);
   assert.deepEqual(
     plan.selectedChecks.find(
       (check) => check.id === "local-components-release-ready"
     ).command,
-    ["pnpm", "run", "verify:release-ready"]
-  );
-});
-
-test("CLI package metadata alone does not force a release stamp", () => {
-  const plan = createPlan(["clients/openmeld-cli/package.json"]);
-  assert.ok(
-    plan.selectedChecks
-      .find((check) => check.id === "local-components-release-ready")
-      .command.includes("--defer-release")
+    ["pnpm", "run", "verify:release-ready", "--", "--base", BASE_SHA]
   );
 });
 
@@ -339,6 +322,25 @@ test("all standard final validation lanes keep the same lightweight boundary", (
     assert.ok(!ids.includes("affected-unit-tests"));
     assert.ok(!ids.includes("affected-integration-tests"));
   }
+});
+
+test("only a merge group may carry an explicit control bootstrap into hosted validation", () => {
+  const bootstrap = {
+    bootstrapReason:
+      "Merge group carries a control change whose PR head passed the local bootstrap.",
+    controlTrust: "explicit-bootstrap",
+    mode: "remote",
+  };
+  const plan = createPlan(["scripts/ci/final-candidate.mjs"], {
+    ...bootstrap,
+    candidateKind: "merge-group",
+  });
+  assert.equal(plan.controlTrust, "explicit-bootstrap");
+  assert.equal(plan.planSourceSha, HEAD_SHA);
+  assert.throws(
+    () => createPlan(["scripts/ci/final-candidate.mjs"], bootstrap),
+    HOSTED_BOOTSTRAP_PATTERN
+  );
 });
 
 test("full confidence does not repeat its affected unit and integration subsets", () => {
@@ -475,7 +477,7 @@ test("completed pull-request evidence keeps its exact base fact when main advanc
   );
 });
 
-test("an exact merge-group plan makes local-component readiness strict", () => {
+test("a merge-group plan uses the same release-ready gate as its pull request", () => {
   const plan = createPlan(["clients/openmeld-cli/src/index.ts"], {
     candidateKind: "merge-group",
     branchName: "gh-readonly-queue/main/pr-378-abc",
@@ -488,6 +490,9 @@ test("an exact merge-group plan makes local-component readiness strict", () => {
     "pnpm",
     "run",
     "verify:release-ready",
+    "--",
+    "--base",
+    BASE_SHA,
   ]);
 });
 

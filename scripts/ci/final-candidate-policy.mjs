@@ -26,12 +26,12 @@ const DELIVERY_INFRASTRUCTURE_PATHS = new Set([
   "scripts/ci/final-candidate-control-paths.mjs",
   "scripts/ci/final-candidate-control-projection.mjs",
   "scripts/ci/final-candidate-control-yaml.mjs",
+  "scripts/ci/final-candidate-merge-group-control.mjs",
+  "scripts/ci/final-candidate-merge-group-control.test.mjs",
   "scripts/ci/final-candidate-policy.mjs",
   "scripts/ci/final-candidate-policy.test.mjs",
   "scripts/ci/final-candidate-publisher.mjs",
   "scripts/ci/final-candidate-publisher.test.mjs",
-  "scripts/ci/final-candidate-release-policy.mjs",
-  "scripts/ci/final-candidate-release-policy.test.mjs",
   "scripts/ci/final-candidate-reuse.mjs",
   "scripts/ci/final-candidate-reuse.test.mjs",
   "scripts/ci/final-candidate-state.mjs",
@@ -81,7 +81,7 @@ const DATABASE_PREFIXES = [
 
 const check = (id, command, reason) => ({ command, id, reason });
 
-function resolvePlanAuthority(input) {
+function resolvePlanAuthority(input, candidateKind) {
   const confidence = input.confidence ?? "standard";
   const mode = input.mode ?? "local";
   const controlTrust = input.controlTrust ?? "current-main";
@@ -96,8 +96,15 @@ function resolvePlanAuthority(input) {
   ) {
     throw new Error(`Unknown final-candidate control trust: ${controlTrust}`);
   }
-  if (controlTrust === "explicit-bootstrap" && mode !== "local") {
-    throw new Error("Explicit Final Candidate bootstrap is local-only.");
+  // A merge group may carry a control change only after current-main control
+  // proved that exact change already passed the local bootstrap on its PR head.
+  if (
+    controlTrust === "explicit-bootstrap" &&
+    !(mode === "local" || candidateKind === "merge-group")
+  ) {
+    throw new Error(
+      "Explicit Final Candidate bootstrap is local or merge-group only."
+    );
   }
   const bootstrapReason =
     controlTrust === "explicit-bootstrap"
@@ -116,7 +123,7 @@ export function createFinalCandidatePlan(input) {
     throw new Error(`Unknown final-candidate kind: ${candidateKind}`);
   }
   const { bootstrapReason, confidence, controlTrust, mode } =
-    resolvePlanAuthority(input);
+    resolvePlanAuthority(input, candidateKind);
 
   const context = {
     baseSha: input.baseSha,
@@ -137,9 +144,6 @@ export function createFinalCandidatePlan(input) {
       (controlTrust === "explicit-bootstrap" ? input.headSha : input.baseSha),
     releaseReadyPaths: changedPaths.filter(isReleaseReadyPath),
     repositoryControlChange: changedPaths.some(isRepositoryControlPath),
-    strictRelease:
-      candidateKind === "merge-group" ||
-      changedPaths.includes("release/local-components.json"),
   };
   const selectedChecks = [
     check(
@@ -169,10 +173,6 @@ export function createFinalCandidatePlan(input) {
   selectDatabaseCheck(context, selectedChecks, skippedChecks);
   selectReleaseReadyCheck(context, selectedChecks, skippedChecks);
   skippedChecks.push(
-    skipped(
-      "deep-confidence",
-      "Deep Confidence remains an explicit diagnostic escalation, not a default paid gate."
-    ),
     skipped(
       "production-health-and-smoke",
       "Health and real-user smoke prove the deployed SHA after release; they cannot be replaced by pre-merge CI."
@@ -357,20 +357,8 @@ function selectReleaseReadyCheck(context, selectedChecks, skippedChecks) {
   selectedChecks.push(
     check(
       "local-components-release-ready",
-      context.strictRelease
-        ? ["pnpm", "run", "verify:release-ready"]
-        : [
-            "pnpm",
-            "run",
-            "verify:release-ready",
-            "--",
-            "--defer-release",
-            "--base",
-            context.baseSha,
-          ],
-      context.strictRelease
-        ? "A stamped candidate must prove its local-component artifact."
-        : `Local-component source changed on a feature branch; deferred verification preserves the release invariant for ${context.releaseReadyPaths.length} path(s).`
+      ["pnpm", "run", "verify:release-ready", "--", "--base", context.baseSha],
+      `Local-component source changed in ${context.releaseReadyPaths.length} path(s); the packaged CLI must build and a CLI version bump must declare each change.`
     )
   );
 }

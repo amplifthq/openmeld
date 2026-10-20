@@ -37,10 +37,15 @@ it("restores only an isolated compiled lane on an environment-free OS launch", (
     applyDesktopDevelopmentContext(context, env);
     expect(env.WEB_APP_URL).toBe(context.webOrigin);
     expect(env.OPENMELD_HOME).toBe(home);
+    expect(env.OPENMELD_AUTH_CLIENT_ID).toBe("openmeld-cli-dev");
     expect(env.OPENMELD_DESKTOP_USER_DATA_DIR).toBe(
       join(home, "desktop/mock-keychain-user-data")
     );
     expect(env.OPENMELD_DESKTOP_RENDERER_DIR).toBeUndefined();
+    applyDesktopDevelopmentContext({ ...context, preset: "canary" }, env);
+    expect(env.OPENMELD_AUTH_CLIENT_ID).toBe("openmeld-cli");
+    applyDesktopDevelopmentContext(context, env);
+    expect(env.OPENMELD_AUTH_CLIENT_ID).toBe("openmeld-cli-dev");
     expect(() =>
       applyDesktopDevelopmentContext(
         { ...context, openMeldHome: "/foreign" },

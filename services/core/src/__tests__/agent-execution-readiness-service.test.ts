@@ -13,6 +13,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createProjectionPostgresBinding } from "../../test-support/postgresql-query.test-support";
+import { createPublishedCliReleasesBucket } from "../../test-support/published-local-components-release";
 import { createAgentExecutionReadinessReads } from "../agent-execution/application/agent-execution-readiness-reads";
 import { resolveCoreAgentExecutionReadinessForProfile as resolveCoreAgentExecutionReadinessForProfileWithoutOrganizationFixture } from "../agent-execution/application/agent-execution-readiness-service";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
@@ -133,7 +134,10 @@ function useRequiredServiceUpdatePolicy() {
     .mockImplementation((input) =>
       resolveLocalComponentUpdateProjection({
         ...input,
-        releaseManifest: REQUIRED_SERVICE_UPDATE_RELEASE_MANIFEST,
+        release: {
+          manifest: REQUIRED_SERVICE_UPDATE_RELEASE_MANIFEST,
+          availabilityCatalog: null,
+        },
       })
     );
 }
@@ -2668,6 +2672,7 @@ function createCoreEnv(input: {
       resolveProfileById: input.resolveProfileById,
     },
     OPENMELD_POSTGRESQL: createAgentProfileOrganizationBinding(),
+    OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
     OPENMELD_SPACES: {} as DurableObjectNamespace,
   } as unknown as CoreBindings;
 }

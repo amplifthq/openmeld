@@ -25,6 +25,20 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
+## Public read throttling compatibility
+
+Gateway may return HTTP 429 with `Retry-After: 60` and
+`gateway.public_read_rate_limited` before resolving credentials on public-readable
+Space routes. The existing error envelope is unchanged. Older clients that do
+not recognize this code still receive the HTTP failure; they must not infer
+success or retry without delay. Ordinary reads below the limit, authenticated
+writes, setup, Wake, Stop and transport streams keep their existing contracts.
+This requires Gateway's new native limiter binding with the same release.
+Web's public CLI download throttle uses HTTP 429 and the same retry header;
+CLI release manifests and binary contents do not change. Core Slack retry pacing
+reuses `receivedAtMs` in the existing v1 message and introduces no wire fields.
+No Service or CLI contract version change or required local update is needed.
+
 ## Message Details thread opt-in
 
 Message Details also accepts `includeThreadContext: true`. Only this opt-in
@@ -405,9 +419,6 @@ status, diagnostics, and self-rescue contracts are unchanged in both rollout
 directions. No execution epoch or cloud minimum-version increase is needed.
 Publish the compatible CLI update before shipping this Desktop capability;
 local-component stamping remains deferred to the authorized release worktree.
-Feature candidates still run base-aware `verify:release-ready --defer-release`
-through Final Candidate; deferring publication metadata does not skip packaged
-CLI/Service build verification.
 The explicit-device Forget route already uses Core account authorization.
 
 Windows account-checked Service control adds a local-only
@@ -2609,7 +2620,7 @@ compatibility plan. No database migration or new Cloudflare resource is
 introduced. Local component packaging verification, if selected by the path
 gate, uses deferred release mode and leaves the published manifest unchanged.
 
-### Delivery Evidence And Production Lease Contracts
+### Delivery Evidence Contracts
 
 `packages/schemas/src/schemas/ci/final-candidate.ts` owns the strict versioned
 Final Candidate evidence exchanged between the local runner, hosted runner,
@@ -2626,36 +2637,6 @@ the runtime projection of GitHub's pull-request candidate facts; the repository
 fixture is captured from the GitHub REST API rather than shaped from runner
 assumptions.
 
-`packages/schemas/src/schemas/release/production-scope-lease.ts` owns the
-strict metadata stored in the cross-machine Git scope lease. The schema defines
-scope, owner, exact source SHA, start, expiry, lease identity, and the durable
-record for an explicit expired-lease recovery. It does not authorize a release:
-the guarded release entrypoint still owns source validation, scope planning,
-credentials, deployment, health, and recovery. The end-to-end lifecycle and
-reuse rules remain solely in
-`developing/engineering/agent-native-delivery.md`.
-
-`packages/schemas/src/schemas/release/production-release-evidence.ts` owns the
-strict per-component metadata in the existing guarded release evidence refs.
-Version 1 describes a legacy successful release. Version 2 distinguishes a
-started attempt, applied identity, verified completion, and failed operation,
-with immutable attempt/component identity. Unknown application must not claim an
-applied identity. Worker identities retain version IDs and complete traffic;
-CLI/database records explicitly identify the verified release source rather than
-inventing artifact or migration metadata. Version 3 adds an operation key,
-start time, exact Worker/deployment/version/source identity and projection tag.
-The same owner defines the guarded subprocess context and Core activation
-message. When a command does not return a deployment ID, the release owner binds
-its exact version to exactly one deployment ID absent from the pre-command
-platform baseline; an old match or ambiguous concurrent change remains
-unresolved. Legacy observations never acquire stronger proof by being reread.
-Recovery appends a verified event to the same correlated attempt only after
-read-only identity/health reconciliation; a different attempt cannot overwrite
-an unresolved one. New readers accept all three versions; unknown versions and
-record downgrades remain errors. This is deployment evidence, not a replacement
-for source, lease, channel, health, or release authorization checks. Publication
-and recovery remain owned by `developing/engineering/production-release.md`.
-
 These delivery-control schemas are engineering contracts consumed directly
 by repository tooling. They are not exported from the package-wide runtime
 schema index and are not packaged into the CLI or OpenMeld Service. Changes
@@ -2663,15 +2644,6 @@ under `schemas/ci` or `schemas/release` therefore require their behavior and
 workflow contract tests, but do not by themselves create a local-component
 release. Product-facing and runtime schemas elsewhere in `packages/schemas`
 remain release-sensitive.
-
-The public Docs foundation adds `docs` to the production scope and artifact
-admission enums. The same change updates the trusted planner, scope leases,
-workflow producers, artifact readers, and release-status projection. This is
-a repository delivery-control change; no product HTTP, RPC, CLI, Service,
-Wake, or diagnostic payload changes. Existing local components and cloud
-runtime contracts remain compatible. The Docs renderer has no authenticated
-App or Service dependency. A delivery-control rollback must stop Docs release
-requests before restoring readers that do not recognize the new scope.
 
 ### Prepare Connection Progress Observation Contract
 
@@ -7164,8 +7136,9 @@ Artifact-only changes may remain advisory. CLI package updates may be advisory
 unless the command contract version is incompatible or the audit finds that old
 CLI behavior cannot safely continue.
 
-`release/local-components.json` `components.*.updatePolicy` is the single source
-of the current release's advisory-or-required rollout intent. Each component's
+The published release manifest (`cli/local-components.json` in R2, built from
+the `release/local-components-policy.json` decisions) is the single source of
+the current release's advisory-or-required rollout intent. Each component's
 release policy is projected into exactly one channel that reaches its audience,
 never authored twice. A separate compatibility floor may make Core's effective
 Service projection `required` even when the latest artifact is advisory:
@@ -7256,15 +7229,13 @@ has no tty to upgrade. This exemption is keyed on the runtime mode, not the
 command name. Service version compatibility is enforced by Core's monotonic
 Service floor and the Service Wake gate, not by failing these commands.
 
-Core's compiled local-component projection and the production CLI download
-channel are two projections of one release, not two policy owners.
-`release/local-components.json` owns the declared component versions and update
-policy; Core exposes the server-required projection, while the R2/Web manifest
+Core's local-component projection and the production CLI download channel are
+two projections of one release, not two policy owners. The published release
+manifest owns the declared component versions and update policy; Core exposes the server-required projection, while the R2/Web manifest
 and binary URLs prove that the declared CLI is actually installable. CLI status
 may reconcile those views for diagnostics, but it must not invent a third
-requirement or choose whichever view is more convenient. A production channel
-behind Core's declared version is a release fault and must fail closed before
-Core deploys; a newer compatible channel may precede Core during an intentional
+requirement or choose whichever view is more convenient. The publisher writes
+the release manifest only after the channel it declares is downloadable; a newer compatible channel may precede Core during an intentional
 rollout.
 
 `packages/schemas` also owns the public CLI binary manifest and exact-base delta
@@ -9512,12 +9483,11 @@ Use scoped owner documents for related rules:
 
 ## Local component installation source and binary availability
 
-Core owns update eligibility and target projection. Global
-`release/local-components.json` remains compatibility/admission authority.
-The binary availability catalogue is a separate build-time input compiled by
-both guarded Core deployment owners from official stable and Windows-preview
-manifest snapshots. It selects exact channel/platform pairs; it never infers a
-Windows preview from OS, or stable provenance from the JSON member
+Core owns update eligibility and target projection. The published
+release manifest remains compatibility/admission authority. Core reads the
+binary availability catalogue at runtime from the official stable and
+Windows-preview channel manifests in R2. It selects exact channel/platform
+pairs; it never infers a Windows preview from OS, or stable provenance from the JSON member
 `channels.stable`. Missing installation source, platform, catalogue, or release
 policy leaves binary latest versions null and availability unknown. Unsafe
 Service versions remain blocked independently of artifact availability.

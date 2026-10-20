@@ -1,10 +1,9 @@
 import type {
   DaemonServiceLane,
-  LocalComponentsAvailabilityCatalog,
-  LocalComponentsReleaseManifest,
   OpenMeldToolsControlRequest,
   RuntimeTransportCapabilities,
 } from "@openmeld/schemas/types";
+import type { CoreLocalComponentsRelease } from "./release-source";
 import { resolveLocalComponentUpdateProjection } from "./update-projection";
 
 export type ReleaseTriggeredOpenMeldToolsUpdate = {
@@ -16,8 +15,7 @@ type ReleaseTriggeredOpenMeldToolsUpdateInput = {
   capabilities: RuntimeTransportCapabilities;
   generatedAt: string;
   lane: DaemonServiceLane;
-  releaseManifest?: LocalComponentsReleaseManifest | null;
-  availabilityCatalog?: LocalComponentsAvailabilityCatalog | null;
+  release: CoreLocalComponentsRelease;
   serviceVersion: string | null;
 };
 
@@ -76,21 +74,18 @@ export function resolveReleaseTriggeredOpenMeldToolsUpdateDecision(
       status: "skipped",
     };
   }
-  if (!input.releaseManifest) {
+  if (!input.release.manifest) {
     return {
       reasonCode: "automatic_update.release_manifest_unavailable",
       status: "skipped",
     };
   }
 
-  // A release-triggered request must be rooted in the manifest supplied by
-  // Core's release projection. Unlike read projections, this path must not
-  // infer a target from a build-time default when its owner omitted the fact.
+  // A release-triggered request is rooted in the published release only.
   const projection = resolveLocalComponentUpdateProjection({
     generatedAt: input.generatedAt,
     localComponentsStatus,
-    releaseManifest: input.releaseManifest,
-    availabilityCatalog: input.availabilityCatalog,
+    release: input.release,
     serviceConnected: true,
     serviceVersion: input.serviceVersion,
   });

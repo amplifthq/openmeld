@@ -1,16 +1,32 @@
 import type {
+  LocalComponentsAvailabilityCatalog,
   LocalComponentsReleaseManifest,
   LocalComponentsStatus,
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import {
-  resolveReleaseTriggeredOpenMeldToolsUpdate,
-  resolveReleaseTriggeredOpenMeldToolsUpdateDecision,
+  resolveReleaseTriggeredOpenMeldToolsUpdateDecision as resolveDecision,
+  resolveReleaseTriggeredOpenMeldToolsUpdate as resolveUpdate,
 } from "../local-components/automatic-update-trigger";
 
-type DecisionInput = Parameters<
-  typeof resolveReleaseTriggeredOpenMeldToolsUpdateDecision
->[0];
+// Core supplies the published release; these cases state it inline.
+type DecisionInput = Omit<Parameters<typeof resolveDecision>[0], "release"> & {
+  releaseManifest: LocalComponentsReleaseManifest | null;
+  availabilityCatalog?: LocalComponentsAvailabilityCatalog | null;
+};
+const withRelease = ({
+  releaseManifest,
+  availabilityCatalog = null,
+  ...input
+}: DecisionInput) => ({
+  ...input,
+  release: { manifest: releaseManifest, availabilityCatalog },
+});
+const resolveReleaseTriggeredOpenMeldToolsUpdateDecision = (
+  input: DecisionInput
+) => resolveDecision(withRelease(input));
+const resolveReleaseTriggeredOpenMeldToolsUpdate = (input: DecisionInput) =>
+  resolveUpdate(withRelease(input));
 type SkipReasonCode = Extract<
   ReturnType<typeof resolveReleaseTriggeredOpenMeldToolsUpdateDecision>,
   { status: "skipped" }
@@ -110,6 +126,7 @@ describe("release-triggered OpenMeld Tools updates", () => {
         },
         generatedAt: "2026-09-01T13:00:00.000Z",
         lane: "prod",
+        releaseManifest: null,
         serviceVersion: "0.3.139",
       })
     ).toBeNull();

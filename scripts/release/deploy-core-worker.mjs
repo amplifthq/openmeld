@@ -1,123 +1,81 @@
 #!/usr/bin/env node
 
+// Core's production build/deploy step for scripts/release/deploy-component.mjs.
+// Core uploads a version first so Cloudflare measures startup and applies any
+// Durable Object migration atomically, then moves 100% of traffic to it. The
+// version carries RELEASE_SHA; the CLI release manifest is read at runtime.
+
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-
+import { parseArgs } from "node:util";
 import {
   buildCoreBundleEvidenceStepSpec,
   runCoreStartupAdmission,
 } from "../cloudflare/core-startup-admission.mjs";
 import { buildCoreVersionReleaseStepSpecs } from "../cloudflare/core-version-deployment.mjs";
-import {
-  describeLocalComponentsAvailabilityCatalog,
-  readLocalComponentsAvailabilityCatalog,
-} from "./local-components-availability.mjs";
 import { cutoverConfigArgs } from "./postgresql-cutover-config.mjs";
-import { resolveCoreProjectionTag } from "./release-cli-resume.mjs";
-import { recordCoreDeploymentOutput } from "./worker-deployment-evidence.mjs";
+import { readPublishedCliRelease } from "./publish-cli.mjs";
 
 const FULL_COMMIT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 
 export async function deployCoreWorker(input = {}) {
   const cwd = input.cwd ?? process.cwd();
-  const env = {
-    ...(input.env ?? process.env),
-    ...(input.verifyLocalComponents
-      ? { OPENMELD_RELEASE_CHANNEL_SYNC_CHECK: "1" }
-      : {}),
-  };
+  const env = input.env ?? process.env;
   const adapters = {
-    readReleaseManifest:
-      input.adapters?.readReleaseManifest ??
-      (() =>
-        JSON.parse(
-          readFileSync(path.join(cwd, "release/local-components.json"), "utf8")
-        )),
-    readAvailabilityCatalog:
-      input.adapters?.readAvailabilityCatalog ??
-      readLocalComponentsAvailabilityCatalog,
-    readCoreWranglerConfig:
-      input.adapters?.readCoreWranglerConfig ??
-      (() =>
-        readFileSync(path.join(cwd, "services/core/wrangler.jsonc"), "utf8")),
-    readHeadSha:
-      input.adapters?.readHeadSha ??
-      (() =>
-        execFileSync(resolveCommandBinary("git"), ["rev-parse", "HEAD"], {
-          cwd,
-          encoding: "utf8",
-        }).trim()),
-    runStartupAdmission:
-      input.adapters?.runStartupAdmission ?? runCoreStartupAdmission,
-    runStep:
-      input.adapters?.runStep ?? ((step) => runStep({ ...step, cwd, env })),
+    readCoreWranglerConfig: () =>
+      readFileSync(path.join(cwd, "services/core/wrangler.jsonc"), "utf8"),
+    readHeadSha: () =>
+      execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd,
+        encoding: "utf8",
+      }).trim(),
+    readPublishedCliRelease: () => readPublishedCliRelease({ cwd, env }),
+    runStartupAdmission: runCoreStartupAdmission,
+    runStep: (step) => runStep({ ...step, cwd, env }),
+    ...input.adapters,
   };
-  const headSha = adapters.readHeadSha();
-  const releaseSha = input.releaseSha ?? headSha;
-  if (!FULL_COMMIT_SHA_PATTERN.test(releaseSha)) {
-    throw new Error("Core deploy requires an exact release SHA");
-  }
-  if (releaseSha !== headSha) {
+  const releaseSha = input.releaseSha;
+  if (!FULL_COMMIT_SHA_PATTERN.test(releaseSha ?? "")) {
     throw new Error(
-      `Core deploy release SHA ${releaseSha} does not match checked-out HEAD ${headSha}`
+      "Core deploy requires --release-sha with an exact commit SHA."
     );
   }
-
-  if (input.verifyLocalComponents) {
-    adapters.runStep({
-      args: ["run", "deploy:release-ready"],
-      command: "pnpm",
-      label: "Verify published local-components channel alignment",
-    });
+  const headSha = adapters.readHeadSha();
+  if (releaseSha !== headSha) {
+    throw new Error(
+      `Core deploy release SHA ${releaseSha} does not match checked-out HEAD ${headSha}.`
+    );
+  }
+  const release = await adapters.readPublishedCliRelease();
+  if (!release) {
+    throw new Error(
+      "Core reads the CLI release manifest from R2 at runtime and would block every Wake without it. Seed it first: node scripts/release/publish-cli.mjs seed-manifest --from <manifest.json>"
+    );
   }
   adapters.runStep({
     args: ["--dir", "services/core", "run", "build:workspace-dependencies"],
     command: "pnpm",
-    label: "Build Core receiver dependencies",
+    label: "Build Core dependencies",
   });
   adapters.runStep(buildCoreBundleEvidenceStepSpec());
-  const projectionTag =
-    input.tag ??
-    (env.OPENMELD_RELEASE_RECEIPT_CONTEXT
-      ? resolveCoreProjectionTag({ cwd })
-      : undefined);
-  const catalog = await adapters.readAvailabilityCatalog({
-    releaseManifest: adapters.readReleaseManifest(),
-  });
-  const availability = describeLocalComponentsAvailabilityCatalog(catalog);
-  process.stdout.write(
-    `[production-release] availabilityCatalogSha256=${availability.sha256}\n`
-  );
-  const evidence = await adapters.runStartupAdmission({
-    cwd,
-    defines: [availability.define],
-    env,
-    releaseSha,
-    tag: projectionTag,
-  });
-  const releaseSteps = buildCoreVersionReleaseStepSpecs({
+  const evidence = await adapters.runStartupAdmission({ cwd, env, releaseSha });
+  for (const step of buildCoreVersionReleaseStepSpecs({
     configArgs: cutoverConfigArgs("core", { cwd, env }),
     trafficPercent: evidence.trafficPercent,
     versionId: evidence.versionId,
     wranglerConfigSource: adapters.readCoreWranglerConfig(),
-  });
-  for (const step of releaseSteps) {
+  })) {
     adapters.runStep(step);
   }
-  recordCoreDeploymentOutput({
-    env,
-    sourceSha: releaseSha,
-    evidence,
-    projectionTag,
-  });
+  return evidence;
 }
 
 function runStep(input) {
-  process.stdout.write(`\n[production-release] ${input.label}\n`);
-  const result = spawnSync(resolveCommandBinary(input.command), input.args, {
+  process.stdout.write(`\n[core] ${input.label}\n`);
+  const result = spawnSync(input.command, input.args, {
     cwd: input.cwd,
     env: input.env,
     stdio: "inherit",
@@ -132,48 +90,11 @@ function runStep(input) {
   }
 }
 
-function resolveCommandBinary(command) {
-  if (process.platform !== "win32") {
-    return command;
-  }
-  if (command === "git") {
-    return "git.exe";
-  }
-  if (command === "pnpm") {
-    return "pnpm.cmd";
-  }
-  return command;
-}
-
-function parseArguments(argumentsList) {
-  const options = {};
-  for (let index = 0; index < argumentsList.length; index += 1) {
-    const argument = argumentsList[index];
-    const value = argumentsList[index + 1];
-    if (argument === "--verify-local-components") {
-      options.verifyLocalComponents = true;
-    } else if (argument === "--release-sha") {
-      options.releaseSha = requireArgumentValue(argument, value);
-      index += 1;
-    } else if (argument === "--tag") {
-      options.tag = requireArgumentValue(argument, value);
-      index += 1;
-    } else {
-      throw new Error(`Unknown argument: ${String(argument)}`);
-    }
-  }
-  return options;
-}
-
-function requireArgumentValue(argument, value) {
-  if (!(value && !value.startsWith("--"))) {
-    throw new Error(`${argument} requires a value`);
-  }
-  return value;
-}
-
 if (pathToFileURL(process.argv[1] ?? "").href === import.meta.url) {
-  deployCoreWorker(parseArguments(process.argv.slice(2))).catch((error) => {
+  const { values } = parseArgs({
+    options: { "release-sha": { type: "string" } },
+  });
+  deployCoreWorker({ releaseSha: values["release-sha"] }).catch((error) => {
     process.stderr.write(
       `${error instanceof Error ? error.message : String(error)}\n`
     );

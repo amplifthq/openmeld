@@ -16,6 +16,8 @@ import { parse } from "yaml";
 
 import { resolveRunContext } from "./final-candidate-run-context.mjs";
 
+const TITLE_BASE_SUFFIX = / on [0-9a-f]{40}$/u;
+
 const captured = JSON.parse(
   readFileSync(
     new URL("./fixtures/github-fork-final-candidate.json", import.meta.url),
@@ -32,6 +34,8 @@ function candidateRun() {
     repository: input.run.repository,
     workflow_run: { id: input.run.id, run_attempt: input.run.run_attempt },
   };
+  input.run.display_title = `Final Candidate PR #${input.pr.number} @ ${input.pr.head.sha} [standard] on ${input.main.sha}`;
+  input.baseComparison = { ahead_by: 0, behind_by: 0, status: "identical" };
   return input;
 }
 
@@ -76,7 +80,22 @@ test("binds a fork result to the exact GitHub run, attempt, PR and current base"
       x.pr.base.repo.id += 1;
     },
     (x) => {
-      x.main.sha = "a".repeat(40);
+      x.event.action = "in_progress";
+    },
+    (x) => {
+      x.run.status = "in_progress";
+    },
+    (x) => {
+      x.baseComparison.status = "diverged";
+    },
+    (x) => {
+      x.baseComparison.status = "behind";
+    },
+    (x) => {
+      x.baseComparison = { ahead_by: 1, behind_by: 1, status: "ahead" };
+    },
+    (x) => {
+      x.run.display_title = x.run.display_title.replace(TITLE_BASE_SUFFIX, "");
     },
     (x) => {
       x.pr.state = "closed";
@@ -97,12 +116,12 @@ test("binds a fork result to the exact GitHub run, attempt, PR and current base"
   }
 });
 
-test("does not replace a completed result with a delayed pending event", () => {
+test("keeps a result bound to its exact base after main advances past it", () => {
   const input = candidateRun();
-  input.event.action = "in_progress";
-  assert.equal(resolveRunContext(input), null);
-  input.run.status = "in_progress";
-  assert.equal(resolveRunContext(input).job_result, "pending");
+  const base = input.main.sha;
+  input.main.sha = "b".repeat(40);
+  input.baseComparison = { ahead_by: 3, behind_by: 0, status: "ahead" };
+  assert.equal(resolveRunContext(input).base, base);
 });
 
 test("preserves failed, canceled and skipped outcomes for the evidence verifier", () => {
@@ -190,12 +209,10 @@ else process.exit(1);
             POSTS: posts,
             CANDIDATE_REPOSITORY: input.pr.base.repo.full_name,
             CANDIDATE_HEAD_SHA: input.pr.head.sha,
-            CANDIDATE_BASE_SHA: input.main.sha,
             CANDIDATE_PR_NUMBER: String(input.pr.number),
             CANDIDATE_RUN_ID: String(input.run.id),
             CANDIDATE_RUN_ATTEMPT: String(input.run.run_attempt),
             CANDIDATE_SERVER_URL: "https://github.com",
-            RUN_ACTION: "completed",
             VERIFIED_DESCRIPTION: "Verified",
             VERIFIED_STATE: scenario === "missing-evidence" ? "" : "success",
             VERIFIER_RESULT:

@@ -7,7 +7,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { selectCurrentOwnerServiceSessionsByDeviceLane } from "../runtime-transport/application/current-owner-service-sessions";
-import { projectPeopleComputerConnection } from "./projection";
+import { resolvePeopleComputerConnectionStatus } from "./projection";
 
 /** Authorization and liveness are checked again at the mutation boundary.
  * Selecting an enrolled computer never silently changes the requested device/lane.
@@ -45,7 +45,7 @@ export function requirePeopleComputerControlSession(input: {
       )
     : undefined;
   if (!session) {
-    const connection = projectPeopleComputerConnection({
+    const connection = resolvePeopleComputerConnectionStatus({
       deviceIds: [target.deviceId],
       ownerService: input.ownerService,
     });

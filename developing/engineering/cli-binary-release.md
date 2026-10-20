@@ -408,12 +408,11 @@ xcrun notarytool store-credentials "openmeld-notary" \
   --issuer <ISSUER_ID>
 ```
 
-After the credentials validate, the normal local production command uses the
-same signing, notarization, verification, R2, npm, tag, and Core rollout path as
-GitHub:
+After the credentials validate, the local lane uses the same signing,
+notarization, verification, R2, npm, and tag path as GitHub:
 
 ```sh
-pnpm run release:deploy:local -- --scope cli
+pnpm run deploy -- --scope cli --lane local
 ```
 
 Local release still requires a clean worktree and the normal production npm,
@@ -423,7 +422,7 @@ names only when rotating configuration:
 ```sh
 APPLE_TEAM_ID=<TEAM_ID> \
 APPLE_NOTARY_KEYCHAIN_PROFILE=<PROFILE_NAME> \
-pnpm run release:deploy:local -- --scope cli
+pnpm run deploy -- --scope cli --lane local
 ```
 
 Do not export only part of the CI credential set during a local release. Any CI
@@ -433,58 +432,30 @@ Keychain identity and `openmeld-notary` profile instead.
 
 ### Release Operator Checklist
 
-For the normal GitHub production path:
-
-1. Start from current `main` in a dedicated release worktree; prepare the tracked
-   version and `release/local-components.json` with the base-aware
-   `pnpm release:local-components stamp --next ...` command. The command reads
-   npm `latest` and R2 stable, prints the decision, and fails without guessing
-   when either channel is unavailable. Use mutually exclusive
-   `--version X.Y.Z` only for an already-approved explicit target. The stamp
-   verifies its output; the release workflow repeats readiness before upload.
-2. Complete pending native migrations for the exact release SHA through the
-   guarded local `db` scope in
-   [Production Database Release](production-release.md#production-database-release).
-   The CLI publisher also deploys Core; its PostgreSQL preflight verifies the
-   deployed target, native journal and retained import evidence. A D1 pending
-   list does not prove PostgreSQL readiness. Use the supported CLI release lane
-   with the exact source SHA after its database prerequisites pass. Publication
-   verifies release readiness before its first irreversible action, so a
-   separate repeated verification run is unnecessary.
-3. Require an `Apple notarization accepted` submission ID before treating the
-   binary upload as valid.
-4. Close the release only after the npm version, production CLI manifest,
-   downloadable raw and gzip artifacts, release tag, and Core projection all
-   agree.
-
-For an explicitly approved local production release:
-
-1. Use a clean worktree at the exact `main` commit intended for release.
-2. Confirm the local Developer ID identity, `openmeld-notary` Keychain profile,
-   npm authentication, and Cloudflare production credentials are available.
-3. Run `pnpm run release:deploy:local -- --scope cli`; deploy owns the required
-   preflight and the complete binary release path.
-4. Require the same notarization, upload, npm, tag, Core, and channel-alignment
-   results as the GitHub path.
-
-For a separate go/no-go handoff, `pnpm run release:verify:local -- --scope cli`
-provides full validation before the deploy. It is not a default extra step.
-
-Do not run `upload-cli-binary.mjs` as the normal production entrypoint. It is a
-scoped binary-channel operation for an approved recovery or diagnostics flow;
-the complete local release entrypoint is
-`pnpm run release:deploy:local -- --scope cli`.
-
-- For an approved scoped recovery or diagnostics flow, upload the binary and
-  manifest to the production R2 bucket with:
+The CLI releases as the `cli` component of
+[production release](production-release.md#cli-release):
 
 ```sh
-node scripts/release/upload-cli-binary.mjs
+pnpm run deploy -- --scope cli --lane github
 ```
 
-- The upload writes the raw executable, `<artifact>.gz`, and any materially
+1. The feature PR bumps `clients/openmeld-cli/package.json` and records the
+   `available` or `required` decision in `release/local-components-policy.json`.
+2. Database prerequisites release first (`--scope db`) when the CLI needs them.
+3. Require an `Apple notarization accepted` submission ID before treating the
+   binary upload as valid.
+4. Close the release only after the npm version and `gitHead`, the production
+   CLI manifest, downloadable raw and gzip artifacts, the release tag, and the
+   R2 `cli/local-components.json` all agree.
+
+`--lane local` runs the same `publish-cli.mjs` from a clean checkout at the
+exact SHA with the local Developer ID identity, `openmeld-notary` Keychain
+profile, npm authentication, and Cloudflare production credentials. A rerun of
+the same SHA resumes after the last completed stage.
+
+- The publisher writes the raw executable, `<artifact>.gz`, and any materially
   smaller exact-base delta to `openmeld-desktop-downloads-prod/cli/`.
-- The upload writes the manifest to
+- It writes the binary manifest to
   `openmeld-desktop-downloads-prod/cli/manifest.json`.
 - The npm package field `openmeld.minRequiredCliVersion` is the tracked CLI
   compatibility floor. The same guarded release reads that field into
@@ -528,46 +499,15 @@ node scripts/release/upload-cli-binary.mjs
   share a version, so candidate order is not selection authority.
 - Immutable raw, gzip, and delta objects are uploaded before the mutable
   manifest. A manifest must never advertise a delta that is not downloadable.
-- A new production CLI version must publish its binary channel before Core can
-  advertise that version. Use the binary release path:
-
-```sh
-pnpm run release:deploy:local -- --scope cli
-```
-
-- The release builds and uploads the manifest and platform artifacts before its
-  final Core deploy. That Core deploy runs the production channel-sync gate:
-  the stable channel must not trail `release/local-components.json`; when the
-  versions match, every declared platform raw, gzip, and delta URL must answer
-  successfully with complete manifest metadata.
-- Partial publication recovery uses the same guarded local command. The
-  internal resumable publisher probes completed immutable stages and skips
-  them only while the CLI and Core shared leases remain held.
-- `pnpm run deploy:core:local-components` is the scoped Core redeploy path for
-  an already-published release. It enables the same channel-sync gate.
-
-- `.github/workflows/cli-release.yml` is the GitHub Actions entrypoint for a
-  trusted CLI publish and its production rollout. The npm package's trusted
-  publisher must match repository `amplifthq/openmeld`, workflow
-  `cli-release.yml`, and GitHub Environment `production`. The workflow uses
-  GitHub OIDC with `id-token: write`; do not add an `NPM_TOKEN` fallback. npm
-  provenance is explicitly disabled because the source repository is private;
-  trusted publishing still uses short-lived OIDC authentication, while npm's
-  public Sigstore provenance service only supports public source repositories.
-  The binary-publishing job runs on macOS because Apple Developer ID signing
-  and `notarytool` are required before R2 publication.
-- The workflow defaults to a non-publishing verify mode. Explicit release mode
-  publishes the npm package and signed/notarized binary channel,
-  creates the tag, and deploys Core through the guarded release command. It
-  does not touch the shared database, Auth, Remote Agent, Gateway, or Web. Coordinate any broader
-  rollout through `.github/workflows/release-on-main.yml`.
-- Keep the default `release_path` set to `normal` for every complete release.
-  The legacy `resume-after-binary-upload` and `resume-after-npm-publish` inputs
-  remain accepted, but all three inputs run the same internal resumable
-  publisher from trusted current-main control. Pass the exact original
-  `release_sha`; read-only completion probes skip an already published binary,
-  npm version, matching release tag, or active Core projection without
-  overwriting immutable artifacts.
+- A new production CLI version publishes its binary channel before npm and
+  before the release manifest that Core reads.
+- `.github/workflows/cli-release.yml` is the GitHub entrypoint, called by
+  `deploy.yml`. The npm package's trusted publisher must match repository
+  `amplifthq/openmeld`, workflow `cli-release.yml`, and GitHub Environment
+  `production`. The workflow uses GitHub OIDC with `id-token: write`; do not add
+  an `NPM_TOKEN` fallback. npm provenance is disabled because the source
+  repository is private. The publishing job runs on macOS for Developer ID
+  signing and `notarytool`; the Windows helper builds in the same run.
 - The default production setup script uses the binary distribution on supported
   macOS computers. Use `?dist=npm` to force the npm lane.
   The Apple silicon bootstrap uses macOS `plutil` to read the exact stable CLI
@@ -583,27 +523,15 @@ pnpm run release:deploy:local -- --scope cli
 
 ## Source-specific binary update projection
 
-Binary publishers include `componentPolicy` from the exact source release manifest.
+Binary publishers include `componentPolicy` from the exact release manifest.
 Each policy version must match its selected CLI or Service artifact; never rewrite
-a bundle hash to an executable SHA-256. Both guarded Core deployment paths compile
-the same availability mechanism. Stable snapshot reuse avoids conflicting mutable
-reads in receiver deployment. A Windows-preview 404 means channel absence; malformed
-metadata or network failure aborts compilation. Catalogue SHA-256 is logged for the
-exact define passed to startup admission and is associated with the newly admitted
-Worker version. The global projection tag proves compatibility identity only,
-not catalogue freshness.
-
-Windows preview publication is not release closeout by itself. After the preview
-manifest becomes public, a fresh guarded Core activation must compile that
-manifest. The Core stage of a CLI publication or another guarded Core release
-can already satisfy this requirement: retain its exact-source catalogue
-digest/admission evidence and verify Windows status on that Worker. Do not
-redeploy again when that proof already exists. Otherwise run the guarded Core
-release with `--redeploy`. A tag-only no-op/resume receipt or an activation before
-preview publication does not prove catalogue freshness. Deploy all strict
-Gateway/Core/Web report receivers before publishing the new CLI/Service source field.
-This code-only change uses base-aware deferred release readiness; version and
-release manifest stamping remain a separate authorized publication action.
+a bundle hash to an executable SHA-256. Core reads `cli/local-components.json`,
+`cli/manifest.json`, and `cli/windows-preview/manifest.json` from R2 at runtime
+and caches them for one minute per isolate. A Windows-preview 404 means channel
+absence; a missing release manifest fails closed and blocks Wake until it is
+seeded. A read error keeps the last valid value. A new CLI or Windows preview
+therefore needs no Core deploy. Deploy all strict Gateway/Core/Web report
+receivers before publishing a new CLI/Service source field.
 
 The native Windows preview builder currently builds a fresh GUI Service carrier
 at the CLI version. It rejects a retained older Service policy before compilation;

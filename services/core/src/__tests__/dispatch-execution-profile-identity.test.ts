@@ -27,6 +27,7 @@ import { REQUIRED_SERVICE_UPDATE_RELEASE_MANIFEST } from "./local-components-rel
 
 const recordDispatchAttemptExecutionOwnershipMock = vi.fn();
 
+import { createPublishedCliReleasesBucket } from "../../test-support/published-local-components-release";
 import {
   type DispatchExecutionValidationError,
   deliverDispatchMessageToDaemon,
@@ -128,7 +129,10 @@ function useRequiredServiceUpdatePolicy() {
     .mockImplementation((input) =>
       resolveLocalComponentUpdateProjection({
         ...input,
-        releaseManifest: REQUIRED_SERVICE_UPDATE_RELEASE_MANIFEST,
+        release: {
+          manifest: REQUIRED_SERVICE_UPDATE_RELEASE_MANIFEST,
+          availabilityCatalog: null,
+        },
       })
     );
 }
@@ -340,6 +344,7 @@ describe("dispatch execution profile identity boundaries", () => {
             "postgresql://127.0.0.1:1/unexpected_test_database_access",
         }),
         env: {
+          OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
           OPENMELD_AUTH_WORKER: undefined,
           OPENMELD_POSTGRESQL: {
             connectionString:
@@ -378,6 +383,7 @@ describe("dispatch execution profile identity boundaries", () => {
             "postgresql://127.0.0.1:1/unexpected_test_database_access",
         }),
         env: {
+          OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
           OPENMELD_AUTH_WORKER: {
             resolveProfileById: vi.fn().mockResolvedValue({
               ok: false,
@@ -422,6 +428,7 @@ describe("dispatch execution profile identity boundaries", () => {
           "postgresql://127.0.0.1:1/unexpected_test_database_access",
       }),
       env: {
+        OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
         OPENMELD_AUTH_WORKER: authRpc,
         OPENMELD_POSTGRESQL: {
           connectionString:
@@ -479,6 +486,7 @@ describe("dispatch execution profile identity boundaries", () => {
           "postgresql://127.0.0.1:1/unexpected_test_database_access",
       }),
       env: {
+        OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
         OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
         OPENMELD_POSTGRESQL: {
           connectionString:
@@ -516,6 +524,7 @@ describe("dispatch execution profile identity boundaries", () => {
           "postgresql://127.0.0.1:1/unexpected_test_database_access",
       }),
       env: {
+        OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
         OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
         OPENMELD_POSTGRESQL: {
           connectionString:
@@ -571,6 +580,7 @@ describe("dispatch execution profile identity boundaries", () => {
             "postgresql://127.0.0.1:1/unexpected_test_database_access",
         }),
         env: {
+          OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
           OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
           OPENMELD_POSTGRESQL: {
             connectionString:
@@ -632,6 +642,7 @@ describe("dispatch execution profile identity boundaries", () => {
             "postgresql://127.0.0.1:1/unexpected_test_database_access",
         }),
         env: {
+          OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
           OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
           OPENMELD_POSTGRESQL: {
             connectionString:
@@ -678,6 +689,7 @@ describe("dispatch execution profile identity boundaries", () => {
           "postgresql://127.0.0.1:1/unexpected_test_database_access",
       }),
       env: {
+        OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
         OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
         OPENMELD_POSTGRESQL: {
           connectionString:
@@ -719,6 +731,7 @@ describe("dispatch execution profile identity boundaries", () => {
             "postgresql://127.0.0.1:1/unexpected_test_database_access",
         }),
         env: {
+          OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
           OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
           OPENMELD_POSTGRESQL: {
             connectionString:
@@ -764,6 +777,7 @@ describe("dispatch execution profile identity boundaries", () => {
             "postgresql://127.0.0.1:1/unexpected_test_database_access",
         }),
         env: {
+          OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
           OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
           OPENMELD_POSTGRESQL: {
             connectionString:
@@ -806,6 +820,7 @@ describe("dispatch execution profile identity boundaries", () => {
             "postgresql://127.0.0.1:1/unexpected_test_database_access",
         }),
         env: {
+          OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
           OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
           OPENMELD_POSTGRESQL: {
             connectionString:
@@ -850,6 +865,7 @@ describe("dispatch execution profile identity boundaries", () => {
             "postgresql://127.0.0.1:1/unexpected_test_database_access",
         }),
         env: {
+          OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
           OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
           OPENMELD_POSTGRESQL: {
             connectionString:
@@ -894,6 +910,7 @@ describe("dispatch execution profile identity boundaries", () => {
             "postgresql://127.0.0.1:1/unexpected_test_database_access",
         }),
         env: {
+          OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
           OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
           OPENMELD_POSTGRESQL: {
             connectionString:
@@ -939,6 +956,7 @@ describe("dispatch execution profile identity boundaries", () => {
             "postgresql://127.0.0.1:1/unexpected_test_database_access",
         }),
         env: {
+          OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
           OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
           OPENMELD_POSTGRESQL: {
             connectionString:
@@ -986,6 +1004,7 @@ describe("dispatch execution profile identity boundaries", () => {
           "postgresql://127.0.0.1:1/unexpected_test_database_access",
       }),
       env: {
+        OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
         OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
         OPENMELD_POSTGRESQL: {
           connectionString:
@@ -1037,6 +1056,7 @@ describe("dispatch execution profile identity boundaries", () => {
             "postgresql://127.0.0.1:1/unexpected_test_database_access",
         }),
         env: {
+          OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
           OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
           OPENMELD_POSTGRESQL: {
             connectionString:
@@ -1092,6 +1112,7 @@ describe("dispatch execution profile identity boundaries", () => {
             "postgresql://127.0.0.1:1/unexpected_test_database_access",
         }),
         env: {
+          OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
           OPENMELD_AUTH_WORKER: createAvailableAuthRpc(),
           OPENMELD_POSTGRESQL: {
             connectionString:

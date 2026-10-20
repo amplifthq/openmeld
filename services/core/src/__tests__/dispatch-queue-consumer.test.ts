@@ -27,6 +27,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createProjectionPostgresBinding } from "../../test-support/postgresql-query.test-support";
+import { createPublishedCliReleasesBucket } from "../../test-support/published-local-components-release";
 import type { CoreAgentExecutionReadiness } from "../agent-execution/application/agent-execution-readiness-service";
 // biome-ignore lint/performance/noNamespaceImport: Needed to verify dispatch admission consumes the canonical Core readiness owner.
 import * as agentExecutionReadinessService from "../agent-execution/application/agent-execution-readiness-service";
@@ -654,6 +655,7 @@ describe("handleDispatchQueueBatch", () => {
       });
     return {
       OPENMELD_POSTGRESQL: resolvedDb,
+      OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
       OPENMELD_SPACES: {} as DurableObjectNamespace<any>,
       ...(authRpc === null
         ? {}

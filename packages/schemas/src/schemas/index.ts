@@ -701,6 +701,7 @@ export {
   runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema,
   runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema,
   runtimeTransportAgentProfileExecutionTargetMutationRequestSchema,
+  runtimeTransportAgentProfileLegacyConversationMutationRequestSchema,
   runtimeTransportAgentProfileOperationalContextSchema,
   runtimeTransportAgentProfileOperationalContextsRequestSchema,
   runtimeTransportAgentProfileOperationalContextsResponseSchema,
@@ -3000,6 +3001,10 @@ export {
   waitlistJoinStatusSchema,
 } from "./http/waitlist";
 export { wakeFailureListSchema } from "./http/wake-failure-list";
+export {
+  resolveWorkerReleaseSha,
+  workerHealthResponseSchema,
+} from "./http/worker-health";
 export {
   findOpenMeldToolsUpdateFailureCode,
   formatLocalComponentsSummaryDescription,

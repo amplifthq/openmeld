@@ -5,14 +5,12 @@ import { isFinalCandidateControlPath } from "./final-candidate-control-paths.mjs
 
 test("trusts production release checks and their orchestration from current main", () => {
   for (const name of [
-    "hosted-production-preflight",
+    "deploy",
+    "deploy-component",
+    "live-release",
     "production-artifact-check",
-    "production-release",
-    "production-release-status",
-    "production-release-status-regressions",
-    "production-stage-admission",
-    "production-train-artifact-admission",
     "production-web-health",
+    "publish-cli",
     "renderer-build",
   ]) {
     assert.equal(

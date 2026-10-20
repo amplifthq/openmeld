@@ -112,6 +112,7 @@ import {
 import { readTaskKnowledge } from "../../space/dispatch-knowledge-read";
 import { resolveProviderRuntimeDispatchContinuation } from "../continuation/provider-runtime-continuation";
 import {
+  mayRecoverWorkingFolder,
   resolveRecoveredLedgerConversation,
   resolveWorkingFolderRecovery,
 } from "../continuation/working-folder-recovery";
@@ -230,9 +231,10 @@ import {
   captureExecutionContextCompletion,
   executionContextFileAccessBoundary,
   executionContextLedgerPolicy,
-  executionContextResourceScope,
+  executionContextResourceClaim,
   executionContextWorkingDirectory,
   prepareExecutionContextConversation,
+  resolveQueuedFolderRoots,
 } from "./execution-context-session";
 import {
   deriveExecutionContextComputerFileAccessPolicy,
@@ -414,6 +416,7 @@ export function enqueueDispatchDeliverFrame(input: {
         correlation,
         currentSocketRef,
         deliverRequest,
+        parsedQueueTask,
         queueLogMeta,
       }),
     onError: (error) => {
@@ -431,6 +434,31 @@ export function enqueueDispatchDeliverFrame(input: {
   });
 }
 
+/**
+ * The shared roots of a task without an Execution Context: the Profile's
+ * current folder, or unknown when an OpenCode continuation may recover another
+ * working folder during preparation.
+ */
+function resolveQueuedLegacyFolderRoots(
+  input: EnqueueDispatchDeliverFrameInput,
+  queued: {
+    deliverRequest: RuntimeTransportDeliverDispatchRequest;
+    parsedQueueTask: ReturnType<typeof parseDispatchTaskForQueue>;
+  }
+): string[] | null {
+  const { deliverRequest, parsedQueueTask } = queued;
+  return parsedQueueTask &&
+    !mayRecoverWorkingFolder({
+      agentControllerRef: parsedQueueTask.agentControllerRef,
+      nativeSessionId: parsedQueueTask.agentControllerConversationId,
+      hasExecutionContext: Boolean(parsedQueueTask.executionContext),
+    })
+    ? resolveQueuedFolderRoots(
+        input.routeByProfileId.get(deliverRequest.profileId)
+      )
+    : null;
+}
+
 function admitDispatchDeliverFrame(
   input: EnqueueDispatchDeliverFrameInput,
   admitted: {
@@ -438,6 +466,7 @@ function admitDispatchDeliverFrame(
     correlation: ReturnType<typeof buildDispatchCorrelation>;
     currentSocketRef: CurrentDaemonSocketRef;
     deliverRequest: RuntimeTransportDeliverDispatchRequest;
+    parsedQueueTask: ReturnType<typeof parseDispatchTaskForQueue>;
     queueLogMeta: ReturnType<typeof resolveDispatchQueueLogMeta>;
   }
 ): void {
@@ -446,6 +475,7 @@ function admitDispatchDeliverFrame(
     correlation,
     currentSocketRef,
     deliverRequest,
+    parsedQueueTask,
     queueLogMeta,
   } = admitted;
   const { pendingAgentInteractionRegistry } = input;
@@ -461,9 +491,16 @@ function admitDispatchDeliverFrame(
       : deliverRequest;
   const enqueueResult = input.localExecutionSlots.request({
     executionContextId: admission.context?.id ?? null,
-    ...(admission.folderKey ? { folderKey: admission.folderKey } : {}),
     ...(admission.folderLabel ? { folderLabel: admission.folderLabel } : {}),
-    resourceScope: executionContextResourceScope(admission.context),
+    resourceClaim: executionContextResourceClaim({
+      context: admission.context,
+      currentFolderRoots: admission.context
+        ? (admission.folderRoots ?? null)
+        : resolveQueuedLegacyFolderRoots(input, {
+            deliverRequest,
+            parsedQueueTask,
+          }),
+    }),
     adapterId: queueLogMeta.adapterId,
     attemptId: correlation.attemptId,
     controllerKey: queueLogMeta.controllerKey,

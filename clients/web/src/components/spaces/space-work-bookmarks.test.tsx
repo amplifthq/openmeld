@@ -37,6 +37,7 @@ const queued: SpaceInputQueueResponse["items"][number] = {
 class TestIntersectionObserver implements IntersectionObserver {
 	root = null;
 	rootMargin = "0px";
+	readonly scrollMargin = "0px 0px 0px 0px";
 	thresholds = [0, 0.3, 0.6, 1];
 	private target: Element | null = null;
 	private readonly callback: IntersectionObserverCallback;

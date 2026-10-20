@@ -9,7 +9,6 @@ import {
 } from "@openmeld/db/postgresql";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
-import publishedManifest from "../../../release/local-components.json";
 import { createAgentExecutionReadinessReads } from "../src/agent-execution/application/agent-execution-readiness-reads";
 import {
   preloadRuntimeDeviceDisplayNamesForOwner,
@@ -25,6 +24,10 @@ import { ensurePrimaryAgentProfileBindingRecord } from "../src/agent-profile-bin
 import type { CoreBindings } from "../src/lib/bindings";
 import { acceptRuntimeAgentControllerReportRecord } from "../src/runtime-registry/infrastructure/postgresql/runtime-agent-controller-report-repo";
 import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/postgresql/runtime-registry-repo";
+import {
+  createPublishedCliReleasesBucket,
+  PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
+} from "../test-support/published-local-components-release";
 import { createAvailableCodexAgentControllerInterface } from "./helpers/agent-controller-interface.test-support";
 import {
   createFaultInjectingPostgresDatabase,
@@ -43,7 +46,7 @@ const AVAILABLE_CODEX_AGENT_CONTROLLER_INTERFACE =
 // Physical routing scenarios use the matching supported release; version
 // eligibility belongs to the local-component update tests.
 const CURRENT_SERVICE_VERSION =
-  publishedManifest.components.service.bundleVersion;
+  PUBLISHED_LOCAL_COMPONENTS_MANIFEST.components.service.bundleVersion;
 const COMPATIBLE_DAEMON_EXECUTION_CONTRACT = {
   expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
@@ -390,6 +393,7 @@ describe("agent execution readiness through the PostgreSQL binding", () => {
         },
       });
       await acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: GENERATED_AT_MS,
         report: {
@@ -610,6 +614,7 @@ describe("agent execution readiness through the PostgreSQL binding", () => {
         },
       });
       await acceptRuntimeAgentControllerReportRecord({
+        authFreshnessRequired: true,
         db: harness.db,
         nowMs: GENERATED_AT_MS,
         report: {
@@ -713,6 +718,7 @@ function createLocalStateRoutedEnv(input: {
       workingFolderBindingId: input.workingFolderBindingId,
     }),
     OPENMELD_POSTGRESQL: postgresTestBinding(input.db),
+    OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
   } as unknown as CoreBindings;
 }
 async function seedAgentProfileOrganizationContext(

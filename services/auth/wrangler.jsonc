@@ -73,6 +73,8 @@
     ]
   },
   "vars": {
+    // Production deploys set the exact source with --var RELEASE_SHA:<sha>.
+    "RELEASE_SHA": "",
     "OPENMELD_WORKER_ENVIRONMENT": "local",
     "BETTER_AUTH_URL": "http://localhost:8788",
     "WEB_APP_URL": "http://localhost:3000",
@@ -150,6 +152,8 @@
         "required": ["BETTER_AUTH_OPENMELD_SECRET"]
       },
       "vars": {
+        // Production deploys set the exact source with --var RELEASE_SHA:<sha>.
+        "RELEASE_SHA": "",
         "OPENMELD_WORKER_ENVIRONMENT": "stg",
         "BETTER_AUTH_URL": "https://auth.staging.openmeld.ai",
         "WEB_APP_URL": "https://app.staging.openmeld.ai",
@@ -229,6 +233,8 @@
         ]
       },
       "vars": {
+        // Production deploys set the exact source with --var RELEASE_SHA:<sha>.
+        "RELEASE_SHA": "",
         "OPENMELD_WORKER_ENVIRONMENT": "prod",
         "BETTER_AUTH_URL": "https://auth.openmeld.ai",
         "WEB_APP_URL": "https://app.openmeld.ai",

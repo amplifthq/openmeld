@@ -773,39 +773,18 @@ setup.
 
 Production workflows intentionally reuse package scripts.
 
-- Production dispatchers:
-  - [release-on-main.yml](../.github/workflows/release-on-main.yml) selects one
-    Worker/database scope by default; `cloud` and `full` are explicit.
-  - [cli-release.yml](../.github/workflows/cli-release.yml) publishes CLI/Core
-    by default; its `full` rollout is explicit.
-
-- Secret sync workflows:
-  - [sync-auth-worker-secrets.yml](../.github/workflows/sync-auth-worker-secrets.yml)
-  - [sync-web-worker-secrets.yml](../.github/workflows/sync-web-worker-secrets.yml)
-- Deploy workflows:
-  - [deploy-auth-worker.yml](../.github/workflows/deploy-auth-worker.yml)
-  - [deploy-core-worker.yml](../.github/workflows/deploy-core-worker.yml)
-  - [deploy-gateway-worker.yml](../.github/workflows/deploy-gateway-worker.yml)
-  - [deploy-remote-agent-worker.yml](../.github/workflows/deploy-remote-agent-worker.yml)
-  - [deploy-web.yml](../.github/workflows/deploy-web.yml)
+- [deploy.yml](../.github/workflows/deploy.yml) runs one job per component from
+  `release/components.mjs`, each calling `scripts/release/deploy-component.mjs`
+  for one SHA. [cli-release.yml](../.github/workflows/cli-release.yml) is its
+  CLI job.
 
 The workflow contract is:
 
-1. Secret workflows create a temporary `.dev.vars.prod` file and call `sync:secrets:prod`.
-2. Component deploy workflows check out one captured release SHA, run the
-   component's scoped release verification, call `sync:config:prod` once, and
-   perform a lightweight post-deploy health check.
-3. Component workflows share the cached pnpm setup action. They do not apply
-   shared database migrations.
-4. Production PostgreSQL migrations use the guarded local `db` scope before
-   dependent Workers. The legacy `db:release:prod` command rejects this backend;
-   do not substitute a hosted D1 release for native migration acceptance.
-5. Web deploy creates a temporary `.dev.vars.prod` because the production build
-   needs `WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET`.
-6. Core, Gateway, and Remote Agent own production Worker secrets but do not yet
-   have dedicated secret-sync workflows. Operators must supply the
-   package-local `.dev.vars.prod` source and run that package's
-   `sync:secrets:prod`; deploy does not sync those secrets.
+1. Each job checks out release control from `main` and product code from the
+   SHA, runs the component's deploy steps, and stops on a failed health check.
+2. The `db` job applies PostgreSQL migrations before dependent Workers.
+3. Deploy does not sync Worker secrets. Operators supply the package-local
+   `.dev.vars.prod` source and run that package's `sync:secrets:prod`.
 
 GitHub reserves the `GITHUB_` prefix for Actions secrets. The Auth runtime
 contract remains `GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_SECRET`, while the
@@ -818,6 +797,21 @@ and release evidence are owned by
 `developing/engineering/production-release.md`.
 
 ## Known Guardrails
+
+Public read cost controls use native Rate Limiting bindings, not KV counters.
+Gateway's `OPENMELD_PUBLIC_READ_RATE_LIMITER` (namespace `1005`) allows 1,200
+public-readable Space requests per client IP per minute before Auth/Core calls.
+Web's `OPENMELD_CLI_DOWNLOAD_RATE_LIMITER` (namespace `1006`) allows 600 CLI
+release requests per client IP per minute. Environment prefixes separate keys.
+Both bindings are declared in every owning Worker environment. The generous
+limits accommodate shared networks; they are per Cloudflare location and are
+not account spending caps. They do not affect writes, task execution, or streams.
+
+Web caches only successful public CLI GET responses. The stable manifest retains
+its 60-second cache lifetime; immutable artifacts retain their existing lifetime.
+Unknown query parameters do not change the cache key, while the Windows preview
+channel stays separate. HEAD misses read only R2 metadata and never populate
+bodyless GET entries. Space responses remain private and uncached.
 
 1. `services/core` must not depend on an implicit `NODE_ENV`; Cloudflare Workers only expose what the Worker config or secret storage provides.
 2. `clients/web` URL config is not secret. Keep it in `wrangler.jsonc`, not in Cloudflare secret storage.

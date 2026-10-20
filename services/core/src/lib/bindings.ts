@@ -251,6 +251,8 @@ export type CoreBindings = {
   OPENMELD_SPACE_ATTACHMENTS?: R2Bucket;
   OPENMELD_ORGANIZATION_SKILLS?: R2Bucket;
   OPENMELD_ACCOUNT_AVATARS?: R2Bucket;
+  // Published CLI release objects; see local-components/release-source.ts.
+  OPENMELD_CLI_RELEASES?: R2Bucket;
   OPENMELD_SKILL_FILE_BACKED_WRITES?: string;
   OPENMELD_ROUTINE_RUN_WORKFLOW?: Workflow<{
     runId: string;

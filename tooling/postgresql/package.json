@@ -24,7 +24,7 @@
     "better-auth": "1.6.30",
     "drizzle-kit": "^0.31.9",
     "miniflare": "5.20260930.0-alpha",
-    "typescript": "^5.9.3",
+    "typescript": "npm:@typescript/typescript6@6.0.2",
     "wrangler": "catalog:"
   }
 }

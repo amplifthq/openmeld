@@ -1342,3 +1342,4 @@ export type {
   WaitlistErrorResponse,
   WaitlistJoinStatus,
 } from "./waitlist";
+export type { WorkerHealthResponse } from "./worker-health";

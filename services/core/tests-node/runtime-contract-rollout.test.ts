@@ -1,35 +1,36 @@
-import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import publishedManifest from "../../../release/local-components.json";
+import {
+  CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+  localComponentsReleaseManifestSchema,
+} from "@openmeld/schemas";
+import { describe, expect, it } from "vitest";
 import { assertAgentControllerPermissionModeReleased } from "../src/local-components/runtime-contract-rollout";
 import { resolveDaemonExecutionCompatibility } from "../src/runtime-transport/application/daemon-execution-compatibility";
+import { PUBLISHED_LOCAL_COMPONENTS_MANIFEST } from "../test-support/published-local-components-release";
 // Captured from release/local-components.json at the published v0.3.248 tag.
-import stableManifest from "./fixtures/local-components-v0.3.248.json";
+import stableManifestJson from "./fixtures/local-components-v0.3.248.json";
 
+const stableManifest =
+  localComponentsReleaseManifestSchema.parse(stableManifestJson);
 const PREVIOUS_EPOCH = "runtime-transport-epoch-2026-09-image-geometry";
-const receiverManifest = structuredClone(publishedManifest);
+const receiverManifest = structuredClone(PUBLISHED_LOCAL_COMPONENTS_MANIFEST);
 receiverManifest.components.service.runtimeContractEpoch = PREVIOUS_EPOCH;
 
-describe("Core receiver-first runtime contract rollout", () => {
-  afterEach(() => vi.unstubAllGlobals());
-
+describe("Core runtime contract rollout follows the published Service", () => {
   it.each([
     { manifest: receiverManifest, permissionWritesEnabled: false },
     { manifest: stableManifest, permissionWritesEnabled: true },
-  ])("keeps the pinned $manifest.components.service.runtimeContractEpoch Service usable without regressing released permission modes", ({
+  ])("keeps the published $manifest.components.service.runtimeContractEpoch Service usable without regressing released permission modes", ({
     manifest,
     permissionWritesEnabled,
   }) => {
     const publishedEpoch = manifest.components.service.runtimeContractEpoch;
-    vi.stubGlobal(
-      "OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON",
-      JSON.stringify(manifest)
-    );
     for (const epoch of [
       publishedEpoch,
       CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
     ]) {
-      expect(resolveDaemonExecutionCompatibility({ epoch })).toMatchObject({
+      expect(
+        resolveDaemonExecutionCompatibility({ epoch }, manifest)
+      ).toMatchObject({
         status: "compatible",
         expectedEpoch: publishedEpoch,
       });
@@ -41,7 +42,10 @@ describe("Core receiver-first runtime contract rollout", () => {
       "bypassPermissions",
     ]) {
       const write = () =>
-        assertAgentControllerPermissionModeReleased(`antigravity:${mode}`);
+        assertAgentControllerPermissionModeReleased(
+          `antigravity:${mode}`,
+          manifest
+        );
       if (permissionWritesEnabled) {
         expect(write).not.toThrow();
       } else {
@@ -51,70 +55,69 @@ describe("Core receiver-first runtime contract rollout", () => {
       }
     }
     expect(() =>
-      assertAgentControllerPermissionModeReleased(null)
+      assertAgentControllerPermissionModeReleased(null, manifest)
     ).not.toThrow();
     expect(() =>
-      assertAgentControllerPermissionModeReleased("codex:approveForMe")
+      assertAgentControllerPermissionModeReleased(
+        "codex:approveForMe",
+        manifest
+      )
     ).not.toThrow();
     expect(
-      resolveDaemonExecutionCompatibility({ epoch: "unknown" }).status
+      resolveDaemonExecutionCompatibility({ epoch: "unknown" }, manifest).status
     ).toBe("update_required");
-    expect(resolveDaemonExecutionCompatibility(null).status).toBe(
+    expect(resolveDaemonExecutionCompatibility(null, manifest).status).toBe(
       "update_required"
     );
   });
 
-  it.each([
-    false,
-    true,
-  ])("enables writers only with the current protocol and requires the matching Service (override=%s)", (override) => {
-    if (override) {
-      const released = structuredClone(publishedManifest);
-      released.components.service.runtimeContractEpoch =
-        CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH;
-      vi.stubGlobal(
-        "OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON",
-        JSON.stringify(released)
-      );
-    }
+  it("enables writers only with the current protocol and requires the matching Service", () => {
+    const released = structuredClone(PUBLISHED_LOCAL_COMPONENTS_MANIFEST);
+    released.components.service.runtimeContractEpoch =
+      CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH;
     for (const epoch of [
       PREVIOUS_EPOCH,
       stableManifest.components.service.runtimeContractEpoch,
     ]) {
-      expect(resolveDaemonExecutionCompatibility({ epoch }).status).toBe(
-        "update_required"
-      );
+      expect(
+        resolveDaemonExecutionCompatibility({ epoch }, released).status
+      ).toBe("update_required");
     }
     expect(
-      resolveDaemonExecutionCompatibility({
-        epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-      }).status
+      resolveDaemonExecutionCompatibility(
+        { epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH },
+        released
+      ).status
     ).toBe("compatible");
     expect(() =>
-      assertAgentControllerPermissionModeReleased("antigravity:acceptEdits")
+      assertAgentControllerPermissionModeReleased(
+        "antigravity:acceptEdits",
+        released
+      )
     ).not.toThrow();
   });
 
   it.each([
-    "invalid",
+    "unreadable",
     "unsupported_epoch",
-  ])("rejects an invalid or unsupported pinned release (%s)", (value) => {
-    const manifest = structuredClone(stableManifest);
-    manifest.components.service.runtimeContractEpoch = value;
-    vi.stubGlobal(
-      "OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON",
-      value === "invalid" ? value : JSON.stringify(manifest)
-    );
+  ])("enables nothing new for an unreadable or unsupported published release (%s)", (value) => {
+    const manifest =
+      value === "unreadable" ? null : structuredClone(stableManifest);
+    if (manifest) {
+      manifest.components.service.runtimeContractEpoch = value;
+    }
     expect(() =>
-      assertAgentControllerPermissionModeReleased("antigravity:acceptEdits")
+      assertAgentControllerPermissionModeReleased(
+        "antigravity:acceptEdits",
+        manifest
+      )
     ).toThrow();
     expect(
-      resolveDaemonExecutionCompatibility({ epoch: PREVIOUS_EPOCH }).status
+      resolveDaemonExecutionCompatibility({ epoch: PREVIOUS_EPOCH }, manifest)
+        .status
     ).toBe("update_required");
     expect(
-      resolveDaemonExecutionCompatibility({
-        epoch: manifest.components.service.runtimeContractEpoch,
-      }).status
+      resolveDaemonExecutionCompatibility({ epoch: value }, manifest).status
     ).toBe("update_required");
   });
 });

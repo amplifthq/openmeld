@@ -66,6 +66,8 @@ runs:
             --frozen-lockfile \
             --filter @openmeld/root \
             --filter @openmeld/schemas \
+            --filter @openmeld/postgresql... \
+            --filter @openmeld/release-tools... \
             --prod=false \
             --ignore-scripts
           fi

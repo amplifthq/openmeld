@@ -2,17 +2,19 @@ import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import type {
   DaemonExecutionCompatibility,
   DaemonRuntimeContract,
+  LocalComponentsReleaseManifest,
 } from "@openmeld/schemas/types";
 import { resolveCoreRuntimeContractRollout } from "../../local-components/runtime-contract-rollout";
 
 export const resolveDaemonExecutionCompatibility = (
-  runtimeContract: DaemonRuntimeContract | null | undefined
+  runtimeContract: DaemonRuntimeContract | null | undefined,
+  localComponentsManifest: LocalComponentsReleaseManifest | null
 ): DaemonExecutionCompatibility => {
   if (!runtimeContract) {
-    return createMissingDaemonExecutionCompatibility();
+    return createMissingDaemonExecutionCompatibility(localComponentsManifest);
   }
 
-  const rollout = resolveCoreRuntimeContractRollout();
+  const rollout = resolveCoreRuntimeContractRollout(localComponentsManifest);
   if (
     runtimeContract.epoch !== CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH &&
     !(
@@ -36,13 +38,15 @@ export const resolveDaemonExecutionCompatibility = (
   };
 };
 
-export const createMissingDaemonExecutionCompatibility =
-  (): DaemonExecutionCompatibility => ({
-    status: "update_required",
-    expectedEpoch: resolveCoreRuntimeContractRollout().expectedEpoch,
-    observedEpoch: null,
-    reasonCode: "daemon.runtime_contract.missing",
-  });
+export const createMissingDaemonExecutionCompatibility = (
+  localComponentsManifest: LocalComponentsReleaseManifest | null
+): DaemonExecutionCompatibility => ({
+  status: "update_required",
+  expectedEpoch: resolveCoreRuntimeContractRollout(localComponentsManifest)
+    .expectedEpoch,
+  observedEpoch: null,
+  reasonCode: "daemon.runtime_contract.missing",
+});
 
 export const isDaemonExecutionCompatible = (
   compatibility: DaemonExecutionCompatibility

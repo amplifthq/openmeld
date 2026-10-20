@@ -28,6 +28,7 @@ import {
   updateAgentProfileRuntimeSettingsOperation,
 } from "../src/center-agent/application/product-operations";
 import { projectPeopleComputers } from "../src/people-computers/projection";
+import { createPublishedLocalComponentsRelease } from "../test-support/published-local-components-release";
 
 const ORGANIZATION_ID = "org_11111111-1111-4111-8111-111111111111";
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
@@ -723,6 +724,7 @@ function createLocalRuntimesResponse(): LocalRuntimesResponse {
 
 function createPeopleComputersResponse(): PeopleComputersResponse {
   return projectPeopleComputers({
+    localComponentsRelease: createPublishedLocalComponentsRelease(),
     generatedAt: NOW_ISO,
     inventory: createLocalRuntimesResponse(),
     ownerService: {

@@ -1,6 +1,7 @@
 import { isLeaseMatch, resolveLeaseArbitration } from "@openmeld/agent-runtime";
 import type {
   DaemonExecutionCompatibility,
+  LocalComponentsReleaseManifest,
   LocalWakeRouteReport,
   RuntimeTransportHeartbeatRequest,
   RuntimeTransportHeartbeatResponse,
@@ -74,6 +75,8 @@ type SessionLifecycleDependencies = {
     response: WaitDispatchResultResponse
   ) => void;
   closeSocket: (socket: WebSocket, code: number, reason: string) => void;
+  // Published release read by the hub; decides the accepted Service epoch.
+  localComponentsManifest: LocalComponentsReleaseManifest | null;
 };
 
 type ReapExpiredLeasesResult = {
@@ -117,6 +120,7 @@ export const handleRegisterSession = (
   }
   const session = resolveRuntimeTransportSession({
     existingSession,
+    localComponentsManifest: deps.localComponentsManifest,
     nowMs,
     verifiedOwnerUserId: input.verifiedOwnerUserId,
     request,
@@ -155,7 +159,8 @@ export const handleRegisterSession = (
   session.stopCause = isSameSocketReRegister ? previousStopCause : undefined;
   session.capabilities = request.capabilities;
   session.executionCompatibility = resolveDaemonExecutionCompatibility(
-    request.runtimeContract
+    request.runtimeContract,
+    deps.localComponentsManifest
   );
   session.localWakeRouteReport = request.localWakeRouteReport
     ? {
@@ -264,6 +269,7 @@ const syncRejectedProfileRegistrations = (input: {
 
 const resolveRuntimeTransportSession = (input: {
   existingSession: RuntimeTransportSessionState | undefined;
+  localComponentsManifest: LocalComponentsReleaseManifest | null;
   nowMs: number;
   verifiedOwnerUserId: string;
   request: RuntimeTransportRegisterSessionRequest;
@@ -281,7 +287,8 @@ const resolveRuntimeTransportSession = (input: {
       deliveryDisconnectedAtMs: null,
       capabilities: input.request.capabilities,
       executionCompatibility: resolveDaemonExecutionCompatibility(
-        input.request.runtimeContract
+        input.request.runtimeContract,
+        input.localComponentsManifest
       ),
       profileIds: new Set<string>(),
       localWakeRouteReport: null,
@@ -557,7 +564,8 @@ export const handleHeartbeat = (
     request.acceptingDispatches === false ? request.stopCause : undefined;
   session.capabilities = request.capabilities ?? session.capabilities;
   session.executionCompatibility = resolveDaemonExecutionCompatibility(
-    request.runtimeContract
+    request.runtimeContract,
+    deps.localComponentsManifest
   );
 
   if (!isDaemonExecutionCompatible(session.executionCompatibility)) {
@@ -654,6 +662,7 @@ export const lookupRoute = (
     | "persistRuntimeRecords"
     | "cleanupExpiredPendingDispatches"
     | "recordReapedReadinessProfiles"
+    | "localComponentsManifest"
   >
 ): RuntimeTransportLookupRouteResponse => {
   const nowMs = Date.now();
@@ -669,6 +678,7 @@ export const lookupRoute = (
   const lease = state.profileLeasesByProfileId.get(request.profileId);
   if (!lease) {
     return resolveMissingLeaseRoute({
+      localComponentsManifest: deps.localComponentsManifest,
       nowMs,
       request,
       state,
@@ -685,7 +695,7 @@ export const lookupRoute = (
       executionCompatibility:
         lease.executionCompatibility ??
         session?.executionCompatibility ??
-        createMissingDaemonExecutionCompatibility(),
+        createMissingDaemonExecutionCompatibility(deps.localComponentsManifest),
       localWakeRouteReport: session?.localWakeRouteReport ?? undefined,
       rejectedProfileRegistration:
         session?.rejectedProfileRegistrationsByProfileId.get(
@@ -697,7 +707,7 @@ export const lookupRoute = (
   const executionCompatibility =
     lease.executionCompatibility ??
     session.executionCompatibility ??
-    createMissingDaemonExecutionCompatibility();
+    createMissingDaemonExecutionCompatibility(deps.localComponentsManifest);
   if (!isDaemonExecutionCompatible(executionCompatibility)) {
     return {
       online: false,
@@ -733,11 +743,13 @@ export const lookupRoute = (
 };
 
 function resolveMissingLeaseRoute(input: {
+  localComponentsManifest: LocalComponentsReleaseManifest | null;
   nowMs: number;
   request: RuntimeTransportLookupRouteRequest;
   state: RuntimeTransportMutableState;
 }): RuntimeTransportLookupRouteResponse {
   const registrationFacts = findProfileRouteRegistrationFacts({
+    localComponentsManifest: input.localComponentsManifest,
     profileId: input.request.profileId,
     ownerUserId: input.request.ownerUserId,
     state: input.state,
@@ -750,6 +762,7 @@ function resolveMissingLeaseRoute(input: {
   const ownerService = registrationFacts
     ? null
     : resolveFreshOwnerServiceForPendingFirstReport({
+        localComponentsManifest: input.localComponentsManifest,
         nowMs: input.nowMs,
         ownerUserId: input.request.ownerUserId,
         profileId: input.request.profileId,
@@ -763,6 +776,7 @@ function resolveMissingLeaseRoute(input: {
     ...(registrationFacts ?? {}),
     ...(ownerService ? { ownerService } : {}),
     ...(findProfileSessionExecutionCompatibility({
+      localComponentsManifest: input.localComponentsManifest,
       profileId: input.request.profileId,
       state: input.state,
     }) ?? {}),
@@ -777,6 +791,7 @@ export const lookupRoutesBatch = (
     | "persistRuntimeRecords"
     | "cleanupExpiredPendingDispatches"
     | "recordReapedReadinessProfiles"
+    | "localComponentsManifest"
   >
 ): RuntimeTransportLookupRoutesBatchResponse => {
   // One DO round trip for a whole readiness batch. The per-profile lookup
@@ -798,6 +813,7 @@ export const lookupRoutesBatch = (
 };
 
 const resolveFreshOwnerServiceForPendingFirstReport = (input: {
+  localComponentsManifest: LocalComponentsReleaseManifest | null;
   nowMs: number;
   ownerUserId: string;
   profileId: string;
@@ -815,7 +831,9 @@ const resolveFreshOwnerServiceForPendingFirstReport = (input: {
         isRuntimeTransportSessionFresh(candidate, input.nowMs) &&
         isDaemonExecutionCompatible(
           candidate.executionCompatibility ??
-            createMissingDaemonExecutionCompatibility()
+            createMissingDaemonExecutionCompatibility(
+              input.localComponentsManifest
+            )
         )
     )
     .sort(compareRuntimeTransportSessionsByFreshness)[0];
@@ -842,7 +860,7 @@ const resolveFreshOwnerServiceForPendingFirstReport = (input: {
     capabilities: session.capabilities,
     executionCompatibility:
       session.executionCompatibility ??
-      createMissingDaemonExecutionCompatibility(),
+      createMissingDaemonExecutionCompatibility(input.localComponentsManifest),
   };
 };
 
@@ -854,6 +872,7 @@ export const lookupOwnerService = (
     | "persistRuntimeRecords"
     | "cleanupExpiredPendingDispatches"
     | "recordReapedReadinessProfiles"
+    | "localComponentsManifest"
   >
 ): RuntimeTransportLookupOwnerServiceResponse => {
   const nowMs = Date.now();
@@ -886,7 +905,7 @@ export const lookupOwnerService = (
       capabilities: session.capabilities,
       executionCompatibility:
         session.executionCompatibility ??
-        createMissingDaemonExecutionCompatibility(),
+        createMissingDaemonExecutionCompatibility(deps.localComponentsManifest),
     }));
 
   if (sessions.length === 0) {
@@ -903,6 +922,7 @@ export const lookupOwnerService = (
 };
 
 const findProfileSessionExecutionCompatibility = (input: {
+  localComponentsManifest: LocalComponentsReleaseManifest | null;
   profileId: string;
   state: RuntimeTransportMutableState;
 }): { executionCompatibility: DaemonExecutionCompatibility } | null => {
@@ -913,13 +933,16 @@ const findProfileSessionExecutionCompatibility = (input: {
     return {
       executionCompatibility:
         session.executionCompatibility ??
-        createMissingDaemonExecutionCompatibility(),
+        createMissingDaemonExecutionCompatibility(
+          input.localComponentsManifest
+        ),
     };
   }
   return null;
 };
 
 const findProfileRouteRegistrationFacts = (input: {
+  localComponentsManifest: LocalComponentsReleaseManifest | null;
   profileId: string;
   ownerUserId: string;
   state: RuntimeTransportMutableState;
@@ -960,7 +983,9 @@ const findProfileRouteRegistrationFacts = (input: {
     return {
       executionCompatibility:
         session.executionCompatibility ??
-        createMissingDaemonExecutionCompatibility(),
+        createMissingDaemonExecutionCompatibility(
+          input.localComponentsManifest
+        ),
       ...(localWakeRouteReport ? { localWakeRouteReport } : {}),
       ...(rejectedProfileRegistration ? { rejectedProfileRegistration } : {}),
     };

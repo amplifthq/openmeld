@@ -26,6 +26,7 @@ import type {
   RuntimeTransportBaseCapabilities,
   RuntimeTransportLookupOwnerServiceResponse,
 } from "@openmeld/schemas/types";
+import type { CoreLocalComponentsRelease } from "../../local-components/release-source";
 import { resolveLocalComponentUpdateProjection } from "../../local-components/update-projection";
 import {
   groupPeopleComputerDevices,
@@ -604,6 +605,7 @@ export async function resolveConnectedLocalRuntimeDisplayNamesUseCase(input: {
 }
 
 export async function getCurrentLocalRuntimeReplyReadinessUseCase(input: {
+  localComponentsRelease: CoreLocalComponentsRelease;
   target?: PeopleComputerTarget;
   lookupOwnerService: (input: {
     ownerUserId: string;
@@ -632,6 +634,7 @@ export async function getCurrentLocalRuntimeReplyReadinessUseCase(input: {
 
   if (currentTarget.availability === "missing") {
     return buildCurrentLocalRuntimeReplyReadiness({
+      localComponentsRelease: input.localComponentsRelease,
       currentTarget,
       generatedAt,
       message: "Set up this computer before local agents can reply in Spaces.",
@@ -665,6 +668,7 @@ export async function getCurrentLocalRuntimeReplyReadinessUseCase(input: {
 
   if (ownerService.online !== true || matchingSession === null) {
     return resolveOwnerServiceDisconnectReadiness({
+      localComponentsRelease: input.localComponentsRelease,
       currentTarget,
       currentComputer,
       currentExecutionTarget,
@@ -674,6 +678,7 @@ export async function getCurrentLocalRuntimeReplyReadinessUseCase(input: {
   }
 
   return resolveConnectedOwnerServiceReadiness({
+    localComponentsRelease: input.localComponentsRelease,
     currentComputer,
     currentExecutionTarget,
     currentTarget,
@@ -683,6 +688,7 @@ export async function getCurrentLocalRuntimeReplyReadinessUseCase(input: {
 }
 
 function resolveConnectedOwnerServiceReadiness(input: {
+  localComponentsRelease: CoreLocalComponentsRelease;
   currentComputer: LocalRuntimeComputer | null;
   currentExecutionTarget: LocalRuntimeExecutionTarget | null;
   currentTarget: {
@@ -708,6 +714,7 @@ function resolveConnectedOwnerServiceReadiness(input: {
   const executionCompatibility = matchingSession.executionCompatibility;
   if (executionCompatibility.status === "update_required") {
     return buildCurrentLocalRuntimeReplyReadiness({
+      localComponentsRelease: input.localComponentsRelease,
       currentTarget,
       generatedAt,
       message:
@@ -734,6 +741,7 @@ function resolveConnectedOwnerServiceReadiness(input: {
   }
 
   const localComponents = resolveLocalComponentUpdateProjection({
+    release: input.localComponentsRelease,
     generatedAt,
     runtimeLane: currentTarget.runtimeLane,
     localComponentsStatus,
@@ -742,6 +750,7 @@ function resolveConnectedOwnerServiceReadiness(input: {
   });
   if (localComponents.service.wakeBlocked) {
     return buildCurrentLocalRuntimeReplyReadiness({
+      localComponentsRelease: input.localComponentsRelease,
       currentTarget,
       generatedAt,
       localComponents,
@@ -772,6 +781,7 @@ function resolveConnectedOwnerServiceReadiness(input: {
   );
   if (executionHostBlocker) {
     return buildCurrentLocalRuntimeReplyReadiness({
+      localComponentsRelease: input.localComponentsRelease,
       currentTarget,
       generatedAt,
       localComponents,
@@ -803,6 +813,7 @@ function resolveConnectedOwnerServiceReadiness(input: {
     !isRegistryFreshnessBlocker(runtimeBlocker.primaryBlocker)
   ) {
     return buildCurrentLocalRuntimeReplyReadiness({
+      localComponentsRelease: input.localComponentsRelease,
       currentTarget,
       generatedAt,
       message: runtimeBlocker.message,
@@ -828,6 +839,7 @@ function resolveConnectedOwnerServiceReadiness(input: {
   }
 
   return buildCurrentLocalRuntimeReplyReadiness({
+    localComponentsRelease: input.localComponentsRelease,
     currentTarget,
     generatedAt,
     message:
@@ -899,6 +911,7 @@ function resolveLegacyComputerReadinessTarget(
 }
 
 function resolveOwnerServiceDisconnectReadiness(input: {
+  localComponentsRelease: CoreLocalComponentsRelease;
   currentTarget: {
     availability: "resolved";
     deviceId: string;
@@ -929,6 +942,7 @@ function resolveOwnerServiceDisconnectReadiness(input: {
     input.ownerService.online === false &&
     input.ownerService.reasonCode === "daemon.session.reject_conflict";
   return buildCurrentLocalRuntimeReplyReadiness({
+    localComponentsRelease: input.localComponentsRelease,
     currentTarget: input.currentTarget,
     generatedAt: input.generatedAt,
     message: isOwnershipConflict
@@ -1133,6 +1147,7 @@ function buildCurrentRuntimeEvidence(input: {
 }
 
 function buildCurrentLocalRuntimeReplyReadiness(input: {
+  localComponentsRelease: CoreLocalComponentsRelease;
   currentTarget: CurrentLocalRuntimeReplyReadinessResponse["currentTarget"];
   generatedAt: string;
   localComponents?: CurrentLocalRuntimeReplyReadinessResponse["localComponents"];
@@ -1148,6 +1163,7 @@ function buildCurrentLocalRuntimeReplyReadiness(input: {
   const localComponents =
     input.localComponents ??
     resolveLocalComponentUpdateProjection({
+      release: input.localComponentsRelease,
       generatedAt: input.generatedAt,
       runtimeLane:
         input.currentTarget.availability === "resolved"

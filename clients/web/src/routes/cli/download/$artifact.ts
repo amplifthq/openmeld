@@ -4,8 +4,9 @@ import {
 	buildCliBinaryDownloadHeaders,
 	resolveCliBinaryArtifactObjectKey,
 } from "#/lib/cli-binary-release";
+import { serveCliDownload } from "#/lib/cli-download-cache.server";
 
-async function downloadCliBinaryArtifact(input: {
+export async function downloadCliBinaryArtifact(input: {
 	artifactName: string;
 	channel: "stable" | "windows-preview";
 	includeBody: boolean;
@@ -36,7 +37,15 @@ async function downloadCliBinaryArtifact(input: {
 		});
 	}
 
-	const object = await bucket.get(objectKey);
+	let object: R2Object | null;
+	let body: ReadableStream | null = null;
+	if (input.includeBody) {
+		const download = await bucket.get(objectKey);
+		object = download;
+		body = download?.body ?? null;
+	} else {
+		object = await bucket.head(objectKey);
+	}
 	if (!object) {
 		return new Response("OpenMeld CLI binary artifact is missing.", {
 			headers: {
@@ -48,7 +57,7 @@ async function downloadCliBinaryArtifact(input: {
 		});
 	}
 
-	return new Response(input.includeBody ? object.body : null, {
+	return new Response(body, {
 		headers: buildCliBinaryDownloadHeaders({
 			artifactName: input.artifactName,
 			etag: object.httpEtag,
@@ -60,26 +69,32 @@ async function downloadCliBinaryArtifact(input: {
 export const Route = createFileRoute("/cli/download/$artifact")({
 	server: {
 		handlers: {
-			GET: ({ params, request }) =>
-				downloadCliBinaryArtifact({
-					artifactName: params.artifact,
-					channel:
-						new URL(request.url).searchParams.get("channel") ===
-						"windows-preview"
-							? "windows-preview"
-							: "stable",
-					includeBody: true,
-				}),
-			HEAD: ({ params, request }) =>
-				downloadCliBinaryArtifact({
-					artifactName: params.artifact,
-					channel:
-						new URL(request.url).searchParams.get("channel") ===
-						"windows-preview"
-							? "windows-preview"
-							: "stable",
-					includeBody: false,
-				}),
+			GET: ({ params, request }) => {
+				const channel =
+					new URL(request.url).searchParams.get("channel") === "windows-preview"
+						? "windows-preview"
+						: "stable";
+				return serveCliDownload(request, channel, () =>
+					downloadCliBinaryArtifact({
+						artifactName: params.artifact,
+						channel,
+						includeBody: true,
+					})
+				);
+			},
+			HEAD: ({ params, request }) => {
+				const channel =
+					new URL(request.url).searchParams.get("channel") === "windows-preview"
+						? "windows-preview"
+						: "stable";
+				return serveCliDownload(request, channel, () =>
+					downloadCliBinaryArtifact({
+						artifactName: params.artifact,
+						channel,
+						includeBody: false,
+					})
+				);
+			},
 		},
 	},
 });

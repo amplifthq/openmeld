@@ -1,27 +1,24 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import publishedManifest from "../../../release/local-components.json";
+import { describe, expect, it, vi } from "vitest";
 import {
   rememberAgentProfileCreationDefaults,
   resolveFirstUseAgentProfileCreationDefaults,
 } from "../src/agent-profile-binding/application/agent-profile-creation-defaults-service";
 import { readAuthoredModelCatalog as readModelCatalog } from "../src/config/model-catalog";
 import { createProjectionPostgresDatabase } from "../test-support/postgresql-query.test-support";
+import { PUBLISHED_LOCAL_COMPONENTS_MANIFEST } from "../test-support/published-local-components-release";
 
 describe("first-use Agent Profile creation defaults", () => {
-  afterEach(() => vi.unstubAllGlobals());
-
   it("does not save a new permission preference before the compatible release", async () => {
-    const receiverManifest = structuredClone(publishedManifest);
+    const receiverManifest = structuredClone(
+      PUBLISHED_LOCAL_COMPONENTS_MANIFEST
+    );
     receiverManifest.components.service.runtimeContractEpoch =
       "runtime-transport-epoch-2026-09-image-geometry";
-    vi.stubGlobal(
-      "OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON",
-      JSON.stringify(receiverManifest)
-    );
     const db = createProjectionPostgresDatabase(() => []);
     const query = vi.spyOn(db, "query");
     await expect(
       rememberAgentProfileCreationDefaults({
+        localComponentsManifest: receiverManifest,
         agentControllerRef: "builtin:antigravity",
         db,
         nowMs: 1000,

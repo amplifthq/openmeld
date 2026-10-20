@@ -54,6 +54,7 @@ describe("Agent Profile creation request RPC", () => {
     const createAgentProfileInOrganization = vi.fn();
     const bindings = {
       OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+      OPENMELD_CLI_RELEASES: env.OPENMELD_CLI_RELEASES,
       OPENMELD_AUTH_WORKER: { createAgentProfileInOrganization },
       OPENMELD_DAEMON_DISPATCH_QUEUE: { send },
     } as unknown as CoreBindings;
@@ -171,6 +172,7 @@ describe("Agent Profile creation request RPC", () => {
     const fixture = await seedFixture();
     const bindings = {
       OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+      OPENMELD_CLI_RELEASES: env.OPENMELD_CLI_RELEASES,
       OPENMELD_DAEMON_DISPATCH_QUEUE: { send: vi.fn() },
     } as unknown as CoreBindings;
     const command = centerCreationCommand(fixture);
@@ -219,6 +221,7 @@ describe("Agent Profile creation request RPC", () => {
     const send = vi.fn();
     const bindings = {
       OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+      OPENMELD_CLI_RELEASES: env.OPENMELD_CLI_RELEASES,
       OPENMELD_DAEMON_DISPATCH_QUEUE: { send },
     } as unknown as CoreBindings;
     await expect(
@@ -247,6 +250,7 @@ describe("Agent Profile creation request RPC", () => {
     const fixture = await seedFixture();
     const bindings = {
       OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+      OPENMELD_CLI_RELEASES: env.OPENMELD_CLI_RELEASES,
     } as CoreBindings;
     await expect(
       submitCenterAgentRequest(bindings, {
@@ -267,6 +271,7 @@ describe("Agent Profile creation request RPC", () => {
     });
     const bindings = {
       OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+      OPENMELD_CLI_RELEASES: env.OPENMELD_CLI_RELEASES,
       OPENMELD_AUTH_WORKER: { createAgentProfileInOrganization },
       OPENMELD_DAEMON_DISPATCH_QUEUE: { send },
     } as unknown as CoreBindings;
@@ -345,6 +350,7 @@ describe("Agent Profile creation request RPC", () => {
     const createAgentProfileInOrganization = vi.fn();
     const bindings = {
       OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+      OPENMELD_CLI_RELEASES: env.OPENMELD_CLI_RELEASES,
       OPENMELD_AUTH_WORKER: { createAgentProfileInOrganization },
       OPENMELD_DAEMON_DISPATCH_QUEUE: { send: vi.fn() },
     } as unknown as CoreBindings;
@@ -387,6 +393,7 @@ describe("Agent Profile creation request RPC", () => {
     const bindings = {
       OPENMELD_AUTH_WORKER: { createAgentProfileInOrganization },
       OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+      OPENMELD_CLI_RELEASES: env.OPENMELD_CLI_RELEASES,
     } as unknown as CoreBindings;
     try {
       const first = await rpcCreateAgentProfileCreationRequest(bindings, {
@@ -437,6 +444,7 @@ describe("Agent Profile creation request RPC", () => {
       OPENMELD_AUTH_WORKER: { createAgentProfileInOrganization },
       OPENMELD_DAEMON_DISPATCH_QUEUE: { send },
       OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+      OPENMELD_CLI_RELEASES: env.OPENMELD_CLI_RELEASES,
     } as unknown as CoreBindings;
     const accepted = await submitRequest(bindings, {
       configuration: {
@@ -586,6 +594,7 @@ describe("Agent Profile creation request RPC", () => {
         createAgentProfileInOrganization: createAgentProfileInOrganizationMock,
       },
       OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+      OPENMELD_CLI_RELEASES: env.OPENMELD_CLI_RELEASES,
     } as unknown as CoreBindings;
     try {
       const result = await rpcCreateAgentProfileCreationRequest(bindings, {
@@ -648,6 +657,7 @@ describe("Agent Profile creation request RPC", () => {
     const bindings = {
       OPENMELD_AUTH_WORKER: { createAgentProfileInOrganization },
       OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+      OPENMELD_CLI_RELEASES: env.OPENMELD_CLI_RELEASES,
     } as unknown as CoreBindings;
     try {
       await expect(
@@ -724,6 +734,7 @@ describe("Agent Profile creation request RPC", () => {
     const bindings = {
       OPENMELD_AUTH_WORKER: { createAgentProfileInOrganization },
       OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+      OPENMELD_CLI_RELEASES: env.OPENMELD_CLI_RELEASES,
       OPENMELD_RUNTIME_TRANSPORT: {
         idFromName: (name: string) => {
           expect(name).toBe(fixture.requesterUserId);
@@ -777,6 +788,7 @@ describe("Agent Profile creation request RPC", () => {
     const fixture = await seedFixture();
     const bindings = {
       OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+      OPENMELD_CLI_RELEASES: env.OPENMELD_CLI_RELEASES,
     } as CoreBindings;
     const intent = {
       profileName: "Held Agent",
@@ -858,6 +870,7 @@ describe("Agent Profile creation request RPC", () => {
     const session = await seedResumeSession(fixture);
     const bindings = {
       OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+      OPENMELD_CLI_RELEASES: env.OPENMELD_CLI_RELEASES,
     } as CoreBindings;
     const created = await submitRequest(bindings, {
       configuration: {
@@ -913,6 +926,7 @@ describe("Agent Profile creation request RPC", () => {
     const session = await seedResumeSession(fixture);
     const bindings = {
       OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+      OPENMELD_CLI_RELEASES: env.OPENMELD_CLI_RELEASES,
     } as CoreBindings;
     const created = await submitRequest(bindings, {
       configuration: {
@@ -949,6 +963,7 @@ describe("Agent Profile creation request RPC", () => {
     const fixture = await seedFixture();
     const bindings = {
       OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+      OPENMELD_CLI_RELEASES: env.OPENMELD_CLI_RELEASES,
     } as CoreBindings;
     await expect(
       rpcCreateAgentProfileCreationRequest(bindings, {

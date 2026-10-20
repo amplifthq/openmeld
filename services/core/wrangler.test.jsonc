@@ -66,6 +66,10 @@
     {
       "binding": "OPENMELD_ORGANIZATION_SKILLS",
       "bucket_name": "openmeld-organization-skills-test"
+    },
+    {
+      "binding": "OPENMELD_CLI_RELEASES",
+      "bucket_name": "openmeld-cli-releases-test"
     }
   ],
   // Intentionally keep queue bindings out of integration tests so space-api

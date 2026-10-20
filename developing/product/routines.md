@@ -1022,8 +1022,8 @@ OpenMeld Service, daemon, or RuntimeCoordinator contracts and do not by
 themselves require a workstation hard cut. W4 does change the published
 OpenMeld CLI and is therefore local-component release-sensitive. The branch
 that actually publishes the integrated feature must complete the CLI package
-and any release-tool-required Service bundle version bump, stamp
-`release/local-components.json` with an explicit update policy, pass
+and any release-tool-required Service bundle version bump, record
+an explicit update policy in `release/local-components-policy.json`, pass
 `pnpm run verify:release-ready`, and use the guarded CLI release from that same
 commit. Compatibility review currently supports an `available` policy rather
 than a forced hard cut, but the final release card owns that decision.

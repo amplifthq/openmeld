@@ -64,33 +64,3 @@ export function cutoverConfigArgs(
   }
   return ["--config", CUTOVER_CONFIG_NAME];
 }
-
-export function cutoverDeploySteps(steps) {
-  return steps.map((step) => {
-    const rewrite = (args) =>
-      args?.map((arg) =>
-        [
-          "services/auth/wrangler.jsonc",
-          "services/core/wrangler.jsonc",
-        ].includes(arg)
-          ? arg.replace("wrangler.jsonc", CUTOVER_CONFIG_NAME)
-          : arg
-      );
-    return {
-      ...step,
-      ...(step.workerDeploymentArgs
-        ? { workerDeploymentArgs: rewrite(step.workerDeploymentArgs) }
-        : {}),
-      ...(step.receiptWorkerDeploymentArgs
-        ? {
-            receiptWorkerDeploymentArgs: rewrite(
-              step.receiptWorkerDeploymentArgs
-            ),
-          }
-        : {}),
-      ...(step.releaseScope === "auth" && step.workerDeploymentArgs
-        ? { args: [...step.args, "--config", CUTOVER_CONFIG_NAME] }
-        : {}),
-    };
-  });
-}

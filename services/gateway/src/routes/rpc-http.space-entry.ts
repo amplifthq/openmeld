@@ -17,7 +17,7 @@ const SPACE_ENTRY_RESOLUTION_ROUTE = "/v1/spaces/:spaceId/entry-resolution";
 export function registerSpaceEntryResolutionRoute(
   app: Hono<HonoBindings>
 ): void {
-  app.get("/v1/spaces/:spaceId/context", (c) => {
+  app.get("/v1/spaces/:spaceId/context", (c): Response | Promise<Response> => {
     const parsed = getSpaceEntryResolutionInputSchema.safeParse({
       spaceId: c.req.param("spaceId"),
       signalId: c.req.query("signalId"),

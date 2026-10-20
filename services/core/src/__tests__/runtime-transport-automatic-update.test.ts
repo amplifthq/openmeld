@@ -506,7 +506,10 @@ function createHarness(
             RuntimeTransportSessionState,
             "daemonSessionId" | "deviceId" | "lane" | "ownerUserId"
           >;
-          releaseManifest: LocalComponentsReleaseManifest;
+          release: {
+            manifest: LocalComponentsReleaseManifest;
+            availabilityCatalog: null;
+          };
           session: RuntimeTransportSessionState | null;
           socket: WebSocket;
           trigger: "heartbeat" | "register";
@@ -519,7 +522,10 @@ function createHarness(
         lane: session.lane,
         ownerUserId: session.ownerUserId,
       },
-      releaseManifest: createReleaseManifest(options.releaseVersion),
+      release: {
+        manifest: createReleaseManifest(options.releaseVersion),
+        availabilityCatalog: null,
+      },
       session: options.sessionPresent === false ? null : session,
       socket: options.socketMatches === false ? ({} as WebSocket) : socket,
       trigger,

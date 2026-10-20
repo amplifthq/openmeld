@@ -22,31 +22,18 @@ For one PR or a compatible batch:
    base and the final product SHA.
 2. [Merge](#merge) against current main. If a merge result is uncertain, read the
    remote PR state before retrying.
-3. Plan the affected release scopes once. For an unknown backlog, run
-   `pnpm release:status -- --ref <product-sha> --change-base <pre-merge-sha>`.
-   For a known scope, go straight to its guarded release command. Resolve
-   local-component stamping and receiver-first ordering before starting a
-   Core/CLI release. See [production release](production-release.md) for the
-   commands and component rules.
-4. Release the pinned source in dependency order. Parallelize independent
-   stages. Follow workflow results and component receipts; inspect logs on a
-   failure or meaningful state change. Resume an interrupted release through
-   its original guarded command. The local `deploy --scope auto` entrypoint
-   continues only the remaining scopes for the pinned source and base, using
-   the existing component receipts and admission rules.
-5. Automatic whole-change continuation checks the component receipts before it
-   reports completion. When components were released with separate commands, run
-   `pnpm release:status -- --ref <product-sha> --change-base <pre-merge-sha> --check-complete`.
-   This fails when an affected component is pending or its evidence is unknown;
-   a successful component workflow alone does not complete the batch.
-6. Reuse the release command's health results; run real-user smoke for the
-   changed paths. Report what
-   shipped, what was actually tested, and any remaining failure or uncertainty.
+3. Release the merged SHA with
+   `pnpm run deploy -- --scope <auto|names> --lane <local|github|auto>` from
+   [production release](production-release.md). It orders components and stops
+   at the first failed health check. Rerun the same command to resume; every
+   component step is idempotent.
+4. Reuse the release command's health results; run real-user smoke for the
+   changed paths. Report what shipped, what was actually tested, and any
+   remaining failure or uncertainty.
 
 Include Desktop or OpenConnector when the requested scope or changed behavior
 requires their own release. Their publication owners are linked from
-[production release](production-release.md). A later release-only version commit
-may carry the pinned product changes.
+[production release](production-release.md).
 
 ## Daily Workflow
 
@@ -54,14 +41,10 @@ The same workflow applies to engineers, Codex, Claude Code, and other coding
 agents. Run `pnpm install --frozen-lockfile` in each checkout to install dependencies
 and Husky hooks. Keep `origin/main` available with `git fetch origin main`.
 
-Reserve `codex/release-*` branches for artifact release preparation: their pushes
-run strict release verification. Use an ordinary `codex/*` name for CI or release
-workflow improvements; those changes do not themselves publish artifacts.
-
 | Stage | Required work | Why |
 | --- | --- | --- |
 | Commit | The hook checks staged files with `lint-staged`. | Catch cheap errors while the change is small. |
-| Push a development branch | The hook checks protected release refs; ordinary pushes stay fast. | Avoid repeating development tests on every push. |
+| Push a development branch | The hook runs strict release checks only for `main` and non-branch refs; ordinary pushes stay fast. | Avoid repeating development tests on every push. |
 | Develop and review | Validate the behavior and affected consumers; add type, build, database, or integration checks where the changed boundary requires them. Trigger native Windows acceptance only when the change affects Windows behavior. | A file selector cannot decide product risk. |
 | Mark the PR ready | Sync current `main`, resolve conflicts, and validate the affected interactions. Standard FC starts automatically. | Certify the actual next merge. |
 | Merge | Require current-base `OpenMeld Final Candidate` success for the unchanged candidate. | Prevent stale or mismatched green results. |
@@ -143,8 +126,7 @@ The push hook requires the checked-out, clean tree to match every pushed commit.
 An ordinary follow-up push checks the diff from the remote branch's previous
 commit; a first push or rewritten/unavailable history checks the branch against
 locally fetched `origin/main`. Missing base history is an error: fetch it.
-Recheck identity and cleanliness after success. Deletions need no tests;
-protected release pushes retain strict release verification.
+Recheck identity and cleanliness after success. Deletions need no tests.
 
 Run the planned feedback command against `origin/main` when its selection fits
 the complete PR diff before Ready. This is a local, owner-selected check, not
@@ -170,63 +152,25 @@ FC certifies one exact `head SHA + base SHA + tree SHA`. Standard FC retains:
 - trusted control entrypoints and complete, matching results;
 - static contracts for changed owners and control-code quality when control changes;
 - database checks when database owner paths change; and
-- deferred or strict local-component release readiness, selected by the manifest diff.
+- local-component release readiness when the CLI, Service, Skills, or their
+  policy changes.
 
-Standard FC does not repeat broad workspace unit or integration tests. This
-keeps final merge latency separate from development feedback. Full confidence
-is explicit when remaining risk justifies a whole-repository rerun. The printed
-plan is the authority for selected/skipped commands, reasons, and durations:
-
-Release and CI script changes use focused owner tests before Ready; standard FC
-checks their exact diff and control identity without rerunning every repository
-workflow test. Dependency and task-graph controls still select the wider static
-repository contracts.
+Standard FC does not repeat broad workspace unit or integration tests; owners
+run focused tests before Ready, and full confidence is explicit when remaining
+risk justifies a whole-repository rerun. Release and CI script changes get
+their exact diff and control identity checked; dependency and task-graph
+controls still select the wider static repository contracts. The printed plan
+is the authority for selected/skipped commands, reasons, and durations:
 
 ```sh
 git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- plan
 ```
 
-When local resource admission cannot safely start a production client build,
-the existing manual Deep Confidence workflow can run only the required client
-artifacts on an isolated hosted runner:
-
-```sh
-gh workflow run deep-confidence.yml --ref <candidate-branch> \
-  -f scope=release-artifacts -f artifact_scopes=web,desktop
-```
-
-Choose `web`, `website`, or `desktop` when only that artifact is needed. This mode skips
-the broad diagnostic jobs, runs the same exact-source renderer/prerender and
-Workerd SSR entrypoints, and retains their source/input/output receipts. It
-uses read-only repository access and no production credentials. Match the run's
-head SHA to the candidate; these checks do not replace FC or deployed smoke.
-
-For same-run Web artifact handoff acceptance, use the read-only two-job mode:
-
-```sh
-gh workflow run deep-confidence.yml --ref <candidate-branch> -f scope=artifact-handoff
-```
-
-The parent builds and checks a real Web artifact with Workerd SSR. A separate
-runner downloads the immutable snapshot, verifies/restores it, and repeats the
-artifact preflight with `reused: true` and an unchanged output hash. It also
-requires rejection of a wrong-source receipt, corrupted receipt/snapshot, and
-diagnostic evidence presented to the Production verifier. The harness binds
-its actual Deep Confidence identity through the admission test adapter; it
-does not impersonate or widen Production's main-only workflow identity.
-Both jobs retain JSON evidence and use read-only repository access, disposable
-OpenMeld state, and no Production environment, credentials, deploy or publisher.
-This proves that transport and reuse path, not production rollout duration,
-component deployment, CLI/Desktop publication, or Product Smoke.
-
 Trusted control installs only the shared evidence parser's production
-dependencies. The result publisher does not restore the full development store;
-restoring that cache costs more than installing its small runtime. Candidate
-dependencies stay isolated and complete for the selected checks. Hosted
-documentation-only plans install root tooling without native rebuilds; signed
-CLI Skills, release readiness, and executable changes keep the workspace install.
-The trusted plan makes this decision for both PRs and merge groups. This changes
-neither validation coverage nor candidate credential isolation.
+dependencies. Candidate dependencies stay isolated and complete for the
+selected checks: documentation-only plans install root tooling without native
+rebuilds; signed CLI Skills, release readiness, and executable changes keep the
+workspace install. The trusted plan decides this for both PRs and merge groups.
 
 Hosted `trusted-control-entrypoints` compares the current-main control
 projection, not every workspace or lockfile byte. The isolated installer
@@ -239,22 +183,18 @@ entrypoints, install wrappers, project `.npmrc`, `package.json`
 change what native code may run (`allowBuilds`, `onlyBuiltDependencies`,
 `patchedDependencies`, and equivalents, including the referenced patch files)
 still refuse hosted certification. Native-build and patch settings are parsed
-fail-closed, including valid flow-style and complex-key YAML. The isolated
-command wrapper also forces a trusted `script-shell` so a candidate `.npmrc`
-cannot rewrite how later `pnpm run` checks execute. Those pull requests use
-the documented local explicit bootstrap. When that refuse happens, the
-required `OpenMeld Final Candidate` status names the control refuse and the
-bootstrap path. Trusted current-main control classifies that case before
-candidate dependencies or validation run, so the `Final Candidate Runner`
-check is skipped instead of showing a product-test failure. Its check output
-explains that protected local validation is required and links back to this
-fallback. [GitHub treats a skipped check as non-blocking](https://docs.github.com/en/pull-requests/reference/status-checks),
-so the Runner is not the merge authority: the repository ruleset requires only the separate
-`OpenMeld Final Candidate` commit status, which remains failed until the exact
-candidate passes the protected local bootstrap. Any ordinary test, build,
-runner, classifier, or publisher failure remains a failure and cannot publish
-green. This changes the presentation of an expected trust refusal without
-creating a second delivery process or weakening the merge gate.
+fail-closed, and the isolated command wrapper forces a trusted `script-shell`
+so a candidate `.npmrc` cannot rewrite how later `pnpm run` checks execute.
+Those pull requests use the documented local explicit bootstrap. Trusted
+current-main control classifies that case before candidate dependencies or
+validation run, so the `Final Candidate Runner` check is skipped instead of
+showing a product-test failure, and the required `OpenMeld Final Candidate`
+status names the control refuse and the bootstrap path.
+[GitHub treats a skipped check as non-blocking](https://docs.github.com/en/pull-requests/reference/status-checks),
+so the Runner is not the merge authority: only the separate commit status is
+required, and it stays failed until the exact candidate passes the protected
+local bootstrap. Any ordinary test, build, runner, classifier, or publisher
+failure remains a failure and cannot publish green.
 
 A non-draft PR targeting `main` starts standard FC on opening, new commits,
 reopening, or marking ready; no label is needed. To retry after diagnosing a
@@ -267,42 +207,43 @@ git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- status -
 git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- wait --pr <number>
 ```
 
-Use `wait` for the pending Final Candidate instead of repeatedly polling
-`gh pr checks` for the same unchanged run.
+Use `wait` instead of polling `gh pr checks`. Automatic runs publish no
+pending status; an explicit `request` marks the head pending until it reports.
 
 Fork and same-repository candidates run on `pull_request` with read-only job
-permissions and no production environment or secrets. A separate `workflow_run`
-result workflow runs trusted default-branch code. Its read-only verifier identifies the exact source run,
-attempt, PR, and current main through GitHub, then recomputes the control
-disposition and validation plan before accepting evidence from that run.
-The verifier reads candidate source as immutable Git objects without checking
-it out, and treats artifacts as data. It never runs candidate scripts.
-A separate status writer checks live identity and the latest run again and
-never checks out code, installs dependencies, or downloads artifacts.
-Changes to either workflow require the protected local
-bootstrap. Workflow approval for first-time contributors remains a GitHub
+permissions and no production environment or secrets; the run title names the
+exact PR, head, confidence, and base. A separate `workflow_run` result workflow
+runs trusted default-branch code once the source run completes. Its read-only
+verifier binds the exact source run, attempt, PR, head, tree, and base through
+GitHub, requires that base to be part of current `main`, then recomputes the
+control disposition and validation plan before accepting evidence. It reads
+candidate source as immutable Git objects, treats artifacts as data, and never
+runs candidate scripts. A separate status writer rechecks the live head and the
+latest run without checking out code or downloading artifacts. A finished
+result stays bound to its exact head, base, and tree: `main` advancing later
+does not turn it red, because merge queue or strict up-to-date protection owns
+freshness at merge time. Changes to either workflow require the protected
+local bootstrap. Workflow approval for first-time contributors remains a GitHub
 repository policy, separate from PR review approval.
 
-CodeQL uses `.github/workflows/codeql.yml` so fork PRs receive the same
-required `Analyze (javascript-typescript)` check as repository branches.
-Keep GitHub's default setup disabled when this advanced workflow is enabled;
-default setup excludes fork PRs and blocks uploads from advanced workflows.
-The workflow scans Actions and JavaScript/TypeScript with the default query
-suite, without installing dependencies or running repository build scripts.
+CodeQL uses `.github/workflows/codeql.yml` so fork PRs and merge groups
+receive the same required `Analyze (javascript-typescript)` check as
+repository branches. Keep GitHub's default setup disabled; it excludes fork PRs
+and blocks uploads from advanced workflows. The workflow scans without
+installing dependencies or running repository build scripts.
 
-Use the current-main entrypoint, never candidate-owned package scripts.
-GitHub Actions is the normal compute lane; the guarded local lane below is for
-Actions outages or explicit control bootstrap. A failed check, missing evidence,
-identity mismatch, or publication failure cannot become green. Local focused
-checks cannot substitute for the required FC status.
+Use the current-main entrypoint, never candidate-owned package scripts. GitHub
+Actions is the normal compute lane; the guarded local lane below is for Actions
+outages or explicit control bootstrap. A failed check, missing evidence,
+identity mismatch, or publication failure cannot become green.
 
 For a batch, integrate compatible ready leaf changes, sync `main` once, validate
 the combined interactions, and run one FC on the batch PR. Do not pay for leaf
 FCs that will immediately become stale. Preserve directional release order: for
 example, new Space-invitation Core/Auth receivers must precede the new CLI.
-If `main` advances, old evidence remains valid only for its original base;
-merge queue must validate the new group, or strict up-to-date protection requires
-syncing and validating the new candidate. Do not freeze unrelated work.
+Evidence stays valid for its original base: when `main` advances, merge queue
+validates the merge group, so do not sync a green candidate only to refresh
+its base (strict protection alone needs one sync). Do not freeze unrelated work.
 
 ## Evidence And Ownership
 
@@ -315,11 +256,7 @@ Full command logs remain in the evidence artifact. The schema owner is
 Existing trusted task-input reuse remains available to specialized affected
 plans; standard FC no longer selects those broad tasks. Full confidence executes
 its full gate. Database/release readiness and deployment/health/smoke results are
-never reused. The same-run Production train artifact handoff in
-[Production Release](production-release.md) verifies parent admission evidence
-and, for Web, the actual snapshot bytes; it does not reuse FC, deployment,
-reconciliation or smoke evidence. A green FC proves only its recorded selected
-checks.
+never reused. A green FC proves only its recorded selected checks.
 
 Each task owns its implementation, risk assessment, and authorized delivery.
 CI does not require a reviewer count, central coordinator, waiting period, or
@@ -407,15 +344,21 @@ review requirement or a second delivery process.
 
 ### Merge queue
 
-Use merge queue only when the repository's live GitHub plan and Ruleset expose
-it. GitHub then creates an exact merge-group commit from current `main` and the
-queued changes, and the same `OpenMeld Final Candidate` policy validates that
-merge tree. If the repository cannot use merge queue, strict up-to-date branch
-protection is the freshness owner.
+Merge queue owns freshness for `main`: a pull request queues after its own
+checks pass, so a green candidate on an older base needs no sync. CodeQL and
+`merge-group-final-candidate.yml` (the required `OpenMeld Final Candidate`
+check) validate GitHub's exact merge-group commit. Branch protection requires
+merge queue (method `merge`, build concurrency 1, one to five pull requests per
+group, only non-failing pull requests, 60-minute status check timeout) with
+"Require branches to be up to date" off; until then strict up-to-date owns
+freshness. Never turn both off. Current-main control validates a group whose FC
+control matches `main`. A group with control drift runs under its own control
+only if it is built on the `main` tip, its second parent is the queued pull
+request's live head with a successful FC status naming it (the bootstrap
+above), and each drifted control equals that head's and was changed by it.
 
 Do not create a manual substitute queue, release owner, global `main` freeze,
-or polling loop. Those mechanisms serialize independent work without adding
-merge evidence.
+or polling loop; they serialize independent work without adding merge evidence.
 
 ## Merge
 
@@ -435,9 +378,9 @@ while allowing named actors to merge through a pull request without it.
 
 Immediately before merge, re-read the live head, evidence identity, status,
 mergeability, and active Ruleset. If the head changed, create a new candidate.
-If only `main` changed, let merge queue validate the new merge group or sync and
-run one new current-base candidate. Do not rerun completed checks merely to
-produce ceremonial evidence.
+If only `main` changed, let merge queue validate the new merge group; sync and
+run one new candidate only while strict up-to-date protection is the freshness
+owner. Do not rerun completed checks merely to produce ceremonial evidence.
 
 Before reporting an approval blocker, distinguish the PR's default review
 state from the current actor's effective permission. `REVIEW_REQUIRED`,
@@ -483,6 +426,7 @@ operation to local branch deletion:
 gh pr merge <pr-number> --merge --match-head-commit <verified-head-sha>
 # Only for the verified review-exemption case described above:
 gh pr merge <pr-number> --merge --admin --match-head-commit <verified-head-sha>
+# With merge queue required, merge only enqueues; confirm after the group passes:
 gh pr view <pr-number> --json state,mergedAt,mergeCommit
 ```
 
@@ -498,23 +442,17 @@ Stop unnecessary runtime resources even while an unmerged PR remains open.
 
 ## Release
 
-After merge, follow `developing/engineering/production-release.md`. Plan the
-exact merged SHA, release only affected scopes, and use the guarded hosted or
-local entrypoint selected there. Git-backed scope leases serialize only the
-same production scope; they do not block unrelated development, merges, or
-compatible releases. Hosted same-scope releases use `cancel-in-progress: false`;
-new requests must not cancel an active deployment. A successful guarded local release publishes durable
-per-scope evidence refs that record its exact first-parent `main` source and
-completion time before releasing those leases. `release:status` combines that
-evidence with hosted release jobs; operators do not have to remember ephemeral
-workstation-only overrides.
+After merge, release the exact merged SHA through
+[production release](production-release.md), affected components only.
+`concurrency: production-<name>` with `cancel-in-progress: false` serializes
+one component at a time without blocking development, merges, or other
+components. The platform records what is live: Worker `RELEASE_SHA`, the
+renderer source meta tag, and npm `gitHead`.
 
-When the exact release includes changed CLI, OpenMeld Service, or bundled
-skills, run the local-component plan and supply the explicit policy and reason
-required by `production-release.md`. Delivery tooling exposes the changed
-components, versions, floors, and missing decisions; it does not guess
-`available`, choose `required`, or replace the responsible agent's Contract
-Impact Audit.
+A changed CLI, OpenMeld Service, or bundled Skills needs the explicit
+`available` or `required` decision and reason in
+`release/local-components-policy.json`, written in the feature PR after the
+Contract Impact Audit. Publication refuses a changed component without one.
 
 ## Health And Real-User Smoke
 
@@ -524,18 +462,16 @@ published CLI, installed OpenMeld Service, or another supported product entry
 point. Internal RPC, database inspection, and direct projections are diagnostic
 evidence, not real-user smoke.
 
-One successful smoke of the exact changed path is sufficient after its visible
-result and required trace or diagnostic receipt are recorded. Stop there unless
-the task explicitly requires another case, the product state changed, a new
-deployment occurred, or the first smoke exposed a failure. Repeating the same
-unchanged success is not stronger evidence and must not delay delivery.
+One recorded success of the exact changed path is enough. Repeat only when the
+task requires another case, the product state changed, a new deployment
+occurred, or the first smoke failed.
 
 Report these facts separately:
 
 ```text
 Merged PR and merge SHA
-Release source SHA and affected scope
-Deployed version or workflow evidence
+Release SHA, components, and lane
+Workflow run or local output
 Health result
 Real-user smoke entry point and visible result
 Anything not run, with reason
@@ -552,23 +488,13 @@ Anything not run, with reason
 - Hosted candidate unavailable: use `status` or `wait` to preserve the exact
   GitHub reason. The trusted local fallback remains available; do not relabel
   the unchanged head repeatedly, weaken status protection, or invent success.
-- Active production scope lease: inspect its owner, source, start, and expiry.
-  Wait only for that scope. Recover an expired exact lease with a recorded
-  reason after proving its owner stopped.
-- Release, health, or smoke failure: preserve the source SHA and completed
-  immutable stages, report the failed fact accurately, and follow the scoped
-  recovery contract. Never silently continue from another commit.
-- npm acceptance is not package availability. A release waiting for npm remains
-  incomplete, with its original submission evidence preserved across runners.
-  Resume verification without resubmitting an accepted or uncertain publish;
-  follow the npm recovery boundary in `production-release.md`.
-
-For CLI publication, source builds and registry version existence do not prove
-that an npm user can install the release. The release owner must validate and
-publish the same portable tarball, as defined in
-[npm submission and availability](production-release.md#npm-submission-and-availability).
-Windows compatibility CI also consumes that artifact and exercises the generated
-PowerShell bootstrap; signed-in computer and Wake acceptance remain separate.
+- Release or health failure: GitHub stops dependent components; independent
+  website and docs jobs still run. The local lane stops at the first failure.
+  Report the failure and follow [recovery](production-release.md#recovery).
+  Never continue from another commit.
+- npm late: the CLI release stays incomplete. Rerun the same SHA; it resumes
+  without republishing, as in
+  [npm submission and availability](production-release.md#npm-submission-and-availability).
 
 ## Agent Experience Feedback
 

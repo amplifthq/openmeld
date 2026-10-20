@@ -5,9 +5,9 @@ import {
 import type {
   AgentProfileCreationApprovalPolicy,
   CreateAgentProfileCreationRequestBody,
+  LocalComponentsReleaseManifest,
 } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import publishedManifest from "../../../release/local-components.json";
 import { createAgentProfileCreationRequestInboxProjectionService } from "../src/agent-profile-creation-request/agent-profile-creation-request-inbox-projection";
 import {
   AGENT_PROFILE_CREATION_STALE_AFTER_MS,
@@ -21,11 +21,17 @@ import {
   createAgentProfileCreationRequestService,
   failStaleAgentProfileCreationRequests,
 } from "../src/agent-profile-creation-request/agent-profile-creation-request-service";
+import { PUBLISHED_LOCAL_COMPONENTS_MANIFEST } from "../test-support/published-local-components-release";
 
 const NOW_MS = Date.parse("2026-08-20T10:00:00.000Z");
 
+let publishedManifest: LocalComponentsReleaseManifest =
+  PUBLISHED_LOCAL_COMPONENTS_MANIFEST;
+
 describe("Agent Profile creation request service", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    publishedManifest = PUBLISHED_LOCAL_COMPONENTS_MANIFEST;
+  });
   let repository: InMemoryRepository;
   const createAgentProfile = vi.fn();
   const projectApprovalInbox = vi.fn();
@@ -42,13 +48,12 @@ describe("Agent Profile creation request service", () => {
   });
 
   it("rejects a new Antigravity permission before persisting or scheduling a creation request in the receiver stage", async () => {
-    const receiverManifest = structuredClone(publishedManifest);
+    const receiverManifest = structuredClone(
+      PUBLISHED_LOCAL_COMPONENTS_MANIFEST
+    );
     receiverManifest.components.service.runtimeContractEpoch =
       "runtime-transport-epoch-2026-09-image-geometry";
-    vi.stubGlobal(
-      "OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON",
-      JSON.stringify(receiverManifest)
-    );
+    publishedManifest = receiverManifest;
     await expect(
       createService().create({
         actorProfileId: "human-requester",
@@ -1053,6 +1058,7 @@ describe("Agent Profile creation request service", () => {
         resolve: resolveApprovalInbox,
       });
     const service = createAgentProfileCreationRequestService({
+      readLocalComponentsManifest: async () => publishedManifest,
       teammateRequestsEnabled,
       validateNewRequest: async () => {
         // Runtime selection is covered by the RPC boundary tests.

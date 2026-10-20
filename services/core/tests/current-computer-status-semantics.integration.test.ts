@@ -10,6 +10,7 @@ import {
 } from "../src/start/application/current-device-target-service";
 import { resolveCurrentDeviceFromBindings } from "../src/start/infrastructure/postgresql/current-device-derivation-repo";
 import { listOwnedDeviceRegistryRecords } from "../src/start/infrastructure/postgresql/owned-device-registry-repo";
+import { createPublishedLocalComponentsRelease } from "../test-support/published-local-components-release";
 
 type ReadinessStore = Parameters<
   typeof getCurrentLocalRuntimeReplyReadinessUseCase
@@ -165,6 +166,7 @@ describe("current computer status semantics from D1 evidence", () => {
     const fixture = await seedD1Runtime(reports);
     const store = createD1ReadinessStore();
     const readiness = await getCurrentLocalRuntimeReplyReadinessUseCase({
+      localComponentsRelease: createPublishedLocalComponentsRelease(),
       lookupOwnerService: () => Promise.resolve(buildLiveOwnerService(fixture)),
       now: new Date(),
       store,

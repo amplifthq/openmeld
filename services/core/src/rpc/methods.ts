@@ -1090,8 +1090,14 @@ import {
   rpcSetFeedbackReportingPolicy,
 } from "../feedback/transport/rpc/feedback-management-rpc";
 import type { CoreBindings } from "../lib/bindings";
-import { resolveCoreRuntimeContractRollout } from "../local-components/runtime-contract-rollout";
-import { resolveLocalComponentUpdateProjection } from "../local-components/update-projection";
+import {
+  type CoreLocalComponentsRelease,
+  readCoreLocalComponentsRelease,
+} from "../local-components/release-source";
+import {
+  isServiceAuthFreshnessRequired,
+  resolveLocalComponentUpdateProjection,
+} from "../local-components/update-projection";
 import { assignBoundProfileToMemberAgent } from "../member-agent/member-agent-profile-assignment";
 import {
   isMemberAgentsEnabled,
@@ -1142,8 +1148,8 @@ import {
 import { projectPeopleComputerControls } from "../people-computers/control-policy";
 import { requirePeopleComputerControlSession } from "../people-computers/control-target";
 import {
-  projectPeopleComputerConnection,
   projectPeopleComputers,
+  resolvePeopleComputerConnectionStatus,
 } from "../people-computers/projection";
 import { updateAgentProfileDefaultProjectForAuthority } from "../projects/agent-profile-default-project-service";
 import {
@@ -3053,9 +3059,13 @@ async function listPeopleComputersForOwnerUser(input: {
     userId,
     ...(ownerService ? { lookupOwnerService: async () => ownerService } : {}),
   });
+  const localComponentsRelease = await readCoreLocalComponentsRelease(
+    env.OPENMELD_CLI_RELEASES
+  );
   return peopleComputersResponseSchema.parse(
     projectPeopleComputers({
       generatedAt: new Date().toISOString(),
+      localComponentsRelease,
       inventory: input.includeUsageLimits
         ? inventory
         : omitLocalRuntimeUsageLimits(inventory),
@@ -4031,6 +4041,9 @@ async function getCurrentLocalRuntimeReplyReadinessForOwnerUser(input: {
   target?: PeopleComputerTarget;
 }): Promise<CurrentLocalRuntimeReplyReadinessResponse> {
   const response = await getCurrentLocalRuntimeReplyReadinessUseCase({
+    localComponentsRelease: await readCoreLocalComponentsRelease(
+      input.env.OPENMELD_CLI_RELEASES
+    ),
     ...(input.target ? { target: input.target } : {}),
     lookupOwnerService: async ({ ownerUserId }) =>
       await lookupRuntimeTransportOwnerService({
@@ -5839,14 +5852,19 @@ export async function rpcSubmitRuntimeAgentControllerReports(
     });
   }
   const reports: SubmitRuntimeAgentControllerReportResult[] = [];
+  const authFreshnessRequired = isServiceAuthFreshnessRequired(
+    (await readCoreLocalComponentsRelease(env.OPENMELD_CLI_RELEASES)).manifest
+  );
   for (const report of body.data.reports) {
     const acceptedAtMs = Date.now();
     const result = await acceptRuntimeAgentControllerReport({
+      authFreshnessRequired,
       nowMs: acceptedAtMs,
       report,
       reportStore: {
         acceptRuntimeAgentControllerReport: async (storeInput) =>
           await acceptRuntimeAgentControllerReportRecord({
+            authFreshnessRequired: storeInput.authFreshnessRequired,
             db,
             nowMs: storeInput.nowMs,
             report: storeInput.report,
@@ -7207,6 +7225,9 @@ export async function rpcSetAgentProfileCreationDefaults(
   });
   const db = requireAgentProfileBindingDb(env);
   const preference = await rememberAgentProfileCreationDefaults({
+    localComponentsManifest: (
+      await readCoreLocalComponentsRelease(env.OPENMELD_CLI_RELEASES)
+    ).manifest,
     agentControllerRef,
     db,
     nowMs: Date.now(),
@@ -8232,6 +8253,9 @@ async function buildOrganizationComputersResponse(input: {
     }),
   ]);
   const devicesByOwner = Map.groupBy(devices, (device) => device.ownerUserId);
+  const localComponentsRelease = await readCoreLocalComponentsRelease(
+    env.OPENMELD_CLI_RELEASES
+  );
   const response = await listOrganizationComputers({
     generatedAt,
     includeUsageLimits: input.includeUsageLimits,
@@ -8266,6 +8290,7 @@ async function buildOrganizationComputersResponse(input: {
         liveSessions: projectOrganizationComputerLiveSessions({
           generatedAt,
           liveSessions,
+          localComponentsRelease,
         }),
       };
     },
@@ -8283,6 +8308,7 @@ async function buildOrganizationComputersResponse(input: {
 }
 function projectOrganizationComputerLiveSessions(input: {
   generatedAt: string;
+  localComponentsRelease: CoreLocalComponentsRelease;
   liveSessions: Awaited<
     ReturnType<typeof lookupRuntimeTransportOwnerService>
   > | null;
@@ -8291,7 +8317,7 @@ function projectOrganizationComputerLiveSessions(input: {
     return null;
   }
   if (!input.liveSessions.online) {
-    return projectPeopleComputerConnection({
+    return resolvePeopleComputerConnectionStatus({
       deviceIds: [],
       ownerService: input.liveSessions,
     }).status === "disconnected"
@@ -8301,6 +8327,7 @@ function projectOrganizationComputerLiveSessions(input: {
   return selectCurrentOwnerServiceSessionsByDeviceLane(input.liveSessions).map(
     (session) => {
       const localComponents = resolveLocalComponentUpdateProjection({
+        release: input.localComponentsRelease,
         generatedAt: input.generatedAt,
         runtimeLane: session.lane,
         localComponentsStatus: session.capabilities.localComponents ?? null,
@@ -8354,6 +8381,9 @@ async function buildOrganizationMemberOpenMeldServiceStatusesResponse(input: {
   memberUserIds: readonly string[];
   organizationId: string;
 }): Promise<OrganizationMemberOpenMeldServiceStatusesResponse> {
+  const localComponentsRelease = await readCoreLocalComponentsRelease(
+    input.env.OPENMELD_CLI_RELEASES
+  );
   const response = await listOrganizationMemberOpenMeldServiceStatuses({
     generatedAt: input.generatedAt,
     lookupMemberServiceSessions: async ({ userId }) => {
@@ -8369,6 +8399,7 @@ async function buildOrganizationMemberOpenMeldServiceStatusesResponse(input: {
         (session) => ({
           executionCompatibility: session.executionCompatibility,
           serviceUpdateWakeBlocked: resolveLocalComponentUpdateProjection({
+            release: localComponentsRelease,
             generatedAt: input.generatedAt,
             localComponentsStatus: session.capabilities.localComponents ?? null,
             serviceConnected: true,
@@ -13947,6 +13978,9 @@ function buildCenterAgentProductOperationDeps(
             configuration,
           }) => {
             await rememberAgentProfileCreationDefaults({
+              localComponentsManifest: (
+                await readCoreLocalComponentsRelease(env.OPENMELD_CLI_RELEASES)
+              ).manifest,
               agentControllerRef,
               db: requireAgentProfileBindingDb(env),
               nowMs: Date.now(),
@@ -20413,6 +20447,9 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
       });
       result = await ensurePrimaryAgentProfileBinding({
         agentProfileId: request.agentProfileId,
+        localComponentsManifest: (
+          await readCoreLocalComponentsRelease(env.OPENMELD_CLI_RELEASES)
+        ).manifest,
         bindingStore: {
           ...bindingStore,
           readPrimaryBinding: async (readInput) => {
@@ -20536,6 +20573,9 @@ export async function rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissi
       mutate: async () =>
         await updatePrimaryAgentProfileBindingAgentControllerPermissionMode({
           agentProfileId: request.agentProfileId,
+          localComponentsManifest: (
+            await readCoreLocalComponentsRelease(env.OPENMELD_CLI_RELEASES)
+          ).manifest,
           agentControllerPermissionMode:
             body.data.agentControllerPermissionMode,
           bindingStore: createPostgresAgentProfileBindingCommandStore({ db }),
@@ -27272,7 +27312,9 @@ export function projectTeamSafeOrganizationDirectoryReadiness(
         },
         service: {
           executionCompatible: false,
-          expectedEpoch: resolveCoreRuntimeContractRollout().expectedEpoch,
+          // The epoch is not owner-private; keep the owner's evaluated value.
+          expectedEpoch:
+            ownerResponse.agentExecutionReadiness.facts.service.expectedEpoch,
           observedEpoch: null,
           reasonCodes: [],
           source: "not_checked",

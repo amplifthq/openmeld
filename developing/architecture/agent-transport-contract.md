@@ -320,7 +320,12 @@ settled Wake. Terminal promotion applies the same check to each next head, so
 disabled work cannot remain hidden in FIFO and run later.
 
 User-facing Wake progress may project explicit Profile FIFO `queued` copy only
-from the Coordinator-owned head lifecycle `queued` state. Space outbox status,
+from the Coordinator-owned head lifecycle `queued` state, or for an
+`accepted_local` execution whose latest `lifecycle_accepted_local` evidence
+reports `localQueue.status = queued` because the Service holds it behind other
+local work. That local wait records its own lifecycle event, so the frame the
+Service sends when it starts the Wake is not deduplicated into the wait and ends
+the `queued` projection. Space outbox status,
 Dispatch lookup status, and RuntimeCoordinator `created` or `delivery_pending`
 remain neutral pre-delivery progress. They must not infer that another Wake
 owns the Profile work slot, and the PostgreSQL `profile_queue_waiting` projection must
@@ -373,16 +378,21 @@ file access. Profile Default Project and a Space's related Projects remain
 suggestions, never alternate execution targets when the selected repository is
 unavailable. Isolated Contexts use separate worktrees.
 
-Each local task's resource scope carries a `folderKey`, a fingerprint of its
-resolved folder path, so resource conflicts are folder-scoped across Project
-labels. Tasks with different `folderKey` values never conflict, and an
-`exclusive` scope conflicts only with tasks in the same folder. A legacy scope
-without a `folderKey` keeps conflicting with every defined scope. Two
-direct-edit Sessions in the same folder run concurrently: the later one
-receives a `shared_folder` notice with a one-click switch to an isolated copy,
-and each task prompt lists the other Sessions editing that folder. A task
-whose root requester is not the Agent owner defaults to an isolated copy when
-the folder is a Git repository; the Service makes that choice inside
+Each local task carries a resource claim, so resource conflicts are
+folder-scoped across Project labels. A shared claim names its folder roots (the
+resolved folder and, for a Git checkout, its common Git directory) and its
+access; claims whose roots do not overlap never conflict, readers never
+conflict with readers, and a claim with unknown roots conflicts with every
+shared claim. Space-only and isolated work holds a private claim. Work without
+an Execution Context holds a legacy claim of its route's folder, and an
+OpenCode continuation that may return to an earlier folder claims unknown
+roots. Two direct-edit Sessions whose roots are identical run concurrently:
+the later one receives a `shared_folder` notice with a one-click switch to an
+isolated copy, and each task prompt lists the other Sessions editing that
+folder. A task that waits on another task's folder reports
+`runtime.local_queue.workspace_conflict`. A task whose root requester is not
+the Agent owner defaults to an isolated copy when the folder is a Git
+repository; the Service makes that choice inside
 `mode: "auto"`. Admission order stays FIFO without priorities, and owner and
 colleagues share the Profile's limit. Implementation status: MemberAgent
 program, PR #236, in progress.
@@ -465,6 +475,12 @@ input; receipt reconciliation never changes the binding of an attempted delivery
 After a successful fork, follow-ups already assigned to that replacement context
 can proceed without another approval when no unrelated work is held. Failed or
 stopped continuations and mixed-context queues retain the existing recovery gate.
+A gate opened because another app occupies one native conversation records that
+cause and holds only that Execution Context and legacy work; other contexts of
+the Profile keep their reservations and admission. Owner approval after the
+branch is required only while work for the occupied context is still queued.
+Usage exhaustion recorded on the same gate, or by its continuation, makes it a
+Profile-wide hold again, because Usage is a shared capability fact.
 Successful recovery retires only the source context's automatic scope association
 inside the same owner transaction. Its context and Wake history remain available
 for explicit selection. The replacement remains the conversation's automatic
@@ -2884,4 +2900,4 @@ Use scoped owner documents for detailed rules:
 - Recovery never becomes the hot path.
 - Every Wake has exactly one human root requester, written by the server into a
   request chain on the Execution Context assignment.
-- Local resource conflicts are folder-scoped by `folderKey`.
+- Local resource conflicts are folder-scoped by resource claim roots.

@@ -1,74 +1,111 @@
+import { sep } from "node:path";
+
 const LOCAL_EXECUTION_LANE_CONCURRENCY_LIMIT = 1;
 
-type LocalExecutionSlotResourceClaim = Pick<
-  LocalExecutionSlotTask,
-  "folderKey" | "resourceScope"
->;
-
 /**
- * Conflicts exist only within one folder (design-plans/member-agent-program.md
- * §4.9). Two direct-edit tasks in the same folder share it and both run; the
- * later one is told about the other (`shared_folder`). A task whose folder is
- * unknown keeps the machine-wide rule from before folders.
+ * The local files one task may touch, for coordinating OpenMeld-launched work.
+ *
+ * `private` work uses only a Service-owned root of its own Execution Context
+ * (a Space-only scratch folder or an isolated copy), so it never overlaps other
+ * work. `shared` work uses user folders: readers overlap freely, and a writer
+ * excludes every reader and writer with an overlapping root. `roots` are every
+ * canonical root the task shares with other work, such as the Git checkout of
+ * its folder and that checkout's Git metadata. `null` roots are unknown and
+ * overlap every shared root. `legacy` marks pre-Context work, which local
+ * lanes already serialize per Profile, so two legacy tasks never conflict here.
+ * These claims coordinate OpenMeld's own work; they are not a sandbox.
  */
-function resourcesConflict(
-  left: LocalExecutionSlotResourceClaim,
-  right: LocalExecutionSlotResourceClaim
+export type LocalExecutionResourceClaim =
+  | { kind: "private" }
+  | {
+      kind: "shared";
+      access: "read" | "write";
+      legacy?: true;
+      roots: readonly string[] | null;
+    };
+
+const UNRESOLVED_LEGACY_CLAIM: LocalExecutionResourceClaim = {
+  kind: "shared",
+  access: "write",
+  legacy: true,
+  roots: null,
+};
+
+function rootsOverlap(left: string, right: string): boolean {
+  const normalize = (root: string) =>
+    process.platform === "win32" ? root.toLowerCase() : root;
+  const isWithin = (child: string, parent: string) =>
+    child === parent ||
+    child.startsWith(parent.endsWith(sep) ? parent : `${parent}${sep}`);
+  const a = normalize(left);
+  const b = normalize(right);
+  return isWithin(a, b) || isWithin(b, a);
+}
+
+function sharedRootsOverlap(
+  left: readonly string[] | null,
+  right: readonly string[] | null
 ): boolean {
-  // Preserve legacy-to-legacy scheduling, but never overlap unverified legacy
-  // work with a new context that promises isolation in the same folder. When
-  // both folders are known and differ, the tasks cannot touch each other.
-  if (left.resourceScope === undefined && right.resourceScope === undefined) {
-    return false;
-  }
-  if (left.resourceScope === undefined || right.resourceScope === undefined) {
-    return !isKnownOtherFolder(left, right);
-  }
-  // Space-only work has no user folder.
-  if (left.resourceScope === "none" || right.resourceScope === "none") {
-    return false;
-  }
-  if (left.folderKey !== undefined && right.folderKey !== undefined) {
-    if (left.folderKey !== right.folderKey) {
-      return false;
-    }
-    if (isSharedFolder(left, right)) {
-      return false;
-    }
-  }
-  if (
-    left.resourceScope === "exclusive" ||
-    right.resourceScope === "exclusive"
-  ) {
+  if (left === null || right === null) {
     return true;
   }
-  return (
-    (left.resourceScope === "read_only" &&
-      right.resourceScope === "isolated") ||
-    (right.resourceScope === "read_only" && left.resourceScope === "isolated")
+  return left.some((leftRoot) =>
+    right.some((rightRoot) => rootsOverlap(leftRoot, rightRoot))
   );
 }
 
-function isKnownOtherFolder(
-  left: LocalExecutionSlotResourceClaim,
-  right: LocalExecutionSlotResourceClaim
+function isExecutionContextClaim(
+  claim: LocalExecutionResourceClaim | undefined
 ): boolean {
-  return (
-    left.folderKey !== undefined &&
-    right.folderKey !== undefined &&
-    left.folderKey !== right.folderKey
-  );
+  return claim !== undefined && !(claim.kind === "shared" && claim.legacy);
 }
 
+function resourcesConflict(
+  leftClaim: LocalExecutionResourceClaim | undefined,
+  rightClaim: LocalExecutionResourceClaim | undefined
+): boolean {
+  const left = leftClaim ?? UNRESOLVED_LEGACY_CLAIM;
+  const right = rightClaim ?? UNRESOLVED_LEGACY_CLAIM;
+  if (left.kind === "private" || right.kind === "private") {
+    return false;
+  }
+  if (
+    (left.legacy && right.legacy) ||
+    (left.access === "read" && right.access === "read") ||
+    isSharedFolder(left, right)
+  ) {
+    return false;
+  }
+  return sharedRootsOverlap(left.roots, right.roots);
+}
+
+/**
+ * Two direct-edit Execution Context tasks with the same known roots share the
+ * folder and both run (design-plans/member-agent-program.md §4.9); the later
+ * one is told about the other (`shared_folder`). Legacy work, unknown roots and
+ * nested or partly overlapping roots keep the exclusive writer rule.
+ */
 function isSharedFolder(
-  left: LocalExecutionSlotResourceClaim,
-  right: LocalExecutionSlotResourceClaim
+  leftClaim: LocalExecutionResourceClaim | undefined,
+  rightClaim: LocalExecutionResourceClaim | undefined
 ): boolean {
+  if (
+    leftClaim?.kind !== "shared" ||
+    rightClaim?.kind !== "shared" ||
+    leftClaim.legacy ||
+    rightClaim.legacy ||
+    leftClaim.access !== "write" ||
+    rightClaim.access !== "write" ||
+    leftClaim.roots === null ||
+    rightClaim.roots === null
+  ) {
+    return false;
+  }
+  const left = [...leftClaim.roots].sort();
+  const right = [...rightClaim.roots].sort();
   return (
-    left.folderKey !== undefined &&
-    left.folderKey === right.folderKey &&
-    left.resourceScope === "exclusive" &&
-    right.resourceScope === "exclusive"
+    left.length === right.length &&
+    left.every((root, index) => root === right[index])
   );
 }
 
@@ -79,21 +116,12 @@ export type LocalServiceDispatchLimits = {
 };
 
 export type LocalExecutionSlotTask = {
+  /** Absent for pre-Context work whose folder is not known yet. */
+  resourceClaim?: LocalExecutionResourceClaim;
   /** The Execution Context (Session) this task runs, when it has one. */
   executionContextId?: string | null;
-  /**
-   * Fingerprint of the resolved working folder. Absent: unknown, and the task
-   * keeps the machine-wide conflict rule.
-   */
-  folderKey?: string;
   /** Owner-safe folder name for diagnostics text; never a path. */
   folderLabel?: string;
-  resourceScope?:
-    | "none"
-    | "isolated"
-    | "isolated_read"
-    | "read_only"
-    | "exclusive";
   adapterId: string | null;
   attemptId: string;
   controllerKey: string;
@@ -288,35 +316,49 @@ export function createLocalExecutionSlots(input: {
     };
   };
 
-  const resolveWaitReason = (inputWait: {
-    folderKey?: string;
-    profileId?: string;
-    resourceScope?: LocalExecutionSlotTask["resourceScope"];
-    adapterId: string | null;
-    localExecutionLaneKey: string;
-  }): LocalExecutionSlotWaitReason => {
-    if (inputWait.adapterId && adapterOperationIds.has(inputWait.adapterId)) {
+  // An older pending task keeps its place ahead of younger work that touches
+  // the same files, so a writer cannot be bypassed indefinitely by readers or
+  // other writers arriving after it.
+  const conflictsWithOlderPendingWork = (
+    task: LocalExecutionSlotTask
+  ): boolean => {
+    for (const pending of pendingTasks) {
+      if (pending.task === task) {
+        return false;
+      }
+      if (resourcesConflict(pending.task.resourceClaim, task.resourceClaim)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const resolveWaitReason = (
+    task: LocalExecutionSlotTask
+  ): LocalExecutionSlotWaitReason => {
+    if (task.adapterId && adapterOperationIds.has(task.adapterId)) {
       return "agent_controller_maintenance";
     }
     if (activeGlobal >= input.limits.globalConcurrency) {
       return "global_concurrency";
     }
     if (
-      inputWait.resourceScope !== undefined &&
-      (activeCountByProfileId.get(inputWait.profileId ?? "") ?? 0) >=
+      isExecutionContextClaim(task.resourceClaim) &&
+      (activeCountByProfileId.get(task.profileId) ?? 0) >=
         (input.limits.contextConcurrency ?? 0)
     ) {
       return "agent_profile_concurrency";
     }
     if (
       [...activeTasks.values()].some((active) =>
-        resourcesConflict(active.task, inputWait)
-      )
+        resourcesConflict(active.task.resourceClaim, task.resourceClaim)
+      ) ||
+      conflictsWithOlderPendingWork(task)
     ) {
       return "workspace_conflict";
     }
     if (
-      resolveActiveForLane(inputWait.localExecutionLaneKey) >=
+      resolveActiveForLane(task.localExecutionLaneKey) >=
       LOCAL_EXECUTION_LANE_CONCURRENCY_LIMIT
     ) {
       return "local_execution_lane_concurrency";
@@ -324,32 +366,21 @@ export function createLocalExecutionSlots(input: {
     return "none";
   };
 
-  const buildLocalQueueDiagnostics = (inputDiagnostics: {
-    folderKey?: string;
-    folderLabel?: string;
-    profileId?: string;
-    resourceScope?: LocalExecutionSlotTask["resourceScope"];
-    adapterId: string | null;
-    localExecutionLaneKey: string;
-    queuePosition: number | null;
-    status?: "queued" | "starting_runtime";
-    waitReason?: LocalExecutionSlotWaitReason;
-  }): LocalExecutionSlotDiagnostics => {
-    const waitReason =
-      inputDiagnostics.waitReason ??
-      resolveWaitReason({
-        folderKey: inputDiagnostics.folderKey,
-        profileId: inputDiagnostics.profileId,
-        resourceScope: inputDiagnostics.resourceScope,
-        adapterId: inputDiagnostics.adapterId,
-        localExecutionLaneKey: inputDiagnostics.localExecutionLaneKey,
-      });
+  const buildLocalQueueDiagnostics = (
+    task: LocalExecutionSlotTask,
+    inputDiagnostics: {
+      queuePosition: number | null;
+      status?: "queued" | "starting_runtime";
+      waitReason?: LocalExecutionSlotWaitReason;
+    }
+  ): LocalExecutionSlotDiagnostics => {
+    const waitReason = inputDiagnostics.waitReason ?? resolveWaitReason(task);
     const status =
       inputDiagnostics.status ??
       (waitReason === "none" ? "starting_runtime" : "queued");
     return {
-      ...buildSnapshot(inputDiagnostics.localExecutionLaneKey),
-      folderLabel: inputDiagnostics.folderLabel ?? null,
+      ...buildSnapshot(task.localExecutionLaneKey),
+      folderLabel: task.folderLabel ?? null,
       queuePosition:
         status === "queued" ? inputDiagnostics.queuePosition : null,
       status,
@@ -371,13 +402,7 @@ export function createLocalExecutionSlots(input: {
       controllerKey: task.controllerKey,
       dispatchId: task.dispatchId,
       localExecutionLaneKey: task.localExecutionLaneKey,
-      localQueue: buildLocalQueueDiagnostics({
-        folderKey: task.folderKey,
-        folderLabel: task.folderLabel,
-        profileId: task.profileId,
-        resourceScope: task.resourceScope,
-        adapterId: task.adapterId,
-        localExecutionLaneKey: task.localExecutionLaneKey,
+      localQueue: buildLocalQueueDiagnostics(task, {
         queuePosition: inputEvent.queuePosition,
         status: inputEvent.status,
         waitReason: inputEvent.waitReason,
@@ -399,7 +424,9 @@ export function createLocalExecutionSlots(input: {
     task: LocalExecutionSlotTask
   ): LocalExecutionSlotSharedFolderSession[] =>
     [...activeTasks.values()]
-      .filter((active) => isSharedFolder(active.task, task))
+      .filter((active) =>
+        isSharedFolder(active.task.resourceClaim, task.resourceClaim)
+      )
       .map(({ task: active }) => ({
         executionContextId: active.executionContextId ?? null,
         profileId: active.profileId,
@@ -592,7 +619,6 @@ export function createLocalExecutionSlots(input: {
   };
 
   return {
-    isQuiescent,
     /**
      * Direct-edit Sessions that were already running in this task's folder
      * when it started. Empty for a task that is not running.
@@ -602,6 +628,7 @@ export function createLocalExecutionSlots(input: {
     ): LocalExecutionSlotSharedFolderSession[] {
       return activeTasks.get(taskId)?.sharedFolderSessions ?? [];
     },
+    isQuiescent,
     getAdapterOperationStatus(
       adapterId: string
     ): LocalExecutionSlotAdapterOperationStatus {

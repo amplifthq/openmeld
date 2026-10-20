@@ -156,6 +156,16 @@ function requestRemoteCandidate(options) {
       `Reset label ${label} so this explicit request creates one unambiguous ${options.confidence} run.\n`
     );
   }
+  // The result workflow publishes only on completion, so an earlier exact
+  // success would stay green while the requested run executes. Mark the head
+  // pending now; the trusted publisher overwrites it with the new result.
+  publishCommitStatus({
+    description: `Requested ${options.confidence} Final Candidate @ ${state.snapshot.expectedHeadSha.slice(0, 12)}; waiting for its result`,
+    headSha: state.snapshot.expectedHeadSha,
+    repository,
+    state: "pending",
+    targetUrl: state.pullRequest.html_url,
+  });
   runGhJson(
     [
       "api",
@@ -170,6 +180,7 @@ function requestRemoteCandidate(options) {
   process.stdout.write(
     [
       "Remote Final Candidate requested.",
+      "Head status: pending until the requested run reports.",
       `PR: ${state.pullRequest.html_url}`,
       `Head: ${state.snapshot.expectedHeadSha}`,
       `Base: ${state.snapshot.expectedBaseSha}`,

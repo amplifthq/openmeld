@@ -92,18 +92,16 @@ function releaseArtifact(file, helper) {
   };
 }
 
-function buildCli() {
+async function buildCli() {
   if (process.platform !== "win32" || process.arch !== "x64") {
     throw new Error("Build the internal preview on native Windows x64.");
   }
   const version = JSON.parse(
     readFileSync(join(root, "clients/openmeld-cli/package.json"), "utf8")
   ).version;
-  const componentPolicy = resolveWindowsPreviewComponentPolicy({
+  const componentPolicy = await resolveWindowsPreviewComponentPolicy({
+    repoRoot: root,
     version,
-    releaseManifest: JSON.parse(
-      readFileSync(join(root, "release/local-components.json"), "utf8")
-    ),
   });
   mkdirSync(evidenceDir, { recursive: true });
   try {
@@ -278,7 +276,7 @@ function finalizeCli() {
 async function main() {
   const command = process.argv[2];
   if (command === "build-cli") {
-    buildCli();
+    await buildCli();
   } else if (command === "finalize-cli") {
     finalizeCli();
   } else if (command === "finalize") {

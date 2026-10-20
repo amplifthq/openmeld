@@ -1180,7 +1180,20 @@ describe("gateway root routes", () => {
     await expect(response.json()).resolves.toEqual({
       ok: true,
       service: "openmeld-gateway",
+      releaseSha: null,
     });
+  });
+
+  it("reports the exact release source the running version was deployed from", async () => {
+    const { env } = makeEnv();
+    const releaseSha = "0123456789abcdef0123456789abcdef01234567";
+    const response = await app.fetch(
+      new Request("http://local/health"),
+      { ...env, RELEASE_SHA: releaseSha },
+      TEST_EXECUTION_CONTEXT
+    );
+
+    await expect(response.json()).resolves.toMatchObject({ releaseSha });
   });
 });
 

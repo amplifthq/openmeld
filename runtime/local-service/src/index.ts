@@ -69,6 +69,7 @@ export {
 export {
   createLocalExecutionSlots,
   describeLocalExecutionSlotWait,
+  type LocalExecutionResourceClaim,
   type LocalExecutionSlotCompletionEvent,
   type LocalExecutionSlotDiagnostics,
   type LocalExecutionSlotDropEvent,

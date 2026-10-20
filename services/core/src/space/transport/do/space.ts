@@ -717,6 +717,7 @@ import type {
 } from "../../application/types";
 import { projectWakeProgressItemsForClient } from "../../application/wake-progress-client-projection";
 import {
+  isRuntimeCoordinatorExecutionLocallyQueued,
   projectWakeTraceWaterfall,
   resolveRuntimeCoordinatorWakeProgressWaitReasonCode,
   type WakeTraceWaterfallSourceSignalFact,
@@ -29053,14 +29054,19 @@ function resolveWakeProgressPhaseFromRuntimeCoordinatorEvidence(
   trace: SpaceDispatchTraceSnapshot | null
 ): WakeProgressPhase | null {
   const status = trace?.runtimeCoordinatorExecution?.status;
-  return status
-    ? resolveWakeProgressPhaseFromRuntimeCoordinatorStatus(status)
-    : null;
+  if (!status) {
+    return null;
+  }
+  return isRuntimeCoordinatorExecutionLocallyQueued(trace)
+    ? "queued"
+    : resolveWakeProgressPhaseFromRuntimeCoordinatorStatus(status);
 }
 function resolveActiveWakeProgressExecutionPhase(
   execution: RuntimeCoordinatorExecutionWakeProgressSelector
 ): WakeProgressPhase {
-  return resolveWakeProgressPhaseFromRuntimeCoordinatorStatus(execution.status);
+  return execution.locallyQueued
+    ? "queued"
+    : resolveWakeProgressPhaseFromRuntimeCoordinatorStatus(execution.status);
 }
 function resolveWakeProgressPhaseFromOutboxEvidence(input: {
   nativeDeliveryEvidence?: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence;

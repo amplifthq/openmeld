@@ -1,4 +1,4 @@
-const LOCAL_COMPONENTS_MANIFEST_PATH = "release/local-components.json";
+const LOCAL_COMPONENTS_POLICY_PATH = "release/local-components-policy.json";
 const PRE_PUSH_RELEASE_GATE_CONTROL_PATHS = new Set([
   ".husky/pre-push",
   "package.json",
@@ -104,7 +104,7 @@ export function isEngineeringOnlySchemaPath(path) {
 export function isReleaseReadyPath(path) {
   const normalized = normalizeRepoPath(path);
   return (
-    normalized === LOCAL_COMPONENTS_MANIFEST_PATH ||
+    normalized === LOCAL_COMPONENTS_POLICY_PATH ||
     isCliReleasePath(normalized) ||
     isServiceReleasePath(normalized) ||
     isSkillsReleasePath(normalized)

@@ -5,6 +5,7 @@ import {
 	readCliBinaryManifest,
 	WINDOWS_INTERNAL_PREVIEW_MANIFEST_R2_OBJECT_KEY,
 } from "#/lib/cli-binary-release";
+import { serveCliDownload } from "#/lib/cli-download-cache.server";
 
 export async function getCliBinaryManifest(
 	channel: "stable" | "windows-preview" = "stable"
@@ -75,12 +76,15 @@ export async function getCliBinaryManifest(
 export const Route = createFileRoute("/cli/manifest.json")({
 	server: {
 		handlers: {
-			GET: ({ request }) =>
-				getCliBinaryManifest(
+			GET: ({ request }) => {
+				const channel =
 					new URL(request.url).searchParams.get("channel") === "windows-preview"
 						? "windows-preview"
-						: "stable"
-				),
+						: "stable";
+				return serveCliDownload(request, channel, () =>
+					getCliBinaryManifest(channel)
+				);
+			},
 		},
 	},
 });

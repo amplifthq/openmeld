@@ -5,7 +5,7 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import ts from "typescript";
+import ts from "@typescript/typescript6";
 
 assert.equal(process.platform, "win32", "Native Windows execution is required");
 const repo = path.resolve(import.meta.dirname, "../..");

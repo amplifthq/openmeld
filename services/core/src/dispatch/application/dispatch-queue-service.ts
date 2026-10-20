@@ -1709,6 +1709,16 @@ function requiresExecutionContext(
       (runtimeKind === "openmeld_service" && message.threadContext)
   );
 }
+const executionContextRejectionMessage = (reasonCode: string): string => {
+  switch (reasonCode) {
+    case "execution_context.selection_required":
+      return "This Agent has more than one task in progress in this conversation. Choose the task to continue, or start a new task.";
+    case "execution_context.history_selection_required":
+      return "This Agent couldn't tell which earlier task in this conversation you meant. Choose the task to continue, or start a new task.";
+    default:
+      return "This task's background could not be verified. Choose a task from this conversation to continue or fork, or start a new task.";
+  }
+};
 const settleRuntimeCoordinatorHeadAdmissionResponse = async (input: {
   db: PostgresDatabase;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
@@ -1728,8 +1738,7 @@ const settleRuntimeCoordinatorHeadAdmissionResponse = async (input: {
     return {
       status: "context_rejected",
       reasonCode: response.reasonCode,
-      errorMessage:
-        "This task's background could not be verified. Choose a task from this conversation to continue or fork, or start a new task.",
+      errorMessage: executionContextRejectionMessage(response.reasonCode),
     };
   }
   if (!response.ok && response.status === "retry_later") {

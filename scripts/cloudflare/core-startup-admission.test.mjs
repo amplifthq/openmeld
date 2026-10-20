@@ -9,11 +9,11 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { orderComponents } from "../release/deploy.mjs";
 import {
   CUTOVER_CONFIG_NAME,
   withPostgresqlCutoverConfig,
 } from "../release/postgresql-cutover-config.mjs";
-import { buildProductionDeployStepSpecs } from "../release/production-release.mjs";
 
 import {
   buildCoreBundleEvidenceStepSpec,
@@ -35,7 +35,8 @@ const MISSING_STARTUP_TIME_RE = /did not report Worker Startup Time/u;
 const MISSING_VERSION_UPLOAD_RE = /did not record a version-upload event/u;
 // Same no-pending Wrangler output captured by the existing CLI release guard.
 const CURRENT_DATABASE = { status: 0, stdout: "No migrations to apply.\n" };
-const PENDING_DATABASE_ERROR = /Production database is behind/u;
+const PENDING_DATABASE_ERROR =
+  /Production database is behind[\s\S]*pnpm run deploy -- --scope db,core --sha <sha>/u;
 
 test("verifies the final Core bundle module graph before startup admission", () => {
   assert.deepEqual(buildCoreBundleEvidenceStepSpec(), {
@@ -69,10 +70,9 @@ test("parses Cloudflare startup time from captured Wrangler output", () => {
   assert.equal(parseWranglerStartupTime(CAPTURED_WRANGLER_UPLOAD_OUTPUT), 421);
 });
 
-test("uploads the production version with zero traffic and the exact compile inputs", () => {
+test("uploads the production version with zero traffic and its exact release source", () => {
   const step = buildCoreStartupAdmissionStepSpec({
-    defines: ['OPENMELD_RELEASE:"v1"'],
-    tag: "openmeld-release-target",
+    releaseSha: "a".repeat(40),
   });
 
   assert.equal(step.command, "pnpm");
@@ -92,8 +92,7 @@ test("uploads the production version with zero traffic and the exact compile inp
     "--env",
   ]);
   assert.ok(step.args.includes("prod"));
-  assert.ok(step.args.includes("openmeld-release-target"));
-  assert.ok(step.args.includes('OPENMELD_RELEASE:"v1"'));
+  assert.ok(step.args.includes(`RELEASE_SHA:${"a".repeat(40)}`));
   assert.ok(!step.args.includes("deploy"));
 });
 
@@ -214,8 +213,6 @@ test("applies only the platform-required migration atomically with maintenance c
         cwd,
         env,
         releaseSha: "a".repeat(40),
-        tag: "release-target",
-        defines: ['MANIFEST:"exact"'],
         runCommand(input) {
           if (input.args.includes("d1")) {
             return CURRENT_DATABASE;
@@ -245,8 +242,7 @@ test("applies only the platform-required migration atomically with maintenance c
     assert.ok(calls[0].args.includes("upload"));
     assert.ok(calls[1].args.includes("deploy"));
     assert.ok(!calls[1].args.includes("versions"));
-    assert.ok(calls[1].args.includes("release-target"));
-    assert.ok(calls[1].args.includes('MANIFEST:"exact"'));
+    assert.ok(calls[1].args.includes(`RELEASE_SHA:${"a".repeat(40)}`));
     for (const call of calls) {
       assert.deepEqual(call.args.slice(-2), ["--config", CUTOVER_CONFIG_NAME]);
     }
@@ -358,14 +354,11 @@ test("Core refuses a pending database but the ordered database-then-Core stage c
       { message: "Hosted PostgreSQL deployment drifted" }
     );
     assert.equal(uploads.length, 0);
-    const steps = buildProductionDeployStepSpecs(["db", "core"], {
-      releaseSha: "a".repeat(40),
-    });
-    for (const step of steps) {
-      if (step.args.includes("db:release:prod")) {
-        // The external migration command succeeds before the Core owner is entered.
+    for (const component of orderComponents(["core", "db"])) {
+      if (component === "db") {
+        // The database component migrates before the Core owner is entered.
         pending = false;
-      } else if (step.args.includes("scripts/release/deploy-core-worker.mjs")) {
+      } else {
         assert.equal((await admit()).decision, "accepted");
       }
     }
