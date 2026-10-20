@@ -11,18 +11,17 @@ const LEGACY_MENTION_ALIAS_PROFILE_ID_SUFFIX_LENGTH = 8;
 const LEGACY_HANDLE_SEED_START_CHAR_REGEX = /^[a-z0-9]/;
 const LEGACY_HANDLE_SEED_SANITIZE_REGEX = /[^A-Za-z0-9._-]+/g;
 const LEGACY_HANDLE_SEED_MULTI_SEPARATOR_REGEX = /[._-]{2,}/g;
-const LEGACY_HANDLE_SEED_EDGE_SEPARATOR_REGEX = /^[._-]+|[._-]+$/g;
 const PROFILE_ID_SUFFIX_SANITIZE_REGEX = /[^a-z0-9]/g;
 
-// A loop, not /^-+|-+$/: that regex backtracks polynomially on long runs of
-// "-" in untrusted names.
-function trimEdgeDashes(value: string): string {
+// A loop, not /^-+|-+$/: an anchored edge regex backtracks polynomially on
+// long separator runs in untrusted names.
+function trimEdgeChars(value: string, chars: string): string {
   let start = 0;
   let end = value.length;
-  while (start < end && value[start] === "-") {
+  while (start < end && chars.includes(value[start] ?? "")) {
     start += 1;
   }
-  while (end > start && value[end - 1] === "-") {
+  while (end > start && chars.includes(value[end - 1] ?? "")) {
     end -= 1;
   }
   return value.slice(start, end);
@@ -53,7 +52,10 @@ export function buildProfileHandleBase(input: {
     .replace(HANDLE_SEED_SANITIZE_REGEX, "-")
     .replace(HANDLE_SEED_MULTI_SEPARATOR_REGEX, "-");
 
-  const bounded = trimEdgeDashes(normalized).slice(0, MAX_MENTION_TOKEN_LENGTH);
+  const bounded = trimEdgeChars(normalized, "-").slice(
+    0,
+    MAX_MENTION_TOKEN_LENGTH
+  );
   if (bounded.length > 0) {
     return bounded;
   }
@@ -79,8 +81,9 @@ export function buildProfileHandleCandidate(input: {
   }
 
   const suffix = `-${sequence}`;
-  const boundedBase = trimEdgeDashes(
-    normalizedBase.slice(0, MAX_MENTION_TOKEN_LENGTH - suffix.length)
+  const boundedBase = trimEdgeChars(
+    normalizedBase.slice(0, MAX_MENTION_TOKEN_LENGTH - suffix.length),
+    "-"
   );
 
   const fallbackBase = resolveProfileHandleFallbackBase(
@@ -249,13 +252,14 @@ function buildLegacyDefaultMentionAliasSeed(input: {
   profileName: string;
   profileKind: ProfileKind;
 }): string {
-  const normalized = input.profileName
-    .trim()
-    .toLowerCase()
-    .replace(LEGACY_HANDLE_SEED_SANITIZE_REGEX, "-")
-    .replace(LEGACY_HANDLE_SEED_MULTI_SEPARATOR_REGEX, "-")
-    .replace(LEGACY_HANDLE_SEED_EDGE_SEPARATOR_REGEX, "")
-    .slice(0, LEGACY_MENTION_ALIAS_SEED_MAX_LENGTH);
+  const normalized = trimEdgeChars(
+    input.profileName
+      .trim()
+      .toLowerCase()
+      .replace(LEGACY_HANDLE_SEED_SANITIZE_REGEX, "-")
+      .replace(LEGACY_HANDLE_SEED_MULTI_SEPARATOR_REGEX, "-"),
+    "._-"
+  ).slice(0, LEGACY_MENTION_ALIAS_SEED_MAX_LENGTH);
 
   if (normalized.length === 0) {
     return resolveProfileHandleFallbackBase(input.profileKind);
