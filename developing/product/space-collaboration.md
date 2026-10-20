@@ -533,16 +533,15 @@ list mixes Agents), a secondary line with the rule and, for a decided row, a
 relative time, and one control on the right. What the control does depends
 on the viewer, never on the surface:
 
-- The owner manages decided rows from a compact menu that shows the current
-  rule and offers only changes Core can apply: **Always allowed** for a
-  member on **This chat only**, and **Remove access**, which revokes every
-  active grant the person holds for that Profile. Always allowing retires the
-  person's one-chat grants, so the menu does not offer a way back to **This
-  chat only**; the owner removes access and the person asks again. Pending
+- The owner manages decided rows from a compact menu under the current rule.
+  The only change of rule is an upgrade: a member on **This chat only** can
+  be moved to **Always allow <name>**, which retires their one-chat grants.
+  There is no way back to **This chat only**; the owner chooses **Remove
+  access**, which revokes every active grant the person holds for that
+  Profile, and the person asks again. Removing an `always` grant asks for one
+  confirmation, because it applies to every chat with that Agent. Pending
   rows are answered inline with **Allow once**, **Always allow**, and
-  **Decline**. Removing an `always` grant asks for one confirmation, because
-  it applies to every chat with that Agent. External requesters never get
-  **Always**.
+  **Decline**. External requesters never get **Always**.
 - The requester sees plain state text on their own row, with **Withdraw**
   while it waits and **Ask again** after a decline or removal.
 - Everyone else reads the row.

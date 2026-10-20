@@ -36,6 +36,7 @@ const TALI_PROFILE = "hp-tali";
 const AGENT = "agt-cc";
 const REMOVE_ACCESS = /Remove access/u;
 const EVERY_CHAT = /This applies to every chat with/u;
+const ALWAYS_ALLOW_ITEM = /^Always allow /u;
 
 function request(
 	overrides: Partial<AgentAccessRequestView> = {}
@@ -371,19 +372,12 @@ describe("row copy and controls", () => {
 		).toBe("Waiting for Felix Lu");
 	});
 
-	it("offers the owner only the changes Core can apply", () => {
+	it("offers the owner only an upgrade from this chat and removal", () => {
 		const always = ownerAlwaysEntry();
 		expect(resolveAgentAccessOwnerOptions(always)).toEqual({
 			alwaysAllow: false,
-			thisChatOnly: false,
 			remove: true,
 		});
-		expect(
-			resolveAgentAccessOwnerOptions({
-				...always,
-				grants: [...always.grants, grant({ id: "g-once", scope: "once" })],
-			}).thisChatOnly
-		).toBe(true);
 		const once = {
 			...always,
 			rule: "once" as const,
@@ -391,8 +385,12 @@ describe("row copy and controls", () => {
 		};
 		expect(resolveAgentAccessOwnerOptions(once)).toEqual({
 			alwaysAllow: true,
-			thisChatOnly: false,
 			remove: true,
+		});
+		const removed = { ...always, rule: "removed" as const, grants: [] };
+		expect(resolveAgentAccessOwnerOptions(removed)).toEqual({
+			alwaysAllow: false,
+			remove: false,
 		});
 		const external = {
 			...once,
@@ -540,7 +538,7 @@ describe("AgentAccessList", () => {
 			screen.getByRole("button", { name: REMOVE_ACCESS_TRIGGER })
 		);
 		fireEvent.click(
-			await screen.findByRole("menuitem", { name: "Always allowed" })
+			await screen.findByRole("menuitem", { name: ALWAYS_ALLOW_ITEM })
 		);
 		expect(alwaysAllow).toHaveBeenCalledWith(once);
 	});

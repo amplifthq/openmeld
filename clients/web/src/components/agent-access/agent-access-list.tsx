@@ -24,7 +24,7 @@ import {
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
 import { cn } from "@openmeld/ui/lib/utils";
-import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
+import { CaretDownIcon } from "@phosphor-icons/react";
 import { useReducedMotion } from "motion/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { RemoteAgentAvatar } from "#/components/agents/remote-agent-avatar";
@@ -99,24 +99,23 @@ export function agentAccessRowDecisionLabel(
 }
 
 /**
- * What the owner can change on a decided row. External people are never
- * always allowed. Always allowing retires one-chat grants, so "This chat
- * only" is offered only when an older `once` grant is still there to fall
- * back to; otherwise the owner removes access and the person asks again.
+ * What the owner can change on a decided row. The only change of rule is
+ * upgrading a member's one-chat access to always; going back is removing
+ * access and letting them ask again. External people are never always
+ * allowed.
  */
 export function resolveAgentAccessOwnerOptions(entry: AgentAccessEntry): {
 	alwaysAllow: boolean;
-	thisChatOnly: boolean;
 	remove: boolean;
 } {
 	const always = entry.grants.some((grant) => grant.scope === "always");
 	const once = entry.grants.some((grant) => grant.scope === "once");
 	return {
 		alwaysAllow:
+			once &&
 			!always &&
 			entry.person?.kind === "member" &&
 			Boolean(entry.person.userId),
-		thisChatOnly: always && once,
 		remove: entry.grants.length > 0,
 	};
 }
@@ -146,7 +145,7 @@ export function resolveAgentAccessRowControl(input: {
 			return { kind: "owner_decide", request: entry.pendingRequest };
 		}
 		const options = resolveAgentAccessOwnerOptions(entry);
-		return options.alwaysAllow || options.thisChatOnly || options.remove
+		return options.alwaysAllow || options.remove
 			? { kind: "owner_manage" }
 			: { kind: "none" };
 	}
@@ -173,7 +172,6 @@ export type AgentAccessListActions = {
 	withdraw?: (request: AgentAccessRequestView) => void;
 	alwaysAllow?: (entry: AgentAccessEntry) => void;
 	/** Drops the `always` grant; the chat's own `once` grant stays. */
-	thisChatOnly?: (entry: AgentAccessEntry) => void;
 	/** Drops every grant the person has for the Agent. */
 	removeAccess?: (entry: AgentAccessEntry) => void;
 	askAgain?: (entry: AgentAccessEntry) => void;
@@ -427,8 +425,8 @@ function AgentAccessRowControlView(input: {
 }
 
 /**
- * The owner's menu on a decided row: the rule as a choice, then Remove
- * access. Only choices Core can apply right now are offered.
+ * The owner's menu on a decided row: upgrade a member's one-chat access to
+ * always, or remove access.
  */
 function OwnerManageMenu(input: {
 	entry: AgentAccessEntry;
@@ -437,28 +435,13 @@ function OwnerManageMenu(input: {
 }) {
 	const { actions, entry } = input;
 	const options = resolveAgentAccessOwnerOptions(entry);
-	const choices = [
-		{
-			key: "always",
-			label: "Always allowed",
-			current: entry.rule === "always",
-			available: options.alwaysAllow,
-			onSelect: () => actions.alwaysAllow?.(entry),
-		},
-		{
-			key: "once",
-			label: "This chat only",
-			current: entry.rule === "once",
-			available: options.thisChatOnly,
-			onSelect: () => actions.thisChatOnly?.(entry),
-		},
-	].filter((choice) => choice.current || choice.available);
+	const name = entry.person?.name ?? entry.agent.name;
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger
 				render={
 					<Button
-						aria-label={`${agentAccessRuleLabel(entry)}, change access for ${entry.person?.name ?? entry.agent.name}`}
+						aria-label={`${agentAccessRuleLabel(entry)}, change access for ${name}`}
 						className="shrink-0 gap-1 text-muted-foreground"
 						disabled={actions.busy}
 						size="sm"
@@ -470,37 +453,28 @@ function OwnerManageMenu(input: {
 				}
 			/>
 			<FluidDropdownMenuContent align="end" className="min-w-44">
-				{choices.length > 0 ? (
-					<FluidDropdownMenuGroup>
-						{choices.map((choice, index) => (
+				{options.alwaysAllow ? (
+					<>
+						<FluidDropdownMenuGroup>
 							<FluidDropdownMenuItem
-								disabled={choice.current}
-								index={index}
-								key={choice.key}
-								onClick={choice.onSelect}
+								index={0}
+								onClick={() => actions.alwaysAllow?.(entry)}
 							>
-								<span className="flex-1">{choice.label}</span>
-								{choice.current ? (
-									<CheckIcon aria-label="Current" className="size-3.5" />
-								) : null}
+								Always allow {name}
 							</FluidDropdownMenuItem>
-						))}
-					</FluidDropdownMenuGroup>
+						</FluidDropdownMenuGroup>
+						<DropdownMenuSeparator />
+					</>
 				) : null}
-				{choices.length > 0 && options.remove ? (
-					<DropdownMenuSeparator />
-				) : null}
-				{options.remove ? (
-					<FluidDropdownMenuGroup>
-						<FluidDropdownMenuItem
-							index={choices.length}
-							onClick={input.onRemove}
-							variant="destructive"
-						>
-							Remove access
-						</FluidDropdownMenuItem>
-					</FluidDropdownMenuGroup>
-				) : null}
+				<FluidDropdownMenuGroup>
+					<FluidDropdownMenuItem
+						index={options.alwaysAllow ? 1 : 0}
+						onClick={input.onRemove}
+						variant="destructive"
+					>
+						Remove access
+					</FluidDropdownMenuItem>
+				</FluidDropdownMenuGroup>
 			</FluidDropdownMenuContent>
 		</DropdownMenu>
 	);

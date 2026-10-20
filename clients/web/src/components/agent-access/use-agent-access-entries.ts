@@ -134,10 +134,6 @@ function useAgentAccessActions(input: {
 				granteeUserId: entry.person.userId,
 			});
 		},
-		thisChatOnly: (entry) => {
-			resetAll();
-			revoke.mutate(entry.grants.filter((grant) => grant.scope === "always"));
-		},
 		removeAccess: (entry) => {
 			resetAll();
 			revoke.mutate(entry.grants);
