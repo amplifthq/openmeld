@@ -41,6 +41,8 @@ import { spaceMemberDirectoryDisplaySchema } from "#/query/spaces/member-directo
 import { clearSpaceFileMediaResources } from "#/query/spaces/space-file-media-resource";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import {
+	accountMemberSpacesDisplayQueryKey,
+	accountMemberSpacesDisplaySchema,
 	spaceViewerMembershipDisplayQueryKey,
 	spaceViewerMembershipDisplaySchema,
 } from "#/query/spaces/viewer-membership-display";
@@ -623,6 +625,10 @@ export function createBrowserQueryPersistenceController(
 						targetQueryKeys: [
 							organizationQueryKeys.spaces(organizationId),
 							accountSidebarQueryKey(ownerAccountId, organizationId),
+							accountMemberSpacesDisplayQueryKey(
+								ownerAccountId,
+								organizationId
+							),
 							organizationPluginConnectionQueryKeys.statusSummary(
 								organizationId
 							),
@@ -1157,6 +1163,10 @@ function serializeSpacePersistedDisplayData(data: unknown): unknown {
 }
 
 function redactOrganizationPersistedDisplayData(data: unknown): unknown {
+	const memberSpaces = accountMemberSpacesDisplaySchema.safeParse(data);
+	if (memberSpaces.success) {
+		return memberSpaces.data;
+	}
 	const sidebar = accountSidebarResponseSchema.safeParse(data);
 	if (sidebar.success) {
 		return sidebar.data;

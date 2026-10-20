@@ -9,7 +9,10 @@ import { afterEach, expect, it } from "vitest";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import { spaceQueryKeys } from "#/query/spaces/status";
-import { spaceViewerMembershipDisplayQueryKey } from "#/query/spaces/viewer-membership-display";
+import {
+	accountMemberSpacesDisplayQueryKey,
+	spaceViewerMembershipDisplayQueryKey,
+} from "#/query/spaces/viewer-membership-display";
 import {
 	useSpaceComposerTraysHeld,
 	useSpaceViewerMembership,
@@ -40,6 +43,7 @@ function renderViewerMembership(
 			useSpaceViewerMembership({
 				confirmed: props.confirmed,
 				organizationId: "org",
+				ownerAccountId: "account",
 				profileId: "human",
 				spaceId: "space",
 			}),
@@ -88,6 +92,38 @@ it("knows a member from the cached account Spaces list or member directory", () 
 		{ version: 1, members: [{ profileId: "human" }] }
 	);
 	expect(renderViewerMembership(directory).result.current.membership).toBe(
+		"member"
+	);
+});
+
+it("saves the account Spaces list and reads it back before the list loads again", async () => {
+	const live = new QueryClient();
+	live.setQueryData(accountSpaceQueryKeys.items("human", "account"), {
+		pinnedItems: [],
+		spaceItems: [
+			{
+				directMessageProfileIds: ["human", "agent"],
+				joinedProfiles: [],
+				spaceId: "space",
+			},
+		],
+	});
+	renderViewerMembership(live);
+	await waitFor(() =>
+		expect(
+			live.getQueryData(accountMemberSpacesDisplayQueryKey("account", "org"))
+		).toEqual({
+			version: 1,
+			spaces: [{ spaceId: "space", profileIds: ["agent", "human"] }],
+		})
+	);
+
+	const refreshed = new QueryClient();
+	refreshed.setQueryData(
+		accountMemberSpacesDisplayQueryKey("account", "org"),
+		live.getQueryData(accountMemberSpacesDisplayQueryKey("account", "org"))
+	);
+	expect(renderViewerMembership(refreshed).result.current.membership).toBe(
 		"member"
 	);
 });

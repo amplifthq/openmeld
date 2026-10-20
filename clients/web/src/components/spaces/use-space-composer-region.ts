@@ -12,6 +12,8 @@ import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import type { SpaceMemberDirectoryDisplay } from "#/query/spaces/member-directory-display";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import {
+	type AccountMemberSpacesDisplay,
+	accountMemberSpacesDisplayQueryKey,
 	type SpaceViewerMembershipDisplay,
 	spaceViewerMembershipDisplayQueryKey,
 	spaceViewerMembershipDisplayQueryOptions,
@@ -63,14 +65,16 @@ export type SavedDirectMessageJoin = NonNullable<
 /**
  * The membership the conversation paints with. A confirmed members read wins.
  * Until it arrives, cached data picks the bar so the first frame already has
- * the input or the Join prompt: the account's Spaces list, the Space's member
- * directory, the viewer's last confirmed membership (saved with the
- * conversation), then the Organization's Space directory. Only presentation
- * reads this; the server still decides every send and join.
+ * the input or the Join prompt: the account's Spaces list (live, or saved
+ * from its last load), the Space's member directory, the viewer's last
+ * confirmed membership (saved with the conversation), then the Organization's
+ * Space directory. Only presentation reads this; the server still decides
+ * every send and join.
  */
 export function useSpaceViewerMembership(input: {
 	confirmed: ViewerMembershipState;
 	organizationId: string | null;
+	ownerAccountId: string;
 	profileId: string;
 	spaceId: string;
 }): {
@@ -83,6 +87,7 @@ export function useSpaceViewerMembership(input: {
 		input.profileId
 	);
 	const saved = useQuery(options).data;
+	useSaveAccountMemberSpaces(input);
 	const savedMembership = saved?.membership;
 	const settled = input.confirmed !== "unknown";
 	const subscribe = useCallback(
@@ -97,6 +102,7 @@ export function useSpaceViewerMembership(input: {
 			? input.confirmed
 			: readCachedSpaceMembership(queryClient, {
 					organizationId: input.organizationId,
+					ownerAccountId: input.ownerAccountId,
 					profileId: input.profileId,
 					savedMembership,
 					spaceId: input.spaceId,
@@ -150,10 +156,84 @@ export function useSaveDirectMessageJoin(input: {
 	}, [input.profileId, input.spaceId, queryClient, serialized]);
 }
 
+/**
+ * Keeps the saved account Spaces index in step with the live account Spaces
+ * list, so the next hard refresh knows the viewer's Spaces before that list
+ * loads again.
+ */
+function useSaveAccountMemberSpaces(input: {
+	organizationId: string | null;
+	ownerAccountId: string;
+}): void {
+	const queryClient = useQueryClient();
+	const { organizationId, ownerAccountId } = input;
+	useEffect(() => {
+		if (!(organizationId && ownerAccountId)) {
+			return;
+		}
+		const key = accountMemberSpacesDisplayQueryKey(
+			ownerAccountId,
+			organizationId
+		);
+		const save = () => {
+			const next = readAccountMemberSpaces(queryClient);
+			if (!next) {
+				return;
+			}
+			const current = queryClient.getQueryData<AccountMemberSpacesDisplay>(key);
+			if (JSON.stringify(current?.spaces) !== JSON.stringify(next)) {
+				queryClient.setQueryData<AccountMemberSpacesDisplay>(key, {
+					version: 1,
+					spaces: next,
+				});
+			}
+		};
+		save();
+		return queryClient.getQueryCache().subscribe((event) => {
+			if (
+				event.type === "updated" &&
+				event.query.queryKey[1] === accountSpaceQueryKeys.all[1] &&
+				event.query.queryKey[3] === "account"
+			) {
+				save();
+			}
+		});
+	}, [organizationId, ownerAccountId, queryClient]);
+}
+
+function readAccountMemberSpaces(
+	queryClient: QueryClient
+): AccountMemberSpacesDisplay["spaces"] | null {
+	const loaded = queryClient
+		.getQueryCache()
+		.findAll({ queryKey: accountSpaceQueryKeys.all })
+		.find(
+			(query) =>
+				query.queryKey[3] === "account" && query.state.status === "success"
+		);
+	const sections = loaded?.state.data as AccountSpaceSections | undefined;
+	if (!sections) {
+		return null;
+	}
+	return [...sections.pinnedItems, ...sections.spaceItems]
+		.filter((item) => !item.deletedAt)
+		.map((item) => ({
+			spaceId: item.spaceId,
+			profileIds: [
+				...new Set([
+					...item.joinedProfiles.map((joined) => joined.profileId),
+					...(item.directMessageProfileIds ?? []),
+				]),
+			].sort(),
+		}))
+		.sort((left, right) => left.spaceId.localeCompare(right.spaceId));
+}
+
 function readCachedSpaceMembership(
 	queryClient: QueryClient,
 	input: {
 		organizationId: string | null;
+		ownerAccountId: string;
 		profileId: string;
 		savedMembership: "member" | "nonmember" | undefined;
 		spaceId: string;
@@ -161,6 +241,7 @@ function readCachedSpaceMembership(
 ): ViewerMembershipState {
 	if (
 		isInCachedAccountSpaces(queryClient, input.spaceId, input.profileId) ||
+		isInSavedAccountSpaces(queryClient, input) ||
 		isInCachedMemberDirectory(queryClient, input.spaceId, input.profileId)
 	) {
 		return "member";
@@ -201,6 +282,34 @@ function isInCachedAccountSpaces(
 						item.directMessageProfileIds?.includes(profileId) === true)
 			)
 		);
+}
+
+function isInSavedAccountSpaces(
+	queryClient: QueryClient,
+	input: {
+		organizationId: string | null;
+		ownerAccountId: string;
+		profileId: string;
+		spaceId: string;
+	}
+): boolean {
+	if (!input.organizationId) {
+		return false;
+	}
+	return (
+		queryClient
+			.getQueryData<AccountMemberSpacesDisplay>(
+				accountMemberSpacesDisplayQueryKey(
+					input.ownerAccountId,
+					input.organizationId
+				)
+			)
+			?.spaces.some(
+				(space) =>
+					space.spaceId === input.spaceId &&
+					space.profileIds.includes(input.profileId)
+			) === true
+	);
 }
 
 function isInCachedMemberDirectory(

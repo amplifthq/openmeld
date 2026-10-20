@@ -2078,6 +2078,7 @@ function useSpaceLandingViewerState({
 	const viewerMembership = useSpaceViewerMembership({
 		confirmed: controller.currentProfileMembershipState,
 		organizationId: state.organizationId,
+		ownerAccountId: state.recovery.storageScope,
 		profileId: controller.profileId,
 		spaceId: controller.spaceId,
 	});

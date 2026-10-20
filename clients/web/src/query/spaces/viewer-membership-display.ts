@@ -44,3 +44,32 @@ export function spaceViewerMembershipDisplayQueryOptions(
 		gcTime: PERSISTED_DISPLAY_QUERY_GC_TIME_MS,
 	});
 }
+
+// Layout only. The Spaces each of the account's profiles belonged to when the
+// account Spaces list last loaded, so a hard refresh can paint the composer of
+// a conversation never opened in this browser. The server still decides every
+// send and join.
+export const accountMemberSpacesDisplaySchema = z.strictObject({
+	version: z.literal(1),
+	spaces: z.array(
+		z.strictObject({
+			spaceId: z.string(),
+			profileIds: z.array(z.string()),
+		})
+	),
+});
+export type AccountMemberSpacesDisplay = z.infer<
+	typeof accountMemberSpacesDisplaySchema
+>;
+
+export function accountMemberSpacesDisplayQueryKey(
+	ownerAccountId: string,
+	organizationId: string
+) {
+	return [
+		"spaces",
+		"account-member-spaces-display",
+		ownerAccountId,
+		organizationId,
+	] as const;
+}
