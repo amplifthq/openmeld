@@ -4,7 +4,6 @@ import { PlusIcon } from "@phosphor-icons/react";
 import { createContext, type ReactNode, use } from "react";
 import { SensitiveOperationAuditSection } from "#/components/sensitive-operations/sensitive-operation-audit-section";
 import type { MemberAgentDirectoryRow } from "./member-agent-directory-model";
-import { formatMemberAgentProfileDisplayName } from "./member-agent-display-name";
 
 type MemberAgentPage = {
 	row: MemberAgentDirectoryRow;
@@ -55,20 +54,18 @@ export function MemberAgentSensitiveChanges() {
 		return null;
 	}
 	const { row } = page;
+	// The page already names the Agent; only several Profiles need telling apart.
 	return (
 		<SensitiveOperationAuditSection
 			memberAgentId={row.memberAgentId}
 			profileNames={
 				new Map(
-					row.profiles.map((profile) => [
-						profile.openMeldProfileId,
-						formatMemberAgentProfileDisplayName({
-							memberAgentName: row.displayName,
-							profileName: profile.profileName,
-							isDefaultProfile:
-								profile.openMeldProfileId === row.defaultProfileId,
-						}),
-					])
+					row.profiles.length > 1
+						? row.profiles.map((profile) => [
+								profile.openMeldProfileId,
+								profile.profileName,
+							])
+						: []
 				)
 			}
 		/>
