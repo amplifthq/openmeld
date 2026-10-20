@@ -22,6 +22,7 @@ import {
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -323,8 +324,10 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 	const canSetUpAgain =
 		Boolean(input.recovery) && !input.profile.defaultProjectId;
 
+	// Grids here use minmax(0, 1fr) columns and min-w-0 so a long folder path
+	// truncates inside the dialog instead of widening it.
 	return (
-		<div className="grid gap-4">
+		<div className="grid min-w-0 grid-cols-1 gap-4">
 			{input.recovery ? (
 				<output className="text-sm">{input.recovery.message}</output>
 			) : null}
@@ -337,7 +340,7 @@ function FoldersDialogBody(input: FoldersDialogInput) {
 				response={response}
 			/>
 			{rows.length > 0 ? (
-				<ul aria-label="Folders" className="grid gap-2">
+				<ul aria-label="Folders" className="grid min-w-0 grid-cols-1 gap-2">
 					{rows.map((row) => (
 						<FolderRow
 							defaultPath={row.isDefault ? defaultPath : null}
@@ -510,7 +513,7 @@ function FolderRow(input: {
 	const row = input.row;
 	const trimmedName = name.trim();
 	return (
-		<li className="grid gap-2 rounded-md border p-3">
+		<li className="grid min-w-0 grid-cols-1 gap-2 rounded-md border p-3">
 			<div className="flex items-start gap-2">
 				<div className="min-w-0 flex-1">
 					<div className="flex items-center gap-2">
@@ -520,14 +523,7 @@ function FolderRow(input: {
 						) : null}
 					</div>
 					<p className="text-muted-foreground text-xs">{row.kindLabel}</p>
-					{input.defaultPath ? (
-						<p
-							className="truncate font-mono text-muted-foreground text-xs"
-							title={input.defaultPath}
-						>
-							{input.defaultPath}
-						</p>
-					) : null}
+					{input.defaultPath ? <FolderPath path={input.defaultPath} /> : null}
 				</div>
 				{input.pending ? (
 					<output className="text-muted-foreground text-xs">Saving…</output>
@@ -745,7 +741,7 @@ function AddFolderPanel(input: {
 		operation = { operation: "add_custom", path: path.trim() };
 	}
 	return (
-		<div className="grid gap-3 rounded-md border p-3">
+		<div className="grid min-w-0 grid-cols-1 gap-3 rounded-md border p-3">
 			<AgentProfileProjectSelector
 				disabled={input.disabled || pending}
 				localFoldersOnly={input.mode === "repair"}
@@ -806,6 +802,27 @@ function AddFolderPanel(input: {
 				</Button>
 			</div>
 		</div>
+	);
+}
+
+/**
+ * A folder path, cut in the middle so its last folder name stays visible.
+ * The full path is in the tooltip.
+ */
+function FolderPath(input: { path: string }) {
+	const cut = input.path.lastIndexOf("/", input.path.length - 2);
+	const head = cut > 0 ? input.path.slice(0, cut) : "";
+	const tail = cut > 0 ? input.path.slice(cut) : input.path;
+	return (
+		<TooltipHint content={input.path}>
+			<p
+				className="flex min-w-0 font-mono text-muted-foreground text-xs"
+				data-slot="folder-path"
+			>
+				<span className="truncate">{head}</span>
+				<span className="max-w-full shrink-0 truncate">{tail}</span>
+			</p>
+		</TooltipHint>
 	);
 }
 

@@ -235,7 +235,14 @@ describe("Agent folders dialog", () => {
 		renderDialog();
 		const row = await findRow("openmeld");
 		expect(row.getByText("Default")).toBeTruthy();
-		expect(await row.findByText("/Users/felix/work/openmeld")).toBeTruthy();
+		// Cut in the middle: the last folder name stays visible on its own and
+		// the full path is the tooltip.
+		const tail = await row.findByText("/openmeld");
+		const path = tail.closest("[data-slot='folder-path']");
+		expect(path?.textContent).toBe("/Users/felix/work/openmeld");
+		expect(path?.getAttribute("aria-description")).toBe(
+			"/Users/felix/work/openmeld"
+		);
 		expect((await findRow("website")).queryByText("Default")).toBeNull();
 		expect(
 			(await findRow("openmeld"))
@@ -523,7 +530,7 @@ describe("Agent folders dialog", () => {
 			})
 		).toBeNull();
 		// The saved path is read for its owner before the button applies.
-		await row.findByText("/Users/felix/work/openmeld");
+		await row.findByText("/openmeld");
 		fireEvent.click(row.getByRole("button", { name: "Set up again" }));
 		await waitFor(() => expect(onSaved).toHaveBeenCalled());
 		// A repair, which a Service too old to prepare the folder refuses.
