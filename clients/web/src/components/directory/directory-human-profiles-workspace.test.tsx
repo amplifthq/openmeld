@@ -119,7 +119,10 @@ vi.mock("@openmeld/ui/fluid/nav-menu", () => ({
 	),
 }));
 
-vi.mock("@openmeld/ui/components/local-agent-logo", () => ({
+vi.mock("@openmeld/ui/components/local-agent-logo", async (original) => ({
+	...(await original<
+		typeof import("@openmeld/ui/components/local-agent-logo")
+	>()),
 	LocalAgentLogo: ({
 		agentId,
 		variant,
@@ -789,9 +792,8 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(
 			within(agentStrip).getByText("Codex · GPT-5.6 Sol · model default")
 		).toBeTruthy();
-		expect(
-			within(agentStrip).getByText("Codex · Controller default")
-		).toBeTruthy();
+		// With no saved model the harness picks one: only the controller shows.
+		expect(within(agentStrip).getByText("Codex")).toBeTruthy();
 	});
 
 	it("makes Chat with the primary action for another member", () => {

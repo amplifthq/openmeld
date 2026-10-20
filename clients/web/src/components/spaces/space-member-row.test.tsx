@@ -16,6 +16,9 @@ import { resolveDirectoryHumanProfileActivityLabel } from "#/components/director
 import { SpaceMemberRow } from "./space-member-row";
 import type { SpaceWakeStatusTransientState } from "./space-wake-status-refresh";
 
+const MODEL_DEFAULT_PATTERN = /model default/;
+const CONTROLLER_DEFAULT_PATTERN = /Controller default/;
+
 const { toastMock } = vi.hoisted(() => ({
 	toastMock: {
 		success: vi.fn(),
@@ -441,9 +444,10 @@ describe("SpaceMemberRow", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Check Codex Profile" })
 		);
-		expect(
-			within(screen.getByRole("dialog")).getByText("Codex · Controller default")
-		).toBeTruthy();
+		// With no saved model only the controller shows, never the catalog default.
+		const dialog = within(screen.getByRole("dialog"));
+		expect(dialog.queryByText(MODEL_DEFAULT_PATTERN)).toBeNull();
+		expect(dialog.queryByText(CONTROLLER_DEFAULT_PATTERN)).toBeNull();
 	});
 
 	it("exposes AgentWakeAvailability fields on the Wake indicator", () => {
