@@ -17,6 +17,10 @@ import {
 	sortChatsByActivity,
 	useMemberAgentSessionGroups,
 } from "./member-agent-chat-history";
+import {
+	resolveMemberAgentLastChat,
+	useMemberAgentLastChatScope,
+} from "./member-agent-last-chat";
 import { useMemberAgentIndex } from "./use-member-agents";
 
 type MemberAgentSessionGroups = ReturnType<typeof useMemberAgentSessionGroups>;
@@ -24,8 +28,8 @@ type MemberAgentSessionGroups = ReturnType<typeof useMemberAgentSessionGroups>;
 /**
  * One nested-list section per Profile, each Session with the status marks a
  * sidebar row shows, most recent first. With `profileRows` and several
- * Profiles, each Profile gets a row that opens its latest chat, or starts
- * one when it has none.
+ * Profiles, each Profile gets a row that opens the chat last opened with it,
+ * else its latest chat, or starts one when it has none.
  */
 export function buildMemberAgentSessionSections(
 	sessions: MemberAgentSessionGroups,
@@ -35,6 +39,11 @@ export function buildMemberAgentSessionSections(
 	profileRows?: {
 		onStartChat: (agentProfileId: string) => void;
 		startingProfileId: string | null;
+		/** The member's last-opened chat with a Profile, if still listed. */
+		lastChatOf?: (
+			agentProfileId: string,
+			spaceIds: readonly string[]
+		) => string | null;
 	}
 ): SidebarNestedNavSection[] {
 	return sessions.groups.map((group) => {
@@ -44,7 +53,12 @@ export function buildMemberAgentSessionSections(
 				timestamp: timestamps?.get(item.spaceId) ?? item.timestamp,
 			}))
 		);
-		const latest = items[0];
+		// The row reopens the chat last opened with this Profile, else the latest.
+		const lastChat = profileRows?.lastChatOf?.(
+			group.id,
+			items.map((item) => item.spaceId)
+		);
+		const latest = items.find((item) => item.spaceId === lastChat) ?? items[0];
 		return {
 			id: group.id,
 			label: group.label,
@@ -120,6 +134,7 @@ export function useActiveMemberAgentSessionList(
 	const [startingProfileId, setStartingProfileId] = useState<string | null>(
 		null
 	);
+	const lastChatScope = useMemberAgentLastChatScope();
 	if (!memberAgent) {
 		return null;
 	}
@@ -142,7 +157,17 @@ export function useActiveMemberAgentSessionList(
 			sessions,
 			statusSources,
 			active?.memberAgentSessionTimestamps,
-			{ onStartChat, startingProfileId }
+			{
+				onStartChat,
+				startingProfileId,
+				lastChatOf: (agentProfileId, spaceIds) =>
+					resolveMemberAgentLastChat({
+						scope: lastChatScope,
+						target: { agentProfileId },
+						available: spaceIds,
+						complete: false,
+					}),
+			}
 		),
 	};
 }

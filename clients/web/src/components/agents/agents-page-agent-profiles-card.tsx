@@ -179,12 +179,14 @@ import { executeAgentProfileWorkRecovery } from "#/lib/profiles/agent-profile-wo
 import { deleteStartAgentProfile } from "#/lib/profiles/delete-agent-profile";
 import { resolveProfileBindingCatalogExecutionTarget } from "#/lib/profiles/profile-binding-target";
 import { formatProfileDate } from "#/lib/profiles/profile-date-format";
+import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 import { buildComputerSettingsPath } from "#/lib/settings-routes";
 import { isAgentExecutionSelfHealingReadiness } from "#/lib/spaces/agent-route-status";
 import {
 	openCurrentDirectMessageSpace,
 	resolveDirectMessageOpenErrorMessage,
 } from "#/lib/spaces/direct-message";
+import { readRememberedChatOrNull } from "#/lib/spaces/use-open-direct-message";
 import {
 	refreshWebAgentReadinessFacts,
 	refreshWebAgentReadinessSharedCaches,
@@ -446,6 +448,8 @@ export function AgentProfilesCard(input: AgentProfilesCardProps) {
 function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 	const navigate = useNavigate();
 	const { currentOrganization } = useAppOrganization();
+	const defaultHumanProfileId =
+		useDefaultHumanProfile().defaultHumanProfile?.openMeldProfileId;
 	const agentProfiles = input.agentProfiles ?? input.recovery.agentProfiles;
 	const agentProfileOperationalContextByProfileId =
 		input.agentProfileOperationalContextByProfileId ??
@@ -1336,10 +1340,17 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 	const handleOpenDirectMessage = async (profile: AuthProfileView) => {
 		setPendingDirectMessageProfileId(profile.openMeldProfileId);
 		try {
-			const response = await openCurrentDirectMessageSpace({
-				organizationId: currentOrganization.id,
-				targetProfileId: profile.openMeldProfileId,
-			});
+			const response =
+				(await readRememberedChatOrNull({
+					queryClient: input.queryClient,
+					organizationId: currentOrganization.id,
+					humanProfileId: defaultHumanProfileId,
+					agentProfileId: profile.openMeldProfileId,
+				})) ??
+				(await openCurrentDirectMessageSpace({
+					organizationId: currentOrganization.id,
+					targetProfileId: profile.openMeldProfileId,
+				}));
 			await input.queryClient.invalidateQueries({
 				queryKey: accountSpaceQueryKeys.all,
 				refetchType: "none",

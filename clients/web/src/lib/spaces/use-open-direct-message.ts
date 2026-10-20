@@ -1,8 +1,10 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
+import { readRememberedProfileChat } from "#/components/member-agents/member-agent-last-chat";
 import { buildOrganizationDirectMessagePath } from "#/lib/organizations/organization-routes";
+import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 import {
 	openCurrentDirectMessageSpace,
 	resolveDirectMessageOpenErrorMessage,
@@ -11,7 +13,9 @@ import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 
 /**
  * Opens (or creates) the signed-in member's Direct Message with one profile
- * and navigates to it. One open runs at a time; failures show a toast.
+ * and navigates to it. With one of the member's MemberAgent Profiles it
+ * reopens the chat last opened with that Profile while it still exists. One
+ * open runs at a time; failures show a toast.
  */
 export function useOpenDirectMessage(input: {
 	organizationId: string | null;
@@ -20,6 +24,8 @@ export function useOpenDirectMessage(input: {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const [pendingProfileId, setPendingProfileId] = useState<string | null>(null);
+	const humanProfileId =
+		useDefaultHumanProfile().defaultHumanProfile?.openMeldProfileId;
 	const open = useCallback(
 		async (profileId: string) => {
 			if (!(input.organizationId && input.orgSlug) || pendingProfileId) {
@@ -27,10 +33,17 @@ export function useOpenDirectMessage(input: {
 			}
 			setPendingProfileId(profileId);
 			try {
-				const response = await openCurrentDirectMessageSpace({
-					organizationId: input.organizationId,
-					targetProfileId: profileId,
-				});
+				const response =
+					(await readRememberedChatOrNull({
+						queryClient,
+						organizationId: input.organizationId,
+						humanProfileId,
+						agentProfileId: profileId,
+					})) ??
+					(await openCurrentDirectMessageSpace({
+						organizationId: input.organizationId,
+						targetProfileId: profileId,
+					}));
 				await queryClient.invalidateQueries({
 					queryKey: accountSpaceQueryKeys.all,
 					refetchType: "none",
@@ -50,6 +63,7 @@ export function useOpenDirectMessage(input: {
 			}
 		},
 		[
+			humanProfileId,
 			input.organizationId,
 			input.orgSlug,
 			navigate,
@@ -58,4 +72,29 @@ export function useOpenDirectMessage(input: {
 		]
 	);
 	return { open, pendingProfileId };
+}
+
+/** A remembered MemberAgent chat; a failed check falls back to the open. */
+export async function readRememberedChatOrNull(input: {
+	queryClient: QueryClient;
+	organizationId: string;
+	humanProfileId: string | undefined;
+	agentProfileId: string;
+}): Promise<{ spaceId: string; memberProfileId: string } | null> {
+	if (!input.humanProfileId) {
+		return null;
+	}
+	try {
+		return await readRememberedProfileChat({
+			queryClient: input.queryClient,
+			scope: {
+				organizationId: input.organizationId,
+				humanProfileId: input.humanProfileId,
+			},
+			agentProfileId: input.agentProfileId,
+		});
+	} catch (error) {
+		console.warn("Could not check the remembered chat.", error);
+		return null;
+	}
 }

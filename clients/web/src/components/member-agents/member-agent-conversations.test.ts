@@ -140,3 +140,32 @@ it("carries each Session's last-message time for the nested chat rows", () => {
 		["dm-reviewer", 3000],
 	]);
 });
+
+it("opens the Session the member last opened unless another one is selected", () => {
+	const lastChatOf = (memberAgentId: string) =>
+		memberAgentId === index.byProfileId.get("agt-claude-default")?.memberAgentId
+			? "dm-claude-1"
+			: null;
+	const rows = groupMemberAgentConversations({
+		conversations,
+		index,
+		selectedSpaceId: null,
+		lastChatOf,
+	});
+	expect(rows[0]?.spaceId).toBe("dm-claude-1");
+	const selected = groupMemberAgentConversations({
+		conversations,
+		index,
+		selectedSpaceId: "dm-reviewer",
+		lastChatOf,
+	});
+	expect(selected[0]?.spaceId).toBe("dm-reviewer");
+	// A remembered Session that is gone falls back to the most recent one.
+	const stale = groupMemberAgentConversations({
+		conversations,
+		index,
+		selectedSpaceId: null,
+		lastChatOf: () => "dm-deleted",
+	});
+	expect(stale[0]?.spaceId).toBe("dm-claude-2");
+});

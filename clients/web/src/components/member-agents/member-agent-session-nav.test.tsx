@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import type { Conversation } from "#/components/spaces/conversation-sidebar-model";
 import type { SpaceStatusSources } from "#/components/spaces/space-status-indicators";
+import { rememberMemberAgentChat } from "./member-agent-last-chat";
 import { useActiveMemberAgentSessionList } from "./member-agent-session-nav";
 
 const noStatus: SpaceStatusSources = {
@@ -16,6 +17,13 @@ const { sessionGroups, openChat, navigate } = vi.hoisted(() => ({
 	navigate: vi.fn(),
 }));
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => navigate }));
+vi.mock("./member-agent-last-chat", async (importOriginal) => ({
+	...(await importOriginal<typeof import("./member-agent-last-chat")>()),
+	useMemberAgentLastChatScope: () => ({
+		organizationId: "org-1",
+		humanProfileId: "human-felix",
+	}),
+}));
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => ({ currentOrganization: { id: "org-1" } }),
 }));
@@ -210,4 +218,42 @@ it("names each Session's own status so other Sessions are not missed", () => {
 		"Unread, unread updates",
 		"Approval, Priority attention, Codex needs your input",
 	]);
+});
+
+it("reopens the chat last opened with each Profile from its row", () => {
+	window.localStorage.clear();
+	rememberMemberAgentChat(
+		{ organizationId: "org-1", humanProfileId: "human-felix" },
+		{ memberAgentId: "ma-1", agentProfileId: "p-default", spaceId: "s-1" }
+	);
+	sessionGroups.mockReturnValue({
+		sessionPath: (spaceId: string) => `/dm/${spaceId}`,
+		groups: [
+			{
+				id: "p-default",
+				label: "Codex",
+				profileName: "Codex",
+				isError: false,
+				items: [
+					{ spaceId: "s-1", title: "Plan", timestamp: 10 },
+					{ spaceId: "s-3", title: "Ship", timestamp: 30 },
+				],
+			},
+			{
+				id: "p-review",
+				label: "Codex · Review",
+				profileName: "Review",
+				isError: false,
+				items: [{ spaceId: "s-2", title: "Audit" }],
+			},
+		],
+	});
+	const { result } = renderHook(() =>
+		useActiveMemberAgentSessionList(active, noStatus)
+	);
+	// Remembered for this Profile, though not its latest chat.
+	expect(result.current?.sections[0]?.row?.to).toBe("/dm/s-1");
+	// Nothing remembered for the other Profile: its latest chat.
+	expect(result.current?.sections[1]?.row?.to).toBe("/dm/s-2");
+	window.localStorage.clear();
 });

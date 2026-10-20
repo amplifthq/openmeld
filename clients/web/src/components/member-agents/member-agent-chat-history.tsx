@@ -3,6 +3,7 @@ import { AGENT_DIRECT_MESSAGE_SESSION_NAME_MAX_LENGTH } from "@openmeld/schemas"
 import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
+import { useEffect } from "react";
 import { ChatTitleEditor } from "#/components/organizations/chat-title-editor";
 import { ChatHistoryDropdown } from "#/components/spaces/chat-history-dropdown";
 import { SpaceStatusIndicator } from "#/components/spaces/space-status-indicator";
@@ -26,6 +27,10 @@ import type {
 	IndexedMemberAgent,
 	MemberAgentIndex,
 } from "./member-agent-index";
+import {
+	rememberMemberAgentChat,
+	useMemberAgentLastChatScope,
+} from "./member-agent-last-chat";
 import {
 	useArchivedMemberAgentSessionIds,
 	useMemberAgentIndex,
@@ -98,6 +103,26 @@ export function MemberAgentChatHistory(input: {
 	const titleStatus = resolveSpaceStatusIndicators(sessionIds, statusSources);
 	const titleStatusLabel = resolveSpaceStatusLabel(titleStatus);
 	const title = sessions.currentTitle ?? input.title;
+	// Any way in counts, a direct link included: the Agent's entries reopen it.
+	const lastChatScope = useMemberAgentLastChatScope();
+	const organizationId = lastChatScope?.organizationId;
+	const humanProfileId = lastChatScope?.humanProfileId;
+	const memberAgentId = input.current.memberAgent.memberAgent.id;
+	const agentProfileId = input.current.agentProfileId;
+	useEffect(() => {
+		if (organizationId && humanProfileId) {
+			rememberMemberAgentChat(
+				{ organizationId, humanProfileId },
+				{ memberAgentId, agentProfileId, spaceId: input.spaceId }
+			);
+		}
+	}, [
+		organizationId,
+		humanProfileId,
+		memberAgentId,
+		agentProfileId,
+		input.spaceId,
+	]);
 	const sessionActions = useDirectMessageSessionActions({
 		spaceId: input.spaceId,
 		onLeave: () =>

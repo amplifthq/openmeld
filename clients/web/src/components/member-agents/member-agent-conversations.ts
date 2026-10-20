@@ -4,8 +4,9 @@ import type { MemberAgentIndex } from "./member-agent-index";
 /**
  * Collapses the signed-in member's Direct Message Sessions with any Profile
  * of one MemberAgent into a single sidebar row named after the MemberAgent.
- * The row opens the selected Session when it belongs to the MemberAgent and
- * the most recent one otherwise; the header dropdown lists the rest. Spaces,
+ * The row opens the selected Session when it belongs to the MemberAgent,
+ * else the one the member last opened, else the most recent one; the header
+ * dropdown lists the rest. Spaces,
  * Human DMs, colleagues' Agents, and Center Agent chats are unchanged.
  */
 export function groupMemberAgentConversations(input: {
@@ -14,6 +15,8 @@ export function groupMemberAgentConversations(input: {
 	selectedSpaceId: string | null | undefined;
 	/** Archived Sessions leave the row; the header dropdown lists them. */
 	archivedSpaceIds?: ReadonlySet<string>;
+	/** The member's last-opened Session of a MemberAgent, if remembered. */
+	lastChatOf?: (memberAgentId: string) => string | null;
 }): Conversation[] {
 	const groups = new Map<string, Conversation[]>();
 	const result: (Conversation | { groupOf: string })[] = [];
@@ -45,8 +48,10 @@ export function groupMemberAgentConversations(input: {
 			return entry;
 		}
 		const sessions = groups.get(entry.groupOf) ?? [];
+		const lastChat = input.lastChatOf?.(entry.groupOf) ?? null;
 		const representative =
 			sessions.find((session) => session.spaceId === input.selectedSpaceId) ??
+			sessions.find((session) => session.spaceId === lastChat) ??
 			[...sessions].sort((left, right) => right.activity - left.activity)[0];
 		if (!representative) {
 			throw new Error("A MemberAgent row needs at least one Session.");
