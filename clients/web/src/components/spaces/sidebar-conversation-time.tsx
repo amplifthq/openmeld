@@ -26,7 +26,7 @@ export function SidebarConversationTime(input: {
 				"inline-flex shrink-0 font-normal text-[11px] text-muted-foreground tabular-nums",
 				input.hideOlderUntilHover &&
 					!isToday &&
-					"hidden group-focus-within/chat:inline-flex group-hover/chat:inline-flex",
+					"hidden group-has-[>[data-sidebar=menu-actions]:focus-within]/chat:inline-flex group-has-[>[data-sidebar=menu-actions]:hover]/chat:inline-flex group-has-[>[data-sidebar=menu-button]:focus-within]/chat:inline-flex group-has-[>[data-sidebar=menu-button]:hover]/chat:inline-flex",
 				input.className
 			)}
 			dateTime={date.toISOString()}

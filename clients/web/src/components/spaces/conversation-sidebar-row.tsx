@@ -1,4 +1,3 @@
-import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
 	DropdownMenuSeparator,
@@ -17,6 +16,7 @@ import {
 } from "@openmeld/ui/fluid/dropdown-menu";
 import { FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import {
+	SidebarMenuAction,
 	SidebarMenuActions,
 	SidebarMenuBadge,
 	SidebarMenuButton,
@@ -33,6 +33,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
+	type CSSProperties,
 	memo,
 	type ReactNode,
 	useEffect,
@@ -217,6 +218,8 @@ function ConversationSidebarRowTime({ timestamp }: { timestamp: number }) {
 	const nowMs = useNowMs(60_000);
 	return (
 		<SidebarConversationTime
+			// Same gap to the revealed row actions as between their icons.
+			className="mr-2"
 			hideOlderUntilHover
 			now={new Date(nowMs)}
 			timestamp={timestamp}
@@ -263,9 +266,11 @@ function conversationRowClassName(grid: boolean, hasPreviewLine: boolean) {
 	if (grid) {
 		return "group/chat relative [&>[data-sidebar=menu-actions]]:top-1 [&>[data-sidebar=menu-actions]]:right-0 [&>[data-sidebar=menu-badge]]:top-10 [&>[data-sidebar=menu-badge]]:right-1";
 	}
+	// Trailing marks and actions share the title's center line. Offsets are
+	// from the row's own top, not the <li>, which may also wrap nested chats.
 	return hasPreviewLine
-		? "group/chat relative"
-		: "group/chat relative [&>[data-sidebar=menu-actions]]:top-1/2 [&>[data-sidebar=menu-actions]]:-translate-y-1/2 [&>[data-sidebar=menu-badge]]:top-1/2 [&>[data-sidebar=menu-badge]]:-translate-y-1/2";
+		? "group/chat relative [&>[data-sidebar=menu-actions]]:top-1 [&>[data-sidebar=menu-badge]]:top-1.5"
+		: "group/chat relative [&>[data-sidebar=menu-actions]]:top-6 [&>[data-sidebar=menu-actions]]:-translate-y-1/2 [&>[data-sidebar=menu-badge]]:top-6 [&>[data-sidebar=menu-badge]]:-translate-y-1/2";
 }
 
 const ConversationSidebarRowContent = memo(
@@ -375,7 +380,7 @@ const ConversationSidebarRowContent = memo(
 									{presentation && input.attentionTone && (
 										<span
 											aria-hidden="true"
-											className={`status-dot shrink-0 ${resolveInboxIndicatorClassName(input.attentionTone)}`}
+											className={`status-dot mr-1.5 shrink-0 ${resolveInboxIndicatorClassName(input.attentionTone)}`}
 											data-conversation-unread-indicator="true"
 										/>
 									)}
@@ -755,11 +760,10 @@ function ConversationRowActions(input: ConversationSidebarRowProps) {
 			<DropdownMenu>
 				<DropdownMenuTrigger
 					render={
-						<Button
+						<SidebarMenuAction
 							aria-label={`Actions for ${input.title}`}
-							className="size-6"
-							size="icon-sm"
-							variant="ghost"
+							className="static size-6 data-[popup-open]:bg-sidebar-accent data-[popup-open]:text-foreground"
+							style={{ "--icon-size": "14px" } as CSSProperties}
 						/>
 					}
 				>
