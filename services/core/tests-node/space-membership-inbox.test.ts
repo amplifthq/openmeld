@@ -71,6 +71,31 @@ describe("New Space membership Inbox events", () => {
       await f.close();
     }
   });
+  it("does not notify a member who added themselves", async () => {
+    // Smoke: setup opened one Direct Message per Agent and the owner got a
+    // "You joined a Space" item for each.
+    const f = await createInboxFeedFixture();
+    try {
+      await projectSpaceMembershipInbox({
+        db: f.db,
+        meta,
+        members: [
+          {
+            ...member(),
+            addedByOwnerUserId: "owner",
+            addedByProfileId: "owner-space",
+            memberSource: "space_creator",
+          },
+        ],
+      });
+      expect(
+        (await f.query({ text: `SELECT id FROM "openmeld"."inbox_items"` }))
+          .rows
+      ).toEqual([]);
+    } finally {
+      await f.close();
+    }
+  });
   it("shows an empty joined Space as unread and acknowledges it without reading unseen messages", async () => {
     const f = await createInboxFeedFixture();
     try {

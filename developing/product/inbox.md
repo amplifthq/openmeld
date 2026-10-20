@@ -16,8 +16,10 @@
 
 ## Agent Direct Message activity
 
-An accepted Human membership generation creates one ordinary `space_joined`
-update, including empty Spaces and invitations. It uses the membership's
+An accepted Human membership generation that someone else added creates one
+ordinary `space_joined` update, including empty Spaces and invitations. A
+member who added themselves, such as a Space's creator or an owner whose setup
+opened a Direct Message with their own Agent, gets no update. It uses the membership's
 `addedAt`, not visits, role changes, or index retries. Rejoining creates a new
 generation. Historical memberships are established as read during migration
 and after historical D1 import. No chat message or urgent email is fabricated.

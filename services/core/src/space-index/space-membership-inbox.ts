@@ -3,7 +3,10 @@ import { ensureInboxItem } from "../inbox/application/inbox-item-service";
 import type { SpaceMemberRecord } from "../space/infrastructure/sql/space-member-repo";
 import type { SpaceMetaRecord } from "../space/infrastructure/sql/space-meta-repo";
 
-/** The accepted membership generation owns this event; visits and retries do not. */
+/**
+ * The accepted membership generation owns this event; visits and retries do
+ * not. Only a membership someone else added notifies.
+ */
 export async function projectSpaceMembershipInbox(input: {
   db: PostgresDatabase;
   meta: SpaceMetaRecord;
@@ -16,7 +19,10 @@ export async function projectSpaceMembershipInbox(input: {
     if (
       member.status !== "active" ||
       member.profileKindSnapshot !== "human" ||
-      !member.ownerUserIdSnapshot
+      !member.ownerUserIdSnapshot ||
+      // A member who added themselves, such as the creator of a Space or of
+      // a Direct Message with their own Agent, already knows about it.
+      member.addedByOwnerUserId === member.ownerUserIdSnapshot
     ) {
       continue;
     }
