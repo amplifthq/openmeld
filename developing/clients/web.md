@@ -336,7 +336,7 @@ panels does not wait for route loaders to commit the search parameter.
 All three tabs retain the same Space shell and sidebar. Switching the directory
 panel does not remount sidebar avatars, subscriptions, or resize controls.
 The sidebar's View and filters menu includes Show message previews. It defaults
-to off and persists per Human Profile and Organization in the browser preference
+to on and persists per Human Profile and Organization in the browser preference
 store. One setting controls the sidebar and both directory card views; it does
 not change Table previews or suppress actionable needs-input status. Hidden or
 absent message previews reserve no sidebar line or card footer. Single-line
