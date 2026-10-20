@@ -189,6 +189,42 @@ describe("MemberAgent directory", () => {
 		});
 	});
 
+	it("reads settled unavailable Profiles as unavailable, not checking", () => {
+		const presenceFor = (
+			wakeAvailability: "unavailable" | "checking"
+		): Parameters<
+			typeof buildMemberAgentDirectory
+		>[0]["presenceByMemberAgentId"] =>
+			new Map([
+				[
+					"ma-claude",
+					{
+						memberAgentId: "ma-claude",
+						harnessKind: "claude-code",
+						state: "checking",
+						computers: [],
+						profiles: [
+							{ openMeldProfileId: "agt-claude-default", wakeAvailability },
+							{
+								openMeldProfileId: "agt-claude-reviewer",
+								wakeAvailability: "unavailable",
+							},
+						],
+						workload: { status: "unavailable" },
+					},
+				],
+			]);
+		const stateOf = (presenceByMemberAgentId: ReturnType<typeof presenceFor>) =>
+			buildMemberAgentDirectory({
+				index,
+				ownedProfiles: MIGRATED_PROFILES,
+				runtimeByProfileId: new Map(),
+				presenceByMemberAgentId,
+			}).rows.find((row) => row.memberAgentId === "ma-claude")?.presence.state;
+		expect(stateOf(presenceFor("unavailable"))).toBe("unavailable");
+		expect(stateOf(presenceFor("checking"))).toBe("checking");
+	});
+
 	it("reads an Agent without a presence answer as checking, never broken", () => {
 		const directory = buildMemberAgentDirectory({
 			index,

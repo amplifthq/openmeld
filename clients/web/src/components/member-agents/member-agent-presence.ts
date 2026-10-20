@@ -4,7 +4,12 @@ import type { OrganizationAgentRuntimeOverviewResponse } from "@openmeld/schemas
 type RuntimeOverviewItem =
 	OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number];
 
-export type MemberAgentState = "available" | "checking" | "offline" | "missing";
+export type MemberAgentState =
+	| "available"
+	| "checking"
+	| "unavailable"
+	| "offline"
+	| "missing";
 
 /**
  * The single MemberAgent presence shape every Web surface reads. State and
@@ -56,10 +61,7 @@ export function resolveMemberAgentPresence(input: {
 			.filter((value): value is string => value !== null)
 			.sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null;
 	return {
-		// Until Core answers, the Agent is being checked, never shown as broken.
-		state: input.presence
-			? STATE_BY_PRESENCE[input.presence.state]
-			: "checking",
+		state: resolveState(input.presence),
 		runningCount: workload?.runningCount ?? null,
 		queuedCount: workload?.queuedCount ?? null,
 		computers,
@@ -67,11 +69,35 @@ export function resolveMemberAgentPresence(input: {
 	};
 }
 
+function resolveState(
+	presence: MemberAgentPresence | undefined
+): MemberAgentState {
+	// Until Core answers, the Agent is being checked, never shown as broken.
+	if (!presence) {
+		return "checking";
+	}
+	// Core reads "checking" whenever no Profile is available. Once every
+	// Profile has a settled answer, keep saying so instead of "Checking".
+	if (
+		presence.state === "checking" &&
+		presence.profiles.length > 0 &&
+		presence.profiles.every(
+			(profile) =>
+				profile.wakeAvailability === "unavailable" ||
+				profile.wakeAvailability === "offline"
+		)
+	) {
+		return "unavailable";
+	}
+	return STATE_BY_PRESENCE[presence.state];
+}
+
 export const MEMBER_AGENT_STATE_LABELS: Readonly<
 	Record<MemberAgentState, string>
 > = {
 	available: "Available",
 	checking: "Checking",
+	unavailable: "Unavailable",
 	offline: "Offline",
 	missing: "Not on any computer",
 };

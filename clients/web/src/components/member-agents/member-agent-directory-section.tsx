@@ -23,6 +23,7 @@ const STATE_BADGE_VARIANT: Readonly<
 > = {
 	available: "secondary",
 	checking: "outline",
+	unavailable: "outline",
 	offline: "outline",
 	missing: "destructive",
 };
