@@ -88,6 +88,7 @@ import { useConversationDisclosure } from "./use-conversation-disclosure";
 import { useConversationView } from "./use-conversation-view";
 import { useConversations } from "./use-conversations";
 import { useMessagePreviews } from "./use-message-previews";
+import { useSaveSidebarDisplaySnapshot } from "./use-save-sidebar-display-snapshot";
 import { useSpaceDirectoryFilters } from "./use-space-directory-filters";
 import { useUnreadHistoryPrefetch } from "./use-unread-history-prefetch";
 
@@ -340,6 +341,10 @@ export function ConversationsSidebar(
 		}
 	};
 	const { directMessages: dm } = model;
+	useSaveSidebarDisplaySnapshot({
+		organizationId: dm.org.id,
+		profileId: dm.profileId,
+	});
 	const agentRequestLabels = useAgentRequestSpaceLabels();
 	const memberAppearances = useMemo(
 		() => resolveSpaceMemberAppearances(dm.directory.data),
