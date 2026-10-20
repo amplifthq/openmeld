@@ -6,6 +6,7 @@ import { ChatCircleTextIcon } from "@phosphor-icons/react";
 import {
 	resolveAgentChatActionLabel,
 	useColleagueAgentAccess,
+	useColleagueAgentChatProgress,
 } from "#/components/agent-access/agent-access-indicator";
 import {
 	formatPublicWakeabilityReason,
@@ -86,11 +87,16 @@ function ColleagueAgentChatButton(input: { profile: AuthProfileView }) {
 		reason && reason.code !== "computer_offline"
 			? formatPublicWakeabilityReason(reason)
 			: null;
+	const progress = useColleagueAgentChatProgress({
+		enabled: access?.kind === "asks_owner",
+		profileId: input.profile.openMeldProfileId,
+	});
 	const label =
 		access?.kind === "asks_owner"
 			? resolveAgentChatActionLabel({
 					access,
 					profileName: input.profile.profileName,
+					progress,
 				})
 			: "Chat";
 	const button = (

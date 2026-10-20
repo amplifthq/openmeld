@@ -43,7 +43,9 @@ import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
 	AgentAccessIndicator,
+	type ColleagueAgentChatProgress,
 	resolveAgentChatActionLabel,
+	useColleagueAgentChatProgress,
 } from "#/components/agent-access/agent-access-indicator";
 import { AgentProfileAccessSection } from "#/components/agent-access/agent-profile-access-section";
 import { AgentAvatarEditor } from "#/components/agents/agent-avatar-editor";
@@ -134,7 +136,11 @@ function useColleagueAgentState(input: {
 		input.isColleagueAgent && input.availabilityCategory === "unavailable"
 			? (reason ?? "This Agent is unavailable")
 			: null;
-	return { access, chatUnavailableReason, reason };
+	const progress = useColleagueAgentChatProgress({
+		enabled: input.isColleagueAgent && access?.kind === "asks_owner",
+		profileId: input.profileId,
+	});
+	return { access, chatUnavailableReason, progress, reason };
 }
 
 /**
@@ -146,6 +152,7 @@ function AgentProfileChatAction(input: {
 	isPending: boolean;
 	onOpen: () => void;
 	profileName: string;
+	progress: ColleagueAgentChatProgress;
 	unavailableReason: string | null;
 }) {
 	const button = (
@@ -160,6 +167,7 @@ function AgentProfileChatAction(input: {
 			{resolveAgentChatActionLabel({
 				access: input.access,
 				profileName: input.profileName,
+				progress: input.progress,
 			})}
 		</Button>
 	);
@@ -167,7 +175,10 @@ function AgentProfileChatAction(input: {
 	if (input.unavailableReason !== null) {
 		tooltip = `Can’t start work right now: ${input.unavailableReason}.`;
 	} else if (input.access?.kind === "asks_owner") {
-		tooltip = `${input.access.ownerName} approves before it starts work for you.`;
+		tooltip =
+			input.progress === "waiting"
+				? `${input.access.ownerName} hasn’t answered your request yet.`
+				: `${input.access.ownerName} approves before it starts work for you.`;
 	}
 	return tooltip ? (
 		<TooltipHint content={tooltip}>
@@ -374,6 +385,7 @@ export function AgentProfileWorkspaceDetail(input: {
 										isPending={input.isDirectMessagePending}
 										onOpen={input.onOpenDirectMessage}
 										profileName={input.profile.profileName}
+										progress={colleague.progress}
 										unavailableReason={colleague.chatUnavailableReason}
 									/>
 								)}

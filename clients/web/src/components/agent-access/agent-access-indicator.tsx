@@ -7,6 +7,8 @@ import {
 	useAgentViewerAccess,
 } from "#/lib/agents/agent-viewer-access";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
+import { useAgentAccessRequests } from "#/query/agent-access";
+import { agentDirectMessageSessionsQueryOptions } from "#/query/organizations/agent-direct-message-sessions";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 
 /** "You can use" or "Asks <owner>" for a colleague's Agent, in a meta line. */
@@ -41,14 +43,68 @@ export function AgentAccessIndicator(input: {
 	);
 }
 
+/**
+ * How far the viewer got with an Agent whose owner answers first:
+ * - `none`: no Direct Message with the Profile yet.
+ * - `chat_open`: a Direct Message exists and nothing waits for the owner.
+ * - `waiting`: the viewer's message waits for the owner's decision.
+ */
+export type ColleagueAgentChatProgress = "none" | "chat_open" | "waiting";
+
 /** The colleague-facing label of the primary chat action. */
 export function resolveAgentChatActionLabel(input: {
 	access: AgentViewerAccess | null;
 	profileName: string;
+	progress?: ColleagueAgentChatProgress;
 }): string {
-	return input.access?.kind === "asks_owner"
-		? "Ask to use"
-		: `Chat with ${input.profileName}`;
+	if (input.access?.kind !== "asks_owner") {
+		return `Chat with ${input.profileName}`;
+	}
+	if (input.progress === "waiting") {
+		return `Waiting for ${input.access.ownerName}`;
+	}
+	return input.progress === "chat_open" ? "Open chat" : "Ask to use";
+}
+
+/**
+ * The viewer's progress with a colleague's Agent, from their pending
+ * requests and their Direct Messages with the Profile.
+ */
+export function useColleagueAgentChatProgress(input: {
+	enabled: boolean;
+	profileId: string;
+}): ColleagueAgentChatProgress {
+	const organizationId =
+		useOptionalAppOrganization()?.currentOrganization.id ?? "";
+	const requests = useAgentAccessRequests(
+		{ role: "requester", status: "pending" },
+		{ enabled: input.enabled }
+	);
+	const sessions = useQuery(
+		agentDirectMessageSessionsQueryOptions({
+			organizationId,
+			agentProfileId: input.profileId,
+			enabled: input.enabled && Boolean(organizationId),
+		})
+	);
+	return resolveColleagueAgentChatProgress({
+		hasDirectMessage: (sessions.data?.sessions.length ?? 0) > 0,
+		pendingProfileIds: (requests.data ?? []).map(
+			(request) => request.agentProfileId
+		),
+		profileId: input.profileId,
+	});
+}
+
+export function resolveColleagueAgentChatProgress(input: {
+	hasDirectMessage: boolean;
+	pendingProfileIds: readonly string[];
+	profileId: string;
+}): ColleagueAgentChatProgress {
+	if (input.pendingProfileIds.includes(input.profileId)) {
+		return "waiting";
+	}
+	return input.hasDirectMessage ? "chat_open" : "none";
 }
 
 /** Access to a colleague's Agent, naming its owner from the directory. */
