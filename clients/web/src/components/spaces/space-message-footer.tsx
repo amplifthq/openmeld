@@ -118,16 +118,12 @@ type SpaceMessageFooterDetailsAction = {
 const FOOTER_BUTTON_CLASS_NAME =
 	"size-7 border-0 bg-transparent p-1.5 text-muted-foreground shadow-none hover:bg-muted hover:text-foreground focus-visible:border-0 max-lg:min-h-7 max-lg:min-w-7";
 
-// A persistent (failed) footer shows no toolbar chrome at rest. The chrome
-// and the secondary actions come back on hover, keyboard focus, an open menu,
-// and on coarse pointers, the same triggers that show a normal footer.
-const MESSAGE_FOOTER_RESTING_CHROME_CLASS_NAME =
-	"border-transparent bg-transparent shadow-none group-focus-within/message-row:border-border group-focus-within/message-row:bg-popover group-focus-within/message-row:shadow-sm group-hover/message-row:border-border group-hover/message-row:bg-popover group-hover/message-row:shadow-sm has-[[aria-haspopup][aria-expanded=true]]:border-border has-[[aria-haspopup][aria-expanded=true]]:bg-popover has-[[aria-haspopup][aria-expanded=true]]:shadow-sm [@media(pointer:coarse)]:border-border [@media(pointer:coarse)]:bg-popover [@media(pointer:coarse)]:shadow-sm";
-
-// Visually hidden, not display:none, so Tab still reaches the actions and the
-// resulting focus-within reveals them.
-const MESSAGE_FOOTER_RESTING_HIDDEN_CLASS_NAME =
-	"sr-only group-focus-within/message-row:contents group-hover/message-row:contents has-[[aria-haspopup][aria-expanded=true]]:contents [@media(pointer:coarse)]:contents";
+// A persistent (failed) footer keeps the normal toolbar chrome but shows only
+// its failure icon at rest. The secondary actions sit in a 0fr grid column, so
+// they take no width, and open to 1fr on the same triggers that show a normal
+// footer. They stay focusable, so Tab from the icon reveals them.
+const MESSAGE_FOOTER_REVEAL_CLASS_NAME =
+	"grid grid-cols-[0fr] opacity-0 transition-[grid-template-columns,opacity] duration-150 ease-out motion-reduce:transition-none group-focus-within/message-row:grid-cols-[1fr] group-focus-within/message-row:opacity-100 group-hover/message-row:grid-cols-[1fr] group-hover/message-row:opacity-100 has-[[aria-haspopup][aria-expanded=true]]:grid-cols-[1fr] has-[[aria-haspopup][aria-expanded=true]]:opacity-100 [@media(pointer:coarse)]:grid-cols-[1fr] [@media(pointer:coarse)]:opacity-100";
 
 type SpaceMessageFooterProps = {
 	item?: SpaceTimelineItem;
@@ -339,6 +335,28 @@ function resolveFirstLineBox(element: HTMLElement) {
 	};
 }
 
+// A persistent toolbar is placed by its rest width, the width without the
+// revealed actions. Its start edge, and so the failure icon, then stays put
+// while the actions open on hover or focus.
+function resolvePersistentToolbarRestRect(toolbar: HTMLElement): DOMRect {
+	const rect = toolbar.getBoundingClientRect();
+	const reveal = toolbar.querySelector<HTMLElement>(
+		'[data-slot="message-footer-reveal-actions"]'
+	);
+	if (!reveal) {
+		return rect;
+	}
+	const width = rect.width - reveal.getBoundingClientRect().width;
+	return {
+		bottom: rect.bottom,
+		height: rect.height,
+		left: rect.left,
+		right: rect.left + width,
+		top: rect.top,
+		width,
+	} as DOMRect;
+}
+
 function MessageFooterActions({
 	input,
 	reactions,
@@ -384,7 +402,7 @@ function MessageFooterActions({
 		}
 		let observer: ResizeObserver | null = null;
 		const position = () => {
-			const toolbarRect = toolbar.getBoundingClientRect();
+			const toolbarRect = resolvePersistentToolbarRestRect(toolbar);
 			const textSurface = bubble.querySelector<HTMLElement>(
 				"[data-slot='space-message-text-surface']"
 			);
@@ -434,8 +452,6 @@ function MessageFooterActions({
 			toolbar.style.insetInlineStart = `${next.left}px`;
 			toolbar.style.insetBlockStart = `${next.top}px`;
 			toolbar.dataset.placement = next.placement;
-			toolbar.dataset.side =
-				next.placement === "overlay" ? preferredSide : next.placement;
 		};
 		const activate = () => {
 			position();
@@ -443,8 +459,8 @@ function MessageFooterActions({
 				observer = new ResizeObserver(position);
 				observer.observe(container);
 				observer.observe(bubble);
-				// A persistent footer changes width when its secondary actions
-				// appear on hover or focus, so it must be placed again.
+				// A persistent footer is placed by its rest width, so a change in
+				// the failure content must place it again.
 				observer.observe(toolbar);
 				if (attachmentStrip) {
 					observer.observe(attachmentStrip);
@@ -489,7 +505,6 @@ function MessageFooterActions({
 			window.removeEventListener("resize", position);
 		};
 	}, [hasMessageText, inline, persistent]);
-	const revealOnly = persistent ? MESSAGE_FOOTER_RESTING_HIDDEN_CLASS_NAME : "";
 	const secondaryActions = (
 		<>
 			{pending ? (
@@ -537,8 +552,7 @@ function MessageFooterActions({
 			className={cn(
 				"pointer-events-none z-20 flex h-7 w-max max-w-full items-center rounded-md border border-border bg-popover opacity-0 shadow-sm group-focus-within/message-row:pointer-events-auto group-focus-within/message-row:opacity-100 group-hover/message-row:pointer-events-auto group-hover/message-row:opacity-100 has-[[aria-haspopup][aria-expanded=true]]:pointer-events-auto has-[[aria-haspopup][aria-expanded=true]]:opacity-100 [@media(pointer:coarse)]:pointer-events-auto [@media(pointer:coarse)]:opacity-100",
 				inline ? "relative mt-1" : "absolute",
-				persistent && "group/message-footer pointer-events-auto opacity-100",
-				persistent && MESSAGE_FOOTER_RESTING_CHROME_CLASS_NAME
+				persistent && "pointer-events-auto opacity-100"
 			)}
 			data-layout={inline ? "inline" : "floating"}
 			data-persistent={persistent ? "true" : undefined}
@@ -553,12 +567,10 @@ function MessageFooterActions({
 			>
 				{persistent ? (
 					<>
-						{/* A failed message keeps only its problem signal on screen at
-						rest. It sits on the bubble side of the toolbar, so revealing the
-						other actions on hover or focus does not move it while the
-						toolbar fits beside the bubble. */}
+						{/* The failure icon comes first and keeps its place. The other
+						actions open away from it on hover or focus. */}
 						<span
-							className="flex shrink-0 items-center gap-2 group-data-[side=before]/message-footer:order-last group-data-[side=before]/message-footer:flex-row-reverse"
+							className="flex shrink-0 items-center gap-2"
 							data-slot="message-footer-problem"
 						>
 							{detailsButton}
@@ -566,12 +578,14 @@ function MessageFooterActions({
 								<SpaceDeviceWaitOutcome {...input.deviceWaitOutcome} />
 							) : null}
 						</span>
-						<span
-							className={revealOnly}
+						<div
+							className={MESSAGE_FOOTER_REVEAL_CLASS_NAME}
 							data-slot="message-footer-reveal-actions"
 						>
-							{secondaryActions}
-						</span>
+							<div className="flex min-w-0 items-center overflow-hidden">
+								{secondaryActions}
+							</div>
+						</div>
 					</>
 				) : (
 					<>

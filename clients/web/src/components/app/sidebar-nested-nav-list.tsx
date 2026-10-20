@@ -5,7 +5,6 @@ import {
 	SidebarMenuSubItem,
 } from "@openmeld/ui/fluid/sidebar-menu";
 import { cn } from "@openmeld/ui/lib/utils";
-import type { Icon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { SidebarConversationTime } from "#/components/spaces/sidebar-conversation-time";
@@ -29,7 +28,8 @@ export type SidebarNestedNavItem = {
 export type SidebarNestedNavSectionRow = {
 	label: string;
 	ariaLabel?: string;
-	icon?: Icon;
+	/** Drawn before the label, e.g. the Profile's avatar. */
+	leading?: ReactNode;
 	/** Where the row goes, e.g. the Profile's latest chat. */
 	to?: string;
 	/** What the row does when it has nowhere to go, e.g. start a chat. */
@@ -111,13 +111,17 @@ function SectionRow(input: {
 	if (!row) {
 		return null;
 	}
+	// The label stays the leading text so the row keeps its label treatment;
+	// the avatar renders after it in the DOM and is ordered before it.
+	const leading = row.leading ? (
+		<span className="order-first flex shrink-0">{row.leading}</span>
+	) : null;
 	return (
 		<SidebarMenuSubItem data-nested-nav-section={input.section.id}>
 			<SidebarMenuSubButton
 				aria-disabled={row.disabled || undefined}
 				aria-label={row.ariaLabel ?? row.label}
 				asChild
-				icon={row.icon}
 			>
 				{row.to ? (
 					<Link
@@ -130,6 +134,7 @@ function SectionRow(input: {
 						to={row.to}
 					>
 						{row.label}
+						{leading}
 					</Link>
 				) : (
 					<button
@@ -141,11 +146,12 @@ function SectionRow(input: {
 						type="button"
 					>
 						{row.label}
+						{leading}
 					</button>
 				)}
 			</SidebarMenuSubButton>
 			{input.section.notice || input.section.items.length > 0 ? (
-				<SidebarMenuSub className="ml-[15px] border-foreground/15">
+				<SidebarMenuSub className="ml-[17px] border-foreground/15">
 					{sectionContent(input.section, input.activeItemId)}
 				</SidebarMenuSub>
 			) : null}

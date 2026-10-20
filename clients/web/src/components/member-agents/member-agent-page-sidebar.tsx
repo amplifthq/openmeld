@@ -14,7 +14,6 @@ import {
 	CaretRightIcon,
 	ChatCircleTextIcon,
 	ChatsCircleIcon,
-	RobotIcon,
 } from "@phosphor-icons/react";
 import { useId, useState } from "react";
 import {
@@ -30,6 +29,7 @@ import {
 	SidebarNestedNavList,
 	type SidebarNestedNavSection,
 } from "#/components/app/sidebar-nested-nav-list";
+import { SpaceProfileIcon } from "#/components/spaces/space-profile-icon";
 import { formatMemberAgentProfileDisplayName } from "./member-agent-display-name";
 import { useMemberAgentPageSessionList } from "./member-agent-session-nav";
 
@@ -224,7 +224,16 @@ function MemberAgentProfileNav(input: {
 							isActive={active}
 							onClick={() => input.onSelectProfile(profile.openMeldProfileId)}
 						>
-							<RobotIcon aria-hidden="true" className="size-4 shrink-0" />
+							<SpaceProfileIcon
+								agentControllerRef={null}
+								avatarImageUrl={profile.avatarUrl}
+								avatarStyle={profile.avatarStyle}
+								className="size-4"
+								profileId={profile.openMeldProfileId}
+								profileKind="agent"
+								profileName={profile.profileName}
+								size="xs"
+							/>
 							<CenterTruncatedText className="flex-1" text={label} />
 						</SidebarMenuButton>
 						<SidebarMenuAction

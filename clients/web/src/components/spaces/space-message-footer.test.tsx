@@ -354,12 +354,11 @@ describe("SpaceMessageFooter", () => {
 		const footer = view.container.querySelector(
 			'[data-slot="message-footer"]'
 		) as HTMLElement;
-		expect(footer.className).toContain("bg-transparent");
-		expect(footer.className).toContain("border-transparent");
-		expect(footer.className).toContain("group-hover/message-row:bg-popover");
-		expect(footer.className).toContain(
-			"group-focus-within/message-row:bg-popover"
-		);
+		// Same toolbar chrome as a normal footer, visible at rest.
+		expect(footer.className).toContain("bg-popover");
+		expect(footer.className).toContain("border-border");
+		expect(footer.className).toContain("opacity-100");
+		expect(footer.className).not.toContain("bg-transparent");
 		const problem = view.container.querySelector(
 			'[data-slot="message-footer-problem"]'
 		) as HTMLElement;
@@ -371,19 +370,63 @@ describe("SpaceMessageFooter", () => {
 		const reveal = view.container.querySelector(
 			'[data-slot="message-footer-reveal-actions"]'
 		) as HTMLElement;
-		expect(reveal.className.split(" ")).toContain("sr-only");
-		expect(reveal.className).toContain("group-hover/message-row:contents");
-		expect(reveal.className).toContain(
-			"group-focus-within/message-row:contents"
+		// The actions collapse to zero width at rest and stay focusable.
+		const revealClasses = reveal.className.split(" ");
+		expect(revealClasses).toContain("grid-cols-[0fr]");
+		expect(revealClasses).not.toContain("hidden");
+		expect(revealClasses).not.toContain("invisible");
+		expect(revealClasses).toContain("group-hover/message-row:grid-cols-[1fr]");
+		expect(revealClasses).toContain(
+			"group-focus-within/message-row:grid-cols-[1fr]"
 		);
-		expect(reveal.className).toContain(
-			"has-[[aria-haspopup][aria-expanded=true]]:contents"
+		expect(revealClasses).toContain(
+			"has-[[aria-haspopup][aria-expanded=true]]:grid-cols-[1fr]"
 		);
+		expect(revealClasses).toContain("motion-reduce:transition-none");
 		expect(
 			within(reveal).getByRole("button", { name: "More actions" })
 		).toBeTruthy();
-		// Tab moves from the failure signal into the revealed actions.
+		// The failure icon comes first, so Tab moves from it into the actions
+		// and the actions open away from it.
 		expect(problem.nextElementSibling).toBe(reveal);
+	});
+
+	it("places a failed footer by its rest width so the icon never moves", () => {
+		const view = render(
+			<div data-message-row-id="failed-message">
+				<div data-slot="bubble-content">Failed message</div>
+				<SpaceMessageFooter
+					addressingTargets={[]}
+					details={{ hasProblem: true, onSelect: vi.fn() }}
+					failureSummary="Review Codex couldn’t reply"
+					onCopy={vi.fn()}
+				/>
+			</div>
+		);
+		const row = view.container.querySelector<HTMLElement>(
+			"[data-message-row-id]"
+		) as HTMLElement;
+		const bubble = row.querySelector<HTMLElement>(
+			'[data-slot="bubble-content"]'
+		) as HTMLElement;
+		const footer = row.querySelector<HTMLElement>(
+			'[data-slot="message-footer"]'
+		) as HTMLElement;
+		const reveal = row.querySelector<HTMLElement>(
+			'[data-slot="message-footer-reveal-actions"]'
+		) as HTMLElement;
+		let revealWidth = 0;
+		row.getBoundingClientRect = () => rect(0, 0, 600, 44);
+		bubble.getBoundingClientRect = () => rect(100, 0, 300, 44);
+		footer.getBoundingClientRect = () => rect(0, 0, 30 + revealWidth, 28);
+		reveal.getBoundingClientRect = () => rect(0, 0, revealWidth, 28);
+
+		fireEvent.pointerEnter(row);
+		const restStart = footer.style.insetInlineStart;
+		expect(restStart).toBe("406px");
+		revealWidth = 110;
+		fireEvent.pointerEnter(row);
+		expect(footer.style.insetInlineStart).toBe(restStart);
 	});
 
 	it("keeps a normal footer free of the failed rest state", () => {

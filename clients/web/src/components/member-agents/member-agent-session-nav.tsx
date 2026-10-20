@@ -1,9 +1,9 @@
-import { RobotIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import type { SidebarNestedNavSection } from "#/components/app/sidebar-nested-nav-list";
 import type { Conversation } from "#/components/spaces/conversation-sidebar-model";
+import { SpaceProfileIcon } from "#/components/spaces/space-profile-icon";
 import { SpaceStatusIndicator } from "#/components/spaces/space-status-indicator";
 import {
 	resolveSpaceStatusIndicators,
@@ -56,7 +56,16 @@ export function buildMemberAgentSessionSections(
 							ariaLabel: latest
 								? `${group.label}, open latest chat`
 								: `${group.label}, start a chat`,
-							icon: RobotIcon,
+							leading: (
+								<SpaceProfileIcon
+									agentControllerRef={null}
+									className="size-4"
+									profileId={group.id}
+									profileKind="agent"
+									profileName={group.profileName}
+									size="xs"
+								/>
+							),
 							to: latest ? sessions.sessionPath(latest.spaceId) : undefined,
 							onSelect: () => profileRows.onStartChat(group.id),
 							disabled: profileRows.startingProfileId === group.id,
