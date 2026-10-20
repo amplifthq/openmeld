@@ -2600,12 +2600,22 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   /**
    * Attempts one Profile's Context activation. A failure is recorded for that
    * Profile with its own backoff, so it never stops other Profiles' migrations
-   * or the Wake acceptance that triggered the attempt.
+   * or the Wake acceptance that triggered the attempt, and later queued Wakes
+   * wait out that backoff instead of retrying on every acceptance.
    */
   private async attemptAgentProfileContextMigration(input: {
     ownerUserId: string;
     targetProfileId: string;
   }): Promise<boolean> {
+    if (
+      !(await isAgentProfileContextMigrationRetryDue({
+        nowMs: Date.now(),
+        storage: this.ctx.storage,
+        targetProfileId: input.targetProfileId,
+      }))
+    ) {
+      return false;
+    }
     try {
       return await this.reconcileAgentProfileContextMigration(input);
     } catch (error) {

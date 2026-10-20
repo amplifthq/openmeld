@@ -12817,21 +12817,26 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it("isolates a failing Context activation to its Profile and backs off its retry", async () => {
+    let activationAttempts = 0;
     const { hub } = await createContextHarness({
       onBindingRead: () => {
+        activationAttempts += 1;
         throw new Error("binding temporarily unavailable");
       },
     });
     const acceptedAtMs = Date.now();
-    expect(
-      await (
-        await fetchRuntimeTransportJson(
-          hub,
-          "/runtime-coordinator/head/accept",
-          contextMigrationRequest("failing-activation")
-        )
-      ).json()
-    ).toMatchObject({ status: "queued" });
+    for (const id of ["failing-activation", "queued-during-backoff"]) {
+      expect(
+        await (
+          await fetchRuntimeTransportJson(
+            hub,
+            "/runtime-coordinator/head/accept",
+            contextMigrationRequest(id)
+          )
+        ).json()
+      ).toMatchObject({ status: "queued" });
+    }
+    expect(activationAttempts).toBe(1);
     const storage = (hub as unknown as { ctx: DurableObjectState }).ctx.storage;
     const nextAlarmAtMs =
       await executionAdmission.resolveNextAgentProfileContextMigrationAlarmAtMs(
