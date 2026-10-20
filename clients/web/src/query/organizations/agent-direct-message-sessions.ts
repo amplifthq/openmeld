@@ -4,8 +4,9 @@ import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld
 import { DISPLAY_REVISIT_GC_TIME_MS } from "#/query/query-config";
 
 export const agentDirectMessageSessionQueryKeys = {
+	root: ["agent-direct-message-sessions"] as const,
 	all: (organizationId: string) =>
-		["agent-direct-message-sessions", organizationId] as const,
+		[...agentDirectMessageSessionQueryKeys.root, organizationId] as const,
 	list: (input: {
 		organizationId: string;
 		agentProfileId: string;

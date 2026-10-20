@@ -43,6 +43,7 @@ import {
 } from "#/lib/spaces/timeline";
 import { invalidateAgentAccessQueries } from "#/query/agent-access";
 import { refreshWebAgentReadinessSharedCaches } from "#/query/agents/execution-readiness";
+import { agentDirectMessageSessionQueryKeys } from "#/query/organizations/agent-direct-message-sessions";
 import {
 	accountSpaceQueryKeys,
 	updateAccountSpaceAcceptedMessage,
@@ -1610,6 +1611,12 @@ function invalidateSpaceMetadata(
 					query.queryKey[3] === "sessions",
 			})
 			.catch((error) => console.warn("Failed to refresh chat titles.", error));
+		// MemberAgent Session lists name the chat title and sidebar Sessions.
+		queryClient
+			.invalidateQueries({ queryKey: agentDirectMessageSessionQueryKeys.root })
+			.catch((error) =>
+				console.warn("Failed to refresh Session titles.", error)
+			);
 	}
 	queryClient
 		.invalidateQueries({ queryKey: accountSpaceQueryKeys.all })

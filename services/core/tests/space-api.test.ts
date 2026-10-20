@@ -107,6 +107,12 @@ import { readUserTimeContext } from "../src/user-time-context/user-time-context-
 import { postgresFixtureOperator } from "./postgresql.test-support";
 import { waitForJsonMessage } from "./test-support/ws-stream";
 
+const memberAgentsFeature = vi.hoisted(() => ({ enabled: false }));
+vi.mock("../src/member-agent/member-agents-feature", () => ({
+  isMemberAgentsEnabled: () => memberAgentsFeature.enabled,
+  isRequestChainEnforced: () => memberAgentsFeature.enabled,
+}));
+
 const BASE_URL = "http://localhost";
 const SPACE_ID_HEX_REGEX = /^[0-9a-f]{64}$/i;
 const CURSOR_PATH_RE = /^\/v1\/spaces\/[^/]+\/cursors\/(.+)$/;
@@ -10845,6 +10851,119 @@ describe("OpenMeld Core", () => {
         list.sessions.find((item) => item.spaceId === session.spaceId)?.name
       ).toBe("Compare cloud hosting costs");
     });
+  });
+  it.each([
+    false,
+    true,
+  ])("titles a MemberAgent chat from its first message and keeps a title the member set: %s", async (renamedFirst) => {
+    const organizationId = `org-member-title-${randomUUID()}`;
+    const ownerUserId = `user-member-title-${randomUUID()}`;
+    const humanProfileId = randomUUID();
+    const agentProfileId = `agt_${randomUUID()}`;
+    await ensureTestCenterAgentDesignation({
+      agentProfileId: `agt_${randomUUID()}`,
+      agentProfileName: "Center Agent",
+      organizationId,
+      ownerUserId,
+    });
+    await insertTestPrimaryHumanProfile({
+      ownerUserId,
+      profileId: humanProfileId,
+    });
+    const nowMs = Date.now();
+    await getPostgresDatabase(env).query({
+      text: `
+      INSERT INTO "openmeld"."openmeld_profiles" (
+        profile_id, profile_name, profile_handle, profile_kind, is_default,
+        status, organization_id, owner_user_id, created_by_user_id,
+        creator_profile_id, source, managed_role, last_used_at, created_at,
+        updated_at
+      )
+      VALUES ($1, 'Claude Code', $2, 'agent', 0, 'active', $3, $4, $4, NULL, 'auth_bootstrap', NULL, NULL, $5, $5)
+    `,
+      values: [
+        agentProfileId,
+        `claude-code-${randomUUID()}`,
+        organizationId,
+        ownerUserId,
+        nowMs,
+      ],
+    });
+    const context = createRpcContext({
+      activeOrganizationId: organizationId,
+      ownerUserId,
+      profileId: humanProfileId,
+      profileKind: "human",
+      profileName: "Title tester",
+      requestId: "member-agent-title-test",
+    });
+    memberAgentsFeature.enabled = true;
+    try {
+      const session = await rpcOpenDirectMessageSpace(env as CoreBindings, {
+        context,
+        targetProfileId: agentProfileId,
+        creationId: randomUUID(),
+      });
+      const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+      await runInDurableObject(
+        namespace.get(namespace.idFromString(session.spaceId)),
+        async (_instance, state) => {
+          const readName = () =>
+            state.storage.sql
+              .exec<{ name: string }>("SELECT name FROM space_meta")
+              .toArray()[0]?.name;
+          expect(readName()).toBe("New chat");
+          if (renamedFirst) {
+            state.storage.sql.exec(
+              "UPDATE space_meta SET name = ?",
+              "Release checklist"
+            );
+          }
+          const generate = vi.fn(() =>
+            Promise.resolve({ title: "Fix free shipping boundary" })
+          );
+          const pending: Promise<unknown>[] = [];
+          const waitUntil = state.waitUntil.bind(state);
+          const capture = vi
+            .spyOn(state, "waitUntil")
+            .mockImplementation((promise) => {
+              pending.push(promise);
+              waitUntil(promise);
+            });
+          try {
+            const restarted = new Space(state, {
+              ...env,
+              OPENMELD_REMOTE_AGENT_WORKER: {
+                generateCenterAgentSessionTitle: generate,
+              },
+            } as CoreBindings);
+            await restarted.rpcPostSignal({
+              context,
+              spaceId: session.spaceId,
+              profile: {
+                kind: "human",
+                profileId: humanProfileId,
+                profileName: "Title tester",
+              },
+              authoringPolicy: "user_authored",
+              text: "Fix the free-shipping boundary in src/cart.ts",
+            });
+            await Promise.all(pending.splice(0));
+          } finally {
+            capture.mockRestore();
+          }
+          if (renamedFirst) {
+            expect(generate).not.toHaveBeenCalled();
+            expect(readName()).toBe("Release checklist");
+          } else {
+            expect(generate).toHaveBeenCalledTimes(1);
+            expect(readName()).toBe("Fix free shipping boundary");
+          }
+        }
+      );
+    } finally {
+      memberAgentsFeature.enabled = false;
+    }
   });
   it.each([
     "unavailable",
