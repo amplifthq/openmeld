@@ -54,7 +54,7 @@ export function useChats(input: {
 	archived: boolean;
 	includes: (kind: string) => boolean;
 }) {
-	const { currentOrganization: org } = useAppOrganization();
+	const { currentOrganization: org, currentUserId } = useAppOrganization();
 	const { defaultHumanProfile, profilesQuery } = useDefaultHumanProfile();
 	const profileId =
 		input.currentProfileId ?? defaultHumanProfile?.openMeldProfileId ?? "";
@@ -98,6 +98,7 @@ export function useChats(input: {
 				item,
 				profileDirectory: directory.data,
 				viewerProfileId,
+				viewerUserId: currentUserId,
 			});
 			return [
 				item.spaceId,

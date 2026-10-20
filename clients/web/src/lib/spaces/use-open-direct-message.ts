@@ -3,8 +3,8 @@ import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { readRememberedProfileChat } from "#/components/member-agents/member-agent-last-chat";
+import { useMemberAgentIndex } from "#/components/member-agents/use-member-agents";
 import { buildOrganizationDirectMessagePath } from "#/lib/organizations/organization-routes";
-import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 import {
 	openCurrentDirectMessageSpace,
 	resolveDirectMessageOpenErrorMessage,
@@ -24,8 +24,7 @@ export function useOpenDirectMessage(input: {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const [pendingProfileId, setPendingProfileId] = useState<string | null>(null);
-	const humanProfileId =
-		useDefaultHumanProfile().defaultHumanProfile?.openMeldProfileId;
+	const humanProfileId = useMemberAgentIndex().humanProfileId ?? undefined;
 	const open = useCallback(
 		async (profileId: string) => {
 			if (!(input.organizationId && input.orgSlug) || pendingProfileId) {

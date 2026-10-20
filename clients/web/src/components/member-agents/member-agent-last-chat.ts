@@ -1,12 +1,12 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
-import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 import {
 	readBrowserPreference,
 	removeBrowserPreference,
 	writeBrowserPreference,
 } from "#/lib/spaces/browser-preference-storage";
 import { agentDirectMessageSessionsQueryOptions } from "#/query/organizations/agent-direct-message-sessions";
+import { useMemberAgentIndex } from "./use-member-agents";
 
 // The chat a member last opened with each of their MemberAgents, so every
 // entry that resolves "the Agent's chat" (the sidebar Agent row, a Profile
@@ -22,11 +22,11 @@ export type MemberAgentLastChatScope = {
 	humanProfileId: string;
 };
 
-/** The signed-in member's scope in the current org, once known. */
+/** The signed-in member's scope in the current org, once known; null while
+ *  MemberAgents are off. */
 export function useMemberAgentLastChatScope(): MemberAgentLastChatScope | null {
 	const { currentOrganization } = useAppOrganization();
-	const { defaultHumanProfile } = useDefaultHumanProfile();
-	const humanProfileId = defaultHumanProfile?.openMeldProfileId;
+	const { humanProfileId } = useMemberAgentIndex();
 	return humanProfileId
 		? { organizationId: currentOrganization.id, humanProfileId }
 		: null;

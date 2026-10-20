@@ -130,6 +130,7 @@ import {
 	useMemberAgentHarnessLocked,
 	useMemberAgentProfileNameLocked,
 } from "#/components/member-agents/member-agent-harness-lock";
+import { useMemberAgentIndex } from "#/components/member-agents/use-member-agents";
 import {
 	AgentConfigurationCard,
 	AgentConfigurationEditorCard,
@@ -179,7 +180,6 @@ import { executeAgentProfileWorkRecovery } from "#/lib/profiles/agent-profile-wo
 import { deleteStartAgentProfile } from "#/lib/profiles/delete-agent-profile";
 import { resolveProfileBindingCatalogExecutionTarget } from "#/lib/profiles/profile-binding-target";
 import { formatProfileDate } from "#/lib/profiles/profile-date-format";
-import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 import { buildComputerSettingsPath } from "#/lib/settings-routes";
 import { isAgentExecutionSelfHealingReadiness } from "#/lib/spaces/agent-route-status";
 import {
@@ -449,7 +449,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 	const navigate = useNavigate();
 	const { currentOrganization } = useAppOrganization();
 	const defaultHumanProfileId =
-		useDefaultHumanProfile().defaultHumanProfile?.openMeldProfileId;
+		useMemberAgentIndex().humanProfileId ?? undefined;
 	const agentProfiles = input.agentProfiles ?? input.recovery.agentProfiles;
 	const agentProfileOperationalContextByProfileId =
 		input.agentProfileOperationalContextByProfileId ??
