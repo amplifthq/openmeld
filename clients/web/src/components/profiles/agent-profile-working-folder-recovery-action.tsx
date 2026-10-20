@@ -106,12 +106,8 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 		})
 	);
 	useEffect(() => {
-		if (!open) {
-			setDraftTarget(null);
-			return;
-		}
 		// Opened before the reads finished: freeze the target once they have.
-		if (!draftTarget && readyDraftTarget) {
+		if (open && !draftTarget && readyDraftTarget) {
 			setDraftTarget(readyDraftTarget);
 		}
 	}, [open, draftTarget, readyDraftTarget]);
@@ -227,6 +223,13 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 				}
 				expectedBindingTarget={draftTarget?.bindingTarget}
 				onOpenChange={setOpen}
+				onOpenChangeComplete={(isOpen) => {
+					// Cleared only once the dialog is gone, so it closes on the
+					// content it showed.
+					if (!isOpen) {
+						setDraftTarget(null);
+					}
+				}}
 				onProfileUpdated={input.onProfileUpdated}
 				open={open}
 				organizationId={input.organizationId}

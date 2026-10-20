@@ -147,7 +147,7 @@ function renderDialog(
 ) {
 	const onProfileUpdated = vi.fn();
 	const onOpenChange = vi.fn();
-	const view = (target: typeof BINDING_TARGET) => (
+	const view = (target: typeof BINDING_TARGET, open = true) => (
 		<TestQueryClientProvider queryClient={queryClient}>
 			<AgentProfileFoldersDialog
 				actorProfileId={null}
@@ -156,7 +156,7 @@ function renderDialog(
 				expectedBindingTarget={target}
 				onOpenChange={onOpenChange}
 				onProfileUpdated={onProfileUpdated}
-				open
+				open={open}
 				organizationId="org-1"
 				profile={profileFixture(overrides)}
 				recovery={recovery}
@@ -170,6 +170,7 @@ function renderDialog(
 	return {
 		onOpenChange,
 		onProfileUpdated,
+		close: () => rerender(view(bindingTarget, false)),
 		rebind: (target: typeof BINDING_TARGET) => rerender(view(target)),
 	};
 }
@@ -271,6 +272,15 @@ describe("Agent folders dialog", () => {
 			expect.objectContaining({ defaultProjectId: null })
 		);
 		expect(onProfileUpdated).toHaveBeenCalled();
+	});
+
+	it("closes on the folders it showed, not on its header alone", async () => {
+		const dialog = renderDialog();
+		await findRow("openmeld");
+		dialog.close();
+		// The exit animation still shows the body; it goes with the dialog.
+		expect(screen.getByRole("list", { name: "Folders" })).toBeTruthy();
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 	});
 
 	it("keeps its loading layout until the folders and default path are read", async () => {

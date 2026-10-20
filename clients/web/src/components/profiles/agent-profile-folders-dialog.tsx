@@ -50,6 +50,8 @@ type FoldersDialogInput = {
 	executionTargetChangeEligibilityStatus: "allowed" | "blocked" | "unavailable";
 	expectedBindingTarget?: AgentProfileBindingTarget;
 	onOpenChange: (open: boolean) => void;
+	/** Runs once the open or close animation has finished. */
+	onOpenChangeComplete?: (open: boolean) => void;
 	onProfileUpdated: (profile: AuthProfileView) => void;
 	open: boolean;
 	organizationId: string;
@@ -85,6 +87,14 @@ const CONFIGURATION_INVALID = "profile_folder.configuration_invalid";
  * repaired here by choosing the folder new work starts in.
  */
 export function AgentProfileFoldersDialog(input: FoldersDialogInput) {
+	// The body stays until the close animation ends, so the dialog leaves with
+	// the content it showed instead of collapsing to its header first.
+	const [closing, setClosing] = useState(false);
+	const [wasOpen, setWasOpen] = useState(input.open);
+	if (wasOpen !== input.open) {
+		setWasOpen(input.open);
+		setClosing(!input.open);
+	}
 	if (
 		!shouldShowAgentProfileProjectSettings({
 			agentControllerRef: input.agentControllerRef,
@@ -94,7 +104,16 @@ export function AgentProfileFoldersDialog(input: FoldersDialogInput) {
 		return null;
 	}
 	return (
-		<Dialog onOpenChange={(open) => input.onOpenChange(open)} open={input.open}>
+		<Dialog
+			onOpenChange={(open) => input.onOpenChange(open)}
+			onOpenChangeComplete={(open) => {
+				if (!open) {
+					setClosing(false);
+				}
+				input.onOpenChangeComplete?.(open);
+			}}
+			open={input.open}
+		>
 			<DialogContent className="sm:max-w-lg">
 				<DialogHeader>
 					<DialogTitle>Working folder</DialogTitle>
@@ -103,7 +122,9 @@ export function AgentProfileFoldersDialog(input: FoldersDialogInput) {
 						the default folder; you can choose another folder for a task.
 					</DialogDescription>
 				</DialogHeader>
-				{input.open ? <FoldersDialogBodyOrPreparing {...input} /> : null}
+				{input.open || closing ? (
+					<FoldersDialogBodyOrPreparing {...input} />
+				) : null}
 				<DialogFooter>
 					<Button onClick={() => input.onOpenChange(false)} variant="ghost">
 						Done
