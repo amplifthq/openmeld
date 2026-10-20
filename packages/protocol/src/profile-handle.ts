@@ -6,7 +6,6 @@ export const MENTION_TOKEN_REGEX = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 const HANDLE_SEED_SANITIZE_REGEX = /[^a-z0-9]+/g;
 const HANDLE_SEED_MULTI_SEPARATOR_REGEX = /-+/g;
-const HANDLE_SEED_EDGE_SEPARATOR_REGEX = /^-+|-+$/g;
 const LEGACY_MENTION_ALIAS_SEED_MAX_LENGTH = 96;
 const LEGACY_MENTION_ALIAS_PROFILE_ID_SUFFIX_LENGTH = 8;
 const LEGACY_HANDLE_SEED_START_CHAR_REGEX = /^[a-z0-9]/;
@@ -14,6 +13,20 @@ const LEGACY_HANDLE_SEED_SANITIZE_REGEX = /[^A-Za-z0-9._-]+/g;
 const LEGACY_HANDLE_SEED_MULTI_SEPARATOR_REGEX = /[._-]{2,}/g;
 const LEGACY_HANDLE_SEED_EDGE_SEPARATOR_REGEX = /^[._-]+|[._-]+$/g;
 const PROFILE_ID_SUFFIX_SANITIZE_REGEX = /[^a-z0-9]/g;
+
+// A loop, not /^-+|-+$/: that regex backtracks polynomially on long runs of
+// "-" in untrusted names.
+function trimEdgeDashes(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end && value[start] === "-") {
+    start += 1;
+  }
+  while (end > start && value[end - 1] === "-") {
+    end -= 1;
+  }
+  return value.slice(start, end);
+}
 
 export function normalizeMentionToken(value: unknown): string | null {
   if (typeof value !== "string") {
@@ -38,10 +51,9 @@ export function buildProfileHandleBase(input: {
     .trim()
     .toLowerCase()
     .replace(HANDLE_SEED_SANITIZE_REGEX, "-")
-    .replace(HANDLE_SEED_MULTI_SEPARATOR_REGEX, "-")
-    .replace(HANDLE_SEED_EDGE_SEPARATOR_REGEX, "");
+    .replace(HANDLE_SEED_MULTI_SEPARATOR_REGEX, "-");
 
-  const bounded = normalized.slice(0, MAX_MENTION_TOKEN_LENGTH);
+  const bounded = trimEdgeDashes(normalized).slice(0, MAX_MENTION_TOKEN_LENGTH);
   if (bounded.length > 0) {
     return bounded;
   }
@@ -67,9 +79,9 @@ export function buildProfileHandleCandidate(input: {
   }
 
   const suffix = `-${sequence}`;
-  const boundedBase = normalizedBase
-    .slice(0, MAX_MENTION_TOKEN_LENGTH - suffix.length)
-    .replace(HANDLE_SEED_EDGE_SEPARATOR_REGEX, "");
+  const boundedBase = trimEdgeDashes(
+    normalizedBase.slice(0, MAX_MENTION_TOKEN_LENGTH - suffix.length)
+  );
 
   const fallbackBase = resolveProfileHandleFallbackBase(
     input.profileKind
