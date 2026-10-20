@@ -31,6 +31,10 @@ import {
 } from "#/query/organizations/plugin-connections";
 import { PERSISTED_DISPLAY_QUERY_GC_TIME_MS } from "#/query/query-config";
 import { startQueryKeys } from "#/query/query-keys";
+import {
+	spaceComposerTrayDisplayQueryKey,
+	spaceComposerTrayDisplaySchema,
+} from "#/query/spaces/composer-tray-display";
 import { spaceConversationDisplaySnapshotSchema } from "#/query/spaces/display-snapshot";
 import {
 	spaceHeaderTitleDisplayQueryKey,
@@ -566,6 +570,7 @@ export function createBrowserQueryPersistenceController(
 					spaceQueryKeys.historyNavigation(spaceId, openMeldProfileId),
 					spaceViewerMembershipDisplayQueryKey(spaceId, openMeldProfileId),
 					spaceHeaderTitleDisplayQueryKey(spaceId, openMeldProfileId),
+					spaceComposerTrayDisplayQueryKey(spaceId, openMeldProfileId),
 				],
 			});
 		});
@@ -1185,6 +1190,10 @@ function serializeSpacePersistedDisplayData(data: unknown): unknown {
 	if (membership.success) {
 		return membership.data;
 	}
+	const composerTray = spaceComposerTrayDisplaySchema.safeParse(data);
+	if (composerTray.success) {
+		return composerTray.data;
+	}
 	const headerTitle = spaceHeaderTitleDisplaySchema.safeParse(data);
 	if (headerTitle.success) {
 		return headerTitle.data;
@@ -1242,6 +1251,7 @@ const SPACE_DISPLAY_SCHEMAS: ReadonlyMap<
 	string,
 	{ safeParse: (data: unknown) => { success: boolean } }
 > = new Map<string, { safeParse: (data: unknown) => { success: boolean } }>([
+	["composer-tray-display", spaceComposerTrayDisplaySchema],
 	["display-snapshot", spaceConversationDisplaySnapshotSchema],
 	["header-title-display", spaceHeaderTitleDisplaySchema],
 	["member-directory-display", spaceMemberDirectoryDisplaySchema],

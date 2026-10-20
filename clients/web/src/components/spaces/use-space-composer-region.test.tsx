@@ -8,12 +8,14 @@ import type { ReactNode } from "react";
 import { afterEach, expect, it } from "vitest";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
+import { spaceComposerTrayDisplayQueryKey } from "#/query/spaces/composer-tray-display";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import {
 	accountMemberSpacesDisplayQueryKey,
 	spaceViewerMembershipDisplayQueryKey,
 } from "#/query/spaces/viewer-membership-display";
 import {
+	useSpaceComposerTraySpace,
 	useSpaceComposerTraysHeld,
 	useSpaceViewerMembership,
 } from "./use-space-composer-region";
@@ -272,4 +274,24 @@ it("keeps the trays held while the composer bar is still pending", async () => {
 	expect(result.current).toBe(true);
 	rerender({ accessPending: false });
 	await waitFor(() => expect(result.current).toBe(false));
+});
+
+it("keeps the saved tray space only while the trays are held", () => {
+	const client = new QueryClient();
+	client.setQueryData(spaceComposerTrayDisplayQueryKey("space", "human"), {
+		version: 1,
+		height: 46,
+	});
+	const { result, rerender } = renderHook(
+		(props: { held: boolean }) =>
+			useSpaceComposerTraySpace({
+				held: props.held,
+				profileId: "human",
+				spaceId: "space",
+			}),
+		{ initialProps: { held: true }, wrapper: createWrapper(client) }
+	);
+	expect(result.current.reservedHeight).toBe(46);
+	rerender({ held: false });
+	expect(result.current.reservedHeight).toBe(0);
 });

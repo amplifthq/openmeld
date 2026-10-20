@@ -185,6 +185,7 @@ import {
 	SpaceWakeStopScope,
 } from "./space-wake-stop-control";
 import { SpaceComposerWorkBookmarks } from "./space-work-bookmarks";
+import { useSpaceComposerTraySpace } from "./use-space-composer-region";
 import {
 	type SpaceConversationRestorationStatus,
 	useSpaceConversationPosition,
@@ -2009,9 +2010,21 @@ function SpaceComposerSection(input: {
 	submitComposer: (options?: SpaceComposerSendOptions) => void;
 }) {
 	const panel = input.input;
+	const traySpace = useSpaceComposerTraySpace({
+		held: panel.composerTraysHeld === true,
+		profileId: panel.selfProfileId,
+		spaceId: panel.spaceId ?? "",
+	});
 
 	return (
-		<div className="shrink-0 bg-background" data-slot="space-composer-section">
+		<div
+			className="shrink-0 bg-background"
+			data-slot="space-composer-section"
+			ref={traySpace.sectionRef}
+		>
+			{traySpace.reservedHeight > 0 ? (
+				<div aria-hidden="true" style={{ height: traySpace.reservedHeight }} />
+			) : null}
 			<div
 				className="flex w-full flex-col gap-3 py-4"
 				data-space-conversation-content-width=""

@@ -5,10 +5,21 @@ import {
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from "react";
 import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
+import {
+	MAX_COMPOSER_TRAY_DISPLAY_HEIGHT,
+	spaceComposerTrayDisplayQueryOptions,
+} from "#/query/spaces/composer-tray-display";
 import type { SpaceMemberDirectoryDisplay } from "#/query/spaces/member-directory-display";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import {
@@ -376,6 +387,61 @@ export function useSpaceComposerTraysHeld(input: {
 		released,
 	]);
 	return !released;
+}
+
+const COMPOSER_TRAY_SETTLE_MS = 1200;
+
+/**
+ * Keeps the space the trays took on the last visit while they are held, so
+ * the composer does not grow when they appear. The trays' height is measured
+ * once per release (composer height after the trays settle minus the height
+ * while held) and saved per conversation. Layout only.
+ */
+export function useSpaceComposerTraySpace(input: {
+	held: boolean;
+	profileId: string;
+	spaceId: string;
+}) {
+	const queryClient = useQueryClient();
+	const { held, profileId, spaceId } = input;
+	const savedQuery = useQuery(
+		spaceComposerTrayDisplayQueryOptions(spaceId, profileId)
+	);
+	const saved = savedQuery.data?.height ?? 0;
+	const reservedHeight = held ? saved : 0;
+	const sectionRef = useRef<HTMLDivElement>(null);
+	const heldHeight = useRef<number | null>(null);
+	useLayoutEffect(() => {
+		if (held && sectionRef.current) {
+			heldHeight.current =
+				sectionRef.current.getBoundingClientRect().height - reservedHeight;
+		}
+	});
+	useEffect(() => {
+		const before = heldHeight.current;
+		if (held || before === null) {
+			return;
+		}
+		const timer = setTimeout(() => {
+			heldHeight.current = null;
+			const section = sectionRef.current;
+			if (!section) {
+				return;
+			}
+			const height = Math.max(
+				0,
+				Math.round(section.getBoundingClientRect().height - before)
+			);
+			if (height <= MAX_COMPOSER_TRAY_DISPLAY_HEIGHT && height !== saved) {
+				queryClient.setQueryData(
+					spaceComposerTrayDisplayQueryOptions(spaceId, profileId).queryKey,
+					{ version: 1, height }
+				);
+			}
+		}, COMPOSER_TRAY_SETTLE_MS);
+		return () => clearTimeout(timer);
+	}, [held, profileId, queryClient, saved, spaceId]);
+	return { reservedHeight, sectionRef };
 }
 
 function areComposerTrayReadsSettled(
