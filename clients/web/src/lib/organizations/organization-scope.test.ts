@@ -111,6 +111,18 @@ describe("organization scope resolution", () => {
 		expect(resolvePublicLoginRedirectTarget("/o/acme/spaces/space-123")).toBe(
 			"/o/acme/spaces/space-123"
 		);
+		expect(
+			resolvePublicLoginRedirectTarget(
+				"/o/acme/agents",
+				"?memberAgentId=agent-1"
+			)
+		).toBe("/o/acme/agents?memberAgentId=agent-1");
+		expect(
+			resolvePublicLoginRedirectTarget(
+				"/o/acme/center-agent/plugins/gmail",
+				"?tab=setup"
+			)
+		).toBe("/o/acme/plugins");
 	});
 
 	it("uses the account's last selected Organization for a later entry", () => {

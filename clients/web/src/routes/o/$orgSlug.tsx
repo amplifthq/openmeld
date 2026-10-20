@@ -43,7 +43,10 @@ export const Route = createFileRoute("/o/$orgSlug")({
 			throw redirect({
 				to: "/login",
 				search: {
-					redirect: resolvePublicLoginRedirectTarget(location.pathname),
+					redirect: resolvePublicLoginRedirectTarget(
+						location.pathname,
+						location.searchStr
+					),
 				},
 			});
 		}
