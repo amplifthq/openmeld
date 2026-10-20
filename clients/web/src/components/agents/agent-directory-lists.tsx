@@ -6,6 +6,7 @@ import { Link } from "@tanstack/react-router";
 import { type ReactNode, useMemo } from "react";
 import { CenterAgentItem } from "#/components/directory/center-agent-item";
 import { DirectorySearch } from "#/components/directory/directory-search";
+import { narrowMemberAgentDirectory } from "#/components/member-agents/member-agent-directory-model";
 import { MemberAgentDirectorySection } from "#/components/member-agents/member-agent-directory-section";
 import { useMemberAgentDirectory } from "#/components/member-agents/use-member-agent-directory";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
@@ -94,8 +95,8 @@ function AgentScopeTabs(input: {
 			value={input.myAgents ? "mine" : "all"}
 		>
 			<TabsList aria-label="Agent scope" className="w-fit max-w-full">
-				<TabItem label="My Agents" value="mine" />
 				<TabItem label="All Agents" value="all" />
+				<TabItem label="My Agents" value="mine" />
 			</TabsList>
 		</Tabs>
 	);
@@ -188,7 +189,7 @@ export function AgentDirectoryLists({
 			variant="card"
 		/>
 	);
-	const { memberAgentDirectory, renderOwnAgents } = useOwnMemberAgents({
+	const renderMemberAgents = useOwnMemberAgentResults({
 		input,
 		items,
 		renderCard,
@@ -215,7 +216,6 @@ export function AgentDirectoryLists({
 		? matchesAgentListItem(centerItem, view.filters, search)
 		: !search &&
 			Object.values(view.filters).every((values) => values.length === 0);
-	const totalCount = items.length + Number(Boolean(centerItem));
 	const creationRequests = (input.creationRequests ?? []).filter(
 		(request) =>
 			(!("requesterUserId" in request) ||
@@ -231,9 +231,6 @@ export function AgentDirectoryLists({
 				onChange={setScope}
 				person={input.person}
 			/>
-			<p className="shrink-0 text-muted-foreground text-xs">
-				{totalCount} {totalCount === 1 ? "Agent" : "Agents"}
-			</p>
 			{input.taskActivityAvailable === false && (
 				<output className="text-muted-foreground text-xs">
 					Task activity unavailable.
@@ -263,24 +260,23 @@ export function AgentDirectoryLists({
 		return (
 			<div className="space-y-3">
 				{toolbar}
-				{renderOwnAgents(
-					<AgentList
-						defaults={view}
-						emptyAction={create}
-						hideControls
-						items={items}
-						label={scope.label}
-						onDelete={
-							input.canCreateAgent !== false
-								? input.onDeleteProfiles
-								: undefined
-						}
-						renderCard={renderCard}
-						search={search}
-						viewPreferenceKey={viewPreferenceKey(scope.key)}
-					/>,
-					isOwnAgentScope(scope, input)
-				)}
+				<AgentList
+					defaults={view}
+					emptyAction={create}
+					hideControls
+					items={items}
+					label={scope.label}
+					onDelete={
+						input.canCreateAgent !== false ? input.onDeleteProfiles : undefined
+					}
+					renderCard={renderCard}
+					renderResults={ownAgentResults({
+						ownScope: isOwnAgentScope(scope, input),
+						render: renderMemberAgents,
+					})}
+					search={search}
+					viewPreferenceKey={viewPreferenceKey(scope.key)}
+				/>
 			</div>
 		);
 	}
@@ -364,9 +360,6 @@ export function AgentDirectoryLists({
 								<span className="ml-1 text-muted-foreground">(you)</span>
 							)}
 						</h2>
-						<span className="text-muted-foreground text-xs leading-none">
-							{group.items.length}
-						</span>
 						{group.ownerUserId === input.currentUserId &&
 							input.isOrganizationContext && (
 								<Button
@@ -385,18 +378,6 @@ export function AgentDirectoryLists({
 							)}
 					</div>
 				);
-				if (group.ownerUserId === input.currentUserId && memberAgentDirectory) {
-					return (
-						<section
-							aria-label={`${group.name}’s Agents`}
-							className="space-y-3"
-							key={group.ownerUserId}
-						>
-							{heading}
-							{renderOwnAgents(null)}
-						</section>
-					);
-				}
 				return (
 					<AgentList
 						collapsible
@@ -414,6 +395,10 @@ export function AgentDirectoryLists({
 								: undefined
 						}
 						renderCard={renderCard}
+						renderResults={ownAgentResults({
+							ownScope: group.ownerUserId === input.currentUserId,
+							render: renderMemberAgents,
+						})}
 						search={search}
 						viewPreferenceKey={viewPreferenceKey(
 							group.member.humanProfile?.profileId ??
@@ -431,6 +416,13 @@ export function AgentDirectoryLists({
 	);
 }
 
+function ownAgentResults<Render>(input: {
+	ownScope: boolean;
+	render: Render;
+}): Render | undefined {
+	return input.ownScope ? input.render : undefined;
+}
+
 function isOwnAgentScope(
 	scope: { myAgents: boolean; profiles: readonly AuthProfileView[] },
 	input: AgentProfilesWorkspaceProps
@@ -446,11 +438,12 @@ function isOwnAgentScope(
 }
 
 /**
- * The signed-in member's own Agents read one row per MemberAgent; every other
- * surface, and this one while the listing is unavailable, keeps the
- * per-Profile list.
+ * The signed-in member's own Agents read one card per MemberAgent, then the
+ * unassigned Profiles; the list's search, filters, and sort still apply to
+ * the Profiles underneath. Undefined while the listing is unavailable, so
+ * the list keeps its per-Profile cards.
  */
-function useOwnMemberAgents(args: {
+function useOwnMemberAgentResults(args: {
 	input: AgentProfilesWorkspaceProps;
 	items: readonly AgentListItem[];
 	renderCard: (item: AgentListItem, index: number) => ReactNode;
@@ -465,6 +458,9 @@ function useOwnMemberAgents(args: {
 	);
 	const onOpenMemberAgent = args.input.onOpenMemberAgent;
 	const { currentOrganization } = useAppOrganization();
+	if (!(memberAgentDirectory && onOpenMemberAgent)) {
+		return undefined;
+	}
 	const emptyActions = {
 		connectComputerPath: buildConnectComputerPath({
 			orgSlug: currentOrganization.slug,
@@ -473,23 +469,22 @@ function useOwnMemberAgents(args: {
 			? {}
 			: { onCreateAgent: args.input.onCreateAgent }),
 	};
-	const renderOwnAgents = (fallback: ReactNode, ownScope = true) =>
-		ownScope && memberAgentDirectory && onOpenMemberAgent ? (
-			<MemberAgentDirectorySection
-				directory={memberAgentDirectory}
-				emptyActions={emptyActions}
-				label="Your Agents"
-				onOpenMemberAgent={onOpenMemberAgent}
-				renderUnassignedCard={(entry, index) => {
-					const item = itemByProfileId.get(entry.profile.openMeldProfileId);
-					return item ? args.renderCard(item, index) : null;
-				}}
-			/>
-		) : (
-			fallback
-		);
-	return {
-		memberAgentDirectory: onOpenMemberAgent ? memberAgentDirectory : null,
-		renderOwnAgents,
-	};
+	return (visible: readonly AgentListItem[], filtered: boolean) => (
+		<MemberAgentDirectorySection
+			directory={narrowMemberAgentDirectory({
+				directory: memberAgentDirectory,
+				visibleProfileIds: visible.map(
+					(item) => item.profile.openMeldProfileId
+				),
+				filtered,
+			})}
+			emptyActions={emptyActions}
+			label="Your Agents"
+			onOpenMemberAgent={onOpenMemberAgent}
+			renderUnassignedCard={(entry, index) => {
+				const item = itemByProfileId.get(entry.profile.openMeldProfileId);
+				return item ? args.renderCard(item, index) : null;
+			}}
+		/>
+	);
 }

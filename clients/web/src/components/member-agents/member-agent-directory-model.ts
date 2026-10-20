@@ -192,3 +192,50 @@ export function resolveLatestMemberAgentSession(input: {
 	}
 	return latest;
 }
+
+/**
+ * The directory narrowed to the given Profiles, in their order: a MemberAgent
+ * row shows while any of its Profiles does and sits where its first visible
+ * Profile does; archived rows stay last. Unless `filtered`, a row with no
+ * readable Profile yet (still being set up) stays too, after the others.
+ */
+export function narrowMemberAgentDirectory(input: {
+	directory: MemberAgentDirectory;
+	visibleProfileIds: readonly string[];
+	filtered: boolean;
+}): MemberAgentDirectory {
+	const position = new Map(
+		input.visibleProfileIds.map((profileId, index) => [profileId, index])
+	);
+	const rowPosition = (row: MemberAgentDirectoryRow) =>
+		Math.min(
+			...row.profiles.map(
+				(profile) =>
+					position.get(profile.openMeldProfileId) ?? Number.POSITIVE_INFINITY
+			)
+		);
+	const rows = input.directory.rows
+		.filter((row) =>
+			row.profiles.length === 0
+				? !input.filtered
+				: Number.isFinite(rowPosition(row))
+		)
+		.map((row, index) => ({ row, index, at: rowPosition(row) }))
+		.sort(
+			(left, right) =>
+				Number(left.row.archived) - Number(right.row.archived) ||
+				left.at - right.at ||
+				left.index - right.index
+		)
+		.map(({ row }) => row);
+	return {
+		rows,
+		unassigned: input.directory.unassigned
+			.filter((entry) => position.has(entry.profile.openMeldProfileId))
+			.sort(
+				(left, right) =>
+					(position.get(left.profile.openMeldProfileId) ?? 0) -
+					(position.get(right.profile.openMeldProfileId) ?? 0)
+			),
+	};
+}

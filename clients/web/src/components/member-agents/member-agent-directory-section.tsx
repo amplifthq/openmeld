@@ -2,12 +2,12 @@ import type { HarnessKind } from "@openmeld/schemas";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
-import { FluidCardGroup } from "@openmeld/ui/fluid/card";
-import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
+import { FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import { RobotIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { AgentCard } from "#/components/agents/agent-card";
+import { AgentCardNavMenu } from "#/components/agents/agent-card-nav-menu";
 import type {
 	MemberAgentDirectory,
 	MemberAgentDirectoryRow,
@@ -125,38 +125,32 @@ export function MemberAgentDirectorySection(input: {
 	return (
 		<div className="space-y-6">
 			{rows.length > 0 ? (
-				<FluidCardGroup>
-					<FluidNavMenu
-						activeValue={null}
-						aria-label={input.label}
-						className="[&_[data-sidebar=menu]]:grid [&_[data-sidebar=menu]]:gap-3 [&_[data-sidebar=menu]]:md:grid-cols-2 [&_[data-sidebar=menu]]:xl:grid-cols-3"
-					>
-						{rows.map((row, index) => (
-							<FluidNavMenuItem
-								index={index}
-								key={row.memberAgentId}
-								value={row.memberAgentId}
-							>
-								<AgentCard
-									badge={
-										row.setup === "creating" ? (
-											<Badge variant="outline">Setting up</Badge>
-										) : (
-											<MemberAgentStateBadge state={row.presence.state} />
-										)
-									}
-									description={describeRow(row)}
-									name={row.displayName}
-									onClick={() => input.onOpenMemberAgent(row.memberAgentId)}
-									profileId={row.memberAgentId}
-									renderAvatar={(size) => (
-										<HarnessLogo harnessKind={row.harnessKind} size={size} />
-									)}
-								/>
-							</FluidNavMenuItem>
-						))}
-					</FluidNavMenu>
-				</FluidCardGroup>
+				<AgentCardNavMenu activeValue={null} aria-label={input.label}>
+					{rows.map((row, index) => (
+						<FluidNavMenuItem
+							index={index}
+							key={row.memberAgentId}
+							value={row.memberAgentId}
+						>
+							<AgentCard
+								badge={
+									row.setup === "creating" ? (
+										<Badge variant="outline">Setting up</Badge>
+									) : (
+										<MemberAgentStateBadge state={row.presence.state} />
+									)
+								}
+								description={describeRow(row)}
+								name={row.displayName}
+								onClick={() => input.onOpenMemberAgent(row.memberAgentId)}
+								profileId={row.memberAgentId}
+								renderAvatar={(size) => (
+									<HarnessLogo harnessKind={row.harnessKind} size={size} />
+								)}
+							/>
+						</FluidNavMenuItem>
+					))}
+				</AgentCardNavMenu>
 			) : null}
 			{unassigned.length > 0 ? (
 				<section aria-label="Unassigned Profiles" className="space-y-3">
@@ -167,15 +161,9 @@ export function MemberAgentDirectorySection(input: {
 							its controller to assign it.
 						</p>
 					</div>
-					<FluidCardGroup>
-						<FluidNavMenu
-							activeValue={null}
-							aria-label="Unassigned Profiles"
-							className="[&_[data-sidebar=menu]]:grid [&_[data-sidebar=menu]]:gap-3 [&_[data-sidebar=menu]]:md:grid-cols-2 [&_[data-sidebar=menu]]:xl:grid-cols-3"
-						>
-							{unassigned.map(input.renderUnassignedCard)}
-						</FluidNavMenu>
-					</FluidCardGroup>
+					<AgentCardNavMenu activeValue={null} aria-label="Unassigned Profiles">
+						{unassigned.map(input.renderUnassignedCard)}
+					</AgentCardNavMenu>
 				</section>
 			) : null}
 		</div>

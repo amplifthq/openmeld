@@ -5,7 +5,10 @@ import {
 	MIGRATED_LISTING,
 	MIGRATED_PROFILES,
 } from "#/test-support/member-agent-fixtures";
-import { buildMemberAgentDirectory } from "./member-agent-directory-model";
+import {
+	buildMemberAgentDirectory,
+	narrowMemberAgentDirectory,
+} from "./member-agent-directory-model";
 import { buildMemberAgentIndex } from "./member-agent-index";
 
 function detectedListing(input: {
@@ -283,5 +286,63 @@ describe("MemberAgent directory", () => {
 			runtimeByProfileId: new Map(),
 		});
 		expect(directory.rows[0]?.setup).toBe("ready");
+	});
+});
+
+describe("narrowMemberAgentDirectory", () => {
+	const directory = buildMemberAgentDirectory({
+		index: buildMemberAgentIndex({
+			listing: MIGRATED_LISTING,
+			ownerName: "Felix Lu",
+		}),
+		ownedProfiles: MIGRATED_PROFILES,
+		runtimeByProfileId: new Map(),
+	});
+
+	it("keeps a MemberAgent while any of its Profiles is visible, in list order", () => {
+		const narrowed = narrowMemberAgentDirectory({
+			directory,
+			visibleProfileIds: ["agt-codex", "agt-claude-reviewer", "agt-custom"],
+			filtered: true,
+		});
+		expect(narrowed.rows.map((row) => row.memberAgentId)).toEqual([
+			"ma-codex",
+			"ma-claude",
+		]);
+		expect(
+			narrowed.unassigned.map((entry) => entry.profile.openMeldProfileId)
+		).toEqual(["agt-custom"]);
+	});
+
+	it("drops a MemberAgent whose Profiles are all filtered out", () => {
+		const narrowed = narrowMemberAgentDirectory({
+			directory,
+			visibleProfileIds: ["agt-codex"],
+			filtered: true,
+		});
+		expect(narrowed.rows.map((row) => row.memberAgentId)).toEqual(["ma-codex"]);
+		expect(narrowed.unassigned).toEqual([]);
+	});
+
+	it("keeps a MemberAgent still being set up only while nothing is filtered", () => {
+		const settingUp = buildMemberAgentDirectory({
+			index: detectedListing({ defaultProfileId: null, profileIds: [] }),
+			ownedProfiles: [],
+			runtimeByProfileId: new Map(),
+		});
+		expect(
+			narrowMemberAgentDirectory({
+				directory: settingUp,
+				visibleProfileIds: [],
+				filtered: false,
+			}).rows
+		).toHaveLength(1);
+		expect(
+			narrowMemberAgentDirectory({
+				directory: settingUp,
+				visibleProfileIds: [],
+				filtered: true,
+			}).rows
+		).toHaveLength(0);
 	});
 });
