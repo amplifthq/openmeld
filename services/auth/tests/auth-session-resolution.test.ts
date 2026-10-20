@@ -115,6 +115,13 @@ vi.mock("@openmeld/auth/server", async () => {
   };
 });
 
+// The MemberAgent routes are behind the release flag, which runs before the
+// session check; force it on so the sub-route wiring is what is tested.
+vi.mock("@openmeld/schemas", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@openmeld/schemas")>()),
+  MEMBER_AGENTS_ENABLED: true,
+}));
+
 vi.mock("../src/lib/better-auth", () => ({
   createAuth: createAuthMock,
 }));
@@ -818,6 +825,69 @@ describe("auth session resolution", () => {
       profileName: "Research Agent",
       source: "cli_create",
     });
+  });
+
+  it("resolves the session on MemberAgent sub-routes, not only the list route", async () => {
+    // Regression: the auth context was mounted only on the exact list path,
+    // so a teammate's `/v1/member-agents/:id/profiles` always answered 401.
+    authMock.api.getSession.mockResolvedValue({
+      session: { id: "session-123", activeOrganizationId: "org-123" },
+      user: { id: "user-123", name: "Felix", email: "felix@openmeld.invalid" },
+    });
+    const rowsFor = (text: string): QueryResultRow[] => {
+      if (text.includes('"openmeld"."members"')) {
+        return [{ member: 1 }];
+      }
+      if (text.includes('"openmeld"."member_agents"')) {
+        return [
+          {
+            default_profile_id: "agt-default",
+            harness_kind: "codex",
+            owner_user_id: "teammate-456",
+          },
+        ];
+      }
+      if (text.includes('"openmeld"."openmeld_profiles"')) {
+        return [{ profile_id: "agt-default" }];
+      }
+      return [];
+    };
+    dbMock.query.mockImplementation((query) =>
+      Promise.resolve(nativeQueryResult(rowsFor(query.text)))
+    );
+    const app = createAuthWorkerTestApp();
+
+    const response = await app.fetch(
+      new Request("http://local/v1/member-agents/ma-teammate/profiles"),
+      TEST_ENV,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      organizationId: "org-123",
+      memberAgentId: "ma-teammate",
+      ownerUserId: "teammate-456",
+      harnessKind: "codex",
+      defaultProfileId: "agt-default",
+      profileIds: ["agt-default"],
+    });
+    expect(authMock.api.getSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("still resolves the session on the MemberAgent list route", async () => {
+    authMock.api.getSession.mockResolvedValue(null);
+    const app = createAuthWorkerTestApp();
+
+    const response = await app.fetch(
+      new Request("http://local/v1/member-agents"),
+      TEST_ENV,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(401);
+    expect(authMock.api.getSession).toHaveBeenCalledTimes(1);
   });
 
   it("does not resolve sessions on non-profile routes", async () => {
