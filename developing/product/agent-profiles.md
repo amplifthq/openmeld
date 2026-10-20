@@ -1284,7 +1284,8 @@ their turn. Send now applies an input to the exact running turn. It is disabled
 while that response is starting, queued, waiting for another app, or waiting for
 an interaction. It does not publish another Wake or grant scheduling priority.
 Provider occupancy is labeled `Waiting for another app`; Coordinator admission
-waiting keeps `Waiting for earlier tasks`. A conversation fork does not grant
+waiting keeps `Waiting for earlier tasks`, as does a reserved Wake that the local
+Service still holds behind other local work, until the Service starts it. A conversation fork does not grant
 another requester access to its history or bypass a shared-folder writer lock.
 
 For migrated Profiles this replaces the former one-slot FIFO and Profile-wide
@@ -1292,7 +1293,12 @@ native conversation model. The primary Binding still owns the connection and
 launch settings. Migration freezes a finite legacy boundary, preserves accepted
 legacy/recovery work, and retains the old native conversation as an unclassified
 legacy association. Current Binding identity is reread under the existing owner
-mutation boundary before Context mode activates. Switching to serial admission
+mutation boundary before Context mode activates. Work accepted for an earlier
+Binding does not block activation; it is not attached to the legacy association
+and its promotion recheck settles it with a visible no-execution outcome. A
+failed activation attempt is recorded for that Profile alone with its own
+backoff; it never holds other Profiles' migrations or fails the Wake acceptance
+that triggered it. Switching to serial admission
 preserves existing Contexts, running reservations, waiting Wakes, and their
 source/result associations; it does not downgrade the persisted format or merge
 native histories.
@@ -1300,8 +1306,17 @@ native histories.
 The Web Task menu offers new work and source-specific continuation or fork for
 supported local Agents. CLI sends use `--new-task`, `--continue-from <signal-id>`,
 or `--fork-from <signal-id>` with one explicit `--wake` target. Source selection
-never copies permissions, active work, or publication authority. Multiple retained
-branches in the same discussion require an explicit source choice.
+never copies permissions, active work, or publication authority. A plain mention
+continues the discussion's most recently accepted Context. It requires an
+explicit source choice only while another Context of the same requester and
+discussion still holds reserved, waiting, or recovery-held work on the same
+Binding, Service runtime, and Controller. When that latest Context belongs to
+another Binding, Service runtime, or Controller, the plain mention starts a
+fresh Context instead of failing; the earlier Context stays available through
+explicit continuation and work history. A discussion accepted before Core kept
+its latest-Context index is ordered by the acceptance records of the Wakes last
+accepted into each Context, never by when a Context was created. When those
+records are missing, tied, or too many to read, the requester chooses a source.
 
 Official Antigravity ACP supports new and continued Execution Contexts using
 Agent settings, including managed working copies. It does not support history
@@ -1314,8 +1329,12 @@ A lost native session fails continuation; it must not silently start fresh.
 
 Connected harnesses without Execution Context support retain their ordinary
 thread Wake behavior: work for one Profile remains serial through its existing
-Binding. Explicit task/context selections fail visibly until the harness supports
-them; a thread alone does not opt an unsupported harness into the new protocol.
+Binding. This holds after a Profile switches to such a harness from one that
+activated Contexts: its Wakes are admitted as serial Binding work, and only a
+Context-capable harness's frozen legacy association stays fenced from Binding
+conversation writes. Explicit task/context selections fail visibly until the
+harness supports them; a thread alone does not opt an unsupported harness into
+the new protocol.
 This compatibility rule does not enable suspended controllers or bypass current
 connection, permissions, or readiness requirements.
 

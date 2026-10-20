@@ -109,6 +109,7 @@ import {
 import { readTaskKnowledge } from "../../space/dispatch-knowledge-read";
 import { resolveProviderRuntimeDispatchContinuation } from "../continuation/provider-runtime-continuation";
 import {
+  mayRecoverWorkingFolder,
   resolveRecoveredLedgerConversation,
   resolveWorkingFolderRecovery,
 } from "../continuation/working-folder-recovery";
@@ -214,9 +215,10 @@ import {
   captureExecutionContextCompletion,
   executionContextFileAccessBoundary,
   executionContextLedgerPolicy,
-  executionContextResourceScope,
+  executionContextResourceClaim,
   executionContextWorkingDirectory,
   prepareExecutionContextConversation,
+  resolveQueuedFolderRoots,
 } from "./execution-context-session";
 import {
   deriveExecutionContextComputerFileAccessPolicy,
@@ -355,9 +357,20 @@ export function enqueueDispatchDeliverFrame(input: {
     presenter: input.presenter,
   });
   const enqueueResult = input.localExecutionSlots.request({
-    resourceScope: executionContextResourceScope(
-      deliverRequest.payload.executionContext
-    ),
+    resourceClaim: executionContextResourceClaim({
+      context: deliverRequest.payload.executionContext,
+      currentFolderRoots:
+        parsedQueueTask &&
+        !mayRecoverWorkingFolder({
+          agentControllerRef: parsedQueueTask.agentControllerRef,
+          nativeSessionId: parsedQueueTask.agentControllerConversationId,
+          hasExecutionContext: Boolean(parsedQueueTask.executionContext),
+        })
+          ? resolveQueuedFolderRoots(
+              input.routeByProfileId.get(deliverRequest.profileId)
+            )
+          : null,
+    }),
     adapterId: queueLogMeta.adapterId,
     attemptId: correlation.attemptId,
     controllerKey: queueLogMeta.controllerKey,

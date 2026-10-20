@@ -8,7 +8,10 @@ import type {
   SpaceDispatchTraceSnapshot,
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
-import { projectWakeTraceWaterfall } from "../space/application/wake-trace-waterfall";
+import {
+  isRuntimeCoordinatorExecutionLocallyQueued,
+  projectWakeTraceWaterfall,
+} from "../space/application/wake-trace-waterfall";
 import type { OpenMeldDaemonDispatchOutboxRecoveryCandidate } from "../space/infrastructure/outbox/dispatch-outbox-repo";
 
 const CLIENT_MESSAGE_ID = "cm_01J00000000000000000000001";
@@ -874,7 +877,21 @@ describe("wake trace waterfall projection", () => {
     });
   });
 
-  it("projects accepted local queue diagnostics while the runtime has not started", () => {
+  it.each([
+    [
+      "local_execution_lane_concurrency",
+      "runtime.local_queue.waiting_local_execution_lane",
+    ],
+    ["workspace_conflict", "runtime.local_queue.waiting_workspace_conflict"],
+    [
+      "agent_profile_concurrency",
+      "runtime.local_queue.waiting_agent_profile_concurrency",
+    ],
+    [
+      "agent_controller_maintenance",
+      "runtime.local_queue.waiting_controller_maintenance",
+    ],
+  ])("projects accepted local queue diagnostics (%s) while the runtime has not started", (waitReason, reasonCode) => {
     const baseTrace = buildRepliedTrace();
     const trace = {
       ...baseTrace,
@@ -932,7 +949,7 @@ describe("wake trace waterfall projection", () => {
             lifecycleAtMs: Date.parse(ISO),
             localQueue: {
               status: "queued",
-              waitReason: "local_execution_lane_concurrency",
+              waitReason,
             },
             phase: "accepted_local",
           }),
@@ -972,8 +989,30 @@ describe("wake trace waterfall projection", () => {
     expect(response.items[0]?.summary).toEqual({
       status: "running",
       terminalStep: null,
-      reasonCode: "runtime.local_queue.waiting_local_execution_lane",
+      reasonCode,
     });
+    expect(isRuntimeCoordinatorExecutionLocallyQueued(trace)).toBe(true);
+    // The frame sent when the Service starts the Wake ends the local wait.
+    const [queuedEvent] = trace.runtimeCoordinatorEvents;
+    if (!queuedEvent) {
+      throw new Error("Expected the queued lifecycle event");
+    }
+    expect(
+      isRuntimeCoordinatorExecutionLocallyQueued({
+        ...trace,
+        runtimeCoordinatorEvents: [
+          queuedEvent,
+          {
+            ...queuedEvent,
+            eventId: "event-local-start",
+            payloadJson: JSON.stringify({
+              localQueue: null,
+              phase: "accepted_local",
+            }),
+          },
+        ],
+      })
+    ).toBe(false);
   });
 
   it("projects an occupied Agent Controller conversation as nonterminal running work", () => {

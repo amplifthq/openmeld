@@ -320,7 +320,12 @@ settled Wake. Terminal promotion applies the same check to each next head, so
 disabled work cannot remain hidden in FIFO and run later.
 
 User-facing Wake progress may project explicit Profile FIFO `queued` copy only
-from the Coordinator-owned head lifecycle `queued` state. Space outbox status,
+from the Coordinator-owned head lifecycle `queued` state, or for an
+`accepted_local` execution whose latest `lifecycle_accepted_local` evidence
+reports `localQueue.status = queued` because the Service holds it behind other
+local work. That local wait records its own lifecycle event, so the frame the
+Service sends when it starts the Wake is not deduplicated into the wait and ends
+the `queued` projection. Space outbox status,
 Dispatch lookup status, and RuntimeCoordinator `created` or `delivery_pending`
 remain neutral pre-delivery progress. They must not infer that another Wake
 owns the Profile work slot, and the PostgreSQL `profile_queue_waiting` projection must
@@ -452,6 +457,12 @@ input; receipt reconciliation never changes the binding of an attempted delivery
 After a successful fork, follow-ups already assigned to that replacement context
 can proceed without another approval when no unrelated work is held. Failed or
 stopped continuations and mixed-context queues retain the existing recovery gate.
+A gate opened because another app occupies one native conversation records that
+cause and holds only that Execution Context and legacy work; other contexts of
+the Profile keep their reservations and admission. Owner approval after the
+branch is required only while work for the occupied context is still queued.
+Usage exhaustion recorded on the same gate, or by its continuation, makes it a
+Profile-wide hold again, because Usage is a shared capability fact.
 Successful recovery retires only the source context's automatic scope association
 inside the same owner transaction. Its context and Wake history remain available
 for explicit selection. The replacement remains the conversation's automatic
