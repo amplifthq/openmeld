@@ -43,6 +43,13 @@ import {
 import type { CoreBindings } from "../../lib/bindings";
 import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
 import {
+  readSpaceMemberDisplayCache,
+  type SpaceMemberDisplayCache,
+  type SpaceMemberProfileDisplayFacts,
+  writeSpaceMemberOwnerAvatars,
+  writeSpaceMemberProfileDisplay,
+} from "../infrastructure/sql/space-member-display-cache-repo";
+import {
   clearMemberProfileLivenessEvidence,
   recordMemberProfileNotFoundObservation,
 } from "../infrastructure/sql/space-member-liveness-repo";
@@ -343,6 +350,7 @@ function buildSpaceMemberMutationItems(input: {
     }
     return buildAgentIdentitySnapshot({
       record,
+      agentAvatar: readAgentAvatarFacts(undefined, record.profileId),
       liveProfileById,
       cursorSnapshots,
       latestSignalActivity,
@@ -477,6 +485,15 @@ type SpaceMembersSnapshotInput = {
   metaRecord?: SpaceMetaRecord | null;
   nowIso?: string;
   timing?: SpaceMembersSnapshotTiming;
+  // Set by a caller that ran ensureSpaceMembersBackfilled in the same
+  // synchronous turn, so construction does not repeat the history scan.
+  membersBackfilled?: true;
+  // Display-only avatar facts supplied by the caller (for example, from the
+  // Space display cache). Without them the snapshot reads account images.
+  humanAvatarByOwnerUserId?: Promise<ReadonlyMap<string, string | null>>;
+  // Identity-only snapshots (includeAgentReadiness false) read Agent avatar
+  // choices from here instead of request-scoped Auth Profile facts.
+  agentAvatarByProfileId?: ReadonlyMap<string, SpaceMemberProfileDisplayFacts>;
   // Optional per-request lineage loader shared across bootstrap branches so
   // one bootstrap resolves the viewer lineage exactly once. Same auth data,
   // same request scope — no cross-request staleness.
@@ -489,31 +506,35 @@ export const listSpaceMembersSnapshotUseCase = async (
 ): Promise<SpaceMembersSnapshot> => {
   const startedAtMs = Date.now();
   const liveSessions = [...input.liveSessions];
-  measureSpaceMembersSnapshotTiming(
-    input.timing,
-    "backfill",
-    "backfill missing members",
-    () =>
-      ensureSpaceMembersBackfilled({
-        sql: input.sql,
-        spaceId: input.spaceId,
-        liveSessions,
-        metaRecord: input.metaRecord ?? null,
-        nowIso: input.nowIso,
-      })
-  );
+  if (!input.membersBackfilled) {
+    measureSpaceMembersSnapshotTiming(
+      input.timing,
+      "backfill",
+      "backfill missing members",
+      () =>
+        ensureSpaceMembersBackfilled({
+          sql: input.sql,
+          spaceId: input.spaceId,
+          liveSessions,
+          metaRecord: input.metaRecord ?? null,
+          nowIso: input.nowIso,
+        })
+    );
+  }
   // Names and account avatars have independent owners. Start the avatar read
   // while Auth refreshes names, then read the refreshed local member records.
-  const avatars = measureSpaceMembersSnapshotTimingAsync(
-    input.timing,
-    "human_avatar_batch",
-    "preload human member avatars",
-    () =>
-      preloadHumanMemberAvatars({
-        env: input.env,
-        records: listSpaceMemberRecords(input.sql, { status: "active" }),
-      })
-  );
+  const avatars =
+    input.humanAvatarByOwnerUserId ??
+    measureSpaceMembersSnapshotTimingAsync(
+      input.timing,
+      "human_avatar_batch",
+      "preload human member avatars",
+      () =>
+        preloadHumanMemberAvatars({
+          env: input.env,
+          records: listSpaceMemberRecords(input.sql, { status: "active" }),
+        })
+    );
   const snapshot = Promise.resolve(input.profileFacts).then((profileFacts) =>
     buildSpaceMembersSnapshot(
       { ...input, liveSessions, profileFacts },
@@ -668,7 +689,9 @@ async function buildSpaceMembersSnapshot(
         ? Promise.resolve(
             buildAgentIdentitySnapshot({
               record,
-              profileFacts,
+              agentAvatar:
+                input.agentAvatarByProfileId?.get(record.profileId) ??
+                readAgentAvatarFacts(profileFacts, record.profileId),
               liveProfileById,
               cursorSnapshots,
               latestSignalActivity,
@@ -1049,22 +1072,42 @@ async function preloadHumanMemberAvatars(input: {
   env: CoreBindings;
   records: readonly SpaceMemberRecord[];
 }): Promise<ReadonlyMap<string, string | null>> {
-  const ownerUserIds = [
+  return (
+    (await readHumanMemberAvatars({
+      env: input.env,
+      ownerUserIds: listHumanMemberOwnerUserIds(input.records),
+    })) ?? new Map()
+  );
+}
+export function listHumanMemberOwnerUserIds(
+  records: readonly SpaceMemberRecord[]
+): string[] {
+  return [
     ...new Set(
-      input.records
+      records
         .filter((record) => record.profileKindSnapshot === "human")
         .map((record) => record.ownerUserIdSnapshot?.trim() ?? "")
         .filter(Boolean)
     ),
   ].sort();
-  if (ownerUserIds.length === 0) {
+}
+// Confirmed account images: every requested owner has an entry, null when
+// the account has no image or no longer exists. Null means not read.
+export async function readHumanMemberAvatars(input: {
+  env: CoreBindings;
+  ownerUserIds: readonly string[];
+}): Promise<ReadonlyMap<string, string | null> | null> {
+  if (input.ownerUserIds.length === 0) {
     return new Map();
   }
   const db = getPostgresDatabase(input.env);
   if (!db) {
-    return new Map();
+    return null;
   }
-  const avatarByOwnerUserId = new Map<string, string | null>();
+  const avatarByOwnerUserId = new Map<string, string | null>(
+    input.ownerUserIds.map((ownerUserId) => [ownerUserId, null])
+  );
+  const ownerUserIds = input.ownerUserIds;
   for (
     let offset = 0;
     offset < ownerUserIds.length;
@@ -1094,8 +1137,160 @@ async function preloadHumanMemberAvatars(input: {
   }
   return avatarByOwnerUserId;
 }
+// Member names and avatars are display enrichment. A cached copy serves a
+// snapshot while it is younger than the maximum age for every active member;
+// past the refresh age the caller serves it and refreshes in the background.
+// Identity-only snapshots need names and avatars, which are display
+// enrichment: they are served from the local copies, refreshed in the
+// background. Readiness snapshots keep request-scoped Auth Profile facts, so
+// their Profile display part is always null.
+export function readCachedSpaceMemberDisplay(input: {
+  includeAgentReadiness: boolean | undefined;
+  sql: SqlStorage;
+}): ReturnType<typeof resolveCachedSpaceMemberDisplay> {
+  const cached = resolveCachedSpaceMemberDisplay({
+    cache: readSpaceMemberDisplayCache(input.sql),
+    nowMs: Date.now(),
+    records: listSpaceMemberRecords(input.sql, { status: "active" }),
+  });
+  return input.includeAgentReadiness === false
+    ? cached
+    : { ...cached, profileDisplay: null };
+}
+export const SPACE_MEMBER_DISPLAY_CACHE_REFRESH_AGE_MS = 5 * 60 * 1000;
+export const SPACE_MEMBER_DISPLAY_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+type CachedDisplayPart<T> = { needsRefresh: boolean; values: T } | null;
+export function resolveCachedSpaceMemberDisplay(input: {
+  cache: SpaceMemberDisplayCache;
+  nowMs: number;
+  records: readonly SpaceMemberRecord[];
+}): {
+  // Null when any active member lacks a usable cached value.
+  ownerAvatars: CachedDisplayPart<ReadonlyMap<string, string | null>>;
+  profileDisplay: CachedDisplayPart<
+    ReadonlyMap<string, SpaceMemberProfileDisplayFacts>
+  >;
+} {
+  const ownerAvatars = new Map<string, string | null>();
+  let ownerAvatarsNeedRefresh = false;
+  let ownerAvatarsUsable = true;
+  for (const ownerUserId of listHumanMemberOwnerUserIds(input.records)) {
+    const cached = input.cache.ownerAvatarByOwnerUserId.get(ownerUserId);
+    const age = cached
+      ? classifySpaceMemberDisplayAge(input.nowMs - cached.refreshedAtMs)
+      : "expired";
+    if (!cached || age === "expired") {
+      ownerAvatarsUsable = false;
+      break;
+    }
+    ownerAvatarsNeedRefresh ||= age === "refresh";
+    ownerAvatars.set(ownerUserId, cached.avatarUrl);
+  }
+  const profileDisplay = new Map<string, SpaceMemberProfileDisplayFacts>();
+  let profileDisplayNeedsRefresh = false;
+  let profileDisplayUsable = true;
+  for (const record of input.records) {
+    const cached = input.cache.profileDisplayByProfileId.get(record.profileId);
+    const age = cached
+      ? classifySpaceMemberDisplayAge(input.nowMs - cached.refreshedAtMs)
+      : "expired";
+    if (!cached || age === "expired") {
+      profileDisplayUsable = false;
+      break;
+    }
+    profileDisplayNeedsRefresh ||= age === "refresh";
+    profileDisplay.set(record.profileId, {
+      avatarStyle: cached.avatarStyle,
+      avatarOptions: cached.avatarOptions,
+    });
+  }
+  return {
+    ownerAvatars: ownerAvatarsUsable
+      ? { needsRefresh: ownerAvatarsNeedRefresh, values: ownerAvatars }
+      : null,
+    profileDisplay: profileDisplayUsable
+      ? { needsRefresh: profileDisplayNeedsRefresh, values: profileDisplay }
+      : null,
+  };
+}
+function classifySpaceMemberDisplayAge(
+  ageMs: number
+): "fresh" | "refresh" | "expired" {
+  if (
+    !Number.isFinite(ageMs) ||
+    ageMs < 0 ||
+    ageMs >= SPACE_MEMBER_DISPLAY_CACHE_MAX_AGE_MS
+  ) {
+    return "expired";
+  }
+  return ageMs >= SPACE_MEMBER_DISPLAY_CACHE_REFRESH_AGE_MS
+    ? "refresh"
+    : "fresh";
+}
+// Stores display facts confirmed by one Auth read (an unavailable read
+// writes none). Returns true when a stored value changed.
+export function writeConfirmedSpaceMemberProfileDisplay(input: {
+  sql: SqlStorage;
+  profileFacts: AuthProfileFacts | null | undefined;
+  refreshedAtMs: number;
+}): boolean {
+  const profileFacts = input.profileFacts;
+  if (!profileFacts) {
+    return false;
+  }
+  const displayByProfileId = new Map<string, SpaceMemberProfileDisplayFacts>();
+  for (const record of listSpaceMemberRecords(input.sql, {
+    status: "active",
+  })) {
+    if (profileFacts.has(record.profileId)) {
+      displayByProfileId.set(
+        record.profileId,
+        readAgentAvatarFacts(profileFacts, record.profileId)
+      );
+    }
+  }
+  return writeSpaceMemberProfileDisplay(input.sql, {
+    displayByProfileId,
+    refreshedAtMs: input.refreshedAtMs,
+  });
+}
+// Reads active members' account images and stores the confirmed result.
+export async function refreshSpaceMemberOwnerAvatarCache(input: {
+  sql: SqlStorage;
+  env: CoreBindings;
+}): Promise<{
+  avatarUrlByOwnerUserId: ReadonlyMap<string, string | null> | null;
+  changed: boolean;
+}> {
+  const refreshedAtMs = Date.now();
+  const avatarUrlByOwnerUserId = await readHumanMemberAvatars({
+    env: input.env,
+    ownerUserIds: listHumanMemberOwnerUserIds(
+      listSpaceMemberRecords(input.sql, { status: "active" })
+    ),
+  });
+  return {
+    avatarUrlByOwnerUserId,
+    changed: avatarUrlByOwnerUserId
+      ? writeSpaceMemberOwnerAvatars(input.sql, {
+          avatarUrlByOwnerUserId,
+          refreshedAtMs,
+        })
+      : false,
+  };
+}
+export function readAgentAvatarFacts(
+  profileFacts: AuthProfileFacts | null | undefined,
+  profileId: string
+): SpaceMemberProfileDisplayFacts {
+  const fact = profileFacts?.get(profileId);
+  return {
+    avatarStyle: fact?.avatarStyle ?? null,
+    avatarOptions: fact?.avatarOptions ?? null,
+  };
+}
 function buildAgentIdentitySnapshot(input: {
-  profileFacts?: AuthProfileFacts | null;
+  agentAvatar: SpaceMemberProfileDisplayFacts;
   record: SpaceMemberRecord;
   liveProfileById: Map<string, Profile>;
   cursorSnapshots: Map<string, CursorMemberSnapshot>;
@@ -1105,10 +1300,8 @@ function buildAgentIdentitySnapshot(input: {
   const snapshotBase = buildSnapshotBase(input);
   return {
     profileId: input.record.profileId,
-    avatarStyle:
-      input.profileFacts?.get(input.record.profileId)?.avatarStyle ?? null,
-    avatarOptions:
-      input.profileFacts?.get(input.record.profileId)?.avatarOptions ?? null,
+    avatarStyle: input.agentAvatar.avatarStyle,
+    avatarOptions: input.agentAvatar.avatarOptions,
     profileName: input.record.profileNameSnapshot,
     profileKind: "agent",
     mentionAlias:
@@ -2319,7 +2512,9 @@ function listStoredSignalsAfter(
 // SQL aggregation twin of listLatestSignalActivity: identical profile-id
 // selection (presence excluded, system notices attribute to the actor,
 // everything else to the authoring profile) pushed into SQLite so the
-// hot path stops parsing the whole signal history.
+// hot path stops parsing the whole signal history. The type and profile_id
+// columns are written from the same envelope at insert and never change, so
+// only system notices need their payload parsed.
 function listLatestSignalActivityFromSql(
   sql: SqlStorage
 ): Map<string, LatestSignalActivity> {
@@ -2328,14 +2523,14 @@ function listLatestSignalActivityFromSql(
       pid: string | null;
       max_ts: number;
     }>(`
-        SELECT
-          CASE
-            WHEN json_extract(payload_json, '$.type') IN ('presence.join', 'presence.quit') THEN NULL
-            WHEN json_extract(payload_json, '$.type') = 'signal.system_notice' THEN json_extract(payload_json, '$.data.actorProfileId')
-            ELSE json_extract(payload_json, '$.profile.profileId')
-          END AS pid,
-          MAX(ts) AS max_ts
+        SELECT profile_id AS pid, MAX(ts) AS max_ts
         FROM space_signals
+        WHERE type NOT IN ('presence.join', 'presence.quit', 'signal.system_notice')
+        GROUP BY profile_id
+        UNION ALL
+        SELECT json_extract(payload_json, '$.data.actorProfileId') AS pid, MAX(ts) AS max_ts
+        FROM space_signals
+        WHERE type = 'signal.system_notice'
         GROUP BY pid
       `)
     .toArray();
@@ -2376,7 +2571,8 @@ function listLatestAgentOriginFactsFromSql(
               ORDER BY ts DESC NULLS LAST, id DESC NULLS LAST
             ) AS rn
           FROM space_signals
-          WHERE json_extract(payload_json, '$.profile.kind') = 'agent'
+          WHERE profile_kind = 'agent'
+            AND json_extract(payload_json, '$.profile.kind') = 'agent'
             AND (
               TRIM(COALESCE(json_extract(payload_json, '$.profile.agentControllerConversationId'), '')) != ''
               OR (
@@ -2495,7 +2691,8 @@ function listJoinNoticeSignalsFromSql(sql: SqlStorage): SignalEnvelope[] {
       `
         SELECT payload_json
         FROM space_signals
-        WHERE json_extract(payload_json, '$.type') = 'signal.text'
+        WHERE type = 'signal.text'
+          AND json_extract(payload_json, '$.type') = 'signal.text'
           AND json_extract(payload_json, '$.data.meta.purpose') = ?
         ORDER BY ts ASC NULLS FIRST, id ASC NULLS FIRST
       `,

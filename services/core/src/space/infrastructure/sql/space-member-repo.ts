@@ -202,6 +202,29 @@ export const hasActiveSpaceMemberRecordForOwnerUserId = (
   return row?.found === 1;
 };
 
+export const listActiveSpaceMemberProfileIdsForOwnerUserId = (
+  sql: SqlStorage,
+  ownerUserId: string
+): string[] => {
+  const normalizedOwnerUserId = normalizeOptionalText(ownerUserId);
+  if (!normalizedOwnerUserId) {
+    return [];
+  }
+  return sql
+    .exec<{ profile_id: string }>(
+      `
+        SELECT profile_id
+        FROM space_members
+        WHERE owner_user_id_snapshot = ?
+          AND status = 'active'
+        ORDER BY profile_id
+      `,
+      normalizedOwnerUserId
+    )
+    .toArray()
+    .map((row) => row.profile_id);
+};
+
 export const hasActiveHumanSpaceMemberRecordForOwnerUserId = (
   sql: SqlStorage,
   ownerUserId: string

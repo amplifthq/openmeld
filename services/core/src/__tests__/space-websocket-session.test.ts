@@ -56,9 +56,6 @@ describe("space websocket session", () => {
     const session = createPendingSpaceWebSocketSession({
       callerPrincipalId: "authenticated-user-1",
       enforcedProfile: ENFORCED_PROFILE,
-      viewerCreatorProfileIdsByProfileId: {
-        "agt-child": "hum-viewer-1",
-      },
       blocked: [],
     });
 

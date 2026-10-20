@@ -22,6 +22,18 @@ export function resolveNamedSpaceId(
   return namespace.idFromName(name);
 }
 
+// Space objects read PostgreSQL and call Auth on most requests, and both run
+// in us-east-1 next to the Gateway's placement. A hint only places an object
+// when it is first created; existing Spaces keep their current location.
+const SPACE_OBJECT_LOCATION_HINT: DurableObjectLocationHint = "enam";
+
+export function getSpaceStubById(
+  namespace: DurableObjectNamespace<Space>,
+  id: DurableObjectId
+): DurableObjectStub<Space> {
+  return namespace.get(id, { locationHint: SPACE_OBJECT_LOCATION_HINT });
+}
+
 export function resolveSpaceStub(
   namespace: DurableObjectNamespace<Space>,
   spaceId: string
@@ -33,7 +45,7 @@ export function resolveSpaceStub(
 
   try {
     const id = namespace.idFromString(normalizedSpaceId);
-    return namespace.get(id);
+    return getSpaceStubById(namespace, id);
   } catch {
     return null;
   }

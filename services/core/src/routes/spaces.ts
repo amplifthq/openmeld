@@ -60,6 +60,7 @@ import {
   rpcWipeCurrentMemberCenterAgentMemory,
 } from "../rpc/methods";
 import {
+  getSpaceStubById,
   isHexSpaceId,
   resolveNewSpaceId,
   resolveSpaceStub,
@@ -636,7 +637,7 @@ async function handleCreateSpace(c: Context<HonoBindings>): Promise<Response> {
   const body = bodyResult.body;
   const id = resolveSpaceId(c);
   const spaceId = id.toString();
-  const stub = c.env.OPENMELD_SPACES.get(id);
+  const stub = getSpaceStubById(c.env.OPENMELD_SPACES, id);
   const creator = toSpaceCreator(c.var.openMeldRequestContext);
   const organizationId = c.var.openMeldRequestContext.activeOrganizationId;
   if (!organizationId) {

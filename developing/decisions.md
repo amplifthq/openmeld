@@ -17,6 +17,11 @@
   conflicts with an owner doc means one of the two must be fixed in the same
   PR.
 
+2026-10-21: New Space Durable Objects are created with location hint `enam`,
+next to the PostgreSQL primary; existing Spaces are not moved and no
+jurisdiction is set. See `architecture/data-and-observability.md` (Space
+object location).
+
 2026-10-19: The hosted AI funding source contract supports monthly Free credits
 for a creator's first workspace and a workspace OpenRouter key. This supersedes
 the BYOK deferral and environment-owned BYOK funding alias in older decisions.

@@ -30,7 +30,6 @@ export type SpaceWebSocketSession = {
   enforcedProfile?: Profile;
   viewerOwnerUserId?: string;
   viewerProfileId?: string;
-  viewerCreatorProfileIdsByProfileId?: Record<string, string | null>;
   spacePassword?: string;
   blocked?: SpaceQueuedWebSocketMessage[];
   quit?: boolean;
@@ -60,7 +59,6 @@ export function createPendingSpaceWebSocketSession(input: {
   enforcedProfile?: Profile;
   viewerOwnerUserId?: string;
   viewerProfileId?: string;
-  viewerCreatorProfileIdsByProfileId?: Record<string, string | null>;
   spacePassword?: string;
   blocked?: SpaceQueuedWebSocketMessage[];
 }): SpaceWebSocketSession {
@@ -82,12 +80,6 @@ export function createPendingSpaceWebSocketSession(input: {
       : {}),
     ...(input.viewerProfileId
       ? { viewerProfileId: input.viewerProfileId }
-      : {}),
-    ...(input.viewerCreatorProfileIdsByProfileId
-      ? {
-          viewerCreatorProfileIdsByProfileId:
-            input.viewerCreatorProfileIdsByProfileId,
-        }
       : {}),
     ...(spacePassword ? { spacePassword } : {}),
   };

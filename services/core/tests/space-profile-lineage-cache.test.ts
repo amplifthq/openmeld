@@ -1,6 +1,7 @@
 import type { SignalEnvelope } from "@openmeld/protocol";
 import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
+import { SpaceProfileLineageCache } from "../src/space/application/space-profile-lineage-cache";
 import type { CreatorProfileIdsByProfileId } from "../src/space/rules/privacy/profile-lineage";
 import { Space } from "../src/space/transport/do/space";
 
@@ -34,7 +35,9 @@ type SpaceProfileLineageCacheHarness = {
   preloadOwnerCreatorProfileIdsByOwnerUserId: (
     ownerUserIds: Iterable<string>
   ) => Promise<void>;
+  profileLineageCache: SpaceProfileLineageCache;
   readSpaceMetaRecord: () => object;
+  readViewerHistoryBoundary: () => Promise<null>;
   resolveOwnerCreatorProfileIdsByProfileId: (input: {
     ownerUserId?: string;
   }) => Promise<CreatorProfileIdsByProfileId | undefined>;
@@ -133,17 +136,38 @@ function createHarness(): {
       },
     ],
   });
+  // Keeps the stored lineage row; every other read sees one active member.
+  let lineageRow: Record<string, unknown> | null = null;
   const sql = {
-    exec: vi.fn(() => ({
-      toArray: () => [createActiveMemberRow()],
-    })),
+    exec: vi.fn((query: string, ...params: unknown[]) => {
+      if (query.includes("INSERT INTO space_profile_lineage")) {
+        const [owner_user_id, creator, covered, fetched_at_ms] = params;
+        lineageRow = {
+          owner_user_id,
+          creator_profile_ids_json: creator,
+          covered_profile_ids_json: covered,
+          fetched_at_ms,
+        };
+        return { toArray: () => [] };
+      }
+      if (query.includes("FROM space_profile_lineage")) {
+        return { toArray: () => (lineageRow ? [lineageRow] : []) };
+      }
+      return { toArray: () => [createActiveMemberRow()] };
+    }),
   } as unknown as SqlStorage;
-  const space: SpaceProfileLineageCacheHarness = {
-    bindings: {
-      OPENMELD_AUTH_WORKER: {
-        listProfileLineage,
-      },
-    } as unknown as CoreBindings,
+  const ownerCreatorProfileIdsByOwnerUserId = new Map<
+    string,
+    CreatorProfileIdsByProfileId
+  >();
+  const bindings = {
+    OPENMELD_AUTH_WORKER: {
+      listProfileLineage,
+    },
+  } as unknown as CoreBindings;
+  // Other Space methods come from the prototype; only state is stubbed.
+  const state: SpaceProfileLineageCacheHarness = {
+    bindings,
     ctx: { storage: { sql } },
     loadRecentSignals: () => [],
     measureBootstrapBranchTiming: async (
@@ -158,13 +182,25 @@ function createHarness(): {
       _description,
       load
     ) => load(),
-    ownerCreatorProfileIdsByOwnerUserId: new Map(),
+    ownerCreatorProfileIdsByOwnerUserId,
     preloadOwnerCreatorProfileIdsByOwnerUserId,
+    profileLineageCache: new SpaceProfileLineageCache({
+      authRpc: () => bindings.OPENMELD_AUTH_WORKER,
+      onLoadError: () => undefined,
+      resolvedByOwnerUserId: ownerCreatorProfileIdsByOwnerUserId,
+      sql: () => sql,
+      waitUntil: () => undefined,
+    }),
     readSpaceMetaRecord: () => ({}),
+    readViewerHistoryBoundary: async () => null,
     resolveOwnerCreatorProfileIdsByProfileId,
     resolveViewerCreatorProfileIdsByProfileId,
     spaceId: "space-lineage-cache",
   };
+  const space = Object.assign(
+    Object.create(Space.prototype) as object,
+    state
+  ) as SpaceProfileLineageCacheHarness;
   return { listProfileLineage, space };
 }
 

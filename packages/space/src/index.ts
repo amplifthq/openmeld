@@ -121,6 +121,12 @@ export {
   type SpaceMemberDirectorySection,
   type SpaceMemberDirectorySectionId,
 } from "./presentation/space-member-directory";
+export {
+  boundThreadPreviewSignal,
+  boundThreadReplyPreviewText,
+  readThreadReplyPreviewLine,
+  THREAD_REPLY_PREVIEW_TEXT_MAX_CHARS,
+} from "./presentation/thread-reply-preview";
 export { OPENMELD_WELCOMING_SPACE_PURPOSE } from "./presentation/welcoming-space";
 export {
   SPACE_DISPATCH_HISTORY_STATES,
