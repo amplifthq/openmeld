@@ -37,16 +37,11 @@ import { AgentProfilesCard } from "#/components/agents/agents-page-agent-profile
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { DirectoryMembersOverview } from "#/components/directory/directory-members-overview";
-import {
-	MemberAgentDetail,
-	MemberAgentProfileSessionsSidebar,
-	UnknownMemberAgentNotice,
-} from "#/components/member-agents/member-agent-detail";
+import { UnknownMemberAgentNotice } from "#/components/member-agents/member-agent-detail";
+import { MemberAgentPageProvider } from "#/components/member-agents/member-agent-page-context";
+import { MemberAgentPageSidebar } from "#/components/member-agents/member-agent-page-sidebar";
 import { useMemberAgentDirectory } from "#/components/member-agents/use-member-agent-directory";
-import {
-	useMemberAgentIndex,
-	useMemberAgentSync,
-} from "#/components/member-agents/use-member-agents";
+import { useMemberAgentSync } from "#/components/member-agents/use-member-agents";
 import { CreateProfileDialog } from "#/components/profiles/create-profile-dialog";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { isLocalWebOrigin } from "#/lib/local-web-origin";
@@ -87,8 +82,6 @@ const EMPTY_AGENT_PROFILE_READINESS_PENDING_PROFILE_IDS: ReadonlySet<string> =
 
 export function PeopleAndAgentsPage(input: {
 	returnToAgentDirectory?: boolean;
-	/** Back returns to this MemberAgent's page instead of the Agents list. */
-	returnToMemberAgentId?: string;
 	personId?: string;
 	activityPreview?: boolean;
 	activeAgentView?: AgentWorkspaceView;
@@ -104,7 +97,6 @@ export function PeopleAndAgentsPage(input: {
 	const orgSlug = currentOrganization.slug;
 	const profileHomeRoutes = buildProfileHomeRoutes(orgSlug);
 	const navigate = useNavigate();
-	const memberAgentIndex = useMemberAgentIndex();
 	const queryClient = useQueryClient();
 	const [isCreateProfileOpen, setIsCreateProfileOpen] = useState(false);
 	const [activityPreview, setActivityPreview] = useState(false);
@@ -261,12 +253,7 @@ export function PeopleAndAgentsPage(input: {
 				activityPreview={activityPreview}
 				agentListReturn={resolveAgentListReturn({
 					agentsPath: profileHomeRoutes.agents,
-					memberAgentName: input.returnToMemberAgentId
-						? memberAgentIndex.index.byId.get(input.returnToMemberAgentId)
-								?.displayName
-						: undefined,
 					returnToAgentDirectory: input.returnToAgentDirectory,
-					returnToMemberAgentId: input.returnToMemberAgentId,
 				})}
 				currentUserId={currentUserId}
 				fallbackOwnerLabel={fallbackOwnerLabel}
@@ -296,11 +283,7 @@ export function PeopleAndAgentsPage(input: {
 					navigate({
 						search:
 							input.returnToAgentDirectory || (!input.personId && personId)
-								? {
-										from: "agents",
-										// Opened from a MemberAgent's page: Back returns there.
-										memberAgentId: input.focusMemberAgentId ?? undefined,
-									}
+								? { from: "agents" }
 								: undefined,
 						to: personId
 							? buildOrganizationPersonAgentPath({
@@ -711,10 +694,25 @@ function AgentsWorkspaceHome(input: {
 	});
 	const [pinnedHarnessKind, setPinnedHarnessKind] =
 		useState<HarnessKind | null>(null);
-	const selectedMemberAgentRow =
-		memberAgentDirectory?.rows.find(
-			(row) => row.memberAgentId === input.selectedMemberAgentId
+	// The Agent page is its Profile's page: opened by MemberAgent it shows
+	// the default Profile; a Profile of the viewer's own Agent shows its Agent.
+	const memberAgentPageRow =
+		memberAgentDirectory?.rows.find((row) =>
+			input.selectedMemberAgentId
+				? row.memberAgentId === input.selectedMemberAgentId
+				: row.profiles.some(
+						(profile) => profile.openMeldProfileId === input.selectedProfileId
+					)
 		) ?? null;
+	const memberAgentPageProfile = memberAgentPageRow
+		? (memberAgentPageRow.profiles.find(
+				(profile) =>
+					profile.openMeldProfileId ===
+					(input.selectedProfileId ?? memberAgentPageRow.defaultProfileId)
+			) ??
+			memberAgentPageRow.profiles[0] ??
+			null)
+		: null;
 	const memberAgents = memberAgentDirectory
 		? {
 				onOpenMemberAgent: (memberAgentId: string) => {
@@ -724,34 +722,40 @@ function AgentsWorkspaceHome(input: {
 					}).catch(console.error);
 				},
 				selectedMemberAgentId: input.selectedMemberAgentId,
-				renderMemberAgentDetail: () =>
-					selectedMemberAgentRow ? (
-						<MemberAgentDetail
-							onCreateProfile={
-								selectedMemberAgentRow.harnessKind === "hosted"
-									? undefined
-									: () =>
-											setPinnedHarnessKind(selectedMemberAgentRow.harnessKind)
-							}
-							onSelectProfile={input.onSelectProfile}
-							row={selectedMemberAgentRow}
-						/>
+				renderMemberAgentDetail: (
+					_memberAgentId: string,
+					renderProfile: (profile: AuthProfileView) => ReactNode
+				) =>
+					memberAgentPageProfile ? (
+						renderProfile(memberAgentPageProfile)
 					) : (
 						<UnknownMemberAgentNotice
 							agentsPath={buildOrganizationAgentsPath(input.orgSlug)}
 						/>
 					),
-				memberAgentSidebar: selectedMemberAgentRow ? (
-					<MemberAgentProfileSessionsSidebar
-						defaultProfileId={selectedMemberAgentRow.defaultProfileId}
-						displayName={selectedMemberAgentRow.displayName}
-						profiles={selectedMemberAgentRow.profiles}
+				memberAgentSidebar: memberAgentPageRow ? (
+					<MemberAgentPageSidebar
+						activeProfileId={memberAgentPageProfile?.openMeldProfileId ?? null}
+						defaultProfileId={memberAgentPageRow.defaultProfileId}
+						displayName={memberAgentPageRow.displayName}
+						memberAgentId={memberAgentPageRow.memberAgentId}
+						onSelectProfile={input.onSelectProfile}
+						profiles={memberAgentPageRow.profiles}
 					/>
 				) : undefined,
 			}
 		: null;
+	const memberAgentPage = memberAgentPageRow
+		? {
+				row: memberAgentPageRow,
+				onCreateProfile:
+					memberAgentPageRow.harnessKind === "hosted"
+						? undefined
+						: () => setPinnedHarnessKind(memberAgentPageRow.harnessKind),
+			}
+		: null;
 	return (
-		<>
+		<MemberAgentPageProvider value={memberAgentPage}>
 			<AgentsWorkspaceHomeView
 				accountComputerSetupPath={accountComputerSetupPath}
 				accountServiceUpdatePath={accountServiceUpdatePath}
@@ -813,7 +817,7 @@ function AgentsWorkspaceHome(input: {
 					recovery={input.recovery}
 				/>
 			) : null}
-		</>
+		</MemberAgentPageProvider>
 	);
 }
 

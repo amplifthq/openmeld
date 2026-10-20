@@ -19,7 +19,6 @@ import {
 	MIGRATED_PROFILES,
 	OWNER_USER_ID,
 } from "#/test-support/member-agent-fixtures";
-import { MemberAgentDetail } from "./member-agent-detail";
 import { buildMemberAgentDirectory } from "./member-agent-directory-model";
 import {
 	MemberAgentHarnessLock,
@@ -205,7 +204,7 @@ describe("Agents list for a migrated member", () => {
 		expect(screen.getByText("Tali Codex")).toBeTruthy();
 	});
 
-	it("lists each assigned Profile in its MemberAgent detail", () => {
+	it("shows a MemberAgent's page as its default Profile's page", () => {
 		const directory = buildMemberAgentDirectory({
 			index: buildMemberAgentIndex({
 				listing: MIGRATED_LISTING,
@@ -216,20 +215,25 @@ describe("Agents list for a migrated member", () => {
 		});
 		renderWorkspace({
 			selectedMemberAgentId: "ma-claude",
-			renderMemberAgentDetail: (memberAgentId) => {
+			memberAgentSidebar: <nav aria-label="Claude Code chats" />,
+			renderProfileDetail: (profile) => <h1>{profile.profileName}</h1>,
+			renderMemberAgentDetail: (memberAgentId, renderProfile) => {
 				const row = directory.rows.find(
 					(candidate) => candidate.memberAgentId === memberAgentId
 				);
-				return row ? (
-					<MemberAgentDetail onSelectProfile={vi.fn()} row={row} />
-				) : null;
+				const profile = row?.profiles[0];
+				return profile ? renderProfile(profile) : null;
 			},
 		});
-		const profiles = screen.getByRole("region", { name: "Profiles" });
-		expect(within(profiles).getByText("Felix Lu’s Claude Code")).toBeTruthy();
 		expect(
-			within(profiles).getByText("Felix Lu’s Claude Code · PR Reviewer")
+			screen.getByRole("heading", { level: 1, name: "Claude Code" })
 		).toBeTruthy();
+		expect(
+			within(screen.getByTestId("sidebar")).getByRole("navigation", {
+				name: "Claude Code chats",
+			})
+		).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Back to Agents" })).toBeTruthy();
 	});
 
 	it("locks the default Profile's name and every assigned Profile's harness", async () => {

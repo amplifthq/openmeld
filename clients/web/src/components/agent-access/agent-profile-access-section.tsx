@@ -1,5 +1,13 @@
 import { Button } from "@openmeld/ui/components/button";
 import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
+import {
+	Accordion,
+	AccordionContent,
+	AccordionItem,
+	AccordionTrigger,
+} from "@openmeld/ui/fluid/accordion";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
+import type { ReactNode } from "react";
 import { isMemberAgentsEnabled } from "#/lib/member-agents/member-agents-feature";
 import {
 	useAgentProfileAccessGrants,
@@ -7,36 +15,60 @@ import {
 } from "#/query/agent-access";
 
 /**
- * Owner-only: who may use this Agent without asking, and Revoke. Revoking
- * stops new tasks; tasks already running finish.
+ * Owner-only, collapsed until opened: who may use this Agent without asking,
+ * and Revoke, then any other sensitive history the page adds (`children`),
+ * all in one scroll area. Revoking stops new tasks; tasks already running
+ * finish.
  */
 export function AgentProfileAccessSection(input: {
 	enabled: boolean;
 	profileId: string;
+	children?: ReactNode;
 }) {
 	if (!(input.enabled && isMemberAgentsEnabled())) {
 		return null;
 	}
-	return <AgentProfileAccessList profileId={input.profileId} />;
+	return (
+		<section aria-labelledby="agent-access-heading" className="max-w-3xl">
+			<Accordion>
+				<AccordionItem value="access">
+					<AccordionTrigger className="py-1">
+						<span
+							className="block font-medium text-sm"
+							id="agent-access-heading"
+						>
+							Who can use this Agent
+						</span>
+						<span className="mt-1 block font-normal text-muted-foreground text-sm">
+							Colleagues you allowed, and sensitive changes to this Agent.
+						</span>
+					</AccordionTrigger>
+					<AccordionContent>
+						<ScrollArea
+							className="mt-3 max-h-[28rem]"
+							data-slot="agent-access-scroll"
+						>
+							<div className="grid gap-6 pr-3">
+								<AgentProfileAccessList profileId={input.profileId} />
+								{input.children}
+							</div>
+						</ScrollArea>
+					</AccordionContent>
+				</AccordionItem>
+			</Accordion>
+		</section>
+	);
 }
 
 function AgentProfileAccessList(input: { profileId: string }) {
 	const grants = useAgentProfileAccessGrants(input.profileId);
 	const revoke = useRevokeAgentProfileAccessGrant(input.profileId);
 	return (
-		<section
-			aria-labelledby="agent-access-heading"
-			className="grid max-w-3xl gap-3"
-		>
-			<div className="grid gap-1">
-				<h2 className="font-medium text-sm" id="agent-access-heading">
-					Who can use this Agent
-				</h2>
-				<p className="text-muted-foreground text-sm">
-					Colleagues you allowed can start work without asking. Revoking stops
-					new work; anything already running finishes.
-				</p>
-			</div>
+		<div className="grid gap-3">
+			<p className="text-muted-foreground text-sm">
+				Colleagues you allowed can start work without asking. Revoking stops new
+				work; anything already running finishes.
+			</p>
 			{grants.isPending ? (
 				<SkeletonRows label="Loading access" rows={2} />
 			) : null}
@@ -82,6 +114,6 @@ function AgentProfileAccessList(input: { profileId: string }) {
 					{revoke.error.message}
 				</p>
 			) : null}
-		</section>
+		</div>
 	);
 }

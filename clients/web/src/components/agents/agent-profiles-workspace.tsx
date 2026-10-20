@@ -17,6 +17,8 @@ import { AppContextualSidebarNav } from "#/components/app/app-contextual-layout"
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { SidebarListSkeleton } from "#/components/app/sidebar-list-skeleton";
 import { TeamHeader } from "#/components/directory/team-header";
+import { useAppOrganization } from "#/lib/organizations/organization-context";
+import { buildOrganizationAgentsPath } from "#/lib/organizations/organization-routes";
 import type { OptimisticAgentProfileCreation } from "#/lib/profiles/agent-profile-creation-requests";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 import { AgentDirectoryLists } from "./agent-directory-lists";
@@ -74,10 +76,15 @@ export type AgentProfilesWorkspaceProps = {
 		string,
 		OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number]
 	>;
-	/** Opens a MemberAgent's detail; present only with MEMBER_AGENTS_ENABLED. */
+	/** Opens a MemberAgent's page; present only with MEMBER_AGENTS_ENABLED. */
 	onOpenMemberAgent?: (memberAgentId: string) => void;
 	selectedMemberAgentId?: string | null;
-	renderMemberAgentDetail?: (memberAgentId: string) => ReactNode;
+	/** A MemberAgent's page is one of its Profiles' pages. */
+	renderMemberAgentDetail?: (
+		memberAgentId: string,
+		renderProfile: (profile: AuthProfileView) => ReactNode
+	) => ReactNode;
+	/** The open Agent's Profiles and chats, on its Profile pages too. */
 	memberAgentSidebar?: ReactNode;
 };
 
@@ -112,7 +119,10 @@ export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
 				) : undefined
 			}
 			mainSidebar={resolveAgentsMainSidebar(input)}
-			showMainHeader={!input.person && input.activeView === "agents"}
+			showMainHeader={
+				!(input.person || input.selectedMemberAgentId) &&
+				input.activeView === "agents"
+			}
 		>
 			<AgentWorkspaceHeader {...input} />
 			<AgentProfilesWorkspaceContent
@@ -125,10 +135,10 @@ export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
 }
 
 function resolveAgentsMainSidebar(input: AgentProfilesWorkspaceProps) {
-	if (input.selectedMemberAgentId && input.memberAgentSidebar) {
+	if (input.memberAgentSidebar) {
 		return {
 			key: "member-agent",
-			label: "Profiles",
+			label: "Chats",
 			content: input.memberAgentSidebar,
 		};
 	}
@@ -222,7 +232,8 @@ function AgentProfilesWorkspaceContent(input: {
 		input.input.renderMemberAgentDetail
 	) {
 		return input.input.renderMemberAgentDetail(
-			input.input.selectedMemberAgentId
+			input.input.selectedMemberAgentId,
+			input.input.renderProfileDetail
 		);
 	}
 	if (input.selectedProfile) {
@@ -263,9 +274,24 @@ function AgentRequestsWorkspace(input: { input: AgentProfilesWorkspaceProps }) {
 	);
 }
 
+function AgentsListBackLink() {
+	const { currentOrganization } = useAppOrganization();
+	return (
+		<div className="w-full px-[var(--app-page-inline-padding)] pt-5">
+			<Link
+				className="inline-flex items-center gap-2 text-muted-foreground text-sm hover:text-foreground"
+				to={buildOrganizationAgentsPath(currentOrganization.slug)}
+			>
+				<ArrowLeftIcon aria-hidden="true" />
+				Back to Agents
+			</Link>
+		</div>
+	);
+}
+
 function AgentWorkspaceHeader(input: AgentProfilesWorkspaceProps) {
 	if (!input.person) {
-		return null;
+		return input.selectedMemberAgentId ? <AgentsListBackLink /> : null;
 	}
 	const returnLink =
 		input.agentListReturn ??

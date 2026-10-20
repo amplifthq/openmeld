@@ -12,7 +12,6 @@ export function PersonAgentsPage(input: {
 	personId: string;
 	agentId?: string;
 	returnToAgentDirectory?: boolean;
-	returnToMemberAgentId?: string;
 	initialSidebarStates?: AppSidebarPersistedStates;
 }) {
 	const { currentOrganization } = useAppOrganization();
@@ -44,7 +43,6 @@ export function PersonAgentsPage(input: {
 			}}
 			personId={input.personId}
 			returnToAgentDirectory={input.returnToAgentDirectory}
-			returnToMemberAgentId={input.returnToMemberAgentId}
 		/>
 	);
 }

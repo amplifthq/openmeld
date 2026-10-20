@@ -27,6 +27,7 @@ import {
 	ChatCircleTextIcon,
 	DotsThreeIcon,
 	FolderIcon,
+	GearSixIcon,
 	PencilSimpleIcon,
 	PushPinIcon,
 } from "@phosphor-icons/react";
@@ -50,6 +51,8 @@ import {
 	resolveInboxAttentionLabel,
 	resolveInboxIndicatorClassName,
 } from "#/lib/inbox/attention";
+import { useAppOrganization } from "#/lib/organizations/organization-context";
+import { buildOrganizationAgentsPath } from "#/lib/organizations/organization-routes";
 import {
 	buildSpaceActivityFocusHref,
 	buildSpaceMessageFocusHref,
@@ -787,6 +790,14 @@ function ConversationRowMenuItems(input: ConversationSidebarRowProps) {
 		<>
 			<ObjectMenuItems href={input.url} />
 			<DropdownMenuSeparator />
+			{input.conversation.memberAgentId && (
+				<>
+					<MemberAgentPageMenuItem
+						memberAgentId={input.conversation.memberAgentId}
+					/>
+					<DropdownMenuSeparator />
+				</>
+			)}
 			<FluidDropdownMenuGroup>
 				{input.onRename && (
 					<DropdownMenuItem
@@ -845,5 +856,27 @@ function ConversationRowMenuItems(input: ConversationSidebarRowProps) {
 				</>
 			)}
 		</>
+	);
+}
+
+/** The Agent's own page: its Profiles, settings, and who can use it. */
+function MemberAgentPageMenuItem(input: { memberAgentId: string }) {
+	const navigate = useNavigate();
+	const { currentOrganization } = useAppOrganization();
+	return (
+		<FluidDropdownMenuGroup>
+			<DropdownMenuItem
+				index={0}
+				onClick={() => {
+					navigate({
+						to: buildOrganizationAgentsPath(currentOrganization.slug),
+						search: { memberAgentId: input.memberAgentId },
+					}).catch(() => toast.error("Couldn't open this Agent. Try again."));
+				}}
+			>
+				<GearSixIcon aria-hidden="true" />
+				Agent settings
+			</DropdownMenuItem>
+		</FluidDropdownMenuGroup>
 	);
 }

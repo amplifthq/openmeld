@@ -24,13 +24,17 @@ vi.mock("#/components/directory/center-agent-item", () => ({
 
 const organization = vi.hoisted(() => ({ id: "org-test", slug: "test" }));
 
-vi.mock("#/lib/organizations/organization-context", () => ({
-	useAppOrganization: () => ({
+vi.mock("#/lib/organizations/organization-context", () => {
+	const value = {
 		account: { name: "Current member" },
 		currentUserId: "user-current",
 		currentOrganization: organization,
-	}),
-}));
+	};
+	return {
+		useAppOrganization: () => value,
+		useOptionalAppOrganization: () => value,
+	};
+});
 vi.mock("#/components/app/use-sidebar-preferences", () => ({
 	useSidebarPreferences: () => ({
 		preferences: null,

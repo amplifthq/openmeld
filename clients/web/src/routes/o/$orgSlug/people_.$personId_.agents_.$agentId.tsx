@@ -11,8 +11,6 @@ export const Route = createFileRoute(
 	staticData: appShellStaticData.people,
 	validateSearch: z.object({
 		from: z.literal("agents").optional().catch(undefined),
-		/** The MemberAgent page the Profile was opened from, to return to. */
-		memberAgentId: z.string().min(1).optional().catch(undefined),
 	}),
 	loader: async ({ context, location, params }) => {
 		prefetchAgentsRouteIdentityData({
@@ -30,7 +28,7 @@ export const Route = createFileRoute(
 
 function PersonAgentRoute() {
 	const { personId, agentId } = Route.useParams();
-	const { from, memberAgentId } = Route.useSearch();
+	const { from } = Route.useSearch();
 	const { sidebarStates } = Route.useLoaderData();
 	return (
 		<PersonAgentsPage
@@ -38,7 +36,6 @@ function PersonAgentRoute() {
 			initialSidebarStates={sidebarStates}
 			personId={personId}
 			returnToAgentDirectory={from === "agents"}
-			returnToMemberAgentId={from === "agents" ? memberAgentId : undefined}
 		/>
 	);
 }

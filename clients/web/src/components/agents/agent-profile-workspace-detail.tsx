@@ -51,6 +51,10 @@ import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import { AgentProfileConversationsSection } from "#/components/directory/agent-conversations-section";
 import { useMemberAgentProfileNameLocked } from "#/components/member-agents/member-agent-harness-lock";
+import {
+	MemberAgentNewProfileButton,
+	MemberAgentSensitiveChanges,
+} from "#/components/member-agents/member-agent-page-context";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
@@ -251,6 +255,7 @@ export function AgentProfileWorkspaceDetail(input: {
 										Chat with {input.profile.profileName}
 									</Button>
 								)}
+								<MemberAgentNewProfileButton />
 								{input.overflowActions}
 							</div>
 						</div>
@@ -293,7 +298,9 @@ export function AgentProfileWorkspaceDetail(input: {
 			<AgentProfileAccessSection
 				enabled={showOwnerOperationalContext}
 				profileId={input.profile.openMeldProfileId}
-			/>
+			>
+				<MemberAgentSensitiveChanges />
+			</AgentProfileAccessSection>
 		</div>
 	);
 }
