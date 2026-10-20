@@ -55,9 +55,16 @@ export function resolveAgentChatActionLabel(input: {
 	if (input.access?.kind !== "asks_owner") {
 		return chat;
 	}
-	switch (input.colleagueAccess?.state) {
+	const state = input.colleagueAccess?.state;
+	switch (state) {
+		case undefined:
+		case "none":
+		case "draft":
+		// Revoked access starts a new request.
+		case "revoked":
+			return "Ask to use";
 		case "waiting":
-			return `Waiting for ${input.colleagueAccess.ownerName ?? input.access.ownerName}`;
+			return `Waiting for ${input.colleagueAccess?.ownerName ?? input.access.ownerName}`;
 		case "approved_once":
 		case "always_allowed":
 		case "not_required":
@@ -65,21 +72,39 @@ export function resolveAgentChatActionLabel(input: {
 		case "declined":
 			return "Declined";
 		default:
-			return "Ask to use";
+			return assertNeverColleagueState(state);
 	}
+}
+
+/** Fails the type check when the shared colleague state gains a case. */
+export function assertNeverColleagueState(state: never): never {
+	throw new Error(`Unhandled colleague access state: ${String(state)}`);
 }
 
 /**
  * The Direct Message a colleague's chat action opens directly: the request's
- * own Space while it waits or after a decline. Null opens the current one.
+ * own Space while it waits, once it is allowed for one chat, or after a
+ * decline. Null opens the current one.
  */
 export function resolveColleagueRequestSpaceId(
 	colleagueAccess: ColleagueAccess | null | undefined
 ): string | null {
 	const state = colleagueAccess?.state;
-	return state === "waiting" || state === "declined"
-		? (colleagueAccess?.request?.spaceId ?? null)
-		: null;
+	switch (state) {
+		case "waiting":
+		case "approved_once":
+		case "declined":
+			return colleagueAccess?.request?.spaceId ?? null;
+		case undefined:
+		case "none":
+		case "draft":
+		case "always_allowed":
+		case "not_required":
+		case "revoked":
+			return null;
+		default:
+			return assertNeverColleagueState(state);
+	}
 }
 
 /** Opens a colleague's request Direct Message by its Space. */

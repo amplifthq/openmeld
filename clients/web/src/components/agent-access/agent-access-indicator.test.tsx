@@ -81,6 +81,7 @@ describe("colleague chat action states", () => {
 		["always_allowed", "Chat with Codex"],
 		["not_required", "Chat with Codex"],
 		["declined", "Declined"],
+		["revoked", "Ask to use"],
 	] as const)("labels %s as %s", (state, expected) => {
 		expect(label(state)).toBe(expected);
 	});
@@ -95,7 +96,7 @@ describe("colleague chat action states", () => {
 		).toBe("Chat with Codex");
 	});
 
-	it("opens the request's own Direct Message only while waiting or declined", () => {
+	it("opens the request's own Direct Message while waiting, allowed once, or declined", () => {
 		expect(resolveColleagueRequestSpaceId(colleague("waiting", "dm-1"))).toBe(
 			"dm-1"
 		);
@@ -106,6 +107,10 @@ describe("colleague chat action states", () => {
 		expect(resolveColleagueRequestSpaceId(colleague("draft"))).toBeNull();
 		expect(
 			resolveColleagueRequestSpaceId(colleague("approved_once", "dm-1"))
+		).toBe("dm-1");
+		// Revoked access asks again from the current Direct Message.
+		expect(
+			resolveColleagueRequestSpaceId(colleague("revoked", "dm-1"))
 		).toBeNull();
 		expect(resolveColleagueRequestSpaceId(null)).toBeNull();
 	});

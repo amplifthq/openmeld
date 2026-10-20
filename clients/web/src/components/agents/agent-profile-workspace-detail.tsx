@@ -43,6 +43,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
 	AgentAccessIndicator,
+	assertNeverColleagueState,
 	resolveAgentChatActionLabel,
 	resolveColleagueRequestSpaceId,
 	useOpenColleagueRequestSpace,
@@ -92,6 +93,7 @@ export type AgentProfileOwnerIdentity = {
 function AgentProfileOwnerLine(input: {
 	owner: AgentProfileOwnerIdentity;
 	access: AgentViewerAccess | null;
+	accessRemoved?: boolean;
 }) {
 	return (
 		<p className="mt-1 flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
@@ -108,6 +110,14 @@ function AgentProfileOwnerLine(input: {
 				<>
 					<span aria-hidden="true">·</span>
 					<AgentAccessIndicator access={input.access} />
+				</>
+			) : null}
+			{input.accessRemoved ? (
+				<>
+					<span aria-hidden="true">·</span>
+					<span className="shrink-0" data-testid="agent-access-removed">
+						Access removed
+					</span>
 				</>
 			) : null}
 		</p>
@@ -207,6 +217,12 @@ function resolveColleagueChatTooltip(input: {
 	state: ColleagueAccess["state"] | undefined;
 }): string | null {
 	switch (input.state) {
+		case undefined:
+		case "none":
+		case "draft":
+			return `${input.ownerName} approves before it starts work for you.`;
+		case "revoked":
+			return `${input.ownerName} removed your access. Ask to use it again.`;
 		case "waiting":
 			return `${input.ownerName} hasn’t answered your request yet.`;
 		case "declined":
@@ -216,7 +232,7 @@ function resolveColleagueChatTooltip(input: {
 		case "not_required":
 			return null;
 		default:
-			return `${input.ownerName} approves before it starts work for you.`;
+			return assertNeverColleagueState(input.state);
 	}
 }
 
@@ -385,6 +401,9 @@ export function AgentProfileWorkspaceDetail(input: {
 								{input.owner ? (
 									<AgentProfileOwnerLine
 										access={colleague.access}
+										accessRemoved={
+											colleague.colleagueAccess?.state === "revoked"
+										}
 										owner={input.owner}
 									/>
 								) : null}
