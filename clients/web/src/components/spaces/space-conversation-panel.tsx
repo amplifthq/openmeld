@@ -2196,6 +2196,7 @@ function SpaceComposerSection(input: {
 							!panel.readOnly && panel.spaceId ? (
 								<SpaceComposerTrayHold held={panel.composerTraysHeld}>
 									<SpaceInputQueue
+										agents={panel.membersSnapshot?.agents}
 										key={`${panel.spaceId}:${panel.selfProfileId}`}
 										onEdit={(queuedText) => {
 											const text = panel.composerText

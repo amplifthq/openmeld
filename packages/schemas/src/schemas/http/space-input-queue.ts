@@ -29,6 +29,8 @@ export const spaceInputQueueMutationSchema = z.discriminatedUnion("action", [
     text: z.string().trim().min(1).max(MAX_TEXT_LENGTH),
   }),
   z.strictObject({ action: z.literal("delete"), inputId }),
+  // Puts an input whose delivery could not be confirmed back in the queue.
+  z.strictObject({ action: z.literal("retry"), inputId }),
   z.strictObject({ action: z.literal("steer"), inputId, target }),
   z.strictObject({
     action: z.literal("reorder"),
@@ -57,6 +59,9 @@ export const spaceInputQueueResponseSchema = z.strictObject({
       authorProfileId: z.string().min(1),
       text: z.string(),
       state: z.enum(["queued", "claimed", "unconfirmed"]),
+      // Unconfirmed only. `checking`: Core is still reading the receipt.
+      // `undecided`: it could not tell; the author retries or removes it.
+      delivery: z.enum(["checking", "undecided"]).optional(),
       blocked: z.boolean(),
     })
   ),

@@ -782,6 +782,7 @@ import {
   readSpaceExecutionInput,
   rebindQueuedSpaceInput,
   reorderQueuedSpaceExecutionInputs,
+  retryUndecidedSpaceExecutionInput,
   settleQueuedSpaceExecutionInput,
   updateSpaceExecutionInput,
 } from "../../infrastructure/sql/space-execution-input-repo";
@@ -993,6 +994,10 @@ import {
 } from "./space-websocket-session";
 
 const HISTORY_LIMIT = 100;
+// Local receipt reads run once a second: up to 30 minutes while the
+// Execution Host reports the input pending, 2 minutes while it is unreachable.
+const LOCAL_INPUT_PENDING_READ_LIMIT = 1800;
+const LOCAL_INPUT_UNREACHABLE_READ_LIMIT = 120;
 const RECENT_HISTORY_SCAN_MULTIPLIER = 4;
 const RECENT_HISTORY_SCAN_MAX_LIMIT = 400;
 const INTERNAL_ERROR_MESSAGE = "internal_error";
@@ -8613,6 +8618,7 @@ export class Space extends DurableObject<CoreBindings> {
       inputId: string;
       request: SpaceExecutionInputRequest;
       signal: Extract<SignalEnvelope, { type: "signal.text" }>;
+      attemptCount?: number;
     },
     operation: "apply" | "read"
   ): Promise<void> {
@@ -8648,17 +8654,30 @@ export class Space extends DurableObject<CoreBindings> {
       result.success && result.data.inputId === item.inputId
         ? result.data
         : null;
-    let outcome: "applied" | "rejected" | "unconfirmed" = "unconfirmed";
+    let outcome: "applied" | "rejected" | "returned" | "unconfirmed" =
+      "unconfirmed";
     if (receipt?.status === "applied") {
       outcome = "applied";
-    } else if (operation === "apply" && receipt?.status === "not_applied") {
-      outcome = "rejected";
+    } else if (receipt?.status === "not_applied") {
+      // At apply the Agent refused it; on a read the Agent never got it, so
+      // it goes back to the queue as sendable.
+      outcome = operation === "apply" ? "rejected" : "returned";
     }
     // A slow native consumption outlasts the apply wait. Keep reading the
-    // Execution Host's receipt until it settles; never apply again.
+    // Execution Host's receipt until it settles; never apply again. An
+    // unreachable host is read again for a bounded time. Anything else
+    // (no receipt, a mismatch, a lost host) is undecided: the author retries
+    // or removes the input, and later inputs wait until they do.
     const pending =
       receipt?.status === "unconfirmed" &&
       receipt.diagnosticCode === LOCAL_EXECUTION_INPUT_PENDING_DIAGNOSTIC;
+    const reads = item.attemptCount ?? 0;
+    const keepReading =
+      outcome === "unconfirmed" &&
+      (operation === "apply" ||
+        (pending && reads < LOCAL_INPUT_PENDING_READ_LIMIT) ||
+        (!result.success && reads < LOCAL_INPUT_UNREACHABLE_READ_LIMIT));
+    let returned = false;
     const published = this.ctx.storage.transactionSync(() => {
       const settled = settleQueuedSpaceExecutionInput(
         this.ctx.storage.sql,
@@ -8668,11 +8687,11 @@ export class Space extends DurableObject<CoreBindings> {
       );
       updateSpaceExecutionInput(this.ctx.storage.sql, {
         inputId: item.inputId,
-        nextAttemptAtMs:
-          outcome === "unconfirmed" && (operation === "apply" || pending)
-            ? Date.now() + 1000
-            : null,
+        nextAttemptAtMs: keepReading ? Date.now() + 1000 : null,
       });
+      if (settled && outcome === "returned") {
+        returned = true;
+      }
       return (
         settled &&
         outcome === "applied" &&
@@ -8696,6 +8715,10 @@ export class Space extends DurableObject<CoreBindings> {
         { persisted: true }
       );
       this.ctx.waitUntil(this.flushPendingSpaceInboxProjectionOutbox());
+    }
+    if (returned) {
+      // Back in the queue: sendable now if its response already ended.
+      await this.flushQueuedSpaceInputs();
     }
     await this.broadcastSpaceMetaChanged({
       reason: "space.input_queue.updated",
@@ -8864,6 +8887,7 @@ export class Space extends DurableObject<CoreBindings> {
             authorProfileId: item.request.authorProfileId,
             text: item.request.text,
             state: item.state,
+            ...(item.delivery ? { delivery: item.delivery } : {}),
             blocked: item.blocked,
           })),
       });
@@ -9055,7 +9079,7 @@ export class Space extends DurableObject<CoreBindings> {
   private async mutateQueuedExecutionInput(
     mutation: Extract<
       import("@openmeld/schemas/types").SpaceInputQueueMutation,
-      { action: "delete" | "steer" }
+      { action: "delete" | "retry" | "steer" }
     >,
     authorProfileId: string
   ): Promise<Response | null> {
@@ -9078,11 +9102,31 @@ export class Space extends DurableObject<CoreBindings> {
         { status: 404 }
       );
     }
-    if (isLocalSpaceExecutionInput(item.request)) {
+    if (
+      isLocalSpaceExecutionInput(item.request) &&
+      mutation.action !== "retry"
+    ) {
       await this.assertLocalQueuedInputAuthority(
         item.request,
         mutation.action === "steer"
       );
+    }
+    if (mutation.action === "retry") {
+      if (
+        !retryUndecidedSpaceExecutionInput(
+          this.ctx.storage.sql,
+          mutation.inputId,
+          authorProfileId
+        )
+      ) {
+        return Response.json(
+          { message: "This message is still being checked." },
+          { status: 409 }
+        );
+      }
+      // Ready now if its response already ended; Send now covers a live one.
+      await this.flushQueuedSpaceInputs();
+      return null;
     }
     if (mutation.action === "delete") {
       // A lost response can be retried before moving the saved text into the
@@ -9102,6 +9146,8 @@ export class Space extends DurableObject<CoreBindings> {
           { status: 409 }
         );
       }
+      // Removing an undecided input unpauses the inputs behind it.
+      await this.flushQueuedSpaceInputs();
     } else {
       const target = item.signal.data.meta?.centerAgentExecutionInput;
       if (
