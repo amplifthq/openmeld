@@ -130,8 +130,57 @@ it("shows each chat's last-message time before its status, older ones on hover",
 	expect(
 		screen.getByRole("link", { name: "Older chat" }).querySelector("time")
 			?.className
-	).toContain("group-hover/menu-sub-item:inline-flex");
+	).toContain("in-[[data-sidebar=menu-sub-button]:hover]:inline-flex");
 	expect(
 		screen.getByRole("link", { name: "Empty chat" }).querySelector("time")
 	).toBeNull();
+});
+
+it("nests each section's chats under its own row, which is always a real row", () => {
+	vi.stubGlobal(
+		"ResizeObserver",
+		class {
+			observe = vi.fn();
+			unobserve = vi.fn();
+			disconnect = vi.fn();
+		}
+	);
+	const onSelect = vi.fn();
+	render(
+		<SidebarMenu>
+			<SidebarMenuItem>
+				<SidebarNestedNavList
+					activeItemId="s-2"
+					ariaLabel="Chats with Cursor"
+					sections={[
+						{
+							id: "p-default",
+							label: "Cursor",
+							row: { label: "Cursor", to: "/dm/s-1" },
+							items: [{ id: "s-1", label: "Plan", to: "/dm/s-1" }],
+						},
+						{
+							id: "p-moved",
+							label: "Cursor · Moved",
+							row: { label: "Moved", onSelect },
+							items: [],
+						},
+					]}
+				/>
+			</SidebarMenuItem>
+		</SidebarMenu>
+	);
+	const nav = screen.getByRole("navigation", { name: "Chats with Cursor" });
+	const profile = within(nav).getByRole("link", { name: "Cursor" });
+	expect(profile.getAttribute("href")).toBe("/dm/s-1");
+	// The chat nests inside its Profile's row, one level deeper.
+	expect(
+		profile
+			.closest('[data-nested-nav-section="p-default"]')
+			?.contains(within(nav).getByRole("link", { name: "Plan" }))
+	).toBe(true);
+	within(nav).getByRole("button", { name: "Moved" }).click();
+	expect(onSelect).toHaveBeenCalledOnce();
+	// No inert section label is drawn.
+	expect(within(nav).queryByText("Cursor · Moved")).toBeNull();
 });

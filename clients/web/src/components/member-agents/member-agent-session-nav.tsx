@@ -1,3 +1,7 @@
+import { RobotIcon } from "@phosphor-icons/react";
+import { useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
+import { toast } from "sonner";
 import type { SidebarNestedNavSection } from "#/components/app/sidebar-nested-nav-list";
 import type { Conversation } from "#/components/spaces/conversation-sidebar-model";
 import { SpaceStatusIndicator } from "#/components/spaces/space-status-indicator";
@@ -7,41 +11,75 @@ import {
 	type SpaceStatusSources,
 } from "#/components/spaces/space-status-indicators";
 import { useSpaceStatusSources } from "#/components/spaces/use-space-status-sources";
-import { useMemberAgentSessionGroups } from "./member-agent-chat-history";
+import { useAppOrganization } from "#/lib/organizations/organization-context";
+import {
+	openMemberAgentChat,
+	sortChatsByActivity,
+	useMemberAgentSessionGroups,
+} from "./member-agent-chat-history";
 import { useMemberAgentIndex } from "./use-member-agents";
 
 type MemberAgentSessionGroups = ReturnType<typeof useMemberAgentSessionGroups>;
 
 /**
  * One nested-list section per Profile, each Session with the status marks a
- * sidebar row shows.
+ * sidebar row shows, most recent first. With `profileRows` and several
+ * Profiles, each Profile gets a row that opens its latest chat, or starts
+ * one when it has none.
  */
 export function buildMemberAgentSessionSections(
 	sessions: MemberAgentSessionGroups,
 	statusSources: SpaceStatusSources,
 	/** Fresher last-message times, e.g. the sidebar's live chat previews. */
-	timestamps?: ReadonlyMap<string, number>
+	timestamps?: ReadonlyMap<string, number>,
+	profileRows?: {
+		onStartChat: (agentProfileId: string) => void;
+		startingProfileId: string | null;
+	}
 ): SidebarNestedNavSection[] {
-	return sessions.groups.map((group) => ({
-		id: group.id,
-		label: group.label,
-		notice: group.isError ? "Couldn’t load chats." : undefined,
-		items: group.items.map((item) => {
-			const indicators = resolveSpaceStatusIndicators(
-				[item.spaceId],
-				statusSources
-			);
-			const statusLabel = resolveSpaceStatusLabel(indicators);
-			return {
-				id: item.spaceId,
-				label: item.title,
+	return sessions.groups.map((group) => {
+		const items = sortChatsByActivity(
+			group.items.map((item) => ({
+				...item,
 				timestamp: timestamps?.get(item.spaceId) ?? item.timestamp,
-				accessory: <SpaceStatusIndicator indicators={indicators} />,
-				ariaLabel: statusLabel ? `${item.title}, ${statusLabel}` : undefined,
-				to: sessions.sessionPath(item.spaceId),
-			};
-		}),
-	}));
+			}))
+		);
+		const latest = items[0];
+		return {
+			id: group.id,
+			label: group.label,
+			row:
+				profileRows && sessions.groups.length > 1
+					? {
+							// The Agent row above names the Agent; this row names the Profile.
+							label: group.profileName,
+							ariaLabel: latest
+								? `${group.label}, open latest chat`
+								: `${group.label}, start a chat`,
+							icon: RobotIcon,
+							to: latest ? sessions.sessionPath(latest.spaceId) : undefined,
+							onSelect: () => profileRows.onStartChat(group.id),
+							disabled: profileRows.startingProfileId === group.id,
+						}
+					: undefined,
+			notice: group.isError ? "Couldn’t load chats." : undefined,
+			items: items.map((item) => {
+				const indicators = resolveSpaceStatusIndicators(
+					[item.spaceId],
+					statusSources
+				);
+				const statusLabel = resolveSpaceStatusLabel(indicators);
+				return {
+					id: item.spaceId,
+					label: item.title,
+					timestamp: item.timestamp,
+					accessory: <SpaceStatusIndicator indicators={indicators} />,
+					ariaLabel: statusLabel ? `${item.title}, ${statusLabel}` : undefined,
+					to: sessions.sessionPath(item.spaceId),
+				};
+			}),
+		};
+	});
 }
 
 /**
@@ -68,15 +106,34 @@ export function useActiveMemberAgentSessionList(
 		spaceId: active?.spaceId ?? null,
 		includeAll: Boolean(memberAgent),
 	});
+	const { currentOrganization: organization } = useAppOrganization();
+	const navigate = useNavigate();
+	const [startingProfileId, setStartingProfileId] = useState<string | null>(
+		null
+	);
 	if (!memberAgent) {
 		return null;
 	}
+	const onStartChat = (agentProfileId: string) => {
+		setStartingProfileId(agentProfileId);
+		openMemberAgentChat({
+			organizationId: organization.id,
+			agentProfileId,
+		})
+			.then((spaceId) => navigate({ to: sessions.sessionPath(spaceId) }))
+			.catch((error: unknown) => {
+				console.error("Could not start a chat", error);
+				toast.error("Couldn’t start a new chat. Try again.");
+			})
+			.finally(() => setStartingProfileId(null));
+	};
 	return {
 		memberAgentId: memberAgent.memberAgent.id,
 		sections: buildMemberAgentSessionSections(
 			sessions,
 			statusSources,
-			active?.memberAgentSessionTimestamps
+			active?.memberAgentSessionTimestamps,
+			{ onStartChat, startingProfileId }
 		),
 	};
 }

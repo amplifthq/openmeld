@@ -105,35 +105,54 @@ export function MemberAgentChatHistory(input: {
 	});
 	const startNewChat = () =>
 		sessionActions.run(async () => {
-			const opened = await createDirectMessageApi(
-				createOrganizationScopedWebOpenMeldApiFoundation({
-					organizationId: organization.id,
-				})
-			).openSpace({
-				targetProfileId: input.current.agentProfileId,
-				creationId: crypto.randomUUID(),
+			const spaceId = await openMemberAgentChat({
+				organizationId: organization.id,
+				agentProfileId: input.current.agentProfileId,
 			});
-			await navigate({ to: sessions.sessionPath(opened.spaceId) });
+			await navigate({ to: sessions.sessionPath(spaceId) });
 		}, "Couldn’t start a new chat. Try again.");
+	// One list by last activity: a Profile is not a row of its own here, so
+	// several Profiles name theirs on each chat instead of as group labels.
+	const multipleProfiles = sessions.groups.length > 1;
+	const chats = sortChatsByActivity(
+		sessions.groups.flatMap((group) =>
+			group.items.map((item) => ({
+				...item,
+				detail: multipleProfiles ? group.profileName : undefined,
+			}))
+		)
+	);
 	return (
 		<>
 			<ChatHistoryDropdown
 				ariaLabel={`Open chats with ${input.current.memberAgent.displayName}: ${title}${titleStatusLabel ? `. Chats with status: ${titleStatusLabel}` : ""}`}
 				currentSpaceId={input.spaceId}
-				groups={sessions.groups.map((group) => ({
-					...group,
-					items: group.items.map((item) => {
-						const indicators = resolveSpaceStatusIndicators(
-							[item.spaceId],
-							statusSources
-						);
-						return {
-							...item,
-							status: <SpaceStatusIndicator indicators={indicators} />,
-							statusLabel: resolveSpaceStatusLabel(indicators),
-						};
-					}),
-				}))}
+				groups={[
+					{
+						id: "chats",
+						items: chats.map((item) => {
+							const indicators = resolveSpaceStatusIndicators(
+								[item.spaceId],
+								statusSources
+							);
+							return {
+								...item,
+								activityAt: item.timestamp,
+								status: <SpaceStatusIndicator indicators={indicators} />,
+								statusLabel: resolveSpaceStatusLabel(indicators),
+							};
+						}),
+						isLoading: sessions.groups.some((group) => group.isLoading),
+						isError: sessions.groups.some((group) => group.isError),
+						onRetry: () => {
+							for (const group of sessions.groups) {
+								if (group.isError) {
+									group.onRetry();
+								}
+							}
+						},
+					},
+				]}
 				newChatDisabled={sessionActions.pending}
 				onNewChat={() => {
 					startNewChat().catch(console.error);
@@ -159,6 +178,31 @@ export function MemberAgentChatHistory(input: {
 			{sessionActions.dialogs}
 		</>
 	);
+}
+
+/** Opens a new Session with one agent Profile; returns its Space. */
+export async function openMemberAgentChat(input: {
+	organizationId: string;
+	agentProfileId: string;
+}): Promise<string> {
+	const opened = await createDirectMessageApi(
+		createOrganizationScopedWebOpenMeldApiFoundation({
+			organizationId: input.organizationId,
+		})
+	).openSpace({
+		targetProfileId: input.agentProfileId,
+		creationId: crypto.randomUUID(),
+	});
+	return opened.spaceId;
+}
+
+/** Most recent first: last message, else creation. */
+export function sortChatsByActivity<
+	T extends { timestamp?: number | null; createdAt?: string | null },
+>(items: readonly T[]): T[] {
+	const activity = (item: T) =>
+		item.timestamp ?? (Date.parse(item.createdAt ?? "") || 0);
+	return [...items].sort((left, right) => activity(right) - activity(left));
 }
 
 /**
@@ -225,6 +269,7 @@ export function useMemberAgentSessionGroups(input: {
 			const query = queries[index];
 			return {
 				id: profile.openMeldProfileId,
+				profileName: profile.profileName,
 				label: formatMemberAgentProfileDisplayName({
 					memberAgentName: memberAgent?.displayName ?? "",
 					profileName: profile.profileName,

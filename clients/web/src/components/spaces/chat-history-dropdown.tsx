@@ -11,11 +11,16 @@ import {
 import { cn } from "@openmeld/ui/lib/utils";
 import { CaretDownIcon, PlusIcon } from "@phosphor-icons/react";
 import { type ReactNode, useState } from "react";
+import { SidebarConversationTime } from "./sidebar-conversation-time";
 
 export type ChatHistoryItem = {
 	spaceId: string;
 	title: string;
 	createdAt?: string | null;
+	/** Last message time; shown instead of the creation date. */
+	activityAt?: number | null;
+	/** Muted secondary text, e.g. the chat's Profile. */
+	detail?: string;
 	/** Status marks of this chat, e.g. SpaceStatusIndicator. */
 	status?: ReactNode;
 	/** Words for the status marks, read with the item. */
@@ -24,8 +29,9 @@ export type ChatHistoryItem = {
 
 export type ChatHistoryGroup = {
 	id: string;
-	/** Shown above the group's chats; one-group lists use "Chat history". */
-	label: string;
+	/** Shown above the group's chats; one-group lists use "Chat history".
+	 *  Omit it for a list without a header. */
+	label?: string;
 	items: readonly ChatHistoryItem[];
 	isLoading: boolean;
 	isError: boolean;
@@ -34,7 +40,7 @@ export type ChatHistoryGroup = {
 
 /**
  * The chat title that opens a conversation's chat history: New chat, search,
- * every chat (grouped when the Agent has several Profiles), the current one
+ * every chat (in groups when a caller passes several), the current one
  * marked. Used by Center Agent chats and MemberAgent Direct Messages alike.
  */
 export function ChatHistoryDropdown(input: {
@@ -70,6 +76,7 @@ export function ChatHistoryDropdown(input: {
 		setSearch("");
 		input.onSelect(spaceId);
 	};
+	const now = new Date();
 	let index = 0;
 	return (
 		<h1
@@ -159,7 +166,8 @@ export function ChatHistoryDropdown(input: {
 					) : null}
 					{groups.map((group) => (
 						<div key={group.id}>
-							{group.matches.length > 0 || groups.length > 1 ? (
+							{group.label &&
+							(group.matches.length > 0 || groups.length > 1) ? (
 								<div className="px-3 pt-3 pb-1 text-muted-foreground text-xs">
 									{group.label}
 								</div>
@@ -174,7 +182,14 @@ export function ChatHistoryDropdown(input: {
 									key={item.spaceId}
 									onClick={() => select(item.spaceId)}
 								>
-									<span className="min-w-0 flex-1 truncate">{item.title}</span>
+									<span className="flex min-w-0 flex-1 flex-col">
+										<span className="truncate">{item.title}</span>
+										{item.detail ? (
+											<span className="truncate text-muted-foreground text-xs">
+												{item.detail}
+											</span>
+										) : null}
+									</span>
 									{item.status}
 									{item.statusLabel ? (
 										<span className="sr-only">{`, ${item.statusLabel}`}</span>
@@ -184,17 +199,7 @@ export function ChatHistoryDropdown(input: {
 											Current
 										</span>
 									) : null}
-									{item.createdAt ? (
-										<time
-											className="shrink-0 text-muted-foreground text-xs"
-											dateTime={item.createdAt}
-										>
-											{new Date(item.createdAt).toLocaleDateString(undefined, {
-												month: "short",
-												day: "numeric",
-											})}
-										</time>
-									) : null}
+									<ChatHistoryItemTime item={item} now={now} />
 								</FluidDropdownMenuItem>
 							))}
 							{group.isError ? (
@@ -237,5 +242,31 @@ export function ChatHistoryDropdown(input: {
 				</span>
 			) : null}
 		</h1>
+	);
+}
+
+function ChatHistoryItemTime(input: { item: ChatHistoryItem; now: Date }) {
+	if (input.item.activityAt != null) {
+		return (
+			<SidebarConversationTime
+				className="text-xs"
+				now={input.now}
+				timestamp={input.item.activityAt}
+			/>
+		);
+	}
+	if (!input.item.createdAt) {
+		return null;
+	}
+	return (
+		<time
+			className="shrink-0 text-muted-foreground text-xs"
+			dateTime={input.item.createdAt}
+		>
+			{new Date(input.item.createdAt).toLocaleDateString(undefined, {
+				month: "short",
+				day: "numeric",
+			})}
+		</time>
 	);
 }

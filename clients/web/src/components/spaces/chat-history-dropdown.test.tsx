@@ -102,3 +102,40 @@ it("shows chat status on the title and on every chat, with full-width rows", asy
 		expect(item.className).toContain("w-full");
 	}
 });
+
+it("lists chats flat without a header, each naming its Profile", async () => {
+	vi.stubGlobal(
+		"ResizeObserver",
+		class {
+			observe = vi.fn();
+			unobserve = vi.fn();
+			disconnect = vi.fn();
+		}
+	);
+	render(
+		<ChatHistoryDropdown
+			ariaLabel="Open chats"
+			currentSpaceId="a"
+			groups={[
+				{
+					id: "chats",
+					items: [
+						{ spaceId: "b", title: "Audit", detail: "Review" },
+						{ spaceId: "a", title: "Plan", detail: "Codex" },
+					],
+					isLoading: false,
+					isError: false,
+				},
+			]}
+			onSelect={vi.fn()}
+			title="Plan"
+		/>
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Open chats" }));
+	const items = await screen.findAllByRole("menuitem");
+	expect(items.map((item) => item.textContent)).toEqual([
+		"AuditReview",
+		"PlanCodexCurrent",
+	]);
+	expect(screen.queryByText("Chat history")).toBeNull();
+});

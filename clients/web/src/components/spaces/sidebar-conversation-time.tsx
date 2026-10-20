@@ -14,7 +14,8 @@ export function SidebarConversationTime(input: {
 	className?: string;
 	hideOlderUntilHover?: boolean;
 	/** The row whose hover reveals an older time: a conversation row, or a
-	 *  nested sub-row such as one of an Agent's chats. */
+	 *  nested sub-row such as one of an Agent's chats. A sub-row's time sits
+	 *  in its own button, so a parent sub-row's hover does not reveal it. */
 	hoverRow?: "conversation" | "sub-item";
 }) {
 	const date = new Date(input.timestamp);
@@ -30,7 +31,7 @@ export function SidebarConversationTime(input: {
 				input.hideOlderUntilHover &&
 					!isToday &&
 					(input.hoverRow === "sub-item"
-						? "hidden group-focus-within/menu-sub-item:inline-flex group-hover/menu-sub-item:inline-flex"
+						? "in-[[data-sidebar=menu-sub-button]:focus-visible]:inline-flex in-[[data-sidebar=menu-sub-button]:hover]:inline-flex hidden"
 						: "hidden group-has-[>[data-sidebar=menu-actions]:focus-within]/chat:inline-flex group-has-[>[data-sidebar=menu-actions]:hover]/chat:inline-flex group-has-[>[data-sidebar=menu-button]:focus-within]/chat:inline-flex group-has-[>[data-sidebar=menu-button]:hover]/chat:inline-flex"),
 				input.className
 			)}

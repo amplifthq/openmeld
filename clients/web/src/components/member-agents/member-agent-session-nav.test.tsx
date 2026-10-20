@@ -1,4 +1,4 @@
-import { renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import type { Conversation } from "#/components/spaces/conversation-sidebar-model";
 import type { SpaceStatusSources } from "#/components/spaces/space-status-indicators";
@@ -10,7 +10,15 @@ const noStatus: SpaceStatusSources = {
 	attentionById: new Map(),
 };
 
-const { sessionGroups } = vi.hoisted(() => ({ sessionGroups: vi.fn() }));
+const { sessionGroups, openChat, navigate } = vi.hoisted(() => ({
+	sessionGroups: vi.fn(),
+	openChat: vi.fn(),
+	navigate: vi.fn(),
+}));
+vi.mock("@tanstack/react-router", () => ({ useNavigate: () => navigate }));
+vi.mock("#/lib/organizations/organization-context", () => ({
+	useAppOrganization: () => ({ currentOrganization: { id: "org-1" } }),
+}));
 vi.mock("./use-member-agents", () => ({
 	useMemberAgentIndex: () => ({
 		index: {
@@ -20,7 +28,11 @@ vi.mock("./use-member-agents", () => ({
 		},
 	}),
 }));
-vi.mock("./member-agent-chat-history", () => ({
+vi.mock("./member-agent-chat-history", async (importOriginal) => ({
+	sortChatsByActivity: (
+		await importOriginal<typeof import("./member-agent-chat-history")>()
+	).sortChatsByActivity,
+	openMemberAgentChat: openChat,
 	useMemberAgentSessionGroups: sessionGroups,
 }));
 
@@ -38,12 +50,17 @@ it("lists the open MemberAgent's Sessions by Profile to nest under its row", () 
 			{
 				id: "p-default",
 				label: "Codex",
+				profileName: "Codex",
 				isError: false,
-				items: [{ spaceId: "s-1", title: "Plan" }],
+				items: [
+					{ spaceId: "s-1", title: "Plan", timestamp: 10 },
+					{ spaceId: "s-3", title: "Ship", timestamp: 30 },
+				],
 			},
 			{
 				id: "p-review",
 				label: "Codex · Review",
+				profileName: "Review",
 				isError: true,
 				items: [{ spaceId: "s-2", title: "Audit" }],
 			},
@@ -62,18 +79,81 @@ it("lists the open MemberAgent's Sessions by Profile to nest under its row", () 
 	expect(result.current?.memberAgentId).toBe("ma-1");
 	expect(
 		result.current?.sections.map((section) => ({
-			label: section.label,
+			row: [section.row?.label, section.row?.to],
 			notice: section.notice,
 			items: section.items.map((item) => [item.id, item.label, item.to]),
 		}))
 	).toEqual([
-		{ label: "Codex", notice: undefined, items: [["s-1", "Plan", "/dm/s-1"]] },
 		{
-			label: "Codex · Review",
+			// A Profile row names only the Profile and opens its latest chat.
+			row: ["Codex", "/dm/s-3"],
+			notice: undefined,
+			items: [
+				["s-3", "Ship", "/dm/s-3"],
+				["s-1", "Plan", "/dm/s-1"],
+			],
+		},
+		{
+			row: ["Review", "/dm/s-2"],
 			notice: "Couldn’t load chats.",
 			items: [["s-2", "Audit", "/dm/s-2"]],
 		},
 	]);
+});
+
+it("starts a chat from a Profile row that has none", async () => {
+	openChat.mockResolvedValue("s-new");
+	sessionGroups.mockReturnValue({
+		sessionPath: (spaceId: string) => `/dm/${spaceId}`,
+		groups: [
+			{
+				id: "p-default",
+				label: "Codex",
+				profileName: "Codex",
+				isError: false,
+				items: [{ spaceId: "s-1", title: "Plan" }],
+			},
+			{
+				id: "p-review",
+				label: "Codex · Review",
+				profileName: "Review",
+				isError: false,
+				items: [],
+			},
+		],
+	});
+	const { result } = renderHook(() =>
+		useActiveMemberAgentSessionList(active, noStatus)
+	);
+	const row = result.current?.sections[1]?.row;
+	expect(row?.to).toBeUndefined();
+	act(() => row?.onSelect?.());
+	expect(openChat).toHaveBeenCalledWith({
+		organizationId: "org-1",
+		agentProfileId: "p-review",
+	});
+	await waitFor(() =>
+		expect(navigate).toHaveBeenCalledWith({ to: "/dm/s-new" })
+	);
+});
+
+it("lists one Profile's chats without a Profile row", () => {
+	sessionGroups.mockReturnValue({
+		sessionPath: (spaceId: string) => `/dm/${spaceId}`,
+		groups: [
+			{
+				id: "p-default",
+				label: "Codex",
+				profileName: "Codex",
+				isError: false,
+				items: [{ spaceId: "s-1", title: "Plan" }],
+			},
+		],
+	});
+	const { result } = renderHook(() =>
+		useActiveMemberAgentSessionList(active, noStatus)
+	);
+	expect(result.current?.sections[0]?.row).toBeUndefined();
 });
 
 it("adds nothing outside a MemberAgent Session", () => {
