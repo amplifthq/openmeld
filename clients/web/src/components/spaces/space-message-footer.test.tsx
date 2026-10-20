@@ -10,7 +10,6 @@ import {
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-	resolvePersistentToolbarPosition,
 	resolveToolbarPosition,
 	SpaceMessageFooter,
 	type SpaceMessageFooterAddressingTarget,
@@ -142,76 +141,6 @@ describe("floating message actions position", () => {
 		expect(onFirstLine.placement).toBe("before");
 		expect(onFirstLine.left).toBe(266);
 		expect(onFirstLine.top).toBe(6);
-	});
-
-	it("opens a failed toolbar left of a right-aligned bubble away from its text", () => {
-		const container = rect(0, 100, 600, 44);
-		const bubble = rect(300, 100, 280, 44);
-		const base = {
-			bubble,
-			container,
-			height: 28,
-			preferredSide: "before" as const,
-			restWidth: 30,
-		};
-
-		for (const revealed of [false, true]) {
-			const position = resolvePersistentToolbarPosition({
-				...base,
-				fullWidth: 140,
-				revealed,
-			});
-			// Anchored by its end next to the bubble, so it grows left.
-			expect(position).toMatchObject({
-				end: 306,
-				placement: "before",
-				side: "before",
-			});
-			expect(position.start).toBeUndefined();
-		}
-	});
-
-	it("keeps a failed icon beside a wide bubble at rest and opens above it", () => {
-		const container = rect(0, 100, 600, 44);
-		const bubble = rect(80, 100, 500, 44);
-		const base = {
-			bubble,
-			container,
-			fullWidth: 140,
-			height: 28,
-			preferredSide: "before" as const,
-			restWidth: 30,
-		};
-
-		expect(
-			resolvePersistentToolbarPosition({ ...base, revealed: false })
-		).toMatchObject({ end: 526, placement: "before", side: "before" });
-		const opened = resolvePersistentToolbarPosition({
-			...base,
-			revealed: true,
-		});
-		expect(opened.placement).toBe("overlay");
-		expect(opened.end).toBeUndefined();
-		// The opened toolbar sits above the bubble, not over its text.
-		expect(opened.top).toBeLessThan(0);
-	});
-
-	it("opens a failed toolbar right of a left-aligned bubble from its start", () => {
-		const position = resolvePersistentToolbarPosition({
-			bubble: rect(100, 100, 280, 44),
-			container: rect(0, 100, 600, 44),
-			fullWidth: 140,
-			height: 28,
-			preferredSide: "after",
-			restWidth: 30,
-			revealed: true,
-		});
-		expect(position).toMatchObject({
-			placement: "after",
-			side: "after",
-			start: 386,
-		});
-		expect(position.end).toBeUndefined();
 	});
 
 	it("repositions the active toolbar when its message viewport scrolls", () => {
@@ -448,7 +377,7 @@ describe("SpaceMessageFooter", () => {
 		expect(revealClasses).not.toContain("invisible");
 		expect(revealClasses).toContain("group-hover/message-row:grid-cols-[1fr]");
 		expect(revealClasses).toContain(
-			"group-focus-within/message-row:grid-cols-[1fr]"
+			"group-has-[:focus-visible]/message-row:grid-cols-[1fr]"
 		);
 		expect(revealClasses).toContain(
 			"has-[[aria-haspopup][aria-expanded=true]]:grid-cols-[1fr]"
@@ -462,16 +391,50 @@ describe("SpaceMessageFooter", () => {
 		expect(problem.nextElementSibling).toBe(reveal);
 	});
 
-	it("places a failed footer by its rest width so the icon never moves", () => {
+	it.each([
+		{
+			// Agent message: opened toolbar fits right of the bubble.
+			bubble: rect(100, 0, 300, 44),
+			expectedPlacement: "after",
+			expectedStart: "406px",
+			selfAligned: false,
+		},
+		{
+			// Own right-aligned message: the opened toolbar fits left of the
+			// bubble, so its start sits that far left and it grows toward it.
+			bubble: rect(300, 0, 280, 44),
+			expectedPlacement: "before",
+			expectedStart: "154px",
+			selfAligned: true,
+		},
+		{
+			// Own wide message: no room beside it, so the toolbar sits above
+			// the bubble and never covers the text.
+			bubble: rect(80, 0, 500, 44),
+			expectedPlacement: "overlay",
+			expectedStart: "0px",
+			selfAligned: true,
+		},
+	])("keeps a failed footer in one $expectedPlacement slot at rest and when opened", ({
+		bubble: bubbleRect,
+		expectedPlacement,
+		expectedStart,
+		selfAligned,
+	}) => {
+		if (selfAligned) {
+			document.documentElement.dataset.spaceSelfMessageAlignment = "right";
+		}
 		const view = render(
-			<div data-message-row-id="failed-message">
-				<div data-slot="bubble-content">Failed message</div>
-				<SpaceMessageFooter
-					addressingTargets={[]}
-					details={{ hasProblem: true, onSelect: vi.fn() }}
-					failureSummary="Review Codex couldn’t reply"
-					onCopy={vi.fn()}
-				/>
+			<div data-space-self-message={selfAligned ? "true" : undefined}>
+				<div data-message-row-id="failed-message">
+					<div data-slot="bubble-content">Failed message</div>
+					<SpaceMessageFooter
+						addressingTargets={[]}
+						details={{ hasProblem: true, onSelect: vi.fn() }}
+						failureSummary="Review Codex couldn’t reply"
+						onCopy={vi.fn()}
+					/>
+				</div>
 			</div>
 		);
 		const row = view.container.querySelector<HTMLElement>(
@@ -486,18 +449,73 @@ describe("SpaceMessageFooter", () => {
 		const reveal = row.querySelector<HTMLElement>(
 			'[data-slot="message-footer-reveal-actions"]'
 		) as HTMLElement;
+		const revealContent = reveal.querySelector<HTMLElement>(
+			'[data-slot="message-footer-reveal-content"]'
+		) as HTMLElement;
+		revealContent.getBoundingClientRect = () => rect(0, 0, 110, 28);
 		let revealWidth = 0;
-		row.getBoundingClientRect = () => rect(0, 0, 600, 44);
-		bubble.getBoundingClientRect = () => rect(100, 0, 300, 44);
+		row.getBoundingClientRect = () => rect(0, 100, 600, 44);
+		bubble.getBoundingClientRect = () =>
+			rect(bubbleRect.left, 100, bubbleRect.width, 44);
 		footer.getBoundingClientRect = () => rect(0, 0, 30 + revealWidth, 28);
 		reveal.getBoundingClientRect = () => rect(0, 0, revealWidth, 28);
 
 		fireEvent.pointerEnter(row);
-		const restStart = footer.style.insetInlineStart;
-		expect(restStart).toBe("406px");
-		revealWidth = 110;
-		fireEvent.pointerEnter(row);
-		expect(footer.style.insetInlineStart).toBe(restStart);
+		const rest = [footer.style.insetInlineStart, footer.style.insetBlockStart];
+		expect(footer.dataset.placement).toBe(expectedPlacement);
+		expect(rest[0]).toBe(expectedStart);
+		for (const width of [40, 110]) {
+			revealWidth = width;
+			fireEvent.pointerEnter(row);
+			expect([
+				footer.style.insetInlineStart,
+				footer.style.insetBlockStart,
+			]).toEqual(rest);
+		}
+		if (expectedPlacement === "overlay") {
+			expect(Number.parseFloat(rest[1] ?? "")).toBeLessThan(0);
+		}
+	});
+
+	it("holds a failed footer open while its Message details drawer is open", async () => {
+		const onSelect = vi.fn();
+		const view = render(
+			<SpaceMessageFooter
+				addressingTargets={[]}
+				details={{ hasProblem: true, onSelect }}
+				failureSummary="Review Codex couldn’t reply"
+				onCopy={vi.fn()}
+			/>
+		);
+		const reveal = view.container.querySelector(
+			'[data-slot="message-footer-reveal-actions"]'
+		) as HTMLElement;
+		expect(reveal.className.split(" ")).toContain("grid-cols-[0fr]");
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "View error details: Review Codex couldn’t reply",
+			})
+		);
+		expect(onSelect).toHaveBeenCalledOnce();
+		const drawer = document.createElement("div");
+		drawer.setAttribute("role", "dialog");
+		document.body.appendChild(drawer);
+		await waitFor(() =>
+			expect(
+				view.container.querySelector('[data-message-details-active="true"]')
+			).toBeTruthy()
+		);
+		expect(reveal.className.split(" ")).toContain("grid-cols-[1fr]");
+		expect(reveal.className.split(" ")).not.toContain("grid-cols-[0fr]");
+
+		drawer.remove();
+		await waitFor(() =>
+			expect(
+				view.container.querySelector("[data-message-details-active]")
+			).toBeNull()
+		);
+		expect(reveal.className.split(" ")).toContain("grid-cols-[0fr]");
 	});
 
 	it("keeps a normal footer free of the failed rest state", () => {

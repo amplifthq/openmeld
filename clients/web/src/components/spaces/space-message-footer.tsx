@@ -120,10 +120,12 @@ const FOOTER_BUTTON_CLASS_NAME =
 
 // A persistent (failed) footer keeps the normal toolbar chrome but shows only
 // its failure icon at rest. The secondary actions sit in a 0fr grid column, so
-// they take no width, and open to 1fr on the same triggers that show a normal
-// footer. They stay focusable, so Tab from the icon reveals them.
+// they take no width, and open to 1fr on hover, keyboard focus, an open menu,
+// or a coarse pointer. They stay focusable, so Tab from the icon reveals them.
+// Keyboard focus uses :focus-visible, so focus that returns to the icon after a
+// mouse-opened drawer closes does not hold the actions open.
 const MESSAGE_FOOTER_REVEAL_CLASS_NAME =
-	"grid grid-cols-[0fr] opacity-0 transition-[grid-template-columns,opacity] duration-150 ease-out motion-reduce:transition-none group-focus-within/message-row:grid-cols-[1fr] group-focus-within/message-row:opacity-100 group-hover/message-row:grid-cols-[1fr] group-hover/message-row:opacity-100 has-[[aria-haspopup][aria-expanded=true]]:grid-cols-[1fr] has-[[aria-haspopup][aria-expanded=true]]:opacity-100 [@media(pointer:coarse)]:grid-cols-[1fr] [@media(pointer:coarse)]:opacity-100";
+	"grid grid-cols-[0fr] opacity-0 transition-[grid-template-columns,opacity] duration-150 ease-out motion-reduce:transition-none group-has-[:focus-visible]/message-row:grid-cols-[1fr] group-has-[:focus-visible]/message-row:opacity-100 group-hover/message-row:grid-cols-[1fr] group-hover/message-row:opacity-100 has-[[aria-haspopup][aria-expanded=true]]:grid-cols-[1fr] has-[[aria-haspopup][aria-expanded=true]]:opacity-100 [@media(pointer:coarse)]:grid-cols-[1fr] [@media(pointer:coarse)]:opacity-100";
 
 type SpaceMessageFooterProps = {
 	item?: SpaceTimelineItem;
@@ -200,9 +202,22 @@ function SpaceMessageFooterContent(
 	const { state: reactions } = useMessageReactionsContext();
 	const hasReactions = Boolean(input.reaction && reactions.groups.length);
 	const persistent = Boolean(input.failureSummary || input.details?.hasProblem);
+	const [detailsActive, setDetailsActive] = useMessageDetailsDrawerActive();
+	const details = input.details
+		? {
+				...input.details,
+				onSelect: () => {
+					if (persistent) {
+						setDetailsActive();
+					}
+					input.details?.onSelect();
+				},
+			}
+		: undefined;
 	const detailsButton = (
 		<MessageFooterDetailsAction
-			details={input.details}
+			active={detailsActive}
+			details={details}
 			failureSummary={input.failureSummary}
 			readSources={
 				input.failureSummary
@@ -224,6 +239,7 @@ function SpaceMessageFooterContent(
 	return (
 		<>
 			<MessageFooterActions
+				detailsActive={detailsActive}
 				detailsButton={detailsButton}
 				hasReactions={hasReactions}
 				input={input}
@@ -335,117 +351,50 @@ function resolveFirstLineBox(element: HTMLElement) {
 	};
 }
 
-type PersistentToolbarPosition = {
-	/** Distance from the container's inline end, for a toolbar left of the bubble. */
-	end?: number;
-	placement: ToolbarPosition["placement"];
-	side: "after" | "before";
-	/** Distance from the container's inline start. */
-	start?: number;
-	top: number;
-};
-
-// Places a failed message's toolbar. The failure icon sits at the bubble end of
-// the toolbar and the other actions open away from it, so they never cover the
-// text. Left of the bubble the toolbar is anchored by its end and grows left;
-// right of it, by its start and grows right. When the opened toolbar does not
-// fit beside the bubble, the icon stays beside it at rest and the opened
-// toolbar uses the overlay slot above the bubble.
-export function resolvePersistentToolbarPosition(input: {
-	bubble: DOMRect;
-	container: DOMRect;
-	firstLine?: { height: number; top: number };
-	fullWidth: number;
-	height: number;
-	preferredSide: "after" | "before";
-	restWidth: number;
-	revealed: boolean;
-	viewport?: DOMRect;
-}): PersistentToolbarPosition {
-	const place = (width: number) =>
-		resolveToolbarPosition({
-			bubble: input.bubble,
-			container: input.container,
-			firstLine: input.firstLine,
-			preferredSide: input.preferredSide,
-			toolbar: { height: input.height, width } as DOMRect,
-			viewport: input.viewport,
-		});
-	const beside = (next: ToolbarPosition): PersistentToolbarPosition =>
-		next.placement === "before"
-			? {
-					end: input.container.right - input.bubble.left + 6,
-					placement: "before",
-					side: "before",
-					top: next.top,
-				}
-			: {
-					placement: next.placement,
-					side: "after",
-					start: next.left,
-					top: next.top,
-				};
-	const full = place(input.fullWidth);
-	if (full.placement !== "overlay") {
-		return beside(full);
-	}
-	const rest = place(input.restWidth);
-	if (!input.revealed && rest.placement !== "overlay") {
-		return beside(rest);
-	}
-	return {
-		placement: "overlay",
-		side: input.preferredSide,
-		start: full.left,
-		top: full.top,
-	};
-}
-
+// Places a failed message's toolbar by its opened width, so one slot holds at
+// rest and on hover. The failure icon is the toolbar's first item and the
+// toolbar is anchored by its start, so the icon never moves and the other
+// actions open away from it. A slot beside the bubble is used when the opened
+// toolbar fits there; otherwise the toolbar sits above the bubble, so the
+// opened actions never cover the text.
 function placePersistentToolbar(input: {
 	anchor: DOMRect;
 	container: HTMLElement;
 	preferredSide: "after" | "before";
-	row: HTMLElement;
 	textSurface: HTMLElement | null;
 	toolbar: HTMLElement;
 	viewport?: HTMLElement | null;
 }) {
-	const { row, toolbar } = input;
-	const next = resolvePersistentToolbarPosition({
+	const { toolbar } = input;
+	const next = resolveToolbarPosition({
 		bubble: input.anchor,
 		container: input.container.getBoundingClientRect(),
 		firstLine: input.textSurface
 			? resolveFirstLineBox(input.textSurface)
 			: undefined,
-		...resolvePersistentToolbarWidths(toolbar),
-		height: toolbar.getBoundingClientRect().height,
 		preferredSide: input.preferredSide,
-		revealed:
-			row.matches(":hover") ||
-			row.contains(document.activeElement) ||
-			Boolean(toolbar.querySelector('[aria-expanded="true"]')) ||
-			Boolean(window.matchMedia?.("(pointer: coarse)").matches),
+		toolbar: {
+			height: toolbar.getBoundingClientRect().height,
+			width: resolvePersistentToolbarOpenWidth(toolbar),
+		} as DOMRect,
 		viewport: input.viewport?.getBoundingClientRect(),
 	});
-	toolbar.style.insetInlineStart =
-		next.start === undefined ? "auto" : `${next.start}px`;
-	toolbar.style.insetInlineEnd =
-		next.end === undefined ? "auto" : `${next.end}px`;
+	toolbar.style.insetInlineStart = `${next.left}px`;
 	toolbar.style.insetBlockStart = `${next.top}px`;
 	toolbar.dataset.placement = next.placement;
-	toolbar.dataset.side = next.side;
 }
 
-function resolvePersistentToolbarWidths(toolbar: HTMLElement) {
-	const width = toolbar.getBoundingClientRect().width;
+export function resolvePersistentToolbarOpenWidth(toolbar: HTMLElement) {
 	const reveal = toolbar.querySelector<HTMLElement>(
 		'[data-slot="message-footer-reveal-actions"]'
 	);
-	const restWidth = width - (reveal?.getBoundingClientRect().width ?? 0);
-	return {
-		fullWidth: restWidth + (reveal?.firstElementChild?.scrollWidth ?? 0),
-		restWidth,
-	};
+	const content = toolbar.querySelector<HTMLElement>(
+		'[data-slot="message-footer-reveal-content"]'
+	);
+	const restWidth =
+		toolbar.getBoundingClientRect().width -
+		(reveal?.getBoundingClientRect().width ?? 0);
+	return restWidth + (content?.getBoundingClientRect().width ?? 0);
 }
 
 function MessageFooterActions({
@@ -453,6 +402,7 @@ function MessageFooterActions({
 	reactions,
 	persistent,
 	hasReactions,
+	detailsActive,
 	detailsButton,
 }: {
 	input: SpaceMessageFooterProps & {
@@ -462,6 +412,7 @@ function MessageFooterActions({
 	reactions: ReturnType<typeof useMessageReactions>;
 	persistent: boolean;
 	hasReactions: boolean;
+	detailsActive: boolean;
 	detailsButton: ReactNode;
 }) {
 	const showPicker = input.reaction && !input.reaction.readOnly;
@@ -534,7 +485,6 @@ function MessageFooterActions({
 					anchor,
 					container,
 					preferredSide,
-					row,
 					textSurface: hasMessageText ? textSurface : null,
 					toolbar,
 					viewport,
@@ -558,9 +508,15 @@ function MessageFooterActions({
 				observer = new ResizeObserver(position);
 				observer.observe(container);
 				observer.observe(bubble);
-				// A persistent footer changes width as its actions open or close,
-				// which can change its slot.
+				// A persistent footer is placed by its opened width, which changes
+				// when its content does, even while the actions are collapsed.
 				observer.observe(toolbar);
+				const revealContent = toolbar.querySelector(
+					'[data-slot="message-footer-reveal-content"]'
+				);
+				if (revealContent) {
+					observer.observe(revealContent);
+				}
 				if (attachmentStrip) {
 					observer.observe(attachmentStrip);
 				}
@@ -572,11 +528,11 @@ function MessageFooterActions({
 			}
 		};
 		const deactivate = () => {
-			if (persistent) {
-				position();
-				return;
-			}
-			if (row.matches(":hover") || row.contains(document.activeElement)) {
+			if (
+				persistent ||
+				row.matches(":hover") ||
+				row.contains(document.activeElement)
+			) {
 				return;
 			}
 			observer?.disconnect();
@@ -651,7 +607,7 @@ function MessageFooterActions({
 			className={cn(
 				"pointer-events-none z-20 flex h-7 w-max max-w-full items-center rounded-md border border-border bg-popover opacity-0 shadow-sm group-focus-within/message-row:pointer-events-auto group-focus-within/message-row:opacity-100 group-hover/message-row:pointer-events-auto group-hover/message-row:opacity-100 has-[[aria-haspopup][aria-expanded=true]]:pointer-events-auto has-[[aria-haspopup][aria-expanded=true]]:opacity-100 [@media(pointer:coarse)]:pointer-events-auto [@media(pointer:coarse)]:opacity-100",
 				inline ? "relative mt-1" : "absolute",
-				persistent && "group/message-footer pointer-events-auto opacity-100"
+				persistent && "pointer-events-auto opacity-100"
 			)}
 			data-layout={inline ? "inline" : "floating"}
 			data-persistent={persistent ? "true" : undefined}
@@ -660,19 +616,16 @@ function MessageFooterActions({
 		>
 			<div
 				className={cn(
-					"flex min-w-0 max-w-full shrink-0 items-center text-muted-foreground text-xs",
-					persistent &&
-						"group-data-[side=before]/message-footer:flex-row-reverse"
+					"flex min-w-0 max-w-full shrink-0 items-center text-muted-foreground text-xs"
 				)}
 				data-slot="message-footer-primary-actions"
 			>
 				{persistent ? (
 					<>
-						{/* The failure icon sits at the bubble end and keeps its place.
-						The other actions open away from it, mirrored left of the
-						bubble, so they never cover the message text. */}
+						{/* The failure icon is always first and keeps its place. The
+						other actions open away from it. */}
 						<span
-							className="flex shrink-0 items-center gap-2 group-data-[side=before]/message-footer:flex-row-reverse"
+							className="flex shrink-0 items-center gap-2"
 							data-slot="message-footer-problem"
 						>
 							{detailsButton}
@@ -681,11 +634,19 @@ function MessageFooterActions({
 							) : null}
 						</span>
 						<div
-							className={MESSAGE_FOOTER_REVEAL_CLASS_NAME}
+							className={cn(
+								MESSAGE_FOOTER_REVEAL_CLASS_NAME,
+								detailsActive && "grid-cols-[1fr] opacity-100"
+							)}
 							data-slot="message-footer-reveal-actions"
 						>
-							<div className="flex min-w-0 items-center overflow-hidden group-data-[side=before]/message-footer:flex-row-reverse">
-								{secondaryActions}
+							<div className="min-w-0 overflow-hidden">
+								<div
+									className="flex w-max items-center"
+									data-slot="message-footer-reveal-content"
+								>
+									{secondaryActions}
+								</div>
 							</div>
 						</div>
 					</>
@@ -815,26 +776,80 @@ function MessageFooterStandardActions({
 	);
 }
 
+// Marks this footer's Message details drawer as open from a click until the
+// drawer closes. The drawer is a modal dialog in a portal: when none opens
+// shortly after the click, or once the open one is gone, the mark clears.
+function useMessageDetailsDrawerActive(): [boolean, () => void] {
+	const [active, setActive] = useState(false);
+	useEffect(() => {
+		if (!active) {
+			return;
+		}
+		const isOpen = () =>
+			Boolean(
+				document.querySelector(
+					'[role="dialog"]:not([data-state="closed"]):not([hidden])'
+				)
+			);
+		let seenOpen = isOpen();
+		const check = () => {
+			if (isOpen()) {
+				seenOpen = true;
+				return;
+			}
+			if (seenOpen) {
+				setActive(false);
+			}
+		};
+		const observer = new MutationObserver(check);
+		observer.observe(document.body, {
+			attributeFilter: ["data-state", "hidden"],
+			attributes: true,
+			childList: true,
+			subtree: true,
+		});
+		const giveUp = setTimeout(() => {
+			if (!seenOpen) {
+				setActive(false);
+			}
+		}, 1000);
+		return () => {
+			observer.disconnect();
+			clearTimeout(giveUp);
+		};
+	}, [active]);
+	return [active, () => setActive(true)];
+}
+
 function MessageFooterDetailsAction(input: {
+	active?: boolean;
 	details?: SpaceMessageFooterDetailsAction;
 	failureSummary?: string | null;
 	readSources?: string;
 }) {
 	if (input.details) {
 		return (
-			<MessageDetailsActionButton
-				buttonClassName={FOOTER_BUTTON_CLASS_NAME}
-				hasWakeProblem={
-					Boolean(input.failureSummary) || input.details.hasProblem
-				}
-				label={
-					input.failureSummary
-						? `View error details: ${input.failureSummary}`
-						: undefined
-				}
-				onClick={input.details.onSelect}
-				readSources={input.readSources}
-			/>
+			<span
+				className={cn(
+					"flex rounded-md",
+					input.active && "bg-destructive/15 dark:bg-destructive/20"
+				)}
+				data-message-details-active={input.active ? "true" : undefined}
+			>
+				<MessageDetailsActionButton
+					buttonClassName={FOOTER_BUTTON_CLASS_NAME}
+					hasWakeProblem={
+						Boolean(input.failureSummary) || input.details.hasProblem
+					}
+					label={
+						input.failureSummary
+							? `View error details: ${input.failureSummary}`
+							: undefined
+					}
+					onClick={input.details.onSelect}
+					readSources={input.readSources}
+				/>
+			</span>
 		);
 	}
 	return input.failureSummary ? (
