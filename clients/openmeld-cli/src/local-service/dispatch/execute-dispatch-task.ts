@@ -109,6 +109,7 @@ import {
 import { readTaskKnowledge } from "../../space/dispatch-knowledge-read";
 import { resolveProviderRuntimeDispatchContinuation } from "../continuation/provider-runtime-continuation";
 import {
+  mayRecoverWorkingFolder,
   resolveRecoveredLedgerConversation,
   resolveWorkingFolderRecovery,
 } from "../continuation/working-folder-recovery";
@@ -358,9 +359,17 @@ export function enqueueDispatchDeliverFrame(input: {
   const enqueueResult = input.localExecutionSlots.request({
     resourceClaim: executionContextResourceClaim({
       context: deliverRequest.payload.executionContext,
-      currentFolderRoots: resolveQueuedFolderRoots(
-        input.routeByProfileId.get(deliverRequest.profileId)
-      ),
+      currentFolderRoots:
+        parsedQueueTask &&
+        !mayRecoverWorkingFolder({
+          agentControllerRef: parsedQueueTask.agentControllerRef,
+          nativeSessionId: parsedQueueTask.agentControllerConversationId,
+          hasExecutionContext: Boolean(parsedQueueTask.executionContext),
+        })
+          ? resolveQueuedFolderRoots(
+              input.routeByProfileId.get(deliverRequest.profileId)
+            )
+          : null,
     }),
     adapterId: queueLogMeta.adapterId,
     attemptId: correlation.attemptId,
