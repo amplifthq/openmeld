@@ -21,11 +21,13 @@ export type MemberAgentBindingTarget = Pick<
 >;
 
 export type MemberAgentSyncDeps = {
-  // Puts a bound Profile under the MemberAgent of its Binding's Harness.
-  assignBoundProfile: (input: {
-    agentControllerRef: string;
-    agentProfileId: string;
-  }) => Promise<AssignAgentProfileMemberAgentOutcome | null>;
+  // Puts a bound Profile under the MemberAgent of its Binding's Harness. It
+  // re-reads the Binding under the Profile's assignment lock, so a controller switch
+  // that commits after readGroupingControllerRef cannot be grouped under the
+  // old Harness.
+  assignBoundProfile: (
+    agentProfileId: string
+  ) => Promise<AssignAgentProfileMemberAgentOutcome | null>;
   ensureDetectedMemberAgent: (
     harnessKind: DetectedHarnessKind
   ) => Promise<EnsureDetectedMemberAgentRpcResult>;
@@ -129,10 +131,7 @@ async function assignUnassignedBoundProfiles(
       agentControllerRef &&
       harnessKind &&
       harnessKinds.has(harnessKind) &&
-      (await deps.assignBoundProfile({
-        agentControllerRef,
-        agentProfileId: profile.openMeldProfileId,
-      })) === "assigned"
+      (await deps.assignBoundProfile(profile.openMeldProfileId)) === "assigned"
     ) {
       assigned.push(profile.openMeldProfileId);
     }

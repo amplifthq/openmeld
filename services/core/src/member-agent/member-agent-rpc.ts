@@ -300,10 +300,10 @@ function createSyncDeps(
   caller: MemberAgentCaller
 ): MemberAgentSyncDeps {
   return {
-    assignBoundProfile: ({ agentControllerRef, agentProfileId }) =>
+    assignBoundProfile: (agentProfileId) =>
       assignBoundProfileToMemberAgent(env, {
-        agentControllerRef,
         agentProfileId,
+        db: caller.db,
         ownerUserId: caller.ownerUserId,
       }),
     ensureDetectedMemberAgent: (harnessKind: DetectedHarnessKind) =>

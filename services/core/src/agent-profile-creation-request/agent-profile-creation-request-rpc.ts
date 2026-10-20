@@ -883,8 +883,8 @@ async function completeRequestedAgentProfileSetup(input: {
     });
     // This Binding write does not go through the primary Binding RPC.
     await assignBoundProfileToMemberAgent(input.env, {
-      agentControllerRef,
       agentProfileId: input.agentProfileId,
+      db: requireDb(input.env),
       ownerUserId: input.request.targetOwnerUserId,
     });
     return;

@@ -246,10 +246,7 @@ describe("syncMemberAgents", () => {
     // Custom controllers, never-bound Profiles, and Harnesses without a
     // MemberAgent stay unassigned.
     expect(deps.assignBoundProfile).toHaveBeenCalledTimes(1);
-    expect(deps.assignBoundProfile).toHaveBeenCalledWith({
-      agentControllerRef: "builtin:cursor",
-      agentProfileId: "agt-second-cursor",
-    });
+    expect(deps.assignBoundProfile).toHaveBeenCalledWith("agt-second-cursor");
   });
 
   it("assigns bound Profiles while no Harness is detected", async () => {

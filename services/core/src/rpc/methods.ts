@@ -20485,8 +20485,8 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
       });
     });
     await assignBoundProfileToMemberAgent(env, {
-      agentControllerRef: body.data.agentControllerRef,
       agentProfileId: request.agentProfileId,
+      db,
       ownerUserId: request.owner.id,
     });
     return buildAcceptedAgentProfileBindingResponse({

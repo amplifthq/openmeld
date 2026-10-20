@@ -1,5 +1,10 @@
 import type { RuntimeAgentControllerReportStatus } from "@openmeld/agent-runtime";
-import type { PostgresDatabase } from "@openmeld/db/postgresql";
+import type {
+  PostgresDatabase,
+  QueryConfig,
+  QueryResult,
+  QueryResultRow,
+} from "@openmeld/db/postgresql";
 import { daemonServiceLaneSchema } from "@openmeld/schemas";
 import type { DaemonServiceLane } from "@openmeld/schemas/types";
 import type {
@@ -246,7 +251,12 @@ export async function hasAnyAgentProfileBinding(input: {
 // MemberAgent backfill.
 export async function readAgentProfileGroupingControllerRef(input: {
   agentProfileId: string;
-  db: PostgresDatabase;
+  // The database, or the client of a transaction that holds the owner lock.
+  db: {
+    query<T extends QueryResultRow = QueryResultRow>(
+      query: QueryConfig
+    ): Promise<QueryResult<T>>;
+  };
   ownerUserId: string;
 }): Promise<string | null> {
   const result = await input.db.query<{ agent_controller_ref: string }>({

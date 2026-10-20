@@ -100,10 +100,13 @@ switcher, or catalog sync), it asks Auth to assign the Profile to the owner's
 existing MemberAgent for that harness in the Profile's Organization. A Profile
 created on purpose therefore joins the existing Agent as one more Profile; it
 never creates a second MemberAgent. The assignment never creates a MemberAgent
-and never moves an assigned Profile. A failed assignment does not fail the
-Binding write: each catalog sync, with or without a connected Computer,
-assigns any bound Profile still unassigned whose harness has a MemberAgent,
-grouping by the same Binding as the migration.
+and never moves an assigned Profile. It reads the harness from the Profile's
+current Binding under a per-Profile lock that every Binding write also takes,
+so a controller switch that commits first is never grouped under the old
+harness. A failed assignment does not fail the Binding write: each catalog
+sync, with or without a connected Computer, assigns any bound Profile still
+unassigned whose harness has a MemberAgent, grouping by the same Binding as
+the migration.
 
 Nothing is configurable on the MemberAgent itself. Space participants remain
 Agent Profiles: a MemberAgent is a grouping, never a Space member, message
@@ -115,7 +118,10 @@ harness display name and is not editable, and it displays without a suffix:
 a short owner-chosen name and displays as `Felix Lu's Claude Code · PR
 Reviewer`. Handle rules are unchanged. A new model, folder, or task never needs
 a new Profile. A Profile runs on one Computer and cannot change harness: Core
-refuses a Binding write that would move an assigned Profile to another harness.
+refuses a Binding write that would move an assigned Profile to another harness,
+a `custom` controller included, with
+`agent_profile_binding.member_agent_harness_locked`, and the web and CLI show
+that the owner should create a Profile under the other harness's Agent.
 Profile settings are the existing Binding settings plus folders (see Working
 Folder List) and an owner-adjustable concurrency limit stored on the Binding
 and read by the Service from the route catalog. Only the owner changes them;

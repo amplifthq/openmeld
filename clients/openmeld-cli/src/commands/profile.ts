@@ -101,7 +101,10 @@ import {
   type AgentProfilePrimaryAgentControllerReport,
   resolveAgentProfilePrimaryAgentControllerReport,
 } from "../system/agent-profile-primary-binding";
-import { ensureAgentProfileRuntimeBinding } from "../system/ensure-agent-profile-runtime-binding";
+import {
+  ensureAgentProfileRuntimeBinding,
+  formatAgentProfileBindingUpdateFailure,
+} from "../system/ensure-agent-profile-runtime-binding";
 import { createModelCatalogReadSession } from "../system/model-catalog-read-session";
 import { renderInfoCard } from "../ui/info-card";
 import {
@@ -1916,7 +1919,7 @@ async function applyAgentProfileControllerBinding(input: {
     });
     if (binding.status !== "accepted") {
       throw new Error(
-        `Agent Profile Binding update failed: ${binding.reasonCodes.join(", ")}`
+        formatAgentProfileBindingUpdateFailure(binding.reasonCodes)
       );
     }
     return;
@@ -1954,7 +1957,7 @@ async function applyAgentProfileControllerBinding(input: {
   });
   if (binding.status !== "accepted") {
     throw new Error(
-      `Agent Profile Binding update failed: ${binding.reasonCodes.join(", ")}`
+      formatAgentProfileBindingUpdateFailure(binding.reasonCodes)
     );
   }
 }
@@ -1978,7 +1981,7 @@ async function applyAgentProfileControllerPermissionMode(input: {
     });
   if (binding.status !== "accepted") {
     throw new Error(
-      `Agent Profile Binding update failed: ${binding.reasonCodes.join(", ")}`
+      formatAgentProfileBindingUpdateFailure(binding.reasonCodes)
     );
   }
 }

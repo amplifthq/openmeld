@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { AssignAgentProfileMemberAgentRpcInput } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../../lib/bindings";
@@ -15,10 +16,31 @@ function authWorker(
   };
 }
 
-const PROFILE = {
-  agentProfileId: "agt-second-cursor",
-  ownerUserId: "user-1",
-};
+// The grouping read returns the Profile's current Binding controller ref.
+function database(agentControllerRef: string | null) {
+  const query = vi.fn(async (config: { text: string }) =>
+    config.text.includes("pg_advisory_xact_lock")
+      ? { rowCount: 1, rows: [{}] }
+      : {
+          rowCount: agentControllerRef ? 1 : 0,
+          rows: agentControllerRef
+            ? [{ agent_controller_ref: agentControllerRef }]
+            : [],
+        }
+  );
+  return {
+    transaction: async <T>(callback: (client: unknown) => Promise<T>) =>
+      await callback({ query }),
+  } as unknown as PostgresDatabase;
+}
+
+function profile(agentControllerRef: string | null) {
+  return {
+    agentProfileId: "agt-second-cursor",
+    db: database(agentControllerRef),
+    ownerUserId: "user-1",
+  };
+}
 
 describe("assignBoundProfileToMemberAgent", () => {
   it("asks Auth to assign a Profile bound to a builtin Harness", async () => {
@@ -30,7 +52,7 @@ describe("assignBoundProfileToMemberAgent", () => {
 
     const outcome = await assignBoundProfileToMemberAgent(
       env,
-      { ...PROFILE, agentControllerRef: "builtin:cursor" },
+      profile("builtin:cursor"),
       { enabled: true }
     );
 
@@ -47,9 +69,20 @@ describe("assignBoundProfileToMemberAgent", () => {
 
     const outcome = await assignBoundProfileToMemberAgent(
       env,
-      { ...PROFILE, agentControllerRef: "custom:my-runner" },
+      profile("custom:my-runner"),
       { enabled: true }
     );
+
+    expect(outcome).toBeNull();
+    expect(assignAgentProfileMemberAgent).not.toHaveBeenCalled();
+  });
+
+  it("leaves a never-bound Profile unassigned", async () => {
+    const { assignAgentProfileMemberAgent, env } = authWorker(async () => ({}));
+
+    const outcome = await assignBoundProfileToMemberAgent(env, profile(null), {
+      enabled: true,
+    });
 
     expect(outcome).toBeNull();
     expect(assignAgentProfileMemberAgent).not.toHaveBeenCalled();
@@ -58,11 +91,9 @@ describe("assignBoundProfileToMemberAgent", () => {
   it("does nothing while the release gate is off", async () => {
     const { assignAgentProfileMemberAgent, env } = authWorker(async () => ({}));
 
-    await assignBoundProfileToMemberAgent(
-      env,
-      { ...PROFILE, agentControllerRef: "builtin:cursor" },
-      { enabled: false }
-    );
+    await assignBoundProfileToMemberAgent(env, profile("builtin:cursor"), {
+      enabled: false,
+    });
 
     expect(assignAgentProfileMemberAgent).not.toHaveBeenCalled();
   });
@@ -72,11 +103,9 @@ describe("assignBoundProfileToMemberAgent", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     await expect(
-      assignBoundProfileToMemberAgent(
-        env,
-        { ...PROFILE, agentControllerRef: "builtin:cursor" },
-        { enabled: true }
-      )
+      assignBoundProfileToMemberAgent(env, profile("builtin:cursor"), {
+        enabled: true,
+      })
     ).resolves.toBeNull();
     expect(warn).toHaveBeenCalledWith(
       "[core.member_agents.profile_assignment_failed]",
