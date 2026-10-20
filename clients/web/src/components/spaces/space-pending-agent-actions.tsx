@@ -370,18 +370,26 @@ export function SpacePendingAgentActions(input: PendingAgentActionsProps) {
 				aria-controls={panelId}
 				aria-expanded={isSurfaceOpen}
 				aria-label={triggerLabel}
-				className="h-auto min-h-10 w-full justify-start gap-2 rounded-none rounded-t-[calc(1rem-1px)] border-0 px-3 py-2 text-left aria-expanded:bg-transparent aria-expanded:hover:bg-muted dark:aria-expanded:hover:bg-muted/50"
+				// One line, as tall as a queued message row: the count stays whole,
+				// the Agent name truncates, the chevron keeps the far right.
+				className="h-10 min-h-10 w-full justify-start gap-2 rounded-none rounded-t-[calc(1rem-1px)] border-0 px-3 py-0 text-left aria-expanded:bg-transparent aria-expanded:hover:bg-muted dark:aria-expanded:hover:bg-muted/50"
 				onClick={toggleSurface}
 				ref={triggerRef}
 				type="button"
 				variant="ghost"
 			>
 				<SpaceAgentOrb state="listening" />
-				<span className="min-w-0 flex-1">
-					<span aria-live="polite" className="block font-medium text-sm">
+				<span className="flex min-w-0 flex-1 items-baseline gap-1.5 text-sm">
+					<span aria-live="polite" className="shrink-0 font-medium">
 						{triggerLabel}
 					</span>
-					<span className="block truncate text-muted-foreground text-xs">
+					<span aria-hidden="true" className="shrink-0 text-muted-foreground">
+						·
+					</span>
+					<span
+						className="min-w-0 truncate font-normal text-muted-foreground"
+						data-slot="pending-agent-action-target"
+					>
 						{selectedItem.targetLabel}
 					</span>
 				</span>
