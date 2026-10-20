@@ -400,19 +400,24 @@ describe("SpaceMessageFooter", () => {
 			selfAligned: false,
 		},
 		{
-			// Own right-aligned message: the opened toolbar fits left of the
-			// bubble, so its start sits that far left and it grows toward it.
+			// Own right-aligned message: just above the bubble's top-left corner.
 			bubble: rect(300, 0, 280, 44),
-			expectedPlacement: "before",
-			expectedStart: "154px",
+			expectedPlacement: "corner",
+			expectedStart: "300px",
 			selfAligned: true,
 		},
 		{
-			// Own wide message: no room beside it, so the toolbar sits above
-			// the bubble and never covers the text.
+			// Own wide message: the same corner slot.
 			bubble: rect(80, 0, 500, 44),
-			expectedPlacement: "overlay",
-			expectedStart: "0px",
+			expectedPlacement: "corner",
+			expectedStart: "80px",
+			selfAligned: true,
+		},
+		{
+			// Own short message: kept inside the row when opened.
+			bubble: rect(540, 0, 50, 44),
+			expectedPlacement: "corner",
+			expectedStart: "460px",
 			selfAligned: true,
 		},
 	])("keeps a failed footer in one $expectedPlacement slot at rest and when opened", ({
@@ -472,8 +477,9 @@ describe("SpaceMessageFooter", () => {
 				footer.style.insetBlockStart,
 			]).toEqual(rest);
 		}
-		if (expectedPlacement === "overlay") {
-			expect(Number.parseFloat(rest[1] ?? "")).toBeLessThan(0);
+		if (expectedPlacement === "corner") {
+			// Bottom edge stays inside the bubble's 8px top padding.
+			expect(Number.parseFloat(rest[1] ?? "")).toBe(-22);
 		}
 	});
 

@@ -263,7 +263,7 @@ function SpaceMessageFooterContent(
 
 type ToolbarPosition = {
 	left: number;
-	placement: "after" | "before" | "overlay";
+	placement: "after" | "before" | "corner" | "overlay";
 	top: number;
 };
 
@@ -351,12 +351,38 @@ function resolveFirstLineBox(element: HTMLElement) {
 	};
 }
 
+// How far a corner-anchored toolbar reaches into the bubble's top padding. It
+// stays above the first text line.
+const CORNER_TOOLBAR_BUBBLE_OVERLAP = 6;
+
 // Places a failed message's toolbar by its opened width, so one slot holds at
 // rest and on hover. The failure icon is the toolbar's first item and the
 // toolbar is anchored by its start, so the icon never moves and the other
-// actions open away from it. A slot beside the bubble is used when the opened
-// toolbar fits there; otherwise the toolbar sits above the bubble, so the
-// opened actions never cover the text.
+// actions open away from it. On a right-aligned own message the toolbar always
+// sits just above the bubble's top-left corner and opens to the right, above
+// the text. Otherwise it uses the normal slot for its opened width: beside the
+// bubble when it fits there, else above the bubble.
+export function resolvePersistentToolbarPosition(
+	input: Parameters<typeof resolveToolbarPosition>[0]
+): ToolbarPosition {
+	const { bubble, container, toolbar } = input;
+	if (input.preferredSide !== "before") {
+		return resolveToolbarPosition(input);
+	}
+	return {
+		left: Math.max(
+			0,
+			Math.min(bubble.left - container.left, container.width - toolbar.width)
+		),
+		placement: "corner",
+		top:
+			bubble.top -
+			container.top -
+			toolbar.height +
+			CORNER_TOOLBAR_BUBBLE_OVERLAP,
+	};
+}
+
 function placePersistentToolbar(input: {
 	anchor: DOMRect;
 	container: HTMLElement;
@@ -366,7 +392,7 @@ function placePersistentToolbar(input: {
 	viewport?: HTMLElement | null;
 }) {
 	const { toolbar } = input;
-	const next = resolveToolbarPosition({
+	const next = resolvePersistentToolbarPosition({
 		bubble: input.anchor,
 		container: input.container.getBoundingClientRect(),
 		firstLine: input.textSurface
