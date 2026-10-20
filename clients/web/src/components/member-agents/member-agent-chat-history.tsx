@@ -3,9 +3,15 @@ import { AGENT_DIRECT_MESSAGE_SESSION_NAME_MAX_LENGTH } from "@openmeld/schemas"
 import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
 import { ChatTitleEditor } from "#/components/organizations/chat-title-editor";
 import { ChatHistoryDropdown } from "#/components/spaces/chat-history-dropdown";
+import { SpaceStatusIndicator } from "#/components/spaces/space-status-indicator";
+import {
+	hasSpaceStatus,
+	resolveSpaceStatusIndicators,
+	resolveSpaceStatusLabel,
+} from "#/components/spaces/space-status-indicators";
+import { useSpaceStatusSources } from "#/components/spaces/use-space-status-sources";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
@@ -74,13 +80,23 @@ export function MemberAgentChatHistory(input: {
 }) {
 	const { currentOrganization: organization } = useAppOrganization();
 	const navigate = useNavigate();
-	const [open, setOpen] = useState(false);
+	// Every Session is read, not only the open Profile's, so the title shows
+	// when another Session needs the member.
 	const sessions = useMemberAgentSessionGroups({
 		memberAgent: input.current.memberAgent,
 		currentProfileId: input.current.agentProfileId,
 		spaceId: input.spaceId,
-		includeAll: open,
+		includeAll: true,
 	});
+	const sessionIds = sessions.groups.flatMap((group) =>
+		group.items.map((item) => item.spaceId)
+	);
+	const statusSources = useSpaceStatusSources({
+		currentSpaceId: input.spaceId,
+		spaceIds: sessionIds,
+	});
+	const titleStatus = resolveSpaceStatusIndicators(sessionIds, statusSources);
+	const titleStatusLabel = resolveSpaceStatusLabel(titleStatus);
 	const title = sessions.currentTitle ?? input.title;
 	const sessionActions = useDirectMessageSessionActions({
 		spaceId: input.spaceId,
@@ -102,14 +118,26 @@ export function MemberAgentChatHistory(input: {
 	return (
 		<>
 			<ChatHistoryDropdown
-				ariaLabel={`Open chats with ${input.current.memberAgent.displayName}: ${title}`}
+				ariaLabel={`Open chats with ${input.current.memberAgent.displayName}: ${title}${titleStatusLabel ? `. Chats with status: ${titleStatusLabel}` : ""}`}
 				currentSpaceId={input.spaceId}
-				groups={sessions.groups}
+				groups={sessions.groups.map((group) => ({
+					...group,
+					items: group.items.map((item) => {
+						const indicators = resolveSpaceStatusIndicators(
+							[item.spaceId],
+							statusSources
+						);
+						return {
+							...item,
+							status: <SpaceStatusIndicator indicators={indicators} />,
+							statusLabel: resolveSpaceStatusLabel(indicators),
+						};
+					}),
+				}))}
 				newChatDisabled={sessionActions.pending}
 				onNewChat={() => {
 					startNewChat().catch(console.error);
 				}}
-				onOpenChange={setOpen}
 				onSelect={(spaceId) => {
 					navigate({ to: sessions.sessionPath(spaceId) });
 				}}
@@ -121,6 +149,11 @@ export function MemberAgentChatHistory(input: {
 						onSave={sessionActions.rename}
 						title={title}
 					/>
+				}
+				titleStatus={
+					hasSpaceStatus(titleStatus) ? (
+						<SpaceStatusIndicator indicators={titleStatus} />
+					) : undefined
 				}
 			/>
 			{sessionActions.dialogs}

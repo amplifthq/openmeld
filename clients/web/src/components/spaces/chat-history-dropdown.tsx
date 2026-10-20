@@ -16,6 +16,10 @@ export type ChatHistoryItem = {
 	spaceId: string;
 	title: string;
 	createdAt?: string | null;
+	/** Status marks of this chat, e.g. SpaceStatusIndicator. */
+	status?: ReactNode;
+	/** Words for the status marks, read with the item. */
+	statusLabel?: string | null;
 };
 
 export type ChatHistoryGroup = {
@@ -42,6 +46,8 @@ export function ChatHistoryDropdown(input: {
 	onNewChat?: () => void;
 	newChatDisabled?: boolean;
 	disabled?: boolean;
+	/** Status marks beside the title, e.g. chats that need attention. */
+	titleStatus?: ReactNode;
 	/** Revealed on hover beside the title, e.g. the rename control. */
 	titleAction?: ReactNode;
 	/** Extra items after the chats, e.g. Delete chat. */
@@ -91,6 +97,11 @@ export function ChatHistoryDropdown(input: {
 						disabled={input.disabled}
 					>
 						<span className="truncate">{input.title}</span>
+						{input.titleStatus ? (
+							<span className="ml-2 inline-flex shrink-0">
+								{input.titleStatus}
+							</span>
+						) : null}
 						<CaretDownIcon
 							aria-hidden="true"
 							className="ml-1 size-3.5 shrink-0 text-muted-foreground"
@@ -164,6 +175,10 @@ export function ChatHistoryDropdown(input: {
 									onClick={() => select(item.spaceId)}
 								>
 									<span className="min-w-0 flex-1 truncate">{item.title}</span>
+									{item.status}
+									{item.statusLabel ? (
+										<span className="sr-only">{`, ${item.statusLabel}`}</span>
+									) : null}
 									{item.spaceId === input.currentSpaceId ? (
 										<span className="shrink-0 text-muted-foreground text-xs">
 											Current

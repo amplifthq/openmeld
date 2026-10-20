@@ -55,7 +55,6 @@ import {
 	useActiveMemberAgentSessionNav,
 	useMemberAgentSessionDisclosure,
 } from "#/components/member-agents/member-agent-session-nav";
-import { resolveInboxAttentionTone } from "#/lib/inbox/attention";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationNewSpacePath,
@@ -86,6 +85,7 @@ import { NewChatDialog } from "./new-chat-dialog";
 import { PinnedLayoutMenu, usePinnedLayout } from "./pinned-layout-menu";
 import { SpaceCreationSidebar } from "./space-creation-sidebar";
 import { resolveSpaceMemberAppearances } from "./space-member-avatars";
+import { resolveSpaceStatusIndicators } from "./space-status-indicators";
 import { useConversationDisclosure } from "./use-conversation-disclosure";
 import { useConversationView } from "./use-conversation-view";
 import { useConversations } from "./use-conversations";
@@ -101,46 +101,11 @@ function resolveConversationRowIndicators(
 	item: Conversation,
 	dm: ReturnType<typeof useConversations>["directMessages"]
 ) {
-	const sessionIds = item.memberAgentSessionIds;
-	if (!sessionIds) {
-		// Every other row reads its own Space, exactly as before MemberAgents.
-		return {
-			unreadCount:
-				dm.indicators.unreadBySpaceId.get(item.spaceId)?.unreadCount ?? 0,
-			messageUnreadCount: dm.indicators.unreadBySpaceId.get(item.spaceId)
-				?.messageUnreadCount,
-			activeWakeSummary: dm.indicators.activeWakeSummaryBySpaceId.get(
-				item.spaceId
-			),
-			attentionTone: resolveInboxAttentionTone(
-				dm.attentionById.get(item.spaceId) ?? {}
-			),
-		};
-	}
-	const spaceIds = sessionIds;
-	let unreadCount = 0;
-	let messageUnreadCount: number | undefined;
-	for (const spaceId of spaceIds) {
-		const unread = dm.indicators.unreadBySpaceId.get(spaceId);
-		unreadCount += unread?.unreadCount ?? 0;
-		if (unread?.messageUnreadCount !== undefined) {
-			messageUnreadCount =
-				(messageUnreadCount ?? 0) + unread.messageUnreadCount;
-		}
-	}
-	return {
-		unreadCount,
-		messageUnreadCount,
-		activeWakeSummary: spaceIds
-			.map((spaceId) => dm.indicators.activeWakeSummaryBySpaceId.get(spaceId))
-			.find((summary) => summary !== undefined),
-		attentionTone:
-			spaceIds
-				.map((spaceId) =>
-					resolveInboxAttentionTone(dm.attentionById.get(spaceId) ?? {})
-				)
-				.find((tone) => tone !== null) ?? null,
-	};
+	// Every other row reads its own Space, exactly as before MemberAgents.
+	return resolveSpaceStatusIndicators(
+		item.memberAgentSessionIds ?? [item.spaceId],
+		{ ...dm.indicators, attentionById: dm.attentionById }
+	);
 }
 
 function isSpaceEmptyStateVisible(
@@ -416,7 +381,10 @@ export function ConversationsSidebar(
 		(item) => item.spaceId === model.selected
 	);
 	const activeSection = active ? model.owner(active) : null;
-	const memberAgentSessionGroups = useActiveMemberAgentSessionNav(active);
+	const memberAgentSessionGroups = useActiveMemberAgentSessionNav(active, {
+		...dm.indicators,
+		attentionById: dm.attentionById,
+	});
 	const { showMessagePreviews, setShowMessagePreviews } = useMessagePreviews(
 		dm.profileId,
 		dm.org.id

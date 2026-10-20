@@ -823,6 +823,14 @@ describe("useSpaceLandingFeed transport freshness", () => {
 			"sidebar",
 		];
 		queryClient.setQueryData(sessionsKey, { pages: [] });
+		// A generated MemberAgent Session title must reach the chat title too.
+		const memberAgentSessionsKey = [
+			"agent-direct-message-sessions",
+			"org-1",
+			"agent-1",
+			"active",
+		];
+		queryClient.setQueryData(memberAgentSessionsKey, { sessions: [] });
 		const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
 		await openLatestSocket();
 
@@ -847,6 +855,9 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		expect(statusRefetch).toHaveBeenCalledTimes(1);
 		expect(membersRefetch).not.toHaveBeenCalled();
 		expect(queryClient.getQueryState(sessionsKey)?.isInvalidated).toBe(true);
+		expect(
+			queryClient.getQueryState(memberAgentSessionsKey)?.isInvalidated
+		).toBe(true);
 	});
 
 	it("refreshes only Agent requests when a request in the Space opens or closes", async () => {

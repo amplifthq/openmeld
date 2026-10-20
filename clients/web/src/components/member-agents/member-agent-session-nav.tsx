@@ -4,6 +4,12 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import type { AppContextualNavGroup } from "#/components/app/app-contextual-layout";
 import type { Conversation } from "#/components/spaces/conversation-sidebar-model";
+import { SpaceStatusIndicator } from "#/components/spaces/space-status-indicator";
+import {
+	resolveSpaceStatusIndicators,
+	resolveSpaceStatusLabel,
+	type SpaceStatusSources,
+} from "#/components/spaces/space-status-indicators";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationAgentsPath } from "#/lib/organizations/organization-routes";
 import { useMemberAgentSessionGroups } from "./member-agent-chat-history";
@@ -48,12 +54,13 @@ export function useMemberAgentSessionDisclosure(disclosure: {
  * Sidebar groups for the MemberAgent whose Session is open: one group per
  * Profile listing its Sessions, so the current Session is highlighted by the
  * sidebar's active item and any other is one click away. Lists the same
- * Sessions as the chat header dropdown, and links back to the MemberAgent's
- * page, so a Session opened from a deep link is never a dead end. Empty
- * everywhere else.
+ * Sessions as the chat header dropdown, each with the status marks a sidebar
+ * row shows, and links back to the MemberAgent's page, so a Session opened
+ * from a deep link is never a dead end. Empty everywhere else.
  */
 export function useActiveMemberAgentSessionNav(
-	active: Conversation | undefined
+	active: Conversation | undefined,
+	statusSources: SpaceStatusSources
 ): AppContextualNavGroup[] {
 	const { currentOrganization } = useAppOrganization();
 	const memberAgents = useMemberAgentIndex();
@@ -96,11 +103,20 @@ export function useActiveMemberAgentSessionNav(
 				) : null}
 			</>
 		),
-		items: group.items.map((item) => ({
-			id: item.spaceId,
-			icon: ChatCircleTextIcon,
-			label: item.title,
-			to: sessions.sessionPath(item.spaceId),
-		})),
+		items: group.items.map((item) => {
+			const indicators = resolveSpaceStatusIndicators(
+				[item.spaceId],
+				statusSources
+			);
+			const statusLabel = resolveSpaceStatusLabel(indicators);
+			return {
+				id: item.spaceId,
+				icon: ChatCircleTextIcon,
+				label: item.title,
+				accessory: <SpaceStatusIndicator indicators={indicators} />,
+				ariaLabel: statusLabel ? `${item.title}, ${statusLabel}` : undefined,
+				to: sessions.sessionPath(item.spaceId),
+			};
+		}),
 	}));
 }
