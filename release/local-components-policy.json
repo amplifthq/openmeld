@@ -1,12 +1,12 @@
 {
-  "version": "0.3.264",
+  "version": "0.3.265",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Existing CLI commands remain wire-compatible; bounded stop, verified repair and opt-in native recovery improve diagnostics."
+    "reason": "Cursor update guidance changes only the reported manual command. Existing CLI commands, setup, and Wake remain compatible."
   },
   "service": {
-    "updatePolicy": "required",
-    "reason": "Native account checks must run each minute before Core can enforce the two-minute evidence lifetime; old five-minute carriers cannot satisfy it."
+    "updatePolicy": "available",
+    "reason": "The Service reports Cursor's official installer when an older unsigned CLI cannot update itself. Wake, setup, and older Services remain compatible."
   },
   "skills": {
     "updatePolicy": "available",

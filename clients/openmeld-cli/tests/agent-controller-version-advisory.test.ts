@@ -164,6 +164,157 @@ describe("agent controller version advisory", () => {
 
   it.each([
     {
+      auth: "unauthenticated" as const,
+      currentVersion: "2026.03.11-6dfa30c",
+      name: "an unsigned older Cursor CLI on macOS or Linux",
+      platform: "linux" as NodeJS.Platform,
+      updateCommand: "curl https://cursor.com/install -fsS | bash",
+    },
+    {
+      auth: "unknown" as const,
+      currentVersion: "2026.03.11-6dfa30c",
+      name: "an older Cursor CLI whose sign-in check did not finish",
+      platform: "linux" as NodeJS.Platform,
+      updateCommand: "curl https://cursor.com/install -fsS | bash",
+    },
+    {
+      auth: "authenticated" as const,
+      currentVersion: "2026.03.11-6dfa30c",
+      name: "a signed-in older Cursor CLI",
+      platform: "linux" as NodeJS.Platform,
+      updateCommand: "cursor-agent update",
+    },
+    {
+      auth: "unauthenticated" as const,
+      currentVersion: "2026.07.17-3e2a980",
+      name: "an unsigned Cursor CLI that can update itself",
+      platform: "linux" as NodeJS.Platform,
+      updateCommand: "cursor-agent update",
+    },
+    {
+      auth: "unauthenticated" as const,
+      currentVersion: "2026.03.11-6dfa30c",
+      name: "an unsigned older Cursor CLI on Windows",
+      platform: "win32" as NodeJS.Platform,
+      updateCommand: "irm 'https://cursor.com/install?win32=true' | iex",
+    },
+  ])("reports the Cursor update command for $name", async ({
+    auth,
+    currentVersion,
+    platform,
+    updateCommand,
+  }) => {
+    const home = await mkdtemp(join(tmpdir(), "openmeld-aci-cursor-update-"));
+    const platformSpy = vi
+      .spyOn(process, "platform", "get")
+      .mockReturnValue(platform);
+    try {
+      const binPath = join(home, ".local", "bin", "cursor-agent");
+      await writeCursorExecutable(binPath, { auth, version: currentVersion });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: string | URL | Request) => {
+          const url = String(input);
+          if (url === CURSOR_HOMEBREW_CASK_URL) {
+            return Promise.resolve(
+              Response.json({
+                token: "cursor-cli",
+                version: "2026.10.19-6bbf2c4",
+              })
+            );
+          }
+          throw new Error(`Unexpected version lookup: ${url}`);
+        })
+      );
+
+      const { resolveAgentControllerInterfaceSnapshot } = await import(
+        "../src/local-service/inventory/agent-controller-interface"
+      );
+      const snapshot = await resolveAgentControllerInterfaceSnapshot({
+        agentControllerRef: "builtin:cursor",
+        state: {
+          ...createAgentTargetState("cursor", "Cursor", binPath),
+          launchContract: {
+            kind: "node_script",
+            nodePath: "/usr/bin/env",
+            scriptPath: binPath,
+          },
+        },
+      });
+
+      expect(snapshot.versionAdvisory).toMatchObject({
+        currentVersion,
+        latestVersion: "2026.10.19-6bbf2c4",
+        status: "behind_latest",
+        updateCommand,
+      });
+      if (auth === "unknown") {
+        expect(snapshot.auth.status).toBe("unknown");
+        expect(snapshot.check).toMatchObject({ status: "failed" });
+      }
+    } finally {
+      platformSpy.mockRestore();
+      await rm(home, { force: true, recursive: true });
+    }
+  });
+
+  it("keeps the Homebrew upgrade for an unsigned older Cursor cask", async () => {
+    const home = await mkdtemp(join(tmpdir(), "openmeld-aci-cursor-cask-"));
+    try {
+      const caskPath = join(
+        home,
+        "opt",
+        "homebrew",
+        "Caskroom",
+        "cursor-cli",
+        "2026.03.11",
+        "cursor-agent"
+      );
+      const commandPath = join(home, "opt", "homebrew", "bin", "cursor-agent");
+      await writeCursorExecutable(caskPath, {
+        auth: "unauthenticated",
+        version: "2026.03.11-6dfa30c",
+      });
+      await mkdir(join(commandPath, ".."), { recursive: true });
+      await symlink(caskPath, commandPath);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: string | URL | Request) => {
+          const url = String(input);
+          if (url === CURSOR_HOMEBREW_CASK_URL) {
+            return Promise.resolve(
+              Response.json({
+                token: "cursor-cli",
+                version: "2026.10.19-6bbf2c4",
+              })
+            );
+          }
+          throw new Error(`Unexpected version lookup: ${url}`);
+        })
+      );
+
+      const { resolveAgentControllerInterfaceSnapshot } = await import(
+        "../src/local-service/inventory/agent-controller-interface"
+      );
+      const snapshot = await resolveAgentControllerInterfaceSnapshot({
+        agentControllerRef: "builtin:cursor",
+        state: createAgentTargetState("cursor", "Cursor", commandPath),
+      });
+
+      expect(snapshot.auth.status).toBe("unauthenticated");
+      expect(snapshot.versionAdvisory).toMatchObject({
+        currentVersion: "2026.03.11-6dfa30c",
+        latestVersion: "2026.10.19-6bbf2c4",
+        status: "behind_latest",
+        updateCommand: "brew upgrade --cask cursor-cli",
+      });
+    } finally {
+      await rm(home, { force: true, recursive: true });
+    }
+  });
+
+  it.each([
+    {
       commandPathSegments: [".bun", "bin", "opencode"],
       installMedium: "bun",
       updateCommand: "bun i -g opencode-ai@latest",
@@ -958,14 +1109,26 @@ async function writeClaudeCodeExecutable(
   await chmod(binPath, 0o755);
 }
 
-async function writeCursorExecutable(binPath: string): Promise<void> {
+async function writeCursorExecutable(
+  binPath: string,
+  input: {
+    auth?: "authenticated" | "unauthenticated" | "unknown";
+    version?: string;
+  } = {}
+): Promise<void> {
+  const version = input.version ?? "2026.07.16-899851b";
+  const auth = input.auth ?? "authenticated";
+  const statusCommand =
+    auth === "unknown"
+      ? "exit 1"
+      : `echo '{"status":"${auth}","message":"Logged in"}'; exit 0`;
   await mkdir(join(binPath, ".."), { recursive: true });
   await writeFile(
     binPath,
     [
       "#!/bin/sh",
-      'if [ "$1" = "--version" ]; then echo "2026.07.16-899851b"; exit 0; fi',
-      'if [ "$1" = "status" ] && [ "$2" = "--format" ] && [ "$3" = "json" ]; then echo \'{"status":"authenticated","message":"Logged in"}\'; exit 0; fi',
+      `if [ "$1" = "--version" ]; then echo "${version}"; exit 0; fi`,
+      `if [ "$1" = "status" ] && [ "$2" = "--format" ] && [ "$3" = "json" ]; then ${statusCommand}; fi`,
       "exit 1",
       "",
     ].join("\n"),
