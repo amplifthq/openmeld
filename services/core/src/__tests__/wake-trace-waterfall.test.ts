@@ -874,7 +874,21 @@ describe("wake trace waterfall projection", () => {
     });
   });
 
-  it("projects accepted local queue diagnostics while the runtime has not started", () => {
+  it.each([
+    [
+      "local_execution_lane_concurrency",
+      "runtime.local_queue.waiting_local_execution_lane",
+    ],
+    ["workspace_conflict", "runtime.local_queue.waiting_workspace_conflict"],
+    [
+      "agent_profile_concurrency",
+      "runtime.local_queue.waiting_agent_profile_concurrency",
+    ],
+    [
+      "agent_controller_maintenance",
+      "runtime.local_queue.waiting_controller_maintenance",
+    ],
+  ])("projects accepted local queue diagnostics (%s) while the runtime has not started", (waitReason, reasonCode) => {
     const baseTrace = buildRepliedTrace();
     const trace = {
       ...baseTrace,
@@ -932,7 +946,7 @@ describe("wake trace waterfall projection", () => {
             lifecycleAtMs: Date.parse(ISO),
             localQueue: {
               status: "queued",
-              waitReason: "local_execution_lane_concurrency",
+              waitReason,
             },
             phase: "accepted_local",
           }),
@@ -972,7 +986,7 @@ describe("wake trace waterfall projection", () => {
     expect(response.items[0]?.summary).toEqual({
       status: "running",
       terminalStep: null,
-      reasonCode: "runtime.local_queue.waiting_local_execution_lane",
+      reasonCode,
     });
   });
 

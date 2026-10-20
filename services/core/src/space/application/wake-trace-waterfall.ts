@@ -1844,6 +1844,12 @@ function resolveRuntimeCoordinatorLocalQueueReasonCode(
       return "runtime.local_queue.waiting_global_concurrency";
     case "local_execution_lane_concurrency":
       return "runtime.local_queue.waiting_local_execution_lane";
+    case "workspace_conflict":
+      return "runtime.local_queue.waiting_workspace_conflict";
+    case "agent_profile_concurrency":
+      return "runtime.local_queue.waiting_agent_profile_concurrency";
+    case "agent_controller_maintenance":
+      return "runtime.local_queue.waiting_controller_maintenance";
     case "none":
       return "runtime.local_queue.waiting_runner_slot";
     default:
