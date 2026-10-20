@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isSpaceComposerAccessPending } from "./space-landing";
+import { isSpaceComposerAccessPending } from "./use-space-composer-region";
 
 describe("isSpaceComposerAccessPending", () => {
 	const base = {

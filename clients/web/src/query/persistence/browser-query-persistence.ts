@@ -40,6 +40,10 @@ import {
 import { spaceMemberDirectoryDisplaySchema } from "#/query/spaces/member-directory-display";
 import { clearSpaceFileMediaResources } from "#/query/spaces/space-file-media-resource";
 import { spaceQueryKeys } from "#/query/spaces/status";
+import {
+	spaceViewerMembershipDisplayQueryKey,
+	spaceViewerMembershipDisplaySchema,
+} from "#/query/spaces/viewer-membership-display";
 import type {
 	DexieQueryCacheStore,
 	QueryCacheScope,
@@ -536,6 +540,7 @@ export function createBrowserQueryPersistenceController(
 					spaceQueryKeys.displaySnapshot(spaceId, openMeldProfileId),
 					spaceQueryKeys.memberDirectoryDisplay(spaceId, openMeldProfileId),
 					spaceQueryKeys.historyNavigation(spaceId, openMeldProfileId),
+					spaceViewerMembershipDisplayQueryKey(spaceId, openMeldProfileId),
 				],
 			});
 		});
@@ -1139,6 +1144,10 @@ function serializeSpacePersistedDisplayData(data: unknown): unknown {
 	if (directory.success) {
 		return directory.data;
 	}
+	const membership = spaceViewerMembershipDisplaySchema.safeParse(data);
+	if (membership.success) {
+		return membership.data;
+	}
 	const displaySnapshot =
 		spaceConversationDisplaySnapshotSchema.safeParse(data);
 	if (displaySnapshot.success) {
@@ -1211,6 +1220,10 @@ function isApprovedSuccessfulQuery(
 			}
 			if (targetQueryKey[1] === "history") {
 				return spaceHistorySnapshotSchema.safeParse(query.state.data).success;
+			}
+			if (targetQueryKey[1] === "viewer-membership-display") {
+				return spaceViewerMembershipDisplaySchema.safeParse(query.state.data)
+					.success;
 			}
 			if (targetQueryKey[1] === "member-directory-display") {
 				return spaceMemberDirectoryDisplaySchema.safeParse(query.state.data)

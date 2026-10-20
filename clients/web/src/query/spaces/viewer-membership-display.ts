@@ -1,0 +1,37 @@
+import { queryOptions, skipToken } from "@tanstack/react-query";
+import { z } from "zod/v4";
+import { PERSISTED_DISPLAY_QUERY_GC_TIME_MS } from "#/query/query-config";
+
+// Layout only. The viewer's last confirmed membership picks which composer bar
+// to paint before the members read returns; it never grants or blocks actions.
+export const spaceViewerMembershipDisplaySchema = z.strictObject({
+	version: z.literal(1),
+	membership: z.enum(["member", "nonmember"]),
+});
+export type SpaceViewerMembershipDisplay = z.infer<
+	typeof spaceViewerMembershipDisplaySchema
+>;
+
+export function spaceViewerMembershipDisplayQueryKey(
+	spaceId: string,
+	openMeldProfileId: string
+) {
+	return [
+		"spaces",
+		"viewer-membership-display",
+		spaceId,
+		openMeldProfileId,
+	] as const;
+}
+
+export function spaceViewerMembershipDisplayQueryOptions(
+	spaceId: string,
+	openMeldProfileId: string
+) {
+	return queryOptions<SpaceViewerMembershipDisplay>({
+		queryKey: spaceViewerMembershipDisplayQueryKey(spaceId, openMeldProfileId),
+		queryFn: skipToken,
+		staleTime: Number.POSITIVE_INFINITY,
+		gcTime: PERSISTED_DISPLAY_QUERY_GC_TIME_MS,
+	});
+}

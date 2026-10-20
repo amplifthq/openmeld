@@ -20,6 +20,7 @@ import { organizationPluginConnectionQueryKeys } from "#/query/organizations/plu
 import { startQueryKeys } from "#/query/query-keys";
 import { spaceConversationDisplaySnapshotSchema } from "#/query/spaces/display-snapshot";
 import { spaceQueryKeys } from "#/query/spaces/status";
+import { spaceViewerMembershipDisplayQueryKey } from "#/query/spaces/viewer-membership-display";
 import {
 	BROWSER_QUERY_CACHE_BUSTER,
 	buildSpaceConversationQueryCacheScopeId,
@@ -397,6 +398,15 @@ describe("BrowserQueryPersistenceController", () => {
 			spaceStorage,
 			spaceQueryKeys.historyNavigation("space-a", "profile-a")
 		);
+		const membership = { version: 1, membership: "member" };
+		sourceQueryClient.setQueryData(
+			spaceViewerMembershipDisplayQueryKey("space-a", "profile-a"),
+			membership
+		);
+		await waitForStoredQuery(
+			spaceStorage,
+			spaceViewerMembershipDisplayQueryKey("space-a", "profile-a")
+		);
 
 		await sourceController.activateSpaceConversation({
 			organizationId: "organization-a",
@@ -483,6 +493,11 @@ describe("BrowserQueryPersistenceController", () => {
 				spaceQueryKeys.historyNavigation("space-a", "profile-a")
 			)
 		).toEqual(navigation);
+		expect(
+			restoredQueryClient.getQueryData(
+				spaceViewerMembershipDisplayQueryKey("space-a", "profile-a")
+			)
+		).toEqual(membership);
 		expect(
 			restoredQueryClient.getQueryData(
 				spaceQueryKeys.members("space-a", "profile-a")

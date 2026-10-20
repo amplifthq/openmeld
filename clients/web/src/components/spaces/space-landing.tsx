@@ -199,6 +199,7 @@ import {
 	SPACE_WAKE_STATUS_REFRESH_WINDOW_MS,
 } from "./space-wake-status-refresh";
 import { SpaceWorkBookmarksProvider } from "./space-work-bookmarks";
+import { useSpaceComposerRegion } from "./use-space-composer-region";
 import { useSpaceConversationReadCache } from "./use-space-conversation-read-cache";
 import { useSpaceFileNavigation } from "./use-space-file-navigation";
 import { useSpaceInboxReadPosition } from "./use-space-inbox-read-position";
@@ -2356,6 +2357,14 @@ function SpaceLandingConversation({
 		controller.timelineItems,
 		welcomeRecipients,
 	]);
+	const composerRegion = useSpaceComposerRegion({
+		confirmedMembership: controller.currentProfileMembershipState,
+		isAccessConfirmed: controller.isCurrentAccessConfirmed,
+		isDeleted: Boolean(controller.status?.deletedAt),
+		membersFailed: Boolean(controller.membersError),
+		profileId: controller.profileId,
+		spaceId: controller.spaceId,
+	});
 	let readOnlyComposerPlaceholder: string | undefined;
 	if (controller.status?.deletedAt) {
 		readOnlyComposerPlaceholder =
@@ -2591,12 +2600,8 @@ function SpaceLandingConversation({
 					Boolean(controller.status?.deletedAt) ||
 					(controller.isCurrentAccessConfirmed &&
 						controller.currentProfileMembershipState === "nonmember"),
-				composerAccessPending: isSpaceComposerAccessPending({
-					isAccessConfirmed: controller.isCurrentAccessConfirmed,
-					isDeleted: Boolean(controller.status?.deletedAt),
-					membersFailed: Boolean(controller.membersError),
-					membershipState: controller.currentProfileMembershipState,
-				}),
+				composerAccessPending: composerRegion.barPending,
+				composerTraysHeld: composerRegion.traysHeld,
 				threadsIsLoading: controller.threadsIsLoading,
 				unreadStateReady: controller.unreadStateReady,
 			}}
@@ -2670,28 +2675,6 @@ function resolveCurrentProfileLeaveAction(input: {
 	return input.isAccessConfirmed && input.isActiveSpaceMember
 		? input.onLeaveSpace
 		: undefined;
-}
-
-/**
- * Until membership is known, neither the input nor the Join prompt is safe to
- * show: a non-member would see the input flash before the Join prompt.
- * A known member keeps the input while access settles, and a failed member
- * load falls back to the input with its own retry.
- */
-export function isSpaceComposerAccessPending(input: {
-	isAccessConfirmed: boolean;
-	isDeleted: boolean;
-	membersFailed: boolean;
-	membershipState: "member" | "nonmember" | "unknown";
-}): boolean {
-	if (
-		input.isDeleted ||
-		input.membersFailed ||
-		input.membershipState === "member"
-	) {
-		return false;
-	}
-	return input.membershipState === "unknown" || !input.isAccessConfirmed;
 }
 
 function SpaceHumanJoinAction(input: {

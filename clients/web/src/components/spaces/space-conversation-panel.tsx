@@ -319,6 +319,8 @@ type SpaceConversationPanelResolvedProps = {
 	readOnlyComposerPlaceholder?: string;
 	/** Membership is still loading; the composer shows a neutral bar. */
 	composerAccessPending?: boolean;
+	/** Composer trays wait to appear together; see useSpaceComposerTraysHeld. */
+	composerTraysHeld?: boolean;
 	allowSendWhileAccessSettles?: boolean;
 	renderSetupGuidance?: (
 		presentation: OnboardingSetupPresentation
@@ -355,6 +357,7 @@ type SpaceConversationPanelViewState = Pick<
 	| "isSendingMessage"
 	| "readOnly"
 	| "composerAccessPending"
+	| "composerTraysHeld"
 	| "threadsIsLoading"
 	| "unreadStateReady"
 >;
@@ -638,7 +641,7 @@ function SpaceConversationPanelContent(
 		isCenterAgentDirectMessage:
 			presentation.messageStateTuningVisibility.isCenterAgentDirectMessage,
 		isDirectMessage: input.isDirectMessage,
-		readOnly: input.readOnly,
+		readOnly: isPossibleConversationObserver(input),
 		hasMessages: entries.length > 0,
 		membersSnapshot: input.membersSnapshot,
 		modelCatalog: input.modelCatalog,
@@ -2073,29 +2076,39 @@ function SpaceComposerSection(input: {
 								}
 					}
 					slots={{
-						agentRequests: input.agentRequests,
-						pendingActionSurface: panel.pendingActionSurface,
+						agentRequests: (
+							<SpaceComposerTrayHold held={panel.composerTraysHeld}>
+								{input.agentRequests}
+							</SpaceComposerTrayHold>
+						),
+						pendingActionSurface: (
+							<SpaceComposerTrayHold held={panel.composerTraysHeld}>
+								{panel.pendingActionSurface}
+							</SpaceComposerTrayHold>
+						),
 						queuedMessages:
 							!panel.readOnly && panel.spaceId ? (
-								<SpaceInputQueue
-									key={`${panel.spaceId}:${panel.selfProfileId}`}
-									onEdit={(queuedText) => {
-										const text = panel.composerText
-											? `${panel.composerText}\n\n${queuedText}`
-											: queuedText;
-										panel.onComposerEditorChange({
-											authoredMentions: [
-												...(panel.composerAuthoredMentions ?? []),
-											],
-											selection: { start: text.length, end: text.length },
-											text,
-										});
-										panel.textareaRef.current?.focus();
-									}}
-									profileId={panel.selfProfileId}
-									progressItems={panel.ephemeralActivityItems}
-									spaceId={panel.spaceId}
-								/>
+								<SpaceComposerTrayHold held={panel.composerTraysHeld}>
+									<SpaceInputQueue
+										key={`${panel.spaceId}:${panel.selfProfileId}`}
+										onEdit={(queuedText) => {
+											const text = panel.composerText
+												? `${panel.composerText}\n\n${queuedText}`
+												: queuedText;
+											panel.onComposerEditorChange({
+												authoredMentions: [
+													...(panel.composerAuthoredMentions ?? []),
+												],
+												selection: { start: text.length, end: text.length },
+												text,
+											});
+											panel.textareaRef.current?.focus();
+										}}
+										profileId={panel.selfProfileId}
+										progressItems={panel.ephemeralActivityItems}
+										spaceId={panel.spaceId}
+									/>
+								</SpaceComposerTrayHold>
 							) : null,
 						beforePrimaryAction: (
 							<SpaceComposerWorkBookmarks placement="conversation" />
@@ -2125,6 +2138,29 @@ function SpaceComposerSection(input: {
 			</div>
 		</div>
 	);
+}
+
+/**
+ * Keeps a held tray mounted, so its read still runs, but out of the layout.
+ * Once released the tray renders unwrapped, so the composer's tray stacking
+ * and sibling order stay exactly as without a hold.
+ */
+function SpaceComposerTrayHold(input: { children: ReactNode; held?: boolean }) {
+	if (!input.held) {
+		return input.children;
+	}
+	return <div hidden>{input.children}</div>;
+}
+
+// Until membership is known the viewer may be an observer, who gets no
+// MemberAgent card; showing it and then removing it moves the conversation.
+function isPossibleConversationObserver(
+	input: Pick<
+		SpaceConversationPanelResolvedProps,
+		"composerAccessPending" | "readOnly"
+	>
+): boolean {
+	return Boolean(input.readOnly || input.composerAccessPending);
 }
 
 function ComposerError(input: { panel: SpaceConversationPanelResolvedProps }) {

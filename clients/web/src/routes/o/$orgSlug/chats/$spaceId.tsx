@@ -10,7 +10,10 @@ import {
 	APP_ROUTE_PENDING_MIN_DURATION_MS,
 } from "#/lib/app-route-loading";
 import { readInboxSourceFocusRequestId } from "#/lib/inbox/source-focus-request";
-import { prefetchSpaceConversationRouteData } from "#/lib/organizations/app-route-prefetch";
+import {
+	prefetchSpaceConversationRouteData,
+	restoreSpaceConversationRouteData,
+} from "#/lib/organizations/app-route-prefetch";
 import {
 	APP_SIDEBAR_DEFAULT_STATES,
 	getAppSidebarStatesForRoute,
@@ -31,24 +34,39 @@ export const Route = createFileRoute("/o/$orgSlug/chats/$spaceId")({
 	pendingMinMs: APP_ROUTE_PENDING_MIN_DURATION_MS,
 	pendingMs: APP_ROUTE_PENDING_DELAY_MS,
 	loader: async ({ context, deps, location, params }) => {
-		prefetchSpaceConversationRouteData({
-			focusSignalId: deps.focusSignalId,
-			focusThreadRootSignalId: deps.focusThreadRootSignalId,
+		// Paint the saved conversation before the network revalidates it, the
+		// same way the Space route does.
+		const restored = restoreSpaceConversationRouteData({
 			organizationSlug: params.orgSlug,
 			profileId: deps.profileId,
 			queryClient: context.queryClient,
 			queryPersistence: context.queryPersistence,
 			routeFamily: location.href,
 			spaceId: params.spaceId,
-		}).catch((error: unknown) => {
-			if (isQueryCancellationError(error)) {
-				return;
-			}
-			console.error(
-				"Failed to prefetch the Direct Message conversation.",
-				error
-			);
 		});
+		restored
+			.then(() =>
+				prefetchSpaceConversationRouteData({
+					focusSignalId: deps.focusSignalId,
+					focusThreadRootSignalId: deps.focusThreadRootSignalId,
+					organizationSlug: params.orgSlug,
+					profileId: deps.profileId,
+					queryClient: context.queryClient,
+					queryPersistence: context.queryPersistence,
+					routeFamily: location.href,
+					spaceId: params.spaceId,
+				})
+			)
+			.catch((error: unknown) => {
+				if (isQueryCancellationError(error)) {
+					return;
+				}
+				console.error(
+					"Failed to prefetch the Direct Message conversation.",
+					error
+				);
+			});
+		await restored.catch(() => undefined);
 		return {
 			sidebarStates: await getAppSidebarStatesForRoute("direct-messages"),
 		};
