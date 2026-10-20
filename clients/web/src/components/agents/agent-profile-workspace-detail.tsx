@@ -55,6 +55,7 @@ import {
 	MemberAgentNewProfileButton,
 	MemberAgentSensitiveChanges,
 } from "#/components/member-agents/member-agent-page-context";
+import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
@@ -65,6 +66,28 @@ import {
 	useAgentTaskActivity,
 } from "./agent-task-activity";
 import { formatAgentWakeAvailabilityCheckedAt } from "./agents-page-agent-profile-helpers";
+
+export type AgentProfileOwnerIdentity = {
+	name: string;
+	avatarUrl: string | null | undefined;
+	profileId: string;
+};
+
+function AgentProfileOwnerLine(input: { owner: AgentProfileOwnerIdentity }) {
+	return (
+		<p className="mt-1 flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
+			Owned by
+			<DitherProfileAvatar
+				avatarImageUrl={input.owner.avatarUrl}
+				profileId={input.owner.profileId}
+				profileKind="human"
+				profileName={input.owner.name}
+				size={16}
+			/>
+			<span className="truncate text-foreground">{input.owner.name}</span>
+		</p>
+	);
+}
 
 export function AgentProfileWorkspaceDetail(input: {
 	directMessageEnabled?: boolean;
@@ -94,6 +117,8 @@ export function AgentProfileWorkspaceDetail(input: {
 	wakeAvailabilityIsRefreshing: boolean;
 	wakeAvailabilityNowMs: number;
 	headerRecoveryActions?: ReactNode;
+	/** Shown under the name; identity, not a setting. */
+	owner?: AgentProfileOwnerIdentity | null;
 }) {
 	const [savingAvatar, setSavingAvatar] = useState(false);
 	const queryClient = useQueryClient();
@@ -219,6 +244,9 @@ export function AgentProfileWorkspaceDetail(input: {
 										{input.controllerModelSummary}
 									</p>
 								)}
+								{input.owner ? (
+									<AgentProfileOwnerLine owner={input.owner} />
+								) : null}
 								<AgentProfilePresence
 									headerRecoveryActions={
 										showOwnerOperationalContext

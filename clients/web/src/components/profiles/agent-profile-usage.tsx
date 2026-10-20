@@ -115,7 +115,7 @@ function AgentUsageCard({
 	nowMs: number;
 }) {
 	return (
-		<AgentConfigurationReadoutCard itemId="usage" label="Usage limits">
+		<AgentConfigurationReadoutCard compact itemId="usage" label="Usage limits">
 			{usage.loading ? <AgentUsageSkeleton /> : null}
 			{!usage.loading && usage.limits ? (
 				<SettingsLocalAgentUsageReadout

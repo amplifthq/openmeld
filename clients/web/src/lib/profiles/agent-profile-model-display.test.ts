@@ -1,6 +1,9 @@
 import type { ModelCatalog } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
-import { resolveAgentProfileControllerModelDetail } from "./agent-profile-model-display";
+import {
+	resolveAgentProfileControllerModelDetail,
+	resolveAgentProfileModelCardValue,
+} from "./agent-profile-model-display";
 
 describe("resolveAgentProfileControllerModelDetail", () => {
 	it("shows the selected model and selected reasoning effort", () => {
@@ -63,6 +66,31 @@ describe("resolveAgentProfileControllerModelDetail", () => {
 				modelSelection: null,
 			})
 		).toBe("Cursor · Controller default");
+	});
+});
+
+describe("resolveAgentProfileModelCardValue", () => {
+	it("shows the saved model and reasoning without the controller", () => {
+		expect(
+			resolveAgentProfileModelCardValue({
+				agentControllerRef: "builtin:codex",
+				modelCatalog: buildModelCatalog(),
+				modelSelection: {
+					modelId: "gpt-5.3-codex-spark",
+					reasoningLevel: "high",
+				},
+			})
+		).toEqual({ value: "GPT-5.3 Codex Spark · High", isDefault: false });
+	});
+
+	it("marks the catalog default when no model is saved", () => {
+		const card = resolveAgentProfileModelCardValue({
+			agentControllerRef: "builtin:codex",
+			modelCatalog: buildModelCatalog(),
+			modelSelection: null,
+		});
+		expect(card?.isDefault).toBe(true);
+		expect(card?.value).not.toContain("Controller default");
 	});
 });
 

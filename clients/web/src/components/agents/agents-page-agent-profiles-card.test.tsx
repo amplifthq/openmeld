@@ -151,6 +151,11 @@ vi.mock("#/lib/profiles/delete-agent-profile", () => ({
 	) => deleteStartAgentProfileMock(...args),
 }));
 
+// No remembered MemberAgent chat: Chat opens the Profile's Direct Message.
+vi.mock("#/lib/profiles/use-default-human-profile", () => ({
+	useDefaultHumanProfile: () => ({ defaultHumanProfile: null }),
+}));
+
 vi.mock("#/lib/profiles/agent-profile-work-recovery", () => ({
 	executeAgentProfileWorkRecovery: (
 		...args: Parameters<typeof executeAgentProfileWorkRecoveryMock>
@@ -902,23 +907,33 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			{ presentation: "detail" }
 		);
 
-		expect(screen.getByText("Runtime")).toBeTruthy();
+		expect(screen.getByText("Runs on")).toBeTruthy();
 		expect(screen.getByText("Felix’s MacBook Pro")).toBeTruthy();
-		expect(screen.getByText("Conversation ID: conversation-123")).toBeTruthy();
+		// The conversation ID is a tooltip, not body text.
+		expect(screen.queryByText("Conversation ID: conversation-123")).toBeNull();
+		expect(screen.getByText("Owned by")).toBeTruthy();
 		const overview = screen.getByTestId("agent-configuration-overview");
+		expect(within(overview).queryByText("Owner", { exact: true })).toBeNull();
 		const cards = Array.from(
 			overview.querySelectorAll("[data-fluid-card-item]")
 		);
+		const usageCard = within(overview)
+			.getByRole("region", { name: "Usage limits" })
+			.closest("[data-fluid-card-item]");
 		const cardOrder = [
-			"Owner",
 			"Model",
 			"Working folder",
-			"Collaboration mode",
+			"Usage limits",
 			"Permissions",
-			"Runtime",
+			"Collaboration mode",
+			"Runs on",
 		].map((label) => {
-			const labelElement = within(overview).getByText(label, { exact: true });
-			const card = labelElement.closest("[data-fluid-card-item]");
+			const card =
+				label === "Usage limits"
+					? usageCard
+					: within(overview)
+							.getByText(label, { exact: true })
+							.closest("[data-fluid-card-item]");
 			if (!card) {
 				throw new Error(`Expected ${label} inside a configuration card.`);
 			}
@@ -997,12 +1012,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		);
 
 		const overview = screen.getByTestId("agent-configuration-overview");
-		expect(
-			within(overview).getByText("Working folder needs attention")
-		).toBeTruthy();
-		expect(
-			within(overview).getByText("Review the working folder for this Agent.")
-		).toBeTruthy();
+		expect(within(overview).getByText("Needs attention")).toBeTruthy();
 		expect(
 			within(overview).getByRole("button", { name: "Review working folder" })
 		).toBeTruthy();
@@ -2298,10 +2308,10 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		});
 		await waitFor(() => expect(modelCard.textContent).not.toContain("Saving…"));
 		if (outcome === "accepted") {
-			expect(modelCard.textContent).toContain("high");
+			expect(modelCard.textContent).toContain("High");
 			expect(toastMock.success).toHaveBeenCalledWith("Agent settings saved.");
 		} else {
-			expect(modelCard.textContent).toContain("low");
+			expect(modelCard.textContent).toContain("Low");
 			expect(modelCard.textContent).toContain(
 				"Changes weren’t saved. Open to retry."
 			);
@@ -2323,7 +2333,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				"Settings saved. Refresh the page to reload the latest status."
 			);
 			expect(toastMock.error).not.toHaveBeenCalled();
-			expect(modelCard.textContent).toContain("high");
+			expect(modelCard.textContent).toContain("High");
 		}
 	});
 

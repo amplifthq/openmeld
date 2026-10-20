@@ -94,6 +94,11 @@ export function AgentConfigurationCard(input: {
 	attentionTone?: "danger" | "warning";
 	children?: ReactNode;
 	className?: string;
+	/**
+	 * One-line value and at most one muted line, so a row of cards keeps one
+	 * height; long text truncates with a tooltip.
+	 */
+	compact?: boolean;
 	description?: string;
 	disabled?: boolean;
 	icon: ReactNode;
@@ -107,6 +112,8 @@ export function AgentConfigurationCard(input: {
 	readOnly?: boolean;
 	status?: "idle" | "saving" | "saved";
 	summary: string;
+	/** A small tag after the value, such as "Default". */
+	summaryAccessory?: ReactNode;
 	summaryClassName?: string;
 	summaryTitle?: string;
 }) {
@@ -122,7 +129,8 @@ export function AgentConfigurationCard(input: {
 	const card = (
 		<div
 			className={cn(
-				"group flex h-full min-h-28 w-full min-w-0 items-start gap-3 rounded-md border border-transparent bg-transparent p-4 text-left",
+				"group flex h-full w-full min-w-0 items-start gap-3 rounded-md border border-transparent bg-transparent text-left",
+				input.compact ? "min-h-20 p-3.5" : "min-h-28 p-4",
 				input.attention && "ring-1",
 				input.attention && (attentionClasses?.ring ?? "ring-primary/45"),
 				input.disabled && "cursor-not-allowed opacity-55",
@@ -140,26 +148,15 @@ export function AgentConfigurationCard(input: {
 					</span>
 					{resolveConfigurationStatus(input.status)}
 				</span>
-				<TooltipHint content={input.summaryTitle}>
-					<span
-						className={cn(
-							"mt-1 block break-words font-medium text-sm leading-5",
-							input.summaryClassName
-						)}
-					>
-						{input.summary}
-					</span>
-				</TooltipHint>
-				{input.description ? (
-					<span
-						className={cn(
-							"mt-1 block text-xs leading-4.5",
-							attentionTextClassName
-						)}
-					>
-						{input.description}
-					</span>
-				) : null}
+				<AgentConfigurationCardValue
+					compact={input.compact}
+					description={input.description}
+					descriptionClassName={attentionTextClassName}
+					summary={input.summary}
+					summaryAccessory={input.summaryAccessory}
+					summaryClassName={input.summaryClassName}
+					summaryTitle={input.summaryTitle}
+				/>
 				<AgentConfigurationCardInlineContent>
 					{input.inlineContent}
 				</AgentConfigurationCardInlineContent>
@@ -262,12 +259,16 @@ export function AgentConfigurationReadoutCard(input: {
 	label: string;
 	headerAccessory?: ReactNode;
 	children: ReactNode;
+	compact?: boolean;
 }) {
 	return (
 		<AgentConfigurationSurface itemId={input.itemId}>
 			<section
 				aria-label={input.label}
-				className="h-full min-h-28 min-w-0 rounded-md p-4"
+				className={cn(
+					"h-full min-w-0 rounded-md",
+					input.compact ? "min-h-20 p-3.5" : "min-h-28 p-4"
+				)}
 			>
 				<div className="flex items-center justify-between gap-2">
 					<h3 className="font-medium text-muted-foreground text-xs">
@@ -275,7 +276,9 @@ export function AgentConfigurationReadoutCard(input: {
 					</h3>
 					{input.headerAccessory}
 				</div>
-				<div className="mt-3 min-w-0">{input.children}</div>
+				<div className={cn("min-w-0", input.compact ? "mt-2" : "mt-3")}>
+					{input.children}
+				</div>
 			</section>
 		</AgentConfigurationSurface>
 	);
@@ -301,6 +304,51 @@ function AgentConfigurationSurface(input: {
 				{input.children}
 			</FluidCardItem>
 		</SurfaceProvider>
+	);
+}
+
+function AgentConfigurationCardValue(input: {
+	compact?: boolean;
+	description?: string;
+	descriptionClassName: string;
+	summary: string;
+	summaryAccessory?: ReactNode;
+	summaryClassName?: string;
+	summaryTitle?: string;
+}) {
+	return (
+		<>
+			<span className="mt-1 flex min-w-0 items-center gap-2">
+				<TooltipHint
+					content={
+						input.summaryTitle ?? (input.compact ? input.summary : undefined)
+					}
+				>
+					<span
+						className={cn(
+							"block min-w-0 font-medium text-sm leading-5",
+							input.compact ? "truncate" : "break-words",
+							input.summaryClassName
+						)}
+					>
+						{input.summary}
+					</span>
+				</TooltipHint>
+				{input.summaryAccessory}
+			</span>
+			{input.description ? (
+				<span
+					className={cn(
+						"mt-1 block text-xs leading-4.5",
+						input.compact && "truncate",
+						input.descriptionClassName
+					)}
+					title={input.compact ? input.description : undefined}
+				>
+					{input.description}
+				</span>
+			) : null}
+		</>
 	);
 }
 
