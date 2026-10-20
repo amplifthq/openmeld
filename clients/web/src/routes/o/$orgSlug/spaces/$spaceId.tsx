@@ -66,6 +66,12 @@ import {
 	readLastUsedHumanProfileId,
 	writeLastUsedHumanProfileId,
 } from "#/lib/spaces/last-used-profile";
+import {
+	pickSpaceMembersFocusSearch,
+	type SpaceMembersFocusSearch,
+	spaceMembersFocusSearchShape,
+	useSpaceMembersFocus,
+} from "#/lib/spaces/space-members-focus";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
 import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
@@ -79,6 +85,7 @@ const appSpaceRouteSearchSchema = z.object({
 	focusSignalId: z.string().trim().min(1).optional(),
 	focusThreadRootSignalId: z.string().trim().min(1).optional(),
 	profileId: z.string().trim().min(1).optional(),
+	...spaceMembersFocusSearchShape,
 });
 
 type AppSpaceFocusSearch = Pick<
@@ -268,6 +275,8 @@ function MissingAppSpaceProfileContent(
 	} & AppSpaceFocusInput
 ) {
 	const navigate = useNavigate();
+	// A link to the Members panel keeps its target through the redirect.
+	const { highlight, panel, section } = useSpaceMembersFocus();
 	const { hasRestored, state, storageScope } = useStartFlowState();
 	const profilesQuery = useQuery(
 		buildStartProfilesQueryOptions({
@@ -315,6 +324,7 @@ function MissingAppSpaceProfileContent(
 				focusInteractionId: input.focusInteractionId,
 				focusSignalId: input.focusSignalId,
 				focusThreadRootSignalId: input.focusThreadRootSignalId,
+				membersFocus: { highlight, panel, section },
 				profileId: recommendedProfileId,
 			}),
 			to: resolveAppSpaceEntryRouteTo(input.navigationSurface),
@@ -330,6 +340,9 @@ function MissingAppSpaceProfileContent(
 		input.orgSlug,
 		input.spaceId,
 		input.navigationSurface,
+		highlight,
+		panel,
+		section,
 	]);
 
 	if (!hasRestored || (profilesQuery.isPending && !profilesHaveData)) {
@@ -1162,12 +1175,16 @@ function resolveAppSpaceEntryRouteTo(
 }
 
 function buildAppSpaceRouteSearch(
-	input: AppSpaceFocusSearch & { profileId: string }
+	input: AppSpaceFocusSearch & {
+		profileId: string;
+		membersFocus?: SpaceMembersFocusSearch;
+	}
 ) {
 	return {
 		focusInteractionId: input.focusInteractionId,
 		focusSignalId: input.focusSignalId,
 		focusThreadRootSignalId: input.focusThreadRootSignalId,
 		profileId: input.profileId,
+		...pickSpaceMembersFocusSearch(input.membersFocus ?? {}),
 	};
 }

@@ -48,7 +48,7 @@ import {
 	resolveColleagueRequestSpaceId,
 	useOpenColleagueRequestSpace,
 } from "#/components/agent-access/agent-access-indicator";
-import { AgentProfileAccessSection } from "#/components/agent-access/agent-profile-access-section";
+import { AgentProfileAccessOverview } from "#/components/agent-access/agent-access-sections";
 import { AgentAvatarEditor } from "#/components/agents/agent-avatar-editor";
 import type {
 	AgentProfileActivityDestination,
@@ -479,12 +479,14 @@ export function AgentProfileWorkspaceDetail(input: {
 					viewerProfileId={input.conversationViewerProfileId}
 				/>
 			) : null}
-			<AgentProfileAccessSection
-				enabled={showOwnerOperationalContext}
+			<AgentProfileAccessOverview
+				isOwner={showOwnerOperationalContext}
+				ownerUserId={input.profile.ownerUserId}
 				profileId={input.profile.openMeldProfileId}
+				profileName={input.profile.profileName}
 			>
 				<MemberAgentSensitiveChanges />
-			</AgentProfileAccessSection>
+			</AgentProfileAccessOverview>
 		</div>
 	);
 }

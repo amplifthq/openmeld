@@ -511,6 +511,61 @@ External users are refused, and an active standing grant is returned as it
 is. Writing or revoking a grant broadcasts `space.agent_access.changed` to the
 Spaces where that person asked for the Agent, so open views refetch.
 
+#### Agent access list
+
+Requesters and owners see one shared list of access entries. An access entry
+is one person's right to use an Agent Profile they do not own. It names the
+Agent Profile and its owner, the person, one rule, and the Spaces it concerns.
+The rules are:
+
+- **Always allowed**: an `always` grant; it covers every chat with that
+  Profile.
+- **This chat only**: an `allow_once` decision; it covers that request's DM.
+- **Waiting for <owner>** (the requester) or **Waiting for you** (the owner):
+  a pending request.
+- **Declined**: the owner declined the latest request.
+- **Access removed**: the owner removed access after allowing it.
+- **In this Space**: the Agent is a member of a group Space, so its members
+  may mention it.
+
+Every row has the same layout: avatar, name (with the Agent's name when the
+list mixes Agents), a secondary line with the rule and, for a decided row, a
+relative time, and one control on the right. What the control does depends
+on the viewer, never on the surface:
+
+- The owner manages decided rows from a compact menu that shows the current
+  rule and offers only changes Core can apply: **Always allowed** for a
+  member on **This chat only**, and **Remove access**, which revokes every
+  active grant the person holds for that Profile. Always allowing retires the
+  person's one-chat grants, so the menu does not offer a way back to **This
+  chat only**; the owner removes access and the person asks again. Pending
+  rows are answered inline with **Allow once**, **Always allow**, and
+  **Decline**. Removing an `always` grant asks for one confirmation, because
+  it applies to every chat with that Agent. External requesters never get
+  **Always**.
+- The requester sees plain state text on their own row, with **Withdraw**
+  while it waits and **Ask again** after a decline or removal.
+- Everyone else reads the row.
+
+The list is built only from the existing Core projections: access requests,
+the owner's `GET /v1/agent-profiles/:agentProfileId/access-grants`, and the
+requester's `GET /v1/organizations/current/agent-access-grants/mine` through
+the shared requester-state derivation. It holds no state of its own.
+
+Access is managed in the Space. The Space Members panel shows an **Agent
+access** section when it has rows: in a DM, the requester's entry for the DM's
+Agent; in a group Space, the Agents in it that other people own and pending
+requests to add an Agent. The link
+`?panel=members&section=agent-access&highlight=<entryId>` opens the panel,
+scrolls to the row, and briefly highlights it. Other surfaces, such as the
+Space header's access state, open the section with the same link.
+
+The Agent detail page shows the same rows read-only. The owner sees one row
+per person with the Spaces where the rule applies, each linking to **Manage in
+<Space>**, followed by a collapsed **Recent changes** log. A teammate viewing
+someone else's Agent sees one **Your access** row and links to their chats
+with it. Both views refetch on the Space's Agent access change broadcast.
+
 ## Space Identity
 
 The Space name is Space-owned identity. It is the same canonical value used in

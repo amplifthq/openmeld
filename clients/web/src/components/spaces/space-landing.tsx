@@ -109,6 +109,11 @@ import {
 import type { PendingSpaceMessage } from "#/lib/spaces/pending-message";
 import { resolveCurrentSpaceProfileName } from "#/lib/spaces/profile-display";
 import {
+	resolveAgentAccessHighlightId,
+	useOpenMembersPanelForFocus,
+	useSpaceMembersFocus,
+} from "#/lib/spaces/space-members-focus";
+import {
 	resolveWakeFailureTargetContext,
 	type WakeFailureTargetContext,
 } from "#/lib/spaces/wake-failure-display";
@@ -700,6 +705,12 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		},
 		[input.spaceId]
 	);
+	const membersFocus = useSpaceMembersFocus();
+	useOpenMembersPanelForFocus({
+		focus: membersFocus,
+		onOpen: setMembersOpen,
+		spaceId: input.spaceId,
+	});
 	const membersPanelWidth = useSpacePanelWidth({
 		panel: "members",
 		spaceId: input.spaceId,
@@ -1454,6 +1465,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		isCheckingForDeletion,
 		isDirectMessage,
 		isDesktopMembersPanel,
+		membersFocus,
 		membersOpen,
 		membersPanelWidth,
 		modelCatalog,
@@ -3156,6 +3168,7 @@ function SpaceLandingSecondaryPanels({
 		activeWakeDisplayTargetProfileIds,
 		activeWakeFolderWaitTargetProfileIds,
 		activeWakeWaitingTargetProfileIds,
+		agentAccessHighlightId: resolveAgentAccessHighlightId(state.membersFocus),
 		agentRecoveryPlansByProfileId,
 		autoRefreshExhaustedProfileIds,
 		centerAgentProfileId: centerAgentState.centerAgentProfileId,
@@ -3163,6 +3176,7 @@ function SpaceLandingSecondaryPanels({
 		currentProfileId: controller.profileId,
 		displayWakeOverrideByProfileId: wakeDisplayOverrideByProfileId,
 		isAgentRecoveryPending: controller.isAgentRecoveryPending,
+		isDirectMessage: state.isDirectMessage,
 		isLoading:
 			controller.isMembersLoading || !controller.isCurrentAccessConfirmed,
 		membersError: resolveSpaceMembersLoadErrorMessage(controller.membersError),

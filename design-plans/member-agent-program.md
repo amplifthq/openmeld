@@ -624,6 +624,18 @@ writes `urgent`, keyed by `contextId` → email once per Session → Felix answe
 in Inbox with the native option → Service resumes → Tali's view shows
 "Running" again. Timeout 8 h ends the task with an explicit reason.
 
+**Managing access afterwards.** Felix opens the DM (or the group Space) →
+Members → **Agent access** → Tali's row shows her rule (**Always allowed**,
+**This chat only**, **Waiting for you**, **Declined**, **Access removed**) →
+Felix upgrades a member to **Always allowed** or removes access from the
+row's menu; removing an `always` grant asks once, because it covers every
+chat with that Profile. Tali sees the same
+row read-only, with **Withdraw** while it waits and **Ask again** after a
+decline or removal. The Agent detail page lists the same rows and links each
+Space with **Manage in <Space>**
+(`?panel=members&section=agent-access&highlight=<entryId>`). Detail:
+`developing/product/space-collaboration.md`, Agent access list.
+
 ## 8. Data, migration and rollback
 
 - Migrations live in `packages/db/postgresql/migrations` (latest `0192`).

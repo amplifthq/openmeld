@@ -2,10 +2,12 @@ import { createAgentAccessApi } from "@openmeld/api-client";
 import type {
 	AgentAccessDecision,
 	AgentAccessRequestView,
+	AgentProfileAccessGrantView,
 	ListAgentAccessRequestsQuery,
 } from "@openmeld/schemas";
 import {
 	type QueryClient,
+	queryOptions,
 	useMutation,
 	useQuery,
 	useQueryClient,
@@ -158,14 +160,23 @@ export function useRequestAgentForSpace() {
 }
 
 /** Owner-only: who may use this Agent Profile without asking. */
-export function useAgentProfileAccessGrants(profileId: string) {
-	const organizationId =
-		useOptionalAppOrganization()?.currentOrganization.id ?? "";
-	return useQuery({
-		queryKey: agentAccessQueryKeys.grants(organizationId, profileId),
-		enabled: Boolean(organizationId && profileId) && isMemberAgentsEnabled(),
+export function agentProfileAccessGrantsQueryOptions(input: {
+	organizationId: string;
+	profileId: string;
+	enabled?: boolean;
+}) {
+	return queryOptions({
+		queryKey: agentAccessQueryKeys.grants(
+			input.organizationId,
+			input.profileId
+		),
+		enabled:
+			(input.enabled ?? true) &&
+			Boolean(input.organizationId && input.profileId) &&
+			isMemberAgentsEnabled(),
 		queryFn: async () =>
-			(await agentAccessApi(organizationId).listGrants(profileId)).grants,
+			(await agentAccessApi(input.organizationId).listGrants(input.profileId))
+				.grants,
 		retry: false,
 	});
 }
@@ -186,17 +197,42 @@ export function useViewerAgentAccessGrants() {
 	});
 }
 
-export function useRevokeAgentProfileAccessGrant(profileId: string) {
+/**
+ * Owner-only: removes grants one by one; anything already running
+ * finishes. Core broadcasts each change to the Spaces it concerns.
+ */
+export function useRevokeAgentAccessGrants() {
 	const queryClient = useQueryClient();
 	const organizationId =
 		useOptionalAppOrganization()?.currentOrganization.id ?? "";
 	return useMutation({
-		mutationFn: async (grantId: string) =>
-			await agentAccessApi(organizationId).revokeGrant(profileId, grantId),
+		mutationFn: async (
+			grants: readonly Pick<AgentProfileAccessGrantView, "id" | "profileId">[]
+		) => {
+			const api = agentAccessApi(organizationId);
+			for (const grant of grants) {
+				await api.revokeGrant(grant.profileId, grant.id);
+			}
+		},
 		retry: false,
 		onSettled: async () =>
-			await queryClient.invalidateQueries({
-				queryKey: agentAccessQueryKeys.grants(organizationId, profileId),
-			}),
+			await invalidateAgentAccess({ organizationId, queryClient }),
+	});
+}
+
+/** Owner-only: always allows a member, for example after Allow once. */
+export function useAlwaysAllowAgentAccess() {
+	const queryClient = useQueryClient();
+	const organizationId =
+		useOptionalAppOrganization()?.currentOrganization.id ?? "";
+	return useMutation({
+		mutationFn: async (input: { profileId: string; granteeUserId: string }) =>
+			await agentAccessApi(organizationId).alwaysAllow(
+				input.profileId,
+				input.granteeUserId
+			),
+		retry: false,
+		onSettled: async () =>
+			await invalidateAgentAccess({ organizationId, queryClient }),
 	});
 }

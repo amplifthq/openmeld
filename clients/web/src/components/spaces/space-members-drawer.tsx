@@ -55,6 +55,7 @@ import {
 	useState,
 } from "react";
 import { toast } from "sonner";
+import { SpaceAgentAccessSection } from "#/components/agent-access/agent-access-sections";
 import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
 import {
 	isActiveWalkthroughStep,
@@ -171,6 +172,9 @@ type SpaceMembersSurfaceProps = {
 	currentProfileId: string;
 	displayWakeOverrideByProfileId?: WakeDisplayOverrideByProfileId;
 	isAgentRecoveryPending: (profileId: string) => boolean;
+	isDirectMessage?: boolean;
+	/** The Agent access row a link names; it scrolls into view. */
+	agentAccessHighlightId?: string | null;
 	isLoading: boolean;
 	membersError: string | null;
 	modelCatalog?: ModelCatalog | null;
@@ -310,6 +314,7 @@ export function SpaceMembersSidePanel(
 				}
 				addMembersDialogId={model.addMembersDialogId}
 				addMembersTriggerRef={model.addMembersTriggerRef}
+				agentAccessHighlightId={input.agentAccessHighlightId ?? null}
 				agentProfileEditContext={input.agentProfileEditContext}
 				agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
 				autoRefreshExhaustedProfileIds={input.autoRefreshExhaustedProfileIds}
@@ -319,6 +324,7 @@ export function SpaceMembersSidePanel(
 				currentProfileId={input.currentProfileId}
 				displayWakeOverrideByProfileId={input.displayWakeOverrideByProfileId}
 				filteredDirectory={model.filteredDirectory}
+				isDirectMessage={input.isDirectMessage === true}
 				membersError={input.membersError}
 				modelCatalog={input.modelCatalog ?? null}
 				onAddMembersOpen={model.openAddMembers}
@@ -328,6 +334,7 @@ export function SpaceMembersSidePanel(
 				}
 				onAddProfiles={input.onAddProfiles}
 				onAgentRecoveryAction={input.onAgentRecoveryAction}
+				onClose={() => input.onOpenChange(false)}
 				onConvertDirectMessageToSpace={input.onConvertDirectMessageToSpace}
 				onQueryChange={model.setQuery}
 				onRefresh={input.onRefresh}
@@ -427,6 +434,7 @@ export function SpaceMembersDrawer(
 								}
 								addMembersDialogId={model.addMembersDialogId}
 								addMembersTriggerRef={model.addMembersTriggerRef}
+								agentAccessHighlightId={input.agentAccessHighlightId ?? null}
 								agentProfileEditContext={input.agentProfileEditContext}
 								agentRecoveryPlansByProfileId={
 									input.agentRecoveryPlansByProfileId
@@ -442,6 +450,7 @@ export function SpaceMembersDrawer(
 									input.displayWakeOverrideByProfileId
 								}
 								filteredDirectory={model.filteredDirectory}
+								isDirectMessage={input.isDirectMessage === true}
 								membersError={input.membersError}
 								modelCatalog={input.modelCatalog ?? null}
 								onAddMembersOpen={model.openAddMembers}
@@ -451,6 +460,7 @@ export function SpaceMembersDrawer(
 								}
 								onAddProfiles={input.onAddProfiles}
 								onAgentRecoveryAction={input.onAgentRecoveryAction}
+								onClose={() => input.onOpenChange(false)}
 								onConvertDirectMessageToSpace={
 									input.onConvertDirectMessageToSpace
 								}
@@ -662,9 +672,13 @@ type SpaceMembersBodyProps = {
 	currentProfileId: string;
 	displayWakeOverrideByProfileId?: WakeDisplayOverrideByProfileId;
 	filteredDirectory: ReturnType<typeof filterSpaceMemberDirectory> | null;
+	agentAccessHighlightId: string | null;
+	isDirectMessage: boolean;
 	membersError: string | null;
 	modelCatalog: ModelCatalog | null;
 	onAddMembersOpen: (trigger: HTMLElement) => void;
+	/** Closes the Members surface, so the composer is in reach. */
+	onClose: () => void;
 	onAgentRecoveryAction: (
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
@@ -820,6 +834,14 @@ function SpaceMembersBody(input: SpaceMembersBodyProps) {
 							prepareSetupHref={input.prepareSetupHref}
 							query={input.query}
 							snapshot={input.snapshot}
+						/>
+						<SpaceAgentAccessSection
+							centerAgentProfileId={input.centerAgentProfileId}
+							highlightId={input.agentAccessHighlightId}
+							isDirectMessage={input.isDirectMessage}
+							onAskAgainInDirectMessage={input.onClose}
+							snapshot={input.snapshot}
+							spaceId={input.spaceId}
 						/>
 					</div>
 				</ScrollArea>
