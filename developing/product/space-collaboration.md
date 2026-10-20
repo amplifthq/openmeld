@@ -372,7 +372,14 @@ When anyone other than the owner mentions or adds another member's Agent in a
 Space that Agent is not in, the Agent is not added and not woken. Core instead
 creates a request bound to the exact message id (or the add operation), stored
 on the MemberAgent; editing or deleting that message voids the request and its
-author sees that it was voided. The mention chip shows "Requested <owner>". The
+author sees that it was voided. The mention chip shows "Requested <owner>". In
+the @ picker these Agents are grouped under "<owner>'s Agents · not in this
+Space". A colleague's Agent is left out only when its profile id is already a
+member; a shared name or Harness never hides it. Choosing one inserts the
+owner-qualified name (`@Tali's Codex`) so it never reads as a member's
+mention. Each row shows the Agent's shared Wake availability; an unavailable
+Agent shows that label (for example "Unavailable") instead of "Asks <owner>"
+and can still be chosen, because choosing it only asks the owner. The
 owner receives an `agent_space_request` Inbox item and becomes a read-only
 observer of that Space, then chooses **Add to Space** or **Don't add**.
 **Message <requester>** opens the owner's Direct Message with the requester and

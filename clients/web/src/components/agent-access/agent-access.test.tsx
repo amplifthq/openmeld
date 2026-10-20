@@ -504,7 +504,7 @@ describe("Mentioning a colleague's Agent outside the Space", () => {
 		ownerUserId: "felix",
 		profileHandle: null,
 		profileId: "agt_codex",
-		profileName: "Felix's Codex",
+		profileName: "Codex",
 		status: "active" as "active" | "disabled",
 		...overrides,
 	});
@@ -518,7 +518,12 @@ describe("Mentioning a colleague's Agent outside the Space", () => {
 		agents: [
 			createSpaceMemberAgentSnapshot({
 				profileId: "agt_member",
-				profileName: "Felix's Reviewer",
+				profileName: "Reviewer",
+			}),
+			// The current user's own Codex is a member under the same name.
+			createSpaceMemberAgentSnapshot({
+				profileId: "agt_tali_codex",
+				profileName: "Codex",
 			}),
 		],
 	});
@@ -528,13 +533,14 @@ describe("Mentioning a colleague's Agent outside the Space", () => {
 			agentProfiles: [
 				profile({}),
 				profile({ profileId: "agt_mine", ownerUserId: "tali" }),
-				profile({ profileId: "agt_member", profileName: "Felix's Reviewer" }),
+				profile({ profileId: "agt_member", profileName: "Reviewer" }),
 				profile({ profileId: "agt_same_name", profileName: "Tali" }),
+				profile({ profileId: "agt_tali_codex", ownerUserId: "tali" }),
 				profile({ profileId: "agt_center", isCenterAgent: true }),
 				profile({ profileId: "agt_disabled", status: "disabled" }),
 				profile({
 					profileId: "agt_ana",
-					profileName: "Ana's Cursor",
+					profileName: "Cursor",
 					ownerName: "Ana",
 					ownerUserId: "ana",
 				}),
@@ -549,8 +555,62 @@ describe("Mentioning a colleague's Agent outside the Space", () => {
 			])
 		).toEqual([
 			["Ana", ["agt_ana"]],
-			["Felix", ["agt_codex"]],
+			["Felix", ["agt_codex", "agt_same_name"]],
 		]);
+	});
+
+	it("dedupes by profile id only, never by name or Harness", () => {
+		const items = buildSpaceAgentRequestMentionItems({
+			agentProfiles: [
+				// Same name and Harness as the member Codex, different profile.
+				profile({ agentControllerRef: "builtin:codex" }),
+				profile({
+					profileId: "agt_member",
+					profileName: "Reviewer",
+					agentControllerRef: "builtin:codex",
+				}),
+			] as never,
+			currentUserId: "tali",
+			snapshot,
+		});
+		expect(items.map((item) => [item.profileId, item.mentionName])).toEqual([
+			["agt_codex", "Felix's Codex"],
+		]);
+		// The owner-qualified mention never resolves as the member's "@Codex".
+		expect(
+			resolveAgentRequestMentionProfileIds({
+				selections: [{ profileId: "agt_codex", profileName: "Felix's Codex" }],
+				text: "@Codex please check, and @Felix's Codex too",
+			})
+		).toEqual(["agt_codex"]);
+		expect(
+			resolveAgentRequestMentionProfileIds({
+				selections: [{ profileId: "agt_codex", profileName: "Felix's Codex" }],
+				text: "@Codex please check",
+			})
+		).toEqual([]);
+	});
+
+	it("carries each Agent's shared Wake availability", () => {
+		const unavailable = {
+			action: "none",
+			badgeLabel: "Unavailable",
+			category: "unavailable",
+			isRefreshing: false,
+			label: "Unavailable for Wake",
+			phase: "unavailable",
+			reasonCode: null,
+			status: "unavailable_for_wake",
+			summary: "This Agent is unavailable for Wake.",
+			tooltip: "Unavailable for Wake",
+		} as const;
+		const [item] = buildSpaceAgentRequestMentionItems({
+			agentProfiles: [profile({})] as never,
+			availabilityByProfileId: new Map([["agt_codex", unavailable as never]]),
+			currentUserId: "tali",
+			snapshot,
+		});
+		expect(item?.availability?.badgeLabel).toBe("Unavailable");
 	});
 
 	it("never counts a longer name as a shorter chosen one", () => {

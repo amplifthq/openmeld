@@ -1,5 +1,6 @@
 import type {
 	GetSpaceStatusResponse,
+	OrganizationDirectoryResponse,
 	SpaceMembersSnapshot,
 } from "@openmeld/schemas/types";
 import { isDirectMessageSpace } from "@openmeld/space";
@@ -9,19 +10,30 @@ import { isMemberAgentsEnabled } from "#/lib/member-agents/member-agents-feature
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	type OrganizationSpaceProfileCandidates,
+	organizationDirectoryQueryOptions,
 	organizationSpaceProfileCandidatesQueryOptions,
 } from "#/query/organizations/organization-directory";
 
 // Mentioning a colleague's Agent that is not in this Space asks its owner
 // (member-agent-program.md §4.6, §5, §7 "Bringing an Agent into a Space").
-// The message posts with the name as text; the request binds to it.
+// The message posts with the owner-qualified name as text
+// ("@Tali Smoke's Codex"), so it never reads as a member's mention; the
+// request binds to it.
 
 const NO_ITEMS: readonly SpaceAgentRequestMentionItem[] = [];
+
+/** Wake availability from the organization directory, in its shared wording. */
+export type SpaceAgentRequestMentionAvailability = NonNullable<
+	OrganizationDirectoryResponse["agentProfiles"][number]["readiness"]["agentWakeAvailability"]
+>;
 
 /** A colleague's Agent the composer can mention by asking its owner. */
 export type SpaceAgentRequestMentionItem = {
 	agentControllerRef: string | null;
+	availability: SpaceAgentRequestMentionAvailability | null;
 	avatarUrl: string | null;
+	/** The text after "@": the owner-qualified name. */
+	mentionName: string;
 	ownerName: string;
 	ownerUserId: string;
 	profileHandle: string | null;
@@ -40,32 +52,38 @@ export type SpaceAgentRequestMentionSelection = Pick<
 >;
 
 /**
- * Active personal Agents of other owners that are not in the Space. A name
- * that a member already uses is left out: a mention of it means the member.
+ * Active personal Agents of other owners that are not in the Space. Only the
+ * profile id decides membership: a colleague's Agent that shares a name or
+ * Harness with a member is still a different Agent.
  */
 export function buildSpaceAgentRequestMentionItems(input: {
 	agentProfiles: OrganizationSpaceProfileCandidates["agentProfiles"];
+	availabilityByProfileId?: ReadonlyMap<
+		string,
+		SpaceAgentRequestMentionAvailability
+	>;
 	currentUserId: string;
 	snapshot: SpaceMembersSnapshot;
 }): readonly SpaceAgentRequestMentionItem[] {
-	const memberIds = new Set<string>();
-	const memberNames = new Set<string>();
-	for (const member of [...input.snapshot.humans, ...input.snapshot.agents]) {
-		memberIds.add(member.profileId);
-		memberNames.add(member.profileName.toLocaleLowerCase());
-	}
+	const memberIds = new Set(
+		[...input.snapshot.humans, ...input.snapshot.agents].map(
+			(member) => member.profileId
+		)
+	);
 	return input.agentProfiles
 		.flatMap((profile): SpaceAgentRequestMentionItem[] =>
 			profile.status === "active" &&
 			!profile.isCenterAgent &&
 			profile.ownerUserId &&
 			profile.ownerUserId !== input.currentUserId &&
-			!memberIds.has(profile.profileId) &&
-			!memberNames.has(profile.profileName.toLocaleLowerCase())
+			!memberIds.has(profile.profileId)
 				? [
 						{
 							agentControllerRef: profile.agentControllerRef ?? null,
+							availability:
+								input.availabilityByProfileId?.get(profile.profileId) ?? null,
 							avatarUrl: profile.avatarUrl ?? null,
+							mentionName: `${profile.ownerName ?? "Its owner"}'s ${profile.profileName}`,
 							ownerName: profile.ownerName ?? "Its owner",
 							ownerUserId: profile.ownerUserId,
 							profileHandle: profile.profileHandle ?? null,
@@ -199,16 +217,47 @@ export function useSpaceAgentRequestMentions(input: {
 			organizationId: organization?.currentOrganization.id ?? "",
 		})
 	);
+	// The profile directory has no availability; the organization directory
+	// carries each Agent's shared Wake availability.
+	const availabilityDirectory = useQuery(
+		organizationDirectoryQueryOptions({
+			enabled,
+			organizationId: organization?.currentOrganization.id ?? "",
+		})
+	);
+	const availabilityByProfileId = useMemo(
+		() =>
+			new Map(
+				(availabilityDirectory.data?.agentProfiles ?? []).flatMap((profile) =>
+					profile.readiness.agentWakeAvailability
+						? [
+								[
+									profile.profileId,
+									profile.readiness.agentWakeAvailability,
+								] as const,
+							]
+						: []
+				)
+			),
+		[availabilityDirectory.data]
+	);
 	const items = useMemo(
 		() =>
 			enabled && input.snapshot && directory.data
 				? buildSpaceAgentRequestMentionItems({
 						agentProfiles: directory.data.agentProfiles,
+						availabilityByProfileId,
 						currentUserId,
 						snapshot: input.snapshot,
 					})
 				: NO_ITEMS,
-		[currentUserId, directory.data, enabled, input.snapshot]
+		[
+			availabilityByProfileId,
+			currentUserId,
+			directory.data,
+			enabled,
+			input.snapshot,
+		]
 	);
 	return useMemo(
 		() => (items.length > 0 ? { items, onSelect: input.onSelect } : undefined),

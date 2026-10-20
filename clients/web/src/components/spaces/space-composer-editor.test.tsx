@@ -18,6 +18,7 @@ import { createPlateEditor } from "platejs/react";
 import { createRef, useLayoutEffect, useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	resolveAgentRequestRelationLabel,
 	SpaceComposerEditor,
 	type SpaceComposerEditorHandle,
 	SpaceComposerEditorKit,
@@ -35,7 +36,7 @@ const FELIX_OPTION_NAME = /Felix/;
 const RUNNER_OPTION_NAME = /Runner/;
 const ALL_OPTION_NAME = /@all/;
 const BOTH_OPTION_NAME = /Both/;
-const CODEX_REQUEST_OPTION_NAME = /Felix's Codex/;
+const CODEX_REQUEST_OPTION_NAME = /Asks Felix/;
 const MENTION_ONLY_OPTION_NAME = /^Mention only\s*— Won’t wake the agent$/;
 
 describe("SpaceComposerEditor", () => {
@@ -93,12 +94,14 @@ describe("SpaceComposerEditor", () => {
 		const onSelect = vi.fn();
 		const codex = {
 			agentControllerRef: null,
+			availability: null,
 			avatarUrl: null,
+			mentionName: "Felix's Codex",
 			ownerName: "Felix",
 			ownerUserId: "felix",
 			profileHandle: null,
 			profileId: "agt_codex",
-			profileName: "Felix's Codex",
+			profileName: "Codex",
 		};
 		render(
 			<SpaceComposerEditor
@@ -130,6 +133,41 @@ describe("SpaceComposerEditor", () => {
 		);
 		expect(onChange.mock.lastCall?.[0].authoredMentions).toEqual([]);
 		expect(onSelect).toHaveBeenCalledWith(codex);
+	});
+
+	it("says a colleague's unavailable Agent is unavailable, in the shared wording", () => {
+		const availability = {
+			action: "none",
+			badgeLabel: "Unavailable",
+			category: "unavailable",
+			isRefreshing: false,
+			label: "Unavailable for Wake",
+			phase: "unavailable",
+			reasonCode: null,
+			status: "unavailable_for_wake",
+			summary: "This Agent is unavailable for Wake.",
+			tooltip: "Unavailable for Wake",
+		} as const;
+		expect(
+			resolveAgentRequestRelationLabel({ availability, ownerName: "Tali" })
+		).toBe("Unavailable");
+		expect(
+			resolveAgentRequestRelationLabel({
+				availability: {
+					...availability,
+					badgeLabel: "Available",
+					category: "available",
+					status: "available_for_wake",
+				},
+				ownerName: "Tali",
+			})
+		).toBe("Asks Tali");
+		expect(
+			resolveAgentRequestRelationLabel({
+				availability: null,
+				ownerName: "Tali",
+			})
+		).toBe("Asks Tali");
 	});
 
 	it.each([

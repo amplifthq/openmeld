@@ -12,6 +12,7 @@ import {
 	FluidDropdownMenuGroup,
 	FluidDropdownMenuRadioItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
+import type { StatusTone } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	CaretDownIcon,
@@ -49,6 +50,8 @@ import {
 } from "react";
 import {
 	groupSpaceAgentRequestMentionItems,
+	type SpaceAgentRequestMentionAvailability,
+	type SpaceAgentRequestMentionItem,
 	type SpaceAgentRequestMentions,
 } from "#/components/agent-access/space-agent-request-mentions";
 import { Editor, EditorContainer } from "#/components/editor/ui/editor";
@@ -1164,7 +1167,7 @@ function SpaceComposerAgentRequestGroups() {
 					keywords={[item.ownerName, item.profileHandle ?? item.profileName]}
 					label={item.profileName}
 					onClick={() => {
-						editor.tf.insertText(`@${item.profileName} `);
+						editor.tf.insertText(`@${item.mentionName} `);
 						requests.onSelect(item);
 					}}
 					value={item.profileName}
@@ -1177,16 +1180,74 @@ function SpaceComposerAgentRequestGroups() {
 						profileKind="agent"
 						profileName={item.profileName}
 					/>
-					<span className="min-w-0 flex-1 truncate font-medium">
-						{item.profileName}
+					<span className="flex min-w-0 flex-1 items-center gap-2 font-medium">
+						<span className="truncate">{item.profileName}</span>
+						{item.availability ? (
+							<SpaceAgentRequestAvailability availability={item.availability} />
+						) : null}
 					</span>
 					<span className="ml-2 text-muted-foreground text-xs">
-						{`Asks ${group.ownerName}`}
+						{resolveAgentRequestRelationLabel(item)}
 					</span>
 				</InlineComboboxItem>
 			))}
 		</InlineComboboxGroup>
 	));
+}
+
+/**
+ * Choosing an Agent here only asks its owner, so an unavailable one stays
+ * selectable, but the row says it is unavailable in the shared wording
+ * instead of promising a reply.
+ */
+export function resolveAgentRequestRelationLabel(
+	item: Pick<SpaceAgentRequestMentionItem, "availability" | "ownerName">
+): string {
+	const availability = item.availability;
+	if (
+		!availability ||
+		availability.status === "available_for_wake" ||
+		availability.isRefreshing
+	) {
+		return `Asks ${item.ownerName}`;
+	}
+	return availability.badgeLabel;
+}
+
+const AGENT_REQUEST_AVAILABILITY_TONE: Record<
+	SpaceAgentRequestMentionAvailability["category"],
+	StatusTone
+> = {
+	available: "ready",
+	checking: "checking",
+	offline: "muted",
+	unavailable: "warning",
+};
+
+function SpaceAgentRequestAvailability({
+	availability,
+}: {
+	availability: SpaceAgentRequestMentionAvailability;
+}) {
+	const label = availability.isRefreshing
+		? "Checking"
+		: availability.badgeLabel;
+	return (
+		<SpaceAgentAvailabilityIndicator
+			action={availability.action}
+			category={availability.category}
+			isRefreshing={availability.isRefreshing}
+			label={label}
+			phase={availability.phase}
+			reasonCode={availability.reasonCode}
+			tone={
+				availability.isRefreshing
+					? "checking"
+					: AGENT_REQUEST_AVAILABILITY_TONE[availability.category]
+			}
+			tooltip={availability.isRefreshing ? "Checking" : availability.tooltip}
+		/>
+	);
 }
 
 function resolveComposerUnavailableLabel(

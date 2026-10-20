@@ -141,7 +141,10 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 	const onAgentRequestMention = useCallback(
 		(item: SpaceAgentRequestMentionItem) => {
 			setAgentRequestSelections((current) =>
-				addAgentRequestMentionSelection(current, item)
+				addAgentRequestMentionSelection(current, {
+					profileId: item.profileId,
+					profileName: item.mentionName,
+				})
 			);
 		},
 		[]
