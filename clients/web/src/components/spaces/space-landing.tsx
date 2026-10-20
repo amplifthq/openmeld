@@ -37,6 +37,7 @@ import {
 	useState,
 	useSyncExternalStore,
 } from "react";
+import { useDirectMessageConsentEmptyState } from "#/components/agent-access/direct-message-consent-empty-state";
 import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { AppMainContent } from "#/components/app/app-main-content";
@@ -2357,6 +2358,11 @@ function SpaceLandingConversation({
 		wakeFailureTargetContextsByProfileId,
 	} = state;
 	const welcomeStep = useWelcomeSpace(recovery.storageScope, input.spaceId);
+	const consentEmptyState = useDirectMessageConsentEmptyState({
+		isCenterAgentDirectMessage: currentSpaceIsCenterAgentDirectMessage,
+		isDirectMessage,
+		snapshot: controller.membersSnapshot,
+	});
 	const tutorial = useWalkthrough();
 	const tutorialActive = Boolean(
 		tutorial?.record &&
@@ -2477,13 +2483,18 @@ function SpaceLandingConversation({
 			composerText={controller.composerText}
 			currentOwnerUserId={currentOwnerUserId}
 			emptyStateAlignment={welcomeStep ? "start" : "center"}
-			emptyStateDescription={resolveReadySpaceEmptyStateDescription({
-				hasWelcomeStep: Boolean(welcomeStep),
-				isAgentOwnerDirectMessageObserver:
-					agentOwnerDirectMessageObserver !== null,
-				isDirectMessage,
-			})}
-			emptyStateTitle={isDirectMessage ? undefined : EMPTY_SPACE_TITLE}
+			emptyStateDescription={
+				consentEmptyState?.description ??
+				resolveReadySpaceEmptyStateDescription({
+					hasWelcomeStep: Boolean(welcomeStep),
+					isAgentOwnerDirectMessageObserver:
+						agentOwnerDirectMessageObserver !== null,
+					isDirectMessage,
+				})
+			}
+			emptyStateTitle={
+				isDirectMessage ? consentEmptyState?.title : EMPTY_SPACE_TITLE
+			}
 			ephemeralActivityItems={controller.presentedWakeProgressItems}
 			files={
 				<Suspense fallback={<DelayedSpaceFilesFallback />}>
