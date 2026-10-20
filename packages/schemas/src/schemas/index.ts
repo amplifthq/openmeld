@@ -2947,6 +2947,7 @@ export {
   getSpaceWakeProgressInputSchema,
   getSpaceWakeProgressResponseSchema,
   WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE,
+  WAKE_PROGRESS_LOCAL_FOLDER_CONFLICT_REASON_CODE,
   wakeProgressItemSchema,
   wakeProgressPhaseSchema,
   wakeProgressWaitReasonCodeSchema,

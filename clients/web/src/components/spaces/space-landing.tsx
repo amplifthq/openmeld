@@ -3,6 +3,7 @@ import {
 	createDirectMessageApi,
 	type StructuredApiClientFailure,
 } from "@openmeld/api-client";
+import { WAKE_PROGRESS_LOCAL_FOLDER_CONFLICT_REASON_CODE } from "@openmeld/schemas";
 import type {
 	AuthProfileView,
 	ConvertDirectMessageToSpaceResponse,
@@ -485,8 +486,19 @@ function useActiveWakeTargetProfileIds(
 				: new Set<string>(),
 		[controller]
 	);
+	const activeWakeFolderWaitTargetProfileIds = useMemo(
+		() =>
+			controller.mode === "ready"
+				? resolveActiveWakeFolderWaitTargetProfileIds(
+						controller.presentedWakeProgressItems,
+						controller.threadEphemeralActivityItems
+					)
+				: new Set<string>(),
+		[controller]
+	);
 	return {
 		activeWakeDisplayTargetProfileIds,
+		activeWakeFolderWaitTargetProfileIds,
 		activeWakeWaitingTargetProfileIds,
 	};
 }
@@ -713,6 +725,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	);
 	const {
 		activeWakeDisplayTargetProfileIds,
+		activeWakeFolderWaitTargetProfileIds,
 		activeWakeWaitingTargetProfileIds,
 	} = useActiveWakeTargetProfileIds(controller);
 	const currentAccountProfile = useMemo(
@@ -1414,6 +1427,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	return {
 		accountProfiles,
 		activeWakeDisplayTargetProfileIds,
+		activeWakeFolderWaitTargetProfileIds,
 		activeWakeWaitingTargetProfileIds,
 		addMembersRequestNonce,
 		agentRecoveryPlansByProfileId,
@@ -3082,6 +3096,7 @@ function SpaceLandingSecondaryPanels({
 	const {
 		accountProfiles,
 		activeWakeDisplayTargetProfileIds,
+		activeWakeFolderWaitTargetProfileIds,
 		activeWakeWaitingTargetProfileIds,
 		addMembersRequestNonce,
 		agentRecoveryPlansByProfileId,
@@ -3108,6 +3123,7 @@ function SpaceLandingSecondaryPanels({
 		accountProfiles,
 		agentProfileEditContext,
 		activeWakeDisplayTargetProfileIds,
+		activeWakeFolderWaitTargetProfileIds,
 		activeWakeWaitingTargetProfileIds,
 		agentRecoveryPlansByProfileId,
 		autoRefreshExhaustedProfileIds,
@@ -4321,12 +4337,39 @@ function resolveActiveWakeDisplayTargetProfileIds(
 	const targetProfileIds = new Set<string>();
 	for (const itemGroup of itemGroups) {
 		for (const item of itemGroup) {
-			if (isActiveWakeProgressItem(item)) {
+			if (
+				isActiveWakeProgressItem(item) &&
+				!isFolderWaitWakeProgressItem(item)
+			) {
 				targetProfileIds.add(item.targetProfileId);
 			}
 		}
 	}
 	return targetProfileIds;
+}
+
+/** Agents whose Wake is queued on the computer behind a task in its folder. */
+function resolveActiveWakeFolderWaitTargetProfileIds(
+	...itemGroups: readonly (readonly WakeProgressItem[])[]
+): ReadonlySet<string> {
+	const targetProfileIds = new Set<string>();
+	for (const itemGroup of itemGroups) {
+		for (const item of itemGroup) {
+			if (
+				isActiveWakeProgressItem(item) &&
+				isFolderWaitWakeProgressItem(item)
+			) {
+				targetProfileIds.add(item.targetProfileId);
+			}
+		}
+	}
+	return targetProfileIds;
+}
+
+function isFolderWaitWakeProgressItem(item: WakeProgressItem): boolean {
+	return (
+		item.waitReasonCode === WAKE_PROGRESS_LOCAL_FOLDER_CONFLICT_REASON_CODE
+	);
 }
 
 function buildSpaceAgentRecoveryPlansByProfileId(input: {

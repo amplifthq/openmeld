@@ -22,6 +22,7 @@ import type {
   WakeTraceWaterfallStepStatus,
   WakeTraceWaterfallSummaryStatus,
 } from "@openmeld/schemas/types";
+import { resolveWakeProgressLocalQueueWaitReasonCode } from "../../runtime-transport/application/local-queue-wait-reason";
 import type { OpenMeldDaemonDispatchOutboxRecoveryCandidate } from "../infrastructure/outbox/dispatch-outbox-repo";
 import {
   type AgentOriginLineageScope,
@@ -1844,11 +1845,38 @@ function resolveRuntimeCoordinatorLocalQueueReasonCode(
       return "runtime.local_queue.waiting_global_concurrency";
     case "local_execution_lane_concurrency":
       return "runtime.local_queue.waiting_local_execution_lane";
+    case "workspace_conflict":
+      return "runtime.local_queue.waiting_workspace_conflict";
     case "none":
       return "runtime.local_queue.waiting_runner_slot";
     default:
       return "runtime.local_queue.waiting_unknown";
   }
+}
+
+/** The wait reason shown on Wake progress, from the latest Service lifecycle. */
+export function resolveRuntimeCoordinatorWakeProgressWaitReasonCode(
+  trace: SpaceDispatchTraceSnapshot | null
+): WakeProgressWaitReasonCode | null {
+  const occupied =
+    resolveRuntimeCoordinatorConversationOccupancyWaitReasonCode(trace);
+  if (
+    occupied ||
+    trace?.runtimeCoordinatorExecution?.status !== "accepted_local"
+  ) {
+    return occupied;
+  }
+  const lifecycleEvent = trace.runtimeCoordinatorEvents
+    .filter((event) => event.eventType === "lifecycle_accepted_local")
+    .at(-1);
+  return lifecycleEvent
+    ? resolveWakeProgressLocalQueueWaitReasonCode(
+        readPayloadObject(
+          parseRuntimeCoordinatorEventPayload(lifecycleEvent),
+          "localQueue"
+        )
+      )
+    : null;
 }
 
 export function resolveRuntimeCoordinatorConversationOccupancyWaitReasonCode(

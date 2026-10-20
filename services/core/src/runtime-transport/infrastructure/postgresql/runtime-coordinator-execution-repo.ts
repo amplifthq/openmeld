@@ -15,6 +15,7 @@ import type {
   RuntimeCoordinatorExecutionStatus,
   WakeProgressWaitReasonCode,
 } from "@openmeld/schemas/types";
+import { resolveWakeProgressLocalQueueWaitReasonCode } from "../../application/local-queue-wait-reason";
 import { stringifyRuntimeCoordinatorEventPayload } from "../../application/runtime-coordinator-execution-token";
 
 type RuntimeCoordinatorExecutionRow = {
@@ -57,6 +58,7 @@ type RuntimeCoordinatorExecutionWakeProgressSelectorRow = {
   running_at_ms?: unknown;
   dispatch_id?: unknown;
   latest_dispatch_attempt_status?: unknown;
+  latest_local_queue_payload_json?: unknown;
   latest_occupancy_payload_json?: unknown;
   runtime_coordinator_execution_id?: unknown;
   source_client_message_id?: unknown;
@@ -649,7 +651,18 @@ export const listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace =
             ORDER BY occupancy_event.observed_at_ms DESC NULLS LAST,
               occupancy_event.event_id DESC NULLS LAST
             LIMIT 1
-          ) AS latest_occupancy_payload_json
+          ) AS latest_occupancy_payload_json,
+          (
+            SELECT queue_event.payload_json
+            FROM "openmeld"."openMeldDaemon_runtime_coordinator_execution_events" AS queue_event
+            WHERE executions.status = 'accepted_local'
+              AND queue_event.runtime_coordinator_execution_id =
+                executions.runtime_coordinator_execution_id
+              AND queue_event.event_type = 'lifecycle_accepted_local'
+            ORDER BY queue_event.observed_at_ms DESC NULLS LAST,
+              queue_event.event_id DESC NULLS LAST
+            LIMIT 1
+          ) AS latest_local_queue_payload_json
         FROM "openmeld"."openMeldDaemon_runtime_coordinator_executions" AS executions
         LEFT JOIN "openmeld"."openMeldDaemon_dispatch_ledger" AS ledger
           ON ledger.space_id = executions.space_id
@@ -985,9 +998,7 @@ const mapRuntimeCoordinatorExecutionWakeProgressSelectorRow = (
       status,
       targetProfileId,
       updatedAtMs,
-      waitReasonCode: resolveWakeProgressWaitReasonCodeFromOccupancyPayload(
-        row.latest_occupancy_payload_json
-      ),
+      waitReasonCode: resolveWakeProgressSelectorWaitReasonCode(row),
       openMeldServiceRuntimeId,
     },
   ];
@@ -1015,6 +1026,30 @@ const resolveWakeProgressWaitReasonCodeFromOccupancyPayload = (
     return (occupancy as Record<string, unknown>).state === "occupied"
       ? WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
       : null;
+  } catch {
+    return null;
+  }
+};
+const resolveWakeProgressSelectorWaitReasonCode = (
+  row: RuntimeCoordinatorExecutionWakeProgressSelectorRow
+): WakeProgressWaitReasonCode | null =>
+  resolveWakeProgressWaitReasonCodeFromOccupancyPayload(
+    row.latest_occupancy_payload_json
+  ) ??
+  resolveWakeProgressWaitReasonCodeFromLocalQueuePayload(
+    row.latest_local_queue_payload_json
+  );
+/** Only a task still queued on the computer carries its local wait reason. */
+const resolveWakeProgressWaitReasonCodeFromLocalQueuePayload = (
+  value: unknown
+): WakeProgressWaitReasonCode | null => {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return null;
+  }
+  try {
+    return resolveWakeProgressLocalQueueWaitReasonCode(
+      (JSON.parse(value) as { localQueue?: unknown } | null)?.localQueue
+    );
   } catch {
     return null;
   }

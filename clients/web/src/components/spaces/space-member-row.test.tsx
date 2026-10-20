@@ -977,6 +977,26 @@ describe("SpaceMemberRow", () => {
 		).toBeNull();
 	});
 
+	it("shows a Wake queued behind a task in its folder as waiting, not working", () => {
+		renderSpaceMemberRow({
+			entry: buildAgentEntry({
+				presenceLabel: "wakeable",
+				presenceStatus: "wakeable",
+			}),
+			memberTransientState:
+				"active_wake_waiting_for_folder" as SpaceWakeStatusTransientState,
+		});
+
+		const indicator = getAgentAvailabilityIndicator();
+		expect(indicator.getAttribute("aria-label")).toBe("Waiting");
+		expect(indicator.getAttribute("aria-description")).toBe(
+			"Waiting for another task in its folder to finish"
+		);
+		expect(
+			screen.queryByText("This agent is working on a Wake in this Space.")
+		).toBeNull();
+	});
+
 	it("labels route reconnect recovery without service disconnect wording", () => {
 		renderSpaceMemberRow({
 			agentRecoveryPlan: buildRouteReconnectPlan(),

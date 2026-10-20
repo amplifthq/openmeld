@@ -163,6 +163,7 @@ type SpaceMembersSurfaceProps = {
 		AgentProfileReplyRecoveryPlan
 	>;
 	activeWakeDisplayTargetProfileIds?: ReadonlySet<string>;
+	activeWakeFolderWaitTargetProfileIds?: ReadonlySet<string>;
 	autoRefreshExhaustedProfileIds: ReadonlySet<string>;
 	activeWakeWaitingTargetProfileIds: ReadonlySet<string>;
 	centerAgentProfileId?: string | null;
@@ -301,6 +302,9 @@ export function SpaceMembersSidePanel(
 				activeWakeDisplayTargetProfileIds={
 					input.activeWakeDisplayTargetProfileIds
 				}
+				activeWakeFolderWaitTargetProfileIds={
+					input.activeWakeFolderWaitTargetProfileIds
+				}
 				activeWakeWaitingTargetProfileIds={
 					input.activeWakeWaitingTargetProfileIds
 				}
@@ -414,6 +418,9 @@ export function SpaceMembersDrawer(
 								accountProfiles={input.accountProfiles ?? []}
 								activeWakeDisplayTargetProfileIds={
 									input.activeWakeDisplayTargetProfileIds
+								}
+								activeWakeFolderWaitTargetProfileIds={
+									input.activeWakeFolderWaitTargetProfileIds
 								}
 								activeWakeWaitingTargetProfileIds={
 									input.activeWakeWaitingTargetProfileIds
@@ -647,6 +654,7 @@ type SpaceMembersBodyProps = {
 		AgentProfileReplyRecoveryPlan
 	>;
 	activeWakeDisplayTargetProfileIds?: ReadonlySet<string>;
+	activeWakeFolderWaitTargetProfileIds?: ReadonlySet<string>;
 	activeWakeWaitingTargetProfileIds: ReadonlySet<string>;
 	autoRefreshExhaustedProfileIds: ReadonlySet<string>;
 	centerAgentProfileId: string | null;
@@ -776,6 +784,9 @@ function SpaceMembersBody(input: SpaceMembersBodyProps) {
 						<SpaceMembersList
 							activeWakeDisplayTargetProfileIds={
 								input.activeWakeDisplayTargetProfileIds
+							}
+							activeWakeFolderWaitTargetProfileIds={
+								input.activeWakeFolderWaitTargetProfileIds
 							}
 							activeWakeWaitingTargetProfileIds={
 								input.activeWakeWaitingTargetProfileIds
@@ -1779,6 +1790,7 @@ function SpaceMembersList(input: {
 		AgentProfileReplyRecoveryPlan
 	>;
 	activeWakeDisplayTargetProfileIds?: ReadonlySet<string>;
+	activeWakeFolderWaitTargetProfileIds?: ReadonlySet<string>;
 	activeWakeWaitingTargetProfileIds: ReadonlySet<string>;
 	autoRefreshExhaustedProfileIds: ReadonlySet<string>;
 	centerAgentProfileId: string | null;
@@ -1903,6 +1915,8 @@ function SpaceMembersList(input: {
 				)}
 				memberTransientState={resolveEntryMemberTransientState({
 					activeWakeDisplayTargetProfileIds,
+					activeWakeFolderWaitTargetProfileIds:
+						input.activeWakeFolderWaitTargetProfileIds,
 					entry,
 					memberTransientStatesByProfileId,
 				})}
@@ -2100,6 +2114,7 @@ function buildRequiredAgentOwnerHumanProfileIds(input: {
 
 function resolveEntryMemberTransientState(input: {
 	activeWakeDisplayTargetProfileIds?: ReadonlySet<string>;
+	activeWakeFolderWaitTargetProfileIds?: ReadonlySet<string>;
 	entry: {
 		profileId: string;
 		profileKind: string;
@@ -2117,6 +2132,9 @@ function resolveEntryMemberTransientState(input: {
 		input.memberTransientStatesByProfileId.get(input.entry.profileId) ?? null;
 	if (memberTransientState) {
 		return memberTransientState;
+	}
+	if (input.activeWakeFolderWaitTargetProfileIds?.has(input.entry.profileId)) {
+		return "active_wake_waiting_for_folder";
 	}
 	if (
 		input.entry.presenceStatus !== "wakeable" &&

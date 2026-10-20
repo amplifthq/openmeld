@@ -717,7 +717,7 @@ import type {
 import { projectWakeProgressItemsForClient } from "../../application/wake-progress-client-projection";
 import {
   projectWakeTraceWaterfall,
-  resolveRuntimeCoordinatorConversationOccupancyWaitReasonCode,
+  resolveRuntimeCoordinatorWakeProgressWaitReasonCode,
   type WakeTraceWaterfallSourceSignalFact,
 } from "../../application/wake-trace-waterfall";
 import { resolveReactionEmoji } from "../../domain/reaction-emoji";
@@ -28625,7 +28625,7 @@ function buildWakeProgressItemFromDispatchEvidence(input: {
     ...(input.includeWaitReason
       ? {
           waitReasonCode:
-            resolveRuntimeCoordinatorConversationOccupancyWaitReasonCode(
+            resolveRuntimeCoordinatorWakeProgressWaitReasonCode(
               input.trace
             ),
         }

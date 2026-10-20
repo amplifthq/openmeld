@@ -266,6 +266,8 @@ function resolveAgentSpaceMemberRowPresentation(input: {
 		input.input.density === "compact" &&
 		(visualDisplayedMemberTransientState === "checking" ||
 			visualDisplayedMemberTransientState === "active_wake_in_progress" ||
+			visualDisplayedMemberTransientState ===
+				"active_wake_waiting_for_folder" ||
 			visualEntry.presenceStatus === "checking_connection" ||
 			visualEntry.availabilityCategory === "unavailable" ||
 			visualEntry.availabilityCategory === "offline");
@@ -686,6 +688,8 @@ function resolveDisplayedMemberTransientState(input: {
 	if (input.entry.availabilityBadgeLabel !== null) {
 		if (
 			input.manageableMemberTransientState === "active_wake_in_progress" ||
+			input.manageableMemberTransientState ===
+				"active_wake_waiting_for_folder" ||
 			input.manageableMemberTransientState === "active_wake_waiting_for_service"
 		) {
 			return input.manageableMemberTransientState;
@@ -717,6 +721,9 @@ function resolvePresenceStatusLabel(input: {
 	if (input.memberTransientState === "active_wake_in_progress") {
 		return "Working";
 	}
+	if (input.memberTransientState === "active_wake_waiting_for_folder") {
+		return "Waiting";
+	}
 	if (input.memberTransientState === "checking") {
 		const baseStatus = resolveSpaceMemberStatusBadgeDisplay(input.entry);
 		return input.entry.presenceStatus === "wakeable"
@@ -745,6 +752,9 @@ function resolvePresenceStatusTooltip(input: {
 }): string {
 	if (input.memberTransientState === "active_wake_in_progress") {
 		return "Wake in progress";
+	}
+	if (input.memberTransientState === "active_wake_waiting_for_folder") {
+		return "Waiting for another task in its folder to finish";
 	}
 	if (input.memberTransientState === "checking") {
 		return input.entry.presenceStatus === "wakeable"
@@ -803,6 +813,9 @@ function resolvePresenceIndicatorTone(input: {
 }): StatusTone {
 	if (input.entry.availabilityPhase === "provider_sign_in_needed") {
 		return "warning";
+	}
+	if (input.memberTransientState === "active_wake_waiting_for_folder") {
+		return "checking";
 	}
 	if (
 		input.memberTransientState === "active_wake_in_progress" ||
@@ -946,6 +959,8 @@ function resolveMemberTransientPrimaryDetail(
 	switch (memberTransientState) {
 		case "active_wake_in_progress":
 			return "This agent is working on a Wake in this Space.";
+		case "active_wake_waiting_for_folder":
+			return "This agent's task waits for another task on its computer that uses the same folder. It has not started.";
 		case "active_wake_waiting_for_service":
 			return "A Wake is waiting for the computer to reconnect.";
 		case "checking":
