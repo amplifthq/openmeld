@@ -1,12 +1,12 @@
 {
-  "version": "0.3.268",
+  "version": "0.3.269",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Test tooling only: Vitest 4 and the Cloudflare Vitest plugin replace the deprecated Workers pool, with no shipped CLI code, command, or wire-contract change; the mandatory CLI floor stays at 0.3.251."
+    "reason": "An interrupted Computer account switch whose previous sign-in expired or was revoked now finishes recovery with OpenMeld Service left stopped, and openmeld login/logout finish that recovery before changing the sign-in, so they no longer stay blocked. No command, argument, or wire-contract change; also carries the 0.3.268 test-tooling migration. The mandatory CLI floor stays at 0.3.251."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "The mandatory Service floor remains 0.3.264. Only test dependencies and the lockfile change; Service transport, execution, and Wake contracts are unchanged."
+    "reason": "The mandatory Service floor remains 0.3.264. The shared auth-session storage only gains a read-only journal check and new error copy; the journal shape, Service transport, execution, and Wake contracts are unchanged. Also carries the 0.3.268 test-dependency and lockfile changes."
   },
   "skills": {
     "updatePolicy": "available",

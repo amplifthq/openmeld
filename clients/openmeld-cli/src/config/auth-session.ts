@@ -4,6 +4,7 @@ import { link, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { prepareSessionContinuationSchema } from "@openmeld/schemas";
 import type { PrepareSessionContinuation } from "@openmeld/schemas/types";
+import { formatOpenMeldCliCommand } from "../runtime/cli-entry-command";
 import {
   DEFAULT_REMOTE_SESSION_TIMEOUT_MS,
   LOOPBACK_REMOTE_SESSION_TIMEOUT_MS,
@@ -110,7 +111,7 @@ class AuthSessionStorageError extends Error {
 export class AuthSessionRecoveryInProgressError extends Error {
   constructor() {
     super(
-      "OpenMeld is still finishing an interrupted Computer sign-in recovery. The current sign-in was not changed; retry after the recovery cleanup succeeds."
+      `OpenMeld is still finishing an interrupted Computer sign-in recovery. The current sign-in was not changed. Run ${formatOpenMeldCliCommand("openmeld login")} to finish the recovery and sign in, or get a new setup command from OpenMeld Web.`
     );
     this.name = "AuthSessionRecoveryInProgressError";
   }
@@ -1108,6 +1109,13 @@ async function commitAuthSessionTransitionJournal(
       });
     }
   );
+}
+
+// Read-only: explicit account commands use this to decide whether they must
+// finish an interrupted Computer handoff before changing the sign-in.
+export async function hasInterruptedComputerAuthSessionTransition(): Promise<boolean> {
+  const journal = await readAuthSessionTransitionJournal();
+  return Boolean(journal?.computerHandoff && journal.state !== "committed");
 }
 
 export async function hasPendingComputerSetupContinuation(): Promise<boolean> {

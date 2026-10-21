@@ -357,6 +357,133 @@ describe("auth session storage", () => {
     });
   });
 
+  it("lets an explicit sign-in finish recovery when the previous sign-in expired, without restarting a Service", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        expiresAt: "2026-01-01T00:00:00.000Z",
+        user: { id: "previous-owner" },
+      });
+      await beginThenCrashAuthSessionTransition({
+        accessToken: "candidate-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        computerHandoff: true,
+        user: { id: "candidate-owner" },
+      });
+
+      // Responses captured from the real Auth Worker (better-auth 1.6.30):
+      // get-session for an expired or deleted session is 200 `null`, and
+      // sign-out with an unknown, expired, or deleted bearer is 200 success.
+      const authRequests: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((url: string | URL, init?: RequestInit) => {
+          const authorization = new Headers(init?.headers).get("authorization");
+          const pathname = new URL(String(url)).pathname;
+          authRequests.push(`${pathname} ${String(authorization)}`);
+          const body =
+            pathname === "/api/auth/sign-out" ? { success: true } : null;
+          return Promise.resolve(
+            new Response(JSON.stringify(body), {
+              headers: { "content-type": "application/json" },
+              status: 200,
+            })
+          );
+        })
+      );
+      const stopService = vi.fn(() => Promise.resolve({ status: "stopped" }));
+      // An expired previous sign-in can never align its Service.
+      const restoreService = vi.fn(() =>
+        Promise.resolve({
+          errorMessage: "OpenMeld could not finish starting OpenMeld Service.",
+          status: "needs_attention",
+        })
+      );
+      const serviceModuleMocks = {
+        "../src/commands/service": () => ({
+          bestEffortStopCurrentLaneDaemonService: stopService,
+        }),
+        "../src/system/local-service-participation-gate": () => ({
+          runDaemonServiceParticipationGate: restoreService,
+        }),
+        "../src/local-service/lifecycle/daemon-service-update-state": () => ({
+          readPendingDaemonServiceUpdate: () => Promise.resolve(null),
+        }),
+        "../src/local-service/maintenance/openmeld-tools-update-attempt-state":
+          () => ({
+            readPendingOpenMeldToolsUpdateAttempt: () => Promise.resolve(null),
+          }),
+        "../src/local-service/maintenance/openmeld-tools-update-join": () => ({
+          resolveExternalOpenMeldToolsUpdate: () => Promise.resolve(null),
+          waitForExternalOpenMeldToolsUpdate: () => Promise.resolve(),
+        }),
+      };
+      vi.resetModules();
+      for (const [path, factory] of Object.entries(serviceModuleMocks)) {
+        vi.doMock(path, factory);
+      }
+      try {
+        const restartedAuthSession = await import("../src/config/auth-session");
+        const { finishInterruptedComputerAuthHandoffBeforeAccountChange } =
+          await import("../src/commands/computer-auth-handoff-recovery");
+
+        await expect(
+          restartedAuthSession.assertAuthSessionMutationAvailable()
+        ).rejects.toMatchObject({
+          name: "AuthSessionRecoveryInProgressError",
+          message: expect.stringContaining("openmeld login"),
+        });
+
+        await finishInterruptedComputerAuthHandoffBeforeAccountChange({
+          presenter: { data: vi.fn(), event: vi.fn(), line: vi.fn() },
+          runtime: {
+            interactive: false,
+            resolvedView: "agent",
+            viewMode: "agent",
+          },
+        });
+
+        expect(stopService).toHaveBeenCalledTimes(1);
+        expect(restoreService).not.toHaveBeenCalled();
+        expect(authRequests).toEqual([
+          "/api/auth/get-session Bearer previous-token",
+          "/api/auth/sign-out Bearer candidate-token",
+        ]);
+        await expect(
+          readFile(
+            join(home, ".openmeld", "auth", "session-transition.json"),
+            "utf8"
+          )
+        ).rejects.toMatchObject({ code: "ENOENT" });
+        await expect(
+          restartedAuthSession.getAuthSessionMetadata()
+        ).resolves.toMatchObject({ user: { id: "previous-owner" } });
+
+        await restartedAuthSession.assertAuthSessionMutationAvailable();
+        await restartedAuthSession.setAuthSession({
+          accessToken: "replacement-token",
+          authBaseUrl: "https://auth.openmeld.invalid",
+          clientId: "openmeld-cli",
+          user: { id: "replacement-owner" },
+        });
+        await expect(
+          restartedAuthSession.getAuthSession()
+        ).resolves.toMatchObject({
+          accessToken: "replacement-token",
+          user: { id: "replacement-owner" },
+        });
+      } finally {
+        for (const path of Object.keys(serviceModuleMocks)) {
+          vi.doUnmock(path);
+        }
+      }
+    });
+  });
+
   it("finishes recovery after the candidate token was deleted but journal unlink failed", async () => {
     await withTempHome(async (home) => {
       process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";

@@ -1,6 +1,9 @@
 import {
+  AuthSessionRecoveryInProgressError,
   completeInterruptedComputerAuthSessionRecovery,
+  getAuthSessionState,
   getInterruptedComputerAuthSessionRecovery,
+  hasInterruptedComputerAuthSessionTransition,
   markInterruptedComputerAuthSessionRecovery,
   recordInterruptedComputerAuthSessionRecoveryFailure,
 } from "../config/auth-session";
@@ -77,59 +80,13 @@ async function runInterruptedComputerAuthHandoffRecovery(
   const previousOwnerUserId = normalizeOptionalString(
     recovery.previousSession?.user?.id
   );
+  let serviceLeftStopped = false;
   if (!recovery.serviceReconciled) {
-    const stopped = await stopCurrentLaneDaemonServiceAfterToolsUpdate(input);
-    if (stopped.status === "warning") {
-      const error = new Error(
-        stopped.errorMessage ??
-          "OpenMeld could not stop the incomplete Computer connection."
-      );
-      await recordInterruptedComputerAuthSessionRecoveryFailure({
-        id: recovery.id,
-        message: error.message,
-        phase: "service",
-      });
-      logDeferredComputerAuthHandoffRecovery({
-        error: error.message,
-        phase: "service",
-        transitionId: recovery.id,
-      });
-      throw error;
-    }
-
-    if (previousOwnerUserId) {
-      const restored = await runDaemonServiceParticipationGate({
-        intent: "start",
-        presenter: input.presenter,
-        resolvedView: input.runtime.resolvedView,
-        allowPrompt: false,
-        autoRepair: true,
-        expectedOwnerUserId: previousOwnerUserId,
-        forcePrompt: true,
-        forceRefresh: true,
-        gatewayUrl: recovery.gatewayUrl,
-        suppressRefreshHumanResultCard: true,
-        suppressStartSpinner: true,
-        view: input.view,
-      });
-      if (restored.status !== "aligned") {
-        const error = new Error(
-          restored.errorMessage ??
-            "OpenMeld could not reconnect the previous Computer account."
-        );
-        await recordInterruptedComputerAuthSessionRecoveryFailure({
-          id: recovery.id,
-          message: error.message,
-          phase: "service",
-        });
-        logDeferredComputerAuthHandoffRecovery({
-          error: error.message,
-          phase: "service",
-          transitionId: recovery.id,
-        });
-        throw error;
-      }
-    }
+    serviceLeftStopped = await reconcileInterruptedComputerService(input, {
+      gatewayUrl: recovery.gatewayUrl,
+      id: recovery.id,
+      previousOwnerUserId,
+    });
     await markInterruptedComputerAuthSessionRecovery({
       id: recovery.id,
       phase: "service",
@@ -175,11 +132,166 @@ async function runInterruptedComputerAuthHandoffRecovery(
       ? "setup.computer_handoff_recovery.completed"
       : "setup.computer_handoff_recovery.deferred",
     state: completed ? "completed" : "failed",
-    text: completed
-      ? "Restored the previous computer connection."
-      : "The previous computer connection has not been fully restored.",
+    text: resolveComputerAuthHandoffRecoveryCompletionText({
+      completed,
+      serviceLeftStopped,
+    }),
   });
   return completed ? "completed" : "deferred";
+}
+
+function resolveComputerAuthHandoffRecoveryCompletionText(input: {
+  completed: boolean;
+  serviceLeftStopped: boolean;
+}): string {
+  if (!input.completed) {
+    return "The previous computer connection has not been fully restored.";
+  }
+  return input.serviceLeftStopped
+    ? "Cleared the interrupted computer connection. OpenMeld Service stays stopped until this computer signs in again."
+    : "Restored the previous computer connection.";
+}
+
+// The previous owner's Service is restored only from that owner's usable
+// sign-in. Otherwise the Service stays stopped (fail closed). Returns whether
+// the Service was left stopped for an unusable previous sign-in.
+async function reconcileInterruptedComputerService(
+  input: ComputerAuthHandoffRecoveryInput,
+  recovery: {
+    gatewayUrl: string;
+    id: string;
+    previousOwnerUserId: string | null;
+  }
+): Promise<boolean> {
+  const stopped = await stopCurrentLaneDaemonServiceAfterToolsUpdate(input);
+  if (stopped.status === "warning") {
+    const error = new Error(
+      stopped.errorMessage ??
+        "OpenMeld could not stop the incomplete Computer connection."
+    );
+    await recordInterruptedComputerAuthSessionRecoveryFailure({
+      id: recovery.id,
+      message: error.message,
+      phase: "service",
+    });
+    logDeferredComputerAuthHandoffRecovery({
+      error: error.message,
+      phase: "service",
+      transitionId: recovery.id,
+    });
+    throw error;
+  }
+
+  const previousSignIn = recovery.previousOwnerUserId
+    ? await readPreviousComputerSignIn(recovery.previousOwnerUserId)
+    : null;
+  if (previousSignIn && !previousSignIn.usable) {
+    // Only a usable sign-in for the previous owner may run its Service.
+    // Without one, the Service stays stopped: the committed sign-in remains
+    // the previous account's, and neither account receives a running
+    // Service. An explicit sign-in or a new setup can then replace it.
+    emitPreviousComputerSignInUnavailable(input.presenter, {
+      reasonCode: previousSignIn.reasonCode,
+      state: previousSignIn.state,
+      transitionId: recovery.id,
+    });
+    return true;
+  }
+  if (recovery.previousOwnerUserId) {
+    const restored = await runDaemonServiceParticipationGate({
+      intent: "start",
+      presenter: input.presenter,
+      resolvedView: input.runtime.resolvedView,
+      allowPrompt: false,
+      autoRepair: true,
+      expectedOwnerUserId: recovery.previousOwnerUserId,
+      forcePrompt: true,
+      forceRefresh: true,
+      gatewayUrl: recovery.gatewayUrl,
+      suppressRefreshHumanResultCard: true,
+      suppressStartSpinner: true,
+      view: input.view,
+    });
+    if (restored.status !== "aligned") {
+      const error = new Error(
+        restored.errorMessage ??
+          "OpenMeld could not reconnect the previous Computer account."
+      );
+      await recordInterruptedComputerAuthSessionRecoveryFailure({
+        id: recovery.id,
+        message: error.message,
+        phase: "service",
+      });
+      logDeferredComputerAuthHandoffRecovery({
+        error: error.message,
+        phase: "service",
+        transitionId: recovery.id,
+      });
+      throw error;
+    }
+  }
+  return false;
+}
+
+// Explicit account changes (sign-in and sign-out) finish an interrupted
+// Computer handoff through this same owner before touching the sign-in, so a
+// stale recovery cannot block the command that replaces the previous account.
+export async function finishInterruptedComputerAuthHandoffBeforeAccountChange(
+  input: ComputerAuthHandoffRecoveryInput
+): Promise<void> {
+  if (!(await hasInterruptedComputerAuthSessionTransition())) {
+    return;
+  }
+  const outcome = await recoverInterruptedComputerAuthHandoff(input);
+  if (outcome === "deferred") {
+    throw new AuthSessionRecoveryInProgressError();
+  }
+}
+
+type PreviousComputerSignIn =
+  | { usable: true }
+  | {
+      usable: false;
+      reasonCode: string | null;
+      state: Awaited<ReturnType<typeof getAuthSessionState>>["state"];
+    };
+
+async function readPreviousComputerSignIn(
+  previousOwnerUserId: string
+): Promise<PreviousComputerSignIn> {
+  // Rollback restored the previous payload as the committed sign-in. Ask the
+  // server, so a stale local expiry is refreshed instead of treated as final;
+  // an unreachable server keeps the restore path and its retryable failure.
+  const previous = await getAuthSessionState({
+    refreshExpired: true,
+    validateRemote: true,
+  });
+  if (
+    previous.state === "valid" &&
+    normalizeOptionalString(previous.session?.user?.id) === previousOwnerUserId
+  ) {
+    return { usable: true };
+  }
+  return {
+    usable: false,
+    reasonCode: previous.reasonCode ?? null,
+    state: previous.state,
+  };
+}
+
+function emitPreviousComputerSignInUnavailable(
+  presenter: Presenter,
+  input: { reasonCode: string | null; state: string; transitionId: string }
+): void {
+  console.warn(
+    "[openmeld.auth.computer_handoff_recovery_previous_sign_in_unavailable]",
+    input
+  );
+  presenter.line({
+    code: "setup.computer_handoff_recovery.previous_sign_in_unavailable",
+    text: "The previous account's sign-in on this computer is no longer valid, so OpenMeld left OpenMeld Service stopped instead of reconnecting it.",
+    data: { reasonCode: input.reasonCode, state: input.state },
+  });
 }
 
 function emitComputerAuthHandoffRecoveryProgress(
