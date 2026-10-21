@@ -3183,14 +3183,12 @@ describe("SpaceConversationPanel", () => {
 		const introItem = intro?.closest('[data-slot="message-scroller-item"]');
 		const firstMessageRow = firstMessage.closest("[data-slot='message']");
 
-		const openMeldLogo = screen.getByRole("img", {
-			name: "OpenMeld O logo",
-		});
 		expect(screen.queryByText("Remote")).toBeNull();
 		expect(screen.queryByRole("img", { name: "Online" })).toBeNull();
 
-		expect(openMeldLogo).toBeTruthy();
 		expect(intro).toBeTruthy();
+		// The intro shows the Center Agent's own avatar, not the OpenMeld logo.
+		expect(intro?.querySelector("canvas[data-bot-avatar]")).toBeTruthy();
 		expect(introItem?.className).toContain("[content-visibility:visible]");
 		expect(introItem?.className).not.toContain("[content-visibility:auto]");
 		expect(intro?.className).not.toContain("px-3");
