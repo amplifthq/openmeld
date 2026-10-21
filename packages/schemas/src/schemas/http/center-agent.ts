@@ -25,6 +25,10 @@ import {
   profileWorkspaceModeSchema,
 } from "../protocol/profile";
 import {
+  profileFolderIdSchema,
+  profileFolderProjectionSchema,
+} from "../protocol/profile-folders";
+import {
   agentTaskCompletionConditionSchema,
   agentTaskCompletionObservationSchema,
   agentTaskHandleSchema,
@@ -1539,6 +1543,10 @@ export const centerAgentConnectAgentProfileToLocalAgentBodySchema =
     reasoningLevel: trimmedNonEmptyStringSchema.optional(),
   });
 
+export const centerAgentPermissionModeConfirmationTokenSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{43}$/u);
+
 export const centerAgentUpdateAgentProfileRuntimeSettingsBodySchema = z
   .strictObject({
     agentControllerCollaborationMode:
@@ -1546,17 +1554,35 @@ export const centerAgentUpdateAgentProfileRuntimeSettingsBodySchema = z
     agentControllerPermissionMode:
       agentProfileBindingAgentControllerPermissionModeSchema.optional(),
     agentProfileId: agentProfileIdSchema,
+    // A folder id from the owner's folder list; never a path.
+    defaultFolderId: profileFolderIdSchema.optional(),
     modelId: trimmedNonEmptyStringSchema.optional(),
     onBehalfOf: centerAgentOnBehalfOfInputSchema.optional(),
     openCodePermission: agentProfileBindingOpenCodePermissionSchema.optional(),
+    // Core-issued evidence from an earlier turn that the member confirmed
+    // this exact permission-mode change. Never accepted for another change.
+    permissionModeConfirmationToken:
+      centerAgentPermissionModeConfirmationTokenSchema.optional(),
     reasoningLevel: trimmedNonEmptyStringSchema.optional(),
     workspaceMode: profileWorkspaceModeSchema.optional(),
     workspacePath: profileWorkingDirectorySchema.optional(),
   })
   .superRefine((value, ctx) => {
     if (
+      value.permissionModeConfirmationToken !== undefined &&
+      value.agentControllerPermissionMode === undefined
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "permissionModeConfirmationToken requires agentControllerPermissionMode",
+        path: ["permissionModeConfirmationToken"],
+      });
+    }
+    if (
       value.agentControllerCollaborationMode === undefined &&
       value.agentControllerPermissionMode === undefined &&
+      value.defaultFolderId === undefined &&
       value.modelId === undefined &&
       value.openCodePermission === undefined &&
       value.reasoningLevel === undefined &&
@@ -1566,6 +1592,16 @@ export const centerAgentUpdateAgentProfileRuntimeSettingsBodySchema = z
       ctx.addIssue({
         code: "custom",
         message: "Expected at least one runtime setting",
+      });
+    }
+    if (
+      value.defaultFolderId !== undefined &&
+      value.workspaceMode !== undefined
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Choose either defaultFolderId or workspaceMode, not both",
+        path: ["defaultFolderId"],
       });
     }
     if (value.reasoningLevel !== undefined && value.modelId === undefined) {
@@ -1589,6 +1625,7 @@ export const centerAgentUpdateAgentProfileRuntimeSettingsBodySchema = z
 
 export const centerAgentCheckAgentProfileReadinessBodySchema = z.strictObject({
   includeDefaultProjectConnection: z.boolean().optional(),
+  includeFolders: z.boolean().optional(),
   agentProfileId: agentProfileIdSchema,
   onBehalfOf: centerAgentOnBehalfOfInputSchema.optional(),
 });
@@ -1666,6 +1703,14 @@ export const centerAgentCheckAgentProfileReadinessResponseSchema =
         reasonCode: nullableTrimmedStringSchema,
       })
       .optional(),
+    // Requested with includeFolders. Folder ids and names only, never paths.
+    folders: z
+      .strictObject({
+        status: z.enum(["current", "recorded", "unavailable"]),
+        projection: profileFolderProjectionSchema.nullable(),
+        reasonCode: nullableTrimmedStringSchema,
+      })
+      .optional(),
     summary: trimmedNonEmptyStringSchema,
   });
 
@@ -1699,6 +1744,16 @@ export const centerAgentUpdateAgentProfileRuntimeSettingsResponseSchema =
     binding: ensureAgentProfilePrimaryBindingResponseSchema.optional(),
     canReply: z.boolean(),
     organizationId: trimmedNonEmptyStringSchema,
+    // Present when nothing was changed because the member must confirm the
+    // permission-mode change in a later message.
+    permissionModeConfirmation: z
+      .strictObject({
+        agentControllerPermissionMode:
+          agentProfileBindingAgentControllerPermissionModeSchema,
+        expiresAtMs: z.number().int().nonnegative(),
+        token: centerAgentPermissionModeConfirmationTokenSchema,
+      })
+      .optional(),
     readiness: centerAgentCheckAgentProfileReadinessResponseSchema.optional(),
     status: centerAgentProductOperationStatusSchema,
     steps: z.array(centerAgentProductOperationStepSchema),

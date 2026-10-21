@@ -420,7 +420,9 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 	const references = useSpaceMessageReferencePresentation(input);
 	const className = cn(
 		"break-words content-space-message [overflow-wrap:anywhere]",
-		text.shouldCollapse && !text.isExpanded && "fluid-fade-bottom",
+		// A mask clips to its border box; the inline bleed keeps list markers
+		// and other side overhang painted while the text stays in place.
+		text.shouldCollapse && !text.isExpanded && "fluid-fade-bottom -mx-3 px-3",
 		input.className
 	);
 	const shouldRenderMarkdown =

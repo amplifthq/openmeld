@@ -5,6 +5,9 @@ import {
 } from "@openmeld/agent-runtime";
 import {
   buildRuntimeCoordinatorExecutionId,
+  projectTargetWakeLifecycleIdentity,
+  RISK_WINDOW_EXECUTION_LIMIT,
+  type RiskWindowExecutionsResponse,
   runtimeCoordinatorExecutionTokenAuthorityRecordSchema,
 } from "@openmeld/schemas";
 import type {
@@ -726,6 +729,199 @@ export async function readRuntimeCoordinatorAgentProfileExecutionStateFromAdmiss
     storage: input.storage,
   });
   return unavailableExecutionState(EXECUTION_INDEX_REBUILDING_REASON);
+}
+
+/**
+ * The owner's running tasks with their chain roots, for the CLI-credential
+ * risk window (design-plans/member-agent-program-reviews/5-credentials.md,
+ * decision 5a0). A task runs from the moment RuntimeCoordinator creates its
+ * execution until the execution is terminal: an accepted or waiting Wake has
+ * no process on any computer yet. Any record this read cannot vouch for
+ * makes it unavailable, and the caller treats the window as open.
+ */
+export async function readRuntimeCoordinatorRiskWindowExecutions(input: {
+  nowMs: number;
+  ownerUserId: string;
+  storage: ExecutionAdmissionStorage;
+}): Promise<RiskWindowExecutionsResponse> {
+  const unavailable = (reasonCode: string): RiskWindowExecutionsResponse => ({
+    reasonCode,
+    status: "unavailable",
+  });
+  const index = await ensureExecutionIndexReady(input);
+  if (index.status !== "ready") {
+    return unavailable(
+      index.status === "rebuilding"
+        ? EXECUTION_INDEX_REBUILDING_REASON
+        : EXECUTION_INDEX_REPAIR_FAILED_REASON
+    );
+  }
+  const activeProfileIndex = parseActiveProfileIndexRecord(
+    await input.storage.get<unknown>(
+      EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY
+    ),
+    index.generation
+  );
+  if (!activeProfileIndex) {
+    return unavailable(EXECUTION_INDEX_REBUILDING_REASON);
+  }
+  const executionIds = await readRiskWindowExecutionIds({
+    storage: input.storage,
+    targetProfileIds: activeProfileIndex.targetProfileIds,
+  });
+  if (!executionIds || executionIds.length > RISK_WINDOW_EXECUTION_LIMIT) {
+    return unavailable(EXECUTION_STATE_UNAVAILABLE_REASON);
+  }
+  const executions: RiskWindowExecution[] = [];
+  for (const ids of chunkStorageKeys(executionIds)) {
+    const chunk = await readRiskWindowExecutionChunk({
+      executionIds: ids,
+      ownerUserId: input.ownerUserId,
+      storage: input.storage,
+    });
+    if (!chunk) {
+      return unavailable(EXECUTION_STATE_UNAVAILABLE_REASON);
+    }
+    executions.push(...chunk);
+  }
+  return { executions, status: "ready" };
+}
+
+type RiskWindowExecution = Extract<
+  RiskWindowExecutionsResponse,
+  { status: "ready" }
+>["executions"][number];
+
+/** Executions the admission records hold, or null if a record is unreadable. */
+async function readRiskWindowExecutionIds(input: {
+  storage: ExecutionAdmissionStorage;
+  targetProfileIds: readonly string[];
+}): Promise<string[] | null> {
+  const executionIds: string[] = [];
+  for (const profileIds of chunkStorageKeys(input.targetProfileIds)) {
+    const admissions = await input.storage.get<unknown>(
+      profileIds.map(buildExecutionAdmissionStorageKey)
+    );
+    for (const targetProfileId of profileIds) {
+      const admission = parseExecutionAdmissionRecord(
+        admissions.get(buildExecutionAdmissionStorageKey(targetProfileId))
+      );
+      if (
+        !admission ||
+        admission.targetProfileId !== targetProfileId ||
+        admission.referencesOverflowed
+      ) {
+        return null;
+      }
+      executionIds.push(...admission.activeExecutionIds);
+    }
+  }
+  return uniqueSorted(executionIds);
+}
+
+/**
+ * The running executions among `executionIds` (token authority not terminal)
+ * with the chain root of their Wake. A running execution whose Wake head is
+ * gone keeps a null root, which the caller treats as another requester.
+ */
+async function readRiskWindowExecutionChunk(input: {
+  executionIds: readonly string[];
+  ownerUserId: string;
+  storage: ExecutionAdmissionStorage;
+}): Promise<RiskWindowExecution[] | null> {
+  const authorities = await input.storage.get<unknown>(
+    input.executionIds.map(buildRuntimeCoordinatorTokenAuthorityStorageKey)
+  );
+  const commandStates = await input.storage.get<unknown>(
+    input.executionIds.map(buildRuntimeCoordinatorRunCommandStateStorageKey)
+  );
+  const running: Array<{
+    authority: RuntimeCoordinatorExecutionTokenAuthorityRecord;
+    headId: string | null;
+  }> = [];
+  for (const executionId of input.executionIds) {
+    const authority =
+      runtimeCoordinatorExecutionTokenAuthorityRecordSchema.safeParse(
+        authorities.get(
+          buildRuntimeCoordinatorTokenAuthorityStorageKey(executionId)
+        )
+      );
+    if (!authority.success) {
+      return null;
+    }
+    if (authority.data.terminalOutcome === null) {
+      running.push({
+        authority: authority.data,
+        headId: resolveRunCommandHeadId(
+          commandStates.get(
+            buildRuntimeCoordinatorRunCommandStateStorageKey(executionId)
+          ),
+          input.ownerUserId
+        ),
+      });
+    }
+  }
+  const headIds = running.flatMap((entry) =>
+    entry.headId ? [entry.headId] : []
+  );
+  const heads =
+    headIds.length > 0
+      ? await input.storage.get<unknown>(
+          headIds.map(buildRuntimeCoordinatorHeadLifecycleStorageKey)
+        )
+      : new Map<string, unknown>();
+  return running.map((entry) => {
+    const head = entry.headId
+      ? heads.get(buildRuntimeCoordinatorHeadLifecycleStorageKey(entry.headId))
+      : undefined;
+    const snapshot =
+      isRuntimeCoordinatorHeadLifecycleRecord(head) &&
+      head.ownerUserId === input.ownerUserId
+        ? head.acceptedDispatchSnapshot
+        : undefined;
+    const root = (snapshot?.executionContext?.requestChain ??
+      snapshot?.contextRequest?.requestChain)?.[0];
+    return {
+      openMeldServiceRuntimeId:
+        entry.authority.authorityScope.openMeldServiceRuntimeId,
+      rootProfileId: root?.kind === "human" ? root.profileId : null,
+      targetProfileId: entry.authority.executionScope.targetProfileId,
+    };
+  });
+}
+
+function resolveRunCommandHeadId(
+  value: unknown,
+  ownerUserId: string
+): string | null {
+  if (!isRuntimeCoordinatorRunCommandState(value)) {
+    return null;
+  }
+  if (value.ownerUserId !== ownerUserId) {
+    return null;
+  }
+  const payload = value.sanitizedDeliveryRequest.payload;
+  return projectTargetWakeLifecycleIdentity({
+    clientMessageId: value.sourceClientMessageId,
+    dispatchId: value.dispatchId,
+    sourceSignalId: payload.sourceEventId,
+    spaceId: payload.spaceId,
+    targetProfileId: value.targetProfileId,
+  }).targetWakeLifecycleId;
+}
+
+function chunkStorageKeys(values: readonly string[]): string[][] {
+  const chunks: string[][] = [];
+  for (
+    let offset = 0;
+    offset < values.length;
+    offset += DURABLE_OBJECT_STORAGE_GET_MAX_KEYS
+  ) {
+    chunks.push(
+      values.slice(offset, offset + DURABLE_OBJECT_STORAGE_GET_MAX_KEYS)
+    );
+  }
+  return chunks;
 }
 
 export async function readRuntimeCoordinatorAgentProfileOperationalContextsFromAdmission(input: {

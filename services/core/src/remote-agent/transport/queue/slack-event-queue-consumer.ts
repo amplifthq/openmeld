@@ -11,6 +11,14 @@ import {
 const REMOTE_AGENT_SLACK_EVENT_RETRY_DELAY_SECONDS = 5;
 const REMOTE_AGENT_SLACK_EVENT_REDRIVE_DELAY_SECONDS = 60;
 
+// receivedAtMs survives fresh Queue messages and does not require a healthy
+// database. Slow an old unsettled event without changing its identity or
+// discarding the durable recovery obligation.
+function recoveryDelay(receivedAtMs: number, minimum: number): number {
+  const ageSeconds = Math.max(0, (Date.now() - receivedAtMs) / 1000);
+  return Math.min(3600, Math.max(minimum, Math.floor(ageSeconds / 4)));
+}
+
 export async function handleRemoteAgentSlackEventQueueMessage(input: {
   env: CoreBindings;
   message: Message<unknown>;
@@ -82,7 +90,10 @@ export async function handleRemoteAgentSlackEventQueueMessage(input: {
         input.message.ack();
       } else {
         input.message.retry({
-          delaySeconds: REMOTE_AGENT_SLACK_EVENT_RETRY_DELAY_SECONDS,
+          delaySeconds: recoveryDelay(
+            parsed.data.receivedAtMs,
+            REMOTE_AGENT_SLACK_EVENT_RETRY_DELAY_SECONDS
+          ),
         });
       }
     } catch (redriveError) {
@@ -141,7 +152,10 @@ async function enqueueRemoteAgentSlackEventRedrive(
     throw new Error("Remote Agent Slack recovery queue is unavailable");
   }
   await redriveQueue.send(message, {
-    delaySeconds: REMOTE_AGENT_SLACK_EVENT_REDRIVE_DELAY_SECONDS,
+    delaySeconds: recoveryDelay(
+      message.receivedAtMs,
+      REMOTE_AGENT_SLACK_EVENT_REDRIVE_DELAY_SECONDS
+    ),
   });
 }
 

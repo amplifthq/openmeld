@@ -56,6 +56,7 @@ import {
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
   openMeldDaemonManageLocalAgentInstallationPayloadSchema,
+  openMeldDaemonManageProfileFoldersPayloadSchema,
   openMeldDaemonReadProfileWorkspacePayloadSchema,
   openMeldToolsControlResultSchema,
   type PluginConnectionExecutionSourceRequest,
@@ -126,6 +127,7 @@ import {
   runtimeTransportInspectExecutionRecoveryResponseSchema,
   runtimeTransportLocalAgentControlForkSessionFramePayloadSchema,
   runtimeTransportLocalAgentControlManageInstallationFramePayloadSchema,
+  runtimeTransportLocalAgentControlManageProfileFoldersFramePayloadSchema,
   runtimeTransportLocalAgentControlReadProfileWorkspaceFramePayloadSchema,
   runtimeTransportLocalAgentControlRefreshCatalogFramePayloadSchema,
   runtimeTransportLocalAgentControlResultFramePayloadSchema,
@@ -144,12 +146,16 @@ import {
   runtimeTransportLookupRoutesBatchRequestSchema,
   runtimeTransportManageLocalAgentInstallationRequestSchema,
   runtimeTransportManageLocalAgentInstallationResponseSchema,
+  runtimeTransportManageProfileFoldersRequestSchema,
+  runtimeTransportManageProfileFoldersResponseSchema,
   runtimeTransportNotifyRouteCatalogChangedRequestSchema,
   runtimeTransportNotifyRouteCatalogChangedResponseSchema,
   runtimeTransportOpenMeldToolsControlRequestSchema,
   runtimeTransportOpenMeldToolsControlResponseSchema,
   runtimeTransportOpenMeldToolsControlResultFramePayloadSchema,
   runtimeTransportPreExecutionHandoffRequestSchema,
+  runtimeTransportReadProfileFolderProjectionRequestSchema,
+  runtimeTransportReadProfileFolderProjectionResponseSchema,
   runtimeTransportReadProfileWorkspaceRequestSchema,
   runtimeTransportReadProfileWorkspaceResponseSchema,
   runtimeTransportRefreshLocalAgentCatalogRequestSchema,
@@ -315,8 +321,10 @@ import type {
 } from "@openmeld/schemas/types";
 import { createDispatchContinuationSpaceAccessContext } from "@openmeld/space";
 import { buildSystemNoticeText } from "@openmeld/space-mesh";
+import { publishAccountInvalidation } from "../../../account-invalidation/publish-account-invalidation";
 import { linkAcceptedAgentActivityExecutions } from "../../../agent-activity/activity-execution-link-repository";
 import {
+  type AgentExecutionReadinessImpactClearResult,
   clearAgentExecutionReadinessImpactForExecutionRunning,
   writeAgentExecutionReadinessImpact,
 } from "../../../agent-execution/infrastructure/postgresql/agent-execution-readiness-impact-repo";
@@ -358,6 +366,7 @@ import {
   UNAVAILABLE_LOCAL_COMPONENTS_RELEASE,
 } from "../../../local-components/release-source";
 import { isLocalComponentVersionAtLeast } from "../../../local-components/update-projection";
+import { isRequestChainEnforced } from "../../../member-agent/member-agents-feature";
 import { resolveSpaceStub } from "../../../rpc/space-ref";
 import {
   emitSpaceExecutionRecoveryNoticeSignal,
@@ -394,6 +403,7 @@ import {
   readRuntimeCoordinatorAgentProfileOperationalContextsFromAdmission,
   readRuntimeCoordinatorAgentProfileWorkControllerConversationOccupied,
   readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmission,
+  readRuntimeCoordinatorRiskWindowExecutions,
   recordAgentProfileContextMigrationFailure,
   releaseRuntimeCoordinatorAgentProfileExecutionTargetMutation,
   resolveNextAgentProfileContextMigrationAlarmAtMs,
@@ -456,6 +466,10 @@ import {
   removeLocalAgentStreamClosureRetryEntry,
   upsertLocalAgentStreamClosureRetryEntry,
 } from "../../application/local-agent-stream";
+import {
+  readProfileFolderProjectionRecord,
+  writeProfileFolderProjectionRecord,
+} from "../../application/profile-folder-projection-store";
 import {
   markRuntimeCoordinatorAgentTaskObservationDeliveryProjected,
   type RuntimeCoordinatorAgentTaskObservationDeliveryRecord,
@@ -611,6 +625,11 @@ import { processRuntimeCoordinatorHeadAcceptedHandoffAlarm as processRuntimeCoor
 import { processRuntimeCoordinatorHeadFailurePublicationRetryAlarm as processRuntimeCoordinatorHeadFailurePublicationRetryAlarmWithPorts } from "../../application/runtime-coordinator-head-failure-publication-retry-alarm";
 import { processRuntimeCoordinatorHeadWaitingDeadlineAlarm as processRuntimeCoordinatorHeadWaitingDeadlineAlarmWithPorts } from "../../application/runtime-coordinator-head-waiting-deadline-alarm";
 import {
+  buildRuntimeCoordinatorInteractionAttentionEventId,
+  runtimeCoordinatorInteractionAttentionCode,
+} from "../../application/runtime-coordinator-interaction-attention";
+import {
+  type InteractionRequestRoot,
   projectRuntimeCoordinatorInteractionInboxItem,
   resolveRuntimeCoordinatorInteractionInboxItem,
 } from "../../application/runtime-coordinator-interaction-inbox-producer";
@@ -798,6 +817,7 @@ export type LocalAgentControlResultPayloadKind =
   | "refresh_catalog"
   | "set_profile_workspace"
   | "read_profile_workspace"
+  | "manage_profile_folders"
   | "set_enabled";
 export function resolveLocalAgentControlResponseTimeoutMs(
   expectedPayload: LocalAgentControlResultPayloadKind
@@ -882,6 +902,8 @@ type RuntimeCoordinatorInteractionInboxRepairRecord = {
    * persisted v1 repair written before thread-aware Inbox targets.
    */
   threadRootSignalId?: string | null;
+  /** Absent on records written before the request chain was enforced. */
+  requestRoot?: InteractionRequestRoot | null;
   updatedAtMs: number;
   v: 1;
 };
@@ -1567,7 +1589,13 @@ function parseStoredAutomaticToolsUpdateUnavailableRetry(
 
 function requiredExecutionContextVersion(
   record: RuntimeCoordinatorHeadLifecycleRecord
-): 2 | 3 | 4 | 5 {
+): 2 | 3 | 4 | 5 | 6 {
+  // A selected folder needs a Service that resolves folder ids; an older one
+  // would otherwise run in its default folder.
+  const executionContext = record.acceptedDispatchSnapshot?.executionContext;
+  if (executionContext?.folderId || executionContext?.forkSource?.folderId) {
+    return 6;
+  }
   if (
     record.acceptedDispatchSnapshot?.executionContext?.projectWork?.commit ||
     record.acceptedDispatchSnapshot?.workHandoffVersion === 2
@@ -1923,6 +1951,82 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         ? { allowed: true }
         : { allowed: false, reasonCode: validation.reasonCode }
     );
+  }
+
+  /**
+   * Resolves a task credential (the task's execution token) to its execution
+   * and the root of that Wake's frozen request chain. Only an active token of
+   * an execution in this owner's shard is valid; the root always comes from
+   * the accepted assignment, never from the caller.
+   */
+  async rpcResolveTaskCredential(
+    input: RuntimeCoordinatorExecutionTokenEcho
+  ): Promise<TaskCredentialResolution> {
+    const echo = runtimeCoordinatorExecutionTokenEchoSchema.safeParse(input);
+    if (!echo.success) {
+      return { reasonCode: "execution_token_missing", status: "rejected" };
+    }
+    const executionId = echo.data.runtimeCoordinatorExecutionId;
+    const authority =
+      await this.readRuntimeCoordinatorTokenAuthority(executionId);
+    const validation =
+      await validateRuntimeCoordinatorExecutionTokenAgainstAuthority({
+        authority,
+        executionTokenEcho: echo.data,
+        nowMs: Date.now(),
+      });
+    if (!(validation.ok && authority)) {
+      return {
+        reasonCode: validation.ok
+          ? "execution_token_authority_missing"
+          : validation.reasonCode,
+        status: "rejected",
+      };
+    }
+    const commandState =
+      await this.readRuntimeCoordinatorRunCommandState(executionId);
+    if (!commandState) {
+      return {
+        reasonCode: "task_credential.execution_unavailable",
+        status: "rejected",
+      };
+    }
+    const payload = commandState.sanitizedDeliveryRequest.payload;
+    const head = await this.readRuntimeCoordinatorHeadLifecycleRecord(
+      projectTargetWakeLifecycleIdentity({
+        clientMessageId: commandState.sourceClientMessageId,
+        dispatchId: commandState.dispatchId,
+        sourceSignalId: payload.sourceEventId,
+        spaceId: payload.spaceId,
+        targetProfileId: commandState.targetProfileId,
+      }).targetWakeLifecycleId
+    );
+    const snapshot = head?.acceptedDispatchSnapshot;
+    const root = (snapshot?.executionContext?.requestChain ??
+      snapshot?.contextRequest?.requestChain)?.[0];
+    return taskCredentialResolutionSchema.parse({
+      openMeldServiceRuntimeId:
+        authority.authorityScope.openMeldServiceRuntimeId,
+      rootProfileId: root?.kind === "human" ? root.profileId : null,
+      runtimeCoordinatorExecutionId: executionId,
+      status: "valid",
+      targetProfileId: authority.executionScope.targetProfileId,
+    });
+  }
+
+  /** The owner's running tasks with chain roots (decision 5a0). */
+  async rpcReadRiskWindowExecutions(input: {
+    ownerUserId: string;
+  }): Promise<RiskWindowExecutionsResponse> {
+    const response = await readRuntimeCoordinatorRiskWindowExecutions({
+      nowMs: Date.now(),
+      ownerUserId: input.ownerUserId,
+      storage: this.ctx.storage,
+    });
+    if (response.status === "unavailable") {
+      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
+    }
+    return riskWindowExecutionsResponseSchema.parse(response);
   }
 
   async rpcReadPluginConnectionExecutionSource(
@@ -2725,7 +2829,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ownerUserId: string;
     targetProfileId: string;
     agentControllerRef: string;
-    requiredContextVersion?: 2 | 3 | 4 | 5;
+    requiredContextVersion?: 2 | 3 | 4 | 5 | 6 | 7;
     requirePermissionInheritance?: boolean;
   }): string | null {
     const route = lookupRoute(
@@ -3907,6 +4011,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       case "daemon.local_agent_control.manage_installation":
       case "daemon.local_agent_control.set_enabled":
       case "daemon.local_agent_control.set_profile_workspace":
+      case "daemon.local_agent_control.manage_profile_folders":
       case "daemon.openmeld_tools_control.request":
       case "daemon.execution_recovery.resume_controller_conversation":
       case "daemon.computer_file_access.read_policy":
@@ -9090,23 +9195,26 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (!db) {
       return;
     }
+    let clearResult: AgentExecutionReadinessImpactClearResult;
     try {
-      await clearAgentExecutionReadinessImpactForExecutionRunning({
-        agentProfileId:
-          input.tokenValidationContext.executionScope.targetProfileId,
-        clearedAtMs: Date.now(),
-        db,
-        executionAuthorizedAtMs: input.executionAuthorizedAtMs,
-        executionIdentity: {
-          bindingId: input.tokenValidationContext.authorityScope.bindingId,
-          agentControllerRef:
-            input.tokenValidationContext.authorityScope.agentControllerRef,
-          openMeldServiceRuntimeId:
-            input.tokenValidationContext.authorityScope
-              .openMeldServiceRuntimeId,
-        },
-        sourceDispatchId: input.request.dispatchId,
-      });
+      clearResult = await clearAgentExecutionReadinessImpactForExecutionRunning(
+        {
+          agentProfileId:
+            input.tokenValidationContext.executionScope.targetProfileId,
+          clearedAtMs: Date.now(),
+          db,
+          executionAuthorizedAtMs: input.executionAuthorizedAtMs,
+          executionIdentity: {
+            bindingId: input.tokenValidationContext.authorityScope.bindingId,
+            agentControllerRef:
+              input.tokenValidationContext.authorityScope.agentControllerRef,
+            openMeldServiceRuntimeId:
+              input.tokenValidationContext.authorityScope
+                .openMeldServiceRuntimeId,
+          },
+          sourceDispatchId: input.request.dispatchId,
+        }
+      );
     } catch (error) {
       console.warn(
         "[core.runtime_transport.running_readiness_impact_clear_failed]",
@@ -9120,6 +9228,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
             input.request.runtimeCoordinatorExecutionId ?? null,
         }
       );
+      return;
+    }
+    // Running lifecycle frames repeat for the whole run (progress and
+    // keepalive). Only a frame that actually cleared a readiness impact
+    // changes the readiness projection; re-broadcasting the rest makes every
+    // Space client refetch an unchanged verdict.
+    if (clearResult !== "cleared") {
       return;
     }
     this.publishAgentReadinessInvalidated({
@@ -11020,6 +11135,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         this.handleSetProfileWorkspaceRequest(input),
       "/local-agent-control/read-profile-workspace": (input: Request) =>
         this.handleReadProfileWorkspaceRequest(input),
+      "/local-agent-control/manage-profile-folders": (input: Request) =>
+        this.handleManageProfileFoldersRequest(input),
+      "/local-agent-control/read-profile-folder-projection": (input: Request) =>
+        this.handleReadProfileFolderProjectionRequest(input),
     }[url.pathname];
     if (localAgentControlHandler) {
       return localAgentControlHandler(request);
@@ -11625,6 +11744,137 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         "OpenMeld could not confirm the saved working-folder settings. Try again."
       );
     }
+  }
+
+  private async handleManageProfileFoldersRequest(
+    request: Request
+  ): Promise<Response> {
+    const reject = (status: number, reasonCode: string, message: string) =>
+      Response.json(
+        {
+          status: "rejected",
+          reasonCode,
+          message,
+        } satisfies import("@openmeld/schemas/types").RuntimeTransportManageProfileFoldersResponse,
+        { status }
+      );
+    const parsed = runtimeTransportManageProfileFoldersRequestSchema.safeParse(
+      await readJsonBody(request)
+    );
+    if (!parsed.success) {
+      return reject(
+        400,
+        "local_agent_control.invalid_request",
+        parsed.error.issues[0]?.message ?? "Invalid folder request."
+      );
+    }
+    this.reapExpiredLeases(Date.now());
+    const session = this.resolveLocalAgentControlSession({
+      ...parsed.data,
+      // Older Services ignore an operation they can't parse, so a repair
+      // needs its own capability instead of timing out.
+      capability:
+        parsed.data.operation.operation === "repair"
+          ? "repairProfileFolders"
+          : "manageProfileFolders",
+      unsupportedMessage:
+        parsed.data.operation.operation === "repair"
+          ? "Update OpenMeld Service to repair this Agent’s folder settings."
+          : "Update OpenMeld Service to manage this Agent’s folders.",
+      updateRequiredMessage:
+        "Update OpenMeld Service to manage this Agent’s folders.",
+    });
+    if (!session.ok) {
+      return reject(409, session.reasonCode, session.message);
+    }
+    const requestId = crypto.randomUUID();
+    const framePayload =
+      runtimeTransportLocalAgentControlManageProfileFoldersFramePayloadSchema.parse(
+        {
+          requestId,
+          payload: {
+            targetProfileId: parsed.data.targetProfileId,
+            operation: parsed.data.operation,
+          },
+        }
+      );
+    let result: import("@openmeld/schemas/types").OpenMeldDaemonManageProfileFoldersPayload;
+    try {
+      result = await this.sendCurrentDeviceOperationAndWait({
+        code: "daemon.local_agent_control.manage_profile_folders",
+        expectedResponseCode: "daemon.local_agent_control.result",
+        isExpectedPayload: (value) =>
+          openMeldDaemonManageProfileFoldersPayloadSchema.safeParse(value)
+            .success,
+        payload: framePayload as unknown as Record<string, unknown>,
+        requestId,
+        session: session.session,
+        timeoutMs: resolveLocalAgentControlResponseTimeoutMs(
+          "manage_profile_folders"
+        ),
+      });
+    } catch (error) {
+      return reject(
+        504,
+        error instanceof CurrentDeviceOperationError &&
+          error.kind === "invalid_response"
+          ? "local_agent_control.invalid_response"
+          : "local_agent_control.timeout",
+        "OpenMeld could not confirm this Agent’s folders. Try again."
+      );
+    }
+    if (result.targetProfileId !== parsed.data.targetProfileId) {
+      return reject(
+        502,
+        "local_agent_control.invalid_response",
+        "OpenMeld Service returned folders for a different Agent."
+      );
+    }
+    if (!result.accepted) {
+      return reject(409, result.reasonCode, result.message);
+    }
+    const record = await writeProfileFolderProjectionRecord({
+      observedAtMs: Date.now(),
+      projection: result.projection,
+      replaces: parsed.data.operation.operation === "repair",
+      storage: this.ctx.storage,
+      target: parsed.data,
+    });
+    return Response.json(
+      runtimeTransportManageProfileFoldersResponseSchema.parse({
+        status: "accepted",
+        payload: result,
+        record,
+      })
+    );
+  }
+
+  private async handleReadProfileFolderProjectionRequest(
+    request: Request
+  ): Promise<Response> {
+    const parsed =
+      runtimeTransportReadProfileFolderProjectionRequestSchema.safeParse(
+        await readJsonBody(request)
+      );
+    if (!parsed.success) {
+      return Response.json(
+        {
+          status: "rejected",
+          reasonCode: "local_agent_control.invalid_request",
+          message: "Invalid folder projection read.",
+        } satisfies import("@openmeld/schemas/types").RuntimeTransportReadProfileFolderProjectionResponse,
+        { status: 400 }
+      );
+    }
+    const record = await readProfileFolderProjectionRecord({
+      storage: this.ctx.storage,
+      target: parsed.data,
+    });
+    return Response.json(
+      runtimeTransportReadProfileFolderProjectionResponseSchema.parse(
+        record ? { status: "found", record } : { status: "not_recorded" }
+      )
+    );
   }
 
   private async handleSetProfileWorkspaceRequest(
@@ -12837,7 +13087,18 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         ...response,
         executionContext: await resolveExecutionContextTask(
           this.ctx.storage,
-          response.acceptedDispatchSnapshot.executionContext
+          response.acceptedDispatchSnapshot.executionContext,
+          {
+            resolvesWorkspaceDefault:
+              this.resolveContextMigrationCapability({
+                ownerUserId: request.ownerUserId,
+                targetProfileId: identity.targetProfileId,
+                agentControllerRef:
+                  response.acceptedDispatchSnapshot.controllerSnapshot
+                    .agentControllerRef,
+                requiredContextVersion: 7,
+              }) === null,
+          }
         ),
       };
     }
@@ -15107,12 +15368,48 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       payload,
     });
   }
+  /**
+   * The Wake's request chain root and Session from its accepted assignment,
+   * once the chain is enforced. Null keeps the owner-rooted legacy item.
+   */
+  private async readInteractionRequestRoot(
+    commandState: RuntimeCoordinatorRunCommandState
+  ): Promise<InteractionRequestRoot | null> {
+    if (!isRequestChainEnforced()) {
+      return null;
+    }
+    const payload = commandState.sanitizedDeliveryRequest.payload;
+    const head = await this.readRuntimeCoordinatorHeadLifecycleRecord(
+      projectTargetWakeLifecycleIdentity({
+        clientMessageId: commandState.sourceClientMessageId,
+        dispatchId: commandState.dispatchId,
+        sourceSignalId: payload.sourceEventId,
+        spaceId: payload.spaceId,
+        targetProfileId: commandState.targetProfileId,
+      }).targetWakeLifecycleId
+    );
+    const snapshot = head?.acceptedDispatchSnapshot;
+    const chain =
+      snapshot?.executionContext?.requestChain ??
+      snapshot?.contextRequest?.requestChain;
+    const root = chain?.[0];
+    return root?.kind === "human"
+      ? {
+          contextId: snapshot?.executionContext?.id ?? null,
+          rootProfileId: root.profileId,
+        }
+      : null;
+  }
   private async tryProjectRuntimeCoordinatorInteractionInboxItem(input: {
     commandState: RuntimeCoordinatorRunCommandState;
     interaction: RuntimeTransportDispatchInteractionRequest["interaction"];
     nowMs: number;
   }): Promise<void> {
+    const requestRoot = await this.readInteractionRequestRoot(
+      input.commandState
+    );
     await this.tryApplyRuntimeCoordinatorInteractionInboxRepair({
+      ...(requestRoot ? { requestRoot } : {}),
       attemptCount: 0,
       desiredStatus: "open",
       interaction: {
@@ -15145,7 +15442,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     interaction: RuntimeTransportDispatchInteractionRequest["interaction"];
     resolvedAtMs: number;
   }): Promise<void> {
+    const requestRoot = await this.readInteractionRequestRoot(
+      input.commandState
+    );
     const record: RuntimeCoordinatorInteractionInboxRepairRecord = {
+      ...(requestRoot ? { requestRoot } : {}),
       attemptCount: 0,
       desiredStatus: "resolved",
       interaction: {
@@ -15202,13 +15503,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return;
     }
     try {
+      let changed: { organizationId: string } | null;
       if (record.desiredStatus === "open") {
         if (!record.sourceSignalId) {
           throw new Error(
             "runtime_coordinator.interaction_inbox.source_signal_unavailable"
           );
         }
-        await projectRuntimeCoordinatorInteractionInboxItem({
+        changed = await projectRuntimeCoordinatorInteractionInboxItem({
           inboxDb: targetInboxDb,
           interaction: record.interaction,
           nowMs: record.updatedAtMs,
@@ -15219,11 +15521,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           spaceIndexDb,
           targetProfileName: record.targetProfileName,
           threadRootSignalId: record.threadRootSignalId,
+          requestRoot: record.requestRoot ?? null,
         });
       } else {
-        await resolveRuntimeCoordinatorInteractionInboxItem({
+        changed = await resolveRuntimeCoordinatorInteractionInboxItem({
           inboxDb: targetInboxDb,
           interaction: record.interaction,
+          ownerUserId: record.ownerUserId,
+          requestRoot: record.requestRoot ?? null,
           resolvedAtMs: record.resolvedAtMs ?? record.updatedAtMs,
           runtimeCoordinatorExecutionId: record.runtimeCoordinatorExecutionId,
           spaceId: record.spaceId,
@@ -15231,6 +15536,17 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         });
       }
       await this.removeRuntimeCoordinatorInteractionInboxRepair(record);
+      if (changed) {
+        // An open Inbox shows the question, or its end, without a reload.
+        this.ctx.waitUntil(
+          publishAccountInvalidation({
+            env: this.env,
+            frame: { type: "inbox.changed" },
+            organizationId: changed.organizationId,
+            userIds: [record.ownerUserId],
+          })
+        );
+      }
     } catch (error) {
       await this.deferRuntimeCoordinatorInteractionInboxRepair(record);
       console.warn(
@@ -17890,8 +18206,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     return {
       observation: {
-        attentionCode: `runtime_coordinator.interaction.${input.interaction.kind}`,
-        eventId: `runtime-coordinator-interaction:${input.commandState.runtimeCoordinatorExecutionId}:${input.interaction.interactionId}`,
+        attentionCode: runtimeCoordinatorInteractionAttentionCode(
+          input.interaction.kind
+        ),
+        eventId: buildRuntimeCoordinatorInteractionAttentionEventId({
+          interactionId: input.interaction.interactionId,
+          runtimeCoordinatorExecutionId:
+            input.commandState.runtimeCoordinatorExecutionId,
+        }),
         occurredAtMs: input.interaction.requestedAtMs,
         status: "needs_attention",
       },
@@ -21835,7 +22157,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       | "setEnabled"
       | "initializeProfileWorkspace"
       | "setProfileWorkspace"
-      | "readProfileWorkspace";
+      | "readProfileWorkspace"
+      | "manageProfileFolders"
+      | "repairProfileFolders";
     ownerUserId: string;
     deviceId: string;
     lane: string;
@@ -23074,11 +23398,16 @@ const safeCloseSocket = (
 };
 
 import {
+  type RiskWindowExecutionsResponse,
+  riskWindowExecutionsResponseSchema,
   runtimeCoordinatorExecutionAccessRequestSchema,
   runtimeCoordinatorExecutionAccessResponseSchema,
+  runtimeCoordinatorExecutionTokenEchoSchema,
   runtimeTransportSessionHistoryRequestSchema,
   SESSION_HISTORY_CAPABILITY_HEADER,
   SESSION_HISTORY_RUNTIME_CAPABILITY,
   sessionHistoryResultFrameSchema,
   sessionHistoryResultSchema,
+  type TaskCredentialResolution,
+  taskCredentialResolutionSchema,
 } from "@openmeld/schemas";

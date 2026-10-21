@@ -1,12 +1,12 @@
 {
-  "version": "0.3.265",
+  "version": "0.3.268",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Cursor update guidance changes only the reported manual command. Existing CLI commands, setup, and Wake remain compatible."
+    "reason": "Cursor update guidance changes only the reported manual command. Existing CLI commands, setup, and Wake remain compatible, and the mandatory CLI floor stays at 0.3.251."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "The Service reports Cursor's official installer when an older unsigned CLI cannot update itself. Wake, setup, and older Services remain compatible."
+    "reason": "The Service reports Cursor's official installer when an older unsigned CLI cannot update itself, and compares Homebrew cask revisions by their SemVer core. Wake, setup, and older Services remain compatible; the mandatory Service floor stays at 0.3.264."
   },
   "skills": {
     "updatePolicy": "available",

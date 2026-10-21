@@ -35,6 +35,13 @@ type RuntimeSettingsInput = Pick<
   | "reasoningLevel"
 >;
 
+type LocalFolderSaveReceipt = {
+  agentProfileId: string;
+  bindingTarget?: import("../../agent-profile-binding/application/agent-profile-binding-target").AgentProfileBindingTarget;
+  status: "updated";
+  target?: import("@openmeld/schemas/types").PeopleComputerTarget;
+};
+
 export type CenterAgentProductOperationDeps = {
   addAgentProfileToSpace(input: {
     agentProfileId: string;
@@ -79,6 +86,11 @@ export type CenterAgentProductOperationDeps = {
       bindingTarget?: import("../../agent-profile-binding/application/agent-profile-binding-target").AgentProfileBindingTarget;
     }
   >;
+  /** Sets the default folder by id after checking Core's folder projection. */
+  setAgentProfileDefaultFolder?(input: {
+    agentProfileId: string;
+    folderId: string;
+  }): Promise<LocalFolderSaveReceipt>;
   updateAgentControllerCollaborationMode(input: {
     agentControllerCollaborationMode: NonNullable<
       CenterAgentUpdateAgentProfileRuntimeSettingsBody["agentControllerCollaborationMode"]
@@ -440,6 +452,7 @@ export async function updateAgentProfileRuntimeSettingsOperation(input: {
   deps: Pick<
     CenterAgentProductOperationDeps,
     | "checkAgentProfileReadiness"
+    | "setAgentProfileDefaultFolder"
     | "setAgentProfileDefaultProject"
     | "setAgentProfileWorkspace"
     | "updateAgentControllerCollaborationMode"
@@ -452,7 +465,7 @@ export async function updateAgentProfileRuntimeSettingsOperation(input: {
 }): Promise<CenterAgentUpdateAgentProfileRuntimeSettingsResponse> {
   const steps: OperationStep[] = [];
   let binding: EnsureAgentProfilePrimaryBindingResponse | undefined;
-  let workspace: SetCurrentAgentProfileWorkspaceResponse | undefined;
+  let workspace: LocalFolderSaveReceipt | undefined;
 
   const collaborationModeResult =
     await applyAgentControllerCollaborationModeUpdate(input, steps);
@@ -522,16 +535,13 @@ export async function updateAgentProfileRuntimeSettingsOperation(input: {
     binding = result.binding;
   }
 
-  if (input.request.workspaceMode !== undefined) {
+  const saveLocalFolder = resolveLocalFolderSave(input);
+  if (saveLocalFolder) {
     const result = await updateAgentProfileWorkspaceMutation({
       agentProfileId: input.request.agentProfileId,
+      saveLocalFolder,
       setAgentProfileDefaultProject: input.deps.setAgentProfileDefaultProject,
-      setAgentProfileWorkspace: input.deps.setAgentProfileWorkspace,
       steps,
-      workspaceMode: input.request.workspaceMode,
-      ...(input.request.workspacePath === undefined
-        ? {}
-        : { workspacePath: input.request.workspacePath }),
     });
     if (result.status === "failed") {
       return blockedSettingsResponse({
@@ -580,18 +590,68 @@ export async function updateAgentProfileRuntimeSettingsOperation(input: {
   };
 }
 
+type LocalFolderSave = {
+  savedMessage: string;
+  save?: () => Promise<LocalFolderSaveReceipt>;
+};
+
+/**
+ * A workspace mode or a default folder id saves the local folder first. Both
+ * then clear Default Project, so future tasks use the saved folder.
+ */
+function resolveLocalFolderSave(input: {
+  deps: Pick<
+    CenterAgentProductOperationDeps,
+    "setAgentProfileDefaultFolder" | "setAgentProfileWorkspace"
+  >;
+  request: CenterAgentUpdateAgentProfileRuntimeSettingsBody;
+}): LocalFolderSave | null {
+  const request = input.request;
+  const { setAgentProfileDefaultFolder, setAgentProfileWorkspace } = input.deps;
+  const defaultFolderId = request.defaultFolderId;
+  if (defaultFolderId !== undefined) {
+    return {
+      savedMessage: "Default folder was saved on the local Computer.",
+      ...(setAgentProfileDefaultFolder
+        ? {
+            save: () =>
+              setAgentProfileDefaultFolder({
+                agentProfileId: request.agentProfileId,
+                folderId: defaultFolderId,
+              }),
+          }
+        : {}),
+    };
+  }
+  const workspaceMode = request.workspaceMode;
+  if (workspaceMode === undefined) {
+    return null;
+  }
+  return {
+    savedMessage: "Working folder was saved on the local Computer.",
+    ...(setAgentProfileWorkspace
+      ? {
+          save: () =>
+            setAgentProfileWorkspace({
+              agentProfileId: request.agentProfileId,
+              workspaceMode,
+              ...(request.workspacePath === undefined
+                ? {}
+                : { workspacePath: request.workspacePath }),
+            }),
+        }
+      : {}),
+  };
+}
+
 async function updateAgentProfileWorkspaceMutation(input: {
   agentProfileId: string;
+  saveLocalFolder: LocalFolderSave;
   setAgentProfileDefaultProject?: CenterAgentProductOperationDeps["setAgentProfileDefaultProject"];
-  setAgentProfileWorkspace?: CenterAgentProductOperationDeps["setAgentProfileWorkspace"];
   steps: OperationStep[];
-  workspaceMode: NonNullable<
-    CenterAgentUpdateAgentProfileRuntimeSettingsBody["workspaceMode"]
-  >;
-  workspacePath?: CenterAgentUpdateAgentProfileRuntimeSettingsBody["workspacePath"];
 }): Promise<
-  | { status: "completed"; workspace: SetCurrentAgentProfileWorkspaceResponse }
-  | { status: "failed"; workspace?: SetCurrentAgentProfileWorkspaceResponse }
+  | { status: "completed"; workspace: LocalFolderSaveReceipt }
+  | { status: "failed"; workspace?: LocalFolderSaveReceipt }
 > {
   if (!input.setAgentProfileDefaultProject) {
     input.steps.push({
@@ -602,7 +662,8 @@ async function updateAgentProfileWorkspaceMutation(input: {
     });
     return { status: "failed" };
   }
-  if (!input.setAgentProfileWorkspace) {
+  const save = input.saveLocalFolder.save;
+  if (!save) {
     input.steps.push({
       name: "update_agent_profile_workspace",
       nextAction:
@@ -612,19 +673,9 @@ async function updateAgentProfileWorkspaceMutation(input: {
     });
     return { status: "failed" };
   }
-  let workspace: Awaited<
-    ReturnType<
-      NonNullable<CenterAgentProductOperationDeps["setAgentProfileWorkspace"]>
-    >
-  >;
+  let workspace: LocalFolderSaveReceipt;
   try {
-    workspace = await input.setAgentProfileWorkspace({
-      agentProfileId: input.agentProfileId,
-      workspaceMode: input.workspaceMode,
-      ...(input.workspacePath === undefined
-        ? {}
-        : { workspacePath: input.workspacePath }),
-    });
+    workspace = await save();
   } catch (error) {
     input.steps.push(
       failedWorkingFolderStep("update_agent_profile_workspace", error)
@@ -634,8 +685,9 @@ async function updateAgentProfileWorkspaceMutation(input: {
   input.steps.push({
     name: "update_agent_profile_workspace",
     status: "completed",
-    message: "Working folder was saved on the local Computer.",
+    message: input.saveLocalFolder.savedMessage,
   });
+  // Second of two ordered writes; a failure here reports partial setup.
   try {
     await input.setAgentProfileDefaultProject({
       agentProfileId: input.agentProfileId,
@@ -793,7 +845,7 @@ function blockedSettingsResponse(input: {
   binding?: EnsureAgentProfilePrimaryBindingResponse;
   organizationId: string;
   steps: OperationStep[];
-  workspace?: SetCurrentAgentProfileWorkspaceResponse;
+  workspace?: LocalFolderSaveReceipt;
 }): CenterAgentUpdateAgentProfileRuntimeSettingsResponse {
   return {
     agentProfileId: input.agentProfileId,
@@ -808,13 +860,7 @@ function blockedSettingsResponse(input: {
   };
 }
 
-function projectWorkspaceMutation(
-  workspace: Awaited<
-    ReturnType<
-      NonNullable<CenterAgentProductOperationDeps["setAgentProfileWorkspace"]>
-    >
-  >
-) {
+function projectWorkspaceMutation(workspace: LocalFolderSaveReceipt) {
   return {
     agentProfileId: workspace.agentProfileId,
     status: workspace.status,

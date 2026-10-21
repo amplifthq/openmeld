@@ -2,11 +2,23 @@ import { normalizeMessageLink } from "@openmeld/protocol";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { cn } from "@openmeld/ui/lib/utils";
 import { cjk } from "@streamdown/cjk";
-import { type ComponentProps, memo, type ReactNode, useMemo } from "react";
+import {
+	type ComponentProps,
+	createContext,
+	memo,
+	type ReactNode,
+	useContext,
+	useMemo,
+} from "react";
 import rehypeSanitize from "rehype-sanitize";
 import type { ExtraProps } from "streamdown";
 import { defaultRemarkPlugins, Streamdown } from "streamdown";
 import { DesktopAwareLink } from "#/desktop/desktop-aware-link";
+import {
+	CachedMarkdownBlock,
+	MarkdownBlockCacheScope,
+	parseMarkdownIntoCachedBlocks,
+} from "./markdown-block-cache";
 import "./message-response.css";
 
 const ALLOWED_INTERNAL_SPACE_PATH_PATTERN = /^\/spaces\/[0-9a-f]{64}$/;
@@ -73,25 +85,6 @@ export const MessageResponse = memo(function MessageResponse({
 	variant,
 	...props
 }: MessageResponseProps) {
-	const components = useMemo<
-		NonNullable<ComponentProps<typeof Streamdown>["components"]>
-	>(
-		() => ({
-			a: (linkProps) => (
-				<SafeMarkdownLink
-					{...linkProps}
-					renderInternalLink={renderInternalLink}
-				/>
-			),
-			img: DisabledMarkdownImage,
-			strong: MarkdownStrong,
-			table: MarkdownTable,
-			...(variant === "reasoning"
-				? { code: ReasoningCode, pre: ReasoningPre }
-				: {}),
-		}),
-		[renderInternalLink, variant]
-	);
 	const remarkPlugins = useMemo(
 		() =>
 			additionalRemarkPlugins
@@ -110,27 +103,62 @@ export const MessageResponse = memo(function MessageResponse({
 			data-typeset-variant={variant}
 			style={MESSAGE_RESPONSE_STYLE}
 		>
-			<Streamdown
-				animated={false}
-				components={components}
-				controls={variant === "reasoning" ? false : undefined}
-				disallowedElements={STREAMDOWN_DISALLOWED_ELEMENTS}
-				isAnimating={isStreaming}
-				linkSafety={STREAMDOWN_LINK_SAFETY}
-				mode="streaming"
-				parseIncompleteMarkdown={true}
-				plugins={STREAMDOWN_PLUGINS}
-				rehypePlugins={STREAMDOWN_REHYPE_PLUGINS}
-				remarkPlugins={remarkPlugins}
-				skipHtml={true}
-				urlTransform={transformSafeMarkdownUrl}
-				{...props}
-			>
-				{children}
-			</Streamdown>
+			<InternalMarkdownLinkContext value={renderInternalLink ?? null}>
+				<MarkdownBlockCacheScope enabled={!isStreaming}>
+					<Streamdown
+						animated={false}
+						BlockComponent={CachedMarkdownBlock}
+						components={MARKDOWN_COMPONENTS_BY_VARIANT[variant]}
+						controls={variant === "reasoning" ? false : undefined}
+						disallowedElements={STREAMDOWN_DISALLOWED_ELEMENTS}
+						isAnimating={isStreaming}
+						linkSafety={STREAMDOWN_LINK_SAFETY}
+						mode="streaming"
+						parseIncompleteMarkdown={true}
+						// Streaming text changes on every chunk; only memoize final text.
+						parseMarkdownIntoBlocksFn={
+							isStreaming ? undefined : parseMarkdownIntoCachedBlocks
+						}
+						plugins={STREAMDOWN_PLUGINS}
+						rehypePlugins={STREAMDOWN_REHYPE_PLUGINS}
+						remarkPlugins={remarkPlugins}
+						skipHtml={true}
+						urlTransform={transformSafeMarkdownUrl}
+						{...props}
+					>
+						{children}
+					</Streamdown>
+				</MarkdownBlockCacheScope>
+			</InternalMarkdownLinkContext>
 		</div>
 	);
 });
+
+// Rendered blocks are cached across mounts (see markdown-block-cache), so the
+// component map must be stable module state. Per-message link rendering is
+// read from context at render time instead of being closed over here.
+const InternalMarkdownLinkContext =
+	createContext<InternalMarkdownLinkRenderer | null>(null);
+
+const BASE_MARKDOWN_COMPONENTS = {
+	a: SafeMarkdownLink,
+	img: DisabledMarkdownImage,
+	strong: MarkdownStrong,
+	table: MarkdownTable,
+} satisfies NonNullable<ComponentProps<typeof Streamdown>["components"]>;
+
+const MARKDOWN_COMPONENTS_BY_VARIANT: Record<
+	MessageResponseVariant,
+	NonNullable<ComponentProps<typeof Streamdown>["components"]>
+> = {
+	changelog: BASE_MARKDOWN_COMPONENTS,
+	reasoning: {
+		...BASE_MARKDOWN_COMPONENTS,
+		code: ReasoningCode,
+		pre: ReasoningPre,
+	},
+	"space-message": BASE_MARKDOWN_COMPONENTS,
+};
 
 function ReasoningCode({ children }: ComponentProps<"code"> & ExtraProps) {
 	return <code>{children}</code>;
@@ -144,12 +172,9 @@ function ReasoningPre({ children }: ComponentProps<"pre"> & ExtraProps) {
 	);
 }
 
-function SafeMarkdownLink(
-	props: ComponentProps<"a"> & {
-		renderInternalLink?: InternalMarkdownLinkRenderer;
-	} & ExtraProps
-) {
-	const { children, href, node: _node, renderInternalLink, ...rest } = props;
+function SafeMarkdownLink(props: ComponentProps<"a"> & ExtraProps) {
+	const { children, href, node: _node, ...rest } = props;
+	const renderInternalLink = useContext(InternalMarkdownLinkContext);
 	if (href && isAllowedInternalMessagePath(href)) {
 		return renderInternalLink?.({ children, href }) ?? <>{children}</>;
 	}

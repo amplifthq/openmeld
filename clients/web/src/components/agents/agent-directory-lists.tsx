@@ -1,11 +1,16 @@
+import type { AuthProfileView } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { TabItem, Tabs, TabsList } from "@openmeld/ui/fluid/tabs";
 import { ClockCounterClockwiseIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { type ReactNode, useMemo } from "react";
 import { CenterAgentItem } from "#/components/directory/center-agent-item";
 import { DirectorySearch } from "#/components/directory/directory-search";
+import { narrowMemberAgentDirectory } from "#/components/member-agents/member-agent-directory-model";
+import { MemberAgentDirectorySection } from "#/components/member-agents/member-agent-directory-section";
+import { useMemberAgentDirectory } from "#/components/member-agents/use-member-agent-directory";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
+import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import {
 	localAgentSidebarState,
 	useAgentSidebarPreviewReady,
@@ -31,6 +36,8 @@ import type { AgentCardSelection } from "./agent-list-selection";
 import { AgentProfileSidebarItem } from "./agent-profile-sidebar-item";
 import type { AgentProfilesWorkspaceProps } from "./agent-profiles-workspace";
 import { useAgentListState } from "./use-agent-list-state";
+
+const EMPTY_RUNTIME_OVERVIEW = new Map();
 
 const DIRECTORY_AGENT_VIEW: AgentListView = {
 	...DEFAULT_AGENT_LIST_VIEW,
@@ -88,8 +95,8 @@ function AgentScopeTabs(input: {
 			value={input.myAgents ? "mine" : "all"}
 		>
 			<TabsList aria-label="Agent scope" className="w-fit max-w-full">
-				<TabItem label="My Agents" value="mine" />
 				<TabItem label="All Agents" value="all" />
+				<TabItem label="My Agents" value="mine" />
 			</TabsList>
 		</Tabs>
 	);
@@ -180,8 +187,17 @@ export function AgentDirectoryLists({
 			}
 			selection={selection}
 			variant="card"
+			workload={resolveVisibleWorkload(
+				input.runtimeOverviewByProfileId?.get(item.profile.openMeldProfileId)
+					?.workload
+			)}
 		/>
 	);
+	const renderMemberAgents = useOwnMemberAgentResults({
+		input,
+		items,
+		renderCard,
+	});
 	const create =
 		input.canCreateAgent !== false ? (
 			<Button onClick={input.onCreateAgent} size="sm">
@@ -204,7 +220,6 @@ export function AgentDirectoryLists({
 		? matchesAgentListItem(centerItem, view.filters, search)
 		: !search &&
 			Object.values(view.filters).every((values) => values.length === 0);
-	const totalCount = items.length + Number(Boolean(centerItem));
 	const creationRequests = (input.creationRequests ?? []).filter(
 		(request) =>
 			(!("requesterUserId" in request) ||
@@ -220,9 +235,6 @@ export function AgentDirectoryLists({
 				onChange={setScope}
 				person={input.person}
 			/>
-			<p className="shrink-0 text-muted-foreground text-xs">
-				{totalCount} {totalCount === 1 ? "Agent" : "Agents"}
-			</p>
 			{input.taskActivityAvailable === false && (
 				<output className="text-muted-foreground text-xs">
 					Task activity unavailable.
@@ -262,6 +274,10 @@ export function AgentDirectoryLists({
 						input.canCreateAgent !== false ? input.onDeleteProfiles : undefined
 					}
 					renderCard={renderCard}
+					renderResults={ownAgentResults({
+						ownScope: isOwnAgentScope(scope, input),
+						render: renderMemberAgents,
+					})}
 					search={search}
 					viewPreferenceKey={viewPreferenceKey(scope.key)}
 				/>
@@ -321,81 +337,178 @@ export function AgentDirectoryLists({
 					</div>
 				</section>
 			) : null}
-			{visibleGroups.map((group) => (
-				<AgentList
-					collapsible
-					defaults={view}
-					emptyAction={
-						group.ownerUserId === input.currentUserId ? create : undefined
-					}
-					heading={
-						<div className="flex min-w-0 flex-wrap items-center gap-2">
-							<DitherProfileAvatar
-								avatarImageUrl={group.member.user.image}
-								profileId={
-									group.member.humanProfile?.profileId ?? group.member.userId
-								}
-								profileKind="human"
-								profileName={group.name}
-								size={28}
-							/>
-							<h2 className="m-0 flex items-center truncate font-medium text-sm leading-none">
-								<Link
-									to={buildOrganizationPersonPath({
-										orgSlug: currentOrganization.slug,
-										personId:
-											group.member.humanProfile?.profileId ??
-											`member:${group.member.memberId}`,
-									})}
+			{visibleGroups.map((group) => {
+				const heading = (
+					<div className="flex min-w-0 flex-wrap items-center gap-2">
+						<DitherProfileAvatar
+							avatarImageUrl={group.member.user.image}
+							profileId={
+								group.member.humanProfile?.profileId ?? group.member.userId
+							}
+							profileKind="human"
+							profileName={group.name}
+							size={28}
+						/>
+						<h2 className="m-0 flex items-center truncate font-medium text-sm leading-none">
+							<Link
+								to={buildOrganizationPersonPath({
+									orgSlug: currentOrganization.slug,
+									personId:
+										group.member.humanProfile?.profileId ??
+										`member:${group.member.memberId}`,
+								})}
+							>
+								{group.name}
+							</Link>
+							{group.ownerUserId === input.currentUserId && (
+								<span className="ml-1 text-muted-foreground">(you)</span>
+							)}
+						</h2>
+						{group.ownerUserId === input.currentUserId &&
+							input.isOrganizationContext && (
+								<Button
+									onClick={() => input.onViewChange("requests")}
+									size="sm"
+									variant="secondary"
 								>
-									{group.name}
-								</Link>
-								{group.ownerUserId === input.currentUserId && (
-									<span className="ml-1 text-muted-foreground">(you)</span>
-								)}
-							</h2>
-							<span className="text-muted-foreground text-xs leading-none">
-								{group.items.length}
-							</span>
-							{group.ownerUserId === input.currentUserId &&
-								input.isOrganizationContext && (
-									<Button
-										onClick={() => input.onViewChange("requests")}
-										size="sm"
-										variant="secondary"
-									>
-										<ClockCounterClockwiseIcon />
-										Creation history
-										{input.creationAttentionCount > 0 && (
-											<span className="rounded-full bg-muted px-1.5 text-xs">
-												Needs attention: {input.creationAttentionCount}
-											</span>
-										)}
-									</Button>
-								)}
-						</div>
-					}
-					items={group.items}
-					key={group.ownerUserId}
-					label={`${group.name}’s Agents`}
-					onDelete={
-						group.ownerUserId === input.currentUserId
-							? input.onDeleteProfiles
-							: undefined
-					}
-					renderCard={renderCard}
-					search={search}
-					viewPreferenceKey={viewPreferenceKey(
-						group.member.humanProfile?.profileId ??
-							`member:${group.member.memberId}`
-					)}
-				/>
-			))}
+									<ClockCounterClockwiseIcon />
+									Creation history
+									{input.creationAttentionCount > 0 && (
+										<span className="rounded-full bg-muted px-1.5 text-xs">
+											Needs attention: {input.creationAttentionCount}
+										</span>
+									)}
+								</Button>
+							)}
+					</div>
+				);
+				return (
+					<AgentList
+						collapsible
+						defaults={view}
+						emptyAction={
+							group.ownerUserId === input.currentUserId ? create : undefined
+						}
+						heading={heading}
+						items={group.items}
+						key={group.ownerUserId}
+						label={`${group.name}’s Agents`}
+						onDelete={
+							group.ownerUserId === input.currentUserId
+								? input.onDeleteProfiles
+								: undefined
+						}
+						renderCard={renderCard}
+						renderResults={ownAgentResults({
+							ownScope: group.ownerUserId === input.currentUserId,
+							render: renderMemberAgents,
+						})}
+						search={search}
+						viewPreferenceKey={viewPreferenceKey(
+							group.member.humanProfile?.profileId ??
+								`member:${group.member.memberId}`
+						)}
+					/>
+				);
+			})}
 			{visibleGroups.length === 0 && !showCenter && (
 				<p className="text-muted-foreground text-sm">
 					No Agents match. Try another search or clear filters.
 				</p>
 			)}
 		</div>
+	);
+}
+
+/** Counts only when the overview reports work the viewer may see. */
+function resolveVisibleWorkload(
+	workload:
+		| NonNullable<
+				ReturnType<
+					NonNullable<
+						AgentProfilesWorkspaceProps["runtimeOverviewByProfileId"]
+					>["get"]
+				>
+		  >["workload"]
+		| undefined
+) {
+	return workload?.status === "ready"
+		? {
+				runningCount: workload.activeCount,
+				queuedCount: workload.queuedMessageCount,
+			}
+		: undefined;
+}
+
+function ownAgentResults<Render>(input: {
+	ownScope: boolean;
+	render: Render;
+}): Render | undefined {
+	return input.ownScope ? input.render : undefined;
+}
+
+function isOwnAgentScope(
+	scope: { myAgents: boolean; profiles: readonly AuthProfileView[] },
+	input: AgentProfilesWorkspaceProps
+): boolean {
+	return (
+		scope.myAgents ||
+		(Boolean(input.person) &&
+			scope.profiles.length > 0 &&
+			scope.profiles.every(
+				(profile) => profile.ownerUserId === input.currentUserId
+			))
+	);
+}
+
+/**
+ * The signed-in member's own Agents read one card per MemberAgent, then the
+ * unassigned Profiles; the list's search, filters, and sort still apply to
+ * the Profiles underneath. Undefined while the listing is unavailable, so
+ * the list keeps its per-Profile cards.
+ */
+function useOwnMemberAgentResults(args: {
+	input: AgentProfilesWorkspaceProps;
+	items: readonly AgentListItem[];
+	renderCard: (item: AgentListItem, index: number) => ReactNode;
+}) {
+	const memberAgentDirectory = useMemberAgentDirectory({
+		profiles: args.input.profiles,
+		runtimeByProfileId:
+			args.input.runtimeOverviewByProfileId ?? EMPTY_RUNTIME_OVERVIEW,
+	});
+	const itemByProfileId = new Map(
+		args.items.map((item) => [item.profile.openMeldProfileId, item])
+	);
+	const onOpenMemberAgent = args.input.onOpenMemberAgent;
+	const { currentOrganization } = useAppOrganization();
+	if (!(memberAgentDirectory && onOpenMemberAgent)) {
+		return undefined;
+	}
+	const emptyActions = {
+		connectComputerPath: buildConnectComputerPath({
+			orgSlug: currentOrganization.slug,
+		}),
+		...(args.input.canCreateAgent === false
+			? {}
+			: { onCreateAgent: args.input.onCreateAgent }),
+	};
+	return (visible: readonly AgentListItem[], filtered: boolean) => (
+		<MemberAgentDirectorySection
+			directory={narrowMemberAgentDirectory({
+				directory: memberAgentDirectory,
+				visibleProfileIds: visible.map(
+					(item) => item.profile.openMeldProfileId
+				),
+				filtered,
+			})}
+			emptyActions={emptyActions}
+			label="Your Agents"
+			onOpenMemberAgent={onOpenMemberAgent}
+			renderUnassignedCard={(entry, index) => {
+				const item = itemByProfileId.get(entry.profile.openMeldProfileId);
+				return item ? args.renderCard(item, index) : null;
+			}}
+		/>
 	);
 }

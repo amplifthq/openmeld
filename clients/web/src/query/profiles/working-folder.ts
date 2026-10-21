@@ -28,24 +28,34 @@ export function agentProfileWorkingFolderQueryOptions(
 	});
 }
 
+const PATH_SEPARATOR_PATTERN = /[\\/]+/;
+
+/**
+ * The working folder as one short line: the folder's name, with the full
+ * path for a tooltip.
+ */
 export function describeSavedWorkingFolder(
 	workspace: ProfileWorkspaceReadResult | undefined,
 	fetching: boolean
-): string {
+): { summary: string; path?: string } {
 	if (workspace?.status === "configured") {
-		const source =
-			workspace.workspaceMode === "custom"
-				? "Custom folder"
-				: "OpenMeld-managed folder";
-		return `${source}: ${workspace.workspacePath}`;
+		if (workspace.workspaceMode !== "custom") {
+			return { summary: "OpenMeld folder", path: workspace.workspacePath };
+		}
+		const name = workspace.workspacePath
+			.split(PATH_SEPARATOR_PATTERN)
+			.filter(Boolean)
+			.at(-1);
+		return {
+			summary: name ?? workspace.workspacePath,
+			path: workspace.workspacePath,
+		};
 	}
 	if (workspace?.status === "missing") {
-		return "Choose a working folder";
+		return { summary: "Choose a working folder" };
 	}
 	if (workspace?.status === "invalid") {
-		return "Saved folder settings need attention";
+		return { summary: "Needs attention" };
 	}
-	return fetching
-		? "Loading working folder…"
-		: "Couldn’t read the working folder. Open settings to try again.";
+	return { summary: fetching ? "Loading…" : "Couldn’t read the folder" };
 }

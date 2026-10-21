@@ -598,6 +598,12 @@ Missing inventory is unknown evidence, not proof that every catalog model works
 or that none do. Version advisory remains a separate maintenance check; an
 advisory lookup failure must not erase an otherwise proven incompatibility.
 
+OpenCode inventory preserves native provider-qualified paths, including model
+IDs with additional slash-separated segments. At the shared model-inventory
+limit, a missing ID may have been truncated: consumers retain positive matches
+but use the existing version-floor or unknown-evidence policy for missing IDs.
+An unsaturated, catalog-aligned inventory can still establish absence.
+
 Codex discovery supports both the legacy `Contents/Resources/codex` and the
 `Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex` layout in
 Codex.app and ChatGPT.app, independently of the Service PATH. When a saved
@@ -1160,10 +1166,16 @@ working Agent, not identical provider turn semantics. Repair and delivery-only
 queries reject live input. A priority message can yield the old native turn's
 result before its own replay and continuation. That intermediate result must not
 settle the OpenMeld task; wait for consumption and the continuation's result.
+The replay can follow the continuation's start by more than ten seconds of
+thinking, so a submission has no fixed receipt timeout. Only a continuation that
+does not start within ten seconds of the yielded result closes input.
 Stop, the final native result, and query cleanup close input
-and settle unacknowledged submissions as unconfirmed. A receipt timeout does not
-stop the original execution or authorize a resend. Space retains the durable
-queue and the Execution Host retains the existing deduplication responsibility.
+and settle unacknowledged submissions as unconfirmed. When the Space's apply wait
+ends first, the Execution Host reports the receipt as pending
+(`service.execution_input.pending`) and Space keeps reading it until it settles.
+A receipt timeout does not stop the original execution or authorize a resend.
+Space retains the durable queue and the Execution Host retains the existing
+deduplication responsibility.
 
 The Execution Host's private inherited IPC `executionInput` method accepts an
 exact owner account, Profile, dispatch, attempt and RuntimeCoordinator execution

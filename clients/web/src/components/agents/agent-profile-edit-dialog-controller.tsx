@@ -12,6 +12,7 @@ import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
+import { MemberAgentHarnessLock } from "#/components/member-agents/member-agent-harness-lock";
 import {
 	agentProfileControllerChangeEligibilityQueryOptions,
 	agentProfilePrimaryBindingQueryOptions,
@@ -61,36 +62,38 @@ export function AgentProfileEditDialogController(input: {
 	});
 
 	return (
-		<AgentProfileEditDialog
-			controllerChangeEligibilityStatus={
-				controller.controllerChangeEligibilityStatus
-			}
-			controllerChangeOptions={controller.controllerChangeOptions}
-			editState={controller.editState}
-			initialSection={input.initialSection}
-			isLoading={input.open && controller.isLoading}
-			isPending={controller.isPending}
-			loadErrorMessage={
-				input.open && controller.isError
-					? "OpenMeld could not load this Agent's settings. Close this dialog and try again."
-					: null
-			}
-			modelCatalog={input.modelCatalog}
-			onControllerChange={controller.onControllerChange}
-			onControllerCollaborationModeUpdate={
-				controller.onControllerCollaborationModeUpdate
-			}
-			onControllerPermissionModeUpdate={
-				controller.onControllerPermissionModeUpdate
-			}
-			onModelSelectionUpdate={controller.onModelSelectionUpdate}
-			onOpenChange={input.onOpenChange}
-			onOpenCodePermissionUpdate={controller.onOpenCodePermissionUpdate}
-			onRenameProfile={controller.onRenameProfile}
-			onSaveComplete={async () => undefined}
-			open={input.open}
-			profileName={input.profile.profileName}
-		/>
+		<MemberAgentHarnessLock profileId={input.profile.openMeldProfileId}>
+			<AgentProfileEditDialog
+				controllerChangeEligibilityStatus={
+					controller.controllerChangeEligibilityStatus
+				}
+				controllerChangeOptions={controller.controllerChangeOptions}
+				editState={controller.editState}
+				initialSection={input.initialSection}
+				isLoading={input.open && controller.isLoading}
+				isPending={controller.isPending}
+				loadErrorMessage={
+					input.open && controller.isError
+						? "OpenMeld could not load this Agent's settings. Close this dialog and try again."
+						: null
+				}
+				modelCatalog={input.modelCatalog}
+				onControllerChange={controller.onControllerChange}
+				onControllerCollaborationModeUpdate={
+					controller.onControllerCollaborationModeUpdate
+				}
+				onControllerPermissionModeUpdate={
+					controller.onControllerPermissionModeUpdate
+				}
+				onModelSelectionUpdate={controller.onModelSelectionUpdate}
+				onOpenChange={input.onOpenChange}
+				onOpenCodePermissionUpdate={controller.onOpenCodePermissionUpdate}
+				onRenameProfile={controller.onRenameProfile}
+				onSaveComplete={async () => undefined}
+				open={input.open}
+				profileName={input.profile.profileName}
+			/>
+		</MemberAgentHarnessLock>
 	);
 }
 
@@ -127,38 +130,40 @@ export function AgentProfileInlineConfigurationController(input: {
 		);
 	}
 	return (
-		<AgentProfileConfigurationOverview
-			compact
-			controllerChangeEligibilityStatus={
-				controller.controllerChangeEligibilityStatus
-			}
-			controllerChangeOptions={controller.controllerChangeOptions}
-			controllerDisplayName={input.entry.controllerDisplayName}
-			controllerModelSummary={
-				resolveDetailsValue(input.details, "model") ??
-				input.entry.controllerDisplayName ??
-				"No Controller connected"
-			}
-			details={input.details}
-			disabled={controller.isPending}
-			editState={controller.editState}
-			modelCatalog={input.modelCatalog}
-			modelCompatibilityContext={null}
-			onControllerChange={controller.onControllerChange}
-			onControllerCollaborationModeUpdate={
-				controller.onControllerCollaborationModeUpdate
-			}
-			onControllerPermissionModeUpdate={
-				controller.onControllerPermissionModeUpdate
-			}
-			onModelSelectionUpdate={controller.onModelSelectionUpdate}
-			onOpenCodePermissionUpdate={controller.onOpenCodePermissionUpdate}
-			onRenameProfile={controller.onRenameProfile}
-			ownerAvatarUrl={input.ownerEntry?.avatarUrl}
-			ownerProfileId={input.ownerEntry?.profileId}
-			runtime={null}
-			showHeading={false}
-		/>
+		<MemberAgentHarnessLock profileId={input.profile.openMeldProfileId}>
+			<AgentProfileConfigurationOverview
+				compact
+				controllerChangeEligibilityStatus={
+					controller.controllerChangeEligibilityStatus
+				}
+				controllerChangeOptions={controller.controllerChangeOptions}
+				controllerDisplayName={input.entry.controllerDisplayName}
+				controllerModelSummary={
+					resolveDetailsValue(input.details, "model") ??
+					input.entry.controllerDisplayName ??
+					"No Controller connected"
+				}
+				details={input.details}
+				disabled={controller.isPending}
+				editState={controller.editState}
+				modelCatalog={input.modelCatalog}
+				modelCompatibilityContext={null}
+				onControllerChange={controller.onControllerChange}
+				onControllerCollaborationModeUpdate={
+					controller.onControllerCollaborationModeUpdate
+				}
+				onControllerPermissionModeUpdate={
+					controller.onControllerPermissionModeUpdate
+				}
+				onModelSelectionUpdate={controller.onModelSelectionUpdate}
+				onOpenCodePermissionUpdate={controller.onOpenCodePermissionUpdate}
+				onRenameProfile={controller.onRenameProfile}
+				ownerAvatarUrl={input.ownerEntry?.avatarUrl}
+				ownerProfileId={input.ownerEntry?.profileId}
+				runtime={null}
+				showHeading={false}
+			/>
+		</MemberAgentHarnessLock>
 	);
 }
 

@@ -795,6 +795,8 @@ export type PublicAgentFailureRecoveryTarget =
   | "computer"
   | "cursor_account"
   | "prepare_setup"
+  // A chat's Session is tied to a folder that is no longer the Agent's.
+  | "session_folder"
   | "working_folder";
 
 export type PublicAgentAvailabilityCopyContext = {
@@ -1052,9 +1054,15 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: null,
     },
     {
-      body: "This workspace has used its included AI credits. Add an OpenRouter API key in AI usage settings, or wait for the monthly reset.",
+      body: "This workspace doesn't have enough included AI credits left. Add an OpenRouter API key in AI usage settings, or wait for the monthly reset.",
       kind: "request_ended",
       patterns: ["=ai_usage.monthly_limit_reached"],
+      recoveryTarget: null,
+    },
+    {
+      body: "Included AI credits can't pay for this model request. Add an OpenRouter API key in AI usage settings, or choose another model.",
+      kind: "request_ended",
+      patterns: ["=ai_usage.credit_hold_unavailable"],
       recoveryTarget: null,
     },
     {
@@ -1107,6 +1115,17 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       patterns: ["=agent_profile.workspace_change_blocked_active_execution"],
       preferMappedReasonOverDetail: true,
       recoveryTarget: null,
+    },
+    {
+      // A Session keeps its folder. After the Agent's folder changed, the
+      // owner continues the chat in a new Session in the current folder.
+      // Read after "<Agent> couldn't reply: ", so it names no Agent.
+      body: "This chat’s session works in a folder that is no longer the Agent’s working folder. Continue in a new session in the current folder; this chat’s earlier messages stay as context.",
+      kind: "local_agent_prepare",
+      patterns: ["=execution_context.workspace_changed"],
+      primaryActionId: "continue_in_default_folder",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "session_folder",
     },
     {
       availabilityBadgeLabel: "Working folder missing",

@@ -169,12 +169,14 @@ describe("Execution Context local authority", () => {
     together: boolean;
   }>([
     {
+      // Both claim the whole checkout, so they share it like two direct-edit
+      // Sessions in one folder: the later one gets a shared-folder notice.
       name: "sibling folders of one checkout",
       folders: (layout) => [
         join(layout.repo, "app-a"),
         join(layout.repo, "app-b"),
       ],
-      together: false,
+      together: true,
     },
     {
       name: "a main checkout and its linked worktree",
@@ -301,6 +303,44 @@ describe("Execution Context local authority", () => {
       })
     ).rejects.toThrow("fork_source_workspace_changed");
     expect(forkCodexAppServerThread).not.toHaveBeenCalled();
+  });
+  it("refuses a Session from an earlier folder and starts a new one in the current folder (smoke R5-01)", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openmeld-folder-repair-"));
+    roots.push(root);
+    const base = await realpath(root);
+    const folderOne = join(base, "folder-one");
+    const folderTwo = join(base, "folder-two");
+    const prepare = (task: ExecutionContextTask) =>
+      prepareExecutionContextConversation({
+        context: task,
+        unscopedNativeConversationId: null,
+        currentWorkingDirectory: folderOne,
+        workingDirectory: folderOne,
+        existingNativeConversationId: null,
+        ledgerRootPath: base,
+        agentControllerRef: "builtin:codex",
+        launchContract,
+      });
+    // Repair made folder-one the default; the chat's old Session ran in
+    // folder-two and keeps that folder, so the Service refuses to move it.
+    await expect(
+      prepare({
+        ...context,
+        workspace: "current",
+        nativeConversationId: "thread-folder-two",
+        runtimeWorkspaceFingerprint:
+          buildRuntimeWorkspaceFingerprint(folderTwo),
+      })
+    ).rejects.toThrow("execution_context.workspace_changed");
+    // "Continue in folder-one" creates a new Session with no recorded folder:
+    // it starts a fresh native conversation in the current folder.
+    await expect(
+      prepare({
+        ...context,
+        id: "22222222-2222-4222-8222-222222222222",
+        workspace: "current",
+      })
+    ).resolves.toBeNull();
   });
   it("passes the workspace owner's Git metadata facts to the native boundary", () => {
     const gitMetadata = {

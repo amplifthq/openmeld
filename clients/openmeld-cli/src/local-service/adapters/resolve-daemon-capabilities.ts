@@ -21,7 +21,9 @@ export function resolveDaemonCapabilitiesFromAdapterIds(input: {
     agentReplyContextReview: true,
     informationProtectionPrompt: true,
     workingLanguagePrompt: true,
+    permissionModeAdvisoryPrompt: true,
     verifiedRequesterContext: true,
+    requesterConversationIsolation: true,
     localAgentInteraction: true,
     ...(input.profileConfigurationRevision === true
       ? { profileConfigurationRevision: true as const }
@@ -48,6 +50,8 @@ export function resolveDaemonCapabilitiesFromAdapterIds(input: {
       setProfileWorkspace: true,
       readProfileWorkspace: true,
       initializeProfileWorkspace: true,
+      manageProfileFolders: true,
+      repairProfileFolders: true,
     },
     localProjectControl: {
       connectCandidate: true,

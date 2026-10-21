@@ -2,6 +2,7 @@ import { accountDeletionRequests } from "./account-deletion.schema.ts";
 import { accountSidebarPreferences } from "./account-sidebar.schema.ts";
 // biome-ignore lint/performance/noNamespaceImport: Better Auth generated schema has dynamic table exports; namespace merge keeps generation resilient.
 import * as authSchema from "./auth.schema.ts";
+import { memberAgents, memberAgentsRelations } from "./member-agent.schema.ts";
 import {
   openMeldProfiles,
   openMeldProfilesRelations,
@@ -22,6 +23,8 @@ export const schema = {
   accountDeletionRequests,
   accountSidebarPreferences,
   ...authSchema,
+  memberAgents,
+  memberAgentsRelations,
   organizationJoinLinks,
   organizationJoinLinksRelations,
   openMeldProfiles,

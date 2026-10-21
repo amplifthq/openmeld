@@ -5,6 +5,7 @@ export type { InferInsertModel, InferSelectModel } from "drizzle-orm";
 // tooling here: Auth/Core Workers consume this entrypoint alongside DB tables.
 export {
   and,
+  asc,
   desc,
   eq,
   exists,
@@ -12,5 +13,6 @@ export {
   isNotNull,
   isNull,
   lte,
+  or,
   sql,
 } from "drizzle-orm";

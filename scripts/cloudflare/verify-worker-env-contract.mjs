@@ -111,6 +111,7 @@ const AUTH_RATE_LIMIT_BINDINGS = [
 ];
 const GATEWAY_RATE_LIMIT_BINDINGS = [
   ...FEEDBACK_RATE_LIMIT_BINDINGS,
+  { name: "OPENMELD_PUBLIC_READ_RATE_LIMITER", limit: 1200, period: 60 },
   {
     name: "OPENMELD_SPACE_PASSWORD_RATE_LIMITER",
     limit: SPACE_PASSWORD_RATE_LIMIT.limit,
@@ -173,6 +174,9 @@ const workerPackages = [
   },
   {
     name: "openmeld-web",
+    expectedRateLimitBindings: [
+      { name: "OPENMELD_CLI_DOWNLOAD_RATE_LIMITER", limit: 600, period: 60 },
+    ],
     packageJsonPath: "clients/web/package.json",
     wranglerConfigPath: "clients/web/wrangler.jsonc",
     generatedTypesPath: "clients/web/worker-configuration.d.ts",
@@ -192,6 +196,8 @@ const workerPackages = [
     requiredSecretScriptSnippet: "sync-worker-secrets.mjs",
     expectedGeneratedBindings: [
       "OPENMELD_DESKTOP_DOWNLOADS",
+      "OPENMELD_CLI_DOWNLOAD_RATE_LIMITER",
+      "OPENMELD_GATEWAY_WORKER",
       "OPENMELD_OBSERVABILITY",
     ],
     forbiddenGeneratedBindings: D1_BINDING_NAMES,
@@ -501,6 +507,7 @@ const workerPackages = [
       "OPENMELD_GATEWAY_URL",
       "OPENMELD_ORGANIZATION_LOGOS",
       "OPENMELD_SPACE_PASSWORD_RATE_LIMITER",
+      "OPENMELD_PUBLIC_READ_RATE_LIMITER",
       "OPENMELD_SPACE_ATTACHMENTS",
       "OPENMELD_REMOTE_AGENT_MESSAGE_CHANNEL_EVENTS_QUEUE",
       "OPENMELD_REMOTE_AGENT_SLACK_EVENTS_QUEUE",

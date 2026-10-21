@@ -7,6 +7,7 @@ import {
   OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID,
 } from "@openmeld/gateway-contract";
 import { buildRequestAuthHeaders } from "../config/request-headers";
+import { sendWithCredentialConfirmation } from "../config/sensitive-operation-credentials";
 import { fetchSpaceRequestWithTimeout } from "./fetch-with-timeout";
 
 export function createCliApiClientFoundation(
@@ -20,11 +21,29 @@ export function createCliApiClientFoundation(
   return createOpenMeldApiClient({
     baseUrl,
     transport: async (request) =>
-      await fetchSpaceRequestWithTimeout({
-        url: request.url,
-        operation: request.operation,
-        init: request.init,
-        timeoutMs: request.timeoutMs,
+      await sendWithCredentialConfirmation({
+        baseUrl,
+        headers: (request.init?.headers ?? {}) as Record<string, string>,
+        method: request.init?.method,
+        readConfirmation: async ({ url }) =>
+          await fetchSpaceRequestWithTimeout({
+            url,
+            operation: "credential_confirmation.read",
+            init: {
+              method: "GET",
+              headers: await buildRequestAuthHeaders({
+                requestUrl: url,
+                expectedOwnerUserId: options.expectedOwnerUserId,
+              }),
+            },
+          }),
+        send: async (headers) =>
+          await fetchSpaceRequestWithTimeout({
+            url: request.url,
+            operation: request.operation,
+            init: { ...request.init, headers },
+            timeoutMs: request.timeoutMs,
+          }),
       }),
     getAuthHeaders: async ({ requestUrl }) => {
       const headers = await buildRequestAuthHeaders({

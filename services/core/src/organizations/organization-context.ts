@@ -132,6 +132,127 @@ export async function resolveOrganizationMembershipById(input: {
 }): Promise<ActiveOrganizationMembership> {
   return await resolveOrganizationMembership(input);
 }
+// Concurrent reads of one caller's membership (such as the access checks of
+// one bootstrap's branches) share a single in-flight query. Nothing is kept
+// after it settles, so every later read sees current membership.
+export class ConcurrentOrganizationMembershipReads {
+  private readonly inFlightByKey = new Map<
+    string,
+    Promise<ActiveOrganizationMembership>
+  >();
+
+  read(input: {
+    env: Pick<CoreBindings, "OPENMELD_POSTGRESQL">;
+    organizationId: string;
+    userId: string;
+  }): Promise<ActiveOrganizationMembership> {
+    const key = JSON.stringify([input.organizationId, input.userId]);
+    const inFlight = this.inFlightByKey.get(key);
+    if (inFlight) {
+      return inFlight;
+    }
+    const read = resolveOrganizationMembershipById(input).finally(() => {
+      this.inFlightByKey.delete(key);
+    });
+    this.inFlightByKey.set(key, read);
+    return read;
+  }
+}
+export type OrganizationMembershipWithRouteSlug =
+  | {
+      ok: true;
+      membership: Extract<ActiveOrganizationMembership, { ok: true }>;
+      organizationSlug: string | null;
+    }
+  | Extract<ActiveOrganizationMembership, { ok: false }>;
+// One PostgreSQL round trip for callers that need both the caller's
+// membership and the Organization route slug. Membership semantics match
+// resolveOrganizationMembershipById: a read failure is
+// organization.context_unavailable, and a missing Organization or member row
+// is organization.membership_required.
+export async function resolveOrganizationMembershipWithRouteSlug(input: {
+  env: Pick<CoreBindings, "OPENMELD_POSTGRESQL">;
+  organizationId: string;
+  requestId?: string | null;
+  userId: string;
+}): Promise<OrganizationMembershipWithRouteSlug> {
+  const organizationId = normalizeOptionalText(input.organizationId);
+  const userId = normalizeOptionalText(input.userId);
+  if (!(organizationId && userId)) {
+    return {
+      code: "organization.context_required",
+      message: "Active organization context is required.",
+      ok: false,
+      status: 403,
+    };
+  }
+  const db = getPostgresDatabase(input.env);
+  if (!db) {
+    return {
+      ok: false,
+      code: "organization.context_unavailable",
+      message: "Organization context could not be verified.",
+      status: 503,
+    };
+  }
+  let row: {
+    member_id: string | null;
+    member_role: string | null;
+    slug: string | null;
+  } | null;
+  try {
+    row = await db
+      .query<{
+        member_id: string | null;
+        member_role: string | null;
+        slug: string | null;
+      }>({
+        text: `
+          SELECT o.slug, m.id AS member_id, m.role AS member_role
+          FROM "openmeld"."organizations" o
+          LEFT JOIN "openmeld"."members" m
+            ON m.organization_id = o.id
+            AND m.user_id = $2
+          WHERE o.id = $1
+          LIMIT 1
+        `,
+        values: [organizationId, userId],
+      })
+      .then((result) => result.rows[0] ?? null);
+  } catch (error) {
+    console.warn("[core.organization_context.membership_lookup_failed]", {
+      activeOrganizationId: organizationId,
+      error: error instanceof Error ? error.message : String(error),
+      requestId: input.requestId ?? null,
+      userId,
+    });
+    return {
+      ok: false,
+      code: "organization.context_unavailable",
+      message: "Organization context could not be verified.",
+      status: 503,
+    };
+  }
+  if (!(row?.member_id && row.member_role)) {
+    return {
+      ok: false,
+      code: "organization.membership_required",
+      message: "You are not a member of the active organization.",
+      status: 403,
+    };
+  }
+  return {
+    ok: true,
+    membership: {
+      ok: true,
+      memberId: row.member_id,
+      organizationId,
+      role: row.member_role,
+      userId,
+    },
+    organizationSlug: normalizeOptionalText(row.slug),
+  };
+}
 export async function readOrganizationRouteSlug(input: {
   env: Pick<CoreBindings, "OPENMELD_POSTGRESQL">;
   organizationId: string;

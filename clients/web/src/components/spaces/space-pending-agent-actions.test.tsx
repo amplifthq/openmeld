@@ -73,6 +73,92 @@ describe("SpacePendingAgentActions", () => {
 		cleanup();
 	});
 
+	it("never changes the mode when the card was already handled elsewhere", async () => {
+		const onPermissionModeUpdate = vi.fn();
+		const onResolve = vi
+			.fn()
+			.mockRejectedValue(new Error("This suggestion was already handled."));
+		render(
+			<SpacePendingAgentActions
+				editableAgentProfileIds={new Set(["agt-owned"])}
+				items={[]}
+				onPermissionModeUpdate={onPermissionModeUpdate}
+				onResolvePermissionModeSuggestion={onResolve}
+				permissionModeSuggestions={[
+					{
+						agentProfileId: "agt-owned",
+						currentPermissionMode: "claude-code:default",
+						offeredAtMs: 1,
+						spaceId: "space",
+						suggestedPermissionMode: "claude-code:acceptEdits",
+						suggestionId: "suggestion-2",
+						waitingApprovalCount: 3,
+					},
+				]}
+			/>
+		);
+		fireEvent.click(screen.getByRole("button", { name: "1 action needs you" }));
+		fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+		await waitFor(() =>
+			expect(screen.getByRole("alert").textContent).toContain("already handled")
+		);
+		expect(onPermissionModeUpdate).not.toHaveBeenCalled();
+	});
+
+	it("shows a permission-mode suggestion only to an owner who can edit that Agent", async () => {
+		const suggestion = {
+			agentProfileId: "agt-owned",
+			currentPermissionMode: "claude-code:default" as const,
+			offeredAtMs: 1,
+			spaceId: "space",
+			suggestedPermissionMode: "claude-code:acceptEdits" as const,
+			suggestionId: "suggestion-1",
+			waitingApprovalCount: 4,
+		};
+		const onPermissionModeUpdate = vi.fn().mockResolvedValue({
+			bindingId: "binding",
+			mode: "claude-code:acceptEdits",
+		});
+		const onResolve = vi.fn().mockResolvedValue(undefined);
+		const { rerender } = render(
+			<SpacePendingAgentActions
+				editableAgentProfileIds={new Set(["agt-someone-else"])}
+				items={[]}
+				onPermissionModeUpdate={onPermissionModeUpdate}
+				onResolvePermissionModeSuggestion={onResolve}
+				permissionModeSuggestions={[suggestion]}
+			/>
+		);
+		// A viewer who cannot edit that Agent (not its owner) sees nothing.
+		expect(screen.queryByText(ACTION_NEEDS_YOU_PATTERN)).toBeNull();
+
+		rerender(
+			<SpacePendingAgentActions
+				editableAgentProfileIds={new Set(["agt-owned"])}
+				items={[]}
+				onPermissionModeUpdate={onPermissionModeUpdate}
+				onResolvePermissionModeSuggestion={onResolve}
+				permissionModeSuggestions={[suggestion]}
+			/>
+		);
+		fireEvent.click(screen.getByRole("button", { name: "1 action needs you" }));
+		expect(screen.getByText("Switch to Accept edits?")).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+		await waitFor(() =>
+			expect(onPermissionModeUpdate).toHaveBeenCalledWith({
+				permissionMode: "claude-code:acceptEdits",
+				profileId: "agt-owned",
+			})
+		);
+		expect(onResolve).toHaveBeenCalledWith({
+			resolution: "applied",
+			suggestionId: "suggestion-1",
+		});
+		expect(onResolve.mock.invocationCallOrder[0]).toBeLessThan(
+			onPermissionModeUpdate.mock.invocationCallOrder[0] ?? 0
+		);
+	});
+
 	it("shows a quiet owner-only reminder without opening or moving focus", () => {
 		const trigger = document.createElement("button");
 		document.body.appendChild(trigger);

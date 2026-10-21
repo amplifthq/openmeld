@@ -415,6 +415,20 @@ function tryResolveBindingInput(
   };
 }
 
+// The message a command shows when Core refuses its Binding write. Codes stay
+// in the message so scripts and support can still match them.
+export function formatAgentProfileBindingUpdateFailure(
+  reasonCodes: readonly string[]
+): string {
+  const codes = reasonCodes.join(", ");
+  if (
+    reasonCodes.includes("agent_profile_binding.member_agent_harness_locked")
+  ) {
+    return `This Agent Profile belongs to an Agent and cannot move to another harness. Create a Profile under that harness's Agent instead. (${codes})`;
+  }
+  return `Agent Profile Binding update failed: ${codes}`;
+}
+
 function uniqueReasonCodes(reasonCodes: readonly string[]): string[] {
   return [...new Set(reasonCodes)];
 }

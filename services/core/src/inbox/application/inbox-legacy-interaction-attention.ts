@@ -76,3 +76,49 @@ export async function repairLegacyInteractionAttention(input: {
   );
   return Number(results[1].rowCount ?? 0) > 0;
 }
+
+/**
+ * An Agent's question was filed as a review before it became an action for
+ * every kind (member-agent-program.md §4.6). Its own source replay moves the
+ * item to Needs action; nothing else about the item may differ.
+ */
+export async function repairInteractionReviewCategory(input: {
+  candidate: InboxSourceCandidate;
+  existing: InboxItemRecord;
+  db: PostgresDatabase;
+}): Promise<boolean> {
+  const { candidate, existing } = input;
+  if (
+    !(
+      candidate.sourceKind === "runtime_coordinator_interaction" &&
+      candidate.kind === "agent_interaction" &&
+      candidate.sourceFacts?.requestCategory === "action" &&
+      existing.sourceFactsJson &&
+      existing.sourceKind === candidate.sourceKind &&
+      existing.kind === candidate.kind &&
+      existing.attention === candidate.attention &&
+      existing.importance === candidate.importance &&
+      existing.occurredAtMs === candidate.occurredAtMs &&
+      existing.sourceTargetJson === JSON.stringify(candidate.sourceTarget)
+    ) ||
+    existing.sourceFactsJson !==
+      JSON.stringify({ ...candidate.sourceFacts, requestCategory: "review" })
+  ) {
+    return false;
+  }
+  const result = await input.db.query({
+    text: `UPDATE "openmeld"."inbox_items" SET source_facts_json = $1
+      WHERE id = $2 AND organization_id = $3 AND recipient_user_id = $4
+        AND source_kind = $5 AND source_key = $6 AND source_facts_json = $7`,
+    values: [
+      JSON.stringify(candidate.sourceFacts),
+      existing.id,
+      candidate.organizationId,
+      candidate.recipientUserId,
+      candidate.sourceKind,
+      candidate.sourceKey,
+      existing.sourceFactsJson,
+    ],
+  });
+  return Number(result.rowCount ?? 0) > 0;
+}

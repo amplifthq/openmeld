@@ -210,6 +210,60 @@ the membership boundary.
 
 Keep the command model stable across terminal use, Web handoff, and docs.
 
+### Agents, Sessions, And Sensitive Operations
+
+Implementation status: MemberAgent program, PR #236, shipped.
+
+`openmeld profiles create/list/show/set/update/delete` keep their contracts and
+also print each Profile's parent MemberAgent, or say that the Profile is
+unassigned. A default Agent Profile is created with its MemberAgent, so
+`profiles create` creates only additional Profiles,
+each with an explicit short name. `profiles create --member-agent <agent>`
+refuses an Agent Controller whose harness differs from the parent's. Core
+refuses an update that would move an assigned Profile to another harness.
+
+`openmeld setup` adds a MemberAgent only for each local agent the member
+selected, with `--local-agent <id...>` or on the Connect page; `--local-agents
+all` selects every detected harness. Setup prints the other detected harnesses,
+and `openmeld agent add <harness>` adds one of them. A MemberAgent step that
+fails never fails setup; the next sync finishes it.
+
+`openmeld agent list` prints one row per MemberAgent in the current
+Organization with its derived state, running and queued counts, and latest
+Session. `openmeld agent show <agent>` takes a MemberAgent id or harness kind
+and prints its Profiles, the Computers that provide its harness, and each
+Profile's Sessions. `openmeld session list --agent <agent> [--profile <id>]`
+lists the signed-in member's Direct Message Sessions with that Agent, grouped
+by Profile, active and archived. `session rename`, `archive`, `restore`, and
+`delete` take a Session's Space id and call Core's dedicated Session
+operations; Core decides who may change a Session, and the CLI maps a refusal
+to one next step. `session delete` asks in Human View and requires `--yes` in
+Agent View. Agent View returns stable ids and the same derived state as Web;
+neither view stores or recomputes MemberAgent state.
+
+Work started by a Wake receives a **task credential**: short-lived, verifiable
+by Core, carrying the request chain, and valid for that task only. The injected
+`openmeld` stand-in uses it for task-time Space actions in place of the local
+dispatch context file.
+
+Sensitive operations are: changing Agent Profile settings, folders, permission
+mode, or concurrency limit; answering approvals; deleting; adding an Agent to a
+Space; granting or revoking access; and archiving. They accept only a task
+credential whose root requester is the owner, the owner's own App or Web
+session, or the owner's CLI login credential under this risk-window rule: a
+call made with the CLI login credential passes unless this computer is
+currently running a task whose root requester is not the owner. Only inside
+that window does Core send the owner a `credential_confirmation` Inbox card,
+and the command reports that it is waiting for that confirmation instead of
+applying the change. Ordinary terminal use is never interrupted, and the CLI
+keeps no TTY elevation cache. Every sensitive operation is written to the audit
+log with its request chain.
+
+Other secrets on the computer, such as SSH keys, harness logins, and browser
+data, are not protected by OpenMeld; a harness that can run any command can
+reach them, as it can natively. When an owner grants a colleague access to a
+full-access Profile, the product says so once.
+
 ### Space Watch Recovery
 
 `space watch` retains the same view, read anchor, deduplication set and command
@@ -1239,7 +1293,8 @@ The dispatch Space Action MCP also exposes non-final `list_tasks`,
 `create_task`, `start_task`, `submit_task_result`, `review_task`, and
 `cancel_task` tools in an eligible shared Space. Their Space, source Signal,
 and Agent actor are fixed by the active dispatch context. They call the shared
-Space Task API through normal CLI authentication and recheck that the context
+Space Task API with the task credential (see Agents, Sessions, And Sensitive
+Operations) and recheck that the context
 did not change before accepting the result. A Task tool does not consume or
 replace the Wake's one required final Space action.
 
@@ -1984,7 +2039,8 @@ Agent Profile owners can read or change admission through
 The command calls Core's current-Organization owner-authorized API; it does not
 edit a local concurrency default or restart the Service. The response includes
 the selected mode, migration phase, and revision. Serial mode limits future
-reservations to one; parallel mode uses the shared five-reservation ceiling.
+reservations to one; parallel mode uses the Profile's owner-adjustable
+concurrency limit, which defaults to five.
 Running and waiting Wakes retain their Context, native identity, and results.
 Changing this policy cannot cancel work, replay effects, or revert stored
 formats. The Core/Gateway receiver must be released before this command is
@@ -2202,6 +2258,10 @@ Use scoped owner documents for deeper rules:
 - OpenMeld-managed skills are aligned by `openmeld setup`; `openmeld skills ensure --all
 --view agent` remains an explicit diagnostic/manual skills command.
 - CLI must not recompute Core-owned Agent execution readiness.
+- `openmeld agent list/show` read the Core-owned MemberAgent projection; the CLI
+  never derives MemberAgent state.
+- A CLI-credential sensitive operation needs owner confirmation only while this
+  computer runs a task whose root requester is not the owner.
 - CLI must not decide Binding truth, Space truth, or RuntimeCoordinator truth.
 - `space board` consumes the shared read projection and must not infer live work
   from local or historical evidence.

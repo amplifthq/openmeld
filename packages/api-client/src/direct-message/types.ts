@@ -1,4 +1,11 @@
 import type {
+  DeleteAgentDirectMessageSessionResponse,
+  ListAgentDirectMessageSessionsQuery,
+  ListAgentDirectMessageSessionsResponse,
+  UpdateAgentDirectMessageSessionBody,
+  UpdateAgentDirectMessageSessionResponse,
+} from "@openmeld/schemas";
+import type {
   ConvertDirectMessageToSpaceBody,
   ConvertDirectMessageToSpaceResponse,
   OpenDirectMessageSpaceBody,
@@ -21,7 +28,28 @@ export type ConvertDirectMessageToSpaceInput = ConvertDirectMessageToSpaceBody &
     spaceId: string;
   };
 
+export type ListAgentDirectMessageSessionsInput =
+  ListAgentDirectMessageSessionsQuery & DirectMessageRequestInput;
+
+export type UpdateAgentDirectMessageSessionInput = DirectMessageRequestInput & {
+  spaceId: string;
+  update: UpdateAgentDirectMessageSessionBody;
+};
+
+export type DeleteAgentDirectMessageSessionInput = DirectMessageRequestInput & {
+  spaceId: string;
+};
+
 export type DirectMessageApi = {
+  listSessions: (
+    input: ListAgentDirectMessageSessionsInput
+  ) => Promise<ListAgentDirectMessageSessionsResponse>;
+  updateSession: (
+    input: UpdateAgentDirectMessageSessionInput
+  ) => Promise<UpdateAgentDirectMessageSessionResponse>;
+  deleteSession: (
+    input: DeleteAgentDirectMessageSessionInput
+  ) => Promise<DeleteAgentDirectMessageSessionResponse>;
   convertToSpace: (
     input: ConvertDirectMessageToSpaceInput
   ) => Promise<ConvertDirectMessageToSpaceResponse>;

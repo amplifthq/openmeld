@@ -12,6 +12,14 @@ export const COMPUTER_INVOCATION_OWNER_PREFIX =
 const NEXT_ATTEMPT =
   "COALESCE(json_extract(value_json, '$.collection.nextAttemptAtMs'), 0)";
 const COLLECTION_INDEX = "openmeld_computer_command_collection_v2_idx";
+// Unlike the collection index, this includes foreground worker-shell calls,
+// uncertain starts and paused collection. None is proof that a Computer is idle.
+const UNFINISHED = `key >= '${COMPUTER_COMMAND_PREFIX}'
+  AND key < '${COMPUTER_COMMAND_PREFIX}\uffff'
+  AND COALESCE(json_extract(value_json, '$.completed'), 0) != 1
+  AND COALESCE(json_extract(value_json, '$.observation.status'), '') != 'completed'
+  AND COALESCE(json_extract(value_json, '$.observation.syncError'), '') != 'ESYNC_READ_ONLY'
+  AND COALESCE(json_extract(value_json, '$.lossConfirmed'), 0) != 1`;
 // This index is a read projection of the existing receipt, not another queue.
 // An absent collection field keeps historical receipts eligible. Explicit null
 // pauses automatic collection only. collectable:false retains uncertain launch.
@@ -34,6 +42,17 @@ export class ComputerCommandSqlStorage extends RemoteAgentSqlStorage {
       ON ${this.tableName}(${NEXT_ATTEMPT}, key) WHERE ${ELIGIBLE}`);
     this.sql.exec(
       "DROP INDEX IF EXISTS openmeld_computer_command_collection_idx"
+    );
+    this.sql.exec(`CREATE INDEX IF NOT EXISTS openmeld_computer_unfinished_idx
+      ON ${this.tableName}(key) WHERE ${UNFINISHED}`);
+  }
+
+  hasUnfinishedCommands(): boolean {
+    return (
+      this.sql
+        .exec(`SELECT key FROM ${this.tableName}
+      WHERE ${UNFINISHED} LIMIT 1`)
+        .toArray().length !== 0
     );
   }
 

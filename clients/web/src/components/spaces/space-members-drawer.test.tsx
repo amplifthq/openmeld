@@ -51,6 +51,12 @@ const {
 	updatePrimaryBindingAgentControllerCollaborationModeMock: vi.fn(),
 }));
 
+// These cases cover direct adds; the MemberAgent request path has its own
+// tests in agent-access.test.tsx.
+vi.mock("#/lib/member-agents/member-agents-feature", () => ({
+	isMemberAgentsEnabled: () => false,
+}));
+
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tanstack/react-router")>()),
 	Link: ({ to, ...props }: ComponentProps<"a"> & { to: string }) => (

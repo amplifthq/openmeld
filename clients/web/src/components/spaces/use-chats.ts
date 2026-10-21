@@ -4,6 +4,10 @@ import { useRouterState } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { moveSidebarItemIds } from "#/components/app/sidebar-order";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
+import {
+	useMemberAgentIndex,
+	useMemberAgentSessionTitles,
+} from "#/components/member-agents/use-member-agents";
 import { resolveConversationTitle } from "#/lib/conversations/presentation";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
@@ -31,6 +35,17 @@ import { useSpaceListIndicators } from "./use-space-list-indicators";
 
 type Preferences = NonNullable<AccountSidebarPreferences["chats"]>;
 
+/**
+ * A MemberAgent has one Direct Message per Session, so its name alone would
+ * label every Session the same; the Session's title tells them apart.
+ */
+export function withSessionTitle(
+	name: string | null,
+	sessionTitle: string | undefined
+): string | null {
+	return name && sessionTitle ? `${name} · ${sessionTitle}` : name;
+}
+
 export function useChats(input: {
 	currentProfileId?: string;
 	includeSpaceIndicators?: boolean;
@@ -39,7 +54,7 @@ export function useChats(input: {
 	archived: boolean;
 	includes: (kind: string) => boolean;
 }) {
-	const { currentOrganization: org } = useAppOrganization();
+	const { currentOrganization: org, currentUserId } = useAppOrganization();
 	const { defaultHumanProfile, profilesQuery } = useDefaultHumanProfile();
 	const profileId =
 		input.currentProfileId ?? defaultHumanProfile?.openMeldProfileId ?? "";
@@ -71,6 +86,8 @@ export function useChats(input: {
 	const sessions = useInfiniteQuery(
 		centerAgentSessionsQueryOptions(org.id, profileId)
 	);
+	const memberAgents = useMemberAgentIndex();
+	const memberAgentSessionTitles = useMemberAgentSessionTitles(memberAgents);
 	const chatsById = new Map<string, Chat>(
 		accountItems.map((item) => {
 			const viewerProfileId = resolveAccountSpaceViewerProfileId({
@@ -81,6 +98,7 @@ export function useChats(input: {
 				item,
 				profileDirectory: directory.data,
 				viewerProfileId,
+				viewerUserId: currentUserId,
 			});
 			return [
 				item.spaceId,
@@ -88,7 +106,10 @@ export function useChats(input: {
 					messagePreview: item.messagePreview,
 					recentMessagePreviews: item.recentMessagePreviews,
 					spaceId: item.spaceId,
-					name: presentation.name,
+					name: withSessionTitle(
+						presentation.name,
+						memberAgentSessionTitles.get(item.spaceId)
+					),
 					profileKind: presentation.profileKind,
 					createdAt: item.spaceCreatedAt ?? null,
 					viewerProfileId,

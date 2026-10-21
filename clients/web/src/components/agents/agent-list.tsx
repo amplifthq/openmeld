@@ -15,8 +15,6 @@ import {
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
-import { FluidCardGroup } from "@openmeld/ui/fluid/card";
-import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import {
 	ArrowCounterClockwiseIcon,
 	CalendarBlankIcon,
@@ -43,6 +41,7 @@ import { SidebarFilterBadge } from "#/components/app/sidebar-filter-badge";
 import { DirectorySearch } from "#/components/directory/directory-search";
 import { ModelBrandIcon } from "#/components/models/model-brand-icon";
 import { useBrowserPreference } from "#/lib/use-browser-preference";
+import { AgentCardNavMenu } from "./agent-card-nav-menu";
 import { AgentGroupCards } from "./agent-group-cards";
 import {
 	AGENT_LIST_FACETS,
@@ -427,12 +426,23 @@ export function AgentList(input: {
 	) => ReactNode;
 	emptyAction?: ReactNode;
 	onDelete?: DeleteAgents;
+	/**
+	 * Replaces the Profile cards outside multi-select, e.g. one card per
+	 * MemberAgent. Gets the visible items in display order, and whether a
+	 * search or filter hides any of them. Also renders an empty list, so it
+	 * owns its own empty state.
+	 */
+	renderResults?: (
+		items: readonly AgentListItem[],
+		filtered: boolean
+	) => ReactNode;
 }) {
 	const [collapsed, setCollapsed] = useState(false);
 	const [presentation, setPresentation] = useBrowserPreference(
 		input.viewPreferenceKey
 	);
-	const expandAll = presentation === "expanded";
+	// List is the default for every owner; "grouped" is an explicit choice.
+	const expandAll = presentation !== "grouped";
 	const contentId = useId();
 	const {
 		view: override,
@@ -464,6 +474,36 @@ export function AgentList(input: {
 		selection.reset();
 		setOverride(next);
 	};
+	const results = selectAgentListBody({
+		// The grouped view uses the same tiles for every owner.
+		custom: selection.active || !expandAll ? undefined : input.renderResults,
+		displayed,
+		total: input.items.length,
+		cards: () => (
+			<AgentListResults
+				flat={selection.active || expandAll}
+				grouping={view.grouping}
+				items={displayed}
+				label={input.label}
+				onToggle={selection.reset}
+				renderCard={(item, index) =>
+					input.renderCard(item, index, selection.card(item))
+				}
+			/>
+		),
+		empty: () => (
+			<AgentListEmptyState
+				action={input.emptyAction}
+				canClear={Boolean(search || override)}
+				hasAgents={input.items.length > 0}
+				onClear={() => {
+					setSearch("");
+					setOverride(null);
+					selection.reset();
+				}}
+			/>
+		),
+	});
 	return (
 		<section aria-label={input.label} className="group/agent-section space-y-3">
 			<div className="flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-2">
@@ -548,32 +588,23 @@ export function AgentList(input: {
 			{selection.dialog}
 			<div className="space-y-3" hidden={collapsed} id={contentId}>
 				{selection.toolbar}
-				{displayed.length ? (
-					<AgentListResults
-						flat={selection.active || expandAll}
-						grouping={view.grouping}
-						items={displayed}
-						label={input.label}
-						onToggle={selection.reset}
-						renderCard={(item, index) =>
-							input.renderCard(item, index, selection.card(item))
-						}
-					/>
-				) : (
-					<AgentListEmptyState
-						action={input.emptyAction}
-						canClear={Boolean(search || override)}
-						hasAgents={input.items.length > 0}
-						onClear={() => {
-							setSearch("");
-							setOverride(null);
-							selection.reset();
-						}}
-					/>
-				)}
+				{results}
 			</div>
 		</section>
 	);
+}
+
+function selectAgentListBody(input: {
+	custom?: (items: readonly AgentListItem[], filtered: boolean) => ReactNode;
+	displayed: readonly AgentListItem[];
+	total: number;
+	cards: () => ReactNode;
+	empty: () => ReactNode;
+}): ReactNode {
+	if (input.custom && (input.displayed.length > 0 || input.total === 0)) {
+		return input.custom(input.displayed, input.displayed.length < input.total);
+	}
+	return input.displayed.length > 0 ? input.cards() : input.empty();
 }
 
 function AgentListEmptyState(input: {
@@ -635,14 +666,8 @@ function AgentListResults({
 		);
 	}
 	return (
-		<FluidCardGroup>
-			<FluidNavMenu
-				activeValue={null}
-				aria-label={label}
-				className="[&_[data-sidebar=menu]]:grid [&_[data-sidebar=menu]]:gap-3 [&_[data-sidebar=menu]]:md:grid-cols-2 [&_[data-sidebar=menu]]:xl:grid-cols-3"
-			>
-				{items.map(renderCard)}
-			</FluidNavMenu>
-		</FluidCardGroup>
+		<AgentCardNavMenu activeValue={null} aria-label={label}>
+			{items.map(renderCard)}
+		</AgentCardNavMenu>
 	);
 }

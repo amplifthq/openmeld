@@ -164,6 +164,11 @@ export type {
   SetAgentProfileCreationApprovalPreferenceResponse,
 } from "./agent-profile-creation-request";
 export type {
+  GetAgentProfileFoldersResponse,
+  ManageAgentProfileFoldersBody,
+  ManageAgentProfileFoldersResponse,
+} from "./agent-profile-folders";
+export type {
   ReconcileDeletedAgentProfileRequest,
   ReconcileDeletedAgentProfileResponse,
   ReconcileDeletedAgentProfileSpaceOutcome,

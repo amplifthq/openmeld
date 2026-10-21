@@ -16,6 +16,7 @@ import {
   executionContextTaskSchema,
 } from "../protocol/execution-context";
 import { messageEnvelopeSchema } from "../protocol/message-envelope";
+import { requestChainSchema } from "../protocol/request-chain";
 import { signalTextReplyToSchema } from "../protocol/signal";
 import { spaceMessageAttachmentsSchema } from "../protocol/space-attachment";
 import { spaceCallerContextSchema } from "../protocol/space-caller-context";
@@ -189,6 +190,11 @@ export const openMeldDaemonDispatchQueueMessageSchema = z
     autoRelayDepth: z.number().int().nonnegative(),
     visitedProfileIds: z.array(z.string().min(1)).max(256).default([]),
     visitedProfileIdsHash: z.string().min(1),
+    requestChain: requestChainSchema
+      .optional()
+      .describe(
+        "Written by the Space Durable Object when it creates the outbox seed; Core admission derives it when absent. Never accepted from clients or Agents."
+      ),
     dispatchContractVersion: z.number().int().positive(),
     dispatchPolicy: runtimeDispatchPolicySchema,
     ruleSource: openMeldDaemonMentionDispatchRuleSourceSchema,

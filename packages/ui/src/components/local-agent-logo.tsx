@@ -57,6 +57,13 @@ type LocalAgentLogoProps = {
   variant?: "default" | "plain" | "tile";
 };
 
+/**
+ * Raised surface with depth shared by every Agent tile: the Harness logo and
+ * the Agent avatar in message rows. Callers add their own corner radius.
+ */
+export const RAISED_TILE_SURFACE_CLASS_NAME =
+  "relative overflow-hidden bg-surface-2 shadow-surface-3 after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-surface-3";
+
 export function LocalAgentLogo({
   codexLogo = "codex",
   agentId,
@@ -79,8 +86,7 @@ export function LocalAgentLogo({
       className={cn(
         "pointer-events-none inline-flex shrink-0 items-center justify-center",
         variant !== "plain" && "text-foreground",
-        variant === "tile" &&
-          "relative overflow-hidden rounded-lg bg-surface-2 shadow-surface-3 after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-surface-3",
+        variant === "tile" && cn("rounded-lg", RAISED_TILE_SURFACE_CLASS_NAME),
         LOCAL_AGENT_LOGO_SIZE_CLASS_NAMES[size],
         className
       )}

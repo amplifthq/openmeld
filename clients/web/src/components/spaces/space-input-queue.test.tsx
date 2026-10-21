@@ -6,11 +6,18 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { reorderVisibleSpaceQueue, SpaceInputQueue } from "./space-input-queue";
+import {
+	isPausedBehind,
+	queuedMessageStatus,
+	reorderVisibleSpaceQueue,
+	resolveSendNowState,
+	SpaceInputQueue,
+} from "./space-input-queue";
 
-const queue = vi.hoisted(() => ({ mutate: vi.fn() }));
+const queue = vi.hoisted(() => ({ mutate: vi.fn(), sendNow: vi.fn() }));
 const item: SpaceInputQueueResponse["items"][number] = {
 	inputId: "queued-draft",
 	authorProfileId: "author",
@@ -25,6 +32,7 @@ vi.mock("./use-space-input-queue", () => ({
 		items,
 		error: null,
 		mutate: queue.mutate,
+		sendNow: queue.sendNow,
 	}),
 }));
 vi.mock("./use-space-work-recovery", () => ({
@@ -33,6 +41,7 @@ vi.mock("./use-space-work-recovery", () => ({
 beforeEach(() => {
 	items = [item];
 	queue.mutate.mockReset();
+	queue.sendNow.mockReset();
 });
 afterEach(cleanup);
 
@@ -97,6 +106,7 @@ it.each([
 				{
 					dispatchId: "original-response",
 					targetProfileId: "agt_codex",
+					targetLabel: "Codex",
 					terminal: false,
 					phase: phase === "occupied" ? "connecting" : phase,
 					waitReasonCode:
@@ -114,15 +124,86 @@ it.each([
 	fireEvent.click(send);
 	if (canSendNow) {
 		await waitFor(() =>
-			expect(queue.mutate).toHaveBeenCalledExactlyOnceWith({
-				action: "steer",
-				inputId: item.inputId,
-				target: item.target,
-			})
+			expect(queue.sendNow).toHaveBeenCalledExactlyOnceWith(item)
 		);
 	} else {
-		expect(queue.mutate).not.toHaveBeenCalled();
+		expect(queue.sendNow).not.toHaveBeenCalled();
 	}
+});
+
+it("explains why Send now is off", () => {
+	const progress = {
+		dispatchId: "original-response",
+		targetProfileId: "agt_codex",
+		targetLabel: "@Claude Code",
+		terminal: false,
+		phase: "running" as const,
+		waitReasonCode: null,
+	};
+	expect(resolveSendNowState(item, [progress])).toEqual({
+		available: true,
+		hint: "Send this message to Claude Code while it works",
+	});
+	expect(
+		resolveSendNowState(item, [
+			{
+				...progress,
+				pendingInteraction: {} as never,
+			},
+		])
+	).toEqual({
+		available: false,
+		hint: "Claude Code is waiting for your input. Answer it first, then send this message.",
+	});
+	expect(resolveSendNowState(item, []).available).toBe(false);
+	expect(
+		resolveSendNowState({ ...item, blocked: true }, [progress]).available
+	).toBe(false);
+});
+
+it("keeps the reason reachable while Send now is disabled", () => {
+	render(
+		<SpaceInputQueue
+			onEdit={vi.fn()}
+			profileId="author"
+			progressItems={[]}
+			spaceId="space"
+		/>
+	);
+	const wrapper = screen
+		.getByRole("button", { name: "Send now" })
+		.closest("[data-slot=queued-send-now]");
+	expect(wrapper?.getAttribute("tabindex")).toBe("0");
+	expect(wrapper?.getAttribute("aria-description")).toContain(
+		"This response has ended"
+	);
+});
+
+it("shows a clear error when Send now fails", async () => {
+	queue.sendNow.mockRejectedValue(
+		new Error("Couldn't send this message now. It's still queued.")
+	);
+	render(
+		<SpaceInputQueue
+			onEdit={vi.fn()}
+			profileId="author"
+			progressItems={[
+				{
+					dispatchId: "original-response",
+					targetProfileId: "agt_codex",
+					targetLabel: "Codex",
+					terminal: false,
+					phase: "running",
+					waitReasonCode: null,
+				},
+			]}
+			spaceId="space"
+		/>
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Send now" }));
+	expect((await screen.findByRole("alert")).textContent).toBe(
+		"Couldn't send this message now. It's still queued."
+	);
 });
 
 async function edit() {
@@ -196,4 +277,106 @@ it("keeps a failed edit recoverable without resending the original queue item", 
 		[{ action: "delete", inputId: "queued-draft" }],
 		[{ action: "delete", inputId: "queued-draft" }],
 	]);
+});
+
+const claudeProgress = {
+	dispatchId: "original-response",
+	targetProfileId: "agt_codex",
+	targetLabel: "@Claude Code",
+	terminal: true,
+	phase: "running" as const,
+	waitReasonCode: null,
+};
+
+it("describes an unconfirmed message by what Core is doing about it", () => {
+	const checking = {
+		...item,
+		state: "unconfirmed" as const,
+		delivery: "checking" as const,
+	};
+	expect(queuedMessageStatus(checking, [claudeProgress])).toBe(
+		"Checking whether Claude Code received this…"
+	);
+	expect(resolveSendNowState(checking, [claudeProgress])).toEqual({
+		available: false,
+		hint: "Checking whether Claude Code received this…",
+	});
+	const undecided = { ...checking, delivery: "undecided" as const };
+	expect(queuedMessageStatus(undecided, [claudeProgress])).toBe(
+		"Couldn't confirm that Claude Code received this. Retry it or remove it; later messages wait until you do."
+	);
+	expect(resolveSendNowState(undecided, [claudeProgress]).hint).toBe(
+		"Retry or remove this message first."
+	);
+});
+
+it("names the Agent from the Space members once its response has left", () => {
+	expect(
+		queuedMessageStatus(
+			{ ...item, state: "unconfirmed", delivery: "checking" },
+			[],
+			{ agents: [{ profileId: "agt_codex", profileName: "Claude Code" }] }
+		)
+	).toBe("Checking whether Claude Code received this…");
+});
+
+it("never says a paused message is sent when the next response starts", () => {
+	const queue = [
+		{ ...item, inputId: "m", state: "unconfirmed" as const },
+		{ ...item, inputId: "n" },
+		{
+			...item,
+			inputId: "other",
+			target: { dispatchId: "another", targetProfileId: "agt_codex" },
+		},
+	];
+	expect(isPausedBehind(queue, 1)).toBe(true);
+	expect(isPausedBehind(queue, 2)).toBe(false);
+	const state = resolveSendNowState(queue[1] as typeof item, [claudeProgress], {
+		paused: true,
+	});
+	expect(state.available).toBe(false);
+	expect(state.hint).not.toContain("next one starts");
+	expect(
+		queuedMessageStatus(queue[1] as typeof item, [claudeProgress], {
+			paused: true,
+		})
+	).toBe("Waiting for the message above.");
+});
+
+it("retries or removes an undecided message, asking once before removing", async () => {
+	items = [
+		{ ...item, state: "unconfirmed", delivery: "undecided" },
+		{ ...item, inputId: "behind", text: "Behind it" },
+	];
+	queue.mutate.mockResolvedValue(undefined);
+	render(
+		<SpaceInputQueue
+			onEdit={vi.fn()}
+			profileId="author"
+			progressItems={[claudeProgress]}
+			spaceId="space"
+		/>
+	);
+	expect(screen.getByText("Waiting for the message above.")).toBeTruthy();
+	fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+	await waitFor(() =>
+		expect(queue.mutate).toHaveBeenCalledWith({
+			action: "retry",
+			inputId: "queued-draft",
+		})
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Remove from queue" }));
+	expect(queue.mutate).toHaveBeenCalledTimes(1);
+	const dialog = await screen.findByRole("alertdialog");
+	expect(within(dialog).getByText("Remove from queue?")).toBeTruthy();
+	fireEvent.click(
+		within(dialog).getByRole("button", { name: "Remove from queue" })
+	);
+	await waitFor(() =>
+		expect(queue.mutate).toHaveBeenLastCalledWith({
+			action: "delete",
+			inputId: "queued-draft",
+		})
+	);
 });

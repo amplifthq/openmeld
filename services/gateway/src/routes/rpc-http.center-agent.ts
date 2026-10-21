@@ -46,12 +46,12 @@ import {
   updateCenterAgentOperatingStateResponseSchema,
 } from "@openmeld/schemas";
 import type { Context, Hono } from "hono";
-import type { z } from "zod/v4";
 import type { HonoBindings } from "../lib/bindings";
 import { normalizeCenterAgentAvatarImage } from "../lib/center-agent-avatar-image";
 import {
   buildCoreRpcContext,
   executeRpcRoute,
+  parseJsonBody,
   respondBadRequest,
 } from "./rpc-http.helpers";
 import { parseSpaceRouteParams } from "./rpc-http.parsers";
@@ -709,55 +709,4 @@ async function resolveCenterAgentProfileIdForDesignation(input: {
     throw new Error("Failed to ensure the Center Agent profile.");
   }
   return ensured.profile.openMeldProfileId;
-}
-
-type JsonBodyParseResult<T> =
-  | {
-      data: T;
-      ok: true;
-    }
-  | {
-      ok: false;
-      response: Response;
-    };
-
-async function parseJsonBody<T>(
-  c: Context<HonoBindings>,
-  schema: z.ZodType<T>
-): Promise<JsonBodyParseResult<T>> {
-  let body: unknown = {};
-  const rawBody = (await c.req.text()).trim();
-  if (rawBody.length > 0) {
-    try {
-      body = JSON.parse(rawBody);
-    } catch {
-      return {
-        ok: false,
-        response: respondBadRequest({
-          c,
-          route: c.req.path,
-          method: c.req.method as "POST" | "PUT" | "PATCH",
-          code: "invalid_json",
-          message: "Invalid JSON",
-        }),
-      };
-    }
-  }
-  const parsed = schema.safeParse(body);
-  if (!parsed.success) {
-    return {
-      ok: false,
-      response: respondBadRequest({
-        c,
-        route: c.req.path,
-        method: c.req.method as "POST" | "PUT" | "PATCH",
-        code: "invalid_payload",
-        message: parsed.error.issues[0]?.message ?? "Invalid payload.",
-      }),
-    };
-  }
-  return {
-    data: parsed.data,
-    ok: true,
-  };
 }

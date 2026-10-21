@@ -128,6 +128,11 @@ export class AgentProfileBindingModelSelectionValidationError extends Error {
   }
 }
 
+// A Binding write would move a Profile that belongs to a MemberAgent to
+// another harness (developing/product/agent-profiles.md, MemberAgent Layer).
+export const AGENT_PROFILE_BINDING_MEMBER_AGENT_HARNESS_LOCKED =
+  "agent_profile_binding.member_agent_harness_locked";
+
 export type AgentProfileBindingWriteResult =
   | {
       binding: AgentProfileBindingCommandRecord;
@@ -138,6 +143,7 @@ export type AgentProfileBindingWriteResult =
       existingBinding?: AgentProfileBindingCommandRecord;
       reason:
         | "controller_conversation_conflict"
+        | "member_agent_harness_locked"
         | "primary_conflict"
         | "session_resume_unavailable";
       status: "rejected";
@@ -1161,6 +1167,8 @@ function resolveWriteResult(input: {
           return "agent_profile_binding.controller_conversation_conflict";
         case "session_resume_unavailable":
           return "agent_profile_binding.session_resume_unavailable";
+        case "member_agent_harness_locked":
+          return AGENT_PROFILE_BINDING_MEMBER_AGENT_HARNESS_LOCKED;
         default:
           return "agent_profile_binding.primary_conflict";
       }

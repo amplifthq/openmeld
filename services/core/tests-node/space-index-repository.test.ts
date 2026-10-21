@@ -10,9 +10,10 @@ import {
   diagnoseSpaceIndexProjectionDrift,
   listAccountSpaceIdsFromSpaceIndex,
   listAccountSpacesFromSpaceIndex,
-  listCenterAgentSessionIndexRows,
+  listDirectMessageSessionIndexRows,
   listOrganizationSpacesFromSpaceIndex,
   readSpaceIndexOrganizationJoinTarget,
+  writeDirectMessageSessionArchivedAt,
 } from "../src/space-index/space-index-repository";
 import { projectSpaceMessagePreview } from "../src/space-index/space-message-preview";
 import {
@@ -629,7 +630,7 @@ describe("space index AccountSpaces read model", () => {
       expect(accountSpaces.spaceItems[0]?.messagePreview).toEqual(
         projectedPreview
       );
-      const sessions = await listCenterAgentSessionIndexRows({
+      const sessions = await listDirectMessageSessionIndexRows({
         db: harness.db,
         organizationId: "org-1",
         pairKey: "agt_33333333-3333-4333-8333-333333333333:human-1",
@@ -648,7 +649,7 @@ describe("space index AccountSpaces read model", () => {
         preview: null,
       });
       expect(
-        await listCenterAgentSessionIndexRows({
+        await listDirectMessageSessionIndexRows({
           db: harness.db,
           organizationId: "org-1",
           pairKey: "agt_33333333-3333-4333-8333-333333333333:human-1",
@@ -656,6 +657,51 @@ describe("space index AccountSpaces read model", () => {
         })
       ).toMatchObject([
         { spaceId: "space-center-agent-dm", messagePreview: null },
+      ]);
+      // Archived Sessions leave the active list and appear only on request.
+      await writeDirectMessageSessionArchivedAt({
+        db: harness.db,
+        spaceId: "space-center-agent-dm",
+        organizationId: "org-1",
+        archivedAtMs: Date.parse("2026-04-14T00:00:00.000Z"),
+        nowMs: Date.parse("2026-04-14T00:00:00.000Z"),
+      });
+      const sessionPair = {
+        db: harness.db,
+        organizationId: "org-1",
+        pairKey: "agt_33333333-3333-4333-8333-333333333333:human-1",
+        limit: 10,
+        archived: false,
+      };
+      expect(
+        await listDirectMessageSessionIndexRows({
+          ...sessionPair,
+          archived: undefined,
+        })
+      ).toHaveLength(1);
+      expect(await listDirectMessageSessionIndexRows(sessionPair)).toEqual([]);
+      expect(
+        await listDirectMessageSessionIndexRows({
+          ...sessionPair,
+          archived: true,
+        })
+      ).toMatchObject([
+        {
+          spaceId: "space-center-agent-dm",
+          archivedAtMs: Date.parse("2026-04-14T00:00:00.000Z"),
+        },
+      ]);
+      await writeDirectMessageSessionArchivedAt({
+        db: harness.db,
+        spaceId: "space-center-agent-dm",
+        organizationId: "org-1",
+        archivedAtMs: null,
+        nowMs: Date.parse("2026-04-15T00:00:00.000Z"),
+      });
+      expect(
+        await listDirectMessageSessionIndexRows(sessionPair)
+      ).toMatchObject([
+        { spaceId: "space-center-agent-dm", archivedAtMs: null },
       ]);
     } finally {
       await harness.close();

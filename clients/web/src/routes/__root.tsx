@@ -32,10 +32,12 @@ import { Toaster } from "#/components/ui/sonner";
 import { beforeDesktopLoad } from "#/desktop/auth-boundary";
 import { DesktopFrame } from "#/desktop/desktop-frame";
 import { TanStackDevtoolsSlot } from "#/integrations/tanstack-devtools/devtools-slot";
+import { readAppShellPendingSidebarState } from "#/lib/app-shell-pending-sidebar";
 import { APPEARANCE_SHAPE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/shape-preference";
 import { SIDEBAR_PREFERENCE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/sidebar-preference";
 import { TOOLBAR_PREFERENCE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/toolbar-preference";
 import {
+	readApplicationErrorRequestFailure,
 	summarizeApplicationError,
 	WEB_ERROR_BUILD,
 } from "#/lib/observability/application-error";
@@ -81,6 +83,10 @@ const NOT_FOUND_LOGO_SCALE = 0.72;
 export const Route = createRootRouteWithContext<RouterContext>()({
 	beforeLoad: ({ location, context }) =>
 		beforeDesktopLoad(location.pathname, location.href, context.queryClient),
+	// The client-only Organization route paints its pending shell during SSR.
+	loader: async () => ({
+		appShellSidebarState: await readAppShellPendingSidebarState(),
+	}),
 	headers: () => ({
 		"Cache-Control": "no-cache",
 	}),
@@ -340,6 +346,7 @@ function PageError({
 
 	const errorDetails =
 		error instanceof Error ? (error.stack ?? message) : message;
+	const requestId = readApplicationErrorRequestFailure(error).requestId;
 	const diagnosticDetails = isAssetLoadError
 		? JSON.stringify(summarizeApplicationError(error), null, 2)
 		: errorDetails;
@@ -350,7 +357,7 @@ function PageError({
 			<main className="flex min-h-[calc(100svh-3.5rem)] w-full items-center justify-center px-4 py-6 sm:px-6">
 				<ApplicationErrorState
 					description={description}
-					details={`${diagnosticDetails}\n\nBuild: ${WEB_ERROR_BUILD.id ?? "development"}\nSource: ${WEB_ERROR_BUILD.sha ?? "local"}`}
+					details={`${diagnosticDetails}${requestId ? `\n\nRequest ID: ${requestId}` : ""}\n\nBuild: ${WEB_ERROR_BUILD.id ?? "development"}\nSource: ${WEB_ERROR_BUILD.sha ?? "local"}`}
 					message={displayMessage}
 					onAction={
 						onRetry ??

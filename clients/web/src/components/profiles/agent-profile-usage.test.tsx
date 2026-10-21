@@ -12,7 +12,7 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { AgentConfigurationGrid } from "./agent-configuration-card";
 import { AgentProfileUsage } from "./agent-profile-usage";
@@ -32,7 +32,8 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 function snapshot(
 	organizationId = "org-a",
 	profileId = "agent-a",
-	usedPercent = 75
+	usedPercent = 85,
+	status: "available" | "exhausted" = "available"
 ) {
 	const readiness = {
 		agentControllerRef: "builtin:codex",
@@ -40,7 +41,7 @@ function snapshot(
 			{
 				key: "weekly",
 				label: "Weekly usage",
-				status: "available",
+				status,
 				usedPercent,
 				observedAt: "2026-09-18T12:00:00.000Z",
 				resetsAt: "2026-09-21T12:00:00.000Z",
@@ -85,10 +86,19 @@ function renderUsage() {
 					variant="card"
 				/>
 			</AgentConfigurationGrid>
-			<AgentProfileUsage
-				agentControllerRef={agentControllerRef}
-				profileId={profileId}
-			/>
+			<div data-testid="summary">
+				<AgentProfileUsage
+					agentControllerRef={agentControllerRef}
+					profileId={profileId}
+				/>
+			</div>
+			<div data-testid="popover">
+				<AgentProfileUsage
+					agentControllerRef={agentControllerRef}
+					profileId={profileId}
+					variant="popover"
+				/>
+			</div>
 		</QueryClientProvider>
 	);
 	const result = render(tree("agent-a"));
@@ -99,61 +109,83 @@ function renderUsage() {
 	};
 }
 
+beforeEach(() => {
+	// Only the clock moves: the fixture's observation stays fresh.
+	vi.useFakeTimers({ toFake: ["Date"] });
+	vi.setSystemTime(new Date("2026-09-18T12:05:00.000Z"));
+});
+
 afterEach(() => {
 	cleanup();
 	vi.clearAllMocks();
+	vi.useRealTimers();
 	state.organizationId = "org-a";
 });
 
+const PERCENT_TEXT = /\d+(\.\d+)?%/;
+const USAGE_LIMIT_TEXT = /usage limit/i;
+
+function showsUsagePercent() {
+	return Boolean(
+		screen.queryByRole("meter") ||
+			screen.queryByRole("progressbar") ||
+			PERCENT_TEXT.test(document.body.textContent ?? "")
+	);
+}
+
 describe("Agent usage dashboard", () => {
-	it("resolves the card independently, shares the runtime read, and retains neighboring work", async () => {
+	it("shows nothing about usage while the Agent has room, and retains neighboring work", async () => {
 		const response = deferred<ReturnType<typeof snapshot>>();
 		state.read.mockReturnValue(response.promise);
 		const { client } = renderUsage();
-		const card = screen.getByRole("region", { name: "Usage limits" });
-		expect(
-			within(card).getByRole("status", { name: "Loading usage limits" })
-		).toBeTruthy();
-		expect(screen.queryByRole("meter")).toBeNull();
+		expect(screen.queryByRole("region", { name: "Usage limits" })).toBeNull();
 		const field = screen.getByRole("textbox", { name: "Unsaved setting" });
 		fireEvent.change(field, { target: { value: "My unsaved draft" } });
 		field.focus();
-		await act(async () => response.resolve(snapshot()));
-		expect(
-			(await screen.findByRole("meter")).getAttribute("aria-valuenow")
-		).toBe("25");
-		expect(state.read).toHaveBeenCalledTimes(1);
-		expect(
-			within(card).queryByRole("button", { name: "Edit Usage limits" })
-		).toBeNull();
+		await act(async () => response.resolve(snapshot("org-a", "agent-a", 75)));
+		await waitFor(() => expect(state.read).toHaveBeenCalledTimes(1));
+		expect(screen.queryByRole("region", { name: "Usage limits" })).toBeNull();
+		expect(screen.getByTestId("summary").textContent).toBe("");
+		expect(screen.getByTestId("popover").textContent).toBe("");
+		expect(showsUsagePercent()).toBe(false);
 		expect((field as HTMLInputElement).value).toBe("My unsaved draft");
 		expect(document.activeElement).toBe(field);
 		client.clear();
 	});
 
-	it("keeps last-known usage during a refresh failure, but removes it on access revocation", async () => {
+	it("warns near the limit in every team-facing place, without a percent", async () => {
 		state.read.mockResolvedValue(snapshot());
 		const { client } = renderUsage();
-		await screen.findByRole("meter");
-		const key = organizationQueryKeys.agentRuntimeOverview("org-a");
-		const next = deferred<ReturnType<typeof snapshot>>();
-		state.read.mockReturnValue(next.promise);
-		act(() => {
-			client.invalidateQueries({ queryKey: key }).catch(console.error);
-		});
-		expect(screen.getByRole("meter").getAttribute("aria-valuenow")).toBe("25");
-		await waitFor(() => {
-			expect(screen.getByRole("meter").getAttribute("aria-label")).toContain(
-				", Stale,"
-			);
-		});
+		const card = await screen.findByRole("region", { name: "Usage limits" });
+		expect(within(card).getByText("Near usage limit")).toBeTruthy();
+		expect(screen.getByTestId("summary").textContent).toBe("Near usage limit");
+		expect(screen.getByTestId("popover").textContent).toBe("Near usage limit");
+		expect(state.read).toHaveBeenCalledTimes(1);
+		expect(showsUsagePercent()).toBe(false);
+		client.clear();
+	});
+
+	it("reports a reached limit with its reset distance", async () => {
+		state.read.mockResolvedValue(
+			snapshot("org-a", "agent-a", 100, "exhausted")
+		);
+		const { client } = renderUsage();
+		const card = await screen.findByRole("region", { name: "Usage limits" });
 		expect(
-			within(screen.getByRole("region", { name: "Usage limits" })).queryByRole(
-				"status",
-				{ name: "Loading usage limits" }
-			)
-		).toBeNull();
-		await act(async () => next.resolve(snapshot()));
+			within(card).getByText("Usage limit reached · resets in 3 days")
+		).toBeTruthy();
+		expect(screen.getByTestId("summary").textContent).toBe(
+			"Usage limit reached · resets in 3 days"
+		);
+		expect(showsUsagePercent()).toBe(false);
+		client.clear();
+	});
+
+	it("keeps a last-known warning during a refresh failure, but removes it on access revocation", async () => {
+		state.read.mockResolvedValue(snapshot());
+		const { client } = renderUsage();
+		await screen.findByRole("region", { name: "Usage limits" });
+		const key = organizationQueryKeys.agentRuntimeOverview("org-a");
 		state.read.mockRejectedValue({
 			code: "gateway.upstream_error",
 			status: 503,
@@ -163,34 +195,38 @@ describe("Agent usage dashboard", () => {
 			await client.invalidateQueries({ queryKey: key });
 		});
 		await screen.findByText("Last-known usage. Refresh failed.");
-		expect(screen.getByRole("meter").getAttribute("aria-valuenow")).toBe("25");
+		expect(screen.getAllByText("Near usage limit").length).toBeGreaterThan(0);
 		state.read.mockRejectedValue({
 			code: "organization.membership_required",
 			status: 403,
 			message: "Access revoked",
 		});
 		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-		await waitFor(() => expect(screen.queryByRole("meter")).toBeNull());
+		await waitFor(() =>
+			expect(screen.queryByText("Near usage limit")).toBeNull()
+		);
 		client.clear();
 	});
 
 	it("never reuses another Agent, Organization, or Controller's quota", async () => {
 		state.read.mockResolvedValue(snapshot());
 		const { client, rerender } = renderUsage();
-		await screen.findByRole("meter");
+		await screen.findByRole("region", { name: "Usage limits" });
 		rerender("agent-b");
-		expect(screen.queryByRole("meter")).toBeNull();
+		expect(screen.queryByText("Near usage limit")).toBeNull();
 		rerender("agent-a", "builtin:claude-code");
-		expect(screen.queryByRole("meter")).toBeNull();
+		expect(screen.queryByText("Near usage limit")).toBeNull();
 		const next = deferred<ReturnType<typeof snapshot>>();
 		state.read.mockReturnValue(next.promise);
 		state.organizationId = "org-b";
 		rerender();
-		expect(screen.queryByRole("meter")).toBeNull();
-		await act(async () => next.resolve(snapshot("org-b", "agent-a", 40)));
+		expect(screen.queryByText(USAGE_LIMIT_TEXT)).toBeNull();
+		await act(async () =>
+			next.resolve(snapshot("org-b", "agent-a", 100, "exhausted"))
+		);
 		expect(
-			(await screen.findByRole("meter")).getAttribute("aria-valuenow")
-		).toBe("60");
+			await screen.findAllByText("Usage limit reached · resets in 3 days")
+		).toHaveLength(3);
 		client.clear();
 	});
 });

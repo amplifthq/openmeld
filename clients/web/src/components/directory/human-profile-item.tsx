@@ -4,7 +4,6 @@ import { parseAgentControllerRef } from "@openmeld/agent-runtime";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { hasLocalAgentLogo } from "@openmeld/ui/components/local-agent-logo-utils";
 import {
-	hasLocalAgentUsage,
 	type LocalAgentUsageSource,
 	SettingsLocalAgentUsageDockItem,
 } from "@openmeld/ui/components/settings-computers";
@@ -37,6 +36,7 @@ import {
 } from "#/components/directory/directory-human-profile-format";
 import type { DirectoryHumanProfileRow } from "#/components/directory/directory-human-profile-model";
 import { DirectoryComputerStatusIcon } from "#/components/directory/directory-human-profile-presentation";
+import { resolveAgentUsageAttention } from "#/components/profiles/agent-usage-attention";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationPersonPath } from "#/lib/organizations/organization-routes";
@@ -256,8 +256,8 @@ function HumanLocalAgentDock({
 	if (card) {
 		const orderedAgents = localAgents.toSorted(
 			(left, right) =>
-				Number(hasLocalAgentUsage(right.usageSources)) -
-				Number(hasLocalAgentUsage(left.usageSources))
+				resolveAttentionUsageSources(right.usageSources, nowMs).length -
+				resolveAttentionUsageSources(left.usageSources, nowMs).length
 		);
 		return (
 			<span
@@ -269,7 +269,7 @@ function HumanLocalAgentDock({
 						agentName={agent.displayName}
 						key={agent.agentId}
 						nowMs={nowMs}
-						sources={agent.usageSources}
+						sources={resolveAttentionUsageSources(agent.usageSources, nowMs)}
 						stackOrder={localAgents.length - index}
 					>
 						<LocalAgentLogo
@@ -476,4 +476,15 @@ function buildLocalAgentSummary(
 	localAgents: readonly LocalAgentIdentity[]
 ): string {
 	return localAgents.map((agent) => `${agent.displayName} enabled`).join(", ");
+}
+
+// A teammate's card shows a usage ring only when that source is near or at
+// its limit; with room to spare it shows no quota at all.
+function resolveAttentionUsageSources(
+	sources: readonly LocalAgentUsageSource[],
+	nowMs: number
+) {
+	return sources.filter(
+		(source) => resolveAgentUsageAttention(source.limits, nowMs) !== null
+	);
 }

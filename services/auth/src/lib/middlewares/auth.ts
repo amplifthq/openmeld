@@ -2,6 +2,7 @@ import { createAuthDatabase } from "@openmeld/db/auth";
 import {
   ACCOUNT_ORGANIZATION_CONTEXT_PATH,
   ACCOUNT_SESSION_PATH,
+  accountOrganizationContextQuerySchema,
 } from "@openmeld/schemas";
 import { createMiddleware } from "hono/factory";
 import { loadBetterAuthRuntime } from "../../lazy-runtime-modules";
@@ -13,6 +14,7 @@ import {
   toSessionResolutionErrorLog,
 } from "../better-auth/session-resolver";
 import type { AppContext } from "../context";
+import { startAccountReadStage } from "../observability/cloudflare-runtime-evidence";
 import { logError, logWarn } from "../utils/loggers";
 
 export const authInstanceMiddleware = createMiddleware<AppContext>(
@@ -29,9 +31,29 @@ export const authInstanceMiddleware = createMiddleware<AppContext>(
 export const authContextMiddleware = createMiddleware<AppContext>(
   async (c, next) => {
     c.header("cache-control", "private, no-store");
+    const organizationContextQuery =
+      c.req.path === ACCOUNT_ORGANIZATION_CONTEXT_PATH
+        ? accountOrganizationContextQuerySchema.safeParse({
+            deferSessionRefresh: c.req.query("deferSessionRefresh"),
+          })
+        : null;
+    if (organizationContextQuery && !organizationContextQuery.success) {
+      return c.json(
+        {
+          ok: false,
+          code: "invalid_query",
+          message: "Invalid Organization context query.",
+        },
+        400
+      );
+    }
+    const completeSession = startAccountReadStage(c, "session");
     const sessionResolution = await resolveSessionFromHeaders({
       auth: c.var.betterAuth,
       headers: c.req.raw.headers,
+      deferSessionRefresh:
+        organizationContextQuery?.success &&
+        organizationContextQuery.data.deferSessionRefresh === "true",
       disableCookieCache:
         c.req.path === ACCOUNT_ORGANIZATION_CONTEXT_PATH ||
         c.req.path === ACCOUNT_SESSION_PATH,
@@ -43,6 +65,12 @@ export const authContextMiddleware = createMiddleware<AppContext>(
       verifyLocalUserExists: (userId) =>
         getLocalAuthUserStore(c.env).hasUserById(userId),
     });
+    completeSession(
+      sessionResolution.status === "authenticated" ? "succeeded" : "failed",
+      sessionResolution.status === "authenticated"
+        ? undefined
+        : sessionResolution.status
+    );
     if (sessionResolution.status === "authenticated") {
       c.set("user", sessionResolution.user);
       c.set("session", sessionResolution.session);

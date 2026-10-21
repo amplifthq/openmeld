@@ -8,7 +8,11 @@ import {
 	resetAccountScopedQueriesAfterAuthChange,
 } from "#/query/auth-boundary";
 import { isDesktopAppHref } from "../../../desktop/src/shared/navigation";
-import { forgetDesktopSession, readDesktopSession } from "./auth-boundary";
+import {
+	forgetDesktopSession,
+	readDesktopSession,
+	registerDesktopEntryRedirect,
+} from "./auth-boundary";
 import { desktopUsesMacControls } from "./chrome-platform";
 import { createDesktopNavigation } from "./navigation";
 import { getDesktopPlatform } from "./platform";
@@ -30,6 +34,14 @@ export function DesktopFrame({ children }: { children: ReactNode }) {
 		[target, navigation]
 	);
 	useEffect(() => navigation?.connect(), [navigation]);
+	useEffect(() => {
+		if (!bridge) {
+			return;
+		}
+		return registerDesktopEntryRedirect((search) =>
+			router.navigate({ to: "/desktop-shell", search, replace: true })
+		);
+	}, [bridge, router]);
 	useEffect(() => {
 		if (!bridge) {
 			return;

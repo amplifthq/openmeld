@@ -1,8 +1,10 @@
 import type { InboxItem, InboxSourceTarget } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import {
+	buildInboxAgentInteractionConversationHref,
 	buildInboxItemSourceNavigation,
 	isInboxItemSourceLocation,
+	keepInboxFilters,
 } from "./source-target";
 
 describe("buildInboxItemSourceNavigation", () => {
@@ -69,23 +71,29 @@ describe("buildInboxItemSourceNavigation", () => {
 		});
 	});
 
-	it("preserves the exact agent interaction target", () => {
+	it("answers an Agent's question in Inbox and keeps its exact conversation", () => {
+		const target = {
+			interactionId: "interaction-123",
+			kind: "agent_interaction" as const,
+			runtimeCoordinatorExecutionId: "execution-123",
+			sourceSignalId: "signal-123",
+			spaceId: "space-123",
+			threadRootSignalId: "root-signal-123",
+		};
 		expect(
 			buildInboxItemSourceNavigation({
-				item: createInboxItem({
-					interactionId: "interaction-123",
-					kind: "agent_interaction",
-					runtimeCoordinatorExecutionId: "execution-123",
-					sourceSignalId: "signal-123",
-					spaceId: "space-123",
-					threadRootSignalId: "root-signal-123",
-				}),
+				item: createInboxItem(target),
 				orgSlug: "amplift",
 			})
 		).toEqual({
-			href: "/o/amplift/spaces/space-123?focusInteractionId=interaction-123&focusSignalId=signal-123&focusThreadRootSignalId=root-signal-123",
+			href: "/o/amplift/inbox?item=item-123",
 			openInNewTab: false,
 		});
+		expect(
+			buildInboxAgentInteractionConversationHref({ orgSlug: "amplift", target })
+		).toBe(
+			"/o/amplift/spaces/space-123?focusInteractionId=interaction-123&focusSignalId=signal-123&focusThreadRootSignalId=root-signal-123"
+		);
 	});
 
 	it("preserves the exact Center Agent reply target", () => {
@@ -349,3 +357,35 @@ function createInboxItem(sourceTarget: InboxSourceTarget): InboxItem {
 		updatedAt: "2026-08-04T01:00:00.000Z",
 	};
 }
+
+describe("keepInboxFilters", () => {
+	it("keeps the user's view and filters when an item opens in Inbox", () => {
+		expect(
+			keepInboxFilters({
+				currentPathname: "/o/amplift/inbox",
+				currentSearch: "?view=needs-action&unread=true&item=old&requestId=r1",
+				href: "/o/amplift/inbox?item=item-123",
+			})
+		).toBe("/o/amplift/inbox?view=needs-action&unread=true&item=item-123");
+	});
+
+	it("never carries a Space's focus into another item in the same Space", () => {
+		expect(
+			keepInboxFilters({
+				currentPathname: "/o/amplift/spaces/space-1",
+				currentSearch: "?focusThreadRootSignalId=root&focusInteractionId=i",
+				href: "/o/amplift/spaces/space-1?focusSignalId=s",
+			})
+		).toBe("/o/amplift/spaces/space-1?focusSignalId=s");
+	});
+
+	it("leaves a link to another page alone", () => {
+		expect(
+			keepInboxFilters({
+				currentPathname: "/o/amplift/inbox",
+				currentSearch: "?view=needs-action",
+				href: "/o/amplift/spaces/space-1?focusSignalId=s",
+			})
+		).toBe("/o/amplift/spaces/space-1?focusSignalId=s");
+	});
+});

@@ -6,7 +6,13 @@ import type { AgentActivityEvent, SpaceTask } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { acceptAgentActivityEventRecord } from "../src/agent-activity/activity-event-repository";
 import type { CoreBindings } from "../src/lib/bindings";
-import { readActiveProjectIds } from "../src/projects/project-repository";
+import {
+  archiveProjectRecord,
+  listActivitySnapshotProjectRecords,
+  readActiveProjectIds,
+  readProjectLifecycleRecord,
+  readProjectRecord,
+} from "../src/projects/project-repository";
 import { rpcReadProjectRecentTasks } from "../src/projects/project-rpc";
 import { createProjectService } from "../src/projects/project-service";
 import {
@@ -1029,6 +1035,288 @@ describe("Core Projects", () => {
     expect(counts).toEqual({ events: 0, sessions: 0 });
   });
 });
+const ACTIVITY_EVIDENCE_KINDS = [
+  "event",
+  "session",
+  "digest",
+  "daily_aggregate",
+  "daily_session_key",
+] as const;
+type ActivityEvidenceKind = (typeof ACTIVITY_EVIDENCE_KINDS)[number];
+describe("Project Activity evidence reads", () => {
+  it.each(
+    ACTIVITY_EVIDENCE_KINDS
+  )("scopes %s evidence to its own Project and Organization", async (evidenceKind) => {
+    const organizationId = await seedOrganization();
+    const otherOrganizationId = await seedOrganization();
+    const db = getPostgresDatabase(env);
+    // Ids sort so the evidence of the active Project is the next row an index
+    // seek would meet when probing the quiet Project. Evidence stored under the
+    // quiet Project id in another Organization must not count either.
+    const quiet = `evidence-a-${crypto.randomUUID()}`;
+    const active = `evidence-b-${crypto.randomUUID()}`;
+    await seedProjectRow({ id: quiet, organizationId, updatedAtMs: 10 });
+    await seedProjectRow({ id: active, organizationId, updatedAtMs: 20 });
+    await seedActivityEvidence({
+      evidenceKind,
+      organizationId,
+      projectId: active,
+    });
+    await seedActivityEvidence({
+      evidenceKind,
+      organizationId: otherOrganizationId,
+      projectId: quiet,
+    });
+    await expect(
+      readProjectRecord({ db, organizationId, projectId: active })
+    ).resolves.toMatchObject({ hasActivity: true, id: active });
+    await expect(
+      readProjectRecord({ db, organizationId, projectId: quiet })
+    ).resolves.toMatchObject({ hasActivity: false, id: quiet });
+    await expect(
+      archiveProjectRecord({
+        authorityMode: "creator_grace",
+        currentUpdatedAtMs: 20,
+        db,
+        nowMs: 30,
+        organizationId,
+        projectId: active,
+        userId: "creator-1",
+      })
+    ).resolves.toBe("has_activity");
+    await expect(
+      archiveProjectRecord({
+        authorityMode: "creator_grace",
+        currentUpdatedAtMs: 10,
+        db,
+        nowMs: 30,
+        organizationId,
+        projectId: quiet,
+        userId: "creator-1",
+      })
+    ).resolves.toBe("archived");
+  });
+  it.each(
+    ACTIVITY_EVIDENCE_KINDS
+  )("ignores %s evidence under the same Project id in the next Organization", async (evidenceKind) => {
+    const base = `org_evidence_${crypto.randomUUID()}`;
+    const organizationId = await seedOrganization(`${base}-a`);
+    const nextOrganizationId = await seedOrganization(`${base}-b`);
+    const db = getPostgresDatabase(env);
+    const projectId = `evidence-${crypto.randomUUID()}`;
+    await seedProjectRow({ id: projectId, organizationId, updatedAtMs: 10 });
+    // The quiet Project has no later evidence in its own Organization, so the
+    // seek lands on this row, which differs only by Organization.
+    await seedActivityEvidence({
+      evidenceKind,
+      organizationId: nextOrganizationId,
+      projectId,
+    });
+    await expect(
+      readProjectRecord({ db, organizationId, projectId })
+    ).resolves.toMatchObject({ hasActivity: false, id: projectId });
+    await expect(
+      archiveProjectRecord({
+        authorityMode: "creator_grace",
+        currentUpdatedAtMs: 10,
+        db,
+        nowMs: 30,
+        organizationId,
+        projectId,
+        userId: "creator-1",
+      })
+    ).resolves.toBe("archived");
+  });
+  it("lists active Projects first, then archived Projects that keep evidence", async () => {
+    const organizationId = await seedOrganization();
+    const db = getPostgresDatabase(env);
+    const prefix = crypto.randomUUID();
+    const rows: {
+      archived: boolean;
+      at: number;
+      evidence: ActivityEvidenceKind | null;
+      id: string;
+    }[] = [
+      { archived: false, at: 10, evidence: null, id: `${prefix}-active-old` },
+      {
+        archived: false,
+        at: 40,
+        evidence: "session",
+        id: `${prefix}-active-new`,
+      },
+      {
+        archived: true,
+        at: 90,
+        evidence: "event",
+        id: `${prefix}-archived-new`,
+      },
+      {
+        archived: true,
+        at: 5,
+        evidence: "daily_session_key",
+        id: `${prefix}-archived-old`,
+      },
+      {
+        archived: true,
+        at: 99,
+        evidence: null,
+        id: `${prefix}-archived-quiet`,
+      },
+    ];
+    for (const row of rows) {
+      await seedProjectRow({
+        archivedAtMs: row.archived ? row.at : null,
+        id: row.id,
+        organizationId,
+        updatedAtMs: row.at,
+      });
+      if (row.evidence) {
+        await seedActivityEvidence({
+          evidenceKind: row.evidence,
+          organizationId,
+          projectId: row.id,
+        });
+      }
+    }
+    const projects = await listActivitySnapshotProjectRecords({
+      db,
+      organizationId,
+    });
+    expect(
+      projects.map(({ archivedAtMs, hasActivity, id }) => ({
+        archived: archivedAtMs !== null,
+        hasActivity,
+        id,
+      }))
+    ).toEqual([
+      { archived: false, hasActivity: true, id: `${prefix}-active-new` },
+      { archived: false, hasActivity: false, id: `${prefix}-active-old` },
+      { archived: true, hasActivity: true, id: `${prefix}-archived-new` },
+      { archived: true, hasActivity: true, id: `${prefix}-archived-old` },
+    ]);
+  });
+  it("reads lifecycle state without Activity evidence", async () => {
+    const organizationId = await seedOrganization();
+    const db = getPostgresDatabase(env);
+    const active = `lifecycle-${crypto.randomUUID()}`;
+    const archived = `lifecycle-${crypto.randomUUID()}`;
+    await seedProjectRow({ id: active, organizationId, updatedAtMs: 10 });
+    await seedProjectRow({
+      archivedAtMs: 15,
+      id: archived,
+      organizationId,
+      updatedAtMs: 15,
+    });
+    await expect(
+      readProjectLifecycleRecord({ db, organizationId, projectId: active })
+    ).resolves.toEqual({ archivedAtMs: null, id: active });
+    await expect(
+      readProjectLifecycleRecord({ db, organizationId, projectId: archived })
+    ).resolves.toEqual({ archivedAtMs: 15, id: archived });
+    await expect(
+      readProjectLifecycleRecord({
+        db,
+        organizationId: await seedOrganization(),
+        projectId: active,
+      })
+    ).resolves.toBeNull();
+  });
+});
+async function seedProjectRow(input: {
+  archivedAtMs?: number | null;
+  id: string;
+  organizationId: string;
+  updatedAtMs: number;
+}): Promise<void> {
+  await getPostgresDatabase(env).query({
+    text: `
+      INSERT INTO "openmeld"."projects" (
+        id, organization_id, name, slug, repository_fingerprint,
+        created_by_user_id, created_at_ms, updated_at_ms, archived_at_ms
+      ) VALUES ($1, $2, $3, $4, NULL, 'creator-1', 1, $5, $6)
+    `,
+    values: [
+      input.id,
+      input.organizationId,
+      `Project ${input.id}`,
+      `slug-${crypto.randomUUID()}`,
+      input.updatedAtMs,
+      input.archivedAtMs ?? null,
+    ],
+  });
+}
+async function seedActivityEvidence(input: {
+  evidenceKind: ActivityEvidenceKind;
+  organizationId: string;
+  projectId: string;
+}): Promise<void> {
+  const db = getPostgresDatabase(env);
+  const suffix = crypto.randomUUID();
+  const hash = `sha256:${crypto.randomUUID().replaceAll("-", "")}${crypto
+    .randomUUID()
+    .replaceAll("-", "")}`;
+  const scope = [input.organizationId, input.projectId];
+  switch (input.evidenceKind) {
+    case "event":
+      await db.query({
+        text: `
+          INSERT INTO "openmeld"."agent_activity_events" (
+            id, event_id, canonical_payload_hash, organization_id, project_id,
+            member_user_id, device_id, openmeld_service_runtime_id, provider,
+            client_kind, provider_session_id, event_type, status,
+            observed_at_ms, expires_at_ms, provider_metadata_json,
+            accepted_at_ms, daily_session_key
+          ) VALUES ($1, $2, $3, $4, $5, 'member-1', 'device-1', 'runtime-1',
+            'codex', 'codex-cli', 'provider-session-1', 'session_active',
+            'active', 100, 200, '{}', 100, $6)
+        `,
+        values: [
+          `event-storage-${suffix}`,
+          `event-${suffix}`,
+          hash,
+          ...scope,
+          hash,
+        ],
+      });
+      return;
+    case "session":
+      await db.query({
+        text: `
+          INSERT INTO "openmeld"."agent_activity_sessions" (
+            id, organization_id, project_id, member_user_id, device_id,
+            openmeld_service_runtime_id, provider, client_kind,
+            provider_session_id, status, last_observed_at_ms, expires_at_ms,
+            provider_metadata_json, last_event_id, last_accepted_sequence,
+            created_at_ms, updated_at_ms
+          ) VALUES ($1, $2, $3, 'member-1', 'device-1', 'runtime-1', 'codex',
+            'codex-cli', $4, 'active', 100, 200, '{}', 'event-1', 1, 100, 100)
+        `,
+        values: [`session-${suffix}`, ...scope, `provider-session-${suffix}`],
+      });
+      return;
+    case "digest":
+      await db.query({
+        text: `
+          INSERT INTO "openmeld"."agent_activity_digests" (
+            id, organization_id, project_id, source_cursor_accepted_sequence,
+            window_started_at_ms, window_ended_at_ms, event_count,
+            citations_json, summary, status, failure_reason, created_at_ms,
+            expires_at_ms
+          ) VALUES ($1, $2, $3, 1, 100, 200, 1, '[]', NULL, 'pending', NULL,
+            100, 200)
+        `,
+        values: [`digest-${suffix}`, ...scope],
+      });
+      return;
+    default:
+      await seedStandaloneEvidence({
+        evidenceKind: input.evidenceKind,
+        organizationId: input.organizationId,
+        projectId: input.projectId,
+        dailySessionKey: hash,
+      });
+  }
+}
 function authority(input: {
   organizationId: string;
   role: "admin" | "member" | "owner";
@@ -1036,9 +1324,10 @@ function authority(input: {
 }) {
   return input;
 }
-async function seedOrganization(): Promise<string> {
+async function seedOrganization(
+  organizationId = `org_agent_activity_${crypto.randomUUID()}`
+): Promise<string> {
   const suffix = crypto.randomUUID();
-  const organizationId = `org_agent_activity_${suffix}`;
   ownedOrganizationIds.add(organizationId);
   await getPostgresDatabase(env).query({
     ...{
@@ -1107,6 +1396,7 @@ async function seedOrganizationActor(role: "admin" | "member" | "owner") {
   return { memberId, organizationId, profileId, userId };
 }
 async function seedStandaloneEvidence(input: {
+  dailySessionKey?: string;
   evidenceKind: "daily_aggregate" | "daily_session_key";
   organizationId: string;
   projectId: string;
@@ -1141,7 +1431,11 @@ async function seedStandaloneEvidence(input: {
     `,
       values: [],
     },
-    values: [`sha256:${"a".repeat(64)}`, input.organizationId, input.projectId],
+    values: [
+      input.dailySessionKey ?? `sha256:${"a".repeat(64)}`,
+      input.organizationId,
+      input.projectId,
+    ],
   });
 }
 async function seedExecutionLink(input: {

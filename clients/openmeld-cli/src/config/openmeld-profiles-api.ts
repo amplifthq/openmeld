@@ -1,3 +1,4 @@
+import { OPENMELD_HEADER_TASK_CREDENTIAL } from "@openmeld/gateway-contract";
 import {
   ADDITIONAL_HUMAN_PROFILE_CREATION_DISABLED_CODE,
   authProfileManagedRoleSchema,
@@ -11,8 +12,13 @@ import {
 } from "../auth/auth-guidance";
 import { touchDaemonCatalogSyncSignal } from "../local-service/state/catalog-sync-signal";
 import { getAuthSessionState, type StoredAuthSession } from "./auth-session";
+import { resolveBaseUrl } from "./base-url";
 import { isLoopbackHostname } from "./loopback-hostname";
 import { assertAdditionalHumanProfileCreationEnabled } from "./profile-creation-capability";
+import {
+  readDispatchTaskCredentialHeader,
+  sendWithCredentialConfirmation,
+} from "./sensitive-operation-credentials";
 
 export type OpenMeldProfileKind = "human" | "agent" | "system";
 export type OpenMeldProfileStatus = "active" | "disabled";
@@ -297,15 +303,42 @@ async function requestOpenMeldProfilesApi(input: {
 }): Promise<Record<string, unknown>> {
   const session = await requireOpenMeldProfilesSession();
   const endpoint = toAuthEndpoint(session.authBaseUrl, input.path);
-  const response = await fetch(endpoint, {
-    method: input.method,
-    headers: {
-      Authorization: `${normalizeTokenType(session.tokenType)} ${session.accessToken}`,
-      ...(input.body ? { "content-type": "application/json" } : {}),
-    },
-    ...(input.body ? { body: JSON.stringify(input.body) } : {}),
-    signal: AbortSignal.timeout(resolveOpenMeldProfilesApiTimeoutMs(endpoint)),
-  });
+  const authorization = `${normalizeTokenType(session.tokenType)} ${session.accessToken}`;
+  const taskCredential = readDispatchTaskCredentialHeader();
+  const send = (headers: Record<string, string>) =>
+    fetch(endpoint, {
+      method: input.method,
+      headers,
+      ...(input.body ? { body: JSON.stringify(input.body) } : {}),
+      signal: AbortSignal.timeout(
+        resolveOpenMeldProfilesApiTimeoutMs(endpoint)
+      ),
+    });
+  const headers = {
+    Authorization: authorization,
+    ...(taskCredential
+      ? { [OPENMELD_HEADER_TASK_CREDENTIAL]: taskCredential }
+      : {}),
+    ...(input.body ? { "content-type": "application/json" } : {}),
+  };
+  // Deleting an Agent Profile is a sensitive operation: inside the risk
+  // window it waits for the owner's confirmation (member-agent-program.md §4.7).
+  const response =
+    input.method === "DELETE"
+      ? await sendWithCredentialConfirmation({
+          baseUrl: await resolveBaseUrl(),
+          headers,
+          method: input.method,
+          readConfirmation: async ({ url }) =>
+            await fetch(url, {
+              headers: { Authorization: authorization },
+              signal: AbortSignal.timeout(
+                resolveOpenMeldProfilesApiTimeoutMs(url)
+              ),
+            }),
+          send,
+        })
+      : await send(headers);
 
   const payload = await parseResponseJson(response);
 
@@ -313,7 +346,11 @@ async function requestOpenMeldProfilesApi(input: {
     const parsedError = profileErrorResponseSchema.safeParse(payload);
     const status = response.status;
     const code = parsedError.success ? parsedError.data.code : null;
-    if (status === 401 || status === 403 || code === "auth.unauthenticated") {
+    if (
+      status === 401 ||
+      (status === 403 && !isSensitiveOperationRefusalCode(code)) ||
+      code === "auth.unauthenticated"
+    ) {
       validatedSessionCache = null;
       throw createAuthenticationError({
         reason: "required",
@@ -764,4 +801,14 @@ function isHostedProfilesEndpoint(endpoint: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+/** A sensitive operation's refusal is not a sign-in problem. */
+function isSensitiveOperationRefusalCode(code: string | null): boolean {
+  return Boolean(
+    code &&
+      (code.startsWith("credential_confirmation.") ||
+        code.startsWith("task_credential.") ||
+        code.startsWith("sensitive_operation."))
+  );
 }

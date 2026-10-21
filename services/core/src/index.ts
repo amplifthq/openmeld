@@ -13,8 +13,15 @@ import type {
   SpaceCursor,
   SpaceMeta,
 } from "@openmeld/protocol";
-import type { SpacePreferencesRpc } from "@openmeld/schemas";
+import type {
+  GetMemberAgentPresenceResponse,
+  RequestCredential,
+  SpacePreferencesRpc,
+  SyncMemberAgentsResponse,
+} from "@openmeld/schemas";
 import {
+  type DeleteAgentDirectMessageSessionResponse,
+  type ListAgentDirectMessageSessionsResponse,
   type ListCenterAgentSessionsResponse,
   type ModelCatalogReadOptions,
   modelCatalogReadOptionsSchema,
@@ -24,6 +31,7 @@ import {
   toLegacySpaceFilesOriginWireValue,
   toLegacySpaceImageGeometryWireValue,
   toSpaceSignalReadWireValue,
+  type UpdateAgentDirectMessageSessionResponse,
 } from "@openmeld/schemas";
 import type {
   AccountSpaceActiveWakeSummaryResponse,
@@ -408,6 +416,17 @@ import type {
   UpdateSpaceFileEntryResponse,
   WriteCurrentDeviceObservedMetadataResponse,
 } from "@openmeld/schemas/types";
+import {
+  rpcCreateAgentProfileAccessGrant,
+  rpcCreateSpaceAgentRequest,
+  rpcDecideAgentAccessRequest,
+  rpcGetAgentAccessRequest,
+  rpcListAgentAccessRequests,
+  rpcListAgentProfileAccessGrants,
+  rpcListViewerAgentAccessGrants,
+  rpcRevokeAgentProfileAccessGrant,
+  rpcWithdrawAgentAccessRequest,
+} from "./agent-access/agent-access-rpc";
 import { rpcCenterAgentReadAgentActivityOverview } from "./agent-activity/activity-center-agent-rpc";
 import { acceptAgentActivitySessionInventoryMemberCleanup } from "./agent-activity/activity-session-inventory-member-cleanup-service";
 import { reconcileDeletedAgentProfile } from "./agent-profile-binding/application/deleted-profile-reconcile-service";
@@ -500,6 +519,13 @@ import {
   rpcUpdateInboxNotificationPreferences,
 } from "./inbox/transport/rpc/inbox-rpc";
 import type { CoreBindings } from "./lib/bindings";
+import {
+  type MemberAgentRpcInput,
+  rpcGetMemberAgentPresence,
+  rpcSubmitRuntimeAgentControllerReportsWithMemberAgents,
+  rpcSyncMemberAgents,
+  type SyncMemberAgentsRpcInput,
+} from "./member-agent/member-agent-rpc";
 import { rpcCenterAgentManageOrganizationDocuments } from "./organization-documents/center-agent-document-rpc";
 import {
   rpcApproveOrganizationDocumentDraft,
@@ -709,6 +735,7 @@ import {
   type CreateSpaceFolderInput,
   type CreateSpaceInput,
   type CreateSpaceTaskInput,
+  type DeleteAgentDirectMessageSessionInput,
   type DeleteRoutineInput,
   type DeleteSpaceAttachmentRecordInput,
   type DeleteSpaceAttachmentRecordResult,
@@ -731,6 +758,7 @@ import {
   type GetAgentExecutionReadinessInput,
   type GetAgentProfileControllerChangeEligibilityInput,
   type GetAgentProfileCreationDefaultsInput,
+  type GetAgentProfileFoldersInput,
   type GetAgentProfilePrimaryBindingInput,
   type GetCenterAgentDesignationInput,
   type GetCenterAgentDirectMessageSpaceProjectionInput,
@@ -780,6 +808,7 @@ import {
   type ListAccountSpaceActiveWakeSummaryInput,
   type ListAccountSpacesInput,
   type ListActiveLarkPlatformRegistrationsInput,
+  type ListAgentDirectMessageSessionsInput,
   type ListCenterAgentAuditJournalInput,
   type ListCenterAgentSessionsInput,
   type ListCurrentOrganizationConnectorAppRequestsInput,
@@ -796,6 +825,7 @@ import {
   type ListSpaceThreadEventsInput,
   type ListSpaceThreadSignalsInput,
   type ListSpaceThreadsInput,
+  type ManageAgentProfileFoldersInput,
   type MutateSpaceTaskInput,
   type NotifyAgentProfileRouteCatalogChangedInput,
   type NotifyAgentProfilesRouteCatalogChangedInput,
@@ -943,6 +973,7 @@ import {
   rpcCreateSpaceDiagnosticReport,
   rpcCreateSpaceFolder,
   rpcCreateSpaceTask,
+  rpcDeleteAgentDirectMessageSession,
   rpcDeleteConversationForMe,
   rpcDeleteRoutine,
   rpcDeleteSpace,
@@ -967,6 +998,7 @@ import {
   rpcGetAgentExecutionReadinessBatch,
   rpcGetAgentProfileControllerChangeEligibility,
   rpcGetAgentProfileCreationDefaults,
+  rpcGetAgentProfileFolders,
   rpcGetAgentProfilePrimaryBinding,
   rpcGetCenterAgentDesignation,
   rpcGetCenterAgentDirectMessageSpaceProjection,
@@ -1023,6 +1055,7 @@ import {
   rpcListAccountSpaceActiveWakeSummary,
   rpcListAccountSpaces,
   rpcListActiveLarkPlatformRegistrations,
+  rpcListAgentDirectMessageSessions,
   rpcListCenterAgentAuditJournal,
   rpcListCenterAgentSessions,
   rpcListCurrentOrganizationConnectorAppRequests,
@@ -1041,6 +1074,7 @@ import {
   rpcListSpaceThreadEvents,
   rpcListSpaceThreadSignals,
   rpcListSpaceThreads,
+  rpcManageAgentProfileFolders,
   rpcManagePeopleComputerLocalAgentUpdate,
   rpcMutateSpaceMessage,
   rpcMutateSpaceTask,
@@ -1124,10 +1158,10 @@ import {
   rpcSubmitAgentActivityEvents,
   rpcSubmitAgentActivitySessionReconciliation,
   rpcSubmitAgentControllerTaskLifecycleEvents,
-  rpcSubmitRuntimeAgentControllerReports,
   rpcSubmitRuntimeProviderConversationProofs,
   rpcSubmitRuntimeRegistration,
   rpcTrashSpaceFileEntry,
+  rpcUpdateAgentDirectMessageSession,
   rpcUpdateAgentProfileDefaultProject,
   rpcUpdateAgentProfilePrimaryBindingAgentControllerCollaborationMode,
   rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissionMode,
@@ -1177,6 +1211,7 @@ import {
   type SubmitRuntimeProviderConversationProofsInput,
   type SubmitRuntimeRegistrationInput,
   type TrashSpaceFileEntryInput,
+  type UpdateAgentDirectMessageSessionInput,
   type UpdateAgentProfileDefaultProjectInput,
   type UpdateAgentProfilePrimaryBindingAgentControllerCollaborationModeInput,
   type UpdateAgentProfilePrimaryBindingAgentControllerPermissionModeInput,
@@ -1207,6 +1242,14 @@ import {
   rpcRemoteAgentReadMessages,
 } from "./search/message-read";
 import { rpcSearchMessages } from "./search/message-search";
+import { runGatewaySensitiveOperation } from "./sensitive-operations/application/sensitive-operation-gate";
+import {
+  rpcAuthorizeSensitiveOperation,
+  rpcDecideCredentialConfirmation,
+  rpcGetCredentialConfirmation,
+  rpcListMemberAgentSensitiveOperationAudit,
+  rpcRecordSensitiveOperationOutcome,
+} from "./sensitive-operations/sensitive-operation-rpc";
 import { emitCoreCloudflareRuntimeEvidence } from "./shared/observability/cloudflare-runtime-evidence";
 import { handleCoreQueueBatch } from "./shared/queue/core-queue-router";
 import { verifyGitHubAppWebhook } from "./space/application/github-app-webhook-service";
@@ -1229,6 +1272,17 @@ import {
 // fan-out. Kept separate from GatewayRpcEntrypoint so auth only gets the
 // reconcile surface instead of the whole gateway RPC surface.
 export class ProfileLifecycleEntrypoint extends WorkerEntrypoint<CoreBindings> {
+  /** Auth's Agent Profile deletion asks the sensitive operation gate first. */
+  authorizeSensitiveOperation(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcAuthorizeSensitiveOperation(this.env, input)
+    );
+  }
+  recordSensitiveOperationOutcome(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRecordSensitiveOperationOutcome(this.env, input)
+    );
+  }
   organizationJoinRequest(
     input: import("@openmeld/schemas").OrganizationJoinRequestRpcInput
   ) {
@@ -3366,6 +3420,21 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       listPluginActionRequests(this.env, input)
     );
   }
+  suggestPermissionMode(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSuggestPermissionMode(this.env, input)
+    );
+  }
+  listPermissionModeSuggestions(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListPermissionModeSuggestions(this.env, input)
+    );
+  }
+  resolvePermissionModeSuggestion(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcResolvePermissionModeSuggestion(this.env, input)
+    );
+  }
 
   previewPluginChannelConnection(input: unknown) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
@@ -3550,6 +3619,27 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   ): Promise<ListCenterAgentSessionsResponse> {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcListCenterAgentSessions(this.env, input)
+    );
+  }
+  listAgentDirectMessageSessions(
+    input: ListAgentDirectMessageSessionsInput
+  ): Promise<ListAgentDirectMessageSessionsResponse> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListAgentDirectMessageSessions(this.env, input)
+    );
+  }
+  updateAgentDirectMessageSession(
+    input: UpdateAgentDirectMessageSessionInput
+  ): Promise<UpdateAgentDirectMessageSessionResponse> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateAgentDirectMessageSession(this.env, input)
+    );
+  }
+  deleteAgentDirectMessageSession(
+    input: DeleteAgentDirectMessageSessionInput
+  ): Promise<DeleteAgentDirectMessageSessionResponse> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDeleteAgentDirectMessageSession(this.env, input)
     );
   }
   createCenterAgentContextManifest(
@@ -4360,7 +4450,82 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: SubmitRuntimeAgentControllerReportsInput
   ): Promise<SubmitRuntimeAgentControllerReportsResponse> {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
-      rpcSubmitRuntimeAgentControllerReports(this.env, input)
+      rpcSubmitRuntimeAgentControllerReportsWithMemberAgents(this.env, input)
+    );
+  }
+  syncMemberAgents(
+    input: SyncMemberAgentsRpcInput
+  ): Promise<SyncMemberAgentsResponse> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSyncMemberAgents(this.env, input)
+    );
+  }
+  getMemberAgentPresence(
+    input: MemberAgentRpcInput
+  ): Promise<GetMemberAgentPresenceResponse> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetMemberAgentPresence(this.env, input)
+    );
+  }
+  listAgentAccessRequests(
+    input: Parameters<typeof rpcListAgentAccessRequests>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListAgentAccessRequests(this.env, input)
+    );
+  }
+  getAgentAccessRequest(input: Parameters<typeof rpcGetAgentAccessRequest>[1]) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetAgentAccessRequest(this.env, input)
+    );
+  }
+  decideAgentAccessRequest(
+    input: Parameters<typeof rpcDecideAgentAccessRequest>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDecideAgentAccessRequest(this.env, input)
+    );
+  }
+  withdrawAgentAccessRequest(
+    input: Parameters<typeof rpcWithdrawAgentAccessRequest>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcWithdrawAgentAccessRequest(this.env, input)
+    );
+  }
+  createSpaceAgentRequest(
+    input: Parameters<typeof rpcCreateSpaceAgentRequest>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCreateSpaceAgentRequest(this.env, input)
+    );
+  }
+  listAgentProfileAccessGrants(
+    input: Parameters<typeof rpcListAgentProfileAccessGrants>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListAgentProfileAccessGrants(this.env, input)
+    );
+  }
+  listViewerAgentAccessGrants(
+    input: Parameters<typeof rpcListViewerAgentAccessGrants>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListViewerAgentAccessGrants(this.env, input)
+    );
+  }
+  createAgentProfileAccessGrant(
+    input: Parameters<typeof rpcCreateAgentProfileAccessGrant>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCreateAgentProfileAccessGrant(this.env, input)
+    );
+  }
+  revokeAgentProfileAccessGrant(
+    input: Parameters<typeof rpcRevokeAgentProfileAccessGrant>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRevokeAgentProfileAccessGrant(this.env, input)
     );
   }
   submitRuntimeProviderConversationProofs(
@@ -4504,6 +4669,16 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcGetCurrentAgentProfileWorkspace(this.env, input)
     );
   }
+  getAgentProfileFolders(input: GetAgentProfileFoldersInput) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetAgentProfileFolders(this.env, input)
+    );
+  }
+  manageAgentProfileFolders(input: ManageAgentProfileFoldersInput) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcManageAgentProfileFolders(this.env, input)
+    );
+  }
   setCurrentAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput
   ): Promise<SetCurrentAgentProfileWorkspaceResponse> {
@@ -4542,7 +4717,31 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 }
 // Gateway-specific RPC entrypoint. Kept as a dedicated subclass to preserve an
 // extension point for future gateway-aware overrides.
+/** Credential facts the Gateway adds to a sensitive operation's input only. */
+type GatewaySensitiveCredential = { requestCredential?: RequestCredential };
+
 export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
+  getCredentialConfirmation(
+    input: Parameters<typeof rpcGetCredentialConfirmation>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCredentialConfirmation(this.env, input)
+    );
+  }
+  decideCredentialConfirmation(
+    input: Parameters<typeof rpcDecideCredentialConfirmation>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDecideCredentialConfirmation(this.env, input)
+    );
+  }
+  listMemberAgentSensitiveOperationAudit(
+    input: Parameters<typeof rpcListMemberAgentSensitiveOperationAudit>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListMemberAgentSensitiveOperationAudit(this.env, input)
+    );
+  }
   readOrganizationAiBilling(input: OrganizationAiBillingRpcInput) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcReadAiBilling(this.env, input)
@@ -4659,14 +4858,31 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.updateProject(input);
   }
   updateAgentProfileDefaultProject(
-    input: UpdateAgentProfileDefaultProjectInput
+    input: UpdateAgentProfileDefaultProjectInput & GatewaySensitiveCredential
   ) {
-    return super.updateAgentProfileDefaultProject(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "default_project_write",
+      },
+      (operationInput) => super.updateAgentProfileDefaultProject(operationInput)
+    );
   }
   updateBoundAgentProfileDefaultProject(
-    input: UpdateAgentProfileDefaultProjectInput
+    input: UpdateAgentProfileDefaultProjectInput & GatewaySensitiveCredential
   ) {
-    return super.updateBoundAgentProfileDefaultProject(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "default_project_write",
+      },
+      (operationInput) =>
+        super.updateBoundAgentProfileDefaultProject(operationInput)
+    );
   }
   archiveProject(input: ArchiveProjectInput) {
     return super.archiveProject(input);
@@ -4692,15 +4908,35 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   }
   setPeopleComputerAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput &
-      import("@openmeld/schemas/types").PeopleComputerTarget
+      import("@openmeld/schemas/types").PeopleComputerTarget &
+      GatewaySensitiveCredential
   ) {
-    return super.setPeopleComputerAgentProfileWorkspace(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "working_folder_write",
+      },
+      (operationInput) =>
+        super.setPeopleComputerAgentProfileWorkspace(operationInput)
+    );
   }
   setBoundPeopleComputerAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput &
-      import("@openmeld/schemas/types").PeopleComputerTarget
+      import("@openmeld/schemas/types").PeopleComputerTarget &
+      GatewaySensitiveCredential
   ) {
-    return super.setBoundPeopleComputerAgentProfileWorkspace(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "working_folder_write",
+      },
+      (operationInput) =>
+        super.setBoundPeopleComputerAgentProfileWorkspace(operationInput)
+    );
   }
   connectPeopleComputerProjectPath(
     input: Parameters<typeof rpcConnectPeopleComputerProjectPath>[1]
@@ -5344,9 +5580,14 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.postSpaceWakeStop(input);
   }
   respondToSpaceAgentInteraction(
-    input: RespondToSpaceAgentInteractionInput
+    input: RespondToSpaceAgentInteractionInput & GatewaySensitiveCredential
   ): Promise<RespondToSpaceAgentInteractionResponse> {
-    return super.respondToSpaceAgentInteraction(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      { agentProfileId: null, operation: "agent_interaction_answer" },
+      (operationInput) => super.respondToSpaceAgentInteraction(operationInput)
+    );
   }
   getSpaceWakeTraceWaterfall(
     input: GetSpaceWakeTraceWaterfallInput
@@ -5373,9 +5614,28 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.createSpaceDiagnosticReport(input);
   }
   addSpaceMembers(
-    input: AddSpaceMembersInput
+    input: AddSpaceMembersInput & GatewaySensitiveCredential
   ): Promise<PostSpaceMembersResponse> {
-    return super.addSpaceMembers(input);
+    const { requestCredential: _credential, ...members } = input;
+    // Adding the caller's own Agent is sensitive (§4.6); another owner's
+    // Agent goes through that owner's request instead.
+    const ownAgent = input.members.find(
+      (member) =>
+        member.profileKind === "agent" &&
+        member.ownerUserId !== null &&
+        member.ownerUserId === input.context?.actorContext.callerPrincipalId
+    );
+    return ownAgent
+      ? runGatewaySensitiveOperation(
+          this.env,
+          input,
+          {
+            agentProfileId: ownAgent.profileId,
+            operation: "space_members_add_agent",
+          },
+          (operationInput) => super.addSpaceMembers(operationInput)
+        )
+      : super.addSpaceMembers(members);
   }
   removeSpaceMembers(
     input: RemoveSpaceMembersInput
@@ -5493,8 +5753,15 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       spaceImageGeometryVersion
     );
   }
-  deleteSpace(input: DeleteSpaceInput): Promise<DeleteSpaceResult> {
-    return super.deleteSpace(input);
+  deleteSpace(
+    input: DeleteSpaceInput & GatewaySensitiveCredential
+  ): Promise<DeleteSpaceResult> {
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      { agentProfileId: null, operation: "space_delete" },
+      (operationInput) => super.deleteSpace(operationInput)
+    );
   }
   deleteConversationForMe(
     input: import("@openmeld/schemas").DeleteConversationForMeInput
@@ -5637,10 +5904,36 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   getCurrentAgentProfileWorkspace(input: GetCurrentAgentProfileWorkspaceInput) {
     return super.getCurrentAgentProfileWorkspace(input);
   }
+  getAgentProfileFolders(input: GetAgentProfileFoldersInput) {
+    return super.getAgentProfileFolders(input);
+  }
+  manageAgentProfileFolders(
+    input: ManageAgentProfileFoldersInput & GatewaySensitiveCredential
+  ) {
+    // Adding, removing, renaming or choosing the default folder is a
+    // working-folder write: same gate, confirmation and audit.
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "working_folder_write",
+      },
+      (operationInput) => super.manageAgentProfileFolders(operationInput)
+    );
+  }
   setCurrentAgentProfileWorkspace(
-    input: SetCurrentAgentProfileWorkspaceInput
+    input: SetCurrentAgentProfileWorkspaceInput & GatewaySensitiveCredential
   ): Promise<SetCurrentAgentProfileWorkspaceResponse> {
-    return super.setCurrentAgentProfileWorkspace(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "working_folder_write",
+      },
+      (operationInput) => super.setCurrentAgentProfileWorkspace(operationInput)
+    );
   }
   refreshCurrentLocalAgentCatalog(
     input: RefreshCurrentLocalAgentCatalogInput
@@ -5711,14 +6004,31 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.getCurrentAgentProfileSession(input);
   }
   executeAgentProfileWorkRecovery(
-    input: ExecuteAgentProfileWorkRecoveryInput
+    input: ExecuteAgentProfileWorkRecoveryInput & GatewaySensitiveCredential
   ): Promise<ExecuteAgentProfileWorkRecoveryResponse> {
-    return super.executeAgentProfileWorkRecovery(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      { agentProfileId: input.agentProfileId, operation: "work_recovery" },
+      (operationInput) => super.executeAgentProfileWorkRecovery(operationInput)
+    );
   }
   agentProfileExecutionMode(
-    input: AgentProfileExecutionModeInput
+    input: AgentProfileExecutionModeInput & GatewaySensitiveCredential
   ): Promise<AgentProfileExecutionModeResponse> {
-    return super.agentProfileExecutionMode(input);
+    const { requestCredential: _credential, ...read } = input;
+    // Reading the mode is not sensitive; changing it is (concurrency, §4.6).
+    return input.body
+      ? runGatewaySensitiveOperation(
+          this.env,
+          input,
+          {
+            agentProfileId: input.agentProfileId,
+            operation: "execution_mode_write",
+          },
+          (operationInput) => super.agentProfileExecutionMode(operationInput)
+        )
+      : super.agentProfileExecutionMode(read);
   }
   getAgentProfileControllerChangeEligibility(
     input: GetAgentProfileControllerChangeEligibilityInput
@@ -5741,38 +6051,89 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.getAgentExecutionReadinessBatch(input);
   }
   ensureAgentProfilePrimaryBinding(
-    input: EnsureAgentProfilePrimaryBindingInput
+    input: EnsureAgentProfilePrimaryBindingInput & GatewaySensitiveCredential
   ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-    return super.ensureAgentProfilePrimaryBinding(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      { agentProfileId: input.agentProfileId, operation: "binding_ensure" },
+      (operationInput) => super.ensureAgentProfilePrimaryBinding(operationInput)
+    );
   }
   updateAgentProfilePrimaryBindingModelSelection(
-    input: UpdateAgentProfilePrimaryBindingModelSelectionInput
+    input: UpdateAgentProfilePrimaryBindingModelSelectionInput &
+      GatewaySensitiveCredential
   ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-    return super.updateAgentProfilePrimaryBindingModelSelection(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "binding_model_selection",
+      },
+      (operationInput) =>
+        super.updateAgentProfilePrimaryBindingModelSelection(operationInput)
+    );
   }
   updateAgentProfilePrimaryBindingAgentControllerCollaborationMode(
-    input: UpdateAgentProfilePrimaryBindingAgentControllerCollaborationModeInput
+    input: UpdateAgentProfilePrimaryBindingAgentControllerCollaborationModeInput &
+      GatewaySensitiveCredential
   ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-    return super.updateAgentProfilePrimaryBindingAgentControllerCollaborationMode(
-      input
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "binding_collaboration_mode",
+      },
+      (operationInput) =>
+        super.updateAgentProfilePrimaryBindingAgentControllerCollaborationMode(
+          operationInput
+        )
     );
   }
   updateAgentProfilePrimaryBindingAgentControllerPermissionMode(
-    input: UpdateAgentProfilePrimaryBindingAgentControllerPermissionModeInput
+    input: UpdateAgentProfilePrimaryBindingAgentControllerPermissionModeInput &
+      GatewaySensitiveCredential
   ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-    return super.updateAgentProfilePrimaryBindingAgentControllerPermissionMode(
-      input
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "binding_permission_mode",
+      },
+      (operationInput) =>
+        super.updateAgentProfilePrimaryBindingAgentControllerPermissionMode(
+          operationInput
+        )
     );
   }
   updateAgentProfilePrimaryBindingOpenCodePermission(
-    input: UpdateAgentProfilePrimaryBindingOpenCodePermissionInput
+    input: UpdateAgentProfilePrimaryBindingOpenCodePermissionInput &
+      GatewaySensitiveCredential
   ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
-    return super.updateAgentProfilePrimaryBindingOpenCodePermission(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "binding_opencode_permission",
+      },
+      (operationInput) =>
+        super.updateAgentProfilePrimaryBindingOpenCodePermission(operationInput)
+    );
   }
   disableAgentProfilePrimaryBinding(
-    input: DisableAgentProfilePrimaryBindingInput
+    input: DisableAgentProfilePrimaryBindingInput & GatewaySensitiveCredential
   ): Promise<DisableAgentProfilePrimaryBindingResponse> {
-    return super.disableAgentProfilePrimaryBinding(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      { agentProfileId: input.agentProfileId, operation: "binding_disable" },
+      (operationInput) =>
+        super.disableAgentProfilePrimaryBinding(operationInput)
+    );
   }
   getAgentProfileCreationDefaults(
     input: GetAgentProfileCreationDefaultsInput
@@ -5780,9 +6141,14 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.getAgentProfileCreationDefaults(input);
   }
   setAgentProfileCreationDefaults(
-    input: SetAgentProfileCreationDefaultsInput
+    input: SetAgentProfileCreationDefaultsInput & GatewaySensitiveCredential
   ): Promise<SetAgentProfileCreationDefaultsResponse> {
-    return super.setAgentProfileCreationDefaults(input);
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      { agentProfileId: null, operation: "creation_defaults_write" },
+      (operationInput) => super.setAgentProfileCreationDefaults(operationInput)
+    );
   }
   createAgentProfileCreationRequest(
     input: CreateAgentProfileCreationRequestRpcInput
@@ -5953,6 +6319,36 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: ListCenterAgentSessionsInput
   ): Promise<ListCenterAgentSessionsResponse> {
     return super.listCenterAgentSessions(input);
+  }
+  listAgentDirectMessageSessions(
+    input: ListAgentDirectMessageSessionsInput
+  ): Promise<ListAgentDirectMessageSessionsResponse> {
+    return super.listAgentDirectMessageSessions(input);
+  }
+  updateAgentDirectMessageSession(
+    input: UpdateAgentDirectMessageSessionInput & GatewaySensitiveCredential
+  ): Promise<UpdateAgentDirectMessageSessionResponse> {
+    const { requestCredential: _credential, ...update } = input;
+    // Archiving removes a Session from view (§4.6); renaming does not.
+    return input.update.operation === "archive"
+      ? runGatewaySensitiveOperation(
+          this.env,
+          input,
+          { agentProfileId: null, operation: "session_archive" },
+          (operationInput) =>
+            super.updateAgentDirectMessageSession(operationInput)
+        )
+      : super.updateAgentDirectMessageSession(update);
+  }
+  deleteAgentDirectMessageSession(
+    input: DeleteAgentDirectMessageSessionInput & GatewaySensitiveCredential
+  ): Promise<DeleteAgentDirectMessageSessionResponse> {
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      { agentProfileId: null, operation: "session_delete" },
+      (operationInput) => super.deleteAgentDirectMessageSession(operationInput)
+    );
   }
   createCenterAgentContextManifest(
     input: CreateCenterAgentContextManifestInput
@@ -6299,6 +6695,83 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: SubmitRuntimeAgentControllerReportsInput
   ): Promise<SubmitRuntimeAgentControllerReportsResponse> {
     return super.submitRuntimeAgentControllerReports(input);
+  }
+  syncMemberAgents(
+    input: SyncMemberAgentsRpcInput
+  ): Promise<SyncMemberAgentsResponse> {
+    return super.syncMemberAgents(input);
+  }
+  getMemberAgentPresence(
+    input: MemberAgentRpcInput
+  ): Promise<GetMemberAgentPresenceResponse> {
+    return super.getMemberAgentPresence(input);
+  }
+  listAgentAccessRequests(
+    input: Parameters<typeof rpcListAgentAccessRequests>[1]
+  ) {
+    return super.listAgentAccessRequests(input);
+  }
+  getAgentAccessRequest(input: Parameters<typeof rpcGetAgentAccessRequest>[1]) {
+    return super.getAgentAccessRequest(input);
+  }
+  decideAgentAccessRequest(
+    input: Parameters<typeof rpcDecideAgentAccessRequest>[1] &
+      GatewaySensitiveCredential
+  ) {
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      { agentProfileId: null, operation: "agent_access_decision" },
+      (operationInput) => super.decideAgentAccessRequest(operationInput)
+    );
+  }
+  withdrawAgentAccessRequest(
+    input: Parameters<typeof rpcWithdrawAgentAccessRequest>[1]
+  ) {
+    return super.withdrawAgentAccessRequest(input);
+  }
+  createSpaceAgentRequest(
+    input: Parameters<typeof rpcCreateSpaceAgentRequest>[1]
+  ) {
+    return super.createSpaceAgentRequest(input);
+  }
+  listAgentProfileAccessGrants(
+    input: Parameters<typeof rpcListAgentProfileAccessGrants>[1]
+  ) {
+    return super.listAgentProfileAccessGrants(input);
+  }
+  listViewerAgentAccessGrants(
+    input: Parameters<typeof rpcListViewerAgentAccessGrants>[1]
+  ) {
+    return super.listViewerAgentAccessGrants(input);
+  }
+  createAgentProfileAccessGrant(
+    input: Parameters<typeof rpcCreateAgentProfileAccessGrant>[1] &
+      GatewaySensitiveCredential
+  ) {
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "agent_access_decision",
+      },
+      (operationInput) => super.createAgentProfileAccessGrant(operationInput)
+    );
+  }
+  revokeAgentProfileAccessGrant(
+    input: Parameters<typeof rpcRevokeAgentProfileAccessGrant>[1] &
+      GatewaySensitiveCredential
+  ) {
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: input.agentProfileId,
+        operation: "agent_access_grant_revoke",
+      },
+      (operationInput) => super.revokeAgentProfileAccessGrant(operationInput)
+    );
   }
   submitAgentControllerTaskLifecycleEvents(
     input: SubmitAgentControllerTaskLifecycleEventsInput
@@ -6795,6 +7268,11 @@ import type {
   CenterAgentReadChannelFileResponse,
   CenterAgentSetReplyPlacementInput,
 } from "@openmeld/schemas/types";
+import {
+  rpcListPermissionModeSuggestions,
+  rpcResolvePermissionModeSuggestion,
+  rpcSuggestPermissionMode,
+} from "./agent-profile/application/permission-mode-suggestion-card";
 import {
   listPluginActionRequests,
   rpcPluginActionRequest,

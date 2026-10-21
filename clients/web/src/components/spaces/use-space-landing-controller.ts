@@ -42,6 +42,14 @@ import {
 	useState,
 } from "react";
 import { toast } from "sonner";
+import {
+	useHeldAgentAccessWakeKeys,
+	withoutHeldAgentAccessWakeProgress,
+} from "#/components/agent-access/held-agent-access-wake-progress";
+import {
+	type SpaceAgentRequestMentions,
+	useSpaceAgentRequestMentions,
+} from "#/components/agent-access/space-agent-request-mentions";
 import type {
 	ComposerDraftRecord,
 	ComposerDraftScope,
@@ -100,6 +108,10 @@ import type {
 	SpaceWakeStopRequestStatus,
 	SpaceWakeStopTargetResolution,
 } from "#/lib/spaces/wake-stop-target";
+import {
+	invalidateAgentAccessQueries,
+	useRequestAgentForSpace,
+} from "#/query/agent-access";
 import { inboxQueryKeys } from "#/query/organizations/inbox";
 import { optimisticallyRespondToSpaceInteraction } from "#/query/organizations/inbox-interaction-response";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
@@ -170,6 +182,11 @@ import {
 import { resolveMissingSpaceMembersMessage } from "./space-members-error-copy";
 import { persistSpaceNameUpdate } from "./space-name-update";
 import {
+	type PendingOutgoingSignal,
+	pendingOutgoingSignalsQueryKey,
+	resolvePendingOutgoingProfile,
+} from "./space-pending-outgoing-signals";
+import {
 	completeSpaceSend,
 	markSpaceSendPending,
 	setSpaceSendFailure,
@@ -230,12 +247,6 @@ import { useSpaceUnread } from "./use-space-unread";
 
 type TextSignalEnvelope = Extract<SignalEnvelope, { type: "signal.text" }>;
 
-type PendingOutgoingSignal = {
-	filePreviewUrlsById: ReadonlyMap<string, string>;
-	clientMessageId: string;
-	signal: TextSignalEnvelope;
-};
-
 type SpaceMentionAuthoringController = ReturnType<
 	typeof useSpaceMentionAuthoring
 >;
@@ -247,7 +258,11 @@ type PendingComposerSubmission = ReturnType<
 
 type PreparedSpaceMessageSubmission = Pick<
 	PendingComposerSubmission,
-	"messageEnvelope" | "text" | "restoredFromSignalId" | "threadWakeContinuation"
+	| "agentRequestProfileIds"
+	| "messageEnvelope"
+	| "text"
+	| "restoredFromSignalId"
+	| "threadWakeContinuation"
 > &
 	SpaceComposerSendOptions;
 
@@ -468,55 +483,6 @@ function buildNormalMessagePostInput(input: {
 			? { contextSelections: input.contextSelections }
 			: {}),
 		...(input.taskDraft ? { taskDraft: input.taskDraft } : {}),
-	};
-}
-
-function resolvePendingOutgoingProfile(input: {
-	membersSnapshot: SpaceMembersSnapshot | null;
-	profileId: string;
-}): TextSignalEnvelope["profile"] {
-	const human = input.membersSnapshot?.humans.find(
-		(member) => member.profileId === input.profileId
-	);
-	if (human) {
-		return {
-			kind: "human",
-			profileId: human.profileId,
-			profileName: human.profileName,
-			...(human.avatarUrl ? { avatarUrl: human.avatarUrl } : {}),
-		};
-	}
-
-	const agent = input.membersSnapshot?.agents.find(
-		(member) => member.profileId === input.profileId
-	);
-	if (agent) {
-		return {
-			kind: "agent",
-			profileId: agent.profileId,
-			profileName: agent.profileName,
-			...(agent.ownerUserId ? { owner: agent.ownerUserId } : {}),
-			...(agent.ownerName ? { ownerName: agent.ownerName } : {}),
-			...(agent.agentControllerRef
-				? { agentControllerRef: agent.agentControllerRef }
-				: {}),
-			...(agent.agentControllerConversationId
-				? {
-						agentControllerConversationId: agent.agentControllerConversationId,
-					}
-				: {}),
-			...(agent.workingDirectory
-				? { workingDirectory: agent.workingDirectory }
-				: {}),
-		};
-	}
-
-	const normalizedProfileId =
-		normalizeOptionalText(input.profileId) ?? input.profileId;
-	return {
-		kind: normalizedProfileId.startsWith("agt_") ? "agent" : "human",
-		profileId: normalizedProfileId,
-		profileName: normalizedProfileId,
 	};
 }
 
@@ -1161,6 +1127,7 @@ export type SpaceLandingConversationController = {
 	composerAddressingTargets: readonly SpaceComposerAddressingTarget[];
 	composerAuthoredMentions: ComposerDraftRecord["authoredMentions"];
 	composerMentionPickerItems: readonly SpaceMentionPickerItem[];
+	composerAgentRequestMentions?: SpaceAgentRequestMentions;
 	composerMentionEmptyMessage?: string;
 	composerFiles: readonly SpaceComposerFile[];
 	composerFileLimitReached: boolean;
@@ -2392,20 +2359,31 @@ export function useSpaceLandingController(input: {
 			wakeOutcomeSignals,
 		]
 	);
+	const heldAgentAccessWakeKeys = useHeldAgentAccessWakeKeys(input.spaceId);
+	const composerAgentRequestMentions = useSpaceAgentRequestMentions({
+		onSelect: mentionAuthoring.onAgentRequestMention,
+		snapshot: membersSnapshot,
+		status: statusSnapshot,
+	});
+	const requestAgentForSpace = useRequestAgentForSpace();
 	const presentedWakeProgressItems = useMemo(
 		() =>
-			presentAnsweredAgentInteractions(
-				readPresentedWakeProgressItems({
-					presentation: wakeProgressPresentationQuery.data,
-					confirmedItems: confirmedWakeProgressItems,
-					currentItems: wakeProgressItems,
-					restoredItems: restoredWakeProgressItems,
-					signals: wakeOutcomeSignals,
-				}),
-				answeredAgentInteractionKeys
+			withoutHeldAgentAccessWakeProgress(
+				presentAnsweredAgentInteractions(
+					readPresentedWakeProgressItems({
+						presentation: wakeProgressPresentationQuery.data,
+						confirmedItems: confirmedWakeProgressItems,
+						currentItems: wakeProgressItems,
+						restoredItems: restoredWakeProgressItems,
+						signals: wakeOutcomeSignals,
+					}),
+					answeredAgentInteractionKeys
+				),
+				heldAgentAccessWakeKeys
 			),
 		[
 			answeredAgentInteractionKeys,
+			heldAgentAccessWakeKeys,
 			confirmedWakeProgressItems,
 			wakeProgressPresentationQuery.data,
 			wakeOutcomeSignals,
@@ -2781,6 +2759,7 @@ export function useSpaceLandingController(input: {
 		}),
 		composerAuthoredMentions: mentionAuthoring.authoredMentions,
 		composerMentionPickerItems: mentionAuthoring.mentionPickerItems,
+		composerAgentRequestMentions,
 		composerMentionEmptyMessage: mentionAuthoring.mentionEmptyMessage,
 		composerFiles: composerFilesController.files,
 		composerFileLimitReached: composerFilesController.isAtLimit,
@@ -3076,6 +3055,7 @@ export function useSpaceLandingController(input: {
 			});
 			if (
 				queueTarget &&
+				!preparedSubmission.agentRequestProfileIds?.length &&
 				!preparedSubmission.contextSelection &&
 				!preparedSubmission.contextSelections &&
 				!preparedSubmission.taskDraft &&
@@ -3403,6 +3383,28 @@ export function useSpaceLandingController(input: {
 		};
 	}
 
+	function askOwnerForMentionedAgent(request: {
+		agentProfileId: string;
+		signalId: string;
+	}): void {
+		requestAgentForSpace
+			.mutateAsync({ ...request, spaceId: input.spaceId })
+			.catch((error: unknown) => {
+				// Core keeps one request per message and Agent, so a retry is safe.
+				toast.error(
+					error instanceof Error
+						? error.message
+						: "Couldn't ask the Agent's owner.",
+					{
+						action: {
+							label: "Try again",
+							onClick: () => askOwnerForMentionedAgent(request),
+						},
+					}
+				);
+			});
+	}
+
 	async function sendPreparedSpaceMessage(sendInput: {
 		files: readonly SpaceMessageFileReference[];
 		filePreviewUrlsById: ReadonlyMap<string, string>;
@@ -3461,6 +3463,15 @@ export function useSpaceLandingController(input: {
 					signals: timelineEnvelopes,
 				})
 			);
+			if (wakeProgressTargetProfileIds.length > 0) {
+				// A colleague's Agent may wait for its owner instead of working.
+				invalidateAgentAccessQueries(queryClient);
+			}
+			for (const agentProfileId of sendInput.preparedSubmission
+				.agentRequestProfileIds ?? []) {
+				// The message is posted; asking the owner binds to it (§7).
+				askOwnerForMentionedAgent({ agentProfileId, signalId: signal.id });
+			}
 		} catch (error) {
 			const outcomeUnknown = isSpaceComposerSendOutcomeUnknown(
 				toStructuredApiClientFailure(error)
@@ -3979,6 +3990,7 @@ function useSpaceThreadController(input: {
 	const [wakeProgressItems, setWakeProgressItems] = useState<
 		WakeProgressItem[]
 	>([]);
+	const heldAgentAccessWakeKeys = useHeldAgentAccessWakeKeys(input.spaceId);
 	const threadsQuery = useQuery(
 		spaceThreadsQueryOptions({
 			spaceId: input.spaceId,
@@ -4214,7 +4226,10 @@ function useSpaceThreadController(input: {
 		threadComposerFileRestorationError:
 			composerFilesController.restorationError,
 		threadFilePreviewUrlsById,
-		threadEphemeralActivityItems: wakeProgressItems,
+		threadEphemeralActivityItems: withoutHeldAgentAccessWakeProgress(
+			wakeProgressItems,
+			heldAgentAccessWakeKeys
+		),
 		threadPreviews,
 		threadSignals,
 		threadSignalsError: threadSignalsQuery.error,
@@ -4870,6 +4885,9 @@ function useSpaceThreadController(input: {
 				})
 			);
 			input.onWakeProgressItems(requestSentWakeProgressItems);
+			if (activationTargets.length > 0) {
+				invalidateAgentAccessQueries(input.queryClient);
+			}
 			sendInput.onPosted?.();
 			Promise.all([
 				threadSignalsQuery.refetch(),
@@ -5209,7 +5227,7 @@ function usePendingOutgoingSignals(
 ) {
 	const queryClient = useQueryClient();
 	const queryKey = useMemo(
-		() => ["spaces", "pending-outgoing", spaceId, profileId, threadId] as const,
+		() => pendingOutgoingSignalsQueryKey(spaceId, profileId, threadId),
 		[spaceId, profileId, threadId]
 	);
 	const query = useQuery({

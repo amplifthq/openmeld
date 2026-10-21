@@ -2,7 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { projectsQueryOptions } from "#/query/organizations/projects";
+import { agentProfileFoldersQueryOptions } from "#/query/profiles/agent-profile-folders";
 import { startProfilesQueryOptions } from "#/query/profiles/profiles";
+import { composerFolderOptions } from "./space-composer-folder-choice";
 import { SpaceComposerAgentOptions } from "./space-composer-task-menu";
 
 /** Resolve only readable, configured projects; never guess a local directory. */
@@ -31,5 +33,27 @@ export function SpaceComposerAgentOptionsWithProject(
 		})
 	);
 	const project = projects.data?.projects.find((item) => item.id === projectId);
-	return <SpaceComposerAgentOptions {...input} projectName={project?.name} />;
+	// Only the owner sees and chooses folders; Core enforces the same rule.
+	const ownsTarget = Boolean(
+		profiles.data?.some(
+			(profile) => profile.openMeldProfileId === input.targetProfileId
+		)
+	);
+	const folderOrganizationId = input.organizationId ?? organization?.id ?? "";
+	const folders = useQuery(
+		agentProfileFoldersQueryOptions({
+			enabled: Boolean(ownsTarget && storageScope && folderOrganizationId),
+			organizationId: folderOrganizationId,
+			profileId: input.targetProfileId,
+			storageScope: storageScope ?? "",
+		})
+	);
+	return (
+		<SpaceComposerAgentOptions
+			{...input}
+			folders={ownsTarget ? composerFolderOptions(folders.data) : []}
+			foldersRecorded={folders.data?.status === "recorded"}
+			projectName={project?.name}
+		/>
+	);
 }

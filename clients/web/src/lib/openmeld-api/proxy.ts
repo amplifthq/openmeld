@@ -24,6 +24,11 @@ import {
 } from "#/lib/spaces/protected-space-access.server";
 import { WEB_SPACE_ATTACHMENT_ORGANIZATION_SLUG_SEARCH_PARAM } from "#/lib/spaces/web-space-attachment-path";
 import {
+	applyOpenMeldGatewayClientAddress,
+	type OpenMeldGatewayUpstream,
+	resolveOpenMeldGatewayUpstream,
+} from "./gateway-upstream";
+import {
 	executeObservedWebProxyRequest,
 	type WebProxyCloudflareRuntimeEvidence,
 	type WebProxyProtectedSpaceAccessStatus,
@@ -120,6 +125,14 @@ export function buildOpenMeldGatewayUpstreamHeaders(input: {
 		headers.set(normalizedHeaderName, headerValue);
 	}
 
+	// Cloudflare derives CF-Connecting-IP from x-real-ip on same-zone
+	// subrequests. Web and Gateway must stay in the same Cloudflare zone.
+	// Use only the edge-provided IP, never a caller's forwarding headers.
+	const clientIp = input.requestHeaders.get("cf-connecting-ip");
+	if (clientIp) {
+		headers.set("x-real-ip", clientIp);
+	}
+
 	if (!headers.get("origin")) {
 		headers.set("origin", input.webAppUrl);
 	}
@@ -140,13 +153,13 @@ export async function proxyOpenMeldGatewayRequest(input: {
 	spaceAccessCookieSecret?: string;
 	cloudflareRuntimeEvidence?: WebProxyCloudflareRuntimeEvidence;
 	fetchImpl?: typeof fetch;
+	gatewayUpstream?: OpenMeldGatewayUpstream;
 }): Promise<Response> {
 	return await executeObservedWebProxyRequest({
 		cloudflareRuntimeEvidence: input.cloudflareRuntimeEvidence,
 		request: input.request,
 		proxyKind: "openmeld_gateway",
 		execute: async (diagnostics) => {
-			const fetchImpl = input.fetchImpl ?? fetch;
 			const method = input.request.method.toUpperCase();
 			const requestUrl = new URL(input.request.url);
 			const attachmentOrganizationSlug = readWebAttachmentOrganizationSlug(
@@ -204,7 +217,16 @@ export async function proxyOpenMeldGatewayRequest(input: {
 					slackOAuthOrganizationSlug
 				);
 			}
-			const upstreamResponse = await fetchImpl(upstreamUrl, {
+			const gatewayUpstream = await resolveOpenMeldGatewayUpstream({
+				upstream: input.gatewayUpstream,
+				fetchImpl: input.fetchImpl,
+			});
+			applyOpenMeldGatewayClientAddress({
+				upstream: gatewayUpstream,
+				requestHeaders: input.request.headers,
+				upstreamHeaders,
+			});
+			const upstreamResponse = await gatewayUpstream.fetch(upstreamUrl, {
 				method,
 				headers: upstreamHeaders,
 				...(BODYLESS_METHODS.has(method) ? {} : { body: input.request.body }),

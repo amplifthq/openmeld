@@ -4,6 +4,7 @@ import type {
 } from "@openmeld/local-service";
 import {
   agentExecutionSteerResponseSchema,
+  LOCAL_EXECUTION_INPUT_PENDING_DIAGNOSTIC,
   type ServiceExecutionHostArguments,
   type ServiceExecutionHostOutput,
 } from "@openmeld/schemas";
@@ -112,7 +113,7 @@ export function createServiceExecutionInputReceiver(input: {
               unconfirmed(
                 request.inputId,
                 existing.taskId,
-                "service.execution_input.pending"
+                LOCAL_EXECUTION_INPUT_PENDING_DIAGNOSTIC
               )
           );
     }

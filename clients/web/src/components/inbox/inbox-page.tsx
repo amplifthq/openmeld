@@ -27,14 +27,17 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { AgentAccessRequestCard } from "#/components/agent-access/agent-access-request-card";
 import { AppPageHeader } from "#/components/app/app-page-header";
 import { MessageSearchButton } from "#/components/search/message-search";
+import { CredentialConfirmationCard } from "#/components/sensitive-operations/credential-confirmation-card";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { inboxItemQueryOptions } from "#/query/organizations/inbox";
 import {
 	useMutateOrganizationInboxFeed,
 	useOrganizationInboxFeed,
 } from "#/query/organizations/inbox-feed";
+import { InboxAgentInteraction } from "./inbox-agent-interaction";
 import { InboxDesktopUpdateDetails } from "./inbox-desktop-update-details";
 import {
 	InboxFeedView,
@@ -61,6 +64,30 @@ import { useInboxItemReadMutation } from "./use-inbox-item-read-mutation";
 function InboxSourceDetails({ target }: { target: InboxItem["sourceTarget"] }) {
 	if (target.kind === "desktop_update") {
 		return <InboxDesktopUpdateDetails target={target} />;
+	}
+	if (target.kind === "agent_access_request") {
+		return (
+			<AgentAccessRequestCard
+				key={target.requestId}
+				requestId={target.requestId}
+			/>
+		);
+	}
+	if (target.kind === "credential_confirmation") {
+		return (
+			<CredentialConfirmationCard
+				confirmationId={target.confirmationId}
+				key={target.confirmationId}
+			/>
+		);
+	}
+	if (target.kind === "agent_interaction") {
+		return (
+			<InboxAgentInteraction
+				key={`${target.runtimeCoordinatorExecutionId}:${target.interactionId}`}
+				target={target}
+			/>
+		);
 	}
 	if (target.kind === "plugin_action_request") {
 		return (

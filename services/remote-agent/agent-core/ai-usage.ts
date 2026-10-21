@@ -1,7 +1,11 @@
 import { remoteAiUsageWriteResponseSchema } from "@openmeld/schemas";
-import type { AiUsageRecord } from "@openmeld/schemas/types";
+import type {
+  AiUsageRecord,
+  RemoteAiCreditHold,
+} from "@openmeld/schemas/types";
 // biome-ignore lint/performance/noNamespaceImport: Worker-safe Zod imports avoid bundling unused locales.
 import * as z from "zod/v4";
+import { estimateRemoteAiCreditHold } from "./ai-credit-hold";
 import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentStorage,
@@ -57,7 +61,8 @@ export type RemoteAiUsageDurability = {
 async function writeUsage(
   coreWorker: unknown,
   phase: "begin" | "settle",
-  record: AiUsageRecord
+  record: AiUsageRecord,
+  creditHold?: RemoteAiCreditHold
 ) {
   return remoteAiUsageWriteResponseSchema.parse(
     await callCoreRpc(
@@ -67,7 +72,7 @@ async function writeUsage(
         phase,
         record,
         ...(phase === "begin"
-          ? { providerAuthorizationVersion: 1 as const }
+          ? { providerAuthorizationVersion: 2 as const, creditHold }
           : {}),
       },
       (binding, request) => binding.recordRemoteAiUsage?.(request)
@@ -116,12 +121,23 @@ export function createMeteredRemoteFetch(input: {
       tokens: null,
       cost: null,
     };
+    const requestBody = await readRequestBody(url, init);
     // Core admission is required for every new provider call. Deployment order
     // installs the receiver first; a missing RPC is never allowance evidence.
-    const admission = await writeUsage(input.coreWorker, "begin", record);
+    const admission = await writeUsage(
+      input.coreWorker,
+      "begin",
+      record,
+      requestBody
+        ? estimateRemoteAiCreditHold({
+            modelId: input.model,
+            body: requestBody,
+          })
+        : { status: "unavailable", reason: "unsupported_request" }
+    );
     if (admission.status === "limit_reached") {
       throw new Error(
-        "ai_usage.monthly_limit_reached: This workspace has used its included AI credits. Add an OpenRouter API key in AI usage settings, or wait for the monthly reset."
+        "ai_usage.monthly_limit_reached: This workspace doesn't have enough included AI credits left. Add an OpenRouter API key in AI usage settings, or wait for the monthly reset."
       );
     }
     const authorization = admission.providerAuthorization;
@@ -185,7 +201,7 @@ export function createMeteredRemoteFetch(input: {
       headers.set("HTTP-Referer", "https://openmeld.ai");
       headers.set("X-OpenRouter-Title", "OpenMeld");
       headers.delete("X-Title");
-      const body = await withOrganizationAttribution(url, init, record);
+      const body = withOrganizationAttribution(requestBody, record);
       headers.delete("Content-Length");
       response = await (input.fetch ?? globalThis.fetch)(url, {
         ...init,
@@ -213,17 +229,28 @@ export function createMeteredRemoteFetch(input: {
   };
 }
 
-async function withOrganizationAttribution(
+async function readRequestBody(
   url: Parameters<typeof globalThis.fetch>[0],
-  init: RequestInit | undefined,
-  record: AiUsageRecord
+  init: RequestInit | undefined
 ) {
   const body = init?.body ?? (url instanceof Request ? url.clone().body : null);
+  if (!body) {
+    return null;
+  }
+  return z
+    .record(z.string(), z.unknown())
+    .parse(await new Response(body).json());
+}
+
+function withOrganizationAttribution(
+  body: Record<string, unknown> | null,
+  record: AiUsageRecord
+) {
   if (!body) {
     return body;
   }
   return JSON.stringify({
-    ...z.record(z.string(), z.unknown()).parse(await new Response(body).json()),
+    ...body,
     // This boundary owns attribution. Do not trust caller metadata or put
     // tenant identities in the public application title/referer.
     metadata: {

@@ -7,6 +7,7 @@ import type {
   UserRequestTimeContext,
 } from "@openmeld/schemas/types";
 import type { RemoteAgentNativeDeliveryRecord } from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import type { RequestChainBasis } from "../../request-chain/dispatch-request-chain";
 import type { SpaceMetaRecord } from "../infrastructure/sql/space-meta-repo";
 
 export type PasswordAuthorizationResult =
@@ -52,6 +53,9 @@ export type SignalPublishContext = {
   authoringPolicy?: SpaceSignalAuthoringPolicy;
   finalOutcomeAuthority?: FinalOutcomeWriteAuthority;
   sourceDispatchChainContext?: SourceDispatchChainContext;
+  // Core-owned origin of this signal's request chain. Set only by trusted Core
+  // paths; the agent-supplied chain telemetry above is never a basis.
+  requestChainBasis?: RequestChainBasis;
   spacePassword?: string;
   supportsCurrentSpaceAddressing?: boolean;
   threadContext?: SpaceThreadContext;

@@ -1,0 +1,48 @@
+{
+  "capture": {
+    "harnessVersion": "1.19.0",
+    "alsoCheckedVersion": "1.19.3",
+    "observedAt": "2026-10-21",
+    "command": "opencode models --pure --verbose",
+    "notes": "Native variant objects match both versions. Probe used low with all tool permissions denied."
+  },
+  "models": [
+    {
+      "id": "minimax/minimax-m3.1-flash:free",
+      "providerID": "openrouter",
+      "name": "MiniMax M3.1 Flash (free)",
+      "status": "active",
+      "release_date": "2026-10-19",
+      "variants": {
+        "low": { "reasoning": { "effort": "low" } },
+        "medium": { "reasoning": { "effort": "medium" } },
+        "high": { "reasoning": { "effort": "high" } },
+        "xhigh": { "reasoning": { "effort": "xhigh" } },
+        "max": { "reasoning": { "effort": "max" } }
+      }
+    }
+  ],
+  "probe": {
+    "model": "openrouter/minimax/minimax-m3.1-flash:free",
+    "variant": "low",
+    "prompt": "Reply with MODEL_OK only. Do not use tools.",
+    "text": "MODEL_OK",
+    "finishReason": "stop",
+    "exitCode": 0,
+    "toolCalls": 0
+  },
+  "deferred": [
+    {
+      "id": "opencode/minimax-m3.1-flash-free",
+      "versions": ["1.19.0", "1.19.3"],
+      "statusCode": 403,
+      "error": "FreeTierError"
+    },
+    {
+      "id": "opencode-go/minimax-m3.1-flash-free",
+      "version": "1.19.0",
+      "statusCode": 401,
+      "error": "api_key_expired"
+    }
+  ]
+}

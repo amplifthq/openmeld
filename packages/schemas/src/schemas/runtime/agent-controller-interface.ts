@@ -1,6 +1,8 @@
 import * as z from "zod/v4";
 import { localAgentCatalogLaunchStatusSchema } from "./local-agent-catalog";
 
+export const AGENT_CONTROLLER_MODEL_INVENTORY_LIMIT = 256;
+
 const ACI_BOUNDED_ID_SCHEMA = z.string().trim().min(1).max(256);
 const ACI_BOUNDED_LABEL_SCHEMA = z.string().trim().min(1).max(256);
 const ACI_BOUNDED_TEXT_SCHEMA = z.string().trim().min(1).max(32_000);
@@ -223,7 +225,9 @@ export const agentControllerInterfaceSnapshotSchema = z.strictObject({
   displayName: ACI_BOUNDED_LABEL_SCHEMA,
   launch: agentControllerInterfaceLaunchSnapshotSchema,
   message: ACI_BOUNDED_TEXT_SCHEMA.nullable(),
-  models: z.array(agentControllerInterfaceModelSchema).max(256),
+  models: z
+    .array(agentControllerInterfaceModelSchema)
+    .max(AGENT_CONTROLLER_MODEL_INVENTORY_LIMIT),
   nativeInterface: agentControllerInterfaceNativeInterfaceSchema,
   schemaVersion: z.literal(1),
   skills: z.array(agentControllerInterfaceSkillSchema).max(512),

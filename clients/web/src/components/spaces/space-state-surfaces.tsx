@@ -12,6 +12,7 @@ import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
+import { cn } from "@openmeld/ui/lib/utils";
 import type { CSSProperties, ReactNode } from "react";
 import { SessionExpiredCard } from "#/components/auth/session-expired-card";
 import { getDesktopPlatform } from "#/desktop/platform";
@@ -80,10 +81,16 @@ export function SpaceLandingLoadingShell(
 					</div>
 					<footer className="shrink-0 bg-background">
 						<div className="py-4" data-space-conversation-content-width="">
-							{input.composer ??
-								(showPendingVisual ? (
-									<Skeleton className="h-[102px] w-full rounded-2xl motion-reduce:animate-none" />
-								) : null)}
+							{input.composer ?? (
+								// Keeps the composer's height from the first frame so the
+								// footer does not grow when the delayed skeleton appears.
+								<Skeleton
+									className={cn(
+										"h-[98px] w-full rounded-2xl motion-reduce:animate-none",
+										!showPendingVisual && "invisible"
+									)}
+								/>
+							)}
 						</div>
 					</footer>
 				</section>

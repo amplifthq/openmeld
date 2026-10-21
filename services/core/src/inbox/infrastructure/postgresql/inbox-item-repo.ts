@@ -231,6 +231,99 @@ export async function prepareEnsureInboxItemStatements(input: {
   }
   return { deliveryId, itemId, statements };
 }
+/**
+ * One item per source that every later candidate updates and reopens in
+ * place, for sources that coalesce repeated requests into one item (an
+ * Agent's questions within one Session). Only a strictly newer candidate
+ * replaces or reopens the item; replaying the current one never reopens it
+ * after it ended. The urgent email delivery row is created once per item, so
+ * a reopened item never sends another email.
+ */
+export async function prepareReopenCoalescedInboxItemStatements(input: {
+  candidate: InboxSourceCandidate;
+  nowMs: number;
+}): Promise<PreparedInboxItemWrite> {
+  const candidate = inboxSourceCandidateSchema.parse(input.candidate);
+  const itemId = await buildStableId("inbox_item", [
+    candidate.organizationId,
+    candidate.recipientUserId,
+    candidate.sourceKind,
+    candidate.sourceKey,
+  ]);
+  const deliveryId =
+    candidate.importance === "urgent"
+      ? await buildStableId("inbox_email", [itemId])
+      : null;
+  const upsertItem = {
+    text: `
+        INSERT INTO "openmeld"."inbox_items" (
+          id, organization_id, recipient_user_id, kind, attention, importance,
+          title, preview, context_label, source_kind, source_key,
+          source_target_json, source_facts_json, resolution_status,
+          read_at_ms, occurred_at_ms, created_at_ms, updated_at_ms
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+          NULL, $15, $16, $16
+        )
+        ON CONFLICT(organization_id, recipient_user_id, source_kind, source_key)
+        DO UPDATE SET
+          kind = excluded.kind,
+          attention = excluded.attention,
+          importance = excluded.importance,
+          title = excluded.title,
+          preview = excluded.preview,
+          context_label = excluded.context_label,
+          source_target_json = excluded.source_target_json,
+          source_facts_json = excluded.source_facts_json,
+          resolution_status = excluded.resolution_status,
+          resolved_at_ms = NULL,
+          read_at_ms = NULL,
+          cleared_at_ms = NULL,
+          occurred_at_ms = excluded.occurred_at_ms,
+          updated_at_ms = GREATEST(inbox_items.updated_at_ms, excluded.updated_at_ms)
+        WHERE inbox_items.occurred_at_ms < excluded.occurred_at_ms
+          OR (
+            inbox_items.source_target_json = excluded.source_target_json
+            AND inbox_items.resolution_status = 'open'
+          )
+      `,
+    values: [
+      itemId,
+      candidate.organizationId,
+      candidate.recipientUserId,
+      candidate.kind,
+      candidate.attention,
+      candidate.importance,
+      candidate.title,
+      candidate.preview,
+      candidate.contextLabel,
+      candidate.sourceKind,
+      candidate.sourceKey,
+      JSON.stringify(candidate.sourceTarget),
+      candidate.sourceFacts ? JSON.stringify(candidate.sourceFacts) : null,
+      candidate.attention === "action_required" ? "open" : "not_applicable",
+      candidate.occurredAtMs,
+      input.nowMs,
+    ],
+  };
+  const statements: QueryConfig[] = [upsertItem];
+  if (deliveryId) {
+    statements.push({
+      text: `
+          INSERT INTO "openmeld"."inbox_email_deliveries" (
+            id, inbox_item_id, state, attempt_count, next_attempt_at_ms,
+            created_at_ms, updated_at_ms
+          )
+          SELECT $1, id, 'pending', 0, $2, $2, $2
+          FROM "openmeld"."inbox_items"
+          WHERE id = $3 AND importance = 'urgent'
+          ON CONFLICT(inbox_item_id) DO NOTHING
+        `,
+      values: [deliveryId, input.nowMs, itemId],
+    });
+  }
+  return { deliveryId, itemId, statements };
+}
 function readInboxTargetScope(target: InboxSourceCandidate["sourceTarget"]): {
   spaceId: string;
   threadRootSignalId: string | null;
@@ -248,6 +341,8 @@ function readInboxTargetScope(target: InboxSourceCandidate["sourceTarget"]): {
     case "agent_interaction":
     case "agent_profile":
     case "agent_profile_creation_request":
+    case "agent_access_request":
+    case "credential_confirmation":
     case "organization_join_request":
     case "message_channel":
     case "organization_document":

@@ -593,6 +593,20 @@ describe("ensureWebAgentProfileRuntimeBinding", () => {
 		);
 	});
 
+	it("explains that an Agent's Profile cannot change harness", () => {
+		expect(
+			formatWebAgentProfileRuntimeBindingFailure({
+				agentControllerRef: "builtin:codex",
+				reason: "binding_rejected",
+				reasonCodes: ["agent_profile_binding.member_agent_harness_locked"],
+				routable: false,
+				status: "rejected",
+			})
+		).toBe(
+			"This Agent Profile belongs to an Agent and can't move to another harness. Create a Profile under that harness's Agent instead."
+		);
+	});
+
 	it("explains the missing local agent report after bounded retries are exhausted", async () => {
 		vi.useFakeTimers();
 		ensurePrimaryBindingMock.mockResolvedValue({

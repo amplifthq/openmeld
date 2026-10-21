@@ -13,6 +13,7 @@ import {
   migrate,
   readMigrations,
 } from "./database.mjs";
+import { backfillMemberAgents } from "./member-agent-backfill.mjs";
 
 const [command, target, ...extra] = process.argv.slice(2);
 const resources = JSON.parse(
@@ -63,6 +64,7 @@ try {
       "preserve-foundation",
       "seed-business",
       "seed-smoke-identities",
+      "backfill-member-agents",
     ].includes(command) &&
     ["local", "staging"].includes(target) &&
     (![
@@ -133,6 +135,9 @@ try {
       if (command === "migrate") {
         console.log(JSON.stringify(await migrate(client)));
       }
+      if (command === "backfill-member-agents") {
+        console.log(JSON.stringify(await backfillMemberAgents(client)));
+      }
       if (command === "grant-runtime") {
         const role = process.env.POSTGRESQL_OPENMELD_RUNTIME_ROLE;
         if (!role) {
@@ -155,7 +160,7 @@ try {
     }
   } else {
     throw new Error(
-      "Usage: pg plan | pg <migrate|grant-runtime|accept|inspect> <local|staging> | pg <preserve-foundation|seed-business> staging | pg <import-d1|reconcile-d1|read-d1-import> local <snapshot>. Production operations and automatic optimization are unavailable before the reviewed cutover."
+      "Usage: pg plan | pg <migrate|grant-runtime|accept|inspect|backfill-member-agents> <local|staging> | pg <preserve-foundation|seed-business> staging | pg <import-d1|reconcile-d1|read-d1-import> local <snapshot>. Production operations and automatic optimization are unavailable before the reviewed cutover."
     );
   }
 } catch (error) {

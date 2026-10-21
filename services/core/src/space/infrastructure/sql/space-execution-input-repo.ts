@@ -117,7 +117,8 @@ export function listQueuedSpaceExecutionInputs(sql: SqlStorage) {
       queue_claim: QueueClaim | null;
       queue_blocked: number;
       queue_after_dispatch_id: string;
-    }>(`SELECT input_id, request_json, signal_json, queue_state, queue_claim, queue_blocked, queue_after_dispatch_id
+      queue_receipt_due_at_ms: number | null;
+    }>(`SELECT input_id, request_json, signal_json, queue_state, queue_claim, queue_blocked, queue_after_dispatch_id, queue_receipt_due_at_ms
     FROM space_execution_input_outbox
     WHERE queue_state IN ('queued', 'claimed', 'unconfirmed')
     ORDER BY queue_position`)
@@ -132,7 +133,46 @@ export function listQueuedSpaceExecutionInputs(sql: SqlStorage) {
       claim: row.queue_claim,
       blocked: row.queue_blocked === 1,
       afterDispatchId: row.queue_after_dispatch_id,
+      // An unconfirmed input with no receipt read scheduled is undecided:
+      // Core could not tell whether the Agent got it.
+      delivery: deliveryForQueueState(
+        row.queue_state,
+        row.queue_receipt_due_at_ms
+      ),
     }));
+}
+
+function deliveryForQueueState(
+  state: "queued" | "claimed" | "unconfirmed",
+  receiptDueAtMs: number | null
+): "checking" | "undecided" | undefined {
+  if (state !== "unconfirmed") {
+    return undefined;
+  }
+  return receiptDueAtMs === null ? "undecided" : "checking";
+}
+
+/**
+ * The author puts an undecided input back in the queue. It is delivered like
+ * any queued input: after the response ends, or by Send now.
+ */
+export function retryUndecidedSpaceExecutionInput(
+  sql: SqlStorage,
+  inputId: string,
+  authorProfileId: string
+): boolean {
+  return (
+    sql
+      .exec(
+        `UPDATE space_execution_input_outbox
+    SET queue_state = 'queued', queue_claim = NULL, queue_blocked = 0, queue_receipt_due_at_ms = NULL
+    WHERE input_id = ? AND queue_state = 'unconfirmed' AND queue_receipt_due_at_ms IS NULL
+    AND json_extract(request_json, '$.authorProfileId') = ? RETURNING input_id`,
+        inputId,
+        authorProfileId
+      )
+      .toArray().length === 1
+  );
 }
 
 /** The caller atomically persists the original Signal and its dispatch in this transaction. */
@@ -265,8 +305,9 @@ export function deleteQueuedSpaceExecutionInput(
   return (
     sql
       .exec(
-        `UPDATE space_execution_input_outbox SET queue_state = 'deleted'
-    WHERE input_id = ? AND queue_state = 'queued'
+        `UPDATE space_execution_input_outbox SET queue_state = 'deleted', queue_receipt_due_at_ms = NULL
+    WHERE input_id = ? AND (queue_state = 'queued'
+      OR (queue_state = 'unconfirmed' AND queue_receipt_due_at_ms IS NULL))
     AND json_extract(request_json, '$.authorProfileId') = ? RETURNING input_id`,
         inputId,
         authorProfileId
@@ -344,11 +385,14 @@ export function settleQueuedSpaceExecutionInput(
   sql: SqlStorage,
   inputId: string,
   claim: QueueClaim,
-  outcome: "applied" | "rejected" | "unconfirmed"
+  outcome: "applied" | "rejected" | "returned" | "unconfirmed"
 ): boolean {
+  // `returned`: a receipt read proved the Agent never got it; it is sendable
+  // again. `rejected`: the Agent refused it at apply; it waits for an edit.
   const stateByOutcome = {
     applied: "consumed",
     rejected: "queued",
+    returned: "queued",
     unconfirmed: "unconfirmed",
   } as const;
   return (

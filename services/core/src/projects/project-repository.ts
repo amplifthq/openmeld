@@ -47,51 +47,59 @@ export type ArchiveProjectOutcome =
   | "conflict"
   | "has_activity"
   | "not_found";
-// A newest-event probe uses the existing project/time index even before VACUUM
-// marks recent pages all-visible. An unordered EXISTS can choose a sequential
-// scan, then read the entire event table for every project with no activity.
-const PROJECT_ACTIVITY_EVIDENCE = `
-  (SELECT true FROM "openmeld"."agent_activity_events" events
-    WHERE events.organization_id = projects.organization_id
-      AND events.project_id = projects.id
-    ORDER BY events.observed_at_ms DESC LIMIT 1
-  ) IS TRUE
-  OR EXISTS (
-    SELECT 1 FROM "openmeld"."agent_activity_sessions" sessions
-    WHERE sessions.organization_id = projects.organization_id
-      AND sessions.project_id = projects.id
-  )
-  OR EXISTS (
-    SELECT 1 FROM "openmeld"."agent_activity_digests" digests
-    WHERE digests.organization_id = projects.organization_id
-      AND digests.project_id = projects.id
-  )
-  OR EXISTS (
-    SELECT 1 FROM "openmeld"."agent_activity_daily_aggregates" daily_aggregates
-    WHERE daily_aggregates.organization_id = projects.organization_id
-      AND daily_aggregates.project_id = projects.id
-  )
-  OR EXISTS (
-    SELECT 1 FROM "openmeld"."agent_activity_daily_session_keys" daily_session_keys
-    WHERE daily_session_keys.organization_id = projects.organization_id
-      AND daily_session_keys.project_id = projects.id
-  )
-`;
+// Each Activity evidence probe is shaped as a bounded index seek. It asks for
+// the first row at or after (organization_id, project_id) in that order, then
+// checks that the row belongs to this Project. An index leading with
+// (organization_id, project_id) answers that from its first entry, while other
+// plans must read and sort every candidate row, so skewed column statistics no
+// longer make a scan look cheap. A plain equality probe has no such cost gap:
+// when one Project owns most rows, the planner estimates every equality probe
+// as a match and picks a sequential scan or a backward scan of an unrelated
+// time index, which reads the entire table for a Project with no Activity.
+function projectActivityEvidenceProbe(table: string): string {
+  return `EXISTS (
+    SELECT 1 FROM (
+      SELECT evidence.organization_id, evidence.project_id
+      FROM "openmeld"."${table}" evidence
+      WHERE (evidence.organization_id, evidence.project_id)
+        >= (projects.organization_id, projects.id)
+      ORDER BY evidence.organization_id, evidence.project_id
+      LIMIT 1
+    ) next_evidence
+    WHERE next_evidence.organization_id = projects.organization_id
+      AND next_evidence.project_id = projects.id
+  )`;
+}
+const PROJECT_ACTIVITY_EVIDENCE = [
+  "agent_activity_events",
+  "agent_activity_sessions",
+  "agent_activity_digests",
+  "agent_activity_daily_aggregates",
+  "agent_activity_daily_session_keys",
+]
+  .map(projectActivityEvidenceProbe)
+  .join("\n  OR ");
+// OFFSET 0 keeps the lateral subquery from being flattened, so the evidence
+// chain runs once per Project even when a query also filters on it.
 const PROJECT_SELECT = `
   SELECT
-    id,
-    organization_id,
-    name,
-    slug,
-    repository_fingerprint,
-    repository_url,
-    creation_request_signature,
-    created_by_user_id,
-    created_at_ms,
-    updated_at_ms,
-    archived_at_ms,
-    CASE WHEN ${PROJECT_ACTIVITY_EVIDENCE} THEN 1 ELSE 0 END AS has_activity
-  FROM "openmeld"."projects"
+    projects.id,
+    projects.organization_id,
+    projects.name,
+    projects.slug,
+    projects.repository_fingerprint,
+    projects.repository_url,
+    projects.creation_request_signature,
+    projects.created_by_user_id,
+    projects.created_at_ms,
+    projects.updated_at_ms,
+    projects.archived_at_ms,
+    CASE WHEN activity.has_activity THEN 1 ELSE 0 END AS has_activity
+  FROM "openmeld"."projects" projects
+  CROSS JOIN LATERAL (
+    SELECT (${PROJECT_ACTIVITY_EVIDENCE}) AS has_activity
+    OFFSET 0
+  ) activity
 `;
 export async function listProjectRecords(input: {
   db: PostgresDatabase;
@@ -100,9 +108,9 @@ export async function listProjectRecords(input: {
   const result = await input.db.query<ProjectRow>({
     text: `
         ${PROJECT_SELECT}
-        WHERE organization_id = $1
-          AND archived_at_ms IS NULL
-        ORDER BY updated_at_ms DESC NULLS LAST, id DESC NULLS LAST
+        WHERE projects.organization_id = $1
+          AND projects.archived_at_ms IS NULL
+        ORDER BY projects.updated_at_ms DESC NULLS LAST, projects.id DESC NULLS LAST
         LIMIT $2
       `,
     values: [input.organizationId, ACTIVE_PROJECT_LIMIT],
@@ -116,15 +124,12 @@ export async function listActivitySnapshotProjectRecords(input: {
   const result = await input.db.query<ProjectRow>({
     text: `
         ${PROJECT_SELECT}
-        WHERE organization_id = $1
-          AND (
-            archived_at_ms IS NULL
-            OR ${PROJECT_ACTIVITY_EVIDENCE}
-          )
+        WHERE projects.organization_id = $1
+          AND (projects.archived_at_ms IS NULL OR activity.has_activity)
         ORDER BY
-          CASE WHEN archived_at_ms IS NULL THEN 0 ELSE 1 END ASC NULLS FIRST,
-          updated_at_ms DESC NULLS LAST,
-          id DESC NULLS LAST
+          CASE WHEN projects.archived_at_ms IS NULL THEN 0 ELSE 1 END ASC NULLS FIRST,
+          projects.updated_at_ms DESC NULLS LAST,
+          projects.id DESC NULLS LAST
         LIMIT $2
       `,
     values: [input.organizationId, AGENT_ACTIVITY_SNAPSHOT_PROJECT_LIMIT],
@@ -140,13 +145,43 @@ export async function readProjectRecord(input: {
     .query<ProjectRow>({
       text: `
         ${PROJECT_SELECT}
-        WHERE id = $1 AND organization_id = $2
+        WHERE projects.id = $1 AND projects.organization_id = $2
         LIMIT 1
       `,
       values: [input.projectId, input.organizationId],
     })
     .then((result) => result.rows[0] ?? null);
   return row ? mapProjectRow(row) : null;
+}
+export type ProjectLifecycleRecord = Pick<StoredProject, "archivedAtMs" | "id">;
+/**
+ * Reads only whether a Project exists and whether it is archived. Use it on
+ * paths that never present the Project, such as Agent Activity ingest, so they
+ * do not pay for the Activity evidence chain.
+ */
+export async function readProjectLifecycleRecord(input: {
+  db: PostgresDatabase;
+  organizationId: string;
+  projectId: string;
+}): Promise<ProjectLifecycleRecord | null> {
+  const row = await input.db
+    .query<Pick<ProjectRow, "archived_at_ms" | "id">>({
+      text: `
+        SELECT id, archived_at_ms
+        FROM "openmeld"."projects"
+        WHERE id = $1 AND organization_id = $2
+        LIMIT 1
+      `,
+      values: [input.projectId, input.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
+  return row
+    ? {
+        archivedAtMs:
+          row.archived_at_ms === null ? null : Number(row.archived_at_ms),
+        id: row.id,
+      }
+    : null;
 }
 
 export async function readActiveProjectIds(input: {

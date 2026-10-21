@@ -362,7 +362,8 @@ export type SettingsLocalAgentRow = {
   summaryStatuses?: readonly SettingsLocalAgentRowSummaryStatus[];
 };
 
-const LOW_CAPACITY_REMAINING_THRESHOLD_PERCENT = 20;
+/** A usage limit at or below this percent left reads as Low. */
+export const LOW_CAPACITY_REMAINING_THRESHOLD_PERCENT = 20;
 const US_USAGE_PERCENT_FORMATTER = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 1,
 });
@@ -1001,6 +1002,88 @@ export function SettingsLocalAgentUsageReadout({
         </div>
       ))}
     </div>
+  );
+}
+
+/**
+ * One-line card readout: the most constrained window with its percent left,
+ * one muted line (status only when not Available, then the reset), and every
+ * window in the tooltip.
+ */
+export function SettingsLocalAgentUsageCompactReadout({
+  agentName,
+  limits,
+  nowMs = Date.now(),
+}: {
+  agentName: string;
+  limits: AgentControllerUsageLimits;
+  nowMs?: number;
+}) {
+  const ordered = orderUsageLimitsForDisplay({ agentName, limits }) ?? [];
+  const summary = resolveUsageLimitSummary(ordered);
+  if (!summary) {
+    return (
+      <p className="text-muted-foreground text-xs leading-5">
+        Usage not reported yet.
+      </p>
+    );
+  }
+  const { limit, presentation, remainingPercent } = summary;
+  const remainingLabel = `${formatRemainingPercent(remainingPercent)} left`;
+  const resetLabel = formatUsageLimitReset(limit.resetsAt, nowMs);
+  const otherCount = ordered.length - 1;
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <div
+            className="flex min-w-0 items-center gap-2"
+            data-testid="local-agent-usage-compact"
+          >
+            <meter
+              aria-label={`${agentName} ${limit.label}, ${remainingLabel}, ${presentation.label}, ${resetLabel}`}
+              aria-valuemax={100}
+              aria-valuemin={0}
+              aria-valuenow={remainingPercent}
+              aria-valuetext={remainingLabel}
+              className="sr-only"
+              max={100}
+              min={0}
+              value={remainingPercent}
+            />
+            <UsageLimitRing
+              className="size-5 shrink-0"
+              remainingPercent={remainingPercent}
+              tone={presentation.tone}
+            />
+            <div className="min-w-0">
+              <p className="truncate font-medium text-sm leading-5">
+                <span className="tabular-nums">{remainingLabel}</span>
+                <span className="text-muted-foreground"> · {limit.label}</span>
+              </p>
+              <p className="truncate text-muted-foreground text-xs leading-5">
+                {presentation.label === "Available" ? null : (
+                  <span
+                    className={cn(
+                      "font-medium",
+                      resolveStatusToneSoftTextClassName(presentation.tone)
+                    )}
+                  >
+                    {presentation.label} ·{" "}
+                  </span>
+                )}
+                {resetLabel}
+                {otherCount > 0 ? ` · +${otherCount} more` : null}
+              </p>
+            </div>
+          </div>
+        }
+      />
+      <UsageTooltipContent>
+        <span className="font-medium">{agentName}</span>
+        <UsageLimitPreviewGrid limits={ordered} nowMs={nowMs} />
+      </UsageTooltipContent>
+    </Tooltip>
   );
 }
 

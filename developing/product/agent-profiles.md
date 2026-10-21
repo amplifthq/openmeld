@@ -26,11 +26,154 @@ can omit both fields to retain its already confirmed conversation. Core rejects
 this form when no existing conversation exists. Changing the conversation still
 requires its ID and acknowledgment. The generic controller switcher excludes
 shared-conversation controllers because it cannot collect that connection.
+The switcher is offered only for unassigned Profiles, as their assignment
+action; an Agent Profile that belongs to a MemberAgent cannot change harness
+(see MemberAgent Layer).
 
 Connection confirmation: “Shares your Grok Bot conversation. Stopping here stops
 the bot’s current work.” Actions: **Connect bot**, **Cancel**. Ordinary sends do
 not repeat this confirmation. Use the Bot's conversation ID from BDK; resolving
 a name through get-or-create is not a connection operation.
+
+## MemberAgent Layer
+
+Implementation status: shipped. The MemberAgent program (PR #236) is merged,
+and `MEMBER_AGENTS_ENABLED` is on.
+
+Member-owned Agents are organized in three persisted layers, each with one job:
+
+```text
+MemberAgent (organization × owner × harnessKind)  whose harness
+-> Agent Profile                                  which configuration
+   -> Session                                     what is happening now
+```
+
+| User-facing | Code | Meaning |
+| --- | --- | --- |
+| Agent | **MemberAgent** (`member_agents`) | One Organization member's instance of one harness, for example `Felix Lu's Claude Code` |
+| Claude Code, Codex, … | **Harness** (`harnessKind`) | The program kind that runs an Agent: `claude-code`, `codex`, `grok-build`, `cursor`, `opencode`, `antigravity`, `openclaw`, `hosted` |
+| Profile | Agent Profile | One configuration; still the Space member, message author, and mention target |
+| Chat | Session | One conversation: a Direct Message Space, or an Execution Context inside a group Space |
+
+`harnessKind` maps one-to-one from the Binding's `agentControllerRef`; Agent
+Controller remains the code name for that ref. Banned names for these
+concepts are listed in `developing/product/organizations-and-center-agent.md`,
+Vocabulary Seeds.
+
+A MemberAgent is unique per `(organizationId, ownerUserId, harnessKind)` and
+lives in Auth beside Agent Profiles. It records its `defaultProfileId`,
+`source`, and `archivedAt`; a Profile names its parent through a nullable
+`memberAgentId`. Migration sets `defaultProfileId` to the most recently used
+Profile of the group. The MemberAgent stores no status. Presence and state
+are derived at read time from its Profiles' Wakeability and their Computers'
+online state. A harness reads as missing on every Computer only after it has
+been absent from several consecutive catalog reports or for several minutes,
+so a PATH hiccup or an upgrade never greys the Agent. The display name
+`Felix Lu's Claude Code` is derived by the client from the owner's default
+Human Profile name and the harness display name. It is English only and never
+stored.
+
+A MemberAgent exists only for a harness the member chose. Setup creates one
+for each local agent the member selected (`--local-agent`, or the agents
+chosen on the Connect page), and `openmeld agent add <harness>` or the web add
+action creates one later. Each of these sends the harnesses to create to the
+catalog sync, and Core creates a MemberAgent only for a requested harness that
+the OpenMeld Service's harness catalog report shows on a connected Computer.
+Core asks Auth to create the MemberAgent and its default Agent Profile with the
+deterministic idempotency key `auto:{organizationId}:{harnessKind}`; the
+conditional insert on the unique key makes two Computers converge on one
+MemberAgent. Core then writes the Binding and assigns the default Profile under
+the same lock as every other assignment, and opens the owner's Direct Message.
+A sync without requested harnesses (surface open, catalog update) never
+creates a MemberAgent: it finishes interrupted creations, repairs unassigned
+bound Profiles, and reports the other detected harnesses as addable.
+MemberAgent `source` is `detected`, `migrated`, or `manual`; the default
+Profile's `source` is `auto_detected`.
+
+Personal Remote Agents are MemberAgents with `harnessKind = hosted` and
+`source = manual`. The Organization-owned Center Agent has no owner and stays
+outside this structure. Two kinds of Profile cannot be grouped and stay
+unassigned: Profiles that never bound and Profiles bound to a `custom`
+controller. A disabled Binding still groups by its last Binding's harness and
+reads as missing. Unassigned Profiles sit in their own section at the bottom of
+the Agents list, with the controller switcher as their assignment action. The
+system never guesses an assignment.
+
+The MemberAgent list and presence are owner reads. A MemberAgent link
+(`/agents?memberAgentId=`) still opens for any member of its Organization:
+`GET /v1/member-agents/:memberAgentId/profiles` resolves it to the Profiles the
+caller can see, with the same rule as All Agents (active Agent Profiles of the
+current Organization). A teammate lands on the read-only page of the default
+Profile, or the oldest visible one. A MemberAgent of another Organization
+reads as not found, and a non-member is refused.
+
+Every other Profile belongs to the MemberAgent of its Binding's harness. When
+Core accepts a Binding write (Create, a Personal Remote Agent, the controller
+switcher, or catalog sync), it asks Auth to assign the Profile to the owner's
+existing MemberAgent for that harness in the Profile's Organization. A Profile
+created on purpose therefore joins the existing Agent as one more Profile; it
+never creates a second MemberAgent. The assignment never creates a MemberAgent
+and never moves an assigned Profile. It reads the harness from the Profile's
+current Binding under a per-Profile lock that every Binding write also takes,
+so a controller switch that commits first is never grouped under the old
+harness. A failed assignment does not fail the Binding write: each catalog
+sync, with or without a connected Computer, assigns any bound Profile still
+unassigned whose harness has a MemberAgent, grouping by the same Binding as
+the migration.
+
+Nothing is configurable on the MemberAgent itself. Space participants remain
+Agent Profiles: a MemberAgent is a grouping, never a Space member, message
+author, or mention target.
+
+The default Agent Profile is created with its MemberAgent. Its name is the
+harness display name and is not editable, and it displays without a suffix:
+`Felix Lu's Claude Code`. Every other Agent Profile is created on purpose with
+a short owner-chosen name and displays as `Felix Lu's Claude Code · PR
+Reviewer`. Handle rules are unchanged. A new model, folder, or task never needs
+a new Profile. A Profile runs on one Computer and cannot change harness: Core
+refuses a Binding write that would move an assigned Profile to another harness,
+a `custom` controller included, with
+`agent_profile_binding.member_agent_harness_locked`, and the web and CLI show
+that the owner should create a Profile under the other harness's Agent.
+Profile settings are the existing Binding settings plus folders (see Working
+Folder List) and an owner-adjustable concurrency limit stored on the Binding
+and read by the Service from the route catalog. Only the owner changes them;
+Core checks that the root requester of the call is the owner (see
+`developing/architecture/agent-transport-contract.md`, Request Chain).
+
+A Session is one conversation of one Profile, and a Profile has unlimited
+Sessions. A Session carries a title, its request chain, its Space, its folder
+(fixed at its first message), its working copy, and its state. In a Direct
+Message a Session is one Direct Message Space; New Chat creates another one for
+the same pair (see `developing/product/space-collaboration.md`, Direct
+Messages). In a group Space a Session is an Execution Context; "Continue in
+another folder" is a fork with a new folder. Owners continue or fork their own
+Sessions; colleagues continue only their own and always start fresh. Sessions
+can be renamed, archived, and deleted; OpenMeld never archives a Session
+automatically.
+
+Mentioning an Agent in a group Space uses the Profile that is a member of that
+Space. If none is, the default Profile is used: it joins for the owner's own
+mention, and anyone else's mention creates a request to the owner (see
+`developing/product/space-collaboration.md`, Agent Owner Participation). If
+two of the Agent's Profiles are members, the mention must name one. No "last
+used in this Space" state is stored.
+
+When a harness disappears, its MemberAgent reads as missing after the debounce,
+moves to an unavailable group, and keeps its Profiles, Sessions, and history.
+After 30 days the owner gets a manual Archive action; nothing is deleted
+automatically, and reinstalling restores the same MemberAgent. A second
+Computer with the same harness adds no MemberAgent; the detail shows that
+Computer and offers a Profile there. A forgotten Computer makes its Profiles
+unreachable while the MemberAgent's state follows the remaining Computers.
+When the owner leaves the Organization, the existing departure rules apply and
+nothing is reassigned.
+
+Welcome and repair cards for a MemberAgent are a presentation surface, as
+Center Agent introductions are, not messages. There is one card per problem,
+updated in place. The welcome card adds one line about the permission mode
+(see `developing/product/organizations-and-center-agent.md`, Permission-mode
+advisor).
 
 ## Product Role And Identity Boundary
 
@@ -42,7 +185,9 @@ current Organization. It requires no Computer, local working directory, native
 session identifier, or local controller permission settings. The initial model
 is stored on that Agent's Binding, independently of Center Agent settings.
 Each Space, including a Direct Message, has a separate persistent conversation
-for that Remote Agent. This does not add a multi-chat management surface.
+for that Remote Agent. A personal Remote Agent is a `hosted` MemberAgent, so its
+Direct Message Sessions use the same New Chat, rename, archive, and delete
+operations as other agent Direct Messages.
 
 Execution family and current availability are separate facts. Hosted Remote and
 Center Agents do not depend on the viewer's Computer, local Service, local Agent
@@ -71,22 +216,24 @@ An Agent Profile owns product identity and collaboration meaning:
 - visible teammate identity
 - Space membership meaning
 
-An Agent Profile name is a practical label for distinguishing the member,
-Session, and execution configuration. Ordinary interactive creation must not
-make a user invent a role or create one profile per task. It proposes a factual,
-editable template name from the owner, selected Agent Controller, model, and,
-when useful, reasoning level, for example `Felix Lu Codex GPT-5.6 Sol Xhigh`.
-The template uses plain spaces rather than possessives or decorative separators.
-If the proposed visible name already exists for that owner, the creation surface
-adds the first available numeric suffix such as `(1)` or `(2)`.
+An Agent Profile name is a practical label for distinguishing configurations
+of one MemberAgent. A default Profile's name is its harness display name, set
+at creation and not editable. Ordinary interactive creation of another Profile
+must not make a user create one profile per task: a new model, folder, or task
+uses the existing Profile's settings or a new Session. An additional Profile
+gets a short owner-chosen name such as `PR Reviewer`; it is shown after the
+MemberAgent name, for example `Felix Lu's Claude Code · PR Reviewer`. The
+former long template name (owner, controller, model, and reasoning, for example
+`Felix Lu Codex GPT-5.6 Sol Xhigh`) is no longer proposed. If the chosen
+visible name already exists for that owner, the creation surface adds the
+first available numeric suffix such as `(1)` or `(2)`.
 
 The name field appears after local agent selection in the single-page creation
-form, before the collapsed Advanced Agent Settings. While the name still matches the managed template, configuration
-changes update it automatically. Once the user edits the name, later
-configuration changes must preserve the user's text. When the Center Agent or
-another assistant creates an Agent from an explicit work goal, it may instead
-infer a short practical role name such as `Release Reviewer` or `API Debugger`.
-An explicit user-provided name always wins.
+form, before Advanced Agent Settings, which start expanded. Configuration changes never
+rewrite the owner's text. When the Center Agent or another assistant creates an
+Agent from an explicit work goal, it may infer a short practical role name such
+as `Release Reviewer` or `API Debugger`. An explicit user-provided name always
+wins.
 
 It does not own local execution truth.
 
@@ -97,8 +244,9 @@ with.
 
 Local Agent Profile avatars intentionally use the bound Agent Controller's
 brand mark, such as Codex, Claude Code, Grok Build, Cursor, or OpenCode, because the mark helps users
-recognize how that profile runs. Rebinding a Local Agent Profile updates
-that mark. An unbound or unknown controller uses the generic agent fallback;
+recognize how that profile runs. Assigning an unassigned Local Agent Profile
+to a controller sets that mark; an assigned Profile's harness, and therefore
+its mark, does not change. An unbound or unknown controller uses the generic agent fallback;
 it must not invent Controller branding.
 Local Agent message headers show the owner's name after a middle dot, without
 an owner avatar or prefix. Profile popovers place availability beside the Agent
@@ -146,9 +294,11 @@ for each org's Center Agent, including personal orgs. Legacy
 but are hidden from the ordinary Agents home and are not created by current
 setup. The Center Agent profile is managed from the Center Agent surface, not
 from the ordinary Agents home. Setup does not choose or repair a managed
-profile's Binding, model, Agent Controller, or Wake health. Ordinary Agent
-Profile creation and profile execution management still require explicit user or
-assistant intent.
+profile's Binding, model, Agent Controller, or Wake health. The default Agent
+Profile of a MemberAgent is created with that MemberAgent from the harness
+catalog report (see MemberAgent Layer). Every other ordinary Agent Profile
+creation, and all profile execution management, still requires explicit user
+or assistant intent.
 
 An ordinary or managed Agent Profile created from an Organization surface
 belongs to that explicitly selected Organization. The route Organization is
@@ -552,11 +702,13 @@ evidence can help owners understand and repair a Binding, but it is not Agent
 Profile identity and must not replace Binding truth, Space membership, or final
 Wake readiness.
 
-`agentControllerConversationId` is the private local conversation ID used by the
-Agent Controller behind this Agent Profile. It belongs to the Agent Profile, not
-to one Space. If one Agent Profile is invited into multiple Spaces, it still
-continues the same private controller conversation. Users who need separate
-private memory should create separate Agent Profiles. Two different Agent
+`agentControllerConversationId` is the private local conversation ID that the
+Binding keeps only for harnesses without Execution Context support and for the
+retained `legacyAssociation`. For those harnesses it belongs to the Agent
+Profile, not to one Space: if one such Profile is invited into multiple Spaces,
+it continues the same private controller conversation. Every context-enabled
+Session carries its own native conversation instead, so separate private
+memory is a new Session, not a new Agent Profile. Two different Agent
 Profiles must not share one controller conversation. If duplicate ownership is
 observed, the system must reject or ignore the conflicting write and fail closed
 until the Binding or local Agent Context is repaired.
@@ -647,6 +799,10 @@ through the same canonical Binding write, using any mode the profile's
 controller offers. It reads the per-controller options, including which ones
 need explicit confirmation, from the shared permission-mode catalog, and it
 chooses a confirmation-required mode only on the owner's explicit request.
+A permission-mode change is non-additive: the Center Agent makes it only on the
+owner's explicit instruction in the current turn, with the confirmation and
+root-requester check defined in
+`developing/product/organizations-and-center-agent.md` (Permission model).
 
 Pending approvals remain explicit decisions. In the Space, an answered approval
 leaves the pending-action surface as soon as the owner submits it, and the next
@@ -663,8 +819,8 @@ pending. Native rejection or delayed catalog delivery retains the current mode
 and still delivers the owner's explicit approval. Older Service requests keep
 the ordinary approval controls without this additional mode selector.
 
-Changing or unbinding the Agent Controller and changing the local working folder
-are different because they change the execution target underneath future work
+Changing the Agent Controller (offered only to assign an unassigned Profile),
+unbinding it, and changing the local working folder are different because they change the execution target underneath future work
 and can interrupt an accepted Wake. Every maintenance surface must read the
 owner-sharded RuntimeCoordinator execution state, independent of the current
 Space. That read is advisory: before committing one of these changes, the writer
@@ -894,7 +1050,8 @@ eligibility belong in `developing/architecture/agent-transport-contract.md`.
 
 ## Working Folder Configuration And Default Project
 
-A local Agent Profile has a device-scoped working-folder configuration with
+A local Agent Profile has a device-scoped working-folder configuration: a list
+of folders with one default (see Working Folder List). Each folder entry has
 exactly two wire modes. The existing schema field is `workspaceMode`; this
 compatibility name refers to a profile's local working folder and must not be
 confused with **Workspace**, the Web presentation term for the selected
@@ -903,7 +1060,7 @@ Organization context.
 - `openmeld_managed`: OpenMeld resolves and maintains the profile's managed
   working directory on that computer. No custom path is stored in the mode.
 - `custom`: the current computer stores and validates one explicit absolute
-  working directory for the profile.
+  working directory for that folder entry.
 
 Importing the current native Codex or Claude Code conversation records its
 observed folder through the same local working-folder writer, only when no
@@ -926,8 +1083,9 @@ Working-folder mode and its resolved path are local execution facts. They are
 scoped to the current device and OpenMeld lane, may appear in owner-self
 diagnostics, and must not become public Agent Profile identity,
 Organization-shared data, Agent Activity, snapshot data, or Center Agent
-context. A missing or invalid custom folder fails closed; it does not silently
-become `openmeld_managed`.
+context. The path-free folder projection in Working Folder List is the only
+cloud form of a folder. A missing or invalid custom folder fails closed; it
+does not silently become `openmeld_managed`.
 Center runtime-settings results expose the local mutation's Profile, status,
 and exact target Computer/lane, plus existing safe Binding/readiness evidence.
 The configuration version remains null when the Service write receipt does not
@@ -944,8 +1102,8 @@ Workspace's Agent Profile or its local execution configuration manageable.
 
 When the exact current Service advertises Local Folder Picker, a custom working
 folder uses **Choose folder on this computer** as the primary input action. The
-native chooser returns one folder because an Agent Profile has one working
-folder. Selection fills the local settings draft; **Create agent** or **Save
+native chooser returns one folder per add action; the Profile keeps the result
+as one entry of its folder list. Selection fills the local settings draft; **Create agent** or **Save
 changes** remains the explicit mutation through the existing profile workspace
 writer. **Enter path manually** remains available as the final fallback. The
 picker must not create a second profile workspace store or upload the selected
@@ -995,7 +1153,8 @@ untouched draft only; they must not overwrite user input. The Service read disti
 configuration. It does not migrate configuration, create a managed folder,
 validate its current availability, or substitute an effective Project or
 controller-session directory. Its configuration version identifies the stored
-v1/v2 envelope, not a revision or compare-and-swap precondition. An older Service
+envelope version (v1, v2, or v3), not a revision or compare-and-swap
+precondition. An older Service
 without the read capability returns an explicit update-required result.
 A pending Auth read started before opening cannot initialize the draft:
 cancel that read, keep the existing display snapshot stale, then acquire the
@@ -1045,6 +1204,51 @@ Wake must resolve the conflict before prompting or forking the session. Working 
 lets the owner explicitly choose the verified original folder or a new
 conversation for the same Agent Profile. OpenMeld does not run in the former
 folder or replace the session automatically.
+
+### Working Folder List
+
+Implementation status: shipped. The MemberAgent program (PR #236) is merged,
+and `MEMBER_AGENTS_ENABLED` is on.
+
+The local profile envelope (v3) stores `folders: [{ id, kind, path | projectId,
+displayName }]` and `defaultFolderId`. The local OpenMeld Service mints every
+folder id and remains the only writer of the envelope. A v1 or v2 envelope reads
+as a one-element list whose entry is the default, and a v3 envelope keeps the v2
+`workspace` field mirroring the default folder so an older Service still
+resolves it.
+
+When the Service reports a folder save, Core writes a path-free cloud projection
+`(profileId, folderId, kind, displayName)`. No path ever reaches the cloud. A
+cloud folder id that the local envelope does not know takes the existing
+fail-closed path; it is never replaced by a substituted path. Execution Context
+preferences carry an optional `folderId`. Core strips it when the root
+requester is not the owner, so colleagues' work always uses the default folder.
+Agents, including the Center Agent, choose folders by id and display name only.
+
+Owner folder changes refuse an envelope the Service can't read. The one
+exception is the owner-only `repair` operation, which names an OpenMeld or
+custom folder (never a Project folder) and makes it the default, adding it when
+missing. On an unreadable envelope it replaces the list with just that folder
+and restarts the folder-save counter; Core replaces its recorded list with a
+repair receipt whatever revision it held. Repairing with the current default,
+or choosing it again with `set_default`, prepares it again: a missing OpenMeld
+folder is recreated and a custom folder is re-checked. Both default changes run
+under the execution-target admission. Repair needs the Service's
+`repairProfileFolders` capability, so recovery's "Set up again" uses it and an
+older Service refuses instead of reporting a folder it did not prepare. Like
+every capability, the Service advertises it only after Core that accepts it is
+deployed (Core before CLI). After a local default change Web clears Default
+Project even when it saw none, since another tab may have set one. Web's Working folder dialog is the one
+surface for these changes, including working-folder recovery from a failed
+task.
+
+A Session's folder resolves in this order and is then fixed at its first
+message: explicit choice, the folder of the Session it continues or forks, the
+Profile's default folder, then the OpenMeld-managed folder. The managed folder
+is used only when no earlier source names a folder; a named folder that is
+missing or invalid still fails closed and is never replaced. Direct edit and
+isolated copy keep their existing meaning; two Sessions in one folder follow
+the folder-scoped conflict rule in Agent Profile Work Coordinator.
 
 ### Working Folder Recovery
 
@@ -1264,8 +1468,11 @@ outcome for that exact head and the Work Coordinator continues normal terminal
 promotion. Reconnect, recovery, or later re-enabling cannot revive that settled
 Wake.
 
-One Agent Profile may have up to five independent Execution Contexts reserved
-and at most 50 waiting Wakes. Follow-ups in one context remain serial. New task,
+One Agent Profile may have as many independent Execution Contexts reserved as
+its concurrency limit allows, and at most 50 waiting Wakes. The limit is stored
+on the Binding, defaults to five, and is owner-adjustable and visible; the
+per-Computer limit is likewise owner-adjustable. Owner and colleagues share the
+Profile's limit in FIFO order. Follow-ups in one context remain serial. New task,
 completed-history fork, and independent discussion scopes can run together when
 the local Service verifies their resource isolation. Legacy work without a
 context drains exclusively. Waiting order is the owner-shard transaction
@@ -1285,8 +1492,21 @@ while that response is starting, queued, waiting for another app, or waiting for
 an interaction. It does not publish another Wake or grant scheduling priority.
 Provider occupancy is labeled `Waiting for another app`; Coordinator admission
 waiting keeps `Waiting for earlier tasks`, as does a reserved Wake that the local
-Service still holds behind other local work, until the Service starts it. A conversation fork does not grant
-another requester access to its history or bypass a shared-folder writer lock.
+Service still holds behind other local work, until the Service starts it. A
+conversation fork does not grant another requester access to its history or
+bypass the folder-scoped conflict rule below.
+
+Resource conflicts between local tasks are folder-scoped: each task carries a
+resource claim naming its folder roots (the resolved folder and, for a Git
+checkout, its common Git directory), and tasks whose roots do not overlap never
+conflict. Two direct-edit Sessions in the same folder run concurrently; the
+later one receives a `shared_folder` notice with a one-click switch to an
+isolated copy, and each task prompt lists the other Sessions editing that
+folder. A task that waits on another task's folder shows `Waiting for another
+task in its folder`. Tasks whose root requester is not the owner default to an
+isolated copy when the folder is a Git repository; the Service makes that
+choice inside `mode: "auto"`. The resource-claim contract is in
+`developing/architecture/agent-transport-contract.md`.
 
 For migrated Profiles this replaces the former one-slot FIFO and Profile-wide
 native conversation model. The primary Binding still owns the connection and
@@ -1323,7 +1543,7 @@ Agent settings, including managed working copies. It does not support history
 forks or extra `space_context`, `read_only`, or bounded `workspace` restrictions.
 The Web Session menu exposes only supported operations and Access offers only
 Use agent settings. A new session separates conversation history, not filesystem
-permissions. Current-folder writers retain the shared writer lock. The legacy
+permissions. Current-folder writers follow the folder-scoped conflict rule. The legacy
 `agy` installation fails independent work with official ACP setup guidance.
 A lost native session fails continuation; it must not silently start fresh.
 
@@ -1355,8 +1575,8 @@ access require Codex; bounded Claude project access requires a separate copy.
 The CLI options
 are `--task-access space_context|read_only|workspace` and
 `--task-workspace isolated|current`; omitting `--task-access` keeps Agent settings
-even with `--project` or `--task-workspace isolated`. Current-folder writers wait for conflicting
-local work. An independent project task requires a confirmed working folder that
+even with `--project` or `--task-workspace isolated`. Current-folder writers
+follow the folder-scoped conflict rule. An independent project task requires a confirmed working folder that
 is the root of a Git repository with a committed HEAD. The Service checks the
 source against the Computer owner's file policy, then prepares a private Git
 repository and worktree from the exact commit observed at first local preparation.
@@ -1567,7 +1787,9 @@ input and the Wake that consumes it are successive states, not two tasks.
 
 Conversation access controls each row's message preview, Space name and link for
 owners and other members alike. Inaccessible conversations contribute only neutral
-counts. Owning the Agent alone does not reveal private conversations. An unavailable
+counts. Owning the Agent alone does not reveal private conversations beyond
+the derived owner-observer access defined in
+`developing/product/space-collaboration.md`, Agent Owner Participation. An unavailable
 or incomplete source makes the workload unavailable rather than claiming an exact
 zero or partial total. This default Organization visibility does not grant Queue,
 Steer, recovery, stop, or settings mutation authority. Controller conversations,
@@ -1585,13 +1807,25 @@ keep this stable identity and configuration visible; temporary readiness does
 not blank the Profile Details surface.
 
 The non-owner readiness projection keeps the public four-state Wakeability
-status and may additionally name one exact, structured `usage_exhausted` fact
-as **Usage Limit reached**. That fact helps teammates avoid assigning work that
-cannot start. It is a narrow allowlist exception, not provider-account access:
-the projection still omits provider and account identity, Computer and Space
-details, route and Binding evidence, controller and conversation identity, task
-content, raw errors, and every owner recovery action. Every other blocking
-reason remains the generic public Wakeability state.
+status and may additionally name one exact, structured reason from a closed
+enum visible to Organization members:
+
+- `not_signed_in`
+- `no_subscription`
+- `org_disabled`
+- `version_too_old`, with the unsupported model
+- `computer_offline`
+- `usage_exhausted` (**Usage Limit reached**), with the reset time when current
+  authoritative evidence provides one
+
+These reasons help teammates avoid assigning work that cannot start. They are
+a narrow allowlist, not provider-account access: the projection still omits
+quota numbers, subscription tier, provider and account identity, Computer
+names and other Computer details, Space details, local paths, command text,
+route and Binding evidence, controller and conversation identity, task content,
+raw errors and diagnostics, grants, audit records, and every owner recovery
+action. Any blocking reason outside the enum remains the generic public
+Wakeability state.
 
 An owner read may request up to 100 Profiles and each Profile may expose one
 current plus 50 queued work references. Runtime Transport reads those Durable
@@ -1783,6 +2017,22 @@ Use scoped owner documents for detailed rules:
 - Agent Profile identity does not own readiness truth.
 - Working-folder mode is a device-scoped local execution fact with only
   `openmeld_managed` and `custom` states.
+- A local Agent Profile has a list of folders with one default; the Service
+  mints folder ids, and the cloud holds only the path-free folder projection.
+- A MemberAgent is unique per Organization, owner, and harness, stores no
+  status, and is never a Space member, author, or mention target.
+- The harness catalog report is the single source of MemberAgent existence.
+  Only the default Agent Profile is created with its MemberAgent; every other
+  Agent Profile needs explicit intent.
+- A default Agent Profile's name is its harness display name and is not
+  editable.
+- An assigned Agent Profile cannot change harness; the controller switcher is
+  only the assignment action for unassigned Profiles.
+- Only the owner, as the root requester, changes Agent Profile settings,
+  folders, permission mode, or concurrency limit.
+- A Binding-wide controller conversation exists only for harnesses without
+  Execution Context support; every context-enabled Session has its own native
+  conversation.
 - Default Project is an Organization-scoped preference for future local work,
   not a local path or permanent Agent Profile assignment.
 - Reply recovery copy does not own readiness truth.

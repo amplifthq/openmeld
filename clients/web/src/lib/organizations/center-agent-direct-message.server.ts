@@ -6,6 +6,7 @@ import type {
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getRequiredServerEnv } from "#/env";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { copyOpenMeldClientAddressHeader } from "#/lib/openmeld-api/gateway-upstream";
 import { proxyOpenMeldGatewayRequest } from "#/lib/openmeld-api/proxy";
 
 type CenterAgentDirectMessageWebBoundaryInput = {
@@ -31,6 +32,10 @@ function createCenterAgentDirectMessageApiAtWebBoundary(
 		if (cookie) {
 			headers.set("cookie", cookie);
 		}
+		copyOpenMeldClientAddressHeader({
+			from: input.requestHeaders,
+			to: headers,
+		});
 
 		return await proxyRequestImpl({
 			fetchImpl: input.fetchImpl,

@@ -1,24 +1,9 @@
 "use client";
 
 import type { AuthProfileView, ModelCatalog } from "@openmeld/schemas/types";
-import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
-import {
-	createContext,
-	type PropsWithChildren,
-	use,
-	useCallback,
-	useMemo,
-	useState,
-} from "react";
-import { toast } from "sonner";
+import { createContext, type PropsWithChildren, use, useMemo } from "react";
 import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
-import { buildOrganizationDirectMessagePath } from "#/lib/organizations/organization-routes";
-import {
-	openCurrentDirectMessageSpace,
-	resolveDirectMessageOpenErrorMessage,
-} from "#/lib/spaces/direct-message";
-import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
+import { useOpenDirectMessage } from "#/lib/spaces/use-open-direct-message";
 import { buildEditableSpaceAgentProfilesById } from "./space-agent-profile-edit-access";
 
 type SpaceAgentProfileEditContextValue = {
@@ -43,10 +28,12 @@ export function SpaceAgentProfileEditProvider(
 		orgSlug?: string;
 	}>
 ) {
-	const navigate = useNavigate();
-	const queryClient = useQueryClient();
-	const [pendingDirectMessageProfileId, setPendingDirectMessageProfileId] =
-		useState<string | null>(null);
+	const directMessage = useOpenDirectMessage({
+		organizationId: input.organizationId,
+		orgSlug: input.orgSlug,
+	});
+	const onOpenDirectMessage = directMessage.open;
+	const pendingDirectMessageProfileId = directMessage.pendingProfileId;
 	const profilesById = useMemo(
 		() =>
 			buildEditableSpaceAgentProfilesById({
@@ -55,46 +42,6 @@ export function SpaceAgentProfileEditProvider(
 				editContextAvailable: input.context !== null,
 			}),
 		[input.accountProfiles, input.context, input.currentOwnerUserId]
-	);
-	const onOpenDirectMessage = useCallback(
-		async (profileId: string) => {
-			if (
-				!(input.organizationId && input.orgSlug) ||
-				pendingDirectMessageProfileId
-			) {
-				return;
-			}
-			setPendingDirectMessageProfileId(profileId);
-			try {
-				const response = await openCurrentDirectMessageSpace({
-					organizationId: input.organizationId,
-					targetProfileId: profileId,
-				});
-				await queryClient.invalidateQueries({
-					queryKey: accountSpaceQueryKeys.all,
-					refetchType: "none",
-				});
-				await navigate({
-					to: buildOrganizationDirectMessagePath({
-						orgSlug: input.orgSlug,
-						search: { profileId: response.memberProfileId },
-						spaceId: response.spaceId,
-					}),
-				});
-			} catch (error) {
-				console.error("Failed to open Agent Direct Message.", error);
-				toast.error(resolveDirectMessageOpenErrorMessage(error));
-			} finally {
-				setPendingDirectMessageProfileId(null);
-			}
-		},
-		[
-			input.organizationId,
-			input.orgSlug,
-			navigate,
-			pendingDirectMessageProfileId,
-			queryClient,
-		]
 	);
 	const value = useMemo<SpaceAgentProfileEditContextValue>(
 		() => ({

@@ -1,5 +1,6 @@
 import { useMessageScroller } from "@shadcn/react/message-scroller";
 import { type RefObject, useEffect, useLayoutEffect, useRef } from "react";
+import { getSpaceConversationVisibleTop } from "./use-space-conversation-position";
 
 export type SpaceMessageScrollAction = ReturnType<
 	typeof useMessageScroller
@@ -44,15 +45,32 @@ function scrollDirectionForKey(event: KeyboardEvent): number {
 
 export function scrollMessageIntoConversationViewport(input: {
 	messageElement: HTMLElement;
+	/** Place the message this far below the visible top instead of centering. */
+	offsetFromVisibleTop?: number;
 	scrollElement: HTMLElement;
 }): void {
+	const requestedOffset = input.offsetFromVisibleTop;
 	const alignMessage = () => {
 		const messageRect = input.messageElement.getBoundingClientRect();
 		const viewportRect = input.scrollElement.getBoundingClientRect();
+		// Rects are in screen pixels; scrollTop is in layout pixels.
 		const scale =
 			input.scrollElement.offsetHeight > 0 && viewportRect.height > 0
 				? viewportRect.height / input.scrollElement.offsetHeight
 				: 1;
+		if (!(scale > 0)) {
+			return;
+		}
+		if (requestedOffset !== undefined && Number.isFinite(requestedOffset)) {
+			input.scrollElement.scrollTop +=
+				(messageRect.top -
+					getSpaceConversationVisibleTop(
+						input.scrollElement as HTMLDivElement
+					) -
+					requestedOffset) /
+				scale;
+			return;
+		}
 		const offset =
 			messageRect.height > viewportRect.height
 				? messageRect.top - viewportRect.top - 64 * scale
@@ -61,9 +79,7 @@ export function scrollMessageIntoConversationViewport(input: {
 						viewportRect.top -
 						viewportRect.bottom) /
 					2;
-		if (scale > 0) {
-			input.scrollElement.scrollTop += offset / scale;
-		}
+		input.scrollElement.scrollTop += offset / scale;
 	};
 	alignMessage();
 	window.requestAnimationFrame(() =>

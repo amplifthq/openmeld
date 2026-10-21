@@ -1328,11 +1328,49 @@ metadata or shows raw provider ids. BYOK is not part of this release.
   service used by human clients. See
   `developing/product/routines.md`.
 - Every privileged Center Agent action lands in an audit journal from day one:
-  actor (the Center Agent), org, action, on-behalf-of attribution.
+  actor (the Center Agent), org, action, on-behalf-of attribution. Under the
+  MemberAgent program the attribution is the server-written request chain,
+  whose first element is the human root requester; the chain replaces
+  `onBehalfOf` (see `developing/architecture/agent-transport-contract.md`,
+  Request Chain).
 - Attribution: when the Center Agent acts on someone's ask (for example waking
   another member's agent), the visible action carries the Center Agent's
-  display name plus "on behalf of X". This is both UX honesty and the first
-  prompt-injection mitigation.
+  display name plus "on behalf of X", where X is the chain's root requester.
+  This is both UX honesty and the first prompt-injection mitigation.
+- MemberAgent management operations: the Center Agent may set a member's
+  Agent Profile default folder by folder id, archive that member's Sessions,
+  handle access requests to that member's Agents, and change that member's
+  Agent Profile permission mode. Implementation status: MemberAgent program,
+  PR #236, shipped. Each operation checks that the request chain's root
+  requester owns the target, and follows red line 8: the Center Agent acts
+  only on the verified speaker's explicit instruction in the current turn,
+  never autonomously. Archiving Sessions and changing permission mode are
+  non-additive, so they also need a separate confirmation from the verified
+  speaker after the instruction, bound by Core to the exact represented
+  member, target, and input; the instruction alone never applies them.
+
+### Permission-mode advisor
+
+Implementation status: MemberAgent program, PR #236, shipped.
+
+The advisor is prompt guidance only; it never changes settings. Core counts,
+per Agent Profile over a seven-day window, permission questions raised by tasks
+whose requester is not the owner. The count uses the one-hop
+`requesterProfileId` until the request chain is enforced and the root requester
+afterwards. At three or more such questions the Profile carries an advisory
+flag. The flag is injected into the owner's next task prompt for that Profile
+and into Center Agent guidance, so the Agent can say in context, for example:
+"Tali used this Profile five times this week and each run waited for your
+command approval; switch to acceptEdits?"
+
+If the owner agrees, the Agent calls the existing permission-mode write; the
+root-requester check restricts that write to the owner. The Agent suggests
+only and never changes the mode silently, makes at most one suggestion per
+Profile per week, and suggests the harness's next less-interrupting mode
+(Claude Code: `acceptEdits` or `auto`; Codex: Approve for me), never
+`bypassPermissions` by default. A new MemberAgent's welcome card carries one
+line: the mode is "ask first", which suits personal use, and the Agent can
+switch it later if colleagues use it.
 
 ### Runtime
 
@@ -2737,7 +2775,8 @@ controls. Team-safe local-agent details may include controller state, native
 interface, installed version and update status, launch readiness and install
 count, reported model names, native capabilities, last-check time, and
 provider-reported Usage Limits. Each visible limit names the window, shows its
-used percentage and reset when reported, says when it was observed, and
+reset when reported (the used percentage and other quota numbers are shown only
+to the owner), says when it was observed, and
 explicitly distinguishes available, low, exhausted, stale, temporarily
 unavailable, and unsupported states. Historical values may remain visible while
 a Computer is offline only when clearly marked stale.
@@ -2996,7 +3035,9 @@ A coding agent working in this scope must not:
    Member-attributed Routine management is allowed only through the verified
    speaker and shared Core authority contract in
    `developing/product/routines.md`; it is not a precedent for a
-   broader exception.
+   broader exception. MemberAgent management operations (Permission model)
+   act only on the verified speaker's explicit instruction in the current
+   turn, and their non-additive operations also need confirmation.
 9. Build a DM subsystem (DM = lazy private Space).
 10. Collect prompts, prompt-derived summaries, transcripts, replies, file
     contents, local paths, or arbitrary provider metadata for Agent Activity,
@@ -3028,6 +3069,14 @@ implemented; until then this section is their definition source:
 - **Ambient session**: a local agent session started by the user directly
   rather than by a Wake, observable only under an explicitly bound Agent
   Activity Project.
+- **MemberAgent** (`member_agents`): one Organization member's instance of one
+  Harness, for example `Felix Lu's Claude Code`; it groups that member's Agent
+  Profiles for the Harness and is never a Space member or message author.
+- **Harness** (`harnessKind`): the program kind that runs an Agent, such as
+  `claude-code`, `codex`, or `hosted`; it maps one-to-one from
+  `agentControllerRef`.
+- Banned uses: "tool" for a Harness; a bare `agent` table or type for the
+  MemberAgent; `AgentHarness`; `PersonalAgent`.
 
 Center Agent attribution in Space messages and thread replies shows the current
 effective model display name from the same query cache as the model settings.

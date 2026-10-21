@@ -1,4 +1,7 @@
-import { SPACE_FILE_MAX_SIZE_BYTES } from "@openmeld/schemas";
+import {
+  type PermissionModeAdvisory,
+  SPACE_FILE_MAX_SIZE_BYTES,
+} from "@openmeld/schemas";
 import type {
   RuntimeTransportDeliverDispatchRequest,
   SpaceMessageAttachment,
@@ -6,10 +9,13 @@ import type {
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import {
+  appendNonOwnerAudienceGuidance,
   buildDispatchPromptPlan,
   buildDispatchSessionTitle,
   parseDispatchTask,
 } from "../src/local-service/dispatch/parse-dispatch-task";
+
+const HOME_PATH = /\/(Users|home)\//u;
 
 it("names a new Session from the Wake request rather than the bootstrap instructions", () => {
   expect(
@@ -97,6 +103,143 @@ it.each([
   expect(plan.userPrompt).toContain(
     "Use the tools available under your current permissions."
   );
+});
+
+it.each([
+  { requesterIsAgentOwner: true, guided: false },
+  { requesterIsAgentOwner: false, guided: true },
+  { requesterIsAgentOwner: undefined, guided: true },
+])("tells the Agent about a wider audience only for a non-owner root (owner=$requesterIsAgentOwner)", ({
+  requesterIsAgentOwner,
+  guided,
+}) => {
+  const plan = buildDispatchPromptPlan({
+    prompt: "Run ls and show me the result.",
+    requesterIsAgentOwner,
+    spaceId: "space",
+    dispatchTriggerSource: "activation_targets",
+    targetProfileId: "agt-target-a",
+    shouldInjectBootstrap: false,
+    workingFolderDisplayName: "folder-two",
+  });
+  if (!guided) {
+    expect(plan.userPrompt).not.toContain("Visible audience");
+    return;
+  }
+  expect(plan.userPrompt).toContain(
+    "OpenMeld did not verify that the Agent owner asked for this task"
+  );
+  expect(plan.userPrompt).toContain("Do not reveal absolute local paths");
+  expect(plan.userPrompt).toContain('the working folder "folder-two"');
+  // Owner-only facts never enter the prompt, only the display name.
+  expect(plan.userPrompt).not.toMatch(HOME_PATH);
+});
+
+it.each([
+  "/Users/felix/openmeld-smoke/folders/folder-two",
+  "~/work",
+  "C:\\Users\\felix",
+  "C:private",
+  "felix@example.com",
+])("never names a folder whose display name is a path (%s)", (displayName) => {
+  const plan = buildDispatchPromptPlan({
+    prompt: "Run ls.",
+    requesterIsAgentOwner: false,
+    spaceId: "space",
+    dispatchTriggerSource: "activation_targets",
+    targetProfileId: "agt-target-a",
+    shouldInjectBootstrap: false,
+    workingFolderDisplayName: displayName,
+  });
+  expect(plan.userPrompt).toContain("Refer to the working folder by that name");
+  expect(plan.userPrompt).not.toContain(displayName);
+});
+
+it("keeps the guidance in repair prompts and hides the owner account id from others", () => {
+  expect(
+    appendNonOwnerAudienceGuidance("Repair the delivery.", {
+      requesterIsAgentOwner: true,
+    })
+  ).toBe("Repair the delivery.");
+  expect(
+    appendNonOwnerAudienceGuidance("Repair the delivery.", {
+      requesterIsAgentOwner: false,
+    })
+  ).toContain("Do not reveal absolute local paths");
+  const prompt = (requesterIsAgentOwner: boolean) =>
+    buildDispatchPromptPlan({
+      prompt: "Run ls.",
+      profileOwnerUserId: "user_felix_account",
+      requesterIsAgentOwner,
+      spaceId: "space",
+      dispatchTriggerSource: "activation_targets",
+      targetProfileId: "agt-target-a",
+      shouldInjectBootstrap: false,
+    }).userPrompt;
+  expect(prompt(true)).toContain("user_felix_account");
+  expect(prompt(false)).not.toContain("user_felix_account");
+});
+
+const PERMISSION_MODE_ADVISORY = {
+  currentPermissionMode: "claude-code:default",
+  currentPermissionModeLabel: "Ask permissions",
+  suggestedPermissionMode: "claude-code:acceptEdits",
+  suggestedPermissionModeLabel: "Accept edits",
+  topRequesterNames: ["Tali Chen", "Sam Ortiz"],
+  waitingApprovalCount: 5,
+  windowDays: 7,
+} satisfies PermissionModeAdvisory;
+
+it.each([
+  true,
+  false,
+  undefined,
+])("adds the permission-mode advisory only to an owner-requested task (%s)", (requesterIsAgentOwner) => {
+  const deliverRequest = createDeliverRequest({
+    targetProfileId: "agt-target-a",
+  });
+  deliverRequest.payload.requesterIsAgentOwner = requesterIsAgentOwner;
+  deliverRequest.payload.permissionModeAdvisory = PERMISSION_MODE_ADVISORY;
+  const task = parseDispatchTask({ deliverRequest, fallbackRouteConfig: null });
+  const plan = buildDispatchPromptPlan({
+    prompt: "Fix the flaky test",
+    permissionModeAdvisory: task?.permissionModeAdvisory,
+    requesterIsAgentOwner: task?.requesterIsAgentOwner,
+    spaceId: "space",
+    dispatchTriggerSource: "activation_targets",
+    targetProfileId: "agt-target-a",
+    shouldInjectBootstrap: false,
+  });
+  if (requesterIsAgentOwner !== true) {
+    expect(task?.permissionModeAdvisory).toBeUndefined();
+    expect(plan.userPrompt).not.toContain("Permission-mode suggestion");
+    expect(plan.userPrompt).not.toContain("suggest-permission-mode");
+    return;
+  }
+  expect(plan.userPrompt).toContain(
+    [
+      "Permission-mode suggestion for your owner:",
+      '- In the last 7 days, tasks other people gave you stopped 5 times to wait for your owner\'s approval. Most of these tasks came from "Tali Chen" and "Sam Ortiz".',
+      "- Your permission mode is Ask permissions. The next less-interrupting mode is Accept edits (claude-code:acceptEdits).",
+      "- If it fits this conversation, mention it once and briefly in your reply, and say your owner can switch with one click. If other people can read this conversation, give the count without names. Do not repeat it in this task.",
+    ].join("\n")
+  );
+  expect(plan.userPrompt).toContain(
+    "space action suggest-permission-mode` once so your owner sees an Apply card. Never change a setting yourself; only your owner applies it."
+  );
+});
+
+it("never renders an advisory that reaches the prompt without owner verification", () => {
+  const plan = buildDispatchPromptPlan({
+    prompt: "Fix the flaky test",
+    permissionModeAdvisory: PERMISSION_MODE_ADVISORY,
+    requesterIsAgentOwner: false,
+    spaceId: "space",
+    dispatchTriggerSource: "activation_targets",
+    targetProfileId: "agt-target-a",
+    shouldInjectBootstrap: false,
+  });
+  expect(plan.userPrompt).not.toContain("Permission-mode suggestion");
 });
 
 it("tells a Space-only parallel task when repository review is unavailable", () => {

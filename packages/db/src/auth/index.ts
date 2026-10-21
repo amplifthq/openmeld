@@ -39,6 +39,16 @@ export {
   verifications,
 } from "./auth.schema.ts";
 export type {
+  MemberAgentHarnessKind,
+  MemberAgentSourceValue,
+} from "./member-agent.schema.ts";
+export {
+  MEMBER_AGENT_HARNESS_KINDS,
+  MEMBER_AGENT_SOURCES,
+  memberAgents,
+  memberAgentsRelations,
+} from "./member-agent.schema.ts";
+export type {
   OpenMeldProfileKind,
   OpenMeldProfileManagedRole,
   OpenMeldProfileSource,

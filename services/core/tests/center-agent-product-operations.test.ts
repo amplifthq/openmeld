@@ -462,6 +462,103 @@ describe("Center Agent product operations", () => {
     expect(JSON.stringify(response)).not.toContain("/private/test-account");
   });
 
+  it("sets the default folder by id, then clears Default Project as the second write", async () => {
+    const calls: string[] = [];
+    const setAgentProfileDefaultFolder = vi.fn(() => {
+      calls.push("set_default_folder");
+      return Promise.resolve({
+        agentProfileId: AGENT_PROFILE_ID,
+        status: "updated" as const,
+        target: { deviceId: "device-1", runtimeLane: "prod" as const },
+      });
+    });
+    const response = await updateAgentProfileRuntimeSettingsOperation({
+      deps: {
+        checkAgentProfileReadiness: vi.fn(() => {
+          calls.push("read_readiness");
+          return Promise.resolve(readyReadinessResponse());
+        }),
+        setAgentProfileDefaultFolder,
+        setAgentProfileDefaultProject: vi.fn(() => {
+          calls.push("clear_project");
+          return Promise.resolve();
+        }),
+        setAgentProfileWorkspace: vi.fn(),
+        updateAgentControllerCollaborationMode: vi.fn(),
+        updateAgentControllerPermissionMode: vi.fn(),
+        updateModelSelection: vi.fn(),
+        updateOpenCodePermission: vi.fn(),
+      },
+      organizationId: ORGANIZATION_ID,
+      request: {
+        agentProfileId: AGENT_PROFILE_ID,
+        defaultFolderId: "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11",
+      },
+    });
+    expect(setAgentProfileDefaultFolder).toHaveBeenCalledWith({
+      agentProfileId: AGENT_PROFILE_ID,
+      folderId: "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11",
+    });
+    expect(calls).toEqual([
+      "set_default_folder",
+      "clear_project",
+      "read_readiness",
+    ]);
+    expect(response).toMatchObject({
+      status: "completed",
+      steps: [
+        {
+          message: "Default folder was saved on the local Computer.",
+          name: "update_agent_profile_workspace",
+          status: "completed",
+        },
+        { name: "update_agent_profile_default_project", status: "completed" },
+        { name: "check_agent_profile_readiness", status: "completed" },
+      ],
+      workspace: {
+        agentProfileId: AGENT_PROFILE_ID,
+        configurationVersion: null,
+        status: "updated",
+        target: { deviceId: "device-1", runtimeLane: "prod" },
+      },
+    });
+  });
+
+  it("does not clear Default Project when the default folder id is refused", async () => {
+    const setAgentProfileDefaultProject = vi.fn();
+    const response = await updateAgentProfileRuntimeSettingsOperation({
+      deps: {
+        checkAgentProfileReadiness: vi.fn(),
+        setAgentProfileDefaultFolder: vi.fn(() =>
+          Promise.reject(
+            Object.assign(new Error("folder not found"), {
+              code: "profile_folder.not_found",
+            })
+          )
+        ),
+        setAgentProfileDefaultProject,
+        setAgentProfileWorkspace: vi.fn(),
+        updateAgentControllerCollaborationMode: vi.fn(),
+        updateAgentControllerPermissionMode: vi.fn(),
+        updateModelSelection: vi.fn(),
+        updateOpenCodePermission: vi.fn(),
+      },
+      organizationId: ORGANIZATION_ID,
+      request: {
+        agentProfileId: AGENT_PROFILE_ID,
+        defaultFolderId: "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11",
+      },
+    });
+    expect(response.status).toBe("blocked");
+    expect(response.steps).toContainEqual(
+      expect.objectContaining({
+        name: "update_agent_profile_workspace",
+        status: "failed",
+      })
+    );
+    expect(setAgentProfileDefaultProject).not.toHaveBeenCalled();
+  });
+
   it("updates Codex Collaboration Mode as an independent runtime setting", async () => {
     const binding = acceptedBindingResponse();
     const updateAgentControllerCollaborationMode = vi.fn(() =>

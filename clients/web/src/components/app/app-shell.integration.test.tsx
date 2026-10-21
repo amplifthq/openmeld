@@ -1,5 +1,11 @@
-import type { FirstWorkResponse } from "@openmeld/schemas";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { AccountSession, FirstWorkResponse } from "@openmeld/schemas";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -8,7 +14,11 @@ import {
 	serializeStartFlowState,
 } from "#/components/app/start-flow-state";
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
-import { TestQueryClientProvider } from "#/test-support/query-client";
+import { userQueryKeys } from "#/query/query-keys";
+import {
+	createTestQueryClient,
+	TestQueryClientProvider,
+} from "#/test-support/query-client";
 import { AppShell } from "./app-shell";
 import type { AppShellSection } from "./shell-layout";
 
@@ -18,6 +28,14 @@ const useNavigateMock = vi.hoisted(() => vi.fn());
 const listStartProfilesMock = vi.hoisted(() => vi.fn());
 const listAccountSpaceItemsMock = vi.hoisted(() => vi.fn());
 const readFirstWorkMock = vi.hoisted(() => vi.fn());
+const readSessionResponse = vi.hoisted(() => vi.fn<() => Promise<Response>>());
+vi.mock("@tanstack/react-start", () => ({
+	createIsomorphicFn: () => ({
+		client: (client: (...args: unknown[]) => unknown) => ({
+			server: () => client,
+		}),
+	}),
+}));
 vi.mock("@openmeld/api-client", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@openmeld/api-client")>()),
 	createFirstWorkApi: () => ({ read: readFirstWorkMock }),
@@ -56,6 +74,15 @@ const TEST_ACCOUNT = {
 	image: null,
 	name: "Felix",
 };
+const TEST_SESSION: AccountSession = {
+	user: {
+		...TEST_ACCOUNT,
+		id: "user-123",
+		emailVerified: true,
+		createdAt: "2026-04-19T00:00:00.000Z",
+	},
+	session: { id: "session-123" },
+};
 const TEST_ORGANIZATION_SCOPE = {
 	access: "authorized",
 	account: TEST_ACCOUNT,
@@ -93,6 +120,7 @@ vi.mock("@tanstack/react-router", () => ({
 	},
 	useSearch: () => ({}),
 	useNavigate: () => useNavigateMock,
+	useRouter: () => ({ subscribe: () => () => undefined }),
 	useMatches: (input?: {
 		select?: (
 			matches: readonly { staticData: { appShellSection?: AppShellSection } }[]
@@ -137,6 +165,21 @@ vi.mock("#/lib/spaces/account-spaces", () => ({
 
 describe("AppShell", () => {
 	beforeEach(() => {
+		readSessionResponse
+			.mockReset()
+			.mockImplementation(async () => Response.json(TEST_SESSION));
+		vi.stubGlobal(
+			"fetch",
+			vi.fn<typeof fetch>(async (resource) => {
+				const url = new URL(
+					resource instanceof Request ? resource.url : String(resource),
+					window.location.origin
+				);
+				return url.pathname === "/v1/account/session"
+					? await readSessionResponse()
+					: new Response(null, { status: 503 });
+			})
+		);
 		window.localStorage.clear();
 		window.sessionStorage.clear();
 		readFirstWorkMock.mockReset().mockResolvedValue({
@@ -173,8 +216,53 @@ describe("AppShell", () => {
 
 	afterEach(() => {
 		cleanup();
+		vi.unstubAllGlobals();
 		window.localStorage.clear();
 		window.sessionStorage.clear();
+	});
+
+	it("keeps the authorized page visible while background session renewal is pending or unavailable", async () => {
+		let resolveSession!: (response: Response) => void;
+		const pending = new Promise<Response>((resolve) => {
+			resolveSession = resolve;
+		});
+		readSessionResponse
+			.mockReturnValueOnce(pending)
+			.mockResolvedValue(new Response(null, { status: 503 }));
+		const queryClient = createTestQueryClient();
+		queryClient.setQueryData(userQueryKeys.session, TEST_SESSION, {
+			updatedAt: 1,
+		});
+		setRenderedAppSection("space");
+		render(
+			<TestQueryClientProvider queryClient={queryClient}>
+				<AppShell
+					account={TEST_ACCOUNT}
+					organizationScope={TEST_ORGANIZATION_SCOPE}
+					storageScope="user-123"
+				/>
+			</TestQueryClientProvider>
+		);
+
+		await screen.findByText("outlet");
+		await waitFor(() => expect(readSessionResponse).toHaveBeenCalledTimes(1));
+		expect(queryClient.getQueryState(userQueryKeys.session)?.fetchStatus).toBe(
+			"fetching"
+		);
+		expect(screen.getByText("outlet")).toBeTruthy();
+
+		resolveSession(new Response(null, { status: 503 }));
+		await waitFor(() =>
+			expect(queryClient.getQueryState(userQueryKeys.session)?.status).toBe(
+				"error"
+			)
+		);
+		expect(screen.getByText("outlet")).toBeTruthy();
+		expect(queryClient.getQueryData(userQueryKeys.session)).toEqual(
+			TEST_SESSION
+		);
+		expect(useNavigateMock).not.toHaveBeenCalled();
+		queryClient.clear();
 	});
 
 	it.each([

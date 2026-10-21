@@ -1,6 +1,9 @@
 import type { ModelCatalog } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
-import { resolveAgentProfileControllerModelDetail } from "./agent-profile-model-display";
+import {
+	resolveAgentProfileControllerModelDetail,
+	resolveAgentProfileModelCardValue,
+} from "./agent-profile-model-display";
 
 describe("resolveAgentProfileControllerModelDetail", () => {
 	it("shows the selected model and selected reasoning effort", () => {
@@ -38,7 +41,7 @@ describe("resolveAgentProfileControllerModelDetail", () => {
 				modelCatalog: buildModelCatalog(),
 				modelSelection: null,
 			})
-		).toBe("Codex · Controller default");
+		).toBe("Codex");
 	});
 
 	it("does not invent reasoning effort for models without reasoning support", () => {
@@ -62,7 +65,34 @@ describe("resolveAgentProfileControllerModelDetail", () => {
 				modelCatalog: buildModelCatalog(),
 				modelSelection: null,
 			})
-		).toBe("Cursor · Controller default");
+		).toBe("Cursor");
+	});
+});
+
+const DEFAULT_WORD = /default/i;
+
+describe("resolveAgentProfileModelCardValue", () => {
+	it("shows the saved model and reasoning without the controller", () => {
+		expect(
+			resolveAgentProfileModelCardValue({
+				agentControllerRef: "builtin:codex",
+				modelCatalog: buildModelCatalog(),
+				modelSelection: {
+					modelId: "gpt-5.3-codex-spark",
+					reasoningLevel: "high",
+				},
+			})
+		).toEqual({ value: "GPT-5.3 Codex Spark · High" });
+	});
+
+	it("names the model in effect when no model is saved, with no tag", () => {
+		const card = resolveAgentProfileModelCardValue({
+			agentControllerRef: "builtin:codex",
+			modelCatalog: buildModelCatalog(),
+			modelSelection: null,
+		});
+		expect(card?.value).toBeTruthy();
+		expect(card?.value).not.toMatch(DEFAULT_WORD);
 	});
 });
 

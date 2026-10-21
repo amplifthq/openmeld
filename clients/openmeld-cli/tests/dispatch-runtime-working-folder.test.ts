@@ -8,16 +8,27 @@ import {
   CURRENT_ROUTE_WORKING_FOLDER_FRESHNESS_MS,
   resolveDispatchRuntimeContext,
   resolveDispatchWorkingFolderRuntimeContext,
+  resolveForkSourceWorkingDirectory,
 } from "../src/local-service/execution/dispatch-runtime-preparation";
 
 const {
   listProjectConnectionsWithStatus,
   resolveCurrentEffectiveProfileWorkingFolderRuntime,
   resolveEffectiveProfileWorkingFolderRuntime,
+  resolveProfileFolderRuntimeForAccount,
 } = vi.hoisted(() => ({
   listProjectConnectionsWithStatus: vi.fn(),
   resolveCurrentEffectiveProfileWorkingFolderRuntime: vi.fn(),
   resolveEffectiveProfileWorkingFolderRuntime: vi.fn(),
+  resolveProfileFolderRuntimeForAccount: vi.fn(),
+}));
+vi.mock("../src/profile-workspace/folders", () => ({
+  resolveProfileFolderRuntimeForAccount,
+}));
+vi.mock("../src/config/account-context", () => ({
+  resolveCurrentOpenMeldAccountContext: async () => ({
+    key: { hostKey: "test-host", userKey: "test-user" },
+  }),
 }));
 vi.mock("../src/agent-activity/project-bindings", () => ({
   listProjectConnectionsWithStatus,
@@ -313,6 +324,86 @@ describe("dispatch runtime working folder", () => {
     });
   });
 
+  it("runs a selected folder by its id instead of the Profile default folder", async () => {
+    resolveProfileFolderRuntimeForAccount.mockResolvedValue({
+      folder: { displayName: "other", id: FOLDER_A, kind: "custom" },
+      runtimeContext: { providerRuntimeWorkingDirectory: "/tmp/folder-a" },
+      status: "ready",
+    });
+    const routeConfig = createCurrentRoute();
+    await expect(
+      resolveDispatchWorkingFolderRuntimeContext({
+        ...createDispatchIdentityInput(routeConfig),
+        defaultProjectId: "project-1",
+        defaultProjectIdWasProvided: true,
+        executionContext: createFolderExecutionContext({ folderId: FOLDER_A }),
+        ownerUserId: "user-1",
+        nowMs: 10_000,
+        routeConfig,
+        targetProfileId: "agt-1",
+      })
+    ).resolves.toEqual({ providerRuntimeWorkingDirectory: "/tmp/folder-a" });
+    expect(resolveProfileFolderRuntimeForAccount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        folderId: FOLDER_A,
+        mode: "dispatch",
+        openMeldProfileId: "agt-1",
+        organizationId: "organization-1",
+        ownerUserId: "user-1",
+      })
+    );
+  });
+
+  it("fails closed for a folder id this computer does not know", async () => {
+    resolveProfileFolderRuntimeForAccount.mockResolvedValue({
+      reasonCode: "profile.workspace.missing",
+      reasonText: "The selected folder is no longer set up for this Agent.",
+      status: "failed",
+    });
+    const routeConfig = createCurrentRoute();
+    await expect(
+      resolveDispatchWorkingFolderRuntimeContext({
+        ...createDispatchIdentityInput(routeConfig),
+        defaultProjectId: "project-1",
+        defaultProjectIdWasProvided: true,
+        executionContext: createFolderExecutionContext({ folderId: FOLDER_A }),
+        ownerUserId: "user-1",
+        nowMs: 10_000,
+        routeConfig,
+        targetProfileId: "agt-1",
+      })
+    ).rejects.toMatchObject({ code: "profile.workspace.missing" });
+  });
+
+  it("reads a fork's source from its own folder when it continues in another folder", async () => {
+    resolveProfileFolderRuntimeForAccount.mockResolvedValue({
+      folder: { displayName: "a", id: FOLDER_A, kind: "custom" },
+      runtimeContext: { providerRuntimeWorkingDirectory: "/tmp/folder-a" },
+      status: "ready",
+    });
+    const routeConfig = createCurrentRoute();
+    const forkInput = (sourceFolderId?: string, folderId?: string) => ({
+      executionContext: createFolderExecutionContext({
+        folderId,
+        forkSourceFolderId: sourceFolderId,
+      }),
+      ownerUserId: "user-1",
+      routeConfig,
+      targetProfileId: "agt-1",
+    });
+    await expect(
+      resolveForkSourceWorkingDirectory(forkInput(FOLDER_A, FOLDER_B))
+    ).resolves.toBe("/tmp/folder-a");
+    // The source ran in the default folder; the fork moves to folder B.
+    await expect(
+      resolveForkSourceWorkingDirectory(forkInput(undefined, FOLDER_B))
+    ).resolves.toBe("/tmp/current-default-project");
+    // Same folder: the existing current-folder rule applies unchanged.
+    await expect(
+      resolveForkSourceWorkingDirectory(forkInput(FOLDER_A, FOLDER_A))
+    ).resolves.toBeUndefined();
+  });
+
   it("keeps ordinary Project work blocked but prepares explicit Space-only work independently of default folders", async () => {
     const selectedFingerprint = `sha256:${"a".repeat(64)}`;
     const routeConfig = createCurrentRoute();
@@ -563,6 +654,41 @@ function createProjectExecutionContext(
     access: "workspace",
     projectWork: { projectId, repositoryFingerprint },
     workspace: "current",
+    nativeConversationId: null,
+    runtimeWorkspaceFingerprint: null,
+  });
+}
+
+const FOLDER_A = "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11";
+const FOLDER_B = "3c2e8f8a-6b55-4b8e-9a43-0f3f2c9d7e21";
+
+function createFolderExecutionContext(input: {
+  folderId?: string;
+  forkSourceFolderId?: string;
+}) {
+  return executionContextTaskSchema.parse({
+    version: 1,
+    id: "11111111-1111-4111-8111-111111111111",
+    scope: {
+      organizationId: "organization-1",
+      requesterProfileId: "human-1",
+      spaceId: "space-1",
+      targetProfileId: "agt-1",
+      threadId: null,
+    },
+    access: "workspace",
+    ...(input.folderId ? { folderId: input.folderId } : {}),
+    workspace: "current",
+    forkSource: {
+      contextId: "22222222-2222-4222-8222-222222222222",
+      sourceWakeId: "wake-source",
+      nativeConversationId: "native-source",
+      runtimeWorkspaceFingerprint: "sha256:source",
+      workspace: "current",
+      ...(input.forkSourceFolderId
+        ? { folderId: input.forkSourceFolderId }
+        : {}),
+    },
     nativeConversationId: null,
     runtimeWorkspaceFingerprint: null,
   });

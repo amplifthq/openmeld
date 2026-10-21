@@ -247,3 +247,14 @@ export function sortAgentOwnerGroups<
 			left.ownerUserId.localeCompare(right.ownerUserId)
 	);
 }
+
+/**
+ * Whether task activity is known for the directory. Undefined until the
+ * runtime overview answers, so a read still loading never reads as
+ * "Task activity unavailable".
+ */
+export function resolveTaskActivityAvailability(
+	overview: { taskActivitySince?: string } | undefined
+): boolean | undefined {
+	return overview ? Boolean(overview.taskActivitySince) : undefined;
+}

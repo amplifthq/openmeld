@@ -41,6 +41,14 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
+import {
+	AgentAccessIndicator,
+	assertNeverColleagueState,
+	resolveAgentChatActionLabel,
+	resolveColleagueRequestSpaceId,
+	useOpenColleagueRequestSpace,
+} from "#/components/agent-access/agent-access-indicator";
+import { AgentProfileAccessOverview } from "#/components/agent-access/agent-access-sections";
 import { AgentAvatarEditor } from "#/components/agents/agent-avatar-editor";
 import type {
 	AgentProfileActivityDestination,
@@ -49,7 +57,23 @@ import type {
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import { AgentProfileConversationsSection } from "#/components/directory/agent-conversations-section";
+import { useMemberAgentProfileNameLocked } from "#/components/member-agents/member-agent-harness-lock";
+import {
+	MemberAgentNewProfileButton,
+	MemberAgentSensitiveChanges,
+} from "#/components/member-agents/member-agent-page-context";
+import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
+import {
+	type AgentViewerAccess,
+	formatPublicWakeabilityReason,
+	useAgentViewerAccess,
+	usePublicWakeabilityReason,
+} from "#/lib/agents/agent-viewer-access";
+import {
+	type ColleagueAccess,
+	useColleagueAccessState,
+} from "#/lib/agents/colleague-access-state";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
 import { updateAgentAvatar } from "#/lib/profiles/update-agent-avatar";
@@ -59,6 +83,158 @@ import {
 	useAgentTaskActivity,
 } from "./agent-task-activity";
 import { formatAgentWakeAvailabilityCheckedAt } from "./agents-page-agent-profile-helpers";
+
+export type AgentProfileOwnerIdentity = {
+	name: string;
+	avatarUrl: string | null | undefined;
+	profileId: string;
+};
+
+function AgentProfileOwnerLine(input: {
+	owner: AgentProfileOwnerIdentity;
+	access: AgentViewerAccess | null;
+	accessRemoved?: boolean;
+}) {
+	return (
+		<p className="mt-1 flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
+			Owned by
+			<DitherProfileAvatar
+				avatarImageUrl={input.owner.avatarUrl}
+				profileId={input.owner.profileId}
+				profileKind="human"
+				profileName={input.owner.name}
+				size={16}
+			/>
+			<span className="truncate text-foreground">{input.owner.name}</span>
+			{input.access ? (
+				<>
+					<span aria-hidden="true">·</span>
+					<AgentAccessIndicator access={input.access} />
+				</>
+			) : null}
+			{input.accessRemoved ? (
+				<>
+					<span aria-hidden="true">·</span>
+					<span className="shrink-0" data-testid="agent-access-removed">
+						Access removed
+					</span>
+				</>
+			) : null}
+		</p>
+	);
+}
+
+/** What a colleague sees: their access and why the Agent can't work. */
+function useColleagueAgentState(input: {
+	availabilityCategory: string;
+	isColleagueAgent: boolean;
+	ownerName: string | undefined;
+	ownerUserId: string | null | undefined;
+	profileId: string;
+}) {
+	const access = useAgentViewerAccess({
+		ownerName: input.ownerName,
+		ownerUserId: input.ownerUserId,
+		profileId: input.profileId,
+	});
+	const publicReason = usePublicWakeabilityReason({
+		enabled: input.isColleagueAgent,
+		profileId: input.profileId,
+	});
+	const reason = publicReason
+		? formatPublicWakeabilityReason(publicReason)
+		: null;
+	// Offline Agents still take messages that wait for them; unavailable
+	// ones can't, so a colleague isn't offered a chat that goes nowhere.
+	const chatUnavailableReason =
+		input.isColleagueAgent && input.availabilityCategory === "unavailable"
+			? (reason ?? "This Agent is unavailable")
+			: null;
+	const colleagueAccess = useColleagueAccessState({
+		ownerUserId: input.isColleagueAgent ? input.ownerUserId : null,
+		profileId: input.profileId,
+	});
+	return { access, chatUnavailableReason, colleagueAccess, reason };
+}
+
+/**
+ * The header's chat action. A colleague's Agent that asks its owner first
+ * offers "Ask to use"; one that can't work right now is disabled with why.
+ */
+function AgentProfileChatAction(input: {
+	access: AgentViewerAccess | null;
+	isPending: boolean;
+	colleagueAccess: ColleagueAccess | null;
+	onOpen: () => void;
+	profileName: string;
+	unavailableReason: string | null;
+}) {
+	const openRequestSpace = useOpenColleagueRequestSpace();
+	const asksOwner = input.access?.kind === "asks_owner";
+	// The label depends on the request state; wait for it instead of flashing.
+	if (asksOwner && input.colleagueAccess === null) {
+		return null;
+	}
+	const requestSpaceId = resolveColleagueRequestSpaceId(input.colleagueAccess);
+	const button = (
+		<Button
+			disabled={input.isPending || input.unavailableReason !== null}
+			onClick={() =>
+				requestSpaceId ? openRequestSpace(requestSpaceId) : input.onOpen()
+			}
+			size="sm"
+			type="button"
+			variant="default"
+		>
+			<ChatCircleTextIcon aria-hidden="true" data-icon="inline-start" />
+			{resolveAgentChatActionLabel({
+				access: input.access,
+				colleagueAccess: input.colleagueAccess,
+				profileName: input.profileName,
+			})}
+		</Button>
+	);
+	let tooltip: string | null = null;
+	if (input.unavailableReason !== null) {
+		tooltip = `Can’t start work right now: ${input.unavailableReason}.`;
+	} else if (input.access?.kind === "asks_owner") {
+		tooltip = resolveColleagueChatTooltip({
+			ownerName: input.colleagueAccess?.ownerName ?? input.access.ownerName,
+			state: input.colleagueAccess?.state,
+		});
+	}
+	return tooltip ? (
+		<TooltipHint content={tooltip}>
+			<span className="inline-flex">{button}</span>
+		</TooltipHint>
+	) : (
+		button
+	);
+}
+
+function resolveColleagueChatTooltip(input: {
+	ownerName: string;
+	state: ColleagueAccess["state"] | undefined;
+}): string | null {
+	switch (input.state) {
+		case undefined:
+		case "none":
+		case "draft":
+			return `${input.ownerName} approves before it starts work for you.`;
+		case "revoked":
+			return `${input.ownerName} removed your access. Ask to use it again.`;
+		case "waiting":
+			return `${input.ownerName} hasn’t answered your request yet.`;
+		case "declined":
+			return `${input.ownerName} declined your request.`;
+		case "approved_once":
+		case "always_allowed":
+		case "not_required":
+			return null;
+		default:
+			return assertNeverColleagueState(input.state);
+	}
+}
 
 export function AgentProfileWorkspaceDetail(input: {
 	directMessageEnabled?: boolean;
@@ -88,6 +264,8 @@ export function AgentProfileWorkspaceDetail(input: {
 	wakeAvailabilityIsRefreshing: boolean;
 	wakeAvailabilityNowMs: number;
 	headerRecoveryActions?: ReactNode;
+	/** Shown under the name; identity, not a setting. */
+	owner?: AgentProfileOwnerIdentity | null;
 }) {
 	const [savingAvatar, setSavingAvatar] = useState(false);
 	const queryClient = useQueryClient();
@@ -108,6 +286,13 @@ export function AgentProfileWorkspaceDetail(input: {
 	const hasReducedProminence =
 		availabilityCategory === "offline" ||
 		availabilityCategory === "unavailable";
+	const colleague = useColleagueAgentState({
+		availabilityCategory,
+		isColleagueAgent: !showOwnerOperationalContext,
+		ownerName: input.owner?.name,
+		ownerUserId: input.profile.ownerUserId,
+		profileId: input.profile.openMeldProfileId,
+	});
 	const visibleActivityNavigation = showOwnerOperationalContext
 		? (input.activityNavigation ?? taskActivity.navigation)
 		: null;
@@ -213,12 +398,22 @@ export function AgentProfileWorkspaceDetail(input: {
 										{input.controllerModelSummary}
 									</p>
 								)}
+								{input.owner ? (
+									<AgentProfileOwnerLine
+										access={colleague.access}
+										accessRemoved={
+											colleague.colleagueAccess?.state === "revoked"
+										}
+										owner={input.owner}
+									/>
+								) : null}
 								<AgentProfilePresence
 									headerRecoveryActions={
 										showOwnerOperationalContext
 											? input.headerRecoveryActions
 											: null
 									}
+									publicReason={colleague.reason}
 									wakeAvailability={displayedWakeAvailability}
 									wakeAvailabilityCheckedAt={input.wakeAvailabilityCheckedAt}
 									wakeAvailabilityErrorMessage={
@@ -235,20 +430,16 @@ export function AgentProfileWorkspaceDetail(input: {
 						<div className="flex @[42rem]/agent-detail:h-24 max-w-full shrink-0 flex-col items-end gap-2 @[42rem]/agent-detail:self-start self-end">
 							<div className="@[42rem]/agent-detail:mt-auto flex max-w-full flex-wrap items-end justify-end gap-2">
 								{input.directMessageEnabled !== false && (
-									<Button
-										disabled={input.isDirectMessagePending}
-										onClick={input.onOpenDirectMessage}
-										size="sm"
-										type="button"
-										variant="default"
-									>
-										<ChatCircleTextIcon
-											aria-hidden="true"
-											data-icon="inline-start"
-										/>
-										Chat with {input.profile.profileName}
-									</Button>
+									<AgentProfileChatAction
+										access={colleague.access}
+										colleagueAccess={colleague.colleagueAccess}
+										isPending={input.isDirectMessagePending}
+										onOpen={input.onOpenDirectMessage}
+										profileName={input.profile.profileName}
+										unavailableReason={colleague.chatUnavailableReason}
+									/>
 								)}
+								<MemberAgentNewProfileButton />
 								{input.overflowActions}
 							</div>
 						</div>
@@ -288,6 +479,14 @@ export function AgentProfileWorkspaceDetail(input: {
 					viewerProfileId={input.conversationViewerProfileId}
 				/>
 			) : null}
+			<AgentProfileAccessOverview
+				isOwner={showOwnerOperationalContext}
+				ownerUserId={input.profile.ownerUserId}
+				profileId={input.profile.openMeldProfileId}
+				profileName={input.profile.profileName}
+			>
+				<MemberAgentSensitiveChanges />
+			</AgentProfileAccessOverview>
 		</div>
 	);
 }
@@ -301,6 +500,8 @@ type AgentProfilePresenceStatus =
 
 function AgentProfilePresence(input: {
 	headerRecoveryActions: ReactNode;
+	/** A colleague's view of why the Agent can't work. */
+	publicReason?: string | null;
 	wakeAvailability: AgentWakeAvailability | null;
 	wakeAvailabilityCheckedAt: string | null;
 	wakeAvailabilityErrorMessage: string | null;
@@ -399,6 +600,7 @@ function AgentProfilePresence(input: {
 
 function resolveAgentProfilePresence(input: {
 	headerRecoveryActions: ReactNode;
+	publicReason?: string | null;
 	wakeAvailability: AgentWakeAvailability | null;
 	wakeAvailabilityCheckedAt: string | null;
 	wakeAvailabilityErrorMessage: string | null;
@@ -453,7 +655,9 @@ function resolveAgentProfilePresence(input: {
 	}
 	return {
 		label: input.wakeAvailability.badgeLabel,
-		reason: resolveUnavailableWakeReason(input.wakeAvailability),
+		reason:
+			input.publicReason ??
+			resolveUnavailableWakeReason(input.wakeAvailability),
 		status: availabilityCategory,
 		textClassName: resolveStatusToneTextClassName("muted"),
 		tooltip: input.wakeAvailability.tooltip,
@@ -1008,6 +1212,8 @@ function AgentProfileNameEditor(input: {
 	onRenameProfile: (profileName: string) => Promise<void>;
 	profileName: string;
 }) {
+	const nameLocked = useMemberAgentProfileNameLocked();
+	const canEdit = input.canEdit && !nameLocked;
 	const [open, setOpen] = useState(false);
 	const [draftName, setDraftName] = useState(input.profileName);
 	const [isSaving, setIsSaving] = useState(false);
@@ -1032,11 +1238,13 @@ function AgentProfileNameEditor(input: {
 			{input.profileName}
 		</h1>
 	);
-	if (!input.canEdit) {
+	if (!canEdit) {
 		return (
-			<div className="flex min-w-0 items-center gap-1.5">
-				{heading}
-				{input.adornment}
+			<div className="min-w-0">
+				<div className="flex min-w-0 items-center gap-1.5">
+					{heading}
+					{input.adornment}
+				</div>
 			</div>
 		);
 	}

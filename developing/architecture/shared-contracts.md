@@ -25,6 +25,28 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
+## Public read throttling compatibility
+
+Gateway may return HTTP 429 with `Retry-After: 60` and
+`gateway.public_read_rate_limited` before resolving credentials on public-readable
+Space routes. The existing error envelope is unchanged. Older clients that do
+not recognize this code still receive the HTTP failure; they must not infer
+success or retry without delay. Ordinary reads below the limit, authenticated
+writes, setup, Wake, Stop and transport streams keep their existing contracts.
+This requires Gateway's new native limiter binding with the same release.
+Web's Gateway proxy preserves the edge-provided `CF-Connecting-IP` as
+`x-real-ip`. Cloudflare uses that header to derive `CF-Connecting-IP` for
+same-zone subrequests; Web and Gateway must remain in the same Cloudflare zone.
+SSR boundary reads retain the edge IP when constructing their internal request
+and use the same proxy transformation as browser-originated API requests.
+Caller-supplied `x-real-ip` and `X-Forwarded-For` are not trusted or forwarded.
+Local requests without an edge IP do not manufacture one. This reuses Gateway's
+existing limiter and does not introduce another counter or identity authority.
+Web's public CLI download throttle uses HTTP 429 and the same retry header;
+CLI release manifests and binary contents do not change. Core Slack retry pacing
+reuses `receivedAtMs` in the existing v1 message and introduces no wire fields.
+No Service or CLI contract version change or required local update is needed.
+
 ## Message Details thread opt-in
 
 Message Details also accepts `includeThreadContext: true`. Only this opt-in
@@ -629,6 +651,42 @@ member-matched session `activeOrganizationId`, then the first membership.
 Missing authentication is 401; unavailable backend state stays an error. An
 authenticated empty list has a null default. Web/shared client code owns URL
 construction, login redirects, and the authorized/denied route projection.
+
+`accountOrganizationContextQuerySchema` owns the optional
+`deferSessionRefresh=true` query. A caller that observes the existing Account
+Session HTTP query may opt in to a current identity and membership read without
+synchronous session renewal. Auth still bypasses the session-data cookie cache
+and checks expiry, revocation, account existence, and membership. Missing or
+expired sessions retain 401 and the vendor's deletion cookies. Invalid opt-in
+values return a private, non-cacheable 400 without resolving the session.
+Omitting the query preserves renewal for older Web and Desktop clients.
+
+Web keeps the existing Account Session query observed in the authorized shell.
+Mount, focus, reconnect, and completed path navigation refresh it according to
+its existing stale time without blocking the current page. Only this new caller
+opts out of renewal in the Organization context read; no new session writer,
+storage, endpoint, or cached authorization fallback is introduced.
+Account Session reads forward Query cancellation to HTTP, including account
+changes and observer teardown.
+
+The API client generates an `x-request-id` before sending either account read
+and retains it on failures before response headers or during body consumption.
+Web forwards it to Auth; it is diagnostic correlation, never identity or authority. The
+existing application-error query diagnostic adds the
+`account_organization_context` and `account_session` categories. Route and
+manual Organization-context error reports retain the same sanitized request ID.
+
+Rollout remains additive: new Web works with old Auth (which ignores the opt-in
+and continues renewal), and old Web/Desktop work with new Auth (missing opt-in
+retains renewal). New telemetry categories require the matching Web report
+receiver; an older receiver may reject that diagnostic report without changing
+the application outcome. CLI, Service, Skills, Core, Gateway, and Wake/setup
+protocols remain compatible in both directions; no contract epoch or required
+local update is introduced. Shared schema/API-client paths still select the
+Service bundle verification gate. The CLI carrier and Service declare an
+`available` update in `release/local-components-policy.json`, with existing
+required floors and the Skills policy preserved. Publication computes artifact
+hashes from the eventual release source.
 
 Contract impact: this additive Auth route must be available before releasing
 the new Web/Desktop consumers. Old clients retain their existing reads and
@@ -8190,6 +8248,10 @@ may clear only an impact observed no later than that execution's token
 authorization, or an impact written by that same dispatch. A delayed running
 lifecycle from an older execution must not clear a newer impact written by a
 different dispatch. A successful matching execution also clears it.
+Running lifecycle frames repeat for the whole execution, so Core publishes the
+`matching_execution_running` readiness invalidation only when a frame actually
+cleared an impact row. A frame that matched nothing leaves the readiness
+projection unchanged and publishes nothing.
 `runtime_coordinator.delivery_expired` is an explicit readiness impact because a
 Wake that expires before local delivery is current local-execution evidence for
 the same Agent Profile, Binding, OpenMeld Service Runtime, and Agent Controller

@@ -155,6 +155,32 @@ cookie domains and Passkey RP IDs remain unchanged. Read the guarded
 before applying these configurations. A configuration diff is not deployed
 domain evidence.
 
+## Gateway proxy transport
+
+Web's server-side Gateway calls (the `/v1/*` proxy, server reads, the Space
+live stream, the account invalidation and Prepare Session WebSockets, and the
+local execution evidence refresh) resolve one transport in
+`clients/web/src/lib/openmeld-api/gateway-upstream.ts`. Deployed `stg` and
+`prod` Web Workers call the Gateway Worker through the `OPENMELD_GATEWAY_WORKER`
+Service Binding instead of a public fetch, which removes an edge re-entry per
+API call. The request URL stays the Gateway origin plus the proxied path, so
+Gateway host-derived behavior is unchanged. The Vite dev server, including
+`dev:prod`, and any configuration without the binding keep the public fetch to
+`OPENMELD_GATEWAY_URL`.
+
+A public same-zone subrequest reaches the Gateway with an edge-assigned
+`CF-Connecting-IP`; a Service Binding request has none. On the binding path
+only, Web forwards the `CF-Connecting-IP` that Cloudflare's edge assigned to
+Web's own inbound request, so Gateway's IP-keyed rate limits (Space password,
+feedback, anonymous reads) keep per-client buckets. Gateway trusts nothing new:
+public Gateway traffic still has that header overwritten by the edge, and only
+Workers holding the binding can set it. The public-fetch path never forwards
+it.
+
+The bound Gateway Worker must exist before Web deploys with the binding. The
+release component table already orders Web after Gateway, and the staging
+deploy runs Gateway before Web.
+
 ## Internal Staging Topology
 
 Each Worker has an explicit `env.stg` block. Staging uses the same binding names
@@ -204,6 +230,9 @@ Workers, and verifies the public entry points. See
   - `VITE_BETTER_AUTH_URL`
   - `VITE_APP_TITLE`
   - `AUTH_DESKTOP_DEVELOPMENT_TARGET` (empty normally; `disposable` only on an isolated local backend shared with Auth)
+- `wrangler.jsonc` `env.stg.services` / `env.prod.services`
+  - `OPENMELD_GATEWAY_WORKER` -> `openmeld-gateway-stg` / `openmeld-gateway-prod`
+    (no top-level binding; see Gateway proxy transport above)
 - `.dev.vars` / `.dev.vars.prod`
   - `WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET`
 - Cloudflare production secrets
@@ -797,6 +826,21 @@ and release evidence are owned by
 `developing/engineering/production-release.md`.
 
 ## Known Guardrails
+
+Public read cost controls use native Rate Limiting bindings, not KV counters.
+Gateway's `OPENMELD_PUBLIC_READ_RATE_LIMITER` (namespace `1005`) allows 1,200
+public-readable Space requests per client IP per minute before Auth/Core calls.
+Web's `OPENMELD_CLI_DOWNLOAD_RATE_LIMITER` (namespace `1006`) allows 600 CLI
+release requests per client IP per minute. Environment prefixes separate keys.
+Both bindings are declared in every owning Worker environment. The generous
+limits accommodate shared networks; they are per Cloudflare location and are
+not account spending caps. They do not affect writes, task execution, or streams.
+
+Web caches only successful public CLI GET responses. The stable manifest retains
+its 60-second cache lifetime; immutable artifacts retain their existing lifetime.
+Unknown query parameters do not change the cache key, while the Windows preview
+channel stays separate. HEAD misses read only R2 metadata and never populate
+bodyless GET entries. Space responses remain private and uncached.
 
 1. `services/core` must not depend on an implicit `NODE_ENV`; Cloudflare Workers only expose what the Worker config or secret storage provides.
 2. `clients/web` URL config is not secret. Keep it in `wrangler.jsonc`, not in Cloudflare secret storage.
