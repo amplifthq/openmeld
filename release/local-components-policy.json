@@ -2,11 +2,11 @@
   "version": "0.3.266",
   "cli": {
     "updatePolicy": "available",
-    "reason": "OpenCode inventory preserves provider-qualified model paths without changing CLI commands or schemas; the mandatory CLI floor stays at 0.3.251."
+    "reason": "Security dependency refresh and corrected OpenCode provider model inventory do not change CLI commands or wire schemas; the mandatory CLI floor stays at 0.3.251."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "OpenCode inventory now includes nested provider model IDs. Existing setup and Wake contracts remain compatible; the mandatory Service floor stays at 0.3.264."
+    "reason": "Security dependency refresh and nested OpenCode model IDs preserve existing setup, transport and Wake contracts; the mandatory Service floor stays at 0.3.264."
   },
   "skills": {
     "updatePolicy": "available",
