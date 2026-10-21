@@ -236,7 +236,11 @@ export function InboxNotificationListener(input: {
 		refetchInterval: (query) =>
 			resolveInboxObservationPollInterval({
 				hasMore: Boolean(query.state.data?.hasMore),
-				sawItems: (query.state.data?.items?.length ?? 0) > 0,
+				// A failed read leaves the previous page in place; only a
+				// successful read with items counts as fresh activity.
+				sawItems:
+					(query.state.data?.items?.length ?? 0) > 0 &&
+					(query.state.dataUpdatedAt ?? 0) >= (query.state.errorUpdatedAt ?? 0),
 				visible:
 					typeof document !== "undefined" &&
 					document.visibilityState === "visible",
