@@ -64,7 +64,7 @@
     "dotenv-cli": "^11.0.0",
     "rolldown": "1.1.4",
     "typescript": "npm:@typescript/typescript6@6.0.2",
-    "vite": "8.1.2",
+    "vite": "8.1.6",
     "vitest": "~3.2.0",
     "wrangler": "catalog:"
   }
