@@ -2167,20 +2167,18 @@ async function persistRestoredPreviousSessionRefresh(input: {
   journal: AuthSessionTransitionJournalV1 & { previousPayload: AuthSessionV1 };
   previousAccessToken: string;
 }): Promise<StoredAuthSession | null> {
-  const refreshed = await persistCommittedRemoteSessionRefresh(input);
-  if (!refreshed) {
-    return null;
-  }
-  const payload = await readSessionPayloadFile();
-  if (payload?.v === 1) {
-    // Keep the journal's restore point on the renewed credential, so a later
-    // recovery step never reads a replaced token reference.
-    await writeAuthSessionTransitionJournalIfOwned(input.journal, {
-      ...input.journal,
-      previousPayload: payload as AuthSessionV1,
-    });
-  }
-  return refreshed;
+  const { journal, ...refresh } = input;
+  return await persistCommittedRemoteSessionRefresh({
+    ...refresh,
+    // Move the journal's restore point to the renewed credential before the
+    // replaced token is deleted, so recovery never reads a deleted token.
+    beforeReleasingReplacedToken: async (payload) => {
+      await writeAuthSessionTransitionJournalIfOwned(journal, {
+        ...journal,
+        previousPayload: payload,
+      });
+    },
+  });
 }
 
 async function persistCommittedRemoteSessionRefresh(input: {
@@ -2188,6 +2186,10 @@ async function persistCommittedRemoteSessionRefresh(input: {
   expectedPayloadKey: string | null;
   expiresAt: string;
   previousAccessToken: string;
+  // Runs after the new payload is committed and before the replaced token is
+  // deleted, so another durable reference can move first. If it throws, the
+  // replaced token is kept because that reference may still point to it.
+  beforeReleasingReplacedToken?: (payload: AuthSessionV1) => Promise<void>;
 }): Promise<StoredAuthSession | null> {
   const payload = await readSessionPayloadFile();
   if (
@@ -2227,6 +2229,7 @@ async function persistCommittedRemoteSessionRefresh(input: {
     payload: refresh.nextPayload,
     session: refresh.nextSession,
   });
+  await input.beforeReleasingReplacedToken?.(refresh.nextPayload);
   if (!areStoredTokenRefsEqual(refresh.currentTokenRef, refresh.nextTokenRef)) {
     await deleteAccessTokenOrRetainForCleanup(refresh.currentTokenRef);
   }

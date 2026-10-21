@@ -489,7 +489,7 @@ describe("auth session storage", () => {
     });
   });
 
-  it("persists a server-confirmed renewal of the restored previous sign-in during recovery", async () => {
+  it("persists a server-confirmed renewal, including a rotated token, of the restored previous sign-in during recovery", async () => {
     await withTempHome(async (home) => {
       process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
       await setAuthSession({
@@ -521,7 +521,13 @@ describe("auth session storage", () => {
                 },
                 user: { email: "previous@example.com", id: "previous-owner" },
               }),
-              { headers: { "content-type": "application/json" }, status: 200 }
+              {
+                headers: {
+                  "content-type": "application/json",
+                  "set-auth-token": "rotated-previous-token",
+                },
+                status: 200,
+              }
             )
           )
         )
@@ -548,7 +554,7 @@ describe("auth session storage", () => {
       ).resolves.toMatchObject({
         state: "valid",
         session: {
-          accessToken: "previous-token",
+          accessToken: "rotated-previous-token",
           expiresAt: "2099-01-01T00:00:00.000Z",
           user: { id: "previous-owner" },
         },
@@ -558,7 +564,14 @@ describe("auth session storage", () => {
           join(home, ".openmeld", "auth", "session-transition.json"),
           "utf8"
         )
-      ) as { previousPayload: { expiresAt?: string }; state: string };
+      ) as {
+        previousPayload: { expiresAt?: string; tokenRef: unknown };
+        state: string;
+      };
+      const committed = JSON.parse(
+        await readFile(join(home, ".openmeld", "auth", "session.json"), "utf8")
+      ) as { tokenRef: unknown };
+      expect(journal.previousPayload.tokenRef).toEqual(committed.tokenRef);
       expect(journal).toMatchObject({
         previousPayload: { expiresAt: "2099-01-01T00:00:00.000Z" },
         state: "recovery_required",
@@ -567,7 +580,7 @@ describe("auth session storage", () => {
         serviceProcess.getInterruptedComputerAuthSessionRecovery()
       ).resolves.toMatchObject({
         previousSession: {
-          accessToken: "previous-token",
+          accessToken: "rotated-previous-token",
           user: { id: "previous-owner" },
         },
       });
