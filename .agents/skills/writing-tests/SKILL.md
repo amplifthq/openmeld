@@ -182,6 +182,9 @@ Escalating to the next rung is the last resort, not the default.
 - **No real network / live external services.** Mock the boundary.
 - **No cross-test ordering.**
   Tests must pass in any order and in isolation; don't rely on state a previous test left behind.
+  In the CLI, Core, Gateway, Remote Agent, and Web Vitest suites, a shared setup file runs `vi.resetAllMocks()` after every test, because Vitest 4's `vi.restoreAllMocks()` only restores `vi.spyOn` spies.
+  Put a shared mock's default in its implementation (`vi.fn(async () => value)`) or arm it in `beforeEach`.
+  A default from `vi.fn().mockResolvedValue(...)` at module scope, in a `vi.mock` factory, or re-armed in `afterEach` is wiped before the next test.
 - **No `@skip` / `xfail` / `.skip`** without a one-line reason and a linked issue.
   A permanently-skipped test is dead weight — delete it or fix it.
 - **Never commit `.only`** (`it.only` / `describe.only`).
