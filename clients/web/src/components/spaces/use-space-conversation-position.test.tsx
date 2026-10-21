@@ -290,3 +290,50 @@ it("falls back without fetching when a recorded anchor was evicted", async () =>
 	expect(onLoadHistoryAround).not.toHaveBeenCalled();
 	expect(f.input.viewport.scrollTop).toBe(0);
 });
+
+it("mounts without a second render or a layout read when nothing needs restoring", () => {
+	const f = fixture();
+	const measure = vi.spyOn(f.message, "getBoundingClientRect");
+	let renders = 0;
+	const { result, rerender } = renderHook(
+		(props: typeof f.input) => {
+			renders += 1;
+			return useSpaceConversationPosition(props);
+		},
+		{ initialProps: f.input }
+	);
+	expect(renders).toBe(1);
+	expect(result.current.restorationStatus).toBe("ready");
+	// New history only re-observes message rows; it must not force a layout
+	// read by saving the reading position after every DOM mutation.
+	rerender({ ...f.input, historyVersion: 2 });
+	rerender({ ...f.input, historyVersion: 3 });
+	expect(renders).toBe(3);
+	expect(measure).not.toHaveBeenCalled();
+});
+
+it("keeps each Space's reading position when the same viewport switches Spaces", () => {
+	const f = fixture();
+	writeSpaceConversationPosition("human-a:space-conversation:b", {
+		anchorSignalId: "message-a",
+		offsetFromVisibleTop: 100,
+	});
+	const { result, rerender } = renderHook(useSpaceConversationPosition, {
+		initialProps: f.input,
+	});
+	act(() => vi.advanceTimersByTime(40));
+	f.input.viewport.scrollTop = 850;
+	act(() => result.current.onScroll(f.input.viewport));
+	rerender({ ...f.input, restorationId: "space-conversation:b" });
+	// Leaving Space A saves its pending position before B takes the viewport.
+	expect(readSpaceConversationPosition(f.key)).toEqual({
+		anchorSignalId: "message-a",
+		offsetFromVisibleTop: -50,
+	});
+	// Space B restores its own anchor rather than inheriting the A scroll.
+	expect(f.input.viewport.scrollTop).toBe(700);
+	expect(result.current.restorationStatus).toBe("ready");
+	expect(readSpaceConversationPosition("human-a:space-conversation:b")).toEqual(
+		{ anchorSignalId: "message-a", offsetFromVisibleTop: 100 }
+	);
+});
