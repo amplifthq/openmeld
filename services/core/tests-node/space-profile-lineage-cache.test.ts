@@ -172,6 +172,23 @@ describe("Space Profile lineage cache", () => {
     await harness.waitUntil.mock.calls[0]?.[0];
   });
 
+  it("rate limits aging-copy refreshes and reports their failures", async () => {
+    const harness = createHarness();
+    vi.useFakeTimers({ now: NOW_MS });
+    const cache = harness.cache();
+    await cache.resolve(OWNER);
+    harness.listProfileLineage.mockRejectedValue(new Error("auth down"));
+    vi.setSystemTime(NOW_MS + PROFILE_LINEAGE_CACHE_REFRESH_AGE_MS);
+
+    expect(cache.peek(OWNER)).toMatchObject({ "agent-1": "human-1" });
+    expect(cache.peek(OWNER)).toMatchObject({ "agent-1": "human-1" });
+    expect(harness.waitUntil).toHaveBeenCalledTimes(1);
+    await expect(harness.waitUntil.mock.calls[0]?.[0]).resolves.toBeUndefined();
+
+    expect(cache.peek(OWNER)).toMatchObject({ "agent-1": "human-1" });
+    expect(harness.waitUntil).toHaveBeenCalledTimes(1);
+  });
+
   it("stops serving live fan-out an expired copy and rate limits restores", async () => {
     // A session opened before an intermediate Profile was deleted must not
     // keep that chain once the copy expires and Auth is unavailable.

@@ -80,27 +80,37 @@ export class SpaceProfileLineageCache {
       fetchedAtMs === undefined ? Number.NaN : Date.now() - fetchedAtMs;
     if (!(lineage && ageMs >= 0 && ageMs < PROFILE_LINEAGE_CACHE_MAX_AGE_MS)) {
       this.forget(ownerUserId);
-      const nowMs = Date.now();
-      const lastRestoreAtMs =
-        this.peekRestoreAtMsByOwnerUserId.get(ownerUserId) ??
-        Number.NEGATIVE_INFINITY;
-      if (
-        nowMs - lastRestoreAtMs >=
-        SpaceProfileLineageCache.PEEK_RESTORE_INTERVAL_MS
-      ) {
-        this.peekRestoreAtMsByOwnerUserId.set(ownerUserId, nowMs);
-        this.input.waitUntil(
-          this.resolve(ownerUserId).catch((error: unknown) =>
-            this.input.onLoadError(error, ownerUserId)
-          )
-        );
-      }
+      this.schedulePeekRead(ownerUserId, () => this.resolve(ownerUserId));
       return undefined;
     }
     if (ageMs >= PROFILE_LINEAGE_CACHE_REFRESH_AGE_MS) {
-      this.input.waitUntil(this.load(ownerUserId));
+      this.schedulePeekRead(ownerUserId, () => this.load(ownerUserId));
     }
     return lineage;
+  }
+
+  // Starts at most one background read per owner per interval, so repeated
+  // fan-out over a failing Auth read does not retry on every broadcast.
+  private schedulePeekRead(
+    ownerUserId: string,
+    read: () => Promise<unknown>
+  ): void {
+    const nowMs = Date.now();
+    const lastReadAtMs =
+      this.peekRestoreAtMsByOwnerUserId.get(ownerUserId) ??
+      Number.NEGATIVE_INFINITY;
+    if (
+      nowMs - lastReadAtMs <
+      SpaceProfileLineageCache.PEEK_RESTORE_INTERVAL_MS
+    ) {
+      return;
+    }
+    this.peekRestoreAtMsByOwnerUserId.set(ownerUserId, nowMs);
+    this.input.waitUntil(
+      read().catch((error: unknown) =>
+        this.input.onLoadError(error, ownerUserId)
+      )
+    );
   }
 
   private remember(
