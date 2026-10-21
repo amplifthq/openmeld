@@ -196,9 +196,10 @@ This change does not enable or alter a production deployment by itself. Before
 an authorized rollout, provision the management and encryption secrets in Core's
 deployment secret store. Keep their
 values out of Wrangler files. Apply the PostgreSQL migration first, deploy Core
-and Gateway, then Remote Agent and Web in the same maintenance window. Old Remote
-workers fail closed until they send `providerAuthorizationVersion: 1`; missing
-configuration also stops sponsored requests. Do not roll back to workers that
+and Gateway, then Remote Agent and Web in the same maintenance window. Remote
+workers without `providerAuthorizationVersion` fail closed. Version 1 supports
+BYOK only; platform credits require version 2 with a `creditHold` (see the
+credit-hold order below). Missing configuration also stops sponsored requests. Do not roll back to workers that
 can use an unmetered official alias. A safe rollback keeps the new admission gate
 or pauses hosted inference. Local Service and CLI are not part of this protocol.
 
