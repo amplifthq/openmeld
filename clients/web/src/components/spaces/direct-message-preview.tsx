@@ -56,7 +56,11 @@ export function spaceMessagePreviewQueryOptions(input: {
 					}
 				: null;
 		},
+		// No per-chat poll: this read only covers a chat whose Space index preview
+		// is not projected yet. Its next message projects that preview, and the
+		// owning lists (account Space items, Center Agent sessions) already
+		// refresh through push and their own polling, which moves the chat onto
+		// the projected preview. Polling here multiplied one request per chat.
 		staleTime: 15_000,
-		refetchInterval: 30_000,
 	});
 }
