@@ -1,3 +1,4 @@
+import { AGENT_CONTROLLER_MODEL_INVENTORY_LIMIT } from "@openmeld/schemas";
 import type { ModelCatalogAgentController } from "@openmeld/schemas/types";
 import { compareAgentControllerVersions } from "./agent-controller-version";
 
@@ -32,10 +33,17 @@ export function resolveAgentControllerModelCompatibility(input: {
   const inventoryUsesCatalogIds = input.controller.models.some((candidate) =>
     reportedModelIds.has(candidate.id)
   );
-  if (inventoryUsesCatalogIds) {
-    return reportedModelIds.has(model.id)
-      ? { status: "supported" }
-      : { status: "not_offered" };
+  if (reportedModelIds.has(model.id)) {
+    return { status: "supported" };
+  }
+  // A full bounded report may omit models that the controller still offers.
+  // Only an unsaturated, aligned inventory can prove absence.
+  if (
+    inventoryUsesCatalogIds &&
+    (input.reportedModelIds?.length ?? 0) <
+      AGENT_CONTROLLER_MODEL_INVENTORY_LIMIT
+  ) {
+    return { status: "not_offered" };
   }
 
   if (!(model.minCliVersion && input.installedVersion)) {

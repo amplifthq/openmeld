@@ -3,7 +3,8 @@
 PR #244 originally contained five evidence snapshots and no catalog changes.
 Compared with the committed October 18 review, its new model facts are three
 MiniMax M3.1 Flash routes and two Space Bunny deprecation markers.
-This review admits one route and preserves existing defaults and selections.
+This review admits one route, corrects native model inventory handling, and
+preserves existing defaults and selections.
 
 ## Verified addition
 
@@ -69,15 +70,53 @@ Sources rechecked on October 21:
 
 The native probe proves inference for this account and one reasoning level.
 Native enumeration establishes the remaining option names, not successful
-inference at every level. This review does not claim a browser create/edit
-smoke, an end-to-end OpenMeld Wake, or access for every account.
+inference at every level or access for every account.
 
-Contract Impact Audit: catalog data only. Shared schema shapes, CLI, Service,
-Skills, Core, Gateway, Web, setup, Wake, Space actions, and diagnostics retain
-their current contracts. No scoped architecture ownership rule is violated.
-The online catalog remains Core-owned and does not become execution or
-Wakeability authority. Future delivery selects Core only; no local-component
-release is needed. The Changelog entry remains unpublished.
+The OpenMeld acceptance run exposed a Service bug: its OpenCode parser rejected
+native IDs containing additional slash-separated segments. A captured, sanitized
+OpenCode 1.19.0 `/provider` record now exercises the existing readiness test.
+The test failed before the parser correction. The corrected inventory also
+reaches the existing 256-model report bound on this account. Shared compatibility
+policy therefore treats omission from a saturated report as inconclusive and
+uses its existing version-floor or unknown-evidence policy. Positive matches and
+catalog-wide unavailability retain their precedence. Unsaturated aligned reports
+still establish absence. No model is substituted.
 
-Focused check results are recorded on the PR. No merge or deployment is part
-of this update.
+Contract Impact Audit:
+
+- CLI and Service 0.3.266 are available updates. Native inventory parsing changes;
+  command, setup, Wake, Space action, trace and self-rescue payloads do not.
+- The shared schema retains the same 256-model bound and wire shape. Its bound
+  is now a shared constant, used by producers and compatibility consumers.
+  No CLI, Service, Skills or execution contract epoch changes are needed.
+- Old cloud and new local components accept the same payloads, but old cloud
+  can still incorrectly reject a model omitted from a full report. Release Core
+  and Web compatibility consumers before distributing the corrected Service.
+  New cloud works with old Service reports; the affected nested model still
+  needs the available Service update to be reported. Existing setup and Wake
+  remain usable throughout; no mandatory floor increase is justified.
+- Gateway and Skills are unchanged. A future release includes Core, Web and
+  local CLI/Service artifacts. This PR does not authorize production deployment.
+- No scoped architecture ownership rule is violated. The online catalog remains
+  Core-owned, local inventory is compatibility evidence, and RuntimeCoordinator
+  retains Wake execution authority. The Changelog entry remains unpublished.
+
+## OpenMeld Wake acceptance
+
+On October 21, an isolated PostgreSQL development lane used a fresh test account
+and private Space. Public CLI commands created and connected an OpenCode Agent
+with `openrouter/minimax/minimax-m3.1-flash:free` and `low` reasoning, added it to
+the Space, and sent Wake request `pr244-minimax-wake-20261021-a`.
+
+The Agent published exactly `OPENMELD_WAKE_OK_244` through the OpenMeld reply
+action. The browser's thread showed the reply. Public `service trace` reported
+`delivered=true`, `visibleOutcome=visible_reply`, `status=succeeded`, and matched
+the published signal. Dispatch `8e31d3b7-d764-4b06-9be2-8965537adfed` links to
+reply `6dcbdfdf-4f21-4e26-a511-23a80589c81e`.
+
+During development, package rebuilds restarted the local Workers and interrupted
+the first binding attempt. Public profile setup restored the connection before
+the successful Wake; no database or projection edits supplied the result.
+This proves the selected route, reasoning level, local execution and visible
+publication for this account. It does not establish other accounts' provider
+access or production deployment. Focused check results are recorded on the PR.

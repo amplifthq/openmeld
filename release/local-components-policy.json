@@ -1,12 +1,12 @@
 {
-  "version": "0.3.265",
+  "version": "0.3.266",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Account-read diagnostics are additive and existing CLI commands remain compatible; the mandatory CLI floor stays at 0.3.251."
+    "reason": "OpenCode inventory preserves provider-qualified model paths without changing CLI commands or schemas; the mandatory CLI floor stays at 0.3.251."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "The mandatory Service floor remains 0.3.264. Shared account-read contracts remain compatible and do not change Service transport or execution."
+    "reason": "OpenCode inventory now includes nested provider model IDs. Existing setup and Wake contracts remain compatible; the mandatory Service floor stays at 0.3.264."
   },
   "skills": {
     "updatePolicy": "available",

@@ -598,6 +598,12 @@ Missing inventory is unknown evidence, not proof that every catalog model works
 or that none do. Version advisory remains a separate maintenance check; an
 advisory lookup failure must not erase an otherwise proven incompatibility.
 
+OpenCode inventory preserves native provider-qualified paths, including model
+IDs with additional slash-separated segments. At the shared model-inventory
+limit, a missing ID may have been truncated: consumers retain positive matches
+but use the existing version-floor or unknown-evidence policy for missing IDs.
+An unsaturated, catalog-aligned inventory can still establish absence.
+
 Codex discovery supports both the legacy `Contents/Resources/codex` and the
 `Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex` layout in
 Codex.app and ChatGPT.app, independently of the Service PATH. When a saved

@@ -33,7 +33,7 @@ import {
   OPENCODE_NPM_LATEST_RESPONSE,
   OPENCODE_NPM_LATEST_URL,
 } from "./fixtures/opencode-npm-latest";
-import { OPENCODE_CONNECTED_PROVIDER_LIST_RESPONSE } from "./fixtures/opencode-provider-list";
+import { OPENCODE_OPENROUTER_PROVIDER_LIST_RESPONSE } from "./fixtures/opencode-provider-list";
 
 const STARTUP_TIMEOUT_EVIDENCE_RE =
   /pid=\d+, elapsedMs=\d+, stdoutBytes=0, stderrBytes=[1-9]\d*, load1m=/u;
@@ -789,7 +789,7 @@ describe("agent controller interface inventory", () => {
     }
   });
 
-  it("does not make OpenCode provider readiness depend on the unused agent list", async () => {
+  it("preserves connected OpenRouter model IDs without depending on the unused agent list", async () => {
     const home = await mkdtemp(
       join(tmpdir(), "openmeld-aci-opencode-provider-only-")
     );
@@ -816,7 +816,7 @@ describe("agent controller interface inventory", () => {
         },
         provider: {
           list: vi.fn().mockResolvedValue({
-            data: OPENCODE_CONNECTED_PROVIDER_LIST_RESPONSE,
+            data: OPENCODE_OPENROUTER_PROVIDER_LIST_RESPONSE,
           }),
         },
       });
@@ -833,6 +833,10 @@ describe("agent controller interface inventory", () => {
         status: "ready",
       });
       expect(readAgents).not.toHaveBeenCalled();
+      expect(snapshot.models).toContainEqual({
+        displayName: "MiniMax M3.1 Flash (free)",
+        id: "openrouter/minimax/minimax-m3.1-flash:free",
+      });
     } finally {
       await rm(home, { force: true, recursive: true });
     }
