@@ -1149,6 +1149,76 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		expect(view.result.current.timelineEnvelopes).toEqual(envelopes);
 	});
 
+	it("seeds the timeline from cached history on the first render", () => {
+		const envelopes = [
+			createTextSignal({ id: "sig-1", ts: 10 }),
+			createTextSignal({ id: "sig-2", ts: 20 }),
+		];
+		const queryClient = new QueryClient();
+		const statusRefetch = vi.fn(async () => undefined);
+		const membersRefetch = vi.fn(async () => undefined);
+		const initialAgentStreams: readonly SpaceAgentStreamSnapshot[] = [];
+		const readinessScope = {
+			organizationId: "org-1",
+			storageScope: "account-1",
+		};
+		const history = createReadyFeedHistory(envelopes);
+		const renderedTimelines: (readonly SignalEnvelope[])[] = [];
+
+		const view = renderHook(
+			() => {
+				const feed = useSpaceLandingFeed({
+					spaceId: "space-123",
+					openMeldProfileId: "11111111-1111-1111-1111-111111111111",
+					participationEnabled: false,
+					statusReady: true,
+					statusRefetch,
+					membersRefetch,
+					initialAgentStreams,
+					readinessScope,
+					history,
+				});
+				renderedTimelines.push(feed.timelineEnvelopes);
+				return feed;
+			},
+			{
+				wrapper: ({ children }: { children: ReactNode }) => (
+					<QueryClientProvider client={queryClient}>
+						{children}
+					</QueryClientProvider>
+				),
+			}
+		);
+
+		// A cached Space switch must never commit an empty conversation first.
+		expect(renderedTimelines[0]?.map((signal) => signal.id)).toEqual([
+			"sig-1",
+			"sig-2",
+		]);
+		expect(renderedTimelines.every((timeline) => timeline.length === 2)).toBe(
+			true
+		);
+		// The mount-time merge finds nothing new, so the state is written once.
+		expect(new Set(renderedTimelines).size).toBe(1);
+		expect(view.result.current.timelineEnvelopes).toBe(renderedTimelines[0]);
+	});
+
+	it("starts empty and fills the timeline when history arrives after mount", () => {
+		const envelopes = [createTextSignal({ id: "sig-1", ts: 10 })];
+		const { view } = renderFeed({
+			history: createPendingFeedHistory(),
+			participationEnabled: false,
+		});
+		expect(view.result.current.timelineEnvelopes).toEqual([]);
+		view.rerender({
+			history: createReadyFeedHistory(envelopes),
+			participationEnabled: false,
+		});
+		expect(
+			view.result.current.timelineEnvelopes.map((signal) => signal.id)
+		).toEqual(["sig-1"]);
+	});
+
 	it("settles a subscribed history refresh when equal-revision agent details change", async () => {
 		const queryClient = new QueryClient();
 		const options = spaceHistoryQueryOptions({
