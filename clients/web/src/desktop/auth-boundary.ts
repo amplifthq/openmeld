@@ -49,6 +49,24 @@ export type DesktopEntryRedirect = (search: {
 	redirect: string | undefined;
 }) => unknown;
 
+let desktopEntryRedirect: DesktopEntryRedirect | null = null;
+
+/**
+ * The mounted Desktop frame owns router navigation for a background
+ * revalidation that finds the session gone. Until it registers, a stale
+ * session blocks navigation on the native answer as before.
+ */
+export function registerDesktopEntryRedirect(
+	redirectToEntry: DesktopEntryRedirect
+): () => void {
+	desktopEntryRedirect = redirectToEntry;
+	return () => {
+		if (desktopEntryRedirect === redirectToEntry) {
+			desktopEntryRedirect = null;
+		}
+	};
+}
+
 function readCachedSignedInDesktopSession(queryClient: QueryClient): {
 	session: DesktopSession & { user: NonNullable<DesktopSession["user"]> };
 	stale: boolean;
@@ -96,9 +114,9 @@ function revalidateDesktopSessionInBackground(input: {
 export async function beforeDesktopLoad(
 	pathname: string,
 	href: string,
-	queryClient?: QueryClient,
-	redirectToEntry?: DesktopEntryRedirect
+	queryClient?: QueryClient
 ) {
+	const redirectToEntry = desktopEntryRedirect;
 	const bridge = getDesktopPlatform();
 	if (!bridge || pathname === "/desktop-shell") {
 		return;

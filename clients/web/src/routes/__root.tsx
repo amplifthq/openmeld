@@ -80,13 +80,8 @@ const THEME_BOOTSTRAP_SCRIPT = `(() => {
 const NOT_FOUND_LOGO_SCALE = 0.72;
 
 export const Route = createRootRouteWithContext<RouterContext>()({
-	beforeLoad: ({ location, context, navigate }) =>
-		beforeDesktopLoad(
-			location.pathname,
-			location.href,
-			context.queryClient,
-			(search) => navigate({ to: "/desktop-shell", search, replace: true })
-		),
+	beforeLoad: ({ location, context }) =>
+		beforeDesktopLoad(location.pathname, location.href, context.queryClient),
 	// The client-only Organization route paints its pending shell during SSR.
 	loader: async () => ({
 		appShellSidebarState: await readAppShellPendingSidebarState(),

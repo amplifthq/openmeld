@@ -5,9 +5,13 @@ import {
 	createRoute,
 	createRouter,
 } from "@tanstack/react-router";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { DesktopPilotBridge } from "../../../desktop/src/shared/pilot-bridge";
-import { beforeDesktopLoad, desktopReturnPath } from "./auth-boundary";
+import {
+	beforeDesktopLoad,
+	desktopReturnPath,
+	registerDesktopEntryRedirect,
+} from "./auth-boundary";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -124,8 +128,13 @@ describe("Desktop route authentication", () => {
 			});
 			return bridge;
 		}
+		function registerRedirect() {
+			const redirectToEntry = vi.fn();
+			onTestFinished(registerDesktopEntryRedirect(redirectToEntry));
+			return redirectToEntry;
+		}
 		async function primeAndAge(queryClient: QueryClient) {
-			await beforeDesktopLoad("/o/team", "/o/team", queryClient, vi.fn());
+			await beforeDesktopLoad("/o/team", "/o/team", queryClient);
 			const later = Date.now() + 31_000;
 			return vi.spyOn(Date, "now").mockReturnValue(later);
 		}
@@ -133,7 +142,7 @@ describe("Desktop route authentication", () => {
 		it("navigates on a stale signed-in session and keeps it when revalidation agrees", async () => {
 			const queryClient = new QueryClient();
 			const bridge = stubBridge(async () => signedIn);
-			const redirectToEntry = vi.fn();
+			const redirectToEntry = registerRedirect();
 			const now = await primeAndAge(queryClient);
 			try {
 				let resolveSession: ((value: unknown) => void) | undefined;
@@ -145,12 +154,7 @@ describe("Desktop route authentication", () => {
 				);
 				// The navigation resolves while the native session read is pending.
 				await expect(
-					beforeDesktopLoad(
-						"/o/team/spaces/a",
-						"/o/team/spaces/a",
-						queryClient,
-						redirectToEntry
-					)
+					beforeDesktopLoad("/o/team/spaces/a", "/o/team/spaces/a", queryClient)
 				).resolves.toBeUndefined();
 				expect(bridge.session).toHaveBeenCalledTimes(2);
 				resolveSession?.(signedIn);
@@ -169,7 +173,7 @@ describe("Desktop route authentication", () => {
 		it("returns to the Desktop entry when background revalidation is signed out", async () => {
 			const queryClient = new QueryClient();
 			const bridge = stubBridge(async () => signedIn);
-			const redirectToEntry = vi.fn();
+			const redirectToEntry = registerRedirect();
 			queryClient.setQueryData(["account", "private"], { secret: true });
 			const now = await primeAndAge(queryClient);
 			try {
@@ -177,8 +181,7 @@ describe("Desktop route authentication", () => {
 				await beforeDesktopLoad(
 					"/o/team/spaces/a",
 					"/o/team/spaces/a?threadId=t",
-					queryClient,
-					redirectToEntry
+					queryClient
 				);
 				await vi.waitFor(() =>
 					expect(redirectToEntry).toHaveBeenCalledWith({
@@ -191,12 +194,7 @@ describe("Desktop route authentication", () => {
 				// The next navigation blocks on the native answer and redirects.
 				bridge.session.mockResolvedValueOnce({ user: null });
 				await expect(
-					beforeDesktopLoad(
-						"/o/team/spaces/a",
-						"/o/team/spaces/a",
-						queryClient,
-						redirectToEntry
-					)
+					beforeDesktopLoad("/o/team/spaces/a", "/o/team/spaces/a", queryClient)
 				).rejects.toMatchObject({ options: { to: "/desktop-shell" } });
 			} finally {
 				now.mockRestore();
@@ -206,18 +204,13 @@ describe("Desktop route authentication", () => {
 		it("returns to the Desktop entry when another account is now signed in", async () => {
 			const queryClient = new QueryClient();
 			const bridge = stubBridge(async () => signedIn);
-			const redirectToEntry = vi.fn();
+			const redirectToEntry = registerRedirect();
 			const now = await primeAndAge(queryClient);
 			try {
 				bridge.session.mockResolvedValueOnce({
 					user: { id: "account-b", email: "b@example.com", name: "B" },
 				});
-				await beforeDesktopLoad(
-					"/o/team",
-					"/o/team",
-					queryClient,
-					redirectToEntry
-				);
+				await beforeDesktopLoad("/o/team", "/o/team", queryClient);
 				await vi.waitFor(() => expect(redirectToEntry).toHaveBeenCalledOnce());
 			} finally {
 				now.mockRestore();
@@ -227,19 +220,14 @@ describe("Desktop route authentication", () => {
 		it("keeps the page when background revalidation fails", async () => {
 			const queryClient = new QueryClient();
 			const bridge = stubBridge(async () => signedIn);
-			const redirectToEntry = vi.fn();
+			const redirectToEntry = registerRedirect();
 			const warn = vi
 				.spyOn(console, "warn")
 				.mockImplementation(() => undefined);
 			const now = await primeAndAge(queryClient);
 			try {
 				bridge.session.mockRejectedValueOnce(new Error("bridge unavailable"));
-				await beforeDesktopLoad(
-					"/o/team",
-					"/o/team",
-					queryClient,
-					redirectToEntry
-				);
+				await beforeDesktopLoad("/o/team", "/o/team", queryClient);
 				await vi.waitFor(() => expect(warn).toHaveBeenCalled());
 				expect(redirectToEntry).not.toHaveBeenCalled();
 			} finally {
@@ -251,8 +239,9 @@ describe("Desktop route authentication", () => {
 		it("waits for the native session when none was confirmed", async () => {
 			const queryClient = new QueryClient();
 			stubBridge(async () => ({ user: null }));
+			registerRedirect();
 			await expect(
-				beforeDesktopLoad("/o/team", "/o/team", queryClient, vi.fn())
+				beforeDesktopLoad("/o/team", "/o/team", queryClient)
 			).rejects.toMatchObject({ options: { to: "/desktop-shell" } });
 		});
 	});
