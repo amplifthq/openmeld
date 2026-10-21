@@ -47,15 +47,15 @@ export type ArchiveProjectOutcome =
   | "conflict"
   | "has_activity"
   | "not_found";
-// Activity evidence is one bounded index seek per evidence table, never a scan.
-// Each probe asks for the first row at or after (organization_id, project_id)
-// in that order and then checks that it belongs to this Project. Only an index
-// leading with (organization_id, project_id) can return that order without
-// reading and sorting the whole table, so the plan does not depend on column
-// statistics. A plain equality probe cannot guarantee this: when one Project
-// owns most rows, the planner estimates every equality probe as a match and
-// chooses a sequential scan or a backward scan of an unrelated time index,
-// which reads the entire table for a Project with no Activity.
+// Each Activity evidence probe is shaped as a bounded index seek. It asks for
+// the first row at or after (organization_id, project_id) in that order, then
+// checks that the row belongs to this Project. Any plan other than an index
+// leading with (organization_id, project_id) must read and sort the whole
+// table, so the planner picks the seek even when column statistics are
+// skewed. A plain equality probe has no such cost gap: when one Project owns
+// most rows, the planner estimates every equality probe as a match and picks
+// a sequential scan or a backward scan of an unrelated time index, which reads
+// the entire table for a Project with no Activity.
 function projectActivityEvidenceProbe(table: string): string {
   return `EXISTS (
     SELECT 1 FROM (

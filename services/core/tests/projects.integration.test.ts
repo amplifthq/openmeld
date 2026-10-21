@@ -1096,6 +1096,37 @@ describe("Project Activity evidence reads", () => {
       })
     ).resolves.toBe("archived");
   });
+  it.each(
+    ACTIVITY_EVIDENCE_KINDS
+  )("ignores %s evidence under the same Project id in the next Organization", async (evidenceKind) => {
+    const base = `org_evidence_${crypto.randomUUID()}`;
+    const organizationId = await seedOrganization(`${base}-a`);
+    const nextOrganizationId = await seedOrganization(`${base}-b`);
+    const db = getPostgresDatabase(env);
+    const projectId = `evidence-${crypto.randomUUID()}`;
+    await seedProjectRow({ id: projectId, organizationId, updatedAtMs: 10 });
+    // The quiet Project has no later evidence in its own Organization, so the
+    // seek lands on this row, which differs only by Organization.
+    await seedActivityEvidence({
+      evidenceKind,
+      organizationId: nextOrganizationId,
+      projectId,
+    });
+    await expect(
+      readProjectRecord({ db, organizationId, projectId })
+    ).resolves.toMatchObject({ hasActivity: false, id: projectId });
+    await expect(
+      archiveProjectRecord({
+        authorityMode: "creator_grace",
+        currentUpdatedAtMs: 10,
+        db,
+        nowMs: 30,
+        organizationId,
+        projectId,
+        userId: "creator-1",
+      })
+    ).resolves.toBe("archived");
+  });
   it("lists active Projects first, then archived Projects that keep evidence", async () => {
     const organizationId = await seedOrganization();
     const db = getPostgresDatabase(env);
@@ -1293,9 +1324,10 @@ function authority(input: {
 }) {
   return input;
 }
-async function seedOrganization(): Promise<string> {
+async function seedOrganization(
+  organizationId = `org_agent_activity_${crypto.randomUUID()}`
+): Promise<string> {
   const suffix = crypto.randomUUID();
-  const organizationId = `org_agent_activity_${suffix}`;
   ownedOrganizationIds.add(organizationId);
   await getPostgresDatabase(env).query({
     ...{
