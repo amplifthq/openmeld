@@ -2,7 +2,8 @@ import type { SignalEnvelope } from "@openmeld/protocol";
 
 // A thread preview shows one line per reply: the first line that still has
 // content after trimming and light Markdown cleanup, skipping rules and fenced
-// code blocks. Space read models use the same rule to bound preview text, so
+// code blocks. A reply that is only code shows its first code line. Space
+// read models use the same rule to bound preview text, so
 // the line a client shows never depends on text the server left out.
 const THREAD_REPLY_PREVIEW_LEADING_MARKDOWN = /^(?:#{1,6}|>|[-*+]|\d+[.)])\s+/;
 const THREAD_REPLY_PREVIEW_BOLD = /\*\*([^*]+)\*\*/g;
@@ -24,6 +25,8 @@ type ThreadReplyPreviewLine = {
   readonly line: string;
   // Index in the source text where the line ends, before its newline.
   readonly end: number;
+  // True for a line inside a fenced code block.
+  readonly fenced: boolean;
 };
 
 function cleanThreadReplyPreviewLine(line: string): string {
@@ -43,33 +46,24 @@ function closesThreadReplyPreviewFence(line: string, opener: string): boolean {
   );
 }
 
-// Yields the lines a preview may show, in order. Rules, fence markers, and the
-// lines inside a top-level fence are skipped; a fence that never closes runs to the end
-// of the text. Both readers below walk this one sequence, so the bounded text
-// and the shown line cannot disagree.
+// Yields the lines a preview may show, in order. Rules and fence markers are
+// skipped; lines inside a top-level fence are marked fenced, and a fence that
+// never closes runs to the end of the text. Both readers below pick from this
+// one sequence, so the bounded text and the shown line cannot disagree.
 function* threadReplyPreviewLines(
   text: string
 ): Generator<ThreadReplyPreviewLine> {
-  let fence: string | undefined;
+  const state: { fence?: string } = {};
   let lineStart = 0;
   while (lineStart <= text.length) {
     const newline = text.indexOf("\n", lineStart);
     const end = newline === -1 ? text.length : newline;
-    const raw = text.slice(lineStart, end).trimEnd();
-    if (fence !== undefined) {
-      if (closesThreadReplyPreviewFence(raw, fence)) {
-        fence = undefined;
-      }
-    } else {
-      const opener = THREAD_REPLY_PREVIEW_FENCE_OPENER.exec(raw);
-      if (opener) {
-        fence = opener[1] ?? opener[2];
-      } else {
-        const line = cleanThreadReplyPreviewLine(raw);
-        if (line.length > 0 && !THREAD_REPLY_PREVIEW_DECORATION.test(line)) {
-          yield { line, end };
-        }
-      }
+    const line = readThreadReplyPreviewSourceLine(
+      text.slice(lineStart, end).trimEnd(),
+      state
+    );
+    if (line) {
+      yield { ...line, end };
     }
     if (newline === -1) {
       break;
@@ -78,11 +72,48 @@ function* threadReplyPreviewLines(
   }
 }
 
-export function readThreadReplyPreviewLine(text: string): string {
-  for (const { line } of threadReplyPreviewLines(text)) {
-    return line;
+// Advances the fence state past one raw line and returns the line a preview
+// may show from it, if any.
+function readThreadReplyPreviewSourceLine(
+  raw: string,
+  state: { fence?: string }
+): { line: string; fenced: boolean } | undefined {
+  if (state.fence !== undefined) {
+    if (closesThreadReplyPreviewFence(raw, state.fence)) {
+      state.fence = undefined;
+      return;
+    }
+    const line = raw.trim();
+    return line.length > 0 ? { line, fenced: true } : undefined;
   }
-  return text;
+  const opener = THREAD_REPLY_PREVIEW_FENCE_OPENER.exec(raw);
+  if (opener) {
+    state.fence = opener[1] ?? opener[2];
+    return;
+  }
+  const line = cleanThreadReplyPreviewLine(raw);
+  return line.length > 0 && !THREAD_REPLY_PREVIEW_DECORATION.test(line)
+    ? { line, fenced: false }
+    : undefined;
+}
+
+// The first line outside a fence, else the first code line of a reply that
+// is only code.
+function selectThreadReplyPreviewLine(
+  text: string
+): ThreadReplyPreviewLine | undefined {
+  let firstFenced: ThreadReplyPreviewLine | undefined;
+  for (const line of threadReplyPreviewLines(text)) {
+    if (!line.fenced) {
+      return line;
+    }
+    firstFenced ??= line;
+  }
+  return firstFenced;
+}
+
+export function readThreadReplyPreviewLine(text: string): string {
+  return selectThreadReplyPreviewLine(text)?.line ?? text;
 }
 
 // Returns the prefix of text that ends with the line
@@ -96,10 +127,8 @@ export function boundThreadReplyPreviewText(
   if (text.length <= maxChars) {
     return text;
   }
-  for (const { end } of threadReplyPreviewLines(text)) {
-    return text.slice(0, end);
-  }
-  return text;
+  const selected = selectThreadReplyPreviewLine(text);
+  return selected ? text.slice(0, selected.end) : text;
 }
 
 // Thread previews render one line per reply, so a text reply carries only the

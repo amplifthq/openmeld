@@ -14,7 +14,8 @@ describe("thread reply preview text", () => {
     expect(
       readThreadReplyPreviewLine("\n---\n## **Fixed** the build\nmore")
     ).toBe("Fixed the build");
-    expect(readThreadReplyPreviewLine("```\n---\n")).toBe("```\n---\n");
+    expect(readThreadReplyPreviewLine("```\n---\n")).toBe("---");
+    expect(readThreadReplyPreviewLine("---\n\n")).toBe("---\n\n");
   });
 
   it("skips the contents of a backtick fence", () => {
@@ -62,11 +63,23 @@ describe("thread reply preview text", () => {
     expect(readThreadReplyPreviewLine("> ```\n> code\n\nHello")).toBe("code");
   });
 
-  it("returns the whole text when a fence never closes", () => {
-    const text = "```\nconst x = 1\n~~~\nHello";
-    expect(readThreadReplyPreviewLine(text)).toBe(text);
-    const long = `\`\`\`\n${"code\n".repeat(MAX)}`;
-    expect(boundThreadReplyPreviewText(long)).toBe(long);
+  it("shows the first code line of a reply that is only code", () => {
+    expect(readThreadReplyPreviewLine("```ts\n\n  const x = 1\n```")).toBe(
+      "const x = 1"
+    );
+    const unclosed = "```\nconst x = 1\n~~~\nHello";
+    expect(readThreadReplyPreviewLine(unclosed)).toBe("const x = 1");
+  });
+
+  it("bounds a long code-only reply to its first code line", () => {
+    for (const text of [
+      `\`\`\`\n${"code\n".repeat(MAX)}`,
+      `\`\`\`\n${"code\n".repeat(MAX)}\`\`\``,
+    ]) {
+      const bounded = boundThreadReplyPreviewText(text);
+      expect(bounded).toBe("```\ncode");
+      expect(readThreadReplyPreviewLine(bounded)).toBe("code");
+    }
   });
 
   it("bounds long text after a fence to the line it shows", () => {
