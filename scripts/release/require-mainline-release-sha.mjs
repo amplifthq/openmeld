@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { appendFileSync } from "node:fs";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
@@ -51,8 +52,19 @@ export function requireMainlineReleaseSha(input) {
 }
 
 function main(argv) {
-  const [releaseSha, mainRef = "refs/remotes/origin/main"] = argv;
+  const [releaseSha, mainRef = "refs/remotes/origin/main", outputMode] = argv;
+  if (outputMode && outputMode !== "--github-output") {
+    throw new Error("Expected --github-output as the optional output mode.");
+  }
   const verified = requireMainlineReleaseSha({ mainRef, releaseSha });
+  if (outputMode === "--github-output") {
+    const output = process.env.GITHUB_OUTPUT;
+    if (!output) {
+      throw new Error("GITHUB_OUTPUT is required for --github-output.");
+    }
+    appendFileSync(output, `release_sha=${verified.releaseSha}\n`);
+    return;
+  }
   process.stdout.write(`${verified.releaseSha}\n`);
 }
 

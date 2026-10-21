@@ -59,8 +59,7 @@ jobs:
           RELEASE_SHA: ${{ inputs.release_sha }}
         run: |
           set -euo pipefail
-          validated_sha="$(node scripts/release/require-mainline-release-sha.mjs "$RELEASE_SHA" refs/remotes/origin/main)"
-          echo "release_sha=$validated_sha" >> "$GITHUB_OUTPUT"
+          node scripts/release/require-mainline-release-sha.mjs "$RELEASE_SHA" refs/remotes/origin/main --github-output
 
   windows_helper:
     name: Build Windows Process Helper
@@ -71,10 +70,13 @@ jobs:
     steps:
       - name: Checkout release control
         uses: actions/checkout@v5
-        with: { path: release-control, persist-credentials: false, ref: "${{ github.sha }}" }
-      - name: Checkout release source
-        uses: actions/checkout@v5
-        with: { path: release-source, persist-credentials: false, ref: "${{ needs.validate.outputs.release_sha }}" }
+        with: { fetch-depth: 0, path: release-control, persist-credentials: false, ref: "${{ github.sha }}" }
+      - name: Prepare verified release source
+        shell: bash
+        working-directory: release-control
+        env:
+          RELEASE_SHA: ${{ needs.validate.outputs.release_sha }}
+        run: node scripts/release/prepare-release-source.mjs "$RELEASE_SHA"
       - name: Setup toolchain
         uses: ./release-control/.github/actions/setup-node-pnpm
         with: { working_directory: release-source, control_directory: release-control }
@@ -110,10 +112,13 @@ jobs:
     steps:
       - name: Checkout release control
         uses: actions/checkout@v5
-        with: { path: release-control, persist-credentials: false, ref: "${{ github.sha }}" }
-      - name: Checkout release source
-        uses: actions/checkout@v5
-        with: { path: release-source, persist-credentials: false, ref: "${{ needs.validate.outputs.release_sha }}" }
+        with: { fetch-depth: 0, path: release-control, persist-credentials: false, ref: "${{ github.sha }}" }
+      - name: Prepare verified release source
+        shell: bash
+        working-directory: release-control
+        env:
+          RELEASE_SHA: ${{ needs.validate.outputs.release_sha }}
+        run: node scripts/release/prepare-release-source.mjs "$RELEASE_SHA"
       - name: Use the Windows helper built for this source
         uses: actions/download-artifact@v4
         with:
@@ -161,10 +166,13 @@ jobs:
     steps:
       - name: Checkout release control
         uses: actions/checkout@v5
-        with: { path: release-control, persist-credentials: false, ref: "${{ github.sha }}" }
-      - name: Checkout release source
-        uses: actions/checkout@v5
-        with: { path: release-source, persist-credentials: false, ref: "${{ needs.validate.outputs.release_sha }}" }
+        with: { fetch-depth: 0, path: release-control, persist-credentials: false, ref: "${{ github.sha }}" }
+      - name: Prepare verified release source
+        shell: bash
+        working-directory: release-control
+        env:
+          RELEASE_SHA: ${{ needs.validate.outputs.release_sha }}
+        run: node scripts/release/prepare-release-source.mjs "$RELEASE_SHA"
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -52,6 +52,24 @@ test("emits only verified first-parent SHAs for downstream release jobs", () => 
       });
       assert.equal(result.status, accepted ? 0 : 1, result.stderr);
       assert.equal(result.stdout, accepted ? `${sha}\n` : "");
+
+      const output = path.join(cwd, "github-output.txt");
+      writeFileSync(output, "");
+      const github = spawnSync(
+        process.execPath,
+        [verifier, sha, "refs/remotes/origin/main", "--github-output"],
+        {
+          cwd,
+          encoding: "utf8",
+          env: { ...process.env, GITHUB_OUTPUT: output },
+        }
+      );
+      assert.equal(github.status, accepted ? 0 : 1, github.stderr);
+      assert.equal(github.stdout, "");
+      assert.equal(
+        readFileSync(output, "utf8"),
+        accepted ? `release_sha=${sha}\n` : ""
+      );
     }
   } finally {
     rmSync(cwd, { recursive: true, force: true });

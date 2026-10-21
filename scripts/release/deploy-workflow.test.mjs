@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -186,6 +186,16 @@ test("only the validate job checks the SHA, from release control on main", () =>
     assert.equal(guard.env.RELEASE_SHA, source);
     assert.equal(guard["working-directory"], "release-control");
     assert.ok(steps.indexOf(refresh) < steps.indexOf(guard));
+    if (workflow === cliRelease) {
+      assert.equal(
+        workflow.jobs.validate.outputs.release_sha,
+        `\${{ steps.${guard.id}.outputs.release_sha }}`
+      );
+      assert.equal(
+        guard.run.trim(),
+        'set -euo pipefail\nnode scripts/release/require-mainline-release-sha.mjs "$RELEASE_SHA" refs/remotes/origin/main --github-output'
+      );
+    }
   }
   for (const [name, job] of Object.entries(deploy.jobs)) {
     if (name === "validate") {
@@ -223,55 +233,6 @@ test("only the validate job checks the SHA, from release control on main", () =>
     ).with.control_directory,
     "release-control"
   );
-});
-
-test("the CLI source validator emits its SHA only after the mainline guard succeeds", () => {
-  const directory = mkdtempSync(join(tmpdir(), "openmeld-cli-source-"));
-  const guard = cliRelease.jobs.validate.steps.find(
-    (step) => step.name === "Require the SHA on main first-parent history"
-  );
-  const releaseSha = "a".repeat(40);
-  const verifiedSha = "b".repeat(40);
-  try {
-    writeFileSync(
-      join(directory, "node"),
-      '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$NODE_ARGUMENTS"\nif [ "$NODE_STATUS" -eq 0 ]; then printf \'%s\\n\' "$VERIFIED_SHA"; fi\nexit "$NODE_STATUS"\n',
-      { mode: 0o755 }
-    );
-    for (const status of [1, 0]) {
-      const output = join(directory, `output-${status}.txt`);
-      const argumentsPath = join(directory, `arguments-${status}.txt`);
-      writeFileSync(output, "");
-      const result = spawnSync("bash", ["-c", guard.run], {
-        cwd: new URL("../../", import.meta.url),
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          PATH: `${directory}:${process.env.PATH}`,
-          GITHUB_OUTPUT: output,
-          NODE_ARGUMENTS: argumentsPath,
-          NODE_STATUS: String(status),
-          RELEASE_SHA: releaseSha,
-          VERIFIED_SHA: verifiedSha,
-        },
-      });
-      assert.equal(result.status, status, result.stderr);
-      assert.equal(
-        readFileSync(argumentsPath, "utf8"),
-        `scripts/release/require-mainline-release-sha.mjs\n${releaseSha}\nrefs/remotes/origin/main\n`
-      );
-      assert.equal(
-        readFileSync(output, "utf8"),
-        status === 0 ? `release_sha=${verifiedSha}\n` : ""
-      );
-    }
-    assert.equal(
-      cliRelease.jobs.validate.outputs.release_sha,
-      `\${{ steps.${guard.id}.outputs.release_sha }}`
-    );
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
 });
 
 test("database and Core jobs name the PostgreSQL release credentials they need", () => {
@@ -362,10 +323,22 @@ test("the top-level CLI publisher gates its helper and OIDC publication on sourc
     );
     assert.deepEqual(
       checkouts.map((step) => step.with.path),
-      ["release-control", "release-source"]
+      ["release-control"]
     );
     assert.equal(checkouts[0].with.ref, GITHUB_SHA_EXPRESSION);
-    assert.equal(checkouts[1].with.ref, VALIDATED_CLI_SHA_EXPRESSION);
+    assert.equal(checkouts[0].with["fetch-depth"], 0);
+    assert.equal(checkouts[0].with["persist-credentials"], false);
+    const prepare = job.steps.find(
+      (step) => step.name === "Prepare verified release source"
+    );
+    assert.equal(prepare["working-directory"], "release-control");
+    assert.equal(prepare.shell, "bash");
+    assert.equal(prepare.env.RELEASE_SHA, VALIDATED_CLI_SHA_EXPRESSION);
+    assert.equal(
+      prepare.run,
+      'node scripts/release/prepare-release-source.mjs "$RELEASE_SHA"'
+    );
+    assert.deepEqual(job.steps.slice(0, job.steps.indexOf(prepare)), checkouts);
     assert.ok(!JSON.stringify(job).includes("inputs.release_sha"), name);
     for (const step of job.steps.filter((step) =>
       String(step.uses ?? "").includes("artifact@")
@@ -375,8 +348,9 @@ test("the top-level CLI publisher gates its helper and OIDC publication on sourc
         `windows-process-${VALIDATED_CLI_SHA_EXPRESSION}`
       );
     }
-    for (const step of job.steps.filter((step) =>
-      String(step.run ?? "").includes("scripts/release/")
+    for (const step of job.steps.filter(
+      (step) =>
+        step !== prepare && String(step.run ?? "").includes("scripts/release/")
     )) {
       assert.ok(step.run.includes("../release-control/scripts/release/"));
       if (name !== "publish") {

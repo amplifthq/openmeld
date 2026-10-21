@@ -129,6 +129,10 @@ SHA independently, retains the `production` environment and `id-token: write`
 permission, and runs the existing signing, publication, and installation checks.
 Downstream jobs consume the SHA returned by that verifier, rather than the raw
 dispatch input. Invalid or non-mainline source values produce no release output.
+CLI execution jobs checkout only the immutable main control revision. Its
+`prepare-release-source.mjs` revalidates the product SHA against that control's
+first-parent history and creates a detached `release-source` worktree before
+any product installation or execution. It refuses an existing source path.
 `deploy.yml` rejects CLI scopes so it cannot report a skipped CLI release as
 successful. Use the unified deploy command for mixed cloud/CLI releases.
 
