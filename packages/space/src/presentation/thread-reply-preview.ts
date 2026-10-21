@@ -7,12 +7,14 @@ import type { SignalEnvelope } from "@openmeld/protocol";
 const THREAD_REPLY_PREVIEW_LEADING_MARKDOWN = /^(?:#{1,6}|>|[-*+]|\d+[.)])\s+/;
 const THREAD_REPLY_PREVIEW_BOLD = /\*\*([^*]+)\*\*/g;
 const THREAD_REPLY_PREVIEW_UNDERSCORE_BOLD = /__([^_]+)__/g;
-const THREAD_REPLY_PREVIEW_RULE = /^[-*_]{3,}$/;
-// CommonMark fences: a backtick opener's info string cannot contain a
-// backtick, and a closer is a run of the opener's character at least as long
-// as the opener, with nothing after it.
-const THREAD_REPLY_PREVIEW_FENCE_OPENER = /^(?:(`{3,})[^`]*|(~{3,}).*)$/;
-const THREAD_REPLY_PREVIEW_FENCE_CLOSER = /^(`{3,}|~{3,})\s*$/;
+const THREAD_REPLY_PREVIEW_DECORATION = /^(?:[-*_]{3,}|`{3,}[^`]*|~{3,}.*)$/;
+// CommonMark fences, read from the raw line: up to three spaces of indent, a
+// backtick opener's info string cannot contain a backtick, and a closer is a
+// run of the opener's character at least as long as the opener, with nothing
+// after it. Only top-level fences are tracked; a fence marker inside a quote
+// or list item is skipped as a single decoration line.
+const THREAD_REPLY_PREVIEW_FENCE_OPENER = /^ {0,3}(?:(`{3,})[^`]*|(~{3,}).*)$/;
+const THREAD_REPLY_PREVIEW_FENCE_CLOSER = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
 
 // Reply text at or under this length is carried whole.
 export const THREAD_REPLY_PREVIEW_TEXT_MAX_CHARS = 1000;
@@ -42,7 +44,7 @@ function closesThreadReplyPreviewFence(line: string, opener: string): boolean {
 }
 
 // Yields the lines a preview may show, in order. Rules, fence markers, and the
-// lines inside a fence are skipped; a fence that never closes runs to the end
+// lines inside a top-level fence are skipped; a fence that never closes runs to the end
 // of the text. Both readers below walk this one sequence, so the bounded text
 // and the shown line cannot disagree.
 function* threadReplyPreviewLines(
@@ -53,17 +55,20 @@ function* threadReplyPreviewLines(
   while (lineStart <= text.length) {
     const newline = text.indexOf("\n", lineStart);
     const end = newline === -1 ? text.length : newline;
-    const line = cleanThreadReplyPreviewLine(text.slice(lineStart, end));
+    const raw = text.slice(lineStart, end).trimEnd();
     if (fence !== undefined) {
-      if (closesThreadReplyPreviewFence(line, fence)) {
+      if (closesThreadReplyPreviewFence(raw, fence)) {
         fence = undefined;
       }
     } else {
-      const opener = THREAD_REPLY_PREVIEW_FENCE_OPENER.exec(line);
+      const opener = THREAD_REPLY_PREVIEW_FENCE_OPENER.exec(raw);
       if (opener) {
         fence = opener[1] ?? opener[2];
-      } else if (line.length > 0 && !THREAD_REPLY_PREVIEW_RULE.test(line)) {
-        yield { line, end };
+      } else {
+        const line = cleanThreadReplyPreviewLine(raw);
+        if (line.length > 0 && !THREAD_REPLY_PREVIEW_DECORATION.test(line)) {
+          yield { line, end };
+        }
       }
     }
     if (newline === -1) {

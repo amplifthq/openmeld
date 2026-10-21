@@ -52,6 +52,16 @@ describe("thread reply preview text", () => {
     );
   });
 
+  it("keeps indented or marked-up fence runs inside a fence", () => {
+    expect(
+      readThreadReplyPreviewLine("```\n    ```\n# ```\ninside\n   ```\nHello")
+    ).toBe("Hello");
+  });
+
+  it("skips a fence marker inside a quote as one line", () => {
+    expect(readThreadReplyPreviewLine("> ```\n> code\n\nHello")).toBe("code");
+  });
+
   it("returns the whole text when a fence never closes", () => {
     const text = "```\nconst x = 1\n~~~\nHello";
     expect(readThreadReplyPreviewLine(text)).toBe(text);
