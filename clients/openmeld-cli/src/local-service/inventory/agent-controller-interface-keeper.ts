@@ -13,10 +13,15 @@ import type {
   RuntimeAgentControllerLaunchContract,
 } from "@openmeld/schemas/types";
 
-// Reuse only within a short account-observation window. Native checks remain
-// coalesced and separate from heartbeats; installed binaries are fingerprinted
-// independently. A completed signed-out check uses the same bounded window.
-const LAST_GOOD_REUSE_TTL_MS = 60_000;
+// Reuse only within a short account-observation window, measured from when the
+// native check started (the time Core's two-minute freshness window counts
+// from). The window is that two minutes, minus the 60s report cadence, minus
+// headroom for a slow check, so a periodic pass always renews the observation
+// instead of republishing one that expires before the next pass lands. Native
+// checks remain coalesced and separate from heartbeats; installed binaries are
+// fingerprinted independently. A completed signed-out check uses the same
+// bounded window.
+const LAST_GOOD_REUSE_TTL_MS = 30_000;
 
 // An incomplete controller probe makes the current check unavailable, whether
 // or not an older successful snapshot exists. A single delayed re-probe covers
@@ -448,9 +453,12 @@ export function consumeArmedAgentControllerInterfaceReprobe(): boolean {
 // re-probe pass itself runs a real background probe (a still-Error controller
 // has no reusable snapshot) and flows through the existing report/refresh path,
 // while an already-healthy controller reuses its held snapshot for free.
-// The base cadence is anchored on when the pass started (never earlier than
-// now), so the time a pass spends checking does not stretch the interval
-// between two checks of the same controller.
+// The base cadence is anchored on when the pass started, so the time a pass
+// spends checking does not stretch the interval between two checks of the same
+// controller. A pass slower than the cadence still leaves this idle gap, so
+// passes never run back to back.
+const RUNTIME_AGENT_CONTROLLER_REPORT_PASS_MIN_IDLE_MS = 5000;
+
 export function resolveNextRuntimeAgentControllerReportSyncAtMs(input: {
   nowMs: number;
   passStartedAtMs: number;
@@ -458,7 +466,11 @@ export function resolveNextRuntimeAgentControllerReportSyncAtMs(input: {
   hasArmedReprobe: boolean;
 }): number {
   const baseNextMs = Math.max(
-    input.nowMs,
+    input.nowMs +
+      Math.min(
+        input.baseRetryMs,
+        RUNTIME_AGENT_CONTROLLER_REPORT_PASS_MIN_IDLE_MS
+      ),
     input.passStartedAtMs + input.baseRetryMs
   );
   if (!input.hasArmedReprobe) {

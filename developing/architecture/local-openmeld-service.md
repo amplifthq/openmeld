@@ -504,7 +504,12 @@ Core accepts a native controller check only for a fixed window after its check
 time (`AGENT_CONTROLLER_AUTH_STALE_AFTER_MS`, two minutes). The periodic report
 cadence is therefore measured from when a pass starts, not from when it ends, so
 the time a pass spends checking never stretches the interval between two checks
-of the same controller past that window. When a report does expire, Core keeps
+of the same controller past that window. A background pass may reuse a held
+snapshot only while its native check is under 30 seconds old, measured from
+the check time rather than probe completion, so a periodic pass always renews
+the observation instead of republishing one that expires before the next pass.
+A slow pass still leaves a short idle gap, and a failed pass settles only after
+its in-flight checks finish. When a report does expire, Core keeps
 the execution target `stale` for Wake eligibility, but the local-agent catalog
 must not turn that missing evidence into `needs_repair`: only a launch blocker
 carried by the last report may keep the launch status in repair.
