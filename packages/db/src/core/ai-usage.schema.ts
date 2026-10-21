@@ -1,4 +1,5 @@
-import { bigint, index, primaryKey, text } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { bigint, check, index, primaryKey, text } from "drizzle-orm/pg-core";
 import { organizations, users } from "../auth/auth.schema.ts";
 import { applicationTable } from "../postgresql/schema.ts";
 
@@ -69,6 +70,16 @@ export const aiUsageRecords = applicationTable(
     totalTokens: bigint("total_tokens", { mode: "number" }),
     costNanoUsd: bigint("cost_nano_usd", { mode: "number" }),
     costKind: text("cost_kind"),
+    // Admission projections of the immutable record. Rows recorded before
+    // credit reservations have no funding_source column value.
+    fundingSource: text("funding_source"),
+    // Platform-funded admission holds an upper estimate until the provider
+    // reports a cost. Admission time assigns the credit period; the hold
+    // expiry policy is applied when reading. See ai-billing.md.
+    creditHoldNanoUsd: bigint("credit_hold_nano_usd", { mode: "number" }),
+    creditHoldAdmittedAtMs: bigint("credit_hold_admitted_at_ms", {
+      mode: "number",
+    }),
     recordJson: text("record_json").notNull(),
   },
   (table) => [
@@ -88,6 +99,11 @@ export const aiUsageRecords = applicationTable(
       table.organizationId,
       table.computerId,
       table.occurredAtMs
+    ),
+    check(
+      "ai_usage_records_credit_hold_check",
+      sql`("credit_hold_nano_usd" is null and "credit_hold_admitted_at_ms" is null)
+        or ("credit_hold_nano_usd" > 0 and "credit_hold_admitted_at_ms" is not null)`
     ),
   ]
 );

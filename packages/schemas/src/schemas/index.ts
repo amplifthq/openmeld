@@ -9,6 +9,7 @@ export {
   aiUsageTokensSchema,
   centerAgentAiUsageRpcInputSchema,
   organizationAiUsageRpcInputSchema,
+  remoteAiCreditHoldSchema,
   remoteAiUsageWriteResponseSchema,
   remoteAiUsageWriteSchema,
 } from "./ai-usage";

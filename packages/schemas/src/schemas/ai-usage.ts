@@ -69,10 +69,35 @@ export const aiUsageRecordSchema = aiUsageObservationSchema.extend({
   controller: identifier.nullable(),
 });
 
+// A conservative upper estimate of one provider request, computed by the
+// Remote Agent from the exact request body before admission. Platform-funded
+// admission fails closed when the estimate is unavailable; BYOK ignores it.
+export const remoteAiCreditHoldSchema = z.discriminatedUnion("status", [
+  z.strictObject({
+    status: z.literal("estimated"),
+    nanoUsd: count.min(1),
+    estimatedInputTokens: count,
+    maxOutputTokens: count,
+  }),
+  z.strictObject({
+    status: z.literal("unavailable"),
+    reason: z.enum([
+      "unknown_model_price",
+      "missing_output_limit",
+      "unsupported_request",
+    ]),
+  }),
+]);
+
 export const remoteAiUsageWriteSchema = z.strictObject({
-  providerAuthorizationVersion: z.literal(1).optional(),
+  // Version 2 sends a credit hold with every begin. Version 1 remains readable
+  // for customer-funded requests during rollout; it cannot use platform credits.
+  providerAuthorizationVersion: z
+    .union([z.literal(1), z.literal(2)])
+    .optional(),
   phase: z.enum(["begin", "settle"]),
   record: aiUsageRecordSchema,
+  creditHold: remoteAiCreditHoldSchema.optional(),
 });
 
 export const remoteAiUsageWriteResponseSchema = z.strictObject({

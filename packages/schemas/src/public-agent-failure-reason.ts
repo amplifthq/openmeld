@@ -1054,9 +1054,15 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: null,
     },
     {
-      body: "This workspace has used its included AI credits. Add an OpenRouter API key in AI usage settings, or wait for the monthly reset.",
+      body: "This workspace doesn't have enough included AI credits left. Add an OpenRouter API key in AI usage settings, or wait for the monthly reset.",
       kind: "request_ended",
       patterns: ["=ai_usage.monthly_limit_reached"],
+      recoveryTarget: null,
+    },
+    {
+      body: "Included AI credits can't pay for this model request. Add an OpenRouter API key in AI usage settings, or choose another model.",
+      kind: "request_ended",
+      patterns: ["=ai_usage.credit_hold_unavailable"],
       recoveryTarget: null,
     },
     {

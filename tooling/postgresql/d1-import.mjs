@@ -315,9 +315,16 @@ async function lockEmptyTarget(client, catalog) {
 }
 
 function newNullableIntegerColumns(table) {
-  // No historical session is known to be CLI-held. The first Bearer use marks
-  // it (member-agent-program.md §4.7).
-  return table.name === "sessions" ? ["cli_credential_at"] : [];
+  return (
+    {
+      // No historical session is known to be CLI-held. The first Bearer use
+      // marks it (member-agent-program.md §4.7).
+      sessions: ["cli_credential_at"],
+      // Historical receipts predate credit holds and count only a reported
+      // cost (migration 0048).
+      ai_usage_records: ["credit_hold_nano_usd", "credit_hold_admitted_at_ms"],
+    }[table.name] ?? []
+  );
 }
 
 function nativeColumns(table, targetColumns) {
@@ -328,6 +335,8 @@ function nativeColumns(table, targetColumns) {
       "github_issue_observation_json",
     ],
     space_index_spaces: ["recent_message_previews_json"],
+    // NULL falls back to the receipt's stored funding source (migration 0048).
+    ai_usage_records: ["funding_source"],
   };
   const columns = [
     ...table.columns,

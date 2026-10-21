@@ -9,7 +9,9 @@ import {
 } from "@openmeld/schemas";
 import type {
   AiFundingSource,
+  AiUsageRecord,
   OrganizationAiBilling,
+  RemoteAiCreditHold,
   RemoteAiProviderAuthorization,
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../lib/bindings";
@@ -18,6 +20,13 @@ import {
   encryptAesGcmSecret,
 } from "../remote-agent/application/aes-gcm-secret-crypto";
 import { createCoreRpcHttpError } from "../rpc/errors";
+import {
+  aiCreditsToNanoUsd,
+  type ProviderAiCreditBalance,
+  readAiCreditBalance,
+  reserveAiCredits,
+} from "./ai-credit-reservation";
+import { recordAiUsage } from "./ai-usage-repository";
 import {
   aiBillingUnavailable,
   createOpenRouterKey,
@@ -30,7 +39,7 @@ type CredentialRow = {
   key_suffix: string;
 };
 export const MONTHLY_AI_LIMIT_MESSAGE =
-  "This workspace has used its included AI credits. Add an OpenRouter API key in AI usage settings, or wait for the monthly reset.";
+  "This workspace doesn't have enough included AI credits left. Add an OpenRouter API key in AI usage settings, or wait for the monthly reset.";
 export const BYOK_UNAVAILABLE_MESSAGE =
   "OpenRouter could not use this workspace's API key. Check its balance and status, or replace or remove it in AI usage settings. Included credits were not used.";
 
@@ -206,27 +215,92 @@ async function managedCredential(env: CoreBindings, organizationId: string) {
   });
 }
 
-export async function authorizeAiProvider(
+const CREDIT_HOLD_UNAVAILABLE_MESSAGE =
+  "Included AI credits can't pay for this model request. Add an OpenRouter API key in AI usage settings, or choose another model.";
+
+function providerAuthorizationRequired() {
+  return createCoreRpcHttpError({
+    code: "ai_billing.provider_authorization_required",
+    status: 503,
+    reason: "The Remote Agent must be updated before it can use AI billing.",
+  });
+}
+
+/**
+ * Selects the workspace funding source for one hosted provider request and
+ * durably records its pending usage. Customer-funded requests are recorded
+ * without a hold. Platform-funded requests must reserve an estimated hold
+ * against the monthly allowance; see developing/engineering/ai-billing.md.
+ */
+export async function admitRemoteAiRequest(
   env: CoreBindings,
-  organizationId: string
+  input: {
+    record: AiUsageRecord;
+    creditHold: RemoteAiCreditHold | undefined;
+    providerAuthorizationVersion: 1 | 2 | undefined;
+  }
 ): Promise<RemoteAiProviderAuthorization> {
+  const { record } = input;
+  if (input.providerAuthorizationVersion === undefined) {
+    throw providerAuthorizationRequired();
+  }
   const db = getPostgresDatabase(env);
-  const byok = (await readCredentials(db, organizationId)).find(
+  const byok = (await readCredentials(db, record.organizationId)).find(
     (row) => row.source === "byok"
   );
   if (byok) {
-    return {
-      source: "byok",
-      apiKey: await decryptCredential(env, organizationId, byok),
-    };
+    const apiKey = await decryptCredential(env, record.organizationId, byok);
+    await recordAiUsage(db, { ...record, fundingSource: "byok" });
+    return { source: "byok", apiKey };
   }
-  if (!(await freeGrant({ db, organizationId, claim: true }))) {
+  if (
+    !(await freeGrant({
+      db,
+      organizationId: record.organizationId,
+      claim: true,
+    }))
+  ) {
     throw monthlyAiLimitError();
   }
-  const apiKey = await managedCredential(env, organizationId);
-  const budget = await readOpenRouterKey(apiKey);
-  const credits = sponsoredCredits(budget);
-  if (credits.remainingCredits <= 0) {
+  if (input.providerAuthorizationVersion !== 2 || !input.creditHold) {
+    throw providerAuthorizationRequired();
+  }
+  if (input.creditHold.status !== "estimated") {
+    throw createCoreRpcHttpError({
+      code: "ai_usage.credit_hold_unavailable",
+      status: 402,
+      reason: CREDIT_HOLD_UNAVAILABLE_MESSAGE,
+    });
+  }
+  const apiKey = await managedCredential(env, record.organizationId);
+  const sponsoredRecord: AiUsageRecord = { ...record, fundingSource: "free" };
+  // Only a new task pays for the live provider balance read. Continuations of
+  // an admitted attempt rely on the local ledger and the native key limit.
+  // The precheck precedes the provider read, so requests it saw unsettled, or
+  // admitted after it, are the ones the read may miss.
+  const observedAtMs = Date.now();
+  const precheck = await readAiCreditBalance(db, {
+    organizationId: record.organizationId,
+    attemptId: record.attemptId,
+    nowMs: observedAtMs,
+  });
+  let providerBalance: ProviderAiCreditBalance | null = null;
+  if (!precheck.continuation) {
+    providerBalance = {
+      observedAtMs,
+      unsettledEventIds: precheck.unsettledEventIds,
+      availableNanoUsd: aiCreditsToNanoUsd(
+        sponsoredCredits(await readOpenRouterKey(apiKey)).remainingCredits
+      ),
+    };
+  }
+  const reservation = await reserveAiCredits({
+    db,
+    record: sponsoredRecord,
+    holdNanoUsd: input.creditHold.nanoUsd,
+    providerBalance,
+  });
+  if (!reservation.admitted) {
     throw monthlyAiLimitError();
   }
   return { source: "free", apiKey };
