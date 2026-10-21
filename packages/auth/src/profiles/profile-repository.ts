@@ -5,6 +5,7 @@ import {
   type InferInsertModel,
   type InferSelectModel,
   inArray,
+  or,
   sql,
 } from "@openmeld/db/query";
 import type { createAuthDatabase } from "../db";
@@ -80,6 +81,16 @@ export type OpenMeldProfileRepository = {
   findDefaultHumanByOwner: (
     ownerUserId: string
   ) => Promise<OpenMeldProfileRecord | null>;
+  // One read for the request-auth hot path: the owner's active default Human
+  // Profile and the owner's row for `profileId`, with the same filters as
+  // findDefaultHumanByOwner and findByOwnerAndProfileId.
+  findDefaultHumanAndOwnedProfile: (
+    ownerUserId: string,
+    profileId: string
+  ) => Promise<{
+    defaultHumanProfile: OpenMeldProfileRecord | null;
+    ownedProfile: OpenMeldProfileRecord | null;
+  }>;
   findManagedAgentByOwnerAndRole: (
     ownerUserId: string,
     managedRole: OpenMeldProfileManagedRole
@@ -226,6 +237,38 @@ export function createDrizzleOpenMeldProfileRepository(
         )
         .limit(1);
       return rows[0] ?? null;
+    },
+    async findDefaultHumanAndOwnedProfile(ownerUserId, profileId) {
+      const rows = await db
+        .select()
+        .from(openMeldProfiles)
+        .where(
+          and(
+            eq(openMeldProfiles.ownerUserId, ownerUserId),
+            or(
+              eq(openMeldProfiles.profileId, profileId),
+              and(
+                eq(openMeldProfiles.profileKind, "human"),
+                eq(openMeldProfiles.isDefault, true),
+                eq(openMeldProfiles.status, "active")
+              )
+            )
+          )
+        )
+        .orderBy(
+          desc(openMeldProfiles.updatedAt),
+          desc(openMeldProfiles.createdAt)
+        );
+      return {
+        defaultHumanProfile:
+          rows.find(
+            (row) =>
+              row.profileKind === "human" &&
+              row.isDefault === true &&
+              row.status === "active"
+          ) ?? null,
+        ownedProfile: rows.find((row) => row.profileId === profileId) ?? null,
+      };
     },
     async findManagedAgentByOwnerAndRole(ownerUserId, managedRole) {
       const rows = await db

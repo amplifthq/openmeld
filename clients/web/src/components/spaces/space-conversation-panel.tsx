@@ -198,6 +198,7 @@ import {
 	type SpaceConversationRestorationStatus,
 	useSpaceConversationPosition,
 } from "./use-space-conversation-position";
+import { useSpaceConversationRenderWindow } from "./use-space-conversation-render-window";
 import { useSpaceGraphLayout } from "./use-space-graph-layout";
 import type { SpaceHistoryNavigationController } from "./use-space-history-navigation";
 import type {
@@ -586,6 +587,8 @@ function SpaceConversationPanelContent(
 	});
 	const navigation = useSpaceConversationNavigationController({
 		activeSpaceView: input.activeSpaceView,
+		entries,
+		historyWindowIdentity: input.historyNavigation?.activeWindow?.identity,
 		isLiveHistory: !input.historyNavigation?.activeWindow,
 		ephemeralActivityItems: input.ephemeralActivityItems,
 		hasEarlierHistory: input.hasEarlierHistory,
@@ -619,12 +622,14 @@ function SpaceConversationPanelContent(
 		followLatest,
 		latestNavigationRequest,
 		releaseReadingPosition,
+		loadEarlierConversation,
 		loadEarlierHistory,
 		mainFocusStatusMessage,
 		onConversationScroll,
 		onConversationScrollEnd,
 		onJumpToMessage,
 		registerConversationScrollElement,
+		renderWindow,
 		revealUnreadTarget,
 	} = navigation;
 	const registerReadingScrollElement = useCallback(
@@ -823,11 +828,21 @@ function SpaceConversationPanelContent(
 										input.historyNavigation?.latest();
 										followLatest();
 									}
+									// Mount loaded history a viewport ahead of the reader, and
+									// only fetch more once every loaded entry is mounted.
+									if (
+										renderWindow.hasHiddenEntries &&
+										conversationScrollElement.scrollTop <=
+											conversationScrollElement.clientHeight
+									) {
+										renderWindow.revealEarlier();
+										return;
+									}
 									if (conversationScrollElement.scrollTop > 48) {
 										return;
 									}
 
-									loadEarlierHistory().catch((error) => {
+									loadEarlierConversation().catch((error) => {
 										console.error(
 											"Failed to lazy-load earlier space history from scroll.",
 											error
@@ -858,6 +873,10 @@ function SpaceConversationPanelContent(
 											targets={input.unreadTargets ?? []}
 										/>
 									}
+									leadingDateMs={resolveConversationLeadingDateMs(
+										entries,
+										renderWindow.startIndex
+									)}
 									loadedSignalCount={loadedMainTimelineSignalIds.size}
 									onJumpToDate={input.onJumpToDate}
 									scrollElement={conversationScrollElement}
@@ -1016,6 +1035,7 @@ function renderPanelConversationBody(input: {
 		emptyStateAlignment: panel.emptyStateAlignment,
 		emptyStateTitle: panel.emptyStateTitle,
 		entries: presentation.entries,
+		entriesStartIndex: navigation.renderWindow.startIndex,
 		// A continuation badge belongs to its source even before reply placement is known.
 		addressingWakeProgressItems: panel.ephemeralActivityItems,
 		ephemeralActivityItems: presentation.mainActivityItems,
@@ -1458,6 +1478,8 @@ function useSpaceConversationPresentationController(
 
 function useSpaceConversationNavigationController(input: {
 	activeSpaceView: SpaceView;
+	entries: readonly SpaceConversationEntry[];
+	historyWindowIdentity: string | undefined;
 	isLiveHistory: boolean;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 	hasEarlierHistory: boolean;
@@ -1505,6 +1527,21 @@ function useSpaceConversationNavigationController(input: {
 		selfProfileId: input.selfProfileId,
 		viewport: conversationScrollElement,
 	});
+	const requestedMainFocusSignalId = resolveInitialMainFocusSignalId(input);
+	const initialMainFocusSignalId = requestedMainFocusSignalId
+		? resolveConversationFocusSignalId(
+				input.mainTimelineItems,
+				requestedMainFocusSignalId
+			)
+		: undefined;
+	const renderWindow = useSpaceConversationRenderWindow({
+		entries: input.entries,
+		requiredSignalIds: [
+			conversationPosition.restorationAnchorSignalId,
+			initialMainFocusSignalId,
+		],
+		scopeKey: `${scrollRestorationId}:${input.selfProfileId}:${input.historyWindowIdentity ?? "live"}`,
+	});
 	const conversationAutoScroll = conversationPosition.autoScroll;
 	const [latestNavigationRequest, setLatestNavigationRequest] = useState(0);
 	const followLatest = useLatestCallback(() => {
@@ -1541,45 +1578,63 @@ function useSpaceConversationNavigationController(input: {
 		},
 		[]
 	);
-	const jumpToMessage = useLatestCallback((requestedSignalId: string) => {
-		const signalId = resolveConversationFocusSignalId(
-			input.mainTimelineItems,
-			requestedSignalId
-		);
-		const messageElement = messageElementsBySignalIdRef.current.get(signalId);
-		if (!messageElement) {
-			return;
+	const [pendingPinJump, setPendingPinJump] =
+		useState<SpaceConversationPendingJump | null>(null);
+	// Loaded covers messages above the mounted window, which jumps mount first.
+	const isConversationMessageLoaded = (signalId: string) =>
+		messageElementsBySignalIdRef.current.has(signalId) ||
+		renderWindow.isHiddenSignal(signalId);
+	const jumpToMessage = useLatestCallback(
+		(requestedSignalId: string, options?: SpaceConversationJumpOptions) => {
+			const signalId = resolveConversationFocusSignalId(
+				input.mainTimelineItems,
+				requestedSignalId
+			);
+			const messageElement = messageElementsBySignalIdRef.current.get(signalId);
+			if (!messageElement) {
+				// A loaded message above the mounted window: mount it, then jump
+				// once its element exists (see the pending jump effect below).
+				if (renderWindow.revealSignal(signalId)) {
+					setPendingPinJump({ ...options, signalId });
+				}
+				return;
+			}
+			conversationPosition.releaseReadingPosition();
+			messageScrollActionRef.current?.(signalId, {
+				align: "center",
+				behavior: "instant",
+			});
+			const scrollElement = conversationScrollRef.current;
+			if (scrollElement) {
+				scrollMessageIntoConversationViewport({
+					messageElement,
+					offsetFromVisibleTop: options?.offsetFromVisibleTop,
+					scrollElement,
+				});
+			} else {
+				messageElement.scrollIntoView({ block: "center" });
+			}
+			messageElement.focus({ preventScroll: true });
+			setHighlightedSignalId(signalId);
+			if (highlightMessageTimerRef.current !== null) {
+				window.clearTimeout(highlightMessageTimerRef.current);
+			}
+			highlightMessageTimerRef.current = window.setTimeout(() => {
+				highlightMessageTimerRef.current = null;
+				setHighlightedSignalId(null);
+			}, 1800);
 		}
-		conversationPosition.releaseReadingPosition();
-		messageScrollActionRef.current?.(signalId, {
-			align: "center",
-			behavior: "instant",
-		});
-		const scrollElement = conversationScrollRef.current;
-		if (scrollElement) {
-			scrollMessageIntoConversationViewport({ messageElement, scrollElement });
-		} else {
-			messageElement.scrollIntoView({ block: "center" });
+	);
+	const onJumpToMessage = useLatestCallback(
+		(signalId: string, options?: SpaceConversationJumpOptions) => {
+			if (input.activeSpaceView === "messages") {
+				jumpToMessage(signalId, options);
+				return;
+			}
+			input.onSpaceViewChange("messages");
+			window.requestAnimationFrame(() => jumpToMessage(signalId, options));
 		}
-		messageElement.focus({ preventScroll: true });
-		setHighlightedSignalId(signalId);
-		if (highlightMessageTimerRef.current !== null) {
-			window.clearTimeout(highlightMessageTimerRef.current);
-		}
-		highlightMessageTimerRef.current = window.setTimeout(() => {
-			highlightMessageTimerRef.current = null;
-			setHighlightedSignalId(null);
-		}, 1800);
-	});
-	const onJumpToMessage = useLatestCallback((signalId: string) => {
-		if (input.activeSpaceView === "messages") {
-			jumpToMessage(signalId);
-			return;
-		}
-		input.onSpaceViewChange("messages");
-		window.requestAnimationFrame(() => jumpToMessage(signalId));
-	});
-	const [pendingPinJump, setPendingPinJump] = useState<string | null>(null);
+	);
 	const onOpenThread = useLatestCallback(
 		async (threadId: string, signalId?: string) => {
 			const thread = [...input.threadsByRootSignalId.values()].find(
@@ -1617,16 +1672,32 @@ function useSpaceConversationNavigationController(input: {
 			}
 		}
 	);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: A grown render window mounts the pending target's element.
 	useLayoutEffect(() => {
 		if (
-			pendingPinJump &&
-			input.mainTimelineItems.some((item) => item.id === pendingPinJump) &&
-			messageElementsBySignalIdRef.current.has(pendingPinJump)
+			!(
+				pendingPinJump &&
+				input.mainTimelineItems.some(
+					(item) => item.id === pendingPinJump.signalId
+				)
+			)
 		) {
-			jumpToMessage(pendingPinJump);
-			setPendingPinJump(null);
+			return;
 		}
-	}, [pendingPinJump, input.mainTimelineItems, jumpToMessage]);
+		if (messageElementsBySignalIdRef.current.has(pendingPinJump.signalId)) {
+			jumpToMessage(pendingPinJump.signalId, pendingPinJump);
+			setPendingPinJump(null);
+			return;
+		}
+		// A loaded target above the render window, for example one a history
+		// load placed beyond the newest entries: mount it, then jump next commit.
+		renderWindow.revealSignal(pendingPinJump.signalId);
+	}, [
+		pendingPinJump,
+		input.mainTimelineItems,
+		jumpToMessage,
+		renderWindow.startIndex,
+	]);
 	const revealHistoryTarget = async (signalId: string) => {
 		setMainFocusStatusMessage(null);
 		setPendingPinJump(null);
@@ -1638,14 +1709,14 @@ function useSpaceConversationNavigationController(input: {
 				if (result === "latest") {
 					followLatest();
 				} else {
-					setPendingPinJump(signalId);
+					setPendingPinJump({ signalId });
 				}
 			}
 		);
 		return Boolean(loaded);
 	};
 	const onJumpToPinnedMessage = useLatestCallback(async (signalId: string) => {
-		if (messageElementsBySignalIdRef.current.has(signalId)) {
+		if (isConversationMessageLoaded(signalId)) {
 			onJumpToMessage(signalId);
 			return;
 		}
@@ -1689,6 +1760,14 @@ function useSpaceConversationNavigationController(input: {
 		input.isLoadingEarlierHistory,
 		input.onLoadEarlierHistory,
 	]);
+	// The conversation mounts already loaded history before it asks for more.
+	const revealEarlierConversation = renderWindow.revealEarlier;
+	const loadEarlierConversation = useCallback(async () => {
+		if (revealEarlierConversation()) {
+			return;
+		}
+		await loadEarlierHistory();
+	}, [loadEarlierHistory, revealEarlierConversation]);
 	const revealUnreadTarget = useLatestCallback(
 		async (target: SpaceInboxUnreadTarget): Promise<boolean> => {
 			setMainFocusStatusMessage(null);
@@ -1706,7 +1785,7 @@ function useSpaceConversationNavigationController(input: {
 					return true;
 				}
 				const signalId = target.signalId;
-				if (messageElementsBySignalIdRef.current.has(signalId)) {
+				if (isConversationMessageLoaded(signalId)) {
 					jumpToMessage(signalId);
 				} else if (!(await revealHistoryTarget(signalId))) {
 					// The history owner keeps the failed target and its single Retry
@@ -1729,7 +1808,6 @@ function useSpaceConversationNavigationController(input: {
 			}
 		}
 	);
-	const requestedMainFocusSignalId = resolveInitialMainFocusSignalId(input);
 	const targetId =
 		input.initialFocusInteractionId ?? input.initialFocusSignalId ?? null;
 	const targetKey = targetId
@@ -1752,12 +1830,6 @@ function useSpaceConversationNavigationController(input: {
 		setMainFocusStatusMessage(null);
 		return () => focusHistoryRequestRef.current?.abort();
 	}, [targetKey, input.spaceId, input.initialFocusThreadRootSignalId]);
-	const initialMainFocusSignalId = requestedMainFocusSignalId
-		? resolveConversationFocusSignalId(
-				input.mainTimelineItems,
-				requestedMainFocusSignalId
-			)
-		: undefined;
 	useEffect(() => {
 		if (input.initialFocusThreadRootSignalId) {
 			return;
@@ -1825,7 +1897,10 @@ function useSpaceConversationNavigationController(input: {
 			input.initialFocusInteractionId ||
 			input.initialFocusSignalId ||
 			input.initialFocusThreadRootSignalId ||
-			!(scrollElement && input.hasEarlierHistory) ||
+			!(
+				scrollElement &&
+				(input.hasEarlierHistory || renderWindow.hasHiddenEntries)
+			) ||
 			input.isLoadingEarlierHistory ||
 			input.mainTimelineItems.length === 0 ||
 			scrollElement.clientHeight === 0 ||
@@ -1833,7 +1908,7 @@ function useSpaceConversationNavigationController(input: {
 		) {
 			return;
 		}
-		loadEarlierHistory().catch((error) => {
+		loadEarlierConversation().catch((error) => {
 			console.error("Failed to auto-load earlier space history.", error);
 		});
 	}, [
@@ -1843,7 +1918,8 @@ function useSpaceConversationNavigationController(input: {
 		input.initialFocusThreadRootSignalId,
 		input.isLoadingEarlierHistory,
 		input.mainTimelineItems.length,
-		loadEarlierHistory,
+		loadEarlierConversation,
+		renderWindow.hasHiddenEntries,
 	]);
 	useEffect(
 		() => () => {
@@ -1864,6 +1940,7 @@ function useSpaceConversationNavigationController(input: {
 		latestNavigationRequest,
 		releaseReadingPosition: conversationPosition.releaseReadingPosition,
 		highlightedSignalId,
+		loadEarlierConversation,
 		loadEarlierHistory,
 		mainFocusStatusMessage,
 		onConversationScroll,
@@ -1873,6 +1950,7 @@ function useSpaceConversationNavigationController(input: {
 		registerMessageElement,
 		onJumpToPinnedMessage,
 		onOpenThread,
+		renderWindow,
 		revealUnreadTarget,
 	};
 }
@@ -1944,6 +2022,15 @@ function SpacePrimaryView(input: {
 		</>
 	);
 }
+
+export type SpaceConversationJumpOptions = {
+	/** Place the message this far below the visible top, instead of centering it. */
+	offsetFromVisibleTop?: number;
+};
+
+type SpaceConversationPendingJump = SpaceConversationJumpOptions & {
+	signalId: string;
+};
 
 function resolveConversationFocusSignalId(
 	items: readonly SpaceTimelineItem[],
@@ -2320,6 +2407,8 @@ function renderConversationBody(input: {
 	emptyStateAlignment?: "start" | "center";
 	emptyStateTitle?: string;
 	entries: ReturnType<typeof buildSpaceConversationEntries>;
+	/** Entries before this index are loaded but not mounted yet. */
+	entriesStartIndex: number;
 	addressingWakeProgressItems: readonly SpaceEphemeralActivityItem[];
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 	firstUnreadSignalId: string | null;
@@ -2495,11 +2584,18 @@ function renderConversationBody(input: {
 	// next to the composer it blocks.
 	const memberAgentCardIsIssue = isMemberAgentIssueCard(input.memberAgentCard);
 
+	// The opening intro and welcome belong above the oldest entry, so they
+	// mount with it; mounting them earlier would also defeat the scroller's
+	// prepend anchoring, which keys off the first child changing.
+	const rendersConversationStart = input.entriesStartIndex === 0;
+
 	return (
 		<>
-			{centerAgentDirectMessageIntroItem}
-			{memberAgentCardIsIssue ? null : memberAgentCardItem}
-			{input.entries.map((entry) => {
+			{rendersConversationStart ? centerAgentDirectMessageIntroItem : null}
+			{memberAgentCardIsIssue || !rendersConversationStart
+				? null
+				: memberAgentCardItem}
+			{input.entries.map((entry, entryIndex) => {
 				const createdAtMs = resolveConversationEntryCreatedAtMs(entry);
 				const date = new Date(createdAtMs);
 				const dateKey = resolveLocalDateKey(date);
@@ -2522,6 +2618,9 @@ function renderConversationBody(input: {
 					firstSignalId === input.firstUnreadSignalId;
 				if (shouldRenderUnreadBoundary) {
 					unreadBoundaryRendered = true;
+				}
+				if (entryIndex < input.entriesStartIndex) {
+					return null;
 				}
 				const entryKey = resolveConversationEntryKey(entry);
 				const wrapEntry = (content: ReactNode) => (
@@ -2658,6 +2757,27 @@ function renderConversationBody(input: {
 			{memberAgentCardIsIssue ? memberAgentCardItem : null}
 		</>
 	);
+}
+
+/**
+ * While older entries are not mounted, the first mounted entry can share its
+ * day with them, so its date marker is not mounted either. The sticky date
+ * still names that day.
+ */
+function resolveConversationLeadingDateMs(
+	entries: readonly SpaceConversationEntry[],
+	startIndex: number
+): number | null {
+	const first = entries[startIndex];
+	const previous = entries[startIndex - 1];
+	if (!(first && previous)) {
+		return null;
+	}
+	const firstCreatedAtMs = resolveConversationEntryCreatedAtMs(first);
+	return resolveLocalDateKey(new Date(firstCreatedAtMs)) ===
+		resolveLocalDateKey(new Date(resolveConversationEntryCreatedAtMs(previous)))
+		? firstCreatedAtMs
+		: null;
 }
 
 function resolveConversationEntryCreatedAtMs(

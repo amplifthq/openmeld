@@ -9,6 +9,7 @@ import type {
 	UpsertProfileSpaceHistoryResponse,
 } from "@openmeld/schemas/types";
 import { getRequestHeaders } from "@tanstack/react-start/server";
+import { copyOpenMeldClientAddressHeader } from "#/lib/openmeld-api/gateway-upstream";
 import { proxyOpenMeldGatewayRequest } from "#/lib/openmeld-api/proxy";
 
 export async function upsertProfileSpaceHistoryFromRequest(input: {
@@ -57,6 +58,7 @@ export async function upsertProfileSpaceHistoryResponseFromRequest(input: {
 	if (cookie) {
 		headers.set("cookie", cookie);
 	}
+	copyOpenMeldClientAddressHeader({ from: requestHeaders, to: headers });
 
 	const body = {
 		gatewayHost,

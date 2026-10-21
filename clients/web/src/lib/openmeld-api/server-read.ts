@@ -5,6 +5,7 @@ import {
 	type CurrentUserSessionExpectation,
 	createDevSsrFetchFailure,
 } from "#/lib/dev-ssr-fetch-diagnostics";
+import { copyOpenMeldClientAddressHeader } from "./gateway-upstream";
 import { proxyOpenMeldGatewayRequest } from "./proxy";
 
 const OPENMELD_PUBLIC_ROUTE_PREFIX = "/v1/";
@@ -132,6 +133,8 @@ function createWebOpenMeldBoundaryRequest(input: {
 	if (input.openMeldProfileId) {
 		headers.set(OPENMELD_HEADER_PROFILE_ID, input.openMeldProfileId);
 	}
+	// The proxy forwards this only across the Gateway Service Binding.
+	copyOpenMeldClientAddressHeader({ from: input.requestHeaders, to: headers });
 
 	return new Request(new URL(input.path, input.webAppUrl), {
 		method: "GET",

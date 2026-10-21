@@ -713,6 +713,104 @@ describe("BrowserQueryPersistenceController", () => {
 		controller.deactivate();
 	});
 
+	it("switches Spaces without waiting for the previous Space's save, and clears only after it lands", async () => {
+		const baseStore = createTestStore();
+		const spaceAScopeId = buildSpaceConversationQueryCacheScopeId(
+			"space-a",
+			"profile-a"
+		);
+		let releaseWrite: (() => void) | undefined;
+		const gatedSetItem = vi.fn();
+		const store: DexieQueryCacheStore = {
+			...baseStore,
+			createStorage: (scope) => {
+				const storage = baseStore.createStorage(scope);
+				if (scope.scopeId !== spaceAScopeId) {
+					return storage;
+				}
+				return {
+					...storage,
+					setItem: async (key, value) => {
+						gatedSetItem();
+						await new Promise<void>((resolve) => {
+							releaseWrite = resolve;
+						});
+						await storage.setItem(key, value);
+					},
+				};
+			},
+		};
+		const queryClient = createQueryClient();
+		const controller = createBrowserQueryPersistenceController({
+			restoreBudgetMs: 100,
+			store,
+			// Long enough that the switch, not the timer, flushes Space A.
+			throttleTimeMs: 200,
+		});
+		const scope = {
+			organizationId: "organization-a",
+			organizationSlug: "organization-a",
+			ownerAccountId: "account-a",
+			queryClient,
+		};
+		await controller.activateAuthorizedScope(scope);
+		await controller.activateSpaceConversation({
+			...scope,
+			spaceId: "space-a",
+			openMeldProfileId: "profile-a",
+		});
+		queryClient.setQueryData(spaceQueryKeys.history("space-a", "profile-a"), {
+			envelopes: [createTextSignal("pending", "space-a", "profile-a")],
+			nextCursor: null,
+		});
+		await controller.activateSpaceConversation({
+			...scope,
+			spaceId: "space-b",
+			openMeldProfileId: "profile-a",
+		});
+		// The outgoing snapshot was captured at the switch; its write is still
+		// in flight while the next Space is already active.
+		await vi.waitFor(() => expect(gatedSetItem).toHaveBeenCalledOnce());
+		expect(releaseWrite).toBeDefined();
+		const spaceBHistoryKey = spaceQueryKeys.history("space-b", "profile-a");
+		queryClient.setQueryData(spaceBHistoryKey, {
+			envelopes: [createTextSignal("next", "space-b", "profile-a")],
+			nextCursor: null,
+		});
+		await waitForStoredQuery(
+			baseStore.createStorage({
+				organizationId: "organization-a",
+				ownerAccountId: "account-a",
+				scopeAlias: "organization-a",
+				scopeId: buildSpaceConversationQueryCacheScopeId(
+					"space-b",
+					"profile-a"
+				),
+				scopeKind: "space",
+			}),
+			spaceBHistoryKey
+		);
+		let cleared = false;
+		const clearing = controller.clearActiveAccount().then(() => {
+			cleared = true;
+		});
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(cleared).toBe(false);
+		releaseWrite?.();
+		await clearing;
+		expect(
+			await baseStore
+				.createStorage({
+					organizationId: "organization-a",
+					ownerAccountId: "account-a",
+					scopeAlias: "organization-a",
+					scopeId: spaceAScopeId,
+					scopeKind: "space",
+				})
+				.getItem("tanstack-query-cache")
+		).toBeNull();
+	});
+
 	it("does not write a delayed Space snapshot after account cleanup", async () => {
 		const store = createTestStore();
 		const queryClient = createQueryClient();

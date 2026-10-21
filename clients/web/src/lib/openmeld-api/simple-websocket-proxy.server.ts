@@ -1,3 +1,9 @@
+import {
+	applyOpenMeldGatewayClientAddress,
+	type OpenMeldGatewayUpstream,
+	resolveOpenMeldGatewayUpstream,
+} from "./gateway-upstream";
+
 type AcceptableWebSocket = WebSocket & { accept(): void };
 type AcceptableWebSocketPair = [WebSocket, AcceptableWebSocket];
 
@@ -17,6 +23,7 @@ export async function proxySimpleWebSocketRequest(input: {
 	webAppUrl: string;
 	pathPattern: RegExp;
 	fetchImpl?: typeof fetch;
+	gatewayUpstream?: OpenMeldGatewayUpstream;
 }): Promise<Response> {
 	if (input.request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
 		return Response.json(
@@ -37,7 +44,16 @@ export async function proxySimpleWebSocketRequest(input: {
 		headers.set("cookie", cookie);
 	}
 	headers.set("origin", input.request.headers.get("origin") ?? input.webAppUrl);
-	const response = await (input.fetchImpl ?? fetch)(upstreamUrl, {
+	const gatewayUpstream = await resolveOpenMeldGatewayUpstream({
+		upstream: input.gatewayUpstream,
+		fetchImpl: input.fetchImpl,
+	});
+	applyOpenMeldGatewayClientAddress({
+		upstream: gatewayUpstream,
+		requestHeaders: input.request.headers,
+		upstreamHeaders: headers,
+	});
+	const response = await gatewayUpstream.fetch(upstreamUrl, {
 		method: "GET",
 		headers,
 	});

@@ -605,6 +605,11 @@ async function stageSessionPage(input: {
       values: [input.sourceScopeKey],
     });
   }
+  // One multi-row INSERT per page (at most
+  // AGENT_ACTIVITY_SESSION_RECONCILIATION_PAGE_MAX rows) instead of one
+  // statement per session: same rows, same transaction, far fewer round trips.
+  const candidateValues: unknown[] = [];
+  const candidateRows: string[] = [];
   for (const session of input.reconciliation.sessions) {
     const candidateId = await sha256Key([
       input.sourceScopeKey,
@@ -612,6 +617,37 @@ async function stageSessionPage(input: {
       input.reconciliation.agentControllerRef,
       session.nativeSessionId,
     ]);
+    const rowValues = [
+      candidateId,
+      input.sourceScopeKey,
+      input.reconciliation.reconciliationId,
+      input.reconciliation.pageIndex,
+      input.authority.organizationId,
+      input.authority.ownerUserId,
+      input.reconciliation.agentControllerRef,
+      session.nativeSessionId,
+      input.reconciliation.projectId,
+      input.authority.deviceId,
+      input.authority.connectedComputerId,
+      input.reconciliation.localConnectionId,
+      input.reconciliation.provider,
+      session.nativeSessionTitle,
+      session.status,
+      session.lastActiveAtMs,
+      session.startedAtMs,
+      session.origin,
+      session.canResume ? 1 : 0,
+      session.canFork ? 1 : 0,
+      input.reconciliation.observedAtMs,
+      input.nowMs,
+    ];
+    const offset = candidateValues.length;
+    candidateRows.push(
+      `(${rowValues.map((_, index) => `$${offset + index + 1}`).join(", ")})`
+    );
+    candidateValues.push(...rowValues);
+  }
+  if (candidateRows.length > 0) {
     statements.push({
       text: `
             INSERT INTO "openmeld"."agent_activity_session_inventory_candidates" (
@@ -621,32 +657,9 @@ async function stageSessionPage(input: {
               connected_computer_id, local_connection_id, provider,
               native_session_title, status, last_active_at_ms, started_at_ms,
               origin, can_resume, can_fork, observed_at_ms, created_at_ms
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+            ) VALUES ${candidateRows.join(", ")}
           `,
-      values: [
-        candidateId,
-        input.sourceScopeKey,
-        input.reconciliation.reconciliationId,
-        input.reconciliation.pageIndex,
-        input.authority.organizationId,
-        input.authority.ownerUserId,
-        input.reconciliation.agentControllerRef,
-        session.nativeSessionId,
-        input.reconciliation.projectId,
-        input.authority.deviceId,
-        input.authority.connectedComputerId,
-        input.reconciliation.localConnectionId,
-        input.reconciliation.provider,
-        session.nativeSessionTitle,
-        session.status,
-        session.lastActiveAtMs,
-        session.startedAtMs,
-        session.origin,
-        session.canResume ? 1 : 0,
-        session.canFork ? 1 : 0,
-        input.reconciliation.observedAtMs,
-        input.nowMs,
-      ],
+      values: candidateValues,
     });
   }
   statements.push({

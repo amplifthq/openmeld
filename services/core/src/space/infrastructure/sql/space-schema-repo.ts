@@ -7,13 +7,15 @@ import { ensureSpaceExecutionInputOutbox } from "./space-execution-input-repo";
 import { SpaceFileUpdateRepository } from "./space-file-update-repo";
 import { ensureSpaceInboxContactTable } from "./space-inbox-contact-repo";
 import { ensureSpaceInboxProjectionSelectionsTable } from "./space-inbox-projection-outbox-repo";
+import { ensureSpaceMemberDisplayCacheTables } from "./space-member-display-cache-repo";
 import { ensurePendingWakeStopTable } from "./space-pending-wake-stop-repo";
+import { ensureSpaceProfileLineageTable } from "./space-profile-lineage-repo";
 import { ensureSpaceReactionTables } from "./space-reaction-repo";
 import { SpaceTaskDeliveryRepository } from "./space-task-delivery-repo";
 import { ensureSpaceTaskTables } from "./space-task-repo";
 
-export const SPACE_SQL_SCHEMA_VERSION = 53;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v53";
+export const SPACE_SQL_SCHEMA_VERSION = 54;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v54";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -46,6 +48,8 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   ensureSpaceInboxProjectionSelectionsTable(sql);
   ensureSpaceTaskTables(sql);
   new SpaceTaskDeliveryRepository(sql).initialize();
+  ensureSpaceProfileLineageTable(sql);
+  ensureSpaceMemberDisplayCacheTables(sql);
   sql.exec(`CREATE TABLE IF NOT EXISTS space_file_pins (
     signal_id TEXT PRIMARY KEY,
     pinned_by_profile_id TEXT NOT NULL,
