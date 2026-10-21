@@ -1,12 +1,12 @@
 {
-  "version": "0.3.267",
+  "version": "0.3.268",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Shows the MemberAgent agent and session commands now that MEMBER_AGENTS_ENABLED is on, refreshes security dependencies, and corrects the OpenCode provider model inventory. Older CLIs keep working and only hide those commands; wire schemas are unchanged, so the mandatory CLI floor stays at 0.3.251."
+    "reason": "Test tooling only: Vitest 4 and the Cloudflare Vitest plugin replace the deprecated Workers pool, with no shipped CLI code, command, or wire-contract change; the mandatory CLI floor stays at 0.3.251."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Security dependency refresh and nested OpenCode model IDs preserve existing setup, transport and Wake contracts; the mandatory Service floor stays at 0.3.264."
+    "reason": "The mandatory Service floor remains 0.3.264. Only test dependencies and the lockfile change; Service transport, execution, and Wake contracts are unchanged."
   },
   "skills": {
     "updatePolicy": "available",
