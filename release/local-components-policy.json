@@ -1,12 +1,12 @@
 {
-  "version": "0.3.266",
+  "version": "0.3.267",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Security dependency refresh (MCP SDK 1.32.1, proxy-addr 2.0.8) with no command, flag, or wire-contract change; the mandatory CLI floor stays at 0.3.251."
+    "reason": "Security dependency refresh and corrected OpenCode provider model inventory do not change CLI commands or wire schemas; the mandatory CLI floor stays at 0.3.251."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "The mandatory Service floor remains 0.3.264. Only dependency versions change; Service transport, execution, and the Claude Code adapter contract are unchanged."
+    "reason": "Security dependency refresh and nested OpenCode model IDs preserve existing setup, transport and Wake contracts; the mandatory Service floor stays at 0.3.264."
   },
   "skills": {
     "updatePolicy": "available",
