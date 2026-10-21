@@ -12,7 +12,7 @@ import type {
   SubmitAgentActivityEventsResponse,
 } from "@openmeld/schemas/types";
 import {
-  readProjectRecord,
+  readProjectLifecycleRecord,
   readProjectRepositorySettingsRecord,
 } from "../projects/project-repository";
 import type { VerifiedRuntimeReportingAuthority } from "../runtime-reporting/runtime-reporting-authority";
@@ -109,7 +109,7 @@ async function acceptValidatedEvent(input: {
   if (membership.userId !== input.runtime.ownerUserId) {
     return reject(input, "membership_removed", "permanent_rejected");
   }
-  const project = await readProjectRecord({
+  const project = await readProjectLifecycleRecord({
     db: input.db,
     organizationId: input.event.organizationId,
     projectId: input.event.projectId,
