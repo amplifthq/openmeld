@@ -19,8 +19,8 @@ import {
 // Harnesses; both are no-store owner reads/writes.
 export function registerMemberAgentRoutes(app: Hono<HonoBindings>): void {
   app.post(MEMBER_AGENT_SYNC_ROUTE, async (c) => {
-    // An empty body finishes existing Agents; `createHarnessKinds` adds the
-    // Harnesses the member chose.
+    // Every Harness turned on in Local agents gets an Agent; `createHarnessKinds`
+    // names the ones the member just chose ("add" turns a turned-off one on).
     const parsed = await parseJsonBody(c, syncMemberAgentsRequestSchema);
     if (!parsed.ok) {
       return parsed.response;
