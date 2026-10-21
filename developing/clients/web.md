@@ -1175,6 +1175,11 @@ The selected scope, search, filters, sorting, and grouping are browser preferenc
 scoped to the current account and workspace, so returning from detail restores
 the list. These preferences contain no Profile, permission, or readiness facts.
 My Agents adds no separate navigation destination, identity, or permission owner.
+Under the signed-in member's own Agents, an unfiltered list shows **Found on
+your computers**: the installed harnesses that are turned off in Local agents,
+from Core's catalog sync, each with **Add**. Add asks Core to add that harness,
+which turns it on where it is installed and creates its Agent and Direct
+Message (`developing/product/agent-profiles.md`, MemberAgent Layer).
 Agent cards in the list draw their hover background on their own card layer;
 the menu-level shared hover indicator stays off behind opaque cards. Every
 group header, including the signed-in member's own Agents, offers the shared

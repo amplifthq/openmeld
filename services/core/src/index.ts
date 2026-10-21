@@ -528,6 +528,7 @@ import {
   rpcSubmitRuntimeAgentControllerReportsWithMemberAgents,
   rpcSyncMemberAgents,
   type SyncMemberAgentsRpcInput,
+  setLocalAgentEnabledWithMemberAgents,
 } from "./member-agent/member-agent-rpc";
 import { rpcCenterAgentManageOrganizationDocuments } from "./organization-documents/center-agent-document-rpc";
 import {
@@ -4573,7 +4574,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: Parameters<typeof rpcSetPeopleComputerLocalAgentEnabled>[1]
   ) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
-      rpcSetPeopleComputerLocalAgentEnabled(this.env, input)
+      setLocalAgentEnabledWithMemberAgents(this.env, input, (current) =>
+        rpcSetPeopleComputerLocalAgentEnabled(this.env, current)
+      )
     );
   }
   getPeopleComputerLocalAgentInstallations(
@@ -4643,7 +4646,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: SetCurrentLocalAgentEnabledInput
   ): Promise<SetCurrentLocalAgentEnabledResponse> {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
-      rpcSetCurrentLocalAgentEnabled(this.env, input)
+      setLocalAgentEnabledWithMemberAgents(this.env, input, (current) =>
+        rpcSetCurrentLocalAgentEnabled(this.env, current)
+      )
     );
   }
   getCurrentLocalAgentInstallations(

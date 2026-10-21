@@ -20,8 +20,24 @@ export const HARNESS_CATALOG_REPORT_RECENCY_MS = 10 * 60_000;
 export type HarnessReportDetection = "detected" | "undetected" | "unknown";
 
 const NOT_DETECTED_REASON_CODE = "local_agent_preparation.not_detected";
+const NOT_ENABLED_REASON_CODE = "local_agent_preparation.not_enabled";
+
+/**
+ * The Local agents switch from one report: a turned-off controller reports
+ * `disabled`, or another status with the `not_enabled` reason (the same
+ * reading as the runtime registry's capability `enabled`).
+ */
+export function isLocalAgentReportEnabled(report: {
+  reasonCodes: readonly string[];
+  status: RuntimeAgentControllerReportStatus;
+}): boolean {
+  return (
+    report.status !== "disabled" &&
+    !report.reasonCodes.includes(NOT_ENABLED_REASON_CODE)
+  );
+}
 const UNKNOWN_INSTALLATION_REASON_CODES = new Set([
-  "local_agent_preparation.not_enabled",
+  NOT_ENABLED_REASON_CODE,
   "local_agent_preparation.not_supported_yet",
 ]);
 

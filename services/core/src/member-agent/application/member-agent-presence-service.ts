@@ -39,8 +39,9 @@ export function buildOnlineRuntimeKey(input: {
 /**
  * Derive each MemberAgent's presence at read time
  * (design-plans/member-agent-program.md §4.1). Nothing is stored: the
- * computers come from the debounced Harness catalog, availability from the
- * Profiles' existing Wakeability, and counts from their existing workload.
+ * computers come from the debounced Harness catalog (turned-on Harnesses
+ * only), availability from the Profiles' existing Wakeability, and counts
+ * from their existing workload.
  */
 export async function readMemberAgentPresence(
   deps: MemberAgentPresenceDeps
@@ -72,7 +73,10 @@ export async function readMemberAgentPresence(
             .filter(
               (harness) =>
                 harness.harnessKind === memberAgent.harnessKind &&
-                harness.present
+                harness.present &&
+                // Turned off in Local agents: the computer no longer offers
+                // it, so an Agent turned off everywhere reads as missing.
+                harness.enabled
             )
             .map((harness) => ({
               openMeldServiceRuntimeId: harness.openMeldServiceRuntimeId,
