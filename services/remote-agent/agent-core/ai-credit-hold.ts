@@ -137,14 +137,18 @@ const PROMPT_BYTES_PER_TOKEN = 3;
 // Above the largest per-image charge of the reviewed providers at their
 // maximum input resolution.
 const IMAGE_INPUT_TOKENS = 6000;
-// Server tools add retrieved content to a second model pass.
+// Each server-tool step adds retrieved content and another model pass.
+// OpenRouter shares one step budget across server tools: `max_tool_calls`,
+// default and maximum 30.
+const MAX_SERVER_TOOL_STEPS = 30;
 const WEB_SEARCH_RESULT_TOKENS = 4000;
 const DEFAULT_WEB_SEARCH_RESULTS = 5;
 const DEFAULT_WEB_FETCH_CONTENT_TOKENS = 30_000;
 // OpenRouter server-tool engine fees, reviewed 2026-10-21 from
 // https://openrouter.ai/docs/guides/features/server-tools/web-search and
-// .../web-fetch. Search without native pricing falls back to Exa, reserved at
-// its most expensive mode: per request with 10 results, plus each extra result.
+// .../web-fetch. Fees are per search or fetch call. Search without native
+// pricing falls back to Exa, reserved at its most expensive mode: per call with
+// 10 results, plus each extra result.
 const EXA_SEARCH_REQUEST_USD = 0.015;
 const EXA_SEARCH_INCLUDED_RESULTS = 10;
 const EXA_SEARCH_EXTRA_RESULT_USD = 0.001;
@@ -198,14 +202,14 @@ export function estimateRemoteAiCreditHold(input: {
   if (maxOutputTokens === null) {
     return { status: "unavailable", reason: "missing_output_limit" };
   }
-  const serverTools = estimateServerTools(input.body.tools, price);
+  const serverTools = estimateServerTools(input.body, price);
   if (!serverTools) {
     return { status: "unavailable", reason: "unsupported_request" };
   }
-  const bodyTokens = estimatePromptTokens(input.body);
-  const estimatedInputTokens = serverTools.used
-    ? 2 * bodyTokens + serverTools.contentTokens
-    : bodyTokens;
+  // Every step re-sends the prompt with the content retrieved so far.
+  const estimatedInputTokens =
+    (serverTools.steps + 1) * estimatePromptTokens(input.body) +
+    serverTools.steps * serverTools.contentTokens;
   const band =
     price.tier && estimatedInputTokens >= price.tier.minPromptTokens
       ? price.tier
@@ -250,14 +254,23 @@ function estimatePromptTokens(body: Record<string, unknown>) {
   );
 }
 
-function estimateServerTools(tools: unknown, price: ReviewedModelPrice) {
-  const total = { used: false, feeUsd: 0, contentTokens: 0 };
+function estimateServerTools(
+  body: Record<string, unknown>,
+  price: ReviewedModelPrice
+) {
+  const { tools } = body;
+  const total = { steps: 0, feeUsd: 0, contentTokens: 0 };
   if (tools === undefined) {
     return total;
   }
   if (!Array.isArray(tools)) {
     return null;
   }
+  const stepBudget = Math.min(
+    readPositiveInteger(body.max_tool_calls) ?? MAX_SERVER_TOOL_STEPS,
+    MAX_SERVER_TOOL_STEPS
+  );
+  let calls = 0;
   for (const tool of tools) {
     const type =
       tool && typeof tool === "object" && "type" in tool ? tool.type : null;
@@ -268,33 +281,44 @@ function estimateServerTools(tools: unknown, price: ReviewedModelPrice) {
       tool && typeof tool === "object" && "parameters" in tool
         ? (tool.parameters as Record<string, unknown> | null)
         : null;
-    const estimate = estimateServerTool(type, parameters ?? {}, price);
+    const estimate = estimateServerTool(
+      type,
+      parameters ?? {},
+      price,
+      stepBudget
+    );
     // Unknown tools and engines whose fees are not reviewed fail closed.
     if (!estimate) {
       return null;
     }
-    total.used = true;
+    calls += estimate.calls;
     total.feeUsd += estimate.feeUsd;
     total.contentTokens += estimate.contentTokens;
   }
+  total.steps = Math.min(stepBudget, calls);
   return total;
 }
 
 function estimateServerTool(
   type: unknown,
   parameters: Record<string, unknown>,
-  price: ReviewedModelPrice
+  price: ReviewedModelPrice,
+  stepBudget: number
 ) {
   const engine = parameters.engine ?? "auto";
   if (type === "openrouter:web_search") {
-    const results =
-      readPositiveInteger(parameters.max_total_results) ??
-      readPositiveInteger(parameters.max_results) ??
-      DEFAULT_WEB_SEARCH_RESULTS;
-    const feeUsd = webSearchFeeUsd(engine, results, price);
+    // `max_uses` binds only Anthropic native search, so every step may search.
+    const calls = stepBudget;
+    const perCall =
+      readPositiveInteger(parameters.max_results) ?? DEFAULT_WEB_SEARCH_RESULTS;
+    const results = Math.min(
+      readPositiveInteger(parameters.max_total_results) ?? calls * perCall,
+      calls * perCall
+    );
+    const feeUsd = webSearchFeeUsd(engine, { calls, perCall, results }, price);
     return feeUsd === null
       ? null
-      : { feeUsd, contentTokens: results * WEB_SEARCH_RESULT_TOKENS };
+      : { calls, feeUsd, contentTokens: results * WEB_SEARCH_RESULT_TOKENS };
   }
   if (type !== "openrouter:web_fetch") {
     return null;
@@ -306,11 +330,15 @@ function estimateServerTool(
   if (perFetchUsd === undefined) {
     return null;
   }
-  const uses = readPositiveInteger(parameters.max_uses) ?? 1;
+  const calls = Math.min(
+    readPositiveInteger(parameters.max_uses) ?? stepBudget,
+    stepBudget
+  );
   return {
-    feeUsd: uses * perFetchUsd,
+    calls,
+    feeUsd: calls * perFetchUsd,
     contentTokens:
-      uses *
+      calls *
       (readPositiveInteger(parameters.max_content_tokens) ??
         DEFAULT_WEB_FETCH_CONTENT_TOKENS),
   };
@@ -318,21 +346,27 @@ function estimateServerTool(
 
 function webSearchFeeUsd(
   engine: unknown,
-  results: number,
+  search: { calls: number; perCall: number; results: number },
   price: ReviewedModelPrice
 ) {
   const exa =
-    EXA_SEARCH_REQUEST_USD +
+    search.calls * EXA_SEARCH_REQUEST_USD +
     EXA_SEARCH_EXTRA_RESULT_USD *
-      Math.max(0, results - EXA_SEARCH_INCLUDED_RESULTS);
+      Math.min(
+        search.results,
+        search.calls * Math.max(0, search.perCall - EXA_SEARCH_INCLUDED_RESULTS)
+      );
+  // Native fees are passed through; reserve the reviewed fee per call or result.
   const native =
-    price.webSearchUsd === undefined ? null : results * price.webSearchUsd;
+    price.webSearchUsd === undefined
+      ? 0
+      : Math.max(search.calls, search.results) * price.webSearchUsd;
   if (engine === "exa") {
     return exa;
   }
   // Auto and native use native search when the model has it, otherwise Exa.
   if (engine === "auto" || engine === "native") {
-    return Math.max(exa, native ?? 0);
+    return Math.max(exa, native);
   }
   return null;
 }

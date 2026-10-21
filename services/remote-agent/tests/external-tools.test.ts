@@ -132,6 +132,7 @@ describe("Remote Agent external tools", () => {
     expect(providerHeaders.has("cf-aig-byok-alias")).toBe(false);
     // The explicit output cap bounds the platform credit hold.
     expect(JSON.parse(String(providerInit?.body)).max_tokens).toBe(8192);
+    expect(JSON.parse(String(providerInit?.body)).max_tool_calls).toBe(3);
     expect(writeDataPoint).toHaveBeenCalledWith(
       expect.objectContaining({
         indexes: ["org_123"],

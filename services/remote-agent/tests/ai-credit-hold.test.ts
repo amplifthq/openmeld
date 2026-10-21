@@ -177,11 +177,33 @@ describe("Remote AI credit holds", () => {
       body: {
         model: modelId,
         max_tokens: 8192,
+        max_tool_calls: 3,
         messages: [{ role: "user", content: "research" }],
         tools: [tool],
       },
     });
     expect(hold.status).toBe("estimated");
+  });
+
+  it("reserves a search fee for every server-tool step the request allows", () => {
+    const searchHold = (steps?: number) =>
+      estimateRemoteAiCreditHold({
+        modelId: "deepseek/deepseek-v4.1-flash",
+        body: {
+          model: "deepseek/deepseek-v4.1-flash",
+          max_tokens: 8192,
+          ...(steps ? { max_tool_calls: steps } : {}),
+          messages: [{ role: "user", content: "news" }],
+          tools: [researchTools.web_search],
+        },
+      });
+    const nanoUsd = (hold: ReturnType<typeof searchHold>) =>
+      hold.status === "estimated" ? hold.nanoUsd : Number.NaN;
+    // Five one-result searches within max_total_results still pay five fees.
+    expect(nanoUsd(searchHold(5))).toBeGreaterThan(1.25 * 5 * 15_000_000);
+    // Without max_tool_calls, OpenRouter allows up to 30 steps; larger caps clamp.
+    expect(nanoUsd(searchHold())).toBeGreaterThan(1.25 * 30 * 15_000_000);
+    expect(nanoUsd(searchHold(100))).toBe(nanoUsd(searchHold(999)));
   });
 
   it("prices research fees by engine, separately from model tokens", () => {
