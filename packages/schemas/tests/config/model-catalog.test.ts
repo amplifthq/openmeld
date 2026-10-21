@@ -22,6 +22,7 @@ import openCodeLatestReviewCapture from "../fixtures/opencode-model-catalog-2026
 import openCodeAlignmentCapture from "../fixtures/opencode-model-catalog-2026.10.09.json";
 import openCodeOctober14Capture from "../fixtures/opencode-model-catalog-2026.10.14.json";
 import openCodeOctober18Capture from "../fixtures/opencode-model-catalog-2026.10.18.json";
+import openCodeOctober21Capture from "../fixtures/opencode-model-catalog-2026.10.21.json";
 import museWonderCapture from "../fixtures/opencode-muse-wonder-2026.10.13.json";
 
 describe("model catalog schema", () => {
@@ -186,6 +187,7 @@ describe("model catalog schema", () => {
       ...museWonderCapture.models,
       ...openCodeOctober14Capture.models,
       ...openCodeOctober18Capture.models,
+      ...openCodeOctober21Capture.models,
     ]) {
       expect(agentControllers.opencode?.models).toContainEqual(
         expect.objectContaining({
@@ -259,6 +261,9 @@ describe("model catalog schema", () => {
           (model) => `${model.providerID}/${model.id}`
         ),
         ...openCodeOctober18Capture.models.map(
+          (model) => `${model.providerID}/${model.id}`
+        ),
+        ...openCodeOctober21Capture.models.map(
           (model) => `${model.providerID}/${model.id}`
         ),
         "gemini-4-argon-medium",
