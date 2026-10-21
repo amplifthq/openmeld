@@ -72,8 +72,12 @@ the exact request body and sends `providerAuthorizationVersion: 2` with a
 requested `max_tokens`/`max_completion_tokens` × output price + server research
 fees). Prompt tokens are UTF-8 body bytes ÷ 3 plus 6,000 tokens per image; the
 higher OpenRouter price band applies once the estimate reaches its threshold.
-Server web search and fetch tools add their per-use fee, retrieved content, and
-a second model pass. Pro variants reserve their output cap twice. Prices come
+Server web search and fetch tools add retrieved content, a second model pass,
+and the fee of their selected engine, which is separate from model token prices:
+the direct `openrouter` fetch engine is free; search with `auto` or `native`
+reserves the larger of the model's native search fee and the Exa fallback
+(OpenRouter falls back to Exa for models without native search). Engines without
+a reviewed fee fail closed. Pro variants reserve their output cap twice. Prices come
 from the reviewed table in `services/remote-agent/agent-core/ai-credit-hold.ts`;
 a test keeps it equal to the captured OpenRouter prices and requires a price for
 every hosted catalog model. The 1.25 margin covers price drift between reviews
@@ -100,8 +104,11 @@ its hold in the same transaction, so concurrent begins see each other's holds.
 - A **new task** (no earlier platform hold for the same execution attempt this
   month, or no attempt ID) needs `available ≥ 300 credits` and
   `hold ≤ available`. It also reads the live provider balance first, outside the
-  lock, and uses the smaller of the local and provider balances. This keeps the
-  provider configuration check and covers usage the local ledger cannot see.
+  lock. Under the lock it subtracts what that read cannot see: holds still
+  unsettled, and costs of requests admitted after the read. It then uses the
+  smaller of the local and provider balances. This keeps the provider
+  configuration check, covers usage the local ledger cannot see, and stops
+  concurrent new tasks from reserving the same provider remainder.
 - A **continuation** of an attempt that already holds platform credits is
   admitted while `available > 0`, even when its hold exceeds the remainder. This
   one-request grace keeps high-frequency tool loops from stopping one call short.
@@ -124,12 +131,14 @@ transport failures. Expiry was chosen over a reconciliation job so a lost
 settlement cannot permanently lock a workspace out of its credits; the native key
 limit still charges the true cost.
 
-**Residual overshoot.** Concurrent admission cannot jointly exceed the
-allowance. The remaining bounded overshoot is: one continuation's hold past zero;
+**Residual overshoot.** Concurrent admission cannot jointly exceed the local
+allowance, nor the provider balance net of the holds Core knows about. The remaining bounded overshoot is: one continuation's hold past zero;
 an actual cost above its estimate (the 1.25 margin makes this unlikely for priced
 text, but an unusual tokenizer or server-tool result can exceed it); costs of
 expired or unknown-cost holds after 30 minutes; and, in the rollout month only,
-continuations of tasks that the local ledger cannot fully see. Each is capped by
+continuations of tasks that the local ledger cannot fully see; and costs settled
+between a new task's provider read and its admission that the provider had not
+yet counted. Each is capped by
 the OpenRouter native key limit, which keeps its own propagation delay.
 
 The monthly aggregate scans that workspace's remote rows for the month through
