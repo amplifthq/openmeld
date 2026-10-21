@@ -15,6 +15,7 @@ import type {
 } from "@openmeld/protocol";
 import type {
   GetMemberAgentPresenceResponse,
+  ListMemberAgentDirectMessageSessionsResponse,
   RequestCredential,
   SpacePreferencesRpc,
   SyncMemberAgentsResponse,
@@ -520,8 +521,10 @@ import {
 } from "./inbox/transport/rpc/inbox-rpc";
 import type { CoreBindings } from "./lib/bindings";
 import {
+  type ListMemberAgentDirectMessageSessionsRpcInput,
   type MemberAgentRpcInput,
   rpcGetMemberAgentPresence,
+  rpcListMemberAgentDirectMessageSessions,
   rpcSubmitRuntimeAgentControllerReportsWithMemberAgents,
   rpcSyncMemberAgents,
   type SyncMemberAgentsRpcInput,
@@ -4467,6 +4470,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcGetMemberAgentPresence(this.env, input)
     );
   }
+  listMemberAgentDirectMessageSessions(
+    input: ListMemberAgentDirectMessageSessionsRpcInput
+  ): Promise<ListMemberAgentDirectMessageSessionsResponse> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListMemberAgentDirectMessageSessions(this.env, input)
+    );
+  }
   listAgentAccessRequests(
     input: Parameters<typeof rpcListAgentAccessRequests>[1]
   ) {
@@ -6705,6 +6715,11 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: MemberAgentRpcInput
   ): Promise<GetMemberAgentPresenceResponse> {
     return super.getMemberAgentPresence(input);
+  }
+  listMemberAgentDirectMessageSessions(
+    input: ListMemberAgentDirectMessageSessionsRpcInput
+  ): Promise<ListMemberAgentDirectMessageSessionsResponse> {
+    return super.listMemberAgentDirectMessageSessions(input);
   }
   listAgentAccessRequests(
     input: Parameters<typeof rpcListAgentAccessRequests>[1]

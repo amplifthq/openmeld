@@ -21,7 +21,7 @@ const REVIEWER_PROFILE = "agt_00000000-0000-4000-8000-0000000000c2";
 function presenceDeps(input: {
   contexts?: Record<string, RuntimeTransportAgentProfileOperationalContext>;
   entries: RuntimeHarnessCatalogEntry[];
-  online?: string[] | null;
+  online?: string[] | Error;
   wake?: Record<string, "available" | "checking" | "offline" | "unavailable">;
 }): MemberAgentPresenceDeps {
   return {
@@ -49,15 +49,17 @@ function presenceDeps(input: {
       ]),
     listRuntimeHarnesses: async () =>
       projectRuntimeHarnesses({ entries: input.entries, nowMs: NOW_MS }),
-    readOnlineRuntimeKeys: async () =>
-      input.online === null
-        ? null
-        : new Set(
-            (input.online ?? []).map((runtimeId) =>
-              buildOnlineRuntimeKey({
-                deviceId: `device-${runtimeId}`,
-                lane: "prod",
-              })
+    readOnlineRuntimeKeys: () =>
+      input.online instanceof Error
+        ? Promise.reject(input.online)
+        : Promise.resolve(
+            new Set(
+              (input.online ?? []).map((runtimeId) =>
+                buildOnlineRuntimeKey({
+                  deviceId: `device-${runtimeId}`,
+                  lane: "prod",
+                })
+              )
             )
           ),
     readOperationalContexts: async () =>
@@ -163,17 +165,19 @@ describe("readMemberAgentPresence", () => {
     expect(presence?.state).toBe("all_offline");
   });
 
-  it("reads checking when the connection lookup or Wakeability is unknown", async () => {
+  it("fails the read when the connection lookup fails, and reads checking for unknown Wakeability", async () => {
     const entries = [
       catalogEntry({
         agentControllerRef: "builtin:claude-code",
         openMeldServiceRuntimeId: "runtime-macbook",
       }),
     ];
-    const [unknownOnline] = await readMemberAgentPresence(
-      presenceDeps({ entries, online: null })
-    );
-    expect(unknownOnline?.state).toBe("checking");
+    // A failed lookup is no verdict: the client keeps its last confirmed
+    // state instead of being told Checking.
+    const lookupFailure = new Error("runtime transport lookup timed out");
+    await expect(
+      readMemberAgentPresence(presenceDeps({ entries, online: lookupFailure }))
+    ).rejects.toBe(lookupFailure);
 
     const [noAvailableProfile] = await readMemberAgentPresence(
       presenceDeps({
