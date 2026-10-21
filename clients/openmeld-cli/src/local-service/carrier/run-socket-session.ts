@@ -1615,13 +1615,15 @@ export async function runDaemonSocketSession(input: {
   // timer only guarantees one runs on time.
   function scheduleRuntimeAgentControllerReportSyncTimer(): void {
     clearRuntimeAgentControllerReportSyncTimer();
-    if (closed) {
+    // A controlled shutdown drains accepted work; it must not start new
+    // controller probes even when a pass that began earlier finishes now.
+    if (closed || shutdownStopCause) {
       return;
     }
     runtimeAgentControllerReportSyncTimer = setTimeout(
       () => {
         runtimeAgentControllerReportSyncTimer = null;
-        if (closed) {
+        if (closed || shutdownStopCause) {
           return;
         }
         syncRuntimeAgentControllerReportsIfDue().catch((error) => {
