@@ -84,7 +84,7 @@ still establish absence. No model is substituted.
 
 Contract Impact Audit:
 
-- CLI and Service 0.3.266 are available updates. Native inventory parsing changes;
+- CLI and Service 0.3.267 are available updates. Native inventory parsing changes;
   command, setup, Wake, Space action, trace and self-rescue payloads do not.
 - The shared schema retains the same 256-model bound and wire shape. Its bound
   is now a shared constant, used by producers and compatibility consumers.
@@ -113,6 +113,10 @@ action. The browser's thread showed the reply. Public `service trace` reported
 `delivered=true`, `visibleOutcome=visible_reply`, `status=succeeded`, and matched
 the published signal. Dispatch `8e31d3b7-d764-4b06-9be2-8965537adfed` links to
 reply `6dcbdfdf-4f21-4e26-a511-23a80589c81e`.
+
+The acceptance Service identified as 0.3.266. The final artifact version was
+advanced to 0.3.267 after syncing main's dependency security release, which had
+claimed 0.3.266; the verified model parsing behavior is unchanged.
 
 During development, package rebuilds restarted the local Workers and interrupted
 the first binding attempt. Public profile setup restored the connection before
