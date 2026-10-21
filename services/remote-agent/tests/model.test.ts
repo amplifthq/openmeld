@@ -21,6 +21,7 @@ vi.mock("../flue-adapter/ai-usage", () => ({
       (input.fetch ?? fetch)(...args),
 }));
 
+import { estimateRemoteAiCreditHold } from "../agent-core/ai-credit-hold";
 import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
@@ -914,6 +915,55 @@ describe("remote agent model routing", () => {
       expect(capturedPayload).toMatchObject({
         model: "z-ai/glm-5.3-flash",
         reasoning: { effort: "high" },
+      });
+    } finally {
+      resetProviderRuntime();
+    }
+  });
+
+  it.each([
+    "x-ai/grok-4.5",
+    "openai/gpt-6-sol",
+    "anthropic/claude-opus-5.5",
+  ])("sends an output cap that a platform credit hold can price for %s", async (modelId) => {
+    resetProviderRuntime();
+    let payload: Record<string, unknown> | undefined;
+    try {
+      const runtime = await registerRemoteAgentCloudflareProvider({
+        env: {
+          ...CONFIGURED_AI_GATEWAY_ENV,
+          CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
+        },
+        modelRoute: {
+          ...TEST_CENTER_AGENT_MODEL_ROUTE,
+          modelId,
+          preference: { kind: "selected_model", modelId },
+        },
+        organizationId: "org_credit_hold",
+      });
+      // Flue turns use the simple stream, which applies the route output cap.
+      await models
+        .streamSimple(
+          resolveModel(runtime.modelSpecifier),
+          {
+            systemPrompt: "Stable system instruction.",
+            messages: [{ role: "user", content: "Hello", timestamp: 1 }],
+          },
+          {
+            apiKey: "unused",
+            maxRetries: 0,
+            fetch: (_url, init) => {
+              payload = JSON.parse(String(init?.body));
+              throw new Error("Captured outgoing vendor payload.");
+            },
+          }
+        )
+        .result();
+      expect(
+        payload && estimateRemoteAiCreditHold({ modelId, body: payload })
+      ).toMatchObject({
+        status: "estimated",
+        maxOutputTokens: TEST_CENTER_AGENT_MODEL_ROUTE.maxOutputTokens,
       });
     } finally {
       resetProviderRuntime();
