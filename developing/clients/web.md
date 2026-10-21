@@ -33,6 +33,14 @@ projection is not an operation receipt: only the original successful control
 response reports that the check completed. An unknown or partial result keeps
 the still-checking guidance.
 
+On the owner's Local agents card, each agent shows one status from one rule.
+Launch facts come only from the Core catalog entry, and controller facts only
+from the Agent Controller Interface snapshot. A completed negative launch result shows
+`Choose installation` or `Can't start`; a check that is late, expired, or did
+not finish shows a neutral `Check delayed` and keeps the last known details;
+sign-in and controller health follow. The interface snapshot never decides
+`Can't start` on its own.
+
 Message details offers **Hand off** to continue work from its current readable
 message with another Agent. The current form requires a Project/repository and
 published commit only when **Include a repository** is selected. By default it

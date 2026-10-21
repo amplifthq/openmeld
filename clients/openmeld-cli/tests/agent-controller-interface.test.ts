@@ -161,6 +161,77 @@ describe("agent controller interface inventory", () => {
     }
   });
 
+  it("counts snapshot reuse from the native check time so a periodic pass always renews it", async () => {
+    const home = await mkdtemp(join(tmpdir(), "openmeld-aci-reuse-age-"));
+    try {
+      const binPath = join(home, "agy.mjs");
+      const invocationsPath = join(home, "invocations");
+      await writeFile(
+        binPath,
+        [
+          "#!/usr/bin/env node",
+          "import { appendFileSync } from 'node:fs';",
+          `appendFileSync(${JSON.stringify(invocationsPath)}, 'run\\n');`,
+          "if (process.argv[2] === '--version') { console.log('Antigravity CLI 1.2.7'); process.exit(0); }",
+          "process.exit(1);",
+        ].join("\n"),
+        "utf8"
+      );
+      await chmod(binPath, 0o755);
+      const state = createBuiltinAgentTargetState(
+        "antigravity",
+        "Antigravity",
+        binPath
+      );
+      const readInvocationCount = async () =>
+        (await readFile(invocationsPath, "utf8")).trim().split("\n").length;
+      vi.useFakeTimers({ toFake: ["Date"] });
+      const checkStartedAtMs = Date.parse("2026-10-21T13:09:00.000Z");
+      vi.setSystemTime(checkStartedAtMs);
+
+      // The check starts now and only completes ten seconds later.
+      const firstCheck = resolveAgentControllerInterfaceSnapshot({
+        agentControllerRef: "builtin:antigravity",
+        probePolicy: "fresh",
+        state,
+      });
+      vi.setSystemTime(checkStartedAtMs + 10_000);
+      expect(await firstCheck).toMatchObject({
+        check: { status: "succeeded" },
+        checkedAt: new Date(checkStartedAtMs).toISOString(),
+      });
+      const firstCheckInvocations = await readInvocationCount();
+
+      // A quick follow-up pass may reuse the observation.
+      vi.setSystemTime(checkStartedAtMs + 20_000);
+      await resolveAgentControllerInterfaceSnapshot({
+        agentControllerRef: "builtin:antigravity",
+        probePolicy: "background",
+        state,
+      });
+      expect(await readInvocationCount()).toBe(firstCheckInvocations);
+
+      // The next periodic pass (60s after the previous one started) must run a
+      // real check: republishing the old observation would let Core expire it
+      // at two minutes, before the pass after that could renew it.
+      vi.setSystemTime(checkStartedAtMs + 60_000);
+      const renewed = await resolveAgentControllerInterfaceSnapshot({
+        agentControllerRef: "builtin:antigravity",
+        probePolicy: "background",
+        state,
+      });
+      expect(await readInvocationCount()).toBeGreaterThan(
+        firstCheckInvocations
+      );
+      expect(renewed.checkedAt).toBe(
+        new Date(checkStartedAtMs + 60_000).toISOString()
+      );
+    } finally {
+      vi.useRealTimers();
+      await rm(home, { force: true, recursive: true });
+    }
+  });
+
   it("updates Antigravity ACP account state from native sessions without authenticating", async () => {
     const home = await mkdtemp(join(tmpdir(), "openmeld-aci-antigravity-acp-"));
     const binPath = join(home, "agy_acp_server.par");

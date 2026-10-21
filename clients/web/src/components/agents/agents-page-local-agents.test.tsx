@@ -1404,7 +1404,7 @@ describe("LocalAgentsCard", () => {
 
 		const row = screen.getByTestId("settings-local-agent-row-codex");
 		const checkLabel = within(row).getByText("Check delayed");
-		expect(checkLabel.className).toContain("text-amber");
+		expect(checkLabel.className).toContain("text-sky");
 		expect(within(row).getByText("Checked 5 minutes ago")).toBeTruthy();
 		expect(
 			within(row).getByTestId("settings-local-agent-footer").className
@@ -1425,7 +1425,34 @@ describe("LocalAgentsCard", () => {
 		).toBeTruthy();
 	});
 
-	it("shows a teammate failed controller check as amber even if the raw snapshot says error", () => {
+	it("shows an expired controller report as a neutral delay, never as unable to start", () => {
+		// Core's projection of a ready report whose native check passed the
+		// two-minute freshness window before the next check landed.
+		vi.useFakeTimers();
+		vi.setSystemTime("2026-10-21T13:10:10.000Z");
+		renderLocalAgentsCard({
+			agentControllerAuth: { status: "unknown" },
+			agentControllerCheck: {
+				lastSucceededAt: "2026-10-21T13:08:00.000Z",
+				status: "failed",
+			},
+			agentControllerMessage:
+				"Local agent status is out of date. Check the agent again.",
+			agentControllerStatus: "warning",
+			includeAgentControllerInterface: true,
+			setEnabledSupported: true,
+		});
+
+		const row = screen.getByTestId("settings-local-agent-row-codex");
+		const checkLabel = within(row).getByText("Check delayed");
+		expect(checkLabel.className).toContain("text-sky");
+		expect(checkLabel.className).not.toContain("text-destructive");
+		expect(within(row).queryByText("Can’t start")).toBeNull();
+		expect(within(row).queryByText("Needs attention")).toBeNull();
+		expect(row.getAttribute("data-muted")).not.toBe("true");
+	});
+
+	it("shows a teammate failed controller check as a neutral delay even if the raw snapshot says error", () => {
 		const details: OrganizationComputerLocalAgentDetails = {
 			capabilities: {
 				approvals: true,
@@ -1469,7 +1496,7 @@ describe("LocalAgentsCard", () => {
 
 		const row = screen.getByTestId("settings-local-agent-row-openclaw");
 		const checkLabel = within(row).getByText("Check delayed");
-		expect(checkLabel.className).toContain("text-amber");
+		expect(checkLabel.className).toContain("text-sky");
 		expect(within(row).queryByText("Error")).toBeNull();
 	});
 
