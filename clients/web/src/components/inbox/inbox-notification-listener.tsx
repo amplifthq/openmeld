@@ -233,14 +233,14 @@ export function InboxNotificationListener(input: {
 		staleTime: 0,
 		// The cursor response is empty between events; only a new Space message
 		// refreshes the full account Space directory.
-		refetchInterval: (query) =>
-			resolveInboxObservationPollInterval({
-				hasMore: Boolean(query.state.data?.hasMore),
-				// A failed read leaves the previous page in place; only a
-				// successful read with items counts as fresh activity.
-				sawItems:
-					(query.state.data?.items?.length ?? 0) > 0 &&
-					(query.state.dataUpdatedAt ?? 0) >= (query.state.errorUpdatedAt ?? 0),
+		refetchInterval: (query) => {
+			// A failed read leaves the previous page in place; only a page from
+			// the latest read counts for draining or as fresh activity.
+			const dataIsCurrent =
+				(query.state.dataUpdatedAt ?? 0) >= (query.state.errorUpdatedAt ?? 0);
+			return resolveInboxObservationPollInterval({
+				hasMore: dataIsCurrent && Boolean(query.state.data?.hasMore),
+				sawItems: dataIsCurrent && (query.state.data?.items?.length ?? 0) > 0,
 				visible:
 					typeof document !== "undefined" &&
 					document.visibilityState === "visible",
@@ -249,7 +249,8 @@ export function InboxNotificationListener(input: {
 				desktop: Boolean(desktop),
 				fetchKey: `${query.state.dataUpdatedAt ?? 0}:${query.state.errorUpdatedAt ?? 0}`,
 				backoff: observationBackoff,
-			}),
+			});
+		},
 		refetchIntervalInBackground: notificationsEnabled,
 	});
 	useEffect(() => {
