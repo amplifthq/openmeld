@@ -422,6 +422,13 @@ reader, or a controller adapter selects the corresponding additional components.
 
 ### Practical retirement and recovery
 
+The October 21 review adds MiniMax M3.1 Flash Free through OpenRouter after a
+successful native OpenCode probe. The matching OpenCode and Go routes remain
+deferred after provider free-tier and expired-key rejections. Space Bunny
+discovery deprecation does not establish withdrawal. Defaults and saved
+selections remain unchanged. See [review #244](../../release/model-catalog-evidence/review-244.md)
+for native variants, compatibility evidence, and acceptance limits.
+
 The October 18 review adds eleven native-verified OpenCode routes and defers
 three Go routes whose execution returned expired-key errors. It also confirms
 GPT-5.5 withdrawal through a native Codex ChatGPT-sign-in rejection after the

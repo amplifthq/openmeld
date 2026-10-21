@@ -1,12 +1,12 @@
 {
-  "version": "0.3.266",
+  "version": "0.3.267",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Shows the MemberAgent agent and session commands now that MEMBER_AGENTS_ENABLED is on, and refreshes security dependencies (MCP SDK 1.32.1, proxy-addr 2.0.8). Older CLIs keep working and only hide those commands, so the mandatory CLI floor stays at 0.3.251."
+    "reason": "Shows the MemberAgent agent and session commands now that MEMBER_AGENTS_ENABLED is on, refreshes security dependencies, and corrects the OpenCode provider model inventory. Older CLIs keep working and only hide those commands; wire schemas are unchanged, so the mandatory CLI floor stays at 0.3.251."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "The mandatory Service floor remains 0.3.264. Only dependency versions change; Service transport, execution, and the Claude Code adapter contract are unchanged."
+    "reason": "Security dependency refresh and nested OpenCode model IDs preserve existing setup, transport and Wake contracts; the mandatory Service floor stays at 0.3.264."
   },
   "skills": {
     "updatePolicy": "available",

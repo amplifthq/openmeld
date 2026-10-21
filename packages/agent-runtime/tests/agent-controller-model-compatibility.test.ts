@@ -65,6 +65,44 @@ describe("resolveAgentControllerModelCompatibility", () => {
     });
   });
 
+  it("does not treat a model omitted from a saturated inventory as unavailable", () => {
+    const reportedModelIds = [
+      "gpt-5.6-sol",
+      ...Array.from({ length: 255 }, (_, index) => `provider/model-${index}`),
+    ];
+    const input = {
+      controller: CONTROLLER,
+      installedVersion: null,
+      modelId: "gpt-5.6-terra",
+      reportedModelIds,
+    };
+    expect(resolveAgentControllerModelCompatibility(input)).toEqual({
+      status: "unknown",
+    });
+    expect(
+      resolveAgentControllerModelCompatibility({
+        ...input,
+        reportedModelIds: reportedModelIds.slice(0, 255),
+      })
+    ).toEqual({ status: "not_offered" });
+    expect(
+      resolveAgentControllerModelCompatibility({
+        ...input,
+        installedVersion: "0.143.0",
+      })
+    ).toEqual({
+      currentVersion: "0.143.0",
+      minimumVersion: "0.144.0",
+      status: "requires_newer_controller",
+    });
+    expect(
+      resolveAgentControllerModelCompatibility({
+        ...input,
+        modelId: "gpt-5.6-sol",
+      })
+    ).toEqual({ status: "supported" });
+  });
+
   it("does not block when model inventory does not use catalog ids", () => {
     expect(
       resolveAgentControllerModelCompatibility({
