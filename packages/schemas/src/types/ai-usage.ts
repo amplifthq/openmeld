@@ -1,6 +1,7 @@
 import type { z } from "zod/v4";
 
 type Schemas = typeof import("../schemas/ai-usage");
+export type RemoteAiCreditHold = z.infer<Schemas["remoteAiCreditHoldSchema"]>;
 export type RemoteAiUsageWrite = z.infer<Schemas["remoteAiUsageWriteSchema"]>;
 export type RemoteAiUsageWriteResponse = z.infer<
   Schemas["remoteAiUsageWriteResponseSchema"]

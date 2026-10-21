@@ -25,7 +25,9 @@ pnpm run deploy -- --scope <auto|cloud|name[,name]> --lane <local|github|auto> [
   If auto selects db without Core, the migration runs against the live Core.
   Use `--scope db,core` unless the migration is safe for the Core that is live
   now. Auto warns but does not add Core.
-- `--lane github` makes one `deploy.yml` dispatch and follows it; `--lane local`
+- `--lane github` dispatches cloud components through `deploy.yml` and CLI
+  through the top-level `cli-release.yml`, following each run in dependency
+  order. A failed cloud segment stops the later CLI dispatch. `--lane local`
   runs the same steps here with `openmeld-release/prd` credentials from Doppler
   (cheaper); `--lane auto` uses each component's `defaultLane`.
 - `--dry-run` prints the plan and exact commands without deploying.
@@ -67,9 +69,9 @@ pnpm run deploy -- --scope cli --lane github
 
 ## Guards
 
-- The SHA must be on `main`'s first-parent history; in GitHub only `validate`
-  checks it, and release control comes from `main` while product code comes
-  from the SHA.
+- The SHA must be on `main`'s first-parent history; each top-level GitHub
+  workflow's `validate` job checks it before building or publishing. Release
+  control comes from `main` while product code comes from the SHA.
 - `concurrency: production-<name>` with `queue: max` and
   `cancel-in-progress: false` keeps up to 100 pending jobs per component.
 - A failed component stops its dependents. Website and docs in the same
@@ -118,6 +120,21 @@ ownership: [postgresql.md](postgresql.md). D1 is not a rollback target.
 CLI and Service releases require `--scope cli --lane github`. The Windows
 process helper must be built on Windows before the macOS publish job signs
 and notarizes the binaries. The local lane cannot perform this release.
+
+The deploy command dispatches `cli-release.yml` directly on `main`, passing
+the exact `release_sha`. This filename is the npm Trusted Publisher identity;
+calling it as a reusable workflow from `deploy.yml` changes the OIDC caller
+and can fail npm authentication. The CLI entry validates `main` and the source
+SHA independently, retains the `production` environment and `id-token: write`
+permission, and runs the existing signing, publication, and installation checks.
+Downstream jobs consume the SHA returned by that verifier, rather than the raw
+dispatch input. Invalid or non-mainline source values produce no release output.
+CLI execution jobs checkout only the immutable main control revision. Its
+`prepare-release-source.mjs` revalidates the product SHA against that control's
+first-parent history and creates a detached `release-source` worktree before
+any product installation or execution. It refuses an existing source path.
+`deploy.yml` rejects CLI scopes so it cannot report a skipped CLI release as
+successful. Use the unified deploy command for mixed cloud/CLI releases.
 
 A pull request that changes the CLI, Service, or Skills bumps
 `clients/openmeld-cli/package.json` and records one decision per changed

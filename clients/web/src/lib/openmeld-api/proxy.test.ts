@@ -372,7 +372,11 @@ describe("OpenMeld gateway proxy", () => {
 		});
 	});
 
-	it("keeps only the browser allowlist and injects the web origin when missing", () => {
+	it.each([
+		"192.0.2.1",
+		"2001:db8::1",
+		undefined,
+	])("retains the header allowlist and forwards only the edge client IP (%s)", (clientIp) => {
 		const headers = buildOpenMeldGatewayUpstreamHeaders({
 			requestHeaders: new Headers({
 				accept: "application/json",
@@ -389,6 +393,8 @@ describe("OpenMeld gateway proxy", () => {
 				"x-openmeld-profile-id": "forged-profile",
 				"x-openmeld-requested-organization-slug": "amplift",
 				"x-forwarded-for": "203.0.113.1",
+				"x-real-ip": "203.0.113.2",
+				...(clientIp ? { "cf-connecting-ip": clientIp } : {}),
 			}),
 			webAppUrl: "https://openmeld.test",
 		});
@@ -409,6 +415,8 @@ describe("OpenMeld gateway proxy", () => {
 			"amplift"
 		);
 		expect(headers.get("x-forwarded-for")).toBeNull();
+		expect(headers.get("x-real-ip")).toBe(clientIp ?? null);
+		expect(headers.get("cf-connecting-ip")).toBeNull();
 		expect(headers.get("origin")).toBe("https://openmeld.test");
 	});
 
