@@ -559,6 +559,10 @@ node tooling/postgresql/cutover.mjs verify
 node tooling/postgresql/cutover.mjs completion <private-snapshot.sqlite>
 node tooling/postgresql/cutover.mjs reconcile <private-snapshot.sqlite>
 
+# Data backfill after its migration; preview, then commit.
+node tooling/postgresql/cutover.mjs backfill-member-agents --dry-run
+node tooling/postgresql/cutover.mjs backfill-member-agents
+
 # The coordinated db,auth,core release and Cron restore used the retired
 # --database-cutover-snapshot and --database-cutover-restore-crons options.
 ```
