@@ -1,12 +1,12 @@
 {
-  "version": "0.3.265",
+  "version": "0.3.266",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Account-read diagnostics are additive and existing CLI commands remain compatible; the mandatory CLI floor stays at 0.3.251."
+    "reason": "Security dependency refresh (MCP SDK 1.32.1, proxy-addr 2.0.8) with no command, flag, or wire-contract change; the mandatory CLI floor stays at 0.3.251."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "The mandatory Service floor remains 0.3.264. Shared account-read contracts remain compatible and do not change Service transport or execution."
+    "reason": "The mandatory Service floor remains 0.3.264. Only dependency versions change; Service transport, execution, and the Claude Code adapter contract are unchanged."
   },
   "skills": {
     "updatePolicy": "available",
