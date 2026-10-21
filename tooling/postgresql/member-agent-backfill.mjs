@@ -210,8 +210,10 @@ export async function checkMemberAgentInvariants(client) {
 /**
  * Run the backfill in one transaction and return its counts. The transaction
  * rolls back, and the call throws, when any invariant fails afterwards.
+ * `dryRun` runs the same writes and checks, then always rolls back, so the
+ * counts are exactly what a real run would commit.
  */
-export async function backfillMemberAgents(client) {
+export async function backfillMemberAgents(client, { dryRun = false } = {}) {
   await client.query("BEGIN");
   try {
     // No table lock: account deletion takes owner locks before it touches
@@ -256,6 +258,10 @@ export async function backfillMemberAgents(client) {
       );
       error.counts = counts;
       throw error;
+    }
+    if (dryRun) {
+      await client.query("ROLLBACK");
+      return { ...counts, dryRun: true };
     }
     await client.query("COMMIT");
     return counts;

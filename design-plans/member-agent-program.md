@@ -1,6 +1,7 @@
 # MemberAgent program
 
-Status: design accepted by Felix on 2026-10-18; implementation not started.
+Status: design accepted by Felix on 2026-10-18; implemented in PR #236
+(merged 2026-10-20) and enabled with `MEMBER_AGENTS_ENABLED` in PR #264.
 This is the single reference for the local-agent restructuring. Implementers
 and reviewers work from this document only. It supersedes the Chinese drafts
 `local-agent-design-v4.md`, `local-agent-design-final-review.md` and
@@ -647,6 +648,9 @@ Space with **Manage in <Space>**
 - The backfill is idempotent and prints counts (created, grouped, unassigned
   by reason). Pre-launch data is small; no separate dump analysis is required,
   the counts from the staging run are the record.
+- Production runs it through `cutover.mjs backfill-member-agents`, after a
+  `--dry-run` preview whose counts the owner approves. The flag launch shipped
+  without it, so every existing Profile read as unassigned until it ran.
 - Migration `0047` adds `agent_access_requests.decision` and backfills it
   from the status and the grant each request wrote: an `always` grant is
   `always_allow`, a `once` grant or an allowed request without a grant is

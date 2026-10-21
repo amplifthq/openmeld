@@ -73,7 +73,10 @@ try {
       "seed-smoke-identities",
     ].includes(command) ||
       target === "staging") &&
-    extra.length === 0
+    (extra.length === 0 ||
+      (command === "backfill-member-agents" &&
+        extra.length === 1 &&
+        extra[0] === "--dry-run"))
   ) {
     const variable = ["accept", "inspect"].includes(command)
       ? "POSTGRESQL_OPENMELD_RUNTIME_URL"
@@ -136,7 +139,13 @@ try {
         console.log(JSON.stringify(await migrate(client)));
       }
       if (command === "backfill-member-agents") {
-        console.log(JSON.stringify(await backfillMemberAgents(client)));
+        console.log(
+          JSON.stringify(
+            await backfillMemberAgents(client, {
+              dryRun: extra[0] === "--dry-run",
+            })
+          )
+        );
       }
       if (command === "grant-runtime") {
         const role = process.env.POSTGRESQL_OPENMELD_RUNTIME_ROLE;
@@ -160,7 +169,7 @@ try {
     }
   } else {
     throw new Error(
-      "Usage: pg plan | pg <migrate|grant-runtime|accept|inspect|backfill-member-agents> <local|staging> | pg <preserve-foundation|seed-business> staging | pg <import-d1|reconcile-d1|read-d1-import> local <snapshot>. Production operations and automatic optimization are unavailable before the reviewed cutover."
+      "Usage: pg plan | pg <migrate|grant-runtime|accept|inspect> <local|staging> | pg backfill-member-agents <local|staging> [--dry-run] | pg <preserve-foundation|seed-business> staging | pg <import-d1|reconcile-d1|read-d1-import> local <snapshot>. Production operations and automatic optimization are unavailable before the reviewed cutover."
     );
   }
 } catch (error) {

@@ -120,7 +120,11 @@ describe("rpcSyncMemberAgents", () => {
     const f = await seed();
     const worker = authWorker({ organizationIds: [] });
     await expect(
-      rpcSyncMemberAgents(withAuth(worker), { context: f.context(f.opened) })
+      rpcSyncMemberAgents(
+        withAuth(worker),
+        { context: f.context(f.opened) },
+        { enabled: false }
+      )
     ).rejects.toMatchObject({ code: "member_agents.disabled" });
     expect(worker.ensureDetectedMemberAgent).not.toHaveBeenCalled();
   });

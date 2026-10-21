@@ -39,6 +39,12 @@ const useQueryClientMock = vi.hoisted(() => vi.fn());
 const useLocalAgentRecoveryControllerMock = vi.hoisted(() => vi.fn());
 let organizationDirectoryFixture: OrganizationDirectoryResponse;
 
+// These cases cover the per-Profile path; the MemberAgent path has its own
+// tests in member-agents.integration.test.tsx.
+vi.mock("#/lib/member-agents/member-agents-feature", () => ({
+	isMemberAgentsEnabled: () => false,
+}));
+
 vi.mock("../app/use-sidebar-preferences", () => ({
 	useSidebarPreferences: () => ({ preferences: undefined }),
 }));

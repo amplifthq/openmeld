@@ -201,7 +201,7 @@ A local Agent Profile keeps a list of working folders with one default (see
 
 The cloud sees only the path-free projection `(profileId, folderId, kind,
 displayName)`. A Project-source entry never stores a duplicate custom path.
-Implementation status: MemberAgent program, PR #236, in progress.
+Implementation status: MemberAgent program, PR #236, shipped.
 
 ## Navigation And Product Home
 
