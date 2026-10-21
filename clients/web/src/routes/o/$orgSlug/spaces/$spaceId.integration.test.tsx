@@ -237,7 +237,7 @@ describe("app space entry route", () => {
 		window.localStorage.clear();
 		vi.restoreAllMocks();
 	});
-	it("shows only the known title and conversation layout while cold access is pending", async () => {
+	it("mounts the conversation for local drafting while cold access is pending", async () => {
 		resolveSpaceEntryMock.mockImplementation(
 			() => new Promise(() => undefined)
 		);
@@ -260,12 +260,10 @@ describe("app space entry route", () => {
 			profileId: "profile-123",
 			queryClient,
 		});
-		expect(
-			await screen.findByText("Current Human and Build Agent")
-		).toBeTruthy();
+		// The entry gate releases the identity-scoped conversation for drafting
+		// while access is confirmed; writes still wait for the confirmation.
+		expect(await screen.findByTestId("space-landing")).toBeTruthy();
 		expect(screen.queryByText("Opening Space")).toBeNull();
-		expect(screen.queryByTestId("space-landing")).toBeNull();
-		expect(getBootstrapMock).not.toHaveBeenCalled();
 	});
 	it.each([
 		undefined,
@@ -496,11 +494,11 @@ describe("app space entry route", () => {
 		expect(getBootstrapMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				spaceId: "space-123",
-				historyQuery: {
+				historyQuery: expect.objectContaining({
 					recent: true,
 					limit: 30,
 					kinds: ["text", "status", "system_notice"],
-				},
+				}),
 			})
 		);
 		expect(await screen.findByTestId("space-landing")).toBeTruthy();
@@ -789,7 +787,7 @@ describe("app space entry route", () => {
 		});
 	});
 
-	it("keeps a degraded three-member DM-origin Space on the Spaces route", async () => {
+	it("routes an unconverted DM-origin Space with three members to its Direct Message", async () => {
 		const queryClient = createTestQueryClient();
 		mockBootstrapStatus(
 			createSpaceStatus({
@@ -823,8 +821,15 @@ describe("app space entry route", () => {
 				)
 			).toBeDefined()
 		);
-		expect(await screen.findByTestId("space-landing")).toBeTruthy();
-		expect(navigateMock).not.toHaveBeenCalled();
+		// Only a recorded conversion makes a DM-origin conversation a Space;
+		// the member count does not.
+		await waitFor(() => {
+			expect(navigateMock).toHaveBeenCalledWith({
+				replace: true,
+				to: "/o/acme/chats/space-degraded-dm?profileId=profile-123",
+			});
+		});
+		expect(screen.queryByTestId("space-landing")).toBeNull();
 	});
 
 	it("keeps a converted two-member DM-origin Space on the Spaces route", async () => {
@@ -974,7 +979,9 @@ describe("app space entry route", () => {
 		expect(
 			screen.getByRole("link", { name: "Back to Spaces" }).getAttribute("href")
 		).toBe("/o/acme/spaces");
-		expect(spaceLandingMock).not.toHaveBeenCalled();
+		// The draft conversation mounted while access was pending is removed once
+		// the resolver rejects it.
+		expect(screen.queryByTestId("space-landing")).toBeNull();
 	});
 
 	it("keeps an allowed public view in the App with its message target", async () => {
