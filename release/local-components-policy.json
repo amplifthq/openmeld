@@ -2,7 +2,7 @@
   "version": "0.3.267",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Security dependency refresh and corrected OpenCode provider model inventory do not change CLI commands or wire schemas; the mandatory CLI floor stays at 0.3.251."
+    "reason": "Shows the MemberAgent agent and session commands now that MEMBER_AGENTS_ENABLED is on, refreshes security dependencies, and corrects the OpenCode provider model inventory. Older CLIs keep working and only hide those commands; wire schemas are unchanged, so the mandatory CLI floor stays at 0.3.251."
   },
   "service": {
     "updatePolicy": "available",

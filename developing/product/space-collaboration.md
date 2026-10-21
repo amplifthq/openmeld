@@ -452,7 +452,7 @@ members-only unless the requester explicitly asks for broader access.
 
 ### Colleague use of an Agent
 
-Implementation status: MemberAgent program, PR #236, in progress.
+Implementation status: MemberAgent program, PR #236, shipped.
 
 Every Wake has exactly one human root requester (see
 `developing/architecture/agent-transport-contract.md`, Request Chain). In a
@@ -1136,7 +1136,7 @@ Space. No automatic historical title rewrite or periodic regeneration occurs.
 
 ### Agent Direct Message Sessions
 
-Implementation status: MemberAgent program, PR #236, in progress.
+Implementation status: MemberAgent program, PR #236, shipped.
 
 In a Direct Message with an agent Profile, a Session is one DM Space. **New
 Chat** creates another DM Space with the same `pairKey`; the Center Agent

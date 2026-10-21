@@ -59,8 +59,8 @@ can be read or the same response safely retried.
 | Failed automatic continuation | No human request | Normal update linking to the continuation's own failure publication |
 
 Implementation status: the Agent access request, Agent Space request, and
-credential confirmation rows are MemberAgent program sources, PR #236, in
-progress. Their urgency comes from the root requester fact defined in
+credential confirmation rows are MemberAgent program sources, PR #236,
+shipped. Their urgency comes from the root requester fact defined in
 [Inbox](inbox.md#agent-owner-requests).
 
 Plugin confirmations with verified Space provenance also appear on the original

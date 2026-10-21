@@ -37,7 +37,8 @@ a name through get-or-create is not a connection operation.
 
 ## MemberAgent Layer
 
-Implementation status: MemberAgent program, PR #236, in progress.
+Implementation status: shipped. The MemberAgent program (PR #236) is merged,
+and `MEMBER_AGENTS_ENABLED` is on.
 
 Member-owned Agents are organized in three persisted layers, each with one job:
 
@@ -1206,7 +1207,8 @@ folder or replace the session automatically.
 
 ### Working Folder List
 
-Implementation status: MemberAgent program, PR #236, in progress.
+Implementation status: shipped. The MemberAgent program (PR #236) is merged,
+and `MEMBER_AGENTS_ENABLED` is on.
 
 The local profile envelope (v3) stores `folders: [{ id, kind, path | projectId,
 displayName }]` and `defaultFolderId`. The local OpenMeld Service mints every

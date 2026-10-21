@@ -362,7 +362,7 @@ new writers create only `space_mention`.
 
 ### Agent owner requests
 
-Implementation status: MemberAgent program, PR #236, in progress.
+Implementation status: MemberAgent program, PR #236, shipped.
 
 Three source kinds carry decisions that only an Agent's owner can make. Each
 is `action_required`, goes to the exact Agent owner, and is resolved only by
