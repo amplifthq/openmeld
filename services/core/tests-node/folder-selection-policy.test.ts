@@ -5,6 +5,13 @@ import {
   resolveFolderSelectionRequesterProfileId,
 } from "../src/dispatch/application/accepted-dispatch-snapshot";
 
+// These cases cover the path without request chains; the enforced path is
+// covered by the *-request-chain tests.
+vi.mock("../src/member-agent/member-agents-feature", () => ({
+  isMemberAgentsEnabled: () => false,
+  isRequestChainEnforced: () => false,
+}));
+
 const FOLDER_ID = "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11";
 const OWNER = "owner-user";
 

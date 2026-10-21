@@ -1,11 +1,18 @@
 import type { OpenMeldDaemonDispatchQueueMessage } from "@openmeld/schemas/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { applyFolderSelectionPolicy } from "../src/dispatch/application/accepted-dispatch-snapshot";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   createPostgresHarness,
   postgresTestBinding,
 } from "./helpers/postgresql-harness.test-support";
+
+// These cases cover the path without request chains; the enforced path is
+// covered by the *-request-chain tests.
+vi.mock("../src/member-agent/member-agents-feature", () => ({
+  isMemberAgentsEnabled: () => false,
+  isRequestChainEnforced: () => false,
+}));
 
 // Smoke round 2b: the owner chose a folder in their own DM and the task ran in
 // the default folder. Human Profiles have no organization_id, so an

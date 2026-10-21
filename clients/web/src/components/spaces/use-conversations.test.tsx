@@ -65,6 +65,12 @@ function fixture() {
 	};
 }
 let directMessages: ReturnType<typeof fixture>;
+// These cases cover the Space list itself; MemberAgent session titles and
+// archiving have their own tests under components/member-agents.
+vi.mock("#/lib/member-agents/member-agents-feature", () => ({
+	isMemberAgentsEnabled: () => false,
+}));
+
 vi.mock("./use-chats", () => ({ useChats: () => directMessages }));
 // The last-opened MemberAgent chat is read inside the organization app shell.
 vi.mock(
