@@ -124,6 +124,12 @@ function createWebOpenMeldBoundaryRequest(input: {
 	if (cookie) {
 		headers.set("cookie", cookie);
 	}
+	// Keep the edge identity until the shared Gateway proxy constructs the
+	// same-zone forwarding header. Do not copy caller-supplied proxy headers.
+	const clientIp = input.requestHeaders.get("cf-connecting-ip");
+	if (clientIp) {
+		headers.set("cf-connecting-ip", clientIp);
+	}
 	if (input.openMeldProfileId) {
 		headers.set(OPENMELD_HEADER_PROFILE_ID, input.openMeldProfileId);
 	}

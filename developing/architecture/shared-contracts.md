@@ -34,6 +34,14 @@ not recognize this code still receive the HTTP failure; they must not infer
 success or retry without delay. Ordinary reads below the limit, authenticated
 writes, setup, Wake, Stop and transport streams keep their existing contracts.
 This requires Gateway's new native limiter binding with the same release.
+Web's Gateway proxy preserves the edge-provided `CF-Connecting-IP` as
+`x-real-ip`. Cloudflare uses that header to derive `CF-Connecting-IP` for
+same-zone subrequests; Web and Gateway must remain in the same Cloudflare zone.
+SSR boundary reads retain the edge IP when constructing their internal request
+and use the same proxy transformation as browser-originated API requests.
+Caller-supplied `x-real-ip` and `X-Forwarded-For` are not trusted or forwarded.
+Local requests without an edge IP do not manufacture one. This reuses Gateway's
+existing limiter and does not introduce another counter or identity authority.
 Web's public CLI download throttle uses HTTP 429 and the same retry header;
 CLI release manifests and binary contents do not change. Core Slack retry pacing
 reuses `receivedAtMs` in the existing v1 message and introduces no wire fields.

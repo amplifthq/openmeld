@@ -1,5 +1,5 @@
 {
-  "id": "2f55b8f8-c28c-4571-9d2c-57c9f81af95a",
+  "id": "d9c661d4-27a3-4f28-bfd2-a6187f401b8b",
   "prevId": "77253326-2b32-46a8-8b8a-3c19fbe6d25c",
   "version": "7",
   "dialect": "postgresql",
@@ -806,27 +806,6 @@
           "columns": [
             {
               "expression": "expires_at_ms",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "agent_activity_daily_session_keys_org_project_idx": {
-          "name": "agent_activity_daily_session_keys_org_project_idx",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "project_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -5227,6 +5206,24 @@
           "primaryKey": false,
           "notNull": false
         },
+        "funding_source": {
+          "name": "funding_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "credit_hold_nano_usd": {
+          "name": "credit_hold_nano_usd",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "credit_hold_admitted_at_ms": {
+          "name": "credit_hold_admitted_at_ms",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
         "record_json": {
           "name": "record_json",
           "type": "text",
@@ -5331,7 +5328,12 @@
       },
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "ai_usage_records_credit_hold_check": {
+          "name": "ai_usage_records_credit_hold_check",
+          "value": "(\"credit_hold_nano_usd\" is null and \"credit_hold_admitted_at_ms\" is null)\n        or (\"credit_hold_nano_usd\" > 0 and \"credit_hold_admitted_at_ms\" is not null)"
+        }
+      },
       "isRLSEnabled": false
     },
     "openmeld.center_agent_attention_requests": {

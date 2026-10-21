@@ -125,6 +125,14 @@ export function buildOpenMeldGatewayUpstreamHeaders(input: {
 		headers.set(normalizedHeaderName, headerValue);
 	}
 
+	// Cloudflare derives CF-Connecting-IP from x-real-ip on same-zone
+	// subrequests. Web and Gateway must stay in the same Cloudflare zone.
+	// Use only the edge-provided IP, never a caller's forwarding headers.
+	const clientIp = input.requestHeaders.get("cf-connecting-ip");
+	if (clientIp) {
+		headers.set("x-real-ip", clientIp);
+	}
+
 	if (!headers.get("origin")) {
 		headers.set("origin", input.webAppUrl);
 	}

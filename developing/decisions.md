@@ -34,6 +34,12 @@ non-owner-rooted task; quota numbers stay owner-only; the permission-mode
 advisor ships in Phase 1; all work lands in one draft PR. Detail:
 `design-plans/member-agent-program.md`.
 
+2026-10-21: Platform-funded hosted AI admission reserves a conservative
+per-request credit hold against the workspace's monthly allowance in Core's
+usage ledger, under a per-workspace lock. Receipts now participate in admission;
+the OpenRouter native key limit remains the backstop. This is a paid-launch
+prerequisite. See `engineering/ai-billing.md#admission-and-credit-holds`.
+
 2026-10-19: The hosted AI funding source contract supports monthly Free credits
 for a creator's first workspace and a workspace OpenRouter key. This supersedes
 the BYOK deferral and environment-owned BYOK funding alias in older decisions.
