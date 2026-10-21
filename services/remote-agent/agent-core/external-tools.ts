@@ -44,6 +44,7 @@ import {
 import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
+  REMOTE_AGENT_MAX_OUTPUT_TOKENS,
   type RemoteAgentModelEnv,
   resolveRemoteAgentAiGatewayOpenRouterBaseUrl,
   resolveRemoteAgentOpenRouterModelId,
@@ -379,6 +380,8 @@ async function runOpenRouterResearch(input: {
               : input.prompt,
         },
       ],
+      // An explicit output cap bounds the platform credit hold.
+      max_tokens: REMOTE_AGENT_MAX_OUTPUT_TOKENS,
       provider: REMOTE_AGENT_OPENROUTER_PROVIDER_ROUTING,
       tools: [input.serverTool],
     });
