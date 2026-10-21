@@ -311,7 +311,7 @@ importers:
     dependencies:
       '@anthropic-ai/claude-agent-sdk':
         specifier: ^0.3.295
-        version: 0.3.295(@anthropic-ai/sdk@0.131.0(zod@4.6.5))(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(zod@4.6.5)
+        version: 0.3.295(@anthropic-ai/sdk@0.131.0(zod@4.6.5))(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(zod@4.6.5)
       '@anthropic-ai/sdk':
         specifier: ^0.131.0
         version: 0.131.0(zod@4.6.5)
@@ -322,8 +322,8 @@ importers:
         specifier: 0.57.1
         version: 0.57.1
       '@modelcontextprotocol/sdk':
-        specifier: ^1.29.0
-        version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.6.5)
+        specifier: ^1.32.1
+        version: 1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5)
       '@opencode-ai/sdk':
         specifier: ^1.18.34
         version: 1.18.34
@@ -1503,13 +1503,13 @@ importers:
     dependencies:
       '@anthropic-ai/claude-agent-sdk':
         specifier: ^0.3.295
-        version: 0.3.295(@anthropic-ai/sdk@0.131.0(zod@4.6.5))(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(zod@4.6.5)
+        version: 0.3.295(@anthropic-ai/sdk@0.131.0(zod@4.6.5))(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(zod@4.6.5)
       '@anthropic-ai/sdk':
         specifier: ^0.131.0
         version: 0.131.0(zod@4.6.5)
       '@modelcontextprotocol/sdk':
-        specifier: ^1.29.0
-        version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.6.5)
+        specifier: ^1.32.1
+        version: 1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5)
       '@openmeld/adapter-core':
         specifier: workspace:*
         version: link:../core
@@ -1923,7 +1923,7 @@ importers:
         specifier: 2.3.1
         version: 2.3.1
       '@modelcontextprotocol/sdk':
-        specifier: ^1.29.0
+        specifier: ^1.32.1
         version: 1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5)
       '@modelcontextprotocol/server':
         specifier: 2.3.1
@@ -1948,7 +1948,7 @@ importers:
         version: 1.7.1(valibot@1.4.2(@typescript/typescript6@6.0.2))
       agents:
         specifier: 0.28.1
-        version: 0.28.1(@babel/core@8.0.1)(@babel/runtime@7.29.7)(@cloudflare/codemode@0.5.1(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(@earendil-works/pi-ai@1.3.0(@aws-sdk/credential-provider-node@3.972.63)(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@smithy/signature-v4@5.6.2)(undici@7.30.0)(ws@8.21.3)(zod@4.6.5))(@modelcontextprotocol/client@2.3.1)(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@modelcontextprotocol/server@2.3.1)(ai@6.0.219(zod@4.6.5))(chat@4.32.0(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(just-bash@3.0.2)(react@19.3.1)(rolldown@1.1.4)(vite@8.1.2(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))(zod@4.6.5)
+        version: 0.28.1(@babel/core@8.0.1)(@babel/runtime@7.29.7)(@cloudflare/codemode@0.5.1(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(@earendil-works/pi-ai@1.3.0(@aws-sdk/credential-provider-node@3.972.63)(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@smithy/signature-v4@5.6.2)(undici@7.30.0)(ws@8.21.3)(zod@4.6.5))(@modelcontextprotocol/client@2.3.1)(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@modelcontextprotocol/server@2.3.1)(ai@6.0.219(zod@4.6.5))(chat@4.32.0(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(just-bash@3.0.2)(react@19.3.1)(rolldown@1.1.4)(vite@8.1.6(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))(zod@4.6.5)
       ai:
         specifier: 6.0.219
         version: 6.0.219(zod@4.6.5)
@@ -1967,7 +1967,7 @@ importers:
         version: 8.0.1
       '@cloudflare/vite-plugin':
         specifier: 1.54.6
-        version: 1.54.6(@types/node@24.10.13)(vite@8.1.2(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))(wrangler@4.147.0(@cloudflare/workers-types@5.20261001.1)(@types/node@24.10.13))
+        version: 1.54.6(@types/node@24.10.13)(vite@8.1.6(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))(wrangler@4.147.0(@cloudflare/workers-types@5.20261001.1)(@types/node@24.10.13))
       '@cloudflare/vitest-pool-workers':
         specifier: 0.12.14
         version: 0.12.14(@cloudflare/workers-types@5.20261001.1)(@types/node@24.10.13)(@vitest/runner@3.2.7)(@vitest/snapshot@3.2.7)(vitest@3.2.7(@types/debug@4.1.13)(@types/node@24.10.13)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.2.0))(lightningcss@1.33.0)(msw@2.12.10(@types/node@24.10.13)(@typescript/typescript6@6.0.2))(tsx@4.21.0)(yaml@2.9.1))
@@ -1979,7 +1979,7 @@ importers:
         version: 2.3.0(@aws-sdk/credential-provider-node@3.972.63)(@babel/core@8.0.1)(@babel/runtime@7.29.7)(@cfworker/json-schema@4.1.1)(@cloudflare/codemode@0.5.1(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(@cloudflare/workers-types@5.20261001.1)(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@smithy/signature-v4@5.6.2)(@types/node@24.10.13)(@typescript/typescript6@6.0.2)(ai@6.0.219(zod@4.6.5))(chat@4.32.0(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(esbuild@0.28.2)(hono@4.13.13)(jiti@2.7.0)(just-bash@3.0.2)(react@19.3.1)(rolldown@1.1.4)(tsx@4.21.0)(undici@7.30.0)(ws@8.21.3)(yaml@2.9.1)(zod@4.6.5)
       '@flue/vite':
         specifier: 2.3.0
-        version: 2.3.0(@aws-sdk/credential-provider-node@3.972.63)(@babel/core@8.0.1)(@babel/runtime@7.29.7)(@cfworker/json-schema@4.1.1)(@cloudflare/codemode@0.5.1(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(@cloudflare/workers-types@5.20261001.1)(@smithy/signature-v4@5.6.2)(@typescript/typescript6@6.0.2)(ai@6.0.219(zod@4.6.5))(chat@4.32.0(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(hono@4.13.13)(just-bash@3.0.2)(react@19.3.1)(rolldown@1.1.4)(undici@7.30.0)(vite@8.1.2(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))(ws@8.21.3)(zod@4.6.5)
+        version: 2.3.0(@aws-sdk/credential-provider-node@3.972.63)(@babel/core@8.0.1)(@babel/runtime@7.29.7)(@cfworker/json-schema@4.1.1)(@cloudflare/codemode@0.5.1(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(@cloudflare/workers-types@5.20261001.1)(@smithy/signature-v4@5.6.2)(@typescript/typescript6@6.0.2)(ai@6.0.219(zod@4.6.5))(chat@4.32.0(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(hono@4.13.13)(just-bash@3.0.2)(react@19.3.1)(rolldown@1.1.4)(undici@7.30.0)(vite@8.1.6(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))(ws@8.21.3)(zod@4.6.5)
       '@openmeld/core':
         specifier: workspace:*
         version: link:../core
@@ -1999,8 +1999,8 @@ importers:
         specifier: npm:@typescript/typescript6@6.0.2
         version: '@typescript/typescript6@6.0.2'
       vite:
-        specifier: 8.1.2
-        version: 8.1.2(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1)
+        specifier: 8.1.6
+        version: 8.1.6(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1)
       vitest:
         specifier: ~3.2.0
         version: 3.2.7(@types/debug@4.1.13)(@types/node@24.10.13)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.2.0))(lightningcss@1.33.0)(msw@2.12.10(@types/node@24.10.13)(@typescript/typescript6@6.0.2))(tsx@4.21.0)(yaml@2.9.1)
@@ -4684,12 +4684,6 @@ packages:
   '@hexagon/base64@1.1.28':
     resolution: {integrity: sha512-lhqDEAvWixy3bZ+UOYbPwUbBkwBq5C1LAJ/xPC8Oi+lL54oyakv/npbA0aU2hgCsx/1NUd4IBvV03+aUBWxerw==}
 
-  '@hono/node-server@1.19.10':
-    resolution: {integrity: sha512-hZ7nOssGqRgyV3FVVQdfi+U4q02uB23bpnYpdvNXkYTRRyWx84b7yf1ans+dnJ/7h41sGL3CeQTfO+ZGxuO+Iw==}
-    engines: {node: '>=18.14.1'}
-    peerDependencies:
-      hono: ^4
-
   '@hono/node-server@2.0.8':
     resolution: {integrity: sha512-GuCWzLxwg218fy1JaHculFsdcuY12hxit83V+algozTPnwhNjLrRL/Alg9OYjLZLoUZ1rw/S4CdTMsnkSKCmFA==}
     engines: {node: '>=20'}
@@ -5228,16 +5222,6 @@ packages:
   '@modelcontextprotocol/core@2.3.1':
     resolution: {integrity: sha512-laVmIhPGpWi7rG9q+0UigblRN0Hws/Yjlb6qLFtVqryXVLkc4h+yN8z731POD2LnAGQlFe7/tXhUm7Bi0YB91g==}
     engines: {node: '>=20'}
-
-  '@modelcontextprotocol/sdk@1.29.0':
-    resolution: {integrity: sha512-zo37mZA9hJWpULgkRpowewez1y6ML5GsXJPY8FI0tBBCd77HEvza4jDqRKOXgHNn867PVGCyTdzqpz0izu5ZjQ==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      '@cfworker/json-schema': ^4.1.1
-      zod: 4.6.5
-    peerDependenciesMeta:
-      '@cfworker/json-schema':
-        optional: true
 
   '@modelcontextprotocol/sdk@1.30.0':
     resolution: {integrity: sha512-xKd8OIzlqNzcqcNumGAa6g+PW2kjD5vrpcKOnfldAUPP3j7lnqMPwlTXQm8gF+UwH72z0lqaRbjr9hqGz0eITA==}
@@ -10917,10 +10901,6 @@ packages:
   hoist-non-react-statics@3.3.2:
     resolution: {integrity: sha512-/gGivxi8JPKWNm/W0jSmzcMPpfpPLc3dY/6GxhX2hQ9iGj3aDfklV4ET7NjKpSinLpJ5vafa9iiGIEZg10SfBw==}
 
-  hono@4.12.22:
-    resolution: {integrity: sha512-7fvVPbB92zNRsQke+uiRGwtTuef0tB2Dg4hWxYfFNvkQhIltWoyi0ONReM5LWA+jJWS3nfT5lTq+qbsIpX0IQw==}
-    engines: {node: '>=16.9.0'}
-
   hono@4.13.13:
     resolution: {integrity: sha512-CQ46U0ZkAGmbT/4UxdzzGJpacP2IeKgY4a5/tOI9AABbpOMfK739wfDXmv1usCk+3RkKj1hQy4/fjhiwa2xlrA==}
     engines: {node: '>=16.9.0'}
@@ -14873,8 +14853,8 @@ packages:
       yaml:
         optional: true
 
-  vite@8.1.2:
-    resolution: {integrity: sha512-6YYPbRXTxx6bRXmOn7XdnQAy5DQNHhDgtjhDHI13oe4pY93kkcdGJWxpGwOm++/Wh0QpQhDrpIoVMrmrsI5AGQ==}
+  vite@8.1.6:
+    resolution: {integrity: sha512-aRAHIxx5SW5zc1sMqFwJU/t5qaFfXb5Hj0J7W0VXihu/X99+346tz6080tO1T1xVIJORX/b3zVTXGFqUXh35uw==}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
     peerDependencies:
@@ -15542,10 +15522,10 @@ snapshots:
   '@anthropic-ai/claude-agent-sdk-win32-x64@0.3.295':
     optional: true
 
-  '@anthropic-ai/claude-agent-sdk@0.3.295(@anthropic-ai/sdk@0.131.0(zod@4.6.5))(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(zod@4.6.5)':
+  '@anthropic-ai/claude-agent-sdk@0.3.295(@anthropic-ai/sdk@0.131.0(zod@4.6.5))(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(zod@4.6.5)':
     dependencies:
       '@anthropic-ai/sdk': 0.131.0(zod@4.6.5)
-      '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.6.5)
+      '@modelcontextprotocol/sdk': 1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5)
       zod: 4.6.5
     optionalDependencies:
       '@anthropic-ai/claude-agent-sdk-darwin-arm64': 0.3.295
@@ -16549,12 +16529,12 @@ snapshots:
     optionalDependencies:
       workerd: 1.20261001.1
 
-  '@cloudflare/vite-plugin@1.54.6(@types/node@24.10.13)(vite@8.1.2(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))(wrangler@4.147.0(@cloudflare/workers-types@5.20261001.1)(@types/node@24.10.13))':
+  '@cloudflare/vite-plugin@1.54.6(@types/node@24.10.13)(vite@8.1.6(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))(wrangler@4.147.0(@cloudflare/workers-types@5.20261001.1)(@types/node@24.10.13))':
     dependencies:
       '@cloudflare/unenv-preset': 2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260908.1)
       miniflare: 5.20260908.0-alpha(@types/node@24.10.13)
       unenv: 2.0.0-rc.24
-      vite: 8.1.2(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1)
+      vite: 8.1.6(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1)
       workerd: 1.20260908.1
       wrangler: 4.147.0(@cloudflare/workers-types@5.20261001.1)(@types/node@24.10.13)
       ws: 8.21.0
@@ -17929,18 +17909,18 @@ snapshots:
       - ws
       - zod
 
-  '@flue/vite@2.3.0(@aws-sdk/credential-provider-node@3.972.63)(@babel/core@8.0.1)(@babel/runtime@7.29.7)(@cfworker/json-schema@4.1.1)(@cloudflare/codemode@0.5.1(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(@cloudflare/workers-types@5.20261001.1)(@smithy/signature-v4@5.6.2)(@typescript/typescript6@6.0.2)(ai@6.0.219(zod@4.6.5))(chat@4.32.0(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(hono@4.13.13)(just-bash@3.0.2)(react@19.3.1)(rolldown@1.1.4)(undici@7.30.0)(vite@8.1.2(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))(ws@8.21.3)(zod@4.6.5)':
+  '@flue/vite@2.3.0(@aws-sdk/credential-provider-node@3.972.63)(@babel/core@8.0.1)(@babel/runtime@7.29.7)(@cfworker/json-schema@4.1.1)(@cloudflare/codemode@0.5.1(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(@cloudflare/workers-types@5.20261001.1)(@smithy/signature-v4@5.6.2)(@typescript/typescript6@6.0.2)(ai@6.0.219(zod@4.6.5))(chat@4.32.0(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(hono@4.13.13)(just-bash@3.0.2)(react@19.3.1)(rolldown@1.1.4)(undici@7.30.0)(vite@8.1.6(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))(ws@8.21.3)(zod@4.6.5)':
     dependencies:
       '@flue/runtime': 2.3.0(patch_hash=29ff1b374b1a832ef518fa59841e1ed08476c129ccfc727f47ae9daca8b64c76)(@aws-sdk/credential-provider-node@3.972.63)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@smithy/signature-v4@5.6.2)(@typescript/typescript6@6.0.2)(undici@7.30.0)(ws@8.21.3)(zod@4.6.5)
       '@hono/node-server': 2.0.8(hono@4.13.13)
       '@modelcontextprotocol/client': 2.0.0
       '@modelcontextprotocol/sdk': 1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5)
       '@modelcontextprotocol/server': 2.0.0
-      agents: 0.20.1(@babel/core@8.0.1)(@babel/runtime@7.29.7)(@cloudflare/codemode@0.5.1(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(@cloudflare/workers-types@5.20261001.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@modelcontextprotocol/server@2.0.0)(ai@6.0.219(zod@4.6.5))(chat@4.32.0(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(just-bash@3.0.2)(react@19.3.1)(rolldown@1.1.4)(vite@8.1.2(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))(zod@4.6.5)
+      agents: 0.20.1(@babel/core@8.0.1)(@babel/runtime@7.29.7)(@cloudflare/codemode@0.5.1(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(@cloudflare/workers-types@5.20261001.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@modelcontextprotocol/server@2.0.0)(ai@6.0.219(zod@4.6.5))(chat@4.32.0(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(just-bash@3.0.2)(react@19.3.1)(rolldown@1.1.4)(vite@8.1.6(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))(zod@4.6.5)
       magic-string: 1.4.3
       tinyglobby: 0.2.17
       ulidx: 2.4.1
-      vite: 8.1.2(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1)
+      vite: 8.1.6(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1)
     transitivePeerDependencies:
       - '@ai-sdk/react'
       - '@aws-sdk/credential-provider-node'
@@ -18112,10 +18092,6 @@ snapshots:
       - utf-8-validate
 
   '@hexagon/base64@1.1.28': {}
-
-  '@hono/node-server@1.19.10(hono@4.12.22)':
-    dependencies:
-      hono: 4.12.22
 
   '@hono/node-server@2.0.8(hono@4.13.13)':
     dependencies:
@@ -18691,54 +18667,6 @@ snapshots:
     dependencies:
       zod: 4.6.5
 
-  '@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@3.25.76)':
-    dependencies:
-      '@hono/node-server': 1.19.10(hono@4.12.22)
-      ajv: 8.18.0
-      ajv-formats: 3.0.1(ajv@8.18.0)
-      content-type: 1.0.5
-      cors: 2.8.6
-      cross-spawn: 7.0.6
-      eventsource: 3.0.7
-      eventsource-parser: 3.0.6
-      express: 5.2.1
-      express-rate-limit: 8.2.1(express@5.2.1)
-      hono: 4.12.22
-      jose: 6.1.3
-      json-schema-typed: 8.0.2
-      pkce-challenge: 5.0.1
-      raw-body: 3.0.2
-      zod: 3.25.76
-      zod-to-json-schema: 3.25.1(zod@3.25.76)
-    optionalDependencies:
-      '@cfworker/json-schema': 4.1.1
-    transitivePeerDependencies:
-      - supports-color
-
-  '@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.6.5)':
-    dependencies:
-      '@hono/node-server': 1.19.10(hono@4.12.22)
-      ajv: 8.18.0
-      ajv-formats: 3.0.1(ajv@8.18.0)
-      content-type: 1.0.5
-      cors: 2.8.6
-      cross-spawn: 7.0.6
-      eventsource: 3.0.7
-      eventsource-parser: 3.0.6
-      express: 5.2.1
-      express-rate-limit: 8.2.1(express@5.2.1)
-      hono: 4.12.22
-      jose: 6.1.3
-      json-schema-typed: 8.0.2
-      pkce-challenge: 5.0.1
-      raw-body: 3.0.2
-      zod: 4.6.5
-      zod-to-json-schema: 3.25.1(zod@4.6.5)
-    optionalDependencies:
-      '@cfworker/json-schema': 4.1.1
-    transitivePeerDependencies:
-      - supports-color
-
   '@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5)':
     dependencies:
       '@hono/node-server': 2.0.8(hono@4.13.13)
@@ -18758,6 +18686,30 @@ snapshots:
       raw-body: 3.0.2
       zod: 4.6.5
       zod-to-json-schema: 3.25.1(zod@4.6.5)
+    optionalDependencies:
+      '@cfworker/json-schema': 4.1.1
+    transitivePeerDependencies:
+      - supports-color
+
+  '@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@3.25.76)':
+    dependencies:
+      '@hono/node-server': 2.0.8(hono@4.13.13)
+      ajv: 8.18.0
+      ajv-formats: 3.0.1(ajv@8.18.0)
+      content-type: 1.0.5
+      cors: 2.8.6
+      cross-spawn: 7.0.6
+      eventsource: 3.0.7
+      eventsource-parser: 3.1.0
+      express: 5.2.1
+      express-rate-limit: 8.2.1(express@5.2.1)
+      hono: 4.13.13
+      jose: 6.1.3
+      json-schema-typed: 8.0.2
+      pkce-challenge: 5.0.1
+      raw-body: 3.0.2
+      zod: 3.25.76
+      zod-to-json-schema: 3.25.1(zod@3.25.76)
     optionalDependencies:
       '@cfworker/json-schema': 4.1.1
     transitivePeerDependencies:
@@ -20534,14 +20486,14 @@ snapshots:
   '@rolldown/binding-win32-x64-msvc@1.2.14':
     optional: true
 
-  '@rolldown/plugin-babel@0.2.3(@babel/core@8.0.1)(@babel/runtime@7.29.7)(rolldown@1.1.4)(vite@8.1.2(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))':
+  '@rolldown/plugin-babel@0.2.3(@babel/core@8.0.1)(@babel/runtime@7.29.7)(rolldown@1.1.4)(vite@8.1.6(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))':
     dependencies:
       '@babel/core': 8.0.1
       picomatch: 4.0.4
       rolldown: 1.1.4
     optionalDependencies:
       '@babel/runtime': 7.29.7
-      vite: 8.1.2(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1)
+      vite: 8.1.6(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1)
 
   '@rolldown/plugin-babel@0.2.3(@babel/core@8.0.1)(@babel/runtime@7.29.7)(rolldown@1.1.4)(vite@8.3.4(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))':
     dependencies:
@@ -22316,14 +22268,14 @@ snapshots:
 
   agent-base@9.0.0: {}
 
-  agents@0.20.1(@babel/core@8.0.1)(@babel/runtime@7.29.7)(@cloudflare/codemode@0.5.1(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(@cloudflare/workers-types@5.20261001.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@modelcontextprotocol/server@2.0.0)(ai@6.0.219(zod@4.6.5))(chat@4.32.0(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(just-bash@3.0.2)(react@19.3.1)(rolldown@1.1.4)(vite@8.1.2(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))(zod@4.6.5):
+  agents@0.20.1(@babel/core@8.0.1)(@babel/runtime@7.29.7)(@cloudflare/codemode@0.5.1(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(@cloudflare/workers-types@5.20261001.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@modelcontextprotocol/server@2.0.0)(ai@6.0.219(zod@4.6.5))(chat@4.32.0(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(just-bash@3.0.2)(react@19.3.1)(rolldown@1.1.4)(vite@8.1.6(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))(zod@4.6.5):
     dependencies:
       '@babel/plugin-proposal-decorators': 8.0.2(@babel/core@8.0.1)
       '@cfworker/json-schema': 4.1.1
       '@modelcontextprotocol/client': 2.0.0
       '@modelcontextprotocol/sdk': 1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5)
       '@modelcontextprotocol/server': 2.0.0
-      '@rolldown/plugin-babel': 0.2.3(@babel/core@8.0.1)(@babel/runtime@7.29.7)(rolldown@1.1.4)(vite@8.1.2(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))
+      '@rolldown/plugin-babel': 0.2.3(@babel/core@8.0.1)(@babel/runtime@7.29.7)(rolldown@1.1.4)(vite@8.1.6(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))
       cron-schedule: 6.0.0
       esbuild: 0.28.2
       mimetext: 3.0.28
@@ -22339,7 +22291,7 @@ snapshots:
       ai: 6.0.219(zod@4.6.5)
       chat: 4.32.0(ai@6.0.219(zod@4.6.5))(zod@4.6.5)
       just-bash: 3.0.2
-      vite: 8.1.2(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1)
+      vite: 8.1.6(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1)
     transitivePeerDependencies:
       - '@babel/core'
       - '@babel/plugin-transform-runtime'
@@ -22378,14 +22330,14 @@ snapshots:
       - '@cloudflare/workers-types'
       - rolldown
 
-  agents@0.28.1(@babel/core@8.0.1)(@babel/runtime@7.29.7)(@cloudflare/codemode@0.5.1(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(@earendil-works/pi-ai@1.3.0(@aws-sdk/credential-provider-node@3.972.63)(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@smithy/signature-v4@5.6.2)(undici@7.30.0)(ws@8.21.3)(zod@4.6.5))(@modelcontextprotocol/client@2.3.1)(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@modelcontextprotocol/server@2.3.1)(ai@6.0.219(zod@4.6.5))(chat@4.32.0(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(just-bash@3.0.2)(react@19.3.1)(rolldown@1.1.4)(vite@8.1.2(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))(zod@4.6.5):
+  agents@0.28.1(@babel/core@8.0.1)(@babel/runtime@7.29.7)(@cloudflare/codemode@0.5.1(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(@earendil-works/pi-ai@1.3.0(@aws-sdk/credential-provider-node@3.972.63)(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@smithy/signature-v4@5.6.2)(undici@7.30.0)(ws@8.21.3)(zod@4.6.5))(@modelcontextprotocol/client@2.3.1)(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@modelcontextprotocol/server@2.3.1)(ai@6.0.219(zod@4.6.5))(chat@4.32.0(ai@6.0.219(zod@4.6.5))(zod@4.6.5))(just-bash@3.0.2)(react@19.3.1)(rolldown@1.1.4)(vite@8.1.6(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))(zod@4.6.5):
     dependencies:
       '@babel/plugin-proposal-decorators': 8.0.2(@babel/core@8.0.1)
       '@cfworker/json-schema': 4.1.1
       '@modelcontextprotocol/client': 2.3.1
       '@modelcontextprotocol/sdk': 1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.5)
       '@modelcontextprotocol/server': 2.3.1
-      '@rolldown/plugin-babel': 0.2.3(@babel/core@8.0.1)(@babel/runtime@7.29.7)(rolldown@1.1.4)(vite@8.1.2(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))
+      '@rolldown/plugin-babel': 0.2.3(@babel/core@8.0.1)(@babel/runtime@7.29.7)(rolldown@1.1.4)(vite@8.1.6(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1))
       capnweb: 0.12.0(patch_hash=7f8f0dca8db0a032e037f83deff97aac1b9429e88c880b4cc9aa13d3d661a73a)
       cron-schedule: 6.0.0
       esbuild: 0.28.2
@@ -22402,7 +22354,7 @@ snapshots:
       chat: 4.32.0(ai@6.0.219(zod@4.6.5))(zod@4.6.5)
       just-bash: 3.0.2
       react: 19.3.1
-      vite: 8.1.2(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1)
+      vite: 8.1.6(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1)
     transitivePeerDependencies:
       - '@babel/core'
       - '@babel/plugin-transform-runtime'
@@ -25210,8 +25162,6 @@ snapshots:
   hoist-non-react-statics@3.3.2:
     dependencies:
       react-is: 16.13.1
-
-  hono@4.12.22: {}
 
   hono@4.13.13: {}
 
@@ -28572,7 +28522,7 @@ snapshots:
       '@babel/plugin-transform-typescript': 7.28.6(@babel/core@7.29.0)
       '@babel/preset-typescript': 7.28.5(@babel/core@7.29.0)
       '@dotenvx/dotenvx': 1.52.0
-      '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@3.25.76)
+      '@modelcontextprotocol/sdk': 1.32.1(@cfworker/json-schema@4.1.1)(zod@3.25.76)
       '@types/validate-npm-package-name': 4.0.2
       browserslist: 4.28.1
       commander: 14.0.3
@@ -29764,10 +29714,10 @@ snapshots:
       tsx: 4.21.0
       yaml: 2.9.1
 
-  vite@8.1.2(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1):
+  vite@8.1.6(@types/node@24.10.13)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.1):
     dependencies:
-      lightningcss: 1.32.0
-      picomatch: 4.0.4
+      lightningcss: 1.33.0
+      picomatch: 4.0.7
       postcss: 8.5.30
       rolldown: 1.1.4
       tinyglobby: 0.2.17
