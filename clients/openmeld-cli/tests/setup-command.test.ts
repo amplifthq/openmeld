@@ -1240,6 +1240,11 @@ describe("setup command", () => {
       syncLocalSetupCurrentDeviceTargetFromServiceContractMock
     ).not.toHaveBeenCalled();
     expect(submitSelectedAgentControllerReportsMock).not.toHaveBeenCalled();
+    // The live Connect session enabled every runnable agent before the page
+    // chose Codex: the rest are turned off before any Agent is added.
+    expect(turnOffUnselectedLocalAgentsForSetupMock).toHaveBeenCalledWith({
+      selectedLocalAgentIds: ["codex"],
+    });
 
     const setupComplete = presenter.data.mock.calls.find(
       ([event]) => (event as { code?: string }).code === "setup.complete"

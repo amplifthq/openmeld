@@ -622,6 +622,63 @@ describe("syncMemberAgents", () => {
     expect(report.addableHarnessKinds).toEqual([]);
   });
 
+  it("tries the next computer when the first cannot turn the Harness on", async () => {
+    const deps = createDeps({
+      entries: [
+        catalogEntry({
+          agentControllerRef: "builtin:cursor",
+          openMeldServiceRuntimeId: "runtime-offline",
+          reportObservedAtMs: NOW_MS - 500,
+          reportStatus: "disabled",
+        }),
+        catalogEntry({
+          agentControllerRef: "builtin:cursor",
+          openMeldServiceRuntimeId: "runtime-online",
+          reportObservedAtMs: NOW_MS - 5000,
+          reportStatus: "disabled",
+        }),
+      ],
+    });
+    deps.turnOnHarness.mockRejectedValueOnce(
+      Object.assign(new Error("offline"), {
+        code: "local_agent_control.current_runtime_missing",
+      })
+    );
+
+    const report = await syncMemberAgents(deps, {
+      createHarnessKinds: ["cursor"],
+    });
+
+    expect(deps.turnOnHarness).toHaveBeenCalledTimes(2);
+    expect(deps.turnOnHarness).toHaveBeenLastCalledWith(
+      expect.objectContaining({ deviceId: "device-runtime-online" })
+    );
+    expect(report.results).toMatchObject([
+      { harnessKind: "cursor", outcome: "created", reasonCodes: [] },
+    ]);
+  });
+
+  it("offers a Harness reported unavailable because it is turned off", async () => {
+    // The Service may report a turned-off controller as `unavailable` with
+    // the `not_enabled` reason instead of `disabled`.
+    const deps = createDeps({
+      entries: [
+        catalogEntry({
+          agentControllerRef: "builtin:cursor",
+          openMeldServiceRuntimeId: "runtime-1",
+          reasonCodes: ["local_agent_preparation.not_enabled"],
+          reportStatus: "unavailable",
+        }),
+      ],
+    });
+
+    const report = await syncMemberAgents(deps);
+
+    expect(report.results).toEqual([]);
+    expect(report.addableHarnessKinds).toEqual(["cursor"]);
+    expect(deps.ensureDetectedMemberAgent).not.toHaveBeenCalled();
+  });
+
   it("reports why a requested Harness stayed off", async () => {
     const deps = createDeps({
       entries: [

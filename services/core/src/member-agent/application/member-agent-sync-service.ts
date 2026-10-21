@@ -198,14 +198,20 @@ async function turnOnRequestedHarnesses(
     ) {
       continue;
     }
-    try {
-      await deps.turnOnHarness(selectBindingTarget(addable));
-      turnedOn = true;
-    } catch (error) {
-      turnOnFailures.set(
-        harnessKind,
-        readErrorCode(error, "member_agent.turn_on_failed")
-      );
+    // Several computers may have it turned off: try each, best first, so an
+    // offline one does not block the others.
+    for (const target of rankBindingTargets(addable)) {
+      try {
+        await deps.turnOnHarness(target);
+        turnedOn = true;
+        turnOnFailures.delete(harnessKind);
+        break;
+      } catch (error) {
+        turnOnFailures.set(
+          harnessKind,
+          readErrorCode(error, "member_agent.turn_on_failed")
+        );
+      }
     }
   }
   return {
@@ -434,7 +440,18 @@ function requiresChosenConversation(harnessKind: DetectedHarnessKind) {
 function selectBindingTarget(
   candidates: readonly RuntimeHarness[]
 ): MemberAgentBindingTarget {
-  const [target] = [...candidates].sort(
+  const [target] = rankBindingTargets(candidates);
+  if (!target) {
+    throw new Error("a detected Harness has no reporting computer");
+  }
+  return target;
+}
+
+// Ready first, then a current report, then the freshest.
+function rankBindingTargets(
+  candidates: readonly RuntimeHarness[]
+): RuntimeHarness[] {
+  return [...candidates].sort(
     (left, right) =>
       Number(right.reportReady) - Number(left.reportReady) ||
       Number(right.reportCurrent) - Number(left.reportCurrent) ||
@@ -443,10 +460,6 @@ function selectBindingTarget(
         right.openMeldServiceRuntimeId
       )
   );
-  if (!target) {
-    throw new Error("a detected Harness has no reporting computer");
-  }
-  return target;
 }
 
 function isInterruptedDetectedCreation(memberAgent: MemberAgent): boolean {

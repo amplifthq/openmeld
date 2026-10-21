@@ -821,6 +821,13 @@ async function resolveDelegatedSetupCompletionFacts(input: {
             reason: "setup_profile_agent_controller_reported",
           })
         : null;
+    // The Connect page chose these; the session turned every runnable agent
+    // on before it did.
+    if (completionFacts.selectedLocalAgentIds.length > 0) {
+      await addSetupMemberAgentsAfterLocalAgentChoice({
+        selectedLocalAgentIds: completionFacts.selectedLocalAgentIds,
+      });
+    }
     return {
       routeCatalogSync,
       openMeldServiceRuntimeIdentity,

@@ -9,6 +9,7 @@ import {
   HARNESS_CATALOG_REPORT_RECENCY_MS,
   type HarnessReportDetection,
   isHarnessPresentOnRuntime,
+  isLocalAgentReportEnabled,
 } from "./harness-presence-policy";
 
 export type RuntimeHarness = {
@@ -60,7 +61,10 @@ export function projectRuntimeHarnesses(input: {
         agentControllerRef: entry.agentControllerRef,
         currentDetection,
         deviceId: entry.deviceId,
-        enabled: entry.reportStatus !== "disabled",
+        enabled: isLocalAgentReportEnabled({
+          reasonCodes: entry.reasonCodes,
+          status: entry.reportStatus,
+        }),
         harnessKind: harnessKind.data,
         lane: entry.lane,
         openMeldServiceRuntimeId: entry.openMeldServiceRuntimeId,
