@@ -4,8 +4,21 @@ import type {
 	SpaceBootstrapResponse,
 } from "@openmeld/schemas/types";
 import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import { type ComponentProps, type ReactNode, useEffect } from "react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
+import {
+	type ComponentProps,
+	type ReactNode,
+	use,
+	useEffect,
+	useState,
+} from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createInitialStartFlowState,
@@ -555,6 +568,100 @@ describe("app space entry route", () => {
 		expect(screen.queryByTestId("space-profile-required-state")).toBeNull();
 	});
 
+	it("gives every Space its own conversation state when switching Spaces", async () => {
+		const spaceIdsByInstance = new Map<object, Set<string>>();
+		spaceLandingMock.mockImplementation(({ spaceId }) => (
+			<StatefulSpaceLanding
+				onRender={(instance) => {
+					const seen = spaceIdsByInstance.get(instance) ?? new Set<string>();
+					seen.add(spaceId);
+					spaceIdsByInstance.set(instance, seen);
+				}}
+				spaceId={spaceId}
+			/>
+		));
+		const queryClient = createTestQueryClient();
+		const view = renderAppSpaceEntry({
+			profileId: "profile-123",
+			queryClient,
+			selectedHumanProfileId: "profile-123",
+			spaceId: "space-a",
+		});
+		await screen.findByTestId("space-landing");
+		fireEvent.change(screen.getByLabelText("Draft"), {
+			target: { value: "Draft for Space A" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Open Thread" }));
+		fireEvent.click(screen.getByRole("button", { name: "Select message" }));
+		fireEvent.click(screen.getByRole("button", { name: "Attach file" }));
+		expect(screen.getByTestId("open-thread").textContent).toBe(
+			"thread-space-a"
+		);
+
+		for (const spaceId of ["space-b", "space-a"]) {
+			view.rerender(buildAppSpaceEntryElement({ queryClient, spaceId }));
+			await waitFor(() =>
+				expect(
+					screen.getByTestId("space-landing").getAttribute("data-space-id")
+				).toBe(spaceId)
+			);
+			expect(
+				screen
+					.getByTestId("app-space-shell")
+					.getAttribute("data-current-space-id")
+			).toBe(spaceId);
+			// Draft, open Thread, selection, and pending uploads belong to the
+			// Space they were made in; the next Space starts from its own state.
+			expect((screen.getByLabelText("Draft") as HTMLInputElement).value).toBe(
+				""
+			);
+			expect(screen.getByTestId("open-thread").textContent).toBe("");
+			expect(screen.getByTestId("selected-signal").textContent).toBe("");
+			expect(screen.getByTestId("pending-uploads").textContent).toBe("0");
+		}
+		// No conversation instance is ever reused for a different Space.
+		expect(spaceIdsByInstance.size).toBe(3);
+		for (const seen of spaceIdsByInstance.values()) {
+			expect(seen.size).toBe(1);
+		}
+	});
+
+	it("commits the new Space selection before the next conversation mounts", async () => {
+		const pendingConversation = new Promise<never>(() => undefined);
+		spaceLandingMock.mockImplementation(({ spaceId }) => (
+			<SuspendingSpaceLanding
+				pending={spaceId === "space-b" ? pendingConversation : null}
+				spaceId={spaceId}
+			/>
+		));
+		const queryClient = createTestQueryClient();
+		const view = renderAppSpaceEntry({
+			profileId: "profile-123",
+			queryClient,
+			selectedHumanProfileId: "profile-123",
+			spaceId: "space-a",
+		});
+		expect(
+			(await screen.findByTestId("space-landing")).getAttribute("data-space-id")
+		).toBe("space-a");
+
+		act(() => {
+			view.rerender(
+				buildAppSpaceEntryElement({ queryClient, spaceId: "space-b" })
+			);
+		});
+
+		// The sidebar selection moves first, and the leaving Space is gone, while
+		// Space B is still rendering in the background.
+		expect(
+			screen
+				.getByTestId("app-space-shell")
+				.getAttribute("data-current-space-id")
+		).toBe("space-b");
+		expect(screen.queryByTestId("space-landing")).toBeNull();
+		expect(screen.getByText("Loading messages…")).toBeTruthy();
+	});
+
 	it("redirects a current Direct Message from its legacy Space URL to the canonical route", async () => {
 		mockBootstrapStatus(
 			createSpaceStatus({
@@ -1063,6 +1170,75 @@ describe("app space entry route", () => {
 		expect(spaceLandingMock).not.toHaveBeenCalled();
 	});
 });
+
+function StatefulSpaceLanding(input: {
+	onRender: (instance: object) => void;
+	spaceId: string;
+}) {
+	const [instance] = useState(() => ({}));
+	const [draft, setDraft] = useState("");
+	const [openThreadId, setOpenThreadId] = useState<string | null>(null);
+	const [selectedSignalId, setSelectedSignalId] = useState<string | null>(null);
+	const [pendingUploadCount, setPendingUploadCount] = useState(0);
+	input.onRender(instance);
+	return (
+		<div data-space-id={input.spaceId} data-testid="space-landing">
+			<input
+				aria-label="Draft"
+				onChange={(event) => setDraft(event.target.value)}
+				value={draft}
+			/>
+			<button
+				onClick={() => setOpenThreadId(`thread-${input.spaceId}`)}
+				type="button"
+			>
+				Open Thread
+			</button>
+			<button
+				onClick={() => setSelectedSignalId(`signal-${input.spaceId}`)}
+				type="button"
+			>
+				Select message
+			</button>
+			<button
+				onClick={() => setPendingUploadCount((count) => count + 1)}
+				type="button"
+			>
+				Attach file
+			</button>
+			<output data-testid="open-thread">{openThreadId ?? ""}</output>
+			<output data-testid="selected-signal">{selectedSignalId ?? ""}</output>
+			<output data-testid="pending-uploads">{pendingUploadCount}</output>
+		</div>
+	);
+}
+
+function SuspendingSpaceLanding(input: {
+	pending: Promise<never> | null;
+	spaceId: string;
+}) {
+	if (input.pending) {
+		use(input.pending);
+	}
+	return <div data-space-id={input.spaceId} data-testid="space-landing" />;
+}
+
+function buildAppSpaceEntryElement(input: {
+	queryClient: ReturnType<typeof createTestQueryClient>;
+	spaceId: string;
+}) {
+	return (
+		<TestQueryClientProvider queryClient={input.queryClient}>
+			<StartFlowStateProvider storageScope="user-123">
+				<AppSpaceEntryContent
+					orgSlug="acme"
+					profileId="profile-123"
+					spaceId={input.spaceId}
+				/>
+			</StartFlowStateProvider>
+		</TestQueryClientProvider>
+	);
+}
 
 function renderAppSpaceEntry(input: {
 	focusInteractionId?: string;

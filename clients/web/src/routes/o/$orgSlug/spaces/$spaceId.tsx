@@ -24,12 +24,12 @@ import {
 	SpaceWindowShell,
 } from "#/components/spaces/app-space-shell";
 import { ConversationsSidebar } from "#/components/spaces/conversations-sidebar";
+import { DeferredSpaceLanding } from "#/components/spaces/deferred-space-landing";
 import {
 	type SpaceCreationHandoff,
 	SpaceCreationRoute,
 } from "#/components/spaces/space-creation-conversation";
 import { SpaceEntryGate } from "#/components/spaces/space-entry-gate";
-import { SpaceLanding } from "#/components/spaces/space-landing";
 import { SpaceProfileRequiredState } from "#/components/spaces/space-profile-required-state";
 import { SpaceLandingLoadingShell } from "#/components/spaces/space-state-surfaces";
 import { useSpacePanelWidth } from "#/components/spaces/use-space-panel-width";
@@ -551,7 +551,9 @@ function ValidatedAppSpaceEntryContent(
 
 function ResolvedAppSpaceEntryContent(
 	props: {
-		accountProfiles: ComponentProps<typeof SpaceLanding>["accountProfiles"];
+		accountProfiles: ComponentProps<
+			typeof DeferredSpaceLanding
+		>["accountProfiles"];
 		centerAgentDirectMessageSpaceId: string | null;
 		initialSidebarStates?: AppSidebarPersistedStates;
 		isPersonalContext: boolean;
@@ -608,7 +610,7 @@ function ResolvedAppSpaceEntryContent(
 						input.centerAgentDirectMessageSpaceId !== input.spaceId
 					}
 				>
-					<SpaceLanding
+					<DeferredSpaceLanding
 						{...input.handoff}
 						accountProfiles={input.accountProfiles}
 						initialFocusInteractionId={input.focusInteractionId}
@@ -616,7 +618,6 @@ function ResolvedAppSpaceEntryContent(
 						initialFocusSignalId={input.focusSignalId}
 						initialFocusThreadRootSignalId={input.focusThreadRootSignalId}
 						isPersonalContext={input.isPersonalContext}
-						key={`${input.spaceId}:${input.profileId}`}
 						orgSlug={input.orgSlug}
 						profileId={input.profileId}
 						spaceId={input.spaceId}
@@ -802,7 +803,9 @@ function ValidatedSpaceNavigationContent(
 
 function ValidatedDirectMessageEntryContent(
 	input: {
-		accountProfiles: ComponentProps<typeof SpaceLanding>["accountProfiles"];
+		accountProfiles: ComponentProps<
+			typeof DeferredSpaceLanding
+		>["accountProfiles"];
 		initialSidebarStates?: AppSidebarPersistedStates;
 		isPersonalContext: boolean;
 		orgSlug: string;
@@ -855,7 +858,7 @@ function ValidatedDirectMessageEntryContent(
 				input.initialSidebarStates?.inner ?? APP_SIDEBAR_DEFAULT_STATES.inner
 			}
 		>
-			<SpaceLanding
+			<DeferredSpaceLanding
 				accountProfiles={input.accountProfiles}
 				initialFocusInteractionId={input.focusInteractionId}
 				initialFocusRequestId={input.focusRequestId}
@@ -863,7 +866,6 @@ function ValidatedDirectMessageEntryContent(
 				initialFocusThreadRootSignalId={input.focusThreadRootSignalId}
 				isDirectMessageConversation
 				isPersonalContext={input.isPersonalContext}
-				key={`${input.spaceId}:${input.profileId}`}
 				orgSlug={input.orgSlug}
 				profileId={input.profileId}
 				spaceId={input.spaceId}
