@@ -1341,7 +1341,7 @@ metadata or shows raw provider ids. BYOK is not part of this release.
   Agent Profile default folder by folder id, archive that member's Sessions,
   handle access requests to that member's Agents, and change that member's
   Agent Profile permission mode. Implementation status: MemberAgent program,
-  PR #236, in progress. Each operation checks that the request chain's root
+  PR #236, shipped. Each operation checks that the request chain's root
   requester owns the target, and follows red line 8: the Center Agent acts
   only on the verified speaker's explicit instruction in the current turn,
   never autonomously. Archiving Sessions and changing permission mode are
@@ -1351,7 +1351,7 @@ metadata or shows raw provider ids. BYOK is not part of this release.
 
 ### Permission-mode advisor
 
-Implementation status: MemberAgent program, PR #236, in progress.
+Implementation status: MemberAgent program, PR #236, shipped.
 
 The advisor is prompt guidance only; it never changes settings. Core counts,
 per Agent Profile over a seven-day window, permission questions raised by tasks

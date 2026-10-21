@@ -212,7 +212,7 @@ Keep the command model stable across terminal use, Web handoff, and docs.
 
 ### Agents, Sessions, And Sensitive Operations
 
-Implementation status: MemberAgent program, PR #236, in progress.
+Implementation status: MemberAgent program, PR #236, shipped.
 
 `openmeld profiles create/list/show/set/update/delete` keep their contracts and
 also print each Profile's parent MemberAgent, or say that the Profile is

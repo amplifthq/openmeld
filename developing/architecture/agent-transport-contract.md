@@ -395,7 +395,7 @@ the Agent owner defaults to an isolated copy when the folder is a Git
 repository; the Service makes that choice inside
 `mode: "auto"`. Admission order stays FIFO without priorities, and owner and
 colleagues share the Profile's limit. Implementation status: MemberAgent
-program, PR #236, in progress.
+program, PR #236, shipped.
 
 Conversation isolation does not imply a new filesystem boundary. For a new
 Codex or Claude context, omitted access preferences inherit the Profile's current
@@ -573,7 +573,7 @@ instructions are present.
 
 ### Request Chain
 
-Implementation status: MemberAgent program, PR #236, in progress.
+Implementation status: MemberAgent program, PR #236, shipped.
 
 Every Wake has exactly one human root requester. No human root, no Wake.
 
