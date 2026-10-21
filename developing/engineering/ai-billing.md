@@ -128,8 +128,8 @@ the provider read is never made while holding it. Lock waits are bounded by a
 **Settlement and expiry.** Settlement replaces the hold with the
 provider-reported cost; the hold columns remain as admission evidence. A
 settlement without a cost (`unavailable`, `collection_failed`) keeps counting its
-hold, and a hold that is still pending, stops counting 30 minutes after
-admission. The row stores the admission time, not an expiry, so the window is
+hold. Every hold without a reported cost, pending or settled, stops counting 30
+minutes after admission. The row stores the admission time, not an expiry, so the window is
 read-time policy. Normal settlement takes seconds, and the durable outbox retries
 transport failures. Expiry was chosen over a reconciliation job so a lost
 settlement cannot permanently lock a workspace out of its credits; the native key
