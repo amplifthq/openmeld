@@ -17,13 +17,17 @@ const THREAD_REPLY_PREVIEW_DECORATION = /^(?:[-*_]{3,}|`{3,}[^`]*|~{3,}.*)$/;
 const THREAD_REPLY_PREVIEW_FENCE_OPENER = /^ {0,3}(?:(`{3,})[^`]*|(~{3,}).*)$/;
 const THREAD_REPLY_PREVIEW_FENCE_CLOSER = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
 
+const THREAD_REPLY_PREVIEW_TRAILING_SPACE = /[ \t\r]+$/;
+
 // Reply text at or under this length is carried whole.
 export const THREAD_REPLY_PREVIEW_TEXT_MAX_CHARS = 1000;
 
 type ThreadReplyPreviewLine = {
   // The cleaned line a preview shows.
   readonly line: string;
-  // Index in the source text where the line ends, before its newline.
+  // Indexes in the source text where the line starts and where it ends,
+  // before its newline.
+  readonly start: number;
   readonly end: number;
   // True for a line inside a fenced code block.
   readonly fenced: boolean;
@@ -59,11 +63,14 @@ function* threadReplyPreviewLines(
     const newline = text.indexOf("\n", lineStart);
     const end = newline === -1 ? text.length : newline;
     const line = readThreadReplyPreviewSourceLine(
-      text.slice(lineStart, end).trimEnd(),
+      // CommonMark allows only spaces and tabs after a closing fence.
+      text
+        .slice(lineStart, end)
+        .replace(THREAD_REPLY_PREVIEW_TRAILING_SPACE, ""),
       state
     );
     if (line) {
-      yield { ...line, end };
+      yield { ...line, start: lineStart, end };
     }
     if (newline === -1) {
       break;
@@ -116,10 +123,13 @@ export function readThreadReplyPreviewLine(text: string): string {
   return selectThreadReplyPreviewLine(text)?.line ?? text;
 }
 
-// Returns the prefix of text that ends with the line
-// readThreadReplyPreviewLine selects. That line is kept whole, so its links
-// and formatting render exactly as in the full text; only the lines after it
-// are left out. Text without a selectable line is returned whole.
+// Returns text that readThreadReplyPreviewLine reads as the same line it
+// selects from the full text. A line outside a fence is carried alone and
+// whole, so its links and formatting render exactly as in the full text and a
+// code block before it is not carried; reading it alone runs the same rules.
+// A code line is carried with the prefix that opens its fence, because a code
+// line alone could read as Markdown. Text without a selectable line is
+// returned whole.
 export function boundThreadReplyPreviewText(
   text: string,
   maxChars: number = THREAD_REPLY_PREVIEW_TEXT_MAX_CHARS
@@ -128,7 +138,10 @@ export function boundThreadReplyPreviewText(
     return text;
   }
   const selected = selectThreadReplyPreviewLine(text);
-  return selected ? text.slice(0, selected.end) : text;
+  if (!selected) {
+    return text;
+  }
+  return text.slice(selected.fenced ? 0 : selected.start, selected.end);
 }
 
 // Thread previews render one line per reply, so a text reply carries only the

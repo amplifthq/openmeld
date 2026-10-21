@@ -53,6 +53,17 @@ describe("thread reply preview text", () => {
     );
   });
 
+  it("does not close a fence on a run followed by other whitespace", () => {
+    expect(
+      readThreadReplyPreviewLine("```\nfirst\n```\u00a0\nsecond\n```\nHello")
+    ).toBe("Hello");
+  });
+
+  it("does not carry a large code block before the line it shows", () => {
+    const text = `\`\`\`\n${"x\n".repeat(50_000)}\`\`\`\nDone`;
+    expect(boundThreadReplyPreviewText(text)).toBe("Done");
+  });
+
   it("keeps indented or marked-up fence runs inside a fence", () => {
     expect(
       readThreadReplyPreviewLine("```\n    ```\n# ```\ninside\n   ```\nHello")
@@ -87,7 +98,7 @@ describe("thread reply preview text", () => {
     const text = `${fenced}\nHello\n${"tail ".repeat(400)}`;
     expect(text.length).toBeGreaterThan(MAX);
     const bounded = boundThreadReplyPreviewText(text);
-    expect(bounded).toBe(`${fenced}\nHello`);
+    expect(bounded).toBe("Hello");
     expect(readThreadReplyPreviewLine(bounded)).toBe("Hello");
     expect(readThreadReplyPreviewLine(text)).toBe("Hello");
   });
@@ -112,7 +123,7 @@ describe("thread reply preview text", () => {
     const shown = `**Result**: see ${url}`;
     const text = `${fence}\r\ncode\r\n\`\`\`\r\n\n${shown}\r\nmore\n${"tail ".repeat(800)}`;
     const bounded = boundThreadReplyPreviewText(text);
-    expect(bounded).toBe(`${fence}\r\ncode\r\n\`\`\`\r\n\n${shown}\r`);
+    expect(bounded).toBe(`${shown}\r`);
     expect(readThreadReplyPreviewLine(bounded)).toBe(
       readThreadReplyPreviewLine(text)
     );
