@@ -269,7 +269,7 @@ function resolveTeamLocalAgentSummaryStatus(
 			return { label: "Ready", tone: "ready" };
 		case "not_ready": {
 			if (agent.details?.check?.status === "failed") {
-				return { label: "Check delayed", tone: "warning" };
+				return { label: "Check delayed", tone: "checking" };
 			}
 			if (agent.details?.status === "error") {
 				return agent.details.launch.status === "needs_repair"
@@ -1805,6 +1805,15 @@ function buildLocalAgentCatalogRow(
 		entry: input.entry,
 		target: input.target,
 	});
+	// One card, one status. Launch facts come only from the Core catalog entry
+	// and controller facts only from the interface snapshot, in this order:
+	// 1. A completed negative launch result in the catalog (Choose installation,
+	//    Can't start). Core never projects one from an expired or unfinished
+	//    check, so these stay reserved for real launch failures.
+	// 2. The interface snapshot: a check that has not completed recently is
+	//    a neutral "Check delayed" with the last known details kept; then
+	//    sign-in and controller health.
+	// 3. The row's display status, then Ready or Off.
 	const setupStatus = enabled
 		? resolveLocalAgentSetupSummaryStatus(input.entry)
 		: null;
@@ -2527,7 +2536,8 @@ function resolveAgentControllerInterfaceSummaryStatus(
 		return null;
 	}
 	if (snapshot.check?.status === "failed") {
-		return { label: "Check delayed", tone: "warning" };
+		// A late or unfinished check is not a failure of the agent itself.
+		return { label: "Check delayed", tone: "checking" };
 	}
 	if (snapshot.auth.status === "unauthenticated") {
 		// Signing in is a routine account state, not a computer failure: keep it
@@ -2542,9 +2552,8 @@ function resolveAgentControllerInterfaceSummaryStatus(
 		return { label: "Installed", tone: "muted" };
 	}
 	if (snapshot.status === "error") {
-		return snapshot.launch.status === "needs_repair"
-			? { label: "Can’t start", tone: "danger" }
-			: { label: "Needs attention", tone: "danger" };
+		// Launch failures are owned by the catalog entry (step 1 above).
+		return { label: "Needs attention", tone: "danger" };
 	}
 	if (snapshot.status === "warning" || snapshot.status === "unavailable") {
 		return snapshot.status === "unavailable"

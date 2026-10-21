@@ -338,7 +338,9 @@ export function SettingsComputerStatusCard({
 
 export type SettingsLocalAgentRowSummaryStatus = {
   label: ReactNode;
-  tone?: "danger" | "muted" | "ready" | "warning";
+  // `checking` is informational: the last known facts still stand while a
+  // newer check is pending, so it neither alarms nor dims the agent identity.
+  tone?: "checking" | "danger" | "muted" | "ready" | "warning";
 };
 
 export type SettingsLocalAgentRow = {
