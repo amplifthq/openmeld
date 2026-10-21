@@ -978,6 +978,7 @@ function renderThreadComposer(
 			queuedMessages={
 				input.activeThread ? (
 					<SpaceInputQueue
+						agents={input.membersSnapshot?.agents}
 						onEdit={(text) => {
 							const draft = [input.composerText, text]
 								.filter(Boolean)

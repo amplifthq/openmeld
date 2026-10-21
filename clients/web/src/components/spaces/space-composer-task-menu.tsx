@@ -16,8 +16,18 @@ import {
 import { InfoIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
+import {
+	type ComposerFolderOption,
+	chooseComposerFolder,
+	selectedComposerFolderId,
+} from "./space-composer-folder-choice";
 import { SpaceComposerProjectWorkDialog } from "./space-composer-project-work-dialog";
 
+/**
+ * An earlier request the Agent finished with a published reply. Only these
+ * can be continued or forked: a failed or unanswered request has no finished
+ * turn to continue from.
+ */
 export type SpaceTaskSource = {
 	sourceWakeId: string;
 	targetProfileId: string;
@@ -33,6 +43,23 @@ export function buildSpaceTaskSources(
 	items: readonly SpaceTimelineItem[],
 	requesterProfileId: string
 ): SpaceTaskSource[] {
+	// Agents that published a final reply to each request. A plain Direct
+	// Message wakes the peer without activation targets, so the published
+	// reply, not the request's wake targets, says who answered it.
+	const answeredBy = new Map<string, Set<string>>();
+	for (const item of items) {
+		if (
+			item.isAgentFinalReply &&
+			// A live stream is still running; only a published reply finished.
+			!item.agentStreamState &&
+			item.deliveryState === "sent" &&
+			item.replyToSignalId
+		) {
+			const agents = answeredBy.get(item.replyToSignalId) ?? new Set();
+			agents.add(item.actorProfileId);
+			answeredBy.set(item.replyToSignalId, agents);
+		}
+	}
 	return items
 		.filter(
 			(item) =>
@@ -42,8 +69,19 @@ export function buildSpaceTaskSources(
 				!item.recalledAt
 		)
 		.reverse()
-		.flatMap((item) =>
-			item.wakeTargetProfileIds.map((targetProfileId) => ({
+		.flatMap((item) => {
+			const answered = answeredBy.get(item.id);
+			if (!answered) {
+				return [];
+			}
+			// Woken targets first, in the request's order; then any other answerer.
+			const targets = [
+				...item.wakeTargetProfileIds.filter((id) => answered.has(id)),
+				...[...answered].filter(
+					(id) => !item.wakeTargetProfileIds.includes(id)
+				),
+			];
+			return targets.map((targetProfileId) => ({
 				targetProfileId,
 				sourceWakeId: buildTargetWakeLifecycleId({
 					spaceId: item.spaceId,
@@ -51,8 +89,8 @@ export function buildSpaceTaskSources(
 					targetProfileId,
 				}),
 				label: item.text.trim().slice(0, 72) || "File request",
-			}))
-		);
+			}));
+		});
 }
 
 /** Execution settings belong to the recipient's existing mention menu. */
@@ -63,6 +101,10 @@ export function SpaceComposerAgentOptions(input: {
 	supportsFork?: boolean;
 	supportsAccessRestrictions?: boolean;
 	projectName?: string | null;
+	/** The owner's folders for this Agent; empty for everyone else. */
+	folders?: readonly ComposerFolderOption[];
+	/** The Computer did not answer; the list is the last one it reported. */
+	foldersRecorded?: boolean;
 	sources: readonly SpaceTaskSource[];
 	choice?: SpaceComposerTaskChoice;
 	onChange: (choice: SpaceComposerTaskChoice | undefined) => void;
@@ -193,7 +235,8 @@ export function SpaceComposerAgentOptions(input: {
 									newTaskAccessSelection(
 										value,
 										spaceOnly ? "current" : workspace,
-										preferences?.projectWork
+										preferences?.projectWork,
+										preferences?.folderId
 									),
 									"Start new"
 								);
@@ -219,6 +262,17 @@ export function SpaceComposerAgentOptions(input: {
 						</DropdownMenuRadioGroup>
 					</FluidDropdownMenuSubContent>
 				</DropdownMenuSub>
+				<FolderMenu
+					disabled={spaceOnly || Boolean(preferences?.projectWork)}
+					folders={input.folders ?? []}
+					inheritsSession={inheritsSession}
+					onChoose={(folder) => {
+						const next = chooseComposerFolder({ folder, selection });
+						choose(next.selection, next.label);
+					}}
+					recorded={input.foldersRecorded === true}
+					selectedFolderId={selectedComposerFolderId(selection)}
+				/>
 			</FluidDropdownMenuGroup>
 			{projectWorkOpen &&
 			input.organizationId &&
@@ -235,7 +289,7 @@ export function SpaceComposerAgentOptions(input: {
 						choose(
 							{
 								mode: "new",
-								...restrictions,
+								...withoutFolder(restrictions),
 								workspace: preferences?.workspace ?? "isolated",
 								projectWork: {
 									projectId: selected.projectId,
@@ -259,10 +313,19 @@ function executionRestrictions(
 	return selection && selection.mode !== "resume"
 		? {
 				access: selection.access,
+				folderId: selection.folderId,
 				workspace: selection.workspace,
 				projectWork: selection.projectWork,
 			}
 		: {};
+}
+
+/** A Project repository and a folder choice are exclusive. */
+function withoutFolder<T extends { folderId?: string }>(
+	restrictions: T
+): Omit<T, "folderId"> {
+	const { folderId: _folderId, ...rest } = restrictions;
+	return rest;
 }
 
 function workingCopyLabel(
@@ -285,7 +348,8 @@ function newTaskAccessSelection(
 	projectWork: Extract<
 		ExecutionContextSelection,
 		{ mode: "new" }
-	>["projectWork"]
+	>["projectWork"],
+	folderId?: string
 ): ExecutionContextSelection {
 	const access =
 		value === "defaults"
@@ -296,7 +360,80 @@ function newTaskAccessSelection(
 		...(access ? { access } : {}),
 		workspace: access === "space_context" ? "isolated" : workspace,
 		...(access !== "space_context" && projectWork ? { projectWork } : {}),
+		// Space-only work has no user folder to choose.
+		...(access !== "space_context" && folderId ? { folderId } : {}),
 	};
+}
+
+function FolderMenu(input: {
+	disabled: boolean;
+	folders: readonly ComposerFolderOption[];
+	inheritsSession: boolean;
+	onChoose: (folder: ComposerFolderOption) => void;
+	recorded: boolean;
+	selectedFolderId?: string;
+}) {
+	// One folder leaves nothing to choose; non-owners get no folders at all.
+	if (input.folders.length < 2) {
+		return null;
+	}
+	const defaultFolder = input.folders.find((folder) => folder.isDefault);
+	const selected = input.folders.find(
+		(folder) => folder.folderId === input.selectedFolderId
+	);
+	let label = "Default folder";
+	if (selected) {
+		label = selected.displayName;
+	} else if (input.inheritsSession) {
+		label = "From session";
+	} else if (defaultFolder) {
+		label = defaultFolder.displayName;
+	}
+	return (
+		<DropdownMenuSub>
+			<FluidDropdownMenuSubTrigger disabled={input.disabled} index={3}>
+				<span className="min-w-0 flex-1">Folder</span>
+				<span className="max-w-36 truncate text-muted-foreground">{label}</span>
+			</FluidDropdownMenuSubTrigger>
+			<FluidDropdownMenuSubContent className="w-64">
+				<p className="px-2 py-1 text-muted-foreground text-xs">
+					{input.inheritsSession
+						? "Choose a folder to continue this session there as a fork."
+						: "Choose where this Agent works for this task."}
+					{input.recorded
+						? " The Agent’s computer didn’t answer, so this is its last reported folder list."
+						: ""}
+				</p>
+				<DropdownMenuRadioGroup
+					onValueChange={(value) => {
+						const folder = input.folders.find(
+							(item) => item.folderId === value
+						);
+						if (folder && !input.disabled) {
+							input.onChoose(folder);
+						}
+					}}
+					value={input.selectedFolderId ?? ""}
+				>
+					{input.folders.map((folder, index) => (
+						<FluidDropdownMenuRadioItem
+							closeOnClick
+							index={index}
+							key={folder.folderId}
+							value={folder.folderId}
+						>
+							<span className="min-w-0 flex-1 truncate">
+								{folder.displayName}
+							</span>
+							{folder.isDefault ? (
+								<span className="text-muted-foreground text-xs">Default</span>
+							) : null}
+						</FluidDropdownMenuRadioItem>
+					))}
+				</DropdownMenuRadioGroup>
+			</FluidDropdownMenuSubContent>
+		</DropdownMenuSub>
+	);
 }
 
 function fileAccessOptions(

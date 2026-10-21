@@ -1,4 +1,5 @@
 import {
+	createSpaceMemberAgentSnapshot,
 	createSpaceMemberHumanSnapshot,
 	createSpaceMembersSnapshot,
 } from "@openmeld/schemas/testing";
@@ -13,7 +14,10 @@ import {
 	SpaceComposerEditor,
 	type SpaceComposerEditorHandle,
 } from "../../src/components/spaces/space-composer-editor";
-import { buildSpaceMentionTargetItems } from "../../src/components/spaces/use-space-mention-authoring";
+import {
+	buildSpaceComposerAddressingTargets,
+	buildSpaceMentionTargetItems,
+} from "../../src/components/spaces/use-space-mention-authoring";
 import { useComposerDraft } from "../../src/hooks/use-composer-draft";
 import { createComposerDraftRecord } from "../../src/lib/composer-draft-storage";
 
@@ -34,16 +38,24 @@ const scope = {
 	profileId: "browser-fixture",
 	spaceId: "browser-fixture",
 } as const;
+const AGENT_PROFILE_ID = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const snapshot = createSpaceMembersSnapshot({
+	agents: [
+		createSpaceMemberAgentSnapshot({
+			profileId: AGENT_PROFILE_ID,
+			profileName: "Runner",
+		}),
+	],
+	humans: [
+		createSpaceMemberHumanSnapshot({
+			profileId: "22222222-2222-4222-8222-222222222222",
+			profileName: "Felix",
+		}),
+	],
+});
 const mentionPickerItems = buildSpaceMentionTargetItems({
 	query: "",
-	snapshot: createSpaceMembersSnapshot({
-		humans: [
-			createSpaceMemberHumanSnapshot({
-				profileId: "22222222-2222-4222-8222-222222222222",
-				profileName: "Felix",
-			}),
-		],
-	}),
+	snapshot,
 });
 
 function Fixture() {
@@ -54,6 +66,11 @@ function Fixture() {
 	const [sent, setSent] = useState(0);
 	const documentMode = new URLSearchParams(location.search).has("document");
 	const decoratedMode = new URLSearchParams(location.search).has("decorated");
+	// The Center Agent's Wake ghost shows while the draft is empty, as in a Space.
+	const wakeGhost =
+		new URLSearchParams(location.search).has("wake") &&
+		!content.text &&
+		content.authoredMentions.length === 0;
 	const decoratedEditor = usePlateEditor({
 		value: [{ type: "p", children: [{ text: "alpha bravo charlie delta" }] }],
 	});
@@ -64,6 +81,22 @@ function Fixture() {
 	window.replaceDraft = (text) =>
 		flushSync(() =>
 			setContent({ text, authoredMentions: [], replyToSignalId: null })
+		);
+	window.restoreAgentDraft = (text) =>
+		flushSync(() =>
+			setContent({
+				text: `@Runner ${text}`,
+				authoredMentions: [
+					{
+						start: 0,
+						end: 7,
+						text: "@Runner",
+						profileId: AGENT_PROFILE_ID,
+						relation: "wake",
+					},
+				],
+				replyToSignalId: null,
+			})
 		);
 	window.selectEditor = (start, end) =>
 		composerRef.current?.selectTextRange({ start, end });
@@ -104,15 +137,28 @@ function Fixture() {
 				)}
 				{!(documentMode || decoratedMode) && (
 					<SpaceComposerEditor
-						addressingTargets={[]}
+						addressingTargets={buildSpaceComposerAddressingTargets({
+							mentions: content.authoredMentions,
+							snapshot,
+						})}
 						ariaLabel="Message"
 						authoredMentions={content.authoredMentions}
+						centerAgentProfileId={AGENT_PROFILE_ID}
 						composerRef={composerRef}
 						mentionPickerItems={mentionPickerItems}
 						onChange={(change) => setContent({ ...content, ...change })}
 						onSend={() => setSent((value) => value + 1)}
 						placeholder="Message"
 						text={content.text}
+						wakeRecommendation={
+							wakeGhost
+								? {
+										profileId: AGENT_PROFILE_ID,
+										onAccept: () => undefined,
+										onDismiss: () => undefined,
+									}
+								: undefined
+						}
 					/>
 				)}
 				<output data-testid="draft">
@@ -133,6 +179,7 @@ declare global {
 	interface Window {
 		refreshEditor: () => void;
 		replaceDraft: (text: string) => void;
+		restoreAgentDraft: (text: string) => void;
 		selectEditor: (start: number, end: number) => void;
 	}
 }

@@ -1,12 +1,20 @@
 import {
+  agentDirectMessageSessionSelectorSchema,
   convertDirectMessageToSpaceBodySchema,
   convertDirectMessageToSpaceResponseSchema,
+  deleteAgentDirectMessageSessionResponseSchema,
+  listAgentDirectMessageSessionsQuerySchema,
+  listAgentDirectMessageSessionsResponseSchema,
   openDirectMessageSpaceBodySchema,
   openDirectMessageSpaceResponseSchema,
   openMeldRequestContextSchema,
+  updateAgentDirectMessageSessionBodySchema,
+  updateAgentDirectMessageSessionResponseSchema,
 } from "@openmeld/schemas";
 import {
   buildDirectMessageConversionPath,
+  buildDirectMessageSessionPath,
+  buildDirectMessageSessionsPath,
   buildDirectMessageSpacePath,
 } from "./routes";
 import type {
@@ -17,6 +25,69 @@ import type {
 } from "./types";
 
 export const createDirectMessageApi: CreateDirectMessageApi = (client) => ({
+  listSessions: async (input) => {
+    const parsed = listAgentDirectMessageSessionsQuerySchema.safeParse({
+      agentProfileId: input.agentProfileId,
+      ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+      ...(input.limit === undefined ? {} : { limit: input.limit }),
+      ...(input.archived === undefined ? {} : { archived: input.archived }),
+    });
+    if (!parsed.success) {
+      throw new Error("Provide a valid Agent, chat-list cursor and limit.");
+    }
+    const query = new URLSearchParams({
+      agentProfileId: parsed.data.agentProfileId,
+      limit: String(parsed.data.limit),
+      archived: String(parsed.data.archived),
+    });
+    if (parsed.data.cursor !== undefined) {
+      query.set("cursor", parsed.data.cursor);
+    }
+    return await client.requestJson({
+      url: `${buildDirectMessageSessionsPath()}?${query.toString()}`,
+      operation: "direct_message.session.list",
+      method: "GET",
+      requestContext: validateRequestInput(input).requestContext,
+      signal: input.signal,
+      timeoutMs: input.timeoutMs,
+      schema: listAgentDirectMessageSessionsResponseSchema,
+      invalidMessage: "Invalid chat list.",
+    });
+  },
+  updateSession: async (input) => {
+    const selector = requireSessionSelector(input.spaceId);
+    const body = updateAgentDirectMessageSessionBodySchema.safeParse(
+      input.update
+    );
+    if (!body.success) {
+      throw new Error(
+        body.error.issues[0]?.message ?? "Provide a valid chat update."
+      );
+    }
+    return await client.requestJson({
+      url: buildDirectMessageSessionPath(selector),
+      operation: `direct_message.session.${body.data.operation}`,
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body.data),
+      requestContext: validateRequestInput(input).requestContext,
+      signal: input.signal,
+      timeoutMs: input.timeoutMs,
+      schema: updateAgentDirectMessageSessionResponseSchema,
+      invalidMessage: "Invalid chat update response.",
+    });
+  },
+  deleteSession: async (input) =>
+    await client.requestJson({
+      url: buildDirectMessageSessionPath(requireSessionSelector(input.spaceId)),
+      operation: "direct_message.session.delete",
+      method: "DELETE",
+      requestContext: validateRequestInput(input).requestContext,
+      signal: input.signal,
+      timeoutMs: input.timeoutMs,
+      schema: deleteAgentDirectMessageSessionResponseSchema,
+      invalidMessage: "Invalid chat deletion response.",
+    }),
   convertToSpace: async (input) => {
     const request = validateConvertDirectMessageToSpaceInput(input);
     return await client.requestJson({
@@ -79,6 +150,16 @@ export const createDirectMessageApi: CreateDirectMessageApi = (client) => ({
     return response;
   },
 });
+
+function requireSessionSelector(spaceId: string): string {
+  const selector = agentDirectMessageSessionSelectorSchema.safeParse({
+    spaceId,
+  });
+  if (!selector.success) {
+    throw new Error("Provide a valid session ID.");
+  }
+  return selector.data.spaceId;
+}
 
 function validateConvertDirectMessageToSpaceInput(
   input: ConvertDirectMessageToSpaceInput

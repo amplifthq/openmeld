@@ -1,6 +1,7 @@
 import { resolveAvailableProfileHandle } from "@openmeld/protocol";
 import {
   AGENT_PROFILE_CREATION_IDEMPOTENCY_KEY_MAX_LENGTH,
+  AUTO_DETECTED_PROFILE_NAME_LOCKED_CODE,
   agentAvatarStyleSchema,
   authRpcResolveProfilesByIdsInputSchema,
 } from "@openmeld/schemas";
@@ -523,6 +524,20 @@ export function createOpenMeldProfileService(
     );
     if (existing?.status !== "active") {
       throw new ProfileNotFoundError();
+    }
+
+    // A MemberAgent's default Profile is named after its Harness and is not
+    // editable (program §4.2), whether it was detected or migrated.
+    if (
+      existing.profileName !== input.profileName &&
+      (existing.source === "auto_detected" ||
+        (existing.memberAgentId !== null &&
+          (await repository.isMemberAgentDefaultProfile(existing.profileId))))
+    ) {
+      throw new ProfileValidationError(
+        "This Agent is named after its harness and cannot be renamed.",
+        AUTO_DETECTED_PROFILE_NAME_LOCKED_CODE
+      );
     }
 
     if (isDefaultHumanProfile(existing, input.ownerUserId)) {

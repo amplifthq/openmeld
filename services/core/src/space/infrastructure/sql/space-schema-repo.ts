@@ -2,6 +2,7 @@ import {
   ensureFileCopyRequestSchema,
   ensureFileRepositorySchema,
 } from "../../../files/file-schema-repo";
+import { ensureSpaceAgentAccessHoldTable } from "./space-agent-access-hold-repo";
 import { ensureSpaceExecutionInputOutbox } from "./space-execution-input-repo";
 import { SpaceFileUpdateRepository } from "./space-file-update-repo";
 import { ensureSpaceInboxContactTable } from "./space-inbox-contact-repo";
@@ -40,6 +41,7 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   }
   ensureSpaceExecutionInputOutbox(sql);
   ensurePendingWakeStopTable(sql);
+  ensureSpaceAgentAccessHoldTable(sql);
   new SpaceFileUpdateRepository(sql).initialize();
   ensureSpaceReactionTables(sql);
   ensureSpaceInboxContactTable(sql);

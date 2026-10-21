@@ -36,7 +36,16 @@ export function CenterAgentItem(input: { presentation?: "card" | "sidebar" }) {
 		agentProfiles: directory.data?.agentProfiles ?? [],
 		designation: designation.data?.designation ?? null,
 	});
-	if (designation.isPending || directory.isPending) {
+	// A read still loading or refreshing toward the Center Agent is shown as
+	// loading; only a settled answer (or a failure) may read as unavailable.
+	const settledWithoutProfile = !(
+		profile ||
+		designation.isFetching ||
+		directory.isFetching ||
+		designation.isPending ||
+		directory.isPending
+	);
+	if (!(profile || settledWithoutProfile)) {
 		return (
 			<SkeletonRegion
 				className={
@@ -61,6 +70,15 @@ export function CenterAgentItem(input: { presentation?: "card" | "sidebar" }) {
 		);
 	}
 	if (!profile) {
+		// No designation yet: the Center Agent is set up when it is first
+		// opened, so there is nothing to report as unavailable.
+		if (
+			designation.isSuccess &&
+			!designation.data?.designation &&
+			!directory.isError
+		) {
+			return null;
+		}
 		return (
 			<p className="px-2 text-muted-foreground text-xs">
 				Center Agent unavailable

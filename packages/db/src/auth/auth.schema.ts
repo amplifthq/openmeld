@@ -48,6 +48,7 @@ export const sessions = applicationTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     activeOrganizationId: text("active_organization_id"),
+    cliCredentialAt: epochMilliseconds("cli_credential_at"),
   },
   (table) => [index("sessions_userId_idx").on(table.userId)]
 );

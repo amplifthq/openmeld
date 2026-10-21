@@ -39,6 +39,7 @@ const testOrganization = {
 	name: "Amplift",
 	slug: "amplift",
 };
+const AGENT_REQUEST_LABEL = /Tali wants PR Reviewer in a Space/;
 const EXACT_MESSAGE_LABEL = /Open exact message/u;
 const SLACK_REPLY_LABEL = /Slack reply/u;
 const OLD_REQUEST_LABEL = /Old request/u;
@@ -643,6 +644,28 @@ describe("canonical Inbox attention page", () => {
 			})
 		);
 		expect(mocks.selection).not.toHaveBeenCalled();
+	});
+
+	it("keeps the Needs action filter when an Agent request opens its Inbox detail", () => {
+		window.history.replaceState(null, "", "/o/amplift/inbox?view=needs-action");
+		try {
+			const request = item({
+				attention: "action_required",
+				id: "access-1",
+				kind: "agent_space_request",
+				resolutionStatus: "open",
+				sourceTarget: { kind: "agent_access_request", requestId: "aar_1" },
+				title: "Tali wants PR Reviewer in a Space",
+			});
+			renderPage({ rows: [row(request)], view: "needs_action" });
+			fireEvent.click(screen.getByRole("link", { name: AGENT_REQUEST_LABEL }));
+			expect(mocks.navigate).toHaveBeenCalledWith({
+				state: requestInboxSourceFocus,
+				to: "/o/amplift/inbox?view=needs-action&item=access-1",
+			});
+		} finally {
+			window.history.replaceState(null, "", "/");
+		}
 	});
 
 	it("opens a Slack message in a separate tab without turning its permalink into an app route", async () => {

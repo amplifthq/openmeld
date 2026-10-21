@@ -5,6 +5,7 @@ import {
 	SPACE_STREAM_KEEPALIVE_PONG,
 } from "@openmeld/protocol";
 import {
+	AGENT_ACCESS_SPACE_CHANGED_REASON,
 	AGENT_REPLY_FINAL_PURPOSE,
 	CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
 } from "@openmeld/schemas";
@@ -40,7 +41,9 @@ import {
 	mergeSpaceTimelineEnvelopes,
 	type SpaceLiveState,
 } from "#/lib/spaces/timeline";
+import { invalidateAgentAccessQueries } from "#/query/agent-access";
 import { refreshWebAgentReadinessSharedCaches } from "#/query/agents/execution-readiness";
+import { agentDirectMessageSessionQueryKeys } from "#/query/organizations/agent-direct-message-sessions";
 import {
 	accountSpaceQueryKeys,
 	updateAccountSpaceAcceptedMessage,
@@ -1363,6 +1366,18 @@ function handleLiveInvalidationMessage(
 		}
 		return;
 	}
+	if (
+		frame.type === "space.meta.changed" &&
+		frame.reason === AGENT_ACCESS_SPACE_CHANGED_REASON
+	) {
+		// A request opened or closed: only the request views change.
+		invalidateAgentAccessQueries(input.queryClient);
+		return;
+	}
+	if (frame.type === "space.members.changed") {
+		// A join settles its request.
+		invalidateAgentAccessQueries(input.queryClient);
+	}
 	if (frame.type !== "wake.progress.changed") {
 		debounceRefetch(input.statusRefetchTimerRef, input.statusRefetch);
 	}
@@ -1459,6 +1474,8 @@ function refreshLiveInvalidatedSnapshotsAfterReconnect(
 		.finally(() => {
 			debounceRefetch(input.statusRefetchTimerRef, input.statusRefetch);
 			debounceRefetch(input.membersRefetchTimerRef, input.membersRefetch);
+			// A missed request frame would otherwise leave a held Wake unknown.
+			invalidateAgentAccessQueries(input.queryClient);
 			input.queryClient
 				.invalidateQueries({ queryKey: messageReactionsKey(input.spaceId) })
 				.catch(() => undefined);
@@ -1594,6 +1611,12 @@ function invalidateSpaceMetadata(
 					query.queryKey[3] === "sessions",
 			})
 			.catch((error) => console.warn("Failed to refresh chat titles.", error));
+		// MemberAgent Session lists name the chat title and sidebar Sessions.
+		queryClient
+			.invalidateQueries({ queryKey: agentDirectMessageSessionQueryKeys.root })
+			.catch((error) =>
+				console.warn("Failed to refresh Session titles.", error)
+			);
 	}
 	queryClient
 		.invalidateQueries({ queryKey: accountSpaceQueryKeys.all })

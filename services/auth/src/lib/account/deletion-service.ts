@@ -240,6 +240,11 @@ export async function acceptAccountDeletion(input: {
       text: 'DELETE FROM "openmeld"."openmeld_profiles" WHERE owner_user_id = $1 OR organization_id = ANY($2::text[])',
       values: [input.userId, plan.deleteOrganizationIds],
     });
+    // MemberAgents group the Profiles deleted above; none outlives its owner.
+    await client.query({
+      text: 'DELETE FROM "openmeld"."member_agents" WHERE owner_user_id = $1 OR organization_id = ANY($2::text[])',
+      values: [input.userId, plan.deleteOrganizationIds],
+    });
   });
   console.info("[auth.account.deletion_accepted]", {
     event: "auth.account.deletion_accepted",

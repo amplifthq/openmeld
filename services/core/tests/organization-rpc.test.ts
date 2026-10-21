@@ -31,6 +31,11 @@ vi.mock("@openmeld/db/postgresql", async (importOriginal) => {
       actual.getPostgresDatabase(bindings),
   };
 });
+const memberAgentsFeature = vi.hoisted(() => ({ enabled: false }));
+vi.mock("../src/member-agent/member-agents-feature", () => ({
+  isMemberAgentsEnabled: () => memberAgentsFeature.enabled,
+  isRequestChainEnforced: () => memberAgentsFeature.enabled,
+}));
 function organizationFixture(env: CoreBindings) {
   const fixture =
     env.OPENMELD_POSTGRESQL &&
@@ -796,6 +801,108 @@ describe("organization Core RPC", () => {
     expect(resolveProfilesByIds).toHaveBeenCalledExactlyOnceWith({
       profileIds: [AGENT_PROFILE_ID, SECOND_AGENT_PROFILE_ID],
     });
+  });
+
+  it("keeps quota numbers of another member's Agents owner-only", async () => {
+    const readUsage = vi
+      .spyOn(agentProfileUsage, "readAgentProfileUsage")
+      .mockResolvedValue([
+        {
+          key: "weekly",
+          label: "Weekly usage",
+          status: "available" as const,
+          usedPercent: 92,
+          resetsAt: "2026-09-22T00:00:00Z",
+          observedAt: "2026-09-15T00:00:00Z",
+        },
+      ]);
+    const env = await buildEnv({
+      agentProfiles: [
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-a",
+          profileHandle: "codex",
+          profileId: AGENT_PROFILE_ID,
+          profileName: "Codex",
+          status: "active",
+        },
+      ],
+      authWorker: {
+        resolveProfileById: vi.fn(),
+        resolveProfilesByIds: vi.fn(
+          async (input: { profileIds: string[] }) => ({
+            ok: true as const,
+            profiles: Object.fromEntries(
+              input.profileIds.map((profileId) => [
+                profileId,
+                {
+                  ownerUserId: "user-a",
+                  profileKind: "agent" as const,
+                  profileId,
+                  profileName: "Codex",
+                  profileHandle: "codex",
+                  status: "active" as const,
+                  defaultProjectId: null,
+                },
+              ])
+            ),
+          })
+        ),
+      },
+      members: [
+        memberRow("member-a", "org-a", "user-a"),
+        memberRow("member-b", "org-a", "user-b"),
+      ],
+    });
+    vi.spyOn(
+      runtimeTransportClient,
+      "lookupRuntimeTransportRoutesBatch"
+    ).mockResolvedValue({
+      routes: {
+        [AGENT_PROFILE_ID]: {
+          online: false,
+          reasonCode: "daemon.profile.offline",
+        },
+      },
+    });
+    vi.spyOn(
+      runtimeTransportClient,
+      "lookupRuntimeTransportOwnerService"
+    ).mockResolvedValue({
+      online: false,
+      reasonCode: "daemon.session.not_found",
+    });
+    vi.spyOn(
+      runtimeTransportClient,
+      "readRuntimeTransportAgentProfileOperationalContexts"
+    ).mockResolvedValue({ contexts: [] });
+
+    const colleagueView = await rpcGetCurrentOrganizationAgentRuntimeOverview(
+      env,
+      {
+        includeUsageLimits: true,
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          userId: "user-b",
+        }),
+      }
+    );
+    expect(colleagueView.agentProfiles.map((agent) => agent.profileId)).toEqual(
+      [AGENT_PROFILE_ID]
+    );
+    expect(colleagueView.agentProfiles[0]?.readiness).not.toHaveProperty(
+      "usageLimits"
+    );
+
+    const ownerView = await rpcGetCurrentOrganizationAgentRuntimeOverview(env, {
+      includeUsageLimits: true,
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: "user-a",
+      }),
+    });
+    expect(ownerView.agentProfiles[0]?.readiness.usageLimits).toHaveLength(1);
+    expect(readUsage).toHaveBeenCalledOnce();
   });
 
   it("does not reload the runtime catalog to check Organization Agent readiness", async () => {
@@ -9633,6 +9740,95 @@ describe("organization Core RPC", () => {
     });
   });
 
+  it("lets only the owner add their MemberAgent, still with the owner, once MemberAgents are on", async () => {
+    const spaceId =
+      "aeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeae";
+    const db = await createOrganizationRpcDb({
+      agentProfiles: [
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-b",
+          profileHandle: "ben-planner",
+          profileId: AGENT_PROFILE_ID,
+          profileName: "Ben Planner",
+          status: "active",
+        },
+      ],
+      members: [
+        memberRow("member-a", "org-a", "user-a", "member"),
+        memberRow("member-b", "org-a", "user-b", "member"),
+      ],
+      spaces: [
+        spaceRow({
+          organizationId: "org-a",
+          spaceId,
+          spaceName: "Planning",
+          visibility: "private",
+        }),
+      ],
+    });
+    await db.fixture.operator.query(
+      `INSERT INTO "openmeld"."member_agents" (id, organization_id, owner_user_id, harness_kind, source, created_at, updated_at) VALUES ('ma-ben', 'org-a', 'user-b', 'claude-code', 'detected', 1, 1)`
+    );
+    await db.fixture.operator.query(
+      `UPDATE "openmeld"."openmeld_profiles" SET member_agent_id = 'ma-ben' WHERE profile_id = '${AGENT_PROFILE_ID}'`
+    );
+    const spaceStub = createSpaceStub({ spaces: db.spaces });
+    const env = await buildEnv({ db, spaceStub });
+    const agent = {
+      agentControllerRef: null,
+      ownerName: "Ben",
+      ownerUserId: "user-b",
+      profileId: AGENT_PROFILE_ID,
+      profileKind: "agent" as const,
+      profileName: "Ben Planner",
+    };
+    memberAgentsFeature.enabled = true;
+    try {
+      await expect(
+        rpcAddSpaceMembers(env, {
+          context: buildContext({
+            activeOrganizationId: "org-a",
+            userId: "user-a",
+          }),
+          members: [agent],
+          spaceId,
+        })
+      ).rejects.toMatchObject({
+        code: "agent_access.request_required",
+        status: 409,
+      });
+      expect(spaceStub.rpcPostMembers).not.toHaveBeenCalled();
+
+      await expect(
+        rpcAddSpaceMembers(env, {
+          context: buildContext({
+            activeOrganizationId: "org-a",
+            userId: "user-b",
+          }),
+          members: [agent],
+          spaceId,
+        })
+      ).resolves.toMatchObject({
+        addedMemberIds: [AGENT_PROFILE_ID, SECOND_HUMAN_PROFILE_ID],
+      });
+      expect(spaceStub.rpcPostMembers).toHaveBeenCalledWith(
+        expect.objectContaining({
+          members: [
+            expect.objectContaining({ profileId: AGENT_PROFILE_ID }),
+            expect.objectContaining({
+              ownerUserId: "user-b",
+              profileId: SECOND_HUMAN_PROFILE_ID,
+              profileKind: "human",
+            }),
+          ],
+        })
+      );
+    } finally {
+      memberAgentsFeature.enabled = false;
+    }
+  });
+
   it("does not expand managed Agent Profile membership to an owner Human", async () => {
     const spaceId =
       "adadadadadadadadadadadadadadadadadadadadadadadadadadadadadadadad";
@@ -10029,6 +10225,100 @@ describe("organization Core RPC", () => {
       spaceId: first.spaceId,
     });
     expect(db.spaces).toHaveLength(1);
+  });
+
+  it("creates fresh Sessions for any Human–Agent pair only with MemberAgents enabled", async () => {
+    const db = await createOrganizationRpcDb({
+      agentProfiles: [
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-a",
+          profileHandle: "codex",
+          profileId: AGENT_PROFILE_ID,
+          profileName: "Codex",
+          status: "active",
+        },
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-a",
+          profileHandle: "reviewer",
+          profileId: SECOND_AGENT_PROFILE_ID,
+          profileName: "PR Reviewer",
+          status: "active",
+        },
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "member")],
+    });
+    const spaceStub = createSpaceStub({ spaces: db.spaces });
+    const env = await buildEnv({ db, spaceStub });
+    const context = buildContext({
+      activeOrganizationId: "org-a",
+      userId: "user-a",
+    });
+    const creationId = "00000000-0000-4000-8000-000000000051";
+    await expect(
+      rpcOpenDirectMessageSpace(env, {
+        context,
+        targetProfileId: AGENT_PROFILE_ID,
+        creationId,
+      })
+    ).rejects.toMatchObject({
+      code: "direct_message.new_session_requires_center",
+    });
+    memberAgentsFeature.enabled = true;
+    try {
+      const ordinary = await rpcOpenDirectMessageSpace(env, {
+        context,
+        targetProfileId: AGENT_PROFILE_ID,
+      });
+      const first = await rpcOpenDirectMessageSpace(env, {
+        context,
+        targetProfileId: AGENT_PROFILE_ID,
+        creationId,
+      });
+      const retry = await rpcOpenDirectMessageSpace(env, {
+        context,
+        targetProfileId: AGENT_PROFILE_ID,
+        creationId,
+      });
+      const next = await rpcOpenDirectMessageSpace(env, {
+        context,
+        targetProfileId: AGENT_PROFILE_ID,
+        creationId: "00000000-0000-4000-8000-000000000052",
+      });
+      expect(first).toMatchObject({
+        created: true,
+        creationId,
+        memberProfileId: HUMAN_PROFILE_ID,
+        targetProfileId: AGENT_PROFILE_ID,
+      });
+      expect(retry).toMatchObject({ created: false, spaceId: first.spaceId });
+      expect(
+        new Set([ordinary.spaceId, first.spaceId, next.spaceId]).size
+      ).toBe(3);
+      expect(spaceStub.rpcInitializeDirectMessageMeta).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          name: "New chat",
+          pairKey: [HUMAN_PROFILE_ID, AGENT_PROFILE_ID].sort().join(":"),
+        })
+      );
+      // Agent–Agent pairs keep reusing their one Direct Message.
+      await expect(
+        rpcOpenDirectMessageSpace(env, {
+          context: buildContext({
+            activeOrganizationId: "org-a",
+            userId: "user-a",
+            profileKind: "agent",
+          }),
+          targetProfileId: SECOND_AGENT_PROFILE_ID,
+          creationId,
+        })
+      ).rejects.toMatchObject({
+        code: "direct_message.new_session_requires_center",
+      });
+    } finally {
+      memberAgentsFeature.enabled = false;
+    }
   });
 
   it("lets either owned Agent open the same DM without adding their Humans", async () => {

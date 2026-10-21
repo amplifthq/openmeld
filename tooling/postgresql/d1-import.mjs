@@ -37,6 +37,15 @@ const postgresqlOnlyTables = [
   { name: "conversation_history_deletions" },
   { name: "ai_free_grants" },
   { name: "organization_ai_credentials" },
+  { name: "member_agents" },
+  { name: "openMeldDaemon_runtime_harness_presence" },
+  { name: "agent_profile_permission_mode_advisories" },
+  { name: "center_agent_permission_mode_confirmations" },
+  { name: "direct_message_session_states" },
+  { name: "agent_access_requests" },
+  { name: "agent_profile_access_grants" },
+  { name: "sensitive_operation_confirmations" },
+  { name: "sensitive_operation_audit_events" },
 ];
 
 function csv(value) {
@@ -305,6 +314,12 @@ async function lockEmptyTarget(client, catalog) {
   }
 }
 
+function newNullableIntegerColumns(table) {
+  // No historical session is known to be CLI-held. The first Bearer use marks
+  // it (member-agent-program.md §4.7).
+  return table.name === "sessions" ? ["cli_credential_at"] : [];
+}
+
 function nativeColumns(table, targetColumns) {
   const newNullableColumns = {
     plugin_action_requests: ["continuation_json"],
@@ -322,6 +337,12 @@ function nativeColumns(table, targetColumns) {
       hidden: 0,
       source: "new_nullable",
     })),
+    ...newNullableIntegerColumns(table).map((name) => ({
+      name,
+      type: "INTEGER",
+      hidden: 0,
+      source: "new_nullable",
+    })),
   ];
   if (table.name === "openmeld_profiles") {
     // Historical avatars retain their style; appearance options remain unset.
@@ -335,6 +356,22 @@ function nativeColumns(table, targetColumns) {
     columns.push({
       name: "default_project_revision",
       type: "INTEGER",
+      hidden: 0,
+      source: "new_nullable",
+    });
+    // Historical Profiles start unassigned; the MemberAgent backfill groups them.
+    columns.push({
+      name: "member_agent_id",
+      type: "TEXT",
+      hidden: 0,
+      source: "new_nullable",
+    });
+  }
+  if (table.name === "openMeldDaemon_dispatch_ledger") {
+    // Historical dispatches predate request chains; their root stays unset.
+    columns.push({
+      name: "request_chain_root_profile_id",
+      type: "TEXT",
       hidden: 0,
       source: "new_nullable",
     });

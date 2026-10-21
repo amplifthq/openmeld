@@ -335,6 +335,14 @@ export function formatWebAgentProfileRuntimeBindingFailure(
 	}
 	if (
 		result.reason === "binding_rejected" &&
+		result.reasonCodes.includes(
+			"agent_profile_binding.member_agent_harness_locked"
+		)
+	) {
+		return "This Agent Profile belongs to an Agent and can't move to another harness. Create a Profile under that harness's Agent instead.";
+	}
+	if (
+		result.reason === "binding_rejected" &&
 		hasAgentControllerReportBindingReason(result)
 	) {
 		return "This computer hasn't reported that this local agent is ready yet. Reconnect the computer, then try again.";

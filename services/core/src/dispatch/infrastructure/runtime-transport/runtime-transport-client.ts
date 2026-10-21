@@ -42,10 +42,14 @@ import {
   runtimeTransportLookupRoutesBatchResponseSchema,
   runtimeTransportManageLocalAgentInstallationRequestSchema,
   runtimeTransportManageLocalAgentInstallationResponseSchema,
+  runtimeTransportManageProfileFoldersRequestSchema,
+  runtimeTransportManageProfileFoldersResponseSchema,
   runtimeTransportNotifyRouteCatalogChangedRequestSchema,
   runtimeTransportNotifyRouteCatalogChangedResponseSchema,
   runtimeTransportOpenMeldToolsControlRequestSchema,
   runtimeTransportOpenMeldToolsControlResponseSchema,
+  runtimeTransportReadProfileFolderProjectionRequestSchema,
+  runtimeTransportReadProfileFolderProjectionResponseSchema,
   runtimeTransportReadProfileWorkspaceRequestSchema,
   runtimeTransportReadProfileWorkspaceResponseSchema,
   runtimeTransportRefreshLocalAgentCatalogRequestSchema,
@@ -894,6 +898,83 @@ export const setRuntimeTransportProfileWorkspace = async (input: {
     };
   }
   return parsed.data;
+};
+
+export const manageRuntimeTransportProfileFolders = async (input: {
+  deviceId: string;
+  env: CoreBindings;
+  operation: import("@openmeld/schemas/types").ProfileFolderOperation;
+  ownerUserId: string;
+  runtimeLane: DaemonServiceLane;
+  targetProfileId: string;
+}): Promise<
+  import("@openmeld/schemas/types").RuntimeTransportManageProfileFoldersResponse
+> => {
+  const parsedRequest =
+    runtimeTransportManageProfileFoldersRequestSchema.safeParse({
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      ownerUserId: input.ownerUserId,
+      deviceId: input.deviceId,
+      lane: input.runtimeLane,
+      targetProfileId: input.targetProfileId,
+      operation: input.operation,
+    });
+  if (!parsedRequest.success) {
+    return {
+      status: "rejected",
+      reasonCode: "local_agent_control.invalid_request",
+      message: "Invalid folder request.",
+    };
+  }
+  const response = await callRuntimeTransportApi({
+    env: input.env,
+    ownerUserId: input.ownerUserId,
+    path: "/local-agent-control/manage-profile-folders",
+    body: parsedRequest.data,
+  });
+  const parsed =
+    runtimeTransportManageProfileFoldersResponseSchema.safeParse(response);
+  return parsed.success
+    ? parsed.data
+    : {
+        status: "rejected",
+        reasonCode: "local_agent_control.invalid_response",
+        message: "OpenMeld could not confirm this Agent’s folders.",
+      };
+};
+
+export const readRuntimeTransportProfileFolderProjection = async (input: {
+  deviceId: string;
+  env: CoreBindings;
+  ownerUserId: string;
+  runtimeLane: DaemonServiceLane;
+  targetProfileId: string;
+}): Promise<
+  import("@openmeld/schemas/types").RuntimeTransportReadProfileFolderProjectionResponse
+> => {
+  const response = await callRuntimeTransportApi({
+    env: input.env,
+    ownerUserId: input.ownerUserId,
+    path: "/local-agent-control/read-profile-folder-projection",
+    body: runtimeTransportReadProfileFolderProjectionRequestSchema.parse({
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      ownerUserId: input.ownerUserId,
+      deviceId: input.deviceId,
+      lane: input.runtimeLane,
+      targetProfileId: input.targetProfileId,
+    }),
+  });
+  const parsed =
+    runtimeTransportReadProfileFolderProjectionResponseSchema.safeParse(
+      response
+    );
+  return parsed.success
+    ? parsed.data
+    : {
+        status: "rejected",
+        reasonCode: "local_agent_control.invalid_response",
+        message: "OpenMeld could not read this Agent’s recorded folders.",
+      };
 };
 
 export const isRuntimeTransportProfileWorkspaceOutcomeDefinitive = (

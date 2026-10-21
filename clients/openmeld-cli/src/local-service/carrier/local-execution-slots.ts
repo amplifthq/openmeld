@@ -1,6 +1,7 @@
 import { AGENT_PROFILE_WORK_CONCURRENCY_LIMIT } from "@openmeld/agent-runtime";
 import {
   createLocalExecutionSlots,
+  describeLocalExecutionSlotWait,
   type LocalExecutionSlots,
 } from "@openmeld/local-service";
 import type { Presenter } from "../../runtime/presenter/types";
@@ -46,7 +47,55 @@ export function createDaemonLocalExecutionSlots(input: {
         },
       });
     },
+    onTaskQueued: (event) => {
+      if (event.localQueue.status !== "queued") {
+        return;
+      }
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.local_execution_slot_queued",
+        text: `local execution slot queued task ${event.taskId} for ${event.targetLabel}: ${describeLocalExecutionSlotWait(event.localQueue)}`,
+        payload: {
+          adapterId: event.adapterId,
+          activeForLane: event.activeForLane,
+          activeGlobal: event.activeGlobal,
+          controllerKey: event.controllerKey,
+          dispatchId: event.dispatchId,
+          folderLabel: event.localQueue.folderLabel,
+          globalConcurrency: event.limits.globalConcurrency,
+          localExecutionLaneKey: event.localExecutionLaneKey,
+          profileId: event.profileId,
+          queueDepth: event.queueDepth,
+          localQueueStatus: event.localQueue.status,
+          localQueueWaitReason: event.localQueue.waitReason,
+          queuePosition: event.localQueue.queuePosition,
+          queueMax: event.limits.queueMax,
+          spaceId: event.spaceId,
+          step: "queued",
+          taskId: event.taskId,
+          targetLabel: event.targetLabel,
+          transportMode: event.transportMode,
+        },
+      });
+    },
     onTaskStarted: (event) => {
+      if (event.sharedFolderSessions.length > 0) {
+        emitRunLine({
+          presenter: input.presenter,
+          code: "daemon.run.local_execution_slot_shared_folder",
+          text: `local execution slot started task ${event.taskId} for ${event.targetLabel} in ${event.localQueue.folderLabel ?? "a folder"} shared with ${event.sharedFolderSessions.length} other direct-edit task(s)`,
+          payload: {
+            dispatchId: event.dispatchId,
+            folderLabel: event.localQueue.folderLabel,
+            profileId: event.profileId,
+            sharedFolderTaskIds: event.sharedFolderSessions.map(
+              (session) => session.taskId
+            ),
+            step: "shared_folder",
+            taskId: event.taskId,
+          },
+        });
+      }
       emitRunLine({
         presenter: input.presenter,
         code: "daemon.run.local_execution_slot_reserved",

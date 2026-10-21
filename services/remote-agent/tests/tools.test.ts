@@ -7659,6 +7659,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       expectedPayload: {
         agentProfileId: AGENT_PROFILE_ID,
         includeDefaultProjectConnection: true,
+        includeFolders: true,
         onBehalfOf,
       },
       input: {

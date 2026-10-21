@@ -11,6 +11,8 @@ type CoreRpcMock = {
   getAgentExecutionReadinessBatch: ReturnType<typeof vi.fn>;
   getAgentExecutionReadiness: ReturnType<typeof vi.fn>;
   getAgentProfileCreationDefaults: ReturnType<typeof vi.fn>;
+  getAgentProfileFolders: ReturnType<typeof vi.fn>;
+  manageAgentProfileFolders: ReturnType<typeof vi.fn>;
   getAgentProfileControllerChangeEligibility: ReturnType<typeof vi.fn>;
   getAgentProfilePrimaryBinding: ReturnType<typeof vi.fn>;
   getCurrentAgentProfileSession: ReturnType<typeof vi.fn>;
@@ -151,6 +153,42 @@ function makeEnv(input?: {
       userId: "owner-1",
     })),
     updateBoundAgentProfileDefaultProject: vi.fn(),
+    getAgentProfileFolders: vi.fn(async () => ({
+      agentProfileId: AGENT_PROFILE_ID,
+      observedAtMs: 1,
+      projection: {
+        defaultFolderId: "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11",
+        revision: 1,
+        folders: [
+          {
+            displayName: "openmeld",
+            folderId: "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11",
+            isDefault: true,
+            kind: "custom",
+          },
+        ],
+      },
+      status: "current",
+      target: { deviceId: "device-1", runtimeLane: "prod" },
+    })),
+    manageAgentProfileFolders: vi.fn(async () => ({
+      agentProfileId: AGENT_PROFILE_ID,
+      folderId: "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11",
+      observedAtMs: 2,
+      projection: {
+        defaultFolderId: "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11",
+        folders: [
+          {
+            displayName: "openmeld",
+            folderId: "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11",
+            isDefault: true,
+            kind: "custom",
+          },
+        ],
+        revision: 2,
+      },
+      target: { deviceId: "device-1", runtimeLane: "prod" },
+    })),
     updateAgentProfileDefaultProject: vi.fn(async () => ({
       ok: true,
       profile: {
@@ -378,6 +416,7 @@ describe("agent profile binding routes", () => {
     });
     expect(coreRpc.executeAgentProfileWorkRecovery).toHaveBeenCalledOnce();
     expect(coreRpc.executeAgentProfileWorkRecovery).toHaveBeenCalledWith({
+      requestCredential: { kind: "cli_credential" },
       agentProfileId: AGENT_PROFILE_ID,
       body: {
         action,
@@ -785,6 +824,124 @@ describe("agent profile binding routes", () => {
       })
     );
     expect(coreRpc.ensureAgentProfilePrimaryBinding).not.toHaveBeenCalled();
+  });
+
+  it("returns the owner's folder list without caching it", async () => {
+    const { coreRpc, env } = makeEnv();
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/agent-profiles/${encodeURIComponent(AGENT_PROFILE_ID)}/folders`
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    await expect(response.json()).resolves.toMatchObject({
+      projection: { folders: [{ displayName: "openmeld", kind: "custom" }] },
+      status: "current",
+    });
+    expect(coreRpc.getAgentProfileFolders).toHaveBeenCalledWith(
+      expect.objectContaining({ agentProfileId: AGENT_PROFILE_ID })
+    );
+  });
+
+  it("forwards an owner folder change with its Binding target", async () => {
+    const { coreRpc, env } = makeEnv();
+    const expectedBindingTarget = {
+      agentControllerConversationId: null,
+      agentControllerRef: "builtin:codex",
+      bindingId: "binding-1",
+      openMeldServiceRuntimeId: "runtime-1",
+    };
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/agent-profiles/${encodeURIComponent(AGENT_PROFILE_ID)}/folders`,
+        {
+          body: JSON.stringify({
+            expectedBindingTarget,
+            operation: {
+              folderId: "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11",
+              operation: "set_default",
+            },
+          }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(coreRpc.manageAgentProfileFolders).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentProfileId: AGENT_PROFILE_ID,
+        expectedBindingTarget,
+        // The sensitive-operation gate decides from the caller's credential.
+        requestCredential: expect.objectContaining({
+          kind: expect.any(String),
+        }),
+        operation: {
+          folderId: "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11",
+          operation: "set_default",
+        },
+      })
+    );
+  });
+
+  it("refuses a folder change without its Binding target", async () => {
+    const { coreRpc, env } = makeEnv();
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/agent-profiles/${encodeURIComponent(AGENT_PROFILE_ID)}/folders`,
+        {
+          body: JSON.stringify({
+            operation: { operation: "add_openmeld_managed" },
+          }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(400);
+    expect(coreRpc.manageAgentProfileFolders).not.toHaveBeenCalled();
+  });
+
+  it("never forwards a folder response that carries a path", async () => {
+    const { env } = makeEnv({
+      coreOverrides: {
+        getAgentProfileFolders: vi.fn(async () => ({
+          agentProfileId: AGENT_PROFILE_ID,
+          observedAtMs: 1,
+          projection: {
+            defaultFolderId: null,
+            revision: 1,
+            folders: [
+              {
+                displayName: "openmeld",
+                folderId: "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11",
+                isDefault: false,
+                kind: "custom",
+                path: "/Users/felix/work/openmeld",
+              },
+            ],
+          },
+          status: "current",
+          target: { deviceId: "device-1", runtimeLane: "prod" },
+        })),
+      },
+    });
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/agent-profiles/${encodeURIComponent(AGENT_PROFILE_ID)}/folders`
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBeGreaterThanOrEqual(500);
+    expect(await response.text()).not.toContain("/Users/felix");
   });
 
   it.each([

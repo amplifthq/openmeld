@@ -17,6 +17,7 @@ import {
 	useVerifyEmailToken,
 	useVerifyMagicLinkToken,
 } from "#/hooks/auth-form.hooks";
+import { DEFAULT_AUTHENTICATED_ENTRY_PATH } from "#/lib/auth-entry-policy";
 import { getAuthErrorMessage } from "#/lib/auth-errors";
 import { isInvitationRedirectTarget } from "#/lib/auth-login-preference";
 import {
@@ -447,9 +448,13 @@ export function UnifiedVerificationForm({
 		[]
 	);
 	const shouldAutoRedirectToDevice = redirectTarget.startsWith("/device");
+	// Return to the page that asked for sign-in (a signed-out deep link, an
+	// invitation, Desktop authorization), as the anonymous-route guard does.
+	// Only the default "/login" target means "pick the account's entry page".
 	const preserveRequestedEntry =
 		isInvitationRedirectTarget(redirectTarget) ||
-		redirectTarget.split("?")[0]?.split("#")[0] === "/desktop-sign-in";
+		redirectTarget.split("?")[0]?.split("#")[0] === "/desktop-sign-in" ||
+		redirectTarget !== DEFAULT_AUTHENTICATED_ENTRY_PATH;
 
 	const [state, setState] = useState<VerificationState>("checking");
 	const [message, setMessage] = useState("");
@@ -503,7 +508,7 @@ export function UnifiedVerificationForm({
 			};
 		}
 
-		// Preserve the original invitation or Desktop authorization request.
+		// Preserve the requested page, invitation or Desktop authorization.
 		if (preserveRequestedEntry) {
 			return {
 				entryPath: redirectTarget,

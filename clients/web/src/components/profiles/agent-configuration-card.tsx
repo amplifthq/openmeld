@@ -20,7 +20,13 @@ import {
 	CheckCircleIcon,
 	PencilSimpleIcon,
 } from "@phosphor-icons/react";
-import type { ReactNode } from "react";
+import {
+	type ReactNode,
+	type RefObject,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 
 const ATTENTION_TONE_CLASSES = {
 	danger: {
@@ -94,6 +100,11 @@ export function AgentConfigurationCard(input: {
 	attentionTone?: "danger" | "warning";
 	children?: ReactNode;
 	className?: string;
+	/**
+	 * A value of at most two lines and at most one muted line, so a row of
+	 * cards keeps one height; longer text clamps with a tooltip.
+	 */
+	compact?: boolean;
 	description?: string;
 	disabled?: boolean;
 	icon: ReactNode;
@@ -122,7 +133,8 @@ export function AgentConfigurationCard(input: {
 	const card = (
 		<div
 			className={cn(
-				"group flex h-full min-h-28 w-full min-w-0 items-start gap-3 rounded-md border border-transparent bg-transparent p-4 text-left",
+				"group flex h-full w-full min-w-0 items-start gap-3 rounded-md border border-transparent bg-transparent text-left",
+				input.compact ? "min-h-20 p-3.5" : "min-h-28 p-4",
 				input.attention && "ring-1",
 				input.attention && (attentionClasses?.ring ?? "ring-primary/45"),
 				input.disabled && "cursor-not-allowed opacity-55",
@@ -140,26 +152,14 @@ export function AgentConfigurationCard(input: {
 					</span>
 					{resolveConfigurationStatus(input.status)}
 				</span>
-				<TooltipHint content={input.summaryTitle}>
-					<span
-						className={cn(
-							"mt-1 block break-words font-medium text-sm leading-5",
-							input.summaryClassName
-						)}
-					>
-						{input.summary}
-					</span>
-				</TooltipHint>
-				{input.description ? (
-					<span
-						className={cn(
-							"mt-1 block text-xs leading-4.5",
-							attentionTextClassName
-						)}
-					>
-						{input.description}
-					</span>
-				) : null}
+				<AgentConfigurationCardValue
+					compact={input.compact}
+					description={input.description}
+					descriptionClassName={attentionTextClassName}
+					summary={input.summary}
+					summaryClassName={input.summaryClassName}
+					summaryTitle={input.summaryTitle}
+				/>
 				<AgentConfigurationCardInlineContent>
 					{input.inlineContent}
 				</AgentConfigurationCardInlineContent>
@@ -199,12 +199,15 @@ export function AgentConfigurationCard(input: {
 	return (
 		<MorphingDialog onOpenChange={input.onOpenChange} open={input.open}>
 			<AgentConfigurationSurface
-				className="has-[[data-popup-open]]:opacity-0"
+				// Only the dialog trigger hides the card while its dialog morphs
+				// out; a value tooltip also publishes data-popup-open.
+				className="has-[[data-configuration-dialog-trigger][data-popup-open]]:opacity-0"
 				itemId={input.itemId}
 			>
 				<MorphingDialogTrigger
 					aria-label={input.actionLabel ?? defaultActionLabel}
 					className="h-full w-full min-w-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+					data-configuration-dialog-trigger=""
 					disabled={input.disabled}
 					type="button"
 				>
@@ -262,12 +265,16 @@ export function AgentConfigurationReadoutCard(input: {
 	label: string;
 	headerAccessory?: ReactNode;
 	children: ReactNode;
+	compact?: boolean;
 }) {
 	return (
 		<AgentConfigurationSurface itemId={input.itemId}>
 			<section
 				aria-label={input.label}
-				className="h-full min-h-28 min-w-0 rounded-md p-4"
+				className={cn(
+					"h-full min-w-0 rounded-md",
+					input.compact ? "min-h-20 p-3.5" : "min-h-28 p-4"
+				)}
 			>
 				<div className="flex items-center justify-between gap-2">
 					<h3 className="font-medium text-muted-foreground text-xs">
@@ -275,7 +282,9 @@ export function AgentConfigurationReadoutCard(input: {
 					</h3>
 					{input.headerAccessory}
 				</div>
-				<div className="mt-3 min-w-0">{input.children}</div>
+				<div className={cn("min-w-0", input.compact ? "mt-2" : "mt-3")}>
+					{input.children}
+				</div>
 			</section>
 		</AgentConfigurationSurface>
 	);
@@ -302,6 +311,82 @@ function AgentConfigurationSurface(input: {
 			</FluidCardItem>
 		</SurfaceProvider>
 	);
+}
+
+function AgentConfigurationCardValue(input: {
+	compact?: boolean;
+	description?: string;
+	descriptionClassName: string;
+	summary: string;
+	summaryClassName?: string;
+	summaryTitle?: string;
+}) {
+	const summaryRef = useRef<HTMLSpanElement>(null);
+	const truncated = useTextTruncated(summaryRef, input.summary);
+	return (
+		<>
+			<span className="mt-1 flex min-w-0 items-center gap-2">
+				<TooltipHint
+					content={
+						input.summaryTitle ??
+						(input.compact && truncated ? input.summary : undefined)
+					}
+				>
+					<span
+						className={cn(
+							"block min-w-0 font-medium text-sm leading-5",
+							input.compact ? "line-clamp-2 break-words" : "break-words",
+							input.summaryClassName
+						)}
+						ref={summaryRef}
+					>
+						{input.summary}
+					</span>
+				</TooltipHint>
+			</span>
+			{input.description ? (
+				<span
+					className={cn(
+						"mt-1 block text-xs leading-4.5",
+						input.compact && "truncate",
+						input.descriptionClassName
+					)}
+					title={input.compact ? input.description : undefined}
+				>
+					{input.description}
+				</span>
+			) : null}
+		</>
+	);
+}
+
+/** Whether a clamped value is cut off at the card's current size. */
+function useTextTruncated(
+	ref: RefObject<HTMLElement | null>,
+	text: string
+): boolean {
+	const [truncated, setTruncated] = useState(false);
+	useEffect(() => {
+		const element = ref.current;
+		// A new value can overflow at the same width, so measure again.
+		if (!(element && text)) {
+			setTruncated(false);
+			return;
+		}
+		const measure = () =>
+			setTruncated(
+				element.scrollHeight > element.clientHeight + 1 ||
+					element.scrollWidth > element.clientWidth + 1
+			);
+		measure();
+		if (typeof ResizeObserver === "undefined") {
+			return;
+		}
+		const observer = new ResizeObserver(measure);
+		observer.observe(element);
+		return () => observer.disconnect();
+	}, [ref, text]);
+	return truncated;
 }
 
 function AgentConfigurationCardInlineContent(input: { children?: ReactNode }) {

@@ -12,7 +12,7 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
-import { useRef, useState } from "react";
+import { createRef, useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
@@ -35,9 +35,29 @@ afterEach(cleanup);
 vi.mock("./space-composer-agent-options", () => ({
 	SpaceComposerAgentOptionsWithProject: (
 		props: Parameters<typeof SpaceComposerAgentOptions>[0]
-	) => <SpaceComposerAgentOptions {...props} projectName="OpenMeld" />,
+	) => (
+		<SpaceComposerAgentOptions
+			{...props}
+			folders={COMPOSER_FOLDERS}
+			projectName="OpenMeld"
+		/>
+	),
 }));
 const TASK_ACCESS_MENU = /^Access/;
+const FOLDER_MENU = /^Folder/;
+// The owner's folders as the folder read returns them (smoke R2B-08).
+const COMPOSER_FOLDERS = vi.hoisted(() => [
+	{
+		displayName: "folder-two",
+		folderId: "3c2e8f8a-6b55-4b8e-9a43-0f3f2c9d7e21",
+		isDefault: true,
+	},
+	{
+		displayName: "folder-one",
+		folderId: "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11",
+		isDefault: false,
+	},
+]);
 
 it.each([
 	false,
@@ -200,6 +220,29 @@ it("keeps two agents' session choices independent and sends without a task by de
 		},
 	});
 	expect(onSubmit.mock.calls[0]?.[0]?.taskDraft).toBeUndefined();
+});
+
+it("sends the chosen folder with the message for that agent", async () => {
+	const onSubmit = vi.fn<(options?: SpaceComposerSendOptions) => void>();
+	render(<MultiAgentHarness onSubmit={onSubmit} />);
+	fireEvent.click(
+		screen.getByRole("button", { name: "Change relation for Engineer" })
+	);
+	fireEvent.click(await screen.findByRole("menuitem", { name: FOLDER_MENU }));
+	const folderOne = (await screen.findAllByRole("menuitemradio")).find(
+		(item) => item.textContent === "folder-one"
+	);
+	if (!folderOne) {
+		throw new Error("Folder choice missing");
+	}
+	fireEvent.click(folderOne);
+	fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+	expect(onSubmit.mock.calls[0]?.[0]?.contextSelections).toEqual({
+		[agentTargets[0].profileId]: {
+			folderId: "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11",
+			mode: "new",
+		},
+	});
 });
 
 it.each([
@@ -629,3 +672,143 @@ function SendHarness(input: {
 		/>
 	);
 }
+
+it("shows an observing Agent owner their Agent's questions above the read-only bar", () => {
+	render(
+		<SpaceComposer
+			actions={{ onEditorChange: vi.fn(), onSubmit: vi.fn() }}
+			availability={{
+				canSendMessage: false,
+				fileLimitReached: false,
+				isSendingMessage: false,
+				sendBlocked: false,
+			}}
+			centerAgentProfileId={null}
+			composerRef={createRef<SpaceComposerEditorHandle>()}
+			content={{
+				addressingTargets: [],
+				authoredMentions: [],
+				files: [],
+				mentionPickerItems: [],
+				text: "",
+			}}
+			context={{
+				conversationKind: "space",
+				placement: "conversation",
+				readOnly: true,
+				readOnlyPlaceholder: "Join to participate in this Space.",
+			}}
+			slots={{
+				pendingActionSurface: <p>Claude Code asks to run a command</p>,
+			}}
+		/>
+	);
+	expect(screen.getByText("Claude Code asks to run a command")).toBeTruthy();
+	expect(screen.getByText("Join to participate in this Space.")).toBeTruthy();
+});
+
+it("stacks Agent requests, pending actions and queued messages above the input, in that order", () => {
+	render(
+		<SpaceComposer
+			actions={{ onEditorChange: vi.fn(), onSubmit: vi.fn() }}
+			availability={{
+				canSendMessage: true,
+				fileLimitReached: false,
+				isSendingMessage: false,
+				sendBlocked: true,
+			}}
+			centerAgentProfileId={null}
+			composerRef={createRef<SpaceComposerEditorHandle>()}
+			content={{
+				addressingTargets: [],
+				authoredMentions: [],
+				files: [],
+				mentionPickerItems: [],
+				text: "",
+			}}
+			context={{ conversationKind: "space", placement: "conversation" }}
+			slots={{
+				agentRequests: <p>Tali asked to add Claude Code here</p>,
+				pendingActionSurface: <p>1 action needs you</p>,
+				queuedMessages: <p>Queued: ship it</p>,
+			}}
+		/>
+	);
+	const order = [
+		screen.getByText("Tali asked to add Claude Code here"),
+		screen.getByText("1 action needs you"),
+		screen.getByText("Queued: ship it"),
+		screen.getByRole("textbox"),
+	];
+	for (const [index, element] of order.slice(1).entries()) {
+		expect(order[index]?.compareDocumentPosition(element)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
+	}
+});
+
+function readOnlyComposer(context: {
+	accessPending?: boolean;
+	readOnly?: boolean;
+	readOnlyPlaceholder?: string;
+}) {
+	return (
+		<SpaceComposer
+			actions={{ onEditorChange: vi.fn(), onSubmit: vi.fn() }}
+			availability={{
+				canSendMessage: false,
+				fileLimitReached: false,
+				isSendingMessage: false,
+				sendBlocked: false,
+			}}
+			centerAgentProfileId={null}
+			composerRef={createRef<SpaceComposerEditorHandle>()}
+			content={{
+				addressingTargets: [],
+				authoredMentions: [],
+				files: [],
+				mentionPickerItems: [],
+				text: "",
+			}}
+			context={{
+				conversationKind: "space",
+				placement: "conversation",
+				...context,
+			}}
+			slots={{
+				agentRequests: <p>Tali wants to use Codex</p>,
+				primaryAction: <button type="button">Join</button>,
+			}}
+		/>
+	);
+}
+
+it("shows a neutral bar, never the input, while membership is loading", () => {
+	render(readOnlyComposer({ accessPending: true }));
+	expect(screen.queryByRole("textbox")).toBeNull();
+	expect(screen.queryByRole("button", { name: "Join" })).toBeNull();
+	const bar = document.querySelector(
+		'[data-slot="space-composer-read-only-bar"]'
+	);
+	expect(bar?.getAttribute("aria-busy")).toBe("true");
+});
+
+it("keeps Agent request trays above the Join bar so the bar covers their foot", () => {
+	render(
+		readOnlyComposer({
+			readOnly: true,
+			readOnlyPlaceholder: "Join this conversation to send messages.",
+		})
+	);
+	const tray = screen.getByText("Tali wants to use Codex");
+	const bar = document.querySelector(
+		'[data-slot="space-composer-read-only-bar"]'
+	) as HTMLElement;
+	expect(tray.compareDocumentPosition(bar)).toBe(
+		Node.DOCUMENT_POSITION_FOLLOWING
+	);
+	// The bar paints over the tray's tucked foot instead of under it.
+	expect(bar.className).toContain("relative");
+	expect(bar.className).toContain("bg-background");
+	expect(screen.getByRole("button", { name: "Join" })).toBeTruthy();
+});

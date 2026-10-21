@@ -24,6 +24,7 @@ export const SPACE_WAKE_STATUS_AUTO_REFRESH_ATTEMPTS = Math.ceil(
 export type SpaceWakeStatusTransientState =
 	| "checking"
 	| "active_wake_in_progress"
+	| "active_wake_waiting_for_folder"
 	| "active_wake_waiting_for_service";
 
 const SERVICE_CONNECTION_RECOVERY_REASON_CODES = new Set<string>([

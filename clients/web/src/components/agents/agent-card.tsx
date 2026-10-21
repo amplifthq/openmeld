@@ -12,6 +12,8 @@ export function AgentCard(input: {
 	renderAvatar: (size: number) => ReactNode;
 	interactiveAvatar?: boolean;
 	indicators?: ReactNode;
+	/** Short status shown before the description, such as access. */
+	meta?: ReactNode;
 	badge?: ReactNode;
 	describedBy?: string;
 	to?: string;
@@ -38,11 +40,27 @@ export function AgentCard(input: {
 					</TooltipHint>
 					{input.indicators}
 				</span>
-				<TooltipHint content={input.description}>
-					<span className="mt-0.5 block truncate text-muted-foreground text-xs">
-						{input.description}
+				{input.meta ? (
+					<span
+						className={`mt-0.5 flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs ${group ? "justify-center" : ""}`}
+					>
+						<span className="max-w-full shrink-0">{input.meta}</span>
+						{input.description ? (
+							<>
+								<span aria-hidden="true">·</span>
+								<TooltipHint content={input.description}>
+									<span className="min-w-0 truncate">{input.description}</span>
+								</TooltipHint>
+							</>
+						) : null}
 					</span>
-				</TooltipHint>
+				) : (
+					<TooltipHint content={input.description}>
+						<span className="mt-0.5 block truncate text-muted-foreground text-xs">
+							{input.description}
+						</span>
+					</TooltipHint>
+				)}
 			</span>
 			{input.badge}
 		</>

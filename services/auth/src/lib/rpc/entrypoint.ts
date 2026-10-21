@@ -12,6 +12,8 @@ import {
   createPostgresOrganizationLogoMutationRepository,
   createUnauthenticatedClaims,
   DEFAULT_AUTH_BASE_URL,
+  hasBearerAuthorization,
+  isCliCredentialSessionRecord,
   normalizeAuthHeaderValue,
   type OpenMeldProfileManagedRole,
   type OpenMeldProfileRecord,
@@ -31,6 +33,8 @@ import {
   withPostgresRequest,
 } from "@openmeld/db/postgresql";
 import {
+  type AssignAgentProfileMemberAgentRpcInput,
+  type AssignAgentProfileMemberAgentRpcResult,
   accountAvatarCommitRpcInputSchema,
   accountAvatarPrepareRpcInputSchema,
   agentAvatarStyleSchema,
@@ -55,12 +59,16 @@ import {
   authRpcSendInboxUrgentEmailResultSchema,
   authRpcUpdateAgentProfileDefaultProjectInputSchema,
   buildDefaultCenterAgentProfileName,
+  type EnsureDetectedMemberAgentRpcInput,
+  type EnsureDetectedMemberAgentRpcResult,
   ensureMessageChannelMemberOrganizationMembershipRpcInputSchema,
   ensureMessageChannelMemberOrganizationMembershipRpcResponseSchema,
   ensureOrganizationJoinLinkOnBehalfOfRpcInputSchema,
   ensureOrganizationJoinLinkOnBehalfOfRpcResponseSchema,
   ensureSlackWorkspaceMemberOrganizationMembershipRpcInputSchema,
   ensureSlackWorkspaceMemberOrganizationMembershipRpcResponseSchema,
+  type ListMemberAgentOrganizationIdsRpcResult,
+  MEMBER_AGENTS_ENABLED,
   organizationLogoCommitRpcInputSchema,
   organizationLogoPrepareRpcInputSchema,
   resolvedOpenMeldProfileSchema,
@@ -120,6 +128,12 @@ import {
   buildInboxUrgentEmail,
   classifyInboxEmailError,
 } from "../inbox/urgent-email";
+import {
+  assignAgentProfileMemberAgentRpc,
+  ensureDetectedMemberAgentRpc,
+  listMemberAgentOrganizationIdsRpc,
+  listOwnerMemberAgentsRpc,
+} from "../member-agents/member-agent-rpc";
 import {
   type AuthenticatedOrganizationContext,
   resolveAuthenticatedOrganizationContext,
@@ -435,6 +449,7 @@ type RequestedProfileSelector = {
 type VerifiedSessionResult =
   | {
       status: "authenticated";
+      session: unknown;
       user: UserRecord;
       userId: string;
       organizationContext: Extract<
@@ -1442,6 +1457,42 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
       }
     });
   }
+  ensureDetectedMemberAgent(
+    input: EnsureDetectedMemberAgentRpcInput
+  ): Promise<EnsureDetectedMemberAgentRpcResult> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      ensureDetectedMemberAgentRpc(input, {
+        enabled: MEMBER_AGENTS_ENABLED,
+        profileService: this.getProfileService(),
+      })
+    );
+  }
+  assignAgentProfileMemberAgent(
+    input: AssignAgentProfileMemberAgentRpcInput
+  ): Promise<AssignAgentProfileMemberAgentRpcResult> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      assignAgentProfileMemberAgentRpc(input, {
+        enabled: MEMBER_AGENTS_ENABLED,
+      })
+    );
+  }
+  listOwnerMemberAgents(input: {
+    organizationId?: string | null;
+    ownerUserId?: string | null;
+  }): ReturnType<typeof listOwnerMemberAgentsRpc> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      listOwnerMemberAgentsRpc(input, { enabled: MEMBER_AGENTS_ENABLED })
+    );
+  }
+  listMemberAgentOrganizationIds(input: {
+    ownerUserId?: string | null;
+  }): Promise<ListMemberAgentOrganizationIdsRpcResult> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      listMemberAgentOrganizationIdsRpc(input, {
+        enabled: MEMBER_AGENTS_ENABLED,
+      })
+    );
+  }
   async ensureOrganizationJoinLinkOnBehalfOf(
     input: EnsureOrganizationJoinLinkOnBehalfOfRpcInput
   ): Promise<EnsureOrganizationJoinLinkOnBehalfOfRpcResponse> {
@@ -2053,6 +2104,33 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
       return auth;
     });
   }
+  /**
+   * The credential kind from the database, never the cookie cache: a cached
+   * session can predate the CLI marker (member-agent-program.md §4.7). Only
+   * sensitive operations ask, so ordinary requests keep the cached path.
+   */
+  async resolveRequestCredentialKind(input: {
+    headers?: Record<string, string>;
+  }): Promise<{ credentialKind: "cli_credential" | "interactive_session" }> {
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const headers = toHeaders(input.headers);
+      const sessionResolution = await resolveSessionFromHeaders({
+        auth: await this.getAuth(),
+        disableCookieCache: true,
+        headers,
+      });
+      // Anything short of an authoritative session cannot prove a Web or App session.
+      return {
+        credentialKind:
+          sessionResolution.status === "authenticated"
+            ? resolveRequestCredentialKind({
+                headers,
+                session: sessionResolution.session,
+              })
+            : "cli_credential",
+      };
+    });
+  }
   // One round trip for the gateway hot path: request auth + profile
   // resolution in a single RPC. The session, local user, and Organization are
   // verified once, and the primary Human Profile and the requested Profile
@@ -2147,7 +2225,7 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
     if (verified.status !== "authenticated") {
       return verified;
     }
-    const { organizationContext, user, userId } = verified;
+    const { organizationContext, session, user, userId } = verified;
     const primaryHumanProfileInput = {
       userId,
       userName: typeof user.name === "string" ? user.name : "",
@@ -2191,6 +2269,7 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
         profileKind: primaryProfile.profileKind,
         ownerIds: [],
         authMethod: headers.has("x-api-key") ? "api_key" : "session",
+        credentialKind: resolveRequestCredentialKind({ headers, session }),
         ...(organizationContext.activeOrganizationId
           ? {
               activeOrganizationId: organizationContext.activeOrganizationId,
@@ -2335,6 +2414,7 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
     }
     return {
       status: "authenticated",
+      session: sessionResolution.session,
       user: sessionResolution.user,
       userId,
       organizationContext,
@@ -3157,4 +3237,20 @@ function toSafeRpcErrorLog(error: unknown): {
 }
 function toProfileRpcError(error: unknown): ProfileErrorResponse {
   return toProfileHttpErrorResponse(error).body;
+}
+
+/**
+ * A session is a CLI credential once a CLI held it, when it arrives as a
+ * Bearer token, or for an API key. The Bearer use itself marks the session
+ * (`createCliCredentialPlugin`), so a later cookie use stays a CLI credential.
+ */
+function resolveRequestCredentialKind(input: {
+  headers: Headers;
+  session: unknown;
+}): "cli_credential" | "interactive_session" {
+  return input.headers.has("x-api-key") ||
+    hasBearerAuthorization(input.headers) ||
+    isCliCredentialSessionRecord(input.session)
+    ? "cli_credential"
+    : "interactive_session";
 }

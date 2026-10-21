@@ -5,6 +5,9 @@ import { useOptionalSpaceAgentProfileEditContext } from "./space-agent-profile-e
 
 export function AgentWorkingFolderRecoveryAction(input: {
 	className?: string;
+	folderMissing?: boolean;
+	fromReadiness?: boolean;
+	label?: string;
 	profileId?: string;
 }) {
 	const edit = useOptionalSpaceAgentProfileEditContext();
@@ -23,7 +26,10 @@ export function AgentWorkingFolderRecoveryAction(input: {
 		<AgentProfileWorkingFolderRecoveryAction
 			actorProfileId={context.actorProfileId}
 			className={input.className}
+			folderMissing={input.folderMissing}
+			fromReadiness={input.fromReadiness}
 			key={profile.openMeldProfileId}
+			label={input.label}
 			onProfileUpdated={(updated) => {
 				context.onSaved(updated.openMeldProfileId).catch((error: unknown) => {
 					console.error("Failed to refresh working-folder settings.", error);

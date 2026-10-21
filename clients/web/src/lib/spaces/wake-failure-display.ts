@@ -79,6 +79,17 @@ export function resolveWakeFailureDisplay(input: {
 		};
 	}
 	if (
+		recovery.recoveryTarget === "session_folder" &&
+		input.targetContext?.isCurrentUserManageable !== true
+	) {
+		// Only the owner chooses folders; anyone else starts a new chat, whose
+		// new Session uses the Agent's current folder.
+		return {
+			actionTarget: null,
+			body: `${targetName} couldn’t continue this chat in its earlier folder. Start a new chat to continue.`,
+		};
+	}
+	if (
 		recovery.recoveryTarget === "working_folder" &&
 		input.targetContext?.isCurrentUserManageable !== true
 	) {

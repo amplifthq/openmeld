@@ -1,6 +1,6 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { AppRoutePending } from "#/components/app/app-route-pending";
 import { AppShell } from "#/components/app/app-shell";
+import { AppShellPending } from "#/components/app/app-shell-pending";
 import { appShellStaticData } from "#/components/app/shell-layout";
 import { OrganizationAccessDeniedPage } from "#/components/organizations/organization-access-denied-page";
 import {
@@ -27,7 +27,7 @@ export const Route = createFileRoute("/o/$orgSlug")({
 				: undefined,
 	}),
 	ssr: false,
-	pendingComponent: AppRoutePending,
+	pendingComponent: AppShellPending,
 	staticData: appShellStaticData.start,
 	staleTime: 0,
 	preloadStaleTime: 0,
@@ -43,7 +43,10 @@ export const Route = createFileRoute("/o/$orgSlug")({
 			throw redirect({
 				to: "/login",
 				search: {
-					redirect: resolvePublicLoginRedirectTarget(location.pathname),
+					redirect: resolvePublicLoginRedirectTarget(
+						location.pathname,
+						location.searchStr
+					),
 				},
 			});
 		}

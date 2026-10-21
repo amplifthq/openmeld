@@ -40,7 +40,10 @@ import {
 } from "#/lib/inbox/attention";
 import { isInboxReview } from "#/lib/inbox/review";
 import { requestInboxSourceFocus } from "#/lib/inbox/source-focus-request";
-import { buildInboxItemSourceNavigation } from "#/lib/inbox/source-target";
+import {
+	buildInboxItemSourceNavigation,
+	keepInboxFilters,
+} from "#/lib/inbox/source-target";
 import { useInboxAvatar } from "./inbox-avatars";
 import { InvitationReview } from "./invitation-review";
 
@@ -155,7 +158,11 @@ function useInboxRowNavigation(input: InboxItemRowProps) {
 			return;
 		}
 		navigate({
-			to: sourceNavigation.href,
+			to: keepInboxFilters({
+				currentPathname: window.location.pathname,
+				currentSearch: window.location.search,
+				href: sourceNavigation.href,
+			}),
 			state: requestInboxSourceFocus,
 		}).catch((error) =>
 			console.warn("[openmeld.web.inbox_navigation_failed]", { error })
@@ -453,7 +460,12 @@ function InboxItemSourceLink(input: {
 		}
 		event.preventDefault();
 		navigate({
-			to: input.href,
+			// Opening an Inbox detail keeps the user's view and filters.
+			to: keepInboxFilters({
+				currentPathname: window.location.pathname,
+				currentSearch: window.location.search,
+				href: input.href,
+			}),
 			state: requestInboxSourceFocus,
 		}).catch((error: unknown) =>
 			console.warn("[openmeld.web.inbox_navigation_failed]", { error })
@@ -565,6 +577,8 @@ function InboxKindIcon(input: { item: InboxItem }): ReactNode {
 			return <ChatCircleTextIcon aria-hidden="true" className="size-4" />;
 		case "agent_reply":
 		case "agent_interaction":
+		case "agent_access_request":
+		case "agent_space_request":
 		case "center_agent_update":
 			return <RobotIcon aria-hidden="true" className="size-4" />;
 		case "document_review":
@@ -579,6 +593,7 @@ function InboxKindIcon(input: { item: InboxItem }): ReactNode {
 			);
 		case "system_issue":
 		case "computer_connection":
+		case "credential_confirmation":
 			return <WarningCircleIcon aria-hidden="true" className="size-4" />;
 		case "desktop_update":
 			return <CheckCircleIcon aria-hidden="true" className="size-4" />;

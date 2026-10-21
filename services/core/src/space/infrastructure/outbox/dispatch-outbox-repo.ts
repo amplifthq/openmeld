@@ -79,6 +79,7 @@ class DispatchSnapshotOversizeError extends Error {
 }
 export const createDispatchOutboxRecord = (input: {
   contextSelection?: OpenMeldDaemonDispatchQueueMessage["contextSelection"];
+  requestChain?: OpenMeldDaemonDispatchQueueMessage["requestChain"];
   bindingState: "bound" | "missing";
   bindingEnabled: boolean;
   agentControllerRef?: string | null;
@@ -192,6 +193,7 @@ export const createDispatchOutboxRecord = (input: {
     autoRelayDepth: dispatchChainContext.autoRelayDepth,
     visitedProfileIds: dispatchChainContext.visitedProfileIds,
     visitedProfileIdsHash: dispatchChainContext.visitedProfileIdsHash,
+    ...(input.requestChain ? { requestChain: input.requestChain } : {}),
     dispatchContractVersion: OPENMELD_DAEMON_DISPATCH_CONTRACT_VERSION,
     dispatchPolicy: input.dispatchPolicy,
     ruleSource: input.ruleSource,

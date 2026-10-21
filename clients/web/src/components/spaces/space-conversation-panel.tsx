@@ -30,6 +30,26 @@ import {
 	useRef,
 	useState,
 } from "react";
+import {
+	type DirectMessageAccessRequest,
+	DirectMessageRequestCardStatus,
+	directMessageAccessRequestCopy,
+	directMessageSendsRequest,
+	resolveDirectMessageRequestCardStatus,
+} from "#/components/agent-access/direct-message-access-request";
+import {
+	SpaceAgentAccessBar,
+	SpaceAgentAccessPreviews,
+	type SpaceAgentAccessRequestsState,
+	useSpaceAgentAccessRequests,
+} from "#/components/agent-access/space-agent-access-requests";
+import type { SpaceAgentRequestMentions } from "#/components/agent-access/space-agent-request-mentions";
+import {
+	isMemberAgentIssueCard,
+	MemberAgentDirectMessageCard,
+	type MemberAgentDirectMessageCardState,
+	useMemberAgentDirectMessageCard,
+} from "#/components/member-agents/member-agent-direct-message-card";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 import { useSpaceConversationOpenPaint } from "#/lib/observability/use-space-open-paint";
 import { getSpaceConversationHistorySignalId } from "#/lib/space-conversation-position";
@@ -173,6 +193,7 @@ import {
 	SpaceWakeStopScope,
 } from "./space-wake-stop-control";
 import { SpaceComposerWorkBookmarks } from "./space-work-bookmarks";
+import { useSpaceComposerTraySpace } from "./use-space-composer-region";
 import {
 	type SpaceConversationRestorationStatus,
 	useSpaceConversationPosition,
@@ -209,6 +230,7 @@ type SpaceConversationPanelResolvedProps = {
 	composerAddressingTargets?: readonly SpaceComposerAddressingTarget[];
 	composerAuthoredMentions?: readonly ComposerDraftAuthoredMention[];
 	composerMentionPickerItems?: readonly SpaceMentionPickerItem[];
+	composerAgentRequestMentions?: SpaceAgentRequestMentions;
 	composerMentionEmptyMessage?: string;
 	composerBlockedWakeProfileId: string | null;
 	composerHasAuthoredMentions?: boolean;
@@ -227,6 +249,8 @@ type SpaceConversationPanelResolvedProps = {
 	emptyStateDescription?: string | null;
 	emptyStateAlignment?: "start" | "center";
 	emptyStateTitle?: string;
+	/** A teammate's Agent that asks its owner first; the first message is the request. */
+	directMessageAccessRequest?: DirectMessageAccessRequest | null;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 	firstUnreadSignalId: string | null;
 	files?: ReactNode;
@@ -304,6 +328,10 @@ type SpaceConversationPanelResolvedProps = {
 	liveNotice?: ReactNode;
 	readOnly?: boolean;
 	readOnlyComposerPlaceholder?: string;
+	/** Membership is still loading; the composer shows a neutral bar. */
+	composerAccessPending?: boolean;
+	/** Composer trays wait to appear together; see useSpaceComposerTraysHeld. */
+	composerTraysHeld?: boolean;
 	allowSendWhileAccessSettles?: boolean;
 	renderSetupGuidance?: (
 		presentation: OnboardingSetupPresentation
@@ -339,6 +367,8 @@ type SpaceConversationPanelViewState = Pick<
 	| "isPersonalContext"
 	| "isSendingMessage"
 	| "readOnly"
+	| "composerAccessPending"
+	| "composerTraysHeld"
 	| "threadsIsLoading"
 	| "unreadStateReady"
 >;
@@ -386,6 +416,16 @@ function resolveWritableSpaceAction<T>(
 		return undefined;
 	}
 	return action;
+}
+
+/** Live request previews belong after the newest loaded message only. */
+function showsLatestConversation(input: {
+	historyIsPending?: boolean;
+	historyNavigation?: SpaceHistoryNavigationController;
+}): boolean {
+	return !(
+		input.historyIsPending || input.historyNavigation?.activeWindow?.hasAfter
+	);
 }
 
 function shouldRenderSpaceComposer(input: {
@@ -608,8 +648,26 @@ function SpaceConversationPanelContent(
 		hasConversationEntries: entries.length > 0,
 		renderSetupGuidance: input.renderSetupGuidance,
 	});
+	const memberAgentCard = useMemberAgentDirectMessageCard({
+		isCenterAgentDirectMessage:
+			presentation.messageStateTuningVisibility.isCenterAgentDirectMessage,
+		isDirectMessage: input.isDirectMessage,
+		readOnly: isPossibleConversationObserver(input),
+		hasMessages: entries.length > 0,
+		membersSnapshot: input.membersSnapshot,
+		modelCatalog: input.modelCatalog,
+		profileEntriesById: presentation.profileEntriesById,
+	});
+	const agentAccess = useSpaceAgentAccessRequests(input.spaceId);
+	const requestCard = useDirectMessageRequestCard({
+		agentAccess,
+		loadedSignalIds: loadedMainTimelineSignalIds,
+		request: input.directMessageAccessRequest,
+	});
 	const conversationBody = renderPanelConversationBody({
 		emptyStateActions: setupGuidance.emptyStateActions,
+		memberAgentCard,
+		messageFootersBySignalId: requestCard.footersBySignalId,
 		input,
 		navigation,
 		presentation,
@@ -810,6 +868,10 @@ function SpaceConversationPanelContent(
 									data-space-conversation-content-width=""
 								>
 									{conversationBody}
+									<SpaceAgentAccessPreviews
+										showsLatestMessages={showsLatestConversation(input)}
+										state={agentAccess}
+									/>
 									<LoadNewerMessagesControl
 										history={input.historyNavigation}
 										scrollElement={conversationScrollElement}
@@ -825,6 +887,12 @@ function SpaceConversationPanelContent(
 
 			{showComposer ? (
 				<SpaceComposerSection
+					agentRequests={
+						<SpaceAgentAccessBar
+							previewsVisible={showsLatestConversation(input)}
+							state={requestCard.barState}
+						/>
+					}
 					canSendMessage={canSendMessage}
 					canUploadFiles={canUploadFiles}
 					composerContext={composerContext}
@@ -832,6 +900,7 @@ function SpaceConversationPanelContent(
 					composerTargetName={composerTargetName}
 					input={input}
 					profilePresentationsById={profilePresentationsById}
+					recoveryShownInConversation={isMemberAgentIssueCard(memberAgentCard)}
 					submitComposer={submitComposer}
 				/>
 			) : null}
@@ -918,6 +987,8 @@ function SpaceHistoryErrorBanner({
 
 function renderPanelConversationBody(input: {
 	emptyStateActions: ReactNode;
+	memberAgentCard: MemberAgentDirectMessageCardState | null;
+	messageFootersBySignalId: ReadonlyMap<string, ReactNode>;
 	input: SpaceConversationPanelResolvedProps;
 	navigation: ReturnType<typeof useSpaceConversationNavigationController>;
 	presentation: ReturnType<typeof useSpaceConversationPresentationController>;
@@ -926,6 +997,8 @@ function renderPanelConversationBody(input: {
 	const navigation = input.navigation;
 	const presentation = input.presentation;
 	return renderConversationBody({
+		memberAgentCard: input.memberAgentCard,
+		messageFootersBySignalId: input.messageFootersBySignalId,
 		threadStreamsByRootSignalId: presentation.threadStreamsByRootSignalId,
 		agentRecoveryPlansByProfileId: panel.agentRecoveryPlansByProfileId,
 		anchoredOutcomeNoticesBySourceSignalId:
@@ -1938,7 +2011,79 @@ function SpaceConversationTopOverlay(input: {
 	);
 }
 
+const NO_MESSAGE_FOOTERS: ReadonlyMap<string, ReactNode> = new Map();
+
+/**
+ * The request card under the message that is the request, and the composer
+ * bar without that request so the wait shows once.
+ */
+function useDirectMessageRequestCard(input: {
+	agentAccess: SpaceAgentAccessRequestsState;
+	loadedSignalIds: ReadonlySet<string>;
+	request: DirectMessageAccessRequest | null | undefined;
+}) {
+	const { agentAccess } = input;
+	const request = input.request ?? null;
+	const card = request?.access.request ?? null;
+	const signalId =
+		request &&
+		card?.sourceSignalId &&
+		input.loadedSignalIds.has(card.sourceSignalId) &&
+		resolveDirectMessageRequestCardStatus(request)
+			? card.sourceSignalId
+			: null;
+	const withdrawRef = useRef(agentAccess.withdraw);
+	withdrawRef.current = agentAccess.withdraw;
+	const footersBySignalId = useMemo(
+		() =>
+			signalId && request && card
+				? new Map<string, ReactNode>([
+						[
+							signalId,
+							<DirectMessageRequestCardStatus
+								busy={agentAccess.busy}
+								key={card.id}
+								onWithdraw={() => withdrawRef.current(card)}
+								request={request}
+							/>,
+						],
+					])
+				: NO_MESSAGE_FOOTERS,
+		[agentAccess.busy, card, request, signalId]
+	);
+	return {
+		footersBySignalId,
+		barState:
+			signalId && card
+				? {
+						...agentAccess,
+						requests: agentAccess.requests.filter(
+							(entry) => entry.id !== card.id
+						),
+					}
+				: agentAccess,
+	};
+}
+
+/** Draft: the composer writes the request. Waiting: it is locked until the owner answers. */
+function resolveComposerAccessRequest(
+	request: DirectMessageAccessRequest | null
+): { requestPlaceholder: string | null; lockedHint: string | null } {
+	if (!request) {
+		return { requestPlaceholder: null, lockedHint: null };
+	}
+	const copy = directMessageAccessRequestCopy(request);
+	return {
+		requestPlaceholder: directMessageSendsRequest(request.access.state)
+			? copy.composerPlaceholder
+			: null,
+		lockedHint:
+			request.access.state === "waiting" ? copy.waitingComposerHint : null,
+	};
+}
+
 function SpaceComposerSection(input: {
+	agentRequests: ReactNode;
 	canUploadFiles: boolean;
 	canSendMessage: boolean;
 	composerContext: SpaceComposerConversationKind;
@@ -1949,12 +2094,26 @@ function SpaceComposerSection(input: {
 		string,
 		SpaceCollaborationProfilePresentation
 	>;
+	/** The Agent issue card already offers the fix; the composer keeps only its hint. */
+	recoveryShownInConversation: boolean;
 	submitComposer: (options?: SpaceComposerSendOptions) => void;
 }) {
 	const panel = input.input;
+	const accessRequest = resolveComposerAccessRequest(
+		panel.directMessageAccessRequest ?? null
+	);
+	const traySpace = useSpaceComposerTraySpace({
+		held: panel.composerTraysHeld === true,
+		profileId: panel.selfProfileId,
+		spaceId: panel.spaceId ?? "",
+	});
 
 	return (
-		<div className="shrink-0 bg-background" data-slot="space-composer-section">
+		<div
+			className="shrink-0 bg-background"
+			data-slot="space-composer-section"
+			ref={traySpace.sectionRef}
+		>
 			<div
 				className="flex w-full flex-col gap-3 py-4"
 				data-space-conversation-content-width=""
@@ -1987,6 +2146,7 @@ function SpaceComposerSection(input: {
 						fileCleanup: panel.composerFileCleanup,
 						fileRestorationError: panel.composerFileRestorationError,
 						hasAuthoredMentions: panel.composerHasAuthoredMentions,
+						agentRequestMentions: panel.composerAgentRequestMentions,
 						mentionPickerItems: panel.composerMentionPickerItems ?? [],
 						mentionEmptyMessage: panel.composerMentionEmptyMessage,
 						text: panel.composerText,
@@ -1994,46 +2154,68 @@ function SpaceComposerSection(input: {
 					context={{
 						conversationKind: input.composerContext,
 						placement: "conversation",
-						readOnly: panel.readOnly,
+						accessPending: panel.composerAccessPending,
+						readOnly: panel.readOnly || Boolean(accessRequest.lockedHint),
 						readOnlyPlaceholder: panel.readOnly
 							? panel.readOnlyComposerPlaceholder
-							: undefined,
+							: (accessRequest.lockedHint ?? undefined),
+						requestPlaceholder: accessRequest.requestPlaceholder ?? undefined,
 						targetName: input.composerTargetName,
 					}}
 					key={`${panel.spaceId}:${panel.selfProfileId}`}
 					members={panel.composerMembers}
 					organizationId={panel.organizationId}
-					recovery={{
-						blockedWakeProfileId: panel.composerBlockedWakeProfileId,
-						agentRecoveryPlansByProfileId: panel.agentRecoveryPlansByProfileId,
-						isAgentRecoveryPending: panel.isAgentRecoveryPending,
-						onAgentRecoveryAction: panel.onAgentRecoveryAction,
-						orgSlug: panel.orgSlug,
-						prepareSetupHref: panel.prepareSetupHref,
-					}}
+					recovery={
+						input.recoveryShownInConversation
+							? undefined
+							: {
+									blockedWakeProfileId: panel.composerBlockedWakeProfileId,
+									agentRecoveryPlansByProfileId:
+										panel.agentRecoveryPlansByProfileId,
+									isAgentRecoveryPending: panel.isAgentRecoveryPending,
+									onAgentRecoveryAction: panel.onAgentRecoveryAction,
+									orgSlug: panel.orgSlug,
+									prepareSetupHref: panel.prepareSetupHref,
+								}
+					}
 					slots={{
-						pendingActionSurface: panel.pendingActionSurface,
+						agentRequests: (
+							<SpaceComposerTrayHold
+								held={panel.composerTraysHeld}
+								reservedHeight={traySpace.reservedHeight}
+							>
+								{input.agentRequests}
+							</SpaceComposerTrayHold>
+						),
+						pendingActionSurface: (
+							<SpaceComposerTrayHold held={panel.composerTraysHeld}>
+								{panel.pendingActionSurface}
+							</SpaceComposerTrayHold>
+						),
 						queuedMessages:
 							!panel.readOnly && panel.spaceId ? (
-								<SpaceInputQueue
-									key={`${panel.spaceId}:${panel.selfProfileId}`}
-									onEdit={(queuedText) => {
-										const text = panel.composerText
-											? `${panel.composerText}\n\n${queuedText}`
-											: queuedText;
-										panel.onComposerEditorChange({
-											authoredMentions: [
-												...(panel.composerAuthoredMentions ?? []),
-											],
-											selection: { start: text.length, end: text.length },
-											text,
-										});
-										panel.textareaRef.current?.focus();
-									}}
-									profileId={panel.selfProfileId}
-									progressItems={panel.ephemeralActivityItems}
-									spaceId={panel.spaceId}
-								/>
+								<SpaceComposerTrayHold held={panel.composerTraysHeld}>
+									<SpaceInputQueue
+										agents={panel.membersSnapshot?.agents}
+										key={`${panel.spaceId}:${panel.selfProfileId}`}
+										onEdit={(queuedText) => {
+											const text = panel.composerText
+												? `${panel.composerText}\n\n${queuedText}`
+												: queuedText;
+											panel.onComposerEditorChange({
+												authoredMentions: [
+													...(panel.composerAuthoredMentions ?? []),
+												],
+												selection: { start: text.length, end: text.length },
+												text,
+											});
+											panel.textareaRef.current?.focus();
+										}}
+										profileId={panel.selfProfileId}
+										progressItems={panel.ephemeralActivityItems}
+										spaceId={panel.spaceId}
+									/>
+								</SpaceComposerTrayHold>
 							) : null,
 						beforePrimaryAction: (
 							<SpaceComposerWorkBookmarks placement="conversation" />
@@ -2065,6 +2247,43 @@ function SpaceComposerSection(input: {
 	);
 }
 
+/**
+ * Keeps a held tray mounted, so its read still runs, but out of the layout.
+ * The first tray slot also keeps the trays' saved space, in the place the
+ * trays appear, so nothing above or below them moves when they are released.
+ * Once released the tray renders unwrapped, so the composer's tray stacking
+ * and sibling order stay exactly as without a hold.
+ */
+function SpaceComposerTrayHold(input: {
+	children: ReactNode;
+	held?: boolean;
+	/** Space the trays took last time, kept where the first tray appears. */
+	reservedHeight?: number;
+}) {
+	if (!input.held) {
+		return input.children;
+	}
+	return (
+		<>
+			{input.reservedHeight ? (
+				<div aria-hidden="true" style={{ height: input.reservedHeight }} />
+			) : null}
+			<div hidden>{input.children}</div>
+		</>
+	);
+}
+
+// Until membership is known the viewer may be an observer, who gets no
+// MemberAgent card; showing it and then removing it moves the conversation.
+function isPossibleConversationObserver(
+	input: Pick<
+		SpaceConversationPanelResolvedProps,
+		"composerAccessPending" | "readOnly"
+	>
+): boolean {
+	return Boolean(input.readOnly || input.composerAccessPending);
+}
+
 function ComposerError(input: { panel: SpaceConversationPanelResolvedProps }) {
 	const panel = input.panel;
 	if (!panel.composerErrorMessage) {
@@ -2079,6 +2298,8 @@ function ComposerError(input: { panel: SpaceConversationPanelResolvedProps }) {
 
 function renderConversationBody(input: {
 	isDirectMessage: boolean;
+	memberAgentCard: MemberAgentDirectMessageCardState | null;
+	messageFootersBySignalId: ReadonlyMap<string, ReactNode>;
 	threadStreamsByRootSignalId: ReadonlyMap<
 		string,
 		readonly SpaceConversationVisibleStreamProjection[]
@@ -2213,9 +2434,28 @@ function renderConversationBody(input: {
 		);
 	}
 
+	// A MemberAgent welcome or repair card, shown as posted by the Agent:
+	// presentation, never a published message.
+	const memberAgentCardItem = input.memberAgentCard ? (
+		<MessageScrollerItem
+			className="[content-visibility:visible]"
+			messageId="member-agent-card"
+		>
+			<MemberAgentDirectMessageCard
+				current={input.memberAgentCard.current}
+				entry={input.memberAgentCard.entry}
+				// A new state is a new post, with its own time.
+				key={`${input.memberAgentCard.model.kind}:${input.memberAgentCard.model.title}`}
+				model={input.memberAgentCard.model}
+			/>
+		</MessageScrollerItem>
+	) : null;
 	if (input.entries.length === 0) {
 		if (centerAgentDirectMessageIntroItem) {
 			return centerAgentDirectMessageIntroItem;
+		}
+		if (memberAgentCardItem) {
+			return memberAgentCardItem;
 		}
 
 		return (
@@ -2251,10 +2491,14 @@ function renderConversationBody(input: {
 	}
 	let previousDateKey: string | null = null;
 	let unreadBoundaryRendered = false;
+	// The welcome opens the Session; a problem is the Agent's latest post,
+	// next to the composer it blocks.
+	const memberAgentCardIsIssue = isMemberAgentIssueCard(input.memberAgentCard);
 
 	return (
 		<>
 			{centerAgentDirectMessageIntroItem}
+			{memberAgentCardIsIssue ? null : memberAgentCardItem}
 			{input.entries.map((entry) => {
 				const createdAtMs = resolveConversationEntryCreatedAtMs(entry);
 				const date = new Date(createdAtMs);
@@ -2361,6 +2605,7 @@ function renderConversationBody(input: {
 						isPersonalContext={input.isPersonalContext === true}
 						loadedMainTimelineSignalIds={input.loadedMainTimelineSignalIds}
 						membersSnapshot={input.membersSnapshot}
+						messageFootersBySignalId={input.messageFootersBySignalId}
 						modelCatalog={input.modelCatalog}
 						onAddMessageToTasks={input.onAddMessageToTasks}
 						onAgentInteractionResponse={input.onAgentInteractionResponse}
@@ -2410,6 +2655,7 @@ function renderConversationBody(input: {
 					/>
 				);
 			})}
+			{memberAgentCardIsIssue ? memberAgentCardItem : null}
 		</>
 	);
 }

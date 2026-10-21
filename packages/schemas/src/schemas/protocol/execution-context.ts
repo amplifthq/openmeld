@@ -1,5 +1,7 @@
 import * as z from "zod/v4";
 import { repositoryFingerprintSchema } from "../http/projects";
+import { profileFolderIdSchema } from "./profile-folders";
+import { requestChainSchema } from "./request-chain";
 
 const reference = z.string().trim().min(1).max(2048);
 // Local workspace owner facts, not client-selected paths or Computer policy.
@@ -17,6 +19,11 @@ export const executionContextAccessSchema = z.enum([
   "workspace",
 ]);
 const workspace = z.enum(["current", "isolated"]);
+// Core's hint for a workspace that was not chosen explicitly: the Service uses
+// an isolated copy when the resolved folder is a git repository, otherwise the
+// current folder. Core sets it only when the root requester is not the owner.
+export const executionContextWorkspaceDefaultSchema =
+  z.literal("isolated_if_git");
 // Read-only projection of the Core-owned assignment. It contains no native
 // conversation, filesystem path, credential, or authority to start work.
 export const executionContextDiagnosticsSchema = z.discriminatedUnion(
@@ -44,8 +51,12 @@ export const executionContextProjectWorkSchema = z.strictObject({
     .regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u)
     .optional(),
 });
+// A Service-minted folder id of the target Profile, never a path. Core keeps
+// it only when the Profile owner requested the work.
+const folderId = profileFolderIdSchema.optional();
 const preferences = {
   access: executionContextAccessSchema.optional(),
+  folderId,
   projectWork: executionContextProjectWorkSchema.optional(),
   workspace: workspace.optional(),
 };
@@ -73,8 +84,13 @@ export const executionContextRequestSchema = z.strictObject({
   required: z.boolean().optional(),
   // Retained for persisted snapshots from older Core versions. Not a permission gate.
   ownerRequested: z.literal(true).optional(),
+  // Core-written at Wake time; absent on requests from before the chain.
+  requestChain: requestChainSchema.optional(),
   scope: executionContextScopeSchema,
   selection: executionContextSelectionSchema,
+  // Core-written when the root requester is not the Profile owner. It applies
+  // only to a workspace the selection leaves to the default.
+  workspaceDefault: executionContextWorkspaceDefaultSchema.optional(),
 });
 
 export const executionContextAssignmentSchema = z
@@ -83,10 +99,19 @@ export const executionContextAssignmentSchema = z
     id: z.string().uuid(),
     scope: executionContextScopeSchema,
     access: executionContextAccessSchema,
+    // Absent: the Profile's default folder, as before folders existed.
+    folderId,
     projectWork: executionContextProjectWorkSchema.optional(),
     // Absent on retained tasks: their original folder boundary still applies.
     permissionSource: z.literal("agent_settings").optional(),
+    // This Wake's chain, frozen at admission. It is not part of the scope key
+    // and is never sent to the OpenMeld Service. Absent: owner-rooted legacy.
+    requestChain: requestChainSchema.optional(),
     workspace,
+    // Unresolved default: the Service chooses and reports the workspace in
+    // the completion; Core then records it and drops this hint. Sent only to
+    // a Service with executionContextVersion 7.
+    workspaceDefault: executionContextWorkspaceDefaultSchema.optional(),
     forkSource: z
       .strictObject({
         contextId: z.string().uuid(),
@@ -100,6 +125,8 @@ export const executionContextAssignmentSchema = z
         completedHistoryId: reference.optional(),
         runtimeWorkspaceFingerprint: reference,
         workspace,
+        // The source's own folder, so a fork may continue in another one.
+        folderId,
       })
       .optional(),
   })
@@ -115,6 +142,8 @@ export const executionContextCompletionSchema = z.strictObject({
   nativeConversationId: reference,
   runtimeWorkspaceFingerprint: reference,
   completedHistoryId: reference.optional(),
+  // The workspace the Service chose for a task with workspaceDefault.
+  workspace: workspace.optional(),
 });
 
 export const executionContextLegacyAssociationSchema = z.strictObject({

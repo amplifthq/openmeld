@@ -125,6 +125,12 @@ import {
 	DirectoryOwnerGroup,
 } from "#/components/directory/directory-card-grid";
 import {
+	MemberAgentHarnessLock,
+	useMemberAgentHarnessLocked,
+	useMemberAgentProfileNameLocked,
+} from "#/components/member-agents/member-agent-harness-lock";
+import { useMemberAgentIndex } from "#/components/member-agents/use-member-agents";
+import {
 	AgentConfigurationCard,
 	AgentConfigurationEditorCard,
 	AgentConfigurationGrid,
@@ -133,8 +139,8 @@ import {
 	AgentControllerPermissionModeOutcome,
 	getAgentControllerPermissionModeOutcomeDescriptionId,
 } from "#/components/profiles/agent-controller-permission-mode-outcome";
+import { AgentProfileFoldersDialog } from "#/components/profiles/agent-profile-folders-dialog";
 import { shouldShowAgentProfileProjectSettings } from "#/components/profiles/agent-profile-project-settings";
-import { AgentProfileProjectSettingsDialog } from "#/components/profiles/agent-profile-project-settings-dialog";
 import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import { AgentProfileWorkingFolderRecoveryAction } from "#/components/profiles/agent-profile-working-folder-recovery-action";
 import {
@@ -161,7 +167,10 @@ import {
 } from "#/lib/organizations/organization-routes";
 import { buildAgentProfilePath } from "#/lib/profile-routes";
 import { resolveWebAgentControllerPermissionModeDisplayFromBinding } from "#/lib/profiles/agent-controller-permission-mode-display";
-import { resolveAgentProfileControllerModelDetail } from "#/lib/profiles/agent-profile-model-display";
+import {
+	resolveAgentProfileControllerModelDetail,
+	resolveAgentProfileModelCardValue,
+} from "#/lib/profiles/agent-profile-model-display";
 import {
 	disableAgentProfilePrimaryBinding,
 	projectAgentProfileBindingTarget,
@@ -176,6 +185,7 @@ import {
 	openCurrentDirectMessageSpace,
 	resolveDirectMessageOpenErrorMessage,
 } from "#/lib/spaces/direct-message";
+import { readRememberedChatOrNull } from "#/lib/spaces/use-open-direct-message";
 import {
 	refreshWebAgentReadinessFacts,
 	refreshWebAgentReadinessSharedCaches,
@@ -437,6 +447,8 @@ export function AgentProfilesCard(input: AgentProfilesCardProps) {
 function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 	const navigate = useNavigate();
 	const { currentOrganization } = useAppOrganization();
+	const defaultHumanProfileId =
+		useMemberAgentIndex().humanProfileId ?? undefined;
 	const agentProfiles = input.agentProfiles ?? input.recovery.agentProfiles;
 	const agentProfileOperationalContextByProfileId =
 		input.agentProfileOperationalContextByProfileId ??
@@ -1327,10 +1339,17 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 	const handleOpenDirectMessage = async (profile: AuthProfileView) => {
 		setPendingDirectMessageProfileId(profile.openMeldProfileId);
 		try {
-			const response = await openCurrentDirectMessageSpace({
-				organizationId: currentOrganization.id,
-				targetProfileId: profile.openMeldProfileId,
-			});
+			const response =
+				(await readRememberedChatOrNull({
+					queryClient: input.queryClient,
+					organizationId: currentOrganization.id,
+					humanProfileId: defaultHumanProfileId,
+					agentProfileId: profile.openMeldProfileId,
+				})) ??
+				(await openCurrentDirectMessageSpace({
+					organizationId: currentOrganization.id,
+					targetProfileId: profile.openMeldProfileId,
+				}));
 			await input.queryClient.invalidateQueries({
 				queryKey: accountSpaceQueryKeys.all,
 				refetchType: "none",
@@ -3101,7 +3120,11 @@ function AgentProfileOptionsMenu(input: {
 	isOpen: boolean;
 	onOpenChange: (isOpen: boolean) => void;
 	onOpenDetails?: () => void;
-	onOpenProjectSettings: () => void;
+	/**
+	 * Opens Working folder. Omitted where the Working folder card is already
+	 * on screen (the detail workspace), so there is one entry.
+	 */
+	onOpenProjectSettings?: () => void;
 	onOpenRemove: () => void;
 	onOpenUnbind: () => void;
 	profileName: string;
@@ -3147,18 +3170,19 @@ function AgentProfileOptionsMenu(input: {
 			)}
 			{input.capabilities.canManage && (
 				<>
-					{input.capabilities.showProjectSettings && (
-						<FluidDropdownMenuItem
-							index={1}
-							onClick={() => {
-								input.onOpenChange(false);
-								input.onOpenProjectSettings();
-							}}
-						>
-							<WrenchIcon aria-hidden="true" />
-							Default Project and folder
-						</FluidDropdownMenuItem>
-					)}
+					{input.capabilities.showProjectSettings &&
+						input.onOpenProjectSettings && (
+							<FluidDropdownMenuItem
+								index={1}
+								onClick={() => {
+									input.onOpenChange(false);
+									input.onOpenProjectSettings?.();
+								}}
+							>
+								<FolderOpenIcon aria-hidden="true" />
+								Working folder
+							</FluidDropdownMenuItem>
+						)}
 					{input.capabilities.hasEnabledPrimaryBinding && (
 						<FluidDropdownMenuItem
 							aria-description={input.controllerChangeStatusLabel ?? undefined}
@@ -3472,11 +3496,48 @@ function AgentProfileRowMoreMenu(input: AgentProfileRowMoreMenuProps) {
 	});
 	if (input.presentation === "detail") {
 		return (
-			<AgentProfileWorkspacePresentation
+			<MemberAgentHarnessLock profileId={input.profile.openMeldProfileId}>
+				<AgentProfileWorkspacePresentation
+					controllerChangeEligibilityStatus={
+						eligibility.controllerChangeEligibilityStatus
+					}
+					controllerChangeStatusLabel={eligibility.controllerChangeStatusLabel}
+					input={input}
+					onOpenChange={{
+						details: dialogs.setDetailsOpen,
+						menu: dialogs.setMenuOpen,
+						profileEdit: dialogs.setProfileEditOpen,
+						projectSettings: dialogs.setProjectSettingsOpen,
+						remove: dialogs.setRemoveOpen,
+						unbindController: dialogs.setUnbindControllerOpen,
+					}}
+					ownerAvatarUrl={
+						input.profile.ownerUserId === currentUserId
+							? (account.image ?? input.ownerAvatarUrl)
+							: input.ownerAvatarUrl
+					}
+					presentationState={{
+						...dialogs.state,
+						profileEditPending: eligibility.isProfileEditPending,
+					}}
+					runtime={runtime}
+					runtimeControllerLabel={runtimeControllerLabel}
+					workspaceOptions={{
+						showProjectSettings: eligibility.showProjectSettings,
+						unbindControllerDisabled: eligibility.unbindControllerDisabled,
+					}}
+				/>
+			</MemberAgentHarnessLock>
+		);
+	}
+	return (
+		<MemberAgentHarnessLock profileId={input.profile.openMeldProfileId}>
+			<AgentProfileCardPresentation
 				controllerChangeEligibilityStatus={
 					eligibility.controllerChangeEligibilityStatus
 				}
 				controllerChangeStatusLabel={eligibility.controllerChangeStatusLabel}
+				currentSession={currentSessionLink}
 				input={input}
 				onOpenChange={{
 					details: dialogs.setDetailsOpen,
@@ -3486,48 +3547,15 @@ function AgentProfileRowMoreMenu(input: AgentProfileRowMoreMenuProps) {
 					remove: dialogs.setRemoveOpen,
 					unbindController: dialogs.setUnbindControllerOpen,
 				}}
-				ownerAvatarUrl={
-					input.profile.ownerUserId === currentUserId
-						? (account.image ?? input.ownerAvatarUrl)
-						: input.ownerAvatarUrl
-				}
 				presentationState={{
 					...dialogs.state,
 					profileEditPending: eligibility.isProfileEditPending,
 				}}
 				runtime={runtime}
-				runtimeControllerLabel={runtimeControllerLabel}
-				workspaceOptions={{
-					showProjectSettings: eligibility.showProjectSettings,
-					unbindControllerDisabled: eligibility.unbindControllerDisabled,
-				}}
+				showProjectSettings={eligibility.showProjectSettings}
+				unbindControllerDisabled={eligibility.unbindControllerDisabled}
 			/>
-		);
-	}
-	return (
-		<AgentProfileCardPresentation
-			controllerChangeEligibilityStatus={
-				eligibility.controllerChangeEligibilityStatus
-			}
-			controllerChangeStatusLabel={eligibility.controllerChangeStatusLabel}
-			currentSession={currentSessionLink}
-			input={input}
-			onOpenChange={{
-				details: dialogs.setDetailsOpen,
-				menu: dialogs.setMenuOpen,
-				profileEdit: dialogs.setProfileEditOpen,
-				projectSettings: dialogs.setProjectSettingsOpen,
-				remove: dialogs.setRemoveOpen,
-				unbindController: dialogs.setUnbindControllerOpen,
-			}}
-			presentationState={{
-				...dialogs.state,
-				profileEditPending: eligibility.isProfileEditPending,
-			}}
-			runtime={runtime}
-			showProjectSettings={eligibility.showProjectSettings}
-			unbindControllerDisabled={eligibility.unbindControllerDisabled}
-		/>
+		</MemberAgentHarnessLock>
 	);
 }
 
@@ -3576,7 +3604,7 @@ function AgentProfileCardPresentation(input: {
 				onOpenChange={input.onOpenChange.details}
 				open={input.presentationState.detailsOpen}
 			/>
-			<AgentProfileProjectSettingsDialog
+			<AgentProfileFoldersDialog
 				actorProfileId={input.input.actorProfileId}
 				agentControllerRef={input.input.primaryAgentControllerRef}
 				executionTargetChangeEligibilityStatus={
@@ -3841,7 +3869,7 @@ function AgentProfileWorkspacePresentation(input: {
 		<AgentProfileUsage
 			agentControllerRef={input.input.primaryAgentControllerRef}
 			profileId={input.input.profile.openMeldProfileId}
-			variant="card"
+			variant={input.input.capabilities.canManage ? "owner-card" : "card"}
 		/>
 	);
 	const overflowActions = (
@@ -3858,14 +3886,9 @@ function AgentProfileWorkspacePresentation(input: {
 				remove: input.input.pendingState.remove,
 				unbindController: input.workspaceOptions.unbindControllerDisabled,
 			}}
-			editDisabled={
-				input.presentationState.profileEditPending ||
-				input.input.pendingState.disablePrimaryBinding
-			}
 			href={`/o/${currentOrganization.slug}/agents?profileId=${encodeURIComponent(input.input.profile.openMeldProfileId)}`}
 			isOpen={input.presentationState.menuOpen}
 			messageDisabled={input.input.pendingState.directMessage}
-			onEdit={() => input.onOpenChange.profileEdit(true)}
 			onMessage={() => {
 				input.input
 					.onOpenDirectMessage()
@@ -3875,7 +3898,6 @@ function AgentProfileWorkspacePresentation(input: {
 			}}
 			onOpenChange={input.onOpenChange.menu}
 			onOpenDetails={() => input.onOpenChange.details(true)}
-			onOpenProjectSettings={() => input.onOpenChange.projectSettings(true)}
 			onOpenRemove={() => input.onOpenChange.remove(true)}
 			onOpenUnbind={() => input.onOpenChange.unbindController(true)}
 			profileName={input.input.profileName}
@@ -3929,23 +3951,23 @@ function AgentProfileWorkspacePresentation(input: {
 							runtime={input.runtime}
 							usageCard={usageCard}
 							wakeAvailability={input.input.wakeAvailability}
+							workingFolderPath={folderSummary.path}
 							workingFolderProjectName={workingFolderProjectName}
 							workingFolderProjectPending={
 								Boolean(projectId) && projectsQuery.isPending
 							}
 							workingFolderProjectSelected={Boolean(projectId)}
-							workingFolderSummary={folderSummary}
+							workingFolderSummary={folderSummary.summary}
 						/>
 					) : (
 						<AgentProfileReadOnlyConfigurationOverview
-							controllerModelSummary={controllerModelSummary}
 							details={input.input.details}
 							isLoading={input.input.readinessIsPending}
-							ownerAvatarUrl={input.ownerAvatarUrl}
-							ownerProfileId={
-								input.input.ownerProfile?.openMeldProfileId ??
-								input.input.ownerProfile?.ownerUserId
-							}
+							modelValue={resolvePublicModelCardValue({
+								modelCatalog: input.input.modelCatalog,
+								publicProfileConfiguration:
+									input.input.publicProfileConfiguration,
+							})}
 							publicProfileConfiguration={
 								input.input.publicProfileConfiguration
 							}
@@ -3977,6 +3999,16 @@ function AgentProfileWorkspacePresentation(input: {
 				onRenameProfile={input.input.onRenameProfile}
 				operationalContext={input.input.operationalContext}
 				overflowActions={overflowActions}
+				owner={{
+					name:
+						resolveProfileDetailsValue(input.input.details, "owner") ??
+						"Unknown",
+					avatarUrl: input.ownerAvatarUrl,
+					profileId:
+						input.input.ownerProfile?.openMeldProfileId ??
+						input.input.ownerProfile?.ownerUserId ??
+						input.input.profile.openMeldProfileId,
+				}}
 				profile={input.input.profile}
 				supportingContent={
 					input.input.repairActions.length > 0 || input.input.setupAction
@@ -3999,7 +4031,7 @@ function AgentProfileWorkspacePresentation(input: {
 				onOpenChange={input.onOpenChange.details}
 				open={input.presentationState.detailsOpen}
 			/>
-			<AgentProfileProjectSettingsDialog
+			<AgentProfileFoldersDialog
 				actorProfileId={input.input.actorProfileId}
 				agentControllerRef={input.input.primaryAgentControllerRef}
 				executionTargetChangeEligibilityStatus={
@@ -4067,6 +4099,8 @@ function resolveWorkspaceModelPresentation(
 
 type AgentProfileConfigurationOverviewProps = {
 	workingFolderSummary?: string;
+	/** The folder's full path, for the Working folder card's tooltip. */
+	workingFolderPath?: string;
 	workingFolderProjectName?: string | null;
 	workingFolderProjectPending?: boolean;
 	workingFolderProjectSelected?: boolean;
@@ -4321,10 +4355,12 @@ function resolveConfigurationDraftSummary(input: {
 				input.editState?.modelSelection?.agentControllerId ?? ""
 			];
 		const modelId = input.draft.selectedModelId;
-		const model = catalog?.models.find((entry) => entry.id === modelId);
+		const model = catalog?.models.find(
+			(entry) => entry.id === (modelId || catalog.defaultModelId)
+		);
 		return [
 			input.controllerDisplayName,
-			model?.displayName ?? (modelId || "Controller default"),
+			model?.displayName ?? modelId,
 			input.draft.selectedReasoningLevel,
 		]
 			.filter(Boolean)
@@ -4334,7 +4370,7 @@ function resolveConfigurationDraftSummary(input: {
 		return (
 			input.editState?.controllerCollaborationMode?.options.find(
 				(option) => option.value === input.draft.selectedCollaborationMode
-			)?.label ?? "Controller default"
+			)?.label ?? "Default"
 		);
 	}
 	if (input.draft.selectedPolicy && input.editState?.controllerPermissionMode) {
@@ -4348,7 +4384,7 @@ function resolveConfigurationDraftSummary(input: {
 	}
 	return input.draft.selectedOpenCodePermission
 		? "Custom permissions"
-		: "Controller default";
+		: "Default";
 }
 
 function scopeConfigurationDraft(
@@ -4390,14 +4426,14 @@ export function AgentProfileConfigurationOverview(
 	const collaborationSummary = collaboration
 		? (collaboration.options.find(
 				(option) => option.value === collaboration.value
-			)?.label ?? "Controller default")
-		: "Controller default";
+			)?.label ?? "Default")
+		: "Default";
 	const permissionMode = input.editState?.controllerPermissionMode;
 	const permissionSummary = permissionMode?.value
 		? getAgentControllerPermissionModeDisplayMetadata(permissionMode.value, {
 				agentControllerRef: permissionMode.agentControllerRef,
 			}).label
-		: "Controller default";
+		: "Default";
 	const owner = resolveProfileDetailsValue(input.details, "owner") ?? "You";
 	const ownerProfileId = input.ownerProfileId ?? owner;
 	const workingFolderNeedsAttention =
@@ -4417,60 +4453,67 @@ export function AgentProfileConfigurationOverview(
 			<AgentConfigurationGrid
 				className={input.compact ? "lg:grid-cols-2" : "lg:grid-cols-3"}
 			>
-				<AgentProfileOwnerConfigurationCard
-					avatarUrl={input.ownerAvatarUrl}
-					owner={owner}
-					profileId={ownerProfileId}
-				/>
+				{/* The page header names the owner; a dialog has no header. */}
+				{input.compact ? (
+					<AgentProfileOwnerConfigurationCard
+						avatarUrl={input.ownerAvatarUrl}
+						owner={owner}
+						profileId={ownerProfileId}
+					/>
+				) : null}
 				{input.isLoading ? (
 					<AgentConfigurationSkeletonCard label="Model" />
 				) : (
 					<AgentProfileModelConfigurationCard editor={editor} input={input} />
 				)}
+				{isHostedAgentControllerRef(input.agentControllerRef) ? null : (
+					<AgentProfileWorkingFolderSlot
+						disabled={input.disabled}
+						isLoading={input.isLoading}
+						needsAttention={workingFolderNeedsAttention}
+						onOpen={input.onOpenProjectSettings}
+						path={workingFolder.path}
+						summary={workingFolder.summary}
+					/>
+				)}
+				{input.usageCard}
 				{input.isLoading &&
 				!isHostedAgentControllerRef(input.agentControllerRef) ? (
 					<>
-						<AgentConfigurationSkeletonCard label="Working folder" />
-						<AgentConfigurationSkeletonCard label="Collaboration mode" />
 						<AgentConfigurationSkeletonCard label="Permissions" />
+						<AgentConfigurationSkeletonCard label="Collaboration mode" />
 					</>
 				) : null}
 				{input.isLoading ||
 				isHostedAgentControllerRef(input.agentControllerRef) ? null : (
 					<>
-						<AgentProfileWorkingFolderConfigurationCard
-							disabled={input.disabled}
-							needsAttention={workingFolderNeedsAttention}
-							onOpen={input.onOpenProjectSettings}
-							summary={workingFolder}
+						<AgentProfilePermissionsConfigurationCard
+							editor={editor}
+							input={input}
+							summary={permissionSummary}
 						/>
 						<AgentProfileCollaborationConfigurationCard
 							editor={editor}
 							input={input}
 							summary={collaborationSummary}
 						/>
-						<AgentProfilePermissionsConfigurationCard
-							editor={editor}
-							input={input}
-							summary={permissionSummary}
-						/>
 					</>
 				)}
 				{input.runtime ? (
 					<AgentConfigurationCard
-						description={
+						compact
+						icon={<DesktopTowerIcon aria-hidden="true" />}
+						itemId="runtime"
+						label="Runs on"
+						readOnly
+						summary={input.runtime.computerName}
+						summaryTitle={
 							input.runtime.controllerConversationId
 								? `Conversation ID: ${input.runtime.controllerConversationId}`
 								: undefined
 						}
-						icon={<DesktopTowerIcon aria-hidden="true" />}
-						itemId="runtime"
-						label="Runtime"
-						readOnly
-						summary={input.runtime.computerName}
 					/>
 				) : null}
-				{input.usageCard}
 			</AgentConfigurationGrid>
 		</section>
 	);
@@ -4479,45 +4522,65 @@ export function AgentProfileConfigurationOverview(
 function resolveWorkingFolderSummary(
 	input: AgentProfileConfigurationOverviewProps,
 	needsAttention: boolean
-): string {
+): { summary: string; path?: string } {
 	if (needsAttention) {
-		return "Working folder needs attention";
+		return { summary: "Needs attention", path: input.workingFolderPath };
 	}
 	if (input.workingFolderProjectName) {
-		return `Project: ${input.workingFolderProjectName}`;
+		return { summary: `Project: ${input.workingFolderProjectName}` };
 	}
 	if (input.workingFolderProjectPending) {
-		return "Loading project…";
+		return { summary: "Loading project…" };
 	}
 	if (input.workingFolderProjectSelected) {
-		return "Project details unavailable";
+		return { summary: "Project details unavailable" };
+	}
+	return {
+		summary:
+			input.workingFolderSummary ??
+			resolveProfileDetailsValue(input.details, "workspace_directory") ??
+			"Folder details unavailable",
+		path: input.workingFolderPath,
+	};
+}
+
+/** The model a colleague's Agent saved, or null when it saved none. */
+function resolvePublicModelCardValue(input: {
+	modelCatalog: ModelCatalog | null;
+	publicProfileConfiguration: NonNullable<
+		GetAgentExecutionReadinessResponse["publicProfileConfiguration"]
+	> | null;
+}): string | null {
+	const configuration = input.publicProfileConfiguration;
+	if (!configuration?.modelSelection?.modelId) {
+		return null;
 	}
 	return (
-		input.workingFolderSummary ??
-		resolveProfileDetailsValue(input.details, "workspace_directory") ??
-		"Folder details unavailable"
+		resolveAgentProfileModelCardValue({
+			agentControllerRef: configuration.agentControllerRef ?? null,
+			modelCatalog: input.modelCatalog,
+			modelSelection: configuration.modelSelection,
+		})?.value ?? null
 	);
 }
 
 function AgentProfileReadOnlyConfigurationOverview(input: {
 	usageCard?: ReactNode;
 	isLoading?: boolean;
-	controllerModelSummary: string;
+	/** Hidden when unknown: a viewer can't see the harness's own default. */
+	modelValue: string | null;
 	details: ProfileDetailsSnapshot;
-	ownerAvatarUrl: string | null | undefined;
-	ownerProfileId?: string | null;
 	publicProfileConfiguration: NonNullable<
 		GetAgentExecutionReadinessResponse["publicProfileConfiguration"]
 	> | null;
 }) {
-	const owner = resolveProfileDetailsValue(input.details, "owner") ?? "Unknown";
 	const isLoading = input.isLoading && !input.publicProfileConfiguration;
 	const controllerRef = input.publicProfileConfiguration?.agentControllerRef;
 	const collaborationMode =
 		input.publicProfileConfiguration?.agentControllerCollaborationMode;
 	const permissionMode =
 		input.publicProfileConfiguration?.agentControllerPermissionMode;
-	let collaborationSummary = "Controller default";
+	let collaborationSummary = "Default";
 	if (collaborationMode === "codex:plan") {
 		collaborationSummary = "Plan";
 	} else if (collaborationMode) {
@@ -4527,54 +4590,31 @@ function AgentProfileReadOnlyConfigurationOverview(input: {
 		? getAgentControllerPermissionModeDisplayMetadata(permissionMode, {
 				agentControllerRef: controllerRef,
 			}).label
-		: "Controller default";
+		: "Default";
 	return (
 		<section
 			className="grid min-w-0 gap-3"
 			data-testid="agent-configuration-overview"
 		>
-			<div className="grid gap-1">
-				<h2 className="font-medium text-sm">How this Agent works</h2>
-				<p className="text-muted-foreground text-xs leading-5">
-					Shared Agent settings.
-				</p>
-			</div>
+			<h2 className="font-medium text-sm">How this Agent works</h2>
 			<AgentConfigurationGrid className="lg:grid-cols-2">
-				<AgentProfileOwnerConfigurationCard
-					avatarUrl={input.ownerAvatarUrl}
-					owner={owner}
-					profileId={input.ownerProfileId ?? owner}
-				/>
-				{isLoading ? (
-					<AgentConfigurationSkeletonCard label="Model" />
-				) : (
+				{isLoading ? <AgentConfigurationSkeletonCard label="Model" /> : null}
+				{!isLoading && input.modelValue ? (
 					<AgentConfigurationCard
+						compact
 						icon={<BrainIcon aria-hidden="true" />}
 						itemId="model"
 						label="Model"
 						readOnly
-						summary={input.controllerModelSummary}
+						summary={input.modelValue}
 					/>
-				)}
-				{isLoading ? (
-					<AgentConfigurationSkeletonCard label="Collaboration mode" />
-				) : (
-					<AgentConfigurationCard
-						icon={<HandIcon aria-hidden="true" />}
-						itemId="collaboration"
-						label="Collaboration mode"
-						readOnly
-						summary={
-							input.publicProfileConfiguration
-								? collaborationSummary
-								: "Not available"
-						}
-					/>
-				)}
+				) : null}
+				{input.usageCard}
 				{isLoading ? (
 					<AgentConfigurationSkeletonCard label="Permissions" />
 				) : (
 					<AgentConfigurationCard
+						compact
 						icon={<LockKeyIcon aria-hidden="true" />}
 						itemId="permissions"
 						label="Permissions"
@@ -4586,7 +4626,22 @@ function AgentProfileReadOnlyConfigurationOverview(input: {
 						}
 					/>
 				)}
-				{input.usageCard}
+				{isLoading ? (
+					<AgentConfigurationSkeletonCard label="Collaboration mode" />
+				) : (
+					<AgentConfigurationCard
+						compact
+						icon={<HandIcon aria-hidden="true" />}
+						itemId="collaboration"
+						label="Collaboration mode"
+						readOnly
+						summary={
+							input.publicProfileConfiguration
+								? collaborationSummary
+								: "Not available"
+						}
+					/>
+				)}
 			</AgentConfigurationGrid>
 		</section>
 	);
@@ -4602,12 +4657,7 @@ function AgentProfileConfigurationHeading(input: { visible: boolean }) {
 	}
 	return (
 		<div className="flex items-end justify-between gap-3">
-			<div className="grid gap-1">
-				<h2 className="font-medium text-sm">How this Agent works</h2>
-				<p className="text-muted-foreground text-xs leading-5">
-					Agent settings and provider capacity.
-				</p>
-			</div>
+			<h2 className="font-medium text-sm">How this Agent works</h2>
 		</div>
 	);
 }
@@ -4636,37 +4686,31 @@ function AgentProfileOwnerConfigurationCard(input: {
 	);
 }
 
-function AgentProfileWorkingFolderConfigurationCard(input: {
+function AgentProfileWorkingFolderSlot(input: {
 	disabled: boolean;
+	isLoading?: boolean;
 	needsAttention: boolean;
 	onOpen: (() => void) | undefined;
+	path?: string;
 	summary: string;
 }) {
+	if (input.isLoading) {
+		return <AgentConfigurationSkeletonCard label="Working folder" />;
+	}
 	return (
 		<AgentConfigurationCard
 			actionLabel={input.needsAttention ? "Review working folder" : undefined}
 			attention={input.needsAttention}
-			description={
-				input.needsAttention
-					? "Review the working folder for this Agent."
-					: undefined
-			}
+			compact
+			description={input.needsAttention ? "Review working folder" : undefined}
 			disabled={input.disabled || !input.onOpen}
 			icon={<FolderOpenIcon aria-hidden="true" />}
-			inlineContent={
-				input.needsAttention ? (
-					<span className="font-medium text-primary text-xs">
-						Review working folder
-					</span>
-				) : undefined
-			}
 			itemId="working-folder"
 			label="Working folder"
 			onClick={input.onOpen}
 			readOnly={!input.onOpen}
 			summary={input.summary}
-			summaryClassName="truncate"
-			summaryTitle={input.summary}
+			summaryTitle={input.path}
 		/>
 	);
 }
@@ -4683,16 +4727,19 @@ function AgentProfileModelConfigurationCard(input: {
 	const model = controller?.models.find(
 		(entry) => entry.id === selection?.modelId
 	);
-	const usesControllerDefault =
-		selection &&
-		!selection.modelId &&
-		!isHostedAgentControllerRef(props.agentControllerRef);
-	const defaultModel = controller?.models.find(
-		(entry) => entry.id === controller.defaultModelId
-	);
-	const defaultDescription = usesControllerDefault
-		? `No model is saved for this Agent. New chats use ${defaultModel?.displayName ?? "the catalog default"}; existing chats may keep their own model and reasoning settings.`
-		: undefined;
+	// What a new chat uses; the hosted summary already names its model.
+	const cardValue = isHostedAgentControllerRef(props.agentControllerRef)
+		? null
+		: resolveAgentProfileModelCardValue({
+				agentControllerRef: props.agentControllerRef ?? null,
+				modelCatalog: props.modelCatalog,
+				modelSelection: selection
+					? {
+							modelId: selection.modelId,
+							reasoningLevel: selection.reasoningLevel || undefined,
+						}
+					: null,
+			});
 	const retirement = resolveModelRetirementDisplay(
 		model,
 		props.modelCompatibilityContext
@@ -4709,10 +4756,11 @@ function AgentProfileModelConfigurationCard(input: {
 			actionLabel={retirement ? "Change model" : undefined}
 			attention={Boolean(retirement)}
 			attentionTone={retirementTone}
+			compact
 			description={
 				editor.failedEdits.model
 					? "Changes weren’t saved. Open to retry."
-					: (retirementDescription ?? defaultDescription)
+					: retirementDescription
 			}
 			disabled={
 				editor.controlsDisabled || editor.pendingEdit?.editor === "model"
@@ -4731,7 +4779,7 @@ function AgentProfileModelConfigurationCard(input: {
 			summary={
 				editor.pendingEdit?.editor === "model"
 					? editor.pendingEdit.summary
-					: props.controllerModelSummary
+					: (cardValue?.value ?? props.controllerModelSummary)
 			}
 		>
 			<AgentProfileModelSelectionEditSection
@@ -4756,6 +4804,7 @@ function AgentProfileCollaborationConfigurationCard(input: {
 	const { editor } = input;
 	return (
 		<AgentConfigurationCard
+			compact
 			description={
 				editor.failedEdits.collaboration
 					? "Changes weren’t saved. Open to retry."
@@ -4802,6 +4851,7 @@ function AgentProfilePermissionsConfigurationCard(input: {
 	const { editor, input: props } = input;
 	return (
 		<AgentConfigurationCard
+			compact
 			description={
 				editor.failedEdits.permissions
 					? "Changes weren’t saved. Open to retry."
@@ -5421,6 +5471,7 @@ function AgentProfileEditDialogFields(input: {
 	permissionControlRef: Ref<HTMLButtonElement>;
 	profileNameInputId: string;
 }) {
+	const nameLocked = useMemberAgentProfileNameLocked();
 	return (
 		<div className="grid gap-5">
 			<AgentConfigurationEditorCard
@@ -5432,18 +5483,27 @@ function AgentProfileEditDialogFields(input: {
 					<Label className="sr-only" htmlFor={input.profileNameInputId}>
 						Name
 					</Label>
-					<Input
-						disabled={input.disabled}
-						id={input.profileNameInputId}
-						onChange={(event) => {
-							input.onDraftChange({
-								...input.activeDraft,
-								key: input.draftKey,
-								profileName: event.target.value,
-							});
-						}}
-						value={input.activeDraft.profileName}
-					/>
+					{nameLocked ? (
+						<p className="text-sm">
+							{input.activeDraft.profileName}
+							<span className="mt-1 block text-muted-foreground text-xs">
+								The default Profile is named after its harness.
+							</span>
+						</p>
+					) : (
+						<Input
+							disabled={input.disabled}
+							id={input.profileNameInputId}
+							onChange={(event) => {
+								input.onDraftChange({
+									...input.activeDraft,
+									key: input.draftKey,
+									profileName: event.target.value,
+								});
+							}}
+							value={input.activeDraft.profileName}
+						/>
+					)}
 					{input.dialogState.profileNameChanged &&
 					!input.dialogState.profileNameIsValid ? (
 						<p className="text-destructive text-xs">Enter an Agent name.</p>
@@ -5586,6 +5646,7 @@ function AgentProfileControllerChangeEditSection(input: {
 	onDraftChange: (draft: AgentProfileEditDraft) => void;
 	options: readonly AgentProfileControllerChangeOption[];
 }) {
+	const harnessLocked = useMemberAgentHarnessLocked();
 	const selectId = useId();
 	const selectedControllerRef =
 		input.activeDraft.selectedAgentControllerRef ?? "";
@@ -5606,76 +5667,83 @@ function AgentProfileControllerChangeEditSection(input: {
 			<p className="text-muted-foreground text-xs leading-5">
 				Current controller: {currentLabel}
 			</p>
-			<Select
-				disabled={input.disabled || input.options.length === 0}
-				onValueChange={(agentControllerRef) => {
-					const nextAgentControllerRef =
-						normalizeAgentProfileEditText(agentControllerRef);
-					if (!nextAgentControllerRef) {
+			{harnessLocked ? (
+				<p className="text-muted-foreground text-xs leading-5">
+					This Profile belongs to an Agent, so it always runs on that Agent’s
+					harness.
+				</p>
+			) : (
+				<Select
+					disabled={input.disabled || input.options.length === 0}
+					onValueChange={(agentControllerRef) => {
+						const nextAgentControllerRef =
+							normalizeAgentProfileEditText(agentControllerRef);
+						if (!nextAgentControllerRef) {
+							input.onDraftChange({
+								...input.activeDraft,
+								confirmed: false,
+								key: input.draftKey,
+								selectedAgentControllerRef: null,
+								selectedCollaborationMode:
+									input.currentControllerCollaborationMode?.value ?? null,
+								selectedModelId: input.currentModelSelection?.modelId ?? "",
+								selectedOpenCodePermission: null,
+								selectedPolicy:
+									input.currentControllerPermissionMode?.value ?? null,
+								selectedReasoningLevel:
+									input.currentModelSelection?.reasoningLevel ?? "",
+							});
+							return;
+						}
+						const nextPermissionMode = nextAgentControllerRef
+							? resolveDefaultAgentProfileEditPermissionMode({
+									agentControllerRef: nextAgentControllerRef,
+									modelCatalog: input.modelCatalog,
+								})
+							: null;
+						const nextCollaborationMode = nextAgentControllerRef
+							? resolveDefaultAgentProfileEditCollaborationMode({
+									agentControllerRef: nextAgentControllerRef,
+									modelCatalog: input.modelCatalog,
+								})
+							: null;
 						input.onDraftChange({
 							...input.activeDraft,
 							confirmed: false,
 							key: input.draftKey,
-							selectedAgentControllerRef: null,
-							selectedCollaborationMode:
-								input.currentControllerCollaborationMode?.value ?? null,
-							selectedModelId: input.currentModelSelection?.modelId ?? "",
+							selectedAgentControllerRef: nextAgentControllerRef,
+							selectedCollaborationMode: nextCollaborationMode,
+							selectedModelId: "",
 							selectedOpenCodePermission: null,
-							selectedPolicy:
-								input.currentControllerPermissionMode?.value ?? null,
-							selectedReasoningLevel:
-								input.currentModelSelection?.reasoningLevel ?? "",
+							selectedPolicy: nextPermissionMode,
+							selectedReasoningLevel: "",
 						});
-						return;
-					}
-					const nextPermissionMode = nextAgentControllerRef
-						? resolveDefaultAgentProfileEditPermissionMode({
-								agentControllerRef: nextAgentControllerRef,
-								modelCatalog: input.modelCatalog,
-							})
-						: null;
-					const nextCollaborationMode = nextAgentControllerRef
-						? resolveDefaultAgentProfileEditCollaborationMode({
-								agentControllerRef: nextAgentControllerRef,
-								modelCatalog: input.modelCatalog,
-							})
-						: null;
-					input.onDraftChange({
-						...input.activeDraft,
-						confirmed: false,
-						key: input.draftKey,
-						selectedAgentControllerRef: nextAgentControllerRef,
-						selectedCollaborationMode: nextCollaborationMode,
-						selectedModelId: "",
-						selectedOpenCodePermission: null,
-						selectedPolicy: nextPermissionMode,
-						selectedReasoningLevel: "",
-					});
-				}}
-				value={selectedControllerRef}
-			>
-				<SelectTrigger
-					aria-label="Change controller"
-					className="h-10 w-full px-3 text-sm"
-					displayValue={selectedLabel ?? "Change controller..."}
-					id={selectId}
-					placeholder="Change controller..."
-				/>
-				<SelectContent className="max-h-64">
-					<SelectItem index={0} value="">
-						Keep current controller
-					</SelectItem>
-					{input.options.map((option, index) => (
-						<SelectItem
-							index={index + 1}
-							key={option.agentControllerRef}
-							value={option.agentControllerRef}
-						>
-							{option.label}
+					}}
+					value={selectedControllerRef}
+				>
+					<SelectTrigger
+						aria-label="Change controller"
+						className="h-10 w-full px-3 text-sm"
+						displayValue={selectedLabel ?? "Change controller..."}
+						id={selectId}
+						placeholder="Change controller..."
+					/>
+					<SelectContent className="max-h-64">
+						<SelectItem index={0} value="">
+							Keep current controller
 						</SelectItem>
-					))}
-				</SelectContent>
-			</Select>
+						{input.options.map((option, index) => (
+							<SelectItem
+								index={index + 1}
+								key={option.agentControllerRef}
+								value={option.agentControllerRef}
+							>
+								{option.label}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+			)}
 		</div>
 	);
 }
@@ -6602,7 +6670,11 @@ function AgentProfileSetupActionLink(input: {
 	if (input.action.recoveryTarget === "working_folder") {
 		return (
 			<div className="flex justify-start pt-1">
-				<AgentProfileWorkingFolderRecoveryAction {...input.folderRecovery} />
+				{/* Shown from the Agent's readiness: no failed task to retry. */}
+				<AgentProfileWorkingFolderRecoveryAction
+					{...input.folderRecovery}
+					fromReadiness
+				/>
 			</div>
 		);
 	}

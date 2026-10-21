@@ -10,6 +10,12 @@ export type Conversation = {
 	activity: number;
 	url: string;
 	profileId: string;
+	/** Set on the one row that stands for all Sessions of a MemberAgent. */
+	memberAgentId?: string;
+	/** Every Session Space the MemberAgent row stands for. */
+	memberAgentSessionIds?: readonly string[];
+	/** Last-message time of each of those Sessions, from the live chat list. */
+	memberAgentSessionTimestamps?: ReadonlyMap<string, number>;
 } & (
 	| { kind: "space"; item: AccountSpaceItem }
 	| {
