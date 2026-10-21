@@ -2090,7 +2090,10 @@ that decision.
   already revoked candidate token merely to finish local cleanup.
   Recovery restores the previous owner's Service only from that owner's usable
   sign-in. It first validates the restored sign-in with the server, which may
-  refresh a stale local expiry. When the server reports it expired, revoked, or
+  refresh a stale local expiry. While the journal is `recovery_required`, the
+  auth-session owner persists that renewal of the same restored sign-in and
+  moves the journal's restore point with it, because the Service reads only the
+  committed local session at startup. When the server reports it expired, revoked, or
   invalid, or the committed sign-in belongs to another account, recovery leaves
   the Service stopped, keeps the previous committed sign-in metadata, revokes
   the candidate, and clears the journal. No account inherits a running Service,

@@ -248,17 +248,19 @@ describe("auth login/logout commands", () => {
           '"state": "recovery_required"'
         );
 
-        await withCapturedStdio(() =>
-          command === "login"
-            ? runAuthLogin({
-                view: "agent",
-                authUrl: "https://auth.openmeld.invalid",
-                clientId: "openmeld-cli",
-                method: "ott",
-                ott: "OTT_TOKEN_123",
-              })
-            : runAuthLogout({ view: "agent" })
-        );
+        await withCapturedStdio(async () => {
+          if (command === "login") {
+            await runAuthLogin({
+              view: "agent",
+              authUrl: "https://auth.openmeld.invalid",
+              clientId: "openmeld-cli",
+              method: "ott",
+              ott: "OTT_TOKEN_123",
+            });
+            return;
+          }
+          await runAuthLogout({ view: "agent" });
+        });
 
         expect(runDaemonServiceParticipationGateMock).not.toHaveBeenCalled();
         expect(authRequests.slice(0, 2)).toEqual([

@@ -2127,10 +2127,60 @@ async function persistRemoteSessionRefresh(input: {
           journal: transitionJournal,
         });
       }
+      if (isRestoredPreviousSessionRefresh(transitionJournal, input)) {
+        return await persistRestoredPreviousSessionRefresh({
+          ...input,
+          journal: transitionJournal,
+        });
+      }
       throw new AuthSessionRecoveryInProgressError();
     }
     return await persistCommittedRemoteSessionRefresh(input);
   });
+}
+
+// After rollback, a recovery_required journal's committed session is the
+// previous account's restored sign-in. Recovery must be able to persist a
+// server-confirmed renewal of that same sign-in, or the restored Service
+// rereads the stale local expiry and the recovery can never finish.
+function isRestoredPreviousSessionRefresh(
+  journal: AuthSessionTransitionJournalV1,
+  input: { expectedPayloadKey: string | null }
+): journal is AuthSessionTransitionJournalV1 & {
+  previousPayload: AuthSessionV1;
+} {
+  return Boolean(
+    journal.state === "recovery_required" &&
+      journal.computerHandoff &&
+      !journal.computerHandoff.prepareContinuation &&
+      journal.previousPayload &&
+      input.expectedPayloadKey !== null &&
+      buildAuthSessionPayloadKey(journal.previousPayload) ===
+        input.expectedPayloadKey
+  );
+}
+
+async function persistRestoredPreviousSessionRefresh(input: {
+  accessToken: string;
+  expectedPayloadKey: string | null;
+  expiresAt: string;
+  journal: AuthSessionTransitionJournalV1 & { previousPayload: AuthSessionV1 };
+  previousAccessToken: string;
+}): Promise<StoredAuthSession | null> {
+  const refreshed = await persistCommittedRemoteSessionRefresh(input);
+  if (!refreshed) {
+    return null;
+  }
+  const payload = await readSessionPayloadFile();
+  if (payload?.v === 1) {
+    // Keep the journal's restore point on the renewed credential, so a later
+    // recovery step never reads a replaced token reference.
+    await writeAuthSessionTransitionJournalIfOwned(input.journal, {
+      ...input.journal,
+      previousPayload: payload as AuthSessionV1,
+    });
+  }
+  return refreshed;
 }
 
 async function persistCommittedRemoteSessionRefresh(input: {

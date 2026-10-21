@@ -439,7 +439,12 @@ describe("auth session storage", () => {
         });
 
         await finishInterruptedComputerAuthHandoffBeforeAccountChange({
-          presenter: { data: vi.fn(), event: vi.fn(), line: vi.fn() },
+          presenter: {
+            data: vi.fn(),
+            event: vi.fn(),
+            line: vi.fn(),
+            view: "agent",
+          },
           runtime: {
             interactive: false,
             resolvedView: "agent",
@@ -481,6 +486,91 @@ describe("auth session storage", () => {
           vi.doUnmock(path);
         }
       }
+    });
+  });
+
+  it("persists a server-confirmed renewal of the restored previous sign-in during recovery", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        expiresAt: "2026-01-01T00:00:00.000Z",
+        user: { id: "previous-owner" },
+      });
+      await beginThenCrashAuthSessionTransition({
+        accessToken: "candidate-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        computerHandoff: true,
+        user: { id: "candidate-owner" },
+      });
+      // Shape captured from the real Auth Worker get-session response.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          Promise.resolve(
+            new Response(
+              JSON.stringify({
+                session: {
+                  expiresAt: "2099-01-01T00:00:00.000Z",
+                  id: "previous-session",
+                  token: "previous-token",
+                  userId: "previous-owner",
+                },
+                user: { email: "previous@example.com", id: "previous-owner" },
+              }),
+              { headers: { "content-type": "application/json" }, status: 200 }
+            )
+          )
+        )
+      );
+
+      vi.resetModules();
+      const restartedAuthSession = await import("../src/config/auth-session");
+      await restartedAuthSession.getInterruptedComputerAuthSessionRecovery();
+      await expect(
+        restartedAuthSession.getAuthSessionState({
+          refreshExpired: true,
+          validateRemote: true,
+        })
+      ).resolves.toMatchObject({
+        state: "valid",
+        session: { expiresAt: "2099-01-01T00:00:00.000Z" },
+      });
+
+      // OpenMeld Service startup reads the committed sign-in locally only.
+      vi.resetModules();
+      const serviceProcess = await import("../src/config/auth-session");
+      await expect(
+        serviceProcess.getAuthSessionState({ validateRemote: false })
+      ).resolves.toMatchObject({
+        state: "valid",
+        session: {
+          accessToken: "previous-token",
+          expiresAt: "2099-01-01T00:00:00.000Z",
+          user: { id: "previous-owner" },
+        },
+      });
+      const journal = JSON.parse(
+        await readFile(
+          join(home, ".openmeld", "auth", "session-transition.json"),
+          "utf8"
+        )
+      ) as { previousPayload: { expiresAt?: string }; state: string };
+      expect(journal).toMatchObject({
+        previousPayload: { expiresAt: "2099-01-01T00:00:00.000Z" },
+        state: "recovery_required",
+      });
+      await expect(
+        serviceProcess.getInterruptedComputerAuthSessionRecovery()
+      ).resolves.toMatchObject({
+        previousSession: {
+          accessToken: "previous-token",
+          user: { id: "previous-owner" },
+        },
+      });
     });
   });
 
