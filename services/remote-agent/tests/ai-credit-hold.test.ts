@@ -146,6 +146,95 @@ describe("Remote AI credit holds", () => {
     ).toBeGreaterThan(12_000);
   });
 
+  // The parameters external-tools.ts sends for web_search and web_fetch.
+  const researchTools = {
+    web_search: {
+      type: "openrouter:web_search",
+      parameters: {
+        engine: "auto",
+        max_results: 5,
+        max_total_results: 5,
+        search_context_size: "medium",
+      },
+    },
+    web_fetch: {
+      type: "openrouter:web_fetch",
+      parameters: {
+        engine: "openrouter",
+        max_uses: 1,
+        max_content_tokens: 30_000,
+      },
+    },
+  };
+
+  it.each(
+    hostedCatalogModelIds().flatMap((modelId) =>
+      Object.entries(researchTools).map(([name, tool]) => [modelId, name, tool])
+    )
+  )("prices %s research through %s", (modelId, _name, tool) => {
+    const hold = estimateRemoteAiCreditHold({
+      modelId: String(modelId),
+      body: {
+        model: modelId,
+        max_tokens: 8192,
+        messages: [{ role: "user", content: "research" }],
+        tools: [tool],
+      },
+    });
+    expect(hold.status).toBe("estimated");
+  });
+
+  it("prices research fees by engine, separately from model tokens", () => {
+    const body = (modelId: string, tool: unknown) =>
+      estimateRemoteAiCreditHold({
+        modelId,
+        body: {
+          model: modelId,
+          max_tokens: 1,
+          messages: [],
+          tools: [tool],
+        },
+      });
+    const nanoUsd = (hold: ReturnType<typeof estimateRemoteAiCreditHold>) =>
+      hold.status === "estimated" ? hold.nanoUsd : Number.NaN;
+    const fetchWith = (engine: string) => ({
+      type: "openrouter:web_fetch",
+      parameters: { engine, max_uses: 2, max_content_tokens: 1000 },
+    });
+    // The direct OpenRouter fetch is free; Firecrawl charges $0.0025 a fetch.
+    // The engine names differ by one prompt byte, priced in fractions of a cent.
+    const fetchFee =
+      nanoUsd(body("x-ai/grok-4.5", fetchWith("firecrawl"))) -
+      nanoUsd(body("x-ai/grok-4.5", fetchWith("openrouter")));
+    expect(Math.abs(fetchFee - 1.25 * 2 * 2_500_000)).toBeLessThan(10_000);
+    // Without native search pricing, auto search reserves the Exa fallback.
+    const exaSearch = {
+      type: "openrouter:web_search",
+      parameters: { engine: "auto", max_results: 12, max_total_results: 12 },
+    };
+    const withoutSearch = body("deepseek/deepseek-v4.1-flash", {
+      ...exaSearch,
+      type: "function",
+    });
+    const tokensOnly = body("deepseek/deepseek-v4.1-flash", {
+      ...exaSearch,
+      parameters: { ...exaSearch.parameters, engine: "exa" },
+    });
+    expect(nanoUsd(tokensOnly)).toBeGreaterThan(nanoUsd(withoutSearch));
+    expect(nanoUsd(body("deepseek/deepseek-v4.1-flash", exaSearch))).toBe(
+      nanoUsd(tokensOnly)
+    );
+    for (const tool of [
+      fetchWith("native"),
+      { ...exaSearch, parameters: { engine: "perplexity" } },
+    ]) {
+      expect(body("x-ai/grok-4.5", tool)).toEqual({
+        status: "unavailable",
+        reason: "unsupported_request",
+      });
+    }
+  });
+
   it.each([
     [
       "unknown_model_price",
