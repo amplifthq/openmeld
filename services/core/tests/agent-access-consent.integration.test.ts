@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { Profile, SignalEnvelope } from "@openmeld/protocol";
 import {
@@ -23,6 +23,7 @@ import {
 import { readSpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
 import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 import type { Space } from "../src/space/transport/do/space";
+import { env } from "../test-support/worker-env";
 
 const feature = vi.hoisted(() => ({ enabled: true }));
 vi.mock("../src/member-agent/member-agents-feature", () => ({

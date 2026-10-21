@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
@@ -27,6 +26,7 @@ import {
   rpcSetBoundPeopleComputerAgentProfileWorkspace,
   rpcUpdateBoundAgentProfileDefaultProject,
 } from "../src/rpc/methods";
+import { env } from "../test-support/worker-env";
 
 describe("Center Agent PeopleComputers authorization", () => {
   afterEach(() => vi.restoreAllMocks());

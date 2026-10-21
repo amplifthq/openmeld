@@ -1,10 +1,10 @@
-import { env } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it } from "vitest";
 import {
   claimDispatchAttempt,
   claimFinalReplyEmission,
 } from "../src/dispatch/infrastructure/postgresql/dispatch-ledger-postgresql";
+import { env } from "../test-support/worker-env";
 import { buildDispatchMessage } from "../tests-support/dispatch-ledger-message";
 import { installWorkerPostgresWriteFailure } from "./postgresql.test-support";
 

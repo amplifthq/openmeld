@@ -434,6 +434,18 @@ describe("MemberAgent backfill", () => {
     expect(await snapshot(query)).toEqual(before);
   });
 
+  it("reports the real run's counts on a dry run and writes nothing", async () => {
+    const before = await snapshot(query);
+
+    const preview = await backfillMemberAgents(harness, { dryRun: true });
+
+    expect(await snapshot(query)).toEqual(before);
+    const { dryRun, ...previewCounts } = preview;
+    expect(dryRun).toBe(true);
+    expect(previewCounts).toEqual(await backfillMemberAgents(harness));
+    expect(await readGrouping(query)).toEqual(EXPECTED_GROUPING);
+  });
+
   it("leaves Profiles of a closing Organization to deletion instead of failing", async () => {
     await query({
       text: `INSERT INTO "openmeld"."organizations"(id,name,slug,created_at) VALUES('closing','closing','closing',0)`,

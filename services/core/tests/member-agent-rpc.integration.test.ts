@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   type EnsureDetectedMemberAgentRpcInput,
@@ -13,6 +12,7 @@ import {
   recordMemberAgentCatalogReports,
   rpcSyncMemberAgents,
 } from "../src/member-agent/member-agent-rpc";
+import { env } from "../test-support/worker-env";
 
 const db = () => {
   const database = getPostgresDatabase(env);

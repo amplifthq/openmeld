@@ -1,0 +1,12 @@
+diff --git a/dist/pool/index.mjs b/dist/pool/index.mjs
+index 6b7d1a1..055d01b 100644
+--- a/dist/pool/index.mjs
++++ b/dist/pool/index.mjs
+@@ -50172,6 +50172,7 @@ function getApproximateSpecifier(target, referrerDir) {
+ async function viteResolve(vite, specifier, referrer, isRequire) {
+ 	const resolved = await vite.pluginContainer.resolveId(specifier, referrer, {
+ 		ssr: true,
++		kind: isRequire ? "require-call" : "import-statement",
+ 		custom: { "node-resolve": { isRequire } }
+ 	});
+ 	if (resolved === null) {

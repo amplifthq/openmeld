@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import { pluginConnectionContinuationBindingSchema } from "@openmeld/schemas";
 import type { SignalEnvelope } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
@@ -23,6 +23,7 @@ import {
   createRetainedRuntimeCommandState,
   createRuntimeTransportDeliveryInput,
 } from "../test-support/runtime-transport-delivery.test-support";
+import { env } from "../test-support/worker-env";
 
 const human = "55555555-5555-4555-8555-555555555555";
 const agent = "agt_33333333-3333-4333-8333-333333333333";

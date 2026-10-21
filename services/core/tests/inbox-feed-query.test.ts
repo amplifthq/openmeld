@@ -1,10 +1,10 @@
-import { env } from "cloudflare:test";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { InboxSourceCandidate } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import { createInboxFeedService } from "../src/inbox/application/inbox-feed-service";
 import { ensureInboxItem } from "../src/inbox/application/inbox-item-service";
+import { env } from "../test-support/worker-env";
 
 describe("Inbox attention feed on D1", () => {
   it.each([

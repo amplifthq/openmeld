@@ -1,8 +1,8 @@
-import { env } from "cloudflare:test";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { afterEach, describe, expect, it } from "vitest";
 import { linkAcceptedAgentActivityExecutions } from "../src/agent-activity/activity-execution-link-repository";
+import { env } from "../test-support/worker-env";
 
 const owned = new Set<string>();
 afterEach(async () => {

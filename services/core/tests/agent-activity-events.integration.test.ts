@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { buildRepositoryFingerprint } from "@openmeld/projects";
@@ -18,6 +17,7 @@ import {
   rpcSubmitRuntimeRegistration,
 } from "../src/rpc/methods";
 import { observePostgresDatabase } from "../test-support/postgresql-query.test-support";
+import { env } from "../test-support/worker-env";
 
 const owned = new Set<string>();
 afterEach(async () => {

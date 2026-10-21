@@ -1,5 +1,5 @@
 {
-  "version": "0.3.268",
+  "version": "0.3.269",
   "cli": {
     "updatePolicy": "available",
     "reason": "Cursor update guidance changes only the reported manual command. Existing CLI commands, setup, and Wake remain compatible, and the mandatory CLI floor stays at 0.3.251."

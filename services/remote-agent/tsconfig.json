@@ -3,7 +3,7 @@
   "compilerOptions": {
     "noEmit": true,
     "lib": ["ESNext", "WebWorker"],
-    "types": ["./worker-configuration.d.ts", "@cloudflare/vitest-pool-workers"]
+    "types": ["./worker-configuration.d.ts", "@cloudflare/vitest-plugin/types"]
   },
   "include": [
     ".flue/**/*.ts",

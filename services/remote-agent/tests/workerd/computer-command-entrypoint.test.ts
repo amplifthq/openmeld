@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import {
   getWorkspace,
   type WorkspaceRuntimeEvent,
@@ -10,6 +10,7 @@ import {
   ComputerCommandSqlStorage,
 } from "../../flue-adapter/computer-command-storage";
 import type { AgentComputer } from "../../flue-adapter/computer-workspace";
+import { env } from "./worker-env";
 
 // The native boundary uses the installed SDK's event and result contracts.
 // The public AgentComputer method, Workspace RPC, filesystem and SQLite remain real.

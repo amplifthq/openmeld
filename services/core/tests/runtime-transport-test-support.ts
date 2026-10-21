@@ -9,11 +9,11 @@ type RuntimeTransportInternalState = {
 };
 
 /**
- * Quiesce a RuntimeTransport shard at a vitest-pool-workers isolated-storage
- * boundary. Delivered dispatches and RuntimeCoordinator records schedule a
- * housekeeping alarm; an actor with a scheduled alarm stays active across the
- * end-of-file storage stack pop, which leaves SQLite WAL sidecar files behind
- * and fails the pool's "only .sqlite files" assertion.
+ * Quiesce a RuntimeTransport shard at a @cloudflare/vitest-plugin per-file
+ * storage boundary. Delivered dispatches and RuntimeCoordinator records
+ * schedule a housekeeping alarm; an actor with a scheduled alarm stays active
+ * across the end-of-file storage stack pop, which leaves SQLite WAL sidecar
+ * files behind and fails the pool's "only .sqlite files" assertion.
  */
 export async function quiesceRuntimeTransportShard(
   shard: DurableObjectStub<RuntimeTransportHub>

@@ -22,6 +22,8 @@ export type MemberAgentBackfillCounts = {
   };
   profilesWithHarnessUnassigned: number;
   invariantViolations: MemberAgentInvariantViolations;
+  /** Present only on a dry run, whose writes were rolled back. */
+  dryRun?: true;
 };
 
 export const MEMBER_AGENT_INVARIANTS: readonly {
@@ -40,5 +42,6 @@ export function checkMemberAgentInvariants(
 ): Promise<MemberAgentInvariantViolations>;
 
 export function backfillMemberAgents(
-  client: QueryClient
+  client: QueryClient,
+  options?: { dryRun?: boolean }
 ): Promise<MemberAgentBackfillCounts>;

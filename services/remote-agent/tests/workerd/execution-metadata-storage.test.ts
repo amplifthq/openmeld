@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import type {
   AiUsageRecord,
   RemoteAiUsageWrite,
@@ -9,6 +9,7 @@ import {
   flushRemoteAiUsage,
 } from "../../agent-core/ai-usage";
 import { createRemoteAgentSqlStorage } from "../../flue-adapter/storage";
+import { env } from "./worker-env";
 
 it.each([
   "outage",

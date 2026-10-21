@@ -18,7 +18,10 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
-  vi.clearAllMocks();
+  // Vitest 4's restoreAllMocks() only restores vi.spyOn spies. Reset every
+  // mock too, so implementations and queued once-values never leak between
+  // tests.
+  vi.resetAllMocks();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();

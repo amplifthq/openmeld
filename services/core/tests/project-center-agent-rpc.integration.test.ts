@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import { getPostgresDatabase, type QueryConfig } from "@openmeld/db/postgresql";
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
@@ -12,6 +11,7 @@ import {
   rpcCenterAgentSetAgentProfileDefaultProject,
   rpcCenterAgentUpdateProject,
 } from "../src/projects/project-center-agent-rpc";
+import { env } from "../test-support/worker-env";
 
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/;
 const ownedFixtures: Array<{

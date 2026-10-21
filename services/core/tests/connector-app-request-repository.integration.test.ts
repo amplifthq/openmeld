@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it } from "vitest";
@@ -6,6 +5,7 @@ import {
   listConnectorAppRequestsForRequester,
   upsertConnectorAppRequest,
 } from "../src/connectors/connector-app-request-repository";
+import { env } from "../test-support/worker-env";
 
 describe("connector App request repository", () => {
   it("keeps one durable request per Organization, requester, and provider", async () => {

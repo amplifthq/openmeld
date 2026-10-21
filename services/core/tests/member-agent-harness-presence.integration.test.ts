@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it } from "vitest";
 import {
@@ -6,6 +5,7 @@ import {
   listOwnerRuntimeHarnessCatalog,
   recordRuntimeHarnessObservation,
 } from "../src/member-agent/infrastructure/postgresql/runtime-harness-presence-repo";
+import { env } from "../test-support/worker-env";
 
 const db = () => {
   const database = getPostgresDatabase(env);

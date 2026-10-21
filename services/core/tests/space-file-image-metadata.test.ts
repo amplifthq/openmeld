@@ -1,6 +1,6 @@
-import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { readStoredSpaceFileImageDimensions } from "../src/space/application/space-file-image-metadata";
+import { env } from "../test-support/worker-env";
 
 function png(width: number, height: number): Uint8Array {
   const bytes = new Uint8Array(45);

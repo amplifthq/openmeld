@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
@@ -11,6 +10,7 @@ import {
 import { resolveCurrentDeviceFromBindings } from "../src/start/infrastructure/postgresql/current-device-derivation-repo";
 import { listOwnedDeviceRegistryRecords } from "../src/start/infrastructure/postgresql/owned-device-registry-repo";
 import { createPublishedLocalComponentsRelease } from "../test-support/published-local-components-release";
+import { env } from "../test-support/worker-env";
 
 type ReadinessStore = Parameters<
   typeof getCurrentLocalRuntimeReplyReadinessUseCase

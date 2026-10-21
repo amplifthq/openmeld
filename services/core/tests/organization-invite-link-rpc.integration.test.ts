@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
@@ -8,6 +7,7 @@ import {
   rpcCenterAgentCreateOrganizationInviteLink,
   rpcCenterAgentGetOrganizationInviteLink,
 } from "../src/organizations/center-agent-organization-invite-link-rpc";
+import { env } from "../test-support/worker-env";
 
 const ownedFixtures: Array<{
   organizationId: string;

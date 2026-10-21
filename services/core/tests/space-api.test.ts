@@ -1,5 +1,5 @@
-import { env, runInDurableObject, SELF } from "cloudflare:test";
-import { RpcStub, RpcTarget } from "cloudflare:workers";
+import { runInDurableObject, SELF } from "cloudflare:test";
+import { exports, RpcStub, RpcTarget } from "cloudflare:workers";
 import { createHash, randomUUID } from "node:crypto";
 import { getPostgresDatabase, PostgresDatabase } from "@openmeld/db/postgresql";
 import {
@@ -104,6 +104,7 @@ import {
   upsertSpaceIndexMembership,
 } from "../src/space-index/space-index-repository";
 import { readUserTimeContext } from "../src/user-time-context/user-time-context-repository";
+import { env } from "../test-support/worker-env";
 import { postgresFixtureOperator } from "./postgresql.test-support";
 import { waitForJsonMessage } from "./test-support/ws-stream";
 
@@ -10419,7 +10420,7 @@ describe("OpenMeld Core", () => {
       organizationId: DEFAULT_TEST_ORGANIZATION_ID,
       userId: "rpc-owner",
     });
-    const rpc = SELF as unknown as {
+    const rpc = exports.default as unknown as {
       ping: () => Promise<{
         ok: boolean;
         service: string;
@@ -10580,7 +10581,7 @@ describe("OpenMeld Core", () => {
       profileName: "Test User",
       ownerUserId: "owner-test-default",
     });
-    const rpc = SELF as unknown as {
+    const rpc = exports.default as unknown as {
       listSignals: (
         input: {
           context: typeof rpcContext;
@@ -10685,7 +10686,7 @@ describe("OpenMeld Core", () => {
       profileName: "Legacy Service Agent",
       ownerUserId: "owner-legacy-service-agent",
     });
-    const rpc = SELF as unknown as {
+    const rpc = exports.default as unknown as {
       listSignals: (
         input: {
           context: typeof rpcContext;
@@ -11075,7 +11076,7 @@ describe("OpenMeld Core", () => {
       profileName: "Ava DM",
       requestId: "center-agent-dm-real-do",
     });
-    const rpc = SELF as unknown as {
+    const rpc = exports.default as unknown as {
       openCenterAgentDirectMessageSpace: (input: {
         context: typeof context;
         sessionCreationId?: string;

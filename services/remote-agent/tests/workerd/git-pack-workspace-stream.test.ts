@@ -1,7 +1,8 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import { type DurableObjectStorageLike, Workspace } from "@cloudflare/computer";
 import { expect, it } from "vitest";
 import { gitUploadPackBytes } from "../../flue-adapter/git-upload-pack-stream";
+import { env } from "./worker-env";
 
 it("streams Git pack bytes into the durable Computer filesystem without a container proxy", async () => {
   const namespace = (env as { COMPUTER_PROBE: DurableObjectNamespace })

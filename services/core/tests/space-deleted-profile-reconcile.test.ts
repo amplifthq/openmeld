@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it } from "vitest";
 import { reconcileDeletedAgentProfile } from "../src/agent-profile-binding/application/deleted-profile-reconcile-service";
@@ -18,6 +18,7 @@ import {
 } from "../src/space/infrastructure/sql/space-member-repo";
 import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 import type { Space } from "../src/space/transport/do/space";
+import { env } from "../test-support/worker-env";
 
 const NOW_ISO = "2026-06-12T08:00:00.000Z";
 function createSpaceShard(): {

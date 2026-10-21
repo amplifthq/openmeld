@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import { randomUUID } from "node:crypto";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
@@ -15,6 +15,7 @@ import {
   runCoreScheduledTasks,
 } from "../src/scheduled/core-scheduled-tasks";
 import type { Space } from "../src/space/transport/do/space";
+import { env } from "../test-support/worker-env";
 
 const PERIOD_START_MS = Date.parse("2026-07-06T00:00:00.000Z");
 const PERIOD_END_MS = Date.parse("2026-07-13T00:00:00.000Z");

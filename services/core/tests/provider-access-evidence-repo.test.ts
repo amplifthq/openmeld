@@ -1,6 +1,6 @@
-import { env } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { beforeEach, describe, expect, it } from "vitest";
+import { env } from "../test-support/worker-env";
 
 beforeEach(async () => {
   await getPostgresDatabase(env).query(

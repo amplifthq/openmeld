@@ -909,8 +909,10 @@ instances at that boundary; a build-start reset does not release the previous
 environment's compiler between client and server builds.
 
 Use Vite's native `resolve.tsconfigPaths` in these three builds instead of the
-former paths plugin. Web and Website use Vitest 4.1.11 for Vite 8 compatibility;
-other test owners retain Vitest 3.2.4. Sherif permits that exact Vitest exception.
+former paths plugin. Every test owner uses Vitest 4.1.11; Cloudflare Worker tests
+run through `@cloudflare/vitest-plugin`. Its version-bound patch makes CommonJS
+`require()` calls resolve with the `require` condition under Vite 8; see
+[`patches/cloudflare-vitest-plugin.md`](../../patches/cloudflare-vitest-plugin.md).
 
 The CI/CD procedure and its rationale have one owner:
 [Agent-Native Delivery](agent-native-delivery.md#daily-workflow). It applies to

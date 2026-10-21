@@ -15,8 +15,19 @@ import type {
   RemoteAgentWorkerSubmitTurnRequest,
 } from "@openmeld/schemas/types";
 import type { UsersInfoResponse } from "@slack/web-api";
-import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
-import type { CoreBindings } from "../src/lib/bindings";
+import {
+  afterEach,
+  describe,
+  expect,
+  it,
+  type Mock,
+  onTestFinished,
+  vi,
+} from "vitest";
+import type {
+  CoreBindings,
+  RemoteAgentWorkerBindingRpc,
+} from "../src/lib/bindings";
 import { REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS } from "../src/remote-agent/application/native-delivery-admission-watchdog";
 import {
   completeRemoteAgentNativeDelivery,
@@ -7200,8 +7211,12 @@ function buildEnv(
     ensureWorkspaceMember?: ReturnType<typeof vi.fn>;
     queueSend?: ReturnType<typeof vi.fn>;
     richContextReproEnabled?: string;
-    workerReconcile?: ReturnType<typeof vi.fn>;
-    workerSubmit?: ReturnType<typeof vi.fn>;
+    workerReconcile?: Mock<
+      NonNullable<RemoteAgentWorkerBindingRpc["reconcileExecution"]>
+    >;
+    workerSubmit?: Mock<
+      NonNullable<RemoteAgentWorkerBindingRpc["submitConversationTurn"]>
+    >;
   } = {}
 ): CoreBindings {
   return {
@@ -7218,8 +7233,13 @@ function buildEnv(
         await resolveTestOrganizationAccountIdentity(db, request),
       ...(input.ensureWorkspaceMember
         ? {
+            // Fixtures return loosely typed membership results.
             ensureSlackWorkspaceMemberOrganizationMembership:
-              input.ensureWorkspaceMember,
+              input.ensureWorkspaceMember as NonNullable<
+                NonNullable<
+                  CoreBindings["OPENMELD_AUTH_WORKER"]
+                >["ensureSlackWorkspaceMemberOrganizationMembership"]
+              >,
           }
         : {}),
     },

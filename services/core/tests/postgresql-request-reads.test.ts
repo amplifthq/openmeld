@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import {
   getPostgresDatabase,
   getPostgresRequestPool,
@@ -10,6 +9,7 @@ import {
   readPrimaryAgentProfileBindingRecord,
   readPrimaryAgentProfileBindingRecordByControllerConversation,
 } from "../src/agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
+import { env } from "../test-support/worker-env";
 
 describe("PostgreSQL request reads", () => {
   it("preserves Binding owner scope, conflict ordering, exclusion, and fresh reads", async () => {

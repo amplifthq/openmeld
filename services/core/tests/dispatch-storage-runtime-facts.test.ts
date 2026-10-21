@@ -1,6 +1,6 @@
-import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { inspectCoreDispatchStorageReadiness } from "../src/db/runtime-facts";
+import { env } from "../test-support/worker-env";
 import { postgresFixtureOperator } from "./postgresql.test-support";
 
 describe("core dispatch storage runtime facts", () => {

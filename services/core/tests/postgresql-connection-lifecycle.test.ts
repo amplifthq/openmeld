@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import {
   getPostgresDatabase,
   getPostgresRequestPool,
@@ -6,6 +5,7 @@ import {
   withPostgresRequest,
 } from "@openmeld/db/postgresql";
 import { describe, expect, it } from "vitest";
+import { env } from "../test-support/worker-env";
 
 describe("PostgreSQL runtime connection lifecycle", () => {
   it("closes the native request pool after a successful query", async () => {

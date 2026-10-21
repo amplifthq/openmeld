@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, type Mock, vi } from "vitest";
 import {
   type CenterAgentMemoryLifecycleWorker,
   deleteCenterAgentMemberMemoryOnOrganizationRemoval,
@@ -6,8 +6,12 @@ import {
 } from "../src/organization/center-agent-memory-lifecycle";
 
 function createCoreWorker(input: {
-  deleteMember?: ReturnType<typeof vi.fn>;
-  deleteOrganization?: ReturnType<typeof vi.fn>;
+  deleteMember?: Mock<
+    CenterAgentMemoryLifecycleWorker["deleteCenterAgentMemberMemory"]
+  >;
+  deleteOrganization?: Mock<
+    CenterAgentMemoryLifecycleWorker["deleteCenterAgentOrganizationMemory"]
+  >;
 }): CenterAgentMemoryLifecycleWorker {
   return {
     deleteCenterAgentMemberMemory:

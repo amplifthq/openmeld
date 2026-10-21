@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import {
   getPostgresDatabase,
@@ -84,6 +84,7 @@ import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-met
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
 import type { Space } from "../src/space/transport/do/space";
 import { observePostgresDatabase } from "../test-support/postgresql-query.test-support";
+import { env } from "../test-support/worker-env";
 
 const CONNECTOR_CONNECTION_NAME_PATTERN =
   /^org_[A-Za-z0-9_-]{18}__user_[A-Za-z0-9_-]{18}__github$/u;
