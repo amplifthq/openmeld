@@ -14,12 +14,6 @@ import { createTestProfileHandle } from "./helpers/openmeld-profile-fixture";
 
 const memberAgentsFlag = vi.hoisted(() => ({ enabled: true }));
 const primaryBindingMock = vi.hoisted(() => vi.fn());
-const setLocalAgentEnabledMock = vi.hoisted(() => vi.fn());
-
-vi.mock("../src/start-local/local-agent-choice", () => ({
-  setLocalAgentEnabledThroughService: (...args: unknown[]) =>
-    setLocalAgentEnabledMock(...args),
-}));
 
 vi.mock("@openmeld/schemas", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@openmeld/schemas")>();
@@ -354,14 +348,6 @@ describe("openmeld agent commands", () => {
 describe("openmeld agent add", () => {
   beforeEach(() => {
     memberAgentsFlag.enabled = true;
-    setLocalAgentEnabledMock.mockReset().mockResolvedValue({
-      accepted: true,
-      agentId: "cursor",
-      changed: true,
-      enabled: true,
-      reportSyncStatus: "submitted",
-      status: "updated",
-    });
   });
 
   afterEach(() => {
@@ -374,7 +360,7 @@ describe("openmeld agent add", () => {
     process.exitCode = undefined;
   });
 
-  it("turns the harness on through the Service, then adds its Agent through Core sync", async () => {
+  it("asks Core to add the harness, which turns it on if it is off", async () => {
     const calls = stubAuthFetch({
       syncResponse: {
         ok: true,
@@ -406,10 +392,6 @@ describe("openmeld agent add", () => {
         payload: { result: { memberAgentId: "ma-cursor", outcome: "created" } },
       });
     });
-    expect(setLocalAgentEnabledMock).toHaveBeenCalledWith({
-      agentId: "cursor",
-      enabled: true,
-    });
     expect(calls).toContainEqual({
       body: { createHarnessKinds: ["cursor"] },
       method: "POST",
@@ -418,17 +400,7 @@ describe("openmeld agent add", () => {
     expect(process.exitCode).toBeUndefined();
   });
 
-  it("explains a switch the Service could not turn on when no computer has the harness on", async () => {
-    setLocalAgentEnabledMock.mockResolvedValue({
-      accepted: false,
-      agentId: "cursor",
-      changed: false,
-      enabled: false,
-      message: "OpenMeld Service is not running.",
-      reasonCode: "service.not_running",
-      reportSyncStatus: "failed",
-      status: "rejected",
-    });
+  it("explains what to do when no connected computer has the harness", async () => {
     stubAuthFetch({
       syncResponse: {
         ok: true,
@@ -456,7 +428,7 @@ describe("openmeld agent add", () => {
         runAgentAdd({ harness: "cursor", view: "human" })
       );
       expect(stdout).toContain("Agent Not Added");
-      expect(stdout).toContain("turned on right now");
+      expect(stdout).toContain("has Cursor right now");
       expect(stdout).toContain("openmeld agents enable --agent cursor");
     });
     expect(process.exitCode).toBe(1);

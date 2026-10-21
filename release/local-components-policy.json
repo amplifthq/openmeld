@@ -2,7 +2,7 @@
   "version": "0.3.269",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Setup now turns off the detected local agents the member did not select before adding Agents, and `openmeld agent add` turns the harness on through OpenMeld Service before Core adds its Agent. Older CLIs keep working: Core adds an Agent for every harness turned on, so an older setup may leave unselected agents on until the member turns them off. Wire schemas are unchanged, so the mandatory CLI floor stays at 0.3.251."
+    "reason": "Setup now turns off the detected local agents the member did not select before adding Agents, and `openmeld agent add` relies on Core to turn an installed, turned-off harness on before adding its Agent. Older CLIs keep working: Core adds an Agent for every harness turned on, so an older setup may leave unselected agents on until the member turns them off. Wire schemas are unchanged, so the mandatory CLI floor stays at 0.3.251."
   },
   "service": {
     "updatePolicy": "available",

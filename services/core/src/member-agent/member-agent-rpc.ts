@@ -33,6 +33,7 @@ import {
   rpcEnsureAgentProfilePrimaryBinding,
   rpcGetAgentExecutionReadinessBatch,
   rpcOpenDirectMessageSpace,
+  rpcSetPeopleComputerLocalAgentEnabled,
   rpcSubmitRuntimeAgentControllerReports,
   type SubmitRuntimeAgentControllerReportsInput,
 } from "../rpc/methods";
@@ -360,6 +361,20 @@ function createSyncDeps(
         db: caller.db,
         ownerUserId: caller.ownerUserId,
       }),
+    turnOnHarness: async (target) => {
+      const switched = await rpcSetPeopleComputerLocalAgentEnabled(env, {
+        agentId: target.agentControllerRef.slice("builtin:".length),
+        context: caller.context,
+        deviceId: target.deviceId,
+        enabled: true,
+        runtimeLane: target.lane,
+      });
+      if (!switched.enabled) {
+        throw Object.assign(new Error("The harness stayed off."), {
+          code: "member_agent.turn_on_failed",
+        });
+      }
+    },
     writeDefaultBinding: async ({ agentProfileId, target }) => {
       const written = await rpcEnsureAgentProfilePrimaryBinding(env, {
         agentControllerRef: target.agentControllerRef,

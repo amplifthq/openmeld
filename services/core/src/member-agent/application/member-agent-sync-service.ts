@@ -42,6 +42,10 @@ export type MemberAgentSyncDeps = {
   // The enabled primary Binding's controller ref, else the most recent
   // Binding's; null when the Profile never bound.
   readGroupingControllerRef: (agentProfileId: string) => Promise<string | null>;
+  // Turns an installed Harness on in that computer's Local agents through
+  // its OpenMeld Service, which refreshes its catalog report before it
+  // answers. It throws with a reason code when the computer refuses.
+  turnOnHarness: (target: MemberAgentBindingTarget) => Promise<void>;
   // Writes the default Profile's first Binding with the Harness defaults.
   writeDefaultBinding: (input: {
     agentProfileId: string;
@@ -64,7 +68,8 @@ export const MEMBER_AGENT_SYNC_CONVERSATION_REQUIRED_REASON =
  * Profile's assignment lock, Auth then sets the default, and Core opens the
  * owner's Direct Message with it. Every call also finishes existing detected
  * MemberAgents and assigns bound Profiles. Installed Harnesses that are
- * turned off are reported as addable; turning one on adds it. A second
+ * turned off are reported as addable; turning one on adds it, and a
+ * Harness named in `createHarnessKinds` ("add") is turned on here. A second
  * computer with the same Harness adds nothing. Hosted and custom controllers
  * never appear in the catalog.
  */
@@ -81,16 +86,19 @@ export async function syncMemberAgents(
   deps: MemberAgentSyncDeps,
   input: { createHarnessKinds?: readonly DetectedHarnessKind[] } = {}
 ): Promise<MemberAgentSyncReport> {
-  const harnesses = await deps.listRuntimeHarnesses();
+  // The Harnesses the member chose now (setup, "add"). One that is
+  // installed but turned off is turned on first: turning it on is adding it.
+  const requested = new Set(input.createHarnessKinds ?? []);
+  const { harnesses, turnOnFailures } = await turnOnRequestedHarnesses(
+    deps,
+    requested
+  );
   const byHarnessKind = new Map<DetectedHarnessKind, RuntimeHarness[]>();
   for (const harness of harnesses.filter(isRuntimeHarnessCreatable)) {
     const list = byHarnessKind.get(harness.harnessKind) ?? [];
     list.push(harness);
     byHarnessKind.set(harness.harnessKind, list);
   }
-  // Callers that just turned a Harness on (setup, "add") name it so the
-  // response says why it was not set up when no computer has it on now.
-  const requested = new Set(input.createHarnessKinds ?? []);
   // The listing is read even with no Harness detected: assigning bound
   // Profiles needs only their Bindings and the existing MemberAgents.
   const listing = await deps.listOwnerMemberAgents();
@@ -128,7 +136,10 @@ export async function syncMemberAgents(
         harnessKind,
         memberAgentId: null,
         outcome: "skipped",
-        reasonCodes: [MEMBER_AGENT_SYNC_HARNESS_NOT_DETECTED_REASON],
+        reasonCodes: [
+          turnOnFailures.get(harnessKind) ??
+            MEMBER_AGENT_SYNC_HARNESS_NOT_DETECTED_REASON,
+        ],
       });
     }
   }
@@ -158,6 +169,48 @@ export async function syncMemberAgents(
         : listing
     ),
     results,
+  };
+}
+
+// Turns each requested Harness that no computer has on, but one has
+// installed and turned off, on there, then rereads the catalog. A
+// shared-account Harness is never turned on here: it waits for a chosen
+// conversation.
+async function turnOnRequestedHarnesses(
+  deps: MemberAgentSyncDeps,
+  requested: ReadonlySet<DetectedHarnessKind>
+): Promise<{
+  harnesses: readonly RuntimeHarness[];
+  turnOnFailures: Map<DetectedHarnessKind, string>;
+}> {
+  const harnesses = await deps.listRuntimeHarnesses();
+  const turnOnFailures = new Map<DetectedHarnessKind, string>();
+  let turnedOn = false;
+  for (const harnessKind of [...requested].sort()) {
+    const ofKind = harnesses.filter(
+      (harness) => harness.harnessKind === harnessKind
+    );
+    const addable = ofKind.filter(isRuntimeHarnessAddable);
+    if (
+      ofKind.some(isRuntimeHarnessCreatable) ||
+      addable.length === 0 ||
+      requiresChosenConversation(harnessKind)
+    ) {
+      continue;
+    }
+    try {
+      await deps.turnOnHarness(selectBindingTarget(addable));
+      turnedOn = true;
+    } catch (error) {
+      turnOnFailures.set(
+        harnessKind,
+        readErrorCode(error, "member_agent.turn_on_failed")
+      );
+    }
+  }
+  return {
+    harnesses: turnedOn ? await deps.listRuntimeHarnesses() : harnesses,
+    turnOnFailures,
   };
 }
 

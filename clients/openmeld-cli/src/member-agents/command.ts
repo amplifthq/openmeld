@@ -11,7 +11,6 @@ import {
 import { resolveRuntimeContext } from "../runtime/context";
 import { createPresenter } from "../runtime/presenter/index";
 import type { Presenter } from "../runtime/presenter/types";
-import { setLocalAgentEnabledThroughService } from "../start-local/local-agent-choice";
 import { resolveAgentProfilePrimaryAgentControllerReport } from "../system/agent-profile-primary-binding";
 import { renderHumanErrorCard } from "../ui/human-error-card";
 import { renderInfoCard } from "../ui/info-card";
@@ -108,11 +107,11 @@ export async function runAgentShow(input: {
 }
 
 /**
- * `openmeld agent add <harness>`: turn the Harness on in this computer's
- * Local agents and add its Agent. The switch is the member's choice
- * (design-plans/member-agent-program.md §4.1): the same Core sync that runs
- * when the switch is turned on in OpenMeld Web creates the Agent. A Harness
- * turned on on another connected computer is added without a local change.
+ * `openmeld agent add <harness>`: add the Agent of a Harness one of the
+ * member's connected computers has installed. The Local agents switch is
+ * the member's choice (design-plans/member-agent-program.md §4.1), so Core
+ * turns the Harness on there if it is off, then creates the Agent: the same
+ * Core sync the Add action in OpenMeld Web uses.
  */
 export async function runAgentAdd(input: {
   harness: string;
@@ -131,10 +130,6 @@ export async function runAgentAdd(input: {
         title: "Unknown Harness",
       });
     }
-    const switched = await setLocalAgentEnabledThroughService({
-      agentId: harnessKind,
-      enabled: true,
-    });
     const response = await syncMemberAgents({
       createHarnessKinds: [harnessKind],
     });
@@ -147,13 +142,9 @@ export async function runAgentAdd(input: {
         message:
           result?.reasonCodes[0] ===
           MEMBER_AGENT_SYNC_HARNESS_NOT_DETECTED_REASON
-            ? `None of your connected computers has ${formatHarnessDisplayName(harnessKind)} turned on right now.`
+            ? `None of your connected computers has ${formatHarnessDisplayName(harnessKind)} right now.`
             : `OpenMeld couldn't add ${formatHarnessDisplayName(harnessKind)}.`,
-        nextStep: switched.accepted
-          ? "Install or sign in to the harness, keep your computer connected, then try again."
-          : `OpenMeld couldn't turn it on here${
-              switched.message ? `: ${switched.message}` : "."
-            } Run \`openmeld agents enable --agent ${harnessKind}\`, make sure OpenMeld Service is running, then try again.`,
+        nextStep: `Install the harness, keep OpenMeld Service running on your computer, or run \`openmeld agents enable --agent ${harnessKind}\` there, then try again.`,
         title: "Agent Not Added",
       });
     }

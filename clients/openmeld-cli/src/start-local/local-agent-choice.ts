@@ -3,9 +3,9 @@ import { registerUnselectedBuiltinAgentsTurnedOff } from "../agents/registry";
 import { requestLocalSetLocalAgentEnabled } from "../local-service/control-plane/client";
 
 // The Local agents switch on this computer is the member's choice of which
-// harnesses become Agents (design-plans/member-agent-program.md §4.1). These
-// helpers change it through the running OpenMeld Service, which refreshes
-// its catalog report before it answers, so Core sees the switch at once.
+// harnesses become Agents (design-plans/member-agent-program.md §4.1). Setup
+// changes it through the running OpenMeld Service, which refreshes its
+// catalog report before it answers, so Core sees the switch at once.
 
 export type SetupLocalAgentChoiceResult = {
   // Unselected agents now off: newly registered off, or turned off.
@@ -52,7 +52,7 @@ export async function turnOffUnselectedLocalAgentsForSetup(input: {
  * Turn one local agent on or off through the running OpenMeld Service. A
  * Service that is not running answers as a rejected switch.
  */
-export async function setLocalAgentEnabledThroughService(input: {
+async function setLocalAgentEnabledThroughService(input: {
   agentId: string;
   enabled: boolean;
 }): Promise<OpenMeldDaemonSetLocalAgentEnabledPayload> {

@@ -66,6 +66,21 @@ function createDeps(input: {
       async (agentProfileId: string) =>
         input.controllerRefs?.[agentProfileId] ?? null
     ),
+    // The Service turns the Harness on and refreshes its report.
+    turnOnHarness: vi.fn(
+      (target: { agentControllerRef: string; deviceId: string }) => {
+        for (const entry of input.entries) {
+          if (
+            entry.agentControllerRef === target.agentControllerRef &&
+            entry.deviceId === target.deviceId
+          ) {
+            entry.reasonCodes = [];
+            entry.reportStatus = "ready";
+          }
+        }
+        return Promise.resolve();
+      }
+    ),
     writeDefaultBinding: vi.fn(
       async (): Promise<{
         reasonCodes: string[];
@@ -438,14 +453,14 @@ describe("syncMemberAgents", () => {
 
     expect(
       await syncMemberAgents(deps, {
-        createHarnessKinds: ["cursor", "opencode", "openclaw"],
+        createHarnessKinds: ["cursor", "opencode"],
       })
     ).toEqual({
       // Installed but turned off in Local agents: the member can add it by
       // turning it on.
       addableHarnessKinds: ["openclaw"],
       assignedProfileIds: [],
-      results: ["cursor", "openclaw", "opencode"].map((harnessKind) => ({
+      results: ["cursor", "opencode"].map((harnessKind) => ({
         binding: "not_attempted",
         defaultProfileId: null,
         directMessage: "not_attempted",
@@ -576,6 +591,66 @@ describe("syncMemberAgents", () => {
     expect(deps.ensureDetectedMemberAgent).toHaveBeenCalledTimes(3);
     expect(deps.openDirectMessage).toHaveBeenCalledTimes(3);
     expect(report.addableHarnessKinds).toEqual(["antigravity", "cursor"]);
+  });
+
+  it("turns a requested, turned-off Harness on and adds it", async () => {
+    // "Add" on the Agents page, or `openmeld agent add cursor`.
+    const deps = createDeps({
+      entries: [
+        catalogEntry({
+          agentControllerRef: "builtin:cursor",
+          openMeldServiceRuntimeId: "runtime-1",
+          reasonCodes: ["local_agent_preparation.not_enabled"],
+          reportStatus: "disabled",
+        }),
+      ],
+    });
+
+    const report = await syncMemberAgents(deps, {
+      createHarnessKinds: ["cursor"],
+    });
+
+    expect(deps.turnOnHarness).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentControllerRef: "builtin:cursor",
+        deviceId: "device-runtime-1",
+      })
+    );
+    expect(report.results).toMatchObject([
+      { harnessKind: "cursor", outcome: "created" },
+    ]);
+    expect(report.addableHarnessKinds).toEqual([]);
+  });
+
+  it("reports why a requested Harness stayed off", async () => {
+    const deps = createDeps({
+      entries: [
+        catalogEntry({
+          agentControllerRef: "builtin:cursor",
+          openMeldServiceRuntimeId: "runtime-1",
+          reportStatus: "disabled",
+        }),
+      ],
+    });
+    deps.turnOnHarness.mockRejectedValueOnce(
+      Object.assign(new Error("offline"), {
+        code: "local_agent_control.current_runtime_missing",
+      })
+    );
+
+    const report = await syncMemberAgents(deps, {
+      createHarnessKinds: ["cursor"],
+    });
+
+    expect(report.results).toEqual([
+      expect.objectContaining({
+        harnessKind: "cursor",
+        outcome: "skipped",
+        reasonCodes: ["local_agent_control.current_runtime_missing"],
+      }),
+    ]);
+    expect(report.addableHarnessKinds).toEqual(["cursor"]);
+    expect(deps.ensureDetectedMemberAgent).not.toHaveBeenCalled();
   });
 
   it("does not offer a shared-account Harness that is turned off", async () => {
