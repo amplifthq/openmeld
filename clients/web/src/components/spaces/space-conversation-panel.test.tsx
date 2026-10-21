@@ -5966,7 +5966,17 @@ describe("SpaceConversationPanel", () => {
 					"message-5"
 				)
 			);
-			// The rail asks for its target 24px below the visible top.
+			// The rail asks for its target 24px below the visible top, and the
+			// delayed realignment must keep that placement instead of centering.
+			expect(log.scrollTop).toBe(976);
+			for (let frame = 0; frame < 3; frame++) {
+				await act(
+					() =>
+						new Promise<void>((resolve) =>
+							requestAnimationFrame(() => resolve())
+						)
+				);
+			}
 			expect(log.scrollTop).toBe(976);
 			geometry.mockRestore();
 		});

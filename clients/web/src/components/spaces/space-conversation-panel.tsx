@@ -195,7 +195,6 @@ import {
 import { SpaceComposerWorkBookmarks } from "./space-work-bookmarks";
 import { useSpaceComposerTraySpace } from "./use-space-composer-region";
 import {
-	getSpaceConversationVisibleTop,
 	type SpaceConversationRestorationStatus,
 	useSpaceConversationPosition,
 } from "./use-space-conversation-position";
@@ -1609,20 +1608,11 @@ function useSpaceConversationNavigationController(input: {
 			if (scrollElement) {
 				scrollMessageIntoConversationViewport({
 					messageElement,
+					offsetFromVisibleTop: options?.offsetFromVisibleTop,
 					scrollElement,
 				});
 			} else {
 				messageElement.scrollIntoView({ block: "center" });
-			}
-			if (
-				scrollElement &&
-				options?.offsetFromVisibleTop !== undefined &&
-				Number.isFinite(options.offsetFromVisibleTop)
-			) {
-				scrollElement.scrollTop +=
-					messageElement.getBoundingClientRect().top -
-					getSpaceConversationVisibleTop(scrollElement) -
-					options.offsetFromVisibleTop;
 			}
 			messageElement.focus({ preventScroll: true });
 			setHighlightedSignalId(signalId);
