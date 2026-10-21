@@ -24,6 +24,7 @@ type WebCloudflareTestEnv = {
 		limit: (input: { key: string }) => Promise<{ success: boolean }>;
 	};
 	OPENMELD_DESKTOP_DOWNLOADS: R2Bucket | null;
+	OPENMELD_GATEWAY_WORKER: null;
 	OPENMELD_OBSERVABILITY: AnalyticsEngineDataset | null;
 	OPENMELD_WORKER_ENVIRONMENT: string;
 };
@@ -33,6 +34,8 @@ export const env: WebCloudflareTestEnv = {
 		limit: async () => ({ success: true }),
 	},
 	OPENMELD_DESKTOP_DOWNLOADS: null,
+	// Unit tests use the local-development public-fetch transport.
+	OPENMELD_GATEWAY_WORKER: null,
 	OPENMELD_OBSERVABILITY: null,
 	OPENMELD_WORKER_ENVIRONMENT: "test",
 };

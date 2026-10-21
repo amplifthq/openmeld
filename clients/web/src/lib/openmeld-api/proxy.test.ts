@@ -11,6 +11,10 @@ import { OBSERVABILITY_CLOUDFLARE_ANALYTICS_BLOBS } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import { encodeProtectedSpaceAccessCookieValue } from "#/lib/spaces/protected-space-access.server";
 import {
+	createOpenMeldGatewayUpstream,
+	type OpenMeldGatewayServiceBinding,
+} from "./gateway-upstream";
+import {
 	buildOpenMeldGatewayUpstreamHeaders,
 	buildOpenMeldGatewayUpstreamUrl,
 	proxyOpenMeldGatewayRequest,
@@ -1057,3 +1061,212 @@ function readAnalyticsBlob(
 	}
 	return point.blobs[index] ?? "";
 }
+
+describe("OpenMeld gateway proxy over the Gateway Service Binding", () => {
+	type ServiceBindingCall = {
+		url: string;
+		method: string | undefined;
+		redirect: RequestRedirect | undefined;
+		headers: Headers;
+		text: () => Promise<string>;
+	};
+	function createServiceBinding(
+		respond: (call: ServiceBindingCall) => Response | Promise<Response>
+	) {
+		const requests: ServiceBindingCall[] = [];
+		const binding: OpenMeldGatewayServiceBinding = {
+			fetch: vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+				const call: ServiceBindingCall = {
+					url: String(input),
+					method: init?.method,
+					redirect: init?.redirect,
+					headers: new Headers(init?.headers),
+					text: () => new Response(init?.body ?? null).text(),
+				};
+				requests.push(call);
+				return await respond(call);
+			}),
+		};
+		return { binding, requests };
+	}
+
+	it("sends the same URL, method, allowlisted headers, cookie, and streamed body as the public path", async () => {
+		const { binding, requests } = createServiceBinding(
+			async (request) =>
+				new Response(JSON.stringify({ echoed: await request.text() }), {
+					status: 201,
+					headers: {
+						"content-type": "application/json",
+						"x-openmeld-request-id": "gateway-request-1",
+					},
+				})
+		);
+		const publicFetch = vi.fn<typeof fetch>();
+
+		const response = await proxyOpenMeldGatewayRequest({
+			request: new Request(
+				"https://openmeld.test/v1/spaces/space-123/messages?view=full",
+				{
+					method: "POST",
+					headers: {
+						cookie: "session=abc; other=1",
+						"content-type": "application/json",
+						"cf-connecting-ip": "203.0.113.7",
+						authorization: "Bearer forged",
+						"x-forwarded-for": "198.51.100.1",
+					},
+					body: JSON.stringify({ text: "hello" }),
+				}
+			),
+			gatewayUrl: "https://gateway.openmeld.test",
+			webAppUrl: "https://openmeld.test",
+			fetchImpl: publicFetch,
+			gatewayUpstream: createOpenMeldGatewayUpstream({
+				serviceBinding: binding,
+			}),
+		});
+
+		expect(publicFetch).not.toHaveBeenCalled();
+		expect(requests).toHaveLength(1);
+		const [upstream] = requests;
+		expect(upstream?.url).toBe(
+			"https://gateway.openmeld.test/v1/spaces/space-123/messages?view=full"
+		);
+		expect(upstream?.method).toBe("POST");
+		expect(upstream?.redirect).toBe("manual");
+		expect(upstream?.headers.get("cookie")).toBe("session=abc; other=1");
+		expect(upstream?.headers.get("origin")).toBe("https://openmeld.test");
+		expect(upstream?.headers.get("cf-connecting-ip")).toBe("203.0.113.7");
+		expect(upstream?.headers.get("authorization")).toBeNull();
+		expect(upstream?.headers.get("x-forwarded-for")).toBeNull();
+		expect(response.status).toBe(201);
+		await expect(response.json()).resolves.toEqual({
+			echoed: JSON.stringify({ text: "hello" }),
+		});
+	});
+
+	it("does not invent a client address when the inbound request has none", async () => {
+		const { binding, requests } = createServiceBinding(
+			() => new Response(null, { status: 204 })
+		);
+
+		await proxyOpenMeldGatewayRequest({
+			request: new Request("https://openmeld.test/v1/spaces/space-123/status"),
+			gatewayUrl: "https://gateway.openmeld.test",
+			webAppUrl: "https://openmeld.test",
+			gatewayUpstream: createOpenMeldGatewayUpstream({
+				serviceBinding: binding,
+			}),
+		});
+
+		expect(requests[0]?.headers.get("cf-connecting-ip")).toBeNull();
+	});
+
+	it("never forwards a client address on the public-fetch fallback", async () => {
+		const fetchMock = vi.fn<typeof fetch>(() =>
+			Promise.resolve(new Response(null, { status: 204 }))
+		);
+
+		await proxyOpenMeldGatewayRequest({
+			request: new Request("https://openmeld.test/v1/spaces/space-123/status", {
+				headers: { "cf-connecting-ip": "127.0.0.1" },
+			}),
+			gatewayUrl: "http://localhost:8080",
+			webAppUrl: "http://localhost:3000",
+			fetchImpl: fetchMock,
+		});
+
+		const headers = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+		expect(headers.get("cf-connecting-ip")).toBeNull();
+	});
+
+	it("preserves upstream status, multiple set-cookie headers, redirects, and streamed bodies", async () => {
+		const encoder = new TextEncoder();
+		const { binding } = createServiceBinding(() => {
+			const headers = new Headers({ location: "/v1/next" });
+			headers.append("set-cookie", "a=1; Path=/; HttpOnly");
+			headers.append("set-cookie", "b=2; Path=/; Secure");
+			return new Response(
+				new ReadableStream({
+					start(controller) {
+						controller.enqueue(encoder.encode("part-1,"));
+						controller.enqueue(encoder.encode("part-2"));
+						controller.close();
+					},
+				}),
+				{ status: 302, headers }
+			);
+		});
+
+		const response = await proxyOpenMeldGatewayRequest({
+			request: new Request("https://openmeld.test/v1/spaces/space-123/status"),
+			gatewayUrl: "https://gateway.openmeld.test",
+			webAppUrl: "https://openmeld.test",
+			gatewayUpstream: createOpenMeldGatewayUpstream({
+				serviceBinding: binding,
+			}),
+		});
+
+		expect(response.status).toBe(302);
+		expect(response.headers.get("location")).toBe("/v1/next");
+		expect(response.headers.getSetCookie()).toEqual([
+			"a=1; Path=/; HttpOnly",
+			"b=2; Path=/; Secure",
+		]);
+		expect(response.body).toBeInstanceOf(ReadableStream);
+		await expect(response.text()).resolves.toBe("part-1,part-2");
+	});
+
+	it("maps a Service Binding failure to the structured upstream_unreachable error", async () => {
+		const binding: OpenMeldGatewayServiceBinding = {
+			fetch: vi.fn(() => Promise.reject(new Error("binding unavailable"))),
+		};
+		const consoleInfo = vi
+			.spyOn(console, "info")
+			.mockImplementation(() => undefined);
+
+		try {
+			const response = await proxyOpenMeldGatewayRequest({
+				request: new Request(
+					"https://openmeld.test/v1/spaces/space-123/status"
+				),
+				gatewayUrl: "https://gateway.openmeld.test",
+				webAppUrl: "https://openmeld.test",
+				gatewayUpstream: createOpenMeldGatewayUpstream({
+					serviceBinding: binding,
+				}),
+			});
+
+			expect(response.status).toBe(502);
+			await expect(response.json()).resolves.toMatchObject({
+				ok: false,
+				error: { code: "upstream_unreachable" },
+			});
+		} finally {
+			consoleInfo.mockRestore();
+		}
+	});
+
+	it("uses the public fetch when the runtime declares no Gateway binding", async () => {
+		const globalFetch = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(new Response(null, { status: 204 }));
+
+		try {
+			const response = await proxyOpenMeldGatewayRequest({
+				request: new Request(
+					"https://openmeld.test/v1/spaces/space-123/status"
+				),
+				gatewayUrl: "http://localhost:8080",
+				webAppUrl: "http://localhost:3000",
+			});
+
+			expect(response.status).toBe(204);
+			expect(String(globalFetch.mock.calls[0]?.[0])).toBe(
+				"http://localhost:8080/v1/spaces/space-123/status"
+			);
+		} finally {
+			globalFetch.mockRestore();
+		}
+	});
+});

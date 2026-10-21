@@ -344,6 +344,13 @@
       "when": 1792556837804,
       "tag": "0048_ai_credit_holds",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1792561440084,
+      "tag": "0049_agent_activity_daily_session_keys_project_idx",
+      "breakpoints": true
     }
   ]
 }

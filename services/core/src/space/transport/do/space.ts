@@ -299,6 +299,7 @@ import type {
 } from "@openmeld/schemas/types";
 import {
   applyAutomaticThreadWake,
+  boundThreadPreviewSignal,
   buildBareMentionContext,
   buildDispatchQuotedMessage,
   buildWakeProgressMessage,
@@ -418,6 +419,7 @@ import {
   stopAccountConversation,
 } from "../../../organizations/account-conversation-deletion";
 import {
+  ConcurrentOrganizationMembershipReads,
   readOrganizationAccountIdentityProjection,
   resolveOrganizationMembershipById,
 } from "../../../organizations/organization-context";
@@ -622,20 +624,27 @@ import {
   selectSpaceInboxRecipients,
 } from "../../application/space-inbox-projection-outbox-service";
 import {
+  SpaceMemberDisplayRefresh,
+  type SpaceMemberDisplayRefreshScope,
+} from "../../application/space-member-display-refresh";
+import {
   addSpaceMembersUseCase,
   ensureSpaceMembersBackfilled,
   leaveSpaceUseCase,
   listSpaceIdentityDirectoryUseCase,
   listSpaceMemberDirectoryUseCase,
   listSpaceMembersSnapshotUseCase,
+  readCachedSpaceMemberDisplay,
   readSpaceMemberNameFromAuth,
   recordSpaceMemberWebActivityUseCase,
   refreshSpaceMemberNameSnapshot,
   refreshSpaceMemberNamesFromAuth,
+  refreshSpaceMemberOwnerAvatarCache,
   removeSpaceMembersUseCase,
   SpaceMembersUseCaseError,
   upsertJoinedSpaceMember,
   upsertSpaceCreatorMember,
+  writeConfirmedSpaceMemberProfileDisplay,
 } from "../../application/space-members-service";
 import { projectSpaceMessageDetails } from "../../application/space-message-details";
 import {
@@ -648,6 +657,7 @@ import {
   handleSetSpaceAccessModeUseCase,
   handleUpsertPasswordUseCase,
 } from "../../application/space-password-service";
+import { SpaceProfileLineageCache } from "../../application/space-profile-lineage-cache";
 import { authorizeSpacePublicationModeChange } from "../../application/space-publication-mode-authorization";
 import { measureSpaceSchemaInitialization } from "../../application/space-schema-observability";
 import { assertSameSpaceSignalReplay } from "../../application/space-signal-idempotency";
@@ -961,10 +971,7 @@ import {
 } from "../../rules/policy/dispatch-outbox-redrive-policy";
 import { shouldEmitRetentionWarning } from "../../rules/policy/retention-warning-policy";
 import { redactSignalForViewer } from "../../rules/privacy/agent-profile-visibility";
-import {
-  type CreatorProfileIdsByProfileId,
-  loadCreatorProfileIdsByOwnerUserId,
-} from "../../rules/privacy/profile-lineage";
+import type { CreatorProfileIdsByProfileId } from "../../rules/privacy/profile-lineage";
 import { dispatchSpaceHttpRequest } from "../http/space-http-dispatch";
 import {
   buildSpaceRpcRequest,
@@ -2725,10 +2732,43 @@ export function resolveNextLiveInvalidationVersion(input: {
 export class Space extends DurableObject<CoreBindings> {
   private spaceTaskDeliveryFlush: Promise<void> | null = null;
   private readonly bindings: CoreBindings;
+  // Last lineage resolved for each owner, mirrored for synchronous dispatch
+  // continuity reads right after preloadDispatchContinuityCreatorProfileIds.
   private readonly ownerCreatorProfileIdsByOwnerUserId = new Map<
     string,
     CreatorProfileIdsByProfileId
   >();
+  private readonly memberDisplayRefresh = new SpaceMemberDisplayRefresh({
+    postgres: () => this.bindings.OPENMELD_POSTGRESQL,
+    refresh: (scope) => this.refreshMemberDisplay(scope),
+    onChanged: () =>
+      this.broadcastSpaceMembersChanged({
+        profileIds: [],
+        reason: "space.members.display_refreshed",
+      }),
+    onError: (error) => {
+      console.warn("[core.space.member_display_refresh_failed]", {
+        spaceId: this.spaceId,
+        error: toRedactedSpaceErrorMessage(error),
+      });
+    },
+    waitUntil: (promise) => this.ctx.waitUntil(promise),
+  });
+  private readonly organizationMembershipReads =
+    new ConcurrentOrganizationMembershipReads();
+  private readonly profileLineageCache = new SpaceProfileLineageCache({
+    authRpc: () => this.bindings.OPENMELD_AUTH_WORKER,
+    onLoadError: (error, ownerUserId) => {
+      console.warn("[core.openmeld.space.profile_lineage_load_failed]", {
+        spaceId: this.spaceId,
+        ownerUserId,
+        error: toRedactedSpaceErrorMessage(error),
+      });
+    },
+    resolvedByOwnerUserId: this.ownerCreatorProfileIdsByOwnerUserId,
+    sql: () => this.ctx.storage.sql,
+    waitUntil: (promise) => this.ctx.waitUntil(promise),
+  });
   private readonly sessions: Map<WebSocket, Session> = new Map();
   private readonly transientStreamReplay = new TransientAgentStreamReplay();
   private readonly activeReplyingSignalsByDispatchId = new Map<
@@ -6202,14 +6242,26 @@ export class Space extends DurableObject<CoreBindings> {
   private async refreshMemberNamesFromAuth(): Promise<
     AuthProfileFacts | null | undefined
   > {
+    this.backfillSpaceMembers();
+    return (await this.refreshBackfilledMemberNamesFromAuth()).profileFacts;
+  }
+  private backfillSpaceMembers(): void {
     ensureSpaceMembersBackfilled({
       sql: this.ctx.storage.sql,
       spaceId: this.spaceId,
       liveSessions: this.sessions.values(),
       metaRecord: this.readSpaceMetaRecord(),
     });
+  }
+  // Refreshes member names and the Profile display cache from one Auth read. Call after backfilling so newly discovered members are included.
+  private async refreshBackfilledMemberNamesFromAuth(): Promise<{
+    displayChanged: boolean;
+    profileFacts: AuthProfileFacts | null | undefined;
+  }> {
+    const sql = this.ctx.storage.sql;
+    const refreshedAtMs = Date.now();
     const result = await refreshSpaceMemberNamesFromAuth({
-      sql: this.ctx.storage.sql,
+      sql,
       env: this.bindings,
     });
     if (result.changed) {
@@ -6217,7 +6269,34 @@ export class Space extends DurableObject<CoreBindings> {
         this.projectCurrentSpaceIndexSnapshot("space.members_updated")
       );
     }
-    return result.profileFacts;
+    const profileDisplayChanged = writeConfirmedSpaceMemberProfileDisplay({
+      sql,
+      profileFacts: result.profileFacts,
+      refreshedAtMs,
+    });
+    return {
+      displayChanged: result.changed || profileDisplayChanged,
+      profileFacts: result.profileFacts,
+    };
+  }
+  private async refreshMemberDisplay(
+    scope: SpaceMemberDisplayRefreshScope
+  ): Promise<boolean> {
+    let changed = false;
+    if (scope.names) {
+      this.backfillSpaceMembers();
+      changed = (await this.refreshBackfilledMemberNamesFromAuth())
+        .displayChanged;
+    }
+    if (scope.ownerAvatars) {
+      const sql = this.ctx.storage.sql;
+      const avatars = await refreshSpaceMemberOwnerAvatarCache({
+        sql,
+        env: this.bindings,
+      });
+      changed = avatars.changed || changed;
+    }
+    return changed;
   }
   private resolveSpaceMemberProfileNameForPublication(
     profileId: string
@@ -11148,6 +11227,17 @@ export class Space extends DurableObject<CoreBindings> {
           lineageCache.set(ownerUserId, loaded);
           return loaded;
         };
+        // Start the viewer's lineage read now so it overlaps each branch's
+        // access authorization instead of following it. Nothing reads the
+        // result until a branch has authorized the viewer.
+        const viewerContext = input.spaceAccess
+          ? getSpaceAccessRequestContext(input.spaceAccess)
+          : input.context;
+        // Same key the branches pass, so they share this request's memo.
+        const viewerOwnerUserId = viewerContext?.actorContext.ownerUserId;
+        if (viewerOwnerUserId && viewerContext.actorContext.openMeldProfileId) {
+          lineageLoader(viewerOwnerUserId).catch(() => undefined);
+        }
         const bootstrap = await collector.measure(
           {
             name: "openmeld_bootstrap_total",
@@ -14890,7 +14980,7 @@ export class Space extends DurableObject<CoreBindings> {
       signals: this.redactSignalsForReadViewer(
         previewEntries.flatMap((entry) => (entry.signal ? [entry.signal] : [])),
         viewer
-      ),
+      ).map(boundThreadPreviewSignal),
       placements: entries.map((entry) => entry.placement),
     };
   }
@@ -17807,11 +17897,11 @@ export class Space extends DurableObject<CoreBindings> {
         requestId: resolved.context.actorContext.requestId,
       });
     }
-    const viewerCreatorProfileIdsByProfileId =
-      await this.resolveViewerCreatorProfileIdsByProfileId({
-        viewerOwnerUserId: resolved.context.actorContext.ownerUserId,
-        viewerProfileId: resolved.context.actorContext.openMeldProfileId,
-      });
+    // Warm the viewer's lineage for live fan-out.
+    await this.resolveViewerCreatorProfileIdsByProfileId({
+      viewerOwnerUserId: resolved.context.actorContext.ownerUserId,
+      viewerProfileId: resolved.context.actorContext.openMeldProfileId,
+    });
     // biome-ignore lint/correctness/noUndeclaredVariables: Provided by the Workers runtime.
     const pair = new WebSocketPair();
     this.handleSession(
@@ -17819,7 +17909,6 @@ export class Space extends DurableObject<CoreBindings> {
       enforcedProfile,
       resolved.context.actorContext.ownerUserId,
       resolved.context.actorContext.openMeldProfileId,
-      viewerCreatorProfileIdsByProfileId,
       resolved.context.actorContext.ownerName,
       resolved.spacePassword,
       resolved.context.actorContext.callerPrincipalId,
@@ -17836,7 +17925,6 @@ export class Space extends DurableObject<CoreBindings> {
     enforcedProfile: Profile,
     viewerOwnerUserId?: string,
     viewerProfileId?: string,
-    viewerCreatorProfileIdsByProfileId?: Record<string, string | null>,
     ownerName?: string,
     spacePassword?: string,
     callerPrincipalId?: string,
@@ -17862,7 +17950,6 @@ export class Space extends DurableObject<CoreBindings> {
       enforcedProfile,
       viewerOwnerUserId,
       viewerProfileId,
-      viewerCreatorProfileIdsByProfileId,
       spacePassword,
     });
     this.sessions.set(webSocket, session);
@@ -17975,21 +18062,14 @@ export class Space extends DurableObject<CoreBindings> {
         : { creatorProfileIdByProfileId }),
     };
   }
+  // Warms the viewer's lineage so the first live frame can use it.
   private async hydrateRestoredSessionPrivacyState(
     session: Session
   ): Promise<void> {
-    if (session.viewerCreatorProfileIdsByProfileId) {
-      return;
-    }
-    const viewerCreatorProfileIdsByProfileId =
-      await this.resolveViewerCreatorProfileIdsByProfileId({
-        viewerOwnerUserId: session.viewerOwnerUserId,
-        viewerProfileId: session.viewerProfileId,
-      });
-    if (viewerCreatorProfileIdsByProfileId) {
-      session.viewerCreatorProfileIdsByProfileId =
-        viewerCreatorProfileIdsByProfileId;
-    }
+    await this.resolveViewerCreatorProfileIdsByProfileId({
+      viewerOwnerUserId: session.viewerOwnerUserId,
+      viewerProfileId: session.viewerProfileId,
+    });
   }
   private async resolveOwnerCreatorProfileIdsByProfileId(input: {
     ownerUserId?: string;
@@ -17998,25 +18078,7 @@ export class Space extends DurableObject<CoreBindings> {
     if (!ownerUserId) {
       return undefined;
     }
-    const cached = this.ownerCreatorProfileIdsByOwnerUserId.get(ownerUserId);
-    if (cached) {
-      return cached;
-    }
-    const loaded = await loadCreatorProfileIdsByOwnerUserId({
-      authRpc: this.bindings.OPENMELD_AUTH_WORKER,
-      ownerUserId,
-      onError: (error, resolvedOwnerUserId) => {
-        console.warn("[core.openmeld.space.profile_lineage_load_failed]", {
-          spaceId: this.spaceId,
-          ownerUserId: resolvedOwnerUserId,
-          error: toRedactedSpaceErrorMessage(error),
-        });
-      },
-    });
-    if (loaded) {
-      this.ownerCreatorProfileIdsByOwnerUserId.set(ownerUserId, loaded);
-    }
-    return loaded;
+    return await this.profileLineageCache.resolve(ownerUserId);
   }
   private async preloadOwnerCreatorProfileIdsByOwnerUserId(
     ownerUserIds: Iterable<string>
@@ -18040,22 +18102,25 @@ export class Space extends DurableObject<CoreBindings> {
     }
     await this.preloadOwnerCreatorProfileIdsByOwnerUserId(ownerUserIds);
   }
+  // Live fan-out to an open session reads the viewer's lineage when it sends,
+  // under the cache's freshness bound; sessions never hold their own copy.
   private redactSignalForViewer(
     signal: SignalEnvelope,
     input: Pick<
       Session,
-      | "viewerCreatorProfileIdsByProfileId"
-      | "viewerOwnerUserId"
-      | "viewerProfileId"
-      | "viewerDeletedThroughPosition"
+      "viewerOwnerUserId" | "viewerProfileId" | "viewerDeletedThroughPosition"
     >
   ): SignalEnvelope {
+    const viewerOwnerUserId = normalizeOptionalText(input.viewerOwnerUserId);
     return this.removeDeletedReplyReference(
       redactSignalForViewer({
         signal,
         viewerOwnerUserId: input.viewerOwnerUserId,
         viewerProfileId: input.viewerProfileId,
-        creatorProfileIdByProfileId: input.viewerCreatorProfileIdsByProfileId,
+        creatorProfileIdByProfileId:
+          viewerOwnerUserId && normalizeOptionalText(input.viewerProfileId)
+            ? this.profileLineageCache.peek(viewerOwnerUserId)
+            : undefined,
       }),
       input.viewerDeletedThroughPosition
     );
@@ -19227,16 +19292,57 @@ export class Space extends DurableObject<CoreBindings> {
       "reconcile member ownership",
       () => this.ensureAgentOwnerMembershipPolicy(metaRecord)
     );
-    const profileFacts = this.measureBootstrapBranchTiming(
+    const sql = this.ctx.storage.sql;
+    this.measureBootstrapBranchTimingSync(
       bootstrapTiming,
-      "member_names",
-      "refresh member names from Auth",
-      () => this.refreshMemberNamesFromAuth()
+      "backfill",
+      "backfill missing members",
+      () => this.backfillSpaceMembers()
     );
+    const cachedDisplay = this.measureBootstrapBranchTimingSync(
+      bootstrapTiming,
+      "display_cache",
+      "read member display cache",
+      () => readCachedSpaceMemberDisplay({ includeAgentReadiness, sql })
+    );
+    const cachedProfileDisplay = cachedDisplay.profileDisplay;
+    const cachedOwnerAvatars = cachedDisplay.ownerAvatars;
+    this.memberDisplayRefresh.start({
+      names: cachedProfileDisplay?.needsRefresh === true,
+      ownerAvatars: cachedOwnerAvatars?.needsRefresh === true,
+    });
+    const profileFacts = cachedProfileDisplay
+      ? undefined
+      : this.measureBootstrapBranchTiming(
+          bootstrapTiming,
+          "member_names",
+          "refresh member names from Auth",
+          async () =>
+            (await this.refreshBackfilledMemberNamesFromAuth()).profileFacts
+        );
+    const humanAvatarByOwnerUserId = cachedOwnerAvatars
+      ? Promise.resolve(cachedOwnerAvatars.values)
+      : this.measureBootstrapBranchTiming(
+          bootstrapTiming,
+          "human_avatar_batch",
+          "preload human member avatars",
+          async () =>
+            (
+              await refreshSpaceMemberOwnerAvatarCache({
+                sql,
+                env: this.bindings,
+              })
+            ).avatarUrlByOwnerUserId ?? new Map<string, string | null>()
+        );
     const snapshot = await listSpaceMembersSnapshotUseCase({
       includeAgentReadiness,
       profileFacts,
-      sql: this.ctx.storage.sql,
+      membersBackfilled: true,
+      humanAvatarByOwnerUserId,
+      ...(cachedProfileDisplay
+        ? { agentAvatarByProfileId: cachedProfileDisplay.values }
+        : {}),
+      sql,
       env: this.bindings,
       spaceId: this.spaceId,
       viewerOwnerUserId: context.actorContext.ownerUserId,
@@ -21227,7 +21333,7 @@ export class Space extends DurableObject<CoreBindings> {
       userId &&
       (activeOwner || (!meta.deletedAt && meta.visibility === "public"))
     ) {
-      const membership = await resolveOrganizationMembershipById({
+      const membership = await this.organizationMembershipReads.read({
         env: this.bindings,
         organizationId: meta.organizationId,
         userId,

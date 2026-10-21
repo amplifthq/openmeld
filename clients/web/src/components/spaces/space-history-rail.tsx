@@ -11,10 +11,7 @@ import {
 	useState,
 } from "react";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
-import {
-	getSpaceConversationVisibleTop,
-	resolveSpaceConversationPosition,
-} from "./use-space-conversation-position";
+import { resolveSpaceConversationPosition } from "./use-space-conversation-position";
 import type { SpaceHistoryNavigationController } from "./use-space-history-navigation";
 
 export type SpaceHistoryActions = {
@@ -44,7 +41,10 @@ export function SpaceHistoryRail(input: {
 	renderNavigation: (actions: SpaceHistoryActions) => ReactNode;
 	scrollElement: HTMLDivElement | null;
 	items: readonly SpaceTimelineItem[];
-	onJumpToMessage: (id: string) => void;
+	onJumpToMessage: (
+		id: string,
+		options?: { offsetFromVisibleTop?: number }
+	) => void;
 	onFollowLatest: () => void;
 	onNavigateStart: () => void;
 }) {
@@ -200,19 +200,13 @@ export function SpaceHistoryRail(input: {
 		if (!(target && input.items.some((item) => item.id === target.signalId))) {
 			return;
 		}
-		input.onJumpToMessage(target.signalId);
-		const viewport = input.scrollElement;
-		const element = viewport?.querySelector<HTMLElement>(
-			`[data-signal-id="${CSS.escape(target.signalId)}"]`
-		);
-		if (viewport && element && Number.isFinite(target.offset)) {
-			viewport.scrollTop +=
-				element.getBoundingClientRect().top -
-				getSpaceConversationVisibleTop(viewport) -
-				target.offset;
-		}
+		// The conversation owns placement, so a target it still has to mount
+		// keeps the requested offset too.
+		input.onJumpToMessage(target.signalId, {
+			offsetFromVisibleTop: target.offset,
+		});
 		setTarget(null);
-	}, [target, input.items, input.scrollElement, input.onJumpToMessage]);
+	}, [target, input.items, input.onJumpToMessage]);
 	const jump = async (signalId: string, restore?: Position) => {
 		const sequence = ++jumpSequence.current;
 		const prior = readPosition(input.scrollElement);

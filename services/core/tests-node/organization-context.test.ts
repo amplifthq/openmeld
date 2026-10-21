@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  ConcurrentOrganizationMembershipReads,
   readOrganizationAccountIdentityProjection,
   readOrganizationCreatorUserId,
   readOrganizationPersonalClassification,
   readOrganizationRouteSlug,
+  resolveOrganizationMembershipWithRouteSlug,
   resolveOrganizationOwnerOrAdminMembership,
 } from "../src/organizations/organization-context";
 import {
@@ -34,6 +36,86 @@ describe("organization context owner contracts", () => {
         organizationId: "org-1",
       })
     ).resolves.toBe("acme");
+  });
+
+  it("reads membership and the route slug in one query", async () => {
+    await harness.query({
+      text: "INSERT INTO \"openmeld\".\"members\" (id, organization_id, user_id, role, \"created_at\") VALUES ('member-1', 'org-1', 'user-1', 'member', 1700000000000)",
+    });
+    const env = { OPENMELD_POSTGRESQL: postgresTestBinding(harness.db) };
+
+    await expect(
+      resolveOrganizationMembershipWithRouteSlug({
+        env,
+        organizationId: "org-1",
+        userId: "user-1",
+      })
+    ).resolves.toEqual({
+      ok: true,
+      membership: {
+        ok: true,
+        memberId: "member-1",
+        organizationId: "org-1",
+        role: "member",
+        userId: "user-1",
+      },
+      organizationSlug: "acme",
+    });
+    for (const [organizationId, userId] of [
+      ["org-1", "user-creator"],
+      ["org-missing", "user-1"],
+    ] as const) {
+      await expect(
+        resolveOrganizationMembershipWithRouteSlug({
+          env,
+          organizationId,
+          userId,
+        })
+      ).resolves.toMatchObject({
+        ok: false,
+        code: "organization.membership_required",
+        status: 403,
+      });
+    }
+  });
+
+  it("fails closed when the combined membership read is unavailable", async () => {
+    await expect(
+      resolveOrganizationMembershipWithRouteSlug({
+        env: {
+          OPENMELD_POSTGRESQL: {
+            connectionString: "postgresql://invalid:invalid@127.0.0.1:1/none",
+          } as never,
+        },
+        organizationId: "org-1",
+        userId: "user-1",
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      code: "organization.context_unavailable",
+      status: 503,
+    });
+  });
+
+  it("shares concurrent membership reads and rereads after they settle", async () => {
+    await harness.query({
+      text: "INSERT INTO \"openmeld\".\"members\" (id, organization_id, user_id, role, \"created_at\") VALUES ('member-1', 'org-1', 'user-1', 'member', 1700000000000)",
+    });
+    const reads = new ConcurrentOrganizationMembershipReads();
+    const env = { OPENMELD_POSTGRESQL: postgresTestBinding(harness.db) };
+    const input = { env, organizationId: "org-1", userId: "user-1" };
+
+    const first = reads.read(input);
+    expect(reads.read(input)).toBe(first);
+    await expect(first).resolves.toMatchObject({ ok: true });
+
+    await harness.query({
+      text: 'DELETE FROM "openmeld"."members" WHERE id = \'member-1\'',
+    });
+    await expect(reads.read(input)).resolves.toMatchObject({
+      ok: false,
+      code: "organization.membership_required",
+    });
   });
 
   it("classifies a Personal Workspace from Auth-owned organization metadata", async () => {

@@ -4,8 +4,21 @@ import type {
 	SpaceBootstrapResponse,
 } from "@openmeld/schemas/types";
 import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import { type ComponentProps, type ReactNode, useEffect } from "react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
+import {
+	type ComponentProps,
+	type ReactNode,
+	use,
+	useEffect,
+	useState,
+} from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createInitialStartFlowState,
@@ -94,6 +107,14 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 		await importOriginal<typeof import("@tanstack/react-router")>();
 	return {
 		...actual,
+		// These tests render the route content without a router; only the
+		// location search and state are read.
+		useLocation: (options?: {
+			select?: (location: { search: object; state: object }) => unknown;
+		}) => {
+			const location = { search: {}, state: {} };
+			return options?.select ? options.select(location) : location;
+		},
 		useNavigate: () => navigateMock,
 	};
 });
@@ -215,7 +236,8 @@ describe("app space entry route", () => {
 			view: { experience: "member", state: "allowed" },
 		});
 		spaceProfileRequiredStateMock.mockClear();
-		spaceLandingMock.mockClear();
+		// Restores the stateless default after tests that install their own.
+		spaceLandingMock.mockReset();
 	});
 
 	afterEach(() => {
@@ -224,7 +246,7 @@ describe("app space entry route", () => {
 		window.localStorage.clear();
 		vi.restoreAllMocks();
 	});
-	it("shows only the known title and conversation layout while cold access is pending", async () => {
+	it("mounts the conversation for local drafting while cold access is pending", async () => {
 		resolveSpaceEntryMock.mockImplementation(
 			() => new Promise(() => undefined)
 		);
@@ -247,12 +269,10 @@ describe("app space entry route", () => {
 			profileId: "profile-123",
 			queryClient,
 		});
-		expect(
-			await screen.findByText("Current Human and Build Agent")
-		).toBeTruthy();
+		// The entry gate releases the identity-scoped conversation for drafting
+		// while access is confirmed; writes still wait for the confirmation.
+		expect(await screen.findByTestId("space-landing")).toBeTruthy();
 		expect(screen.queryByText("Opening Space")).toBeNull();
-		expect(screen.queryByTestId("space-landing")).toBeNull();
-		expect(getBootstrapMock).not.toHaveBeenCalled();
 	});
 	it.each([
 		undefined,
@@ -441,7 +461,7 @@ describe("app space entry route", () => {
 		expect(spaceWindowShellMock).toHaveBeenCalled();
 	});
 
-	it("centers the profile check loading state without a card surface", () => {
+	it("keeps the conversation frame on screen while the profile check is pending", () => {
 		listStartProfilesMock.mockImplementation(
 			() =>
 				new Promise(() => {
@@ -455,17 +475,13 @@ describe("app space entry route", () => {
 			spaceId: "space-123",
 		});
 
-		const loadingState = screen.getByRole("status", {
-			name: "Checking profile",
-		});
+		// The profile check shows the same conversation frame the conversation
+		// replaces, not a centered status card.
+		expect(screen.getByText("Loading messages…")).toBeTruthy();
 		expect(
-			screen.getByRole("heading", { name: "Checking your profile" })
-		).toBeTruthy();
-		// Horizontal centering + text alignment stay on the loading state; the
-		// vertical centering now belongs to the app shell content body.
-		expect(loadingState.classList.contains("items-center")).toBe(true);
-		expect(loadingState.classList.contains("text-center")).toBe(true);
-		expect(loadingState.querySelector('[data-slot="card"]')).toBeNull();
+			screen.queryByRole("heading", { name: "Checking your profile" })
+		).toBeNull();
+		expect(document.querySelector('[data-slot="card"]')).toBeNull();
 		expect(screen.queryByTestId("space-landing")).toBeNull();
 		expect(appSpaceShellMock).not.toHaveBeenCalled();
 		expect(spaceWindowShellMock).toHaveBeenCalled();
@@ -483,11 +499,11 @@ describe("app space entry route", () => {
 		expect(getBootstrapMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				spaceId: "space-123",
-				historyQuery: {
+				historyQuery: expect.objectContaining({
 					recent: true,
 					limit: 30,
 					kinds: ["text", "status", "system_notice"],
-				},
+				}),
 			})
 		);
 		expect(await screen.findByTestId("space-landing")).toBeTruthy();
@@ -553,6 +569,100 @@ describe("app space entry route", () => {
 			undefined
 		);
 		expect(screen.queryByTestId("space-profile-required-state")).toBeNull();
+	});
+
+	it("gives every Space its own conversation state when switching Spaces", async () => {
+		const spaceIdsByInstance = new Map<object, Set<string>>();
+		spaceLandingMock.mockImplementation(({ spaceId }) => (
+			<StatefulSpaceLanding
+				onRender={(instance) => {
+					const seen = spaceIdsByInstance.get(instance) ?? new Set<string>();
+					seen.add(spaceId);
+					spaceIdsByInstance.set(instance, seen);
+				}}
+				spaceId={spaceId}
+			/>
+		));
+		const queryClient = createTestQueryClient();
+		const view = renderAppSpaceEntry({
+			profileId: "profile-123",
+			queryClient,
+			selectedHumanProfileId: "profile-123",
+			spaceId: "space-a",
+		});
+		await screen.findByTestId("space-landing");
+		fireEvent.change(screen.getByLabelText("Draft"), {
+			target: { value: "Draft for Space A" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Open Thread" }));
+		fireEvent.click(screen.getByRole("button", { name: "Select message" }));
+		fireEvent.click(screen.getByRole("button", { name: "Attach file" }));
+		expect(screen.getByTestId("open-thread").textContent).toBe(
+			"thread-space-a"
+		);
+
+		for (const spaceId of ["space-b", "space-a"]) {
+			view.rerender(buildAppSpaceEntryElement({ queryClient, spaceId }));
+			await waitFor(() =>
+				expect(
+					screen.getByTestId("space-landing").getAttribute("data-space-id")
+				).toBe(spaceId)
+			);
+			expect(
+				screen
+					.getByTestId("app-space-shell")
+					.getAttribute("data-current-space-id")
+			).toBe(spaceId);
+			// Draft, open Thread, selection, and pending uploads belong to the
+			// Space they were made in; the next Space starts from its own state.
+			expect((screen.getByLabelText("Draft") as HTMLInputElement).value).toBe(
+				""
+			);
+			expect(screen.getByTestId("open-thread").textContent).toBe("");
+			expect(screen.getByTestId("selected-signal").textContent).toBe("");
+			expect(screen.getByTestId("pending-uploads").textContent).toBe("0");
+		}
+		// No conversation instance is ever reused for a different Space.
+		expect(spaceIdsByInstance.size).toBe(3);
+		for (const seen of spaceIdsByInstance.values()) {
+			expect(seen.size).toBe(1);
+		}
+	});
+
+	it("commits the new Space selection before the next conversation mounts", async () => {
+		const pendingConversation = new Promise<never>(() => undefined);
+		spaceLandingMock.mockImplementation(({ spaceId }) => (
+			<SuspendingSpaceLanding
+				pending={spaceId === "space-b" ? pendingConversation : null}
+				spaceId={spaceId}
+			/>
+		));
+		const queryClient = createTestQueryClient();
+		const view = renderAppSpaceEntry({
+			profileId: "profile-123",
+			queryClient,
+			selectedHumanProfileId: "profile-123",
+			spaceId: "space-a",
+		});
+		expect(
+			(await screen.findByTestId("space-landing")).getAttribute("data-space-id")
+		).toBe("space-a");
+
+		act(() => {
+			view.rerender(
+				buildAppSpaceEntryElement({ queryClient, spaceId: "space-b" })
+			);
+		});
+
+		// The sidebar selection moves first, and the leaving Space is gone, while
+		// Space B is still rendering in the background.
+		expect(
+			screen
+				.getByTestId("app-space-shell")
+				.getAttribute("data-current-space-id")
+		).toBe("space-b");
+		expect(screen.queryByTestId("space-landing")).toBeNull();
+		expect(screen.getByText("Loading messages…")).toBeTruthy();
 	});
 
 	it("redirects a current Direct Message from its legacy Space URL to the canonical route", async () => {
@@ -646,6 +756,74 @@ describe("app space entry route", () => {
 		expect(await screen.findByTestId("space-landing")).toBeTruthy();
 	});
 
+	it("defers a quick return to the previous Space before the next one commits", async () => {
+		const pendingConversation = new Promise<never>(() => undefined);
+		let conversationsPending = false;
+		spaceLandingMock.mockImplementation(({ spaceId }) => (
+			<SuspendingSpaceLanding
+				pending={conversationsPending ? pendingConversation : null}
+				spaceId={spaceId}
+			/>
+		));
+		const queryClient = createTestQueryClient();
+		const view = renderAppSpaceEntry({
+			profileId: "profile-123",
+			queryClient,
+			selectedHumanProfileId: "profile-123",
+			spaceId: "space-a",
+		});
+		await screen.findByTestId("space-landing");
+		conversationsPending = true;
+
+		for (const spaceId of ["space-b", "space-a"]) {
+			// biome-ignore lint/suspicious/useAwait: act must be awaited while a conversation suspends.
+			await act(async () => {
+				view.rerender(buildAppSpaceEntryElement({ queryClient, spaceId }));
+			});
+			// Returning to A before B commits must not mount A inside the
+			// navigation update; it goes through the deferred frame like B.
+			expect(
+				screen
+					.getByTestId("app-space-shell")
+					.getAttribute("data-current-space-id")
+			).toBe(spaceId);
+			expect(screen.queryByTestId("space-landing")).toBeNull();
+			expect(screen.getByText("Loading messages…")).toBeTruthy();
+		}
+	});
+
+	it("commits the shell before a freshly mounted cached Direct Message conversation", async () => {
+		const queryClient = createTestQueryClient();
+		queryClient.setQueryData(
+			spaceQueryKeys.displaySnapshot("space-saved-dm", "profile-123"),
+			createSpaceConversationDisplaySnapshot(
+				createSpaceStatus({
+					spaceId: "space-saved-dm",
+					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+				})
+			)
+		);
+		const pendingConversation = new Promise<never>(() => undefined);
+		spaceLandingMock.mockImplementation(({ spaceId }) => (
+			<SuspendingSpaceLanding pending={pendingConversation} spaceId={spaceId} />
+		));
+
+		// Space to Direct Message replaces the route component, so the
+		// conversation mounts fresh rather than switching in place.
+		renderAppSpaceEntry({
+			navigationSurface: "directMessages",
+			profileId: "profile-123",
+			queryClient,
+			selectedHumanProfileId: "profile-123",
+			spaceId: "space-saved-dm",
+		});
+
+		const shell = await screen.findByTestId("app-direct-message-shell");
+		expect(shell.getAttribute("data-current-space-id")).toBe("space-saved-dm");
+		expect(screen.getByText("Loading messages…")).toBeTruthy();
+		expect(screen.queryByTestId("space-landing")).toBeNull();
+	});
+
 	it("preserves the exact focus target when a non-DM uses the Direct Messages URL", async () => {
 		mockBootstrapStatus(
 			createSpaceStatus({
@@ -682,7 +860,7 @@ describe("app space entry route", () => {
 		});
 	});
 
-	it("keeps a degraded three-member DM-origin Space on the Spaces route", async () => {
+	it("routes an unconverted DM-origin Space with three members to its Direct Message", async () => {
 		const queryClient = createTestQueryClient();
 		mockBootstrapStatus(
 			createSpaceStatus({
@@ -716,8 +894,15 @@ describe("app space entry route", () => {
 				)
 			).toBeDefined()
 		);
-		expect(await screen.findByTestId("space-landing")).toBeTruthy();
-		expect(navigateMock).not.toHaveBeenCalled();
+		// Only a recorded conversion makes a DM-origin conversation a Space;
+		// the member count does not.
+		await waitFor(() => {
+			expect(navigateMock).toHaveBeenCalledWith({
+				replace: true,
+				to: "/o/acme/chats/space-degraded-dm?profileId=profile-123",
+			});
+		});
+		expect(screen.queryByTestId("space-landing")).toBeNull();
 	});
 
 	it("keeps a converted two-member DM-origin Space on the Spaces route", async () => {
@@ -867,7 +1052,9 @@ describe("app space entry route", () => {
 		expect(
 			screen.getByRole("link", { name: "Back to Spaces" }).getAttribute("href")
 		).toBe("/o/acme/spaces");
-		expect(spaceLandingMock).not.toHaveBeenCalled();
+		// The draft conversation mounted while access was pending is removed once
+		// the resolver rejects it.
+		expect(screen.queryByTestId("space-landing")).toBeNull();
 	});
 
 	it("keeps an allowed public view in the App with its message target", async () => {
@@ -1063,6 +1250,80 @@ describe("app space entry route", () => {
 		expect(spaceLandingMock).not.toHaveBeenCalled();
 	});
 });
+
+function StatefulSpaceLanding(input: {
+	onRender: (instance: object) => void;
+	spaceId: string;
+}) {
+	const [instance] = useState(() => ({}));
+	const [draft, setDraft] = useState("");
+	const [openThreadId, setOpenThreadId] = useState<string | null>(null);
+	const [selectedSignalId, setSelectedSignalId] = useState<string | null>(null);
+	const [pendingUploadCount, setPendingUploadCount] = useState(0);
+	// Record on commit: React can discard a deferred render and rerun the
+	// state initializer, which would count an instance that never mounted.
+	const { onRender } = input;
+	useEffect(() => {
+		onRender(instance);
+	}, [instance, onRender]);
+	return (
+		<div data-space-id={input.spaceId} data-testid="space-landing">
+			<input
+				aria-label="Draft"
+				onChange={(event) => setDraft(event.target.value)}
+				value={draft}
+			/>
+			<button
+				onClick={() => setOpenThreadId(`thread-${input.spaceId}`)}
+				type="button"
+			>
+				Open Thread
+			</button>
+			<button
+				onClick={() => setSelectedSignalId(`signal-${input.spaceId}`)}
+				type="button"
+			>
+				Select message
+			</button>
+			<button
+				onClick={() => setPendingUploadCount((count) => count + 1)}
+				type="button"
+			>
+				Attach file
+			</button>
+			<output data-testid="open-thread">{openThreadId ?? ""}</output>
+			<output data-testid="selected-signal">{selectedSignalId ?? ""}</output>
+			<output data-testid="pending-uploads">{pendingUploadCount}</output>
+		</div>
+	);
+}
+
+function SuspendingSpaceLanding(input: {
+	pending: Promise<never> | null;
+	spaceId: string;
+}) {
+	if (input.pending) {
+		use(input.pending);
+	}
+	return <div data-space-id={input.spaceId} data-testid="space-landing" />;
+}
+
+function buildAppSpaceEntryElement(input: {
+	queryClient: ReturnType<typeof createTestQueryClient>;
+	spaceId: string;
+}) {
+	return (
+		<TestQueryClientProvider queryClient={input.queryClient}>
+			<StartFlowStateProvider storageScope="user-123">
+				<AppSpaceEntryContent
+					orgSlug="acme"
+					profileId="profile-123"
+					spaceId={input.spaceId}
+				/>
+			</StartFlowStateProvider>
+		</TestQueryClientProvider>
+	);
+}
 
 function renderAppSpaceEntry(input: {
 	focusInteractionId?: string;

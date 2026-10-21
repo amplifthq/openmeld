@@ -499,6 +499,10 @@ export const agentActivityDailySessionKeys = applicationTable(
   },
   (table) => [
     index("agent_activity_daily_session_keys_expiry_idx").on(table.expiresAtMs),
+    index("agent_activity_daily_session_keys_org_project_idx").on(
+      table.organizationId,
+      table.projectId
+    ),
     check(
       "agent_activity_daily_session_key_hash_check",
       sql`length("daily_session_key") = 71

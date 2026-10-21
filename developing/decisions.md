@@ -17,6 +17,11 @@
   conflicts with an owner doc means one of the two must be fixed in the same
   PR.
 
+2026-10-21: New Space Durable Objects are created with location hint `enam`,
+next to the PostgreSQL primary; existing Spaces are not moved and no
+jurisdiction is set. See `architecture/data-and-observability.md` (Space
+object location).
+
 2026-10-18: The **MemberAgent program** restructures local Agents around
 `MemberAgent` (organization × owner × harnessKind, derived state, no status
 column) → Agent Profile → Session. Vocabulary: MemberAgent / Harness / Agent

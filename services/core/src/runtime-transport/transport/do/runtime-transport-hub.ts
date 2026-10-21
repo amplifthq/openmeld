@@ -324,6 +324,7 @@ import { buildSystemNoticeText } from "@openmeld/space-mesh";
 import { publishAccountInvalidation } from "../../../account-invalidation/publish-account-invalidation";
 import { linkAcceptedAgentActivityExecutions } from "../../../agent-activity/activity-execution-link-repository";
 import {
+  type AgentExecutionReadinessImpactClearResult,
   clearAgentExecutionReadinessImpactForExecutionRunning,
   writeAgentExecutionReadinessImpact,
 } from "../../../agent-execution/infrastructure/postgresql/agent-execution-readiness-impact-repo";
@@ -9194,23 +9195,26 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (!db) {
       return;
     }
+    let clearResult: AgentExecutionReadinessImpactClearResult;
     try {
-      await clearAgentExecutionReadinessImpactForExecutionRunning({
-        agentProfileId:
-          input.tokenValidationContext.executionScope.targetProfileId,
-        clearedAtMs: Date.now(),
-        db,
-        executionAuthorizedAtMs: input.executionAuthorizedAtMs,
-        executionIdentity: {
-          bindingId: input.tokenValidationContext.authorityScope.bindingId,
-          agentControllerRef:
-            input.tokenValidationContext.authorityScope.agentControllerRef,
-          openMeldServiceRuntimeId:
-            input.tokenValidationContext.authorityScope
-              .openMeldServiceRuntimeId,
-        },
-        sourceDispatchId: input.request.dispatchId,
-      });
+      clearResult = await clearAgentExecutionReadinessImpactForExecutionRunning(
+        {
+          agentProfileId:
+            input.tokenValidationContext.executionScope.targetProfileId,
+          clearedAtMs: Date.now(),
+          db,
+          executionAuthorizedAtMs: input.executionAuthorizedAtMs,
+          executionIdentity: {
+            bindingId: input.tokenValidationContext.authorityScope.bindingId,
+            agentControllerRef:
+              input.tokenValidationContext.authorityScope.agentControllerRef,
+            openMeldServiceRuntimeId:
+              input.tokenValidationContext.authorityScope
+                .openMeldServiceRuntimeId,
+          },
+          sourceDispatchId: input.request.dispatchId,
+        }
+      );
     } catch (error) {
       console.warn(
         "[core.runtime_transport.running_readiness_impact_clear_failed]",
@@ -9224,6 +9228,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
             input.request.runtimeCoordinatorExecutionId ?? null,
         }
       );
+      return;
+    }
+    // Running lifecycle frames repeat for the whole run (progress and
+    // keepalive). Only a frame that actually cleared a readiness impact
+    // changes the readiness projection; re-broadcasting the rest makes every
+    // Space client refetch an unchanged verdict.
+    if (clearResult !== "cleared") {
       return;
     }
     this.publishAgentReadinessInvalidated({

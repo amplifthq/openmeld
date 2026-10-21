@@ -223,6 +223,28 @@ export function createBrowserQueryPersistenceController(
 		return result;
 	};
 
+	// Background flushes of segments the user navigated away from. A clear
+	// must wait for them, or a late write could restore cleared account data.
+	const pendingFlushes = new Set<Promise<void>>();
+	const trackPendingFlush = (flush: Promise<void> | undefined) => {
+		if (!flush) {
+			return;
+		}
+		const tracked: Promise<void> = flush
+			.catch((error: unknown) =>
+				console.error("Could not save a browser read cache snapshot.", error)
+			)
+			.finally(() => {
+				pendingFlushes.delete(tracked);
+			});
+		pendingFlushes.add(tracked);
+	};
+	const settlePendingFlushes = async () => {
+		while (pendingFlushes.size > 0) {
+			await Promise.all(pendingFlushes);
+		}
+	};
+
 	const activateSegment = async (options: {
 		/** Runs once the saved queries are in the cache, if still current. */
 		onRestored?: () => void;
@@ -248,7 +270,22 @@ export function createBrowserQueryPersistenceController(
 		}
 
 		if (!options.readOnly) {
-			await current?.flushPending?.();
+			// The flush captures the outgoing segment's snapshot synchronously,
+			// while it is still current, so navigation need not wait for the
+			// storage write. Only a reload of the same saved scope reads what
+			// the flush writes; every clear settles pending flushes first.
+			const flush = current?.flushPending?.();
+			if (
+				current &&
+				current.scopeKind === options.scopeKind &&
+				current.ownerAccountId === options.ownerAccountId &&
+				current.scopeAlias === options.scopeAlias &&
+				current.scopeId === options.scopeId
+			) {
+				await flush;
+			} else {
+				trackPendingFlush(flush);
+			}
 			current?.unsubscribe?.();
 		}
 		const scope: QueryCacheScope = {
@@ -415,6 +452,7 @@ export function createBrowserQueryPersistenceController(
 		deactivateSegments(true);
 		removeAllKnownQueries();
 		try {
+			await settlePendingFlushes();
 			await input.store.clearAll();
 			unknownOwnerCleanupRequired = false;
 			diagnostics.record({
@@ -435,6 +473,7 @@ export function createBrowserQueryPersistenceController(
 		deactivateSegments(false);
 		removeKnownQueries({ ownerAccountId });
 		try {
+			await settlePendingFlushes();
 			await input.store.clearAccount(ownerAccountId);
 			diagnostics.record({
 				event: "clear_succeeded",
@@ -733,6 +772,7 @@ export function createBrowserQueryPersistenceController(
 					scopeKind: "space",
 				} satisfies QueryCacheScope;
 				try {
+					await settlePendingFlushes();
 					await input.store
 						.createStorage(scope)
 						.removeItem(PERSISTED_QUERY_STORAGE_KEY);
@@ -795,6 +835,7 @@ export function createBrowserQueryPersistenceController(
 					ownerAccountId,
 				});
 				try {
+					await settlePendingFlushes();
 					await input.store.clearOrganization(ownerAccountId, organizationId);
 					diagnostics.record({
 						event: "clear_succeeded",
@@ -839,6 +880,7 @@ export function createBrowserQueryPersistenceController(
 					scopeAlias: organizationSlug,
 				});
 				try {
+					await settlePendingFlushes();
 					await input.store.clearOrganizationBySlug(
 						ownerAccountId,
 						organizationSlug

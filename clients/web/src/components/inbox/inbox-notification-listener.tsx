@@ -36,6 +36,11 @@ import {
 } from "#/lib/inbox/client-notifications";
 import { isNotificationConversationVisible } from "#/lib/inbox/desktop-notifications";
 import { createInboxNotificationObserver } from "#/lib/inbox/notification-observer";
+import {
+	CONNECTED_INBOX_RECOVERY_POLL_INTERVAL_MS,
+	createInboxObservationBackoff,
+	resolveInboxObservationPollInterval,
+} from "#/lib/inbox/observation-poll-policy";
 import { requestInboxSourceFocus } from "#/lib/inbox/source-focus-request";
 import {
 	buildInboxItemSourceNavigation,
@@ -53,11 +58,6 @@ import {
 } from "#/query/organizations/inbox";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 
-const INBOX_NOTIFICATION_POLL_INTERVAL_MS = 10_000;
-// The cursor response is empty between events; only a new Space message
-// refreshes the full account Space directory.
-const VISIBLE_INBOX_OBSERVATION_POLL_INTERVAL_MS = 1000;
-const CONNECTED_INBOX_RECOVERY_POLL_INTERVAL_MS = 30_000;
 const INBOX_NOTIFICATION_RETRY_INTERVAL_MS = 10_000;
 const INBOX_NOTIFICATION_PENDING_FETCH_CONCURRENCY = 6;
 const EMPTY_RECOVERED_PENDING_ITEMS: NotificationInboxItem[] = [];
@@ -149,6 +149,7 @@ export function InboxNotificationListener(input: {
 		}),
 		refetchInterval: false,
 	});
+	const refetchSummary = summaryQuery.refetch;
 	const attentionSummary = summaryQuery.data;
 	const attention = useMemo(
 		() =>
@@ -198,6 +199,27 @@ export function InboxNotificationListener(input: {
 		}),
 		[input.organizationId, input.userId, notificationsEnabled]
 	);
+	const [observationBackoff] = useState(() => createInboxObservationBackoff());
+	const streamConnected = connectedStreamScope === streamScope;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a stream state change restarts the disconnected backoff.
+	useEffect(() => {
+		observationBackoff.reset();
+	}, [observationBackoff, streamConnected]);
+	useEffect(() => {
+		// Returning to the window restarts the disconnected backoff; TanStack
+		// Query's own focus refetch performs the immediate read.
+		const restart = () => {
+			if (document.visibilityState === "visible") {
+				observationBackoff.reset();
+			}
+		};
+		document.addEventListener("visibilitychange", restart);
+		window.addEventListener("focus", restart);
+		return () => {
+			document.removeEventListener("visibilitychange", restart);
+			window.removeEventListener("focus", restart);
+		};
+	}, [observationBackoff]);
 	const itemsQuery = useQuery({
 		queryKey: [
 			...inboxQueryKeys.organization(input.organizationId),
@@ -209,21 +231,25 @@ export function InboxNotificationListener(input: {
 		enabled: true,
 		gcTime: 0,
 		staleTime: 0,
+		// The cursor response is empty between events; only a new Space message
+		// refreshes the full account Space directory.
 		refetchInterval: (query) => {
-			if (query.state.data?.hasMore) {
-				return VISIBLE_INBOX_OBSERVATION_POLL_INTERVAL_MS;
-			}
-			if (
-				typeof document !== "undefined" &&
-				document.visibilityState === "visible"
-			) {
-				return connectedStreamScope === streamScope
-					? CONNECTED_INBOX_RECOVERY_POLL_INTERVAL_MS
-					: VISIBLE_INBOX_OBSERVATION_POLL_INTERVAL_MS;
-			}
-			return notificationsEnabled && !desktop
-				? INBOX_NOTIFICATION_POLL_INTERVAL_MS
-				: false;
+			// A failed read leaves the previous page in place; only a page from
+			// the latest read counts for draining or as fresh activity.
+			const dataIsCurrent =
+				(query.state.dataUpdatedAt ?? 0) >= (query.state.errorUpdatedAt ?? 0);
+			return resolveInboxObservationPollInterval({
+				hasMore: dataIsCurrent && Boolean(query.state.data?.hasMore),
+				sawItems: dataIsCurrent && (query.state.data?.items?.length ?? 0) > 0,
+				visible:
+					typeof document !== "undefined" &&
+					document.visibilityState === "visible",
+				streamConnected,
+				notificationsEnabled,
+				desktop: Boolean(desktop),
+				fetchKey: `${query.state.dataUpdatedAt ?? 0}:${query.state.errorUpdatedAt ?? 0}`,
+				backoff: observationBackoff,
+			});
 		},
 		refetchIntervalInBackground: notificationsEnabled,
 	});
@@ -233,6 +259,7 @@ export function InboxNotificationListener(input: {
 		let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 		let pingTimer: ReturnType<typeof setInterval> | null = null;
 		let spaceRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+		let summaryRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 		let connection: ReturnType<typeof createAccountInvalidationTransport> =
 			null;
 		let retryCount = 0;
@@ -266,6 +293,26 @@ export function InboxNotificationListener(input: {
 					refreshSpaces();
 				}
 			}, 75);
+		};
+		// The observation cursor only reports insertions. A read or resolve
+		// elsewhere changes the Desktop tray count without a new item, so push
+		// refreshes the summary directly, coalesced across bursts. Web reads its
+		// summary through its own mounted observers.
+		const scheduleSummaryRefresh = () => {
+			if (!desktop || summaryRefreshTimer) {
+				return;
+			}
+			summaryRefreshTimer = setTimeout(() => {
+				summaryRefreshTimer = null;
+				if (stopped) {
+					return;
+				}
+				refetchSummary({ cancelRefetch: false }).catch((error: unknown) =>
+					console.warn("[openmeld.desktop.inbox_summary_refresh_failed]", {
+						error,
+					})
+				);
+			}, 1000);
 		};
 		const connect = () => {
 			if (stopped) {
@@ -313,6 +360,7 @@ export function InboxNotificationListener(input: {
 				}
 				if (frame.type === "inbox.changed") {
 					refreshInbox();
+					scheduleSummaryRefresh();
 				} else {
 					scheduleSpaceRefresh();
 				}
@@ -345,6 +393,9 @@ export function InboxNotificationListener(input: {
 			if (spaceRefreshTimer) {
 				clearTimeout(spaceRefreshTimer);
 			}
+			if (summaryRefreshTimer) {
+				clearTimeout(summaryRefreshTimer);
+			}
 			connection?.close();
 		};
 	}, [
@@ -352,6 +403,7 @@ export function InboxNotificationListener(input: {
 		input.organizationId,
 		itemsQuery.refetch,
 		queryClient,
+		refetchSummary,
 		streamScope,
 	]);
 	const feedIdentity = `${input.organizationId}:${input.organizationSlug}:${input.userId}:${notificationsEnabled}`;
@@ -460,9 +512,27 @@ export function InboxNotificationListener(input: {
 		userId: input.userId,
 		visibleConversation,
 	});
+	const streamConnectedRef = useRef(streamConnected);
+	useLayoutEffect(() => {
+		streamConnectedRef.current = streamConnected;
+	}, [streamConnected]);
+	const lastNativePollAtRef = useRef(0);
 	useEffect(
 		() =>
 			desktop?.onNotificationPoll(() => {
+				// Push already refreshes the feed while the stream is connected, so
+				// the native cadence only repairs missed frames on the recovery
+				// interval. Without push it keeps the hidden-window tray and native
+				// notifications current.
+				const now = Date.now();
+				if (
+					streamConnectedRef.current &&
+					now - lastNativePollAtRef.current <
+						CONNECTED_INBOX_RECOVERY_POLL_INTERVAL_MS
+				) {
+					return;
+				}
+				lastNativePollAtRef.current = now;
 				summaryQuery.refetch({ cancelRefetch: false }).catch((error: unknown) =>
 					console.warn("[openmeld.desktop.inbox_summary_refresh_failed]", {
 						error,

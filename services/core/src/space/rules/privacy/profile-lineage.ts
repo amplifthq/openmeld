@@ -37,6 +37,57 @@ export async function loadCreatorProfileIdsByOwnerUserId(input: {
   }
 }
 
+// Lineage decides whether a same-owner viewer may see an Agent's local origin
+// facts and which Profiles outrank a Wake's target, so a cached copy must not
+// keep granting access long after Auth changed it (for example, after an
+// intermediate Agent Profile was deleted). A copy is usable only while it is
+// younger than the maximum age and covers every Profile the Space currently
+// needs; past the refresh age it is still served while one background reload
+// replaces it, so warm Spaces do not wait on Auth at the boundary.
+export const PROFILE_LINEAGE_CACHE_REFRESH_AGE_MS = 8 * 60 * 1000;
+export const PROFILE_LINEAGE_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
+
+export type CachedProfileLineage = {
+  creatorProfileIdByProfileId: CreatorProfileIdsByProfileId;
+  // Profiles the read was expected to cover, including ones Auth no longer
+  // lists. Absent entries stay absent (fail closed) without forcing reloads.
+  coveredProfileIds: readonly string[];
+  fetchedAtMs: number;
+};
+
+export type CachedProfileLineageUse = "fresh" | "refresh" | "reload";
+
+export function classifyCachedProfileLineage(input: {
+  cached: CachedProfileLineage | null;
+  nowMs: number;
+  requiredProfileIds: Iterable<string>;
+}): CachedProfileLineageUse {
+  const cached = input.cached;
+  if (!cached) {
+    return "reload";
+  }
+  const ageMs = input.nowMs - cached.fetchedAtMs;
+  if (
+    !Number.isFinite(ageMs) ||
+    ageMs < 0 ||
+    ageMs >= PROFILE_LINEAGE_CACHE_MAX_AGE_MS
+  ) {
+    return "reload";
+  }
+  const covered = new Set(cached.coveredProfileIds);
+  for (const profileId of input.requiredProfileIds) {
+    if (
+      !(
+        covered.has(profileId) ||
+        Object.hasOwn(cached.creatorProfileIdByProfileId, profileId)
+      )
+    ) {
+      return "reload";
+    }
+  }
+  return ageMs >= PROFILE_LINEAGE_CACHE_REFRESH_AGE_MS ? "refresh" : "fresh";
+}
+
 export async function resolveViewerCreatorProfileIdsByProfileId(input: {
   authRpc?: CoreBindings["OPENMELD_AUTH_WORKER"];
   viewerOwnerUserId?: string;
