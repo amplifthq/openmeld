@@ -23,6 +23,7 @@ import {
 	subscribeToAccountAuthChanges,
 } from "#/query/auth-boundary";
 import { AgentAvatarProfilesProvider } from "#/query/profiles/agent-avatar-context";
+import { AccountSessionObserver } from "./account-session-observer";
 import {
 	type AppShellAccount,
 	AppShellAccountContext,
@@ -58,6 +59,7 @@ export function AppShell(input: {
 	return (
 		<AppShellAccountContext.Provider value={input.account}>
 			<AccountAuthChangeListener />
+			<AccountSessionObserver />
 			<AppOrganizationProvider scope={input.organizationScope}>
 				<AgentAvatarProfilesProvider
 					organizationId={input.organizationScope.currentOrganization.id}

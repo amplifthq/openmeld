@@ -25,6 +25,28 @@ function clientFor(payload: unknown, status = 200) {
 }
 
 describe("account session read boundary", () => {
+  it("retains the outgoing request ID when renewal cannot reach Auth", async () => {
+    let requestId: string | null = null;
+    const client = createOpenMeldApiClient({
+      baseUrl: "https://openmeld.test",
+      transport: createFetchTransport({
+        fetch: (_url, init) => {
+          requestId = new Headers(init?.headers).get("x-request-id");
+          return Promise.reject(new TypeError("fetch failed"));
+        },
+      }),
+    });
+    const error = await readAccountSession(client).catch(
+      (failure: unknown) => failure
+    );
+    expect(requestId).toBeTruthy();
+    expect(error).toMatchObject({
+      code: "network.request_failed",
+      operation: "account.session.read",
+      requestId,
+    });
+  });
+
   it.each([
     200, 401, 403, 500, 503,
   ])("preserves HTTP %s semantics", async (status) => {

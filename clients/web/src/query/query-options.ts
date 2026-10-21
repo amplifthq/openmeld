@@ -13,7 +13,7 @@ import { userQueryKeys } from "#/query/query-keys";
 export const sessionQueryOptionsClient = () =>
 	queryOptions({
 		queryKey: userQueryKeys.session,
-		queryFn: getSession,
+		queryFn: ({ signal }) => getSession(signal),
 		...baseQueryOptions,
 	});
 
