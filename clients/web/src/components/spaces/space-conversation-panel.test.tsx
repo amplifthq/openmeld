@@ -5906,6 +5906,91 @@ describe("SpaceConversationPanel", () => {
 			);
 		});
 
+		it("keeps the history rail's placement for a target it has to mount first", async () => {
+			const matchMedia = createMatchMediaMock();
+			vi.stubGlobal("matchMedia", (query: string) => ({
+				...matchMedia(query),
+				matches:
+					query === "(min-width: 640px) and (hover: hover) and (pointer: fine)",
+			}));
+			localStorage.setItem("openmeld.space.history-slider", "on");
+			const open = vi.fn(async () => true);
+			renderSpaceConversationPanel({
+				historyNavigation: createTestHistoryNavigation({
+					directory: {
+						total: 120,
+						entries: [
+							{
+								signalId: "message-5",
+								endSignalId: "message-5",
+								startAt: 0,
+								endAt: 1,
+								count: 1,
+								author: "Felix",
+								preview: "Message 5",
+							},
+						],
+					},
+					open,
+				}),
+				timelineItems: createLongConversation(120),
+			});
+			const log = screen.getByRole("log", { name: "Conversation history" });
+			setElementScrollMetrics(log, {
+				clientHeight: 300,
+				scrollHeight: 12_000,
+				scrollTop: 11_700,
+			});
+			const geometry = vi
+				.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+				.mockImplementation(function (this: HTMLElement) {
+					if (this === log) {
+						return domRect({ top: 0, bottom: 300 });
+					}
+					if (this.dataset.signalId === "message-5") {
+						const top = 1000 - log.scrollTop;
+						return domRect({ top, bottom: top + 60 });
+					}
+					return domRect({ top: 0, bottom: 0 });
+				});
+			expect(readMountedMessageIds(log)).not.toContain("message-5");
+			const tick = document.querySelector(".space-history-tick");
+			if (!tick) {
+				throw new Error("Expected a history rail target");
+			}
+
+			fireEvent.click(tick);
+
+			await waitFor(() =>
+				expect(document.activeElement?.getAttribute("data-signal-id")).toBe(
+					"message-5"
+				)
+			);
+			// The rail asks for its target 24px below the visible top.
+			expect(log.scrollTop).toBe(976);
+			geometry.mockRestore();
+		});
+
+		it("names the first mounted day while its date marker is not mounted", () => {
+			const firstDayMs = new Date(2026, 4, 27, 6, 0).getTime();
+			renderSpaceConversationPanel({
+				hasEarlierHistory: false,
+				timelineItems: Array.from({ length: 120 }, (_, index) =>
+					createTimelineItem({
+						createdAtMs: firstDayMs + index * 6 * 60 * 1000,
+						id: `message-${index + 1}`,
+						text: `Message ${index + 1}`,
+					})
+				),
+			});
+			const log = screen.getByRole("log", { name: "Conversation history" });
+
+			expect(log.querySelector("[data-conversation-date-marker]")).toBeNull();
+			expect(
+				document.querySelector("[data-slot='conversation-date-pill-surface']")
+			).toBeTruthy();
+		});
+
 		it("mounts a saved reading anchor above the newest window", () => {
 			writeSpaceConversationPosition(
 				"human-profile-1:space-conversation:space-view-test",

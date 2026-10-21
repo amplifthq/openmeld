@@ -29,6 +29,11 @@ const EMPTY_STICKY_DATE_STATE: StickyDateState = {
 
 export function SpaceConversationStickyDate(input: {
 	afterDate?: ReactNode;
+	/**
+	 * The date of mounted content above the first date marker, when that
+	 * marker belongs to an entry that is loaded but not mounted yet.
+	 */
+	leadingDateMs?: number | null;
 	loadedSignalCount: number;
 	onJumpToDate?: (date: Date) => Promise<string | null>;
 	scrollElement: HTMLDivElement | null;
@@ -41,7 +46,8 @@ export function SpaceConversationStickyDate(input: {
 	const stickyDate = useStickyConversationDate(
 		input.scrollElement,
 		input.topOverlayElement,
-		datePillElement
+		datePillElement,
+		input.leadingDateMs ?? null
 	);
 
 	if (stickyDate.activeDateMs === null && !input.afterDate) {
@@ -108,11 +114,13 @@ export function SpaceConversationStickyDate(input: {
 function useStickyConversationDate(
 	scrollElement: HTMLDivElement | null,
 	topOverlayElement: HTMLDivElement | null,
-	datePillElement: HTMLDivElement | null
+	datePillElement: HTMLDivElement | null,
+	leadingDateMs: number | null
 ) {
 	const [stickyDate, setStickyDate] = useState<StickyDateState>(
 		EMPTY_STICKY_DATE_STATE
 	);
+	const leadingDateMsRef = useRef(leadingDateMs);
 	const stuckPillRef = useRef<HTMLElement | null>(null);
 	const syncFrameRef = useRef<number | null>(null);
 	// The floating pill owns its counterpart in the flow. Crossing a date must
@@ -182,42 +190,33 @@ function useStickyConversationDate(
 		const markers = Array.from(
 			scrollElement.querySelectorAll<HTMLElement>(DATE_MARKER_SELECTOR)
 		);
-		if (markers.length === 0) {
+		const leadingDate = leadingDateMsRef.current;
+		if (markers.length === 0 && leadingDate === null) {
 			setStuckMarker(null);
 			setStickyDate(EMPTY_STICKY_DATE_STATE);
 			return;
 		}
 
-		const scrollElementStyle = getComputedStyle(scrollElement);
-		const stickyTopValue = Number.parseFloat(
-			scrollElementStyle.getPropertyValue(STICKY_TOP_PROPERTY)
-		);
-		const stickyTop = Number.isFinite(stickyTopValue) ? stickyTopValue : 0;
-		const scrollPaddingTopValue = Number.parseFloat(
-			scrollElementStyle.paddingTop
-		);
-		const scrollPaddingTop = Number.isFinite(scrollPaddingTopValue)
-			? scrollPaddingTopValue
-			: 0;
 		const datePillHeightPx = resolveDatePillHeightPx(datePillElement);
-		const markerHeightPx = markers[0]?.getBoundingClientRect().height ?? 48;
-		const markerActivationTop =
-			scrollElement.getBoundingClientRect().top +
-			scrollPaddingTop +
-			stickyTop +
-			STICKY_DATE_TOP_OFFSET_PX +
-			(datePillHeightPx - markerHeightPx) / 2;
+		const markerActivationTop = resolveMarkerActivationTop({
+			datePillHeightPx,
+			markerHeightPx: markers[0]?.getBoundingClientRect().height ?? 48,
+			scrollElement,
+		});
 		const activeMarkerIndex = resolveActiveMarkerIndex(
 			markers,
 			markerActivationTop
 		);
-		if (activeMarkerIndex < 0) {
+		if (activeMarkerIndex < 0 && leadingDate === null) {
 			setStuckMarker(null);
 			setStickyDate(EMPTY_STICKY_DATE_STATE);
 			return;
 		}
 
-		const activeDateMs = resolveMarkerDateMs(markers[activeMarkerIndex]);
+		const activeDateMs =
+			activeMarkerIndex < 0
+				? leadingDate
+				: resolveMarkerDateMs(markers[activeMarkerIndex]);
 		if (activeDateMs === null) {
 			return;
 		}
@@ -254,6 +253,14 @@ function useStickyConversationDate(
 			syncStickyDate();
 		});
 	}, [syncStickyDate]);
+
+	useLayoutEffect(() => {
+		if (leadingDateMsRef.current === leadingDateMs) {
+			return;
+		}
+		leadingDateMsRef.current = leadingDateMs;
+		scheduleStickyDateSync();
+	}, [leadingDateMs, scheduleStickyDateSync]);
 
 	useLayoutEffect(() => {
 		// Keep the reserved space through date-pill observer changes. Clearing it
@@ -333,6 +340,31 @@ function resolveDatePillHeightPx(datePillElement: HTMLDivElement | null) {
 	return Number.isFinite(measuredHeight) && measuredHeight > 0
 		? Math.ceil(measuredHeight)
 		: DEFAULT_DATE_PILL_HEIGHT_PX;
+}
+
+function resolveMarkerActivationTop(input: {
+	datePillHeightPx: number;
+	markerHeightPx: number;
+	scrollElement: HTMLElement;
+}) {
+	const scrollElementStyle = getComputedStyle(input.scrollElement);
+	const stickyTopValue = Number.parseFloat(
+		scrollElementStyle.getPropertyValue(STICKY_TOP_PROPERTY)
+	);
+	const stickyTop = Number.isFinite(stickyTopValue) ? stickyTopValue : 0;
+	const scrollPaddingTopValue = Number.parseFloat(
+		scrollElementStyle.paddingTop
+	);
+	const scrollPaddingTop = Number.isFinite(scrollPaddingTopValue)
+		? scrollPaddingTopValue
+		: 0;
+	return (
+		input.scrollElement.getBoundingClientRect().top +
+		scrollPaddingTop +
+		stickyTop +
+		STICKY_DATE_TOP_OFFSET_PX +
+		(input.datePillHeightPx - input.markerHeightPx) / 2
+	);
 }
 
 function resolveActiveMarkerIndex(

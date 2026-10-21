@@ -195,6 +195,7 @@ import {
 import { SpaceComposerWorkBookmarks } from "./space-work-bookmarks";
 import { useSpaceComposerTraySpace } from "./use-space-composer-region";
 import {
+	getSpaceConversationVisibleTop,
 	type SpaceConversationRestorationStatus,
 	useSpaceConversationPosition,
 } from "./use-space-conversation-position";
@@ -873,6 +874,10 @@ function SpaceConversationPanelContent(
 											targets={input.unreadTargets ?? []}
 										/>
 									}
+									leadingDateMs={resolveConversationLeadingDateMs(
+										entries,
+										renderWindow.startIndex
+									)}
 									loadedSignalCount={loadedMainTimelineSignalIds.size}
 									onJumpToDate={input.onJumpToDate}
 									scrollElement={conversationScrollElement}
@@ -1574,54 +1579,72 @@ function useSpaceConversationNavigationController(input: {
 		},
 		[]
 	);
-	const [pendingPinJump, setPendingPinJump] = useState<string | null>(null);
+	const [pendingPinJump, setPendingPinJump] =
+		useState<SpaceConversationPendingJump | null>(null);
 	// Loaded covers messages above the mounted window, which jumps mount first.
 	const isConversationMessageLoaded = (signalId: string) =>
 		messageElementsBySignalIdRef.current.has(signalId) ||
 		renderWindow.isHiddenSignal(signalId);
-	const jumpToMessage = useLatestCallback((requestedSignalId: string) => {
-		const signalId = resolveConversationFocusSignalId(
-			input.mainTimelineItems,
-			requestedSignalId
-		);
-		const messageElement = messageElementsBySignalIdRef.current.get(signalId);
-		if (!messageElement) {
-			// A loaded message above the mounted window: mount it, then jump
-			// once its element exists (see the pending jump effect below).
-			if (renderWindow.revealSignal(signalId)) {
-				setPendingPinJump(signalId);
+	const jumpToMessage = useLatestCallback(
+		(requestedSignalId: string, options?: SpaceConversationJumpOptions) => {
+			const signalId = resolveConversationFocusSignalId(
+				input.mainTimelineItems,
+				requestedSignalId
+			);
+			const messageElement = messageElementsBySignalIdRef.current.get(signalId);
+			if (!messageElement) {
+				// A loaded message above the mounted window: mount it, then jump
+				// once its element exists (see the pending jump effect below).
+				if (renderWindow.revealSignal(signalId)) {
+					setPendingPinJump({ ...options, signalId });
+				}
+				return;
 			}
-			return;
+			conversationPosition.releaseReadingPosition();
+			messageScrollActionRef.current?.(signalId, {
+				align: "center",
+				behavior: "instant",
+			});
+			const scrollElement = conversationScrollRef.current;
+			if (scrollElement) {
+				scrollMessageIntoConversationViewport({
+					messageElement,
+					scrollElement,
+				});
+			} else {
+				messageElement.scrollIntoView({ block: "center" });
+			}
+			if (
+				scrollElement &&
+				options?.offsetFromVisibleTop !== undefined &&
+				Number.isFinite(options.offsetFromVisibleTop)
+			) {
+				scrollElement.scrollTop +=
+					messageElement.getBoundingClientRect().top -
+					getSpaceConversationVisibleTop(scrollElement) -
+					options.offsetFromVisibleTop;
+			}
+			messageElement.focus({ preventScroll: true });
+			setHighlightedSignalId(signalId);
+			if (highlightMessageTimerRef.current !== null) {
+				window.clearTimeout(highlightMessageTimerRef.current);
+			}
+			highlightMessageTimerRef.current = window.setTimeout(() => {
+				highlightMessageTimerRef.current = null;
+				setHighlightedSignalId(null);
+			}, 1800);
 		}
-		conversationPosition.releaseReadingPosition();
-		messageScrollActionRef.current?.(signalId, {
-			align: "center",
-			behavior: "instant",
-		});
-		const scrollElement = conversationScrollRef.current;
-		if (scrollElement) {
-			scrollMessageIntoConversationViewport({ messageElement, scrollElement });
-		} else {
-			messageElement.scrollIntoView({ block: "center" });
+	);
+	const onJumpToMessage = useLatestCallback(
+		(signalId: string, options?: SpaceConversationJumpOptions) => {
+			if (input.activeSpaceView === "messages") {
+				jumpToMessage(signalId, options);
+				return;
+			}
+			input.onSpaceViewChange("messages");
+			window.requestAnimationFrame(() => jumpToMessage(signalId, options));
 		}
-		messageElement.focus({ preventScroll: true });
-		setHighlightedSignalId(signalId);
-		if (highlightMessageTimerRef.current !== null) {
-			window.clearTimeout(highlightMessageTimerRef.current);
-		}
-		highlightMessageTimerRef.current = window.setTimeout(() => {
-			highlightMessageTimerRef.current = null;
-			setHighlightedSignalId(null);
-		}, 1800);
-	});
-	const onJumpToMessage = useLatestCallback((signalId: string) => {
-		if (input.activeSpaceView === "messages") {
-			jumpToMessage(signalId);
-			return;
-		}
-		input.onSpaceViewChange("messages");
-		window.requestAnimationFrame(() => jumpToMessage(signalId));
-	});
+	);
 	const onOpenThread = useLatestCallback(
 		async (threadId: string, signalId?: string) => {
 			const thread = [...input.threadsByRootSignalId.values()].find(
@@ -1664,19 +1687,21 @@ function useSpaceConversationNavigationController(input: {
 		if (
 			!(
 				pendingPinJump &&
-				input.mainTimelineItems.some((item) => item.id === pendingPinJump)
+				input.mainTimelineItems.some(
+					(item) => item.id === pendingPinJump.signalId
+				)
 			)
 		) {
 			return;
 		}
-		if (messageElementsBySignalIdRef.current.has(pendingPinJump)) {
-			jumpToMessage(pendingPinJump);
+		if (messageElementsBySignalIdRef.current.has(pendingPinJump.signalId)) {
+			jumpToMessage(pendingPinJump.signalId, pendingPinJump);
 			setPendingPinJump(null);
 			return;
 		}
 		// A loaded target above the render window, for example one a history
 		// load placed beyond the newest entries: mount it, then jump next commit.
-		renderWindow.revealSignal(pendingPinJump);
+		renderWindow.revealSignal(pendingPinJump.signalId);
 	}, [
 		pendingPinJump,
 		input.mainTimelineItems,
@@ -1694,7 +1719,7 @@ function useSpaceConversationNavigationController(input: {
 				if (result === "latest") {
 					followLatest();
 				} else {
-					setPendingPinJump(signalId);
+					setPendingPinJump({ signalId });
 				}
 			}
 		);
@@ -2007,6 +2032,15 @@ function SpacePrimaryView(input: {
 		</>
 	);
 }
+
+export type SpaceConversationJumpOptions = {
+	/** Place the message this far below the visible top, instead of centering it. */
+	offsetFromVisibleTop?: number;
+};
+
+type SpaceConversationPendingJump = SpaceConversationJumpOptions & {
+	signalId: string;
+};
 
 function resolveConversationFocusSignalId(
 	items: readonly SpaceTimelineItem[],
@@ -2733,6 +2767,27 @@ function renderConversationBody(input: {
 			{memberAgentCardIsIssue ? memberAgentCardItem : null}
 		</>
 	);
+}
+
+/**
+ * While older entries are not mounted, the first mounted entry can share its
+ * day with them, so its date marker is not mounted either. The sticky date
+ * still names that day.
+ */
+function resolveConversationLeadingDateMs(
+	entries: readonly SpaceConversationEntry[],
+	startIndex: number
+): number | null {
+	const first = entries[startIndex];
+	const previous = entries[startIndex - 1];
+	if (!(first && previous)) {
+		return null;
+	}
+	const firstCreatedAtMs = resolveConversationEntryCreatedAtMs(first);
+	return resolveLocalDateKey(new Date(firstCreatedAtMs)) ===
+		resolveLocalDateKey(new Date(resolveConversationEntryCreatedAtMs(previous)))
+		? firstCreatedAtMs
+		: null;
 }
 
 function resolveConversationEntryCreatedAtMs(
