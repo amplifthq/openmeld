@@ -48,6 +48,7 @@ type StreamdownParent = Parameters<NonNullable<BlockProps["allowElement"]>>[2];
 const MAX_CACHED_BLOCKS = 1500;
 const MAX_CACHED_BLOCK_CHARACTERS = 600_000;
 const MAX_CACHED_SPLITS = 500;
+const MAX_CACHED_SPLIT_CHARACTERS = 600_000;
 const MAX_CACHED_PROCESSORS = 64;
 const EMPTY_PLUGINS: PluggableList = [];
 const REMARK_REHYPE_OPTIONS = { allowDangerousHtml: true } as const;
@@ -57,6 +58,7 @@ type CachedBlock = { element: ReactElement; size: number };
 const blocks = new Map<string, CachedBlock>();
 let cachedBlockCharacters = 0;
 const splits = new Map<string, string[]>();
+let cachedSplitCharacters = 0;
 const processors = new Map<string, Processor<Root, Root, Root>>();
 const identityIds = new WeakMap<object, number>();
 let nextIdentityId = 1;
@@ -90,8 +92,22 @@ export function parseMarkdownIntoCachedBlocks(markdown: string): string[] {
 		return cached;
 	}
 	const result = parseMarkdownIntoBlocks(markdown);
+	if (markdown.length > MAX_CACHED_SPLIT_CHARACTERS) {
+		return result;
+	}
 	splits.set(markdown, result);
-	evictOldest(splits, MAX_CACHED_SPLITS);
+	cachedSplitCharacters += markdown.length;
+	while (
+		splits.size > MAX_CACHED_SPLITS ||
+		cachedSplitCharacters > MAX_CACHED_SPLIT_CHARACTERS
+	) {
+		const oldest = splits.keys().next().value;
+		if (oldest === undefined) {
+			break;
+		}
+		splits.delete(oldest);
+		cachedSplitCharacters -= oldest.length;
+	}
 	return result;
 }
 
@@ -380,10 +396,16 @@ export function clearMarkdownBlockCache() {
 	blocks.clear();
 	cachedBlockCharacters = 0;
 	splits.clear();
+	cachedSplitCharacters = 0;
 	processors.clear();
 }
 
 /** Test support: the number of cached rendered blocks. */
 export function readMarkdownBlockCacheSize(): number {
 	return blocks.size;
+}
+
+/** Test-only view of how many split results are retained. */
+export function readMarkdownSplitCacheSize(): number {
+	return splits.size;
 }

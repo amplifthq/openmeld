@@ -9,6 +9,7 @@ import {
 	clearMarkdownBlockCache,
 	MarkdownBlockCacheScope,
 	readMarkdownBlockCacheSize,
+	readMarkdownSplitCacheSize,
 } from "./markdown-block-cache";
 import { MessageResponse } from "./message-response";
 
@@ -219,5 +220,19 @@ describe("markdown block cache", () => {
 		);
 
 		expect(screen.getByText("Grace")).toBeTruthy();
+	});
+
+	it("does not retain a message larger than the cache budget", () => {
+		const paragraph = "word ".repeat(2000);
+		const huge = Array.from({ length: 70 }, () => paragraph).join("\n\n");
+		const view = render(
+			<MessageResponse variant="space-message">{huge}</MessageResponse>
+		);
+		view.unmount();
+		render(
+			<MessageResponse variant="space-message">Small note</MessageResponse>
+		);
+
+		expect(readMarkdownSplitCacheSize()).toBe(1);
 	});
 });
