@@ -7,6 +7,38 @@ describe("web OpenMeld boundary server read diagnostics", () => {
 		vi.restoreAllMocks();
 	});
 
+	it.each([
+		"192.0.2.1",
+		"2001:db8::1",
+		undefined,
+	])("preserves only the edge IP through the real SSR proxy (%s)", async (clientIp) => {
+		const fetchImpl = vi.fn<typeof fetch>(async () =>
+			Response.json({ ok: true })
+		);
+		const result = await readJsonFromWebOpenMeldBoundary({
+			path: `/v1/spaces/${"a".repeat(64)}/board`,
+			requestHeaders: new Headers({
+				cookie: "session=fixture",
+				"x-real-ip": "203.0.113.1",
+				"x-forwarded-for": "203.0.113.2",
+				...(clientIp ? { "cf-connecting-ip": clientIp } : {}),
+			}),
+			webAppUrl: "https://app.openmeld.test",
+			gatewayUrl: "https://gateway.openmeld.test",
+			operation: "read board",
+			invalidMessage: "Invalid board",
+			schema: z.object({ ok: z.boolean() }),
+			fetchImpl,
+		});
+		expect(result).toEqual({ ok: true });
+		expect(fetchImpl).toHaveBeenCalledOnce();
+		const headers = new Headers(fetchImpl.mock.calls[0]?.[1]?.headers);
+		expect(headers.get("x-real-ip")).toBe(clientIp ?? null);
+		expect(headers.get("cf-connecting-ip")).toBeNull();
+		expect(headers.get("x-forwarded-for")).toBeNull();
+		expect(headers.get("cookie")).toBe("session=fixture");
+	});
+
 	it("classifies runtime fetch throws before an upstream response exists", async () => {
 		const consoleErrorSpy = vi
 			.spyOn(console, "error")

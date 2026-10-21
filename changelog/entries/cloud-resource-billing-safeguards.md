@@ -13,3 +13,4 @@ Long file transfers also keep their connection active until the operation ends.
 Slack recovery slows down during a prolonged outage without discarding messages.
 Public reads and CLI downloads have request limits, and CLI releases use edge
 caching to reduce repeated storage reads.
+Web-proxied public reads preserve the visitor IP for Gateway request limits.
