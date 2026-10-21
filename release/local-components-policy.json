@@ -2,11 +2,11 @@
   "version": "0.3.268",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Test tooling only: Vitest 4 and the Cloudflare Vitest plugin replace the deprecated Workers pool, with no shipped CLI code, command, or wire-contract change; the mandatory CLI floor stays at 0.3.251."
+    "reason": "Local agent checks no longer report a healthy agent as unable to start: an unfinished install check keeps the install usable, report renewal is paced from each pass start with a bounded check pool, and test tooling moves to Vitest 4. Older CLIs keep working with current Core, so the mandatory CLI floor stays at 0.3.251."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "The mandatory Service floor remains 0.3.264. Only test dependencies and the lockfile change; Service transport, execution, and Wake contracts are unchanged."
+    "reason": "Background local agent reports now renew inside Core's two-minute check window (cadence from pass start, three checks at a time) and an unfinished launch check no longer reports repair. Older Services stay compatible, and Core alone already stops showing an expired report as Can't start, so the mandatory Service floor remains 0.3.264."
   },
   "skills": {
     "updatePolicy": "available",
