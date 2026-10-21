@@ -26,16 +26,34 @@ export const SPACE_INITIAL_HISTORY_MAX_MESSAGES = 30;
 // initial page size. Eviction affects saved history, not the mounted reader.
 export const SPACE_SAVED_HISTORY_MAX_BYTES = 2 * 1024 * 1024;
 
+// Cached query data is immutable and merges keep unchanged envelopes by
+// reference, so each envelope's serialized size is measured once instead of
+// re-serializing up to 2 MB of retained history on every cache write.
+const savedEnvelopeBytes = new WeakMap<SignalEnvelope, number>();
+const envelopeSizeEncoder = new TextEncoder();
+
+export function measureSavedSpaceEnvelopeBytes(
+	envelope: SignalEnvelope
+): number {
+	let size = savedEnvelopeBytes.get(envelope);
+	if (size === undefined) {
+		size = envelopeSizeEncoder.encode(JSON.stringify(envelope)).byteLength;
+		savedEnvelopeBytes.set(envelope, size);
+	}
+	return size;
+}
+
 export function boundSavedSpaceHistory(
 	envelopes: readonly SignalEnvelope[]
 ): readonly SignalEnvelope[] {
 	let bytes = 0;
 	let start = envelopes.length;
-	const encoder = new TextEncoder();
 	while (start > 0) {
-		const size = encoder.encode(
-			JSON.stringify(envelopes[start - 1])
-		).byteLength;
+		const envelope = envelopes[start - 1];
+		if (envelope === undefined) {
+			break;
+		}
+		const size = measureSavedSpaceEnvelopeBytes(envelope);
 		if (bytes + size > SPACE_SAVED_HISTORY_MAX_BYTES) {
 			break;
 		}

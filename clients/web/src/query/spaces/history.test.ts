@@ -205,6 +205,43 @@ describe("space history helpers", () => {
 		).toBeLessThan(SPACE_SAVED_HISTORY_MAX_BYTES);
 		expect(messages).toHaveLength(6);
 	});
+	it("measures each retained envelope once across repeated merges, with exact UTF-8 sizes", () => {
+		const messages = Array.from(
+			{ length: 5 },
+			(_, i) =>
+				({
+					...createTextSignal({ id: `wide-${i}`, ts: i }),
+					// Multi-byte text: UTF-16 length would undercount the saved bytes.
+					data: { text: "é".repeat(300 * 1024) },
+				}) as SignalEnvelope
+		);
+		const stringify = vi.spyOn(JSON, "stringify");
+		try {
+			const first = boundSavedSpaceHistory(messages);
+			const measured = stringify.mock.calls.length;
+			expect(measured).toBeGreaterThan(0);
+			expect(boundSavedSpaceHistory(messages)).toEqual(first);
+			expect(stringify.mock.calls.length).toBe(measured);
+			const next = {
+				...createTextSignal({ id: "wide-5", ts: 5 }),
+				data: { text: "short" },
+			} as SignalEnvelope;
+			boundSavedSpaceHistory([...messages, next]);
+			expect(stringify.mock.calls.length).toBe(measured + 1);
+		} finally {
+			stringify.mockRestore();
+		}
+		const bounded = boundSavedSpaceHistory(messages);
+		// Each 600 KiB UTF-8 message fits three times within 2 MiB, not four.
+		expect(bounded.map((message) => message.id)).toEqual([
+			"wide-2",
+			"wide-3",
+			"wide-4",
+		]);
+		expect(
+			new TextEncoder().encode(JSON.stringify(bounded)).byteLength
+		).toBeLessThan(SPACE_SAVED_HISTORY_MAX_BYTES);
+	});
 	afterEach(() => {
 		vi.clearAllMocks();
 	});
