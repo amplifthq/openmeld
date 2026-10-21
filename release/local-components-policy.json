@@ -2,7 +2,7 @@
   "version": "0.3.266",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Security dependency refresh (MCP SDK 1.32.1, proxy-addr 2.0.8) with no command, flag, or wire-contract change; the mandatory CLI floor stays at 0.3.251."
+    "reason": "Shows the MemberAgent agent and session commands now that MEMBER_AGENTS_ENABLED is on, and refreshes security dependencies (MCP SDK 1.32.1, proxy-addr 2.0.8). Older CLIs keep working and only hide those commands, so the mandatory CLI floor stays at 0.3.251."
   },
   "service": {
     "updatePolicy": "available",
