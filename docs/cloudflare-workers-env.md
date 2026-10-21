@@ -232,7 +232,7 @@ Workers, and verifies the public entry points. See
   - `AUTH_DESKTOP_DEVELOPMENT_TARGET` (empty normally; `disposable` only on an isolated local backend shared with Auth)
 - `wrangler.jsonc` `env.stg.services` / `env.prod.services`
   - `OPENMELD_GATEWAY_WORKER` -> `openmeld-gateway-stg` / `openmeld-gateway-prod`
-    (no top-level binding; see Gateway proxy transport below)
+    (no top-level binding; see Gateway proxy transport above)
 - `.dev.vars` / `.dev.vars.prod`
   - `WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET`
 - Cloudflare production secrets
