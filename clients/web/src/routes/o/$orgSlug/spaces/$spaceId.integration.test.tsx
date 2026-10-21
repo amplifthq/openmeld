@@ -228,7 +228,8 @@ describe("app space entry route", () => {
 			view: { experience: "member", state: "allowed" },
 		});
 		spaceProfileRequiredStateMock.mockClear();
-		spaceLandingMock.mockClear();
+		// Restores the stateless default after tests that install their own.
+		spaceLandingMock.mockReset();
 	});
 
 	afterEach(() => {
@@ -749,6 +750,38 @@ describe("app space entry route", () => {
 
 		expect(await screen.findByTestId("app-direct-message-shell")).toBeTruthy();
 		expect(await screen.findByTestId("space-landing")).toBeTruthy();
+	});
+
+	it("commits the shell before a freshly mounted cached Direct Message conversation", async () => {
+		const queryClient = createTestQueryClient();
+		queryClient.setQueryData(
+			spaceQueryKeys.displaySnapshot("space-saved-dm", "profile-123"),
+			createSpaceConversationDisplaySnapshot(
+				createSpaceStatus({
+					spaceId: "space-saved-dm",
+					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+				})
+			)
+		);
+		const pendingConversation = new Promise<never>(() => undefined);
+		spaceLandingMock.mockImplementation(({ spaceId }) => (
+			<SuspendingSpaceLanding pending={pendingConversation} spaceId={spaceId} />
+		));
+
+		// Space to Direct Message replaces the route component, so the
+		// conversation mounts fresh rather than switching in place.
+		renderAppSpaceEntry({
+			navigationSurface: "directMessages",
+			profileId: "profile-123",
+			queryClient,
+			selectedHumanProfileId: "profile-123",
+			spaceId: "space-saved-dm",
+		});
+
+		const shell = await screen.findByTestId("app-direct-message-shell");
+		expect(shell.getAttribute("data-current-space-id")).toBe("space-saved-dm");
+		expect(screen.getByText("Loading messages…")).toBeTruthy();
+		expect(screen.queryByTestId("space-landing")).toBeNull();
 	});
 
 	it("preserves the exact focus target when a non-DM uses the Direct Messages URL", async () => {
