@@ -27,6 +27,8 @@ jobs:
   validate:
     name: Validate Release Source
     runs-on: ubuntu-latest
+    outputs:
+      release_sha: ${{ steps.source.outputs.release_sha }}
     steps:
       - name: Require main
         if: github.ref != 'refs/heads/main'
@@ -51,10 +53,14 @@ jobs:
           working_directory: release-control
 
       - name: Require the SHA on main first-parent history
+        id: source
         working-directory: release-control
         env:
           RELEASE_SHA: ${{ inputs.release_sha }}
-        run: node scripts/release/require-mainline-release-sha.mjs "$RELEASE_SHA" refs/remotes/origin/main
+        run: |
+          set -euo pipefail
+          node scripts/release/require-mainline-release-sha.mjs "$RELEASE_SHA" refs/remotes/origin/main
+          echo "release_sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
 
   windows_helper:
     name: Build Windows Process Helper
@@ -68,7 +74,7 @@ jobs:
         with: { path: release-control, persist-credentials: false, ref: "${{ github.sha }}" }
       - name: Checkout release source
         uses: actions/checkout@v5
-        with: { path: release-source, persist-credentials: false, ref: "${{ inputs.release_sha }}" }
+        with: { path: release-source, persist-credentials: false, ref: "${{ needs.validate.outputs.release_sha }}" }
       - name: Setup toolchain
         uses: ./release-control/.github/actions/setup-node-pnpm
         with: { working_directory: release-source, control_directory: release-control }
@@ -80,7 +86,7 @@ jobs:
           OPENMELD_RELEASE_SOURCE_ROOT: ${{ github.workspace }}/release-source
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-process-${{ inputs.release_sha }}
+          name: windows-process-${{ needs.validate.outputs.release_sha }}
           path: |
             release-source/cli/dist/openmeld-windows-process.exe
             release-source/cli/dist/windows-process-artifact.json
@@ -89,7 +95,7 @@ jobs:
 
   publish:
     name: Publish CLI
-    needs: windows_helper
+    needs: [validate, windows_helper]
     runs-on: macos-15
     timeout-minutes: 45
     environment: production
@@ -98,7 +104,7 @@ jobs:
       contents: write
       id-token: write
     env:
-      RELEASE_SHA: ${{ inputs.release_sha }}
+      RELEASE_SHA: ${{ needs.validate.outputs.release_sha }}
       DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
     defaults: { run: { working-directory: release-source } }
     steps:
@@ -107,11 +113,11 @@ jobs:
         with: { path: release-control, persist-credentials: false, ref: "${{ github.sha }}" }
       - name: Checkout release source
         uses: actions/checkout@v5
-        with: { path: release-source, persist-credentials: false, ref: "${{ inputs.release_sha }}" }
+        with: { path: release-source, persist-credentials: false, ref: "${{ needs.validate.outputs.release_sha }}" }
       - name: Use the Windows helper built for this source
         uses: actions/download-artifact@v4
         with:
-          name: windows-process-${{ inputs.release_sha }}
+          name: windows-process-${{ needs.validate.outputs.release_sha }}
           path: release-source/cli/dist
       - name: Setup toolchain
         if: inputs.dry_run != true
@@ -142,7 +148,7 @@ jobs:
 
   npm_consumers:
     name: npm Install / Node ${{ matrix.node }} / ${{ matrix.os }}
-    needs: publish
+    needs: [validate, publish]
     if: inputs.dry_run != true
     strategy:
       fail-fast: false
@@ -158,7 +164,7 @@ jobs:
         with: { path: release-control, persist-credentials: false, ref: "${{ github.sha }}" }
       - name: Checkout release source
         uses: actions/checkout@v5
-        with: { path: release-source, persist-credentials: false, ref: "${{ inputs.release_sha }}" }
+        with: { path: release-source, persist-credentials: false, ref: "${{ needs.validate.outputs.release_sha }}" }
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}

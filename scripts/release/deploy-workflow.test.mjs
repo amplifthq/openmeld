@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -18,6 +18,9 @@ const GITHUB_SHA_EXPRESSION = "${{ github.sha }}";
 const INPUT_SHA_EXPRESSION = "${{ inputs.sha }}";
 // biome-ignore lint/suspicious/noTemplateCurlyInString: GitHub Actions expression text.
 const CLI_INPUT_SHA_EXPRESSION = "${{ inputs.release_sha }}";
+const VALIDATED_CLI_SHA_EXPRESSION =
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: GitHub Actions expression text.
+  "${{ needs.validate.outputs.release_sha }}";
 const cloudComponents = COMPONENTS.filter((entry) => entry.name !== "cli");
 const jobName = (component) => component.replaceAll("-", "_");
 
@@ -182,10 +185,6 @@ test("only the validate job checks the SHA, from release control on main", () =>
     );
     assert.equal(guard.env.RELEASE_SHA, source);
     assert.equal(guard["working-directory"], "release-control");
-    assert.equal(
-      guard.run,
-      'node scripts/release/require-mainline-release-sha.mjs "$RELEASE_SHA" refs/remotes/origin/main'
-    );
     assert.ok(steps.indexOf(refresh) < steps.indexOf(guard));
   }
   for (const [name, job] of Object.entries(deploy.jobs)) {
@@ -224,6 +223,53 @@ test("only the validate job checks the SHA, from release control on main", () =>
     ).with.control_directory,
     "release-control"
   );
+});
+
+test("the CLI source validator emits its SHA only after the mainline guard succeeds", () => {
+  const directory = mkdtempSync(join(tmpdir(), "openmeld-cli-source-"));
+  const guard = cliRelease.jobs.validate.steps.find(
+    (step) => step.name === "Require the SHA on main first-parent history"
+  );
+  const releaseSha = "a".repeat(40);
+  try {
+    writeFileSync(
+      join(directory, "node"),
+      '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$NODE_ARGUMENTS"\nexit "$NODE_STATUS"\n',
+      { mode: 0o755 }
+    );
+    for (const status of [1, 0]) {
+      const output = join(directory, `output-${status}.txt`);
+      const argumentsPath = join(directory, `arguments-${status}.txt`);
+      writeFileSync(output, "");
+      const result = spawnSync("bash", ["-c", guard.run], {
+        cwd: new URL("../../", import.meta.url),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${directory}:${process.env.PATH}`,
+          GITHUB_OUTPUT: output,
+          NODE_ARGUMENTS: argumentsPath,
+          NODE_STATUS: String(status),
+          RELEASE_SHA: releaseSha,
+        },
+      });
+      assert.equal(result.status, status, result.stderr);
+      assert.equal(
+        readFileSync(argumentsPath, "utf8"),
+        `scripts/release/require-mainline-release-sha.mjs\n${releaseSha}\nrefs/remotes/origin/main\n`
+      );
+      assert.equal(
+        readFileSync(output, "utf8"),
+        status === 0 ? `release_sha=${releaseSha}\n` : ""
+      );
+    }
+    assert.equal(
+      cliRelease.jobs.validate.outputs.release_sha,
+      `\${{ steps.${guard.id}.outputs.release_sha }}`
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("database and Core jobs name the PostgreSQL release credentials they need", () => {
@@ -278,7 +324,10 @@ test("the top-level CLI publisher gates its helper and OIDC publication on sourc
   assert.equal(cliRelease.on.workflow_dispatch.inputs.dry_run.default, false);
   assert.equal(deploy.jobs.cli, undefined);
   assert.deepEqual(cliRelease.jobs.windows_helper.needs, "validate");
-  assert.deepEqual(cliRelease.jobs.publish.needs, "windows_helper");
+  assert.deepEqual(cliRelease.jobs.publish.needs, [
+    "validate",
+    "windows_helper",
+  ]);
   for (const name of ["windows_helper", "publish"]) {
     assert.equal(cliRelease.jobs[name].if, undefined);
   }
@@ -289,14 +338,21 @@ test("the top-level CLI publisher gates its helper and OIDC publication on sourc
     "id-token": "write",
   });
   assert.ok(!JSON.stringify(cliRelease).includes("windows_artifact_run_id"));
-  assert.deepEqual(cliRelease.jobs.npm_consumers.needs, "publish");
+  assert.deepEqual(cliRelease.jobs.npm_consumers.needs, [
+    "validate",
+    "publish",
+  ]);
+  assert.equal(
+    cliRelease.jobs.publish.env.RELEASE_SHA,
+    VALIDATED_CLI_SHA_EXPRESSION
+  );
   assert.equal(
     cliRelease.jobs.windows_helper.steps.find(
       (step) => step.name === "Setup toolchain"
     ).with.control_directory,
     "release-control"
   );
-  for (const name of ["windows_helper", "npm_consumers"]) {
+  for (const name of ["windows_helper", "publish", "npm_consumers"]) {
     const job = cliRelease.jobs[name];
     assert.equal(job.defaults.run["working-directory"], "release-source");
     const checkouts = job.steps.filter((step) =>
@@ -307,14 +363,25 @@ test("the top-level CLI publisher gates its helper and OIDC publication on sourc
       ["release-control", "release-source"]
     );
     assert.equal(checkouts[0].with.ref, GITHUB_SHA_EXPRESSION);
-    assert.equal(checkouts[1].with.ref, CLI_INPUT_SHA_EXPRESSION);
+    assert.equal(checkouts[1].with.ref, VALIDATED_CLI_SHA_EXPRESSION);
+    assert.ok(!JSON.stringify(job).includes("inputs.release_sha"), name);
+    for (const step of job.steps.filter((step) =>
+      String(step.uses ?? "").includes("artifact@")
+    )) {
+      assert.equal(
+        step.with.name,
+        `windows-process-${VALIDATED_CLI_SHA_EXPRESSION}`
+      );
+    }
     for (const step of job.steps.filter((step) =>
       String(step.run ?? "").includes("scripts/release/")
     )) {
       assert.ok(step.run.includes("../release-control/scripts/release/"));
-      assert.ok(
-        step.env.OPENMELD_RELEASE_SOURCE_ROOT.endsWith("/release-source")
-      );
+      if (name !== "publish") {
+        assert.ok(
+          step.env.OPENMELD_RELEASE_SOURCE_ROOT.endsWith("/release-source")
+        );
+      }
     }
   }
 });
