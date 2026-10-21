@@ -191,7 +191,7 @@
     "ignoreDependency": [
       "better-sqlite3",
       "vite@7.3.7",
-      "vite@8.1.2"
+      "vite@8.1.6"
     ]
   },
   "engines": {

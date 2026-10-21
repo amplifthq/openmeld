@@ -82,6 +82,37 @@ describe("web OpenMeld boundary server read diagnostics", () => {
 		});
 	});
 
+	it("carries only the session cookie and edge client address into the Gateway read", async () => {
+		const proxyRequestImpl = vi.fn(async (_input: { request: Request }) =>
+			Response.json({ availability: "resolved", deviceId: "device-1" })
+		);
+
+		await expect(
+			readJsonFromWebOpenMeldBoundary({
+				gatewayUrl: "https://gateway.openmeld.test",
+				invalidMessage: "Invalid current device target response",
+				operation: "resolve current device target",
+				path: "/v1/devices/current",
+				proxyRequestImpl,
+				requestHeaders: new Headers({
+					authorization: "Bearer forged",
+					"cf-connecting-ip": "203.0.113.7",
+					cookie: "session=abc",
+				}),
+				schema: z.strictObject({
+					availability: z.literal("resolved"),
+					deviceId: z.string(),
+				}),
+				webAppUrl: "https://openmeld.test",
+			})
+		).resolves.toEqual({ availability: "resolved", deviceId: "device-1" });
+
+		const request = proxyRequestImpl.mock.calls[0]?.[0].request;
+		expect(request?.headers.get("cookie")).toBe("session=abc");
+		expect(request?.headers.get("cf-connecting-ip")).toBe("203.0.113.7");
+		expect(request?.headers.get("authorization")).toBeNull();
+	});
+
 	it("classifies non-2xx boundary responses as upstream HTTP failures", async () => {
 		const consoleErrorSpy = vi
 			.spyOn(console, "error")

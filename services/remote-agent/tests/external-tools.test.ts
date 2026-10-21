@@ -122,14 +122,17 @@ describe("Remote Agent external tools", () => {
     });
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/openrouter/chat/completions"),
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          "cf-aig-authorization": "Bearer test-ai-gateway-token",
-          "cf-aig-byok-alias": "openrouter",
-        }),
-        method: "POST",
-      })
+      expect.objectContaining({ method: "POST" })
     );
+    const providerInit = fetchMock.mock.calls[0]?.[1];
+    const providerHeaders = new Headers(providerInit?.headers);
+    expect(providerHeaders.get("cf-aig-authorization")).toBe(
+      "Bearer test-ai-gateway-token"
+    );
+    expect(providerHeaders.has("cf-aig-byok-alias")).toBe(false);
+    // The explicit output cap bounds the platform credit hold.
+    expect(JSON.parse(String(providerInit?.body)).max_tokens).toBe(8192);
+    expect(JSON.parse(String(providerInit?.body)).max_tool_calls).toBe(3);
     expect(writeDataPoint).toHaveBeenCalledWith(
       expect.objectContaining({
         indexes: ["org_123"],

@@ -1743,8 +1743,9 @@ empty baseline, not historical replay; subsequent pages are retained before the
 cursor advances. This avoids first-page loss during bursts and delayed source
 projection. A visible Web window must also have document focus to suppress its
 current-conversation notification or automatically mark a message read.
-While visible, the same lightweight cursor is checked every second even when
-browser notifications are off. A new Space message invalidates the account
+While visible, the same lightweight cursor is checked even when browser
+notifications are off, on the cadence described under the account invalidation
+stream. A new Space message invalidates the account
 Space directory, which remains the authority for sidebar previews; the five
 second directory poll still covers membership and delayed projections.
 
@@ -3961,6 +3962,14 @@ polling covers missed frames and older Desktop builds.
 Short-lived stream connections retain reconnect backoff until a keepalive
 round trip succeeds. Disconnect resumes polling; reconnect refreshes the owning
 projections. A disconnect alone does not trigger another full directory read.
+While the stream is connected, the Inbox observation cursor and Desktop's
+native refresh tick repair missed frames on a 30-second recovery cadence.
+While it is disconnected in a visible window, the observation cursor backs off
+from one second to a 30-second cap with jitter, and restarts at one second on
+reconnect, focus, visibility, or a page with new observations. Remaining pages
+still drain at one second. Direct Message previews that the Space index has not
+projected yet are read once, not polled per chat: the next message projects the
+preview, and the owning account Space and Center Agent session lists refresh it.
 
 Authenticated route loaders may warm these same Query keys during SSR and let
 the existing TanStack Router SSR Query integration hydrate them on direct entry.

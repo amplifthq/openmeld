@@ -495,6 +495,65 @@ origin SQL execution time or proof of Hyperdrive queue delay. Compare it with
 PlanetScale query insights and parent/caller spans before assigning a cause.
 Overlapping spans must not be added together.
 
+## Space open read path
+
+Opening a Space reads bootstrap, members, and entry resolution. Their slow
+inputs are cross-service reads (Auth Profile lineage, PostgreSQL membership,
+account images); none of the rules below changes an authorization or response
+contract.
+
+- **Profile lineage.** Auth owns Profile lineage. A Space keeps the last
+  confirmed read per owner in its SQLite (`space_profile_lineage`, schema v54)
+  together with the active Profiles that read covered. Lineage authorizes
+  origin facts and dispatch-continuity authority, so a copy is usable only
+  while it is under 10 minutes old and covers every active Profile of that
+  owner; from 8 minutes it is still served while one background read refreshes
+  it. An expired or incomplete copy is reloaded before use, and a failed
+  reload fails closed. Bootstrap starts the viewer's lineage read before its
+  branches authorize, so the read overlaps authorization instead of following
+  it. Live fan-out to open WebSocket sessions reads the same bounded copy
+  when it sends; sessions hold no lineage of their own, so an expired copy
+  stops disclosing origin facts until a fresh read restores it.
+- **Member display copies.** Account images (from PostgreSQL users) and Agent
+  avatar choices (from the Auth Profile facts read that also refreshes member
+  name snapshots) are display-only copies in `space_member_owner_avatar_cache`
+  and `space_member_profile_display_cache`. Identity-only members snapshots
+  (`includeAgentReadiness=false`) serve them when every active member has a
+  confirmed row under 24 hours old, and refresh rows older than 5 minutes in
+  one background run that owns its PostgreSQL scope; a change broadcasts
+  `space.members.changed`. A null value is a confirmed absence; failed reads
+  write nothing. These rows never feed access, readiness, or Wake policy.
+  Readiness snapshots keep request-scoped Auth Profile facts.
+- **Thread previews.** A thread preview renders one line per reply, so
+  bootstrap and thread-preview reads carry a text reply longer than 1,000
+  characters only through the end of the line it shows
+  (`boundThreadReplyPreviewText` in `@openmeld/space`). That line is never
+  cut, so its links and formatting render exactly as before on every client.
+  Placements stay complete; opening the Thread reads full signals.
+- **Organization membership.** Concurrent membership checks for one caller
+  inside a Space object share one in-flight PostgreSQL read; nothing is kept
+  after it settles. Entry resolution reads membership and the route slug in
+  one query and overlaps it with the Space access check, keeping the previous
+  error precedence.
+- **Member activity scans.** Latest activity and join-notice scans filter on
+  the indexed `space_signals.type` and `profile_id`/`profile_kind` columns,
+  which are written from the same envelope at insert and never change; only
+  system notices parse their payload. A members read backfills once per
+  request.
+
+### Space object location
+
+New Space Durable Objects are created with location hint `enam` (eastern
+North America), next to the production PostgreSQL primary in AWS us-east-1
+and the production Gateway placement (`aws:us-east-1`). Every Space stub is acquired through
+`getSpaceStubById` in `services/core/src/rpc/space-ref.ts`. A hint applies only
+when an object is first created: existing Spaces stay where they are, and no
+jurisdiction is set. The trade-off is longer client-to-object WebSocket and
+RPC latency for members far from North America in exchange for short
+object-to-PostgreSQL and object-to-Auth round trips, which dominate Space open
+today. Compare live Space open timing from Asia and Europe before extending
+this to other object classes or migrating existing Spaces.
+
 ## Boundary
 
 OpenMeld data and observability exist to support the main product chain:

@@ -57,6 +57,18 @@ export type ResolveProfileForOwnerInput = {
   fallbackUserEmail?: string | null;
 };
 
+export type ResolvePrimaryHumanAndRequestedProfileInput =
+  EnsurePrimaryHumanProfileInput & {
+    profileId?: string | null;
+    profileKind?: AuthProfileKind | null;
+  };
+
+// The requested Profile settles separately: its failure is a Profile result,
+// while a primary Human Profile failure fails the whole request.
+export type RequestedProfileResolution =
+  | { ok: true; profile: OpenMeldProfileRecord }
+  | { ok: false; error: unknown };
+
 export type ListProfilesForOwnerEnsuringPrimaryHumanProfileInput = {
   ownerUserId: string;
   userName?: string | null;
@@ -285,6 +297,90 @@ export function createOpenMeldProfileService(
     }
 
     throw new Error("failed to ensure primary human profile");
+  };
+
+  const requireActiveOwnedProfile = (
+    profile: OpenMeldProfileRecord | null,
+    requestedProfileKind: AuthProfileKind | null
+  ): OpenMeldProfileRecord => {
+    if (profile?.status !== "active") {
+      throw new ProfileNotFoundError();
+    }
+    if (requestedProfileKind && profile.profileKind !== requestedProfileKind) {
+      throw new ProfileNotFoundError();
+    }
+    return profile;
+  };
+
+  // Request-auth hot path: one read answers both the primary Human Profile
+  // and the requested Profile. For unchanged state, outcomes match
+  // ensurePrimaryHumanProfile followed by resolveProfileForOwner; both
+  // answers now come from one snapshot instead of two reads.
+  const resolvePrimaryHumanAndRequestedProfileForOwner = async (
+    input: ResolvePrimaryHumanAndRequestedProfileInput
+  ): Promise<{
+    primaryHumanProfile: OpenMeldProfileRecord;
+    requestedProfile: RequestedProfileResolution;
+  }> => {
+    const userId = normalizeRequiredText(input.userId, "userId");
+    let profileId: string | null;
+    let requestedProfileKind: AuthProfileKind | null;
+    try {
+      profileId = normalizeOptionalProfileId(input.profileId, "profileId");
+      requestedProfileKind = normalizeProfileKind(input.profileKind);
+    } catch (error) {
+      return {
+        primaryHumanProfile: await ensurePrimaryHumanProfile(input),
+        requestedProfile: { ok: false, error },
+      };
+    }
+    if (!profileId) {
+      const primaryHumanProfile = await ensurePrimaryHumanProfile(input);
+      return {
+        primaryHumanProfile,
+        requestedProfile: { ok: true, profile: primaryHumanProfile },
+      };
+    }
+
+    const { defaultHumanProfile, ownedProfile } =
+      await repository.findDefaultHumanAndOwnedProfile(userId, profileId);
+    let primaryHumanProfile: OpenMeldProfileRecord;
+    let requestedRow: OpenMeldProfileRecord | null;
+    if (defaultHumanProfile) {
+      assertPrimaryHumanProfile(defaultHumanProfile, userId);
+      primaryHumanProfile =
+        await ensurePrimaryProfileIsActiveAndDefault(defaultHumanProfile);
+      requestedRow =
+        ownedProfile?.profileId === primaryHumanProfile.profileId
+          ? primaryHumanProfile
+          : ownedProfile;
+    } else {
+      // First-login bootstrap writes the primary Human Profile, so the
+      // requested row is read only after that write.
+      primaryHumanProfile = await ensurePrimaryHumanProfile(input);
+      try {
+        requestedRow = await repository.findByOwnerAndProfileId(
+          userId,
+          profileId
+        );
+      } catch (error) {
+        return { primaryHumanProfile, requestedProfile: { ok: false, error } };
+      }
+    }
+    try {
+      return {
+        primaryHumanProfile,
+        requestedProfile: {
+          ok: true,
+          profile: requireActiveOwnedProfile(
+            requestedRow,
+            requestedProfileKind
+          ),
+        },
+      };
+    } catch (error) {
+      return { primaryHumanProfile, requestedProfile: { ok: false, error } };
+    }
   };
 
   const resolveProfileHandleForOwner = async (input: {
@@ -689,24 +785,12 @@ export function createOpenMeldProfileService(
         });
       }
 
-      const profile = await repository.findByOwnerAndProfileId(
-        ownerUserId,
-        profileId
+      return requireActiveOwnedProfile(
+        await repository.findByOwnerAndProfileId(ownerUserId, profileId),
+        requestedProfileKind
       );
-
-      if (profile?.status !== "active") {
-        throw new ProfileNotFoundError();
-      }
-
-      if (
-        requestedProfileKind &&
-        profile.profileKind !== requestedProfileKind
-      ) {
-        throw new ProfileNotFoundError();
-      }
-
-      return profile;
     },
+    resolvePrimaryHumanAndRequestedProfileForOwner,
     createAgentProfile: async (
       input: CreateAgentProfileInput
     ): Promise<OpenMeldProfileRecord> => {

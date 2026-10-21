@@ -1126,6 +1126,7 @@ import {
   readOrganizationRouteSlug,
   resolveActiveOrganizationMembership,
   resolveOrganizationMembershipById,
+  resolveOrganizationMembershipWithRouteSlug,
   resolveOrganizationOwnerOrAdminMembership,
 } from "../organizations/organization-context";
 import {
@@ -21592,17 +21593,22 @@ export async function rpcGetSpaceEntryResolution(
   }
   const spaceAccess = resolveRpcSpaceAccess(input);
   const context = getSpaceAccessRequestContext(spaceAccess) ?? undefined;
+  // The Space authorizes entry independently of the Organization audience, so
+  // both reads start together. The audience still settles first to keep its
+  // errors ahead of any access error, as when the reads ran in sequence.
+  const accessPromise = resolveSpaceEntryAccess({
+    env,
+    spaceAccess,
+    spaceId: target.spaceId,
+  });
+  accessPromise.catch(() => undefined);
   const { organizationMember, organizationSlug } =
     await resolveSpaceEntryOrganizationAudience({
       context,
       env,
       organizationId: indexed.organizationId,
     });
-  const access = await resolveSpaceEntryAccess({
-    env,
-    spaceAccess,
-    spaceId: target.spaceId,
-  });
+  const access = await accessPromise;
   const guest =
     !organizationMember && context
       ? (await resolveSpaceStub(
@@ -21673,7 +21679,7 @@ async function resolveSpaceEntryOrganizationAudience(input: {
   if (!callerPrincipalId) {
     return { organizationMember: false, organizationSlug: null };
   }
-  const membership = await resolveOrganizationMembershipById({
+  const membership = await resolveOrganizationMembershipWithRouteSlug({
     env: input.env,
     organizationId: input.organizationId,
     requestId: input.context?.actorContext.requestId,
@@ -21689,11 +21695,7 @@ async function resolveSpaceEntryOrganizationAudience(input: {
     }
     return { organizationMember: false, organizationSlug: null };
   }
-  const organizationSlug = await readOrganizationRouteSlug({
-    env: input.env,
-    organizationId: input.organizationId,
-    requestId: input.context?.actorContext.requestId,
-  });
+  const { organizationSlug } = membership;
   if (!organizationSlug) {
     throw createCoreRpcHttpError({
       code: "organization.context_unavailable",

@@ -95,6 +95,14 @@
       "secrets": {
         "required": ["WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET"]
       },
+      // Gateway proxy transport. Local development has no binding and keeps
+      // the public fetch to OPENMELD_GATEWAY_URL.
+      "services": [
+        {
+          "binding": "OPENMELD_GATEWAY_WORKER",
+          "service": "openmeld-gateway-stg"
+        }
+      ],
       "vars": {
         "OPENMELD_WORKER_ENVIRONMENT": "stg",
         "OPENMELD_GATEWAY_URL": "https://gateway.staging.openmeld.ai",
@@ -145,6 +153,14 @@
       "secrets": {
         "required": ["WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET"]
       },
+      // Gateway proxy transport. Local development has no binding and keeps
+      // the public fetch to OPENMELD_GATEWAY_URL.
+      "services": [
+        {
+          "binding": "OPENMELD_GATEWAY_WORKER",
+          "service": "openmeld-gateway-prod"
+        }
+      ],
       "vars": {
         "OPENMELD_WORKER_ENVIRONMENT": "prod",
         "OPENMELD_DESKTOP_DOWNLOAD_ORIGIN": "https://downloads.openmeld.ai",

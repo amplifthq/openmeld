@@ -155,6 +155,32 @@ cookie domains and Passkey RP IDs remain unchanged. Read the guarded
 before applying these configurations. A configuration diff is not deployed
 domain evidence.
 
+## Gateway proxy transport
+
+Web's server-side Gateway calls (the `/v1/*` proxy, server reads, the Space
+live stream, the account invalidation and Prepare Session WebSockets, and the
+local execution evidence refresh) resolve one transport in
+`clients/web/src/lib/openmeld-api/gateway-upstream.ts`. Deployed `stg` and
+`prod` Web Workers call the Gateway Worker through the `OPENMELD_GATEWAY_WORKER`
+Service Binding instead of a public fetch, which removes an edge re-entry per
+API call. The request URL stays the Gateway origin plus the proxied path, so
+Gateway host-derived behavior is unchanged. The Vite dev server, including
+`dev:prod`, and any configuration without the binding keep the public fetch to
+`OPENMELD_GATEWAY_URL`.
+
+A public same-zone subrequest reaches the Gateway with an edge-assigned
+`CF-Connecting-IP`; a Service Binding request has none. On the binding path
+only, Web forwards the `CF-Connecting-IP` that Cloudflare's edge assigned to
+Web's own inbound request, so Gateway's IP-keyed rate limits (Space password,
+feedback, anonymous reads) keep per-client buckets. Gateway trusts nothing new:
+public Gateway traffic still has that header overwritten by the edge, and only
+Workers holding the binding can set it. The public-fetch path never forwards
+it.
+
+The bound Gateway Worker must exist before Web deploys with the binding. The
+release component table already orders Web after Gateway, and the staging
+deploy runs Gateway before Web.
+
 ## Internal Staging Topology
 
 Each Worker has an explicit `env.stg` block. Staging uses the same binding names
@@ -204,6 +230,9 @@ Workers, and verifies the public entry points. See
   - `VITE_BETTER_AUTH_URL`
   - `VITE_APP_TITLE`
   - `AUTH_DESKTOP_DEVELOPMENT_TARGET` (empty normally; `disposable` only on an isolated local backend shared with Auth)
+- `wrangler.jsonc` `env.stg.services` / `env.prod.services`
+  - `OPENMELD_GATEWAY_WORKER` -> `openmeld-gateway-stg` / `openmeld-gateway-prod`
+    (no top-level binding; see Gateway proxy transport above)
 - `.dev.vars` / `.dev.vars.prod`
   - `WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET`
 - Cloudflare production secrets

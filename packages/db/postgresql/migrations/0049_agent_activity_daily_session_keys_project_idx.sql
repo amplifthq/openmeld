@@ -1,0 +1,1 @@
+CREATE INDEX "agent_activity_daily_session_keys_org_project_idx" ON "openmeld"."agent_activity_daily_session_keys" USING btree ("organization_id","project_id");

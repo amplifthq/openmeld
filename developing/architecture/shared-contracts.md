@@ -8248,6 +8248,10 @@ may clear only an impact observed no later than that execution's token
 authorization, or an impact written by that same dispatch. A delayed running
 lifecycle from an older execution must not clear a newer impact written by a
 different dispatch. A successful matching execution also clears it.
+Running lifecycle frames repeat for the whole execution, so Core publishes the
+`matching_execution_running` readiness invalidation only when a frame actually
+cleared an impact row. A frame that matched nothing leaves the readiness
+projection unchanged and publishes nothing.
 `runtime_coordinator.delivery_expired` is an explicit readiness impact because a
 Wake that expires before local delivery is current local-execution evidence for
 the same Agent Profile, Binding, OpenMeld Service Runtime, and Agent Controller

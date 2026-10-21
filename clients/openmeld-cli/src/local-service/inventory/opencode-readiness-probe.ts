@@ -20,6 +20,7 @@ import {
   parseOpenRouterUsageResponse,
   readOpenCode2Inventory,
 } from "@openmeld/adapter-opencode";
+import { AGENT_CONTROLLER_MODEL_INVENTORY_LIMIT } from "@openmeld/schemas";
 import type {
   AgentControllerInterfaceAuthSnapshot,
   AgentControllerInterfaceModel,
@@ -31,7 +32,7 @@ import { resolveOpenCodeAuthPath } from "../../agent-activity/opencode-storage";
 const DEFAULT_PROBE_TIMEOUT_MS = 8000;
 const SDK_READ_TIMEOUT_MS = 4000;
 const PROBE_OUTPUT_LIMIT = 32_000;
-const OPENCODE_MODEL_ID_RE = /^[A-Za-z0-9_.-]+\/[^\s/]+$/u;
+const OPENCODE_MODEL_ID_RE = /^[A-Za-z0-9_.-]+\/[^\s/]+(?:\/[^\s/]+)*$/u;
 const OPENCODE_PROBE_HOSTNAME = "127.0.0.1";
 const OPENCODE_SERVER_READY_PREFIX = "opencode server listening";
 const OPENCODE_SERVER_URL_RE = /on\s+(https?:\/\/[^\s]+)/u;
@@ -581,7 +582,7 @@ function parseOpenCodeProviderModels(input: {
         displayName: normalizeOptionalText(model.name) ?? id,
         id,
       });
-      if (models.length >= 256) {
+      if (models.length >= AGENT_CONTROLLER_MODEL_INVENTORY_LIMIT) {
         return models;
       }
     }

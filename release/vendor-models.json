@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-18T10:38:51Z",
+  "updatedAt": "2026-10-21T08:00:00Z",
   "agentControllers": {
     "antigravity": {
       "defaultModelId": "gemini-3.8-flash-high",
@@ -745,6 +745,14 @@
     "opencode": {
       "defaultModelId": "opencode/mimo-v2.6-flash-free",
       "models": [
+        {
+          "id": "openrouter/minimax/minimax-m3.1-flash:free",
+          "displayName": "MiniMax M3.1 Flash Free (OpenRouter)",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": "1.19.0",
+          "badgeLabel": "New"
+        },
         {
           "id": "openrouter/deepseek/deepseek-v4.1-flash-1017",
           "displayName": "DeepSeek V4.1 Flash 1017 (OpenRouter)",

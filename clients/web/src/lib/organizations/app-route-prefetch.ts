@@ -282,16 +282,10 @@ export async function prefetchKnownSpaceConversationData(
 		openMeldProfileId: string;
 	}
 ): Promise<void> {
-	await input.queryPersistence.restoreSpaceConversation({
-		organizationId: input.organizationId,
-		organizationSlug: input.organizationSlug,
-		ownerAccountId: input.ownerAccountId,
-		queryClient: input.queryClient,
-		spaceId: input.spaceId,
-		openMeldProfileId: input.openMeldProfileId,
-	});
 	// Warm the exact access query consumed by the gate, including linked targets.
 	// A bootstrap is display data and cannot stand in for this server decision.
+	// It does not depend on saved display data, so its request overlaps the
+	// local restore instead of waiting behind it; the request count is unchanged.
 	const entryPrefetch = input.queryClient.prefetchQuery(
 		spaceEntryResolutionQueryOptions({
 			enabled: true,
@@ -301,6 +295,16 @@ export async function prefetchKnownSpaceConversationData(
 			threadRootSignalId: input.focusThreadRootSignalId,
 		})
 	);
+	// The restored history decides below between a contiguous update and a
+	// bootstrap, so that choice still waits for the restore.
+	await input.queryPersistence.restoreSpaceConversation({
+		organizationId: input.organizationId,
+		organizationSlug: input.organizationSlug,
+		ownerAccountId: input.ownerAccountId,
+		queryClient: input.queryClient,
+		spaceId: input.spaceId,
+		openMeldProfileId: input.openMeldProfileId,
+	});
 	prefetchTargetThread(input).catch((error: unknown) =>
 		console.error("Could not prefetch the linked Thread.", error)
 	);

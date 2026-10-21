@@ -45,6 +45,7 @@ const profileServiceMock = {
   listProfilesForOwnerEnsuringPrimaryHumanProfile: vi.fn(),
   listResolvedProfileLineageForOwner: vi.fn(),
   resolveProfileForOwner: vi.fn(),
+  resolvePrimaryHumanAndRequestedProfileForOwner: vi.fn(),
   resolveProfileById: vi.fn(),
   createAgentProfile: vi.fn(),
   ensureManagedAgentProfile: vi.fn(),
@@ -153,7 +154,10 @@ vi.mock("../src/lib/better-auth/local-auth-user-store", () => ({
   getLocalAuthUserStore: vi.fn(() => localAuthUserStoreMock),
 }));
 
-import { AdditionalHumanProfileCreationDisabledError } from "@openmeld/auth/server";
+import {
+  AdditionalHumanProfileCreationDisabledError,
+  ProfileNotFoundError,
+} from "@openmeld/auth/server";
 import { createHonoApp } from "../src/lib/hono/create-hono-app";
 import { AuthRpcEntrypoint } from "../src/lib/rpc/entrypoint";
 import { createAuthWorkerTestApp } from "./support/auth-worker-entrypoint.test-support";
@@ -190,6 +194,7 @@ describe("auth session resolution", () => {
     profileServiceMock.listProfilesForOwnerEnsuringPrimaryHumanProfile.mockReset();
     profileServiceMock.listResolvedProfileLineageForOwner.mockReset();
     profileServiceMock.resolveProfileForOwner.mockReset();
+    profileServiceMock.resolvePrimaryHumanAndRequestedProfileForOwner.mockReset();
     profileServiceMock.resolveProfileById.mockReset();
     profileServiceMock.createAgentProfile.mockReset();
     profileServiceMock.ensureManagedAgentProfile.mockReset();
@@ -2023,6 +2028,344 @@ describe("auth session resolution", () => {
       ok: false,
       code: "profile.internal_error",
       message: "internal error",
+    });
+  });
+
+  describe("combined request auth and Profile resolution", () => {
+    const PRIMARY_PROFILE = {
+      profileId: "11111111-1111-4111-8111-111111111111",
+      profileName: "Felix",
+      profileHandle: "felix",
+      profileKind: "human",
+      ownerUserId: "user-123",
+    };
+    const AGENT_PROFILE = {
+      profileId: "agt_22222222-2222-4222-8222-222222222222",
+      profileName: "Builder",
+      profileHandle: "builder",
+      profileKind: "agent",
+      ownerUserId: "user-123",
+    };
+    const SESSION = {
+      session: { id: "session-123", activeOrganizationId: "org-personal" },
+      user: {
+        id: "user-123",
+        name: "Felix",
+        email: "felix@openmeld.invalid",
+        image: "https://images.openmeld.invalid/felix.png",
+      },
+    };
+    const MEMBERSHIP_SELECTOR = {
+      requestedOrganization: { organizationSlug: "amplift" },
+    };
+
+    function mockMembership(organizationId: string | null) {
+      const bind = vi.fn();
+      dbMock.query.mockImplementation(({ values }) => {
+        bind(...(values ?? []));
+        return Promise.resolve(
+          nativeQueryResult(
+            organizationId ? [{ organization_id: organizationId }] : []
+          )
+        );
+      });
+      return bind;
+    }
+
+    it("verifies the session, user, and Organization once and reads both Profiles together", async () => {
+      authMock.api.getSession.mockResolvedValue(SESSION);
+      const membershipBind = mockMembership("org-amplift");
+      profileServiceMock.resolvePrimaryHumanAndRequestedProfileForOwner.mockResolvedValue(
+        {
+          primaryHumanProfile: PRIMARY_PROFILE,
+          requestedProfile: { ok: true, profile: AGENT_PROFILE },
+        }
+      );
+      const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
+
+      const result = await rpc.resolveRequestAuthWithProfile({
+        ...MEMBERSHIP_SELECTOR,
+        requestId: "request-1",
+        openMeldProfileId: AGENT_PROFILE.profileId,
+        profileKind: "agent",
+      });
+
+      expect(result).toEqual({
+        ok: true,
+        claims: expect.objectContaining({
+          authenticated: true,
+          requestId: "request-1",
+          callerPrincipalId: "user-123",
+          profileId: PRIMARY_PROFILE.profileId,
+          profileKind: "human",
+          activeOrganizationId: "org-amplift",
+          organizationContextSource: "request",
+        }),
+        profile: {
+          ok: true,
+          resolvedProfile: expect.objectContaining({
+            openMeldProfileId: AGENT_PROFILE.profileId,
+            profileKind: "agent",
+            ownerUserId: "user-123",
+            ownerName: "Felix",
+          }),
+        },
+      });
+      expect(authMock.api.getSession).toHaveBeenCalledTimes(1);
+      expect(localAuthUserStoreMock.hasUserById).toHaveBeenCalledTimes(1);
+      expect(dbMock.query).toHaveBeenCalledTimes(1);
+      expect(membershipBind).toHaveBeenCalledWith("user-123", "amplift");
+      expect(
+        profileServiceMock.resolvePrimaryHumanAndRequestedProfileForOwner
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        profileServiceMock.resolvePrimaryHumanAndRequestedProfileForOwner
+      ).toHaveBeenCalledWith({
+        userId: "user-123",
+        userName: "Felix",
+        userEmail: "felix@openmeld.invalid",
+        profileId: AGENT_PROFILE.profileId,
+        profileKind: "agent",
+      });
+      expect(
+        profileServiceMock.ensurePrimaryHumanProfile
+      ).not.toHaveBeenCalled();
+      expect(profileServiceMock.resolveProfileForOwner).not.toHaveBeenCalled();
+    });
+
+    it("matches resolveRequestAuth followed by resolveProfile", async () => {
+      authMock.api.getSession.mockResolvedValue(SESSION);
+      profileServiceMock.ensurePrimaryHumanProfile.mockResolvedValue(
+        PRIMARY_PROFILE
+      );
+      profileServiceMock.resolveProfileForOwner.mockResolvedValue(
+        AGENT_PROFILE
+      );
+      profileServiceMock.resolvePrimaryHumanAndRequestedProfileForOwner.mockResolvedValue(
+        {
+          primaryHumanProfile: PRIMARY_PROFILE,
+          requestedProfile: { ok: true, profile: AGENT_PROFILE },
+        }
+      );
+      const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
+      const input = {
+        requestId: "request-2",
+        openMeldProfileId: AGENT_PROFILE.profileId,
+      };
+
+      const combined = await rpc.resolveRequestAuthWithProfile(input);
+      const auth = await rpc.resolveRequestAuth({ requestId: "request-2" });
+      const profile = await rpc.resolveProfile(input);
+
+      expect(combined).toEqual({ ...auth, profile });
+    });
+
+    it("uses the primary Human Profile when no Profile is requested", async () => {
+      authMock.api.getSession.mockResolvedValue(SESSION);
+      profileServiceMock.resolvePrimaryHumanAndRequestedProfileForOwner.mockResolvedValue(
+        {
+          primaryHumanProfile: PRIMARY_PROFILE,
+          requestedProfile: { ok: true, profile: PRIMARY_PROFILE },
+        }
+      );
+      const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
+
+      const result = await rpc.resolveRequestAuthWithProfile();
+
+      expect(
+        profileServiceMock.resolvePrimaryHumanAndRequestedProfileForOwner
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({ profileId: null, profileKind: null })
+      );
+      expect(result).toMatchObject({
+        ok: true,
+        profile: {
+          ok: true,
+          resolvedProfile: {
+            openMeldProfileId: PRIMARY_PROFILE.profileId,
+            avatarUrl: "https://images.openmeld.invalid/felix.png",
+          },
+        },
+      });
+    });
+
+    it("returns unauthenticated claims without a Profile when there is no session", async () => {
+      authMock.api.getSession.mockResolvedValue(null);
+      const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
+
+      const result = await rpc.resolveRequestAuthWithProfile({
+        openMeldProfileId: AGENT_PROFILE.profileId,
+      });
+
+      expect(result).toEqual({
+        ok: true,
+        claims: expect.objectContaining({ authenticated: false }),
+      });
+      expect(
+        profileServiceMock.resolvePrimaryHumanAndRequestedProfileForOwner
+      ).not.toHaveBeenCalled();
+    });
+
+    it("returns unauthenticated claims for a deleted local user", async () => {
+      authMock.api.getSession.mockResolvedValue(SESSION);
+      localAuthUserStoreMock.hasUserById.mockResolvedValue(false);
+      const membershipBind = mockMembership("org-amplift");
+      const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
+
+      const result = await rpc.resolveRequestAuthWithProfile({
+        ...MEMBERSHIP_SELECTOR,
+        openMeldProfileId: AGENT_PROFILE.profileId,
+      });
+
+      expect(result).toEqual({
+        ok: true,
+        claims: expect.objectContaining({ authenticated: false }),
+      });
+      expect(membershipBind).not.toHaveBeenCalled();
+      expect(
+        profileServiceMock.resolvePrimaryHumanAndRequestedProfileForOwner
+      ).not.toHaveBeenCalled();
+    });
+
+    it("fails closed when the local user check fails", async () => {
+      authMock.api.getSession.mockResolvedValue(SESSION);
+      localAuthUserStoreMock.hasUserById.mockRejectedValue(
+        new Error("local auth db unavailable")
+      );
+      const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
+
+      await expect(rpc.resolveRequestAuthWithProfile()).resolves.toEqual({
+        ok: false,
+        code: "auth.internal_error",
+        message: "internal error",
+      });
+      expect(
+        profileServiceMock.resolvePrimaryHumanAndRequestedProfileForOwner
+      ).not.toHaveBeenCalled();
+    });
+
+    it("keeps session upstream failures ahead of every database read", async () => {
+      authMock.api.getSession.mockRejectedValue(
+        new Error("session db unavailable")
+      );
+      const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
+
+      await expect(
+        rpc.resolveRequestAuthWithProfile(MEMBERSHIP_SELECTOR)
+      ).resolves.toEqual({
+        ok: false,
+        code: "auth.upstream_unreachable",
+        message: "auth upstream unavailable",
+      });
+      expect(localAuthUserStoreMock.hasUserById).not.toHaveBeenCalled();
+      expect(dbMock.query).not.toHaveBeenCalled();
+    });
+
+    it("fails closed when the user is not a member of the requested Organization", async () => {
+      authMock.api.getSession.mockResolvedValue(SESSION);
+      mockMembership(null);
+      const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
+
+      await expect(
+        rpc.resolveRequestAuthWithProfile({
+          ...MEMBERSHIP_SELECTOR,
+          openMeldProfileId: AGENT_PROFILE.profileId,
+        })
+      ).resolves.toEqual({
+        ok: false,
+        code: "organization.membership_required",
+        message: "You do not have access to this organization.",
+      });
+      expect(
+        profileServiceMock.resolvePrimaryHumanAndRequestedProfileForOwner
+      ).not.toHaveBeenCalled();
+    });
+
+    it("fails closed when the Organization membership read fails", async () => {
+      authMock.api.getSession.mockResolvedValue(SESSION);
+      dbMock.query.mockRejectedValue(new Error("membership read failed"));
+      const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
+
+      await expect(
+        rpc.resolveRequestAuthWithProfile(MEMBERSHIP_SELECTOR)
+      ).resolves.toEqual({
+        ok: false,
+        code: "auth.internal_error",
+        message: "internal error",
+      });
+      expect(
+        profileServiceMock.resolvePrimaryHumanAndRequestedProfileForOwner
+      ).not.toHaveBeenCalled();
+    });
+
+    it("fails the request when the primary Human Profile fails", async () => {
+      authMock.api.getSession.mockResolvedValue(SESSION);
+      profileServiceMock.resolvePrimaryHumanAndRequestedProfileForOwner.mockRejectedValue(
+        new Error("profile repository unavailable")
+      );
+      const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
+
+      await expect(
+        rpc.resolveRequestAuthWithProfile({
+          openMeldProfileId: AGENT_PROFILE.profileId,
+        })
+      ).resolves.toEqual({
+        ok: false,
+        code: "profile.internal_error",
+        message: "internal error",
+      });
+    });
+
+    it("returns a requested Profile rejection beside verified claims", async () => {
+      authMock.api.getSession.mockResolvedValue(SESSION);
+      profileServiceMock.resolvePrimaryHumanAndRequestedProfileForOwner.mockResolvedValue(
+        {
+          primaryHumanProfile: PRIMARY_PROFILE,
+          requestedProfile: { ok: false, error: new ProfileNotFoundError() },
+        }
+      );
+      profileServiceMock.resolveProfileForOwner.mockRejectedValue(
+        new ProfileNotFoundError()
+      );
+      const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
+      const input = {
+        openMeldProfileId: "agt_33333333-3333-4333-8333-333333333333",
+      };
+
+      const result = await rpc.resolveRequestAuthWithProfile(input);
+
+      expect(result).toMatchObject({
+        ok: true,
+        claims: { authenticated: true, profileId: PRIMARY_PROFILE.profileId },
+        profile: { ok: false },
+      });
+      expect(result.ok && result.profile).toEqual(
+        await rpc.resolveProfile(input)
+      );
+    });
+
+    it("reports a requested Profile projection failure as a Profile rejection", async () => {
+      authMock.api.getSession.mockResolvedValue(SESSION);
+      profileServiceMock.resolvePrimaryHumanAndRequestedProfileForOwner.mockResolvedValue(
+        {
+          primaryHumanProfile: PRIMARY_PROFILE,
+          requestedProfile: {
+            ok: true,
+            profile: { ...AGENT_PROFILE, ownerUserId: null },
+          },
+        }
+      );
+      const rpc = new AuthRpcEntrypoint(TEST_EXECUTION_CONTEXT, TEST_ENV);
+
+      const result = await rpc.resolveRequestAuthWithProfile({
+        openMeldProfileId: AGENT_PROFILE.profileId,
+      });
+
+      expect(result).toMatchObject({
+        ok: true,
+        claims: { authenticated: true },
+        profile: { ok: false },
+      });
     });
   });
 

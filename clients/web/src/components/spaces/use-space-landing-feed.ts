@@ -234,9 +234,12 @@ export function useSpaceLandingFeed(input: {
 	const queryClient = useQueryClient();
 	const readinessOrganizationId = input.readinessScope?.organizationId ?? "";
 	const readinessStorageScope = input.readinessScope?.storageScope ?? "";
+	// Seed from history that is already available (a cached Space switch) so the
+	// first commit shows the conversation instead of an empty timeline followed by
+	// a second commit from the merge effect below.
 	const [timelineEnvelopes, setTimelineEnvelopes] = useState<
 		readonly SignalEnvelope[]
-	>([]);
+	>(() => seedTimelineEnvelopes(input.history));
 	const [liveState, setLiveState] = useState<SpaceLiveState>("connecting");
 	const [liveErrorMessage, setLiveErrorMessage] = useState<string | null>(null);
 	const [reconnectKey, setReconnectKey] = useState(0);
@@ -281,7 +284,10 @@ export function useSpaceLandingFeed(input: {
 			agentProfileIds: new Set(),
 			signalIds: new Set(),
 		});
-	const timelineEnvelopesRef = useRef<readonly SignalEnvelope[]>([]);
+	const timelineEnvelopesRef =
+		useRef<readonly SignalEnvelope[]>(timelineEnvelopes);
+	// The conversation the timeline state currently belongs to.
+	const timelineIdentityRef = useRef(feedIdentity);
 	const onThreadSignalRef = useRef(input.onThreadSignal);
 	const onWakeFinalOutcomeFactsRefreshRef = useRef(
 		input.onWakeFinalOutcomeFactsRefresh
@@ -728,8 +734,13 @@ export function useSpaceLandingFeed(input: {
 			return;
 		}
 
-		timelineEnvelopesRef.current = [];
-		setTimelineEnvelopes([]);
+		// The seeded timeline already belongs to this identity. Clearing it here
+		// would commit an empty conversation before the merge effect refills it.
+		if (timelineIdentityRef.current !== feedIdentity) {
+			timelineIdentityRef.current = feedIdentity;
+			timelineEnvelopesRef.current = EMPTY_TIMELINE;
+			setTimelineEnvelopes(EMPTY_TIMELINE);
+		}
 		setLiveState("connecting");
 		setLiveErrorMessage(null);
 		reconnectKeyRef.current = 0;
@@ -2172,6 +2183,22 @@ function debounceRefetch(
 			});
 	}, 300);
 	timerRef.current = timer;
+}
+
+const EMPTY_TIMELINE: readonly SignalEnvelope[] = [];
+
+function seedTimelineEnvelopes(history: {
+	isPending: boolean;
+	isSuccess: boolean;
+	data?: { envelopes: readonly SignalEnvelope[] };
+}): readonly SignalEnvelope[] {
+	const incoming = history.data?.envelopes ?? [];
+	if (history.isPending || !history.isSuccess || incoming.length === 0) {
+		return EMPTY_TIMELINE;
+	}
+	// The same merge the history effect applies to an empty timeline, so that
+	// effect finds nothing new and does not write the state a second time.
+	return mergeSpaceTimelineEnvelopes({ current: EMPTY_TIMELINE, incoming });
 }
 
 function mergeIncomingSignals(input: {

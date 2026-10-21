@@ -13,7 +13,7 @@ import { createAuthenticatedSpaceAccessContext } from "@openmeld/space";
 import { readResolvedOrganizationOwnerHumanSpaceMember } from "../center-agent/center-agent-repository";
 import type { CoreBindings } from "../lib/bindings";
 
-import { resolveNamedSpaceId } from "../rpc/space-ref";
+import { getSpaceStubById, resolveNamedSpaceId } from "../rpc/space-ref";
 import { emitSpaceTextSignalOnceByClientMessageId } from "../rpc/space-signal-emitter";
 import {
   collectOrganizationWeeklyEvalMetrics,
@@ -280,7 +280,7 @@ async function ensureQualitySpace(input: {
     profileId: input.publisher.profileId,
     profileName: input.publisher.profileName,
   };
-  const stub = input.env.OPENMELD_SPACES.get(objectId);
+  const stub = getSpaceStubById(input.env.OPENMELD_SPACES, objectId);
   const initializationInput = {
     creator: {
       kind: "agent" as const,

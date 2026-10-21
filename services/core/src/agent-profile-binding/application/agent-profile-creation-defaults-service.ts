@@ -6,7 +6,7 @@ import type {
   ModelCatalog,
 } from "@openmeld/schemas/types";
 import { assertAgentControllerPermissionModeReleased } from "../../local-components/runtime-contract-rollout";
-import { readProjectRecord } from "../../projects/project-repository";
+import { readProjectLifecycleRecord } from "../../projects/project-repository";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 import {
   type AgentProfileCreationDefaultsRecord,
@@ -56,7 +56,7 @@ export async function rememberAgentProfileCreationDefaults(input: {
     input.localComponentsManifest
   );
   if (input.selection.defaultProjectId) {
-    const project = await readProjectRecord({
+    const project = await readProjectLifecycleRecord({
       db: input.db,
       organizationId: input.organizationId,
       projectId: input.selection.defaultProjectId,

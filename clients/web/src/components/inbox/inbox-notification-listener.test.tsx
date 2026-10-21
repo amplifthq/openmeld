@@ -1171,6 +1171,91 @@ describe("InboxNotificationListener", () => {
 		act(() => socket.dispatchEvent(new Event("close")));
 		expect(interval()).toBe(1000);
 	});
+	it("backs off disconnected polling and restarts it on reconnect and focus", () => {
+		vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+		vi.spyOn(Math, "random").mockReturnValue(1);
+		const socket = Object.assign(new EventTarget(), {
+			send: vi.fn(),
+			close: vi.fn(),
+		});
+		vi.spyOn(
+			accountStream,
+			"createAccountInvalidationTransport"
+		).mockReturnValue(socket);
+		renderListener();
+		const interval = (fetchedAt: number) =>
+			itemsQueryMock.mock.lastCall?.[0].refetchInterval({
+				state: {
+					data: { hasMore: false, items: [] },
+					dataUpdatedAt: fetchedAt,
+					errorUpdatedAt: 0,
+				},
+			});
+		expect([1, 2, 3, 4].map(interval)).toEqual([1000, 2000, 4000, 8000]);
+		// Re-evaluating the same fetch keeps its delay.
+		expect(interval(4)).toBe(8000);
+		act(() => {
+			window.dispatchEvent(new Event("focus"));
+		});
+		expect(interval(5)).toBe(1000);
+		expect(interval(6)).toBe(2000);
+		act(() => socket.dispatchEvent(new Event("open")));
+		expect(interval(7)).toBe(30_000);
+		act(() => socket.dispatchEvent(new Event("close")));
+		expect(interval(8)).toBe(1000);
+	});
+
+	it("skips native polls while push is connected except for recovery", () => {
+		vi.useFakeTimers();
+		let poll: (() => void) | undefined;
+		desktopPlatformMock.mockReturnValue({
+			setNotificationContext: vi.fn(async () => undefined),
+			onNotificationClick: () => () => undefined,
+			onNotificationPoll: (listener: () => void) => {
+				poll = listener;
+				return () => undefined;
+			},
+		});
+		const socket = Object.assign(new EventTarget(), {
+			send: vi.fn(),
+			close: vi.fn(),
+		});
+		vi.spyOn(
+			accountStream,
+			"createAccountInvalidationTransport"
+		).mockReturnValue(socket);
+		renderListener();
+		act(() => poll?.());
+		expect(summaryRefetch).toHaveBeenCalledTimes(1);
+		act(() => socket.dispatchEvent(new Event("open")));
+		act(() => {
+			vi.advanceTimersByTime(10_000);
+			poll?.();
+		});
+		expect(summaryRefetch).toHaveBeenCalledTimes(1);
+		act(() => {
+			vi.advanceTimersByTime(20_000);
+			poll?.();
+		});
+		expect(summaryRefetch).toHaveBeenCalledTimes(2);
+		// A read elsewhere adds no observation, so push refreshes the tray
+		// summary directly, coalesced across a burst of frames.
+		act(() => {
+			for (let frame = 0; frame < 3; frame += 1) {
+				socket.dispatchEvent(
+					new MessageEvent("message", {
+						data: JSON.stringify({ type: "inbox.changed" }),
+					})
+				);
+			}
+			vi.advanceTimersByTime(1000);
+		});
+		expect(summaryRefetch).toHaveBeenCalledTimes(3);
+		act(() => socket.dispatchEvent(new Event("close")));
+		act(() => poll?.());
+		expect(summaryRefetch).toHaveBeenCalledTimes(4);
+	});
+
 	it("backs off short-lived connections until a keepalive succeeds", async () => {
 		vi.useFakeTimers();
 		const sockets = Array.from({ length: 4 }, () =>

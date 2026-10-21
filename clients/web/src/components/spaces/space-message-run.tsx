@@ -12,6 +12,7 @@ import type {
 } from "@openmeld/schemas/types";
 import {
 	isActiveWakeProgressItem,
+	readThreadReplyPreviewLine,
 	type SpaceMemberDirectoryEntry,
 } from "@openmeld/space";
 import { Button } from "@openmeld/ui/components/button";
@@ -1461,7 +1462,7 @@ function ThreadPreview(input: {
 			{previewItems.map((item) => (
 				// biome-ignore lint/a11y/useSemanticElements: A native button cannot contain the reply's independent message links.
 				<div
-					aria-label={`Open reply from ${item.actorName}: ${threadReplyPreviewText(item.text)}`}
+					aria-label={`Open reply from ${item.actorName}: ${readThreadReplyPreviewLine(item.text)}`}
 					className="flex w-full min-w-0 max-w-full cursor-pointer items-start gap-2 overflow-hidden pe-2 hover:underline focus-visible:outline focus-visible:outline-ring"
 					key={item.id}
 					onClick={(event) => {
@@ -1512,7 +1513,7 @@ function ThreadPreview(input: {
 					<span className="min-w-0 flex-1 truncate text-muted-foreground text-xs leading-5">
 						<SpaceMessageReferenceText
 							referencesById={spaceReferencesById}
-							text={threadReplyPreviewText(item.text)}
+							text={readThreadReplyPreviewLine(item.text)}
 						/>
 					</span>
 					{input.threadHref ? (
@@ -1604,23 +1605,6 @@ function ThreadPreview(input: {
 				) : null}
 			</div>
 		</div>
-	);
-}
-
-function threadReplyPreviewText(text: string): string {
-	return (
-		text
-			.split(THREAD_PREVIEW_LINES)
-			.map((line) =>
-				line
-					.trim()
-					.replace(THREAD_PREVIEW_LEADING_MARKDOWN, "")
-					.replace(THREAD_PREVIEW_BOLD, "$1")
-					.replace(THREAD_PREVIEW_UNDERSCORE_BOLD, "$1")
-			)
-			.find(
-				(line) => line.length > 0 && !THREAD_PREVIEW_DECORATION.test(line)
-			) ?? text
 	);
 }
 
@@ -1744,9 +1728,4 @@ function renderAnchoredSpaceOutcomeRows(input: {
 	);
 }
 
-const THREAD_PREVIEW_LINES = /\r?\n/;
-const THREAD_PREVIEW_LEADING_MARKDOWN = /^(?:#{1,6}|>|[-*+]|\d+[.)])\s+/;
-const THREAD_PREVIEW_BOLD = /\*\*([^*]+)\*\*/g;
-const THREAD_PREVIEW_UNDERSCORE_BOLD = /__([^_]+)__/g;
-const THREAD_PREVIEW_DECORATION = /^(?:[-*_]{3,}|`{3,}.*|~{3,}.*)$/;
 const EMPTY_ANCHORED_OUTCOME_NOTICES: readonly SpaceTimelineItem[] = [];

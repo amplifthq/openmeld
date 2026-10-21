@@ -67,6 +67,13 @@ export function resolveSpaceConversationPosition(
 	};
 }
 
+type ConversationPositionSession = {
+	ready: boolean;
+	protectedAnchor: boolean;
+	restore: () => void;
+	syncObservedElements: () => void;
+};
+
 export function useSpaceConversationPosition(input: {
 	historyIsPending: boolean;
 	isLiveHistory: boolean;
@@ -97,6 +104,9 @@ export function useSpaceConversationPosition(input: {
 		restoration.key === positionKey
 			? restoration.status
 			: initialRestorationStatus(shouldRestore);
+	// The last requested restoration state. Layout effects compare against it so
+	// they only schedule a render when the visible status actually changes.
+	const requestedRestorationRef = useRef(restoration);
 	const saveRef = useRef<() => void>(() => undefined);
 	const releaseRef = useRef<() => void>(() => undefined);
 	const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -105,10 +115,31 @@ export function useSpaceConversationPosition(input: {
 		restorationStatus === "ready" ? positionKey : null
 	);
 	const viewportRef = useRef<HTMLDivElement | null>(null);
+	const sessionRef = useRef<ConversationPositionSession | null>(null);
+	const latestRef = useRef({
+		historyIsPending: input.historyIsPending,
+		isLiveHistory: input.isLiveHistory,
+		rememberedPosition,
+		shouldRestore,
+	});
 	const [followingViewport, setFollowingViewport] =
 		useState<HTMLDivElement | null>(null);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: New history mounts new message elements which must be measured and observed.
+	// Runs before the effects below in every commit, so long-lived listeners and
+	// observer callbacks always read the current inputs without re-subscribing.
+	useLayoutEffect(() => {
+		latestRef.current = {
+			historyIsPending: input.historyIsPending,
+			isLiveHistory: input.isLiveHistory,
+			rememberedPosition,
+			shouldRestore,
+		};
+	});
+
+	// One positioning session per viewport and conversation. History updates do
+	// not tear it down: re-subscribing would force a layout read (the cleanup
+	// save) right after every DOM mutation, and status writes here would cascade
+	// into extra renders inside the same frame.
 	useLayoutEffect(() => {
 		const viewport = input.viewport;
 		if (!viewport) {
@@ -120,14 +151,33 @@ export function useSpaceConversationPosition(input: {
 			releasedKeyRef.current = null;
 		}
 		let disposed = false;
-		let ready = false;
-		let protectedAnchor =
-			shouldRestore && releasedKeyRef.current !== positionKey;
-		if (isNewViewport || restoration.key !== positionKey) {
-			const status = protectedAnchor ? "restoring" : "ready";
+		const session: ConversationPositionSession = {
+			ready: false,
+			protectedAnchor:
+				latestRef.current.shouldRestore &&
+				releasedKeyRef.current !== positionKey,
+			restore: () => undefined,
+			syncObservedElements: () => undefined,
+		};
+		const requestRestoration = (status: SpaceConversationRestorationStatus) => {
+			const requested = requestedRestorationRef.current;
+			if (requested.key === positionKey && requested.status === status) {
+				return;
+			}
+			const next = { key: positionKey, status };
+			requestedRestorationRef.current = next;
+			setRestoration(next);
+		};
+		if (isNewViewport || requestedRestorationRef.current.key !== positionKey) {
+			const status = session.protectedAnchor ? "restoring" : "ready";
 			restorationReadyKeyRef.current = status === "ready" ? positionKey : null;
-			recordReactUpdate("conversation_position_restore");
-			setRestoration({ key: positionKey, status });
+			if (
+				requestedRestorationRef.current.key !== positionKey ||
+				requestedRestorationRef.current.status !== status
+			) {
+				recordReactUpdate("conversation_position_restore");
+				requestRestoration(status);
+			}
 		}
 		const markReady = () => {
 			if (restorationReadyKeyRef.current === positionKey) {
@@ -135,17 +185,22 @@ export function useSpaceConversationPosition(input: {
 			}
 			restorationReadyKeyRef.current = positionKey;
 			recordReactUpdate("conversation_position_ready");
-			setRestoration({ key: positionKey, status: "ready" });
+			requestRestoration("ready");
 		};
 		const save = () => {
-			if (!ready || input.historyIsPending || protectedAnchor) {
+			const latest = latestRef.current;
+			if (
+				!session.ready ||
+				latest.historyIsPending ||
+				session.protectedAnchor
+			) {
 				return;
 			}
 			const position = resolveSpaceConversationPosition(viewport);
 			if (position) {
 				writeSpaceConversationPosition(positionKey, {
 					...position,
-					...(input.isLiveHistory &&
+					...(latest.isLiveHistory &&
 					viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <=
 						BOTTOM_THRESHOLD_PX
 						? { atBottom: true as const }
@@ -154,37 +209,38 @@ export function useSpaceConversationPosition(input: {
 			}
 		};
 		saveRef.current = save;
+		const release = () => {
+			session.protectedAnchor = false;
+			releasedKeyRef.current = positionKey;
+			session.ready = !latestRef.current.historyIsPending;
+			markReady();
+		};
+		releaseRef.current = release;
 		const restore = () => {
-			if (disposed || input.historyIsPending) {
+			const { historyIsPending, rememberedPosition: remembered } =
+				latestRef.current;
+			if (disposed || historyIsPending) {
 				return;
 			}
-			if (!protectedAnchor) {
-				ready = true;
+			if (!session.protectedAnchor) {
+				session.ready = true;
 				return;
 			}
-			const anchor = rememberedPosition
-				? input.messageElementsRef.current.get(
-						rememberedPosition.anchorSignalId
-					)
+			const anchor = remembered
+				? input.messageElementsRef.current.get(remembered.anchorSignalId)
 				: undefined;
-			if (rememberedPosition && !anchor) {
+			if (remembered && !anchor) {
 				// A saved coordinate without its cached message is not useful enough to
 				// block or later move the reader. The bounded Space history cache owns
 				// instant restoration; an evicted anchor falls back to the live view.
 				release();
 				return;
 			}
-			alignReadingPosition(viewport, anchor, rememberedPosition);
-			ready = true;
+			alignReadingPosition(viewport, anchor, remembered);
+			session.ready = true;
 			markReady();
 		};
-		const release = () => {
-			protectedAnchor = false;
-			releasedKeyRef.current = positionKey;
-			ready = !input.historyIsPending;
-			markReady();
-		};
-		releaseRef.current = release;
+		session.restore = restore;
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (
 				[
@@ -206,18 +262,29 @@ export function useSpaceConversationPosition(input: {
 		// do not resize the observed elements inside this callback.
 		const observer = new ResizeObserver(restore);
 		observer.observe(viewport);
-		for (const element of input.messageElementsRef.current.values()) {
-			observer.observe(element);
-		}
+		const observedElements = new Set<HTMLElement>();
+		session.syncObservedElements = () => {
+			const current = new Set(input.messageElementsRef.current.values());
+			for (const element of observedElements) {
+				if (!current.has(element)) {
+					observer.unobserve(element);
+					observedElements.delete(element);
+				}
+			}
+			for (const element of current) {
+				if (!observedElements.has(element)) {
+					observer.observe(element);
+					observedElements.add(element);
+				}
+			}
+		};
 		viewport.addEventListener("wheel", release, { passive: true });
 		viewport.addEventListener("touchstart", release, { passive: true });
 		const controls = viewport.parentElement ?? viewport;
 		controls.addEventListener("pointerdown", release);
 		viewport.addEventListener("keydown", onKeyDown);
 		window.addEventListener("pagehide", save);
-		// Align mounted history in this layout effect, before it can paint at the
-		// default start position. Resize corrections also run before paint.
-		restore();
+		sessionRef.current = session;
 		return () => {
 			if (saveTimerRef.current) {
 				clearTimeout(saveTimerRef.current);
@@ -230,18 +297,34 @@ export function useSpaceConversationPosition(input: {
 			controls.removeEventListener("pointerdown", release);
 			viewport.removeEventListener("keydown", onKeyDown);
 			window.removeEventListener("pagehide", save);
+			if (sessionRef.current === session) {
+				sessionRef.current = null;
+			}
 			saveRef.current = () => undefined;
 			releaseRef.current = () => undefined;
 		};
+	}, [input.viewport, input.messageElementsRef, positionKey]);
+
+	// New history mounts new message elements, which must be observed and kept
+	// aligned with a protected reading anchor. Align mounted history in this
+	// layout effect, before it can paint at the default start position.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: History identity is the signal that message elements changed.
+	useLayoutEffect(() => {
+		const session = sessionRef.current;
+		if (!session) {
+			return;
+		}
+		session.protectedAnchor =
+			shouldRestore && releasedKeyRef.current !== positionKey;
+		session.ready = false;
+		session.syncObservedElements();
+		session.restore();
 	}, [
 		input.viewport,
 		input.historyIsPending,
 		input.isLiveHistory,
 		input.historyVersion,
-		input.messageElementsRef,
 		positionKey,
-		restoration.key,
-		restoration.status,
 		rememberedPosition,
 		shouldRestore,
 	]);
@@ -281,6 +364,10 @@ export function useSpaceConversationPosition(input: {
 	const releaseReadingPosition = useCallback(() => releaseRef.current(), []);
 	return {
 		releaseReadingPosition,
+		/** The saved reading anchor this conversation will restore, if any. */
+		restorationAnchorSignalId: shouldRestore
+			? (rememberedPosition?.anchorSignalId ?? null)
+			: null,
 		restorationStatus,
 		followLatest,
 		autoScroll:

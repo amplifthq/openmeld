@@ -16,12 +16,14 @@ import {
   isCliCredentialSessionRecord,
   normalizeAuthHeaderValue,
   type OpenMeldProfileManagedRole,
+  type OpenMeldProfileRecord,
   type OpenMeldProfileSource,
   type OpenMeldProfileSpaceCreatorKind,
   type OpenMeldProfileSpaceHistoryStatus,
   OrganizationJoinLinkServiceError,
   ProfileNotFoundError,
   ProfileValidationError,
+  type RequestedProfileResolution,
   type ResolveRequestAuthInput,
   type ResolveRequestAuthResult,
 } from "@openmeld/auth/server";
@@ -116,6 +118,7 @@ import {
   AUTH_UPSTREAM_UNREACHABLE_MESSAGE,
   resolveSessionFromHeaders,
   toSessionResolutionErrorLog,
+  type UserRecord,
 } from "../better-auth/session-resolver";
 import type { AuthBindings } from "../bindings";
 import { buildAuthRuntimeDbFactSnapshot } from "../db/fact-snapshots";
@@ -439,10 +442,34 @@ type UpsertSpaceDeletionTombstoneRpcResult =
       code: string;
       message: string;
     };
+type RequestedProfileSelector = {
+  profileId: string | null;
+  profileKind: AuthProfileKind | null;
+};
+type VerifiedSessionResult =
+  | {
+      status: "authenticated";
+      session: unknown;
+      user: UserRecord;
+      userId: string;
+      organizationContext: Extract<
+        AuthenticatedOrganizationContext,
+        { ok: true }
+      >;
+    }
+  | {
+      status: "unauthenticated";
+    }
+  | {
+      status: "error";
+      code: string;
+      message: string;
+    };
 type ResolveSessionClaimsResult =
   | {
       status: "authenticated";
       claims: AuthClaims;
+      profile?: AuthRpcResolveProfileResult;
     }
   | {
       status: "unauthenticated";
@@ -2070,34 +2097,11 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
           ok: false,
         });
       }
-      const validatedInput = parsed.data;
-      const headers = toHeaders(validatedInput.headers);
-      const requestId =
-        normalizeAuthHeaderValue(validatedInput.requestId) ??
-        normalizeAuthHeaderValue(headers.get(OPENMELD_REQUEST_ID_HEADER)) ??
-        crypto.randomUUID();
-      const claimsFromSession = await this.resolveClaimsFromSession(
-        headers,
-        requestId,
-        validatedInput
+      const { auth } = await this.resolveValidatedRequestAuth(
+        parsed.data,
+        null
       );
-      if (claimsFromSession.status === "authenticated") {
-        return authRpcResolveRequestAuthResultSchema.parse({
-          ok: true,
-          claims: claimsFromSession.claims,
-        });
-      }
-      if (claimsFromSession.status === "error") {
-        return authRpcResolveRequestAuthResultSchema.parse({
-          ok: false,
-          code: claimsFromSession.code,
-          message: claimsFromSession.message,
-        });
-      }
-      return authRpcResolveRequestAuthResultSchema.parse({
-        ok: true,
-        claims: createUnauthenticatedClaims(requestId),
-      });
+      return auth;
     });
   }
   /**
@@ -2128,10 +2132,10 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
     });
   }
   // One round trip for the gateway hot path: request auth + profile
-  // resolution in a single RPC. Pure orchestration of the two existing
-  // methods, so auth/profile semantics cannot drift. When the request is
-  // not authenticated (or auth fails) the result mirrors resolveRequestAuth
-  // exactly and carries no profile.
+  // resolution in a single RPC. The session, local user, and Organization are
+  // verified once, and the primary Human Profile and the requested Profile
+  // are read together. When the request is not authenticated (or auth fails)
+  // the result mirrors resolveRequestAuth exactly and carries no profile.
   async resolveRequestAuthWithProfile(
     input: AuthRpcResolveRequestAuthWithProfileInput = {}
   ): Promise<AuthRpcResolveRequestAuthWithProfileResult> {
@@ -2145,148 +2149,104 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
           ok: false,
         });
       }
-      const {
-        profileKind,
-        requestedOrganization,
-        openMeldProfileId,
-        ...requestInput
-      } = parsed.data;
-      const auth = await this.resolveRequestAuth({
-        ...requestInput,
-        ...(requestedOrganization ? { requestedOrganization } : {}),
-      });
-      if (!(auth.ok && auth.claims?.authenticated)) {
+      const { profileKind, openMeldProfileId, ...requestInput } = parsed.data;
+      const { auth, profile } = await this.resolveValidatedRequestAuth(
+        requestInput,
+        {
+          profileId: openMeldProfileId ?? null,
+          profileKind: profileKind ?? null,
+        }
+      );
+      if (!(auth.ok && auth.claims?.authenticated && profile)) {
         return auth;
       }
       return authRpcResolveRequestAuthWithProfileResultSchema.parse({
         ...auth,
-        // The request Organization was already verified above. Profile identity is
-        // user-owned and does not need a second membership read on this hot path.
-        profile: await this.resolveProfile({
-          ...requestInput,
-          ...(profileKind ? { profileKind } : {}),
-          ...(openMeldProfileId ? { openMeldProfileId } : {}),
-        }),
+        profile,
       });
     });
+  }
+  private async resolveValidatedRequestAuth(
+    validatedInput: ResolveRequestAuthInput,
+    requestedProfile: RequestedProfileSelector | null
+  ): Promise<{
+    auth: ResolveRequestAuthResult;
+    profile?: AuthRpcResolveProfileResult;
+  }> {
+    const headers = toHeaders(validatedInput.headers);
+    const requestId =
+      normalizeAuthHeaderValue(validatedInput.requestId) ??
+      normalizeAuthHeaderValue(headers.get(OPENMELD_REQUEST_ID_HEADER)) ??
+      crypto.randomUUID();
+    const claimsFromSession = await this.resolveClaimsFromSession(
+      headers,
+      requestId,
+      validatedInput,
+      requestedProfile
+    );
+    if (claimsFromSession.status === "authenticated") {
+      return {
+        auth: authRpcResolveRequestAuthResultSchema.parse({
+          ok: true,
+          claims: claimsFromSession.claims,
+        }),
+        ...(claimsFromSession.profile
+          ? { profile: claimsFromSession.profile }
+          : {}),
+      };
+    }
+    if (claimsFromSession.status === "error") {
+      return {
+        auth: authRpcResolveRequestAuthResultSchema.parse({
+          ok: false,
+          code: claimsFromSession.code,
+          message: claimsFromSession.message,
+        }),
+      };
+    }
+    return {
+      auth: authRpcResolveRequestAuthResultSchema.parse({
+        ok: true,
+        claims: createUnauthenticatedClaims(requestId),
+      }),
+    };
   }
   private async resolveClaimsFromSession(
     headers: Headers,
     requestId: string,
-    input: ResolveRequestAuthInput
+    input: ResolveRequestAuthInput,
+    requestedProfile: RequestedProfileSelector | null
   ): Promise<ResolveSessionClaimsResult> {
-    const sessionResolution = await resolveSessionFromHeaders({
-      auth: await this.getAuth(),
+    const verified = await this.resolveVerifiedSession(
       headers,
-      verifyLocalUserExists: (userId) =>
-        getLocalAuthUserStore(this.env).hasUserById(userId),
-    });
-    if (sessionResolution.status === "unauthenticated") {
-      if (sessionResolution.reason === "stale_local_user") {
-        logWarn(
-          this.env.AUTH_WORKER_NODE_ENV,
-          "[auth.rpc.stale_local_session]",
-          {
-            operation: "resolveClaimsFromSession",
-            userId: sessionResolution.userId,
-          }
-        );
+      input.requestedOrganization,
+      "resolveClaimsFromSession"
+    );
+    if (verified.status !== "authenticated") {
+      return verified;
+    }
+    const { organizationContext, session, user, userId } = verified;
+    const primaryHumanProfileInput = {
+      userId,
+      userName: typeof user.name === "string" ? user.name : "",
+      userEmail: typeof user.email === "string" ? user.email : "",
+    };
+    let primaryProfile: OpenMeldProfileRecord;
+    let requestedProfileResolution: RequestedProfileResolution | null = null;
+    try {
+      if (requestedProfile) {
+        const resolved =
+          await this.getProfileService().resolvePrimaryHumanAndRequestedProfileForOwner(
+            { ...primaryHumanProfileInput, ...requestedProfile }
+          );
+        primaryProfile = resolved.primaryHumanProfile;
+        requestedProfileResolution = resolved.requestedProfile;
+      } else {
+        primaryProfile =
+          await this.getProfileService().ensurePrimaryHumanProfile(
+            primaryHumanProfileInput
+          );
       }
-      return {
-        status: "unauthenticated",
-      };
-    }
-    if (sessionResolution.status === "local_state_error") {
-      logError("[auth.rpc.local_session_state_failed]", {
-        error: toSessionResolutionErrorLog(sessionResolution.cause),
-        operation: "resolveClaimsFromSession",
-      });
-      return {
-        status: "error",
-        code: "auth.internal_error",
-        message: "internal error",
-      };
-    }
-    if (sessionResolution.status === "upstream_error") {
-      logError("[auth.rpc.session_resolution_failed]", {
-        error: toSessionResolutionErrorLog(sessionResolution.cause),
-        operation: "resolveClaimsFromSession",
-      });
-      return {
-        status: "error",
-        code: AUTH_UPSTREAM_UNREACHABLE_CODE,
-        message: AUTH_UPSTREAM_UNREACHABLE_MESSAGE,
-      };
-    }
-    const userId = String(sessionResolution.user.id);
-    let organizationContext: AuthenticatedOrganizationContext;
-    try {
-      organizationContext = await resolveAuthenticatedOrganizationContext({
-        db: getPostgresDatabase(this.env),
-        requestedOrganization: input.requestedOrganization,
-        sessionActiveOrganizationId: (
-          sessionResolution.session as {
-            activeOrganizationId?: unknown;
-          }
-        ).activeOrganizationId,
-        userId,
-      });
-    } catch (error) {
-      logError("[auth.rpc.organization_context_resolution_failed]", {
-        error: toSessionResolutionErrorLog(error),
-        operation: "resolveClaimsFromSession",
-        userId,
-      });
-      return {
-        status: "error",
-        code: "auth.internal_error",
-        message: "internal error",
-      };
-    }
-    if (!organizationContext.ok) {
-      return {
-        status: "error",
-        code: organizationContext.code,
-        message: organizationContext.message,
-      };
-    }
-    try {
-      const primaryProfile =
-        await this.getProfileService().ensurePrimaryHumanProfile({
-          userId,
-          userName:
-            typeof sessionResolution.user.name === "string"
-              ? sessionResolution.user.name
-              : "",
-          userEmail:
-            typeof sessionResolution.user.email === "string"
-              ? sessionResolution.user.email
-              : "",
-        });
-      return {
-        status: "authenticated",
-        claims: {
-          authenticated: true,
-          requestId,
-          callerPrincipalId: userId,
-          profileId: primaryProfile.profileId,
-          profileKind: primaryProfile.profileKind,
-          ownerIds: [],
-          authMethod: headers.has("x-api-key") ? "api_key" : "session",
-          credentialKind: resolveRequestCredentialKind({
-            headers,
-            session: sessionResolution.session,
-          }),
-          ...(organizationContext.activeOrganizationId
-            ? {
-                activeOrganizationId: organizationContext.activeOrganizationId,
-              }
-            : {}),
-          ...(organizationContext.source
-            ? { organizationContextSource: organizationContext.source }
-            : {}),
-        },
-      };
     } catch (error) {
       logError("[auth.rpc.primary_profile_resolution_failed]", {
         error: toSessionResolutionErrorLog(error),
@@ -2299,6 +2259,35 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
         message: profileError.message,
       };
     }
+    return {
+      status: "authenticated",
+      claims: {
+        authenticated: true,
+        requestId,
+        callerPrincipalId: userId,
+        profileId: primaryProfile.profileId,
+        profileKind: primaryProfile.profileKind,
+        ownerIds: [],
+        authMethod: headers.has("x-api-key") ? "api_key" : "session",
+        credentialKind: resolveRequestCredentialKind({ headers, session }),
+        ...(organizationContext.activeOrganizationId
+          ? {
+              activeOrganizationId: organizationContext.activeOrganizationId,
+            }
+          : {}),
+        ...(organizationContext.source
+          ? { organizationContextSource: organizationContext.source }
+          : {}),
+      },
+      ...(requestedProfileResolution
+        ? {
+            profile: toResolveProfileRpcResult(requestedProfileResolution, {
+              ownerName: normalizeAuthHeaderValue(String(user.name ?? "")),
+              avatarUrl: normalizeOptionalUserImageUrl(user.image),
+            }),
+          }
+        : {}),
+    };
   }
   private async resolveAuthenticatedUser(
     input: ResolveRequestAuthInput = {}
@@ -2317,7 +2306,37 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
         message: string;
       }
   > {
-    const headers = toHeaders(input.headers);
+    const verified = await this.resolveVerifiedSession(
+      toHeaders(input.headers),
+      input.requestedOrganization,
+      "resolveAuthenticatedUser"
+    );
+    if (verified.status === "unauthenticated") {
+      return {
+        ok: false,
+        code: "auth.unauthenticated",
+        message: "authentication required",
+      };
+    }
+    if (verified.status === "error") {
+      return { ok: false, code: verified.code, message: verified.message };
+    }
+    return {
+      ok: true,
+      userId: verified.userId,
+      activeOrganizationId: verified.organizationContext.activeOrganizationId,
+      userName: normalizeAuthHeaderValue(String(verified.user.name ?? "")),
+      userEmail: normalizeAuthHeaderValue(String(verified.user.email ?? "")),
+      userImage: normalizeOptionalUserImageUrl(verified.user.image),
+    };
+  }
+  // The one session check for RPC callers: session, then the local active
+  // user row, then the requested Organization membership, in that order.
+  private async resolveVerifiedSession(
+    headers: Headers,
+    requestedOrganization: ResolveRequestAuthInput["requestedOrganization"],
+    operation: "resolveAuthenticatedUser" | "resolveClaimsFromSession"
+  ): Promise<VerifiedSessionResult> {
     const sessionResolution = await resolveSessionFromHeaders({
       auth: await this.getAuth(),
       headers,
@@ -2330,24 +2349,22 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
           this.env.AUTH_WORKER_NODE_ENV,
           "[auth.rpc.stale_local_session]",
           {
-            operation: "resolveAuthenticatedUser",
+            operation,
             userId: sessionResolution.userId,
           }
         );
       }
       return {
-        ok: false,
-        code: "auth.unauthenticated",
-        message: "authentication required",
+        status: "unauthenticated",
       };
     }
     if (sessionResolution.status === "local_state_error") {
       logError("[auth.rpc.local_session_state_failed]", {
         error: toSessionResolutionErrorLog(sessionResolution.cause),
-        operation: "resolveAuthenticatedUser",
+        operation,
       });
       return {
-        ok: false,
+        status: "error",
         code: "auth.internal_error",
         message: "internal error",
       };
@@ -2355,10 +2372,10 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
     if (sessionResolution.status === "upstream_error") {
       logError("[auth.rpc.session_resolution_failed]", {
         error: toSessionResolutionErrorLog(sessionResolution.cause),
-        operation: "resolveAuthenticatedUser",
+        operation,
       });
       return {
-        ok: false,
+        status: "error",
         code: AUTH_UPSTREAM_UNREACHABLE_CODE,
         message: AUTH_UPSTREAM_UNREACHABLE_MESSAGE,
       };
@@ -2368,7 +2385,7 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
     try {
       organizationContext = await resolveAuthenticatedOrganizationContext({
         db: getPostgresDatabase(this.env),
-        requestedOrganization: input.requestedOrganization,
+        requestedOrganization,
         sessionActiveOrganizationId: (
           sessionResolution.session as {
             activeOrganizationId?: unknown;
@@ -2379,29 +2396,28 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
     } catch (error) {
       logError("[auth.rpc.organization_context_resolution_failed]", {
         error: toSessionResolutionErrorLog(error),
-        operation: "resolveAuthenticatedUser",
+        operation,
         userId,
       });
       return {
-        ok: false,
+        status: "error",
         code: "auth.internal_error",
         message: "internal error",
       };
     }
     if (!organizationContext.ok) {
-      return organizationContext;
+      return {
+        status: "error",
+        code: organizationContext.code,
+        message: organizationContext.message,
+      };
     }
     return {
-      ok: true,
+      status: "authenticated",
+      session: sessionResolution.session,
+      user: sessionResolution.user,
       userId,
-      activeOrganizationId: organizationContext.activeOrganizationId,
-      userName: normalizeAuthHeaderValue(
-        String(sessionResolution.user.name ?? "")
-      ),
-      userEmail: normalizeAuthHeaderValue(
-        String(sessionResolution.user.email ?? "")
-      ),
-      userImage: normalizeOptionalUserImageUrl(sessionResolution.user.image),
+      organizationContext,
     };
   }
   private getProfileService() {
@@ -2701,6 +2717,25 @@ function toOpenMeldProfileRpcItem(
     createdAt: toIsoString(profile.createdAt),
     updatedAt: toIsoString(profile.updatedAt),
   });
+}
+function toResolveProfileRpcResult(
+  resolution: RequestedProfileResolution,
+  options: { ownerName: string | null; avatarUrl: string | null }
+): AuthRpcResolveProfileResult {
+  try {
+    if (!resolution.ok) {
+      throw resolution.error;
+    }
+    return authRpcResolveProfileResultSchema.parse({
+      ok: true,
+      resolvedProfile: toResolvedOpenMeldProfileRpcItem(
+        resolution.profile,
+        options
+      ),
+    });
+  } catch (error) {
+    return authRpcResolveProfileResultSchema.parse(toProfileRpcError(error));
+  }
 }
 function toResolvedOpenMeldProfileRpcItem(
   profile: {

@@ -286,7 +286,13 @@ packaged inline scripts for CSP. It never enables arbitrary inline scripts.
   native session changes supersede older reads. A confirmed native session is
   shared through the renderer's TanStack Query cache for 30 seconds of same-account
   navigation, so child routes do not wait on a fresh remote session read for
-  each click. Native invalidation clears that cache immediately; focus and
+  each click. After that window, a confirmed signed-in session is
+  stale-while-revalidate: navigation proceeds while the session is reread in
+  the background, and only a signed-out or different-account answer clears
+  account-scoped data and returns to this entry with the validated workspace
+  path. A failed background read keeps the page. Without a confirmed signed-in
+  session, or before the Desktop frame mounts, navigation waits for the native
+  answer. Native invalidation clears that cache immediately; focus and
   Desktop entry force a remote recheck. Server requests remain authoritative for
   access and mutations. Temporary workspace failures do
   not initiate browser sign-in or repeat an already handled account invalidation.

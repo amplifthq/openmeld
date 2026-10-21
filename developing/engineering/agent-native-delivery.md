@@ -444,6 +444,8 @@ Stop unnecessary runtime resources even while an unmerged PR remains open.
 
 After merge, release the exact merged SHA through
 [production release](production-release.md), affected components only.
+The unified deploy command dispatches cloud and CLI through their own top-level
+GitHub entrypoints, preserving the CLI's existing npm Trusted Publisher identity.
 `concurrency: production-<name>` with `cancel-in-progress: false` serializes
 one component at a time without blocking development, merges, or other
 components. The platform records what is live: Worker `RELEASE_SHA`, the

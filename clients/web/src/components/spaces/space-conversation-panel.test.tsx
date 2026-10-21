@@ -3183,14 +3183,12 @@ describe("SpaceConversationPanel", () => {
 		const introItem = intro?.closest('[data-slot="message-scroller-item"]');
 		const firstMessageRow = firstMessage.closest("[data-slot='message']");
 
-		const openMeldLogo = screen.getByRole("img", {
-			name: "OpenMeld O logo",
-		});
 		expect(screen.queryByText("Remote")).toBeNull();
 		expect(screen.queryByRole("img", { name: "Online" })).toBeNull();
 
-		expect(openMeldLogo).toBeTruthy();
 		expect(intro).toBeTruthy();
+		// The intro shows the Center Agent's own avatar, not the OpenMeld logo.
+		expect(intro?.querySelector("canvas[data-bot-avatar]")).toBeTruthy();
 		expect(introItem?.className).toContain("[content-visibility:visible]");
 		expect(introItem?.className).not.toContain("[content-visibility:auto]");
 		expect(intro?.className).not.toContain("px-3");
@@ -5731,7 +5729,350 @@ describe("SpaceConversationPanel", () => {
 			).toBeTruthy();
 		});
 	});
+
+	describe("render window", () => {
+		it("mounts only the newest loaded messages when a long conversation opens", () => {
+			renderSpaceConversationPanel({
+				hasEarlierHistory: false,
+				timelineItems: createLongConversation(120),
+			});
+			const log = screen.getByRole("log", { name: "Conversation history" });
+
+			expect(readMountedMessageIds(log)).toEqual(
+				Array.from({ length: 40 }, (_, index) => `message-${index + 81}`)
+			);
+		});
+
+		it("mounts loaded history near the top before fetching more, keeping the visible message in place", async () => {
+			const onLoadEarlierHistory = vi.fn(async () => undefined);
+			renderSpaceConversationPanel({
+				hasEarlierHistory: true,
+				onLoadEarlierHistory,
+				timelineItems: createLongConversation(120),
+			});
+			const log = screen.getByRole("log", { name: "Conversation history" });
+			const content = log.querySelector<HTMLElement>(
+				"[data-slot='message-scroller-content']"
+			);
+			if (!content) {
+				throw new Error("Expected conversation content");
+			}
+			setElementScrollMetrics(log, {
+				clientHeight: 300,
+				scrollHeight: 4000,
+				scrollTop: 200,
+			});
+			// Each scroller item is 100px tall, in DOM order.
+			const geometry = vi
+				.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+				.mockImplementation(function (this: HTMLElement) {
+					if (this === log) {
+						return domRect({ top: 0, bottom: 300 });
+					}
+					const index = [...content.children].indexOf(this);
+					if (index < 0) {
+						return domRect({ top: 0, bottom: 0 });
+					}
+					const top = index * 100 - log.scrollTop;
+					return domRect({ top, bottom: top + 100 });
+				});
+			const visibleItem = content.children.item(2) as HTMLElement;
+			const visibleTop = visibleItem.getBoundingClientRect().top;
+
+			fireEvent.scroll(log);
+
+			await waitFor(() =>
+				expect(readMountedMessageIds(log)[0]).toBe("message-51")
+			);
+			expect(visibleItem.isConnected).toBe(true);
+			expect(visibleItem.getBoundingClientRect().top).toBe(visibleTop);
+			expect(log.scrollTop).toBeGreaterThan(200);
+			expect(onLoadEarlierHistory).not.toHaveBeenCalled();
+			geometry.mockRestore();
+		});
+
+		it("mounts and focuses a linked message above the newest window", async () => {
+			Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+				configurable: true,
+				value: vi.fn(),
+			});
+			const onLoadEarlierHistory = vi.fn(async () => undefined);
+			renderSpaceConversationPanel({
+				hasEarlierHistory: true,
+				initialFocusSignalId: "message-3",
+				onLoadEarlierHistory,
+				timelineItems: createLongConversation(120),
+			});
+
+			await waitFor(() =>
+				expect(document.activeElement?.getAttribute("data-signal-id")).toBe(
+					"message-3"
+				)
+			);
+			expect(onLoadEarlierHistory).not.toHaveBeenCalled();
+		});
+
+		it("mounts a loaded unread target above the window before jumping to it", async () => {
+			Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+				configurable: true,
+				value: vi.fn(),
+			});
+			const open = vi.fn(async () => true);
+			renderSpaceConversationPanel({
+				historyNavigation: createTestHistoryNavigation({ open }),
+				timelineItems: createLongConversation(120),
+				unreadTargets: [
+					{
+						occurredAtMs: 1,
+						signalId: "message-5",
+						threadRootSignalId: null,
+					},
+				],
+				unreadCount: 1,
+				unreadStateReady: true,
+			});
+			const log = screen.getByRole("log", { name: "Conversation history" });
+			expect(readMountedMessageIds(log)).not.toContain("message-5");
+
+			fireEvent.click(
+				await screen.findByRole("button", {
+					name: "1 unread update. Jump to first unread",
+				})
+			);
+
+			await waitFor(() =>
+				expect(document.activeElement?.getAttribute("data-signal-id")).toBe(
+					"message-5"
+				)
+			);
+			expect(open).not.toHaveBeenCalled();
+		});
+
+		it("mounts a history-loaded unread target that lands above the window", async () => {
+			Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+				configurable: true,
+				value: vi.fn(),
+			});
+			let finishLoad: ((result: true) => void) | undefined;
+			const open = vi.fn(
+				(
+					_signalId: string,
+					_signal?: AbortSignal,
+					onLoaded?: (result: true | "latest") => void
+				) => {
+					finishLoad = (result) => onLoaded?.(result);
+					return Promise.resolve(true);
+				}
+			);
+			const overrides: SpaceConversationPanelOverrides = {
+				historyNavigation: createTestHistoryNavigation({ open }),
+				timelineItems: createLongConversation(120).slice(10),
+				unreadTargets: [
+					{
+						occurredAtMs: 1,
+						signalId: "message-5",
+						threadRootSignalId: null,
+					},
+				],
+				unreadCount: 1,
+				unreadStateReady: true,
+			};
+			const view = renderSpaceConversationPanel(overrides);
+			fireEvent.click(
+				await screen.findByRole("button", {
+					name: "1 unread update. Jump to first unread",
+				})
+			);
+			await waitFor(() => expect(finishLoad).toBeTypeOf("function"));
+
+			await act(() => {
+				finishLoad?.(true);
+				view.rerender(
+					<SpaceConversationPanel
+						{...createSpaceConversationPanelProps({
+							...overrides,
+							timelineItems: createLongConversation(120),
+						})}
+					/>
+				);
+			});
+
+			await waitFor(() =>
+				expect(document.activeElement?.getAttribute("data-signal-id")).toBe(
+					"message-5"
+				)
+			);
+		});
+
+		it("keeps the history rail's placement for a target it has to mount first", async () => {
+			const matchMedia = createMatchMediaMock();
+			vi.stubGlobal("matchMedia", (query: string) => ({
+				...matchMedia(query),
+				matches:
+					query === "(min-width: 640px) and (hover: hover) and (pointer: fine)",
+			}));
+			localStorage.setItem("openmeld.space.history-slider", "on");
+			const open = vi.fn(async () => true);
+			renderSpaceConversationPanel({
+				historyNavigation: createTestHistoryNavigation({
+					directory: {
+						total: 120,
+						entries: [
+							{
+								signalId: "message-5",
+								endSignalId: "message-5",
+								startAt: 0,
+								endAt: 1,
+								count: 1,
+								author: "Felix",
+								preview: "Message 5",
+							},
+						],
+					},
+					open,
+				}),
+				timelineItems: createLongConversation(120),
+			});
+			const log = screen.getByRole("log", { name: "Conversation history" });
+			setElementScrollMetrics(log, {
+				clientHeight: 300,
+				scrollHeight: 12_000,
+				scrollTop: 11_700,
+			});
+			const geometry = vi
+				.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+				.mockImplementation(function (this: HTMLElement) {
+					if (this === log) {
+						return domRect({ top: 0, bottom: 300 });
+					}
+					if (this.dataset.signalId === "message-5") {
+						const top = 1000 - log.scrollTop;
+						return domRect({ top, bottom: top + 60 });
+					}
+					return domRect({ top: 0, bottom: 0 });
+				});
+			expect(readMountedMessageIds(log)).not.toContain("message-5");
+			const tick = document.querySelector(".space-history-tick");
+			if (!tick) {
+				throw new Error("Expected a history rail target");
+			}
+
+			fireEvent.click(tick);
+
+			await waitFor(() =>
+				expect(document.activeElement?.getAttribute("data-signal-id")).toBe(
+					"message-5"
+				)
+			);
+			// The rail asks for its target 24px below the visible top, and the
+			// delayed realignment must keep that placement instead of centering.
+			expect(log.scrollTop).toBe(976);
+			for (let frame = 0; frame < 3; frame++) {
+				await act(
+					() =>
+						new Promise<void>((resolve) =>
+							requestAnimationFrame(() => resolve())
+						)
+				);
+			}
+			expect(log.scrollTop).toBe(976);
+			geometry.mockRestore();
+		});
+
+		it("names the first mounted day while its date marker is not mounted", () => {
+			const firstDayMs = new Date(2026, 4, 27, 6, 0).getTime();
+			renderSpaceConversationPanel({
+				hasEarlierHistory: false,
+				timelineItems: Array.from({ length: 120 }, (_, index) =>
+					createTimelineItem({
+						createdAtMs: firstDayMs + index * 6 * 60 * 1000,
+						id: `message-${index + 1}`,
+						text: `Message ${index + 1}`,
+					})
+				),
+			});
+			const log = screen.getByRole("log", { name: "Conversation history" });
+
+			expect(log.querySelector("[data-conversation-date-marker]")).toBeNull();
+			expect(
+				document.querySelector("[data-slot='conversation-date-pill-surface']")
+			).toBeTruthy();
+		});
+
+		it("mounts a saved reading anchor above the newest window", () => {
+			writeSpaceConversationPosition(
+				"human-profile-1:space-conversation:space-view-test",
+				{ anchorSignalId: "message-12", offsetFromVisibleTop: 0 }
+			);
+			renderSpaceConversationPanel({
+				hasEarlierHistory: false,
+				timelineItems: createLongConversation(120),
+			});
+			const log = screen.getByRole("log", { name: "Conversation history" });
+
+			expect(readMountedMessageIds(log)).toContain("message-12");
+			expect(screen.queryByText("Restoring your reading position…")).toBeNull();
+		});
+
+		it("keeps mounted rows and follows the bottom when a new message arrives", async () => {
+			const messages = createLongConversation(120);
+			const view = renderSpaceConversationPanel({
+				hasEarlierHistory: false,
+				timelineItems: messages,
+			});
+			const log = screen.getByRole("log", { name: "Conversation history" });
+			setElementScrollMetrics(log, {
+				clientHeight: 300,
+				scrollHeight: 4000,
+				scrollTop: 3700,
+			});
+			Object.defineProperty(log, "scrollTo", {
+				configurable: true,
+				value: (options: ScrollToOptions) => {
+					log.scrollTop = Number(options.top);
+				},
+			});
+
+			setElementScrollMetrics(log, {
+				clientHeight: 300,
+				scrollHeight: 4100,
+				scrollTop: 3700,
+			});
+			act(() => {
+				view.rerender(
+					<SpaceConversationPanel
+						{...createSpaceConversationPanelProps({
+							hasEarlierHistory: false,
+							timelineItems: createLongConversation(121),
+						})}
+					/>
+				);
+			});
+
+			await waitFor(() => expect(log.scrollTop).toBe(3800));
+			const mounted = readMountedMessageIds(log);
+			expect(mounted[0]).toBe("message-81");
+			expect(mounted.at(-1)).toBe("message-121");
+		});
+	});
 });
+
+function createLongConversation(count: number): SpaceTimelineItem[] {
+	// Ten minutes apart, so every message is its own conversation entry.
+	return Array.from({ length: count }, (_, index) =>
+		createTimelineItem({
+			createdAtMs: Date.UTC(2026, 4, 27, 0, 0) + index * 10 * 60 * 1000,
+			id: `message-${index + 1}`,
+			text: `Message ${index + 1}`,
+		})
+	);
+}
+
+function readMountedMessageIds(log: HTMLElement): string[] {
+	return [
+		...log.querySelectorAll<HTMLElement>("[data-message-id^='message-']"),
+	].map((element) => element.dataset.messageId ?? "");
+}
 
 const TARGET_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
 const SECOND_TARGET_PROFILE_ID = "agt_33333333-3333-4333-8333-333333333333";
