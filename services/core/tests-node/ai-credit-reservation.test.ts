@@ -176,6 +176,38 @@ describe("Hosted AI credit reservations on real PostgreSQL", () => {
     expect(results.filter((r) => r.status === "rejected")).toHaveLength(4);
   });
 
+  it("still nets a request that settles between the provider read and admission", async () => {
+    const running = pending({ attemptId: "attempt-a" });
+    await admit(running, hold(credits(800)));
+    // The provider read sees $1 left, before A's $0.80 reaches it; A settles
+    // while the read is in flight.
+    fetchSpy.mockImplementation(async () => {
+      await rpcRecordRemoteAiUsage(env, {
+        phase: "settle",
+        record: {
+          ...running,
+          fundingSource: "free",
+          status: "reported",
+          tokens: {
+            input: 1,
+            output: 1,
+            total: 2,
+            cacheRead: null,
+            cacheWrite: null,
+            reasoning: null,
+          },
+          cost: { nanoUsd: credits(800), kind: "provider_reported" },
+        },
+      });
+      return Response.json({
+        data: { ...budget, limit_remaining: 1, usage_monthly: 4 },
+      });
+    });
+    await expect(
+      admit(pending({ attemptId: "attempt-b" }), hold(credits(150)))
+    ).rejects.toMatchObject({ code: "ai_usage.monthly_limit_reached" });
+  });
+
   it("applies the new-task floor but lets an admitted attempt continue with one-request grace", async () => {
     await recordAiUsage(harness.db, {
       ...pending({}),

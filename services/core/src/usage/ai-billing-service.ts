@@ -276,16 +276,19 @@ export async function admitRemoteAiRequest(
   const sponsoredRecord: AiUsageRecord = { ...record, fundingSource: "free" };
   // Only a new task pays for the live provider balance read. Continuations of
   // an admitted attempt rely on the local ledger and the native key limit.
+  // The precheck precedes the provider read, so requests it saw unsettled, or
+  // admitted after it, are the ones the read may miss.
+  const observedAtMs = Date.now();
   const precheck = await readAiCreditBalance(db, {
     organizationId: record.organizationId,
     attemptId: record.attemptId,
-    nowMs: Date.now(),
+    nowMs: observedAtMs,
   });
   let providerBalance: ProviderAiCreditBalance | null = null;
   if (!precheck.continuation) {
-    const observedAtMs = Date.now();
     providerBalance = {
       observedAtMs,
+      unsettledEventIds: precheck.unsettledEventIds,
       availableNanoUsd: aiCreditsToNanoUsd(
         sponsoredCredits(await readOpenRouterKey(apiKey)).remainingCredits
       ),

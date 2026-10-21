@@ -23,11 +23,12 @@ export type AiCreditBalance = {
 };
 
 // The provider's remaining balance on the workspace's managed key, read
-// outside the lock. It cannot see requests still in flight, nor costs settled
-// after the read.
+// outside the lock. It cannot see requests admitted after `observedAtMs`, nor
+// requests that were still unsettled before the read, settled or not since.
 export type ProviderAiCreditBalance = {
   availableNanoUsd: number;
   observedAtMs: number;
+  unsettledEventIds: string[];
 };
 
 export function aiCreditPeriodStartMs(nowMs: number) {
@@ -47,12 +48,20 @@ type BalanceInput = {
 
 async function readBalance(
   db: AiUsageQueryable,
-  input: BalanceInput & { providerObservedAtMs?: number }
-): Promise<AiCreditBalance & { providerUnseenNanoUsd: number }> {
+  input: BalanceInput & {
+    provider?: Omit<ProviderAiCreditBalance, "availableNanoUsd">;
+  }
+): Promise<
+  AiCreditBalance & {
+    providerUnseenNanoUsd: number;
+    unsettledEventIds: string[];
+  }
+> {
   const result = await db.query<{
     committed: number;
     continuation: boolean;
     provider_unseen: number;
+    unsettled_event_ids: string[];
   }>({
     // A reported cost replaces its hold. Without one, the hold counts until it
     // expires. Legacy rows without a hold count only their reported cost.
@@ -71,8 +80,12 @@ async function readBalance(
           AND credit_hold_admitted_at_ms > $3::bigint - $5::bigint
           THEN credit_hold_nano_usd
         WHEN cost_nano_usd IS NOT NULL
-          AND credit_hold_admitted_at_ms >= $6::bigint THEN cost_nano_usd
-        ELSE 0 END)::bigint, 0) AS provider_unseen
+          AND (credit_hold_admitted_at_ms >= $6::bigint
+            OR event_id = ANY($7::text[])) THEN cost_nano_usd
+        ELSE 0 END)::bigint, 0) AS provider_unseen,
+      COALESCE(ARRAY_AGG(event_id) FILTER (WHERE cost_nano_usd IS NULL
+        AND credit_hold_admitted_at_ms > $3::bigint - $5::bigint),
+        '{}') AS unsettled_event_ids
     FROM "openmeld"."ai_usage_records"
     WHERE organization_id = $1 AND runtime = 'remote'
       AND occurred_at_ms >= $2::bigint - $5::bigint
@@ -84,7 +97,8 @@ async function readBalance(
       input.nowMs,
       input.attemptId,
       AI_CREDIT_HOLD_TTL_MS,
-      input.providerObservedAtMs ?? input.nowMs,
+      input.provider?.observedAtMs ?? input.nowMs,
+      input.provider?.unsettledEventIds ?? [],
     ],
   });
   const committedNanoUsd = Number(result.rows[0]?.committed ?? 0);
@@ -93,14 +107,19 @@ async function readBalance(
     availableNanoUsd: AI_FREE_MONTHLY_ALLOWANCE_NANO_USD - committedNanoUsd,
     continuation: result.rows[0]?.continuation === true,
     providerUnseenNanoUsd: Number(result.rows[0]?.provider_unseen ?? 0),
+    unsettledEventIds: result.rows[0]?.unsettled_event_ids ?? [],
   };
 }
 
-/** A cheap pre-check outside the lock; the reservation re-reads under lock. */
+/**
+ * A cheap pre-check outside the lock; the reservation re-reads under lock.
+ * Take it before a provider balance read: its unsettled holds are the requests
+ * that read may miss.
+ */
 export async function readAiCreditBalance(
   db: PostgresDatabase,
   input: BalanceInput
-): Promise<AiCreditBalance> {
+): Promise<AiCreditBalance & { unsettledEventIds: string[] }> {
   const { providerUnseenNanoUsd: _, ...balance } = await readBalance(db, input);
   return balance;
 }
@@ -139,15 +158,19 @@ export async function reserveAiCredits(input: {
     );
     // Read the clock after the lock wait so the period and expiry are current.
     const admittedAtMs = Date.now();
-    const { providerUnseenNanoUsd, ...balance } = await readBalance(client, {
+    const {
+      providerUnseenNanoUsd,
+      unsettledEventIds: _,
+      ...balance
+    } = await readBalance(client, {
       organizationId: input.record.organizationId,
       attemptId: input.record.attemptId,
       nowMs: admittedAtMs,
-      providerObservedAtMs: input.providerBalance?.observedAtMs,
+      provider: input.providerBalance ?? undefined,
     });
     if (input.providerBalance) {
-      // Concurrent new tasks share one provider remainder: subtract holds the
-      // provider cannot see yet, and costs of requests admitted after the read.
+      // Concurrent new tasks share one provider remainder: subtract what the
+      // read may have missed, at its hold or, once settled, its actual cost.
       balance.availableNanoUsd = Math.min(
         balance.availableNanoUsd,
         input.providerBalance.availableNanoUsd - providerUnseenNanoUsd
