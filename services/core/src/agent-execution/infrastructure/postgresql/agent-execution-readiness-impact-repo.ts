@@ -123,6 +123,11 @@ export const writeAcceptedAgentExecutionReadinessImpact = async (
   input: WriteAgentExecutionReadinessImpactInput
 ): Promise<"written" | "not_applicable"> =>
   writeAgentExecutionReadinessImpact(input);
+/**
+ * `cleared` means at least one current readiness impact row was cleared, so
+ * the readiness projection changed. `unchanged` means no row matched.
+ */
+export type AgentExecutionReadinessImpactClearResult = "cleared" | "unchanged";
 type ClearAgentExecutionReadinessImpactInput = {
   agentProfileId: string;
   clearedAtMs: number;
@@ -134,7 +139,7 @@ export const clearAgentExecutionReadinessImpactForExecutionRunning = async (
   input: ClearAgentExecutionReadinessImpactInput & {
     executionAuthorizedAtMs: number;
   }
-): Promise<"cleared"> =>
+): Promise<AgentExecutionReadinessImpactClearResult> =>
   clearAgentExecutionReadinessImpactForTrigger({
     ...input,
     clearingTrigger: MATCHING_EXECUTION_RUNNING_CLEARING_TRIGGER,
@@ -145,7 +150,7 @@ export const clearAgentExecutionReadinessImpactForExecutionRunning = async (
   });
 export const clearAgentExecutionReadinessImpactForExecutionSuccess = async (
   input: ClearAgentExecutionReadinessImpactInput
-): Promise<"cleared"> =>
+): Promise<AgentExecutionReadinessImpactClearResult> =>
   clearAgentExecutionReadinessImpactForTrigger({
     ...input,
     clearingTrigger: MATCHING_EXECUTION_SUCCESS_CLEARING_TRIGGER,
@@ -158,13 +163,13 @@ const clearAgentExecutionReadinessImpactForTrigger = async (
       sourceDispatchId: string;
     };
   }
-): Promise<"cleared"> => {
+): Promise<AgentExecutionReadinessImpactClearResult> => {
   const clearedAtMs = normalizeTimestampMs(input.clearedAtMs);
   const clearableTaxonomyEntries = listClearableTaxonomyEntries(
     input.clearingTrigger
   );
   if (clearableTaxonomyEntries.length === 0) {
-    return "cleared";
+    return "unchanged";
   }
   const clearableTaxonomyClause = clearableTaxonomyEntries
     .map((_, index) => {
@@ -179,7 +184,7 @@ const clearAgentExecutionReadinessImpactForTrigger = async (
             OR source_dispatch_id = $9
           )`
     : "";
-  await input.db.query({
+  const result = await input.db.query({
     text: `
         UPDATE "openmeld"."openMeldDaemon_agent_execution_readiness_impacts"
         SET
@@ -215,7 +220,12 @@ const clearAgentExecutionReadinessImpactForTrigger = async (
       ]),
     ],
   });
-  return "cleared";
+  // A driver that cannot report the row count must not suppress the
+  // readiness invalidation that follows a real clear.
+  if (typeof result.rowCount !== "number") {
+    return "cleared";
+  }
+  return result.rowCount > 0 ? "cleared" : "unchanged";
 };
 export const readFreshAgentExecutionReadinessImpactForBinding = async (input: {
   agentProfileId: string;
