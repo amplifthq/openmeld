@@ -242,10 +242,10 @@ async function runSetupUnlocked(input: {
   const appliesLocalAgentChoice =
     selectedLocalAgentIds.length > 0 ||
     normalizeOptionalString(input.localAgents) === "none";
-  if (appliesLocalAgentChoice) {
-    // Before the Service starts, so its discovery cannot turn them on.
-    await registerUnselectedLocalAgentsOffForSetup({ selectedLocalAgentIds });
-  }
+  // Before the Service starts, so it never reports an unselected agent as on.
+  const turnedOffBeforeServiceAgentIds = appliesLocalAgentChoice
+    ? await registerUnselectedLocalAgentsOffForSetup({ selectedLocalAgentIds })
+    : [];
   if (selectedLocalAgentIds.length > 0) {
     assertStartLocalAgentsEnableCompleted(
       await runWithSetupProgress({
@@ -336,7 +336,10 @@ async function runSetupUnlocked(input: {
   if (appliesLocalAgentChoice) {
     emitSetupMemberAgentsLine(
       presenter,
-      await addSetupMemberAgentsAfterLocalAgentChoice({ selectedLocalAgentIds })
+      await addSetupMemberAgentsAfterLocalAgentChoice({
+        selectedLocalAgentIds,
+        turnedOffBeforeServiceAgentIds,
+      })
     );
   }
 
@@ -393,6 +396,7 @@ async function runSetupUnlocked(input: {
  */
 async function addSetupMemberAgentsAfterLocalAgentChoice(input: {
   selectedLocalAgentIds: readonly string[];
+  turnedOffBeforeServiceAgentIds?: readonly string[];
 }): Promise<SetupMemberAgentsResult> {
   const choice = await turnOffUnselectedLocalAgentsForSetup(input);
   if (choice.failedAgentIds.length > 0) {

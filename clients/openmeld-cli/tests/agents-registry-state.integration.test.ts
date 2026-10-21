@@ -587,6 +587,7 @@ describe("agents registry resolve target state", () => {
 
       expect(result).toEqual({
         registeredOffAgentIds: ["opencode"],
+        turnedOffExistingAgentIds: [],
         unselectedOnAgentIds: ["cursor"],
       });
       expect(
@@ -611,6 +612,64 @@ describe("agents registry resolve target state", () => {
           ],
         })
       ).toMatchObject({ preservedDisabledAgentIds: ["opencode"] });
+    });
+  });
+
+  it("turns existing unselected registrations off before the Service starts", async () => {
+    // An unselected agent already on would otherwise be reported, and become
+    // an Agent, before setup turned it off through the Service.
+    await withTempHome(async () => {
+      await setConfiguredDeviceRuntimeState({
+        controllers: [
+          {
+            agentId: "codex",
+            displayName: "Codex",
+            enabled: true,
+            registeredAt: "2026-07-01T00:00:00.000Z",
+            updatedAt: "2026-07-01T00:00:00.000Z",
+          },
+          {
+            agentId: "cursor",
+            displayName: "Cursor",
+            enabled: true,
+            registeredAt: "2026-07-01T00:00:00.000Z",
+            updatedAt: "2026-07-01T00:00:00.000Z",
+          },
+        ],
+      });
+
+      const result = await registerUnselectedBuiltinAgentsTurnedOff({
+        selectedAgentIds: ["codex"],
+        states: [
+          buildBuiltinState({
+            agentId: "codex",
+            displayName: "Codex",
+            enabled: true,
+            registered: true,
+          }),
+          buildBuiltinState({
+            agentId: "cursor",
+            displayName: "Cursor",
+            enabled: true,
+            registered: true,
+          }),
+        ],
+        turnOffExisting: true,
+      });
+
+      expect(result).toEqual({
+        registeredOffAgentIds: [],
+        turnedOffExistingAgentIds: ["cursor"],
+        unselectedOnAgentIds: [],
+      });
+      expect(
+        (await getConfiguredDeviceRuntimeState())?.controllers?.map(
+          ({ agentId, enabled }) => ({ agentId, enabled })
+        )
+      ).toEqual([
+        { agentId: "codex", enabled: true },
+        { agentId: "cursor", enabled: false },
+      ]);
     });
   });
 

@@ -8,17 +8,20 @@ import { requestLocalSetLocalAgentEnabled } from "../local-service/control-plane
 // catalog report before it answers, so Core sees the switch at once.
 
 /**
- * Before setup starts the Service: register each detected built-in agent the
- * member did not select as off, so the Service's discovery never turns it on
- * and reports it in the meantime. Agents already registered keep their switch
- * until turnOffUnselectedLocalAgentsForSetup runs.
+ * Before setup starts the Service: turn every detected built-in agent the
+ * member did not select off in the local registry (registering new ones as
+ * off), so the Service never reports one as on. Returns the agents that were
+ * on; turnOffUnselectedLocalAgentsForSetup reports them through the Service.
  */
 export async function registerUnselectedLocalAgentsOffForSetup(input: {
   selectedLocalAgentIds: readonly string[];
-}): Promise<void> {
-  await registerUnselectedBuiltinAgentsTurnedOff({
-    selectedAgentIds: input.selectedLocalAgentIds,
-  });
+}): Promise<string[]> {
+  const { turnedOffExistingAgentIds } =
+    await registerUnselectedBuiltinAgentsTurnedOff({
+      selectedAgentIds: input.selectedLocalAgentIds,
+      turnOffExisting: true,
+    });
+  return turnedOffExistingAgentIds;
 }
 
 export type SetupLocalAgentChoiceResult = {
@@ -37,6 +40,9 @@ export type SetupLocalAgentChoiceResult = {
  */
 export async function turnOffUnselectedLocalAgentsForSetup(input: {
   selectedLocalAgentIds: readonly string[];
+  // Turned off before the Service started: switch them through the Service
+  // too, so its report says so before any Agent is added.
+  turnedOffBeforeServiceAgentIds?: readonly string[];
 }): Promise<SetupLocalAgentChoiceResult> {
   const { registeredOffAgentIds, unselectedOnAgentIds } =
     await registerUnselectedBuiltinAgentsTurnedOff({
@@ -44,7 +50,13 @@ export async function turnOffUnselectedLocalAgentsForSetup(input: {
     });
   const turnedOffAgentIds = [...registeredOffAgentIds];
   const failedAgentIds: string[] = [];
-  for (const agentId of unselectedOnAgentIds) {
+  const toSwitch = [
+    ...new Set([
+      ...unselectedOnAgentIds,
+      ...(input.turnedOffBeforeServiceAgentIds ?? []),
+    ]),
+  ];
+  for (const agentId of toSwitch) {
     const switched = await setLocalAgentEnabledThroughService({
       agentId,
       enabled: false,

@@ -183,6 +183,7 @@ describe("setup command", () => {
       failedAgentIds: [],
       turnedOffAgentIds: [],
     });
+    registerUnselectedLocalAgentsOffForSetupMock.mockResolvedValue([]);
     Reflect.deleteProperty(process.env, "OPENMELD_SETUP_FORCE_SERVICE_REFRESH");
     resolveRuntimeContextMock.mockResolvedValue({
       resolvedView: "agent",
@@ -957,6 +958,8 @@ describe("setup command", () => {
         ],
       },
     });
+    // Cursor was already on: setup turned it off before the Service started.
+    registerUnselectedLocalAgentsOffForSetupMock.mockResolvedValue(["cursor"]);
     const { runSetup } = await import("../src/commands/setup");
 
     await runSetup({ localAgent: ["codex"], view: "agent" });
@@ -969,8 +972,10 @@ describe("setup command", () => {
     const serviceStartedAt =
       runDaemonServiceParticipationGateMock.mock.invocationCallOrder[0];
     expect(registeredOffAt).toBeLessThan(serviceStartedAt ?? 0);
+    // And reports it through the Service before any Agent is added.
     expect(turnOffUnselectedLocalAgentsForSetupMock).toHaveBeenCalledWith({
       selectedLocalAgentIds: ["codex"],
+      turnedOffBeforeServiceAgentIds: ["cursor"],
     });
   });
 
@@ -988,6 +993,7 @@ describe("setup command", () => {
     });
     expect(turnOffUnselectedLocalAgentsForSetupMock).toHaveBeenCalledWith({
       selectedLocalAgentIds: [],
+      turnedOffBeforeServiceAgentIds: [],
     });
   });
 

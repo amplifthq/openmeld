@@ -636,8 +636,12 @@ export async function reconcileNewRunnableBuiltinAgentRegistrations(
 export async function registerUnselectedBuiltinAgentsTurnedOff(input: {
   selectedAgentIds: readonly string[];
   states?: readonly AgentTargetState[];
+  // Also turn existing, enabled unselected registrations off here (before
+  // the Service starts) instead of leaving them for the Service.
+  turnOffExisting?: boolean;
 }): Promise<{
   registeredOffAgentIds: string[];
+  turnedOffExistingAgentIds: string[];
   unselectedOnAgentIds: string[];
 }> {
   const selected = new Set(input.selectedAgentIds.map(normalizeAgentId));
@@ -652,6 +656,7 @@ export async function registerUnselectedBuiltinAgentsTurnedOff(input: {
       compareAgentControllerRefsForDisplay(left.agentId, right.agentId)
     );
   const registeredOffAgentIds: string[] = [];
+  const turnedOffExistingAgentIds: string[] = [];
   const unselectedOnAgentIds: string[] = [];
   const toRegister = unselected.filter(
     (state) => !state.registered && isRunnableBuiltinForAutomaticSetup(state)
@@ -666,7 +671,13 @@ export async function registerUnselectedBuiltinAgentsTurnedOff(input: {
         const registration = currentById.get(state.agentId);
         if (registration) {
           // Registered meanwhile, for example by the Service's discovery.
-          if (registration.enabled) {
+          if (registration.enabled && input.turnOffExisting) {
+            next[next.indexOf(registration)] = {
+              ...registration,
+              enabled: false,
+            };
+            turnedOffExistingAgentIds.push(state.agentId);
+          } else if (registration.enabled) {
             unselectedOnAgentIds.push(state.agentId);
           }
           continue;
@@ -684,7 +695,11 @@ export async function registerUnselectedBuiltinAgentsTurnedOff(input: {
     },
     { notifyRouteCatalogChanged: false }
   );
-  return { registeredOffAgentIds, unselectedOnAgentIds };
+  return {
+    registeredOffAgentIds,
+    turnedOffExistingAgentIds,
+    unselectedOnAgentIds,
+  };
 }
 
 export async function reconcileNewRunnableBuiltinAgentsForSetup(
