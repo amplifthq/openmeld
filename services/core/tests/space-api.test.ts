@@ -1,5 +1,5 @@
 import { runInDurableObject, SELF } from "cloudflare:test";
-import { RpcStub, RpcTarget } from "cloudflare:workers";
+import { exports, RpcStub, RpcTarget } from "cloudflare:workers";
 import { createHash, randomUUID } from "node:crypto";
 import { getPostgresDatabase, PostgresDatabase } from "@openmeld/db/postgresql";
 import {
@@ -10420,7 +10420,7 @@ describe("OpenMeld Core", () => {
       organizationId: DEFAULT_TEST_ORGANIZATION_ID,
       userId: "rpc-owner",
     });
-    const rpc = SELF as unknown as {
+    const rpc = exports.default as unknown as {
       ping: () => Promise<{
         ok: boolean;
         service: string;
@@ -10581,7 +10581,7 @@ describe("OpenMeld Core", () => {
       profileName: "Test User",
       ownerUserId: "owner-test-default",
     });
-    const rpc = SELF as unknown as {
+    const rpc = exports.default as unknown as {
       listSignals: (
         input: {
           context: typeof rpcContext;
@@ -10686,7 +10686,7 @@ describe("OpenMeld Core", () => {
       profileName: "Legacy Service Agent",
       ownerUserId: "owner-legacy-service-agent",
     });
-    const rpc = SELF as unknown as {
+    const rpc = exports.default as unknown as {
       listSignals: (
         input: {
           context: typeof rpcContext;
@@ -11076,7 +11076,7 @@ describe("OpenMeld Core", () => {
       profileName: "Ava DM",
       requestId: "center-agent-dm-real-do",
     });
-    const rpc = SELF as unknown as {
+    const rpc = exports.default as unknown as {
       openCenterAgentDirectMessageSpace: (input: {
         context: typeof context;
         sessionCreationId?: string;

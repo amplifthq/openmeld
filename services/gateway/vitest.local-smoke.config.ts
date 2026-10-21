@@ -23,7 +23,6 @@ export default defineConfig(async () => {
     test: {
       fileParallelism: false,
       include: ["tests/local-smoke/**/*.test.ts"],
-      isolate: false,
       maxWorkers: 1,
       setupFiles: ["./tests/local-smoke/apply-d1-migrations.ts"],
     },

@@ -32,9 +32,6 @@ export default defineConfig(async () => {
       fileParallelism: false,
       globals: true,
       include: ["src/__tests__/**/*.test.ts", "tests/**/*.test.ts"],
-      // Durable Object stream tests share one runtime and storage across
-      // files and use unique fixture ids.
-      isolate: false,
       maxWorkers: 1,
       setupFiles: [
         "./test-support/seed-published-local-components-release.setup.ts",

@@ -24,9 +24,6 @@ export default defineConfig(async () => {
       fileParallelism: false,
       globals: true,
       include: ["tests-postgresql-owner/**/*.test.ts"],
-      // Durable Object stream tests share one runtime and storage across
-      // files and use unique fixture ids.
-      isolate: false,
       maxWorkers: 1,
     },
   };
