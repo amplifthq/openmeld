@@ -1,19 +1,21 @@
 name: 📦 CLI Release
 run-name: CLI Release @ ${{ inputs.release_sha }}
 
-# Called by deploy.yml for the cli component after its validate job checked
-# the SHA on main's first-parent history. The Windows helper is built in this
-# run beside the macOS checkout; the macOS job packages, signs, notarizes, and
-# publishes with scripts/release/publish-cli.mjs, the same script the local
-# lane runs. Installation checks run after publication.
+# Dispatch this workflow directly to preserve the npm Trusted Publisher's
+# cli-release.yml OIDC identity. Validate the SHA on main's first-parent history
+# before building the Windows helper. The macOS job packages, signs, notarizes,
+# and publishes with scripts/release/publish-cli.mjs. Installation checks run
+# after publication.
 
 on:
-  workflow_call:
+  workflow_dispatch:
     inputs:
       release_sha:
+        description: "Exact 40-character commit on main's first-parent history"
         required: true
         type: string
       dry_run:
+        description: "Validate the source and gates and print each step without publishing"
         required: false
         type: boolean
         default: false
@@ -22,8 +24,41 @@ permissions:
   contents: read
 
 jobs:
+  validate:
+    name: Validate Release Source
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Production deploys run release control from main. Current ref: ${GITHUB_REF}"
+          exit 1
+
+      - name: Checkout release control
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          path: release-control
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Refresh current main
+        uses: ./release-control/.github/actions/trusted-git-network
+        with:
+          github_token: ${{ github.token }}
+          operation: fetch-main
+          repository: ${{ github.repository }}
+          working_directory: release-control
+
+      - name: Require the SHA on main first-parent history
+        working-directory: release-control
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: node scripts/release/require-mainline-release-sha.mjs "$RELEASE_SHA" refs/remotes/origin/main
+
   windows_helper:
     name: Build Windows Process Helper
+    needs: validate
     runs-on: windows-2025
     timeout-minutes: 20
     defaults: { run: { working-directory: release-source } }
