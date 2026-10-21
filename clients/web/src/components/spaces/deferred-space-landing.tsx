@@ -5,8 +5,6 @@ import { useSpacePanelWidth } from "./use-space-panel-width";
 
 type SpaceLandingProps = ComponentProps<typeof SpaceLanding>;
 
-const NO_CONVERSATION_KEY = "";
-
 function hasCreationHandoff(input: SpaceLandingProps): boolean {
 	return Boolean(
 		input.initialPendingMessage ||
@@ -18,27 +16,33 @@ function hasCreationHandoff(input: SpaceLandingProps): boolean {
 /**
  * Switches the routed Space conversation as a deferred, interruptible render.
  *
- * Each Space and Profile pair still owns a separately keyed SpaceLanding, so
+ * Each Space and Profile pair owns a separately keyed conversation, so
  * per-Space state (drafts, open Thread, selection, pending uploads, reading
  * position, live subscriptions) can never leak into another Space.
  *
- * A switch (or a fresh mount) first commits only the shell: the URL, the sidebar selection, and
- * a lightweight conversation frame. The next Space then mounts in a deferred
- * render that React time-slices, instead of one long blocking frame. The
- * leaving Space unmounts in that first commit on purpose: kept visible, its
- * live updates (agent streams render every 100ms) would keep interrupting and
- * restarting the deferred render until React expires it.
+ * Every switch, fresh route mount, or quick return to a Space first commits
+ * only the shell: the URL, the sidebar selection, and a lightweight
+ * conversation frame. The conversation then mounts in a deferred render that
+ * React time-slices, instead of one long blocking frame. The leaving Space
+ * unmounts in that first commit on purpose: kept visible, its live updates
+ * (agent streams render every 100ms) would keep interrupting and restarting
+ * the deferred render until React expires it.
  */
 export function DeferredSpaceLanding(input: SpaceLandingProps) {
-	const conversationKey = `${input.spaceId}:${input.profileId}`;
-	// A fresh mount (Space to Direct Message, or entering from another page) is
-	// deferred too. Only a creation handoff mounts its conversation directly so
-	// the drafted first message never blinks out between the two surfaces.
-	const deferredConversationKey = useDeferredValue(
-		conversationKey,
-		hasCreationHandoff(input) ? conversationKey : NO_CONVERSATION_KEY
+	return (
+		<DeferredSpaceConversation
+			key={`${input.spaceId}:${input.profileId}`}
+			{...input}
+		/>
 	);
-	if (deferredConversationKey !== conversationKey) {
+}
+
+function DeferredSpaceConversation(input: SpaceLandingProps) {
+	// Starts false on every mount, so the conversation always arrives in the
+	// deferred render. Only a creation handoff mounts its conversation directly
+	// so the drafted first message never blinks out between the two surfaces.
+	const conversationReady = useDeferredValue(true, hasCreationHandoff(input));
+	if (!conversationReady) {
 		return (
 			<SpaceConversationSwitchFrame
 				spaceId={input.spaceId}
@@ -46,7 +50,7 @@ export function DeferredSpaceLanding(input: SpaceLandingProps) {
 			/>
 		);
 	}
-	return <SpaceLanding key={conversationKey} {...input} />;
+	return <SpaceLanding {...input} />;
 }
 
 function SpaceConversationSwitchFrame(input: {

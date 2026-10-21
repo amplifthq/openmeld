@@ -752,6 +752,42 @@ describe("app space entry route", () => {
 		expect(await screen.findByTestId("space-landing")).toBeTruthy();
 	});
 
+	it("defers a quick return to the previous Space before the next one commits", async () => {
+		const pendingConversation = new Promise<never>(() => undefined);
+		let conversationsPending = false;
+		spaceLandingMock.mockImplementation(({ spaceId }) => (
+			<SuspendingSpaceLanding
+				pending={conversationsPending ? pendingConversation : null}
+				spaceId={spaceId}
+			/>
+		));
+		const queryClient = createTestQueryClient();
+		const view = renderAppSpaceEntry({
+			profileId: "profile-123",
+			queryClient,
+			selectedHumanProfileId: "profile-123",
+			spaceId: "space-a",
+		});
+		await screen.findByTestId("space-landing");
+		conversationsPending = true;
+
+		for (const spaceId of ["space-b", "space-a"]) {
+			// biome-ignore lint/suspicious/useAwait: act must be awaited while a conversation suspends.
+			await act(async () => {
+				view.rerender(buildAppSpaceEntryElement({ queryClient, spaceId }));
+			});
+			// Returning to A before B commits must not mount A inside the
+			// navigation update; it goes through the deferred frame like B.
+			expect(
+				screen
+					.getByTestId("app-space-shell")
+					.getAttribute("data-current-space-id")
+			).toBe(spaceId);
+			expect(screen.queryByTestId("space-landing")).toBeNull();
+			expect(screen.getByText("Loading messages…")).toBeTruthy();
+		}
+	});
+
 	it("commits the shell before a freshly mounted cached Direct Message conversation", async () => {
 		const queryClient = createTestQueryClient();
 		queryClient.setQueryData(
