@@ -7,7 +7,7 @@ import {
   suggestPermissionModeResponseSchema,
 } from "@openmeld/schemas";
 import type { Context, Hono } from "hono";
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import type { HonoBindings } from "../lib/bindings";
 import {
   buildCoreRpcContext,
