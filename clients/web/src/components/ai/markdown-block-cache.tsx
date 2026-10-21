@@ -162,7 +162,7 @@ function resolvePipelineKey(props: BlockProps): string {
 		resolveValueKey(props.components, resolveComponentsKey),
 		resolveValueKey(props.remarkPlugins, resolvePluginsKey),
 		resolveValueKey(props.rehypePlugins, resolvePluginsKey),
-		resolveValueKey(props.remarkRehypeOptions, JSON.stringify),
+		resolveValueKey(props.remarkRehypeOptions, resolveOptionsKey),
 		resolveValueKey(props.allowedElements, JSON.stringify),
 		resolveValueKey(props.disallowedElements, JSON.stringify),
 		resolveIdentityKey(props.allowElement),
@@ -203,11 +203,44 @@ function resolvePluginsKey(plugins: PluggableList): string {
 		.map((plugin) => {
 			if (Array.isArray(plugin)) {
 				const [attacher, ...options] = plugin;
-				return `${resolveIdentityKey(attacher)}:${JSON.stringify(options)}`;
+				return `${resolveIdentityKey(attacher)}:${resolveOptionsKey(options)}`;
 			}
 			return resolveIdentityKey(plugin);
 		})
 		.join(",");
+}
+
+/** Value key for plain JSON data; identity key for anything else. */
+function resolveOptionsKey(value: unknown): string {
+	return isPlainJson(value)
+		? `j${JSON.stringify(value)}`
+		: resolveIdentityKey(value);
+}
+
+// JSON.stringify maps Maps, Sets, class instances and non-finite numbers to
+// keys that collide, and throws on cycles, so only plain data keys by value.
+function isPlainJson(value: unknown, seen = new Set<object>()): boolean {
+	if (
+		value === null ||
+		typeof value === "string" ||
+		typeof value === "boolean"
+	) {
+		return true;
+	}
+	if (typeof value === "number") {
+		return Number.isFinite(value) && !Object.is(value, -0);
+	}
+	if (typeof value !== "object" || seen.has(value)) {
+		return false;
+	}
+	const proto = Object.getPrototypeOf(value);
+	if (!(Array.isArray(value) || proto === Object.prototype || proto === null)) {
+		return false;
+	}
+	seen.add(value);
+	const plain = Object.values(value).every((child) => isPlainJson(child, seen));
+	seen.delete(value);
+	return plain;
 }
 
 function resolveIdentityKey(value: unknown): string {

@@ -1260,7 +1260,12 @@ function StatefulSpaceLanding(input: {
 	const [openThreadId, setOpenThreadId] = useState<string | null>(null);
 	const [selectedSignalId, setSelectedSignalId] = useState<string | null>(null);
 	const [pendingUploadCount, setPendingUploadCount] = useState(0);
-	input.onRender(instance);
+	// Record on commit: React can discard a deferred render and rerun the
+	// state initializer, which would count an instance that never mounted.
+	const { onRender } = input;
+	useEffect(() => {
+		onRender(instance);
+	}, [instance, onRender]);
 	return (
 		<div data-space-id={input.spaceId} data-testid="space-landing">
 			<input
