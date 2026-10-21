@@ -9,11 +9,11 @@ export async function mapWithConcurrency<TInput, TOutput>(
 ): Promise<TOutput[]> {
   const results = new Array<TOutput>(inputs.length);
   let nextIndex = 0;
-  let failure: { error: unknown } | null = null;
+  const state: { failure: { error: unknown } | null } = { failure: null };
   const workerCount = Math.max(1, Math.min(maxConcurrency, inputs.length));
   await Promise.all(
     Array.from({ length: workerCount }, async () => {
-      while (!failure) {
+      while (!state.failure) {
         const currentIndex = nextIndex;
         nextIndex += 1;
         if (currentIndex >= inputs.length) {
@@ -22,13 +22,13 @@ export async function mapWithConcurrency<TInput, TOutput>(
         try {
           results[currentIndex] = await mapper(inputs[currentIndex] as TInput);
         } catch (error) {
-          failure ??= { error };
+          state.failure ??= { error };
         }
       }
     })
   );
-  if (failure) {
-    throw failure.error;
+  if (state.failure) {
+    throw state.failure.error;
   }
   return results;
 }

@@ -504,7 +504,10 @@ Core accepts a native controller check only for a fixed window after its check
 time (`AGENT_CONTROLLER_AUTH_STALE_AFTER_MS`, two minutes). The periodic report
 cadence is therefore measured from when a pass starts, not from when it ends, so
 the time a pass spends checking never stretches the interval between two checks
-of the same controller past that window. A background pass may reuse a held
+of the same controller past that window. The next pass runs on its own timer
+when it comes due; it must not wait for a heartbeat, because an idle heartbeat
+stretches to a minute and a pass that just misses one would land on the
+window's edge. Heartbeats may still start a due pass. A background pass may reuse a held
 snapshot only while its native check is under 30 seconds old, measured from
 the check time rather than probe completion, so a periodic pass always renews
 the observation instead of republishing one that expires before the next pass.

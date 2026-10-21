@@ -1237,6 +1237,90 @@ describe("local service run catalog signal", () => {
     await sessionPromise;
   });
 
+  it("runs a due runtime agent controller report pass without waiting for the next idle heartbeat", async () => {
+    vi.useFakeTimers();
+    // Lowest jitter: the idle heartbeat lands just before the report pass is
+    // due, so a heartbeat-only trigger would wait almost a second interval.
+    vi.spyOn(Math, "random").mockReturnValue(0);
+
+    syncDaemonRouteCatalogStateMock.mockResolvedValue({
+      skippedProfiles: [],
+      status: "unchanged",
+    });
+    readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+    syncLocalServiceRuntimeAgentControllerReportsMock.mockResolvedValue({
+      failedCount: 0,
+      reasonCodes: [],
+      reportCount: 3,
+      status: "submitted",
+      submittedCount: 3,
+    });
+
+    const socket = createMockSocket();
+    const sessionPromise = runDaemonSocketSession({
+      computerFileAccessStorePath: "/tmp/computer-file-access.json",
+      contextStore: new Map<string, string>(),
+      daemonSessionId: "session-runtime-report-own-timer",
+      dispatchLimits: {
+        globalConcurrency: 1,
+        queueMax: 4,
+      },
+      deviceId: "device-1",
+      foregroundActive: false,
+      heartbeatIntervalMs: 60_000,
+      inflightDispatchMetaByTaskId: new Map(),
+      inflightTaskControlRegistry: createInflightTaskControlRegistry(),
+      pendingAgentInteractionRegistry: createPendingAgentInteractionRegistry(),
+      lane: "dev-local",
+      ledgerPaths: {
+        backupStateFilePath: "/tmp/ledger.backup",
+        historyFilePath: "/tmp/ledger.history",
+        historyTempFilePath: "/tmp/ledger.history.tmp",
+        rootDirPath: "/tmp/ledger",
+        stateFilePath: "/tmp/ledger.state",
+        stateTempFilePath: "/tmp/ledger.state.tmp",
+      },
+      localAdapterContainer: createLocalAdapterContainer([]),
+      ownerUserId: "owner-1",
+      profileOwnerName: "felix",
+      presenter: {
+        view: "human",
+        event: () => undefined,
+        line: () => undefined,
+        data: () => undefined,
+      },
+      routeCatalogState: {
+        fingerprint: "initial",
+        profileIds: ["agt-1"],
+        routeByProfileId: new Map(),
+        skippedProfiles: [],
+      },
+      reconnectAttempt: 0,
+      socket,
+      touchRuntimeState: async () => undefined,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(
+      syncLocalServiceRuntimeAgentControllerReportsMock
+    ).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(
+      syncLocalServiceRuntimeAgentControllerReportsMock
+    ).toHaveBeenCalledTimes(1);
+
+    // Core expires a native check two minutes after its check time, so the
+    // next pass must run on its own cadence rather than on the next heartbeat.
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(
+      syncLocalServiceRuntimeAgentControllerReportsMock
+    ).toHaveBeenCalledTimes(2);
+
+    socket.close(1000, "shutdown");
+    await sessionPromise;
+  });
+
   it("keeps heartbeat scheduling independent from slow supplemental evidence sync", async () => {
     vi.useFakeTimers();
     const lines: Array<{ code: string; text: string }> = [];
