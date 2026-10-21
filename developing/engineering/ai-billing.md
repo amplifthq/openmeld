@@ -72,8 +72,11 @@ the exact request body and sends `providerAuthorizationVersion: 2` with a
 requested `max_tokens`/`max_completion_tokens` × output price + server research
 fees). Prompt tokens are UTF-8 body bytes ÷ 3 plus 6,000 tokens per image; the
 higher OpenRouter price band applies once the estimate reaches its threshold.
-Server web search and fetch tools add retrieved content, a second model pass,
-and the fee of their selected engine, which is separate from model token prices:
+Server web search and fetch tools share one OpenRouter step budget,
+`max_tool_calls` (default and maximum 30; web research sends 3). Each step adds
+retrieved content, another model pass, and a per-call fee of the selected
+engine, which is separate from model token prices. Search may use every step,
+because `max_uses` binds only Anthropic native search:
 the direct `openrouter` fetch engine is free; search with `auto` or `native`
 reserves the larger of the model's native search fee and the Exa fallback
 (OpenRouter falls back to Exa for models without native search). Engines without
@@ -104,8 +107,9 @@ its hold in the same transaction, so concurrent begins see each other's holds.
 - A **new task** (no earlier platform hold for the same execution attempt this
   month, or no attempt ID) needs `available ≥ 300 credits` and
   `hold ≤ available`. It also reads the live provider balance first, outside the
-  lock. Under the lock it subtracts what that read cannot see: holds still
-  unsettled, and costs of requests admitted after the read. It then uses the
+  lock, after a local pre-check. Under the lock it subtracts what that read may
+  have missed: requests admitted after the pre-check, and requests the pre-check
+  saw unsettled, at their hold or, once settled, their actual cost. It then uses the
   smaller of the local and provider balances. This keeps the provider
   configuration check, covers usage the local ledger cannot see, and stops
   concurrent new tasks from reserving the same provider remainder.
@@ -136,9 +140,8 @@ allowance, nor the provider balance net of the holds Core knows about. The remai
 an actual cost above its estimate (the 1.25 margin makes this unlikely for priced
 text, but an unusual tokenizer or server-tool result can exceed it); costs of
 expired or unknown-cost holds after 30 minutes; and, in the rollout month only,
-continuations of tasks that the local ledger cannot fully see; and costs settled
-between a new task's provider read and its admission that the provider had not
-yet counted. Each is capped by
+continuations of tasks that the local ledger cannot fully see; and the
+provider's own propagation delay for costs settled before a new task's pre-check. Each is capped by
 the OpenRouter native key limit, which keeps its own propagation delay.
 
 The monthly aggregate scans that workspace's remote rows for the month through
