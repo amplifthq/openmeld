@@ -1496,6 +1496,11 @@ export async function runDaemonSocketSession(input: {
   const runRuntimeAgentControllerReportSync = async (
     probePolicy: "background" | "fresh"
   ): Promise<LocalServiceRuntimeAgentControllerReportSyncResult> => {
+    // Core accepts a native check for a fixed window after its check time, so
+    // the cadence is measured from when this pass starts checking. Measuring
+    // from its end would let a slow pass push every controller's renewal past
+    // that window and briefly turn a healthy controller stale.
+    const passStartedAtMs = Date.now();
     try {
       const result = await input.executionHost.call("reportControllers", {
         probePolicy,
@@ -1514,6 +1519,7 @@ export async function runDaemonSocketSession(input: {
       nextRuntimeAgentControllerReportSyncAtMs =
         resolveNextRuntimeAgentControllerReportSyncAtMs({
           nowMs: Date.now(),
+          passStartedAtMs,
           baseRetryMs: retryInMs,
           hasArmedReprobe: result.hasArmedReprobe,
         });

@@ -448,12 +448,19 @@ export function consumeArmedAgentControllerInterfaceReprobe(): boolean {
 // re-probe pass itself runs a real background probe (a still-Error controller
 // has no reusable snapshot) and flows through the existing report/refresh path,
 // while an already-healthy controller reuses its held snapshot for free.
+// The base cadence is anchored on when the pass started (never earlier than
+// now), so the time a pass spends checking does not stretch the interval
+// between two checks of the same controller.
 export function resolveNextRuntimeAgentControllerReportSyncAtMs(input: {
   nowMs: number;
+  passStartedAtMs: number;
   baseRetryMs: number;
   hasArmedReprobe: boolean;
 }): number {
-  const baseNextMs = input.nowMs + input.baseRetryMs;
+  const baseNextMs = Math.max(
+    input.nowMs,
+    input.passStartedAtMs + input.baseRetryMs
+  );
   if (!input.hasArmedReprobe) {
     return baseNextMs;
   }

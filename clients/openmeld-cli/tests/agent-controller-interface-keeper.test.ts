@@ -1145,6 +1145,7 @@ describe("agent controller interface re-probe orchestration", () => {
     expect(
       resolveNextRuntimeAgentControllerReportSyncAtMs({
         nowMs: 10_000,
+        passStartedAtMs: 10_000,
         baseRetryMs: 5 * 60_000,
         hasArmedReprobe: false,
       })
@@ -1156,6 +1157,7 @@ describe("agent controller interface re-probe orchestration", () => {
     expect(
       resolveNextRuntimeAgentControllerReportSyncAtMs({
         nowMs: 10_000,
+        passStartedAtMs: 10_000,
         baseRetryMs: 5 * 60_000,
         hasArmedReprobe: true,
       })
@@ -1168,10 +1170,35 @@ describe("agent controller interface re-probe orchestration", () => {
     expect(
       resolveNextRuntimeAgentControllerReportSyncAtMs({
         nowMs: 10_000,
+        passStartedAtMs: 10_000,
         baseRetryMs,
         hasArmedReprobe: true,
       })
     ).toBe(10_000 + baseRetryMs);
+  });
+});
+
+describe("runtime agent controller report cadence", () => {
+  it("measures the next pass from when the slow pass started checking", () => {
+    // A 70s pass that started at t=0 must not push the next check of each
+    // controller to t=130s: Core treats a native check older than two minutes
+    // as stale, which used to show a healthy controller as unable to start.
+    expect(
+      resolveNextRuntimeAgentControllerReportSyncAtMs({
+        nowMs: 70_000,
+        passStartedAtMs: 0,
+        baseRetryMs: 60_000,
+        hasArmedReprobe: false,
+      })
+    ).toBe(70_000);
+    expect(
+      resolveNextRuntimeAgentControllerReportSyncAtMs({
+        nowMs: 20_000,
+        passStartedAtMs: 0,
+        baseRetryMs: 60_000,
+        hasArmedReprobe: false,
+      })
+    ).toBe(60_000);
   });
 });
 

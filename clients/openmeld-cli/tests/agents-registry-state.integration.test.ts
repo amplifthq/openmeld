@@ -94,6 +94,37 @@ describe("agents registry resolve target state", () => {
       ).toEqual(["codex", "cursor"]);
     });
   });
+  it("does not let one slow installation hold back the others in a bounded pool", async () => {
+    await withTempHome(async () => {
+      let release!: (value: string[]) => void;
+      const slow = new Promise<string[]>((resolve) => {
+        release = resolve;
+      });
+      // Codex is listed first and stalls; Cursor must still be delivered.
+      detectInstalledRuntimeAgentsMock.mockImplementation(async (registry) =>
+        Object.hasOwn(registry, "codex") ? await slow : []
+      );
+      const onState = vi.fn(async (_state: AgentTargetState) => undefined);
+      const listing = listAgentTargetStates({
+        agentIds: ["codex", "cursor"],
+        concurrency: 2,
+        onState,
+      });
+      let states: AgentTargetState[] = [];
+      try {
+        await vi.waitFor(() =>
+          expect(onState).toHaveBeenCalledWith(
+            expect.objectContaining({ agentId: "cursor" })
+          )
+        );
+        expect(onState).toHaveBeenCalledTimes(1);
+      } finally {
+        release([]);
+        states = await listing;
+      }
+      expect(states.map((state) => state.agentId)).toEqual(["codex", "cursor"]);
+    });
+  });
   beforeEach(() => {
     detectInstalledRuntimeAgentsMock.mockResolvedValue(["codex"]);
     refreshBuiltinControllerPersistedLaunchContractMock.mockImplementation(
