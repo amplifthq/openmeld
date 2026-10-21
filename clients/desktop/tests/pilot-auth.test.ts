@@ -63,6 +63,95 @@ it("returns file headers before reading bytes while the real SDK persists respon
   expect(pull).toHaveBeenCalledTimes(1);
 });
 
+it.each([
+  {
+    status: 200,
+    statusText: "OK",
+    contentType: "application/json",
+    body: '{"spaces":[{"id":"space-1"}]}',
+  },
+  {
+    status: 409,
+    statusText: "Conflict",
+    contentType: "application/json",
+    body: '{"ok":false,"error":{"code":"bad_request"}}',
+  },
+  {
+    status: 502,
+    statusText: "Bad Gateway",
+    contentType: "text/html",
+    body: "<html>upstream unavailable</html>",
+  },
+  {
+    status: 200,
+    statusText: "OK",
+    contentType: "application/json",
+    body: "not json at all",
+  },
+])("passes a $status $contentType API body through unread by the SDK", async ({
+  status,
+  statusText,
+  contentType,
+  body,
+}) => {
+  vi.stubGlobal("process", { ...process, type: "browser", platform: "darwin" });
+  const pull = vi.fn(
+    (controller: ReadableStreamDefaultController<Uint8Array>) => {
+      controller.enqueue(new TextEncoder().encode(body));
+      controller.close();
+    }
+  );
+  vi.stubGlobal(
+    "fetch",
+    vi.fn<typeof fetch>(
+      async () =>
+        new Response(new ReadableStream({ pull }, { highWaterMark: 0 }), {
+          status,
+          statusText,
+          headers: {
+            "content-type": contentType,
+            "x-openmeld-request-id": "request-1",
+            "set-cookie":
+              "better-auth.session_token=api-renewal; Path=/; HttpOnly",
+          },
+        })
+    )
+  );
+  const { createPilotAuth } = await import("../src/main/pilot-auth");
+  const changed = vi.fn();
+  const auth = createPilotAuth("http://localhost:39994", () => null, changed);
+  const response = await auth.cloudRequest("/v1/account/spaces?limit=1", {
+    method: "GET",
+    headers: new Headers(),
+  });
+  // Neither the SDK nor a tee consumed the stream before the caller.
+  expect(pull).not.toHaveBeenCalled();
+  expect(response.status).toBe(status);
+  expect(response.statusText).toBe(statusText);
+  expect(response.headers.get("content-type")).toBe(contentType);
+  expect(response.headers.get("x-openmeld-request-id")).toBe("request-1");
+  expect(auth.cookie()).toContain("session_token=api-renewal");
+  expect(await response.text()).toBe(body);
+  expect(pull).toHaveBeenCalledTimes(1);
+  expect(changed).not.toHaveBeenCalled();
+});
+
+it("propagates a network failure instead of inventing a response", async () => {
+  vi.stubGlobal("process", { ...process, type: "browser", platform: "darwin" });
+  vi.stubGlobal(
+    "fetch",
+    vi.fn<typeof fetch>(() => Promise.reject(new TypeError("fetch failed")))
+  );
+  const { createPilotAuth } = await import("../src/main/pilot-auth");
+  const auth = createPilotAuth("http://localhost:39995", () => null, vi.fn());
+  await expect(
+    auth.cloudRequest("/v1/account/spaces", {
+      method: "GET",
+      headers: new Headers(),
+    })
+  ).rejects.toThrow();
+});
+
 // OS receiver behavior is covered with real temporary app paths separately.
 vi.mock("../src/main/pilot-auth-callback", () => ({
   assertPilotAuthCallback: vi.fn(),

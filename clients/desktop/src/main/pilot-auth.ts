@@ -16,7 +16,6 @@ import { app, type BrowserWindow } from "electron";
 import { Agent } from "undici";
 import { assertPilotAuthCallback } from "./pilot-auth-callback";
 
-const SPACE_FILE_CONTENT_PATH = /^\/v1\/spaces\/[^/]+\/files\/[^/]+\/content$/u;
 const FOLDER_PICKER_PATH =
   /^\/v1\/(?:local-runtimes\/current\/folder-picker|people-computers\/[^/]+\/lanes\/[^/]+\/folders\/select)$/u;
 // The helper allows 590s and Core allows 600s. Node fetch otherwise ends
@@ -162,9 +161,9 @@ export function createPilotAuth(
       }
       let raw: Response | undefined;
       // The pinned Electron patch persists response cookies in onResponse,
-      // before status handling. Await the SDK before returning the raw clone;
-      // business errors retain their status/body and never reach the renderer
-      // with credentials. The SDK remains the only cookie writer.
+      // before status handling. Await the SDK before returning the raw
+      // response; business errors retain their status/body and never reach
+      // the renderer with credentials. The SDK remains the only cookie writer.
       await client.$fetch(path, {
         baseURL: webOrigin,
         method: request.method,
@@ -186,22 +185,20 @@ export function createPilotAuth(
             }
           : {}),
         onResponse({ response }) {
-          if (
-            response.ok &&
-            (request.method === "GET" || request.method === "HEAD") &&
-            SPACE_FILE_CONTENT_PATH.test(new URL(path, webOrigin).pathname)
-          ) {
-            // Better Fetch parses bodies after its response hooks. Give that
-            // parser an empty body, retaining the real stream without a tee.
-            // The following Electron hook still receives the original headers
-            // and remains the sole owner of response-cookie persistence.
-            raw = response;
-            return new Response(null, {
-              status: response.status,
-              headers: response.headers,
-            });
-          }
-          raw = response.clone();
+          // Better Fetch parses bodies after its response hooks, and the
+          // caller (the renderer protocol or a native reader) parses the body
+          // again. Give that parser an empty body and keep the real stream
+          // without a tee, so every response is read once, by its caller, and
+          // streams (file ranges, large JSON) pass through unbuffered. The
+          // following Electron hook still receives the original headers and
+          // remains the sole owner of response-cookie persistence; no vendor
+          // hook reads the body of a cloud API response.
+          raw = response;
+          return new Response(null, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers,
+          });
         },
       });
       if (!raw) {
