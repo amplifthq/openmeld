@@ -28,6 +28,7 @@ const {
   syncLocalSetupCurrentDeviceTargetFromServiceContractMock,
   resolveControllingTerminalSessionMock,
   turnOffUnselectedLocalAgentsForSetupMock,
+  registerUnselectedLocalAgentsOffForSetupMock,
 } = vi.hoisted(() => ({
   assertSetupServiceUpdateCompleteMock: vi.fn(),
   collectStartLocalReadinessMock: vi.fn(),
@@ -55,6 +56,7 @@ const {
   syncLocalSetupCurrentDeviceTargetFromServiceContractMock: vi.fn(),
   resolveControllingTerminalSessionMock: vi.fn(),
   turnOffUnselectedLocalAgentsForSetupMock: vi.fn(),
+  registerUnselectedLocalAgentsOffForSetupMock: vi.fn(),
 }));
 
 vi.mock("../src/commands/setup-service-update-truth", () => ({
@@ -148,6 +150,8 @@ vi.mock("../src/start-local/agents-local", () => ({
 }));
 
 vi.mock("../src/start-local/local-agent-choice", () => ({
+  registerUnselectedLocalAgentsOffForSetup:
+    registerUnselectedLocalAgentsOffForSetupMock,
   turnOffUnselectedLocalAgentsForSetup:
     turnOffUnselectedLocalAgentsForSetupMock,
 }));
@@ -943,6 +947,72 @@ describe("setup command", () => {
       .map(([line]) => (line as { text: string }).text)
       .join("\n");
     expect(lineOutput).not.toContain("/guides/local-agents");
+  });
+
+  it("applies the selection to Local agents before the Service starts", async () => {
+    collectStartLocalReadinessMock.mockResolvedValue({
+      agents: {
+        candidates: [
+          { agentId: "codex", lifecycleStatus: "active", selectable: true },
+        ],
+      },
+    });
+    const { runSetup } = await import("../src/commands/setup");
+
+    await runSetup({ localAgent: ["codex"], view: "agent" });
+
+    expect(registerUnselectedLocalAgentsOffForSetupMock).toHaveBeenCalledWith({
+      selectedLocalAgentIds: ["codex"],
+    });
+    const registeredOffAt =
+      registerUnselectedLocalAgentsOffForSetupMock.mock.invocationCallOrder[0];
+    const serviceStartedAt =
+      runDaemonServiceParticipationGateMock.mock.invocationCallOrder[0];
+    expect(registeredOffAt).toBeLessThan(serviceStartedAt ?? 0);
+    expect(turnOffUnselectedLocalAgentsForSetupMock).toHaveBeenCalledWith({
+      selectedLocalAgentIds: ["codex"],
+    });
+  });
+
+  it("turns every detected agent off for explicit --local-agents none", async () => {
+    collectStartLocalReadinessMock.mockResolvedValue({
+      agents: { candidates: [] },
+    });
+    submitSelectedAgentControllerReportsMock.mockResolvedValue([]);
+    const { runSetup } = await import("../src/commands/setup");
+
+    await runSetup({ localAgents: "none", view: "agent" });
+
+    expect(registerUnselectedLocalAgentsOffForSetupMock).toHaveBeenCalledWith({
+      selectedLocalAgentIds: [],
+    });
+    expect(turnOffUnselectedLocalAgentsForSetupMock).toHaveBeenCalledWith({
+      selectedLocalAgentIds: [],
+    });
+  });
+
+  it("leaves the Agents to the next sync when an unselected agent stays on", async () => {
+    collectStartLocalReadinessMock.mockResolvedValue({
+      agents: {
+        candidates: [
+          { agentId: "codex", lifecycleStatus: "active", selectable: true },
+        ],
+      },
+    });
+    turnOffUnselectedLocalAgentsForSetupMock.mockResolvedValue({
+      failedAgentIds: ["cursor"],
+      turnedOffAgentIds: [],
+    });
+    const { runSetup } = await import("../src/commands/setup");
+
+    await runSetup({ localAgent: ["codex"], view: "agent" });
+
+    const memberAgentsLine = presenter.line.mock.calls
+      .map(([line]) => line as { code: string; text: string })
+      .find((line) => line.code === "setup.member_agents.failed");
+    expect(memberAgentsLine?.text).toContain(
+      "OpenMeld Service couldn't turn off Cursor"
+    );
   });
 
   it("excludes suspended local agents from standard setup auto-selection", async () => {

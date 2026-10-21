@@ -7,10 +7,25 @@ import { requestLocalSetLocalAgentEnabled } from "../local-service/control-plane
 // changes it through the running OpenMeld Service, which refreshes its
 // catalog report before it answers, so Core sees the switch at once.
 
+/**
+ * Before setup starts the Service: register each detected built-in agent the
+ * member did not select as off, so the Service's discovery never turns it on
+ * and reports it in the meantime. Agents already registered keep their switch
+ * until turnOffUnselectedLocalAgentsForSetup runs.
+ */
+export async function registerUnselectedLocalAgentsOffForSetup(input: {
+  selectedLocalAgentIds: readonly string[];
+}): Promise<void> {
+  await registerUnselectedBuiltinAgentsTurnedOff({
+    selectedAgentIds: input.selectedLocalAgentIds,
+  });
+}
+
 export type SetupLocalAgentChoiceResult = {
   // Unselected agents now off: newly registered off, or turned off.
   turnedOffAgentIds: string[];
-  // Unselected agents the Service could not turn off.
+  // Unselected agents the Service could not turn off, or turned off without
+  // reporting it to OpenMeld.
   failedAgentIds: string[];
 };
 
@@ -34,7 +49,7 @@ export async function turnOffUnselectedLocalAgentsForSetup(input: {
       agentId,
       enabled: false,
     });
-    if (switched.accepted) {
+    if (switched.accepted && switched.reportSyncStatus !== "failed") {
       turnedOffAgentIds.push(agentId);
     } else {
       failedAgentIds.push(agentId);

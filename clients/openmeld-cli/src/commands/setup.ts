@@ -40,7 +40,10 @@ import { createPresenter } from "../runtime/presenter/index";
 import type { Presenter } from "../runtime/presenter/types";
 import { resolveGatewayWebOrigin } from "../space/web-url";
 import { runStartLocalAgentsEnable } from "../start-local/agents-local";
-import { turnOffUnselectedLocalAgentsForSetup } from "../start-local/local-agent-choice";
+import {
+  registerUnselectedLocalAgentsOffForSetup,
+  turnOffUnselectedLocalAgentsForSetup,
+} from "../start-local/local-agent-choice";
 import { collectStartLocalReadiness } from "../start-local/readiness";
 import {
   LocalMachineFailureError,
@@ -235,6 +238,14 @@ async function runSetupUnlocked(input: {
     selectedLocalAgentIds,
   });
 
+  // The selection is the Local agents switch (an explicit `none` included).
+  const appliesLocalAgentChoice =
+    selectedLocalAgentIds.length > 0 ||
+    normalizeOptionalString(input.localAgents) === "none";
+  if (appliesLocalAgentChoice) {
+    // Before the Service starts, so its discovery cannot turn them on.
+    await registerUnselectedLocalAgentsOffForSetup({ selectedLocalAgentIds });
+  }
   if (selectedLocalAgentIds.length > 0) {
     assertStartLocalAgentsEnableCompleted(
       await runWithSetupProgress({
@@ -322,14 +333,12 @@ async function runSetupUnlocked(input: {
           reason: "setup_local_capabilities_reported",
         })
       : null;
-  if (selectedLocalAgentIds.length > 0) {
-    // Before any Agent is added: an unselected agent left on would become one.
-    await turnOffUnselectedLocalAgentsForSetup({ selectedLocalAgentIds });
+  if (appliesLocalAgentChoice) {
+    emitSetupMemberAgentsLine(
+      presenter,
+      await addSetupMemberAgentsAfterLocalAgentChoice({ selectedLocalAgentIds })
+    );
   }
-  emitSetupMemberAgentsLine(
-    presenter,
-    await addSetupSelectedMemberAgents({ selectedLocalAgentIds })
-  );
 
   await runWithSetupProgress({
     code: "setup.progress.skills.updating",
@@ -374,6 +383,26 @@ async function runSetupUnlocked(input: {
     selectedLocalAgentIds,
     view: runtime.resolvedView,
   });
+}
+
+/**
+ * Apply the selection to Local agents, then add the selected Agents. Every
+ * harness turned on becomes an Agent, so an unselected agent the Service
+ * could not turn off (or whose switch OpenMeld has not seen) would be added
+ * too; setup then leaves the Agents to the next sync instead.
+ */
+async function addSetupMemberAgentsAfterLocalAgentChoice(input: {
+  selectedLocalAgentIds: readonly string[];
+}): Promise<SetupMemberAgentsResult> {
+  const choice = await turnOffUnselectedLocalAgentsForSetup(input);
+  if (choice.failedAgentIds.length > 0) {
+    const names = choice.failedAgentIds.map(formatSetupLocalAgentDisplayName);
+    return {
+      status: "failed",
+      message: `OpenMeld Service couldn't turn off ${names.join(", ")}`,
+    };
+  }
+  return await addSetupSelectedMemberAgents(input);
 }
 
 function emitSetupMemberAgentsLine(
@@ -840,6 +869,8 @@ async function resolveDelegatedSetupCompletionFacts(input: {
       gatewayUrl: input.gatewayUrl,
     }));
   if (selectedLocalAgentIds.length === 0) {
+    // An explicit empty selection still turns every detected agent off.
+    await turnOffUnselectedLocalAgentsForSetup({ selectedLocalAgentIds });
     return {
       routeCatalogSync: null,
       openMeldServiceRuntimeIdentity,
@@ -865,9 +896,7 @@ async function resolveDelegatedSetupCompletionFacts(input: {
     reason: "setup_session_capabilities_reported",
   });
   // The Connect page's selection arrives as the setup session's agents.
-  // Before any Agent is added: an unselected agent left on would become one.
-  await turnOffUnselectedLocalAgentsForSetup({ selectedLocalAgentIds });
-  await addSetupSelectedMemberAgents({ selectedLocalAgentIds });
+  await addSetupMemberAgentsAfterLocalAgentChoice({ selectedLocalAgentIds });
 
   return {
     routeCatalogSync,

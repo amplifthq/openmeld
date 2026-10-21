@@ -110,6 +110,35 @@ describe("MemberAgentAddableHarnesses", () => {
 		);
 	});
 
+	it("does not call an Agent ready while its chat is still being set up", async () => {
+		addMemberAgentHarnessMock.mockResolvedValue(
+			syncResponse({
+				addableHarnessKinds: [],
+				results: [
+					{
+						binding: "succeeded",
+						defaultProfileId: "agt-cursor",
+						directMessage: "failed",
+						directMessageSpaceId: null,
+						harnessKind: "cursor",
+						memberAgentId: "ma-cursor",
+						outcome: "created",
+						reasonCodes: [],
+					},
+				],
+			})
+		);
+		renderWithSync(["cursor"]);
+
+		fireEvent.click(screen.getByRole("button", { name: "Add Cursor" }));
+
+		await waitFor(() =>
+			expect(toastMock.success).toHaveBeenCalledWith(
+				"Cursor was added. OpenMeld is finishing its setup."
+			)
+		);
+	});
+
 	it("says why a harness was not added and keeps the offer", async () => {
 		addMemberAgentHarnessMock.mockResolvedValue(
 			syncResponse({

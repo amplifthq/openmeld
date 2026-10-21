@@ -53,8 +53,18 @@ export function MemberAgentAddableHarnesses() {
 				(candidate) => candidate.harnessKind === harnessKind
 			);
 			const name = formatHarnessDisplayName(harnessKind);
-			if (result?.memberAgentId) {
+			if (
+				result?.memberAgentId &&
+				result.binding === "succeeded" &&
+				result.directMessage === "succeeded"
+			) {
 				toast.success(`${name} is ready. Its chat is in your Agents.`);
+				return;
+			}
+			if (result?.memberAgentId) {
+				// Created, but its Binding or chat is still pending; the page's
+				// sync finishes it.
+				toast.success(`${name} was added. OpenMeld is finishing its setup.`);
 				return;
 			}
 			toast.error(
