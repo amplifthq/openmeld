@@ -28,6 +28,7 @@ export default defineConfig({
   ],
   test: {
     include: ["tests/workerd/**/*.test.ts"],
+    setupFiles: ["./tests/reset-mocks.setup.ts"],
     server: {
       deps: {
         inline: [

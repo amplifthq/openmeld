@@ -20,18 +20,20 @@ const state = vi.hoisted(() => ({
 	connect: vi.fn(),
 	update: vi.fn(),
 	updateAvailable: false,
-	navigate: vi.fn().mockResolvedValue(undefined),
-	openWeb: vi.fn().mockResolvedValue(undefined),
-	localComputer: vi.fn().mockResolvedValue({
-		status: "unavailable",
-		message: "Connect this computer.",
-	}),
-	disconnect: vi.fn().mockResolvedValue(false),
+	navigate: vi.fn(async () => undefined),
+	openWeb: vi.fn(async (_path: string) => undefined),
+	localComputer: vi.fn(
+		async (): Promise<unknown> => ({
+			status: "unavailable",
+			message: "Connect this computer.",
+		})
+	),
+	disconnect: vi.fn(async () => false),
 	disconnectWithFeedback: vi.fn(),
 	feedbackAvailable: false,
-	localRuntimesRefetch: vi.fn().mockResolvedValue({ isError: false }),
-	currentProgress: vi.fn().mockResolvedValue(null),
-	currentOperation: vi.fn().mockResolvedValue(null),
+	localRuntimesRefetch: vi.fn(async () => ({ isError: false })),
+	currentProgress: vi.fn(async (): Promise<unknown> => null),
+	currentOperation: vi.fn(async (): Promise<unknown> => null),
 	progressHandler: null as ((event: unknown) => void) | null,
 	operationHandler: null as ((event: unknown) => void) | null,
 	account: "account-a",
@@ -111,27 +113,16 @@ vi.mock("#/components/connect/bring-agents-setup-context", () => ({
 }));
 afterEach(() => {
 	cleanup();
-	vi.clearAllMocks();
 	state.account = "account-a";
 	state.coreConnectionStatus = "connected";
 	state.updateAvailable = false;
-	state.update.mockReset();
 	state.feedbackAvailable = false;
-	state.disconnect.mockReset().mockResolvedValue(false);
-	state.disconnectWithFeedback.mockReset();
-	state.localRuntimesRefetch.mockReset().mockResolvedValue({ isError: false });
 	state.routeIntent = {
 		kind: "account_computer_setup",
 		resetThisComputer: false,
 	};
-	state.currentProgress.mockResolvedValue(null);
-	state.currentOperation.mockResolvedValue(null);
 	state.progressHandler = null;
 	state.operationHandler = null;
-	state.localComputer.mockResolvedValue({
-		status: "unavailable",
-		message: "Connect this computer.",
-	});
 });
 
 it("shows measured download progress without inventing an overall percentage", async () => {
