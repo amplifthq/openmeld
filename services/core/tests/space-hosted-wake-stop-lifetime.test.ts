@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { AGENT_REPLY_FINAL_PURPOSE } from "@openmeld/schemas";
 import type {
@@ -27,6 +27,7 @@ import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-met
 import { ensureSpaceSqlSchema } from "../src/space/infrastructure/sql/space-schema-repo";
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
 import type { Space } from "../src/space/transport/do/space";
+import { env } from "../test-support/worker-env";
 import { createWorkerPostgresFixture } from "./postgresql.test-support";
 
 type StopOwner = {

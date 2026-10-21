@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import { randomUUID } from "node:crypto";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
@@ -14,6 +14,7 @@ import {
   upsertRemoteAgentNativeDeliveryRecord,
 } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { rpcCreateSpace, rpcPostSignal } from "../src/rpc/methods";
+import { env } from "../test-support/worker-env";
 
 const coreEnv = env as unknown as CoreBindings;
 const NOW_MS = Date.UTC(2026, 8, 21, 10);

@@ -60,7 +60,7 @@
     "drizzle-kit": "^0.31.9",
     "esbuild": "0.28.2",
     "typescript": "npm:@typescript/typescript6@6.0.2",
-    "vitest": "~3.2.0",
+    "vitest": "4.1.11",
     "wrangler": "catalog:"
   }
 }

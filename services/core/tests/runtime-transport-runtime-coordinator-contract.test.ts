@@ -26,7 +26,7 @@ vi.mock("@openmeld/db/postgresql", async (importOriginal) => {
   };
 });
 
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import {
   buildAgentTaskKey,
   buildRuntimeCoordinatorExecutionId,
@@ -72,7 +72,7 @@ import type {
   RuntimeTransportRuntimeCoordinatorWakeStopRequest,
   RuntimeTransportSubmitTaskResultRequest,
 } from "@openmeld/schemas/types";
-import { describe, expect, it, onTestFinished, vi } from "vitest";
+import { describe, expect, it, type Mock, onTestFinished, vi } from "vitest";
 import { handleDispatchQueueBatch } from "../src/dispatch/transport/queue/dispatch-queue-consumer";
 import type { CoreBindings } from "../src/lib/bindings";
 // biome-ignore lint/performance/noNamespaceImport: Spy on the authoritative transaction result in the worker graph.
@@ -135,6 +135,7 @@ import {
   createPublishedLocalComponentsRelease,
   PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
 } from "../test-support/published-local-components-release";
+import { env } from "../test-support/worker-env";
 
 const SELECT_QUERY_PATTERN = /^\s*SELECT/u;
 const MUTATION_QUERY_PATTERN = /^\s*(?:INSERT|UPDATE|DELETE)/u;
@@ -14093,10 +14094,16 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }) => Promise<unknown>;
       };
     const pauseNextTransaction = (
-      storageTransaction: ReturnType<typeof vi.fn>
+      storageTransaction: Mock<
+        <T>(
+          operation: (transaction: DurableObjectTransaction) => Promise<T>
+        ) => Promise<T>
+      >
     ) => {
       const original = storageTransaction.getMockImplementation();
-      expect(original).toBeDefined();
+      if (!original) {
+        throw new Error("Storage transaction mock has no implementation.");
+      }
       let signalEntered: (() => void) | null = null;
       let signalRelease: (() => void) | null = null;
       const entered = new Promise<void>((resolve) => {
@@ -14106,12 +14113,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
         signalRelease = resolve;
       });
       storageTransaction.mockImplementationOnce(
-        async (
-          operation: (transaction: DurableObjectTransaction) => unknown
+        async <T>(
+          operation: (transaction: DurableObjectTransaction) => Promise<T>
         ) => {
           signalEntered?.();
           await release;
-          return await original?.(operation);
+          return await original(operation);
         }
       );
       return {

@@ -1,4 +1,4 @@
-import { env, runInDurableObject, SELF } from "cloudflare:test";
+import { runInDurableObject, SELF } from "cloudflare:test";
 import {
   createAuthorityOpenMeldServiceRuntimeId,
   createRuntimeLookupInput,
@@ -29,6 +29,7 @@ import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastru
 import type { RuntimeTransportHub } from "../src/runtime-transport/transport/do/runtime-transport-hub";
 import { CORE_LOG_EVENTS } from "../src/shared/observability/log-events";
 import { PUBLISHED_LOCAL_COMPONENTS_MANIFEST } from "../test-support/published-local-components-release";
+import { env } from "../test-support/worker-env";
 import { quiesceRuntimeTransportShard } from "./runtime-transport-test-support";
 import {
   waitForJsonMessage,

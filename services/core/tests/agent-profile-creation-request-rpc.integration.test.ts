@@ -1,4 +1,4 @@
-import { createExecutionContext, env } from "cloudflare:test";
+import { createExecutionContext } from "cloudflare:test";
 import { createHash } from "node:crypto";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
@@ -26,6 +26,7 @@ import * as rpcMethods from "../src/rpc/methods";
 import { handleCoreQueueBatch } from "../src/shared/queue/core-queue-router";
 // biome-ignore lint/performance/noNamespaceImport: Vitest needs the module object to replace this dependency at the RPC boundary.
 import * as currentDeviceTargetService from "../src/start/application/current-device-target-service";
+import { env } from "../test-support/worker-env";
 
 // These integration scenarios cover the complete admission + execution path.
 // Production delivery invokes the same executor from the Core queue consumer.

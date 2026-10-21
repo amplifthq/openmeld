@@ -1,8 +1,8 @@
-import { env } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
+import { env } from "../test-support/worker-env";
 
 vi.mock("../src/member-agent/member-agents-feature", () => ({
   isMemberAgentsEnabled: () => true,

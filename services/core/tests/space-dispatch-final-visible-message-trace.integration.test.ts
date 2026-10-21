@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
@@ -16,6 +16,7 @@ import {
   readSignalEntryById,
 } from "../src/space/infrastructure/sql/space-signal-repo";
 import { resolveFinalVisibleMessageTraceReadResult } from "../src/space/transport/do/space";
+import { env } from "../test-support/worker-env";
 
 const BASE_SIGNAL = {
   v: 1,

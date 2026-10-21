@@ -1,8 +1,9 @@
-import { env, introspectWorkflowInstance } from "cloudflare:test";
+import { introspectWorkflowInstance } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import { resolveRoutineWorkflowErrorName } from "../src/routines/routine-workflow-contract";
 import { ensureRoutineRunWorkflowStarted } from "../src/routines/routine-workflow-coordinator";
+import { env } from "../test-support/worker-env";
 
 const CALLBACK = {
   agentProfileId: "agt_00000000-0000-4000-8000-000000000001",

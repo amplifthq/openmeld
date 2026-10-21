@@ -5,7 +5,7 @@ import type {
   ExecutionRecoveryProjection,
   SpaceDispatchTraceSnapshot,
 } from "@openmeld/schemas/types";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, type Mock, vi } from "vitest";
 import { createProjectionPostgresBinding } from "../../test-support/postgresql-query.test-support";
 import {
   buildExecutionRecoveryOperationKeys,
@@ -425,8 +425,16 @@ function createSharedStorage() {
 }
 
 function createSpace(input: {
-  beforeEffect?: ReturnType<typeof vi.fn>;
-  effect: ReturnType<typeof vi.fn>;
+  beforeEffect?: Mock<
+    (effectInput: {
+      markEffectStarted: () => Promise<void>;
+    }) => Promise<unknown>
+  >;
+  effect: Mock<
+    (effectInput: {
+      markEffectStarted: () => Promise<void>;
+    }) => Promise<unknown>
+  >;
   projection: ExecutionRecoveryProjection;
   resolveAuthoritative: ReturnType<typeof vi.fn>;
   storage: ReturnType<typeof createSharedStorage>;

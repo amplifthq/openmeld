@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import { randomUUID } from "node:crypto";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it, vi } from "vitest";
@@ -9,6 +8,7 @@ import {
   persistRemoteAgentWorkerSubmitRequest,
   upsertRemoteAgentNativeDeliveryRecord,
 } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import { env } from "../test-support/worker-env";
 
 describe("Remote Agent runtime diagnostics service", () => {
   it("keeps pre-admission dispatch details readable before runtime identity exists", async () => {

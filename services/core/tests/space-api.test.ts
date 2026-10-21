@@ -1,4 +1,4 @@
-import { env, runInDurableObject, SELF } from "cloudflare:test";
+import { runInDurableObject, SELF } from "cloudflare:test";
 import { RpcStub, RpcTarget } from "cloudflare:workers";
 import { createHash, randomUUID } from "node:crypto";
 import { getPostgresDatabase, PostgresDatabase } from "@openmeld/db/postgresql";
@@ -104,6 +104,7 @@ import {
   upsertSpaceIndexMembership,
 } from "../src/space-index/space-index-repository";
 import { readUserTimeContext } from "../src/user-time-context/user-time-context-repository";
+import { env } from "../test-support/worker-env";
 import { postgresFixtureOperator } from "./postgresql.test-support";
 import { waitForJsonMessage } from "./test-support/ws-stream";
 

@@ -1,4 +1,4 @@
-import { env, SELF } from "cloudflare:test";
+import { SELF } from "cloudflare:test";
 import {
   getPostgresDatabase,
   type PostgresDatabase,
@@ -41,6 +41,7 @@ import {
   readEnabledOrganizationSkillReleaseSelection,
 } from "../src/organization-skills/organization-skill-service";
 import { observePostgresDatabase } from "../test-support/postgresql-query.test-support";
+import { env } from "../test-support/worker-env";
 
 const GITHUB_SKILL_MARKDOWN = [
   "---",

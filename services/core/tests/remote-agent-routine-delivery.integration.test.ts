@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { SignalEnvelope } from "@openmeld/protocol";
@@ -17,6 +16,7 @@ import type {
   RemoteAgentWorkerSubmitTurnRequest,
 } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { env } from "../test-support/worker-env";
 
 // Routine delivery uses the funding owner's result; its real database and
 // provider behavior is verified separately in tests-node/ai-billing.test.ts.

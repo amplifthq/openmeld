@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import type { SpaceTaskActor } from "@openmeld/schemas/types";
 import { createAuthenticatedSpaceAccessContext } from "@openmeld/space";
@@ -21,6 +21,7 @@ import {
 } from "../src/space/infrastructure/sql/space-thread-repo";
 import type { Space } from "../src/space/transport/do/space";
 import { createProjectionPostgresBinding } from "../test-support/postgresql-query.test-support";
+import { env } from "../test-support/worker-env";
 
 const requester: SpaceTaskActor = {
   ownerUserId: "user-requester",

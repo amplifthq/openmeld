@@ -1,21 +1,22 @@
-import { defineWorkersConfig } from "@cloudflare/vitest-pool-workers/config";
+import { cloudflareTest } from "@cloudflare/vitest-plugin";
+import { defineConfig } from "vitest/config";
 
-export default defineWorkersConfig({
+export default defineConfig({
+  plugins: [
+    cloudflareTest({
+      wrangler: {
+        configPath: "./wrangler.test.jsonc",
+      },
+    }),
+  ],
   test: {
     exclude: ["tests/local-smoke/**/*.test.ts"],
     include: ["tests/**/*.test.ts"],
+    // The Workers pool retains transformed modules per runtime. Run one
+    // runtime at a time to bound loopback imports; storage stays isolated
+    // per test file.
+    maxWorkers: 1,
     unstubGlobals: true,
     unstubEnvs: true,
-    poolOptions: {
-      workers: {
-        // This Workers pool starts a runtime per file despite Vitest's worker
-        // limits. Share one runtime and module cache to bound loopback imports;
-        // isolated storage remains enabled between tests.
-        singleWorker: true,
-        wrangler: {
-          configPath: "./wrangler.test.jsonc",
-        },
-      },
-    },
   },
 });

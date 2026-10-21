@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import { randomUUID } from "node:crypto";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it } from "vitest";
@@ -18,6 +17,7 @@ import {
   buildRuntimeCoordinatorInteractionAttentionEventId,
   runtimeCoordinatorInteractionAttentionCode,
 } from "../src/runtime-transport/application/runtime-coordinator-interaction-attention";
+import { env } from "../test-support/worker-env";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW_MS = Date.UTC(2026, 9, 18, 12);

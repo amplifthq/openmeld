@@ -1,5 +1,5 @@
 import { resolveProfileResponseSchema } from "@openmeld/schemas";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 
 const { getAuthSessionStateMock, runAuthLoginMock, selectPromptMock } =
   vi.hoisted(() => ({
@@ -306,7 +306,7 @@ describe("sign-in command entry check", () => {
 });
 
 function createAgentContext(
-  data: ReturnType<typeof vi.fn>,
+  data: Mock<(input: { code: string; payload: unknown }) => void>,
   entryName: CommandEntryContext["entryName"] = "space.files.download"
 ): CommandEntryContext {
   return {

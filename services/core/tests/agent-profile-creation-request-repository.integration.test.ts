@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION } from "@openmeld/schemas";
@@ -14,6 +13,7 @@ import {
   type AgentProfileCreationRequestRecord,
   failStaleAgentProfileCreationRequests,
 } from "../src/agent-profile-creation-request/agent-profile-creation-request-service";
+import { env } from "../test-support/worker-env";
 
 describe("Agent Profile creation request repository", () => {
   it("retains completed setup steps across a failed request and retry", async () => {

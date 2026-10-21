@@ -1,7 +1,8 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import { Workspace } from "@cloudflare/computer";
 import { expect, it } from "vitest";
 import { ComputerFiles } from "../../flue-adapter/computer-files";
+import { env } from "./worker-env";
 
 it("resolves uncached paths without reading their directory siblings", async () => {
   const namespace = (env as { COMPUTER_PROBE: DurableObjectNamespace })

@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import {
   createAuthorityOpenMeldServiceRuntimeId,
   createRuntimeLookupInput,
@@ -13,6 +12,7 @@ import {
 import { deliverDispatchMessageToDaemon } from "../src/dispatch/application/dispatch-execution-service";
 import type { CoreBindings } from "../src/lib/bindings";
 import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/postgresql/runtime-registry-repo";
+import { env } from "../test-support/worker-env";
 
 const WAKE_READINESS_ERROR_PATTERN = /offline|service\.update_required|daemon/i;
 

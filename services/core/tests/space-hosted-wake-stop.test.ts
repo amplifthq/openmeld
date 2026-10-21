@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import type {
   GetSpaceDispatchLookupResponse,
   GetSpaceWakeProgressResponse,
@@ -18,6 +18,7 @@ import {
 } from "../src/space/infrastructure/outbox/dispatch-outbox-repo";
 import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 import type { Space } from "../src/space/transport/do/space";
+import { env } from "../test-support/worker-env";
 import { createWorkerPostgresFixture } from "./postgresql.test-support";
 
 it.each([

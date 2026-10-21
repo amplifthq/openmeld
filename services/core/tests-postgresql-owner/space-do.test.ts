@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import {
   createAuthorityOpenMeldServiceRuntimeId,
   createRuntimeLookupInput,
@@ -9,6 +9,7 @@ import {
 } from "@openmeld/db/postgresql";
 import { describe, expect, it } from "vitest";
 import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/postgresql/runtime-registry-repo";
+import { env } from "../test-support/worker-env";
 
 const OWNER_USER_ID = "owner-postgresql-owner";
 const DEVICE_ID = "device-postgresql-owner";

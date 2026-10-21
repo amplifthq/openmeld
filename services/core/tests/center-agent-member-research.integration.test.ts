@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
@@ -33,6 +32,7 @@ import {
   upsertRemoteAgentNativeDeliveryRecord,
 } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { rpcCenterAgentStartSelfMemberResearch } from "../src/rpc/methods";
+import { env } from "../test-support/worker-env";
 
 describe("Center Agent member research", () => {
   it("builds a privacy-bounded research instruction with an explicit quality floor", () => {

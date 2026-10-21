@@ -1,9 +1,10 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import { expect, it } from "vitest";
 import { acknowledgeAccountErasure } from "../../flue-adapter/account-deletion";
 import { personalComputerProviderName } from "../../flue-adapter/computer-identity";
 import type { AgentComputer } from "../../flue-adapter/computer-workspace";
 import type { AccountErasureProbe } from "./worker";
+import { env } from "./worker-env";
 
 it("erases the real personal Computer and rejects a delayed write through its old stub", async () => {
   const namespace = (

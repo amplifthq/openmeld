@@ -1,10 +1,10 @@
-import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import {
   CenterAgentRoutineRpcEntrypoint,
   CenterAgentRpcEntrypoint,
   GatewayRpcEntrypoint,
 } from "../src/index";
+import { env } from "../test-support/worker-env";
 
 const ROUTINE_RPC_METHODS = [
   "centerAgentListRoutines",

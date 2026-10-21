@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   AuthRpcProfileFact,
@@ -9,6 +8,7 @@ import type {
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
+import { env } from "../test-support/worker-env";
 
 // Sensitive operation sources (design-plans/member-agent-program.md §4.7,
 // §6; decisions in member-agent-program-reviews/5-credentials.md). The owner

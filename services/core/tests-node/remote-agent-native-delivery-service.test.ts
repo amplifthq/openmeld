@@ -31,7 +31,7 @@ import type {
   RemoteAgentWorkerSubmitTurnRequest,
   ResolveNativeReplyPlacementInput,
 } from "@openmeld/schemas/types";
-import { describe, expect, it, onTestFinished, vi } from "vitest";
+import { describe, expect, it, type Mock, onTestFinished, vi } from "vitest";
 import { readAiBilling } from "../src/usage/ai-billing-service";
 
 // This suite owns delivery orchestration. Native funding isolation, encryption,
@@ -13557,7 +13557,11 @@ type BuildEnvOptions = {
 type TestSpaceStub = {
   rpcReadFinalReplyClaimOutcome: ReturnType<typeof vi.fn>;
   rpcAuthorizeNativeWakeAdmission: ReturnType<typeof vi.fn>;
-  rpcReadWakeStopIntent: ReturnType<typeof vi.fn>;
+  rpcReadWakeStopIntent: Mock<
+    (
+      query: Parameters<typeof readNativeSpaceWakeStopIntent>[0]["query"]
+    ) => Promise<unknown>
+  >;
   rpcResolveNativeReplyPlacement: ReturnType<typeof vi.fn>;
   rpcPostExecutionRecoveryNoticeSignal: ReturnType<typeof vi.fn>;
   rpcCloseAgentStream: ReturnType<typeof vi.fn>;

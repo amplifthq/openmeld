@@ -1,7 +1,7 @@
-import { env } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it } from "vitest";
 import { updateDispatchResultInboxPublishState } from "../src/runtime-transport/infrastructure/postgresql/dispatch-result-inbox-repo";
+import { env } from "../test-support/worker-env";
 
 describe("dispatch result inbox repo", () => {
   it("keeps a published reply terminal when a later publication failure arrives", async () => {

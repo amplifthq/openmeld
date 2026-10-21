@@ -1,5 +1,5 @@
 import { PassThrough, Writable } from "node:stream";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 
 const fsMocks = vi.hoisted(() => ({
   readSync: vi.fn(),
@@ -25,7 +25,7 @@ import {
 
 type TestInputStream = NodeJS.ReadStream & {
   fd?: number;
-  setRawMode: ReturnType<typeof vi.fn>;
+  setRawMode: Mock<(mode: boolean) => TestInputStream>;
 };
 
 describe("interactive prompt input", () => {
@@ -163,7 +163,7 @@ describe("interactive prompt input", () => {
 function createTestInputStream(): TestInputStream {
   const input = new PassThrough() as unknown as TestInputStream;
   input.isTTY = true;
-  input.setRawMode = vi.fn();
+  input.setRawMode = vi.fn<(mode: boolean) => TestInputStream>();
   return input;
 }
 

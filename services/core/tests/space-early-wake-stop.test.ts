@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { buildAgentTaskKey } from "@openmeld/schemas";
 import type {
@@ -17,6 +17,7 @@ import { upsertSpaceMemberRecord } from "../src/space/infrastructure/sql/space-m
 import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 import { ensureSpaceSqlSchema } from "../src/space/infrastructure/sql/space-schema-repo";
 import type { Space } from "../src/space/transport/do/space";
+import { env } from "../test-support/worker-env";
 
 const targetProfileId = "agt_11111111-1111-4111-8111-111111111111";
 

@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import { randomUUID } from "node:crypto";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
@@ -13,6 +12,7 @@ import {
   rpcRecordSpaceAttachment,
   rpcResolveSpaceAttachmentForDownload,
 } from "../src/rpc/methods";
+import { env } from "../test-support/worker-env";
 
 const coreEnv = env as unknown as CoreBindings;
 const UUID_V4_PATTERN =

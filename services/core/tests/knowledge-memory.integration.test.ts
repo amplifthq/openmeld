@@ -1,9 +1,9 @@
-import { env } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it, vi } from "vitest";
 import type { CenterAgentMemoryAdapter } from "../src/center-agent-memory/contract";
 import { createCenterAgentMemoryService } from "../src/center-agent-memory/memory-service";
 import { createPostgresCenterAgentMemoryRepository } from "../src/center-agent-memory/postgresql-memory-repository";
+import { env } from "../test-support/worker-env";
 
 describe("automatic memory recall with persisted subject state", () => {
   it.each([

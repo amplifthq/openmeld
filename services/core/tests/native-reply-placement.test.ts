@@ -1,10 +1,11 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import type { ResolveNativeReplyPlacementInput } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
 import { insertSpaceThreadSignalPlacement } from "../src/space/infrastructure/sql/space-thread-repo";
 import type { Space } from "../src/space/transport/do/space";
+import { env } from "../test-support/worker-env";
 
 const PROFILE_ID = "agt_33333333-3333-4333-8333-333333333333";
 

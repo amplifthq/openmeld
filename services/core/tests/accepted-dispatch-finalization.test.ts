@@ -22,7 +22,7 @@ vi.mock("@openmeld/db/postgresql", async (importOriginal) => {
   };
 });
 
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
   AGENT_REPLY_FINAL_PURPOSE,
@@ -59,6 +59,7 @@ import {
   Space,
 } from "../src/space/transport/do/space";
 import { createProjectionPostgresDatabase } from "../test-support/postgresql-query.test-support";
+import { env } from "../test-support/worker-env";
 
 const DISPATCH_WRITE_PATTERN =
   /UPDATE "openmeld"."openMeldDaemon_dispatch_(ledger|attempts)"/u;

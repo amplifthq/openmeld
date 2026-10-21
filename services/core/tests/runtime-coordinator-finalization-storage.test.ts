@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import type { RuntimeCoordinatorFinalizationRetryEntry } from "../src/runtime-transport/application/runtime-coordinator-authority";
@@ -7,6 +7,7 @@ import {
   removeRuntimeCoordinatorFinalizationRetryFromStorage,
   upsertRuntimeCoordinatorFinalizationRetryEntryInStorage,
 } from "../src/runtime-transport/application/runtime-coordinator-storage";
+import { env } from "../test-support/worker-env";
 
 function createTransportStub() {
   const transport = (env as unknown as CoreBindings).OPENMELD_RUNTIME_TRANSPORT;

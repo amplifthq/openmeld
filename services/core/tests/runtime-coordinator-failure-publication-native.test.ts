@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
   projectTargetWakeLifecycleIdentity,
@@ -10,6 +9,7 @@ import type { CoreBindings } from "../src/lib/bindings";
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
 import { Space } from "../src/space/transport/do/space";
 import { createFinalOutcomeSql } from "../test-support/space-final-outcome.test-support";
+import { env } from "../test-support/worker-env";
 import { createWorkerPostgresFixture } from "./postgresql.test-support";
 
 describe("native RuntimeCoordinator failure task publication", () => {

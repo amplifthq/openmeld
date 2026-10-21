@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { applyOpenMeldRequestContextHeaders } from "@openmeld/gateway-contract";
@@ -18,6 +18,7 @@ import {
   upsertSpaceMetaRecord,
 } from "../src/space/infrastructure/sql/space-meta-repo";
 import type { Space } from "../src/space/transport/do/space";
+import { env } from "../test-support/worker-env";
 import { waitForJsonMessage } from "./test-support/ws-stream";
 
 const core = env as unknown as CoreBindings;

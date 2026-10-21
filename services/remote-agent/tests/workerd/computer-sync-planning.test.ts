@@ -1,10 +1,11 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import {
   type BackendHandle,
   type SyncProgress,
   Workspace,
 } from "@cloudflare/computer";
 import { expect, it } from "vitest";
+import { env } from "./worker-env";
 
 it("returns bounded preparation without materializing or acknowledging the large tree", async () => {
   const namespace = (env as { COMPUTER_PROBE: DurableObjectNamespace })

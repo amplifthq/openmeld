@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { Profile, SignalEnvelope } from "@openmeld/protocol";
 import type {
@@ -39,6 +39,7 @@ import {
   readSpaceThreadSignalPlacementBySignalId,
 } from "../src/space/infrastructure/sql/space-thread-repo";
 import type { Space } from "../src/space/transport/do/space";
+import { env } from "../test-support/worker-env";
 
 type InputSpace = {
   rpcAgentWorkload: Space["rpcAgentWorkload"];

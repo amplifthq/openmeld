@@ -83,7 +83,7 @@
     "tsdown": "0.23.1",
     "typescript": "npm:@typescript/typescript6@6.0.2",
     "unplugin-lightningcss": "^0.4.0",
-    "vitest": "~3.2.0"
+    "vitest": "4.1.11"
   },
   "openmeld": {
     "releaseLine": "openmeld-greenfield-2026-07",

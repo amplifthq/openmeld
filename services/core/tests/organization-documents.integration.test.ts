@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import { getPostgresDatabase, type QueryResult } from "@openmeld/db/postgresql";
 import {
   buildPersonalRemoteAgentConversationId,
@@ -56,6 +55,7 @@ import {
   rpcCreateSpace,
   rpcListCenterAgentAuditJournal,
 } from "../src/rpc/methods";
+import { env } from "../test-support/worker-env";
 import { installWorkerPostgresWriteFailure } from "./postgresql.test-support";
 
 const ISO_CALENDAR_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;

@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
@@ -24,6 +23,7 @@ import {
   rpcSetPeopleComputerProjectDefaultConnection,
   rpcUpdatePeopleComputerFileAccessPolicy,
 } from "../src/rpc/methods";
+import { env } from "../test-support/worker-env";
 
 describe("PeopleComputer explicit control RPC", () => {
   it("discovers Projects only for the authenticated member's exact Computer and Organization", async () => {

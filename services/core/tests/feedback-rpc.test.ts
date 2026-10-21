@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it } from "vitest";
 import {
@@ -10,6 +9,7 @@ import {
 import { rpcSubmitFeedbackIssue } from "../src/feedback/transport/rpc/feedback-rpc";
 import { GatewayRpcEntrypoint } from "../src/index";
 import type { CoreBindings } from "../src/lib/bindings";
+import { env } from "../test-support/worker-env";
 
 describe("Feedback submit RPC", () => {
   it("writes a validated anonymous issue into the inbox organization", async () => {

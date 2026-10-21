@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import type { SpaceThreadContext } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
@@ -13,6 +13,7 @@ import {
   listSpaceThreadSignalPlacementsAfter,
 } from "../src/space/infrastructure/sql/space-thread-repo";
 import type { Space } from "../src/space/transport/do/space";
+import { env } from "../test-support/worker-env";
 
 function createSpaceShard(): DurableObjectStub<Space> {
   const spaceEnv = env as unknown as {

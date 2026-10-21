@@ -1,8 +1,9 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import { expect, it } from "vitest";
 import { verifyIndexedCommandCollection } from "../fixtures/computer-command-collection";
 import { verifyDurableCommandResults } from "../fixtures/computer-command-results";
 import { verifyRetainedCommandPolling } from "../fixtures/computer-command-workspace";
+import { env } from "./worker-env";
 
 it("reads a bounded due batch after indexing historical command receipts under workerd", async () => {
   const namespace = (env as { COMPUTER_PROBE: DurableObjectNamespace })

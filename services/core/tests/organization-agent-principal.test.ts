@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
@@ -11,6 +10,7 @@ import {
   rpcRemoteAgentSaveTeamFile,
 } from "../src/files/remote-agent-team-files";
 import type { CoreBindings } from "../src/lib/bindings";
+import { env } from "../test-support/worker-env";
 
 describe("Organization Center Agent principal", () => {
   it("authorizes the designated Organization identity without a creator account and rejects impersonation", async () => {
