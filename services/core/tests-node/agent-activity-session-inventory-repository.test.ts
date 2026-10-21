@@ -1,4 +1,5 @@
 import type { PostgresDatabase } from "@openmeld/db/postgresql";
+import { AGENT_ACTIVITY_SESSION_RECONCILIATION_PAGE_MAX } from "@openmeld/schemas";
 import type {
   AgentActivitySessionInventoryQuery,
   SubmitAgentActivitySessionReconciliationBody,
@@ -90,6 +91,51 @@ describe("Agent Activity Session Inventory repository", () => {
         cursor: computerPage.nextCursor ?? undefined,
       })
     ).rejects.toThrow("Agent Activity Session cursor is invalid.");
+  });
+
+  it("stages a full reconciliation page in one candidate insert and publishes every row", async () => {
+    const harness = await createInventoryHarness();
+    const sessions = Array.from(
+      { length: AGENT_ACTIVITY_SESSION_RECONCILIATION_PAGE_MAX },
+      (_, index) =>
+        observedSession(`native-${String(index).padStart(3, "0")}`, index)
+    );
+    const executed: string[] = [];
+    const db = recordQueryTexts(harness.db, executed);
+
+    await reconcile(db, { sessions, terminal: true });
+
+    expect(
+      executed.filter((text) =>
+        text.includes(
+          'INSERT INTO "openmeld"."agent_activity_session_inventory_candidates"'
+        )
+      )
+    ).toHaveLength(1);
+    expect(await inventoryRowCount(harness)).toBe(sessions.length);
+    const firstPage = await read(harness.db, { limit: 1 });
+    expect(firstPage.sessions[0]).toMatchObject({
+      nativeSessionId: "native-000",
+      nativeSessionTitle: "Native native-000",
+    });
+  });
+
+  it("rejects a page that repeats a native Session without staging any of it", async () => {
+    const harness = await createInventoryHarness();
+
+    await expect(
+      reconcile(harness.db, {
+        sessions: [
+          observedSession("native-dup", 1000),
+          observedSession("native-dup", 2000),
+        ],
+        terminal: true,
+      })
+    ).rejects.toThrow();
+    const staged = await harness.queryFirst<{ count: number }>({
+      text: 'SELECT count(*) AS count FROM "openmeld"."agent_activity_session_inventory_candidates"',
+    });
+    expect(Number(staged?.count)).toBe(0);
   });
 
   it("enumerates several live inventory pages and rejects a changed filter", async () => {
@@ -897,6 +943,51 @@ function observedSession(nativeSessionId: string, offsetMs: number) {
     startedAtMs: NOW_MS - offsetMs - 1000,
     status: "idle" as const,
   };
+}
+
+function recordQueryTexts(
+  db: PostgresDatabase,
+  executed: string[]
+): PostgresDatabase {
+  return new Proxy(db, {
+    get(target, property, receiver) {
+      if (property !== "transaction") {
+        const value = Reflect.get(target, property, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+      return (
+        run: (client: {
+          query: (query: { text: string }) => unknown;
+        }) => unknown
+      ) =>
+        target.transaction(
+          (client) =>
+            run(
+              new Proxy(client, {
+                get(clientTarget, clientProperty, clientReceiver) {
+                  const value = Reflect.get(
+                    clientTarget,
+                    clientProperty,
+                    clientReceiver
+                  );
+                  if (
+                    clientProperty !== "query" ||
+                    typeof value !== "function"
+                  ) {
+                    return typeof value === "function"
+                      ? value.bind(clientTarget)
+                      : value;
+                  }
+                  return (query: { text: string }, ...rest: unknown[]) => {
+                    executed.push(query.text);
+                    return value.call(clientTarget, query, ...rest);
+                  };
+                },
+              })
+            ) as never
+        );
+    },
+  });
 }
 
 async function inventoryRowCount(
