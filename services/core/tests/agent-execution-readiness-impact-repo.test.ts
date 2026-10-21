@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
@@ -10,6 +9,7 @@ import {
   writeAcceptedAgentExecutionReadinessImpact,
   writeAgentExecutionReadinessImpact,
 } from "../src/agent-execution/infrastructure/postgresql/agent-execution-readiness-impact-repo";
+import { env } from "../test-support/worker-env";
 
 beforeEach(async () => {
   await getPostgresDatabase(env).query(

@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { SpaceAccessContext } from "@openmeld/space";
@@ -27,6 +27,7 @@ import {
   type SpaceMetaRecord,
   upsertSpaceMetaRecord,
 } from "../src/space/infrastructure/sql/space-meta-repo";
+import { env } from "../test-support/worker-env";
 
 const sourceProfileId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const targetProfileId = "agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";

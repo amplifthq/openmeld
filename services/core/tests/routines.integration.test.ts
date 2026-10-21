@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import { getPostgresDatabase, type QueryConfig } from "@openmeld/db/postgresql";
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
@@ -38,6 +37,7 @@ import {
   rpcResumeRoutine,
   rpcUpdateRoutine,
 } from "../src/rpc/methods";
+import { env } from "../test-support/worker-env";
 
 const FIXED_NOW_MS = Date.parse("2026-03-07T14:00:00.000Z");
 const ownedRoutineOrganizationIds = new Set<string>();

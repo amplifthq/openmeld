@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import {
   createAuthorityOpenMeldServiceRuntimeId,
   createRuntimeLookupInput,
@@ -8,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createAgentExecutionReadinessReads } from "../src/agent-execution/application/agent-execution-readiness-reads";
 import type { AuthProfileFacts } from "../src/auth/application/profile-facts-reader";
 import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/postgresql/runtime-registry-repo";
+import { env } from "../test-support/worker-env";
 
 describe("request-scoped readiness reads", () => {
   it("preserves missing, disabled and unavailable Auth facts without scalar retries", async () => {

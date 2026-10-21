@@ -1,10 +1,11 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import { createAnonymousViewerSpaceAccessContext } from "@openmeld/space";
 import { describe, expect, it } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
+import { env } from "../test-support/worker-env";
 
 describe("Space-owned link preview source", () => {
   it("uses current stored content, rejects recalled messages, and rechecks Space access", async () => {

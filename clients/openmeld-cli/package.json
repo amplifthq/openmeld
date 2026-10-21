@@ -1,7 +1,7 @@
 {
   "$schema": "https://www.schemastore.org/package.json",
   "name": "openmeld",
-  "version": "0.3.267",
+  "version": "0.3.268",
   "openMeldReleaseDate": "2026-10-16",
   "description": "OpenMeld CLI - https://openmeld.ai",
   "license": "MIT",
@@ -83,7 +83,7 @@
     "tsdown": "0.23.1",
     "typescript": "npm:@typescript/typescript6@6.0.2",
     "unplugin-lightningcss": "^0.4.0",
-    "vitest": "~3.2.0"
+    "vitest": "4.1.11"
   },
   "openmeld": {
     "releaseLine": "openmeld-greenfield-2026-07",

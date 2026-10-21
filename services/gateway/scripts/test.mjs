@@ -1,8 +1,15 @@
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
+import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const require = createRequire(import.meta.url);
+// Vitest 4 exports only its package entry; resolve the CLI through its bin.
+const vitestPackagePath = require.resolve("vitest/package.json");
+const vitestCliPath = path.join(
+  path.dirname(vitestPackagePath),
+  require(vitestPackagePath).bin.vitest
+);
 
 // Bound the Workers runtime lifetime as well as concurrency: this pool retains
 // transformed modules until exit. Vitest owns shard selection so every file runs.
@@ -13,11 +20,9 @@ export function runGatewayTests(args = [], run = spawnSync) {
       ? [args]
       : Array.from({ length: 4 }, (_, index) => [`--shard=${index + 1}/4`]);
   for (const group of groups) {
-    const result = run(
-      process.execPath,
-      [require.resolve("vitest/vitest.mjs"), "run", ...group],
-      { stdio: "inherit" }
-    );
+    const result = run(process.execPath, [vitestCliPath, "run", ...group], {
+      stdio: "inherit",
+    });
     if (result.error) {
       throw result.error;
     }

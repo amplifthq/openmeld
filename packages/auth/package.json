@@ -70,6 +70,6 @@
     "react-email": "6.11.3",
     "tsdown": "0.23.1",
     "typescript": "npm:@typescript/typescript6@6.0.2",
-    "vitest": "~3.2.0"
+    "vitest": "4.1.11"
   }
 }

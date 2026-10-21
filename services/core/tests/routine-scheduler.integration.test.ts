@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { CENTER_AGENT_ROUTINE_LIMIT } from "@openmeld/schemas";
@@ -10,6 +9,7 @@ import {
   runRoutineSchedulerTick,
 } from "../src/routines/routine-scheduler";
 import { rpcListRoutineRuns, rpcListRoutines } from "../src/rpc/methods";
+import { env } from "../test-support/worker-env";
 
 const FIVE_MINUTES_MS = 5 * 60 * 1000;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;

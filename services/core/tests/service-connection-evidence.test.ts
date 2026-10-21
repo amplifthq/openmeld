@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import {
   createAuthorityOpenMeldServiceRuntimeId,
   createRuntimeLookupInput,
@@ -20,6 +19,7 @@ import { readOwnerServiceConnectionTrace } from "../src/computers/service-connec
 import { WAKE_EVIDENCE_RETENTION_MS } from "../src/dispatch/infrastructure/postgresql/wake-evidence-retention";
 import type { CoreBindings } from "../src/lib/bindings";
 import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/postgresql/runtime-registry-repo";
+import { env } from "../test-support/worker-env";
 
 const coreEnv = env as unknown as CoreBindings;
 function incident(): ServiceConnectionIncident {

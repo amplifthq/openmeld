@@ -1,7 +1,7 @@
-import { env } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { DispatchResult } from "@openmeld/schemas/types";
 import { beforeEach, describe, expect, it } from "vitest";
+import { env } from "../test-support/worker-env";
 import { postgresFixtureOperator } from "./postgresql.test-support";
 
 beforeEach(async () => {

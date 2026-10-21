@@ -13,7 +13,7 @@ import {
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_ERROR_CODE,
 } from "@openmeld/schemas";
 import { createSpaceMemberAgentExecutionReadiness } from "@openmeld/schemas/testing";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import { createCoreRpcHttpError } from "../../core/src/rpc/errors";
 import app from "../src/index";
 
@@ -69,7 +69,9 @@ type CoreRpcMock = {
   getSpaceContract: ReturnType<typeof vi.fn>;
   patchSpaceContract: ReturnType<typeof vi.fn>;
   getSpaceBootstrap: ReturnType<typeof vi.fn>;
-  getSpaceBootstrapWithTiming: ReturnType<typeof vi.fn>;
+  getSpaceBootstrapWithTiming: Mock<
+    () => Promise<{ metrics: unknown[]; payload: Record<string, unknown> }>
+  >;
   getSpaceStatus: ReturnType<typeof vi.fn>;
   listSpaceThreads: ReturnType<typeof vi.fn>;
   getSpaceUpdates: ReturnType<typeof vi.fn>;

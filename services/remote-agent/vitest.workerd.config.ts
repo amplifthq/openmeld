@@ -1,6 +1,31 @@
-import { defineWorkersConfig } from "@cloudflare/vitest-pool-workers/config";
+import { cloudflareTest } from "@cloudflare/vitest-plugin";
+import { defineConfig } from "vitest/config";
 
-export default defineWorkersConfig({
+export default defineConfig({
+  plugins: [
+    cloudflareTest({
+      main: "./tests/workerd/worker.ts",
+      miniflare: {
+        workerLoaders: { LOADER: {} },
+        compatibilityDate: "2026-07-15",
+        compatibilityFlags: ["nodejs_compat"],
+        durableObjects: {
+          AGENT_COMPUTER: {
+            className: "AgentComputer",
+            useSQLite: true,
+          },
+          ACCOUNT_ERASURE_PROBE: {
+            className: "AccountErasureProbe",
+            useSQLite: true,
+          },
+          COMPUTER_PROBE: {
+            className: "ComputerCommandProbe",
+            useSQLite: true,
+          },
+        },
+      },
+    }),
+  ],
   test: {
     include: ["tests/workerd/**/*.test.ts"],
     server: {
@@ -15,33 +40,6 @@ export default defineWorkersConfig({
           /@cloudflare\/codemode/u,
           /@flue\//u,
         ],
-      },
-    },
-    poolOptions: {
-      workers: {
-        // Explicit DO abort/restart cannot unwind Vitest's SQLite storage stack.
-        // Tests allocate unique object IDs, so their state remains independent.
-        isolatedStorage: false,
-        main: "./tests/workerd/worker.ts",
-        miniflare: {
-          workerLoaders: { LOADER: {} },
-          compatibilityDate: "2026-07-15",
-          compatibilityFlags: ["nodejs_compat"],
-          durableObjects: {
-            AGENT_COMPUTER: {
-              className: "AgentComputer",
-              useSQLite: true,
-            },
-            ACCOUNT_ERASURE_PROBE: {
-              className: "AccountErasureProbe",
-              useSQLite: true,
-            },
-            COMPUTER_PROBE: {
-              className: "ComputerCommandProbe",
-              useSQLite: true,
-            },
-          },
-        },
       },
     },
   },

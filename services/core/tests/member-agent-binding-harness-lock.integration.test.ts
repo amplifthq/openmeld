@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { AssignAgentProfileMemberAgentRpcInput } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
@@ -10,6 +9,7 @@ import {
 } from "../src/agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import type { CoreBindings } from "../src/lib/bindings";
 import { assignBoundProfileToMemberAgent } from "../src/member-agent/member-agent-profile-assignment";
+import { env } from "../test-support/worker-env";
 
 // developing/product/agent-profiles.md, MemberAgent Layer: a Profile that
 // belongs to a MemberAgent cannot change harness, and an assignment never

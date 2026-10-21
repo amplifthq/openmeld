@@ -1,6 +1,7 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import { Workspace } from "@cloudflare/computer";
 import { expect, it } from "vitest";
+import { env } from "./worker-env";
 
 it("uses reusable SQLite capacity after a canonical write limit, deletion and maintenance", async () => {
   const namespace = (env as { COMPUTER_PROBE: DurableObjectNamespace })

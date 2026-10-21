@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import {
   ensureSpaceSqlSchema,
@@ -6,6 +6,7 @@ import {
   SPACE_SQL_SCHEMA_VERSION,
 } from "../src/space/infrastructure/sql/space-schema-repo";
 import type { Space } from "../src/space/transport/do/space";
+import { env } from "../test-support/worker-env";
 
 /**
  * Real-SQLite behavior coverage for the Space Files `origin` backfill. This

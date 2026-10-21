@@ -1,10 +1,11 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import { SPACE_FILE_UPLOAD_PART_BYTES } from "@openmeld/schemas";
 import { expect, it, vi } from "vitest";
 import { FileUploadSessions } from "../src/files/file-upload-sessions";
 import { AlarmFailureBackoff } from "../src/lib/alarm-failure-backoff";
 import type { CoreBindings } from "../src/lib/bindings";
 import type { Space } from "../src/space/transport/do/space";
+import { env } from "../test-support/worker-env";
 
 const bindings = env as unknown as CoreBindings & {
   OPENMELD_SPACE_ATTACHMENTS: R2Bucket;

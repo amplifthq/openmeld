@@ -1,6 +1,6 @@
-import { env } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it } from "vitest";
+import { env } from "../test-support/worker-env";
 
 describe("native PostgreSQL owner gate", () => {
   it("uses the runtime role against the complete immutable product journal", async () => {

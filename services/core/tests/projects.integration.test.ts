@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { buildRepositoryFingerprint } from "@openmeld/projects";
@@ -21,6 +20,7 @@ import {
   rpcUpdateAgentProfileDefaultProject,
 } from "../src/rpc/methods";
 import { projectSpaceTaskProjectLinks } from "../src/space/infrastructure/postgresql/space-task-project-link-repo";
+import { env } from "../test-support/worker-env";
 
 const ownedOrganizationIds = new Set<string>();
 const ownedUserIds = new Set<string>();

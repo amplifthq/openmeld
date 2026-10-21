@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
@@ -8,6 +7,7 @@ import {
   readPrimaryAgentProfileBindingRecord,
 } from "../src/agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import type { CoreBindings } from "../src/lib/bindings";
+import { env } from "../test-support/worker-env";
 
 const feature = vi.hoisted(() => ({ enforced: true }));
 vi.mock("../src/member-agent/member-agents-feature", () => ({

@@ -1,5 +1,5 @@
 import { PassThrough, Writable } from "node:stream";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { runStartDisclaimerStep } from "../src/commands/start-auth-and-readiness";
 import {
   getConfiguredOnboardingDisclaimerAcceptedAt,
@@ -192,13 +192,13 @@ describe("start disclaimer persistence", () => {
 });
 
 type TestInputStream = NodeJS.ReadStream & {
-  setRawMode: ReturnType<typeof vi.fn>;
+  setRawMode: Mock<(mode: boolean) => TestInputStream>;
 };
 
 function createTestInputStream(): TestInputStream {
   const input = new PassThrough() as unknown as TestInputStream;
   input.isTTY = true;
-  input.setRawMode = vi.fn();
+  input.setRawMode = vi.fn<(mode: boolean) => TestInputStream>();
   return input;
 }
 

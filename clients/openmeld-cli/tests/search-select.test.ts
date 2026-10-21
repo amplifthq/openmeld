@@ -1,7 +1,7 @@
 import { PassThrough, Writable } from "node:stream";
 import { stripVTControlCharacters } from "node:util";
 import pc from "picocolors";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, type Mock, vi } from "vitest";
 import { measureRenderedTerminalLinesHeight } from "../src/ui/interactive-prompt";
 import {
   createSearchPromptState,
@@ -966,14 +966,14 @@ function stripAnsiLines(lines: string[]): string[] {
   return lines.map((line) => stripVTControlCharacters(line));
 }
 
-function createTestInputStream(): NodeJS.ReadStream & {
-  setRawMode: ReturnType<typeof vi.fn>;
-} {
-  const input = new PassThrough() as unknown as NodeJS.ReadStream & {
-    setRawMode: ReturnType<typeof vi.fn>;
-  };
+type TestInputStream = NodeJS.ReadStream & {
+  setRawMode: Mock<(mode: boolean) => TestInputStream>;
+};
+
+function createTestInputStream(): TestInputStream {
+  const input = new PassThrough() as unknown as TestInputStream;
   input.isTTY = true;
-  input.setRawMode = vi.fn();
+  input.setRawMode = vi.fn<(mode: boolean) => TestInputStream>();
   return input;
 }
 

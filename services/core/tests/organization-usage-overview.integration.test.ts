@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -6,6 +5,7 @@ import type { CoreBindings } from "../src/lib/bindings";
 import { recordAiUsage } from "../src/usage/ai-usage-repository";
 import { rpcReadOrganizationAiUsage } from "../src/usage/ai-usage-rpc";
 import { rpcReadOrganizationUsageOverview } from "../src/usage/organization-usage-overview-rpc";
+import { env } from "../test-support/worker-env";
 
 const FIXED_NOW_MS = Date.parse("2026-07-16T23:30:00.000Z");
 const ownedOrganizationUsers = new Map<string, string>();

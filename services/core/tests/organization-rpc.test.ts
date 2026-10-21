@@ -1,4 +1,3 @@
-import { env as workerEnv } from "cloudflare:test";
 import type {
   PostgreSQLBinding,
   PostgresDatabase,
@@ -9,6 +8,7 @@ import {
   projectActiveSpaceIndexSnapshot,
 } from "../src/space-index/space-index-projection-service";
 import { observePostgresDatabase } from "../test-support/postgresql-query.test-support";
+import { env as workerEnv } from "../test-support/worker-env";
 import { createWorkerPostgresFixture } from "./postgresql.test-support";
 
 const organizationPostgresObservers = vi.hoisted(
@@ -12121,7 +12121,10 @@ async function buildEnv(
       continue;
     }
     mock.mockImplementation(async (...args: unknown[]) => {
-      const result: unknown = await implementation(...args);
+      // Vitest 4 types loose mock implementations as callable or constructable.
+      const result: unknown = await (
+        implementation as (...args: unknown[]) => unknown
+      )(...args);
       if (
         !result ||
         typeof result !== "object" ||

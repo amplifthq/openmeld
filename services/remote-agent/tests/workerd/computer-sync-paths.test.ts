@@ -1,10 +1,11 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import {
   type BackendHandle,
   type SyncProgress,
   Workspace,
 } from "@cloudflare/computer";
 import { expect, it } from "vitest";
+import { env } from "./worker-env";
 
 type Change =
   Parameters<

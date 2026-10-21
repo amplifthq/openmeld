@@ -1,10 +1,10 @@
-import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import {
   type DispatchQueueWaitContext,
   handleDispatchQueueBatch,
 } from "../src/dispatch/application/dispatch-queue-service";
 import type { CoreBindings } from "../src/lib/bindings";
+import { env } from "../test-support/worker-env";
 
 describe("PostgreSQL dispatch queue", () => {
   it("processes an empty batch through the native binding", async () => {

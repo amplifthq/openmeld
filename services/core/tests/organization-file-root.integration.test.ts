@@ -1,4 +1,4 @@
-import { env, runInDurableObject, SELF } from "cloudflare:test";
+import { runInDurableObject, SELF } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   applyOpenMeldRequestContextHeaders,
@@ -29,6 +29,7 @@ import {
   rpcWriteSpaceFileContent,
 } from "../src/rpc/methods";
 import { hashSpaceFileStream } from "../src/space/application/space-file-stream";
+import { env } from "../test-support/worker-env";
 
 const FORBIDDEN_RPC_ERROR = /HTTP 403/u;
 async function fixture() {

@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import type { Profile, SignalEnvelope } from "@openmeld/protocol";
 import { USER_TIME_ZONE_INTERACTIVE_PRIORITY_MS } from "@openmeld/schemas";
 import { expect, it, vi } from "vitest";
@@ -13,6 +12,7 @@ import {
   recordUserTimeZoneObservation,
   resolveUserRequestTimeContext,
 } from "../src/user-time-context/user-time-context-repository";
+import { env } from "../test-support/worker-env";
 import { createWorkerPostgresFixture } from "./postgresql.test-support";
 
 const signalMethods = Space.prototype as unknown as {

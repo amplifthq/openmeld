@@ -19,7 +19,7 @@ import {
 } from "../src/local-service/lifecycle/daemon-service-startup-wait";
 
 // Use plain rejecting functions (not vi.fn().mockRejectedValue) so the global
-// afterEach vi.restoreAllMocks() in setup-env.ts cannot wipe the implementation
+// afterEach vi.resetAllMocks() in setup-env.ts cannot wipe the implementation
 // between tests — otherwise later tests would call these and get `undefined`,
 // then crash on `undefined.catch(...)` inside waitForSystemServiceStartup.
 const observation = vi.hoisted(() => ({

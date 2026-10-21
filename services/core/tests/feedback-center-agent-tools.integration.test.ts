@@ -1,4 +1,3 @@
-import { env } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { submitFeedbackIssueRequestSchema } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
@@ -20,6 +19,7 @@ import {
 } from "../src/feedback/transport/rpc/feedback-management-rpc";
 import { rpcSubmitFeedbackIssue } from "../src/feedback/transport/rpc/feedback-rpc";
 import type { CoreBindings } from "../src/lib/bindings";
+import { env } from "../test-support/worker-env";
 
 describe("Center Agent Feedback tools integration", () => {
   it("reports through the public HTTP contract, then lists and updates through Core", async () => {

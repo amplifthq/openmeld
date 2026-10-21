@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
@@ -8,6 +8,7 @@ import {
   decodeLarkFrame,
   encodeLarkFrame,
 } from "../src/remote-agent/transport/lark/lark-frame";
+import { env } from "../test-support/worker-env";
 import message from "../tests-node/fixtures/lark-platform/im-message-receive-v2.json";
 
 afterEach(() => {

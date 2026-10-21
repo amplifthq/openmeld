@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import { buildRemoteAgentRuntimeConversationId } from "@openmeld/schemas";
 import { expect, it } from "vitest";
 import {
@@ -21,6 +21,7 @@ import {
   createSubmitTurnRequest,
   createSubmitTurnRequestV2,
 } from "../fixtures";
+import { env } from "./worker-env";
 
 it("retains recovery provenance across SQL reconstruction and strengthens it on user Stop", async () => {
   const namespace = (env as { COMPUTER_PROBE: DurableObjectNamespace })

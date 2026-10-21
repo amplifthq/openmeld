@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { runInDurableObject } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { Profile, SignalEnvelope } from "@openmeld/protocol";
 import type {
@@ -39,8 +39,10 @@ import {
   readSpaceThreadSignalPlacementBySignalId,
 } from "../src/space/infrastructure/sql/space-thread-repo";
 import type { Space } from "../src/space/transport/do/space";
+import { env } from "../test-support/worker-env";
 
 type InputSpace = {
+  alarm(): Promise<void>;
   rpcAgentWorkload: Space["rpcAgentWorkload"];
   bindings: CoreBindings;
   spaceId: string;
@@ -212,6 +214,9 @@ async function fixture(
     ).mockResolvedValue();
     vi.spyOn(instance, "syncSpaceBackgroundAlarm").mockResolvedValue();
     vi.spyOn(instance, "flushPendingExecutionInputs").mockResolvedValue();
+    // Tests drive the queue explicitly; a due alarm firing mid-test would
+    // interleave its own reads with the assertions.
+    vi.spyOn(instance, "alarm").mockResolvedValue();
     const signal: SignalEnvelope = {
       v: 1,
       id: crypto.randomUUID(),
