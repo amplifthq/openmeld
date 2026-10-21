@@ -2,7 +2,9 @@ import {
 	accountSpaceIndexItemSchema,
 	listAgentDirectMessageSessionsResponseSchema,
 	listCenterAgentSessionsResponseSchema,
+	listMemberAgentDirectMessageSessionsResponseSchema,
 	listMemberAgentsResponseSchema,
+	memberAgentDirectMessageSessionSummarySchema,
 	organizationProfileDirectoryResponseSchema,
 } from "@openmeld/schemas";
 import type { InfiniteData, QueryClient } from "@tanstack/react-query";
@@ -54,6 +56,12 @@ const accountSpaceSectionsDisplaySchema = z.strictObject({
 
 const MAX_AGENT_SESSION_LISTS = 24;
 
+// The merged pages of the one MemberAgent Session read.
+const memberAgentSessionsDisplaySchema =
+	listMemberAgentDirectMessageSessionsResponseSchema.extend({
+		sessions: z.array(memberAgentDirectMessageSessionSummarySchema).max(2000),
+	});
+
 export const sidebarDisplaySnapshotSchema = z.strictObject({
 	version: z.literal(1),
 	profileId: z.string().min(1),
@@ -70,6 +78,8 @@ export const sidebarDisplaySnapshotSchema = z.strictObject({
 			})
 		)
 		.max(MAX_AGENT_SESSION_LISTS),
+	// Optional: snapshots saved before this read existed still restore.
+	memberAgentSessions: memberAgentSessionsDisplaySchema.nullable().optional(),
 });
 export type SidebarDisplaySnapshot = z.infer<
 	typeof sidebarDisplaySnapshotSchema
@@ -168,6 +178,12 @@ export function readSidebarDisplaySnapshot(
 			)
 		),
 		agentSessions,
+		memberAgentSessions: parsedOrNull(
+			memberAgentSessionsDisplaySchema,
+			queryClient.getQueryData(
+				agentDirectMessageSessionQueryKeys.memberAgents(organizationId)
+			)
+		),
 	};
 	return snapshot.accountSpaces || snapshot.centerAgentSessions
 		? snapshot
@@ -209,6 +225,10 @@ export function seedSidebarDisplaySnapshot(
 		[
 			organizationQueryKeys.profileIdentityDirectory(organizationId),
 			snapshot.profileDirectory,
+		],
+		[
+			agentDirectMessageSessionQueryKeys.memberAgents(organizationId),
+			snapshot.memberAgentSessions ?? null,
 		],
 		...snapshot.agentSessions.map(
 			(list) =>
