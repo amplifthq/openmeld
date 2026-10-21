@@ -3,6 +3,12 @@ import * as z from "zod/v4";
 export const ACCOUNT_ORGANIZATION_CONTEXT_PATH =
   "/v1/account/organization-context" as const;
 
+// Opt in only when the caller observes the Account Session HTTP read, which
+// remains responsible for returning the vendor's session-renewal cookies.
+export const accountOrganizationContextQuerySchema = z.object({
+  deferSessionRefresh: z.literal("true").optional(),
+});
+
 export const organizationSummarySchema = z.strictObject({
   id: z.string().refine((value) => value.trim().length > 0),
   name: z.string().refine((value) => value.trim().length > 0),

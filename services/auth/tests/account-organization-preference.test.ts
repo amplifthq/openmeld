@@ -5,6 +5,7 @@ import {
   accountSessionSchema,
   accountSidebarResponseSchema,
   DESKTOP_APP_ORIGIN,
+  OBSERVABILITY_CLOUDFLARE_ANALYTICS_BLOBS,
   selectLastSelectedOrganizationErrorResponseSchema,
 } from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -235,6 +236,171 @@ describe("Account Organization preference HTTP API", () => {
       .find((cookie) => cookie.startsWith(`${sessionCookieName}=`));
     expect(Boolean(deletion?.includes("Max-Age=0"))).toBe(true);
   });
+  it("defers Organization entry renewal while preserving cookie-capable renewal and revocation", async () => {
+    const context = await createTestContext({ environment: "production" });
+    const account = await createSignedInUser(context, {
+      email: "entry-renewal@example.com",
+      name: "Entry Renewal",
+    });
+    const runtime = await loadBetterAuthRuntime();
+    const vendor = await withPostgresRequest(
+      context.env.OPENMELD_POSTGRESQL,
+      () =>
+        runtime
+          .createAuth(context.env, createAuthDatabase())
+          .api.getSession({ headers: account.headers })
+    );
+    if (!vendor) {
+      throw new Error("The real sign-in must establish a session.");
+    }
+    const kv = context.env.OPENMELD_AUTH_KV;
+    const storedSession = await kv.get(vendor.session.token);
+    if (!storedSession) {
+      throw new Error("The real session must be present in secondary storage.");
+    }
+    const dueExpiry = Date.now() + 60 * 60 * 1000;
+    const makeRenewalDue = async () => {
+      const cached = JSON.parse(storedSession);
+      cached.session.expiresAt = new Date(dueExpiry).toISOString();
+      await kv.put(vendor.session.token, JSON.stringify(cached));
+      await context.harness.query({
+        text: 'UPDATE "openmeld"."sessions" SET expires_at = $1 WHERE id = $2',
+        values: [dueExpiry, vendor.session.id],
+      });
+    };
+    await makeRenewalDue();
+    const writeDataPoint = vi.fn();
+    context.env.OPENMELD_OBSERVABILITY = {
+      writeDataPoint,
+    } as unknown as AnalyticsEngineDataset;
+    const readEvents = () =>
+      writeDataPoint.mock.calls.map(([point]) =>
+        Object.fromEntries(
+          OBSERVABILITY_CLOUDFLARE_ANALYTICS_BLOBS.map((key, index) => [
+            key,
+            point.blobs[index],
+          ])
+        )
+      );
+    const requestId = crypto.randomUUID();
+    const headers = new Headers(account.headers);
+    headers.set("x-request-id", requestId);
+    const request = (path: string) =>
+      context.app.fetch(
+        new Request(`${AUTH_BASE_URL}${path}`, { headers }),
+        context.env,
+        TEST_EXECUTION_CONTEXT
+      );
+    const writeStarted = Promise.withResolvers<void>();
+    const releaseWrites = Promise.withResolvers<void>();
+    const nativePut = kv.put.bind(kv);
+    const blockedPut = vi
+      .spyOn(kv, "put")
+      .mockImplementation(async (...args) => {
+        writeStarted.resolve();
+        await releaseWrites.promise;
+        return nativePut(...args);
+      });
+    const entry = request(
+      "/v1/account/organization-context?deferSessionRefresh=true"
+    );
+    try {
+      const first = await Promise.race([
+        entry.then((response) => ({ kind: "response" as const, response })),
+        writeStarted.promise.then(() => ({ kind: "renewal_write" as const })),
+      ]);
+      expect(first.kind).toBe("response");
+      if (first.kind !== "response") {
+        throw new Error(
+          "Organization entry waited for a session renewal write."
+        );
+      }
+      expect(first.response.status).toBe(200);
+      expect(
+        accountOrganizationContextSchema.parse(await first.response.json())
+          .currentUserId
+      ).toBe(vendor.user.id);
+      expect(blockedPut).not.toHaveBeenCalled();
+      const stored = await context.harness.queryFirst<{ expires_at: number }>({
+        text: 'SELECT expires_at FROM "openmeld"."sessions" WHERE id = $1',
+        values: [vendor.session.id],
+      });
+      expect(stored?.expires_at).toBe(dueExpiry);
+      const events = readEvents();
+      for (const stage of ["request", "session", "memberships", "preference"]) {
+        for (const status of ["started", "succeeded"]) {
+          expect(events).toContainEqual(
+            expect.objectContaining({
+              event: `auth.openmeld.organization_context.${stage}`,
+              requestId,
+              status,
+            })
+          );
+        }
+      }
+      const evidence = JSON.stringify(writeDataPoint.mock.calls);
+      expect(evidence.includes(vendor.session.token)).toBe(false);
+      expect(evidence.includes(account.email)).toBe(false);
+    } finally {
+      releaseWrites.resolve();
+      await entry;
+      blockedPut.mockRestore();
+    }
+
+    for (const path of [
+      "/v1/account/session",
+      "/v1/account/organization-context",
+    ]) {
+      await makeRenewalDue();
+      writeDataPoint.mockClear();
+      const renewed = await request(path);
+      expect(renewed.status).toBe(200);
+      const eventPrefix =
+        path === "/v1/account/session"
+          ? "auth.openmeld.account_session"
+          : "auth.openmeld.organization_context";
+      for (const stage of ["request", "session"]) {
+        for (const status of ["started", "succeeded"]) {
+          expect(readEvents()).toContainEqual(
+            expect.objectContaining({
+              event: `${eventPrefix}.${stage}`,
+              requestId,
+              status,
+            })
+          );
+        }
+      }
+      expect(
+        renewed.headers
+          .getSetCookie()
+          .some(
+            (cookie) =>
+              cookie.includes("Max-Age=") && cookie.includes("HttpOnly")
+          )
+      ).toBe(true);
+      const stored = await context.harness.queryFirst<{ expires_at: number }>({
+        text: 'SELECT expires_at FROM "openmeld"."sessions" WHERE id = $1',
+        values: [vendor.session.id],
+      });
+      expect(stored?.expires_at).toBeGreaterThan(dueExpiry);
+    }
+    const signedOut = await postJson(
+      context,
+      "/api/auth/sign-out",
+      {},
+      headers
+    );
+    expect(signedOut.status).toBe(200);
+    const revoked = await request(
+      "/v1/account/organization-context?deferSessionRefresh=true"
+    );
+    expect(revoked.status).toBe(401);
+    expect(
+      revoked.headers
+        .getSetCookie()
+        .some((cookie) => cookie.includes("Max-Age=0"))
+    ).toBe(true);
+  });
   it.each([
     "development",
     "production",
@@ -461,11 +627,16 @@ describe("Account Organization preference HTTP API", () => {
   });
 
   it.each([
-    ["organization-context", 500],
-    ["session", 500],
-    ["session", 503],
-  ] as const)("distinguishes missing authentication from %s failure %s", async (path, failureStatus) => {
+    ["organization-context", 500, "session"],
+    ["organization-context", 500, "memberships"],
+    ["session", 500, "session"],
+    ["session", 503, "session"],
+  ] as const)("distinguishes missing authentication from %s failure %s in %s", async (path, failureStatus, failureStage) => {
     const context = await createTestContext();
+    const writeDataPoint = vi.fn();
+    context.env.OPENMELD_OBSERVABILITY = {
+      writeDataPoint,
+    } as unknown as AnalyticsEngineDataset;
     const request = (headers = new Headers()) =>
       context.app.fetch(
         new Request(`${AUTH_BASE_URL}/v1/account/${path}`, {
@@ -481,17 +652,44 @@ describe("Account Organization preference HTTP API", () => {
       email: "context-failure@example.com",
       name: "Context Failure",
     });
-    if (failureStatus === 503) {
+    if (failureStage === "memberships") {
+      await context.harness.query(
+        'REVOKE SELECT ON "openmeld"."members" FROM openmeld_pg_runtime'
+      );
+    } else if (failureStatus === 503) {
       await context.harness.query(
         'REVOKE SELECT ON "openmeld"."sessions" FROM openmeld_pg_runtime'
       );
     } else {
       installLocalUserReadFailure(new Error("local verification unavailable"));
     }
+    writeDataPoint.mockClear();
     vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
     const failed = await request(account.headers);
     expect(failed.status).toBe(failureStatus);
     expect(failed.headers.get("cache-control")).toBe("private, no-store");
+    const eventPrefix =
+      path === "organization-context"
+        ? "auth.openmeld.organization_context"
+        : "auth.openmeld.account_session";
+    const events = writeDataPoint.mock.calls.map(([point]) =>
+      Object.fromEntries(
+        OBSERVABILITY_CLOUDFLARE_ANALYTICS_BLOBS.map((key, index) => [
+          key,
+          point.blobs[index],
+        ])
+      )
+    );
+    for (const stage of ["request", failureStage]) {
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          event: `${eventPrefix}.${stage}`,
+          requestId: failed.headers.get("x-request-id"),
+          status: "failed",
+        })
+      );
+    }
   });
 
   it("returns the shared error contract when the authenticated session is missing", async () => {

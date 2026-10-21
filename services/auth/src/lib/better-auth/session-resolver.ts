@@ -40,6 +40,7 @@ export async function resolveSessionFromHeaders(input: {
   auth: AuthInstance;
   headers: Headers;
   disableCookieCache?: boolean;
+  deferSessionRefresh?: boolean;
   // HTTP-only opt-in. Never include credentials in the resolution projection.
   onSessionCookies?: (cookies: readonly string[]) => void;
   verifyLocalUserExists?: (userId: string) => Promise<boolean>;
@@ -52,9 +53,11 @@ export async function resolveSessionFromHeaders(input: {
       headers: input.headers,
       query: {
         ...(input.disableCookieCache ? { disableCookieCache: true } : {}),
-        // Identity-only RPC callers have no HTTP response that can carry the
-        // vendor's renewal. Preserve its window for a cookie-capable caller.
-        ...(input.onSessionCookies ? {} : { disableRefresh: true }),
+        // Entry projections can leave renewal to the account-session HTTP read.
+        // Identity-only RPC callers cannot return the vendor's renewal cookies.
+        ...(input.deferSessionRefresh || !input.onSessionCookies
+          ? { disableRefresh: true }
+          : {}),
       },
     };
     if (input.onSessionCookies) {

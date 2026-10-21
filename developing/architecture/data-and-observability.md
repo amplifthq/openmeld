@@ -4416,6 +4416,28 @@ Cloudflare evidence query tooling must derive its field order from the shared
 runtime evidence contract. Do not hand-maintain a second Analytics Engine schema
 inside scripts or runbooks.
 
+Organization entry and Account Session reads use the caller's `x-request-id` to
+correlate browser failures with Web and Auth. Web emits `web.openmeld.proxy_stage` at receipt,
+upstream URL construction, upstream dispatch, and upstream response headers;
+its existing `web.openmeld.proxy_request` records completion after buffering.
+Auth emits `auth.openmeld.organization_context.request`, `.session`,
+`.memberships`, and `.preference` with started and terminal records. Account
+Session emits `auth.openmeld.account_session.request` and `.session` for
+background renewal reads. Each request's stages use its request ID and the
+existing runtime evidence projection, fixed stage/reason labels, and elapsed
+time, without cookies, session tokens, account fields, or Organization content.
+Started records remain useful when a request never reaches its finalizer; their
+absence or a missing terminal record alone does not establish where a request
+failed. Successful/started HTTP records follow the existing console-log filter
+and remain queryable in Analytics Engine.
+
+Select the deployed dataset explicitly when tracing these records:
+`pnpm ops:cf:query --dataset openmeld_runtime_evidence_prod --request <requestId>`.
+Staging uses `openmeld_runtime_evidence_stg`. Browser account-context and
+background Account Session failures use the existing application-error endpoint
+and its allowlisted query diagnostics; arbitrary exception text and request
+payloads are not telemetry.
+
 Center Agent performance uses a separate Analytics Engine projection named
 `openmeld_center_agent_performance` in local and development environments and
 `openmeld_center_agent_performance_prod` in production. The Organization is the

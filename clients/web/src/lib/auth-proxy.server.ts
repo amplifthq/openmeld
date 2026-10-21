@@ -1,3 +1,8 @@
+import { OPENMELD_HEADER_REQUEST_ID } from "@openmeld/gateway-contract";
+import {
+	ACCOUNT_ORGANIZATION_CONTEXT_PATH,
+	ACCOUNT_SESSION_PATH,
+} from "@openmeld/schemas";
 import { getRequiredServerEnv } from "#/env";
 import { executeObservedWebProxyRequest } from "#/lib/openmeld-api/proxy-observability";
 
@@ -82,6 +87,17 @@ export async function proxyAuthOwnedRequest(input: {
 				input.request.headers,
 				input.preserveOrigin
 			);
+			if (
+				input.upstreamPath === ACCOUNT_ORGANIZATION_CONTEXT_PATH ||
+				input.upstreamPath === ACCOUNT_SESSION_PATH
+			) {
+				headers.set(
+					"x-request-id",
+					headers.get(OPENMELD_HEADER_REQUEST_ID) ??
+						headers.get("x-request-id") ??
+						diagnostics.webProxyRequestId
+				);
+			}
 			diagnostics.setLastStage("build_upstream_url");
 			const upstreamUrl = buildUpstreamUrl({
 				requestUrl: input.request.url,

@@ -37,6 +37,7 @@ import { APPEARANCE_SHAPE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/shape-prefer
 import { SIDEBAR_PREFERENCE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/sidebar-preference";
 import { TOOLBAR_PREFERENCE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/toolbar-preference";
 import {
+	readApplicationErrorRequestFailure,
 	summarizeApplicationError,
 	WEB_ERROR_BUILD,
 } from "#/lib/observability/application-error";
@@ -345,6 +346,7 @@ function PageError({
 
 	const errorDetails =
 		error instanceof Error ? (error.stack ?? message) : message;
+	const requestId = readApplicationErrorRequestFailure(error).requestId;
 	const diagnosticDetails = isAssetLoadError
 		? JSON.stringify(summarizeApplicationError(error), null, 2)
 		: errorDetails;
@@ -355,7 +357,7 @@ function PageError({
 			<main className="flex min-h-[calc(100svh-3.5rem)] w-full items-center justify-center px-4 py-6 sm:px-6">
 				<ApplicationErrorState
 					description={description}
-					details={`${diagnosticDetails}\n\nBuild: ${WEB_ERROR_BUILD.id ?? "development"}\nSource: ${WEB_ERROR_BUILD.sha ?? "local"}`}
+					details={`${diagnosticDetails}${requestId ? `\n\nRequest ID: ${requestId}` : ""}\n\nBuild: ${WEB_ERROR_BUILD.id ?? "development"}\nSource: ${WEB_ERROR_BUILD.sha ?? "local"}`}
 					message={displayMessage}
 					onAction={
 						onRetry ??

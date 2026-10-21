@@ -108,6 +108,22 @@ describe("RootErrorComponent", () => {
 		expect(screen.queryByText(new RegExp(failedAssetUrl))).toBeNull();
 	});
 
+	it("includes the timed-out request ID in the copyable error details", () => {
+		render(
+			<RootErrorComponent
+				error={Object.assign(new Error("Account context timed out"), {
+					code: "network.timeout",
+					requestId: "req-account-context",
+				})}
+				info={{ componentStack: "" }}
+				reset={vi.fn()}
+			/>
+		);
+		expect(document.querySelector("details pre")?.textContent).toContain(
+			"Request ID: req-account-context"
+		);
+	});
+
 	it.each([
 		"timeout",
 		"navigation",
@@ -340,7 +356,7 @@ function readPublicLandingHeader() {
 			.getByRole("link", { name: "Go to OpenMeld homepage" })
 			.getAttribute("href"),
 		appEntryHref: screen
-			.getByRole("link", { name: "Login" })
+			.getByRole("link", { name: "Log in" })
 			.getAttribute("href"),
 		oldTabs: OLD_HEADER_TAB_NAMES.map((label) =>
 			screen.queryByRole("tab", { name: label })

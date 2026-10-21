@@ -110,6 +110,33 @@ describe("browser application error reporting", () => {
 		expect(body.navigation).toBeUndefined();
 	});
 
+	it("retains the account read correlation in route and manually submitted reports", async () => {
+		const { reportClientApplicationError, submitApplicationErrorReport } =
+			await import("./application-error-client");
+		const error = Object.assign(new Error("private response text"), {
+			code: "network.timeout",
+			operation: "account.organizationContext.read",
+			requestId: "req-account-context",
+		});
+		reportClientApplicationError(error, "route");
+		await submitApplicationErrorReport(error);
+		for (const [, init] of vi.mocked(fetch).mock.calls) {
+			const body = String(init?.body);
+			expect(
+				webApplicationErrorReportSchema.parse(JSON.parse(body)).query
+			).toEqual({
+				category: "account_organization_context",
+				failure: {
+					code: "network.timeout",
+					requestId: "req-account-context",
+					status: null,
+				},
+			});
+			expect(body).not.toContain("private response text");
+		}
+		expect(fetch).toHaveBeenCalledTimes(2);
+	});
+
 	it("reports the catch-up stage with API status, code, and request ID", async () => {
 		const { reportClientQueryError } = await import(
 			"./application-error-client"
