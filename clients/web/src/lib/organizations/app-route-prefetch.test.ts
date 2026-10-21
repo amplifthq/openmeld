@@ -598,6 +598,9 @@ describe("organization app route prefetch", () => {
 			);
 		});
 		expect(getBootstrapMock).not.toHaveBeenCalled();
+		// The access decision does not depend on saved display data, so its
+		// request overlaps the restore.
+		await vi.waitFor(() => expect(resolveEntryMock).toHaveBeenCalledTimes(1));
 
 		finishRestore?.();
 		await prefetch;
