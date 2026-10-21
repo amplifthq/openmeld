@@ -1354,6 +1354,8 @@ describe("setup command", () => {
     ]);
     expect(completionLines.join("\n")).not.toContain("None connected");
     expect(completionLines.join("\n")).not.toContain("Install guide");
+    // The Connect page has not chosen yet: Local agents stay as they are.
+    expect(turnOffUnselectedLocalAgentsForSetupMock).not.toHaveBeenCalled();
   });
 
   it("renders a concise human setup completion with the connected agent and Web link", async () => {

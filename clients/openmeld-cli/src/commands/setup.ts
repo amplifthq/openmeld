@@ -869,8 +869,11 @@ async function resolveDelegatedSetupCompletionFacts(input: {
       gatewayUrl: input.gatewayUrl,
     }));
   if (selectedLocalAgentIds.length === 0) {
-    // An explicit empty selection still turns every detected agent off.
-    await turnOffUnselectedLocalAgentsForSetup({ selectedLocalAgentIds });
+    // An empty setup session selection means the Connect page has not chosen
+    // yet; only an explicit `--local-agents none` turns every agent off.
+    if (normalizeOptionalString(input.setupInput.localAgents) === "none") {
+      await turnOffUnselectedLocalAgentsForSetup({ selectedLocalAgentIds });
+    }
     return {
       routeCatalogSync: null,
       openMeldServiceRuntimeIdentity,
