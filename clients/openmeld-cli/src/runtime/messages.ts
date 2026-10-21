@@ -59,6 +59,8 @@ const HUMAN_MESSAGES = {
     "Choose a profile first. Available profiles are listed above.",
   "routines.error": (params) =>
     String(params?.message ?? "Routine action couldn't finish."),
+  "member_agents.error": (params) =>
+    String(params?.message ?? "Agent command couldn't finish."),
   "doctor.summary.failed": () => "OpenMeld diagnostics found issues.",
   "send.sent": () => "Sent.",
   "tail.empty": () => "(no signals yet)",
@@ -166,6 +168,8 @@ const AGENT_MESSAGES = {
     "profile update requires explicit profile argument; candidates listed above",
   "routines.error": (params) =>
     String(params?.message ?? "Routine command failed."),
+  "member_agents.error": (params) =>
+    String(params?.message ?? "member agent command failed"),
   "doctor.summary.failed": () => "diagnostics found issues",
   "send.sent": () => "signal sent",
   "tail.empty": () => "no signals found",

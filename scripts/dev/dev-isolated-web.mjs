@@ -7,6 +7,7 @@ import {
   resolveIsolatedDevPresentation,
   resolveIsolatedWebDopplerCommand,
   resolveIsolatedWebScript,
+  withWebDevHeapLimit,
 } from "./dev-isolated.mjs";
 import {
   buildIsolatedDevEnvironment,
@@ -84,8 +85,9 @@ export async function runIsolatedWeb() {
 
 function runWeb(input, script = resolveIsolatedWebScript(input.env)) {
   const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+  const env = withWebDevHeapLimit(input.env);
   const dopplerCommand = resolveIsolatedWebDopplerCommand(
-    input.env,
+    env,
     pnpmCommand,
     script
   );
@@ -99,7 +101,7 @@ function runWeb(input, script = resolveIsolatedWebScript(input.env)) {
 
   return runOwnedCommand(command, args, {
     cwd: repoRoot,
-    env: dopplerCommand?.env ?? input.env,
+    env: dopplerCommand?.env ?? env,
   });
 }
 

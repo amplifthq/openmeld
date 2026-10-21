@@ -17,6 +17,7 @@ import {
 import {
 	DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
 	formatAgentRecoveryActionLabel,
+	type HarnessKind,
 	HOSTED_REMOTE_AGENT_CONTROLLER_REF,
 	resolveBuiltinAgentControllerConversationCapability,
 	TEAMMATE_AGENT_REQUESTS_ENABLED,
@@ -123,6 +124,7 @@ import {
 import { modelCatalogQueryOptions } from "#/query/config/model-catalog";
 import { currentLocalRuntimeReplyReadinessQueryOptions } from "#/query/connect/local-runtimes";
 import { agentActivitySessionsQueryOptions } from "#/query/organizations/agent-activity";
+import { memberAgentQueryKeys } from "#/query/organizations/member-agents";
 import {
 	organizationComputersQueryOptions,
 	organizationDirectoryQueryFilters,
@@ -290,6 +292,7 @@ function createInitialCreateProfileDialogFormState(input: {
 	initialProfileKind: NewProfileKind | null;
 	initialOwnerMode: AgentProfileOwnerMode;
 	initialSessionPreset: CreateProfileAgentActivitySessionPreset | undefined;
+	pinnedHarnessKind?: string;
 }): CreateProfileDialogFormState {
 	const sessionPresetAgentId = resolveSessionPresetAgentId(
 		input.initialSessionPreset?.agentControllerRef ?? ""
@@ -303,7 +306,7 @@ function createInitialCreateProfileDialogFormState(input: {
 		boundAgentControllerPermissionMode:
 			DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE,
 		boundAgentControllerPermissionModeConfirmed: false,
-		boundAgentId: sessionPresetAgentId ?? "",
+		boundAgentId: sessionPresetAgentId ?? input.pinnedHarnessKind ?? "",
 		boundModelId: "",
 		boundOpenCodePermission: null,
 		boundReasoningLevel: "",
@@ -464,6 +467,8 @@ export type CreateProfileDialogProps = {
 	onOpenChange: (open: boolean) => void;
 	onProfileCreated?: (profile: AuthProfileView) => void | Promise<void>;
 	open: boolean;
+	/** Creates another Profile of one MemberAgent: only this harness is offered. */
+	pinnedHarnessKind?: HarnessKind;
 	organizationId: string;
 	orgSlug?: string;
 	recovery: RecoveryController;
@@ -638,7 +643,12 @@ function useCreateProfileDialogController(
 	});
 	const [formState, dispatchForm] = useReducer(
 		reduceCreateProfileDialogFormState,
-		{ initialOwnerMode, initialProfileKind, initialSessionPreset },
+		{
+			initialOwnerMode,
+			initialProfileKind,
+			initialSessionPreset,
+			pinnedHarnessKind: input.pinnedHarnessKind,
+		},
 		createInitialCreateProfileDialogFormState
 	);
 	const formSetters = useMemo(
@@ -794,7 +804,12 @@ function useCreateProfileDialogController(
 			sessionPresetAgentId,
 		})
 	);
-	const ownLocalAgentIds = bindableLocalAgentIdsFromTarget(bindingTarget);
+	// A Profile created for a MemberAgent keeps that MemberAgent's harness; the
+	// form never offers another one.
+	const ownLocalAgentIds = filterPinnedHarnessAgentIds(
+		bindableLocalAgentIdsFromTarget(bindingTarget),
+		input.pinnedHarnessKind
+	);
 	const creationComputerReadiness = useCreationComputerReadiness({
 		bindingTarget,
 		enabled: input.open,
@@ -1121,8 +1136,9 @@ function useCreateProfileDialogController(
 					initialOwnerMode,
 					initialProfileKind,
 					initialSessionPreset,
+					pinnedHarnessKind: input.pinnedHarnessKind,
 				}),
-				boundAgentId: sessionPresetAgentId ?? "",
+				boundAgentId: sessionPresetAgentId ?? input.pinnedHarnessKind ?? "",
 				profileKind: initialProfileKind,
 				selectedProjectId: "",
 			},
@@ -1580,7 +1596,10 @@ function useCreateProfileDialogController(
 			localFolderPickerDeviceId,
 			ownerMode,
 		}),
-		lockLocalAgentSelection: Boolean(sessionPreset),
+		lockLocalAgentSelection: isLocalAgentSelectionLocked({
+			pinnedHarnessKind: input.pinnedHarnessKind,
+			sessionPreset,
+		}),
 		modelCatalog,
 		modelCompatibilityContext,
 		onChangeAgentBindingValue: (value: string) => {
@@ -2842,6 +2861,13 @@ async function refreshAgentProfileCreationRequestCaches(input: {
 				queryKey: startQueryKeys.profilesForStorageScope(input.storageScope),
 				refetchType: "active",
 			}),
+			// Core assigned the new Profile to its Harness's Agent when it
+			// accepted the Binding.
+			input.queryClient.invalidateQueries({
+				queryKey: memberAgentQueryKeys.all(input.organizationId),
+				exact: true,
+				refetchType: "active",
+			}),
 			refreshWebAgentReadinessSharedCaches({
 				agentProfileIds: [createdAgentProfileId],
 				includeLocalRuntimeCaches: false,
@@ -3623,6 +3649,22 @@ function resolveOwnerLocalFolderPickerDeviceId(input: {
 	ownerMode: AgentProfileOwnerMode;
 }): string | null {
 	return input.ownerMode === "self" ? input.localFolderPickerDeviceId : null;
+}
+
+function filterPinnedHarnessAgentIds(
+	agentIds: readonly string[],
+	pinnedHarnessKind: string | undefined
+): string[] {
+	return agentIds.filter(
+		(agentId) => !pinnedHarnessKind || agentId === pinnedHarnessKind
+	);
+}
+
+function isLocalAgentSelectionLocked(input: {
+	pinnedHarnessKind: string | undefined;
+	sessionPreset: CreateProfileAgentActivitySessionPreset | undefined;
+}): boolean {
+	return Boolean(input.sessionPreset) || Boolean(input.pinnedHarnessKind);
 }
 
 function resolveOwnerBoundAgentId(input: {

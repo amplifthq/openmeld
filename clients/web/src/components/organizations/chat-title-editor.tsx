@@ -13,6 +13,8 @@ import { useState } from "react";
 export function ChatTitleEditor(input: {
 	title: string;
 	disabled?: boolean;
+	/** Defaults to the personal chat title limit. */
+	maxLength?: number;
 	onSave: (title: string) => Promise<void> | void;
 }) {
 	const [open, setOpen] = useState(false);
@@ -61,7 +63,7 @@ export function ChatTitleEditor(input: {
 						<Input
 							aria-label="Chat name"
 							autoFocus
-							maxLength={160}
+							maxLength={input.maxLength ?? 160}
 							onChange={(event) => setName(event.target.value)}
 							value={name}
 						/>

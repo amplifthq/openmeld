@@ -18,8 +18,12 @@ export type SpaceComposerPlaceholderContext =
 export type SpaceComposerPolicy = {
 	accessibleName: string;
 	placeholder: string;
-	sendButtonLabel: "Send message" | "Send reply" | "Sending…";
-	sendButtonTooltip: "Send message" | "Send reply" | "Sending…";
+	sendButtonLabel: "Send message" | "Send reply" | "Send request" | "Sending…";
+	sendButtonTooltip:
+		| "Send message"
+		| "Send reply"
+		| "Send request"
+		| "Sending…";
 	showMentionButton: boolean;
 	wakeTextHint: string | null;
 };
@@ -47,10 +51,15 @@ export function resolveSpaceComposerPolicy(input: {
 	hasAuthoredMentions?: boolean;
 	placement: SpaceComposerPlacement;
 	readOnlyPlaceholder?: string;
+	/** A first message that asks a teammate's Agent owner first. */
+	requestPlaceholder?: string;
 	targetName?: string | null;
 	text: string;
 	isSendingMessage?: boolean;
 }): SpaceComposerPolicy {
+	const requestPlaceholder =
+		input.placement === "conversation" ? input.requestPlaceholder : undefined;
+	const request = Boolean(requestPlaceholder);
 	const placeholderContext =
 		input.placement === "thread" ? "thread" : input.conversationKind;
 	const automaticWakeConversation =
@@ -59,6 +68,7 @@ export function resolveSpaceComposerPolicy(input: {
 	const sendButtonLabel = resolveSpaceComposerSendButtonLabel({
 		isSendingMessage: input.isSendingMessage === true,
 		placement: input.placement,
+		request,
 	});
 
 	return {
@@ -66,18 +76,22 @@ export function resolveSpaceComposerPolicy(input: {
 			context: placeholderContext,
 			targetName: input.targetName,
 		}),
-		placeholder: resolveSpaceComposerPlaceholder({
-			canSendMessage: input.canSendMessage,
-			context: placeholderContext,
-			readOnlyPlaceholder: input.readOnlyPlaceholder,
-			targetName: input.targetName,
-		}),
+		placeholder:
+			requestPlaceholder && input.canSendMessage && !input.readOnlyPlaceholder
+				? requestPlaceholder
+				: resolveSpaceComposerPlaceholder({
+						canSendMessage: input.canSendMessage,
+						context: placeholderContext,
+						readOnlyPlaceholder: input.readOnlyPlaceholder,
+						targetName: input.targetName,
+					}),
 		sendButtonLabel,
 		sendButtonTooltip: input.isSendingMessage
 			? "Sending…"
 			: resolveSpaceComposerSendButtonLabel({
 					isSendingMessage: false,
 					placement: input.placement,
+					request,
 				}),
 		showMentionButton: !automaticWakeConversation,
 		wakeTextHint: automaticWakeConversation
@@ -91,11 +105,15 @@ export function resolveSpaceComposerPolicy(input: {
 function resolveSpaceComposerSendButtonLabel(input: {
 	isSendingMessage: boolean;
 	placement: SpaceComposerPlacement;
+	request?: boolean;
 }): SpaceComposerPolicy["sendButtonLabel"] {
 	if (input.placement === "thread") {
 		return "Send reply";
 	}
-	return input.isSendingMessage ? "Sending…" : "Send message";
+	if (input.isSendingMessage) {
+		return "Sending…";
+	}
+	return input.request ? "Send request" : "Send message";
 }
 
 export function resolveSpaceComposerPlaceholder(input: {

@@ -823,6 +823,14 @@ describe("useSpaceLandingFeed transport freshness", () => {
 			"sidebar",
 		];
 		queryClient.setQueryData(sessionsKey, { pages: [] });
+		// A generated MemberAgent Session title must reach the chat title too.
+		const memberAgentSessionsKey = [
+			"agent-direct-message-sessions",
+			"org-1",
+			"agent-1",
+			"active",
+		];
+		queryClient.setQueryData(memberAgentSessionsKey, { sessions: [] });
 		const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
 		await openLatestSocket();
 
@@ -847,6 +855,62 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		expect(statusRefetch).toHaveBeenCalledTimes(1);
 		expect(membersRefetch).not.toHaveBeenCalled();
 		expect(queryClient.getQueryState(sessionsKey)?.isInvalidated).toBe(true);
+		expect(
+			queryClient.getQueryState(memberAgentSessionsKey)?.isInvalidated
+		).toBe(true);
+	});
+
+	it("refreshes only Agent requests when a request in the Space opens or closes", async () => {
+		const { membersRefetch, queryClient, statusRefetch } = renderFeed();
+		const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+		await openLatestSocket();
+
+		await act(async () => {
+			await FakeWebSocket.latest.emitMessage(
+				JSON.stringify({
+					type: "space.meta.changed",
+					spaceId: "space-123",
+					version: 8,
+					reason: "space.agent_access.changed",
+				})
+			);
+		});
+		await flushMicrotasks();
+
+		expect(invalidateQueries).toHaveBeenCalledWith({
+			queryKey: ["agent-access"],
+		});
+		expect(invalidateQueries).not.toHaveBeenCalledWith({
+			queryKey: accountSpaceQueryKeys.all,
+		});
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(301);
+		});
+		expect(statusRefetch).not.toHaveBeenCalled();
+		expect(membersRefetch).not.toHaveBeenCalled();
+	});
+
+	it("refreshes Agent requests when an Agent joins", async () => {
+		const { queryClient } = renderFeed();
+		const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+		await openLatestSocket();
+
+		await act(async () => {
+			await FakeWebSocket.latest.emitMessage(
+				JSON.stringify({
+					type: "space.members.changed",
+					spaceId: "space-123",
+					version: 8,
+					profileIds: ["agt_felix"],
+					reason: "space.members.added",
+				})
+			);
+		});
+		await flushMicrotasks();
+
+		expect(invalidateQueries).toHaveBeenCalledWith({
+			queryKey: ["agent-access"],
+		});
 	});
 
 	it("refreshes Space Files without refetching members after file changes", async () => {

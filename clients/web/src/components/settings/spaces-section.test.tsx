@@ -98,7 +98,24 @@ it("keeps the existing layout, alignment, and history preferences after moving t
 it("shares message-preview changes with the existing sidebar preference in both directions", () => {
 	const { client } = renderSettings();
 	const group = screen.getByRole("radiogroup", { name: "Message previews" });
-	fireEvent.click(within(group).getByRole("radio", { name: "Show previews" }));
+	// Shown by default, in both places.
+	expect(
+		within(group)
+			.getByRole("radio", { name: "Show previews" })
+			.getAttribute("aria-checked")
+	).toBe("true");
+	fireEvent.click(within(group).getByRole("radio", { name: "Hide previews" }));
+	expect(
+		screen.getByRole("button", { name: "Sidebar previews hidden" })
+	).toBeTruthy();
+	fireEvent.click(
+		screen.getByRole("button", { name: "Sidebar previews hidden" })
+	);
+	expect(
+		within(group)
+			.getByRole("radio", { name: "Show previews" })
+			.getAttribute("aria-checked")
+	).toBe("true");
 	expect(
 		screen.getByRole("button", { name: "Sidebar previews shown" })
 	).toBeTruthy();

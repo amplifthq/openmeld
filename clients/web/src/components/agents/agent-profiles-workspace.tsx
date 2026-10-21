@@ -6,6 +6,7 @@ import type {
 	AuthProfileView,
 	GetAgentExecutionReadinessResponse,
 	ModelCatalog,
+	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
@@ -16,6 +17,8 @@ import { AppContextualSidebarNav } from "#/components/app/app-contextual-layout"
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { SidebarListSkeleton } from "#/components/app/sidebar-list-skeleton";
 import { TeamHeader } from "#/components/directory/team-header";
+import { useAppOrganization } from "#/lib/organizations/organization-context";
+import { buildOrganizationAgentsPath } from "#/lib/organizations/organization-routes";
 import type { OptimisticAgentProfileCreation } from "#/lib/profiles/agent-profile-creation-requests";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 import { AgentDirectoryLists } from "./agent-directory-lists";
@@ -68,6 +71,21 @@ export type AgentProfilesWorkspaceProps = {
 	requestPanel: ReactNode;
 	selectedProfileId: string | null;
 	showAgentRequests?: boolean;
+	/** Per-Profile runtime reads that MemberAgent presence aggregates. */
+	runtimeOverviewByProfileId?: ReadonlyMap<
+		string,
+		OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number]
+	>;
+	/** Opens a MemberAgent's page; present only with MEMBER_AGENTS_ENABLED. */
+	onOpenMemberAgent?: (memberAgentId: string) => void;
+	selectedMemberAgentId?: string | null;
+	/** A MemberAgent's page is one of its Profiles' pages. */
+	renderMemberAgentDetail?: (
+		memberAgentId: string,
+		renderProfile: (profile: AuthProfileView) => ReactNode
+	) => ReactNode;
+	/** The open Agent's Profiles and chats, on its Profile pages too. */
+	memberAgentSidebar?: ReactNode;
 };
 
 export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
@@ -81,10 +99,14 @@ export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
 	return (
 		<AppFullWidthLayout
 			contentLayout="flush"
-			defaultModuleSidebarOpen={!!input.selectedProfileId}
+			defaultModuleSidebarOpen={
+				!!input.selectedProfileId || !!input.selectedMemberAgentId
+			}
 			initialOuterSidebarState={workspaceInput.initialSidebarStates?.outer}
 			mainHeader={
-				!input.person && input.activeView === "agents" ? (
+				!input.person &&
+				input.activeView === "agents" &&
+				!input.selectedMemberAgentId ? (
 					<TeamHeader
 						actions={
 							<Button onClick={input.onCreateAgent} size="sm">
@@ -96,44 +118,11 @@ export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
 					/>
 				) : undefined
 			}
-			mainSidebar={
-				input.selectedProfileId
-					? {
-							key: "agents",
-							label: "Agents",
-							content: (
-								<AppContextualSidebarNav
-									activeItemId={input.selectedProfileId}
-									ariaLabel="Agents"
-									groups={[
-										{
-											id: "agents",
-											label: input.person
-												? `${input.person.name}’s Agents`
-												: "Agents",
-											ariaLabel: "Agent list",
-											items: input.profiles.map((profile) => ({
-												id: profile.openMeldProfileId,
-												label: profile.profileName,
-												icon: RobotIcon,
-											})),
-										},
-									]}
-									leadingContent={
-										input.profilesStatus === "loading" &&
-										input.profiles.length === 0 ? (
-											<SidebarListSkeleton label="Loading Agent list" />
-										) : null
-									}
-									onActivate={input.onSelectProfile}
-									placement="module"
-									title="Agents"
-								/>
-							),
-						}
-					: undefined
+			mainSidebar={resolveAgentsMainSidebar(input)}
+			showMainHeader={
+				!(input.person || input.selectedMemberAgentId) &&
+				input.activeView === "agents"
 			}
-			showMainHeader={!input.person && input.activeView === "agents"}
 		>
 			<AgentWorkspaceHeader {...input} />
 			<AgentProfilesWorkspaceContent
@@ -143,6 +132,51 @@ export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
 			/>
 		</AppFullWidthLayout>
 	);
+}
+
+function resolveAgentsMainSidebar(input: AgentProfilesWorkspaceProps) {
+	if (input.memberAgentSidebar) {
+		return {
+			key: "member-agent",
+			label: "Chats",
+			content: input.memberAgentSidebar,
+		};
+	}
+	return input.selectedProfileId
+		? {
+				key: "agents",
+				label: "Agents",
+				content: (
+					<AppContextualSidebarNav
+						activeItemId={input.selectedProfileId}
+						ariaLabel="Agents"
+						groups={[
+							{
+								id: "agents",
+								label: input.person
+									? `${input.person.name}’s Agents`
+									: "Agents",
+								ariaLabel: "Agent list",
+								items: input.profiles.map((profile) => ({
+									id: profile.openMeldProfileId,
+									label: profile.profileName,
+									icon: RobotIcon,
+								})),
+							},
+						]}
+						leadingContent={
+							input.profilesStatus === "loading" &&
+							input.profiles.length === 0 ? (
+								<SidebarListSkeleton label="Loading Agent list" />
+							) : null
+						}
+						onActivate={input.onSelectProfile}
+						placement="module"
+						title="Agents"
+					/>
+				),
+			}
+		: undefined;
 }
 
 function AgentProfilesWorkspaceContent(input: {
@@ -193,6 +227,15 @@ function AgentProfilesWorkspaceContent(input: {
 			</>
 		);
 	}
+	if (
+		input.input.selectedMemberAgentId &&
+		input.input.renderMemberAgentDetail
+	) {
+		return input.input.renderMemberAgentDetail(
+			input.input.selectedMemberAgentId,
+			input.input.renderProfileDetail
+		);
+	}
 	if (input.selectedProfile) {
 		return input.input.renderProfileDetail(input.selectedProfile);
 	}
@@ -231,9 +274,24 @@ function AgentRequestsWorkspace(input: { input: AgentProfilesWorkspaceProps }) {
 	);
 }
 
+function AgentsListBackLink() {
+	const { currentOrganization } = useAppOrganization();
+	return (
+		<div className="w-full px-[var(--app-page-inline-padding)] pt-5">
+			<Link
+				className="inline-flex items-center gap-2 text-muted-foreground text-sm hover:text-foreground"
+				to={buildOrganizationAgentsPath(currentOrganization.slug)}
+			>
+				<ArrowLeftIcon aria-hidden="true" />
+				Back to Agents
+			</Link>
+		</div>
+	);
+}
+
 function AgentWorkspaceHeader(input: AgentProfilesWorkspaceProps) {
 	if (!input.person) {
-		return null;
+		return input.selectedMemberAgentId ? <AgentsListBackLink /> : null;
 	}
 	const returnLink =
 		input.agentListReturn ??

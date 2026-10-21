@@ -5,7 +5,8 @@ export function useMessagePreviews(profileId: string, organizationId: string) {
 		`openmeld.spaces.message-previews:${profileId}:${organizationId}`
 	);
 	return {
-		showMessagePreviews: saved === "shown",
+		// Shown unless this person chose to hide them.
+		showMessagePreviews: saved !== "hidden",
 		setShowMessagePreviews: (show: boolean) =>
 			setSaved(show ? "shown" : "hidden"),
 	};

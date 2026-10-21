@@ -28,7 +28,13 @@ RPC boundary. They are not authenticated Space/WebSocket or physical-device
 acceptance. The controlled race fails on unpatched 0.126.4 (offset 6 becomes 25).
 The suite also covers backward ranges, next-character placement, native clicks,
 arrows, mention/paste, persistence, draft replacement, blur, composition via
-Chromium CDP, and decoration-induced DOM splits.
+Chromium CDP, decoration-induced DOM splits, and deleting or undoing an Agent
+mention (Backspace, Delete, select all).
+
+The adopted range depends on the editor's `white-space: break-spaces` style.
+Without it, Chromium collapses a trailing space and reports the caret before
+it, so the next character lands before the space. The fixture page sets the
+same style as the app's editor class.
 
 Remove this patch when a Plate-supported Slate release passes the same
 regressions without it. Related to OpenMeld #1397 item 28; this patch does not

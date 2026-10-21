@@ -25,6 +25,20 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
+## Public read throttling compatibility
+
+Gateway may return HTTP 429 with `Retry-After: 60` and
+`gateway.public_read_rate_limited` before resolving credentials on public-readable
+Space routes. The existing error envelope is unchanged. Older clients that do
+not recognize this code still receive the HTTP failure; they must not infer
+success or retry without delay. Ordinary reads below the limit, authenticated
+writes, setup, Wake, Stop and transport streams keep their existing contracts.
+This requires Gateway's new native limiter binding with the same release.
+Web's public CLI download throttle uses HTTP 429 and the same retry header;
+CLI release manifests and binary contents do not change. Core Slack retry pacing
+reuses `receivedAtMs` in the existing v1 message and introduces no wire fields.
+No Service or CLI contract version change or required local update is needed.
+
 ## Message Details thread opt-in
 
 Message Details also accepts `includeThreadContext: true`. Only this opt-in

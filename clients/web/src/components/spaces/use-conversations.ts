@@ -1,4 +1,15 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
+import { groupMemberAgentConversations } from "#/components/member-agents/member-agent-conversations";
+import {
+	readMemberAgentLastChat,
+	resolveMemberAgentLastChat,
+	useMemberAgentLastChatScope,
+} from "#/components/member-agents/member-agent-last-chat";
+import {
+	useArchivedMemberAgentSessionIds,
+	useMemberAgentIndex,
+	useMemberAgentSync,
+} from "#/components/member-agents/use-member-agents";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
 import { resolveAccountSpaceRecency } from "#/lib/spaces/account-spaces";
 import { selectAccountSpaceSections } from "./account-space-sections";
@@ -36,6 +47,10 @@ export function useConversations(input: {
 		archived: false,
 		includes: () => true,
 	});
+	const memberAgents = useMemberAgentIndex();
+	useMemberAgentSync();
+	const archivedSpaceIds = useArchivedMemberAgentSessionIds(memberAgents);
+	const lastChatScope = useMemberAgentLastChatScope();
 	const {
 		store,
 		preferences: chatPreferences,
@@ -102,6 +117,63 @@ export function useConversations(input: {
 			url: rawDirectMessages.chatPath(chat),
 		});
 	}
+	// MemberAgent rows first: they group real Session Spaces, before any
+	// Center Agent entry aliasing. A no-op while MEMBER_AGENTS_ENABLED is off.
+	let memberAgentRows: { memberAgentId: string; spaceIds: string[] }[] = [];
+	if (memberAgents.ready) {
+		const grouped = groupMemberAgentConversations({
+			archivedSpaceIds,
+			conversations: [...conversations.values()],
+			index: memberAgents.index,
+			selectedSpaceId: rawDirectMessages.selected,
+			lastChatOf: (memberAgentId) =>
+				lastChatScope
+					? readMemberAgentLastChat(lastChatScope, { memberAgentId })
+					: null,
+		});
+		conversations.clear();
+		for (const conversation of grouped) {
+			conversations.set(conversation.spaceId, conversation);
+		}
+		memberAgentRows = grouped.flatMap((row) =>
+			row.memberAgentId
+				? [
+						{
+							memberAgentId: row.memberAgentId,
+							spaceIds: [...(row.memberAgentSessionIds ?? [])],
+						},
+					]
+				: []
+		);
+	}
+	// A remembered chat no longer in the loaded list (deleted, archived or
+	// inaccessible) is cleared; the row already fell back to the latest chat.
+	const memberAgentRowsKey = JSON.stringify(memberAgentRows);
+	const chatListLoaded = rawDirectMessages.spaces.isSuccess;
+	const lastChatOrganizationId = lastChatScope?.organizationId;
+	const lastChatHumanProfileId = lastChatScope?.humanProfileId;
+	useEffect(() => {
+		if (!(chatListLoaded && lastChatOrganizationId && lastChatHumanProfileId)) {
+			return;
+		}
+		const rows = JSON.parse(memberAgentRowsKey) as typeof memberAgentRows;
+		for (const row of rows) {
+			resolveMemberAgentLastChat({
+				scope: {
+					organizationId: lastChatOrganizationId,
+					humanProfileId: lastChatHumanProfileId,
+				},
+				target: { memberAgentId: row.memberAgentId },
+				available: row.spaceIds,
+				complete: true,
+			});
+		}
+	}, [
+		chatListLoaded,
+		lastChatOrganizationId,
+		lastChatHumanProfileId,
+		memberAgentRowsKey,
+	]);
 	const collapsed = input.centerAgentEntryTitle
 		? collapseCenterAgentSessions({
 				conversations: [...conversations.values()],

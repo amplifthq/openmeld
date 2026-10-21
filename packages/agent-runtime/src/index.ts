@@ -33,6 +33,7 @@ export {
   DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE,
   getAgentControllerPermissionModeDisplayMetadata,
   getAgentControllerPermissionModeFieldLabel,
+  isAskFirstAgentControllerPermissionMode,
   listAgentControllerPermissionModeCatalog,
   listAgentControllerPermissionModeOptions,
   PERMISSION_MODE_AGENT_CONTROLLER_REFS,
@@ -185,6 +186,10 @@ export {
   type WakeRouteStatus,
 } from "./agent-wake-availability";
 export {
+  renderNonOwnerAudiencePathGuidance,
+  toPromptSafeFolderDisplayName,
+} from "./audience-path-guidance";
+export {
   CENTER_AGENT_CONTEXT_SCOPE_PLAN_VERSION,
   type CenterAgentInteractionEnvironment,
   canMaterializeCenterAgentOrganizationDocuments,
@@ -291,6 +296,13 @@ export {
   peopleComputerContainsDevice,
   projectPeopleComputersToLegacyLocalRuntimes,
 } from "./people-computer";
+export {
+  listPermissionModeAdvisorSteps,
+  MEMBER_AGENT_WELCOME_PERMISSION_MODE_LINE,
+  type PermissionModeAdvisorSuggestion,
+  resolveMemberAgentWelcomePermissionModeLine,
+  resolvePermissionModeAdvisorSuggestion,
+} from "./permission-mode-advisor";
 export {
   type AllRunnableCapabilitiesPreparedStatus,
   assertPrepareOutputHasNoBindingWriteAction,

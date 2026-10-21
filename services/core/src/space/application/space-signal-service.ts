@@ -4,6 +4,7 @@ import {
 } from "@openmeld/agent-runtime";
 import type { Profile, SignalEnvelope } from "@openmeld/protocol";
 import { parseSignalText } from "@openmeld/protocol";
+import type { AGENT_ACCESS_PENDING_CODE } from "@openmeld/schemas";
 import {
   MAX_WAKE_DEVICE_WAIT_MS,
   type SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
@@ -16,6 +17,7 @@ import type {
   SignalTextData,
   SpaceSignalAuthoringPolicy,
 } from "@openmeld/schemas/types";
+import type { RequestChainRejectionReason } from "../../request-chain/request-chain";
 import type { SignalPublishContext } from "./types";
 
 export const SPACE_WAKE_TARGET_INVALID_ERROR_CODE =
@@ -35,6 +37,8 @@ export class SpaceSignalAuthoringError extends Error {
     | "space_task.invalid_draft"
     | "space.execution_input.invalid"
     | "space.execution_context.unsupported"
+    | typeof AGENT_ACCESS_PENDING_CODE
+    | RequestChainRejectionReason
     | typeof SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE
     | typeof SPACE_WAKE_TARGET_INVALID_ERROR_CODE
     | typeof SPACE_WAKE_HANDOFF_SEED_FAILED_ERROR_CODE
@@ -51,6 +55,8 @@ export class SpaceSignalAuthoringError extends Error {
       | "space_task.invalid_draft"
       | "space.execution_input.invalid"
       | "space.execution_context.unsupported"
+      | typeof AGENT_ACCESS_PENDING_CODE
+      | RequestChainRejectionReason
       | typeof SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE
       | typeof SPACE_WAKE_TARGET_INVALID_ERROR_CODE
       | typeof SPACE_WAKE_HANDOFF_SEED_FAILED_ERROR_CODE
@@ -73,6 +79,58 @@ export class SpaceSignalAuthoringError extends Error {
   }
 }
 
+/** The Wake targets a message's session, access or folder choice applies to. */
+export function listContextSelectionTargets(signal: SignalEnvelope): string[] {
+  if (signal.type !== "signal.text") {
+    return [];
+  }
+  const data = signal.data;
+  if (data.contextSelection) {
+    return [...(data.messageEnvelope?.activationTargets ?? [])];
+  }
+  return Object.keys(data.contextSelections ?? {});
+}
+
+/**
+ * The harness of each Agent a session, access or folder choice targets. A
+ * member's controller snapshot is empty when the member was added without
+ * one, as Direct Messages are; the Agent's primary Binding then decides, so
+ * a supported harness is never refused for a missing snapshot.
+ */
+export async function resolveContextSelectionControllerRefs(input: {
+  readBindingControllerRef: (target: {
+    ownerUserId: string;
+    profileId: string;
+  }) => Promise<string | null>;
+  readMember: (profileId: string) =>
+    | {
+        controllerRefSnapshot: string | null;
+        ownerUserIdSnapshot: string | null;
+        profileKindSnapshot: string;
+      }
+    | null
+    | undefined;
+  signal: SignalEnvelope;
+}): Promise<Map<string, string | null>> {
+  const refs = new Map<string, string | null>();
+  for (const profileId of listContextSelectionTargets(input.signal)) {
+    const member = input.readMember(profileId);
+    let ref = member?.controllerRefSnapshot ?? null;
+    if (
+      !ref &&
+      member?.profileKindSnapshot === "agent" &&
+      member.ownerUserIdSnapshot
+    ) {
+      ref = await input.readBindingControllerRef({
+        ownerUserId: member.ownerUserIdSnapshot,
+        profileId,
+      });
+    }
+    refs.set(profileId, ref);
+  }
+  return refs;
+}
+
 /** Call after validating any work handoff and before persisting the message. */
 export function assertSpaceContextSelectionSupported(input: {
   signal: SignalEnvelope;
@@ -85,10 +143,7 @@ export function assertSpaceContextSelectionSupported(input: {
   if (!(data.contextSelection || data.contextSelections)) {
     return;
   }
-  const targets = data.messageEnvelope?.activationTargets ?? [];
-  const selectedTargets = data.contextSelection
-    ? targets
-    : Object.keys(data.contextSelections ?? {});
+  const selectedTargets = listContextSelectionTargets(input.signal);
   for (const profileId of selectedTargets) {
     const ref = input.readControllerRef(profileId);
     if (supportsExecutionContextSelection(ref)) {

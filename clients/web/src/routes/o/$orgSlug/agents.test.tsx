@@ -10,7 +10,24 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Route } from "./agents";
 
-const state = vi.hoisted(() => ({ read: vi.fn(), navigate: vi.fn() }));
+const state = vi.hoisted(() => ({
+	read: vi.fn(),
+	navigate: vi.fn(),
+	peoplePage: vi.fn(),
+	resolveMemberAgent: vi.fn(),
+	search: {} as { profileId?: string; memberAgentId?: string },
+}));
+vi.mock("#/query/organizations/member-agents", () => ({
+	memberAgentProfilesQueryOptions: (input: {
+		enabled: boolean;
+		memberAgentId: string;
+	}) => ({
+		enabled: input.enabled,
+		queryFn: () => state.resolveMemberAgent(input.memberAgentId),
+		queryKey: ["member-agent-profiles", input.memberAgentId],
+		retry: false,
+	}),
+}));
 vi.mock("#/lib/organizations/organization-directory", () => ({
 	readCurrentOrganizationProfileDirectory: state.read,
 }));
@@ -21,7 +38,10 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 	}),
 }));
 vi.mock("#/components/profiles/people-and-agents-page", () => ({
-	PeopleAndAgentsPage: () => null,
+	PeopleAndAgentsPage: (props: object) => {
+		state.peoplePage(props);
+		return null;
+	},
 }));
 vi.mock("#/components/app/app-full-width-layout", () => ({
 	AppFullWidthLayout: ({
@@ -41,7 +61,7 @@ vi.mock("@tanstack/react-router", () => ({
 	createFileRoute: () => (options: object) => ({
 		options,
 		useLoaderData: () => ({ sidebarStates: {} }),
-		useSearch: () => ({ profileId: "agent-a" }),
+		useSearch: () => state.search,
 	}),
 	Navigate: (props: object) => {
 		state.navigate(props);
@@ -59,7 +79,22 @@ vi.mock("@tanstack/react-router", () => ({
 afterEach(() => {
 	cleanup();
 	vi.clearAllMocks();
+	state.search = { profileId: "agent-a" };
 });
+state.search = { profileId: "agent-a" };
+
+function renderRoute() {
+	const client = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
+	const Component = Route.options.component as () => ReactNode;
+	render(
+		<QueryClientProvider client={client}>
+			<Component />
+		</QueryClientProvider>
+	);
+	return client;
+}
 
 describe("legacy Agent entry", () => {
 	it("keeps Team navigation during a cold lookup and resolves the real owner's canonical path", async () => {
@@ -123,6 +158,66 @@ describe("legacy Agent entry", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 		await screen.findByText("Agent not found in this workspace.");
 		expect(screen.getByRole("link", { name: "Back to Team" })).toBeTruthy();
+		expect(state.navigate).not.toHaveBeenCalled();
+		client.clear();
+	});
+});
+
+describe("MemberAgent link", () => {
+	const resolved = (ownerUserId: string) => ({
+		ok: true,
+		organizationId: "org-a",
+		memberAgentId: "ma-1",
+		ownerUserId,
+		harnessKind: "codex",
+		defaultProfileId: "agent-b",
+		profileIds: ["agent-c", "agent-b"],
+	});
+
+	it("opens a teammate's Agent at its default Profile", async () => {
+		state.search = { memberAgentId: "ma-1" };
+		state.resolveMemberAgent.mockResolvedValue(resolved("teammate-b"));
+
+		const client = renderRoute();
+
+		await vi.waitFor(() =>
+			expect(state.navigate).toHaveBeenCalledWith({
+				replace: true,
+				search: { profileId: "agent-b" },
+				to: "/o/acme/agents",
+			})
+		);
+		expect(state.resolveMemberAgent).toHaveBeenCalledWith("ma-1");
+		expect(state.peoplePage).not.toHaveBeenCalled();
+		client.clear();
+	});
+
+	it("keeps the member's own Agent on the Agents page", async () => {
+		state.search = { memberAgentId: "ma-1" };
+		state.resolveMemberAgent.mockResolvedValue(resolved("owner-a"));
+
+		const client = renderRoute();
+
+		await vi.waitFor(() =>
+			expect(state.peoplePage).toHaveBeenCalledWith(
+				expect.objectContaining({ focusMemberAgentId: "ma-1" })
+			)
+		);
+		expect(state.navigate).not.toHaveBeenCalled();
+		client.clear();
+	});
+
+	it("shows the Agents page for a link that resolves to nothing", async () => {
+		state.search = { memberAgentId: "ma-other-org" };
+		state.resolveMemberAgent.mockRejectedValue({ status: 404 });
+
+		const client = renderRoute();
+
+		await vi.waitFor(() =>
+			expect(state.peoplePage).toHaveBeenCalledWith(
+				expect.objectContaining({ focusMemberAgentId: "ma-other-org" })
+			)
+		);
 		expect(state.navigate).not.toHaveBeenCalled();
 		client.clear();
 	});

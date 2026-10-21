@@ -97,6 +97,26 @@ type CoreAuthDispatchBindingRpc = {
     organizationId?: string | null;
     createdByUserId?: string | null;
   }): Promise<AuthAgentProfileRpcResult>;
+  ensureDetectedMemberAgent?(
+    input: import("@openmeld/schemas").EnsureDetectedMemberAgentRpcInput
+  ): Promise<import("@openmeld/schemas").EnsureDetectedMemberAgentRpcResult>;
+  assignAgentProfileMemberAgent?(
+    input: import("@openmeld/schemas").AssignAgentProfileMemberAgentRpcInput
+  ): Promise<
+    import("@openmeld/schemas").AssignAgentProfileMemberAgentRpcResult
+  >;
+  listOwnerMemberAgents?(input: {
+    organizationId?: string | null;
+    ownerUserId?: string | null;
+  }): Promise<
+    | import("@openmeld/schemas").ListMemberAgentsResponse
+    | { ok: false; code: string; message: string }
+  >;
+  listMemberAgentOrganizationIds?(input: {
+    ownerUserId?: string | null;
+  }): Promise<
+    import("@openmeld/schemas").ListMemberAgentOrganizationIdsRpcResult
+  >;
   updateCenterAgentProfileInOrganization?(input: {
     organizationId?: string | null;
     profileId?: string | null;

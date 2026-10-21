@@ -22,6 +22,7 @@ import type {
   WakeTraceWaterfallStepStatus,
   WakeTraceWaterfallSummaryStatus,
 } from "@openmeld/schemas/types";
+import { resolveWakeProgressLocalQueueWaitReasonCode } from "../../runtime-transport/application/local-queue-wait-reason";
 import type { OpenMeldDaemonDispatchOutboxRecoveryCandidate } from "../infrastructure/outbox/dispatch-outbox-repo";
 import {
   type AgentOriginLineageScope,
@@ -1875,6 +1876,18 @@ function resolveRuntimeCoordinatorLocalQueueReasonCode(
     default:
       return "runtime.local_queue.waiting_unknown";
   }
+}
+
+/** The wait reason shown on Wake progress, from the latest Service lifecycle. */
+export function resolveRuntimeCoordinatorWakeProgressWaitReasonCode(
+  trace: SpaceDispatchTraceSnapshot | null
+): WakeProgressWaitReasonCode | null {
+  return (
+    resolveRuntimeCoordinatorConversationOccupancyWaitReasonCode(trace) ??
+    resolveWakeProgressLocalQueueWaitReasonCode(
+      readLatestAcceptedLocalQueue(trace)
+    )
+  );
 }
 
 export function resolveRuntimeCoordinatorConversationOccupancyWaitReasonCode(

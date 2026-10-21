@@ -1,10 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { posix } from "node:path";
-import {
-  getWorkspace,
-  Workspace,
-  type WorkspaceStub,
-} from "@cloudflare/computer";
+import { getWorkspace, Workspace, WorkspaceStub } from "@cloudflare/computer";
 import {
   LegacyContainerBackend,
   withLegacyWorkspaceContainer,
@@ -55,6 +51,7 @@ import {
 } from "./computer-command";
 import { ComputerCommandSqlStorage } from "./computer-command-storage";
 import { ComputerFiles } from "./computer-files";
+import { ComputerIdleGuard } from "./computer-idle";
 import {
   readComputerRecovery,
   registerComputerInvocation,
@@ -119,6 +116,25 @@ type AgentComputerEnv = {
 const GIT_TRANSFER_GRANT_PREFIX = "openmeld:git-transfer-grant:";
 const GIT_PACK_JOB_PREFIX = "openmeld:git-pack-job:";
 const GIT_PACK_RETRY_AFTER_MS = 13 * 60 * 1000;
+
+// The SDK disposes this target when its remote Workspace client is released.
+// Workers RPC also disposes targets when their caller's event ends.
+class ActiveWorkspaceStub extends WorkspaceStub {
+  readonly #release: () => void;
+
+  constructor(workspace: Workspace, release: () => void) {
+    super(workspace);
+    this.#release = release;
+  }
+
+  override [Symbol.dispose]() {
+    try {
+      super[Symbol.dispose]();
+    } finally {
+      this.#release();
+    }
+  }
+}
 
 function parseGitEgressRoute(request: Request):
   | {
@@ -200,6 +216,12 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
   AgentComputerBase
 ) {
   async eraseAccountSpaceDirectory(spaceId: string): Promise<void> {
+    return await this.#withActivity(() =>
+      this.#eraseAccountSpaceDirectory(spaceId)
+    );
+  }
+
+  async #eraseAccountSpaceDirectory(spaceId: string): Promise<void> {
     await requireRetainedAccountStorage(this.ctx.storage);
     await this.workspace.ready();
     await this.workspace.fs.rm(buildAgentComputerSpaceDirectory(spaceId), {
@@ -218,6 +240,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
     });
   }
   readonly #commands = new ComputerCommandSqlStorage(this.ctx.storage.sql);
+  readonly #idle = new ComputerIdleGuard();
   #maintenanceRevision = 0;
   #maintenanceAlarm: Promise<void> | undefined;
 
@@ -242,9 +265,20 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
   }
 
   async computerOperation(value: unknown) {
-    return await withComputerCapacityErrors(() =>
-      this.#executeComputerOperation(value)
+    return await this.#withActivity(() =>
+      withComputerCapacityErrors(() => this.#executeComputerOperation(value))
     );
+  }
+
+  async #withActivity<T>(operation: () => Promise<T>): Promise<T> {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    try {
+      return await this.#idle.run(operation);
+    } finally {
+      if (!(await this.ctx.storage.get(ACCOUNT_ERASED_KEY))) {
+        await this.scheduleAlarm(this.#idle.closeAt);
+      }
+    }
   }
 
   async #executeComputerOperation(value: unknown) {
@@ -328,6 +362,12 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
   }
 
   async writeComputerFile(path: string, content: string | Uint8Array) {
+    return await this.#withActivity(() =>
+      this.#writeComputerFile(path, content)
+    );
+  }
+
+  async #writeComputerFile(path: string, content: string | Uint8Array) {
     await requireRetainedAccountStorage(this.ctx.storage);
     await withComputerCapacityErrors(async () => {
       await this.workspace.ready();
@@ -357,6 +397,12 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
   }
 
   async stopComputerCommands(invocationId: string) {
+    return await this.#withActivity(() =>
+      this.#stopComputerCommands(invocationId)
+    );
+  }
+
+  async #stopComputerCommands(invocationId: string) {
     await requireRetainedAccountStorage(this.ctx.storage);
     // Fence delayed/in-flight starts before enumerating receipts. Each launched
     // command also checks its Stop receipt after native dispatch completes.
@@ -604,7 +650,21 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
       const hasMaintenance =
         hasSyncMaintenance || maintenanceRevision !== this.#maintenanceRevision;
       if (nextCommandAt === null && !hasGitWork && !hasMaintenance) {
-        await this.ctx.storage.deleteAlarm();
+        if (this.#commands.hasUnfinishedCommands()) {
+          // Paused/uncertain receipts are not permission to terminate work.
+          await this.ctx.storage.setAlarm(
+            Date.now() + ComputerIdleGuard.graceMs
+          );
+        } else if (this.#idle.canClose) {
+          // Release the SDK heartbeat and WebSocket. The platform can then
+          // suspend the idle container. Durable files and receipts stay intact.
+          await this.workspace.close();
+          await this.ctx.storage.deleteAlarm();
+        } else {
+          await this.ctx.storage.setAlarm(
+            Math.max(Date.now() + ComputerIdleGuard.graceMs, this.#idle.closeAt)
+          );
+        }
       } else {
         await this.ctx.storage.setAlarm(
           Math.max(
@@ -836,6 +896,14 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
     path: string;
     port: number;
   }) {
+    return await this.#withActivity(() => this.#inspectPreview(input));
+  }
+
+  async #inspectPreview(input: {
+    expectedText: string;
+    path: string;
+    port: number;
+  }) {
     await requireRetainedAccountStorage(this.ctx.storage);
     if (!this.env.BROWSER) {
       throw new Error("The Computer browser binding is unavailable.");
@@ -923,30 +991,43 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
     }
     const preview = COMPUTER_PREVIEW_PATH.exec(url.pathname);
     if (preview) {
-      const port = Number(preview[1]);
-      validateComputerPreviewPort(port);
-      if (!(request.method === "GET" || request.method === "HEAD")) {
-        return new Response("method not allowed", { status: 405 });
-      }
-      const headers = new Headers(request.headers);
-      headers.delete("host");
-      return await this.getWorkspaceContainer().fetchPort(
-        port,
-        `http://container${preview[2] ?? "/"}${url.search}`,
-        { method: request.method, headers, signal: AbortSignal.timeout(15_000) }
+      return await this.#withActivity(() =>
+        this.#fetchPreview(request, preview, url)
       );
     }
     return new Response("not found", { status: 404 });
   }
 
+  async #fetchPreview(request: Request, preview: RegExpExecArray, url: URL) {
+    const port = Number(preview[1]);
+    validateComputerPreviewPort(port);
+    if (!(request.method === "GET" || request.method === "HEAD")) {
+      return new Response("method not allowed", { status: 405 });
+    }
+    const headers = new Headers(request.headers);
+    headers.delete("host");
+    return await this.getWorkspaceContainer().fetchPort(
+      port,
+      `http://container${preview[2] ?? "/"}${url.search}`,
+      { method: request.method, headers, signal: AbortSignal.timeout(15_000) }
+    );
+  }
+
   /**
    * Typed RPC door for `getWorkspace(stub)` callers: the worker-shell
-   * isolate's WorkspaceServiceProxy, the container's WorkspaceProxy
-   * egress, and the Flue adapter all land here.
+   * isolate's WorkspaceServiceProxy and the Flue adapter land here.
+   * The container's WorkspaceProxy uses fetch and does not acquire this client.
    */
   async __getWorkspaceStub(): Promise<WorkspaceStub> {
     await requireRetainedAccountStorage(this.ctx.storage);
-    await this.workspace.ready();
-    return this.workspace.stub();
+    const release = this.#idle.acquire();
+    try {
+      await this.scheduleAlarm(this.#idle.closeAt);
+      await this.workspace.ready();
+      return new ActiveWorkspaceStub(this.workspace, release);
+    } catch (error) {
+      release();
+      throw error;
+    }
   }
 }

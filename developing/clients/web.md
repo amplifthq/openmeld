@@ -336,7 +336,7 @@ panels does not wait for route loaders to commit the search parameter.
 All three tabs retain the same Space shell and sidebar. Switching the directory
 panel does not remount sidebar avatars, subscriptions, or resize controls.
 The sidebar's View and filters menu includes Show message previews. It defaults
-to off and persists per Human Profile and Organization in the browser preference
+to on and persists per Human Profile and Organization in the browser preference
 store. One setting controls the sidebar and both directory card views; it does
 not change Table previews or suppress actionable needs-input status. Hidden or
 absent message previews reserve no sidebar line or card footer. Single-line
@@ -1156,8 +1156,9 @@ People/Agents children. Old saved Team collapse preferences do not hide it.
 
 The visible destinations resolve in this order: **Inbox**, **Spaces**, and
 **Team**, with **New Agent** in the separate Create action. Team's existing
-**Agents** page at `/o/{orgSlug}/agents` offers **My Agents / All Agents** views.
-All Agents remains the initial view. My Agents shows only the signed-in member's
+**Agents** page at `/o/{orgSlug}/agents` offers **All Agents / My Agents** views,
+in that order. All Agents remains the initial view. Neither the toolbar nor a
+group header shows a count. My Agents shows only the signed-in member's
 ordinary Local and Remote Agent Profiles in the current workspace, excluding
 managed Center Agents. It starts ungrouped unless the member has chosen a view.
 Both views reuse the existing cards, filters, and canonical person-owned detail
@@ -1166,6 +1167,28 @@ The selected scope, search, filters, sorting, and grouping are browser preferenc
 scoped to the current account and workspace, so returning from detail restores
 the list. These preferences contain no Profile, permission, or readiness facts.
 My Agents adds no separate navigation destination, identity, or permission owner.
+Agent cards in the list draw their hover background on their own card layer;
+the menu-level shared hover indicator stays off behind opaque cards. Every
+group header, including the signed-in member's own Agents, offers the shared
+collapsible-header actions: select, search, view settings, and collapse.
+
+An Agent (MemberAgent) has one page: its default Agent Profile's page. Opening
+an Agent from the list or from **Agent settings** in a Spaces sidebar Agent row
+menu navigates to `/o/{orgSlug}/agents?memberAgentId=…`; opening another
+Profile of the same Agent uses the canonical person-owned Profile route. Both
+render the Profile page with **Back to Agents** and the Agent's sidebar. There
+is no separate MemberAgent detail with its own State, Computers, Work, or
+Latest Session cards. The sidebar is titled with the Agent's name and has
+**Active** and **Archived** tabs with icons that split the sidebar width evenly,
+plus chat search. With one Profile it lists that Profile's Sessions directly.
+With several, each Profile is a row that opens its page, its Sessions are
+nested under it on the sub-menu guide line, and a chevron at the far right
+folds them. The open Profile's selection covers only its row. The page header
+puts **New <harness>** (for example **New Cursor**) beside **Chat**; it opens
+Create Agent pinned to that harness and is absent for Remote Agents. Grants and
+the Agent's sensitive changes sit in one **Who can use this Agent** section,
+collapsed by default, with its own Fluid scroll area. Working-folder recovery
+keeps its entry on the Profile page.
 The product destinations are:
 
 1. **Desk** — renders ordinary Space windows and a greeting on the shared infinite
@@ -1976,6 +1999,9 @@ message content, including grouped messages and either self-message placement.
 Narrow Threads keep the compact size even on a wide desktop. Human, Agent,
 system, and pending first-message avatars share this presentation; inline
 mentions, reaction lists, profile popovers, and sidebar sizes are independent.
+An Agent avatar without an image, Fluid art, or a Bot draws its controller or
+model logo on the same raised tile as the Harness logo (one shared surface
+class); human avatars keep their own style.
 Direct Messages, including Center
 Agent chats, use content-sized bubbles up to the available conversation width
 with a dedicated avatar column. The first
@@ -3380,7 +3406,7 @@ are required before creation; there is no **Choose later** path.
 Core rejects new Web creation requests without that target before creating an
 identity. Existing request retries and intentional CLI manual profiles retain
 their contracts. The single-page form places the editable generated Agent name
-after local agent selection, followed by **Advanced Agent Settings**, collapsed
+after local agent selection, followed by **Advanced Agent Settings**, expanded
 by default. It submits directly with **Create Agent**; there is no review step or
 duplicate selected-model summary card. One available Computer target is selected
 automatically without showing a computer name, status, summary, or selector.
@@ -6230,6 +6256,23 @@ remove an unresolved request. The original message and Inbox retain the same
 request-backed card for context and decision history. Approving or declining
 invalidates the pending projection. Main messages that have a reply Thread stay
 in the main tray; only actual Thread replies belong to that Thread's tray.
+
+Agent access requests in a Space use two presentations of one Core request
+state. For the Agent owner, a pending request appears at the end of the
+conversation as a request preview: it reads like a message from the requested
+Agent (its avatar and name, `Not in this Space yet` in place of a timestamp)
+but is never a published message. It explains the request and holds the
+decisions: the first Core decision is the primary button, and the rest sit in
+an overflow menu. For a member's Space request the overflow starts with
+`Message <requester>`, which opens the owner's Direct Message with the
+requester and leaves the request pending. The preview uses the Agent message
+avatar and the message bubble radius with a dashed border. A one-line Agent
+requests bar above the Composer repeats the summary and the same actions; while the latest messages are shown, its text
+scrolls to the preview. The requester
+sees only the bar, with `Withdraw` while the request is pending. Composer trays
+stack top to bottom as Agent requests, pending Agent actions, then queued
+messages, each tucked under the next with the same inset, and an answer from
+either presentation disables both.
 
 Permission cards show the native choices; question cards collect every answer
 in bounded steps; plan cards show the bounded plan and support approval or

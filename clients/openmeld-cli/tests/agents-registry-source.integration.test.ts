@@ -153,7 +153,8 @@ describe("agents registry execution target snapshot", () => {
       adapterId: "codex",
       capabilityDeclaration: {
         continuationCapability: "standard",
-        executionContextVersion: 2,
+        executionContextPermissionInheritance: true,
+        executionContextVersion: 7,
         imageInputCapability: "local_file_path",
         preparationRequirement: "none",
         runtimeWorkingDirectoryMode: "spawn_cwd",

@@ -2,6 +2,7 @@ import {
   ensureFileCopyRequestSchema,
   ensureFileRepositorySchema,
 } from "../../../files/file-schema-repo";
+import { ensureSpaceAgentAccessHoldTable } from "./space-agent-access-hold-repo";
 import { ensureSpaceExecutionInputOutbox } from "./space-execution-input-repo";
 import { SpaceFileUpdateRepository } from "./space-file-update-repo";
 import { ensureSpaceInboxContactTable } from "./space-inbox-contact-repo";
@@ -11,8 +12,8 @@ import { ensureSpaceReactionTables } from "./space-reaction-repo";
 import { SpaceTaskDeliveryRepository } from "./space-task-delivery-repo";
 import { ensureSpaceTaskTables } from "./space-task-repo";
 
-export const SPACE_SQL_SCHEMA_VERSION = 52;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v52";
+export const SPACE_SQL_SCHEMA_VERSION = 53;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v53";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -38,6 +39,7 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   }
   ensureSpaceExecutionInputOutbox(sql);
   ensurePendingWakeStopTable(sql);
+  ensureSpaceAgentAccessHoldTable(sql);
   new SpaceFileUpdateRepository(sql).initialize();
   ensureSpaceReactionTables(sql);
   ensureSpaceInboxContactTable(sql);

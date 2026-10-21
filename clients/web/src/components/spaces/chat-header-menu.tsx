@@ -10,23 +10,68 @@ import { DialogContent } from "@openmeld/ui/fluid/dialog";
 import { FluidDropdownMenuItem } from "@openmeld/ui/fluid/dropdown-menu";
 import { ArchiveIcon } from "@phosphor-icons/react";
 import { useState } from "react";
+import { useMemberAgentSessionArchive } from "#/components/member-agents/member-agent-chat-history";
 import { SpaceHeaderNavigationMenu } from "./space-header-navigation-menu";
 import { useChatArchive } from "./use-chat-archive";
 
-/** Personal list cleanup; never deletes a Space or changes its membership. */
-export function ChatHeaderMenu({
-	spaceId,
-	onOpenConversationInformation,
-	ariaLabel = "Chat menu",
-}: {
+export type ChatArchiveKind = "personal" | "session";
+
+const PERSONAL_ARCHIVE_DESCRIPTION =
+	"This conversation will be hidden from your list. You can find it under Archived direct messages. Message history is kept for everyone.";
+
+type ChatArchiveController = {
+	archived: boolean;
+	disabled: boolean;
+	label: string;
+	confirmDescription: string;
+	toggle: () => Promise<boolean>;
+};
+
+type ChatHeaderMenuProps = {
 	spaceId: string;
 	onOpenConversationInformation: () => void;
 	ariaLabel?: string;
-}) {
+};
+
+/**
+ * Chat menu with Archive. A personal chat is archived from your own list; a
+ * MemberAgent Session is archived through Core's Session operation. Both use
+ * the same item and confirmation.
+ */
+export function ChatHeaderMenu({
+	archiveKind = "personal",
+	...input
+}: ChatHeaderMenuProps & { archiveKind?: ChatArchiveKind }) {
+	return archiveKind === "session" ? (
+		<SessionChatHeaderMenu {...input} />
+	) : (
+		<PersonalChatHeaderMenu {...input} />
+	);
+}
+
+function PersonalChatHeaderMenu(input: ChatHeaderMenuProps) {
+	const archive = useChatArchive(input.spaceId);
+	return (
+		<ChatHeaderMenuView
+			{...input}
+			archive={{ ...archive, confirmDescription: PERSONAL_ARCHIVE_DESCRIPTION }}
+		/>
+	);
+}
+
+function SessionChatHeaderMenu(input: ChatHeaderMenuProps) {
+	const archive = useMemberAgentSessionArchive(input.spaceId);
+	return <ChatHeaderMenuView {...input} archive={archive} />;
+}
+
+function ChatHeaderMenuView({
+	archive,
+	ariaLabel = "Chat menu",
+	onOpenConversationInformation,
+}: ChatHeaderMenuProps & { archive: ChatArchiveController }) {
 	const [confirmOpen, setConfirmOpen] = useState(false);
-	const { archived, disabled, label, toggle } = useChatArchive(spaceId);
 	const confirmArchive = async () => {
-		if (await toggle()) {
+		if (await archive.toggle()) {
 			setConfirmOpen(false);
 		}
 	};
@@ -38,32 +83,30 @@ export function ChatHeaderMenu({
 				onOpenConversationInformation={onOpenConversationInformation}
 			>
 				<FluidDropdownMenuItem
-					disabled={disabled}
+					disabled={archive.disabled}
 					index={1}
-					onClick={archived ? toggle : () => setConfirmOpen(true)}
+					onClick={
+						archive.archived ? archive.toggle : () => setConfirmOpen(true)
+					}
 				>
 					<ArchiveIcon
 						aria-hidden="true"
-						weight={archived ? "fill" : "regular"}
+						weight={archive.archived ? "fill" : "regular"}
 					/>
-					{label}
+					{archive.label}
 				</FluidDropdownMenuItem>
 			</SpaceHeaderNavigationMenu>
 			<Dialog onOpenChange={setConfirmOpen} open={confirmOpen}>
 				<DialogContent size="sm">
 					<DialogHeader>
 						<DialogTitle>Archive conversation?</DialogTitle>
-						<DialogDescription>
-							This conversation will be hidden from your list. You can find it
-							under Archived direct messages. Message history is kept for
-							everyone.
-						</DialogDescription>
+						<DialogDescription>{archive.confirmDescription}</DialogDescription>
 					</DialogHeader>
 					<DialogFooter>
 						<Button onClick={() => setConfirmOpen(false)} variant="secondary">
 							Cancel
 						</Button>
-						<Button disabled={disabled} onClick={confirmArchive}>
+						<Button disabled={archive.disabled} onClick={confirmArchive}>
 							Archive conversation
 						</Button>
 					</DialogFooter>

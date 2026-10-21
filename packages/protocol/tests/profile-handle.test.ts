@@ -25,6 +25,15 @@ describe("profile handle", () => {
     ).toBe("claude-code");
   });
 
+  it("trims edge separators from a long run of dashes", () => {
+    expect(
+      buildProfileHandleBase({
+        profileName: `--${"-".repeat(50_000)}Claude Code!--`,
+        profileKind: "agent",
+      })
+    ).toBe("claude-code");
+  });
+
   it("falls back by profile kind when the profile name has no slug content", () => {
     expect(
       buildProfileHandleBase({

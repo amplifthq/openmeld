@@ -48,9 +48,10 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useAgentRequestSpaceLabels } from "#/components/agent-access/agent-access-space-labels";
 import { AppModuleSidebarHeader } from "#/components/app/app-module-sidebar-header";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
-import { resolveInboxAttentionTone } from "#/lib/inbox/attention";
+import { useActiveMemberAgentSessionList } from "#/components/member-agents/member-agent-session-nav";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationNewSpacePath,
@@ -64,6 +65,7 @@ import { SidebarDrag, SidebarDropSection } from "../app/sidebar-drag";
 import { moveSidebarGroup } from "../app/sidebar-drop-target";
 import { useSidebarFilter } from "../app/sidebar-filter";
 import { SidebarListSkeleton } from "../app/sidebar-list-skeleton";
+import { SidebarNestedNavList } from "../app/sidebar-nested-nav-list";
 import {
 	SidebarSearchInput,
 	useSidebarSearchDisclosure,
@@ -81,12 +83,29 @@ import { NewChatDialog } from "./new-chat-dialog";
 import { PinnedLayoutMenu, usePinnedLayout } from "./pinned-layout-menu";
 import { SpaceCreationSidebar } from "./space-creation-sidebar";
 import { resolveSpaceMemberAppearances } from "./space-member-avatars";
+import { resolveSpaceStatusIndicators } from "./space-status-indicators";
 import { useConversationDisclosure } from "./use-conversation-disclosure";
 import { useConversationView } from "./use-conversation-view";
 import { useConversations } from "./use-conversations";
 import { useMessagePreviews } from "./use-message-previews";
+import { useSaveSidebarDisplaySnapshot } from "./use-save-sidebar-display-snapshot";
 import { useSpaceDirectoryFilters } from "./use-space-directory-filters";
 import { useUnreadHistoryPrefetch } from "./use-unread-history-prefetch";
+
+/**
+ * Indicators of one sidebar row. A MemberAgent row stands for several
+ * Session Spaces, so it shows their combined unread, work and attention.
+ */
+function resolveConversationRowIndicators(
+	item: Conversation,
+	dm: ReturnType<typeof useConversations>["directMessages"]
+) {
+	// Every other row reads its own Space, exactly as before MemberAgents.
+	return resolveSpaceStatusIndicators(
+		item.memberAgentSessionIds ?? [item.spaceId],
+		{ ...dm.indicators, attentionById: dm.attentionById }
+	);
+}
 
 function isSpaceEmptyStateVisible(
 	view: string,
@@ -266,10 +285,34 @@ function collapsedEntryTitle(search: string, viewerName?: string) {
 	return search.trim() ? undefined : centerAgentEntryTitle(viewerName);
 }
 
+// The open MemberAgent's chats nest under its row in a list section. Filters
+// and search narrow the conversation list; the chats return when cleared.
+function nestsMemberAgentSessions(input: {
+	item: Conversation;
+	selected: string | null | undefined;
+	memberAgentId: string | undefined;
+	layout: "grid" | "list";
+	hasFilters: boolean;
+}) {
+	return (
+		!input.hasFilters &&
+		input.layout === "list" &&
+		Boolean(input.memberAgentId) &&
+		input.item.memberAgentId === input.memberAgentId &&
+		input.item.spaceId === input.selected
+	);
+}
+
 // The collapsed Center Agent entry stands for several chats, so it has no
 // per-chat rename or archive action.
 function isSingleChat(item: Conversation) {
-	return item.kind === "direct-message" && !item.sessionSpaceIds;
+	// A MemberAgent row stands for several Sessions; their dedicated Session
+	// operations live in the Direct Message header, not personal archive/rename.
+	return (
+		item.kind === "direct-message" &&
+		!item.sessionSpaceIds &&
+		!item.memberAgentId
+	);
 }
 
 export function ConversationsSidebar(
@@ -298,6 +341,11 @@ export function ConversationsSidebar(
 		}
 	};
 	const { directMessages: dm } = model;
+	useSaveSidebarDisplaySnapshot({
+		organizationId: dm.org.id,
+		profileId: dm.profileId,
+	});
+	const agentRequestLabels = useAgentRequestSpaceLabels();
 	const memberAppearances = useMemo(
 		() => resolveSpaceMemberAppearances(dm.directory.data),
 		[dm.directory.data]
@@ -348,6 +396,10 @@ export function ConversationsSidebar(
 		(item) => item.spaceId === model.selected
 	);
 	const activeSection = active ? model.owner(active) : null;
+	const memberAgentSessionList = useActiveMemberAgentSessionList(active, {
+		...dm.indicators,
+		attentionById: dm.attentionById,
+	});
 	const { showMessagePreviews, setShowMessagePreviews } = useMessagePreviews(
 		dm.profileId,
 		dm.org.id
@@ -835,165 +887,209 @@ export function ConversationsSidebar(
 							<AppContextualSidebarNav
 								activeItemId={model.selected}
 								ariaLabel="Conversations"
-								groups={visible.map((section) => ({
-									id: section.id,
-									label: section.name,
-									ariaLabel: section.name,
-									onRename: section.groupId
-										? (value: string) =>
-												model.updateSection(section, { name: value })
-										: undefined,
-									labelAccessory: (
-										<>
-											{!disclosure.isOpen(section.id) &&
-												unreadCount(section) > 0 && (
-													<span className="mr-1 text-muted-foreground text-xs">
-														{unreadCount(section)} unread
-													</span>
-												)}
-											{section.id === "pinned" && (
-												<PinnedLayoutMenu
-													layout={pinnedLayout}
-													onLayoutChange={setPinnedLayout}
-												/>
-											)}
-											{view === "grouped" && section.id !== "pinned" && (
-												<SidebarSectionActions
-													addLabel={
-														section.kind === "space"
-															? "Add Space or group"
-															: "Add direct message or group"
-													}
-													disabled={model.disabled}
-													label={section.name}
-													newItemLabel={
-														section.kind === "space"
-															? "New Space"
-															: "New direct message"
-													}
-													onDelete={
-														section.groupId
-															? () => model.updateSection(section, null)
-															: undefined
-													}
-													onNewGroup={(value) => {
-														if (section.kind !== "pinned") {
-															model.addGroup(section.kind, value);
-														}
-													}}
-													onNewItem={() => newItem(section)}
-													onSort={(sort) =>
-														model.updateSection(section, { sort })
-													}
-													sort={section.sort}
-												/>
-											)}
-										</>
-									),
-									content: (
-										<SidebarDropSection
-											ids={rows(section).map((item) => item.spaceId)}
-											layout={section.id === "pinned" ? pinnedLayout : "list"}
-											section={section.id}
-										>
-											<SpaceSidebarEmptyState
-												onNavigate={onNavigate}
-												orgSlug={dm.org.slug}
-												sectionId={section.id}
-												visible={showSpaceEmptyState}
-											/>
-											<ConversationSidebarMenu
-												activeLayoutId="conversation-selection"
-												activeValue={model.selected}
-												aria-label={section.name}
-												layout={section.id === "pinned" ? pinnedLayout : "list"}
-												updateIndices={rows(section).flatMap((item, index) =>
-													(dm.indicators.unreadBySpaceId.get(item.spaceId)
-														?.unreadCount ?? 0) > 0 ||
-													dm.indicators.activeWakeSummaryBySpaceId.has(
-														item.spaceId
-													) ||
-													resolveInboxAttentionTone(
-														dm.attentionById.get(item.spaceId) ?? {}
-													)
-														? [index]
-														: []
-												)}
-											>
-												{rows(section).map((item, index) => (
-													<ConversationSidebarRow
-														activeWakeSummary={dm.indicators.activeWakeSummaryBySpaceId.get(
-															item.spaceId
-														)}
-														archived={archived}
-														attentionTone={resolveInboxAttentionTone(
-															dm.attentionById.get(item.spaceId) ?? {}
-														)}
-														conversation={item}
-														disabled={model.disabled}
-														dragDisabled={false}
-														groups={model.moveGroups[item.kind]}
-														index={index}
-														key={item.spaceId}
-														layout={
-															section.id === "pinned" ? pinnedLayout : "list"
-														}
-														memberAppearances={memberAppearances}
-														messageUnreadCount={
-															dm.indicators.unreadBySpaceId.get(item.spaceId)
-																?.messageUnreadCount
-														}
-														onArchive={
-															isSingleChat(item)
-																? () =>
-																		dm.save({
-																			...dm.preferences,
-																			archivedIds: archived
-																				? dm.preferences.archivedIds.filter(
-																						(id) => id !== item.spaceId
-																					)
-																				: [
-																						...dm.preferences.archivedIds,
-																						item.spaceId,
-																					],
-																		})
-																: undefined
-														}
-														onMove={(target) =>
-															move(
-																target,
-																item.spaceId,
-																undefined,
-																target === "pinned"
-															).catch(console.error)
-														}
-														onRename={
-															isSingleChat(item)
-																? () => {
-																		setRenaming(item);
-																		setName(item.title);
-																	}
-																: undefined
-														}
-														onUnpin={() =>
-															model.unpin(item).catch(console.error)
-														}
-														profileId={item.profileId}
-														section={section.id}
-														selected={model.selected === item.spaceId}
-														showMessagePreviews={showMessagePreviews}
-														title={item.title}
-														unreadCount={
-															dm.indicators.unreadBySpaceId.get(item.spaceId)
-																?.unreadCount ?? 0
-														}
-														url={item.url}
+								groups={[
+									...visible.map((section) => ({
+										id: section.id,
+										label: section.name,
+										ariaLabel: section.name,
+										onRename: section.groupId
+											? (value: string) =>
+													model.updateSection(section, { name: value })
+											: undefined,
+										labelAccessory: (
+											<>
+												{!disclosure.isOpen(section.id) &&
+													unreadCount(section) > 0 && (
+														<span className="mr-1 text-muted-foreground text-xs">
+															{unreadCount(section)} unread
+														</span>
+													)}
+												{section.id === "pinned" && (
+													<PinnedLayoutMenu
+														layout={pinnedLayout}
+														onLayoutChange={setPinnedLayout}
 													/>
-												))}
-											</ConversationSidebarMenu>
-										</SidebarDropSection>
-									),
-								}))}
+												)}
+												{view === "grouped" && section.id !== "pinned" && (
+													<SidebarSectionActions
+														addLabel={
+															section.kind === "space"
+																? "Add Space or group"
+																: "Add direct message or group"
+														}
+														disabled={model.disabled}
+														label={section.name}
+														newItemLabel={
+															section.kind === "space"
+																? "New Space"
+																: "New direct message"
+														}
+														onDelete={
+															section.groupId
+																? () => model.updateSection(section, null)
+																: undefined
+														}
+														onNewGroup={(value) => {
+															if (section.kind !== "pinned") {
+																model.addGroup(section.kind, value);
+															}
+														}}
+														onNewItem={() => newItem(section)}
+														onSort={(sort) =>
+															model.updateSection(section, { sort })
+														}
+														sort={section.sort}
+													/>
+												)}
+											</>
+										),
+										content: (
+											<SidebarDropSection
+												ids={rows(section).map((item) => item.spaceId)}
+												layout={section.id === "pinned" ? pinnedLayout : "list"}
+												section={section.id}
+											>
+												<SpaceSidebarEmptyState
+													onNavigate={onNavigate}
+													orgSlug={dm.org.slug}
+													sectionId={section.id}
+													visible={showSpaceEmptyState}
+												/>
+												<ConversationSidebarMenu
+													activeLayoutId="conversation-selection"
+													// The open chat is highlighted among the nested chats instead.
+													activeValue={
+														rows(section).some((item) =>
+															nestsMemberAgentSessions({
+																item,
+																selected: model.selected,
+																memberAgentId:
+																	memberAgentSessionList?.memberAgentId,
+																layout:
+																	section.id === "pinned"
+																		? pinnedLayout
+																		: "list",
+																hasFilters,
+															})
+														)
+															? null
+															: model.selected
+													}
+													aria-label={section.name}
+													layout={
+														section.id === "pinned" ? pinnedLayout : "list"
+													}
+													updateIndices={rows(section).flatMap(
+														(item, index) => {
+															const indicators =
+																resolveConversationRowIndicators(item, dm);
+															return indicators.unreadCount > 0 ||
+																indicators.activeWakeSummary ||
+																indicators.attentionTone
+																? [index]
+																: [];
+														}
+													)}
+												>
+													{rows(section).map((item, index) => {
+														const indicators = resolveConversationRowIndicators(
+															item,
+															dm
+														);
+														return (
+															<ConversationSidebarRow
+																activeWakeSummary={indicators.activeWakeSummary}
+																agentRequestLabel={agentRequestLabels.get(
+																	item.spaceId
+																)}
+																archived={archived}
+																attentionTone={indicators.attentionTone}
+																conversation={item}
+																disabled={model.disabled}
+																dragDisabled={false}
+																groups={model.moveGroups[item.kind]}
+																index={index}
+																key={item.spaceId}
+																layout={
+																	section.id === "pinned"
+																		? pinnedLayout
+																		: "list"
+																}
+																memberAppearances={memberAppearances}
+																messageUnreadCount={
+																	indicators.messageUnreadCount
+																}
+																nestedNavigation={
+																	memberAgentSessionList &&
+																	nestsMemberAgentSessions({
+																		item,
+																		selected: model.selected,
+																		memberAgentId:
+																			memberAgentSessionList.memberAgentId,
+																		layout:
+																			section.id === "pinned"
+																				? pinnedLayout
+																				: "list",
+																		hasFilters,
+																	}) ? (
+																		<SidebarNestedNavList
+																			activeItemId={model.selected ?? null}
+																			ariaLabel={`Chats with ${item.title}`}
+																			className="ml-[21px]"
+																			sections={memberAgentSessionList.sections}
+																		/>
+																	) : undefined
+																}
+																onArchive={
+																	isSingleChat(item)
+																		? () =>
+																				dm.save({
+																					...dm.preferences,
+																					archivedIds: archived
+																						? dm.preferences.archivedIds.filter(
+																								(id) => id !== item.spaceId
+																							)
+																						: [
+																								...dm.preferences.archivedIds,
+																								item.spaceId,
+																							],
+																				})
+																		: undefined
+																}
+																onMove={(target) =>
+																	move(
+																		target,
+																		item.spaceId,
+																		undefined,
+																		target === "pinned"
+																	).catch(console.error)
+																}
+																onRename={
+																	isSingleChat(item)
+																		? () => {
+																				setRenaming(item);
+																				setName(item.title);
+																			}
+																		: undefined
+																}
+																onUnpin={() =>
+																	model.unpin(item).catch(console.error)
+																}
+																profileId={item.profileId}
+																section={section.id}
+																selected={model.selected === item.spaceId}
+																showMessagePreviews={showMessagePreviews}
+																title={item.title}
+																unreadCount={indicators.unreadCount}
+																url={item.url}
+															/>
+														);
+													})}
+												</ConversationSidebarMenu>
+											</SidebarDropSection>
+										),
+									})),
+								]}
 								placement="main"
 								title="Conversations"
 							/>

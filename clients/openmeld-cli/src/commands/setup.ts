@@ -23,6 +23,11 @@ import {
   submitSelectedAgentControllerReports,
 } from "../local-service/reporting/selected-agent-controller-reporting";
 import { notifyDaemonRouteCatalogChanged } from "../local-service/state/route-catalog-sync-notifier";
+import { formatHarnessDisplayName } from "../member-agents/read";
+import {
+  addSetupSelectedMemberAgents,
+  type SetupMemberAgentsResult,
+} from "../member-agents/sync";
 import { resolveCliSetupOnboardingPlan } from "../onboarding/cli-onboarding-plan";
 import { emitSetupPlanAgentView } from "../onboarding/setup-plan-presenter";
 import {
@@ -32,6 +37,7 @@ import {
 import { resolveRuntimeContext } from "../runtime/context";
 import { canUseInteractivePrompts } from "../runtime/interaction";
 import { createPresenter } from "../runtime/presenter/index";
+import type { Presenter } from "../runtime/presenter/types";
 import { resolveGatewayWebOrigin } from "../space/web-url";
 import { runStartLocalAgentsEnable } from "../start-local/agents-local";
 import { collectStartLocalReadiness } from "../start-local/readiness";
@@ -315,6 +321,10 @@ async function runSetupUnlocked(input: {
           reason: "setup_local_capabilities_reported",
         })
       : null;
+  emitSetupMemberAgentsLine(
+    presenter,
+    await addSetupSelectedMemberAgents({ selectedLocalAgentIds })
+  );
 
   await runWithSetupProgress({
     code: "setup.progress.skills.updating",
@@ -359,6 +369,38 @@ async function runSetupUnlocked(input: {
     selectedLocalAgentIds,
     view: runtime.resolvedView,
   });
+}
+
+function emitSetupMemberAgentsLine(
+  presenter: Presenter,
+  result: SetupMemberAgentsResult
+): void {
+  if (result.status === "skipped") {
+    return;
+  }
+  if (result.status === "failed") {
+    presenter.line({
+      code: "setup.member_agents.failed",
+      text: `Your Agents will finish setting up when you open OpenMeld (${result.message}).`,
+    });
+    return;
+  }
+  const added = result.createdHarnessKinds.map(formatHarnessDisplayName);
+  const addable = result.addableHarnessKinds.map(formatHarnessDisplayName);
+  if (added.length > 0) {
+    presenter.line({
+      code: "setup.member_agents.created",
+      data: { harnessKinds: result.createdHarnessKinds },
+      text: `Added your Agents: ${added.join(", ")}.`,
+    });
+  }
+  if (addable.length > 0) {
+    presenter.line({
+      code: "setup.member_agents.addable",
+      data: { harnessKinds: result.addableHarnessKinds },
+      text: `Also found ${addable.join(", ")}. Add one with \`openmeld agent add <harness>\`.`,
+    });
+  }
 }
 
 async function runSetupStartupLocalStateRepair(): Promise<void> {
@@ -817,6 +859,8 @@ async function resolveDelegatedSetupCompletionFacts(input: {
   const routeCatalogSync = await notifyRouteCatalogAfterSetup({
     reason: "setup_session_capabilities_reported",
   });
+  // The Connect page's selection arrives as the setup session's agents.
+  await addSetupSelectedMemberAgents({ selectedLocalAgentIds });
 
   return {
     routeCatalogSync,

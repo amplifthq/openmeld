@@ -1,6 +1,5 @@
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
 import { isAgentProfileWorkspaceBlockerReasonCode } from "@openmeld/agent-runtime";
-import { isAgentRecoveryConnectionAction } from "@openmeld/schemas";
 import type { ModelCatalog } from "@openmeld/schemas/types";
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
 import { Button } from "@openmeld/ui/components/button";
@@ -34,6 +33,7 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 import { APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME } from "#/components/app/app-nav-item-style";
+import { useMemberAgentProfileDisplayName } from "#/components/member-agents/use-member-agent-profile-display-name";
 import { AgentProfileListItem } from "#/components/profiles/profile-list-item";
 import { buildOpenMeldServiceSettingsPath } from "#/lib/settings-routes";
 import { resolveSpaceMemberStatusBadgeDisplay } from "#/lib/spaces/presentation";
@@ -42,10 +42,6 @@ import {
 	isManualOnlyAgentRecoveryPlan,
 	MANUAL_ONLY_AGENT_BADGE_LABEL,
 } from "./space-agent-manual-participation";
-import {
-	type SpaceAgentProfileBindingRecoveryPlan,
-	SpaceAgentRecoveryActionControl,
-} from "./space-agent-recovery-action";
 import {
 	SpaceAgentAvailabilityIndicator,
 	SpaceMemberInlineStatusText,
@@ -69,15 +65,10 @@ type SpaceMemberRowProps = {
 	entry: SpaceMemberDirectoryEntry;
 	entriesByProfileId?: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
 	isAgentWakeAvailabilityCheckPending: boolean;
-	isAgentRecoveryPending: boolean;
 	modelCatalog?: ModelCatalog | null;
-	onAgentRecoveryAction: (
-		plan: SpaceAgentProfileBindingRecoveryPlan
-	) => Promise<void>;
 	onCheckAgentWakeAvailability: (profileId: string) => Promise<void>;
 	onRemoveFromSpace?: (profileId: string) => Promise<SpaceRemoveMemberResult>;
 	orgSlug: string;
-	prepareSetupHref?: string;
 	memberTransientState: SpaceWakeStatusTransientState | null;
 	showAgentConnectionDetail?: boolean;
 	variant: "compact" | "full";
@@ -117,6 +108,13 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 	const presentation = resolveAgentSpaceMemberRowPresentation({
 		canManageAgentProfile,
 		input,
+	});
+	const memberAgentDisplayName = useMemberAgentProfileDisplayName({
+		agentControllerRef: input.entry.agentControllerRef,
+		ownerName: input.entry.ownerName,
+		profileId: input.entry.profileId,
+		profileKind: input.entry.profileKind,
+		profileName: input.entry.profileName,
 	});
 	const detailsDialog = useSpaceProfileDetailsPopover({
 		centerAgentProfileId: input.centerAgentProfileId,
@@ -176,15 +174,8 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 					profileName={input.entry.profileName}
 				/>
 			}
-			primaryDetail={
-				input.density === "compact" &&
-				shouldShowAgentRecoveryActionControl(
-					presentation.displayedAgentRecoveryPlan
-				)
-					? null
-					: presentation.primaryDetail
-			}
-			profileName={input.entry.profileName}
+			primaryDetail={presentation.primaryDetail}
+			profileName={memberAgentDisplayName ?? input.entry.profileName}
 			profileNameAdornment={
 				<>
 					<AgentSpaceMemberAvailabilityIndicator presentation={presentation} />
@@ -198,12 +189,7 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 			profileSummaryTrigger={
 				detailsDialog.profileDetailsPopoverTrigger ?? undefined
 			}
-		>
-			<AgentSpaceMemberRecoveryAction
-				input={input}
-				presentation={presentation}
-			/>
-		</AgentProfileListItem>
+		/>
 	);
 }
 
@@ -274,11 +260,17 @@ function resolveAgentSpaceMemberRowPresentation(input: {
 			"wake_route.registration_expired" &&
 		rawDisplayedMemberTransientState === null;
 
+	// Compact rows show a problem only as the status dot; its reason is in
+	// the dot's tooltip and its fix in the profile popover.
 	const statusDetailIsInTooltip =
 		input.input.density === "compact" &&
 		(visualDisplayedMemberTransientState === "checking" ||
 			visualDisplayedMemberTransientState === "active_wake_in_progress" ||
-			visualEntry.presenceStatus === "checking_connection");
+			visualDisplayedMemberTransientState ===
+				"active_wake_waiting_for_folder" ||
+			visualEntry.presenceStatus === "checking_connection" ||
+			visualEntry.availabilityCategory === "unavailable" ||
+			visualEntry.availabilityCategory === "offline");
 	const primaryDetail =
 		input.input.variant === "compact"
 			? resolveCompactDetail(visualEntry, false)
@@ -331,46 +323,6 @@ function AgentSpaceMemberAvailabilityIndicator(input: {
 			tone={input.presentation.availabilityIndicatorTone}
 			tooltip={input.presentation.availabilityIndicatorTooltip}
 		/>
-	);
-}
-
-function AgentSpaceMemberRecoveryAction(input: {
-	input: AgentSpaceMemberRowProps;
-	presentation: AgentSpaceMemberRowPresentation;
-}) {
-	if (
-		input.input.variant !== "full" ||
-		!shouldShowAgentRecoveryActionControl(
-			input.presentation.displayedAgentRecoveryPlan
-		) ||
-		input.presentation.rawDisplayedMemberTransientState !== null
-	) {
-		return null;
-	}
-	const action = (
-		<SpaceAgentRecoveryActionControl
-			className={input.input.density === "compact" ? "mt-0" : undefined}
-			isPending={input.input.isAgentRecoveryPending}
-			onAction={input.input.onAgentRecoveryAction}
-			orgSlug={input.input.orgSlug}
-			plan={input.presentation.displayedAgentRecoveryPlan}
-			prepareSetupHref={input.input.prepareSetupHref}
-		/>
-	);
-	if (input.input.density !== "compact") {
-		return action;
-	}
-	return (
-		<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs">
-			<span>
-				{isAgentRecoveryConnectionAction(
-					input.presentation.displayedAgentRecoveryPlan.primaryActionId
-				)
-					? "Needs connection"
-					: "Needs attention"}
-			</span>
-			{action}
-		</div>
 	);
 }
 
@@ -736,6 +688,8 @@ function resolveDisplayedMemberTransientState(input: {
 	if (input.entry.availabilityBadgeLabel !== null) {
 		if (
 			input.manageableMemberTransientState === "active_wake_in_progress" ||
+			input.manageableMemberTransientState ===
+				"active_wake_waiting_for_folder" ||
 			input.manageableMemberTransientState === "active_wake_waiting_for_service"
 		) {
 			return input.manageableMemberTransientState;
@@ -767,6 +721,9 @@ function resolvePresenceStatusLabel(input: {
 	if (input.memberTransientState === "active_wake_in_progress") {
 		return "Working";
 	}
+	if (input.memberTransientState === "active_wake_waiting_for_folder") {
+		return "Waiting";
+	}
 	if (input.memberTransientState === "checking") {
 		const baseStatus = resolveSpaceMemberStatusBadgeDisplay(input.entry);
 		return input.entry.presenceStatus === "wakeable"
@@ -795,6 +752,9 @@ function resolvePresenceStatusTooltip(input: {
 }): string {
 	if (input.memberTransientState === "active_wake_in_progress") {
 		return "Wake in progress";
+	}
+	if (input.memberTransientState === "active_wake_waiting_for_folder") {
+		return "Waiting for another task in its folder to finish";
 	}
 	if (input.memberTransientState === "checking") {
 		return input.entry.presenceStatus === "wakeable"
@@ -846,17 +806,6 @@ function resolvePresenceIndicatorHref(input: {
 	return buildOpenMeldServiceSettingsPath({ orgSlug: input.orgSlug });
 }
 
-function isRouteReconnectRecoveryReasonCode(reasonCode: string): boolean {
-	return (
-		reasonCode === "agent_execution.route_missing" ||
-		reasonCode === "agent_execution.route_offline" ||
-		reasonCode === "agent_execution.route_unavailable" ||
-		reasonCode === "route.not_registered" ||
-		reasonCode === "route.offline" ||
-		reasonCode === "route.unavailable"
-	);
-}
-
 function resolvePresenceIndicatorTone(input: {
 	agentRecoveryPlan: AgentProfileReplyRecoveryPlan | null;
 	entry: SpaceMemberDirectoryEntry;
@@ -864,6 +813,9 @@ function resolvePresenceIndicatorTone(input: {
 }): StatusTone {
 	if (input.entry.availabilityPhase === "provider_sign_in_needed") {
 		return "warning";
+	}
+	if (input.memberTransientState === "active_wake_waiting_for_folder") {
+		return "checking";
 	}
 	if (
 		input.memberTransientState === "active_wake_in_progress" ||
@@ -1007,6 +959,8 @@ function resolveMemberTransientPrimaryDetail(
 	switch (memberTransientState) {
 		case "active_wake_in_progress":
 			return "This agent is working on a Wake in this Space.";
+		case "active_wake_waiting_for_folder":
+			return "This agent's task waits for another task on its computer that uses the same folder. It has not started.";
 		case "active_wake_waiting_for_service":
 			return "A Wake is waiting for the computer to reconnect.";
 		case "checking":
@@ -1038,15 +992,6 @@ function shouldShowAgentRecoveryAction(
 	plan: AgentProfileReplyRecoveryPlan | null
 ): plan is Exclude<AgentProfileReplyRecoveryPlan, { kind: "none" }> {
 	return Boolean(plan && plan.kind !== "none");
-}
-
-function shouldShowAgentRecoveryActionControl(
-	plan: AgentProfileReplyRecoveryPlan | null
-): plan is Exclude<AgentProfileReplyRecoveryPlan, { kind: "none" }> {
-	return (
-		shouldShowAgentRecoveryAction(plan) &&
-		!isRouteReconnectRecoveryReasonCode(plan.recoveryReasonCode)
-	);
 }
 
 function isOwnedByCurrentUser(input: {

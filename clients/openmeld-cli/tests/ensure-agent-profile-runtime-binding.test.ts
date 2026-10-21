@@ -544,3 +544,26 @@ function unreadyExecutionReadinessWithLeadingSuccessCode() {
     },
   };
 }
+
+describe("formatAgentProfileBindingUpdateFailure", () => {
+  it("explains that an Agent's Profile cannot change harness", async () => {
+    const { formatAgentProfileBindingUpdateFailure } = await import(
+      "../src/system/ensure-agent-profile-runtime-binding"
+    );
+
+    expect(
+      formatAgentProfileBindingUpdateFailure([
+        "agent_profile_binding.member_agent_harness_locked",
+      ])
+    ).toBe(
+      "This Agent Profile belongs to an Agent and cannot move to another harness. Create a Profile under that harness's Agent instead. (agent_profile_binding.member_agent_harness_locked)"
+    );
+    expect(
+      formatAgentProfileBindingUpdateFailure([
+        "agent_profile_binding.primary_conflict",
+      ])
+    ).toBe(
+      "Agent Profile Binding update failed: agent_profile_binding.primary_conflict"
+    );
+  });
+});

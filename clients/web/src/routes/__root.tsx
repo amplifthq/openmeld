@@ -32,6 +32,7 @@ import { Toaster } from "#/components/ui/sonner";
 import { beforeDesktopLoad } from "#/desktop/auth-boundary";
 import { DesktopFrame } from "#/desktop/desktop-frame";
 import { TanStackDevtoolsSlot } from "#/integrations/tanstack-devtools/devtools-slot";
+import { readAppShellPendingSidebarState } from "#/lib/app-shell-pending-sidebar";
 import { APPEARANCE_SHAPE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/shape-preference";
 import { SIDEBAR_PREFERENCE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/sidebar-preference";
 import { TOOLBAR_PREFERENCE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/toolbar-preference";
@@ -82,6 +83,10 @@ const NOT_FOUND_LOGO_SCALE = 0.72;
 export const Route = createRootRouteWithContext<RouterContext>()({
 	beforeLoad: ({ location, context }) =>
 		beforeDesktopLoad(location.pathname, location.href, context.queryClient),
+	// The client-only Organization route paints its pending shell during SSR.
+	loader: async () => ({
+		appShellSidebarState: await readAppShellPendingSidebarState(),
+	}),
 	headers: () => ({
 		"Cache-Control": "no-cache",
 	}),

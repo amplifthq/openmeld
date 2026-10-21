@@ -139,6 +139,7 @@ export function useSpacePendingAgentActions(input: {
 			}
 		: undefined;
 	const surfaceProps: PendingAgentActionSurfaceProps = {
+		editableAgentProfileIds,
 		items: pendingItems,
 		onPermissionModeUpdate,
 		onRespond: input.onRespond,

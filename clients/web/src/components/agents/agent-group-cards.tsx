@@ -8,6 +8,7 @@ import {
 	useReducedMotion,
 } from "framer-motion";
 import { type ReactNode, useId, useState } from "react";
+import { AgentCardNavMenu } from "./agent-card-nav-menu";
 import { AgentGroupAvatar, AgentGroupContext } from "./agent-group-context";
 import type { AgentListItem } from "./agent-list-model";
 import { AgentProfileControllerAvatar } from "./agent-profile-controller-avatar";
@@ -39,9 +40,11 @@ export function AgentGroupCards({
 				<div className="space-y-3">
 					<FluidCardGroup>
 						<FluidNavMenu
+							activeIndicatorClassName="hidden"
 							activeValue={selected?.[0] ?? null}
 							aria-label="Agent groups"
 							className="[&_[data-sidebar=menu]]:grid [&_[data-sidebar=menu]]:grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] [&_[data-sidebar=menu]]:gap-3"
+							hoverIndicatorClassName="hidden"
 						>
 							{groups.map(([label, items], index) => {
 								const expanded = selected?.[0] === label;
@@ -123,15 +126,12 @@ export function AgentGroupCards({
 									transition={{ duration: reduceMotion ? 0 : 0.2 }}
 								>
 									<GroupContents>
-										<FluidCardGroup>
-											<FluidNavMenu
-												activeValue={null}
-												aria-label={`${selected[0]} Agents`}
-												className="[&_[data-sidebar=menu]]:grid [&_[data-sidebar=menu]]:gap-3 [&_[data-sidebar=menu]]:md:grid-cols-2 [&_[data-sidebar=menu]]:xl:grid-cols-3"
-											>
-												{selected[1].map(renderCard)}
-											</FluidNavMenu>
-										</FluidCardGroup>
+										<AgentCardNavMenu
+											activeValue={null}
+											aria-label={`${selected[0]} Agents`}
+										>
+											{selected[1].map(renderCard)}
+										</AgentCardNavMenu>
 									</GroupContents>
 								</motion.div>
 							)}

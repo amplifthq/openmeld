@@ -28,6 +28,7 @@ import type {
   OpenMeldDaemonAcceptedDispatchSnapshot,
   OpenMeldDaemonDispatchQueueMessage,
   RemoteAgentNativeDeliveryDeadlineProbeQueueMessage,
+  RequestChain,
   RuntimeTransportRuntimeCoordinatorDecisionResponse,
 } from "@openmeld/schemas/types";
 import { processAgentTaskContinuationQueueMessage } from "../../agent-task-coordination/application/agent-task-continuation-service";
@@ -38,12 +39,21 @@ import {
   readAgentTaskTerminalOutcome,
 } from "../../agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import type { CoreBindings } from "../../lib/bindings";
+import { isRequestChainEnforced } from "../../member-agent/member-agents-feature";
 import { createConfiguredMessageChannelProviderRegistry } from "../../remote-agent/application/message-channel-provider-runtime";
 import {
   processRemoteAgentNativeDeliveryDeadlineProbe,
   publishRemoteAgentFailureNotice,
   submitRemoteAgentNativeDelivery,
 } from "../../remote-agent/application/native-delivery-service";
+import {
+  createAdmittedRequestChainDeps,
+  resolveAdmittedRequestChain,
+} from "../../request-chain/dispatch-request-chain";
+import {
+  type RequestChainRejectionReason,
+  readRequestChainRootProfileId,
+} from "../../request-chain/request-chain";
 import { resolveSpaceStub } from "../../rpc/space-ref";
 import { emitSpaceSystemNoticeSignal } from "../../rpc/space-signal-emitter";
 import { DELETED_AGENT_PROFILE_WAKE_STOP_REASON } from "../../runtime-transport/application/deleted-agent-profile-wake-cancellation";
@@ -136,7 +146,9 @@ import {
 } from "../rules/replying-hint-lifecycle";
 import {
   applyAcceptedDispatchSnapshotToMessage,
+  applyFolderSelectionPolicy,
   buildAcceptedDispatchSnapshot,
+  resolveContextWorkspaceDefault,
 } from "./accepted-dispatch-snapshot";
 import { emitDispatchActivitySignal } from "./dispatch-activity-signal";
 import {
@@ -1956,6 +1968,92 @@ const settleRuntimeCoordinatorAcceptedPayloadConflict = async (input: {
       }
     : { status: "existing_publication_intent_preserved" };
 };
+/**
+ * This Wake's request chain. Once the chain is enforced, a workstation Wake
+ * without a human root is a visible failure: no human root, no Wake
+ * (agent-transport-contract.md, Request Chain).
+ */
+async function admitDispatchRequestChain(input: {
+  db: PostgresDatabase;
+  dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
+  env: CoreBindings;
+  runtimeKind?: string | null;
+}): Promise<
+  | { status: "admitted"; requestChain: RequestChain | undefined }
+  | Extract<
+      RuntimeCoordinatorHeadAcceptanceOutcome,
+      { status: "context_rejected" }
+    >
+> {
+  const result = await resolveAdmittedRequestChain({
+    deps: createAdmittedRequestChainDeps(input.env),
+    message: input.dispatchMessage,
+  });
+  if (result.ok) {
+    await recordDispatchRequestChainRoot({
+      db: input.db,
+      message: input.dispatchMessage,
+      rootProfileId: readRequestChainRootProfileId(result.chain),
+    });
+    return { status: "admitted", requestChain: result.chain };
+  }
+  if (isRequestChainEnforced() && input.runtimeKind === "openmeld_service") {
+    return {
+      status: "context_rejected",
+      reasonCode: result.reasonCode,
+      errorMessage: describeRequestChainRejection(result.reasonCode),
+    };
+  }
+  return { status: "admitted", requestChain: undefined };
+}
+/**
+ * Projects the root into the Dispatch Ledger for root-based reads (the
+ * permission-mode advisor, plugin access). First write wins: a Wake's root
+ * never changes. A failed write leaves those readers on their fallback.
+ */
+async function recordDispatchRequestChainRoot(input: {
+  db: PostgresDatabase;
+  message: OpenMeldDaemonDispatchQueueMessage;
+  rootProfileId: string;
+}): Promise<void> {
+  try {
+    await input.db.query({
+      text: `
+        UPDATE "openmeld"."openMeldDaemon_dispatch_ledger"
+        SET request_chain_root_profile_id = $1
+        WHERE dispatch_id = $2
+          AND target_profile_id = $3
+          AND request_chain_root_profile_id IS NULL
+      `,
+      values: [
+        input.rootProfileId,
+        input.message.dispatchId,
+        input.message.targetProfileId,
+      ],
+    });
+  } catch (error) {
+    console.warn("[core.dispatch.request_chain_root_projection_failed]", {
+      dispatchId: input.message.dispatchId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+function describeRequestChainRejection(
+  reasonCode: RequestChainRejectionReason
+): string {
+  switch (reasonCode) {
+    case "request_chain.delegation_reentry":
+      return "This Agent already handed this work off, so it can't take it back.";
+    case "request_chain.depth_exceeded":
+      return "Too many Agents are already working on this request to wake another one.";
+    case "request_chain.anonymous_requester":
+      return "Sign in to OpenMeld to wake an Agent.";
+    case "request_chain.root_unavailable":
+      return "The person who asked for this work is no longer in this organization.";
+    default:
+      return "OpenMeld couldn't confirm which person asked for this work, so the Agent didn't start.";
+  }
+}
 const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
   allowPublicationIntentReconcile?: boolean;
   db: PostgresDatabase;
@@ -1990,10 +2088,31 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
   if (preAgentStopped.handled) {
     return { status: "skip_duplicate" };
   }
+  const admission = await admitDispatchRequestChain(input);
+  if (admission.status === "context_rejected") {
+    return admission;
+  }
+  const requestChain = admission.requestChain;
+  const contextSelection = await applyFolderSelectionPolicy({
+    env: input.env,
+    message: input.dispatchMessage,
+    requestChain,
+    targetOwnerUserId: input.targetOwnerUserId,
+  });
   const acceptedDispatchSnapshot = await buildAcceptedDispatchSnapshot({
+    contextSelection,
     message: input.dispatchMessage,
     openMeldServiceRuntimeId: input.openMeldServiceRuntimeId,
+    requestChain,
     runtimeKind: input.runtimeKind,
+    workspaceDefault: await resolveContextWorkspaceDefault({
+      contextSelection,
+      env: input.env,
+      message: input.dispatchMessage,
+      requestChain,
+      runtimeKind: input.runtimeKind,
+      targetOwnerUserId: input.targetOwnerUserId,
+    }),
   });
   if (
     requiresExecutionContext(input.dispatchMessage, input.runtimeKind) &&

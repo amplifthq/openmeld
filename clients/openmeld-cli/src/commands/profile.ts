@@ -37,6 +37,17 @@ import {
   updateOpenMeldProfile,
 } from "../config/openmeld-profiles-api";
 import { submitRuntimeAgentControllerReport } from "../local-service/reporting/runtime-agent-controller-reporting-submission";
+import { loadMemberAgentListingView } from "../member-agents/command";
+import {
+  buildMemberAgentListingView,
+  formatProfileMemberAgentParent,
+  hasActiveOrganizationForMemberAgents,
+  isMemberAgentsEnabled,
+  type MemberAgentListingView,
+  type ProfileMemberAgentParent,
+  readMemberAgentListing,
+  resolveProfileMemberAgentParent,
+} from "../member-agents/read";
 import {
   type AgentProfileSetupResult,
   persistAgentTransportSelection,
@@ -90,7 +101,10 @@ import {
   type AgentProfilePrimaryAgentControllerReport,
   resolveAgentProfilePrimaryAgentControllerReport,
 } from "../system/agent-profile-primary-binding";
-import { ensureAgentProfileRuntimeBinding } from "../system/ensure-agent-profile-runtime-binding";
+import {
+  ensureAgentProfileRuntimeBinding,
+  formatAgentProfileBindingUpdateFailure,
+} from "../system/ensure-agent-profile-runtime-binding";
 import { createModelCatalogReadSession } from "../system/model-catalog-read-session";
 import { renderInfoCard } from "../ui/info-card";
 import {
@@ -233,19 +247,33 @@ export async function runProfileList(input?: {
   }
 
   const current = await resolveSelectedProfileIdForList(profiles);
+  const memberAgentListing = (await shouldReadProfileMemberAgents())
+    ? buildMemberAgentListingView({
+        listing: await readMemberAgentListing(),
+        profiles,
+      })
+    : null;
   for (const profile of profiles) {
     const selected = profile.openMeldProfileId === current;
+    const memberAgent = resolveProfileParentForOutput({
+      memberAgentListing,
+      profile,
+    });
     presenter.line({
       code: "profile.item",
       text: formatProfileListLine({
+        memberAgent,
         profile,
         selected,
         resolvedView: runtime.resolvedView,
       }),
-      data: buildProfileListData({
-        profile,
-        selected,
-      }),
+      data: {
+        ...buildProfileListData({
+          profile,
+          selected,
+        }),
+        ...(memberAgent ? { memberAgent } : {}),
+      },
     });
   }
 }
@@ -319,14 +347,25 @@ export async function runProfileShow(input: {
     includeDaemonRouteObservation: true,
     primaryBinding,
   });
+  const memberAgent = resolveProfileParentForOutput({
+    memberAgentListing:
+      profile.profileKind === "agent" && (await shouldReadProfileMemberAgents())
+        ? await loadMemberAgentListingView()
+        : null,
+    profile,
+  });
+  const memberAgentData = memberAgent ? { memberAgent } : {};
   if (input.json === true) {
     console.log(
       `${JSON.stringify(
-        buildProfileShowJsonPayload({
-          agentRuntimeState,
-          primaryBinding,
-          profile,
-        }),
+        {
+          ...buildProfileShowJsonPayload({
+            agentRuntimeState,
+            primaryBinding,
+            profile,
+          }),
+          ...memberAgentData,
+        },
         null,
         2
       )}`
@@ -339,6 +378,7 @@ export async function runProfileShow(input: {
       presenter,
       profile,
       agentRuntimeState,
+      memberAgent,
     });
     return;
   }
@@ -347,11 +387,14 @@ export async function runProfileShow(input: {
     presenter.line({
       code: "profile.show",
       text: `profile: ${profile.openMeldProfileId}`,
-      data: buildCompactAgentProfileData({
-        agentRuntimeState,
-        primaryBinding,
-        profile,
-      }),
+      data: {
+        ...buildCompactAgentProfileData({
+          agentRuntimeState,
+          primaryBinding,
+          profile,
+        }),
+        ...memberAgentData,
+      },
     });
     return;
   }
@@ -368,7 +411,29 @@ export async function runProfileShow(input: {
       binding: buildAgentProfileBindingData(primaryBinding),
       ...buildAgentProfileStateData(profile),
       ...buildAgentProfileRuntimeData(agentRuntimeState),
+      ...memberAgentData,
     },
+  });
+}
+
+// Parent MemberAgents are printed only with the release flag on and an active
+// Organization; otherwise Profile commands keep their previous output.
+async function shouldReadProfileMemberAgents(): Promise<boolean> {
+  return (
+    isMemberAgentsEnabled() && (await hasActiveOrganizationForMemberAgents())
+  );
+}
+
+function resolveProfileParentForOutput(input: {
+  memberAgentListing: MemberAgentListingView | null;
+  profile: OpenMeldProfile;
+}): ProfileMemberAgentParent | null {
+  if (!input.memberAgentListing || input.profile.profileKind !== "agent") {
+    return null;
+  }
+  return resolveProfileMemberAgentParent({
+    openMeldProfileId: input.profile.openMeldProfileId,
+    view: input.memberAgentListing,
   });
 }
 
@@ -1854,7 +1919,7 @@ async function applyAgentProfileControllerBinding(input: {
     });
     if (binding.status !== "accepted") {
       throw new Error(
-        `Agent Profile Binding update failed: ${binding.reasonCodes.join(", ")}`
+        formatAgentProfileBindingUpdateFailure(binding.reasonCodes)
       );
     }
     return;
@@ -1892,7 +1957,7 @@ async function applyAgentProfileControllerBinding(input: {
   });
   if (binding.status !== "accepted") {
     throw new Error(
-      `Agent Profile Binding update failed: ${binding.reasonCodes.join(", ")}`
+      formatAgentProfileBindingUpdateFailure(binding.reasonCodes)
     );
   }
 }
@@ -1916,7 +1981,7 @@ async function applyAgentProfileControllerPermissionMode(input: {
     });
   if (binding.status !== "accepted") {
     throw new Error(
-      `Agent Profile Binding update failed: ${binding.reasonCodes.join(", ")}`
+      formatAgentProfileBindingUpdateFailure(binding.reasonCodes)
     );
   }
 }
@@ -2941,6 +3006,7 @@ function resolveProfileDeleteHint(input: {
 }
 
 function formatProfileListLine(input: {
+  memberAgent: ProfileMemberAgentParent | null;
   profile: OpenMeldProfile;
   selected: boolean;
   resolvedView: "human" | "agent";
@@ -2952,7 +3018,10 @@ function formatProfileListLine(input: {
   }
 
   const displayName = normalizeProfileDisplayName(input.profile);
-  return `${mark} ${displayName}${suffix} · ${input.profile.profileKind} · ${input.profile.status} · id: ${input.profile.openMeldProfileId}`;
+  const memberAgent = input.memberAgent
+    ? ` · Agent: ${formatProfileMemberAgentParent(input.memberAgent)}`
+    : "";
+  return `${mark} ${displayName}${suffix} · ${input.profile.profileKind} · ${input.profile.status} · id: ${input.profile.openMeldProfileId}${memberAgent}`;
 }
 
 function buildProfileListData(input: {
@@ -3120,6 +3189,7 @@ function renderProfileSummaryCard(input: {
   agentRuntimeState: Awaited<
     ReturnType<typeof resolveAgentProfileRuntimeState>
   >;
+  memberAgent: ProfileMemberAgentParent | null;
 }): void {
   const ownerName = String(input.profile.ownerName ?? "").trim();
   const rows: Array<{ label: string; value: string }> = [
@@ -3141,6 +3211,12 @@ function renderProfileSummaryCard(input: {
 
   if (input.profile.isDefault === true) {
     rows.push({ label: "Default for This Account", value: "Yes" });
+  }
+  if (input.memberAgent) {
+    rows.push({
+      label: "Agent",
+      value: formatProfileMemberAgentParent(input.memberAgent),
+    });
   }
   rows.push(...buildAgentProfileStateRows(input.profile));
   rows.push(...buildAgentProfileRuntimeRows(input.agentRuntimeState));

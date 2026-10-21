@@ -1,5 +1,4 @@
 import { isDirectMessageSpace } from "@openmeld/space";
-import { Bars } from "@openmeld/ui/components/bars";
 import { Button } from "@openmeld/ui/components/button";
 import { Card, CardContent, CardHeader } from "@openmeld/ui/components/card";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -67,6 +66,12 @@ import {
 	readLastUsedHumanProfileId,
 	writeLastUsedHumanProfileId,
 } from "#/lib/spaces/last-used-profile";
+import {
+	pickSpaceMembersFocusSearch,
+	type SpaceMembersFocusSearch,
+	spaceMembersFocusSearchShape,
+	useSpaceMembersFocus,
+} from "#/lib/spaces/space-members-focus";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
 import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
@@ -80,6 +85,7 @@ const appSpaceRouteSearchSchema = z.object({
 	focusSignalId: z.string().trim().min(1).optional(),
 	focusThreadRootSignalId: z.string().trim().min(1).optional(),
 	profileId: z.string().trim().min(1).optional(),
+	...spaceMembersFocusSearchShape,
 });
 
 type AppSpaceFocusSearch = Pick<
@@ -132,14 +138,15 @@ export const Route = createFileRoute("/o/$orgSlug/spaces/$spaceId")({
 				prefetch: readSpacePrefetch(prefetchKey),
 			});
 		}
-		restoreSpaceConversationRouteData({
+		const restored = restoreSpaceConversationRouteData({
 			organizationSlug: params.orgSlug,
 			profileId: deps.profileId,
 			queryClient: context.queryClient,
 			queryPersistence: context.queryPersistence,
 			routeFamily: location.href,
 			spaceId: params.spaceId,
-		})
+		});
+		restored
 			.then(() =>
 				prefetchSpaceConversationRouteData({
 					focusSignalId: deps.focusSignalId,
@@ -163,6 +170,10 @@ export const Route = createFileRoute("/o/$orgSlug/spaces/$spaceId")({
 				}
 				console.error("Failed to prefetch the Space conversation data.", error);
 			});
+		// The restore has its own short budget. Waiting for it lets the Space
+		// mount with its saved messages and composer state in the first frame
+		// instead of a skeleton that the saved view replaces a moment later.
+		await restored.catch(() => undefined);
 		return { sidebarStates: await sidebarStates };
 	},
 	component: AppSpaceEntryRoute,
@@ -264,6 +275,8 @@ function MissingAppSpaceProfileContent(
 	} & AppSpaceFocusInput
 ) {
 	const navigate = useNavigate();
+	// A link to the Members panel keeps its target through the redirect.
+	const { highlight, panel, section } = useSpaceMembersFocus();
 	const { hasRestored, state, storageScope } = useStartFlowState();
 	const profilesQuery = useQuery(
 		buildStartProfilesQueryOptions({
@@ -311,6 +324,7 @@ function MissingAppSpaceProfileContent(
 				focusInteractionId: input.focusInteractionId,
 				focusSignalId: input.focusSignalId,
 				focusThreadRootSignalId: input.focusThreadRootSignalId,
+				membersFocus: { highlight, panel, section },
 				profileId: recommendedProfileId,
 			}),
 			to: resolveAppSpaceEntryRouteTo(input.navigationSurface),
@@ -326,11 +340,15 @@ function MissingAppSpaceProfileContent(
 		input.orgSlug,
 		input.spaceId,
 		input.navigationSurface,
+		highlight,
+		panel,
+		section,
 	]);
 
 	if (!hasRestored || (profilesQuery.isPending && !profilesHaveData)) {
 		return (
 			<AppSpaceEntryShell
+				conversationLayout
 				initialSidebarStates={input.initialSidebarStates}
 				navigationSurface={input.navigationSurface}
 				spaceId={input.spaceId}
@@ -367,6 +385,7 @@ function MissingAppSpaceProfileContent(
 	if (recommendedProfileId) {
 		return (
 			<AppSpaceEntryShell
+				conversationLayout
 				initialSidebarStates={input.initialSidebarStates}
 				navigationSurface={input.navigationSurface}
 				spaceId={input.spaceId}
@@ -439,6 +458,7 @@ function ValidatedAppSpaceEntryContent(
 	if (!hasRestored || (profilesQuery.isPending && !profilesHaveData)) {
 		return (
 			<AppSpaceEntryShell
+				conversationLayout
 				initialSidebarStates={input.initialSidebarStates}
 				navigationSurface={input.navigationSurface}
 				spaceId={input.spaceId}
@@ -862,26 +882,11 @@ function toDirectMessageState(status: {
 	};
 }
 
+// Profile checks settle within a frame or two of a hard refresh. Keep the
+// conversation frame on screen instead of a centered status that the
+// conversation then replaces.
 function SpaceProfileCheckState(input: { threadOpen?: boolean }) {
-	if (input.threadOpen) {
-		return <SpaceLandingLoadingShell threadOpen />;
-	}
-	return (
-		<output
-			aria-label="Checking profile"
-			className="flex w-full max-w-sm flex-col items-center gap-4 text-center"
-		>
-			<Bars aria-hidden="true" className="h-7 w-10 text-muted-foreground" />
-			<div className="space-y-2">
-				<h1 className="font-medium text-base text-foreground">
-					Checking your profile
-				</h1>
-				<p className="text-muted-foreground text-sm">
-					OpenMeld is confirming which profile can open this Space.
-				</p>
-			</div>
-		</output>
-	);
+	return <SpaceLandingLoadingShell threadOpen={input.threadOpen} />;
 }
 
 function AppSpaceEntryShell(input: {
@@ -933,11 +938,18 @@ function AppSpaceEntryShell(input: {
 		);
 	}
 
+	// Before the Profile is verified, keep the same sidebar the route's pending
+	// frame shows so the layout does not drop and restore it.
 	return (
 		<SpaceWindowShell
 			initialOuterSidebarState={outerState}
 			initialSidebarState={innerState}
-			sidebarPreferenceKey="spaces"
+			sidebar={<ConversationsSidebar />}
+			sidebarPreferenceKey={
+				input.navigationSurface === "directMessages"
+					? "direct-messages"
+					: "spaces"
+			}
 		>
 			{content}
 		</SpaceWindowShell>
@@ -1018,6 +1030,7 @@ function RedirectToAppSpaceProfile(
 
 	return (
 		<AppSpaceEntryShell
+			conversationLayout
 			initialSidebarStates={input.initialSidebarStates}
 			navigationSurface={input.navigationSurface}
 			spaceId={input.spaceId}
@@ -1066,7 +1079,7 @@ function RedirectToCanonicalSpace(
 	]);
 
 	return (
-		<AppSpaceEntryShell spaceId={input.spaceId}>
+		<AppSpaceEntryShell conversationLayout spaceId={input.spaceId}>
 			<SpaceProfileCheckState
 				threadOpen={Boolean(input.focusThreadRootSignalId)}
 			/>
@@ -1113,7 +1126,7 @@ function RedirectToCanonicalDirectMessage(
 	]);
 
 	return (
-		<AppSpaceEntryShell spaceId={input.spaceId}>
+		<AppSpaceEntryShell conversationLayout spaceId={input.spaceId}>
 			<SpaceProfileCheckState
 				threadOpen={Boolean(input.focusThreadRootSignalId)}
 			/>
@@ -1162,12 +1175,16 @@ function resolveAppSpaceEntryRouteTo(
 }
 
 function buildAppSpaceRouteSearch(
-	input: AppSpaceFocusSearch & { profileId: string }
+	input: AppSpaceFocusSearch & {
+		profileId: string;
+		membersFocus?: SpaceMembersFocusSearch;
+	}
 ) {
 	return {
 		focusInteractionId: input.focusInteractionId,
 		focusSignalId: input.focusSignalId,
 		focusThreadRootSignalId: input.focusThreadRootSignalId,
 		profileId: input.profileId,
+		...pickSpaceMembersFocusSearch(input.membersFocus ?? {}),
 	};
 }

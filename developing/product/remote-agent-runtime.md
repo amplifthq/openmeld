@@ -263,6 +263,33 @@ is retained. Files persist; running processes, OS packages and browser login
 state are not promised to survive runtime recreation. Shared Organization or
 Space Computers, other providers and human desktop UI remain separate work.
 
+AgentComputer releases Workspace connections after two minutes without foreground
+activity, only when all command receipts are complete, confirmed lost, or exited
+with a terminal read-only synchronization refusal, no Git transfer is pending,
+and SDK synchronization is settled. A terminal refusal remains visible as a file
+sync failure; releasing the connection does not turn it into success. Paused collection,
+uncertain starts and foreground worker-shell commands are not idle evidence.
+This closes SDK heartbeats and sockets; it does not destroy the container,
+erase files, or impose a task execution deadline. A later request reconnects
+through the SDK. Processes must remain under the command owner's supervision;
+shell backgrounding must not bypass that lifecycle.
+Remote Workspace clients hold foreground activity until the SDK disposes their
+RPC target, including while a file stream or external callback is still pending.
+RPC event cleanup releases abandoned clients. The quiet period begins again
+when the last client is released.
+
+Git pack imports use the same retained command receipts as other native
+commands. Checkout keeps only the original receipt address; later calls poll
+that command, including from a later authorized turn. A lost launch response can
+be recovered by polling the original invocation and stable command key through
+the same authorization boundary. The Computer collector continues without
+checkout polling. Missing or uncertain results require inspection and never
+authorize a new import against the same working copy. A confirmed nonzero exit
+with settled synchronization may retry under a fresh retained receipt, bounded
+to three attempts. Concurrent polls choose the next attempt with compare-and-set.
+The winner admits that attempt before returning, so the next turn can recover
+an existing receipt rather than polling a key that has never started.
+
 The next Linux command must see synchronized file contents, existence and size.
 The native backend refreshes FUSE attributes using
 `COMPUTERD_FUSE_ATTR_TIMEOUT=0` and prevents file-data cache reuse across opens
@@ -1767,6 +1794,14 @@ the connected provider API.
    credential storage, and publication remain unchanged through the first
    Lark/Feishu releases; Slack moves behind the generic seam only in its
    separate parity-gated release.
+
+   Slack recovery retains the original event identity and `receivedAtMs` when a
+   fresh Queue message is necessary. Both native retries and fresh redrives wait
+   at least one quarter of the event's age, capped at one hour. New events keep
+   their existing short retry delays. This policy survives database outages and
+   Worker replacement without a new retry ledger; no unsettled event is
+   acknowledged until its successor is queued. It does not replay a delivery
+   whose publication outcome is unknown or replace the existing ingress claim.
 
 3. **Delivery = durable programmatic submission.** Core delivers a trigger
    through OpenMeld's worker RPC over a service binding. The worker admits the

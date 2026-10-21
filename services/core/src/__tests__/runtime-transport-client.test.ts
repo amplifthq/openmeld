@@ -1,3 +1,4 @@
+import type { PermissionModeAdvisory } from "@openmeld/schemas";
 import {
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   projectTargetWakeLifecycleIdentity,
@@ -564,6 +565,50 @@ describe("runtime transport split clients call fallback behavior", () => {
     });
 
     expect(request.payload.targetProfileIsCenterAgent).toBe(true);
+  });
+
+  it.each([
+    [true, true],
+    [false, false],
+    [undefined, false],
+  ])("carries the permission-mode advisory only for an owner-requested Wake (%s)", (requesterIsAgentOwner, carried) => {
+    const permissionModeAdvisory = {
+      currentPermissionMode: "claude-code:default",
+      currentPermissionModeLabel: "Ask permissions",
+      suggestedPermissionMode: "claude-code:acceptEdits",
+      suggestedPermissionModeLabel: "Accept edits",
+      topRequesterNames: ["Tali Chen"],
+      waitingApprovalCount: 3,
+      windowDays: 7,
+    } satisfies PermissionModeAdvisory;
+    const request = buildRuntimeTransportDeliverDispatchRequest({
+      attemptId: "attempt-1",
+      executionIdentity: createDeliveryExecutionIdentity(),
+      ownerUserId: "owner",
+      permissionModeAdvisory,
+      requesterIsAgentOwner,
+      route: {
+        online: true,
+        daemonSessionId: "session-1",
+        deviceId: "device-1",
+        lane: "dev-local",
+        connectionGeneration: 1,
+        leaseEpoch: 1,
+        lastHeartbeatMs: 1_700_000_000_000,
+        capabilities: { permissionModeAdvisoryPrompt: true },
+        executionCompatibility: COMPATIBLE_DAEMON_EXECUTION_COMPATIBILITY,
+      },
+      message: createDispatchQueueMessage(),
+      sourceSignal: {
+        text: "hello",
+        profileId: "hum-1",
+        profileKind: "human",
+      },
+      targetProfileName: "Codex Agent",
+    });
+    expect(request.payload.permissionModeAdvisory).toEqual(
+      carried ? permissionModeAdvisory : undefined
+    );
   });
 
   it("threads Organization information protection only when resolved for a capable service", () => {

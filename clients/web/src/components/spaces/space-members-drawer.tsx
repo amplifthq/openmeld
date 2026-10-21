@@ -3,6 +3,7 @@
 import { Drawer } from "@base-ui/react/drawer";
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
 import { parseAgentControllerRef } from "@openmeld/agent-runtime";
+import type { CreateSpaceAgentRequestResponse } from "@openmeld/schemas";
 import type {
 	AuthProfileView,
 	ModelCatalog,
@@ -54,17 +55,20 @@ import {
 	useState,
 } from "react";
 import { toast } from "sonner";
+import { SpaceAgentAccessSection } from "#/components/agent-access/agent-access-sections";
 import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
 import {
 	isActiveWalkthroughStep,
 	useWalkthrough,
 } from "#/components/onboarding/walkthrough/walkthrough-context";
+import { isMemberAgentsEnabled } from "#/lib/member-agents/member-agents-feature";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { SPACE_PANEL_WIDTH_METRICS } from "#/lib/spaces/panel-width-storage";
 import {
 	buildSpaceMemberDirectoryForStatusOrder,
 	filterSpaceMemberDirectory,
 } from "#/lib/spaces/presentation";
+import { useRequestAgentForSpace } from "#/query/agent-access";
 import {
 	organizationProfileDirectoryQueryOptions,
 	organizationQueryKeys,
@@ -86,6 +90,7 @@ import {
 	buildOrganizationDirectoryAddCandidates,
 	buildPersonalAddMemberGroups,
 	buildSelectableAddMemberProfileIds,
+	isAgentRequestCandidate,
 	type OrganizationDirectoryAddCandidates,
 	resolveEffectiveAddMemberProfileIds,
 	type SpaceAddMembersCandidateGroups,
@@ -159,6 +164,7 @@ type SpaceMembersSurfaceProps = {
 		AgentProfileReplyRecoveryPlan
 	>;
 	activeWakeDisplayTargetProfileIds?: ReadonlySet<string>;
+	activeWakeFolderWaitTargetProfileIds?: ReadonlySet<string>;
 	autoRefreshExhaustedProfileIds: ReadonlySet<string>;
 	activeWakeWaitingTargetProfileIds: ReadonlySet<string>;
 	centerAgentProfileId?: string | null;
@@ -166,6 +172,9 @@ type SpaceMembersSurfaceProps = {
 	currentProfileId: string;
 	displayWakeOverrideByProfileId?: WakeDisplayOverrideByProfileId;
 	isAgentRecoveryPending: (profileId: string) => boolean;
+	isDirectMessage?: boolean;
+	/** The Agent access row a link names; it scrolls into view. */
+	agentAccessHighlightId?: string | null;
 	isLoading: boolean;
 	membersError: string | null;
 	modelCatalog?: ModelCatalog | null;
@@ -297,11 +306,15 @@ export function SpaceMembersSidePanel(
 				activeWakeDisplayTargetProfileIds={
 					input.activeWakeDisplayTargetProfileIds
 				}
+				activeWakeFolderWaitTargetProfileIds={
+					input.activeWakeFolderWaitTargetProfileIds
+				}
 				activeWakeWaitingTargetProfileIds={
 					input.activeWakeWaitingTargetProfileIds
 				}
 				addMembersDialogId={model.addMembersDialogId}
 				addMembersTriggerRef={model.addMembersTriggerRef}
+				agentAccessHighlightId={input.agentAccessHighlightId ?? null}
 				agentProfileEditContext={input.agentProfileEditContext}
 				agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
 				autoRefreshExhaustedProfileIds={input.autoRefreshExhaustedProfileIds}
@@ -311,6 +324,7 @@ export function SpaceMembersSidePanel(
 				currentProfileId={input.currentProfileId}
 				displayWakeOverrideByProfileId={input.displayWakeOverrideByProfileId}
 				filteredDirectory={model.filteredDirectory}
+				isDirectMessage={input.isDirectMessage === true}
 				membersError={input.membersError}
 				modelCatalog={input.modelCatalog ?? null}
 				onAddMembersOpen={model.openAddMembers}
@@ -320,6 +334,7 @@ export function SpaceMembersSidePanel(
 				}
 				onAddProfiles={input.onAddProfiles}
 				onAgentRecoveryAction={input.onAgentRecoveryAction}
+				onClose={() => input.onOpenChange(false)}
 				onConvertDirectMessageToSpace={input.onConvertDirectMessageToSpace}
 				onQueryChange={model.setQuery}
 				onRefresh={input.onRefresh}
@@ -411,11 +426,15 @@ export function SpaceMembersDrawer(
 								activeWakeDisplayTargetProfileIds={
 									input.activeWakeDisplayTargetProfileIds
 								}
+								activeWakeFolderWaitTargetProfileIds={
+									input.activeWakeFolderWaitTargetProfileIds
+								}
 								activeWakeWaitingTargetProfileIds={
 									input.activeWakeWaitingTargetProfileIds
 								}
 								addMembersDialogId={model.addMembersDialogId}
 								addMembersTriggerRef={model.addMembersTriggerRef}
+								agentAccessHighlightId={input.agentAccessHighlightId ?? null}
 								agentProfileEditContext={input.agentProfileEditContext}
 								agentRecoveryPlansByProfileId={
 									input.agentRecoveryPlansByProfileId
@@ -431,6 +450,7 @@ export function SpaceMembersDrawer(
 									input.displayWakeOverrideByProfileId
 								}
 								filteredDirectory={model.filteredDirectory}
+								isDirectMessage={input.isDirectMessage === true}
 								membersError={input.membersError}
 								modelCatalog={input.modelCatalog ?? null}
 								onAddMembersOpen={model.openAddMembers}
@@ -440,6 +460,7 @@ export function SpaceMembersDrawer(
 								}
 								onAddProfiles={input.onAddProfiles}
 								onAgentRecoveryAction={input.onAgentRecoveryAction}
+								onClose={() => input.onOpenChange(false)}
 								onConvertDirectMessageToSpace={
 									input.onConvertDirectMessageToSpace
 								}
@@ -643,6 +664,7 @@ type SpaceMembersBodyProps = {
 		AgentProfileReplyRecoveryPlan
 	>;
 	activeWakeDisplayTargetProfileIds?: ReadonlySet<string>;
+	activeWakeFolderWaitTargetProfileIds?: ReadonlySet<string>;
 	activeWakeWaitingTargetProfileIds: ReadonlySet<string>;
 	autoRefreshExhaustedProfileIds: ReadonlySet<string>;
 	centerAgentProfileId: string | null;
@@ -650,9 +672,13 @@ type SpaceMembersBodyProps = {
 	currentProfileId: string;
 	displayWakeOverrideByProfileId?: WakeDisplayOverrideByProfileId;
 	filteredDirectory: ReturnType<typeof filterSpaceMemberDirectory> | null;
+	agentAccessHighlightId: string | null;
+	isDirectMessage: boolean;
 	membersError: string | null;
 	modelCatalog: ModelCatalog | null;
 	onAddMembersOpen: (trigger: HTMLElement) => void;
+	/** Closes the Members surface, so the composer is in reach. */
+	onClose: () => void;
 	onAgentRecoveryAction: (
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
@@ -773,6 +799,9 @@ function SpaceMembersBody(input: SpaceMembersBodyProps) {
 							activeWakeDisplayTargetProfileIds={
 								input.activeWakeDisplayTargetProfileIds
 							}
+							activeWakeFolderWaitTargetProfileIds={
+								input.activeWakeFolderWaitTargetProfileIds
+							}
 							activeWakeWaitingTargetProfileIds={
 								input.activeWakeWaitingTargetProfileIds
 							}
@@ -805,6 +834,14 @@ function SpaceMembersBody(input: SpaceMembersBodyProps) {
 							prepareSetupHref={input.prepareSetupHref}
 							query={input.query}
 							snapshot={input.snapshot}
+						/>
+						<SpaceAgentAccessSection
+							centerAgentProfileId={input.centerAgentProfileId}
+							highlightId={input.agentAccessHighlightId}
+							isDirectMessage={input.isDirectMessage}
+							onAskAgainInDirectMessage={input.onClose}
+							snapshot={input.snapshot}
+							spaceId={input.spaceId}
 						/>
 					</div>
 				</ScrollArea>
@@ -1096,10 +1133,26 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 			? selectedProfileIds
 			: activeSelection;
 	}, [selectableProfileIds, selectedProfileIds]);
+	const agentRequestsEnabled = isMemberAgentsEnabled();
 	const effectiveSelectedProfileIds = resolveEffectiveAddMemberProfileIds({
 		candidateGroups,
 		selectedProfileIds: activeSelectedProfileIds,
+		...(agentRequestsEnabled
+			? { agentRequestsFor: input.currentOwnerUserId }
+			: {}),
 	});
+	const requestAgent = useRequestAgentForSpace();
+	const agentRequestsFor = agentRequestsEnabled
+		? input.currentOwnerUserId
+		: undefined;
+	const requestedCount =
+		agentRequestsFor === undefined
+			? 0
+			: allCandidates.filter(
+					(candidate) =>
+						effectiveSelectedProfileIds.has(candidate.profileId) &&
+						isAgentRequestCandidate(candidate, agentRequestsFor)
+				).length;
 	const selectedCount = effectiveSelectedProfileIds.size;
 	const addition = useSpaceMemberAddition({
 		organizationId: organization?.id ?? "",
@@ -1165,12 +1218,32 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 			});
 			return Promise.resolve();
 		}
+		const selectedMembers = allCandidates.filter((candidate) =>
+			effectiveSelectedProfileIds.has(candidate.profileId)
+		);
+		const requestedAgents = agentRequestsEnabled
+			? selectedMembers.filter((candidate) =>
+					isAgentRequestCandidate(candidate, input.currentOwnerUserId)
+				)
+			: [];
+		if (requestedAgents.length > 0 && activeSpaceId) {
+			askOwnersForAgents({
+				agents: requestedAgents,
+				request: requestAgent.mutateAsync,
+				spaceId: activeSpaceId,
+			});
+		}
+		const members = selectedMembers.filter(
+			(candidate) => !requestedAgents.includes(candidate)
+		);
+		if (members.length === 0) {
+			handleOpenChange(false);
+			return Promise.resolve();
+		}
 		const request = {
 			spaceId: activeSpaceId ?? "",
-			directoryProfileIds: profileIds,
-			members: allCandidates.filter((candidate) =>
-				effectiveSelectedProfileIds.has(candidate.profileId)
-			),
+			directoryProfileIds: members.map((member) => member.profileId),
+			members,
 		};
 		if (
 			guidedRun &&
@@ -1283,6 +1356,8 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		setSelectedProfileIds,
 		successMessage,
 		selectedCount,
+		agentRequestsFor,
+		requestedCount,
 		toggleProfile,
 		usesOrganizationDirectory,
 	};
@@ -1299,6 +1374,7 @@ function SpaceAddProfilesSectionView({
 		<>
 			<SpaceAddProfilesDialog
 				addQuery={model.addQuery}
+				agentRequestsFor={model.agentRequestsFor}
 				candidateGroups={model.candidateGroups}
 				canSubmit={model.canSubmit}
 				dialogId={input.dialogId}
@@ -1348,6 +1424,7 @@ function SpaceAddProfilesSectionView({
 				open={input.open}
 				organizationName={model.organization?.name ?? "Organization"}
 				orgSlug={input.orgSlug}
+				requestedCount={model.requestedCount}
 				selectedCount={model.selectedCount}
 				selectedProfileIds={model.effectiveSelectedProfileIds}
 				snapshot={input.snapshot}
@@ -1407,6 +1484,9 @@ async function executeSpaceAddProfilesMutation(input: {
 }
 
 type SpaceAddProfilesDialogProps = {
+	// Set when choosing another member's Agent asks its owner.
+	agentRequestsFor?: string | null;
+	requestedCount: number;
 	onCreated: (
 		agent: SpaceAddMembersCandidateSummary,
 		selected: boolean
@@ -1502,6 +1582,31 @@ function pickerTutorialCopy(
 	};
 }
 
+/** Asks each Agent's owner; the Agent joins only once they agree. */
+function askOwnersForAgents(input: {
+	agents: readonly SpaceAddMembersCandidateSummary[];
+	request: (input: {
+		spaceId: string;
+		agentProfileId: string;
+	}) => Promise<CreateSpaceAgentRequestResponse>;
+	spaceId: string;
+}) {
+	for (const agent of input.agents) {
+		input
+			.request({ agentProfileId: agent.profileId, spaceId: input.spaceId })
+			.then((response) =>
+				toast.success(`Asked ${response.request.ownerName}`, {
+					description: `${agent.profileName} joins once they agree.`,
+				})
+			)
+			.catch((error: unknown) =>
+				toast.error(`Couldn't ask for ${agent.profileName}.`, {
+					description: error instanceof Error ? error.message : undefined,
+				})
+			);
+	}
+}
+
 function isOwnLocalAgent(
 	candidate: SpaceAddMembersCandidateSummary,
 	userId: string | null | undefined
@@ -1532,6 +1637,7 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 					/>
 				) : null
 			}
+			agentRequestsFor={input.agentRequestsFor}
 			candidateGroups={input.candidateGroups}
 			canSubmit={input.canSubmit}
 			description={
@@ -1601,6 +1707,7 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 
 function resolveAddMembersSubmitLabel(input: {
 	isSubmitting: boolean;
+	requestedCount: number;
 	selectedCount: number;
 }): string {
 	if (input.isSubmitting) {
@@ -1608,6 +1715,11 @@ function resolveAddMembersSubmitLabel(input: {
 	}
 	if (input.selectedCount === 0) {
 		return "Add selected";
+	}
+	if (input.requestedCount > 0) {
+		return input.requestedCount === input.selectedCount
+			? "Send request"
+			: "Add and send request";
 	}
 	return input.selectedCount === 1
 		? "Add 1 member"
@@ -1700,6 +1812,7 @@ function SpaceMembersList(input: {
 		AgentProfileReplyRecoveryPlan
 	>;
 	activeWakeDisplayTargetProfileIds?: ReadonlySet<string>;
+	activeWakeFolderWaitTargetProfileIds?: ReadonlySet<string>;
 	activeWakeWaitingTargetProfileIds: ReadonlySet<string>;
 	autoRefreshExhaustedProfileIds: ReadonlySet<string>;
 	centerAgentProfileId: string | null;
@@ -1819,21 +1932,20 @@ function SpaceMembersList(input: {
 				density="compact"
 				entriesByProfileId={entriesByProfileId}
 				entry={entry}
-				isAgentRecoveryPending={input.isAgentRecoveryPending(entry.profileId)}
 				isAgentWakeAvailabilityCheckPending={input.isAgentWakeAvailabilityCheckPending(
 					entry.profileId
 				)}
 				memberTransientState={resolveEntryMemberTransientState({
 					activeWakeDisplayTargetProfileIds,
+					activeWakeFolderWaitTargetProfileIds:
+						input.activeWakeFolderWaitTargetProfileIds,
 					entry,
 					memberTransientStatesByProfileId,
 				})}
 				modelCatalog={input.modelCatalog}
-				onAgentRecoveryAction={input.onAgentRecoveryAction}
 				onCheckAgentWakeAvailability={input.onCheckAgentWakeAvailability}
 				onRemoveFromSpace={removeMemberAction}
 				orgSlug={input.orgSlug}
-				prepareSetupHref={input.prepareSetupHref}
 				showAgentConnectionDetail={false}
 				variant="full"
 				wakeDisplayEntry={wakeDisplayEntry}
@@ -2024,6 +2136,7 @@ function buildRequiredAgentOwnerHumanProfileIds(input: {
 
 function resolveEntryMemberTransientState(input: {
 	activeWakeDisplayTargetProfileIds?: ReadonlySet<string>;
+	activeWakeFolderWaitTargetProfileIds?: ReadonlySet<string>;
 	entry: {
 		profileId: string;
 		profileKind: string;
@@ -2041,6 +2154,9 @@ function resolveEntryMemberTransientState(input: {
 		input.memberTransientStatesByProfileId.get(input.entry.profileId) ?? null;
 	if (memberTransientState) {
 		return memberTransientState;
+	}
+	if (input.activeWakeFolderWaitTargetProfileIds?.has(input.entry.profileId)) {
+		return "active_wake_waiting_for_folder";
 	}
 	if (
 		input.entry.presenceStatus !== "wakeable" &&

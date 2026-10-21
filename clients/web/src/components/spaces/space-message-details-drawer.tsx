@@ -1,4 +1,5 @@
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
+import { resolvePublicAgentFailureRecovery } from "@openmeld/schemas";
 import type {
 	GetSpaceMessageDetailsResponse,
 	SpaceMessageDetailsStringFact,
@@ -32,6 +33,7 @@ import { toast } from "sonner";
 import { Drawer } from "vaul";
 import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import { copyTextToClipboard } from "#/lib/clipboard";
+import type { FolderContinueSource } from "#/lib/spaces/continue-in-default-folder";
 import {
 	isSpaceOutcomeNoticeItem,
 	type SpaceTimelineItem,
@@ -47,6 +49,7 @@ import type {
 } from "#/lib/spaces/wake-progress-presentation";
 import type { SpaceWakeStopTargetResolution } from "#/lib/spaces/wake-stop-target";
 import { spaceMessageDetailsQueryOptions } from "#/query/spaces/message-details";
+import { FolderContinueProvider } from "./continue-in-default-folder-action";
 import { OpenMeldSystemIcon } from "./openmeld-system-icon";
 import {
 	type SpaceAgentProfileBindingRecoveryPlan,
@@ -313,6 +316,7 @@ export function SpaceMessageDetailsDrawer(input: {
 								targetProfileDisplayNamesByProfileId={
 									input.targetProfileDisplayNamesByProfileId
 								}
+								threadId={input.threadId}
 								wakeFailureTargetContextsByProfileId={
 									input.wakeFailureTargetContextsByProfileId
 								}
@@ -333,6 +337,8 @@ function MessageDetailsBody(input: {
 	profileId?: string;
 	spaceId: string;
 	spacePassword?: string;
+	/** The thread the drawer opened in; a continuation stays there. */
+	threadId?: string;
 	agentRecoveryPlansByProfileId?: ReadonlyMap<
 		string,
 		AgentProfileReplyRecoveryPlan
@@ -420,73 +426,86 @@ function MessageDetailsBody(input: {
 		item: primaryOutcomeNotice ?? input.item,
 	});
 	return (
-		<div className="flex flex-col gap-5">
-			<OriginalErrorsSection wakeContext={data.wakeContext} />
-			{data.delegations ? (
-				<SpaceMessageDelegations
+		<FolderContinueProvider
+			value={{
+				profileId: input.profileId,
+				source: buildFolderContinueSource({
+					item: input.item,
+					replyContext: data.replyContext,
+					threadId: input.threadId ?? null,
+				}),
+				spaceId: input.spaceId,
+				spacePassword: input.spacePassword,
+			}}
+		>
+			<div className="flex flex-col gap-5">
+				<OriginalErrorsSection wakeContext={data.wakeContext} />
+				{data.delegations ? (
+					<SpaceMessageDelegations
+						canJumpToMessage={input.canJumpToMessage}
+						data={data.delegations}
+						onJumpToMessage={input.onJumpToMessage}
+						onWakeStopRequest={input.onWakeStopRequest}
+						openMeldProfileId={input.profileId}
+						profileNames={input.targetProfileDisplayNamesByProfileId}
+						signalId={input.item.id}
+						spaceId={input.spaceId}
+						spacePassword={input.spacePassword}
+					/>
+				) : null}
+				{data.wakeContext.targets.some((target) => target.taskContext) ? (
+					<SpaceMessageTaskContext
+						canStartNewTask={input.canStartNewTask}
+						data={data}
+						profileId={input.profileId}
+						spaceId={input.spaceId}
+						spacePassword={input.spacePassword}
+					/>
+				) : null}
+				<ActivitySection
+					actionNotices={actionNotices}
+					agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
 					canJumpToMessage={input.canJumpToMessage}
-					data={data.delegations}
+					entries={input.wakeIssueEntries}
+					isAgentRecoveryPending={input.isAgentRecoveryPending}
+					isPersonalContext={input.isPersonalContext}
+					items={presentation.activityItems}
+					notices={presentation.wakeFailureNoticeItems}
+					onAgentRecoveryAction={input.onAgentRecoveryAction}
 					onJumpToMessage={input.onJumpToMessage}
+					onRecoverExecution={input.onRecoverExecution}
 					onWakeStopRequest={input.onWakeStopRequest}
-					openMeldProfileId={input.profileId}
-					profileNames={input.targetProfileDisplayNamesByProfileId}
-					signalId={input.item.id}
-					spaceId={input.spaceId}
-					spacePassword={input.spacePassword}
+					orgSlug={input.orgSlug}
+					prepareSetupHref={input.prepareSetupHref}
+					replyContext={data.replyContext}
+					sourceItem={input.item}
+					spaceReferencesById={spaceReferencesById}
+					targetProfileDisplayNamesByProfileId={
+						input.targetProfileDisplayNamesByProfileId
+					}
+					wakeFailureTargetContextsByProfileId={
+						input.wakeFailureTargetContextsByProfileId
+					}
+					wakeStopTarget={input.wakeStopTarget}
 				/>
-			) : null}
-			{data.wakeContext.targets.some((target) => target.taskContext) ? (
-				<SpaceMessageTaskContext
-					canStartNewTask={input.canStartNewTask}
-					data={data}
-					profileId={input.profileId}
-					spaceId={input.spaceId}
-					spacePassword={input.spacePassword}
+				<MessageLinkSection messageLink={input.messageLink} />
+				<SourceNotLoadedSection
+					canJumpToMessage={input.canJumpToMessage}
+					item={input.item}
 				/>
-			) : null}
-			<ActivitySection
-				actionNotices={actionNotices}
-				agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
-				canJumpToMessage={input.canJumpToMessage}
-				entries={input.wakeIssueEntries}
-				isAgentRecoveryPending={input.isAgentRecoveryPending}
-				isPersonalContext={input.isPersonalContext}
-				items={presentation.activityItems}
-				notices={presentation.wakeFailureNoticeItems}
-				onAgentRecoveryAction={input.onAgentRecoveryAction}
-				onJumpToMessage={input.onJumpToMessage}
-				onRecoverExecution={input.onRecoverExecution}
-				onWakeStopRequest={input.onWakeStopRequest}
-				orgSlug={input.orgSlug}
-				prepareSetupHref={input.prepareSetupHref}
-				replyContext={data.replyContext}
-				sourceItem={input.item}
-				spaceReferencesById={spaceReferencesById}
-				targetProfileDisplayNamesByProfileId={
-					input.targetProfileDisplayNamesByProfileId
-				}
-				wakeFailureTargetContextsByProfileId={
-					input.wakeFailureTargetContextsByProfileId
-				}
-				wakeStopTarget={input.wakeStopTarget}
-			/>
-			<MessageLinkSection messageLink={input.messageLink} />
-			<SourceNotLoadedSection
-				canJumpToMessage={input.canJumpToMessage}
-				item={input.item}
-			/>
-			<TechnicalDetailsSection
-				detailsId={technicalDetailsId}
-				fields={technicalDetailFields}
-			/>
-			<DiagnosticReportSection
-				errorLogMessage={input.errorLogMessage}
-				isPending={input.diagnosticReportStatus === "pending"}
-				isSent={input.diagnosticReportStatus === "sent"}
-				item={input.item}
-				onReportMessage={input.onReportMessage}
-			/>
-		</div>
+				<TechnicalDetailsSection
+					detailsId={technicalDetailsId}
+					fields={technicalDetailFields}
+				/>
+				<DiagnosticReportSection
+					errorLogMessage={input.errorLogMessage}
+					isPending={input.diagnosticReportStatus === "pending"}
+					isSent={input.diagnosticReportStatus === "sent"}
+					item={input.item}
+					onReportMessage={input.onReportMessage}
+				/>
+			</div>
+		</FolderContinueProvider>
 	);
 }
 
@@ -1014,10 +1033,6 @@ function resolveNoticeRecoveryPresentation(input: {
 		input.notice.systemNoticeType === "terminal_failure" && targetProfileId
 			? (input.agentRecoveryPlansByProfileId?.get(targetProfileId) ?? null)
 			: null;
-	const currentAction =
-		currentPlan && currentPlan.kind !== "none"
-			? ({ kind: "agent_recovery", plan: currentPlan } as const)
-			: null;
 	const reasonCode = input.notice.systemNoticeReasonCode?.trim();
 	const targetLabel = targetProfileId
 		? (input.targetProfileDisplayNamesByProfileId?.get(targetProfileId) ??
@@ -1032,7 +1047,37 @@ function resolveNoticeRecoveryPresentation(input: {
 			failureReasonCode: reasonCode,
 			targetLabel,
 		});
+	const currentAction =
+		currentPlan && currentPlan.kind !== "none"
+			? ({ kind: "agent_recovery", plan: currentPlan } as const)
+			: resolveSessionFolderAction({ reasonCode, targetLabel });
 	return { action: currentAction, body };
+}
+
+/**
+ * A Session keeps its folder (smoke R5-01). When its folder is no longer the
+ * Agent's, the failure offers to continue the chat in a new Session in the
+ * current default folder. The action itself renders only for the owner.
+ */
+function resolveSessionFolderAction(input: {
+	reasonCode: string | undefined;
+	targetLabel: string;
+}): SpaceMessageWakeIssueEntry["action"] {
+	const recovery = resolvePublicAgentFailureRecovery({
+		errorCode: input.reasonCode,
+		targetLabel: input.targetLabel,
+	});
+	return recovery?.recoveryTarget === "session_folder"
+		? {
+				display: {
+					actionTarget: recovery.recoveryTarget,
+					body: recovery.body,
+					primaryActionId: recovery.primaryActionId,
+					primaryActionLabel: recovery.primaryActionLabel,
+				},
+				kind: "wake_failure",
+			}
+		: null;
 }
 
 function WakeQuotaReset(input: {
@@ -1595,4 +1640,41 @@ function resolveDiagnosticReportButtonText(input: {
 		return "Issue reported";
 	}
 	return input.isPending ? "Sending report..." : "Send report";
+}
+
+/** Only the requester's own sent message can be continued from here. */
+function buildFolderContinueSource(input: {
+	item: SpaceTimelineItem;
+	replyContext: GetSpaceMessageDetailsResponse["replyContext"];
+	threadId: string | null;
+}): FolderContinueSource | null {
+	const item = input.item;
+	if (
+		item.signalType === "signal.text" &&
+		item.actorProfileKind === "human" &&
+		item.deliveryState === "sent" &&
+		!item.recalledAt &&
+		item.text.trim()
+	) {
+		return {
+			sourceSignalId: item.id,
+			text: item.text,
+			threadId: input.threadId,
+		};
+	}
+	// The failure notice itself is open, for example when its request is not
+	// in loaded history: continue the request it answers.
+	if (
+		item.signalType === "signal.system_notice" &&
+		item.systemNoticeType === "terminal_failure" &&
+		item.replyToSignalId
+	) {
+		const preview = input.replyContext.previewText;
+		return {
+			sourceSignalId: item.replyToSignalId,
+			text: preview.state === "recorded" ? (preview.value ?? "") : "",
+			threadId: input.threadId,
+		};
+	}
+	return null;
 }

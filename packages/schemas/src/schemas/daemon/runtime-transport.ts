@@ -14,6 +14,7 @@ import {
   localAgentReasoningStateSchema,
 } from "../http/local-agent-reasoning";
 import { organizationProtectedInformationSchema } from "../http/organization-information-protection";
+import { permissionModeAdvisorySchema } from "../http/permission-mode-advisor";
 import { spaceMentionLabelSchema } from "../http/space-mention-label";
 import { spacePasswordSchema } from "../http/space-password";
 import { postSpaceWakeStopResponseSchema } from "../http/space-wake-stop";
@@ -47,6 +48,7 @@ import {
   profileHandleSchema,
   profileWorkspaceWriteSchema,
 } from "../protocol/profile";
+import { profileFolderOperationSchema } from "../protocol/profile-folders";
 import { targetWakeLifecycleIdentitySchema } from "../protocol/target-wake-lifecycle";
 import { workingLanguageGuidanceSchema } from "../runtime/working-language";
 import { spaceContractSchema } from "../space-mesh/space-contract";
@@ -91,6 +93,11 @@ import {
   runtimeTransportRuntimeEvidenceIdentityEchoSchema,
 } from "./execution-identity";
 import { localFolderPickerRuntimeCapabilitySchema } from "./local-folder-picker";
+import {
+  openMeldDaemonManageProfileFoldersPayloadSchema,
+  openMeldDaemonManageProfileFoldersRequestPayloadSchema,
+  profileFolderProjectionRecordSchema,
+} from "./profile-folder-control";
 import { daemonRuntimeAdapterCapabilitySnapshotSchema } from "./provider-runtime-capability";
 import { runtimeCoordinatorExecutionRecordSchema } from "./runtime-coordinator-execution";
 import {
@@ -472,7 +479,12 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
   agentReplyContextReview: z.literal(true).optional(),
   informationProtectionPrompt: z.literal(true).optional(),
   workingLanguagePrompt: z.literal(true).optional(),
+  // The Service renders Core's permission-mode advisory block in the task prompt.
+  permissionModeAdvisoryPrompt: z.literal(true).optional(),
   verifiedRequesterContext: z.literal(true).optional(),
+  // The Service runs a Wake marked separateRequesterConversation in a
+  // conversation of its own (member-agent-program.md §4.3).
+  requesterConversationIsolation: z.literal(true).optional(),
   localAgentInteraction: z.literal(true).optional(),
   profileConfigurationRevision: z.literal(true).optional(),
   localComponents: localComponentsStatusSchema.optional(),
@@ -492,6 +504,8 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
       setProfileWorkspace: z.literal(true).optional(),
       readProfileWorkspace: z.literal(true).optional(),
       initializeProfileWorkspace: z.literal(true).optional(),
+      manageProfileFolders: z.literal(true).optional(),
+      repairProfileFolders: z.literal(true).optional(),
     })
     .optional(),
   localProjectControl: z
@@ -968,6 +982,54 @@ export const runtimeTransportReadProfileWorkspaceResponseSchema =
     }),
   ]);
 
+export const runtimeTransportManageProfileFoldersRequestSchema = z.strictObject(
+  {
+    v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
+    ownerUserId: z.string().min(1),
+    deviceId: z.string().min(1),
+    lane: daemonServiceLaneSchema,
+    targetProfileId: agentProfileIdSchema,
+    operation: profileFolderOperationSchema,
+  }
+);
+
+export const runtimeTransportManageProfileFoldersResponseSchema =
+  z.discriminatedUnion("status", [
+    z.strictObject({
+      status: z.literal("accepted"),
+      payload: openMeldDaemonManageProfileFoldersPayloadSchema,
+      record: profileFolderProjectionRecordSchema,
+    }),
+    z.strictObject({
+      status: z.literal("rejected"),
+      reasonCode: z.string().min(1),
+      message: z.string().min(1),
+    }),
+  ]);
+
+export const runtimeTransportReadProfileFolderProjectionRequestSchema =
+  z.strictObject({
+    v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
+    ownerUserId: z.string().min(1),
+    deviceId: z.string().min(1),
+    lane: daemonServiceLaneSchema,
+    targetProfileId: agentProfileIdSchema,
+  });
+
+export const runtimeTransportReadProfileFolderProjectionResponseSchema =
+  z.discriminatedUnion("status", [
+    z.strictObject({
+      status: z.literal("found"),
+      record: profileFolderProjectionRecordSchema,
+    }),
+    z.strictObject({ status: z.literal("not_recorded") }),
+    z.strictObject({
+      status: z.literal("rejected"),
+      reasonCode: z.string().min(1),
+      message: z.string().min(1),
+    }),
+  ]);
+
 const agentSessionForkOperationSchema = z.strictObject({
   agentControllerRef: agentControllerRefSchema,
   operationId: z.string().trim().min(1).max(256),
@@ -1039,6 +1101,12 @@ export const runtimeTransportLocalAgentControlReadProfileWorkspaceFramePayloadSc
     payload: openMeldDaemonReadProfileWorkspaceRequestPayloadSchema,
   });
 
+export const runtimeTransportLocalAgentControlManageProfileFoldersFramePayloadSchema =
+  z.strictObject({
+    requestId: z.string().min(1),
+    payload: openMeldDaemonManageProfileFoldersRequestPayloadSchema,
+  });
+
 export const runtimeTransportLocalAgentControlCancelFramePayloadSchema =
   z.strictObject({
     requestId: z.string().min(1),
@@ -1059,6 +1127,7 @@ export const runtimeTransportLocalAgentControlResultFramePayloadSchema =
       openMeldDaemonSetLocalAgentEnabledPayloadSchema,
       openMeldDaemonSetProfileWorkspacePayloadSchema,
       openMeldDaemonReadProfileWorkspacePayloadSchema,
+      openMeldDaemonManageProfileFoldersPayloadSchema,
       openMeldDaemonSyncRouteCatalogPayloadSchema,
       openMeldDaemonCancelPayloadSchema,
       openMeldDaemonInterruptPayloadSchema,
@@ -1239,6 +1308,10 @@ export const runtimeTransportDispatchSourceSignalSchema = z.strictObject({
 export const runtimeTransportDeliverDispatchPayloadSchema = z.strictObject({
   // Core identity/delegation projection for this Wake, never a permission grant.
   requesterIsAgentOwner: z.boolean().optional(),
+  // A colleague's Wake on a harness without Execution Contexts: never resume
+  // or record the Binding or ledger conversation (§4.3). Core sends it only
+  // to a Service that declares requesterConversationIsolation.
+  separateRequesterConversation: z.literal(true).optional(),
   runtimeCoordinatorExecutionId:
     runtimeCoordinatorExecutionRecordSchema.shape.runtimeCoordinatorExecutionId,
   executionToken: runtimeCoordinatorExecutionTokenEnvelopeSchema.optional(),
@@ -1255,6 +1328,8 @@ export const runtimeTransportDeliverDispatchPayloadSchema = z.strictObject({
   organizationProtectedInformation:
     organizationProtectedInformationSchema.optional(),
   workingLanguage: workingLanguageGuidanceSchema.optional(),
+  // Only for a Wake Core verified as owner-requested; never a permission grant.
+  permissionModeAdvisory: permissionModeAdvisorySchema.optional(),
   dispatchContractVersion: z.number().int().positive(),
   dispatchPolicy: runtimeDispatchPolicySchema,
   controllerSnapshot: openMeldDaemonDispatchControllerSnapshotSchema,
@@ -2446,6 +2521,7 @@ export const daemonStreamCodeSchema = z.enum([
   "daemon.local_agent_control.set_enabled",
   "daemon.local_agent_control.set_profile_workspace",
   "daemon.local_agent_control.read_profile_workspace",
+  "daemon.local_agent_control.manage_profile_folders",
   "daemon.local_agent_control.result",
   "daemon.openmeld_tools_control.request",
   "daemon.openmeld_tools_control.result",

@@ -1,3 +1,5 @@
+import { getAgentControllerPermissionModeDisplayMetadata } from "@openmeld/agent-runtime";
+import type { PermissionModeSuggestion } from "@openmeld/schemas";
 import type {
 	PluginActionRequestView,
 	WakeProgressItem,
@@ -31,6 +33,10 @@ import {
 	listActionablePendingAgentInteractions,
 	resolveSpacePendingAgentActionIdentity,
 } from "./space-pending-agent-action-model";
+import {
+	type PermissionModeSuggestionResolveHandler,
+	SpacePermissionModeSuggestionCard,
+} from "./space-permission-mode-suggestion-card";
 
 type PendingAgentActionsProps = {
 	items: readonly WakeProgressItem[];
@@ -40,7 +46,11 @@ type PendingAgentActionsProps = {
 	initialInteractionIdentity?: string;
 	onOpenRequestThread?: (item: WakeProgressItem) => void;
 	onPermissionModeUpdate?: SpaceAgentPermissionModeUpdateHandler;
+	onResolvePermissionModeSuggestion?: PermissionModeSuggestionResolveHandler;
+	/** Agent Profiles whose settings the viewer may change (their own). */
+	editableAgentProfileIds?: ReadonlySet<string>;
 	onRespond?: SpaceAgentInteractionResponseHandler;
+	permissionModeSuggestions?: readonly PermissionModeSuggestion[];
 	permissionModeOptionsByProfileId?: ReadonlyMap<
 		string,
 		readonly SpaceAgentPermissionModeOption[]
@@ -55,6 +65,11 @@ type PendingAction = {
 } & (
 	| { kind: "local"; item: WakeProgressItem }
 	| { kind: "plugin"; request: PluginActionRequestView }
+	| {
+			kind: "permission_mode_suggestion";
+			suggestedOption: SpaceAgentPermissionModeOption;
+			suggestion: PermissionModeSuggestion;
+	  }
 );
 
 function listPendingActions(input: PendingAgentActionsProps): PendingAction[] {
@@ -79,7 +94,49 @@ function listPendingActions(input: PendingAgentActionsProps): PendingAction[] {
 					request,
 				})
 			),
+		...listActionablePermissionModeSuggestions(input),
 	].sort((left, right) => left.requestedAt - right.requestedAt);
+}
+
+// A suggestion is actionable only for an Agent the viewer can edit (its
+// owner) and only for a mode that needs no explicit confirmation.
+function listActionablePermissionModeSuggestions(
+	input: PendingAgentActionsProps
+): PendingAction[] {
+	if (
+		!(input.onPermissionModeUpdate && input.onResolvePermissionModeSuggestion)
+	) {
+		return [];
+	}
+	return (input.permissionModeSuggestions ?? []).flatMap(
+		(suggestion): PendingAction[] => {
+			if (!input.editableAgentProfileIds?.has(suggestion.agentProfileId)) {
+				return [];
+			}
+			const metadata = getAgentControllerPermissionModeDisplayMetadata(
+				suggestion.suggestedPermissionMode
+			);
+			if (metadata.requiresExplicitConfirmation) {
+				return [];
+			}
+			const suggestedOption: SpaceAgentPermissionModeOption = {
+				description: metadata.description,
+				label: metadata.label,
+				permissionMode: suggestion.suggestedPermissionMode,
+				requiresExplicitConfirmation: false,
+			};
+			return [
+				{
+					identity: `permission-mode-suggestion:${suggestion.suggestionId}`,
+					kind: "permission_mode_suggestion",
+					requestedAt: suggestion.offeredAtMs,
+					suggestedOption,
+					suggestion,
+					targetLabel: `Permission mode: ${metadata.label}`,
+				},
+			];
+		}
+	);
 }
 
 // Agents keep a request pending until they actually resume. Treat the owner's
@@ -114,10 +171,22 @@ export function SpacePendingAgentActions(input: PendingAgentActionsProps) {
 	const actionableItems = useMemo(
 		() =>
 			listPendingActions({
+				editableAgentProfileIds: input.editableAgentProfileIds,
 				items: input.items,
+				onPermissionModeUpdate: input.onPermissionModeUpdate,
+				onResolvePermissionModeSuggestion:
+					input.onResolvePermissionModeSuggestion,
+				permissionModeSuggestions: input.permissionModeSuggestions,
 				pluginRequests: input.pluginRequests,
 			}),
-		[input.items, input.pluginRequests]
+		[
+			input.editableAgentProfileIds,
+			input.items,
+			input.onPermissionModeUpdate,
+			input.onResolvePermissionModeSuggestion,
+			input.permissionModeSuggestions,
+			input.pluginRequests,
+		]
 	);
 	const [isOpen, setIsOpen] = useState(
 		Boolean(input.initialInteractionIdentity)
@@ -301,18 +370,26 @@ export function SpacePendingAgentActions(input: PendingAgentActionsProps) {
 				aria-controls={panelId}
 				aria-expanded={isSurfaceOpen}
 				aria-label={triggerLabel}
-				className="h-auto min-h-10 w-full justify-start gap-2 rounded-none rounded-t-[calc(1rem-1px)] border-0 px-3 py-2 text-left aria-expanded:bg-transparent aria-expanded:hover:bg-muted dark:aria-expanded:hover:bg-muted/50"
+				// One line, as tall as a queued message row: the count stays whole,
+				// the Agent name truncates, the chevron keeps the far right.
+				className="h-10 min-h-10 w-full justify-start gap-2 rounded-none rounded-t-[calc(1rem-1px)] border-0 px-3 py-0 text-left aria-expanded:bg-transparent aria-expanded:hover:bg-muted dark:aria-expanded:hover:bg-muted/50"
 				onClick={toggleSurface}
 				ref={triggerRef}
 				type="button"
 				variant="ghost"
 			>
 				<SpaceAgentOrb state="listening" />
-				<span className="min-w-0 flex-1">
-					<span aria-live="polite" className="block font-medium text-sm">
+				<span className="flex min-w-0 flex-1 items-baseline gap-1.5 text-sm">
+					<span aria-live="polite" className="shrink-0 font-medium">
 						{triggerLabel}
 					</span>
-					<span className="block truncate text-muted-foreground text-xs">
+					<span aria-hidden="true" className="shrink-0 text-muted-foreground">
+						·
+					</span>
+					<span
+						className="min-w-0 truncate font-normal text-muted-foreground"
+						data-slot="pending-agent-action-target"
+					>
 						{selectedItem.targetLabel}
 					</span>
 				</span>
@@ -387,6 +464,28 @@ function PendingActionContent({
 	onSubmitStarted: () => void;
 	restoredFailure?: SpaceAgentInteractionFailure;
 }) {
+	if (action.kind === "permission_mode_suggestion") {
+		const onPermissionModeUpdate = input.onPermissionModeUpdate;
+		const onResolve = input.onResolvePermissionModeSuggestion;
+		if (!(onPermissionModeUpdate && onResolve)) {
+			return null;
+		}
+		return (
+			<SpacePermissionModeSuggestionCard
+				onPermissionModeUpdate={onPermissionModeUpdate}
+				onResolve={onResolve}
+				onSubmitFailed={onSubmitFailed}
+				onSubmitStarted={onSubmitStarted}
+				restoredFailure={
+					restoredFailure && "errorMessage" in restoredFailure
+						? restoredFailure
+						: undefined
+				}
+				suggestedOption={action.suggestedOption}
+				suggestion={action.suggestion}
+			/>
+		);
+	}
 	if (action.kind === "plugin") {
 		if (action.request.sourceThreadId && input.onOpenPluginRequestThread) {
 			return (

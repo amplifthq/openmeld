@@ -167,7 +167,7 @@ export const inboxItems = applicationTable(
     ),
     check(
       "inbox_items_kind_check",
-      sql`"kind" in ('space_joined', 'space_message', 'space_reference', 'space_mention', 'agent_reply', 'agent_interaction', 'wake_outcome', 'center_agent_update', 'center_agent_task', 'document_review', 'organization_request', 'system_issue', 'computer_connection', 'desktop_update')`
+      sql`"kind" in ('space_joined', 'space_message', 'space_reference', 'space_mention', 'agent_reply', 'agent_interaction', 'wake_outcome', 'center_agent_update', 'center_agent_task', 'document_review', 'organization_request', 'agent_access_request', 'agent_space_request', 'credential_confirmation', 'system_issue', 'computer_connection', 'desktop_update')`
     ),
     check(
       "inbox_items_attention_check",
@@ -179,7 +179,7 @@ export const inboxItems = applicationTable(
     ),
     check(
       "inbox_items_source_kind_check",
-      sql`"source_kind" in ('space_signal', 'runtime_coordinator_interaction', 'remote_agent_native_delivery', 'remote_agent_native_interaction', 'center_agent_task_event', 'organization_document_draft', 'organization_opportunity', 'organization_member_request', 'agent_profile_work_recovery', 'system_attention_event', 'computer_connection', 'desktop_update')`
+      sql`"source_kind" in ('space_signal', 'runtime_coordinator_interaction', 'remote_agent_native_delivery', 'remote_agent_native_interaction', 'center_agent_task_event', 'organization_document_draft', 'organization_opportunity', 'organization_member_request', 'agent_profile_work_recovery', 'agent_access_request', 'credential_confirmation', 'system_attention_event', 'computer_connection', 'desktop_update')`
     ),
     check(
       "inbox_items_resolution_check",
