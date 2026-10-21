@@ -657,6 +657,15 @@ describe("profile workspace service", () => {
       });
 
       await expect(readLocalMetaFile(openMeldProfileId)).resolves.toEqual({
+        defaultFolderId: expect.any(String),
+        foldersRevision: 2, // ensured twice
+        folders: [
+          {
+            displayName: "OpenMeld folder",
+            id: expect.any(String),
+            kind: "openmeld_managed",
+          },
+        ],
         openMeldProfileId,
         updatedAt: expect.any(String),
         v: 2,
@@ -740,6 +749,22 @@ describe("profile workspace service", () => {
       });
 
       await expect(readLocalMetaFile(openMeldProfileId)).resolves.toEqual({
+        defaultFolderId: expect.any(String),
+        foldersRevision: 1,
+        // The previous managed choice stays listed next to the new default.
+        folders: [
+          {
+            displayName: "OpenMeld folder",
+            id: expect.any(String),
+            kind: "openmeld_managed",
+          },
+          {
+            displayName: "repo-b",
+            id: expect.any(String),
+            kind: "custom",
+            path: customWorkspacePath,
+          },
+        ],
         openMeldProfileId,
         diagnostics: {
           lastCheckedAt: "2026-04-12T23:59:59.000Z",
@@ -785,6 +810,16 @@ describe("profile workspace service", () => {
       });
 
       await expect(readLocalMetaFile(openMeldProfileId)).resolves.toEqual({
+        defaultFolderId: expect.any(String),
+        foldersRevision: 1,
+        folders: [
+          {
+            displayName: "migrated-custom",
+            id: expect.any(String),
+            kind: "custom",
+            path: "/tmp/migrated-custom",
+          },
+        ],
         openMeldProfileId,
         updatedAt: expect.any(String),
         v: 2,
@@ -972,6 +1007,15 @@ describe("profile workspace service", () => {
         ).rejects.toSatisfy((error: unknown) => isOpenMeldLockError(error));
 
         await expect(readLocalMetaFile(openMeldProfileId)).resolves.toEqual({
+          defaultFolderId: expect.any(String),
+          foldersRevision: 1,
+          folders: [
+            {
+              displayName: "OpenMeld folder",
+              id: expect.any(String),
+              kind: "openmeld_managed",
+            },
+          ],
           openMeldProfileId,
           updatedAt: expect.any(String),
           v: 2,

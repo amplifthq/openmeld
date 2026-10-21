@@ -32,9 +32,22 @@ type OrganizationSessionLike = {
 const ORGANIZATION_APP_DETAIL_PATH_PATTERN =
 	/^\/o\/([^/]+)\/(?:center-agent\/)?plugins\/[^/]+$/u;
 
-export function resolvePublicLoginRedirectTarget(routeFamily: string): string {
+/**
+ * Where login returns to: the signed-out deep link itself, search included
+ * (for example an Agent's memberAgentId). Plugin details return to the
+ * Plugins page, so provider names stay out of the public login URL.
+ */
+export function resolvePublicLoginRedirectTarget(
+	routeFamily: string,
+	search = ""
+): string {
 	const match = ORGANIZATION_APP_DETAIL_PATH_PATTERN.exec(routeFamily);
-	return match?.[1] ? buildOrganizationPluginsPath(match[1]) : routeFamily;
+	if (match?.[1]) {
+		return buildOrganizationPluginsPath(match[1]);
+	}
+	const query =
+		search.length === 0 || search.startsWith("?") ? search : `?${search}`;
+	return `${routeFamily}${query}`;
 }
 
 function readActiveOrganizationId(session: {

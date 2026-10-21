@@ -77,6 +77,7 @@
       "includes": [
         "services/gateway/src/lib/openconnector-client.ts",
         "services/gateway/src/lib/slack-oauth-client.ts",
+        "services/gateway/src/routes/rpc-http.permission-mode-suggestions.ts",
         "services/remote-agent/agent-core/center-agent-session-title.ts",
         "services/remote-agent/agent-core/image-understanding.ts",
         "services/remote-agent/agent-core/tools.ts",

@@ -50,6 +50,7 @@ import {
 } from "../flue-adapter/computer-invocations";
 import {
   assertComputerMutationCanContinue,
+  authorizeComputerObservation,
   createComputerRecoveryTool,
 } from "../flue-adapter/computer-recovery";
 import { cancelFlueRemoteAgentExecution } from "../flue-adapter/execution-cancellation";
@@ -59,6 +60,7 @@ import {
   useRemoteAgentExecutionFinish,
 } from "../flue-adapter/execution-finish";
 import { reconcileRemoteAgentExecution } from "../flue-adapter/execution-reconciliation";
+import { advanceGitPackTransfer } from "../flue-adapter/github-working-copy-transfer";
 import { extractAssistantText } from "../flue-adapter/observation";
 import {
   executeRemoteAgentToolDefinition,
@@ -256,7 +258,193 @@ function fixture(databasePath = ":memory:") {
   };
 }
 
+function gitImportInput(f: ReturnType<typeof fixture>) {
+  return {
+    storage: f.storage,
+    workspaceAccess: {
+      ...f.workspaceAccess,
+      computerOperation: async (
+        request: import("@openmeld/schemas").CloudComputerOperation
+      ) => {
+        if (request.action !== "command") {
+          throw new Error("Expected command");
+        }
+        return await f.tool(request.invocationId).execute(request.command);
+      },
+    },
+    invocationId: "git-import",
+    operationId: "checkout",
+    packPath: "/computer/transfer/pack-1.pack",
+    location: {
+      directory: "/computer/repo",
+      transportDirectory: "/computer/transfer",
+      manifestDigest: "a".repeat(64),
+      sourceCommit: "a".repeat(40),
+      sourceTree: "b".repeat(40),
+      baselineBranch: "main",
+      baselineCommit: "c".repeat(40),
+      baselineTree: "d".repeat(40),
+      baselineManifestDigest: "e".repeat(64),
+    },
+    expiresAtMs: Date.now() + 3_600_000,
+  };
+}
+
 describe("retained Computer commands", () => {
+  it("authorizes recovery by invocation/key even when the launch reference was lost", async () => {
+    const f = fixture();
+    const original = context("original");
+    const current = context("later");
+    await putRemoteAgentCallbackContext(f.storage, original);
+    await bindComputerCommandTarget({
+      storage: f.storage,
+      submissionId: original.submissionId,
+      computerName: "same-computer",
+    });
+    const input = {
+      context: current,
+      storage: f.storage,
+      env: {},
+      computerName: "same-computer",
+      operation: {
+        action: "command" as const,
+        invocationId: original.submissionId,
+        command: {
+          action: "poll" as const,
+          key: "git-import:checkout",
+          waitSeconds: 0,
+        },
+      },
+    };
+    expect(await authorizeComputerObservation(input)).toEqual(input.operation);
+    const addressedToCurrent = await authorizeComputerObservation({
+      ...input,
+      operation: {
+        ...input.operation,
+        command: {
+          ...input.operation.command,
+          reference: {
+            invocationId: current.submissionId,
+            key: input.operation.command.key,
+            id: "current-command",
+            backend: "container",
+          },
+        },
+      },
+    });
+    expect(
+      addressedToCurrent.action === "command" && addressedToCurrent.invocationId
+    ).toBe(current.submissionId);
+    await expect(
+      authorizeComputerObservation({
+        ...input,
+        context: { ...current, spaceId: "another-space" },
+      })
+    ).rejects.toThrow("computer.recovery_identity_mismatch");
+    await expect(
+      authorizeComputerObservation({
+        ...input,
+        computerName: "another-computer",
+      })
+    ).rejects.toThrow("computer.recovery_identity_mismatch");
+  });
+  it("admits a confirmed Git retry before a later turn polls it", async () => {
+    const f = fixture();
+    const input = gitImportInput(f);
+    let attempts = 0;
+    f.exec.mockImplementation((_source, { id }) => {
+      f.processes.add(id);
+      attempts++;
+      return Promise.resolve(
+        attempts === 1
+          ? handle(id, [{ id, seq: 1, name: "exit", code: 1 }], true)
+          : handle(id)
+      );
+    });
+    expect(await advanceGitPackTransfer(input)).toBe("running");
+    expect(f.exec).toHaveBeenCalledTimes(2);
+    expect(f.storage.hasUnfinishedCommands()).toBe(true);
+    f.getExec.mockImplementation((id) =>
+      Promise.resolve(handle(id, [{ id, seq: 1, name: "exit", code: 0 }], true))
+    );
+    expect(
+      await advanceGitPackTransfer({ ...input, invocationId: "later-turn" })
+    ).toBe("completed");
+    expect(f.exec).toHaveBeenCalledTimes(2);
+  });
+  it.each([
+    { loseAcknowledgement: false, recoverLater: false },
+    { loseAcknowledgement: true, recoverLater: false },
+    { loseAcknowledgement: true, recoverLater: true },
+  ])("keeps a detached Git import in the command owner (lost acknowledgement=$loseAcknowledgement, recover later=$recoverLater)", async ({
+    loseAcknowledgement,
+    recoverLater,
+  }) => {
+    const f = fixture();
+    const input = gitImportInput(f);
+    let dropReply = loseAcknowledgement;
+    const operation = input.workspaceAccess.computerOperation;
+    input.workspaceAccess.computerOperation = async (request) => {
+      const result = await operation(request);
+      if (dropReply) {
+        dropReply = false;
+        throw new Error("Lost launch acknowledgement");
+      }
+      return result;
+    };
+    if (loseAcknowledgement) {
+      await expect(advanceGitPackTransfer(input)).rejects.toThrow(
+        "Lost launch acknowledgement"
+      );
+      expect(f.storage.hasUnfinishedCommands()).toBe(true);
+    }
+    if (recoverLater) {
+      input.invocationId = "recovery-turn";
+    }
+    expect(await advanceGitPackTransfer(input)).toBe("running");
+    // This is the same durable predicate the idle alarm uses after two minutes.
+    expect(f.storage.hasUnfinishedCommands()).toBe(true);
+    expect(await f.storage.nextCollectionAt()).not.toBeNull();
+    const resumed = { ...input, invocationId: "later-checkout-turn" };
+    expect(await advanceGitPackTransfer(resumed)).toBe("running");
+    expect(f.exec).toHaveBeenCalledOnce();
+    f.getExec.mockImplementation((id) =>
+      Promise.resolve(handle(id, [{ id, seq: 1, name: "exit", code: 0 }], true))
+    );
+    expect(await advanceGitPackTransfer(resumed)).toBe("completed");
+    expect(f.storage.hasUnfinishedCommands()).toBe(false);
+    expect(f.exec).toHaveBeenCalledOnce();
+  });
+  it.each([
+    1, 3,
+  ])("retries confirmed Git import failures at most three times (failures=%s)", async (failures) => {
+    const f = fixture();
+    const input = gitImportInput(f);
+    let remaining = failures;
+    f.exec.mockImplementation((_source, { id }) =>
+      Promise.resolve(
+        handle(
+          id,
+          [{ id, seq: 1, name: "exit", code: remaining-- > 0 ? 1 : 0 }],
+          true
+        )
+      )
+    );
+    if (failures === 3) {
+      await expect(advanceGitPackTransfer(input)).rejects.toThrow(
+        "github.checkout.git_transfer_failed"
+      );
+      await expect(advanceGitPackTransfer(input)).rejects.toThrow(
+        "github.checkout.git_transfer_failed"
+      );
+      expect(f.exec).toHaveBeenCalledTimes(3);
+    } else {
+      expect(await advanceGitPackTransfer(input)).toBe("completed");
+      expect(await advanceGitPackTransfer(input)).toBe("completed");
+      expect(f.exec).toHaveBeenCalledTimes(2);
+    }
+    expect(f.storage.hasUnfinishedCommands()).toBe(false);
+  });
   it.each([
     false,
     true,
@@ -709,7 +897,10 @@ describe("retained Computer commands", () => {
     expect(f.processes.size).toBe(0);
   });
 
-  it("retains a read-only refusal without losing successful output or reporting every file saved", async () => {
+  it.each([
+    false,
+    true,
+  ])("retains a read-only refusal without losing output or cleanup confirmation (cleanupLoss=%s)", async (cleanupLoss) => {
     const f = fixture();
     vi.mocked(f.workspace.resumeExecutionSync).mockResolvedValue({
       status: "complete",
@@ -728,6 +919,17 @@ describe("retained Computer commands", () => {
       },
     });
     f.getExec.mockImplementation(async (id) => {
+      if (cleanupLoss) {
+        const key =
+          "openmeld:remote-agent:computer-command:execution-a:readonly";
+        const command = await f.storage.get<Record<string, unknown>>(key);
+        // Cleanup can confirm loss while an earlier native observation is in flight.
+        await f.storage.put(key, {
+          ...command,
+          lossConfirmed: true,
+          lostDuringCleanup: true,
+        });
+      }
       const execution = handle(
         id,
         [
@@ -771,6 +973,13 @@ describe("retained Computer commands", () => {
       syncSkipped: { paths: ["/protected/result.txt"], truncated: false },
     });
     expect(result).not.toHaveProperty("syncError");
+    if (cleanupLoss) {
+      expect(
+        await f.storage.get(
+          "openmeld:remote-agent:computer-command:execution-a:readonly"
+        )
+      ).toMatchObject({ lossConfirmed: true, lostDuringCleanup: true });
+    }
     const observations = f.getExec.mock.calls.length;
     await expect(
       f.tool().execute({ action: "poll", key: "readonly", waitSeconds: 1 })

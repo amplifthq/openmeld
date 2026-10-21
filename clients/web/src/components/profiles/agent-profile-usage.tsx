@@ -1,23 +1,39 @@
 import { parseAgentControllerRef } from "@openmeld/agent-runtime";
 import { Button } from "@openmeld/ui/components/button";
 import {
+	SettingsLocalAgentUsageCompactReadout,
 	SettingsLocalAgentUsageLimits,
-	SettingsLocalAgentUsageReadout,
-	SettingsLocalAgentUsageSummary,
 } from "@openmeld/ui/components/settings-computers";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { resolveStatusToneSoftTextClassName } from "@openmeld/ui/lib/status-tone";
+import { cn } from "@openmeld/ui/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { AgentUsageSkeleton } from "#/components/agents/agent-profile-skeleton";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { useNowMs } from "#/lib/spaces/use-now-ms";
 import { organizationAgentRuntimeOverviewQueryOptions } from "#/query/organizations/organization-directory";
 import { AgentConfigurationReadoutCard } from "./agent-configuration-card";
+import {
+	type AgentUsageAttention,
+	resolveAgentUsageAttention,
+} from "./agent-usage-attention";
 import { resolveUsageResetHint } from "./agent-usage-reset-hint";
 import { formatLocalAgentDisplayName } from "./local-agent-display-name";
 
-type UsageVariant = "summary" | "details" | "popover" | "reset" | "card";
+type UsageVariant =
+	| "summary"
+	| "details"
+	| "popover"
+	| "reset"
+	| "card"
+	| "owner-card";
 
-/** Reads Core's team-visible usage projection for this Agent's current Binding. */
+/**
+ * Reads Core's team-visible usage projection for this Agent's current Binding.
+ * Team-facing variants (summary, popover, card) show no quota percent; they
+ * show a short warning only when the Agent is near or at its limit. The
+ * owner's card ("owner-card") keeps the full usage readout.
+ */
 export function AgentProfileUsage({
 	profileId,
 	agentControllerRef,
@@ -97,6 +113,9 @@ function useAgentUsageState({
 	return {
 		agentName,
 		applicable: !controller || controller.kind === "builtin",
+		// Warnings judge freshness by each limit's own observation time, not by
+		// the query's refetch state.
+		currentLimits: limits,
 		limits: displayLimits,
 		loading,
 		unavailable: Boolean(
@@ -107,7 +126,55 @@ function useAgentUsageState({
 	};
 }
 
+function AgentUsageWarning({ attention }: { attention: AgentUsageAttention }) {
+	return (
+		<span
+			className={cn(
+				"text-xs",
+				resolveStatusToneSoftTextClassName(
+					attention.kind === "reached" ? "danger" : "warning"
+				)
+			)}
+			data-slot="agent-usage-warning"
+		>
+			{attention.label}
+		</span>
+	);
+}
+
 function AgentUsageCard({
+	attention,
+	usage,
+}: {
+	attention: AgentUsageAttention | null;
+	usage: ReturnType<typeof useAgentUsageState>;
+}) {
+	if (!attention) {
+		return null;
+	}
+	return (
+		<AgentConfigurationReadoutCard compact itemId="usage" label="Usage limits">
+			<AgentUsageWarning attention={attention} />
+			{usage.unavailable ? (
+				<div className="mt-2 space-y-2">
+					<output className="block text-muted-foreground text-xs">
+						Last-known usage. Refresh failed.
+					</output>
+					<Button
+						disabled={usage.isFetching}
+						onClick={usage.retry}
+						size="sm"
+						variant="ghost"
+					>
+						Try again
+					</Button>
+				</div>
+			) : null}
+		</AgentConfigurationReadoutCard>
+	);
+}
+
+function OwnerAgentUsageCard({
 	usage,
 	nowMs,
 }: {
@@ -115,10 +182,10 @@ function AgentUsageCard({
 	nowMs: number;
 }) {
 	return (
-		<AgentConfigurationReadoutCard itemId="usage" label="Usage limits">
+		<AgentConfigurationReadoutCard compact itemId="usage" label="Usage limits">
 			{usage.loading ? <AgentUsageSkeleton /> : null}
 			{!usage.loading && usage.limits ? (
-				<SettingsLocalAgentUsageReadout
+				<SettingsLocalAgentUsageCompactReadout
 					agentName={usage.agentName}
 					limits={usage.limits}
 					nowMs={nowMs}
@@ -163,8 +230,19 @@ function OrganizationAgentProfileUsage(input: {
 	if (!usage.applicable) {
 		return null;
 	}
-	if (variant === "card") {
-		return <AgentUsageCard nowMs={nowMs} usage={usage} />;
+	if (variant === "owner-card") {
+		return <OwnerAgentUsageCard nowMs={nowMs} usage={usage} />;
+	}
+	if (variant !== "reset" && variant !== "details") {
+		// Quiet while loading, unavailable, or with room to spare.
+		const attention =
+			loading || !usage.currentLimits
+				? null
+				: resolveAgentUsageAttention(usage.currentLimits, nowMs);
+		if (variant === "card") {
+			return <AgentUsageCard attention={attention} usage={usage} />;
+		}
+		return attention ? <AgentUsageWarning attention={attention} /> : null;
 	}
 	if (loading) {
 		return (
@@ -193,15 +271,12 @@ function OrganizationAgentProfileUsage(input: {
 	if (!limits?.length) {
 		return null;
 	}
-	return variant !== "summary" ? (
+	return (
 		<SettingsLocalAgentUsageLimits
 			agentName={agentName}
-			compact={variant === "popover"}
 			fillColumns
 			limits={limits}
 			nowMs={nowMs}
 		/>
-	) : (
-		<SettingsLocalAgentUsageSummary agentName={agentName} limits={limits} />
 	);
 }

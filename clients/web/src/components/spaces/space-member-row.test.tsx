@@ -16,6 +16,9 @@ import { resolveDirectoryHumanProfileActivityLabel } from "#/components/director
 import { SpaceMemberRow } from "./space-member-row";
 import type { SpaceWakeStatusTransientState } from "./space-wake-status-refresh";
 
+const MODEL_DEFAULT_PATTERN = /model default/;
+const CONTROLLER_DEFAULT_PATTERN = /Controller default/;
+
 const { toastMock } = vi.hoisted(() => ({
 	toastMock: {
 		success: vi.fn(),
@@ -441,9 +444,10 @@ describe("SpaceMemberRow", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Check Codex Profile" })
 		);
-		expect(
-			within(screen.getByRole("dialog")).getByText("Codex · Controller default")
-		).toBeTruthy();
+		// With no saved model only the controller shows, never the catalog default.
+		const dialog = within(screen.getByRole("dialog"));
+		expect(dialog.queryByText(MODEL_DEFAULT_PATTERN)).toBeNull();
+		expect(dialog.queryByText(CONTROLLER_DEFAULT_PATTERN)).toBeNull();
 	});
 
 	it("exposes AgentWakeAvailability fields on the Wake indicator", () => {
@@ -640,12 +644,7 @@ describe("SpaceMemberRow", () => {
 			"Duplicate reply conversation"
 		);
 		expect(screen.queryByText("Connect local agent")).toBeNull();
-		expect(screen.getByText("Review agent settings")).toBeTruthy();
-		expect(
-			screen
-				.getByRole("link", { name: "Review agent settings" })
-				.getAttribute("href")
-		).toBe("/o/acme/agents?profileId=agt-1");
+		expect(screen.queryByText("Review agent settings")).toBeNull();
 	});
 
 	it("uses the selected local agent logo before an agent profile name", () => {
@@ -878,8 +877,8 @@ describe("SpaceMemberRow", () => {
 		expect(screen.queryByText("Manually controlled")).toBeNull();
 		expect(screen.queryByText("No local agent selected for Wake")).toBeNull();
 		expect(
-			screen.getByRole("button", { name: "Connect local agent" })
-		).toBeTruthy();
+			screen.queryByRole("button", { name: "Connect local agent" })
+		).toBeNull();
 	});
 
 	it("keeps active Wake service waiting out of the long-term status indicator", () => {
@@ -979,6 +978,26 @@ describe("SpaceMemberRow", () => {
 		expect(screen.queryByText("Wake in progress")).toBeNull();
 		expect(
 			screen.queryByRole("button", { name: "Connect local agent" })
+		).toBeNull();
+	});
+
+	it("shows a Wake queued behind a task in its folder as waiting, not working", () => {
+		renderSpaceMemberRow({
+			entry: buildAgentEntry({
+				presenceLabel: "wakeable",
+				presenceStatus: "wakeable",
+			}),
+			memberTransientState:
+				"active_wake_waiting_for_folder" as SpaceWakeStatusTransientState,
+		});
+
+		const indicator = getAgentAvailabilityIndicator();
+		expect(indicator.getAttribute("aria-label")).toBe("Waiting");
+		expect(indicator.getAttribute("aria-description")).toBe(
+			"Waiting for another task in its folder to finish"
+		);
+		expect(
+			screen.queryByText("This agent is working on a Wake in this Space.")
 		).toBeNull();
 	});
 
@@ -1090,7 +1109,6 @@ describe("SpaceMemberRow", () => {
 	it("suppresses the per-agent computer-level reconnect action because the Get-set-up banner owns it", () => {
 		renderSpaceMemberRow({
 			agentRecoveryPlan: buildServiceConnectionPlan(),
-			prepareSetupHref: "/o/acme/connect?returnTo=space&spaceId=space-123",
 			memberTransientState: null,
 		});
 
@@ -1125,9 +1143,6 @@ describe("SpaceMemberRow", () => {
 		expect(indicator.getAttribute("aria-description")).toBe(copy);
 		expect(screen.queryByText(copy)).toBeNull();
 		expect(screen.queryByText("Turned off")).toBeNull();
-		expect(
-			screen.getByRole("button", { name: "Turn on local agent" })
-		).toBeTruthy();
 	});
 
 	it("keeps provider subscription indicator, tooltip, and detail copy aligned", () => {
@@ -1154,9 +1169,6 @@ describe("SpaceMemberRow", () => {
 		expect(indicator.getAttribute("aria-description")).toBe(copy);
 		expect(screen.queryByText(copy)).toBeNull();
 		expect(screen.queryByText("Claude Code subscription needed")).toBeNull();
-		expect(
-			screen.getByRole("link", { name: "Review agent settings" })
-		).toBeTruthy();
 		expect(screen.queryByText("Account attention")).toBeNull();
 	});
 
@@ -1177,15 +1189,28 @@ describe("SpaceMemberRow", () => {
 		expect(screen.queryByText("Claude Code subscription needed")).toBeNull();
 	});
 
-	it("opens Computer status for a missing report instead of setup", () => {
+	it("keeps only the status dot: no recovery text or action on the row", () => {
 		renderSpaceMemberRow({
-			agentRecoveryPlan: buildPreparePlan(),
-			prepareSetupHref: "/o/acme/connect?returnTo=space&spaceId=space-123",
+			agentRecoveryPlan: buildDisabledBindingPlan(),
+			density: "compact",
+			entry: buildAgentEntry({
+				availabilityBadgeLabel: "Unavailable",
+				availabilityCategory: "unavailable",
+				availabilityReasonCode: "controller.binding.disabled",
+				availabilitySummary: "Turn on this Agent's local agent.",
+				presenceStatus: "unavailable",
+			}),
 		});
 
+		expect(getAgentAvailabilityIndicator().getAttribute("aria-label")).toBe(
+			"Unavailable"
+		);
+		expect(screen.queryByText("Turn on this Agent's local agent.")).toBeNull();
+		expect(screen.queryByText("Needs attention")).toBeNull();
+		expect(screen.queryByText("Needs connection")).toBeNull();
 		expect(
-			screen.getByRole("link", { name: "Check status" }).getAttribute("href")
-		).toBe("/o/acme/computers");
+			screen.queryByRole("button", { name: "Turn on local agent" })
+		).toBeNull();
 	});
 
 	it("does not show the active Wake waiting note after terminal Wake cleanup", () => {
@@ -1223,10 +1248,8 @@ describe("SpaceMemberRow", () => {
 					presenceLabel: "offline",
 					presenceStatus: "offline",
 				})}
-				isAgentRecoveryPending={false}
 				isAgentWakeAvailabilityCheckPending={false}
 				memberTransientState={null}
-				onAgentRecoveryAction={vi.fn()}
 				onCheckAgentWakeAvailability={vi.fn()}
 				orgSlug="acme"
 				variant="full"
@@ -1339,7 +1362,6 @@ function renderSpaceMemberRow(input: {
 		alreadyAbsentCount: number;
 		removedCount: number;
 	}>;
-	prepareSetupHref?: string;
 }) {
 	const queryClient = new QueryClient({
 		defaultOptions: { queries: { retry: false } },
@@ -1352,19 +1374,16 @@ function renderSpaceMemberRow(input: {
 			currentProfileId={input.currentProfileId ?? "human-1"}
 			density={input.density}
 			entry={input.entry ?? buildAgentEntry()}
-			isAgentRecoveryPending={false}
 			isAgentWakeAvailabilityCheckPending={
 				input.isAgentWakeAvailabilityCheckPending ?? false
 			}
 			memberTransientState={input.memberTransientState ?? null}
 			modelCatalog={input.modelCatalog ?? null}
-			onAgentRecoveryAction={vi.fn()}
 			onCheckAgentWakeAvailability={
 				input.onCheckAgentWakeAvailability ?? vi.fn(async () => undefined)
 			}
 			onRemoveFromSpace={input.onRemoveFromSpace}
 			orgSlug="acme"
-			prepareSetupHref={input.prepareSetupHref}
 			variant="full"
 		/>,
 		{

@@ -6,6 +6,8 @@ import type {
 	ModelCatalogModel,
 } from "@openmeld/schemas/types";
 
+import { formatAgentProfileReasoningLevel } from "./agent-profile-template-name";
+
 const MODEL_DEFAULT_REASONING_LABEL = "model default";
 
 export function resolveAgentProfileControllerModelDetail(input: {
@@ -19,14 +21,14 @@ export function resolveAgentProfileControllerModelDetail(input: {
 			? "Remote"
 			: input.controllerDisplayName
 	);
+	// With no saved model the harness picks one, which may not be the
+	// catalog default: name only the controller, with no jargon.
 	if (
 		input.agentControllerRef &&
 		!isHostedAgentControllerRef(input.agentControllerRef) &&
 		!normalizeDisplayPart(input.modelSelection?.modelId)
 	) {
-		return [controllerDisplayName, "Controller default"]
-			.filter(Boolean)
-			.join(" · ");
+		return controllerDisplayName;
 	}
 	const effectiveModel = resolveAgentProfileModel({
 		agentControllerRef: input.agentControllerRef ?? null,
@@ -112,4 +114,34 @@ function resolveControllerCatalog(input: {
 function normalizeDisplayPart(value: string | null | undefined): string | null {
 	const normalized = value?.trim() ?? "";
 	return normalized.length > 0 ? normalized : null;
+}
+
+/**
+ * The Model card's value: the model and reasoning a new chat uses, without the
+ * controller name. With no saved reasoning the harness picks its own, which
+ * local harnesses do not report, so the value names only the model.
+ */
+export function resolveAgentProfileModelCardValue(input: {
+	agentControllerRef: string | null;
+	modelCatalog: ModelCatalog | null;
+	modelSelection: AgentProfileBindingModelSelection | null;
+}): { value: string } | null {
+	const effectiveModel = resolveAgentProfileModel(input);
+	const modelDisplayName =
+		normalizeDisplayPart(effectiveModel.catalogModel?.displayName) ??
+		effectiveModel.modelId;
+	if (!modelDisplayName) {
+		return null;
+	}
+	const reasoningLevel = normalizeDisplayPart(
+		input.modelSelection?.reasoningLevel
+	);
+	return {
+		value: [
+			modelDisplayName,
+			reasoningLevel ? formatAgentProfileReasoningLevel(reasoningLevel) : null,
+		]
+			.filter(Boolean)
+			.join(" · "),
+	};
 }

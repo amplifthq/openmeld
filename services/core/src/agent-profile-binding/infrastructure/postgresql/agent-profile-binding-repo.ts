@@ -5,6 +5,7 @@ import type {
 } from "@openmeld/db/postgresql";
 import {
   agentProfileBindingModelSelectionSchema,
+  harnessKindFromAgentControllerRef,
   openCodePermissionConfigSchema,
 } from "@openmeld/schemas";
 import type {
@@ -70,6 +71,7 @@ export type EnsurePrimaryAgentProfileBindingResult =
       existingBinding?: AgentProfileBindingRecord;
       reason:
         | "controller_conversation_conflict"
+        | "member_agent_harness_locked"
         | "primary_conflict"
         | "session_resume_unavailable";
       status: "rejected";
@@ -287,6 +289,48 @@ async function lockBindingOwner(
     throw new Error("Agent Profile Binding owner is missing");
   }
 }
+// Serializes a Binding write with a MemberAgent assignment of the same
+// Profile. The assignment holds this lock while Auth writes the Profile row,
+// whose account guard takes the owner row FOR SHARE; Binding writes therefore
+// take it before the owner lock, never after.
+export async function lockAgentProfileMemberAgentAssignment(
+  client: PoolClient,
+  agentProfileId: string
+): Promise<void> {
+  await client.query({
+    text: "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+    values: [`agent_profile_member_agent:${agentProfileId}`],
+  });
+}
+// A Profile that belongs to a MemberAgent cannot change harness
+// (developing/product/agent-profiles.md, MemberAgent Layer). Read under the
+// assignment lock, so the assignment this sees is the one the write commits
+// with.
+// Unassigned Profiles, custom controllers included, may change freely.
+async function hasMemberAgentHarnessConflict(
+  client: PoolClient,
+  record: EnabledPrimaryAgentProfileBindingInput
+): Promise<boolean> {
+  const result = await client.query<{ harness_kind: string }>({
+    text: `
+      SELECT member_agent.harness_kind
+      FROM "openmeld"."openmeld_profiles" AS profile
+      INNER JOIN "openmeld"."member_agents" AS member_agent
+        ON member_agent.id = profile.member_agent_id
+      WHERE profile.profile_id = $1
+    `,
+    values: [record.agentProfileId],
+  });
+  const assignedHarnessKind = result.rows[0]?.harness_kind;
+  return (
+    assignedHarnessKind !== undefined &&
+    assignedHarnessKind !==
+      harnessKindFromAgentControllerRef(record.agentControllerRef)
+  );
+}
+function memberAgentHarnessLockedResult(): EnsurePrimaryAgentProfileBindingResult {
+  return { reason: "member_agent_harness_locked", status: "rejected" };
+}
 export async function ensurePrimaryAgentProfileBindingRecord(
   input: AgentProfileBindingWriteRequest
 ): Promise<EnsurePrimaryAgentProfileBindingResult> {
@@ -344,7 +388,14 @@ export async function ensurePrimaryAgentProfileBindingRecord(
   );
   const sessionEligibility = buildSessionInventoryEligibilityClause(input, 23);
   const insertResult = await input.db.transaction(async (client) => {
+    await lockAgentProfileMemberAgentAssignment(
+      client,
+      input.record.agentProfileId
+    );
     await lockBindingOwner(client, input.record.owner);
+    if (await hasMemberAgentHarnessConflict(client, input.record)) {
+      return null;
+    }
     return client.query({
       text: `
         INSERT INTO "openmeld"."openMeldDaemon_agent_profile_bindings" (
@@ -413,6 +464,9 @@ export async function ensurePrimaryAgentProfileBindingRecord(
       ],
     });
   });
+  if (!insertResult) {
+    return memberAgentHarnessLockedResult();
+  }
   return await resolveEnsuredPrimaryAgentProfileBinding({
     current,
     insertResult,
@@ -486,7 +540,14 @@ async function reconnectPrimaryAgentProfileBindingRecordAttempt(
     input,
   });
   const writeResults = await input.db.transaction(async (client) => {
+    await lockAgentProfileMemberAgentAssignment(
+      client,
+      input.record.agentProfileId
+    );
     await lockBindingOwner(client, input.record.owner);
+    if (await hasMemberAgentHarnessConflict(client, input.record)) {
+      return null;
+    }
     return [
       await client.query({
         text: `
@@ -598,6 +659,9 @@ async function reconnectPrimaryAgentProfileBindingRecordAttempt(
       }),
     ] as const;
   });
+  if (!writeResults) {
+    return { result: memberAgentHarnessLockedResult(), status: "completed" };
+  }
   if (
     await shouldRetryNoopReconnect({
       current,
@@ -1292,6 +1356,7 @@ export async function updatePrimaryAgentProfileBindingConversationId(input: {
   updatedAtMs: number;
 }): Promise<AgentProfileBindingRecord | null> {
   const updated = await input.db.transaction(async (client) => {
+    await lockAgentProfileMemberAgentAssignment(client, input.agentProfileId);
     await lockBindingOwner(client, input.owner);
     return client.query({
       text: `

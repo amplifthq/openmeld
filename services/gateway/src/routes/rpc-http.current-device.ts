@@ -39,6 +39,7 @@ import type { HonoBindings } from "../lib/bindings";
 import { parseDeviceRouteParams } from "./rpc-http.device-route-params";
 import {
   buildCoreRpcContext,
+  buildCoreRpcCredential,
   executePublicRpcRoute,
   executeRpcRoute,
   respondBadRequest,
@@ -817,6 +818,7 @@ async function handleCurrentAgentProfileWorkspaceWrite(
     responseSchema: setCurrentAgentProfileWorkspaceResponseSchema,
     execute: async () =>
       await c.var.coreRpc.setCurrentAgentProfileWorkspace({
+        requestCredential: await buildCoreRpcCredential(c),
         agentProfileId: routeParams.data.agentProfileId,
         workspaceMode: parsedBody.data.workspaceMode,
         ...(parsedBody.data.workspacePath === undefined

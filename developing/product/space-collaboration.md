@@ -241,9 +241,12 @@ asks a Space member to Wake that Agent to start the review. Member-authorized
 Task handoffs retain their normal permission checks and Wake behavior.
 
 Project Common Agents are selection suggestions in a Task assignment flow.
-When one is outside the Space, **Add and assign** discloses that the Agent and
-its owner will join the Space, applies the existing atomic membership operation
-first, then makes the revision-checked Task assignment. A membership success
+When one is outside the Space and belongs to the caller, **Add and assign**
+discloses that the Agent and its owner will join the Space, applies the
+existing atomic membership operation first, then makes the revision-checked
+Task assignment. When it belongs to another member, the add becomes the owner
+request described in Agent Owner Participation; nothing joins and the Task is
+not assigned to that Agent until the owner lets it join. A membership success
 followed by assignment failure is shown as a partial outcome; it is never
 silently rolled back or described as successful assignment. Assignment alone
 does not start an execution.
@@ -347,7 +350,9 @@ contract in `packages/schemas`; clients do not derive authorization from UI.
 ## Agent Owner Participation
 
 The Add People or Agents picker shows the effective membership selection:
-selecting an ordinary Agent also checks its owner. The count and checkmarks
+selecting one of the caller's own ordinary Agents also checks the caller.
+Selecting another member's Agent does not add it; it submits the access request
+described below. The count and checkmarks
 agree before submission. Deselecting the last Agent removes an implicitly
 selected owner; an explicitly selected owner remains selected. Deselecting an
 owner also clears their selected Agents. Search filtering must not erase the
@@ -355,7 +360,7 @@ effective selection. Core still resolves the authoritative owner at mutation
 time; these checkmarks are not permission facts.
 
 An ordinary human-owned Agent Profile participates in an ordinary Space with
-its owner. When a caller adds such an Agent, Core resolves the Agent's current
+its owner. When the owner adds their own Agent, Core resolves the Agent's current
 authoritative `ownerUserId` and that Organization member's active default Human
 Profile, then submits the Agent and Human through one atomic Space membership
 mutation. A cached owner name or caller-supplied Human Profile is never enough.
@@ -363,14 +368,39 @@ If the owner is already an active member, the Human addition is an idempotent
 no-op. If Core cannot resolve the current owner and Human Profile, the whole add
 fails instead of admitting an ownerless ordinary Agent.
 
+When anyone other than the owner mentions or adds another member's Agent in a
+Space that Agent is not in, the Agent is not added and not woken. Core instead
+creates a request bound to the exact message id (or the add operation), stored
+on the MemberAgent; editing or deleting that message voids the request and its
+author sees that it was voided. The mention chip shows "Requested <owner>". In
+the @ picker these Agents are grouped under "<owner>'s Agents · not in this
+Space". A colleague's Agent is left out only when its profile id is already a
+member; a shared name or Harness never hides it. Choosing one inserts the
+owner-qualified name (`@Tali's Codex`) so it never reads as a member's
+mention. Each row shows the Agent's shared Wake availability; an unavailable
+Agent shows that label (for example "Unavailable") instead of "Asks <owner>"
+and can still be chosen, because choosing it only asks the owner. The
+owner receives an `agent_space_request` Inbox item and becomes a read-only
+observer of that Space, then chooses **Add to Space** or **Don't add**.
+**Message <requester>** opens the owner's Direct Message with the requester and
+leaves the request pending: talking is not an answer. Only Add to Space, Don't
+add, or the requester withdrawing closes the request. Requests closed by the
+retired Reply by DM decision keep their `replied_by_dm` status. Adding the Agent adds its default Profile (or the mentioned
+Profile) and dispatches the original message with the request chain
+`[requester, Agent]`; the owner remains an observer rather than becoming a
+member. Invitations and organization self-join never add another owner's
+Agent.
+
 Managed Agents, including the designated Center Agent, do not inherit this
 rule. Their Organization-managed identity and existing specialized membership
 contracts remain authoritative.
 
-In an ordinary Space, the resolved owner is an ordinary active Human member
-with the same collaboration rights as other members. The owner cannot leave or
-be removed while one of their ordinary Agent Profiles remains active in that
-Space; remove the Agent first. Removing the Agent never silently removes its
+In an ordinary Space where the owner joined with their Agent, the resolved
+owner is an ordinary active Human member with the same collaboration rights as
+other members. Such an owner cannot leave or be removed while one of their
+ordinary Agent Profiles remains active in that Space; remove the Agent first.
+An owner who is only an observer is not a member, so this rule does not apply
+to them. Removing the Agent never silently removes its
 owner. This order keeps both actions explicit and prevents a membership cleanup
 from unexpectedly removing a person.
 
@@ -379,7 +409,8 @@ when a current member/status snapshot is first read after the policy ships. The
 Space checks each unmatched Agent against canonical Organization identity,
 adds only missing ordinary-Agent owners, then records a local completion
 marker. An unavailable owner identity leaves the marker unset so a later read
-can retry. This bounded compatibility step updates the Space member projection
+can retry. This compatibility step never adds the owner of an Agent that joined
+through an approved request. This bounded compatibility step updates the Space member projection
 and live membership invalidation only; it does not rebuild unread state, replay
 history, or emit historical new-member notifications.
 
@@ -392,6 +423,10 @@ the observer cannot publish messages, create or reply to threads, write Space
 Files, add or remove members, or change Space metadata, lifecycle, publication,
 visibility, access, or password settings.
 
+The same derived read-only observer applies to an ordinary Space that contains
+an Agent the person owns, or a pending request for one, while that person is
+not an active member. It has the same write limits as a DM observer.
+
 The observer may explicitly choose **Join conversation**. Core accepts only the
 owner's exact active default Human Profile and uses the existing irreversible
 Direct Message conversion transaction to add that Profile, set
@@ -400,7 +435,8 @@ After conversion, the owner is a normal member and may participate. This
 observer and join behavior must not appear or succeed for Human-to-Human DMs,
 Center Agent DMs, managed Agents, a different Agent owner, anonymous viewers,
 or ordinary Spaces where the owner is already represented by an active Human
-member.
+member. **Join conversation** applies only to Direct Messages; an
+ordinary-Space observer reads but has no conversion action.
 
 A Space does not own local execution readiness or in-flight execution truth.
 Those are transport concerns. The Space owns what the user said, who it was
@@ -413,6 +449,121 @@ substitute the current conversation, a Task, or a plain reply. This same rule
 applies through Web, OpenMeld Spaces, Slack, the OpenMeld CLI, and every other
 contracted Message Channel. A newly created Space remains private and
 members-only unless the requester explicitly asks for broader access.
+
+### Colleague use of an Agent
+
+Implementation status: MemberAgent program, PR #236, in progress.
+
+Every Wake has exactly one human root requester (see
+`developing/architecture/agent-transport-contract.md`, Request Chain). In a
+group Space where an Agent Profile is already a member, any member may mention
+it without asking the owner; an identified external root requester still needs
+the owner's consent every time.
+
+A colleague's first Direct Message to another member's Agent Profile creates
+the DM Space in `pending_owner_consent`. The colleague's message is stored, not
+dispatched, and shows "Waiting for <owner>". The owner receives an urgent
+`agent_access_request` Inbox item and email with **Allow once**, **Always allow
+<colleague> for this Profile**, and **Decline**; identified external users get
+only **Allow once** and **Decline**. Approval always starts a new Session for
+the colleague. Grants are recorded per `(grantee, Profile)` with
+`granteeKind` `member` or `external` and are revocable; revoking blocks new
+tasks while running ones finish. A colleague's Agents inherit that colleague's
+grant. The owner is a read-only observer of the DM and may Join, which converts
+it as described above. Anonymous visitors are rejected at the entrance.
+No Wake and no membership exist before consent.
+
+The grant list of a Profile is owner-only. A member reads only their own
+standing grants through `GET /v1/organizations/current/agent-access-grants/mine`:
+unrevoked `always` grants in the active Organization, on active Agent Profiles
+only. Clients use it to show "You can use" or "Asks <owner>" on a colleague's
+Agent, and to label the primary action **Ask to use** when the owner answers
+first. It never shows another member's grants. When a colleague's Agent cannot
+start work, clients show only the closed public reason set
+(`publicWakeabilityReason`), worded neutrally with no fix steps, and disable
+chat while the Agent is unavailable. An offline Agent keeps chat, because the
+message waits for its computer.
+
+A request keeps the owner's answer apart from what is true now. Its
+`decision` (`allow_once`, `always_allow`, `decline`, `join`, or `ignore`) is
+written once with the answer and never changes; it is null while the request
+is pending and when it closed without an answer (withdrawn, or void before
+one). Its `status` is where the request is now. The grant it wrote keeps its
+own lifecycle, and the request view carries that grant as it is now:
+`grant.status` `active` or `revoked`, with `revokedAt`. The requester's state
+is derived from these facts in one shared place: an active standing grant
+means always allowed; otherwise the latest Direct Message request decides. A
+pending request is waiting, a decline is declined, and an allowed request
+whose grant is active is always allowed or allowed for that chat by its
+decision. An allowed request whose grant was revoked is `revoked` (shown as
+**Access removed**), and the requester asks again from their next message. An
+`allow_once` covers only the request's own DM; a new DM starts unsent.
+
+The owner can turn a member's access into a standing grant later, for example
+after **Allow once**, with owner-only
+`POST /v1/agent-profiles/:agentProfileId/access-grants` and body
+`{ granteeUserId, scope: "always" }`. It writes a new `always` grant with its
+own lifecycle and retires the member's active one-chat grants for that
+Profile, so removing the standing grant later removes access in every chat,
+including the original DM. It never rewrites the decision of the request that
+led to it.
+External users are refused, and an active standing grant is returned as it
+is. Writing or revoking a grant broadcasts `space.agent_access.changed` to the
+Spaces where that person asked for the Agent, so open views refetch.
+
+#### Agent access list
+
+Requesters and owners see one shared list of access entries. An access entry
+is one person's right to use an Agent Profile they do not own. It names the
+Agent Profile and its owner, the person, one rule, and the Spaces it concerns.
+The rules are:
+
+- **Always allowed**: an `always` grant; it covers every chat with that
+  Profile.
+- **This chat only**: an `allow_once` decision; it covers that request's DM.
+- **Waiting for <owner>** (the requester) or **Waiting for you** (the owner):
+  a pending request.
+- **Declined**: the owner declined the latest request.
+- **Access removed**: the owner removed access after allowing it.
+- **In this Space**: the Agent is a member of a group Space, so its members
+  may mention it.
+
+Every row has the same layout: avatar, name (with the Agent's name when the
+list mixes Agents), a secondary line with the rule and, for a decided row, a
+relative time, and one control on the right. What the control does depends
+on the viewer, never on the surface:
+
+- The owner manages decided rows from a compact menu under the current rule.
+  The only change of rule is an upgrade: a member on **This chat only** can
+  be moved to **Always allow <name>**, which retires their one-chat grants.
+  There is no way back to **This chat only**; the owner chooses **Remove
+  access**, which revokes every active grant the person holds for that
+  Profile, and the person asks again. Removing an `always` grant asks for one
+  confirmation, because it applies to every chat with that Agent. Pending
+  rows are answered inline with **Allow once**, **Always allow**, and
+  **Decline**. External requesters never get **Always**.
+- The requester sees plain state text on their own row, with **Withdraw**
+  while it waits and **Ask again** after a decline or removal.
+- Everyone else reads the row.
+
+The list is built only from the existing Core projections: access requests,
+the owner's `GET /v1/agent-profiles/:agentProfileId/access-grants`, and the
+requester's `GET /v1/organizations/current/agent-access-grants/mine` through
+the shared requester-state derivation. It holds no state of its own.
+
+Access is managed in the Space. The Space Members panel shows an **Agent
+access** section when it has rows: in a DM, the requester's entry for the DM's
+Agent; in a group Space, the Agents in it that other people own and pending
+requests to add an Agent. The link
+`?panel=members&section=agent-access&highlight=<entryId>` opens the panel,
+scrolls to the row, and briefly highlights it. Other surfaces, such as the
+Space header's access state, open the section with the same link.
+
+The Agent detail page shows the same rows read-only. The owner sees one row
+per person with the Spaces where the rule applies, each linking to **Manage in
+<Space>**, followed by a collapsed **Recent changes** log. A teammate viewing
+someone else's Agent sees one **Your access** row and links to their chats
+with it. Both views refetch on the Space's Agent access change broadcast.
 
 ## Space Identity
 
@@ -951,14 +1102,15 @@ The candidate provides idempotent creation, authorized paginated listing and
 exact Web route selection through New chat and Chats. Listing filters active,
 unconverted private conversations by the current Organization and real pair;
 the cursor is a pagination boundary, never access authority. Selection still
-checks the owning Space. Dedicated rename, archive and deletion remain future
-session operations. Browser acceptance, explicit execution steering and release
+checks the owning Space. Rename, archive, and delete are dedicated Session
+operations defined in Agent Direct Message Sessions. Browser acceptance, explicit execution steering and release
 continuity remain incomplete release gates. Task retirement is deferred; its
 existing product and tools remain available during this upgrade.
 
 ### Center Agent session titles
 
-New private Center Agent sessions start as **New chat**. After a Human's message
+New agent Direct Message Sessions, including private Center Agent sessions,
+start as **New chat**. After a Human's message
 is accepted on the main timeline, Space may generate a concise default title
 through a separate no-tool model request. This work is never awaited by message
 publication, Wake admission, or the Center Agent execution loop. It cannot alter
@@ -976,10 +1128,32 @@ Space owns the generated default in its existing name field and projects it
 through the Space index. Auth-owned personal titles take precedence and are
 never written by generation. Generic DM metadata mutations remain forbidden;
 the dedicated internal naming path does not grant new public mutation rights.
-Only an active Human in the current designated Center Agent pair can trigger it.
+Only the active Human in the Session's Human–Agent pair (the designated Center
+Agent pair or any other agent Profile's Direct Message pair) can trigger it.
 Existing non-default names are preserved. Failed or empty results keep **New
 chat**; later Human messages can retry, capped at three persisted attempts per
 Space. No automatic historical title rewrite or periodic regeneration occurs.
+
+### Agent Direct Message Sessions
+
+Implementation status: MemberAgent program, PR #236, in progress.
+
+In a Direct Message with an agent Profile, a Session is one DM Space. **New
+Chat** creates another DM Space with the same `pairKey`; the Center Agent
+session create and list operations above apply to any agent Profile's Direct
+Message pair, not only the designated Center Agent pair. The Execution Context
+scope key is unchanged. The sidebar shows one row per MemberAgent with its
+Sessions listed by `pairKey`. The ordinary open-or-reuse operation keeps its
+existing behavior. Ordinary agent DM Sessions keep ordinary DM rules; only
+Center Agent Sessions carry the stricter Center Agent specialization.
+
+**Rename**, **Archive**, and **Delete** are dedicated Session operations for
+agent DM Sessions, including Center Agent sessions. They act on the exact
+Session Space after the same Organization and pair checks as selection, and
+they never unlock the generic DM metadata, lifecycle, visibility, access, or
+deletion mutations. A rename overrides the generated default title. OpenMeld
+never archives a Session automatically. Owners continue or fork their own
+Sessions; colleagues continue only their own and always start fresh.
 
 ### Personal Direct Message deletion
 
@@ -1004,6 +1178,9 @@ open-or-reuse contract. The caller and recipient must be active Profiles in the
 same Organization; account callers may act only as their own Profile. Native
 Agent callers use the existing admitted execution/Center identity boundary.
 Self-DMs are rejected. Opening never adds an Agent's Human owner as a member.
+A colleague's first Direct Message to another member's Agent Profile waits for
+the owner's consent as described in Colleague use of an Agent; the message is
+stored and not dispatched until then.
 
 `openmeld_open_direct_message` (native Agents), `open_direct_message` (Local
 Agent dispatch tools), and `openmeld space dm` share the public DM contract.
@@ -1021,9 +1198,10 @@ perform two explicit calls. A retry uses that same Space and message identity.
 Local dispatch collaboration is non-final and retains the calling Agent and
 source Organization; its final reply still belongs to the original Wake.
 
-An optional `creationId` creates a separate Human–Center Agent session using the
-same session identity as the Web New chat action. Reusing that ID retries the
-same session. Other pairs reuse their current DM. Center–Agent DMs are ordinary
+An optional `creationId` creates a separate Human–Agent Session, for the Center
+Agent or any other agent Profile, using the same session identity as the Web
+New chat action. Reusing that ID retries the same Session. Human–Human pairs
+reuse their current DM. Center–Agent DMs are ordinary
 Agent DMs, not the Human–Center specialization.
 
 Both participants' personal Agent owners may observe an Agent–Agent DM. When an
@@ -1351,6 +1529,10 @@ Every newly authored Wake, Reference, or Human Mention target must be an active 
 current Space at the Space write boundary. A removed member or a Profile that
 belongs only to the Organization cannot be used as a current addressing target,
 because the resulting message could not resolve that target from Space truth.
+Mentioning an Agent that has no Profile in the Space is not an addressing
+target: the owner's own mention adds the default Profile through the atomic
+owner join first, and anyone else's mention creates the owner request described
+in Agent Owner Participation, with no Wake.
 This authoring rule does not revalidate historical messages: an older persisted
 target remains readable through the compatibility projection even if its
 membership later changes.
@@ -1447,8 +1629,8 @@ Detailed Wake execution ownership belongs in
 
 Local Agents support explicit New task, continuation from an exact source, and
 completed-history fork. On supported harnesses, separate discussion scopes may
-use independent Execution Contexts under the same Profile, with up to five
-reservations. Follow-ups within one Context remain serial. Replies, Stop,
+use independent Execution Contexts under the same Profile, up to the
+Profile's owner-adjustable concurrency limit (default five). Follow-ups within one Context remain serial. Replies, Stop,
 interaction requests, and failure evidence stay attached to the originating
 Wake. Migrated Profiles use Context continuity instead of the old Profile-wide
 conversation; legacy Wakes retain their original drain and recovery behavior.
@@ -1507,6 +1689,18 @@ including requests from the active thread, so required input does not become
 buried in message history. The surface preserves the request's originating Wake
 and thread context. Answering continues the same Wake and must not create a new
 Space message, new Wake, or second provider conversation.
+
+Only the owner can answer. When the Wake's root requester is not the owner,
+the Inbox producer marks the interaction `urgent`, so the existing urgent email
+channel applies. Interactions are coalesced per Session by `contextId`: a later
+question in the same Session updates the same Inbox item and sends no new
+email. The Inbox item renders the same interaction card with the harness's
+native options plus **Open conversation**; answering anywhere closes the
+request everywhere. The requester sees only that the Agent is waiting for the
+owner to approve, for example "Waiting for Felix to approve a command", and may
+cancel the waiting task. The existing eight-hour interaction timeout ends an
+unanswered request with an explicit reason. Urgency comes from the root
+requester fact, never from inference.
 
 The pending request is private execution state. Only the Binding owner receives
 its details and response controls. Other authenticated Space members receive
@@ -2127,6 +2321,13 @@ Use scoped owner documents for details:
 - A Space is the collaboration room and visible outcome surface.
 - The Space guide is the durable room-rules source; Entry Brief and Board are
   read projections, not parallel truth.
+- Mentioning or adding another member's Agent that is not in the Space never
+  adds or wakes it before the owner's consent; only the owner's own add keeps
+  the atomic owner join. An Agent already in a group Space can be mentioned by
+  any member without asking the owner, except when the root requester is an
+  identified external user.
+- In a Direct Message with an agent Profile, a Session is one DM Space; New
+  Chat creates another one for the same pair.
 - Wake, Reference, and Human Mention are the current Space addressing relations.
 - Wake is the only addressing relation that creates executable work.
 - Agent-to-agent delivery must use Wake or Reply + Wake.

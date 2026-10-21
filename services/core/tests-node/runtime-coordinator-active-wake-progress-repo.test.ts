@@ -442,6 +442,50 @@ describe("RuntimeCoordinator active Wake progress projection repo", () => {
     }
   });
 
+  it("reports an accepted execution as locally queued until the Service starts it", async () => {
+    const harness = await createPostgresHarness();
+    try {
+      await writeExecution(harness.db, {
+        dispatchId: "dispatch-local-queue",
+        runtimeCoordinatorExecutionId: "rce-local-queue",
+        sourceClientMessageId: "client-local-queue",
+        status: "accepted_local",
+        targetProfileId: "agt_target",
+        updatedAtMs: 100,
+      });
+      const readLocallyQueued = async () =>
+        (
+          await listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace(
+            { db: harness.db, spaceId: "space-1" }
+          )
+        )[0]?.locallyQueued;
+      await writeRuntimeCoordinatorExecutionEventFromParts({
+        db: harness.db,
+        eventType: "lifecycle_accepted_local",
+        idempotencyKey: "lifecycle:dispatch-local-queue:attempt:queued",
+        observedAtMs: 110,
+        payload: {
+          localQueue: { status: "queued", waitReason: "workspace_conflict" },
+        },
+        runtimeCoordinatorExecutionId: "rce-local-queue",
+        statusAfter: "accepted_local",
+      });
+      expect(await readLocallyQueued()).toBe(true);
+      await writeRuntimeCoordinatorExecutionEventFromParts({
+        db: harness.db,
+        eventType: "lifecycle_accepted_local",
+        idempotencyKey: "lifecycle:dispatch-local-queue:attempt",
+        observedAtMs: 120,
+        payload: { localQueue: null },
+        runtimeCoordinatorExecutionId: "rce-local-queue",
+        statusAfter: "accepted_local",
+      });
+      expect(await readLocallyQueued()).toBe(false);
+    } finally {
+      await harness.close();
+    }
+  });
+
   it("lists only active executions for one Space in newest-first order", async () => {
     const harness = await createPostgresHarness();
 

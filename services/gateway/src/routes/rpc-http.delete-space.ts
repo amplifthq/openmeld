@@ -8,6 +8,7 @@ import { mapAuthRpcHttpError } from "../lib/auth-rpc-error";
 import type { HonoBindings } from "../lib/bindings";
 import {
   buildCoreRpcContext,
+  buildCoreRpcCredential,
   executeRpcRoute,
   readSpacePasswordHeader,
 } from "./rpc-http.helpers";
@@ -50,6 +51,7 @@ export function registerDeleteSpaceRoute(app: Hono<HonoBindings>): void {
             meta,
           });
         const deleted = await c.var.coreRpc.deleteSpace({
+          requestCredential: await buildCoreRpcCredential(c),
           spaceId,
           ...(approvedAgentCreatorProfileId
             ? { approvedAgentCreatorProfileId }

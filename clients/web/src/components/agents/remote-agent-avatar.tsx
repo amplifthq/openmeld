@@ -19,7 +19,10 @@ import {
 	FluidAvatar,
 	type FluidAvatarProps,
 } from "@openmeld/ui/components/fluid-avatar";
-import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
+import {
+	LocalAgentLogo,
+	RAISED_TILE_SURFACE_CLASS_NAME,
+} from "@openmeld/ui/components/local-agent-logo";
 import { cn } from "@openmeld/ui/lib/utils";
 import { RobotIcon } from "@phosphor-icons/react";
 import { useRef } from "react";
@@ -209,7 +212,7 @@ function AgentAvatarPresentation({
 			{...identityAttributes}
 			className={cn(
 				"inline-flex shrink-0 items-center justify-center overflow-hidden text-foreground",
-				variant !== "plain" && "bg-surface-2",
+				variant !== "plain" && RAISED_TILE_SURFACE_CLASS_NAME,
 				shape === "circle" ? "rounded-full" : "rounded-[22%]",
 				className
 			)}

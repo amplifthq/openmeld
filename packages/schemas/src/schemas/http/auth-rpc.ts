@@ -34,11 +34,19 @@ export const authOrganizationContextSourceSchema = z.enum([
 
 export const authRpcMethodSchema = z.enum(["session", "api_key", "none"]);
 
+// Mirrors requestCredentialKindSchema (http/sensitive-operations.ts). Absent
+// means the caller cannot prove an interactive session.
+export const authRpcCredentialKindSchema = z.enum([
+  "interactive_session",
+  "cli_credential",
+]);
+
 export const authRpcClaimsSchema = z.strictObject({
   activeOrganizationId: trimmedNonEmptyStringSchema.optional(),
   authenticated: z.boolean(),
   authMethod: authRpcMethodSchema,
   callerPrincipalId: trimmedNonEmptyStringSchema.optional(),
+  credentialKind: authRpcCredentialKindSchema.optional(),
   organizationContextSource: authOrganizationContextSourceSchema.optional(),
   ownerIds: z.array(trimmedNonEmptyStringSchema),
   profileId: trimmedNonEmptyStringSchema.optional(),

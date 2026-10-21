@@ -47,6 +47,16 @@ export function buildOpenClawBootstrapIdentityName(
   return `OpenMeld ${normalizedProfileName}`;
 }
 
+/** One colleague Wake's own session; never the Space's shared one. */
+export function buildOpenClawWakeSessionKey(input: {
+  agentId: string;
+  scopeId: string;
+}): string {
+  const normalizedAgentId =
+    slugifyOpenClawNamePart(input.agentId, "agent") || "agent";
+  return `agent:${normalizedAgentId}:openmeld-wake:${slugifyOpenClawNamePart(input.scopeId, "wake")}`;
+}
+
 export function buildOpenClawSpaceSessionKey(input: {
   agentId: string;
   spaceId: string;

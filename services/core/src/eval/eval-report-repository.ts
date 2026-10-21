@@ -8,6 +8,7 @@ import type {
   OrganizationWeeklyEvalMetrics,
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../lib/bindings";
+import { getSpaceStubById } from "../rpc/space-ref";
 
 // Leave headroom below the paid Workers default of 10,000 subrequests for the
 // D1 reads and Quality Space publication performed by the same invocation.
@@ -151,13 +152,14 @@ export async function collectOrganizationWeeklyEvalMetrics(input: {
     async ({ space_id: spaceId }) => {
       try {
         const id = input.env.OPENMELD_SPACES.idFromString(spaceId);
-        return await input.env.OPENMELD_SPACES.get(id).rpcReadEvalSignalMetrics(
-          {
-            spaceId,
-            periodEndMs: input.periodEndMs,
-            periodStartMs: input.periodStartMs,
-          }
-        );
+        return await getSpaceStubById(
+          input.env.OPENMELD_SPACES,
+          id
+        ).rpcReadEvalSignalMetrics({
+          spaceId,
+          periodEndMs: input.periodEndMs,
+          periodStartMs: input.periodStartMs,
+        });
       } catch (error) {
         throw new Error(
           `Weekly eval signal aggregation failed for Organization ${input.organizationId} Space ${spaceId}`,

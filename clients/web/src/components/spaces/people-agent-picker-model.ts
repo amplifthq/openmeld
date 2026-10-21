@@ -356,9 +356,27 @@ export function filterAddMemberGroups(
 	};
 }
 
+/**
+ * With MemberAgents, another member's personal Agent is never added
+ * directly: choosing it asks its owner (member-agent-program.md §4.6).
+ */
+export function isAgentRequestCandidate(
+	candidate: SpaceAddMembersCandidateSummary,
+	currentOwnerUserId: string | null | undefined
+): boolean {
+	return (
+		candidate.profileKind === "agent" &&
+		!candidate.isCenterAgent &&
+		Boolean(candidate.ownerUserId) &&
+		candidate.ownerUserId !== currentOwnerUserId
+	);
+}
+
 export function resolveEffectiveAddMemberProfileIds(input: {
 	candidateGroups: SpaceAddMembersCandidateGroups;
 	selectedProfileIds: ReadonlySet<string>;
+	/** Set when choosing another member's Agent asks instead of adding. */
+	agentRequestsFor?: string | null;
 }): ReadonlySet<string> {
 	const effectiveIds = new Set(input.selectedProfileIds);
 	for (const group of input.candidateGroups.personGroups) {
@@ -367,7 +385,11 @@ export function resolveEffectiveAddMemberProfileIds(input: {
 			group.agentCandidates.some(
 				(agent) =>
 					input.selectedProfileIds.has(agent.profileId) &&
-					agent.ownerHumanProfileId === group.humanCandidate?.profileId
+					agent.ownerHumanProfileId === group.humanCandidate?.profileId &&
+					!(
+						input.agentRequestsFor !== undefined &&
+						isAgentRequestCandidate(agent, input.agentRequestsFor)
+					)
 			)
 		) {
 			effectiveIds.add(group.humanCandidate.profileId);

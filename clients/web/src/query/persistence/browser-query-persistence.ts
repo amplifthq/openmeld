@@ -31,15 +31,34 @@ import {
 } from "#/query/organizations/plugin-connections";
 import { PERSISTED_DISPLAY_QUERY_GC_TIME_MS } from "#/query/query-config";
 import { startQueryKeys } from "#/query/query-keys";
+import {
+	spaceComposerTrayDisplayQueryKey,
+	spaceComposerTrayDisplaySchema,
+} from "#/query/spaces/composer-tray-display";
 import { spaceConversationDisplaySnapshotSchema } from "#/query/spaces/display-snapshot";
+import {
+	spaceHeaderTitleDisplayQueryKey,
+	spaceHeaderTitleDisplaySchema,
+} from "#/query/spaces/header-title-display";
 import {
 	mergeSpaceHistorySnapshots,
 	SPACE_SAVED_HISTORY_MAX_BYTES,
 	SPACE_SAVED_THREAD_DISPLAY_MAX_BYTES,
 } from "#/query/spaces/history";
 import { spaceMemberDirectoryDisplaySchema } from "#/query/spaces/member-directory-display";
+import {
+	seedSidebarDisplaySnapshot,
+	sidebarDisplaySnapshotQueryKey,
+	sidebarDisplaySnapshotSchema,
+} from "#/query/spaces/sidebar-display-snapshot";
 import { clearSpaceFileMediaResources } from "#/query/spaces/space-file-media-resource";
 import { spaceQueryKeys } from "#/query/spaces/status";
+import {
+	accountMemberSpacesDisplayQueryKey,
+	accountMemberSpacesDisplaySchema,
+	spaceViewerMembershipDisplayQueryKey,
+	spaceViewerMembershipDisplaySchema,
+} from "#/query/spaces/viewer-membership-display";
 import type {
 	DexieQueryCacheStore,
 	QueryCacheScope,
@@ -204,7 +223,31 @@ export function createBrowserQueryPersistenceController(
 		return result;
 	};
 
+	// Background flushes of segments the user navigated away from. A clear
+	// must wait for them, or a late write could restore cleared account data.
+	const pendingFlushes = new Set<Promise<void>>();
+	const trackPendingFlush = (flush: Promise<void> | undefined) => {
+		if (!flush) {
+			return;
+		}
+		const tracked: Promise<void> = flush
+			.catch((error: unknown) =>
+				console.error("Could not save a browser read cache snapshot.", error)
+			)
+			.finally(() => {
+				pendingFlushes.delete(tracked);
+			});
+		pendingFlushes.add(tracked);
+	};
+	const settlePendingFlushes = async () => {
+		while (pendingFlushes.size > 0) {
+			await Promise.all(pendingFlushes);
+		}
+	};
+
 	const activateSegment = async (options: {
+		/** Runs once the saved queries are in the cache, if still current. */
+		onRestored?: () => void;
 		readOnly?: boolean;
 		reload?: boolean;
 		organizationId?: string;
@@ -227,7 +270,22 @@ export function createBrowserQueryPersistenceController(
 		}
 
 		if (!options.readOnly) {
-			await current?.flushPending?.();
+			// The flush captures the outgoing segment's snapshot synchronously,
+			// while it is still current, so navigation need not wait for the
+			// storage write. Only a reload of the same saved scope reads what
+			// the flush writes; every clear settles pending flushes first.
+			const flush = current?.flushPending?.();
+			if (
+				current &&
+				current.scopeKind === options.scopeKind &&
+				current.ownerAccountId === options.ownerAccountId &&
+				current.scopeAlias === options.scopeAlias &&
+				current.scopeId === options.scopeId
+			) {
+				await flush;
+			} else {
+				trackPendingFlush(flush);
+			}
 			current?.unsubscribe?.();
 		}
 		const scope: QueryCacheScope = {
@@ -282,6 +340,17 @@ export function createBrowserQueryPersistenceController(
 		});
 		if (!options.readOnly) {
 			setActiveSegment(segment);
+		}
+		const { onRestored } = options;
+		if (onRestored) {
+			segment.activation.then(
+				() => {
+					if (resolveActiveSegment(options.scopeKind) === segment) {
+						onRestored();
+					}
+				},
+				() => undefined
+			);
 		}
 
 		await waitWithinRestoreBudget({
@@ -383,6 +452,7 @@ export function createBrowserQueryPersistenceController(
 		deactivateSegments(true);
 		removeAllKnownQueries();
 		try {
+			await settlePendingFlushes();
 			await input.store.clearAll();
 			unknownOwnerCleanupRequired = false;
 			diagnostics.record({
@@ -403,6 +473,7 @@ export function createBrowserQueryPersistenceController(
 		deactivateSegments(false);
 		removeKnownQueries({ ownerAccountId });
 		try {
+			await settlePendingFlushes();
 			await input.store.clearAccount(ownerAccountId);
 			diagnostics.record({
 				event: "clear_succeeded",
@@ -536,6 +607,9 @@ export function createBrowserQueryPersistenceController(
 					spaceQueryKeys.displaySnapshot(spaceId, openMeldProfileId),
 					spaceQueryKeys.memberDirectoryDisplay(spaceId, openMeldProfileId),
 					spaceQueryKeys.historyNavigation(spaceId, openMeldProfileId),
+					spaceViewerMembershipDisplayQueryKey(spaceId, openMeldProfileId),
+					spaceHeaderTitleDisplayQueryKey(spaceId, openMeldProfileId),
+					spaceComposerTrayDisplayQueryKey(spaceId, openMeldProfileId),
 				],
 			});
 		});
@@ -615,9 +689,21 @@ export function createBrowserQueryPersistenceController(
 						scopeAlias: organizationSlug,
 						scopeId: organizationId,
 						scopeKind: "organization",
+						// The sidebar paints its rows from the saved snapshot until its
+						// reads return.
+						onRestored: () =>
+							seedSidebarDisplaySnapshot(queryClient, {
+								organizationId,
+								ownerAccountId,
+							}),
 						targetQueryKeys: [
 							organizationQueryKeys.spaces(organizationId),
 							accountSidebarQueryKey(ownerAccountId, organizationId),
+							accountMemberSpacesDisplayQueryKey(
+								ownerAccountId,
+								organizationId
+							),
+							sidebarDisplaySnapshotQueryKey(ownerAccountId, organizationId),
 							organizationPluginConnectionQueryKeys.statusSummary(
 								organizationId
 							),
@@ -686,6 +772,7 @@ export function createBrowserQueryPersistenceController(
 					scopeKind: "space",
 				} satisfies QueryCacheScope;
 				try {
+					await settlePendingFlushes();
 					await input.store
 						.createStorage(scope)
 						.removeItem(PERSISTED_QUERY_STORAGE_KEY);
@@ -748,6 +835,7 @@ export function createBrowserQueryPersistenceController(
 					ownerAccountId,
 				});
 				try {
+					await settlePendingFlushes();
 					await input.store.clearOrganization(ownerAccountId, organizationId);
 					diagnostics.record({
 						event: "clear_succeeded",
@@ -792,6 +880,7 @@ export function createBrowserQueryPersistenceController(
 					scopeAlias: organizationSlug,
 				});
 				try {
+					await settlePendingFlushes();
 					await input.store.clearOrganizationBySlug(
 						ownerAccountId,
 						organizationSlug
@@ -1139,6 +1228,18 @@ function serializeSpacePersistedDisplayData(data: unknown): unknown {
 	if (directory.success) {
 		return directory.data;
 	}
+	const membership = spaceViewerMembershipDisplaySchema.safeParse(data);
+	if (membership.success) {
+		return membership.data;
+	}
+	const composerTray = spaceComposerTrayDisplaySchema.safeParse(data);
+	if (composerTray.success) {
+		return composerTray.data;
+	}
+	const headerTitle = spaceHeaderTitleDisplaySchema.safeParse(data);
+	if (headerTitle.success) {
+		return headerTitle.data;
+	}
 	const displaySnapshot =
 		spaceConversationDisplaySnapshotSchema.safeParse(data);
 	if (displaySnapshot.success) {
@@ -1148,6 +1249,14 @@ function serializeSpacePersistedDisplayData(data: unknown): unknown {
 }
 
 function redactOrganizationPersistedDisplayData(data: unknown): unknown {
+	const sidebarSnapshot = sidebarDisplaySnapshotSchema.safeParse(data);
+	if (sidebarSnapshot.success) {
+		return sidebarSnapshot.data;
+	}
+	const memberSpaces = accountMemberSpacesDisplaySchema.safeParse(data);
+	if (memberSpaces.success) {
+		return memberSpaces.data;
+	}
 	const sidebar = accountSidebarResponseSchema.safeParse(data);
 	if (sidebar.success) {
 		return sidebar.data;
@@ -1178,6 +1287,18 @@ function redactOrganizationDirectoryActivity(data: unknown): unknown {
 		})),
 	};
 }
+
+// Layout-only Space reads, checked by the second key segment.
+const SPACE_DISPLAY_SCHEMAS: ReadonlyMap<
+	string,
+	{ safeParse: (data: unknown) => { success: boolean } }
+> = new Map<string, { safeParse: (data: unknown) => { success: boolean } }>([
+	["composer-tray-display", spaceComposerTrayDisplaySchema],
+	["display-snapshot", spaceConversationDisplaySnapshotSchema],
+	["header-title-display", spaceHeaderTitleDisplaySchema],
+	["member-directory-display", spaceMemberDirectoryDisplaySchema],
+	["viewer-membership-display", spaceViewerMembershipDisplaySchema],
+]);
 
 function isApprovedSuccessfulQuery(
 	query: Query,
@@ -1212,16 +1333,11 @@ function isApprovedSuccessfulQuery(
 			if (targetQueryKey[1] === "history") {
 				return spaceHistorySnapshotSchema.safeParse(query.state.data).success;
 			}
-			if (targetQueryKey[1] === "member-directory-display") {
-				return spaceMemberDirectoryDisplaySchema.safeParse(query.state.data)
-					.success;
-			}
-			if (targetQueryKey[1] === "display-snapshot") {
-				return spaceConversationDisplaySnapshotSchema.safeParse(
+			return (
+				SPACE_DISPLAY_SCHEMAS.get(String(targetQueryKey[1]))?.safeParse(
 					query.state.data
-				).success;
-			}
-			return false;
+				).success ?? false
+			);
 		default: {
 			const unhandled: never = scopeKind;
 			return unhandled;

@@ -65,8 +65,8 @@ import { createNativeComputerTool } from "./computer-native";
 import { createComputerPluginConnectionTool } from "./computer-plugin-connection";
 import {
   assertComputerMutationCanContinue,
+  authorizeComputerObservation,
   createComputerRecoveryTool,
-  requireComputerRecoveryContext,
 } from "./computer-recovery";
 import { getComputerSpaceFileTools } from "./computer-space-files";
 import { getComputerVideoInspectionTool } from "./computer-video-inspection";
@@ -199,26 +199,12 @@ export async function createRemoteAgentComputerCapability(input: {
   const workspaceAccess: AgentComputerWorkspaceAccess = {
     ...preparedWorkspaceAccess,
     computerOperation: async (requestedOperation) => {
-      let operation = requestedOperation;
       await authorize();
-      if (
-        operation.action === "command" &&
-        operation.command.action !== "start" &&
-        operation.command.action !== "list" &&
-        operation.command.reference?.invocationId !== undefined &&
-        operation.command.reference.invocationId !== input.context.submissionId
-      ) {
-        if (!input.storage) {
-          throw new Error("computer.recovery_storage_unavailable");
-        }
-        const original = await requireComputerRecoveryContext({
-          ...input,
-          computerName,
-          storage: input.storage,
-          invocationId: operation.command.reference.invocationId,
-        });
-        operation = { ...operation, invocationId: original.submissionId };
-      }
+      const operation = await authorizeComputerObservation({
+        ...input,
+        computerName,
+        operation: requestedOperation,
+      });
       const observes =
         operation.action === "describe" ||
         (operation.action === "command" &&

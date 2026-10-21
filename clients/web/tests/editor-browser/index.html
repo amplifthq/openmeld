@@ -3,6 +3,13 @@
 	<head>
 		<meta charset="UTF-8">
 		<title>Editor regression fixture</title>
+		<!-- The app's editor class sets this; without it Chromium collapses a
+		trailing space and reports the caret before it. -->
+		<style>
+		[data-slate-editor] {
+			white-space: break-spaces;
+		}
+		</style>
 	</head>
 	<body>
 		<div id="root"></div>

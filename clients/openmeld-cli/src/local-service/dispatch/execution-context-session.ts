@@ -1,5 +1,6 @@
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import { lstat, mkdir, realpath } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   forkSession,
   getSessionInfo,
@@ -15,12 +16,14 @@ import type {
   RuntimeAgentControllerLaunchContract,
 } from "@openmeld/adapter-core";
 import { buildRuntimeWorkspaceFingerprint } from "@openmeld/local-execution";
+import type { LocalExecutionResourceClaim } from "@openmeld/local-service";
 import type {
   ComputerFileAccessPolicy,
   ExecutionContextCompletion,
   ExecutionContextTask,
 } from "@openmeld/schemas/types";
 import { isSameOrDescendantPath } from "../../lib/path-containment";
+import type { DaemonProfileRouteConfig } from "../core/types";
 import { runAgentSessionForkOperation } from "../session-control/session-fork-operation-store";
 import {
   type ExecutionContextWorkspace,
@@ -31,21 +34,117 @@ export function executionContextLedgerPolicy(context?: ExecutionContextTask) {
   return context ? ("throw" as const) : ("backup_and_reset" as const);
 }
 
-export function executionContextResourceScope(context?: ExecutionContextTask) {
+/**
+ * The shared roots of the Profile's effective working folder from the current
+ * route, or null when that folder is not known yet.
+ */
+export function resolveQueuedFolderRoots(
+  route: DaemonProfileRouteConfig | null | undefined
+): string[] | null {
+  const runtime = route?.workingFolderRuntime;
+  if (runtime?.status !== "ready") {
+    return null;
+  }
+  try {
+    return resolveFolderResourceRoots(
+      realpathSync.native(
+        runtime.runtimeContext.providerRuntimeWorkingDirectory
+      )
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The canonical roots a task in `folder` shares with other local work.
+ *
+ * Every folder inside one Git checkout shares its files, index, and HEAD, so
+ * the claim covers the whole checkout, found the way Git finds it from the
+ * nearest `.git`. The claim also covers the repository's common Git directory:
+ * linked worktrees share its refs, stash, and configuration with each other and
+ * with the main checkout. A folder outside any checkout claims only itself.
+ * Git metadata that cannot be read throws, so callers treat the roots as unknown.
+ */
+export function resolveFolderResourceRoots(folder: string): string[] {
+  for (let directory = folder; ; directory = dirname(directory)) {
+    const marker = join(directory, ".git");
+    const markerInfo = statIfPresent(marker);
+    if (markerInfo) {
+      const gitDirectory = markerInfo.isDirectory()
+        ? realpathSync.native(marker)
+        : readGitDirectoryPointer(directory, marker);
+      const commonDirectory = readGitCommonDirectory(gitDirectory);
+      return isSameOrDescendantPath(commonDirectory, directory)
+        ? [directory]
+        : [directory, commonDirectory];
+    }
+    if (dirname(directory) === directory) {
+      return [folder];
+    }
+  }
+}
+
+function statIfPresent(path: string) {
+  try {
+    return statSync(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+function readGitDirectoryPointer(directory: string, marker: string): string {
+  const pointer = readFileSync(marker, "utf8").trim();
+  if (!pointer.startsWith("gitdir: ") || pointer.length > 4096) {
+    throw new Error("execution_context.git_metadata_unreadable");
+  }
+  return realpathSync.native(
+    resolve(directory, pointer.slice("gitdir: ".length))
+  );
+}
+
+function readGitCommonDirectory(gitDirectory: string): string {
+  const pointerPath = join(gitDirectory, "commondir");
+  if (!statIfPresent(pointerPath)) {
+    return gitDirectory;
+  }
+  return realpathSync.native(
+    resolve(gitDirectory, readFileSync(pointerPath, "utf8").trim())
+  );
+}
+
+/**
+ * The local files a delivered Wake may touch, claimed before it is admitted.
+ *
+ * `currentFolderRoots` are the shared roots of the Profile's working folder,
+ * or null when they are not known. A selected Project folder is resolved only
+ * during preparation, so its roots stay unknown here and overlap every shared
+ * root.
+ */
+export function executionContextResourceClaim(input: {
+  context?: ExecutionContextTask;
+  currentFolderRoots: string[] | null;
+}): LocalExecutionResourceClaim {
+  const { context } = input;
   if (!context) {
-    return undefined;
+    return {
+      kind: "shared",
+      access: "write",
+      legacy: true,
+      roots: input.currentFolderRoots,
+    };
   }
-  if (context.access === "space_context") {
-    return "none" as const;
+  if (context.access === "space_context" || context.workspace === "isolated") {
+    return { kind: "private" };
   }
-  if (context.workspace === "isolated") {
-    return context.access === "workspace"
-      ? ("isolated" as const)
-      : ("isolated_read" as const);
-  }
-  return context.access === "workspace"
-    ? ("exclusive" as const)
-    : ("read_only" as const);
+  return {
+    kind: "shared",
+    access: context.access === "workspace" ? "write" : "read",
+    roots: context.projectWork ? null : input.currentFolderRoots,
+  };
 }
 
 export function executionContextFileAccessBoundary(input: {
@@ -129,6 +228,8 @@ export async function prepareExecutionContextConversation(input: {
   context?: ExecutionContextTask;
   unscopedNativeConversationId: string | null;
   currentWorkingDirectory: string;
+  /** Set when a fork continues in another folder than its source. */
+  forkSourceWorkingDirectory?: string;
   workingDirectory: string;
   existingNativeConversationId: string | null;
   ledgerRootPath: string;
@@ -173,7 +274,7 @@ export async function prepareExecutionContextConversation(input: {
     sourceWorkspace?.workingDirectory ??
     (await realpath(
       source.workspace === "current"
-        ? input.currentWorkingDirectory
+        ? (input.forkSourceWorkingDirectory ?? input.currentWorkingDirectory)
         : (sourceWorkspace?.workingDirectory ??
             join(
               input.ledgerRootPath,
@@ -272,6 +373,8 @@ export async function prepareExecutionContextConversation(input: {
 
 export async function captureExecutionContextCompletion(input: {
   context?: ExecutionContextTask;
+  /** The Service chose the workspace from Core's workspaceDefault. */
+  reportWorkspace?: boolean;
   nativeConversationId: string | null;
   agentControllerRef: string;
   workingDirectory: string;
@@ -287,6 +390,7 @@ export async function captureExecutionContextCompletion(input: {
     runtimeWorkspaceFingerprint: buildRuntimeWorkspaceFingerprint(
       input.workingDirectory
     ),
+    ...(input.reportWorkspace ? { workspace: input.context.workspace } : {}),
   };
   if (!input.providerSucceeded) {
     return completion;

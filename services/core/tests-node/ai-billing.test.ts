@@ -5,7 +5,7 @@ import {
   rpcUpdateAiBilling,
 } from "../src/usage/ai-billing-rpc";
 import {
-  authorizeAiProvider,
+  admitRemoteAiRequest,
   readAiBilling,
 } from "../src/usage/ai-billing-service";
 import {
@@ -34,6 +34,39 @@ const context = {
     openMeldProfileId: "33333333-3333-4333-8333-333333333333",
   },
 };
+
+// Funding selection for one small hosted request; reservations have their own suite.
+function authorizeAiProvider(env: CoreBindings, organizationId: string) {
+  return admitRemoteAiRequest(env, {
+    providerAuthorizationVersion: 2,
+    creditHold: {
+      status: "estimated",
+      nanoUsd: 1_000_000,
+      estimatedInputTokens: 10,
+      maxOutputTokens: 10,
+    },
+    record: {
+      organizationId,
+      eventId: `openrouter:${crypto.randomUUID()}`,
+      provider: "openrouter",
+      model: "x-ai/grok-4.5",
+      source: "openrouter_response",
+      status: "pending",
+      providerRequestId: null,
+      occurredAtMs: Date.now(),
+      runtime: "remote",
+      purpose: "agent",
+      agentProfileId: null,
+      spaceId: null,
+      taskId: null,
+      attemptId: null,
+      computerId: null,
+      controller: null,
+      tokens: null,
+      cost: null,
+    },
+  });
+}
 
 describe("AI funding at the native database and provider boundary", () => {
   let harness: Awaited<ReturnType<typeof createPostgresHarness>>;

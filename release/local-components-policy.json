@@ -1,12 +1,12 @@
 {
-  "version": "0.3.264",
+  "version": "0.3.265",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Existing CLI commands remain wire-compatible; bounded stop, verified repair and opt-in native recovery improve diagnostics."
+    "reason": "Account-read diagnostics are additive and existing CLI commands remain compatible; the mandatory CLI floor stays at 0.3.251."
   },
   "service": {
-    "updatePolicy": "required",
-    "reason": "Native account checks must run each minute before Core can enforce the two-minute evidence lifetime; old five-minute carriers cannot satisfy it."
+    "updatePolicy": "available",
+    "reason": "The mandatory Service floor remains 0.3.264. Shared account-read contracts remain compatible and do not change Service transport or execution."
   },
   "skills": {
     "updatePolicy": "available",

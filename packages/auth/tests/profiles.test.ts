@@ -36,6 +36,7 @@ type ProfileSeed = Omit<
   | "avatarStyle"
   | "avatarOptions"
   | "organizationId"
+  | "memberAgentId"
 > &
   Partial<
     Pick<
@@ -50,6 +51,7 @@ type ProfileSeed = Omit<
       | "avatarStyle"
       | "avatarOptions"
       | "organizationId"
+      | "memberAgentId"
     >
   >;
 
@@ -69,6 +71,7 @@ function withProfileDefaults(profile: ProfileSeed): OpenMeldProfileRecord {
     managedRole: profile.managedRole ?? null,
     avatarStyle: profile.avatarStyle ?? null,
     avatarOptions: profile.avatarOptions ?? null,
+    memberAgentId: profile.memberAgentId ?? null,
   };
 }
 
@@ -146,6 +149,24 @@ function createInMemoryRepository(
         ) ?? null
       );
     },
+    findDefaultHumanAndOwnedProfile(ownerUserId, profileId) {
+      return Promise.resolve({
+        defaultHumanProfile:
+          profiles.find(
+            (profile) =>
+              profile.ownerUserId === ownerUserId &&
+              profile.profileKind === "human" &&
+              profile.isDefault === true &&
+              profile.status === "active"
+          ) ?? null,
+        ownedProfile:
+          profiles.find(
+            (profile) =>
+              profile.ownerUserId === ownerUserId &&
+              profile.profileId === profileId
+          ) ?? null,
+      });
+    },
     findManagedAgentByOwnerAndRole(ownerUserId, managedRole) {
       return Promise.resolve(
         profiles.find(
@@ -156,6 +177,9 @@ function createInMemoryRepository(
             profile.status === "active"
         ) ?? null
       );
+    },
+    isMemberAgentDefaultProfile() {
+      return Promise.resolve(false);
     },
     findManagedAgentByOrganizationAndRole(organizationId, managedRole) {
       return Promise.resolve(
@@ -195,6 +219,7 @@ function createInMemoryRepository(
         creationActorProfileId: null,
         creatorProfileId: input.creatorProfileId ?? null,
         creationIdempotencyKey: null,
+        memberAgentId: null,
         defaultProjectId: null,
         defaultProjectRevision: 0,
         avatarStyle: null,
@@ -249,6 +274,7 @@ function createInMemoryRepository(
         creationActorProfileId: input.creationActorProfileId ?? null,
         creatorProfileId: input.creatorProfileId ?? null,
         creationIdempotencyKey: input.creationIdempotencyKey ?? null,
+        memberAgentId: null,
         defaultProjectId: null,
         defaultProjectRevision: 0,
         avatarStyle: null,
@@ -284,6 +310,7 @@ function createInMemoryRepository(
         creationActorProfileId: null,
         creatorProfileId: input.creatorProfileId ?? null,
         creationIdempotencyKey: null,
+        memberAgentId: null,
         defaultProjectId: null,
         defaultProjectRevision: 0,
         avatarStyle: null,
@@ -1944,6 +1971,309 @@ describe("OpenMeld profile service", () => {
         profileId: primary.profileId,
       })
     ).rejects.toBeInstanceOf(PrimaryHumanProfileDeleteForbiddenError);
+  });
+});
+
+describe("OpenMeld request-auth primary and requested Profile resolution", () => {
+  const OTHER_OWNER_AGENT_PROFILE_ID =
+    "agt_bbbbbbbb-0000-0000-0000-000000000000";
+  const primaryInput = {
+    userId: "user_1",
+    userName: "Felix",
+    userEmail: "felix@openmeld.invalid",
+  };
+
+  async function seededService() {
+    const repository = createInMemoryRepository();
+    let nextAgentProfileId = TEST_AGENT_PROFILE_ID;
+    const service = createOpenMeldProfileService(repository, {
+      generateAgentProfileId: () => nextAgentProfileId,
+    });
+    const primary = await service.ensurePrimaryHumanProfile(primaryInput);
+    await service.createAgentProfile({
+      ownerUserId: "user_1",
+      createdByUserId: "user_1",
+      organizationId: TEST_ORGANIZATION_ID,
+      profileName: "Agent",
+    });
+    nextAgentProfileId = OTHER_OWNER_AGENT_PROFILE_ID;
+    await service.ensurePrimaryHumanProfile({
+      userId: "user_2",
+      userName: "Other",
+      userEmail: "other@openmeld.invalid",
+    });
+    await service.createAgentProfile({
+      ownerUserId: "user_2",
+      createdByUserId: "user_2",
+      organizationId: TEST_ORGANIZATION_ID,
+      profileName: "Other Agent",
+    });
+    const calls = {
+      findDefaultHumanAndOwnedProfile: 0,
+      findDefaultHumanByOwner: 0,
+      findByOwnerAndProfileId: 0,
+    };
+    for (const method of Object.keys(calls) as (keyof typeof calls)[]) {
+      const original = repository[method].bind(repository) as (
+        ...args: unknown[]
+      ) => Promise<unknown>;
+      (repository as Record<string, unknown>)[method] = (
+        ...args: unknown[]
+      ) => {
+        calls[method] += 1;
+        return original(...args);
+      };
+    }
+    return { calls, primary, repository, service };
+  }
+
+  function summarizeOutcome(outcome: {
+    primaryHumanProfile: OpenMeldProfileRecord;
+    requestedProfile:
+      | { ok: true; profile: OpenMeldProfileRecord }
+      | { ok: false; error: unknown };
+  }) {
+    return {
+      primaryHumanProfile: outcome.primaryHumanProfile,
+      requestedProfile: outcome.requestedProfile.ok
+        ? outcome.requestedProfile
+        : {
+            ok: false,
+            errorType: (outcome.requestedProfile.error as Error).constructor,
+          },
+    };
+  }
+
+  // Resolves the selector through the combined read and through the
+  // separate ensure + resolve calls it replaces.
+  async function resolveBothWays(
+    service: ReturnType<typeof createOpenMeldProfileService>,
+    selector: {
+      profileId?: string | null;
+      profileKind?: "human" | "agent" | "system" | null;
+    }
+  ) {
+    const combined =
+      await service.resolvePrimaryHumanAndRequestedProfileForOwner({
+        ...primaryInput,
+        ...selector,
+      });
+    const primaryHumanProfile =
+      await service.ensurePrimaryHumanProfile(primaryInput);
+    const requestedProfile = await service
+      .resolveProfileForOwner({
+        ownerUserId: primaryInput.userId,
+        ...selector,
+      })
+      .then(
+        (profile) => ({ ok: true as const, profile }),
+        (error: unknown) => ({ ok: false as const, error })
+      );
+    return {
+      combined,
+      combinedSummary: summarizeOutcome(combined),
+      sequentialSummary: summarizeOutcome({
+        primaryHumanProfile,
+        requestedProfile,
+      }),
+    };
+  }
+
+  it("returns the primary Human Profile as the requested Profile without a profile id", async () => {
+    const { calls, primary, service } = await seededService();
+
+    const {
+      combined: result,
+      combinedSummary,
+      sequentialSummary,
+    } = await resolveBothWays(service, {});
+
+    expect(combinedSummary).toEqual(sequentialSummary);
+    expect(result.requestedProfile).toEqual({ ok: true, profile: primary });
+    expect(calls.findDefaultHumanAndOwnedProfile).toBe(0);
+  });
+
+  it("reads the primary and an owned active Profile in one repository read", async () => {
+    const { calls, primary, service } = await seededService();
+
+    const result = await service.resolvePrimaryHumanAndRequestedProfileForOwner(
+      {
+        ...primaryInput,
+        profileId: TEST_AGENT_PROFILE_ID,
+        profileKind: "agent",
+      }
+    );
+
+    expect(result.primaryHumanProfile).toEqual(primary);
+    expect(result.requestedProfile).toMatchObject({
+      ok: true,
+      profile: { profileId: TEST_AGENT_PROFILE_ID, ownerUserId: "user_1" },
+    });
+    expect(calls).toEqual({
+      findDefaultHumanAndOwnedProfile: 1,
+      findDefaultHumanByOwner: 0,
+      findByOwnerAndProfileId: 0,
+    });
+    const { combinedSummary, sequentialSummary } = await resolveBothWays(
+      service,
+      {
+        profileId: TEST_AGENT_PROFILE_ID,
+        profileKind: "agent",
+      }
+    );
+    expect(combinedSummary).toEqual(sequentialSummary);
+  });
+
+  it("resolves the primary Human Profile when it is the requested Profile", async () => {
+    const { primary, service } = await seededService();
+
+    const {
+      combined: result,
+      combinedSummary,
+      sequentialSummary,
+    } = await resolveBothWays(service, {
+      profileId: primary.profileId,
+    });
+
+    expect(combinedSummary).toEqual(sequentialSummary);
+
+    expect(result.requestedProfile).toEqual({ ok: true, profile: primary });
+  });
+
+  it("rejects another owner's Profile without failing the primary Profile", async () => {
+    const { primary, service } = await seededService();
+
+    const {
+      combined: result,
+      combinedSummary,
+      sequentialSummary,
+    } = await resolveBothWays(service, {
+      profileId: OTHER_OWNER_AGENT_PROFILE_ID,
+    });
+
+    expect(combinedSummary).toEqual(sequentialSummary);
+
+    expect(result.primaryHumanProfile).toEqual(primary);
+    expect(result.requestedProfile.ok).toBe(false);
+    expect(
+      result.requestedProfile.ok ? null : result.requestedProfile.error
+    ).toBeInstanceOf(ProfileNotFoundError);
+  });
+
+  it("rejects a disabled owned Profile", async () => {
+    const { repository, service } = await seededService();
+    const agent = repository.profiles.find(
+      (profile) => profile.profileId === TEST_AGENT_PROFILE_ID
+    );
+    if (!agent) {
+      throw new Error("seeded Agent Profile is missing");
+    }
+    agent.status = "disabled";
+
+    const {
+      combined: result,
+      combinedSummary,
+      sequentialSummary,
+    } = await resolveBothWays(service, {
+      profileId: TEST_AGENT_PROFILE_ID,
+    });
+
+    expect(combinedSummary).toEqual(sequentialSummary);
+
+    expect(
+      result.requestedProfile.ok ? null : result.requestedProfile.error
+    ).toBeInstanceOf(ProfileNotFoundError);
+  });
+
+  it("rejects an owned Profile of another kind", async () => {
+    const { service } = await seededService();
+
+    const {
+      combined: result,
+      combinedSummary,
+      sequentialSummary,
+    } = await resolveBothWays(service, {
+      profileId: TEST_AGENT_PROFILE_ID,
+      profileKind: "human",
+    });
+
+    expect(combinedSummary).toEqual(sequentialSummary);
+
+    expect(
+      result.requestedProfile.ok ? null : result.requestedProfile.error
+    ).toBeInstanceOf(ProfileNotFoundError);
+  });
+
+  it("rejects a missing Profile id", async () => {
+    const { service } = await seededService();
+
+    const {
+      combined: result,
+      combinedSummary,
+      sequentialSummary,
+    } = await resolveBothWays(service, {
+      profileId: "agt_cccccccc-0000-0000-0000-000000000000",
+    });
+
+    expect(combinedSummary).toEqual(sequentialSummary);
+
+    expect(
+      result.requestedProfile.ok ? null : result.requestedProfile.error
+    ).toBeInstanceOf(ProfileNotFoundError);
+  });
+
+  it("reports an invalid Profile id as a requested Profile failure", async () => {
+    const { calls, primary, service } = await seededService();
+
+    const {
+      combined: result,
+      combinedSummary,
+      sequentialSummary,
+    } = await resolveBothWays(service, {
+      profileId: "not-a-profile-id",
+    });
+
+    expect(combinedSummary).toEqual(sequentialSummary);
+
+    expect(result.primaryHumanProfile).toEqual(primary);
+    expect(
+      result.requestedProfile.ok ? null : result.requestedProfile.error
+    ).toBeInstanceOf(ProfileValidationError);
+    expect(calls.findDefaultHumanAndOwnedProfile).toBe(0);
+  });
+
+  it("reads the requested Profile after first-login primary bootstrap", async () => {
+    const primaryProfileId = "99999999-1111-2222-3333-444444444444";
+    const repository = createInMemoryRepository();
+    const service = createOpenMeldProfileService(repository, {
+      generatePrimaryHumanProfileId: () => primaryProfileId,
+    });
+
+    const result = await service.resolvePrimaryHumanAndRequestedProfileForOwner(
+      {
+        ...primaryInput,
+        profileId: primaryProfileId,
+      }
+    );
+
+    expect(result.primaryHumanProfile.profileId).toBe(primaryProfileId);
+    expect(result.requestedProfile).toMatchObject({
+      ok: true,
+      profile: { profileId: primaryProfileId, isDefault: true },
+    });
+  });
+
+  it("fails the whole resolution when the primary Human Profile fails", async () => {
+    const { repository, service } = await seededService();
+    repository.findDefaultHumanAndOwnedProfile = () =>
+      Promise.reject(new Error("database unavailable"));
+
+    await expect(
+      service.resolvePrimaryHumanAndRequestedProfileForOwner({
+        ...primaryInput,
+        profileId: TEST_AGENT_PROFILE_ID,
+      })
+    ).rejects.toThrow("database unavailable");
   });
 });
 

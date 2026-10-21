@@ -4,9 +4,14 @@ import {
   type ListCenterAgentSessionsResponse,
   listCenterAgentSessionsResponseSchema,
 } from "@openmeld/schemas";
+import { isMemberAgentsEnabled } from "../../member-agent/member-agents-feature";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 import { readConversationDeletionDates } from "../../space/application/conversation-history";
-import { listCenterAgentSessionIndexRows } from "../../space-index/space-index-repository";
+import {
+  decodeDirectMessageSessionCursor,
+  encodeDirectMessageSessionCursor,
+} from "../../space/application/direct-message-session-cursor";
+import { listDirectMessageSessionIndexRows } from "../../space-index/space-index-repository";
 /** The caller resolves these identities from current Core membership/designation. */
 export async function listAuthorizedCenterAgentSessions(input: {
   db: PostgresDatabase;
@@ -23,12 +28,8 @@ export async function listAuthorizedCenterAgentSessions(input: {
     | undefined;
   if (input.cursor !== undefined) {
     try {
-      const bytes = Uint8Array.from(
-        atob(input.cursor.replace(/-/g, "+").replace(/_/g, "/")),
-        (character) => character.charCodeAt(0)
-      );
       const parsed = centerAgentSessionListCursorSchema.safeParse(
-        JSON.parse(new TextDecoder().decode(bytes))
+        decodeDirectMessageSessionCursor(input.cursor)
       );
       if (
         !parsed.success ||
@@ -46,11 +47,14 @@ export async function listAuthorizedCenterAgentSessions(input: {
       });
     }
   }
-  const rows = await listCenterAgentSessionIndexRows({
+  const rows = await listDirectMessageSessionIndexRows({
     db: input.db,
     organizationId: input.organizationId,
     pairKey: input.pairKey,
     limit: input.limit + 1,
+    // Session archive is a MemberAgent-program operation; with the flag off
+    // the Center Agent chat list keeps its previous contents.
+    ...(isMemberAgentsEnabled() ? { archived: false } : {}),
     ...(before ? { before } : {}),
   });
   const page = rows.slice(0, input.limit);
@@ -73,16 +77,7 @@ export async function listAuthorizedCenterAgentSessions(input: {
         }
       : null;
   const nextCursor =
-    cursor === null
-      ? null
-      : btoa(
-          String.fromCharCode(
-            ...new TextEncoder().encode(JSON.stringify(cursor))
-          )
-        )
-          .replace(/\+/g, "-")
-          .replace(/\//g, "_")
-          .replace(/=+$/g, "");
+    cursor === null ? null : encodeDirectMessageSessionCursor(cursor);
   const response = listCenterAgentSessionsResponseSchema.safeParse({
     generatedAt: new Date().toISOString(),
     organizationId: input.organizationId,

@@ -10,7 +10,11 @@ import { scheduleOrganizationScopeTimingEvidence } from "./organization-scope-ob
 
 export async function readAccountOrganizationContextFromRequest(
 	routeFamily: string,
-	options: { signal?: AbortSignal; timeoutMs?: number } = {}
+	options: {
+		deferSessionRefresh?: boolean;
+		signal?: AbortSignal;
+		timeoutMs?: number;
+	} = {}
 ) {
 	const requestHeaders = getRequestHeaders();
 	const cookie = requestHeaders.get("cookie");

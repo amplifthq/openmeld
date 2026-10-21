@@ -18,6 +18,7 @@ import { createPlateEditor } from "platejs/react";
 import { createRef, useLayoutEffect, useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	resolveAgentRequestRelationLabel,
 	SpaceComposerEditor,
 	type SpaceComposerEditorHandle,
 	SpaceComposerEditorKit,
@@ -35,6 +36,7 @@ const FELIX_OPTION_NAME = /Felix/;
 const RUNNER_OPTION_NAME = /Runner/;
 const ALL_OPTION_NAME = /@all/;
 const BOTH_OPTION_NAME = /Both/;
+const CODEX_REQUEST_OPTION_NAME = /Asks Felix/;
 const MENTION_ONLY_OPTION_NAME = /^Mention only\s*— Won’t wake the agent$/;
 
 describe("SpaceComposerEditor", () => {
@@ -84,6 +86,88 @@ describe("SpaceComposerEditor", () => {
 				start: 0,
 			})
 		);
+	});
+
+	it("offers a colleague's Agent outside the Space under its owner and inserts its name as text", async () => {
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		const onChange = vi.fn();
+		const onSelect = vi.fn();
+		const codex = {
+			agentControllerRef: null,
+			availability: null,
+			avatarUrl: null,
+			mentionName: "Felix's Codex",
+			ownerName: "Felix",
+			ownerUserId: "felix",
+			profileHandle: null,
+			profileId: "agt_codex",
+			profileName: "Codex",
+		};
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[]}
+				agentRequestMentions={{ items: [codex], onSelect }}
+				ariaLabel="Message"
+				authoredMentions={[]}
+				composerRef={composerRef}
+				mentionPickerItems={createMentionPickerItems()}
+				onChange={onChange}
+				onSend={vi.fn()}
+				placeholder="Message"
+				text=""
+			/>
+		);
+		await act(() => {
+			composerRef.current?.insertMentionTrigger();
+		});
+		expect(
+			await screen.findByText("Felix's Agents · not in this Space")
+		).toBeTruthy();
+		const option = await screen.findByRole("option", {
+			name: CODEX_REQUEST_OPTION_NAME,
+		});
+		expect(option.textContent).toContain("Asks Felix");
+		fireEvent.click(option);
+		await waitFor(() =>
+			expect(onChange.mock.lastCall?.[0].text).toContain("@Felix's Codex")
+		);
+		expect(onChange.mock.lastCall?.[0].authoredMentions).toEqual([]);
+		expect(onSelect).toHaveBeenCalledWith(codex);
+	});
+
+	it("says a colleague's unavailable Agent is unavailable, in the shared wording", () => {
+		const availability = {
+			action: "none",
+			badgeLabel: "Unavailable",
+			category: "unavailable",
+			isRefreshing: false,
+			label: "Unavailable for Wake",
+			phase: "unavailable",
+			reasonCode: null,
+			status: "unavailable_for_wake",
+			summary: "This Agent is unavailable for Wake.",
+			tooltip: "Unavailable for Wake",
+		} as const;
+		expect(
+			resolveAgentRequestRelationLabel({ availability, ownerName: "Tali" })
+		).toBe("Unavailable");
+		expect(
+			resolveAgentRequestRelationLabel({
+				availability: {
+					...availability,
+					badgeLabel: "Available",
+					category: "available",
+					status: "available_for_wake",
+				},
+				ownerName: "Tali",
+			})
+		).toBe("Asks Tali");
+		expect(
+			resolveAgentRequestRelationLabel({
+				availability: null,
+				ownerName: "Tali",
+			})
+		).toBe("Asks Tali");
 	});
 
 	it.each([

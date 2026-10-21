@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 import { parse } from "yaml";
@@ -13,10 +16,16 @@ const cliRelease = read(".github/workflows/cli-release.yml");
 const GITHUB_SHA_EXPRESSION = "${{ github.sha }}";
 // biome-ignore lint/suspicious/noTemplateCurlyInString: GitHub Actions expression text.
 const INPUT_SHA_EXPRESSION = "${{ inputs.sha }}";
+// biome-ignore lint/suspicious/noTemplateCurlyInString: GitHub Actions expression text.
+const CLI_INPUT_SHA_EXPRESSION = "${{ inputs.release_sha }}";
+const VALIDATED_CLI_SHA_EXPRESSION =
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: GitHub Actions expression text.
+  "${{ needs.validate.outputs.release_sha }}";
+const cloudComponents = COMPONENTS.filter((entry) => entry.name !== "cli");
 const jobName = (component) => component.replaceAll("-", "_");
 
 test("selected jobs accept omitted dependencies but reject failed or cancelled ancestors", () => {
-  for (const component of COMPONENTS.filter(
+  for (const component of cloudComponents.filter(
     (entry) => entry.dependsOn.length
   )) {
     const job = deploy.jobs[jobName(component.name)];
@@ -54,14 +63,14 @@ test("selected jobs accept omitted dependencies but reject failed or cancelled a
   }
 });
 
-test("deploy.yml has one gated job per component, ordered by the component table", () => {
+test("deploy.yml has one gated job per cloud component, ordered by the component table", () => {
   assert.deepEqual(
     Object.keys(deploy.jobs)
       .filter((name) => name !== "validate")
       .sort(),
-    COMPONENTS.map((component) => jobName(component.name)).sort()
+    cloudComponents.map((component) => jobName(component.name)).sort()
   );
-  for (const component of COMPONENTS) {
+  for (const component of cloudComponents) {
     const job = deploy.jobs[jobName(component.name)];
     // Exact delimiters keep "web" from matching "website".
     assert.match(
@@ -83,8 +92,45 @@ test("deploy.yml has one gated job per component, ordered by the component table
   }
 });
 
+test("cloud dispatch rejects CLI and mixed scopes before emitting a deployment selection", () => {
+  const directory = mkdtempSync(join(tmpdir(), "openmeld-deploy-scopes-"));
+  const step = deploy.jobs.validate.steps.find(
+    (entry) => entry.name === "Normalize components"
+  );
+  try {
+    for (const [index, scopes] of [
+      "cli",
+      "web,cli",
+      " cli , auth ",
+      "web,website",
+    ].entries()) {
+      const output = join(directory, `${index}.txt`);
+      const result = spawnSync("bash", ["-e", "-c", step.run], {
+        cwd: new URL("../../", import.meta.url),
+        encoding: "utf8",
+        env: { ...process.env, GITHUB_OUTPUT: output, SCOPES: scopes },
+      });
+      if (scopes === "web,website") {
+        assert.equal(result.status, 0, result.stderr);
+        assert.equal(readFileSync(output, "utf8"), "scopes=,web,website,\n");
+      } else {
+        assert.equal(result.status, 1, scopes);
+        assert.ok(
+          result.stderr.includes(
+            "pnpm run deploy -- --scope cli --lane github"
+          ),
+          result.stderr
+        );
+        assert.equal(readFileSync(output, "utf8"), "");
+      }
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("production jobs never cancel an active deployment of the same component", () => {
-  for (const component of COMPONENTS.filter((entry) => entry.name !== "cli")) {
+  for (const component of cloudComponents) {
     const job = deploy.jobs[jobName(component.name)];
     assert.deepEqual(job.concurrency, {
       group: `production-${component.name}`,
@@ -101,13 +147,58 @@ test("production jobs never cancel an active deployment of the same component", 
 });
 
 test("only the validate job checks the SHA, from release control on main", () => {
-  const steps = deploy.jobs.validate.steps.map((step) => step.run ?? "");
-  assert.ok(
-    steps.some((run) => run.includes("require-mainline-release-sha.mjs")),
-    "validate must require the SHA on main first-parent history"
-  );
+  for (const [workflow, source] of [
+    [deploy, INPUT_SHA_EXPRESSION],
+    [cliRelease, CLI_INPUT_SHA_EXPRESSION],
+  ]) {
+    const steps = workflow.jobs.validate.steps;
+    const main = steps.find((step) => step.name === "Require main");
+    for (const [ref, rejected] of [
+      ["refs/heads/main", false],
+      ["refs/heads/feature", true],
+      ["refs/tags/v1", true],
+    ]) {
+      assert.equal(runInNewContext(main.if, { github: { ref } }), rejected);
+    }
+    assert.equal(
+      spawnSync("bash", ["-e", "-c", main.run], {
+        env: { ...process.env, GITHUB_REF: "refs/heads/feature" },
+        encoding: "utf8",
+      }).status,
+      1
+    );
+    const checkout = steps.find(
+      (step) => step.name === "Checkout release control"
+    );
+    assert.equal(checkout.with.ref, GITHUB_SHA_EXPRESSION);
+    assert.equal(checkout.with["fetch-depth"], 0);
+    assert.equal(checkout.with["persist-credentials"], false);
+    const refresh = steps.find((step) => step.name === "Refresh current main");
+    assert.equal(
+      refresh.uses,
+      "./release-control/.github/actions/trusted-git-network"
+    );
+    assert.equal(refresh.with.operation, "fetch-main");
+    assert.equal(refresh.with.working_directory, "release-control");
+    const guard = steps.find(
+      (step) => step.name === "Require the SHA on main first-parent history"
+    );
+    assert.equal(guard.env.RELEASE_SHA, source);
+    assert.equal(guard["working-directory"], "release-control");
+    assert.ok(steps.indexOf(refresh) < steps.indexOf(guard));
+    if (workflow === cliRelease) {
+      assert.equal(
+        workflow.jobs.validate.outputs.release_sha,
+        `\${{ steps.${guard.id}.outputs.release_sha }}`
+      );
+      assert.equal(
+        guard.run.trim(),
+        'set -euo pipefail\nnode scripts/release/require-mainline-release-sha.mjs "$RELEASE_SHA" refs/remotes/origin/main --github-output'
+      );
+    }
+  }
   for (const [name, job] of Object.entries(deploy.jobs)) {
-    if (name === "validate" || name === "cli") {
+    if (name === "validate") {
       continue;
     }
     const checkouts = job.steps.filter((step) =>
@@ -179,7 +270,7 @@ test("production secrets are scoped to release steps, not dependency installatio
       }
     }
   }
-  for (const entry of COMPONENTS.filter((entry) => entry.name !== "cli")) {
+  for (const entry of cloudComponents) {
     const step = deploy.jobs[jobName(entry.name)].steps.find(
       (step) => step.name === "Build, deploy, and check health"
     );
@@ -187,18 +278,44 @@ test("production secrets are scoped to release steps, not dependency installatio
   }
 });
 
-test("the CLI publisher builds the Windows helper in the same run", () => {
-  assert.equal(deploy.jobs.cli.uses, "./.github/workflows/cli-release.yml");
-  assert.deepEqual(cliRelease.jobs.publish.needs, "windows_helper");
+test("the top-level CLI publisher gates its helper and OIDC publication on source validation", () => {
+  assert.deepEqual(Object.keys(cliRelease.on), ["workflow_dispatch"]);
+  assert.equal(
+    cliRelease.on.workflow_dispatch.inputs.release_sha.required,
+    true
+  );
+  assert.equal(cliRelease.on.workflow_dispatch.inputs.dry_run.default, false);
+  assert.equal(deploy.jobs.cli, undefined);
+  assert.deepEqual(cliRelease.jobs.windows_helper.needs, "validate");
+  assert.deepEqual(cliRelease.jobs.publish.needs, [
+    "validate",
+    "windows_helper",
+  ]);
+  for (const name of ["windows_helper", "publish"]) {
+    assert.equal(cliRelease.jobs[name].if, undefined);
+  }
+  assert.equal(cliRelease.jobs.publish.environment, "production");
+  assert.deepEqual(cliRelease.permissions, { contents: "read" });
+  assert.deepEqual(cliRelease.jobs.publish.permissions, {
+    contents: "write",
+    "id-token": "write",
+  });
   assert.ok(!JSON.stringify(cliRelease).includes("windows_artifact_run_id"));
-  assert.deepEqual(cliRelease.jobs.npm_consumers.needs, "publish");
+  assert.deepEqual(cliRelease.jobs.npm_consumers.needs, [
+    "validate",
+    "publish",
+  ]);
+  assert.equal(
+    cliRelease.jobs.publish.env.RELEASE_SHA,
+    VALIDATED_CLI_SHA_EXPRESSION
+  );
   assert.equal(
     cliRelease.jobs.windows_helper.steps.find(
       (step) => step.name === "Setup toolchain"
     ).with.control_directory,
     "release-control"
   );
-  for (const name of ["windows_helper", "npm_consumers"]) {
+  for (const name of ["windows_helper", "publish", "npm_consumers"]) {
     const job = cliRelease.jobs[name];
     assert.equal(job.defaults.run["working-directory"], "release-source");
     const checkouts = job.steps.filter((step) =>
@@ -206,20 +323,41 @@ test("the CLI publisher builds the Windows helper in the same run", () => {
     );
     assert.deepEqual(
       checkouts.map((step) => step.with.path),
-      ["release-control", "release-source"]
+      ["release-control"]
     );
     assert.equal(checkouts[0].with.ref, GITHUB_SHA_EXPRESSION);
-    assert.equal(
-      checkouts[1].with.ref,
-      cliRelease.jobs.publish.steps[1].with.ref
+    assert.equal(checkouts[0].with["fetch-depth"], 0);
+    assert.equal(checkouts[0].with["persist-credentials"], false);
+    const prepare = job.steps.find(
+      (step) => step.name === "Prepare verified release source"
     );
+    assert.equal(prepare["working-directory"], "release-control");
+    assert.equal(prepare.shell, "bash");
+    assert.equal(prepare.env.RELEASE_SHA, VALIDATED_CLI_SHA_EXPRESSION);
+    assert.equal(
+      prepare.run,
+      'node scripts/release/prepare-release-source.mjs "$RELEASE_SHA"'
+    );
+    assert.deepEqual(job.steps.slice(0, job.steps.indexOf(prepare)), checkouts);
+    assert.ok(!JSON.stringify(job).includes("inputs.release_sha"), name);
     for (const step of job.steps.filter((step) =>
-      String(step.run ?? "").includes("scripts/release/")
+      String(step.uses ?? "").includes("artifact@")
+    )) {
+      assert.equal(
+        step.with.name,
+        `windows-process-${VALIDATED_CLI_SHA_EXPRESSION}`
+      );
+    }
+    for (const step of job.steps.filter(
+      (step) =>
+        step !== prepare && String(step.run ?? "").includes("scripts/release/")
     )) {
       assert.ok(step.run.includes("../release-control/scripts/release/"));
-      assert.ok(
-        step.env.OPENMELD_RELEASE_SOURCE_ROOT.endsWith("/release-source")
-      );
+      if (name !== "publish") {
+        assert.ok(
+          step.env.OPENMELD_RELEASE_SOURCE_ROOT.endsWith("/release-source")
+        );
+      }
     }
   }
 });

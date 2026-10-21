@@ -1,11 +1,15 @@
 import {
   agentAvatarStyleSchema,
+  getAgentProfileFoldersResponseSchema,
+  manageAgentProfileFoldersBodySchema,
+  manageAgentProfileFoldersResponseSchema,
   updateAgentProfileDefaultProjectBodySchema,
   updateAgentProfileDefaultProjectResponseSchema,
   updateProfileResponseSchema,
 } from "@openmeld/schemas";
 import {
   buildAgentProfileDefaultProjectRoute,
+  buildAgentProfileFoldersRoute,
   buildProfileRoute,
 } from "./routes";
 import type {
@@ -16,6 +20,35 @@ import type {
 } from "./types";
 
 export const createProfilesApi: CreateProfilesApi = (client) => ({
+  manageFolders: async (input) => {
+    const body = manageAgentProfileFoldersBodySchema.parse({
+      expectedBindingTarget: input.expectedBindingTarget,
+      operation: input.operation,
+    });
+    return await client.requestJson({
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      invalidMessage: "Invalid Agent folder change response.",
+      method: "POST",
+      operation: "profile.manageFolders",
+      requestContext: input.requestContext,
+      schema: manageAgentProfileFoldersResponseSchema,
+      url: buildAgentProfileFoldersRoute(
+        normalizeRequiredText(input.profileId, "profileId")
+      ),
+    });
+  },
+  getFolders: async (input) =>
+    await client.requestJson({
+      invalidMessage: "Invalid Agent folders response.",
+      method: "GET",
+      operation: "profile.getFolders",
+      requestContext: input.requestContext,
+      schema: getAgentProfileFoldersResponseSchema,
+      url: buildAgentProfileFoldersRoute(
+        normalizeRequiredText(input.profileId, "profileId")
+      ),
+    }),
   updateAgentAvatar: async (input: UpdateAgentAvatarInput) => {
     const avatarStyle = agentAvatarStyleSchema.safeParse(input.avatarStyle);
     const profileId = normalizeRequiredText(input.profileId, "profileId");

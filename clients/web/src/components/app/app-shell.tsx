@@ -10,6 +10,7 @@ import { InboxVisibleConversationProvider } from "#/components/inbox/inbox-visib
 import { OnboardingEntryGate } from "#/components/onboarding/onboarding-entry-gate";
 import { WalkthroughProvider } from "#/components/onboarding/walkthrough/walkthrough-context";
 import { WalkthroughGuide } from "#/components/onboarding/walkthrough/walkthrough-guide";
+import { AgentProfileWorkingFolderDialogHost } from "#/components/profiles/agent-profile-working-folder-recovery-action";
 import { HumanPresenceProvider } from "#/components/profiles/human-presence";
 import AppSettingsDialog from "#/components/settings/app-settings-dialog";
 import { ConversationNamesProvider } from "#/components/spaces/conversation-names";
@@ -22,6 +23,7 @@ import {
 	subscribeToAccountAuthChanges,
 } from "#/query/auth-boundary";
 import { AgentAvatarProfilesProvider } from "#/query/profiles/agent-avatar-context";
+import { AccountSessionObserver } from "./account-session-observer";
 import {
 	type AppShellAccount,
 	AppShellAccountContext,
@@ -57,6 +59,7 @@ export function AppShell(input: {
 	return (
 		<AppShellAccountContext.Provider value={input.account}>
 			<AccountAuthChangeListener />
+			<AccountSessionObserver />
 			<AppOrganizationProvider scope={input.organizationScope}>
 				<AgentAvatarProfilesProvider
 					organizationId={input.organizationScope.currentOrganization.id}
@@ -108,6 +111,7 @@ export function AppShell(input: {
 												) : null}
 												<AppShellScaffold currentSection={currentSection} />
 												<AppSettingsDialog />
+												<AgentProfileWorkingFolderDialogHost />
 												<WalkthroughGuide />
 											</OnboardingEntryGate>
 										</WalkthroughProvider>

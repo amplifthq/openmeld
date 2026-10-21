@@ -31,6 +31,7 @@ export {
 export {
   ACCOUNT_ORGANIZATION_CONTEXT_PATH,
   type AccountOrganizationContext,
+  accountOrganizationContextQuerySchema,
   accountOrganizationContextSchema,
   type OrganizationSummary,
   organizationSummarySchema,

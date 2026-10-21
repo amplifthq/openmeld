@@ -160,6 +160,11 @@ export type RuntimeTransportAgentProfileExecutionTargetMutationRequest =
     typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileExecutionTargetMutationRequestSchema"]
   >;
 
+export type RuntimeTransportAgentProfileLegacyConversationMutationRequest =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileLegacyConversationMutationRequestSchema"]
+  >;
+
 export type RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse =
   import("zod/v4").infer<
     typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema"]

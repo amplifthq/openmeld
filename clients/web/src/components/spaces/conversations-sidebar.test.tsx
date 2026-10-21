@@ -34,15 +34,22 @@ vi.mock("./use-conversations", async () => {
 		},
 	};
 });
+vi.mock("#/components/member-agents/member-agent-session-nav", () => ({
+	useActiveMemberAgentSessionList: () => null,
+}));
 vi.mock("#/lib/profiles/use-default-human-profile", () => ({
 	useDefaultHumanProfile: () => ({ defaultHumanProfile: null }),
 }));
-vi.mock("#/lib/organizations/organization-context", () => ({
-	useAppOrganization: () => ({
+vi.mock("#/lib/organizations/organization-context", () => {
+	const organization = {
 		currentUserId: "viewer",
 		currentOrganization: { id: "org", slug: "test" },
-	}),
-}));
+	};
+	return {
+		useAppOrganization: () => organization,
+		useOptionalAppOrganization: () => organization,
+	};
+});
 vi.mock("@tanstack/react-router", () => ({
 	useNavigate: () => navigate,
 	useLocation: ({
@@ -126,10 +133,21 @@ async function selectView(name: "Grouped" | "Recent") {
 	fireEvent.click(await screen.findByRole("menuitemradio", { name }));
 }
 
-it("hides previews by default and remembers an explicit choice after remount", async () => {
-	const mounted = mount();
+it("shows previews by default and remembers an explicit choice after remount", async () => {
+	const first = mount();
 	const previewName =
 		"Open preview message in Product design: The release plan is ready to review.";
+	expect(await screen.findByRole("link", { name: previewName })).toBeTruthy();
+	fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
+	const defaultToggle = await screen.findByRole("menuitemcheckbox", {
+		name: "Show message previews",
+	});
+	expect(defaultToggle.getAttribute("aria-checked")).toBe("true");
+	fireEvent.click(defaultToggle);
+	expect(screen.queryByRole("link", { name: previewName })).toBeNull();
+	first.unmount();
+	// A saved "hidden" stays hidden.
+	const hidden = mount();
 	expect(screen.queryByRole("link", { name: previewName })).toBeNull();
 	fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
 	fireEvent.click(
@@ -144,7 +162,7 @@ it("hides previews by default and remembers an explicit choice after remount", a
 			name: "Open preview message in Release planning: The release plan is ready to review.",
 		})
 	).toBeNull();
-	mounted.unmount();
+	hidden.unmount();
 	const remounted = mount();
 	expect(await screen.findByRole("link", { name: previewName })).toBeTruthy();
 	fireEvent.click(screen.getByRole("button", { name: "View and filters" }));

@@ -6,6 +6,7 @@ import type { Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
 import {
   buildCoreRpcContext,
+  buildCoreRpcCredential,
   executeRpcRoute,
   readSpacePasswordHeader,
   respondBadRequest,
@@ -54,6 +55,7 @@ export function registerAgentInteractionRoutes(app: Hono<HonoBindings>): void {
       responseSchema: respondToSpaceAgentInteractionResponseSchema,
       execute: async () => {
         return await c.var.coreRpc.respondToSpaceAgentInteraction({
+          requestCredential: await buildCoreRpcCredential(c),
           body: parsed.data,
           context: buildCoreRpcContext(c),
           ...(password === undefined ? {} : { password }),

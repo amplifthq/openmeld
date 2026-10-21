@@ -41,7 +41,10 @@ can be read or the same response safely retried.
 
 | Source | Request and actor | Handling and terminal owner |
 | --- | --- | --- |
-| Local Agent permission, plan, question | Execution interaction; Binding owner | RuntimeCoordinator stores and delivers the response, expires or cancels the interaction; its durable Inbox repair updates the projection |
+| Local Agent permission, plan, question | Execution interaction; Binding owner. Urgent when the root requester is not the owner; one item per Session (`contextId`) | RuntimeCoordinator stores and delivers the response, expires or cancels the interaction; its durable Inbox repair updates the projection. Answering anywhere closes the item everywhere; the requester may cancel the waiting task |
+| Agent access request (`agent_access_request`) | First Direct Message from a colleague or identified external user to an Agent Profile; Agent owner | Agent access owner records the grant (`always`) or a one-time allowance, or the decline, and then starts a new Session or rejects; revocation ends the grant |
+| Agent Space request (`agent_space_request`) | Mention or add of another member's Agent, bound to the exact message id; Agent owner | MemberAgent request owner adds the Agent and dispatches the bound message, hands off to a DM, or ignores; an edited or deleted message voids it |
+| Credential confirmation (`credential_confirmation`) | Exact sensitive operation made with the CLI login credential during a non-owner-rooted task on that computer; Agent owner | The sensitive-operation owner applies or rejects that exact operation and writes the audit record |
 | Center Agent response request | Explicit member request in a Space | Center attention request owner resolves on the addressed member's reply |
 | Document review | Exact document draft; authorized reviewer | Document owner approves, rejects, or supersedes the draft |
 | Space Task review or rework decision | Exact submitted result; current Human reviewer, or the requester/Space owner at the automatic-rework limit | Task owns revision-checked review, cancellation and continuation. Its existing durable delivery outbox projects and resolves recipient attention from current Task state. Reading or Dismiss never changes Task state; an Agent reviewer does not create a request for its personal owner. |
@@ -54,6 +57,11 @@ can be read or the same response safely retried.
 | Channel setup | Setup request; authorized organization member | Channel setup owner completes or ends setup |
 | Computer connection | Durable connection incident; Computer owner | Runtime Transport resolves restored or deactivated incidents |
 | Failed automatic continuation | No human request | Normal update linking to the continuation's own failure publication |
+
+Implementation status: the Agent access request, Agent Space request, and
+credential confirmation rows are MemberAgent program sources, PR #236, in
+progress. Their urgency comes from the root requester fact defined in
+[Inbox](inbox.md#agent-owner-requests).
 
 Plugin confirmations with verified Space provenance also appear on the original
 message, including Thread messages. Inbox and message cards use the same request

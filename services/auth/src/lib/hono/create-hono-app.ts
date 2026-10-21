@@ -22,6 +22,7 @@ import { openMeldAuthCors } from "../middlewares/cors";
 import {
   emitAuthCloudflareRuntimeEvidence,
   readCloudflareRequestEvidence,
+  startAccountReadStage,
 } from "../observability/cloudflare-runtime-evidence";
 import { profileServiceMiddleware } from "../profiles/service";
 import { registerAccountDeletionRoutes } from "./account-deletion-routes";
@@ -41,6 +42,10 @@ import {
 import { registerAccountSessionRoutes } from "./account-session-routes";
 import { registerAccountSidebarRoutes } from "./account-sidebar-routes";
 import { registerBetterAuthRoutes } from "./better-auth-routes";
+import {
+  MEMBER_AGENT_ROUTE_BASE,
+  registerMemberAgentRoutes,
+} from "./member-agent-routes";
 import { registerOrganizationCreationRoutes } from "./organization-creation-routes";
 import { registerOrganizationJoinLinkRoutes } from "./organization-join-link-routes";
 import { registerOrganizationJoinRequestRoutes } from "./organization-join-request-routes";
@@ -58,6 +63,7 @@ export function createHonoApp() {
     .use("*", async (c, next) => {
       const startedAt = Date.now();
       const runtimeEvidence = readCloudflareRequestEvidence(c.req.raw);
+      const completeAccountRead = startAccountReadStage(c, "request");
       let thrownError: unknown = null;
       try {
         await next();
@@ -66,6 +72,10 @@ export function createHonoApp() {
         throw error;
       } finally {
         const statusCode = thrownError ? 500 : c.res.status;
+        completeAccountRead(
+          statusCode >= 400 ? "failed" : "succeeded",
+          statusCode >= 400 ? `http_${statusCode}` : undefined
+        );
         const requestId =
           c.res.headers.get("x-openmeld-request-id") ??
           c.res.headers.get("x-request-id") ??
@@ -96,6 +106,7 @@ export function createHonoApp() {
   // Hono wildcard mounts also match the base path, so a single mount keeps
   // exact `/v1/profiles` requests from resolving the session twice.
   app.use(`${PROFILE_ROUTE_BASE}/*`, authContextMiddleware);
+  app.use(`${MEMBER_AGENT_ROUTE_BASE}/*`, authContextMiddleware);
   for (const path of [
     ACCOUNT_ORGANIZATION_CONTEXT_PATH,
     ACCOUNT_SESSION_PATH,
@@ -128,6 +139,7 @@ export function createHonoApp() {
   registerAccountOrganizationContextRoutes(app);
   registerAccountSessionRoutes(app);
   registerProfileRoutes(app);
+  registerMemberAgentRoutes(app);
   registerPasswordRoutes(app);
   registerWaitlistRoutes(app);
   registerOrganizationCreationRoutes(app);

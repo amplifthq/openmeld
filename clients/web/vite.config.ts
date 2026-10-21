@@ -211,9 +211,11 @@ const config = defineConfig(({ command, mode }) => {
 			viteReact({
 				exclude: [nodeModulesPathPattern, extendComponentsPathPattern],
 				babel: {
-					// React Compiler is optional at runtime. Keep it for fast local feedback,
-					// but avoid its whole-app Babel graph in memory-bound release builds.
-					plugins: command === "build" ? [] : ["babel-plugin-react-compiler"],
+					// Release builds compile the same memoized components that
+					// development runs. Measured on the Rolldown production build: peak
+					// V8 heap stays near 1 GiB with or without the compiler, well inside
+					// the 4 GiB renderer heap budget; RSS grows by about 0.4 GiB.
+					plugins: ["babel-plugin-react-compiler"],
 				},
 			}),
 			tailwindcss(),

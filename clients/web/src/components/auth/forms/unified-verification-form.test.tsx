@@ -209,6 +209,8 @@ describe("UnifiedVerificationForm magic-link session confirmation", () => {
 		"/accept-space-invitation?invitationId=inv-1",
 		"/join-organization?token=joinlink_123",
 		"/desktop-sign-in?client_id=electron&code_challenge=test-challenge&code_challenge_method=S256&state=test-state",
+		// A signed-out deep link returns to the page that asked for sign-in.
+		"/o/acme/agents?memberAgentId=agent-1",
 	])("returns a magic-link visitor to %s", async (redirectTarget) => {
 		window.history.replaceState(
 			{},

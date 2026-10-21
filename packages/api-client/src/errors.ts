@@ -141,6 +141,19 @@ export function toStructuredApiClientFailure(
   );
 }
 
+export function attachApiClientRequestDetails(
+  error: unknown,
+  input: { operation: string; requestId: string }
+): void {
+  if (error instanceof Error) {
+    Object.assign(error, {
+      operation: input.operation,
+      requestId:
+        toStructuredApiClientFailure(error).requestId ?? input.requestId,
+    });
+  }
+}
+
 export function readApiClientTextResponse(input: {
   response: Response;
 }): Promise<string> {

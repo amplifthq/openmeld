@@ -1,4 +1,9 @@
-import type { PostgresDatabase, QueryResult } from "@openmeld/db/postgresql";
+import type {
+  PostgresDatabase,
+  QueryConfig,
+  QueryResult,
+  QueryResultRow,
+} from "@openmeld/db/postgresql";
 import {
   aiUsageQueryResponseSchema,
   aiUsageQuerySchema,
@@ -9,11 +14,23 @@ import type {
   AiUsageQueryResponse,
   AiUsageRecord,
 } from "@openmeld/schemas/types";
+/** The database or the client of an open transaction. */
+export type AiUsageQueryable = {
+  query<T extends QueryResultRow = QueryResultRow>(
+    query: QueryConfig
+  ): Promise<QueryResult<T>>;
+};
+
+export type AiCreditHold = { nanoUsd: number; admittedAtMs: number };
+
 // A provider event is immutable. Replayed transport deliveries are harmless;
 // conflicting facts surface an error instead of silently changing spend.
+// A credit hold is written once at admission; settlement keeps it so an
+// unknown final cost continues to count until the hold expires.
 export async function recordAiUsage(
-  db: PostgresDatabase,
-  input: AiUsageRecord
+  db: AiUsageQueryable,
+  input: AiUsageRecord,
+  creditHold?: AiCreditHold
 ): Promise<void> {
   const record = aiUsageRecordSchema.parse(input);
   const json = JSON.stringify(record);
@@ -23,8 +40,9 @@ export async function recordAiUsage(
       organization_id, event_id, runtime, provider, model, purpose,
       agent_profile_id, space_id, task_id, attempt_id, computer_id, controller,
       occurred_at_ms, input_tokens, output_tokens, total_tokens,
-      cost_nano_usd, cost_kind, record_json
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+      cost_nano_usd, cost_kind, record_json, funding_source,
+      credit_hold_nano_usd, credit_hold_admitted_at_ms
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
     ON CONFLICT (organization_id, runtime, event_id) DO UPDATE SET
       model = excluded.model,
       input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens,
@@ -64,6 +82,9 @@ export async function recordAiUsage(
       record.cost?.nanoUsd ?? null,
       record.cost?.kind ?? null,
       json,
+      record.fundingSource ?? null,
+      creditHold?.nanoUsd ?? null,
+      creditHold?.admittedAtMs ?? null,
     ],
   });
   const stored = await db

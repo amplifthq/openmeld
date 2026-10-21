@@ -1,4 +1,7 @@
-import { WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE } from "@openmeld/schemas";
+import {
+	WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE,
+	WAKE_PROGRESS_LOCAL_FOLDER_CONFLICT_REASON_CODE,
+} from "@openmeld/schemas";
 import type {
 	PostSpaceWakeStopBody,
 	PostSpaceWakeStopResponse,
@@ -535,8 +538,10 @@ export function resolveWakeStopTargetForProgressItem(input: {
 				(input.item.phase === "request_sent" ||
 					input.item.phase === "queued")) ||
 				(input.item.phase === "connecting" &&
-					input.item.waitReasonCode ===
-						WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE)
+					(input.item.waitReasonCode ===
+						WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE ||
+						input.item.waitReasonCode ===
+							WAKE_PROGRESS_LOCAL_FOLDER_CONFLICT_REASON_CODE))
 		),
 		clientMessageId:
 			input.item.clientMessageId ??

@@ -6324,13 +6324,15 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_update_agent_profile_runtime_settings",
       description:
-        "Update the requesting member's existing Agent Profile model, reasoning, permission, collaboration, or local working folder. Default Project resolves future tasks through its default connection on the target Computer. To use that Project, select it with the existing Default Project tool; do not duplicate its path here. An explicit custom or managed folder change saves the local folder and then clears Default Project. Inspect both steps: a saved folder alone does not mean it is effective. The result omits private local paths. This does not create profiles or change Space membership.",
+        "Update the requesting member's existing Agent Profile model, reasoning, permission, collaboration, or local working folder. Default Project resolves future tasks through its default connection on the target Computer. To use that Project, select it with the existing Default Project tool; do not duplicate its path here. To make one of the Agent's existing folders the default, pass its defaultFolderId from openmeld_check_agent_profile_readiness folders; never pass a path for it, and do it only when the member asked in this turn. An explicit custom or managed folder change, or a new default folder, saves the local folder and then clears Default Project. Inspect both steps: a saved folder alone does not mean it is effective. The result omits private local paths. This does not create profiles or change Space membership. A permission mode change may need the member's separate confirmation: when the result has permissionModeConfirmation, nothing was changed; tell the member exactly which mode it sets, ask them to confirm in their next message, and only after they confirm call again with the same settings and permissionModeConfirmationToken. Never treat the original request as that confirmation.",
       input: object({
         agentControllerCollaborationMode: collaborationModeSchema,
         agentControllerPermissionMode: permissionModeSchema,
         agentProfileId: nonEmptyStringSchema,
+        defaultFolderId: optionalNonEmptyStringSchema,
         modelId: optionalNonEmptyStringSchema,
         openCodePermission: openCodePermissionSchema,
+        permissionModeConfirmationToken: optionalNonEmptyStringSchema,
         reasoningLevel: optionalNonEmptyStringSchema,
         workspaceMode: workspaceModeSchema,
         workspacePath: optionalNonEmptyStringSchema,
@@ -6342,7 +6344,8 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           toolName: "openmeld_update_agent_profile_runtime_settings",
         });
         const rpcName =
-          payload.workspaceMode === undefined
+          payload.workspaceMode === undefined &&
+          payload.defaultFolderId === undefined
             ? "centerAgentUpdateAgentProfileRuntimeSettings"
             : "centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace";
         const rpc = requireCoreRpc(input.coreWorker[rpcName], rpcName);
@@ -6357,7 +6360,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_check_agent_profile_readiness",
       description:
-        "Check whether the requesting member's OpenMeld Agent Profile can reply now, in a private conversation. Includes path-free Default Project connection status on the Agent's bound Computer when supported. Connected means the saved folder is available, not that a task ran. Unavailable or an omitted connection projection is unknown; never infer a missing folder or request an already saved path from it. For another member's Agent or a shared conversation, use the team-safe Organization directory readiness instead.",
+        "Check whether the requesting member's OpenMeld Agent Profile can reply now, in a private conversation. Includes path-free Default Project connection status on the Agent's bound Computer when supported, and the Agent's folders on that Computer by id and display name (recorded means the Computer did not answer and the list is the last one it reported). Connected means the saved folder is available, not that a task ran. Unavailable or an omitted connection projection is unknown; never infer a missing folder or request an already saved path from it. For another member's Agent or a shared conversation, use the team-safe Organization directory readiness instead.",
       input: object({ agentProfileId: nonEmptyStringSchema }),
       execute: async (payload) => {
         const toolContext = await buildRepresentedMemberAttributionToolContext({
@@ -6374,6 +6377,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           await rpc({
             agentProfileId: payload.agentProfileId,
             includeDefaultProjectConnection: true,
+            includeFolders: true,
             ...toolContext,
           })
         );

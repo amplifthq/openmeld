@@ -7,6 +7,7 @@ import {
 	EMPTY_AGENT_LIST_FILTERS,
 	groupAgentListItems,
 	matchesAgentListItem,
+	resolveTaskActivityAvailability,
 	sortAgentListItems,
 	sortAgentOwnerGroups,
 } from "./agent-list-model";
@@ -238,5 +239,19 @@ describe("shared Agent lists", () => {
 		expect(
 			buildAgentListItem({ profile: fresh.profile }).modelBrand
 		).toBeNull();
+	});
+});
+
+describe("task activity availability", () => {
+	it("stays unknown while the runtime read is loading", () => {
+		expect(resolveTaskActivityAvailability(undefined)).toBeUndefined();
+	});
+	it("reports availability once the runtime read answers", () => {
+		expect(
+			resolveTaskActivityAvailability({
+				taskActivitySince: "2026-10-19T00:00:00.000Z",
+			})
+		).toBe(true);
+		expect(resolveTaskActivityAvailability({})).toBe(false);
 	});
 });

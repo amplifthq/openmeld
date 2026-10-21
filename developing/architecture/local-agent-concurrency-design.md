@@ -569,7 +569,10 @@ than the computer, and the retired head opens a recovery gate whose status is
 
 The gate is what keeps the queue from cascading. Without it the next waiting Wake
 promotes into the same still-occupied conversation and dies the same way five
-minutes later. It is opened fail-closed: only when no gate exists, so an
+minutes later. For scoped work it holds only the occupied Execution Context and
+legacy work: other contexts never enter that conversation, so they keep running
+and admitting. Usage exhaustion recorded on the gate restores a Profile-wide
+hold. It is opened fail-closed: only when no gate exists, so an
 occupancy terminal never displaces a Usage or attention decision the owner is
 already holding. A second occupied Wake settles plainly rather than queueing
 behind the open gate, because a resumed follow-up would re-enter the same
@@ -586,7 +589,7 @@ The gate projects the `fork_interrupted_work` recovery action and a
   meant to escape" rule the handoff was written for. `thread/fork` creates a new
   thread: the other app keeps the original and the two never rejoin, so the copy
   says *another branch*, never *restored*.
-- **Skip.** The gate clears and the held queue promotes.
+- **Skip.** The gate clears and the held work for that context promotes.
 
 Either answer closes the Inbox item. If the execution target moved while the
 decision was open, the branch cannot be taken off a conversation the current
@@ -731,7 +734,7 @@ temporary branches.
 | No local tools; bounded, authorized Space context only | May answer while a folder-writing task runs, if the Controller demonstrably enforces that tool policy. Uses one of the five slots. |
 | Enforced read-only local access | Multiple readers may run. A writer of an overlapping root excludes readers as well, so a review is not presented as a stable view while that root changes. |
 | Writes within known bounded roots | One writer per overlapping root; disjoint roots may run concurrently when the native sandbox enforces those roots. |
-| Unrestricted or unverified filesystem access | Conservatively exclusive within the local Service's filesystem execution scope. Do not call it isolated because its configured cwd is different. |
+| Unrestricted or unverified filesystem access | One writer per overlapping root: its claim covers the Git checkout containing the configured working folder (or that folder outside any checkout) and the repository's common Git directory, so sibling folders and linked worktrees of one repository take turns while independent repositories, unrelated folders, and Space-only work still run. The claim coordinates OpenMeld-launched work only; it is not isolation and does not confine native permissions that allow writes elsewhere. Unreadable Git metadata or an unknown folder overlaps every user folder. |
 
 Access classification comes from enforceable Controller policy and admitted
 tool capabilities. A prompt saying "just review" or a model's own classification

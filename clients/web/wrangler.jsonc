@@ -36,6 +36,13 @@
       "bucket_name": "openmeld-desktop-downloads-prod"
     }
   ],
+  "ratelimits": [
+    {
+      "name": "OPENMELD_CLI_DOWNLOAD_RATE_LIMITER",
+      "namespace_id": "1006",
+      "simple": { "limit": 600, "period": 60 }
+    }
+  ],
   "secrets": {
     "required": ["WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET"]
   },
@@ -50,6 +57,13 @@
   },
   "env": {
     "stg": {
+      "ratelimits": [
+        {
+          "name": "OPENMELD_CLI_DOWNLOAD_RATE_LIMITER",
+          "namespace_id": "1006",
+          "simple": { "limit": 600, "period": 60 }
+        }
+      ],
       "route": {
         "custom_domain": true,
         "pattern": "app.staging.openmeld.ai"
@@ -81,6 +95,14 @@
       "secrets": {
         "required": ["WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET"]
       },
+      // Gateway proxy transport. Local development has no binding and keeps
+      // the public fetch to OPENMELD_GATEWAY_URL.
+      "services": [
+        {
+          "binding": "OPENMELD_GATEWAY_WORKER",
+          "service": "openmeld-gateway-stg"
+        }
+      ],
       "vars": {
         "OPENMELD_WORKER_ENVIRONMENT": "stg",
         "OPENMELD_GATEWAY_URL": "https://gateway.staging.openmeld.ai",
@@ -93,6 +115,13 @@
       }
     },
     "prod": {
+      "ratelimits": [
+        {
+          "name": "OPENMELD_CLI_DOWNLOAD_RATE_LIMITER",
+          "namespace_id": "1006",
+          "simple": { "limit": 600, "period": 60 }
+        }
+      ],
       "route": {
         "custom_domain": true,
         "pattern": "app.openmeld.ai"
@@ -124,6 +153,14 @@
       "secrets": {
         "required": ["WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET"]
       },
+      // Gateway proxy transport. Local development has no binding and keeps
+      // the public fetch to OPENMELD_GATEWAY_URL.
+      "services": [
+        {
+          "binding": "OPENMELD_GATEWAY_WORKER",
+          "service": "openmeld-gateway-prod"
+        }
+      ],
       "vars": {
         "OPENMELD_WORKER_ENVIRONMENT": "prod",
         "OPENMELD_DESKTOP_DOWNLOAD_ORIGIN": "https://downloads.openmeld.ai",

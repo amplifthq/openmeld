@@ -448,9 +448,17 @@ indicators use `rounded-md`; editor popovers rise one further surface level.
 Do not reintroduce card-local border/shadow recipes or oversized radius overrides.
 
 The Agent dashboard includes a read-only Usage limits card in the same grid.
-It reuses the shared quota donut, status rules, provider labels, and observation
-times; it is not an editable setting or an independent source of Wakeability.
-Its readout must load independently of the owner's editable Binding settings.
+For the Agent's owner it reuses the shared quota donut, status rules, provider
+labels, and observation times; it is not an editable setting or an independent
+source of Wakeability. Its readout must load independently of the owner's
+editable Binding settings.
+
+Team-facing usage never shows a quota percent. The teammate's Usage limits
+card, the profile popover, the mention picker, and the local-agent rings on a
+person's card stay quiet while the Agent has room. They show only **Near usage
+limit** when a fresh limit is at or below the Low threshold (20% left), or
+**Usage limit reached · resets in 6 days** when a fresh limit is exhausted. The
+owner's Local agents settings keep the full rings.
 
 ### Loading regions
 

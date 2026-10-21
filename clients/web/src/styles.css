@@ -193,6 +193,20 @@ html[data-space-self-message-alignment="left"]
   justify-content: flex-start;
 }
 
+/* A failed message keeps its toolbar on the bubble's top border (see
+   space-message-footer). Its row gets extra space above and its bubble extra
+   top padding, so the toolbar covers no text in this bubble or the one above. */
+[data-message-row-id]:has(
+    [data-slot="message-footer"][data-persistent="true"]
+  ) {
+  padding-block-start: 0.75rem;
+}
+
+[data-message-row-id]:has([data-slot="message-footer"][data-persistent="true"])
+  [data-slot="space-message-text-surface"] {
+  padding-block-start: 1.25rem;
+}
+
 [data-space-self-message="true"]
   [data-slot="reply-preview"][data-align="end"] {
   align-items: flex-start;

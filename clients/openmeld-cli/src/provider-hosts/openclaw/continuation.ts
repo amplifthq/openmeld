@@ -7,7 +7,10 @@ import {
   classifyOpenClawAgentControllerConversation,
   type OpenClawAgentControllerConversationClassification,
 } from "./agent-controller-conversation";
-import { buildOpenClawSpaceSessionKey } from "./naming";
+import {
+  buildOpenClawSpaceSessionKey,
+  buildOpenClawWakeSessionKey,
+} from "./naming";
 
 export function resolveOpenClawProviderRuntimeContinuation(
   input: ProviderSpecificRuntimeContinuationRequest
@@ -37,6 +40,7 @@ export function resolveOpenClawProviderRuntimeContinuation(
         openClawBootstrapAgentId: resolveOpenClawBootstrapAgentId(
           input.runtimePreparationDetails
         ),
+        separateConversationScopeId: input.separateConversationScopeId,
         spaceId: input.spaceId,
         spaceNameSnapshot: input.spaceNameSnapshot,
       }),
@@ -55,9 +59,24 @@ function resolveOpenClawAgentControllerConversationOverride(input: {
   agentControllerConversationId: string | null;
   conversationClassification: OpenClawAgentControllerConversationClassification;
   openClawBootstrapAgentId: string | null;
+  separateConversationScopeId?: string;
   spaceId: string;
   spaceNameSnapshot: string | null;
 }): ProviderRuntimeContinuationResult["agentControllerConversationOverride"] {
+  const openClawAgentId = normalizeOptionalText(input.openClawBootstrapAgentId);
+  if (input.separateConversationScopeId) {
+    // A colleague's Wake never joins the Space's shared session (§4.3).
+    return openClawAgentId
+      ? buildAgentControllerConversationRef({
+          agentControllerRef: "builtin:openclaw",
+          agentControllerConversationKind: "session",
+          agentControllerConversationId: buildOpenClawWakeSessionKey({
+            agentId: openClawAgentId,
+            scopeId: input.separateConversationScopeId,
+          }),
+        })
+      : null;
+  }
   if (
     input.conversationClassification === "canonical_owned" &&
     normalizeOptionalText(input.agentControllerConversationId)

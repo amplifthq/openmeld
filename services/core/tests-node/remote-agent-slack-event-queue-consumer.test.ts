@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RemoteAgentSlackSubmissionOutcomeUnknownError } from "../src/remote-agent/application/native-delivery-service";
 
 const processRemoteAgentSlackEvent = vi.hoisted(() => vi.fn());
@@ -15,6 +15,77 @@ import { handleRemoteAgentSlackEventQueueMessage } from "../src/remote-agent/tra
 describe("Remote Agent Slack event queue consumer", () => {
   beforeEach(() => {
     processRemoteAgentSlackEvent.mockReset();
+    vi.useFakeTimers();
+    vi.setSystemTime(1_710_000_000_000);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("keeps recovery slow across fresh message IDs, then settles when the dependency recovers", async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = { OPENMELD_DAEMON_DISPATCH_QUEUE: { send } } as never;
+    let body = createQueueMessage({ attempts: 4 }).value.body;
+    for (const [ageSeconds, delaySeconds] of [
+      [0, 60],
+      [1200, 300],
+      [14_400, 3600],
+      [86_400, 3600],
+    ] as const) {
+      vi.setSystemTime(1_710_000_000_000 + ageSeconds * 1000);
+      processRemoteAgentSlackEvent.mockRejectedValue(
+        new Error("Database unavailable")
+      );
+      const message = createQueueMessage({ attempts: 4 });
+      await handleRemoteAgentSlackEventQueueMessage({
+        env,
+        message: { ...message.value, body, id: `redrive-${ageSeconds}` },
+        queueName: "openmeld-daemon-dispatch",
+      });
+      expect(send).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          receivedAtMs: 1_710_000_000_000,
+          payload: expect.objectContaining({ event_id: "Ev123" }),
+        }),
+        { delaySeconds }
+      );
+      expect(message.ack).toHaveBeenCalledOnce();
+      body = send.mock.lastCall?.[0];
+    }
+    const retry = createQueueMessage({ attempts: 1 });
+    await handleRemoteAgentSlackEventQueueMessage({
+      env,
+      message: { ...retry.value, body },
+      queueName: "openmeld-daemon-dispatch",
+    });
+    expect(retry.retry).toHaveBeenCalledWith({ delaySeconds: 3600 });
+    processRemoteAgentSlackEvent.mockResolvedValue({ status: "processed" });
+    send.mockClear();
+    const recovered = createQueueMessage({ attempts: 1 });
+    await handleRemoteAgentSlackEventQueueMessage({
+      env,
+      message: { ...recovered.value, body },
+      queueName: "openmeld-daemon-dispatch",
+    });
+    expect(recovered.ack).toHaveBeenCalledOnce();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("does not acknowledge a recovery message when re-enqueue fails", async () => {
+    processRemoteAgentSlackEvent.mockResolvedValue({
+      status: "recovery_pending",
+    });
+    const message = createQueueMessage({ attempts: 4 });
+    await expect(
+      handleRemoteAgentSlackEventQueueMessage({
+        env: {
+          OPENMELD_DAEMON_DISPATCH_QUEUE: {
+            send: vi.fn().mockRejectedValue(new Error("Queue unavailable")),
+          },
+        } as never,
+        message: message.value,
+        queueName: "openmeld-daemon-dispatch",
+      })
+    ).rejects.toThrow("Queue unavailable");
+    expect(message.ack).not.toHaveBeenCalled();
   });
 
   it("acks a processed event and forwards queue and Slack retry evidence", async () => {

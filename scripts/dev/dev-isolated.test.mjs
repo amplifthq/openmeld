@@ -8,6 +8,8 @@ import {
   resolveIsolatedDevPresentation,
   resolveIsolatedWebDopplerCommand,
   resolveIsolatedWebScript,
+  WEB_DEV_HEAP_LIMIT_MB,
+  withWebDevHeapLimit,
 } from "./dev-isolated.mjs";
 import { buildInjectedEnvironment } from "./doppler-environment.mjs";
 
@@ -201,5 +203,21 @@ test("keeps the PostgreSQL launcher flag out of Turbo arguments", () => {
   assert.throws(
     () => resolveIsolatedDevLaunchOptions(["--postgresql", "--d1-snapshot="]),
     { message: "Provide one D1 snapshot path with --d1-snapshot=<path>." }
+  );
+});
+
+test("raises the Web dev heap limit without overriding NODE_OPTIONS", () => {
+  const heap = `--max-old-space-size=${WEB_DEV_HEAP_LIMIT_MB}`;
+  assert.equal(withWebDevHeapLimit({}).NODE_OPTIONS, heap);
+  assert.equal(
+    withWebDevHeapLimit({ NODE_OPTIONS: "--enable-source-maps" }).NODE_OPTIONS,
+    `--enable-source-maps ${heap}`
+  );
+  const chosen = { NODE_OPTIONS: "--max-old-space-size=4096" };
+  assert.equal(withWebDevHeapLimit(chosen), chosen);
+  assert.equal(
+    withWebDevHeapLimit({ NODE_OPTIONS: "--max-old-space-size 2048" })
+      .NODE_OPTIONS,
+    "--max-old-space-size 2048"
   );
 });

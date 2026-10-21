@@ -8,6 +8,7 @@ import type { organization } from "better-auth/plugins";
 import type { Hono } from "hono";
 import { getAccountOrganizationPreferenceRepository } from "../account/organization-preference-service";
 import type { AppContext } from "../context";
+import { observeAccountOrganizationContextRead } from "../observability/cloudflare-runtime-evidence";
 import { requireAuthenticatedUser } from "./authenticated-user";
 
 type OrganizationListApi = Pick<
@@ -38,12 +39,16 @@ export function registerAccountOrganizationContextRoutes(
       return auth.response;
     }
     const [memberships, lastSelected] = await Promise.all([
-      requireOrganizationListApi(c.var.betterAuth.api).listOrganizations({
-        headers: c.req.raw.headers,
-      }),
-      getAccountOrganizationPreferenceRepository(
-        c.env
-      ).getLastSelectedOrganizationId(auth.user.id),
+      observeAccountOrganizationContextRead(c, "memberships", () =>
+        requireOrganizationListApi(c.var.betterAuth.api).listOrganizations({
+          headers: c.req.raw.headers,
+        })
+      ),
+      observeAccountOrganizationContextRead(c, "preference", () =>
+        getAccountOrganizationPreferenceRepository(
+          c.env
+        ).getLastSelectedOrganizationId(auth.user.id)
+      ),
     ]);
     const organizations = normalizeOrganizationList(memberships);
     const session = c.var.session;

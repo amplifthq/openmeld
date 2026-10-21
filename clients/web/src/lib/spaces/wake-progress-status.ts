@@ -1,6 +1,7 @@
 import {
 	REMOTE_AGENT_EXECUTION_CONFIRMATION_PENDING_REASON_CODE,
 	WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE,
+	WAKE_PROGRESS_LOCAL_FOLDER_CONFLICT_REASON_CODE,
 } from "@openmeld/schemas";
 import type { WakeProgressItem } from "@openmeld/schemas/types";
 
@@ -118,6 +119,16 @@ export function resolveWakeProgressStatus(
 			kind: "waiting_for_controller",
 			label: formatLabel("Waiting for another app"),
 			status: "active",
+		};
+	}
+
+	if (item.waitReasonCode === WAKE_PROGRESS_LOCAL_FOLDER_CONFLICT_REASON_CODE) {
+		return {
+			description:
+				"Another task on this computer is using the same folder. This task has not started and starts when that task finishes.",
+			kind: "queued",
+			label: formatLabel("Waiting for another task in its folder"),
+			status: "pending",
 		};
 	}
 

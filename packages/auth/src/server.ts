@@ -67,6 +67,24 @@ export {
   OPENMELD_AUTH_HEADER_REQUEST_ID,
   readAuthClaimsHeaders,
 } from "./headers/auth-headers";
+export {
+  type AssignAgentProfileMemberAgentResult,
+  assignAgentProfileToMemberAgent,
+} from "./member-agents/member-agent-assign";
+export {
+  type EnsureDetectedMemberAgentResult,
+  ensureDetectedMemberAgent,
+} from "./member-agents/member-agent-ensure";
+export type {
+  MemberAgentOwnerHarnessKey,
+  MemberAgentProfileRecord,
+  MemberAgentRecord,
+  MemberAgentRepository,
+  MemberAgentRowRecord,
+  OwnerMemberAgentListing,
+  UnassignedAgentProfileRecord,
+} from "./member-agents/member-agent-repository";
+export { createDrizzleMemberAgentRepository } from "./member-agents/member-agent-repository";
 export type { OrganizationPermissionCheck } from "./organization/access-control";
 export {
   admin as organizationAdminRole,
@@ -116,6 +134,12 @@ export {
 export { isPersonalOrganization } from "./organization/personal-organization";
 export { requireSpaceOwnershipHandoff } from "./organization/space-owner-departure";
 export {
+  CLI_CREDENTIAL_SESSION_FIELD,
+  hasBearerAuthorization,
+  INTERACTIVE_SESSION_REQUIRED_CODE,
+  isCliCredentialSessionRecord,
+} from "./plugins/cli-credential";
+export {
   AdditionalHumanProfileCreationDisabledError,
   PrimaryHumanProfileDeleteForbiddenError,
   ProfileCreationIdempotencyConflictError,
@@ -137,6 +161,8 @@ export type {
   ListProfilesForOwnerEnsuringPrimaryHumanProfileInput,
   OpenMeldProfileService,
   QuerySpaceDeletionTombstonesInput,
+  RequestedProfileResolution,
+  ResolvePrimaryHumanAndRequestedProfileInput,
   ResolveProfileForOwnerInput,
   UpdateAgentProfileDefaultProjectForOwnerInput,
   UpdateProfileForOwnerInput,

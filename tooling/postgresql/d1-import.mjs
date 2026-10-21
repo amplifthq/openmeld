@@ -37,6 +37,15 @@ const postgresqlOnlyTables = [
   { name: "conversation_history_deletions" },
   { name: "ai_free_grants" },
   { name: "organization_ai_credentials" },
+  { name: "member_agents" },
+  { name: "openMeldDaemon_runtime_harness_presence" },
+  { name: "agent_profile_permission_mode_advisories" },
+  { name: "center_agent_permission_mode_confirmations" },
+  { name: "direct_message_session_states" },
+  { name: "agent_access_requests" },
+  { name: "agent_profile_access_grants" },
+  { name: "sensitive_operation_confirmations" },
+  { name: "sensitive_operation_audit_events" },
 ];
 
 function csv(value) {
@@ -305,6 +314,19 @@ async function lockEmptyTarget(client, catalog) {
   }
 }
 
+function newNullableIntegerColumns(table) {
+  return (
+    {
+      // No historical session is known to be CLI-held. The first Bearer use
+      // marks it (member-agent-program.md §4.7).
+      sessions: ["cli_credential_at"],
+      // Historical receipts predate credit holds and count only a reported
+      // cost (migration 0048).
+      ai_usage_records: ["credit_hold_nano_usd", "credit_hold_admitted_at_ms"],
+    }[table.name] ?? []
+  );
+}
+
 function nativeColumns(table, targetColumns) {
   const newNullableColumns = {
     plugin_action_requests: ["continuation_json"],
@@ -313,12 +335,20 @@ function nativeColumns(table, targetColumns) {
       "github_issue_observation_json",
     ],
     space_index_spaces: ["recent_message_previews_json"],
+    // NULL falls back to the receipt's stored funding source (migration 0048).
+    ai_usage_records: ["funding_source"],
   };
   const columns = [
     ...table.columns,
     ...(newNullableColumns[table.name] ?? []).map((name) => ({
       name,
       type: "TEXT",
+      hidden: 0,
+      source: "new_nullable",
+    })),
+    ...newNullableIntegerColumns(table).map((name) => ({
+      name,
+      type: "INTEGER",
       hidden: 0,
       source: "new_nullable",
     })),
@@ -335,6 +365,22 @@ function nativeColumns(table, targetColumns) {
     columns.push({
       name: "default_project_revision",
       type: "INTEGER",
+      hidden: 0,
+      source: "new_nullable",
+    });
+    // Historical Profiles start unassigned; the MemberAgent backfill groups them.
+    columns.push({
+      name: "member_agent_id",
+      type: "TEXT",
+      hidden: 0,
+      source: "new_nullable",
+    });
+  }
+  if (table.name === "openMeldDaemon_dispatch_ledger") {
+    // Historical dispatches predate request chains; their root stays unset.
+    columns.push({
+      name: "request_chain_root_profile_id",
+      type: "TEXT",
       hidden: 0,
       source: "new_nullable",
     });

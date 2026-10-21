@@ -172,7 +172,11 @@ it("uses committed menu actions and updates changed row data after a parent refr
 	await router.load();
 	render(<RouterProvider router={router} />);
 	fireEvent.click(await screen.findByRole("button", { name: "Refresh row" }));
-	fireEvent.click(screen.getByRole("button", { name: "Actions for Planning" }));
+	const actions = screen.getByRole("button", { name: "Actions for Planning" });
+	// A row action like Pin: same hover treatment, and the row keeps its
+	// action gutter while the menu is open.
+	expect(actions.getAttribute("data-sidebar")).toBe("menu-action");
+	fireEvent.click(actions);
 	fireEvent.click(
 		await screen.findByRole("menuitem", { name: "Move to Work" })
 	);

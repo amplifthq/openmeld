@@ -66,6 +66,16 @@ function fixture() {
 }
 let directMessages: ReturnType<typeof fixture>;
 vi.mock("./use-chats", () => ({ useChats: () => directMessages }));
+// The last-opened MemberAgent chat is read inside the organization app shell.
+vi.mock(
+	"#/components/member-agents/member-agent-last-chat",
+	async (original) => ({
+		...(await original<
+			typeof import("#/components/member-agents/member-agent-last-chat")
+		>()),
+		useMemberAgentLastChatScope: () => null,
+	})
+);
 beforeEach(() => {
 	vi.clearAllMocks();
 	directMessages = fixture();

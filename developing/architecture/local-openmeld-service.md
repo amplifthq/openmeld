@@ -1141,10 +1141,16 @@ working Agent, not identical provider turn semantics. Repair and delivery-only
 queries reject live input. A priority message can yield the old native turn's
 result before its own replay and continuation. That intermediate result must not
 settle the OpenMeld task; wait for consumption and the continuation's result.
+The replay can follow the continuation's start by more than ten seconds of
+thinking, so a submission has no fixed receipt timeout. Only a continuation that
+does not start within ten seconds of the yielded result closes input.
 Stop, the final native result, and query cleanup close input
-and settle unacknowledged submissions as unconfirmed. A receipt timeout does not
-stop the original execution or authorize a resend. Space retains the durable
-queue and the Execution Host retains the existing deduplication responsibility.
+and settle unacknowledged submissions as unconfirmed. When the Space's apply wait
+ends first, the Execution Host reports the receipt as pending
+(`service.execution_input.pending`) and Space keeps reading it until it settles.
+A receipt timeout does not stop the original execution or authorize a resend.
+Space retains the durable queue and the Execution Host retains the existing
+deduplication responsibility.
 
 The Execution Host's private inherited IPC `executionInput` method accepts an
 exact owner account, Profile, dispatch, attempt and RuntimeCoordinator execution
@@ -1627,9 +1633,31 @@ Working-copy placement alone never invokes the bounded Claude project shell.
 
 The existing local slot owner enforces the five-context Profile cap and local
 resource exclusions. Isolated task folders have distinct canonical roots and
-must not be symlinks. Shared current-folder writers run exclusively; current-folder
-readers wait for potentially overlapping writers. These local checks implement
-Core's reservation, rather than creating another durable admission queue.
+must not be symlinks. Each delivered Wake claims the folder it touches when it
+is enqueued: Space-only work and isolated copies claim only their own
+Service-owned root and never conflict with other work. A current-folder Wake
+claims the shared roots of the canonical effective working folder from the
+current route: the Git checkout that contains it, found from the nearest
+`.git` as Git finds it, or the folder itself outside any checkout. A linked
+worktree or separated Git directory also claims the repository's common Git
+directory, because linked worktrees share its refs, stash, and configuration
+with each other and with the main checkout. A writer excludes every reader and
+writer with a root that is the same, an ancestor, or a descendant, and readers
+of one root run together. Sibling folders of one checkout therefore take
+turns, while independent repositories and plain folders run together. Git
+metadata that cannot be read, a selected Project folder that is resolved only
+during preparation, or an unknown folder overlaps every user folder. An OpenCode
+continuation that may move to its conversation's earlier folder after the
+owner's working-folder choice claims an unknown folder, because that folder is
+decided only after the task is admitted. Pre-Context Wakes claim their Binding folder but
+never conflict with each other, because their lanes already serialize each
+Profile. An older waiting task keeps precedence over younger work whose claim
+overlaps it, so a writer is not bypassed indefinitely. These claims coordinate
+OpenMeld-launched work; they are not a filesystem sandbox, and an Agent whose
+native permissions allow writes elsewhere is not confined by them. The local
+wait reason `workspace_conflict` names a folder wait. These local checks
+implement Core's reservation, rather than creating another durable admission
+queue.
 The slot and scoped Core reservation stay occupied until native execution has
 settled, even when a Space Action proposal was saved earlier. Workspace deletion
 requires stronger, explicit process-tree quiescence evidence; a provider result

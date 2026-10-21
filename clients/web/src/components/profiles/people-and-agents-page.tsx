@@ -6,6 +6,7 @@ import { readPendingAgentProfileCreationLocalSetup } from "#/lib/profiles/agent-
 ("use client");
 
 import type { AgentProfileOperationalContextInput } from "@openmeld/agent-profile";
+import type { HarnessKind } from "@openmeld/schemas";
 import type {
 	AuthProfileView,
 	ModelCatalog,
@@ -21,6 +22,7 @@ import {
 	useMemo,
 	useState,
 } from "react";
+import { resolveTaskActivityAvailability } from "#/components/agents/agent-list-model";
 import {
 	type AgentProfileActivityNavigation,
 	resolveAgentProfileActivityPreview,
@@ -35,12 +37,19 @@ import { AgentProfilesCard } from "#/components/agents/agents-page-agent-profile
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { DirectoryMembersOverview } from "#/components/directory/directory-members-overview";
+import { ColleagueAgentPageSidebar } from "#/components/member-agents/colleague-agent-page-sidebar";
+import { UnknownMemberAgentNotice } from "#/components/member-agents/member-agent-detail";
+import { MemberAgentPageProvider } from "#/components/member-agents/member-agent-page-context";
+import { MemberAgentPageSidebar } from "#/components/member-agents/member-agent-page-sidebar";
+import { useMemberAgentDirectory } from "#/components/member-agents/use-member-agent-directory";
+import { useMemberAgentSync } from "#/components/member-agents/use-member-agents";
 import { CreateProfileDialog } from "#/components/profiles/create-profile-dialog";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { isLocalWebOrigin } from "#/lib/local-web-origin";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationAgentCreationPath,
+	buildOrganizationAgentsPath,
 	buildOrganizationPersonAgentPath,
 	buildOrganizationPersonAgentsPath,
 	buildOrganizationPersonPath,
@@ -48,6 +57,7 @@ import {
 import { buildProfileHomeRoutes } from "#/lib/profile-routes";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 import { modelCatalogQueryOptions } from "#/query/config/model-catalog";
+import { memberAgentQueryKeys } from "#/query/organizations/member-agents";
 import {
 	organizationAgentRuntimeOverviewQueryOptions,
 	organizationProfileDirectoryQueryOptions,
@@ -59,6 +69,7 @@ import {
 	removeOptimisticAgentProfileCreation,
 } from "#/query/profiles/agent-profile-creation-requests";
 import { startQueryKeys } from "#/query/query-keys";
+import { resolveAgentListReturn } from "./agent-list-return";
 
 export type ProfileHomeId = "agents" | "people";
 type AgentWorkspaceView = "agents" | "requests";
@@ -78,6 +89,7 @@ export function PeopleAndAgentsPage(input: {
 	activeSectionId: ProfileHomeId;
 	focusRequestId?: string | null;
 	focusProfileId: string | null;
+	focusMemberAgentId?: string | null;
 	initialSidebarStates?: AppSidebarPersistedStates;
 	onAgentViewChange?: (view: AgentWorkspaceView, profileId?: string) => void;
 }) {
@@ -240,11 +252,10 @@ export function PeopleAndAgentsPage(input: {
 			<AgentsWorkspaceHome
 				activeView={activeAgentView}
 				activityPreview={activityPreview}
-				agentListReturn={
-					input.returnToAgentDirectory
-						? { to: profileHomeRoutes.agents, label: "Back to Agents" }
-						: undefined
-				}
+				agentListReturn={resolveAgentListReturn({
+					agentsPath: profileHomeRoutes.agents,
+					returnToAgentDirectory: input.returnToAgentDirectory,
+				})}
 				currentUserId={currentUserId}
 				fallbackOwnerLabel={fallbackOwnerLabel}
 				focusRequestId={input.focusRequestId ?? null}
@@ -311,6 +322,7 @@ export function PeopleAndAgentsPage(input: {
 				profileDirectoryQuery={organizationProfileDirectoryQuery}
 				recovery={recovery}
 				runtimeOverviewQuery={organizationAgentRuntimeOverviewQuery}
+				selectedMemberAgentId={input.focusMemberAgentId ?? null}
 				selectedProfileId={input.focusProfileId}
 			/>
 			{createProfileDialog}
@@ -419,8 +431,11 @@ function AgentsWorkspaceHome(input: {
 	orgSlug: string;
 	recovery: ReturnType<typeof useLocalAgentRecoveryController>;
 	selectedProfileId: string | null;
+	selectedMemberAgentId: string | null;
 }) {
 	const queryClient = useQueryClient();
+	const navigate = useNavigate();
+	useMemberAgentSync();
 	const accountComputerSetupPath = buildConnectComputerPath({
 		orgSlug: input.orgSlug,
 	});
@@ -664,35 +679,156 @@ function AgentsWorkspaceHome(input: {
 		);
 	}
 
+	const runtimeOverviewByProfileId = useMemo(
+		() =>
+			new Map(
+				(input.runtimeOverviewQuery.data?.agentProfiles ?? []).map((item) => [
+					item.profileId,
+					item,
+				])
+			),
+		[input.runtimeOverviewQuery.data]
+	);
+	const memberAgentDirectory = useMemberAgentDirectory({
+		profiles: agentProfiles,
+		runtimeByProfileId: runtimeOverviewByProfileId,
+	});
+	const [pinnedHarnessKind, setPinnedHarnessKind] =
+		useState<HarnessKind | null>(null);
+	// The Agent page is its Profile's page: opened by MemberAgent it shows
+	// the default Profile; a Profile of the viewer's own Agent shows its Agent.
+	const memberAgentPageRow =
+		memberAgentDirectory?.rows.find((row) =>
+			input.selectedMemberAgentId
+				? row.memberAgentId === input.selectedMemberAgentId
+				: row.profiles.some(
+						(profile) => profile.openMeldProfileId === input.selectedProfileId
+					)
+		) ?? null;
+	const memberAgentPageProfile = memberAgentPageRow
+		? (memberAgentPageRow.profiles.find(
+				(profile) =>
+					profile.openMeldProfileId ===
+					(input.selectedProfileId ?? memberAgentPageRow.defaultProfileId)
+			) ??
+			memberAgentPageRow.profiles[0] ??
+			null)
+		: null;
+	const memberAgents = memberAgentDirectory
+		? {
+				onOpenMemberAgent: (memberAgentId: string) => {
+					navigate({
+						to: buildOrganizationAgentsPath(input.orgSlug),
+						search: { memberAgentId },
+					}).catch(console.error);
+				},
+				selectedMemberAgentId: input.selectedMemberAgentId,
+				renderMemberAgentDetail: (
+					_memberAgentId: string,
+					renderProfile: (profile: AuthProfileView) => ReactNode
+				) =>
+					memberAgentPageProfile ? (
+						renderProfile(memberAgentPageProfile)
+					) : (
+						<UnknownMemberAgentNotice
+							agentsPath={buildOrganizationAgentsPath(input.orgSlug)}
+						/>
+					),
+				memberAgentSidebar: memberAgentPageRow ? (
+					<MemberAgentPageSidebar
+						activeProfileId={memberAgentPageProfile?.openMeldProfileId ?? null}
+						defaultProfileId={memberAgentPageRow.defaultProfileId}
+						displayName={memberAgentPageRow.displayName}
+						memberAgentId={memberAgentPageRow.memberAgentId}
+						onSelectProfile={input.onSelectProfile}
+						profiles={memberAgentPageRow.profiles}
+					/>
+				) : (
+					renderColleagueAgentSidebar({
+						agentControllerRefByProfileId:
+							organizationAgentProjection.agentControllerRefByProfileId,
+						currentUserId: input.currentUserId,
+						members: input.profileDirectoryQuery.data?.members ?? [],
+						onSelectProfile: input.onSelectProfile,
+						profiles: agentProfiles,
+						selectedProfileId: input.selectedProfileId,
+					})
+				),
+			}
+		: null;
+	const memberAgentPage = memberAgentPageRow
+		? {
+				row: memberAgentPageRow,
+				onCreateProfile:
+					memberAgentPageRow.harnessKind === "hosted"
+						? undefined
+						: () => setPinnedHarnessKind(memberAgentPageRow.harnessKind),
+			}
+		: null;
 	return (
-		<AgentsWorkspaceHomeView
-			accountComputerSetupPath={accountComputerSetupPath}
-			accountServiceUpdatePath={accountServiceUpdatePath}
-			activityPresentation={activityPresentation}
-			agentControllerRefByProfileId={
-				organizationAgentProjection.agentControllerRefByProfileId
-			}
-			agentProfiles={agentProfiles}
-			creationAttentionCount={creationAttentionCount}
-			creationRequests={[
-				...optimisticCreations,
-				...(requestsQuery.data?.requests ?? []),
-			]}
-			errorByProfileId={errorByProfileId}
-			input={input}
-			operationalContextByProfileId={operationalContextByProfileId}
-			ownerAvatarUrlByUserId={
-				organizationAgentProjection.ownerAvatarUrlByUserId
-			}
-			pendingProfileIds={pendingProfileIds}
-			profilesErrorMessage={profilesErrorMessage}
-			profilesStatus={profilesStatus}
-			queryClient={queryClient}
-			readinessByProfileId={readinessByProfileId}
-			requestPanel={requestPanel}
-			sidebarAgentProfiles={sidebarAgentProfiles}
-			sidebarSelectedProfileId={sidebarSelectedProfileId}
-		/>
+		<MemberAgentPageProvider value={memberAgentPage}>
+			<AgentsWorkspaceHomeView
+				accountComputerSetupPath={accountComputerSetupPath}
+				accountServiceUpdatePath={accountServiceUpdatePath}
+				activityPresentation={activityPresentation}
+				agentControllerRefByProfileId={
+					organizationAgentProjection.agentControllerRefByProfileId
+				}
+				agentProfiles={agentProfiles}
+				creationAttentionCount={creationAttentionCount}
+				creationRequests={[
+					...optimisticCreations,
+					...(requestsQuery.data?.requests ?? []),
+				]}
+				errorByProfileId={errorByProfileId}
+				input={input}
+				memberAgents={memberAgents}
+				operationalContextByProfileId={operationalContextByProfileId}
+				ownerAvatarUrlByUserId={
+					organizationAgentProjection.ownerAvatarUrlByUserId
+				}
+				pendingProfileIds={pendingProfileIds}
+				profilesErrorMessage={profilesErrorMessage}
+				profilesStatus={profilesStatus}
+				queryClient={queryClient}
+				readinessByProfileId={readinessByProfileId}
+				requestPanel={requestPanel}
+				runtimeOverviewByProfileId={runtimeOverviewByProfileId}
+				sidebarAgentProfiles={sidebarAgentProfiles}
+				sidebarSelectedProfileId={sidebarSelectedProfileId}
+			/>
+			{pinnedHarnessKind ? (
+				<CreateProfileDialog
+					agentOnly
+					allowTeammateRequests={false}
+					currentUserId={input.currentUserId}
+					onOpenChange={(open) => {
+						if (!open) {
+							setPinnedHarnessKind(null);
+						}
+					}}
+					onProfileCreated={(profile) => {
+						setPinnedHarnessKind(null);
+						Promise.all([
+							queryClient.invalidateQueries({
+								queryKey: memberAgentQueryKeys.all(input.organizationId),
+							}),
+							queryClient.invalidateQueries({
+								queryKey: organizationQueryKeys.profileDirectory(
+									input.organizationId
+								),
+							}),
+						])
+							.then(() => input.onSelectProfile(profile.openMeldProfileId))
+							.catch(console.error);
+					}}
+					open={true}
+					organizationId={input.organizationId}
+					pinnedHarnessKind={pinnedHarnessKind}
+					recovery={input.recovery}
+				/>
+			) : null}
+		</MemberAgentPageProvider>
 	);
 }
 
@@ -730,11 +866,23 @@ function AgentsWorkspaceHomeView(input: {
 	requestPanel: ReactNode;
 	sidebarAgentProfiles: readonly AuthProfileView[];
 	sidebarSelectedProfileId: string | null;
+	runtimeOverviewByProfileId: ReadonlyMap<
+		string,
+		OrganizationAgentRuntimeOverviewResponse["agentProfiles"][number]
+	>;
+	memberAgents: Pick<
+		AgentProfilesWorkspaceProps,
+		| "onOpenMemberAgent"
+		| "selectedMemberAgentId"
+		| "renderMemberAgentDetail"
+		| "memberAgentSidebar"
+	> | null;
 }) {
 	const workspace = input.input;
 	const wakeAvailabilityNowMs = useMinuteNowMs();
 	return (
 		<AgentProfilesWorkspace
+			{...input.memberAgents}
 			activeView={workspace.activeView}
 			agentControllerRefByProfileId={input.agentControllerRefByProfileId}
 			agentListReturn={workspace.agentListReturn}
@@ -856,11 +1004,44 @@ function AgentsWorkspaceHomeView(input: {
 				/>
 			)}
 			requestPanel={input.requestPanel}
+			runtimeOverviewByProfileId={input.runtimeOverviewByProfileId}
 			selectedProfileId={input.sidebarSelectedProfileId}
 			showAgentRequests={workspace.isOrganizationContext}
-			taskActivityAvailable={Boolean(
-				workspace.runtimeOverviewQuery.data?.taskActivitySince
+			taskActivityAvailable={resolveTaskActivityAvailability(
+				workspace.runtimeOverviewQuery.data
 			)}
+		/>
+	);
+}
+
+/**
+ * A colleague's Agent page gets the same chats sidebar as the viewer's own
+ * Agent, never the folded list of the owner's Agents.
+ */
+function renderColleagueAgentSidebar(input: {
+	agentControllerRefByProfileId: ReadonlyMap<string, string | null>;
+	currentUserId: string;
+	members: NonNullable<
+		OrganizationProfileDirectoryQueryState["data"]
+	>["members"];
+	onSelectProfile: (profileId: string) => void;
+	profiles: readonly AuthProfileView[];
+	selectedProfileId: string | null;
+}): ReactNode {
+	const ownerUserId = input.profiles.find(
+		(profile) => profile.openMeldProfileId === input.selectedProfileId
+	)?.ownerUserId;
+	if (!ownerUserId || ownerUserId === input.currentUserId) {
+		return undefined;
+	}
+	const owner = input.members.find((member) => member.userId === ownerUserId);
+	return (
+		<ColleagueAgentPageSidebar
+			agentControllerRefByProfileId={input.agentControllerRefByProfileId}
+			onSelectProfile={input.onSelectProfile}
+			ownerName={owner?.humanProfile?.profileName ?? owner?.user.name ?? ""}
+			profiles={input.profiles}
+			selectedProfileId={input.selectedProfileId}
 		/>
 	);
 }

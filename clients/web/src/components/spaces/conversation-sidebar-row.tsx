@@ -1,4 +1,3 @@
-import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
 	DropdownMenuSeparator,
@@ -17,6 +16,7 @@ import {
 } from "@openmeld/ui/fluid/dropdown-menu";
 import { FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import {
+	SidebarMenuAction,
 	SidebarMenuActions,
 	SidebarMenuBadge,
 	SidebarMenuButton,
@@ -27,13 +27,16 @@ import {
 	ChatCircleTextIcon,
 	DotsThreeIcon,
 	FolderIcon,
+	GearSixIcon,
 	PencilSimpleIcon,
 	PushPinIcon,
 } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
+	type CSSProperties,
 	memo,
+	type ReactNode,
 	useEffect,
 	useLayoutEffect,
 	useMemo,
@@ -48,6 +51,8 @@ import {
 	resolveInboxAttentionLabel,
 	resolveInboxIndicatorClassName,
 } from "#/lib/inbox/attention";
+import { useAppOrganization } from "#/lib/organizations/organization-context";
+import { buildOrganizationAgentsPath } from "#/lib/organizations/organization-routes";
 import {
 	buildSpaceActivityFocusHref,
 	buildSpaceMessageFocusHref,
@@ -84,6 +89,8 @@ import {
 import { SpaceUnreadLink } from "./space-unread-link";
 
 type ConversationSidebarRowProps = {
+	// The state of the viewer's own request for an Agent in this Space.
+	agentRequestLabel?: string;
 	layout?: "grid" | "list";
 	showMessagePreviews?: boolean;
 	attentionTone: "danger" | "warning" | null;
@@ -95,6 +102,8 @@ type ConversationSidebarRowProps = {
 	conversation: Conversation;
 	dragDisabled?: boolean;
 	memberAppearances?: ReadonlyMap<string, SpaceMemberAppearance>;
+	/** Children shown under the row, e.g. the open MemberAgent's chats. */
+	nestedNavigation?: ReactNode;
 	title: string;
 	section: string;
 	selected: boolean;
@@ -212,6 +221,8 @@ function ConversationSidebarRowTime({ timestamp }: { timestamp: number }) {
 	const nowMs = useNowMs(60_000);
 	return (
 		<SidebarConversationTime
+			// Same gap to the revealed row actions as between their icons.
+			className="mr-2"
 			hideOlderUntilHover
 			now={new Date(nowMs)}
 			timestamp={timestamp}
@@ -227,6 +238,16 @@ function renderConversationPreview(
 	if (needsInput) {
 		return (
 			<span className={CONVERSATION_PREVIEW_CLASS_NAME}>{statusLabel}</span>
+		);
+	}
+	if (input.agentRequestLabel) {
+		return (
+			<span
+				className={CONVERSATION_PREVIEW_CLASS_NAME}
+				data-slot="conversation-agent-request"
+			>
+				{input.agentRequestLabel}
+			</span>
 		);
 	}
 	if (input.previewSignalId) {
@@ -248,9 +269,11 @@ function conversationRowClassName(grid: boolean, hasPreviewLine: boolean) {
 	if (grid) {
 		return "group/chat relative [&>[data-sidebar=menu-actions]]:top-1 [&>[data-sidebar=menu-actions]]:right-0 [&>[data-sidebar=menu-badge]]:top-10 [&>[data-sidebar=menu-badge]]:right-1";
 	}
+	// Trailing marks and actions share the title's center line. Offsets are
+	// from the row's own top, not the <li>, which may also wrap nested chats.
 	return hasPreviewLine
-		? "group/chat relative"
-		: "group/chat relative [&>[data-sidebar=menu-actions]]:top-1/2 [&>[data-sidebar=menu-actions]]:-translate-y-1/2 [&>[data-sidebar=menu-badge]]:top-1/2 [&>[data-sidebar=menu-badge]]:-translate-y-1/2";
+		? "group/chat relative [&>[data-sidebar=menu-actions]]:top-1 [&>[data-sidebar=menu-badge]]:top-1.5"
+		: "group/chat relative [&>[data-sidebar=menu-actions]]:top-6 [&>[data-sidebar=menu-actions]]:-translate-y-1/2 [&>[data-sidebar=menu-badge]]:top-6 [&>[data-sidebar=menu-badge]]:-translate-y-1/2";
 }
 
 const ConversationSidebarRowContent = memo(
@@ -271,7 +294,9 @@ const ConversationSidebarRowContent = memo(
 			(status) => status.kind === "needs_input"
 		);
 		const hasPreviewLine =
-			needsInput || (input.showMessagePreviews !== false && !!previewText);
+			needsInput ||
+			Boolean(input.agentRequestLabel) ||
+			(input.showMessagePreviews !== false && !!previewText);
 		const { drag } = input;
 		const row = (
 			<FluidNavMenuItem
@@ -358,7 +383,7 @@ const ConversationSidebarRowContent = memo(
 									{presentation && input.attentionTone && (
 										<span
 											aria-hidden="true"
-											className={`status-dot shrink-0 ${resolveInboxIndicatorClassName(input.attentionTone)}`}
+											className={`status-dot mr-1.5 shrink-0 ${resolveInboxIndicatorClassName(input.attentionTone)}`}
 											data-conversation-unread-indicator="true"
 										/>
 									)}
@@ -377,6 +402,7 @@ const ConversationSidebarRowContent = memo(
 				<ConversationRowStatus input={input} presentation={presentation} />
 
 				<ConversationRowActions {...input} />
+				{input.nestedNavigation}
 			</FluidNavMenuItem>
 		);
 		return (
@@ -737,11 +763,10 @@ function ConversationRowActions(input: ConversationSidebarRowProps) {
 			<DropdownMenu>
 				<DropdownMenuTrigger
 					render={
-						<Button
+						<SidebarMenuAction
 							aria-label={`Actions for ${input.title}`}
-							className="size-6"
-							size="icon-sm"
-							variant="ghost"
+							className="static size-6 data-[popup-open]:bg-sidebar-accent data-[popup-open]:text-foreground"
+							style={{ "--icon-size": "14px" } as CSSProperties}
 						/>
 					}
 				>
@@ -765,6 +790,14 @@ function ConversationRowMenuItems(input: ConversationSidebarRowProps) {
 		<>
 			<ObjectMenuItems href={input.url} />
 			<DropdownMenuSeparator />
+			{input.conversation.memberAgentId && (
+				<>
+					<MemberAgentPageMenuItem
+						memberAgentId={input.conversation.memberAgentId}
+					/>
+					<DropdownMenuSeparator />
+				</>
+			)}
 			<FluidDropdownMenuGroup>
 				{input.onRename && (
 					<DropdownMenuItem
@@ -823,5 +856,27 @@ function ConversationRowMenuItems(input: ConversationSidebarRowProps) {
 				</>
 			)}
 		</>
+	);
+}
+
+/** The Agent's own page: its Profiles, settings, and who can use it. */
+function MemberAgentPageMenuItem(input: { memberAgentId: string }) {
+	const navigate = useNavigate();
+	const { currentOrganization } = useAppOrganization();
+	return (
+		<FluidDropdownMenuGroup>
+			<DropdownMenuItem
+				index={0}
+				onClick={() => {
+					navigate({
+						to: buildOrganizationAgentsPath(currentOrganization.slug),
+						search: { memberAgentId: input.memberAgentId },
+					}).catch(() => toast.error("Couldn't open this Agent. Try again."));
+				}}
+			>
+				<GearSixIcon aria-hidden="true" />
+				Agent settings
+			</DropdownMenuItem>
+		</FluidDropdownMenuGroup>
 	);
 }

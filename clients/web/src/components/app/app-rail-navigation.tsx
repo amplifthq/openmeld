@@ -25,7 +25,7 @@ import {
 	TrayIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
-import { Link } from "@tanstack/react-router";
+import { Link, useLocation } from "@tanstack/react-router";
 import {
 	type ReactElement,
 	type ReactNode,
@@ -242,6 +242,9 @@ export function AppRailLink(input: {
 	tier: SidebarMode;
 }) {
 	const { dismiss, presentation } = useAppNavigationPresentation();
+	const currentHref = useLocation({
+		select: (location) => location.publicHref,
+	});
 	const isIcon = input.tier === "icon";
 	const isDrawer = presentation === "drawer";
 	const iconRef = useRef<HTMLSpanElement>(null);
@@ -326,11 +329,22 @@ export function AppRailLink(input: {
 			className={className}
 			data-app-rail-link
 			onClick={(event) => {
+				const target = event.currentTarget.getAttribute("target");
 				if (
-					!(event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+					event.button !== 0 ||
+					event.metaKey ||
+					event.ctrlKey ||
+					event.shiftKey ||
+					event.altKey ||
+					(target && target !== "_self")
 				) {
-					dismiss();
+					return;
 				}
+				// Repeating the current destination must not reload the auth boundary.
+				if (event.currentTarget.getAttribute("href") === currentHref) {
+					event.preventDefault();
+				}
+				dismiss();
 			}}
 			onFocus={prefetch}
 			onPointerEnter={prefetch}

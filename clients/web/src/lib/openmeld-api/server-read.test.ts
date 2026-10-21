@@ -7,6 +7,38 @@ describe("web OpenMeld boundary server read diagnostics", () => {
 		vi.restoreAllMocks();
 	});
 
+	it.each([
+		"192.0.2.1",
+		"2001:db8::1",
+		undefined,
+	])("preserves only the edge IP through the real SSR proxy (%s)", async (clientIp) => {
+		const fetchImpl = vi.fn<typeof fetch>(async () =>
+			Response.json({ ok: true })
+		);
+		const result = await readJsonFromWebOpenMeldBoundary({
+			path: `/v1/spaces/${"a".repeat(64)}/board`,
+			requestHeaders: new Headers({
+				cookie: "session=fixture",
+				"x-real-ip": "203.0.113.1",
+				"x-forwarded-for": "203.0.113.2",
+				...(clientIp ? { "cf-connecting-ip": clientIp } : {}),
+			}),
+			webAppUrl: "https://app.openmeld.test",
+			gatewayUrl: "https://gateway.openmeld.test",
+			operation: "read board",
+			invalidMessage: "Invalid board",
+			schema: z.object({ ok: z.boolean() }),
+			fetchImpl,
+		});
+		expect(result).toEqual({ ok: true });
+		expect(fetchImpl).toHaveBeenCalledOnce();
+		const headers = new Headers(fetchImpl.mock.calls[0]?.[1]?.headers);
+		expect(headers.get("x-real-ip")).toBe(clientIp ?? null);
+		expect(headers.get("cf-connecting-ip")).toBeNull();
+		expect(headers.get("x-forwarded-for")).toBeNull();
+		expect(headers.get("cookie")).toBe("session=fixture");
+	});
+
 	it("classifies runtime fetch throws before an upstream response exists", async () => {
 		const consoleErrorSpy = vi
 			.spyOn(console, "error")
@@ -48,6 +80,37 @@ describe("web OpenMeld boundary server read diagnostics", () => {
 			targetOrigin: "https://openmeld.test",
 			targetPath: "/v1/devices/current",
 		});
+	});
+
+	it("carries only the session cookie and edge client address into the Gateway read", async () => {
+		const proxyRequestImpl = vi.fn(async (_input: { request: Request }) =>
+			Response.json({ availability: "resolved", deviceId: "device-1" })
+		);
+
+		await expect(
+			readJsonFromWebOpenMeldBoundary({
+				gatewayUrl: "https://gateway.openmeld.test",
+				invalidMessage: "Invalid current device target response",
+				operation: "resolve current device target",
+				path: "/v1/devices/current",
+				proxyRequestImpl,
+				requestHeaders: new Headers({
+					authorization: "Bearer forged",
+					"cf-connecting-ip": "203.0.113.7",
+					cookie: "session=abc",
+				}),
+				schema: z.strictObject({
+					availability: z.literal("resolved"),
+					deviceId: z.string(),
+				}),
+				webAppUrl: "https://openmeld.test",
+			})
+		).resolves.toEqual({ availability: "resolved", deviceId: "device-1" });
+
+		const request = proxyRequestImpl.mock.calls[0]?.[0].request;
+		expect(request?.headers.get("cookie")).toBe("session=abc");
+		expect(request?.headers.get("cf-connecting-ip")).toBe("203.0.113.7");
+		expect(request?.headers.get("authorization")).toBeNull();
 	});
 
 	it("classifies non-2xx boundary responses as upstream HTTP failures", async () => {

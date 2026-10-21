@@ -2124,7 +2124,7 @@ const registerCompatibleRoute = (input: {
 
 const createContextHarness = async (
   input?: Parameters<typeof createHarness>[0] & {
-    contextVersion?: 1 | 2 | 3 | 4 | 5 | null;
+    contextVersion?: 1 | 2 | 3 | 4 | 5 | 6 | null;
   }
 ) => {
   const harness = await createHarness(input);
@@ -3791,6 +3791,105 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toMatchObject({ allowed: false });
     expect([...harness.storageRecords.entries()]).toEqual(before);
   });
+  it("resolves a task credential to its Wake's frozen chain root and lists running tasks for the risk window", async () => {
+    const harness = await createContextHarness();
+    const headRequest = buildRuntimeCoordinatorHeadAcceptRequest({
+      acceptedDispatchSnapshot: {
+        ...buildAcceptedDispatchSnapshot({ fingerprint: "d" }),
+        contextRequest: {
+          required: true,
+          requestChain: [
+            { kind: "human", profileId: "human-tali" },
+            { kind: "agent", profileId: TARGET_AGENT_PROFILE_ID },
+          ],
+          scope: {
+            organizationId: "org-1",
+            requesterProfileId: "human-tali",
+            spaceId: HEX_SPACE_ID,
+            targetProfileId: TARGET_AGENT_PROFILE_ID,
+            threadId: null,
+          },
+          selection: {
+            mode: "new",
+            access: "space_context",
+            workspace: "isolated",
+          },
+        },
+      },
+    });
+    const token = await issueDeliveryToken({ ...harness, headRequest });
+    const reader = harness.hub as unknown as Pick<
+      RuntimeTransportHub,
+      "rpcReadRiskWindowExecutions" | "rpcResolveTaskCredential"
+    >;
+    const echo = buildExecutionTokenEcho(token);
+    expect(await reader.rpcResolveTaskCredential(echo)).toEqual({
+      openMeldServiceRuntimeId: token.authorityScope.openMeldServiceRuntimeId,
+      rootProfileId: "human-tali",
+      runtimeCoordinatorExecutionId:
+        token.executionScope.runtimeCoordinatorExecutionId,
+      status: "valid",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    // A token Core did not issue for this execution is never a credential.
+    expect(
+      await reader.rpcResolveTaskCredential({
+        ...echo,
+        executionToken: `rcet_v1_${"b".repeat(64)}`,
+      })
+    ).toEqual({ reasonCode: "execution_token_unknown", status: "rejected" });
+    const head = harness.storageRecords.get(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        headRequest.targetWakeLifecycleIdentity.targetWakeLifecycleId
+      )
+    ) as RuntimeCoordinatorHeadLifecycleRecord;
+    expect(head.status).toBe("execution_linked");
+    expect(
+      await reader.rpcReadRiskWindowExecutions({
+        ownerUserId: head.ownerUserId,
+      })
+    ).toEqual({
+      executions: [
+        {
+          openMeldServiceRuntimeId:
+            head.acceptedDispatchSnapshot?.openMeldServiceRuntimeId ?? null,
+          rootProfileId: "human-tali",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        },
+      ],
+      status: "ready",
+    });
+
+    // Once the task ends its credential stops working and the window closes.
+    const storage = (
+      harness.hub as unknown as { ctx: { storage: DurableObjectStorage } }
+    ).ctx.storage;
+    const authorityKey = buildRuntimeCoordinatorTokenAuthorityStorageKey(
+      token.executionScope.runtimeCoordinatorExecutionId
+    );
+    const authority =
+      await storage.get<RuntimeCoordinatorExecutionTokenAuthorityRecord>(
+        authorityKey
+      );
+    await storage.put(authorityKey, {
+      ...authority,
+      terminalOutcome: {
+        finalizedAtMs: Date.now(),
+        reasonCode: "runtime_coordinator.reply_published",
+        replySignalId: null,
+        status: "reply_published",
+      },
+    });
+    expect(await reader.rpcResolveTaskCredential(echo)).toEqual({
+      reasonCode: "execution_token_terminal_late",
+      status: "rejected",
+    });
+    expect(
+      await reader.rpcReadRiskWindowExecutions({
+        ownerUserId: head.ownerUserId,
+      })
+    ).toEqual({ executions: [], status: "ready" });
+  });
   it("keeps independent ordinary Claude tasks native in parallel mode", async () => {
     const { hub } = await createContextHarness({
       bindingControllerRef: "builtin:claude-code",
@@ -4242,6 +4341,31 @@ describe("runtime transport runtime coordinator transport contract", () => {
         )
       ).rejects.toThrow("controller_access_unsupported");
     }
+    // A Profile that used Contexts with an earlier harness keeps ordinary
+    // serial Binding work after switching to this one.
+    const switchedIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-after-context-activation",
+      dispatchId: "dispatch-after-context-activation",
+      sourceSignalId: "signal-after-context-activation",
+      spaceId: HEX_SPACE_ID,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    const afterActivation = await storage.transaction((transaction) =>
+      prepareExecutionContextAssignment({
+        contextModeActive: true,
+        storage: transaction,
+        record: {
+          ...head,
+          primaryDispatchId: "dispatch-after-context-activation",
+          targetWakeLifecycleId: switchedIdentity.targetWakeLifecycleId,
+          targetWakeLifecycleIdentity: switchedIdentity,
+        },
+      })
+    );
+    expect(
+      afterActivation.record.acceptedDispatchSnapshot?.executionContext
+    ).toBeUndefined();
+    expect(afterActivation.writes).toEqual({});
   });
 
   it.each([
@@ -4311,6 +4435,303 @@ describe("runtime transport runtime coordinator transport contract", () => {
     if (materials === "brief") {
       expect(accepted.executionContext).not.toHaveProperty("projectWork");
     }
+  });
+
+  it("keeps an owner's folder choice, inherits it on fork, and forks into another folder", async () => {
+    const folderA = "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11";
+    const folderB = "3c2e8f8a-6b55-4b8e-9a43-0f3f2c9d7e21";
+    const request = buildRuntimeCoordinatorHeadAcceptRequest({
+      acceptedDispatchSnapshot: {
+        ...buildAcceptedDispatchSnapshot({ fingerprint: "7" }),
+        contextRequest: {
+          required: true,
+          scope: {
+            organizationId: "org",
+            requesterProfileId: "human",
+            spaceId: HEX_SPACE_ID,
+            targetProfileId: TARGET_AGENT_PROFILE_ID,
+            threadId: null,
+          },
+          selection: { mode: "new", workspace: "current", folderId: folderA },
+        },
+      },
+    });
+    // An older Service would run the task in its default folder instead.
+    const olderService = await createContextHarness({ contextVersion: 5 });
+    expect(
+      await (
+        await fetchRuntimeTransportJson(
+          olderService.hub,
+          "/runtime-coordinator/head/accept",
+          request
+        )
+      ).json()
+    ).toMatchObject({ ok: false, reasonCode: "service.update_required" });
+
+    const { hub, storageRecords } = await createContextHarness({
+      contextVersion: 6,
+    });
+    const response = (await (
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        request
+      )
+    ).json()) as { executionContext: { id: string; folderId?: string } };
+    expect(response.executionContext.folderId).toBe(folderA);
+    const key = buildRuntimeCoordinatorHeadLifecycleStorageKey(
+      request.targetWakeLifecycleIdentity.targetWakeLifecycleId
+    );
+    const original = storageRecords.get(
+      key
+    ) as RuntimeCoordinatorHeadLifecycleRecord;
+    const storage = (
+      hub as unknown as { ctx: { storage: DurableObjectStorage } }
+    ).ctx.storage;
+    await writeRuntimeCoordinatorHeadLifecycleWithAdmission({
+      blockForExecutionTargetMutation: false,
+      nowMs: Date.now(),
+      storage,
+      record: {
+        ...original,
+        executionLinkedAtMs: Date.now(),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        status: "execution_linked",
+      },
+    });
+    await recordExecutionContextCompletion({
+      storage,
+      headId: original.targetWakeLifecycleId,
+      dispatchId: original.primaryDispatchId,
+      runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      contextId: response.executionContext.id,
+      completion: {
+        contextId: response.executionContext.id,
+        nativeConversationId: "native-parent",
+        runtimeWorkspaceFingerprint: "sha256:workspace",
+        completedHistoryId: "completed-turn-1",
+      },
+    });
+    storageRecords.delete(key);
+    const originalSnapshot = request.acceptedDispatchSnapshot;
+    if (!originalSnapshot?.contextRequest) {
+      throw new Error("Expected source context request");
+    }
+    const sourceRequest = originalSnapshot.contextRequest;
+    const nextIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-next",
+      dispatchId: "dispatch-next",
+      sourceSignalId: "source-next",
+      spaceId: HEX_SPACE_ID,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    const plan = (
+      selection: NonNullable<
+        typeof originalSnapshot.contextRequest
+      >["selection"]
+    ) =>
+      storage.transaction((transaction) =>
+        prepareExecutionContextAssignment({
+          contextModeActive: true,
+          storage: transaction,
+          record: {
+            ...original,
+            primaryDispatchId: "dispatch-next",
+            targetWakeLifecycleId: nextIdentity.targetWakeLifecycleId,
+            targetWakeLifecycleIdentity: nextIdentity,
+            acceptedDispatchSnapshot: {
+              ...originalSnapshot,
+              contextRequest: { ...sourceRequest, selection },
+            },
+          },
+        })
+      );
+    const sourceWakeId = original.targetWakeLifecycleId;
+    // Forking without a choice inherits the source Session's folder.
+    expect(
+      (await plan({ mode: "fork", sourceWakeId })).record
+        .acceptedDispatchSnapshot?.executionContext
+    ).toMatchObject({
+      folderId: folderA,
+      forkSource: {
+        contextId: response.executionContext.id,
+        folderId: folderA,
+      },
+    });
+    // "Continue in another folder" is a fork with a new folderId.
+    expect(
+      (await plan({ mode: "fork", sourceWakeId, folderId: folderB })).record
+        .acceptedDispatchSnapshot?.executionContext
+    ).toMatchObject({
+      folderId: folderB,
+      forkSource: { folderId: folderA },
+    });
+    // Resuming keeps the Session's folder; changing it needs a new task.
+    expect(
+      (await plan({ mode: "resume", sourceWakeId })).record
+        .acceptedDispatchSnapshot?.executionContext?.folderId
+    ).toBe(folderA);
+    await expect(plan({ mode: "auto", folderId: folderB })).rejects.toThrow(
+      "folder_changed_requires_new_task"
+    );
+    await expect(
+      plan({ mode: "new", access: "space_context", folderId: folderB })
+    ).rejects.toThrow("folder_requires_workspace_access");
+
+    // Smoke R3-04: once a fork adds a second Session to this scope, an
+    // ordinary message (no selection) and an explicit "Automatic" choice both
+    // continue the one accepted last; no other Session holds work here.
+    const fork = await storage.transaction((transaction) =>
+      prepareExecutionContextAssignment({
+        contextModeActive: true,
+        storage: transaction,
+        record: {
+          ...original,
+          // The fork's Wake is accepted after the source's.
+          createdAtMs: original.createdAtMs + 500,
+          primaryDispatchId: "dispatch-next",
+          targetWakeLifecycleId: nextIdentity.targetWakeLifecycleId,
+          targetWakeLifecycleIdentity: nextIdentity,
+          acceptedDispatchSnapshot: {
+            ...originalSnapshot,
+            contextRequest: {
+              ...sourceRequest,
+              selection: { mode: "fork", sourceWakeId, folderId: folderB },
+            },
+          },
+        },
+      })
+    );
+    for (const [key, value] of Object.entries(fork.writes)) {
+      await storage.put(key, value);
+    }
+    const forkContextId =
+      fork.record.acceptedDispatchSnapshot?.executionContext?.id;
+    const laterIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-plain",
+      dispatchId: "dispatch-plain",
+      sourceSignalId: "source-plain",
+      spaceId: HEX_SPACE_ID,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    const planPlain = (required: boolean) =>
+      storage.transaction((transaction) =>
+        prepareExecutionContextAssignment({
+          contextModeActive: true,
+          storage: transaction,
+          record: {
+            ...original,
+            createdAtMs: original.createdAtMs + 1000,
+            primaryDispatchId: "dispatch-plain",
+            targetWakeLifecycleId: laterIdentity.targetWakeLifecycleId,
+            targetWakeLifecycleIdentity: laterIdentity,
+            acceptedDispatchSnapshot: {
+              ...originalSnapshot,
+              contextRequest: {
+                ...sourceRequest,
+                required,
+                selection: { mode: "auto" },
+              },
+            },
+          },
+        })
+      );
+    for (const required of [false, true]) {
+      expect(
+        (await planPlain(required)).record.acceptedDispatchSnapshot
+          ?.executionContext?.id
+      ).toBe(forkContextId);
+    }
+  });
+
+  it("freezes each Wake's request chain on its assignment, never on the Session or the Service task", async () => {
+    const tali = [{ kind: "human" as const, profileId: "human-tali" }];
+    const felix = [{ kind: "human" as const, profileId: "human-felix" }];
+    const target = {
+      kind: "agent" as const,
+      profileId: TARGET_AGENT_PROFILE_ID,
+    };
+    const contextRequest = (requestChain: typeof tali) => ({
+      required: true,
+      requestChain: [...requestChain, target],
+      scope: {
+        organizationId: "org",
+        requesterProfileId: "agent-relay",
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+        threadId: null,
+      },
+      selection: { mode: "auto" as const },
+    });
+    const request = buildRuntimeCoordinatorHeadAcceptRequest({
+      acceptedDispatchSnapshot: {
+        ...buildAcceptedDispatchSnapshot({ fingerprint: "9" }),
+        contextRequest: contextRequest(tali),
+      },
+    });
+    const { hub, storageRecords } = await createContextHarness({
+      contextVersion: 6,
+    });
+    const response = (await (
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        request
+      )
+    ).json()) as { executionContext: Record<string, unknown> & { id: string } };
+    // Installed Services parse the task strictly; the chain stays in Core.
+    expect(response.executionContext).not.toHaveProperty("requestChain");
+    const key = buildRuntimeCoordinatorHeadLifecycleStorageKey(
+      request.targetWakeLifecycleIdentity.targetWakeLifecycleId
+    );
+    const accepted = storageRecords.get(
+      key
+    ) as RuntimeCoordinatorHeadLifecycleRecord;
+    expect(
+      accepted.acceptedDispatchSnapshot?.executionContext?.requestChain
+    ).toEqual([...tali, target]);
+    const session = storageRecords.get(
+      `runtime-coordinator:execution-context:v1:${response.executionContext.id}`
+    ) as { assignment: Record<string, unknown> };
+    expect(session.assignment).not.toHaveProperty("requestChain");
+
+    // The same Session serving a Wake with a different root carries that root.
+    const nextIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-felix",
+      dispatchId: "dispatch-felix",
+      sourceSignalId: "source-felix",
+      spaceId: HEX_SPACE_ID,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    const storage = (
+      hub as unknown as { ctx: { storage: DurableObjectStorage } }
+    ).ctx.storage;
+    const snapshot = request.acceptedDispatchSnapshot;
+    if (!snapshot) {
+      throw new Error("Expected accepted snapshot");
+    }
+    const next = await storage.transaction((transaction) =>
+      prepareExecutionContextAssignment({
+        contextModeActive: true,
+        storage: transaction,
+        record: {
+          ...accepted,
+          acceptedDispatchSnapshot: {
+            ...snapshot,
+            contextRequest: contextRequest(felix),
+          },
+          primaryDispatchId: "dispatch-felix",
+          targetWakeLifecycleId: nextIdentity.targetWakeLifecycleId,
+          targetWakeLifecycleIdentity: nextIdentity,
+        },
+      })
+    );
+    expect(
+      next.record.acceptedDispatchSnapshot?.executionContext
+    ).toMatchObject({
+      id: response.executionContext.id,
+      requestChain: [...felix, target],
+    });
   });
 
   it.each([
@@ -4499,10 +4920,16 @@ describe("runtime transport runtime coordinator transport contract", () => {
       spaceId: HEX_SPACE_ID,
       targetProfileId: TARGET_AGENT_PROFILE_ID,
     });
-    const selectNextContext = (mode: "auto" | "resume" = "auto") =>
+    const selectNextContext = (
+      mode: "auto" | "resume" = "auto",
+      outstandingExecutionContextIds: string[] = []
+    ) =>
       storage.transaction((transaction) =>
         prepareExecutionContextAssignment({
           contextModeActive: true,
+          outstandingExecutionContextIds: new Set(
+            outstandingExecutionContextIds
+          ),
           storage: transaction,
           record: {
             ...fork.record,
@@ -4529,7 +4956,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
           },
         })
       );
-    await expect(selectNextContext()).rejects.toThrow("selection_required");
+    // Both branches are ambiguous only while the original still holds work.
+    await expect(
+      selectNextContext("auto", [response.executionContext.id])
+    ).rejects.toThrow("selection_required");
     const replacement = fork.record.acceptedDispatchSnapshot?.executionContext;
     if (!replacement) {
       throw new Error("Expected replacement context");
@@ -4550,6 +4980,164 @@ describe("runtime transport runtime coordinator transport contract", () => {
       (await selectNextContext("resume")).record.acceptedDispatchSnapshot
         ?.executionContext?.id
     ).toBe(response.executionContext.id);
+  });
+  it("continues the latest accepted discussion context, including history from before the latest index, and starts fresh once its execution target changes", async () => {
+    const { hub, storageRecords } = await createContextHarness();
+    const root = contextMigrationRequest("latest-root");
+    await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      root
+    );
+    const head = storageRecords.get(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        root.targetWakeLifecycleIdentity.targetWakeLifecycleId
+      )
+    ) as RuntimeCoordinatorHeadLifecycleRecord;
+    const snapshot = head.acceptedDispatchSnapshot;
+    const rootContextId = snapshot?.executionContext?.id;
+    if (!(snapshot?.contextRequest && rootContextId)) {
+      throw new Error("Expected the accepted root context");
+    }
+    const contextRequest = snapshot.contextRequest;
+    const storage = (
+      hub as unknown as { ctx: { storage: DurableObjectStorage } }
+    ).ctx.storage;
+    const headKeyFor = (id: string) =>
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        projectTargetWakeLifecycleIdentity({
+          clientMessageId: id,
+          dispatchId: id,
+          sourceSignalId: id,
+          spaceId: HEX_SPACE_ID,
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        }).targetWakeLifecycleId
+      );
+    // Scopes accepted before the latest index existed have no pointer.
+    const dropLatestIndex = () => {
+      for (const key of [...storageRecords.keys()]) {
+        if (
+          key.startsWith(
+            "runtime-coordinator:execution-context-scope-latest:v1:"
+          )
+        ) {
+          storageRecords.delete(key);
+        }
+      }
+    };
+    let acceptedWakes = 0;
+    const admit = async (
+      id: string,
+      selection: NonNullable<typeof snapshot.contextRequest>["selection"],
+      input: {
+        openMeldServiceRuntimeId?: string;
+        outstanding?: string[];
+      } = {}
+    ) => {
+      const identity = projectTargetWakeLifecycleIdentity({
+        clientMessageId: id,
+        dispatchId: id,
+        sourceSignalId: id,
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      });
+      acceptedWakes += 1;
+      const createdAtMs = head.createdAtMs + acceptedWakes;
+      const plan = await storage.transaction((transaction) =>
+        prepareExecutionContextAssignment({
+          contextModeActive: true,
+          outstandingExecutionContextIds: new Set(input.outstanding ?? []),
+          storage: transaction,
+          record: {
+            ...head,
+            createdAtMs,
+            primaryDispatchId: id,
+            targetWakeLifecycleId: identity.targetWakeLifecycleId,
+            targetWakeLifecycleIdentity: identity,
+            acceptedDispatchSnapshot: {
+              ...snapshot,
+              executionContext: undefined,
+              openMeldServiceRuntimeId:
+                input.openMeldServiceRuntimeId ??
+                snapshot.openMeldServiceRuntimeId,
+              contextRequest: {
+                ...contextRequest,
+                required: selection.mode !== "auto",
+                selection,
+              },
+            },
+          },
+        })
+      );
+      for (const [writeKey, value] of Object.entries(plan.writes)) {
+        await storage.put(writeKey, value);
+      }
+      await storage.put(headKeyFor(id), plan.record);
+      return plan.record.acceptedDispatchSnapshot?.executionContext?.id;
+    };
+
+    const fresh = await admit("latest-fresh", {
+      mode: "new",
+      access: "space_context",
+      workspace: "isolated",
+    });
+    expect(fresh).toBeDefined();
+    expect(fresh).not.toBe(rootContextId);
+    // A plain mention continues the newest branch rather than failing.
+    expect(await admit("latest-plain", { mode: "auto" })).toBe(fresh);
+    // Another branch of the discussion that still holds work is ambiguous.
+    await expect(
+      admit(
+        "latest-ambiguous",
+        { mode: "auto" },
+        { outstanding: [rootContextId] }
+      )
+    ).rejects.toThrow("execution_context.selection_required");
+    // Continuing the older root makes it the latest accepted context, even
+    // though the other branch was created after it.
+    expect(
+      await admit("latest-resume-root", {
+        mode: "resume",
+        sourceWakeId: root.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+      })
+    ).toBe(rootContextId);
+    dropLatestIndex();
+    expect(await admit("latest-backfilled", { mode: "auto" })).toBe(
+      rootContextId
+    );
+    // The newest branch belongs to another Service runtime: start fresh. Work
+    // the root still holds there is not a choice this runtime could continue.
+    const moved = await admit(
+      "latest-moved",
+      { mode: "auto" },
+      {
+        openMeldServiceRuntimeId: "runtime-moved",
+        outstanding: [rootContextId],
+      }
+    );
+    expect(moved).toBeDefined();
+    expect([rootContextId, fresh]).not.toContain(moved);
+    expect(
+      await admit(
+        "latest-after-move",
+        { mode: "auto" },
+        {
+          openMeldServiceRuntimeId: "runtime-moved",
+          outstanding: [rootContextId],
+        }
+      )
+    ).toBe(moved);
+    // Without the latest index and without the acceptance record that orders
+    // a context, the requester chooses instead of a guess.
+    dropLatestIndex();
+    storageRecords.delete(headKeyFor("latest-after-move"));
+    await expect(
+      admit(
+        "latest-unverifiable",
+        { mode: "auto" },
+        { openMeldServiceRuntimeId: "runtime-moved" }
+      )
+    ).rejects.toThrow("execution_context.history_selection_required");
   });
   it.each([
     { agentControllerRef: "builtin:codex", confirmsOwnBoundary: true },
@@ -12647,6 +13235,85 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toMatchObject({ migration: "draining" });
   });
 
+  it("activates Context mode past a Wake accepted for an earlier Binding and leaves it to the promotion recheck", async () => {
+    const { hub, storageRecords } = await createContextHarness();
+    const request = contextMigrationRequest("earlier-binding");
+    const snapshot = request.acceptedDispatchSnapshot;
+    if (!snapshot) {
+      throw new Error("Expected an accepted dispatch snapshot");
+    }
+    await fetchRuntimeTransportJson(hub, "/runtime-coordinator/head/accept", {
+      ...request,
+      acceptedDispatchSnapshot: {
+        ...snapshot,
+        controllerSnapshot: {
+          ...snapshot.controllerSnapshot,
+          bindingId: "binding-earlier",
+        },
+      },
+    });
+    expect(
+      await (
+        hub as unknown as RuntimeTransportHub
+      ).rpcAgentProfileExecutionMode({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).toMatchObject({ migration: "contexts" });
+    expect(
+      storageRecords.get(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          request.targetWakeLifecycleIdentity.targetWakeLifecycleId
+        )
+      )
+    ).toMatchObject({ status: "accepted" });
+  });
+
+  it("isolates a failing Context activation to its Profile and backs off its retry", async () => {
+    let activationAttempts = 0;
+    const { hub } = await createContextHarness({
+      onBindingRead: () => {
+        activationAttempts += 1;
+        throw new Error("binding temporarily unavailable");
+      },
+    });
+    const acceptedAtMs = Date.now();
+    for (const id of ["failing-activation", "queued-during-backoff"]) {
+      expect(
+        await (
+          await fetchRuntimeTransportJson(
+            hub,
+            "/runtime-coordinator/head/accept",
+            contextMigrationRequest(id)
+          )
+        ).json()
+      ).toMatchObject({ status: "queued" });
+    }
+    expect(activationAttempts).toBe(1);
+    const storage = (hub as unknown as { ctx: DurableObjectState }).ctx.storage;
+    const nextAlarmAtMs =
+      await executionAdmission.resolveNextAgentProfileContextMigrationAlarmAtMs(
+        { storage, nowMs: acceptedAtMs }
+      );
+    expect(nextAlarmAtMs).toBeGreaterThanOrEqual(acceptedAtMs + 5000);
+    await (hub as unknown as RuntimeTransportHub).alarm();
+    expect(
+      await executionAdmission.isAgentProfileContextMigrationRetryDue({
+        nowMs: Date.now(),
+        storage,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).toBe(false);
+    expect(
+      await (
+        hub as unknown as RuntimeTransportHub
+      ).rpcAgentProfileExecutionMode({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).toMatchObject({ migration: "draining" });
+  });
+
   it("keeps pre-marker Context history scoped after its old admission record is pruned", async () => {
     const { hub, storageRecords } = await createContextHarness();
     const prior = contextMigrationRequest("pre-marker-context");
@@ -12981,17 +13648,67 @@ describe("runtime transport runtime coordinator transport contract", () => {
         )
       ).json()
     ).toMatchObject({ status: "already_accepted", action: "create_execution" });
+    // After switching to a harness without Context support, ordinary Wakes are
+    // admitted as serial Binding work instead of being refused.
+    const switchedHarnessIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "opencode-after-activation",
+      dispatchId: "opencode-after-activation",
+      sourceSignalId: "opencode-after-activation",
+      spaceId: HEX_SPACE_ID,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    expect(
+      await (
+        await fetchRuntimeTransportJson(
+          restarted.hub,
+          "/runtime-coordinator/head/accept",
+          buildRuntimeCoordinatorHeadAcceptRequest({
+            dispatchId: "opencode-after-activation",
+            idempotencyKey: "opencode-after-activation",
+            targetWakeLifecycleIdentity: switchedHarnessIdentity,
+            acceptedDispatchSnapshot: {
+              ...buildAcceptedDispatchSnapshot({
+                agentControllerRef: "builtin:opencode",
+                fingerprint: "e",
+              }),
+              contextRequest: {
+                required: false,
+                scope: {
+                  organizationId: "org",
+                  requesterProfileId: "human",
+                  spaceId: HEX_SPACE_ID,
+                  targetProfileId: TARGET_AGENT_PROFILE_ID,
+                  threadId: null,
+                },
+                selection: { mode: "auto" },
+              },
+            },
+          })
+        )
+      ).json()
+    ).toMatchObject({ status: "queued" });
     expect(
       await (
         restarted.hub as unknown as RuntimeTransportHub
       ).rpcAcquireAgentProfileLegacyConversationMutation({
         ...modeRequest,
+        agentControllerRef: "builtin:codex",
         operationId: "late-result",
       })
     ).toMatchObject({
       status: "blocked",
       reasonCode: "execution_context.legacy_association_frozen",
     });
+    // A harness without Context support keeps its own Binding conversation.
+    expect(
+      await (
+        restarted.hub as unknown as RuntimeTransportHub
+      ).rpcAcquireAgentProfileLegacyConversationMutation({
+        ...modeRequest,
+        agentControllerRef: "builtin:opencode",
+        operationId: "opencode-binding-conversation",
+      })
+    ).toMatchObject({ status: "acquired" });
   });
 
   it("persists serial rollback without revoking reservations and keeps Context mode after idle pruning", async () => {

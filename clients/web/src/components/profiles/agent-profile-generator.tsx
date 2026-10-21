@@ -70,7 +70,7 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 		remoteReady,
 		submitRemote,
 	} = useRemoteAgentDraft(input.form);
-	const [configurationExpanded, setConfigurationExpanded] = useState(false);
+	const [configurationExpanded, setConfigurationExpanded] = useState(true);
 	const [openSection, setOpenSection] =
 		useState<AgentProfileConfigurationSection | null>(null);
 	const openConfigurationSection = (

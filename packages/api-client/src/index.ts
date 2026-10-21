@@ -13,6 +13,11 @@ export type {
   CreateAccountSpaceIndexApi,
   ListAccountSpaceIndexInput,
 } from "./account-space-index/types";
+export { createAgentAccessApi } from "./agent-access/api";
+export type {
+  AgentAccessApi,
+  CreateAgentAccessApi,
+} from "./agent-access/types";
 export { createAgentActivityApi } from "./agent-activity/api";
 export {
   buildAgentActivitySessionsPath,
@@ -112,14 +117,19 @@ export type {
 export { createDirectMessageApi } from "./direct-message/api";
 export {
   buildDirectMessageConversionPath,
+  buildDirectMessageSessionPath,
+  buildDirectMessageSessionsPath,
   buildDirectMessageSpacePath,
 } from "./direct-message/routes";
 export type {
   ConvertDirectMessageToSpaceInput,
   CreateDirectMessageApi,
+  DeleteAgentDirectMessageSessionInput,
   DirectMessageApi,
   DirectMessageRequestInput,
+  ListAgentDirectMessageSessionsInput,
   OpenDirectMessageSpaceInput,
+  UpdateAgentDirectMessageSessionInput,
 } from "./direct-message/types";
 export type { StructuredApiClientFailure } from "./errors";
 export {
@@ -197,6 +207,15 @@ export {
   type GetLocalRuntimeExpectedRoutesInput,
   type LocalRuntimeExpectedRoutesApi,
 } from "./local-runtime/api";
+export {
+  createMemberAgentsApi,
+  isMemberAgentsDisabledError,
+} from "./member-agents/api";
+export { buildMemberAgentsPath } from "./member-agents/routes";
+export type {
+  CreateMemberAgentsApi,
+  MemberAgentsApi,
+} from "./member-agents/types";
 export { createOrganizationApi } from "./organization/api";
 export {
   buildAgentProfileCreationApprovalPreferencePath,
@@ -276,6 +295,7 @@ export type {
   OrganizationUsageApi,
   OrganizationUsageRequestInput,
 } from "./organization-usage/types";
+export { createPermissionModeSuggestionsApi } from "./permission-mode-suggestions/api";
 export { createPluginsApi } from "./plugins/api";
 export { createPrepareReadinessApi } from "./prepare-readiness/api";
 export type {
@@ -300,6 +320,8 @@ export { createProfilesApi } from "./profiles/api";
 export { buildProfileRoute } from "./profiles/routes";
 export type {
   CreateProfilesApi,
+  GetAgentProfileFoldersInput,
+  ManageAgentProfileFoldersInput,
   ProfilesApi,
   RenameProfileInput,
   UpdateAgentProfileDefaultProjectInput,
@@ -359,6 +381,11 @@ export type {
   SubmitRuntimeProviderConversationProofsInput,
   SubmitRuntimeRegistrationInput,
 } from "./runtime-reporting/types";
+export { createSensitiveOperationsApi } from "./sensitive-operations/api";
+export type {
+  CreateSensitiveOperationsApi,
+  SensitiveOperationsApi,
+} from "./sensitive-operations/types";
 export { createServiceConnectionEvidenceApi } from "./service-connection-evidence/api";
 export { createSessionHistoryApi } from "./session-history/api";
 export type {

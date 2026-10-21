@@ -23,6 +23,7 @@ import {
 } from "../src/space/application/space-members-service";
 import type { SignalPublishContext } from "../src/space/application/types";
 import {
+  claimQueuedSpaceExecutionInput,
   listQueuedSpaceExecutionInputs,
   readNextSpaceExecutionInputAlarm,
   readSpaceExecutionInput,
@@ -571,6 +572,11 @@ describe("Center Agent execution input in the Space owner", () => {
     "delete-retired-target",
     "claude-applied",
     "claude-enqueue",
+    "claude-pending",
+    "reconcile-delivered",
+    "reconcile-returned",
+    "reconcile-undecided-retry",
+    "reconcile-undecided-remove",
   ] as const)("settles Local %s through the same durable queue without replaying apply", async (scenario) => {
     const controllerRef = scenario.startsWith("claude-")
       ? "builtin:claude-code"
@@ -1067,6 +1073,165 @@ describe("Center Agent execution input in the Space owner", () => {
         expect(
           listQueuedSpaceExecutionInputs(state.storage.sql)[0]?.state
         ).toBe("queued");
+        return;
+      }
+      if (result.startsWith("reconcile-")) {
+        // The apply response is lost, so Core reads the Execution Host's
+        // receipt to decide what happened.
+        const readReceipts: Record<string, unknown> = {
+          "reconcile-delivered": {
+            inputId,
+            status: "applied",
+            taskId: "task-local",
+            threadId: "thread-local",
+            turnId: "turn-local",
+          },
+          "reconcile-returned": {
+            inputId,
+            taskId: "task-local",
+            status: "not_applied",
+            reasonCode: "execution_input.target_unavailable",
+          },
+        };
+        const readReceipt = readReceipts[result] ?? {
+          inputId,
+          status: "not_found",
+        };
+        transport
+          .mockReset()
+          .mockResolvedValueOnce(null)
+          // An unreachable host is read again instead of giving up.
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce(readReceipt);
+        state.storage.sql.exec(
+          `INSERT INTO space_execution_input_outbox (input_id, request_json, signal_json, attempt_count, queue_state, queue_position, queue_blocked, queue_after_dispatch_id)
+          SELECT 'behind', request_json, signal_json, 0, 'queued', queue_position + 1, 0, queue_after_dispatch_id
+          FROM space_execution_input_outbox WHERE input_id = ?`,
+          inputId
+        );
+        const head = () =>
+          listQueuedSpaceExecutionInputs(state.storage.sql).find(
+            (row) => row.inputId === inputId
+          );
+        await instance.steerQueuedExecutionInput(inputId);
+        vi.mocked(instance.flushPendingExecutionInputs).mockRestore();
+        for (let read = 0; read < 2; read += 1) {
+          expect(head()).toMatchObject({
+            state: "unconfirmed",
+            delivery: "checking",
+          });
+          // A message still being checked can't be removed or retried.
+          expect(
+            (
+              await instance.handleInputQueue(
+                { action: "delete", inputId },
+                context
+              )
+            ).status
+          ).toBe(409);
+          state.storage.sql.exec(
+            "UPDATE space_execution_input_outbox SET queue_receipt_due_at_ms = 0 WHERE input_id = ?",
+            inputId
+          );
+          await instance.flushPendingExecutionInputs();
+        }
+        expect(
+          transport.mock.calls.map(
+            ([call]) => (call.body as { operation?: string }).operation
+          )
+        ).toEqual(["apply", "read", "read"]);
+        if (result === "reconcile-delivered") {
+          expect(head()).toBeUndefined();
+          expect(
+            state.storage.sql
+              .exec("SELECT id FROM space_signals WHERE id = ?", signal.id)
+              .toArray()
+          ).toHaveLength(1);
+          return;
+        }
+        if (result === "reconcile-returned") {
+          // Never delivered: sendable again, not paused.
+          expect(head()).toMatchObject({ state: "queued", blocked: false });
+          expect(head()?.delivery).toBeUndefined();
+          return;
+        }
+        expect(head()).toMatchObject({
+          state: "unconfirmed",
+          delivery: "undecided",
+        });
+        expect(readNextSpaceExecutionInputAlarm(state.storage.sql)).toBeNull();
+        // The undecided head pauses the input behind it.
+        expect(
+          claimQueuedSpaceExecutionInput(state.storage.sql, "behind", "steer")
+        ).toBe(false);
+        const resolved = await instance.handleInputQueue(
+          result === "reconcile-undecided-retry"
+            ? { action: "retry", inputId }
+            : { action: "delete", inputId },
+          context
+        );
+        expect(resolved.status).toBe(200);
+        expect(head()).toEqual(
+          result === "reconcile-undecided-retry"
+            ? expect.objectContaining({ state: "queued", blocked: false })
+            : undefined
+        );
+        expect(
+          claimQueuedSpaceExecutionInput(state.storage.sql, "behind", "steer")
+        ).toBe(true);
+        expect(transport).toHaveBeenCalledTimes(3);
+        return;
+      }
+      if (result === "claude-pending") {
+        const applied = {
+          inputId,
+          status: "applied",
+          taskId: "task-local",
+          threadId: "thread-local",
+          turnId: "turn-local",
+        };
+        // The apply wait ends before Claude consumes the input; the Execution
+        // Host then reports it pending until the native replay arrives.
+        transport
+          .mockReset()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({
+            inputId,
+            taskId: "task-local",
+            status: "unconfirmed",
+            reasonCode: "execution_input.application_unconfirmed",
+            diagnosticCode: "service.execution_input.pending",
+          })
+          .mockResolvedValueOnce(applied);
+        await instance.steerQueuedExecutionInput(inputId);
+        vi.mocked(instance.flushPendingExecutionInputs).mockRestore();
+        for (const expected of ["unconfirmed", "unconfirmed"]) {
+          expect(
+            listQueuedSpaceExecutionInputs(state.storage.sql)[0]?.state
+          ).toBe(expected);
+          expect(readNextSpaceExecutionInputAlarm(state.storage.sql)).not.toBe(
+            null
+          );
+          state.storage.sql.exec(
+            "UPDATE space_execution_input_outbox SET queue_receipt_due_at_ms = 0"
+          );
+          await instance.flushPendingExecutionInputs();
+        }
+        // Reads may also come from the Space alarm; apply is never repeated.
+        expect(
+          transport.mock.calls.map(
+            ([call]) => (call.body as { operation?: string }).operation
+          )
+        ).toEqual([
+          "apply",
+          ...transport.mock.calls.slice(1).map(() => "read"),
+        ]);
+        expect(listQueuedSpaceExecutionInputs(state.storage.sql)).toEqual([]);
+        expect(
+          state.storage.sql
+            .exec("SELECT id FROM space_signals WHERE id = ?", signal.id)
+            .toArray()
+        ).toHaveLength(1);
         return;
       }
       await instance.steerQueuedExecutionInput(inputId);

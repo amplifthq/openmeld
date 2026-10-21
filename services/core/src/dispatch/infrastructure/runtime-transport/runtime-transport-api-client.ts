@@ -25,6 +25,8 @@ export type RuntimeTransportApiPath =
   | "/local-agent-control/set-enabled"
   | "/local-agent-control/set-profile-workspace"
   | "/local-agent-control/read-profile-workspace"
+  | "/local-agent-control/manage-profile-folders"
+  | "/local-agent-control/read-profile-folder-projection"
   | "/openmeld-tools-control"
   | "/local-project-control/connect-candidate"
   | "/local-project-control/connect-declared-path"

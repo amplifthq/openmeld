@@ -17,6 +17,29 @@
   conflicts with an owner doc means one of the two must be fixed in the same
   PR.
 
+2026-10-21: New Space Durable Objects are created with location hint `enam`,
+next to the PostgreSQL primary; existing Spaces are not moved and no
+jurisdiction is set. See `architecture/data-and-observability.md` (Space
+object location).
+
+2026-10-18: The **MemberAgent program** restructures local Agents around
+`MemberAgent` (organization × owner × harnessKind, derived state, no status
+column) → Agent Profile → Session. Vocabulary: MemberAgent / Harness / Agent
+Profile / Session; "tool" is not used for a harness. Remote Agents are `hosted`
+MemberAgents; Profiles cannot change harness; the default Profile is named
+after the harness; Sessions are DM Spaces by pairKey or Execution Contexts;
+every Wake has a human root requester and sensitive operations check that
+root; CLI-credential confirmation applies only while the computer runs a
+non-owner-rooted task; quota numbers stay owner-only; the permission-mode
+advisor ships in Phase 1; all work lands in one draft PR. Detail:
+`design-plans/member-agent-program.md`.
+
+2026-10-21: Platform-funded hosted AI admission reserves a conservative
+per-request credit hold against the workspace's monthly allowance in Core's
+usage ledger, under a per-workspace lock. Receipts now participate in admission;
+the OpenRouter native key limit remains the backstop. This is a paid-launch
+prerequisite. See `engineering/ai-billing.md#admission-and-credit-holds`.
+
 2026-10-19: The hosted AI funding source contract supports monthly Free credits
 for a creator's first workspace and a workspace OpenRouter key. This supersedes
 the BYOK deferral and environment-owned BYOK funding alias in older decisions.

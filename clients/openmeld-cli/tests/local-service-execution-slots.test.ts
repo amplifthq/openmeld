@@ -1,7 +1,11 @@
 import { AGENT_PROFILE_WORK_CONCURRENCY_LIMIT } from "@openmeld/agent-runtime";
 import {
   createLocalExecutionSlots,
+  describeLocalExecutionSlotWait,
+  type LocalExecutionResourceClaim,
+  type LocalExecutionSlotDiagnostics,
   type LocalExecutionSlotDropEvent,
+  type LocalExecutionSlotLifecycleEvent,
 } from "@openmeld/local-service";
 import { describe, expect, it, vi } from "vitest";
 
@@ -40,7 +44,200 @@ function requestTask(
   });
 }
 
+const SHARED_REPO_WRITE: LocalExecutionResourceClaim = {
+  kind: "shared",
+  access: "write",
+  roots: ["/work/repo"],
+};
+
+const UNKNOWN_FOLDER_WRITE: LocalExecutionResourceClaim = {
+  kind: "shared",
+  access: "write",
+  roots: null,
+};
+
 describe("local execution slots", () => {
+  it.each<{
+    name: string;
+    first: LocalExecutionResourceClaim | undefined;
+    second: LocalExecutionResourceClaim | undefined;
+    together: boolean;
+  }>([
+    {
+      name: "a current-folder writer and Space-only work",
+      first: SHARED_REPO_WRITE,
+      second: { kind: "private" },
+      together: true,
+    },
+    {
+      name: "writers in unrelated folders",
+      first: SHARED_REPO_WRITE,
+      second: { kind: "shared", access: "write", roots: ["/work/other"] },
+      together: true,
+    },
+    {
+      name: "two Context writers in the same folder",
+      first: SHARED_REPO_WRITE,
+      second: SHARED_REPO_WRITE,
+      together: true,
+    },
+    {
+      name: "a writer and a writer in a nested folder",
+      first: SHARED_REPO_WRITE,
+      second: { kind: "shared", access: "write", roots: ["/work/repo/app"] },
+      together: false,
+    },
+    {
+      name: "a main checkout writer and a linked worktree writer",
+      first: SHARED_REPO_WRITE,
+      second: {
+        kind: "shared",
+        access: "write",
+        roots: ["/work/repo-feature", "/work/repo/.git"],
+      },
+      together: false,
+    },
+    {
+      name: "writers in two linked worktrees of one repository",
+      first: {
+        kind: "shared",
+        access: "write",
+        roots: ["/work/repo-a", "/work/repo/.git"],
+      },
+      second: {
+        kind: "shared",
+        access: "write",
+        roots: ["/work/repo-b", "/work/repo/.git"],
+      },
+      together: false,
+    },
+    {
+      name: "a writer and a reader of the same folder",
+      first: SHARED_REPO_WRITE,
+      second: { kind: "shared", access: "read", roots: ["/work/repo"] },
+      together: false,
+    },
+    {
+      name: "two readers of the same folder",
+      first: { kind: "shared", access: "read", roots: ["/work/repo"] },
+      second: { kind: "shared", access: "read", roots: ["/work/repo"] },
+      together: true,
+    },
+    {
+      name: "a writer whose folder is unknown and a reader elsewhere",
+      first: { kind: "shared", access: "write", roots: null },
+      second: { kind: "shared", access: "read", roots: ["/work/other"] },
+      together: false,
+    },
+    {
+      name: "two pre-Context Profiles in one folder",
+      first: { ...SHARED_REPO_WRITE, legacy: true },
+      second: { ...SHARED_REPO_WRITE, legacy: true },
+      together: true,
+    },
+    {
+      name: "pre-Context work and a Context writer in one folder",
+      first: { ...SHARED_REPO_WRITE, legacy: true },
+      second: SHARED_REPO_WRITE,
+      together: false,
+    },
+    {
+      name: "pre-Context work with no known folder and Space-only work",
+      first: undefined,
+      second: { kind: "private" },
+      together: true,
+    },
+  ])("starts $name together: $together", async ({
+    first,
+    second,
+    together,
+  }) => {
+    const started: string[] = [];
+    const queue = createLocalExecutionSlots({
+      limits: { contextConcurrency: 5, globalConcurrency: 4, queueMax: 10 },
+      onTaskStarted: (event) => started.push(event.taskId),
+    });
+    const completions = [createDeferred(), createDeferred()] as const;
+    for (const [index, resourceClaim] of [first, second].entries()) {
+      requestTask(queue, {
+        adapterId: "codex",
+        attemptId: `attempt-${index}`,
+        controllerKey: "builtin:codex",
+        dispatchId: `dispatch-${index}`,
+        localExecutionLaneKey: `lane-${index}`,
+        profileId: `profile-${index}`,
+        ...(resourceClaim ? { resourceClaim } : {}),
+        spaceId: "space-1",
+        targetLabel: `@agent-${index}`,
+        taskId: `task-${index}`,
+        transportMode: "codex-app-server",
+        run: async () => {
+          await completions[index]?.promise;
+          return undefined;
+        },
+      });
+    }
+    expect(started).toEqual(together ? ["task-0", "task-1"] : ["task-0"]);
+    for (const completion of completions) {
+      completion.resolve();
+    }
+    await queue.drain();
+  });
+
+  it("keeps a waiting writer ahead of later readers of the same folder", async () => {
+    const started: string[] = [];
+    const waits = new Map<string, string>();
+    const queue = createLocalExecutionSlots({
+      limits: { contextConcurrency: 5, globalConcurrency: 4, queueMax: 10 },
+      onTaskStarted: (event) => started.push(event.taskId),
+    });
+    const completions = new Map<string, () => void>();
+    const reader = {
+      kind: "shared",
+      access: "read",
+      roots: ["/work/repo"],
+    } as const;
+    for (const [taskId, resourceClaim] of [
+      ["reader-1", reader],
+      ["writer", SHARED_REPO_WRITE],
+      ["reader-2", reader],
+    ] as const) {
+      const completion = createDeferred();
+      completions.set(taskId, completion.resolve);
+      requestTask(queue, {
+        adapterId: "codex",
+        attemptId: `attempt-${taskId}`,
+        controllerKey: "builtin:codex",
+        dispatchId: `dispatch-${taskId}`,
+        localExecutionLaneKey: `lane-${taskId}`,
+        onQueued: (event) => {
+          waits.set(taskId, event.localQueue.waitReason);
+          return undefined;
+        },
+        profileId: `profile-${taskId}`,
+        resourceClaim,
+        spaceId: "space-1",
+        targetLabel: `@${taskId}`,
+        taskId,
+        transportMode: "codex-app-server",
+        run: async () => {
+          await completion.promise;
+          return undefined;
+        },
+      });
+    }
+    expect(started).toEqual(["reader-1"]);
+    expect(waits.get("reader-2")).toBe("workspace_conflict");
+    completions.get("reader-1")?.();
+    await vi.waitFor(() => expect(started).toEqual(["reader-1", "writer"]));
+    completions.get("writer")?.();
+    await vi.waitFor(() =>
+      expect(started).toEqual(["reader-1", "writer", "reader-2"])
+    );
+    completions.get("reader-2")?.();
+    await queue.drain();
+  });
+
   it("serializes current-folder writers across distinct Profile and Project work labels", async () => {
     const started: string[] = [];
     const waiting: string[] = [];
@@ -62,7 +259,7 @@ describe("local execution slots", () => {
           return undefined;
         },
         profileId: `profile-${index}`,
-        resourceScope: "exclusive",
+        resourceClaim: UNKNOWN_FOLDER_WRITE,
         spaceId: `space-${index}`,
         targetLabel: `@project-${index}`,
         taskId: `task-${index}`,
@@ -114,7 +311,7 @@ describe("local execution slots", () => {
         targetLabel: "@agent",
         transportMode: "codex-app-server",
         localExecutionLaneKey: `context-${index}`,
-        resourceScope: index === 6 ? "exclusive" : "isolated",
+        resourceClaim: index >= 5 ? UNKNOWN_FOLDER_WRITE : { kind: "private" },
         run: async () => {
           await completion.promise;
           return undefined;
@@ -1297,5 +1494,157 @@ describe("local execution slots", () => {
 
     activeTask.resolve();
     await queue.drain();
+  });
+});
+
+describe("folder-scoped local execution slots", () => {
+  type Claim = Pick<LocalExecutionSlotTaskInput, "folderLabel"> & {
+    resourceClaim?: LocalExecutionResourceClaim;
+  };
+  const write = (root: string) =>
+    ({
+      kind: "shared",
+      access: "write",
+      roots: [root],
+    }) as const;
+  const read = (root: string): LocalExecutionResourceClaim => ({
+    kind: "shared",
+    access: "read",
+    roots: [root],
+  });
+
+  function startFolderTasks(claims: Claim[]) {
+    const started: LocalExecutionSlotLifecycleEvent[] = [];
+    const queued: LocalExecutionSlotDiagnostics[] = [];
+    const queue = createLocalExecutionSlots({
+      limits: { contextConcurrency: 5, globalConcurrency: 10, queueMax: 10 },
+      onTaskQueued: (event) => {
+        if (event.localQueue.status === "queued") {
+          queued.push(event.localQueue);
+        }
+      },
+      onTaskStarted: (event) => started.push(event),
+    });
+    const completions = claims.map(() => createDeferred());
+    for (const [index, claim] of claims.entries()) {
+      requestTask(queue, {
+        ...claim,
+        adapterId: "codex",
+        attemptId: `attempt-${index}`,
+        controllerKey: "builtin:codex",
+        dispatchId: `dispatch-${index}`,
+        executionContextId: `context-${index}`,
+        localExecutionLaneKey: `context-${index}`,
+        profileId: "profile-1",
+        spaceId: `space-${index}`,
+        targetLabel: `@agent-${index}`,
+        taskId: `task-${index}`,
+        transportMode: "codex-app-server",
+        run: async () => {
+          await completions[index]?.promise;
+          return undefined;
+        },
+      });
+    }
+    const startedIds = () => started.map((event) => event.taskId);
+    const finish = async () => {
+      for (const completion of completions) {
+        completion.resolve();
+      }
+      await queue.drain();
+    };
+    return { completions, finish, queue, queued, started, startedIds };
+  }
+
+  it("runs direct-edit tasks in different folders concurrently", async () => {
+    const run = startFolderTasks([
+      { resourceClaim: write("/work/a") },
+      { resourceClaim: write("/work/b") },
+      { resourceClaim: read("/work/c") },
+      { resourceClaim: { kind: "private" } },
+    ]);
+    expect(run.startedIds()).toEqual(["task-0", "task-1", "task-2", "task-3"]);
+    expect(run.started.every((e) => e.sharedFolderSessions.length === 0)).toBe(
+      true
+    );
+    await run.finish();
+  });
+
+  it("runs two direct-edit tasks in one folder and tells the later one about the earlier", async () => {
+    const run = startFolderTasks([
+      { resourceClaim: write("/work/a") },
+      { resourceClaim: write("/work/a") },
+    ]);
+    expect(run.startedIds()).toEqual(["task-0", "task-1"]);
+    expect(run.started[0]?.sharedFolderSessions).toEqual([]);
+    expect(run.started[1]?.sharedFolderSessions).toEqual([
+      {
+        executionContextId: "context-0",
+        profileId: "profile-1",
+        spaceId: "space-0",
+        targetLabel: "@agent-0",
+        taskId: "task-0",
+      },
+    ]);
+    expect(run.queue.getSharedFolderSessions("task-1")).toEqual(
+      run.started[1]?.sharedFolderSessions
+    );
+    expect(run.queue.getSharedFolderSessions("task-0")).toEqual([]);
+    await run.finish();
+    expect(run.queue.getSharedFolderSessions("task-1")).toEqual([]);
+  });
+
+  it("keeps reader versus writer and pre-Context conflicts inside one folder", async () => {
+    const run = startFolderTasks([
+      { resourceClaim: read("/work/a") },
+      { resourceClaim: write("/work/a") },
+      { resourceClaim: { ...write("/work/b"), legacy: true } },
+      { resourceClaim: write("/work/b") },
+    ]);
+    expect(run.startedIds()).toEqual(["task-0", "task-2"]);
+    expect(run.queued.map((q) => q.waitReason)).toEqual([
+      "workspace_conflict",
+      "workspace_conflict",
+    ]);
+    expect(run.started[1]?.sharedFolderSessions).toEqual([]);
+    run.completions[0]?.resolve();
+    run.completions[2]?.resolve();
+    await vi.waitFor(() =>
+      expect(run.startedIds()).toEqual(["task-0", "task-2", "task-1", "task-3"])
+    );
+    await run.finish();
+  });
+
+  it("keeps the machine-wide writer rule when a task's folder is unknown", async () => {
+    const run = startFolderTasks([
+      { resourceClaim: write("/work/a") },
+      { resourceClaim: UNKNOWN_FOLDER_WRITE },
+      { resourceClaim: { kind: "private" } },
+    ]);
+    expect(run.startedIds()).toEqual(["task-0", "task-2"]);
+    expect(run.started[0]?.sharedFolderSessions).toEqual([]);
+    run.completions[0]?.resolve();
+    await vi.waitFor(() =>
+      expect(run.startedIds()).toEqual(["task-0", "task-2", "task-1"])
+    );
+    expect(run.started[2]?.sharedFolderSessions).toEqual([]);
+    await run.finish();
+  });
+
+  it("says what a queued task waits for, naming the folder by label only", async () => {
+    const run = startFolderTasks([
+      { folderLabel: "folder f_1", resourceClaim: write("/work/a") },
+      { folderLabel: "folder f_1", resourceClaim: read("/work/a") },
+    ]);
+    const waiting = run.queued[0];
+    expect(waiting).toMatchObject({
+      folderLabel: "folder f_1",
+      status: "queued",
+      waitReason: "workspace_conflict",
+    });
+    expect(waiting && describeLocalExecutionSlotWait(waiting)).toBe(
+      "waiting for another task that uses the folder in folder f_1"
+    );
+    await run.finish();
   });
 });

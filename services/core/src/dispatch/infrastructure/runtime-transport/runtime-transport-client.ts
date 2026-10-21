@@ -17,6 +17,7 @@ import {
   runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema,
   runtimeTransportAgentProfileExecutionTargetMutationReleaseResponseSchema,
   runtimeTransportAgentProfileExecutionTargetMutationRequestSchema,
+  runtimeTransportAgentProfileLegacyConversationMutationRequestSchema,
   runtimeTransportAgentProfileOperationalContextsRequestSchema,
   runtimeTransportAgentProfileOperationalContextsResponseSchema,
   runtimeTransportComputerFileAccessReadRequestSchema,
@@ -41,10 +42,14 @@ import {
   runtimeTransportLookupRoutesBatchResponseSchema,
   runtimeTransportManageLocalAgentInstallationRequestSchema,
   runtimeTransportManageLocalAgentInstallationResponseSchema,
+  runtimeTransportManageProfileFoldersRequestSchema,
+  runtimeTransportManageProfileFoldersResponseSchema,
   runtimeTransportNotifyRouteCatalogChangedRequestSchema,
   runtimeTransportNotifyRouteCatalogChangedResponseSchema,
   runtimeTransportOpenMeldToolsControlRequestSchema,
   runtimeTransportOpenMeldToolsControlResponseSchema,
+  runtimeTransportReadProfileFolderProjectionRequestSchema,
+  runtimeTransportReadProfileFolderProjectionResponseSchema,
   runtimeTransportReadProfileWorkspaceRequestSchema,
   runtimeTransportReadProfileWorkspaceResponseSchema,
   runtimeTransportRefreshLocalAgentCatalogRequestSchema,
@@ -162,7 +167,7 @@ export const acquireRuntimeTransportAgentProfileExecutionTargetMutation =
   }): Promise<RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse> => {
     return await acquireRuntimeTransportAgentProfileMutation({
       ...input,
-      rpcMethod: "rpcAcquireAgentProfileControllerMutation",
+      mutation: { rpcMethod: "rpcAcquireAgentProfileControllerMutation" },
     });
   };
 
@@ -175,12 +180,15 @@ export const acquireRuntimeTransportAgentProfileFutureWorkSettingsMutation =
   }): Promise<RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse> => {
     return await acquireRuntimeTransportAgentProfileMutation({
       ...input,
-      rpcMethod: "rpcAcquireAgentProfileFutureWorkSettingsMutation",
+      mutation: {
+        rpcMethod: "rpcAcquireAgentProfileFutureWorkSettingsMutation",
+      },
     });
   };
 
 export const acquireRuntimeTransportAgentProfileLegacyConversationMutation =
   (input: {
+    agentControllerRef: string;
     env: CoreBindings;
     operationId: string;
     ownerUserId: string;
@@ -188,26 +196,69 @@ export const acquireRuntimeTransportAgentProfileLegacyConversationMutation =
   }): Promise<RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse> =>
     acquireRuntimeTransportAgentProfileMutation({
       ...input,
-      rpcMethod: "rpcAcquireAgentProfileLegacyConversationMutation",
+      mutation: {
+        agentControllerRef: input.agentControllerRef,
+        rpcMethod: "rpcAcquireAgentProfileLegacyConversationMutation",
+      },
     });
+
+type RuntimeTransportOwnerShard = ReturnType<
+  typeof resolveRuntimeTransportOwnerShard
+>;
+
+type AgentProfileMutationAcquireRequest =
+  | {
+      rpcMethod:
+        | "rpcAcquireAgentProfileControllerMutation"
+        | "rpcAcquireAgentProfileFutureWorkSettingsMutation";
+    }
+  | {
+      agentControllerRef: string;
+      rpcMethod: "rpcAcquireAgentProfileLegacyConversationMutation";
+    };
+
+const resolveAgentProfileMutationAcquire = (input: {
+  mutation: AgentProfileMutationAcquireRequest;
+  operationId: string;
+  ownerUserId: string;
+  targetProfileId: string;
+}): ((shard: RuntimeTransportOwnerShard) => Promise<unknown>) | null => {
+  const request = {
+    operationId: input.operationId,
+    ownerUserId: input.ownerUserId,
+    targetProfileId: input.targetProfileId,
+  };
+  const mutation = input.mutation;
+  if (
+    mutation.rpcMethod === "rpcAcquireAgentProfileLegacyConversationMutation"
+  ) {
+    const parsed =
+      runtimeTransportAgentProfileLegacyConversationMutationRequestSchema.safeParse(
+        { ...request, agentControllerRef: mutation.agentControllerRef }
+      );
+    return parsed.success
+      ? (shard) =>
+          shard.rpcAcquireAgentProfileLegacyConversationMutation(parsed.data)
+      : null;
+  }
+  const parsed =
+    runtimeTransportAgentProfileExecutionTargetMutationRequestSchema.safeParse(
+      request
+    );
+  return parsed.success
+    ? (shard) => shard[mutation.rpcMethod](parsed.data)
+    : null;
+};
 
 const acquireRuntimeTransportAgentProfileMutation = async (input: {
   env: CoreBindings;
+  mutation: AgentProfileMutationAcquireRequest;
   operationId: string;
   ownerUserId: string;
-  rpcMethod:
-    | "rpcAcquireAgentProfileControllerMutation"
-    | "rpcAcquireAgentProfileLegacyConversationMutation"
-    | "rpcAcquireAgentProfileFutureWorkSettingsMutation";
   targetProfileId: string;
 }): Promise<RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse> => {
-  const parsedRequest =
-    runtimeTransportAgentProfileExecutionTargetMutationRequestSchema.safeParse({
-      operationId: input.operationId,
-      ownerUserId: input.ownerUserId,
-      targetProfileId: input.targetProfileId,
-    });
-  if (!parsedRequest.success) {
+  const acquire = resolveAgentProfileMutationAcquire(input);
+  if (!acquire) {
     return {
       reasonCode:
         "runtime_coordinator.execution_target_mutation_request_invalid",
@@ -221,7 +272,7 @@ const acquireRuntimeTransportAgentProfileMutation = async (input: {
     );
     const parsedResponse =
       runtimeTransportAgentProfileExecutionTargetMutationAcquireResponseSchema.safeParse(
-        await shard[input.rpcMethod](parsedRequest.data)
+        await acquire(shard)
       );
     if (parsedResponse.success) {
       return parsedResponse.data;
@@ -847,6 +898,83 @@ export const setRuntimeTransportProfileWorkspace = async (input: {
     };
   }
   return parsed.data;
+};
+
+export const manageRuntimeTransportProfileFolders = async (input: {
+  deviceId: string;
+  env: CoreBindings;
+  operation: import("@openmeld/schemas/types").ProfileFolderOperation;
+  ownerUserId: string;
+  runtimeLane: DaemonServiceLane;
+  targetProfileId: string;
+}): Promise<
+  import("@openmeld/schemas/types").RuntimeTransportManageProfileFoldersResponse
+> => {
+  const parsedRequest =
+    runtimeTransportManageProfileFoldersRequestSchema.safeParse({
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      ownerUserId: input.ownerUserId,
+      deviceId: input.deviceId,
+      lane: input.runtimeLane,
+      targetProfileId: input.targetProfileId,
+      operation: input.operation,
+    });
+  if (!parsedRequest.success) {
+    return {
+      status: "rejected",
+      reasonCode: "local_agent_control.invalid_request",
+      message: "Invalid folder request.",
+    };
+  }
+  const response = await callRuntimeTransportApi({
+    env: input.env,
+    ownerUserId: input.ownerUserId,
+    path: "/local-agent-control/manage-profile-folders",
+    body: parsedRequest.data,
+  });
+  const parsed =
+    runtimeTransportManageProfileFoldersResponseSchema.safeParse(response);
+  return parsed.success
+    ? parsed.data
+    : {
+        status: "rejected",
+        reasonCode: "local_agent_control.invalid_response",
+        message: "OpenMeld could not confirm this Agent’s folders.",
+      };
+};
+
+export const readRuntimeTransportProfileFolderProjection = async (input: {
+  deviceId: string;
+  env: CoreBindings;
+  ownerUserId: string;
+  runtimeLane: DaemonServiceLane;
+  targetProfileId: string;
+}): Promise<
+  import("@openmeld/schemas/types").RuntimeTransportReadProfileFolderProjectionResponse
+> => {
+  const response = await callRuntimeTransportApi({
+    env: input.env,
+    ownerUserId: input.ownerUserId,
+    path: "/local-agent-control/read-profile-folder-projection",
+    body: runtimeTransportReadProfileFolderProjectionRequestSchema.parse({
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      ownerUserId: input.ownerUserId,
+      deviceId: input.deviceId,
+      lane: input.runtimeLane,
+      targetProfileId: input.targetProfileId,
+    }),
+  });
+  const parsed =
+    runtimeTransportReadProfileFolderProjectionResponseSchema.safeParse(
+      response
+    );
+  return parsed.success
+    ? parsed.data
+    : {
+        status: "rejected",
+        reasonCode: "local_agent_control.invalid_response",
+        message: "OpenMeld could not read this Agent’s recorded folders.",
+      };
 };
 
 export const isRuntimeTransportProfileWorkspaceOutcomeDefinitive = (

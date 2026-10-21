@@ -576,6 +576,9 @@ function mergeCommandObservation(
   const observedAt = Date.now();
   return {
     ...retainedCommand,
+    ...(result.status !== "completed" && command.lossConfirmed
+      ? { lossConfirmed: true }
+      : {}),
     ...(result.status !== "completed" && command.lostDuringCleanup
       ? { lostDuringCleanup: true }
       : {}),

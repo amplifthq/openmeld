@@ -15,6 +15,7 @@ import {
   type PostgresDatabase,
 } from "@openmeld/db/postgresql";
 import type { SignalEnvelope } from "@openmeld/protocol";
+import type { PermissionModeAdvisory } from "@openmeld/schemas";
 import {
   builtinAgentControllerAllowsDistinctConversationId,
   CONVERSATION_CONTINUITY_WARNING_PURPOSE,
@@ -58,6 +59,7 @@ import {
   clearProviderAccessFailureEvidenceForExecutionSuccess,
   writeAcceptedProviderAccessFailureEvidence,
 } from "../../agent-execution/infrastructure/postgresql/provider-access-evidence-repo";
+import { resolvePermissionModeAdvisoryForDispatch } from "../../agent-profile/application/permission-mode-advisor";
 import {
   type AgentProfileBindingRecord,
   readPrimaryAgentProfileBindingRecord,
@@ -162,6 +164,10 @@ import {
   isSuccessfulRuntimeTaskResultPayload,
 } from "../rules/runtime-task-result-transition-contract";
 import { isDispatchRequestedByAgentOwner } from "./accepted-dispatch-snapshot";
+import {
+  keepsColleagueConversationOffBinding,
+  usesSeparateColleagueConversation,
+} from "./colleague-conversation";
 import { emitDispatchActivitySignal } from "./dispatch-activity-signal";
 import {
   buildDispatchResultRecord,
@@ -916,6 +922,26 @@ export const deliverDispatchMessageToDaemon = async (input: {
     executionContext: resolveExecutionContextFromRoute(route),
     message: input.message,
   });
+  const { permissionModeAdvisory, requesterIsAgentOwner } =
+    await resolveDispatchRequesterContext({
+      binding: primaryBindingResolution.binding,
+      db: localStateDbHandle,
+      env: input.env,
+      executionLogBase,
+      message: input.message,
+      route,
+      targetOwnerUserId: input.targetOwnerUserId,
+      timing: input.timing,
+    });
+  const bindingConversation = await resolveDeliveredBindingConversation({
+    binding: primaryBindingResolution.binding,
+    env: input.env,
+    executionContext: resolveExecutionContextFromRoute(route),
+    message: input.message,
+    requesterIsAgentOwner,
+    route,
+    targetOwnerUserId: input.targetOwnerUserId,
+  });
   const deliverRequest = await measureDispatchTiming({
     description: "Build the RuntimeTransport delivery request",
     name: "openmeld_dispatch_deliver_request_build",
@@ -923,8 +949,7 @@ export const deliverDispatchMessageToDaemon = async (input: {
       buildRuntimeTransportDeliverDispatchRequest({
         attemptId: input.attemptId,
         agentControllerConversationId:
-          primaryBindingResolution.binding.agentControllerConversationId ??
-          null,
+          bindingConversation.agentControllerConversationId,
         ownerUserId: input.targetOwnerUserId,
         route,
         executionIdentity: primaryBindingResolution.executionIdentity,
@@ -932,13 +957,10 @@ export const deliverDispatchMessageToDaemon = async (input: {
         message: input.message,
         organizationProtectedInformation,
         workingLanguage,
-        requesterIsAgentOwner: route.capabilities.verifiedRequesterContext
-          ? await isDispatchRequestedByAgentOwner({
-              env: input.env,
-              message: input.message,
-              targetOwnerUserId: input.targetOwnerUserId,
-            })
-          : undefined,
+        permissionModeAdvisory,
+        requesterIsAgentOwner,
+        separateRequesterConversation:
+          bindingConversation.separateRequesterConversation,
         sourceSignal,
         targetProfileIsCenterAgent,
         targetProfileMentionLabel,
@@ -1076,6 +1098,132 @@ type OnlineRuntimeTransportRoute = Extract<
     online: true;
   }
 >;
+/** Core's requester projection for this Wake and the advisory it allows. */
+/**
+ * The Binding conversation this delivery resumes. A colleague's Wake on a
+ * harness without Execution Contexts resumes none and starts its own
+ * (member-agent-program.md §4.3); a Service that cannot keep it separate
+ * would resume the owner's, so it is refused.
+ */
+const resolveDeliveredBindingConversation = async (input: {
+  binding: AgentProfileBindingRecord;
+  env: CoreBindings;
+  executionContext: DispatchExecutionContext;
+  message: OpenMeldDaemonDispatchQueueMessage;
+  requesterIsAgentOwner: boolean | undefined;
+  route: OnlineRuntimeTransportRoute;
+  targetOwnerUserId: string;
+}): Promise<{
+  agentControllerConversationId: string | null;
+  separateRequesterConversation: boolean;
+}> => {
+  const separate = await usesSeparateColleagueConversation({
+    agentControllerRef: input.binding.agentControllerRef,
+    env: input.env,
+    message: input.message,
+    requesterIsAgentOwner: input.requesterIsAgentOwner,
+    targetOwnerUserId: input.targetOwnerUserId,
+  });
+  if (!separate) {
+    return {
+      agentControllerConversationId:
+        input.binding.agentControllerConversationId ?? null,
+      separateRequesterConversation: false,
+    };
+  }
+  if (input.route.capabilities.requesterConversationIsolation !== true) {
+    throw buildDispatchExecutionValidationError({
+      code: "agent_access.conversation_isolation_unsupported",
+      message:
+        "Update OpenMeld on the Agent owner's computer before colleagues use this Agent.",
+      executionContext: input.executionContext,
+    });
+  }
+  return {
+    agentControllerConversationId: null,
+    separateRequesterConversation: true,
+  };
+};
+const resolveDispatchRequesterContext = async (
+  input: Omit<
+    Parameters<typeof readDispatchPermissionModeAdvisory>[0],
+    "requesterIsAgentOwner"
+  > & { env: CoreBindings }
+): Promise<{
+  permissionModeAdvisory: PermissionModeAdvisory | null;
+  requesterIsAgentOwner: boolean | undefined;
+}> => {
+  const requesterIsAgentOwner = input.route.capabilities
+    .verifiedRequesterContext
+    ? await isDispatchRequestedByAgentOwner({
+        env: input.env,
+        message: input.message,
+        targetOwnerUserId: input.targetOwnerUserId,
+      })
+    : undefined;
+  return {
+    permissionModeAdvisory: await readDispatchPermissionModeAdvisory({
+      ...input,
+      requesterIsAgentOwner,
+    }),
+    requesterIsAgentOwner,
+  };
+};
+
+/**
+ * Permission-mode advisor: only an owner-requested Wake on a Service that
+ * renders the block may carry it. Advice is optional guidance, so its
+ * failure never blocks the Wake.
+ */
+const readDispatchPermissionModeAdvisory = async (input: {
+  binding: AgentProfileBindingRecord;
+  db: PostgresDatabase;
+  executionLogBase: DispatchExecutionLogBase;
+  message: OpenMeldDaemonDispatchQueueMessage;
+  requesterIsAgentOwner: boolean | undefined;
+  route: OnlineRuntimeTransportRoute;
+  targetOwnerUserId: string;
+  timing?: SpaceBootstrapTimingCollector;
+}): Promise<PermissionModeAdvisory | null> => {
+  const organizationId = input.message.organizationId;
+  if (
+    !(
+      input.route.capabilities.permissionModeAdvisoryPrompt === true &&
+      input.requesterIsAgentOwner === true &&
+      organizationId
+    )
+  ) {
+    return null;
+  }
+  return await measureDispatchTiming({
+    description: "Resolve the permission-mode advisory",
+    name: "openmeld_dispatch_deliver_permission_mode_advisory",
+    read: () =>
+      resolvePermissionModeAdvisoryForDispatch({
+        agentControllerRef: input.binding.agentControllerRef,
+        agentProfileId: input.message.targetProfileId,
+        db: input.db,
+        dispatchId: input.message.dispatchId,
+        nowMs: Date.now(),
+        organizationId,
+        ownerUserId: input.targetOwnerUserId,
+        requesterIsAgentOwner: input.requesterIsAgentOwner,
+        savedPermissionMode: input.binding.agentControllerPermissionMode,
+      }),
+    timing: input.timing,
+  }).catch((error) => {
+    console.warn(
+      "[core.openMeldDaemon.dispatch_execution.permission_mode_advisory_unavailable]",
+      {
+        event:
+          "core.openMeldDaemon.dispatch_execution.permission_mode_advisory_unavailable",
+        ...input.executionLogBase,
+        error: error instanceof Error ? error.message : String(error),
+      }
+    );
+    return null;
+  });
+};
 const assertDaemonRouteMatchesPrimaryBinding = async (input: {
   acceptedDispatchSnapshot?: OpenMeldDaemonAcceptedDispatchSnapshot;
   db: PostgresDatabase;
@@ -1316,7 +1464,15 @@ function assertDaemonRouteExecutionContextCapable(input: {
     input.message.controllerSnapshot.agentControllerRef
   )?.id;
   let requiredExecutionContextVersion = 1;
-  if (
+  if (input.message.executionContext.workspaceDefault) {
+    // Core sends the hint only to a Service that resolves it.
+    requiredExecutionContextVersion = 7;
+  } else if (
+    input.message.executionContext.folderId ||
+    input.message.executionContext.forkSource?.folderId
+  ) {
+    requiredExecutionContextVersion = 6;
+  } else if (
     input.message.executionContext.projectWork?.commit ||
     input.message.sourceSignalSnapshot?.workHandoff?.schemaVersion === 2
   ) {
@@ -3503,8 +3659,10 @@ function canAdmitContextWithUnavailableDefaultFolder(input: {
   if (
     !(
       (input.message.executionContext?.projectWork ||
+        input.message.executionContext?.folderId ||
         input.message.executionContext?.access === "space_context" ||
         (selection?.mode === "new" && selection.projectWork) ||
+        (selection?.mode === "new" && selection.folderId) ||
         (selection?.mode === "new" && selection.access === "space_context") ||
         selection?.mode === "resume" ||
         selection?.mode === "fork") &&
@@ -4765,6 +4923,17 @@ const persistAgentControllerConversationId = async (input: {
   if (input.runtimeResult.executionContextId) {
     return { bindingSource: null, updateApplied: false };
   }
+  if (
+    await keepsColleagueConversationOffBinding({
+      agentControllerRef: input.agentControllerRef,
+      env: input.env,
+      message: input.dispatchMessage,
+      targetOwnerUserId: input.targetOwnerUserId,
+    })
+  ) {
+    // A colleague's conversation never becomes the owner's Binding one.
+    return { bindingSource: null, updateApplied: false };
+  }
   const nextConversationId = normalizeOptionalText(
     input.runtimeResult.agentControllerConversation
       ?.agentControllerConversationId ?? input.agentControllerConversationId
@@ -4792,6 +4961,7 @@ const persistAgentControllerConversationId = async (input: {
   const operationId = `legacy-conversation:${crypto.randomUUID()}`;
   const mutation =
     await acquireRuntimeTransportAgentProfileLegacyConversationMutation({
+      agentControllerRef: input.agentControllerRef,
       env: input.env,
       operationId,
       ownerUserId: input.targetOwnerUserId,

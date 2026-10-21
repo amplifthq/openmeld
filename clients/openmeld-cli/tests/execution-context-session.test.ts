@@ -1,7 +1,20 @@
-import { mkdtemp, realpath, rm, symlink } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import {
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { buildRuntimeWorkspaceFingerprint } from "@openmeld/local-execution";
+import {
+  createLocalExecutionSlots,
+  type LocalExecutionResourceClaim,
+} from "@openmeld/local-service";
 import type {
   ExecutionContextTask,
   RuntimeAgentControllerLaunchContract,
@@ -10,10 +23,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   captureExecutionContextCompletion,
   executionContextFileAccessBoundary,
+  executionContextResourceClaim,
   executionContextWorkingDirectory,
   prepareExecutionContextConversation,
+  resolveFolderResourceRoots,
 } from "../src/local-service/dispatch/execution-context-session";
 import { runAgentSessionForkOperation } from "../src/local-service/session-control/session-fork-operation-store";
+
+const execFileAsync = promisify(execFile);
 
 const forkCodexAppServerThread = vi.fn(async () => ({
   threadId: "child-thread",
@@ -50,6 +67,37 @@ const context: ExecutionContextTask = {
   nativeConversationId: null,
   runtimeWorkspaceFingerprint: null,
 };
+type FolderLayout = {
+  repo: string;
+  linkedA: string;
+  linkedB: string;
+  otherRepo: string;
+  plainA: string;
+  plainB: string;
+};
+
+async function git(cwd: string, args: string[]): Promise<void> {
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_"))
+  );
+  await execFileAsync(
+    "git",
+    [
+      "-c",
+      "user.name=Folder Claim Test",
+      "-c",
+      "user.email=folder-claims@example.invalid",
+      "-c",
+      "core.hooksPath=/dev/null",
+      ...args,
+    ],
+    {
+      cwd,
+      env: { ...env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" },
+    }
+  );
+}
+
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(
@@ -58,6 +106,168 @@ afterEach(async () => {
 });
 
 describe("Execution Context local authority", () => {
+  it.each<{
+    name: string;
+    task: ExecutionContextTask | undefined;
+    claim: LocalExecutionResourceClaim;
+  }>([
+    {
+      name: "an ordinary current-folder Wake claims only that folder",
+      task: { ...context, access: "workspace", workspace: "current" },
+      claim: { kind: "shared", access: "write", roots: ["/work/repo"] },
+    },
+    {
+      name: "a current-folder reader claims that folder for reading",
+      task: { ...context, access: "read_only", workspace: "current" },
+      claim: { kind: "shared", access: "read", roots: ["/work/repo"] },
+    },
+    {
+      name: "Space-only work claims nothing shared",
+      task: { ...context, access: "space_context", workspace: "isolated" },
+      claim: { kind: "private" },
+    },
+    {
+      name: "an isolated copy claims nothing shared",
+      task: context,
+      claim: { kind: "private" },
+    },
+    {
+      name: "a selected Project folder is unknown until preparation",
+      task: {
+        ...context,
+        access: "workspace",
+        workspace: "current",
+        projectWork: {
+          projectId: "project-1",
+          repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+        },
+      },
+      claim: { kind: "shared", access: "write", roots: null },
+    },
+    {
+      name: "pre-Context work claims its Binding folder as legacy",
+      task: undefined,
+      claim: {
+        kind: "shared",
+        access: "write",
+        legacy: true,
+        roots: ["/work/repo"],
+      },
+    },
+  ])("$name", ({ task, claim }) => {
+    expect(
+      executionContextResourceClaim({
+        context: task,
+        currentFolderRoots: ["/work/repo"],
+      })
+    ).toEqual(claim);
+  });
+
+  it.each<{
+    name: string;
+    folders: (layout: FolderLayout) => [string, string];
+    together: boolean;
+  }>([
+    {
+      // Both claim the whole checkout, so they share it like two direct-edit
+      // Sessions in one folder: the later one gets a shared-folder notice.
+      name: "sibling folders of one checkout",
+      folders: (layout) => [
+        join(layout.repo, "app-a"),
+        join(layout.repo, "app-b"),
+      ],
+      together: true,
+    },
+    {
+      name: "a main checkout and its linked worktree",
+      folders: (layout) => [layout.repo, join(layout.linkedA, "app-a")],
+      together: false,
+    },
+    {
+      name: "two linked worktrees of one repository",
+      folders: (layout) => [layout.linkedA, layout.linkedB],
+      together: false,
+    },
+    {
+      name: "two independent repositories",
+      folders: (layout) => [join(layout.repo, "app-a"), layout.otherRepo],
+      together: true,
+    },
+    {
+      name: "two plain folders outside any repository",
+      folders: (layout) => [layout.plainA, layout.plainB],
+      together: true,
+    },
+  ])("lets current-folder writers in $name run together: $together", async ({
+    folders,
+    together,
+  }) => {
+    const root = await realpath(
+      await mkdtemp(join(tmpdir(), "openmeld-folder-claims-"))
+    );
+    roots.push(root);
+    const layout: FolderLayout = {
+      repo: join(root, "repo"),
+      linkedA: join(root, "repo-linked-a"),
+      linkedB: join(root, "repo-linked-b"),
+      otherRepo: join(root, "other-repo"),
+      plainA: join(root, "plain-a"),
+      plainB: join(root, "plain-b"),
+    };
+    for (const folder of [
+      join(layout.repo, "app-a"),
+      join(layout.repo, "app-b"),
+      layout.otherRepo,
+      layout.plainA,
+      layout.plainB,
+    ]) {
+      await mkdir(folder, { recursive: true });
+    }
+    await writeFile(join(layout.repo, "app-a", "file.txt"), "a\n");
+    for (const repository of [layout.repo, layout.otherRepo]) {
+      await git(repository, ["init", "--template="]);
+    }
+    await git(layout.repo, ["add", "."]);
+    await git(layout.repo, ["commit", "-m", "Initial fixture"]);
+    for (const linked of [layout.linkedA, layout.linkedB]) {
+      await git(layout.repo, ["worktree", "add", "--detach", linked]);
+    }
+    const started: string[] = [];
+    const slots = createLocalExecutionSlots({
+      limits: { contextConcurrency: 5, globalConcurrency: 4, queueMax: 10 },
+      onTaskStarted: (event) => started.push(event.taskId),
+    });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    for (const [index, folder] of folders(layout).entries()) {
+      slots.request({
+        adapterId: "codex",
+        attemptId: `attempt-${index}`,
+        controllerKey: "builtin:codex",
+        dispatchId: `dispatch-${index}`,
+        localExecutionLaneKey: `lane-${index}`,
+        profileId: `profile-${index}`,
+        resourceClaim: executionContextResourceClaim({
+          context: { ...context, access: "workspace", workspace: "current" },
+          currentFolderRoots: resolveFolderResourceRoots(folder),
+        }),
+        spaceId: "space",
+        targetLabel: `@agent-${index}`,
+        taskId: `task-${index}`,
+        transportMode: "codex-app-server",
+        run: async () => {
+          await held;
+          return undefined;
+        },
+      });
+    }
+    expect(started).toEqual(together ? ["task-0", "task-1"] : ["task-0"]);
+    release();
+    await slots.drain();
+  });
+
   it("rejects a Project fork in a folder that differs from its frozen source before native execution", async () => {
     const root = await mkdtemp(join(tmpdir(), "openmeld-project-fork-"));
     roots.push(root);
@@ -93,6 +303,44 @@ describe("Execution Context local authority", () => {
       })
     ).rejects.toThrow("fork_source_workspace_changed");
     expect(forkCodexAppServerThread).not.toHaveBeenCalled();
+  });
+  it("refuses a Session from an earlier folder and starts a new one in the current folder (smoke R5-01)", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openmeld-folder-repair-"));
+    roots.push(root);
+    const base = await realpath(root);
+    const folderOne = join(base, "folder-one");
+    const folderTwo = join(base, "folder-two");
+    const prepare = (task: ExecutionContextTask) =>
+      prepareExecutionContextConversation({
+        context: task,
+        unscopedNativeConversationId: null,
+        currentWorkingDirectory: folderOne,
+        workingDirectory: folderOne,
+        existingNativeConversationId: null,
+        ledgerRootPath: base,
+        agentControllerRef: "builtin:codex",
+        launchContract,
+      });
+    // Repair made folder-one the default; the chat's old Session ran in
+    // folder-two and keeps that folder, so the Service refuses to move it.
+    await expect(
+      prepare({
+        ...context,
+        workspace: "current",
+        nativeConversationId: "thread-folder-two",
+        runtimeWorkspaceFingerprint:
+          buildRuntimeWorkspaceFingerprint(folderTwo),
+      })
+    ).rejects.toThrow("execution_context.workspace_changed");
+    // "Continue in folder-one" creates a new Session with no recorded folder:
+    // it starts a fresh native conversation in the current folder.
+    await expect(
+      prepare({
+        ...context,
+        id: "22222222-2222-4222-8222-222222222222",
+        workspace: "current",
+      })
+    ).resolves.toBeNull();
   });
   it("passes the workspace owner's Git metadata facts to the native boundary", () => {
     const gitMetadata = {

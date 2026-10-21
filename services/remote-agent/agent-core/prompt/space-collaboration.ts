@@ -1,3 +1,4 @@
+import { renderNonOwnerAudiencePathGuidance } from "@openmeld/agent-runtime";
 import type { RemoteAgentWorkerSubmitTurnRequest } from "@openmeld/schemas/types";
 import {
   buildSpaceAgentIdentityLine,
@@ -19,6 +20,9 @@ export function renderPersonalRemoteAgentCollaborationContext(
   return [
     `Source signal: ${request.triggerMessageId}`,
     `Requested by: ${request.author.displayName} (Profile ID: ${request.author.profileId}).`,
+    ...(isRequestedByPersonalAgentOwner(request)
+      ? []
+      : [renderNonOwnerAudiencePathGuidance({})]),
     "Use openmeld_read_space_evidence for an exact source message and its sourceRef.version, and openmeld_read_space_thread for a bounded thread page. Follow the returned continuation without changing the source version. An unavailable version or revoked source is not permission to substitute newer content.",
     renderSpaceEntryBrief({
       whatThisSpaceIs:
@@ -40,4 +44,27 @@ export function renderPersonalRemoteAgentCollaborationContext(
       readOutcomesInstruction: "use openmeld_read_space_updates",
     }),
   ].join("\n");
+}
+
+/**
+ * Whether the Agent's owner, as Core verified on the turn envelope, asked for
+ * this turn. Anyone else, or an unverified sender, gets the audience
+ * guidance.
+ */
+function isRequestedByPersonalAgentOwner(
+  request: RemoteAgentWorkerSubmitTurnRequest
+): boolean {
+  const owner = request.agentProfileOwnerUserId;
+  const sender = request.turnEnvelope.sender;
+  if (!owner) {
+    return false;
+  }
+  if (sender.kind === "routine") {
+    return (
+      sender.delegatedBy.verified && sender.delegatedBy.ownerUserId === owner
+    );
+  }
+  return (
+    sender.kind === "member" && sender.verified && sender.ownerUserId === owner
+  );
 }

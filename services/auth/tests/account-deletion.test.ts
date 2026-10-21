@@ -100,6 +100,11 @@ describe("account deletion", () => {
     );
     expect(preview.deleteOrganizations).toHaveLength(1);
     expect(preview.requiresPassword).toBe(true);
+    await context.harness.query({
+      text: `INSERT INTO "openmeld"."member_agents" (id, organization_id, owner_user_id, harness_kind, source)
+        VALUES ('deleted-owner-agent', $1, $2, 'claude-code', 'detected')`,
+      values: [preview.deleteOrganizations[0]?.id, context.userId],
+    });
     const observeTime = () =>
       recordUserTimeZoneObservation({
         db: context.harness.db,
@@ -143,6 +148,7 @@ describe("account deletion", () => {
       "passkeys",
       "device_codes",
       "openmeld_profiles",
+      "member_agents",
       "user_time_contexts",
     ]) {
       expect(

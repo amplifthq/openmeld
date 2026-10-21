@@ -194,7 +194,7 @@ function OwnedAgentConversations(input: {
 								{input.singleAgent ? null : (
 									<TableHead className="w-[30%]">Agent</TableHead>
 								)}
-								<TableHead className="hidden w-24 text-right sm:table-cell">
+								<TableHead className="hidden w-28 text-right sm:table-cell">
 									Last message
 								</TableHead>
 							</TableRow>

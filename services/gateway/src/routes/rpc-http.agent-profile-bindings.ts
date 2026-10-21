@@ -13,7 +13,11 @@ import {
   getAgentExecutionReadinessBatchResponseSchema,
   getAgentExecutionReadinessResponseSchema,
   getAgentProfileControllerChangeEligibilityResponseSchema,
+  getAgentProfileFoldersResponseSchema,
+  getAgentProfileFoldersRouteParamsSchema,
   getAgentProfilePrimaryBindingResponseSchema,
+  manageAgentProfileFoldersBodySchema,
+  manageAgentProfileFoldersResponseSchema,
   notifyAgentProfileRouteCatalogChangedBodySchema,
   notifyAgentProfileRouteCatalogChangedResponseSchema,
   notifyAgentProfilesRouteCatalogChangedBodySchema,
@@ -30,6 +34,7 @@ import type { Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
 import {
   buildCoreRpcContext,
+  buildCoreRpcCredential,
   executeRpcRoute,
   respondBadRequest,
 } from "./rpc-http.helpers";
@@ -43,6 +48,8 @@ const AGENT_PROFILE_CONTROLLER_CHANGE_ELIGIBILITY_ROUTE =
   "/v1/agent-profiles/:agentProfileId/controller-change-eligibility";
 const AGENT_PROFILE_DEFAULT_PROJECT_ROUTE =
   "/v1/agent-profiles/:agentProfileId/default-project";
+const AGENT_PROFILE_FOLDERS_ROUTE =
+  "/v1/agent-profiles/:agentProfileId/folders";
 const AGENT_PROFILE_BINDING_MODEL_SELECTION_ROUTE =
   "/v1/agent-profiles/:agentProfileId/primary-binding/model-selection";
 const AGENT_PROFILE_BINDING_AGENT_CONTROLLER_PERMISSION_MODE_ROUTE =
@@ -102,8 +109,9 @@ export function registerAgentProfileBindingRoutes(
       route: executionModeRoute,
       method: c.req.method as "GET" | "PATCH",
       responseSchema: agentProfileExecutionModeResponseSchema,
-      execute: () =>
+      execute: async () =>
         c.var.coreRpc.agentProfileExecutionMode({
+          requestCredential: await buildCoreRpcCredential(c),
           agentProfileId: params.data.agentProfileId,
           body,
           context: buildCoreRpcContext(c),
@@ -186,8 +194,86 @@ export function registerAgentProfileBindingRoutes(
       responseSchema: executeAgentProfileWorkRecoveryResponseSchema,
       execute: async () =>
         await c.var.coreRpc.executeAgentProfileWorkRecovery({
+          requestCredential: await buildCoreRpcCredential(c),
           agentProfileId: routeParams.value.agentProfileId,
           body: body.data,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
+
+  app.get(
+    AGENT_PROFILE_FOLDERS_ROUTE,
+    async (c, next) => {
+      await next();
+      c.header("Cache-Control", "no-store");
+    },
+    (c) => {
+      const routeParams = getAgentProfileFoldersRouteParamsSchema.safeParse({
+        agentProfileId: c.req.param("agentProfileId"),
+      });
+      if (!routeParams.success) {
+        return respondBadRequest({
+          c,
+          route: AGENT_PROFILE_FOLDERS_ROUTE,
+          method: "GET",
+          code: "invalid_payload",
+          message: "Invalid Agent Profile id.",
+        });
+      }
+      return executeRpcRoute({
+        c,
+        route: AGENT_PROFILE_FOLDERS_ROUTE,
+        method: "GET",
+        responseSchema: getAgentProfileFoldersResponseSchema,
+        execute: () =>
+          c.var.coreRpc.getAgentProfileFolders({
+            agentProfileId: routeParams.data.agentProfileId,
+            context: buildCoreRpcContext(c),
+          }),
+      });
+    }
+  );
+
+  app.post(AGENT_PROFILE_FOLDERS_ROUTE, async (c) => {
+    const routeParams = getAgentProfileFoldersRouteParamsSchema.safeParse({
+      agentProfileId: c.req.param("agentProfileId"),
+    });
+    const bodyResult = await readJsonRequestBody(c.req.raw);
+    if (!(routeParams.success && bodyResult.ok)) {
+      return respondBadRequest({
+        c,
+        route: AGENT_PROFILE_FOLDERS_ROUTE,
+        method: "POST",
+        code: routeParams.success ? "invalid_json" : "invalid_payload",
+        message: routeParams.success
+          ? "Invalid folder change."
+          : "Invalid Agent Profile id.",
+      });
+    }
+    const parsedBody = manageAgentProfileFoldersBodySchema.safeParse(
+      bodyResult.value
+    );
+    if (!parsedBody.success) {
+      return respondBadRequest({
+        c,
+        route: AGENT_PROFILE_FOLDERS_ROUTE,
+        method: "POST",
+        code: "invalid_payload",
+        message:
+          parsedBody.error.issues[0]?.message ?? "Invalid folder change.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: AGENT_PROFILE_FOLDERS_ROUTE,
+      method: "POST",
+      responseSchema: manageAgentProfileFoldersResponseSchema,
+      execute: async () =>
+        await c.var.coreRpc.manageAgentProfileFolders({
+          requestCredential: await buildCoreRpcCredential(c),
+          ...parsedBody.data,
+          agentProfileId: routeParams.data.agentProfileId,
           context: buildCoreRpcContext(c),
         }),
     });
@@ -241,11 +327,12 @@ export function registerAgentProfileBindingRoutes(
       route: AGENT_PROFILE_DEFAULT_PROJECT_ROUTE,
       method: "PATCH",
       responseSchema: updateAgentProfileDefaultProjectResponseSchema,
-      execute: () => {
+      execute: async () => {
         const request = {
           ...parsedBody.data,
           agentProfileId: routeParams.data.agentProfileId,
           context: buildCoreRpcContext(c),
+          requestCredential: await buildCoreRpcCredential(c),
         };
         return parsedBody.data.expectedBindingTarget
           ? c.var.coreRpc.updateBoundAgentProfileDefaultProject(request)
@@ -329,6 +416,7 @@ export function registerAgentProfileBindingRoutes(
       responseSchema: disableAgentProfilePrimaryBindingResponseSchema,
       execute: async () =>
         await c.var.coreRpc.disableAgentProfilePrimaryBinding({
+          requestCredential: await buildCoreRpcCredential(c),
           agentProfileId: routeParams.value.agentProfileId,
           context: buildCoreRpcContext(c),
         }),
@@ -452,6 +540,7 @@ export function registerAgentProfileBindingRoutes(
       responseSchema: ensureAgentProfilePrimaryBindingResponseSchema,
       execute: async () =>
         await c.var.coreRpc.ensureAgentProfilePrimaryBinding({
+          requestCredential: await buildCoreRpcCredential(c),
           agentProfileId: routeParams.value.agentProfileId,
           agentControllerRef: parsedBody.data.agentControllerRef,
           agentControllerConversationId:
@@ -546,6 +635,7 @@ export function registerAgentProfileBindingRoutes(
         execute: async () =>
           await c.var.coreRpc.updateAgentProfilePrimaryBindingAgentControllerCollaborationMode(
             {
+              requestCredential: await buildCoreRpcCredential(c),
               agentProfileId: routeParams.value.agentProfileId,
               agentControllerCollaborationMode:
                 parsedBody.data.agentControllerCollaborationMode,
@@ -607,6 +697,7 @@ export function registerAgentProfileBindingRoutes(
         execute: async () =>
           await c.var.coreRpc.updateAgentProfilePrimaryBindingAgentControllerPermissionMode(
             {
+              requestCredential: await buildCoreRpcCredential(c),
               agentProfileId: routeParams.value.agentProfileId,
               agentControllerPermissionMode:
                 parsedBody.data.agentControllerPermissionMode,
@@ -665,6 +756,7 @@ export function registerAgentProfileBindingRoutes(
       responseSchema: ensureAgentProfilePrimaryBindingResponseSchema,
       execute: async () =>
         await c.var.coreRpc.updateAgentProfilePrimaryBindingOpenCodePermission({
+          requestCredential: await buildCoreRpcCredential(c),
           agentProfileId: routeParams.value.agentProfileId,
           context: buildCoreRpcContext(c),
           openCodePermission: parsedBody.data.openCodePermission,
@@ -720,6 +812,7 @@ export function registerAgentProfileBindingRoutes(
       responseSchema: ensureAgentProfilePrimaryBindingResponseSchema,
       execute: async () =>
         await c.var.coreRpc.updateAgentProfilePrimaryBindingModelSelection({
+          requestCredential: await buildCoreRpcCredential(c),
           agentProfileId: routeParams.value.agentProfileId,
           context: buildCoreRpcContext(c),
           modelId: parsedBody.data.modelId,

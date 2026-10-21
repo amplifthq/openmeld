@@ -1032,10 +1032,7 @@ describe("CreateProfileDialog", () => {
 					name: CUSTOMIZE_AGENT_BUTTON_PATTERN,
 				})
 			).getAttribute("aria-expanded")
-		).toBe("false");
-		fireEvent.click(
-			screen.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_PATTERN })
-		);
+		).toBe("true");
 		await waitFor(() => {
 			expect(
 				screen.getByRole("button", { name: "Edit Model" }).textContent
@@ -2405,11 +2402,9 @@ describe("CreateProfileDialog", () => {
 			]),
 		});
 		fireEvent.click(await screen.findByRole("radio", { name: "Antigravity" }));
-		fireEvent.click(
-			await screen.findByRole("button", {
-				name: CUSTOMIZE_AGENT_BUTTON_PATTERN,
-			})
-		);
+		await screen.findByRole("button", {
+			name: CUSTOMIZE_AGENT_BUTTON_PATTERN,
+		});
 		fireEvent.click(screen.getByRole("button", { name: "Edit Model" }));
 		fireEvent.click(await screen.findByRole("combobox", { name: "Model" }));
 		expect(
@@ -3414,9 +3409,6 @@ describe("CreateProfileDialog", () => {
 			name: "Create Agent",
 		}) as HTMLButtonElement;
 		await waitFor(() => expect(submitButton.disabled).toBe(false));
-		fireEvent.click(
-			screen.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_PATTERN })
-		);
 		fireEvent.click(screen.getByRole("button", { name: "Edit Model" }));
 		fireEvent.click(screen.getByRole("combobox", { name: "Model" }));
 		fireEvent.click(

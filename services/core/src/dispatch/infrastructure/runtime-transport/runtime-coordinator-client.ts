@@ -1,4 +1,5 @@
 import { parseAgentControllerRef } from "@openmeld/agent-runtime";
+import type { PermissionModeAdvisory } from "@openmeld/schemas";
 import {
   buildRuntimeCoordinatorExecutionId,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
@@ -69,6 +70,16 @@ import { renderDispatchSourceText } from "@openmeld/space";
 import type { CoreBindings } from "../../../lib/bindings";
 import type { SpaceBootstrapTimingCollector } from "../../../space/application/space-bootstrap-timing";
 import { callRuntimeTransportApi } from "./runtime-transport-api-client";
+
+// Only an owner-requested Wake may carry the advisory.
+function buildPermissionModeAdvisoryPayload(input: {
+  permissionModeAdvisory?: PermissionModeAdvisory | null;
+  requesterIsAgentOwner?: boolean;
+}): Pick<RuntimeTransportDeliverDispatchPayload, "permissionModeAdvisory"> {
+  return input.permissionModeAdvisory && input.requesterIsAgentOwner === true
+    ? { permissionModeAdvisory: input.permissionModeAdvisory }
+    : {};
+}
 
 async function measureRuntimeTransportClientTiming<T>(input: {
   description: string;
@@ -200,6 +211,9 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
   organizationProtectedInformation?: string | null;
   workingLanguage?: WorkingLanguageGuidance | null;
   requesterIsAgentOwner?: boolean;
+  /** From usesSeparateColleagueConversation (member-agent-program.md §4.3). */
+  separateRequesterConversation?: boolean;
+  permissionModeAdvisory?: PermissionModeAdvisory | null;
 }): RuntimeTransportDeliverDispatchRequest => {
   const sourceProfileHandle = normalizeOptionalText(
     input.sourceSignal.profileHandle
@@ -217,9 +231,7 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
     input.message.deliveryRecoveryReason
   );
   const payloadCandidate: RuntimeTransportDeliverDispatchPayload = {
-    ...(input.requesterIsAgentOwner !== undefined
-      ? { requesterIsAgentOwner: input.requesterIsAgentOwner }
-      : {}),
+    ...buildRequesterDeliveryFields(input),
     executionContext: input.message.executionContext,
     runtimeCoordinatorExecutionId: buildRuntimeCoordinatorExecutionId({
       dispatchId: input.message.dispatchId,
@@ -267,6 +279,7 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
         }
       : {}),
     ...buildWorkingLanguagePayload(input.workingLanguage),
+    ...buildPermissionModeAdvisoryPayload(input),
     dispatchContractVersion: input.message.dispatchContractVersion,
     dispatchPolicy: input.message.dispatchPolicy,
     controllerSnapshot: input.message.controllerSnapshot,
@@ -427,6 +440,22 @@ function buildRuntimeTransportSourceSignalSnapshot(input: {
   }
   const { attachments: _attachments, ...textOnlySnapshot } = snapshot;
   return textOnlySnapshot;
+}
+function buildRequesterDeliveryFields(input: {
+  requesterIsAgentOwner?: boolean;
+  separateRequesterConversation?: boolean;
+}): Pick<
+  RuntimeTransportDeliverDispatchPayload,
+  "requesterIsAgentOwner" | "separateRequesterConversation"
+> {
+  return {
+    ...(input.requesterIsAgentOwner === undefined
+      ? {}
+      : { requesterIsAgentOwner: input.requesterIsAgentOwner }),
+    ...(input.separateRequesterConversation
+      ? { separateRequesterConversation: true as const }
+      : {}),
+  };
 }
 function buildBindingConversationDeliveryFields(
   message: OpenMeldDaemonDispatchQueueMessage,

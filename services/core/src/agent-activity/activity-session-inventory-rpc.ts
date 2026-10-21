@@ -15,7 +15,7 @@ import type {
 import type { CoreBindings } from "../lib/bindings";
 import { resolveOrganizationMembershipById } from "../organizations/organization-context";
 import {
-  readProjectRecord,
+  readProjectLifecycleRecord,
   readProjectRepositorySettingsRecord,
 } from "../projects/project-repository";
 import { prepareHumanProjectRequest } from "../projects/project-request-preparation";
@@ -114,7 +114,7 @@ export async function rpcSubmitAgentActivitySessionReconciliation(
       status: membership.ok ? 403 : membership.status,
     });
   }
-  const project = await readProjectRecord({
+  const project = await readProjectLifecycleRecord({
     db,
     organizationId: parsed.data.organizationId,
     projectId: parsed.data.projectId,
@@ -234,7 +234,7 @@ async function assertReconciliationRepositoryAssociated(input: {
   }
 }
 function canReconcileProject(
-  project: Awaited<ReturnType<typeof readProjectRecord>>,
+  project: Awaited<ReturnType<typeof readProjectLifecycleRecord>>,
   result: SubmitAgentActivitySessionReconciliationRpcInput["result"]
 ): project is NonNullable<typeof project> {
   return Boolean(

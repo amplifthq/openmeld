@@ -98,9 +98,6 @@ describe("AgentProfileGenerator", () => {
 		fireEvent.change(screen.getByRole("textbox", { name: "Agent name" }), {
 			target: { value: "Release helper" },
 		});
-		fireEvent.click(
-			screen.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_NAME })
-		);
 		view.rerender(
 			<GeneratorHarness
 				initialAgentId="codex"
@@ -318,14 +315,13 @@ describe("AgentProfileGenerator", () => {
 	it.each([
 		"dialog",
 		"page",
-	] as const)("starts advanced settings collapsed on the %s surface and opens only the selected editor", async (surface) => {
+	] as const)("starts advanced settings expanded on the %s surface and opens only the selected editor", async (surface) => {
 		render(<GeneratorHarness initialAgentId="codex" surface={surface} />);
 
 		const customizeTrigger = screen.getByRole("button", {
 			name: CUSTOMIZE_AGENT_BUTTON_NAME,
 		});
-		expect(customizeTrigger.getAttribute("aria-expanded")).toBe("false");
-		fireEvent.click(customizeTrigger);
+		expect(customizeTrigger.getAttribute("aria-expanded")).toBe("true");
 		fireEvent.click(screen.getByRole("button", { name: "Edit Owner" }));
 
 		expect(await screen.findByText("Owner choice")).toBeTruthy();
@@ -343,7 +339,7 @@ describe("AgentProfileGenerator", () => {
 		expect(screen.getByRole("button", { name: "Create Agent" })).toBeTruthy();
 	});
 
-	it("summarizes the effective setup without opening an editor", () => {
+	it("summarizes the effective setup with the editors listed but closed", () => {
 		render(
 			<GeneratorHarness
 				initialAgentId="codex"
@@ -358,7 +354,11 @@ describe("AgentProfileGenerator", () => {
 		).toContain(
 			"GPT-5.6 Sol (default) · Model default · Ask for approval · New session · openmeld · Default"
 		);
-		expect(screen.queryByRole("button", { name: "Edit Model" })).toBeNull();
+		expect(
+			screen
+				.getByRole("button", { name: "Edit Model" })
+				.getAttribute("aria-expanded")
+		).toBe("false");
 	});
 
 	it("shows every supported local agent before one is available or selected", () => {

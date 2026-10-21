@@ -68,11 +68,14 @@ export {
 } from "./inflight-task-control-registry.js";
 export {
   createLocalExecutionSlots,
+  describeLocalExecutionSlotWait,
+  type LocalExecutionResourceClaim,
   type LocalExecutionSlotCompletionEvent,
   type LocalExecutionSlotDiagnostics,
   type LocalExecutionSlotDropEvent,
   type LocalExecutionSlotLifecycleEvent,
   type LocalExecutionSlotRequestResult,
+  type LocalExecutionSlotSharedFolderSession,
   type LocalExecutionSlotSnapshot,
   type LocalExecutionSlots,
   type LocalExecutionSlotTask,

@@ -19,7 +19,20 @@ import {
 	type SpaceSendTargetWakeAvailability,
 } from "@openmeld/space";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
+import {
+	addAgentRequestMentionSelection,
+	resolveAgentRequestMentionProfileIds,
+	type SpaceAgentRequestMentionItem,
+	type SpaceAgentRequestMentionSelection,
+} from "#/components/agent-access/space-agent-request-mentions";
 import { useComposerDraft } from "#/hooks/use-composer-draft";
 import {
 	type ComposerDraftRecord,
@@ -67,6 +80,8 @@ export type SpaceComposerAddressingTarget = {
 	deviceWaitTarget?: import("@openmeld/schemas/types").WakeDeviceWaitTarget;
 	runtimeDeviceDisplayName?: string | null;
 	allowedRelations: SpaceSendTargetAllowedRelations;
+	/** The Agent's owner; a colleague's Agent never shows owner setup copy. */
+	ownerUserId?: string | null;
 	primaryMentionLabel: string;
 	profileId: string;
 	profileName: string;
@@ -121,6 +136,21 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 	const [recentMentionProfileIds, setRecentMentionProfileIds] = useState<
 		string[]
 	>([]);
+	// Colleagues' Agents chosen from the picker; sending asks their owners.
+	const [agentRequestSelections, setAgentRequestSelections] = useState<
+		readonly SpaceAgentRequestMentionSelection[]
+	>([]);
+	const onAgentRequestMention = useCallback(
+		(item: SpaceAgentRequestMentionItem) => {
+			setAgentRequestSelections((current) =>
+				addAgentRequestMentionSelection(current, {
+					profileId: item.profileId,
+					profileName: item.mentionName,
+				})
+			);
+		},
+		[]
+	);
 	const addressingMentions = useMemo(
 		() =>
 			resolveSpaceComposerAddressingMentions({
@@ -230,6 +260,7 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 	// biome-ignore lint/correctness/useExhaustiveDependencies: Changing conversation identity must discard a pending selection from the previous editor even though the key is not rendered.
 	useEffect(() => {
 		pendingSelectionRef.current = null;
+		setAgentRequestSelections([]);
 	}, [composerDraft.storageKey]);
 
 	useEffect(() => {
@@ -308,6 +339,7 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 		onMentionButtonClick: () => {
 			textareaRef.current?.insertMentionTrigger();
 		},
+		onAgentRequestMention,
 		onClearReplyTo: () => {
 			composerDraft.setContent((currentDraft) => ({
 				...currentDraft,
@@ -384,7 +416,14 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 		},
 		prepareSubmission: (
 			missingSnapshotMessage: string
-		): PreparedSpaceComposerSubmission & { restoredFromSignalId?: string } => ({
+		): PreparedSpaceComposerSubmission & {
+			agentRequestProfileIds?: readonly string[];
+			restoredFromSignalId?: string;
+		} => ({
+			agentRequestProfileIds: resolveAgentRequestMentionProfileIds({
+				selections: agentRequestSelections,
+				text: composerText,
+			}),
 			restoredFromSignalId: composerDraft.content.restoredFromSignalId,
 			...prepareSpaceComposerSubmission({
 				authoredMentionsInTextOrder: authoredMentions.map(
@@ -453,8 +492,21 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 			return true;
 		},
 		recordSuccessfulSubmission: (
-			preparedSubmission: PreparedSpaceComposerSubmission
+			preparedSubmission: PreparedSpaceComposerSubmission & {
+				agentRequestProfileIds?: readonly string[];
+			}
 		) => {
+			// Only this message's choices; a newer draft keeps its own.
+			const submittedRequestIds = new Set(
+				preparedSubmission.agentRequestProfileIds ?? []
+			);
+			if (submittedRequestIds.size > 0) {
+				setAgentRequestSelections((current) =>
+					current.filter(
+						(selection) => !submittedRequestIds.has(selection.profileId)
+					)
+				);
+			}
 			if (input.snapshot) {
 				const nextRecentMentionProfileIds =
 					resolveNextRecentMentionProfileIdsForQueuedText({
@@ -649,6 +701,7 @@ export function buildSpaceComposerAddressingTargets(input: {
 			deviceWaitTarget: member?.deviceWaitTarget,
 			runtimeDeviceDisplayName: target.runtimeDeviceDisplayName,
 			allowedRelations: target.allowedRelations,
+			ownerUserId: member?.ownerUserId ?? null,
 			primaryMentionLabel: target.primaryMentionLabel,
 			profileId: target.profileId,
 			profileName: target.profileName,

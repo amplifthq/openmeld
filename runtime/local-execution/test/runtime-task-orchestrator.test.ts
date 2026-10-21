@@ -789,6 +789,103 @@ describe("ledger-recovery+mention-dispatch runtime orchestration", () => {
     });
   });
 
+  it("keeps a colleague Wake's conversation in its own scope (member-agent-program.md §4.3)", async () => {
+    const paths = await createTempLedgerPaths(
+      "openMeldDaemon-colleague-scope-"
+    );
+    createdDirs.add(paths.rootDirPath);
+    const io = createNodeLedgerFileIo();
+    const dispatch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        contextDelta: { agentControllerConversationId: "owner-thread" },
+        output: "owner",
+        status: "success",
+      })
+      .mockResolvedValueOnce({
+        contextDelta: { agentControllerConversationId: "colleague-thread" },
+        output: "colleague",
+        status: "success",
+      })
+      .mockResolvedValueOnce({
+        contextDelta: { agentControllerConversationId: "owner-thread" },
+        output: "owner again",
+        status: "success",
+      });
+    const route = {
+      contextIdMappingSpec: {
+        mappingVersion: 1,
+        sourceField: "OPENMELD_CLI_CONTEXT_ID",
+      },
+      agentControllerRef: "builtin:codex",
+      env: {},
+      runtimeWorkspaceFingerprint: buildRuntimeWorkspaceFingerprint(
+        DEFAULT_RUNTIME_CONTEXT.providerRuntimeWorkingDirectory
+      ),
+      targets: [
+        {
+          adapter: {
+            adapterId: "codex",
+            dispatch,
+            interrupt: vi.fn(),
+          },
+          agentControllerRef: "builtin:codex",
+          transportMode: "codex-app-server" as const,
+        },
+      ],
+      transportMode: "codex-app-server" as const,
+    };
+    const run = (input: {
+      scopeId?: string;
+      sequence: number;
+      taskId: string;
+    }) =>
+      runRuntimeTask({
+        io,
+        nowMs: Date.UTC(2026, 9, 19, 9, input.sequence, 0),
+        paths,
+        route,
+        task: createRuntimeTask({
+          agentId: "agent-felix",
+          ...(input.scopeId ? { agentContextScopeId: input.scopeId } : {}),
+          bindingKey: "space-shared|agent-felix",
+          mentioned: true,
+          prompt: input.taskId,
+          sequence: input.sequence,
+          sourceEventId: `evt-${input.taskId}`,
+          spaceId: "space-shared",
+          taskId: input.taskId,
+          triggerMode: "mention_only",
+        }),
+      });
+
+    await run({ sequence: 1, taskId: "task-owner-1" });
+    await run({
+      scopeId: "0f8fad5b-d9cb-469f-a165-70867728950e",
+      sequence: 2,
+      taskId: "task-colleague",
+    });
+    // The colleague started fresh instead of resuming the owner's thread.
+    expect(dispatch.mock.calls[1]?.[0]?.agentControllerConversationId).not.toBe(
+      "owner-thread"
+    );
+    // The ledger stays valid on disk and holds both, apart.
+    const persisted = await loadLedgerState({ io, paths });
+    expect(
+      Object.values(persisted.agentContextByLookupKey)
+        .map((context) => context.agentControllerConversationId)
+        .sort()
+    ).toEqual(["colleague-thread", "owner-thread"]);
+    // The owner's next Wake resumes the owner's thread, not the colleague's.
+    const ownerAgain = await run({ sequence: 3, taskId: "task-owner-2" });
+    expect(dispatch.mock.calls[2]?.[0]).toMatchObject({
+      agentControllerConversationId: "owner-thread",
+    });
+    expect(ownerAgain.agentContextLifecycle).toMatchObject({
+      resolvedAgentControllerConversationId: "owner-thread",
+    });
+  });
+
   it("passes streaming mode to adapter request and keeps final-result semantics", async () => {
     const paths = await createTempLedgerPaths(
       "openMeldDaemon-g34-streaming-intent-"

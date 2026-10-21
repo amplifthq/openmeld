@@ -16,8 +16,10 @@
 
 ## Agent Direct Message activity
 
-An accepted Human membership generation creates one ordinary `space_joined`
-update, including empty Spaces and invitations. It uses the membership's
+An accepted Human membership generation that someone else added creates one
+ordinary `space_joined` update, including empty Spaces and invitations. A
+member who added themselves, such as a Space's creator or an owner whose setup
+opened a Direct Message with their own Agent, gets no update. It uses the membership's
 `addedAt`, not visits, role changes, or index retries. Rejoining creates a new
 generation. Historical memberships are established as read during migration
 and after historical D1 import. No chat message or urgent email is fabricated.
@@ -358,11 +360,46 @@ retired wire discriminator `space_reference`. They normalize it to
 persisted-row compatibility only: people are never presented as Reference, and
 new writers create only `space_mention`.
 
+### Agent owner requests
+
+Implementation status: MemberAgent program, PR #236, in progress.
+
+Three source kinds carry decisions that only an Agent's owner can make. Each
+is `action_required`, goes to the exact Agent owner, and is resolved only by
+its source owner; reading or Dismissing never decides it.
+
+- `agent_access_request`: a colleague's or identified external user's first
+  Direct Message to the owner's Agent Profile waits for consent. Responses are
+  **Allow once**, **Always allow <colleague> for this Profile**, and
+  **Decline**; external users get only **Allow once** and **Decline**.
+- `agent_space_request`: someone other than the owner mentioned or added the
+  owner's Agent in a Space it is not in. Responses are **Add to Space** and
+  **Don't add**. **Message <requester>** opens the Direct Message with the
+  requester and keeps the item open. Editing or deleting the bound message
+  voids the request and resolves the item.
+- `credential_confirmation`: a sensitive operation made with the CLI login
+  credential while that computer runs a task whose root requester is not the
+  owner. The owner confirms or rejects that exact operation.
+
+These three are `urgent` because each exists only when someone other than the
+owner is the root requester. An `agent_interaction` item is `urgent` when the
+Wake's root requester is not the owner and `normal` when the owner is the root
+requester. The root requester is the server-written first element of the
+request chain (see `developing/architecture/agent-transport-contract.md`,
+Request Chain). Urgency is decided by that fact and is never inferred.
+
+Agent Interaction items are coalesced per Session: the source event key uses
+the Execution Context `contextId`, so a later question in the same Session
+updates the same item, and urgent email is sent once per Session rather than
+once per question.
+
 ## Item contract and ownership
 
 Independent Local Agent Contexts do not create new Inbox identities or a new
-execution authority. Recovery and interaction items remain keyed to the exact
-Wake, source message, requester, and target Agent Profile. Multiple reserved or
+execution authority. Recovery items remain keyed to the exact Wake, source
+message, requester, and target Agent Profile. Interaction items are keyed per
+Session by `contextId` (see Agent owner requests); each response still names
+the exact Wake and interaction id. Multiple reserved or
 interrupted Wakes may coexist; the first reserved work reference is only a
 compatibility projection. Reading or dismissing one item cannot settle another
 Context, release its reservation, or publish a reply.
@@ -492,7 +529,8 @@ adding it again creates a new event. Existing delivered items remain history.
    a personal owner. Overlapping recipient roles produce one item per reply.
    Chats and Spaces reuse the same unread projection and read-through rules.
 3. An Agent Interaction that explicitly requests approval, an answer, plan
-   review, or other supported human response.
+   review, or other supported human response, with urgency and per-Session
+   coalescing as defined in Agent owner requests.
 4. A formal system-owned Wake ending published in the conversation:
    a visible failure or stopped outcome, a `stay_silent` outcome, or an
    explicit final status. A successful final reply uses the Agent reply item

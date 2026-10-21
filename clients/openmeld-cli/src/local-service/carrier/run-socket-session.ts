@@ -20,6 +20,7 @@ import {
   localFolderPickerDaemonFrameSchema,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   runtimeTransportHeartbeatRequestSchema,
+  runtimeTransportLocalAgentControlManageProfileFoldersFramePayloadSchema,
   runtimeTransportLocalAgentControlReadProfileWorkspaceFramePayloadSchema,
   runtimeTransportLocalAgentControlRefreshCatalogFramePayloadSchema,
   runtimeTransportLocalAgentControlSetProfileWorkspaceFramePayloadSchema,
@@ -92,6 +93,7 @@ import {
   createLocalWakeRouteReport,
   hasCompleteProfileConfigurationRevisions,
 } from "../reporting/local-wake-route-report";
+import { manageLocalProfileFolders } from "./manage-profile-folders";
 import { readLocalAgentProfileWorkspace } from "./read-profile-workspace";
 
 type LocalServiceRuntimeAgentControllerReportSyncResult =
@@ -1748,6 +1750,41 @@ export async function runDaemonSocketSession(input: {
     });
   };
 
+  const handleLocalAgentControlManageProfileFoldersFrame = async (
+    payload: Record<string, unknown>
+  ): Promise<void> => {
+    const parsed =
+      runtimeTransportLocalAgentControlManageProfileFoldersFramePayloadSchema.safeParse(
+        payload
+      );
+    if (!parsed.success) {
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.local_agent_control_frame_invalid",
+        text: "ignored invalid profile folder control frame",
+      });
+      return;
+    }
+    const responsePayload = await manageLocalProfileFolders({
+      ownerUserId: input.ownerUserId,
+      ...parsed.data.payload,
+    });
+    if (
+      responsePayload.accepted &&
+      parsed.data.payload.operation.operation !== "list"
+    ) {
+      // A new default changes the effective working folder that routes report.
+      requestLocalExecutionEvidenceRefresh({
+        reason: "local_state_changed",
+        scheduleReason: "local_agent_control_manage_profile_folders",
+      });
+    }
+    sendDaemonFrame(input.socket, {
+      code: "daemon.local_agent_control.result",
+      payload: { requestId: parsed.data.requestId, payload: responsePayload },
+    });
+  };
+
   const handleLocalAgentControlSetProfileWorkspaceFrame = async (
     payload: Record<string, unknown>
   ): Promise<void> => {
@@ -1950,6 +1987,8 @@ export async function runDaemonSocketSession(input: {
         handleLocalAgentControlReadProfileWorkspaceFrame,
       "daemon.local_agent_control.set_profile_workspace":
         handleLocalAgentControlSetProfileWorkspaceFrame,
+      "daemon.local_agent_control.manage_profile_folders":
+        handleLocalAgentControlManageProfileFoldersFrame,
     };
     const handler = handlers[frame.code];
     if (!handler) {

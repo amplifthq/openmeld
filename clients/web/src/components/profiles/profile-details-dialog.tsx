@@ -33,11 +33,16 @@ import {
 	CopyIcon,
 	GearIcon,
 	PencilSimpleIcon,
+	WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type ReactElement, type ReactNode, useState } from "react";
 import { toast } from "sonner";
+import {
+	AgentAccessIndicator,
+	resolveAgentChatActionLabel,
+} from "#/components/agent-access/agent-access-indicator";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { AgentTaskActivitySummary } from "#/components/agents/agent-task-activity";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
@@ -55,13 +60,24 @@ import {
 	DirectoryAgentProfilesSummary,
 	DirectoryHumanProfileComputerSummary,
 } from "#/components/directory/directory-human-profile-presentation";
+import { useMemberAgentProfileDisplayName } from "#/components/member-agents/use-member-agent-profile-display-name";
 import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { ProfileDetailsCurrentSession } from "#/components/profiles/profile-details-current-session";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
 import { useAppSettings } from "#/components/settings/use-app-settings";
+import {
+	SpaceAgentIssueRecoveryAction,
+	useSpaceAgentRecoveryPlan,
+} from "#/components/spaces/space-agent-recovery-context";
 import { resolveSpaceMemberInlineStatusTextClassName } from "#/components/spaces/space-member-status-tone";
 import { SpaceProfileIcon } from "#/components/spaces/space-profile-icon";
+import {
+	type AgentViewerAccess,
+	formatPublicWakeabilityReason,
+	useAgentViewerAccess,
+	usePublicWakeabilityReason,
+} from "#/lib/agents/agent-viewer-access";
 import { copyTextToClipboard } from "#/lib/clipboard";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { useMemberActivityTime } from "#/lib/spaces/use-member-activity-time";
@@ -126,11 +142,20 @@ export function AgentProfileDetailsContent(input: {
 	const canEdit = input.details.viewerScope === "owner_self";
 	const showAvailability =
 		!input.isCenterAgent || input.entry.availabilityCategory !== "available";
+	// A problem has one place in the popover: the footer, next to its fix.
+	const issueLabel = showAvailability
+		? resolveAgentIssueLabel(input.entry)
+		: null;
 	const availabilitySummary =
 		showAvailability &&
+		issueLabel === null &&
 		input.entry.availabilitySummary !== resolveAgentPresenceSummary(input.entry)
 			? input.entry.availabilitySummary
 			: null;
+	const colleague = useColleagueAgentPopoverState({
+		entry: input.entry,
+		isColleagueAgent: !(canEdit || input.isCenterAgent),
+	});
 
 	return (
 		<ScrollArea
@@ -145,14 +170,16 @@ export function AgentProfileDetailsContent(input: {
 				isCenterAgent={input.isCenterAgent === true}
 				moreDetailsHref={input.moreDetailsHref}
 				onNavigate={input.onNavigate}
-				showAvailability={showAvailability}
+				showAvailability={showAvailability && issueLabel === null}
 			/>
 			<AgentProfileDirectMessageAction
+				access={colleague.access}
 				href={input.chatHref}
 				isPending={input.isDirectMessagePending === true}
 				onNavigate={input.onNavigate}
 				onOpen={input.onOpenDirectMessage}
 				profileName={input.entry.profileName}
+				unavailableReason={colleague.chatUnavailableReason}
 			/>
 			{availabilitySummary ? (
 				<p className="mt-3 border-border border-t pt-3 text-muted-foreground text-xs">
@@ -168,8 +195,96 @@ export function AgentProfileDetailsContent(input: {
 				</div>
 			)}
 			<AgentTaskActivitySummary profileId={input.entry.profileId} />
+			{issueLabel ? (
+				<AgentProfileIssueFooter
+					entry={input.entry}
+					label={issueLabel}
+					publicReason={colleague.reason}
+				/>
+			) : null}
 		</ScrollArea>
 	);
+}
+
+/**
+ * Why this Agent can't work right now, with the same fix the Space offers
+ * everywhere else. Without a fix for this viewer, the shared summary says
+ * what to do instead.
+ */
+function AgentProfileIssueFooter(input: {
+	entry: SpaceMemberDirectoryEntry;
+	label: string;
+	publicReason: string | null;
+}) {
+	const hasRecovery = useSpaceAgentRecoveryPlan(input.entry.profileId) !== null;
+	return (
+		<div
+			className="mt-3 flex min-w-0 items-center gap-2 border-border border-t pt-3"
+			data-slot="agent-profile-issue-footer"
+		>
+			<div className="grid min-w-0 flex-1 gap-0.5">
+				<p
+					className={cn(
+						"flex min-w-0 items-center gap-1.5 font-medium text-xs",
+						resolveSpaceMemberInlineStatusTextClassName(input.entry)
+					)}
+				>
+					<WarningCircleIcon aria-hidden="true" className="size-3.5 shrink-0" />
+					<span className="truncate">{input.label}</span>
+				</p>
+				{!hasRecovery &&
+				(input.publicReason ?? input.entry.availabilitySummary) ? (
+					<p className="text-muted-foreground text-xs">
+						{input.publicReason ?? input.entry.availabilitySummary}
+					</p>
+				) : null}
+			</div>
+			<SpaceAgentIssueRecoveryAction
+				className="mt-0 shrink-0"
+				profileId={input.entry.profileId}
+			/>
+		</div>
+	);
+}
+
+/** A colleague's access and the reason the Agent can't work, if named. */
+function useColleagueAgentPopoverState(input: {
+	entry: SpaceMemberDirectoryEntry;
+	isColleagueAgent: boolean;
+}) {
+	const access = useAgentViewerAccess({
+		ownerName: input.entry.ownerName,
+		ownerUserId: input.entry.ownerUserId,
+		profileId: input.entry.profileId,
+	});
+	const publicReason = usePublicWakeabilityReason({
+		enabled: input.isColleagueAgent,
+		profileId: input.entry.profileId,
+	});
+	const reason = publicReason
+		? formatPublicWakeabilityReason(publicReason)
+		: null;
+	return {
+		access: input.isColleagueAgent ? access : null,
+		chatUnavailableReason:
+			input.isColleagueAgent &&
+			input.entry.availabilityCategory === "unavailable"
+				? (reason ?? "This Agent is unavailable")
+				: null,
+		reason,
+	};
+}
+
+function resolveAgentIssueLabel(
+	entry: SpaceMemberDirectoryEntry
+): string | null {
+	if (
+		entry.availabilityCategory !== "unavailable" &&
+		entry.availabilityCategory !== "offline"
+	) {
+		return null;
+	}
+	return entry.availabilityBadgeLabel ?? resolveAgentPresenceSummary(entry);
 }
 
 function AgentProfileDetailsHeader(input: {
@@ -181,6 +296,13 @@ function AgentProfileDetailsHeader(input: {
 	onNavigate?: () => void;
 	showAvailability: boolean;
 }) {
+	const memberAgentDisplayName = useMemberAgentProfileDisplayName({
+		agentControllerRef: input.entry.agentControllerRef,
+		ownerName: input.entry.ownerName,
+		profileId: input.entry.profileId,
+		profileKind: input.isCenterAgent ? "center_agent" : input.entry.profileKind,
+		profileName: input.entry.profileName,
+	});
 	const modelSummary =
 		selectDetailsRows(input.details, ["model"])[0]?.value ??
 		input.entry.controllerDisplayName ??
@@ -249,7 +371,7 @@ function AgentProfileDetailsHeader(input: {
 					) : null}
 				</>
 			}
-			name={input.entry.profileName}
+			name={memberAgentDisplayName ?? input.entry.profileName}
 		>
 			<p className="mt-1 flex min-w-0 items-center gap-1.5 text-muted-foreground text-sm">
 				{input.isCenterAgent && (
@@ -299,23 +421,33 @@ function AgentProfileOwner({ entry }: { entry: SpaceMemberDirectoryEntry }) {
 		(member) => member.userId === entry.ownerUserId
 	);
 	const name = owner?.humanProfile?.profileName ?? entry.ownerName;
+	const access = useAgentViewerAccess({
+		ownerName: name,
+		ownerUserId: entry.ownerUserId,
+		profileId: entry.profileId,
+	});
 	if (!name) {
 		return null;
 	}
 	return (
-		<p className="mt-2 flex items-center gap-1.5 text-muted-foreground text-xs">
-			<span className="shrink-0">Owned by</span>
-			{owner?.humanProfile && (
-				<DitherProfileAvatar
-					avatarImageUrl={owner.user.image}
-					profileId={owner.humanProfile.profileId}
-					profileKind="human"
-					profileName={name}
-					size={16}
-				/>
-			)}
-			<span className="min-w-0 truncate text-foreground">{name}</span>
-		</p>
+		<>
+			<p className="mt-2 flex items-center gap-1.5 text-muted-foreground text-xs">
+				<span className="shrink-0">Owned by</span>
+				{owner?.humanProfile && (
+					<DitherProfileAvatar
+						avatarImageUrl={owner.user.image}
+						profileId={owner.humanProfile.profileId}
+						profileKind="human"
+						profileName={name}
+						size={16}
+					/>
+				)}
+				<span className="min-w-0 truncate text-foreground">{name}</span>
+			</p>
+			{access ? (
+				<AgentAccessIndicator access={access} className="mt-1" />
+			) : null}
+		</>
 	);
 }
 
@@ -352,11 +484,13 @@ function AgentProfileDetailsAction(input: {
 }
 
 function AgentProfileDirectMessageAction(input: {
+	access?: AgentViewerAccess | null;
 	href?: string;
 	isPending: boolean;
 	onOpen?: () => void;
 	profileName: string;
 	onNavigate?: () => void;
+	unavailableReason?: string | null;
 }) {
 	if (!(input.href || input.onOpen)) {
 		return null;
@@ -364,9 +498,32 @@ function AgentProfileDirectMessageAction(input: {
 	const content = (
 		<>
 			<ChatCircleTextIcon aria-hidden="true" className="size-3.5 shrink-0" />
-			<span className="truncate">Chat with {input.profileName}</span>
+			<span className="truncate">
+				{resolveAgentChatActionLabel({
+					access: input.access ?? null,
+					profileName: input.profileName,
+				})}
+			</span>
 		</>
 	);
+	if (input.unavailableReason) {
+		return (
+			<TooltipHint
+				content={`Can’t start work right now: ${input.unavailableReason}.`}
+			>
+				<span className="mt-3 flex w-full">
+					<Button
+						className="w-full min-w-0 justify-center px-4"
+						disabled
+						type="button"
+						variant="default"
+					>
+						{content}
+					</Button>
+				</span>
+			</TooltipHint>
+		);
+	}
 	if (input.href) {
 		return (
 			<Link

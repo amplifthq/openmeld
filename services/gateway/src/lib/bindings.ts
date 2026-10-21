@@ -1,3 +1,4 @@
+import type { RequestCredential } from "@openmeld/schemas";
 import type {
   OpenMeldRequestContext,
   ResolvedOpenMeldProfile,
@@ -18,6 +19,9 @@ export type HonoBindings = {
   Variables: {
     ingressOpenMeldContext: GatewayIngressForwardingContext;
     openMeldRequestContext: OpenMeldRequestContext;
+    // Credential facts for sensitive operations only; never part of the
+    // request context (it can carry a task's execution token).
+    requestCredential: RequestCredential;
     startedAt: number;
     coreRpc: CoreRpcWorker;
     authRpc: AuthRpcWorker;

@@ -1,6 +1,4 @@
 import { Folder } from "@openmeld/ui/components/folder-component";
-import { FluidCardGroup } from "@openmeld/ui/fluid/card";
-import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	AnimatePresence,
@@ -9,6 +7,7 @@ import {
 	useIsPresent,
 } from "framer-motion";
 import { type ReactNode, useId, useState } from "react";
+import { AgentCardNavMenu } from "./agent-card-nav-menu";
 import { AgentGroupAvatar, AgentGroupContext } from "./agent-group-context";
 import type { AgentListItem } from "./agent-list-model";
 import { AgentProfileControllerAvatar } from "./agent-profile-controller-avatar";
@@ -125,15 +124,12 @@ export function AgentFolders({
 									transition={{ duration: 0.16 }}
 								>
 									<FolderContents>
-										<FluidCardGroup>
-											<FluidNavMenu
-												activeValue={null}
-												aria-label={`${selected[0]} Agents`}
-												className="[&_[data-sidebar=menu]]:grid [&_[data-sidebar=menu]]:gap-3 [&_[data-sidebar=menu]]:md:grid-cols-2 [&_[data-sidebar=menu]]:xl:grid-cols-3"
-											>
-												{selected[1].map(renderCard)}
-											</FluidNavMenu>
-										</FluidCardGroup>
+										<AgentCardNavMenu
+											activeValue={null}
+											aria-label={`${selected[0]} Agents`}
+										>
+											{selected[1].map(renderCard)}
+										</AgentCardNavMenu>
 									</FolderContents>
 								</motion.div>
 							)}

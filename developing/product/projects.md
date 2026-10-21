@@ -139,9 +139,10 @@ frozen with its Execution Context. Core verifies that the repository remains
 associated with the active Project, and the current local Service resolves
 one matching owner-local connection. A missing, changed, or ambiguous local
 connection blocks execution; neither Profile Default Project nor another
-repository becomes a fallback. Current-folder writers retain the Service's
-single exclusive local workspace boundary across Project labels. Isolated
-tasks use separate worktrees.
+repository becomes a fallback. Current-folder writers follow the folder-scoped
+conflict rule (`folderKey`) across Project labels defined in
+`developing/architecture/agent-transport-contract.md`. Isolated tasks use
+separate worktrees.
 
 A code handoff may also freeze a complete published commit ID. The receiving
 computer must already have that commit in its matching connection; preparation
@@ -186,6 +187,21 @@ A Working Folder is the absolute directory used by one local execution. The
 current computer resolves it from its own Local Project Connections. It is
 owner-self local execution information, not Project or Agent Profile cloud
 identity.
+
+A local Agent Profile keeps a list of working folders with one default (see
+`developing/product/agent-profiles.md`, Working Folder List). Each entry has a
+`folderId` minted by the local OpenMeld Service and one of three sources:
+
+- **custom folder** (`On this computer`): one explicit absolute path on that
+  computer;
+- **from Project** (`From a project`): a Project id only, resolved on the
+  current computer through that Project's default Local Project Connection;
+- **OpenMeld-managed** (`Let OpenMeld choose`): the managed folder the Service
+  maintains.
+
+The cloud sees only the path-free projection `(profileId, folderId, kind,
+displayName)`. A Project-source entry never stores a duplicate custom path.
+Implementation status: MemberAgent program, PR #236, in progress.
 
 ## Navigation And Product Home
 
@@ -563,7 +579,9 @@ validates the current local connection, ownership, and directory.
 ### Working Folder Control
 
 Creation and editing reuse one control with three mutually exclusive sources:
-`On this computer`, `From a project`, and `Let OpenMeld choose`.
+`On this computer`, `From a project`, and `Let OpenMeld choose`. The control
+edits one folder entry; a Profile may hold several entries, and one is its
+default.
 Only the selected source's controls appear. A Project selector never contains
 managed or custom-folder options. Managed mode has no Project path.
 An empty Project selection or custom path cannot silently save as managed.
@@ -685,10 +703,25 @@ authorized Usage continuation moves that continuation to `Needs attention`,
 while a continuation that is already running keeps its accepted Project and the
 new preference applies only to later work.
 
-On the current computer, execution resolves:
+A Session's working folder is chosen in this order and then fixed at its first
+message:
 
 ```text
-defaultProjectId
+explicit folderId on the Execution Context
+-> folder of the Session it continues or forks
+-> the Profile's default folder
+-> OpenMeld-managed folder, only when no earlier source names a folder
+```
+
+Core strips an explicit `folderId` when the root requester is not the Agent
+owner, so a colleague's work uses the default folder. A `folderId` that the
+local envelope does not know fails closed. A named folder that is missing or
+invalid never falls through to a later source.
+
+On the current computer, a Project source resolves:
+
+```text
+defaultProjectId (or the folder entry's projectId)
 -> default Local Project Connection
 -> validate folder
 -> working folder
@@ -931,6 +964,8 @@ shapes. M3 waits for both.
 - Project is not an Agent Profile's permanent assignment.
 - Default Project is cloud preference; the current computer resolves the
   working folder.
+- A working folder is chosen by `folderId` from the Profile's folder list;
+  folder ids are minted by the local Service and paths never reach the cloud.
 - Missing or stale local connection evidence fails closed without fallback.
 - Local paths are forwarded only to the requesting owner and never stored in
   cloud or shared contexts.

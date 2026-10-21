@@ -31,8 +31,13 @@ export const wakeProgressPhaseSchema = z.enum([
 export const WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE =
   "runtime.agent_controller_conversation.occupied" as const;
 
+/** Queued on the computer behind another task that uses the same folder. */
+export const WAKE_PROGRESS_LOCAL_FOLDER_CONFLICT_REASON_CODE =
+  "runtime.local_queue.workspace_conflict" as const;
+
 export const wakeProgressWaitReasonCodeSchema = z.enum([
   WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE,
+  WAKE_PROGRESS_LOCAL_FOLDER_CONFLICT_REASON_CODE,
 ]);
 
 export const wakeStopEligibilityReasonCodeSchema = z.enum([

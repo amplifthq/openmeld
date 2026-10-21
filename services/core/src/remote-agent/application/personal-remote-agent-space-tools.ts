@@ -426,6 +426,9 @@ export async function runPersonalRemoteAgentSpaceTool(
     authoringPolicy: "user_authored",
     clientMessageId,
     context,
+    // This Agent continues the request chain of the Wake it is running in;
+    // the Space reads that chain from its own outbox record.
+    requestChainBasis: { kind: "wake", dispatchId: delivery.dispatchId },
     messageEnvelope: {
       activationTargets: [target.profileId],
       referenceTargets: [],

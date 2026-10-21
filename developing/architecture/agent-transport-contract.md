@@ -320,7 +320,12 @@ settled Wake. Terminal promotion applies the same check to each next head, so
 disabled work cannot remain hidden in FIFO and run later.
 
 User-facing Wake progress may project explicit Profile FIFO `queued` copy only
-from the Coordinator-owned head lifecycle `queued` state. Space outbox status,
+from the Coordinator-owned head lifecycle `queued` state, or for an
+`accepted_local` execution whose latest `lifecycle_accepted_local` evidence
+reports `localQueue.status = queued` because the Service holds it behind other
+local work. That local wait records its own lifecycle event, so the frame the
+Service sends when it starts the Wake is not deduplicated into the wait and ends
+the `queued` projection. Space outbox status,
 Dispatch lookup status, and RuntimeCoordinator `created` or `delivery_pending`
 remain neutral pre-delivery progress. They must not infer that another Wake
 owns the Profile work slot, and the PostgreSQL `profile_queue_waiting` projection must
@@ -352,8 +357,9 @@ replace this reconciliation: it rebuilds references from canonical storage keys
 and cannot reconstruct queue metadata.
 
 Independent workstation tasks use Core-assigned Execution Contexts. Core admits
-at most five contexts for one Agent Profile, with one writer per context and
-at most 50 waiting Wakes. Legacy work without a context drains exclusively.
+as many contexts for one Agent Profile as its owner-adjustable concurrency
+limit allows (stored on the Binding, default five), with one writer per context
+and at most 50 waiting Wakes. Legacy work without a context drains exclusively.
 New work and forks may select a context explicitly. An ordinary Claude Code
 Wake in parallel mode implicitly selects an independent native context when
 it has no retained context; a retained or explicitly restricted context keeps
@@ -370,9 +376,26 @@ adapter before admitting this selection. Core verifies the Project association
 at delivery, while the Service verifies the owner-local matching folder and
 file access. Profile Default Project and a Space's related Projects remain
 suggestions, never alternate execution targets when the selected repository is
-unavailable. The existing exclusive local workspace slot serializes
-current-folder writers across Project labels; isolated Contexts use separate
-worktrees.
+unavailable. Isolated Contexts use separate worktrees.
+
+Each local task carries a resource claim, so resource conflicts are
+folder-scoped across Project labels. A shared claim names its folder roots (the
+resolved folder and, for a Git checkout, its common Git directory) and its
+access; claims whose roots do not overlap never conflict, readers never
+conflict with readers, and a claim with unknown roots conflicts with every
+shared claim. Space-only and isolated work holds a private claim. Work without
+an Execution Context holds a legacy claim of its route's folder, and an
+OpenCode continuation that may return to an earlier folder claims unknown
+roots. Two direct-edit Sessions whose roots are identical run concurrently:
+the later one receives a `shared_folder` notice with a one-click switch to an
+isolated copy, and each task prompt lists the other Sessions editing that
+folder. A task that waits on another task's folder reports
+`runtime.local_queue.workspace_conflict`. A task whose root requester is not
+the Agent owner defaults to an isolated copy when the folder is a Git
+repository; the Service makes that choice inside
+`mode: "auto"`. Admission order stays FIFO without priorities, and owner and
+colleagues share the Profile's limit. Implementation status: MemberAgent
+program, PR #236, in progress.
 
 Conversation isolation does not imply a new filesystem boundary. For a new
 Codex or Claude context, omitted access preferences inherit the Profile's current
@@ -452,6 +475,12 @@ input; receipt reconciliation never changes the binding of an attempted delivery
 After a successful fork, follow-ups already assigned to that replacement context
 can proceed without another approval when no unrelated work is held. Failed or
 stopped continuations and mixed-context queues retain the existing recovery gate.
+A gate opened because another app occupies one native conversation records that
+cause and holds only that Execution Context and legacy work; other contexts of
+the Profile keep their reservations and admission. Owner approval after the
+branch is required only while work for the occupied context is still queued.
+Usage exhaustion recorded on the same gate, or by its continuation, makes it a
+Profile-wide hold again, because Usage is a shared capability fact.
 Successful recovery retires only the source context's automatic scope association
 inside the same owner transaction. Its context and Wake history remain available
 for explicit selection. The replacement remains the conversation's automatic
@@ -541,6 +570,51 @@ placement, or final Wake outcome. A controller's reported token usage, model
 context window, cache usage, or compaction is observation only; no transport or
 readiness decision may treat it as execution authority or proof that required
 instructions are present.
+
+### Request Chain
+
+Implementation status: MemberAgent program, PR #236, in progress.
+
+Every Wake has exactly one human root requester. No human root, no Wake.
+
+| Trigger | Root requester |
+| --- | --- |
+| A person posts, mentions, or sends a Direct Message | that person |
+| Routine | its creator; the Routine stops when the creator leaves the Organization |
+| Identified external user | that user; every use needs the Agent owner's consent, and "always allow" is not offered |
+| Anonymous visitor | none; rejected at the entrance |
+| System | none today; a future system trigger must name a human, for example the admin who enabled it |
+
+The request chain is `[root human, optional source marker such as routine,
+Agent, Agent, …]`. The server writes it at Wake time; Agents cannot write or
+edit it, and propagation only appends. It is the projection of the existing
+delegation facts (`requesterProfileId`, Center Agent `onBehalfOf`, the Remote
+Agent delegated requester, and `agent_delegate_task` parentage) plus the root,
+not a second store, and it replaces `onBehalfOf`. Core stores the chain on the
+Execution Context **assignment**, frozen at admission with the rest of the
+assignment. It is not part of the Execution Context scope key, which stays
+`(targetProfileId, organizationId, requesterProfileId, spaceId, threadId)`.
+
+Repeat rejection applies only to delegated work: an `agent_delegate_task`
+child Wake or a Center Agent delegation is rejected when its chain already
+contains the receiving Agent. A conversational Space auto-relay Wake keeps the
+human root requester and appends to the chain with no repeat check, so the
+Auto-Relay Loop Policy below is unchanged. Core enforces one maximum chain
+depth for both kinds, and that maximum is never stricter than the existing
+auto-relay limits described in that policy.
+
+Sensitive operations check the root requester, not the immediate actor: the
+root requester must own the Agent Profile to change its settings, folders,
+permission mode, or concurrency limit; answer its approvals; delete it; add it
+to a Space; grant or revoke access to it; or archive it. Existing owner-of-actor
+checks, such as Binding owner validation (`agent_profile_binding.owner_mismatch`)
+and execution-target mutation admission, become root-requester checks.
+Everything else is prompt guidance: each task prompt states the chain, the root
+requester, where results go, and who can see them.
+
+Every Execution Context accepted after the request chain is enforced has a
+non-empty chain whose first element is a human Profile. Contexts accepted
+before keep an empty chain and are treated as owner-rooted legacy.
 
 ### Auto-Relay Loop Policy
 
@@ -856,7 +930,8 @@ Important execution rules:
   verified by its current native delivery. Space grants the represented member
   ordinary source-account or target-owner authority, or authority over an exact
   Center-authored Wake whose immutable, Core-written audit provenance records
-  that same member as `onBehalfOf`. A missing or mismatched attribution grants
+  that same member as `onBehalfOf` (under the request chain, as the chain's
+  root requester). A missing or mismatched attribution grants
   no Center-authored Wake authority. Routine deliveries use their verified
   delegated member in the same comparison. Separately, the current active
   designated Center may stop its own UUID-addressed request in its exact
@@ -964,7 +1039,11 @@ Profile. A response must also name the exact interaction id. Missing or
 mismatched authority fails closed.
 
 Only the Binding owner receives the private request and may respond. Other
-authenticated Space members may receive a content-free waiting summary.
+authenticated Space members may receive a content-free waiting summary. The
+Inbox projection is `urgent` when the Wake's root requester is not the owner
+and is coalesced per Session by `contextId` (see
+`developing/product/inbox.md`, Agent owner requests); the requester may cancel
+the waiting task.
 RuntimeCoordinator stores the response before attempting delivery, retries it
 after a socket replacement, and accepts an exact repeated response
 idempotently. A conflicting repeat is rejected. Local Service owns one
@@ -2819,3 +2898,6 @@ Use scoped owner documents for detailed rules:
 - Route online never makes Wakeability `Available`.
 - Process health never equals business readiness.
 - Recovery never becomes the hot path.
+- Every Wake has exactly one human root requester, written by the server into a
+  request chain on the Execution Context assignment.
+- Local resource conflicts are folder-scoped by resource claim roots.

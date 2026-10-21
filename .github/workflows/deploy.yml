@@ -1,11 +1,12 @@
 name: 🚀 Deploy
 run-name: Deploy ${{ inputs.scopes }} @ ${{ inputs.sha }}${{ inputs.dry_run && ' (dry run)' || '' }}
 
-# One dispatch per release: `pnpm run deploy -- --lane github` sends the exact
+# One dispatch for cloud components: `pnpm run deploy -- --lane github` sends the exact
 # main SHA and the ordered component list from release/components.mjs. Each
 # component job runs scripts/release/deploy-component.mjs, the same steps the
 # local lane runs. Release control (that script and the component table) comes
-# from main; product code comes from the requested SHA.
+# from main; product code comes from the requested SHA. CLI publication uses
+# a separate cli-release.yml dispatch to preserve its npm Trusted Publisher identity.
 
 permissions:
   contents: read
@@ -18,7 +19,7 @@ on:
         required: true
         type: string
       scopes:
-        description: "Comma-separated components from release/components.mjs"
+        description: "Comma-separated cloud components from release/components.mjs (CLI uses cli-release.yml)"
         required: true
         type: string
       dry_run:
@@ -71,6 +72,10 @@ jobs:
           node --input-type=module -e '
             import { COMPONENTS } from "./release/components.mjs";
             const names = process.env.SCOPES.split(",").map((name) => name.trim()).filter(Boolean);
+            if (names.includes("cli")) {
+              console.error("::error::CLI publication requires cli-release.yml. Run pnpm run deploy -- --scope cli --lane github instead.");
+              process.exit(1);
+            }
             const unknown = names.filter((name) => !COMPONENTS.some((component) => component.name === name));
             if (names.length === 0 || unknown.length > 0) {
               console.error(`::error::Unknown or empty components: ${unknown.join(", ") || "(none)"}`);
@@ -293,19 +298,3 @@ jobs:
       DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
     defaults: { run: { working-directory: release-source } }
     steps: [*checkout-control, *checkout-source, *setup-toolchain, *deploy-component, *source-maps]
-
-  cli:
-    name: CLI
-    needs: [validate, core]
-    if: >-
-      always() && !cancelled() && needs.validate.result == 'success' &&
-      contains(needs.validate.outputs.scopes, ',cli,') &&
-      (needs.core.result == 'success' || (needs.core.result == 'skipped' && !contains(needs.validate.outputs.scopes, ',core,')))
-    permissions:
-      contents: write
-      id-token: write
-    uses: ./.github/workflows/cli-release.yml
-    with:
-      release_sha: ${{ inputs.sha }}
-      dry_run: ${{ inputs.dry_run }}
-    secrets: inherit

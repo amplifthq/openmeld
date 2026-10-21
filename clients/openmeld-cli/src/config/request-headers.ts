@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   buildOpenMeldRequestContextHeaders,
+  OPENMELD_HEADER_TASK_CREDENTIAL,
   type OpenMeldRequestContextHeadersInput,
   observeUserTimeZoneHeaders,
 } from "@openmeld/gateway-contract";
@@ -21,6 +22,7 @@ import {
   buildOpenMeldRequestContextFromProfileIdentity,
   type OpenMeldRequestContextProfileIdentity,
 } from "./openmeld-request-context";
+import { readDispatchTaskCredentialHeader } from "./sensitive-operation-credentials";
 
 const DEFAULT_TOKEN_TYPE = "Bearer";
 const AUTHORIZATION_HEADER = "Authorization";
@@ -259,6 +261,11 @@ async function attachAuthHeader(
     throw error;
   }
   headers[AUTHORIZATION_HEADER] = `${attachment.tokenType} ${attachment.token}`;
+  // Inside a Wake, Core decides sensitive operations by the task's root.
+  const taskCredential = readDispatchTaskCredentialHeader();
+  if (taskCredential) {
+    headers[OPENMELD_HEADER_TASK_CREDENTIAL] = taskCredential;
+  }
 }
 
 function logRejectedAuthRequestCredential(

@@ -267,6 +267,90 @@
       "when": 1791884301857,
       "tag": "0037_talented_piledriver",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1792319558399,
+      "tag": "0038_member_agents",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1792319559894,
+      "tag": "0039_member_agent_default_profile",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1792323412621,
+      "tag": "0040_runtime_harness_presence",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1792338693404,
+      "tag": "0041_agent_dm_session_states",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1792341501492,
+      "tag": "0042_agent_profile_permission_mode_advisories",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1792344248595,
+      "tag": "0043_center_agent_permission_mode_confirmations",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1792345544500,
+      "tag": "0044_dispatch_ledger_request_chain_root",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1792355335231,
+      "tag": "0045_agent_access_grants_and_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1792365143546,
+      "tag": "0046_sensitive_operation_credentials",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1792506093237,
+      "tag": "0047_agent_access_request_decisions",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1792556837804,
+      "tag": "0048_ai_credit_holds",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1792561440084,
+      "tag": "0049_agent_activity_daily_session_keys_project_idx",
+      "breakpoints": true
     }
   ]
 }
