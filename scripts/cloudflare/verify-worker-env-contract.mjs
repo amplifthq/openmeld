@@ -197,6 +197,7 @@ const workerPackages = [
     expectedGeneratedBindings: [
       "OPENMELD_DESKTOP_DOWNLOADS",
       "OPENMELD_CLI_DOWNLOAD_RATE_LIMITER",
+      "OPENMELD_GATEWAY_WORKER",
       "OPENMELD_OBSERVABILITY",
     ],
     forbiddenGeneratedBindings: D1_BINDING_NAMES,

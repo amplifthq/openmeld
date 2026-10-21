@@ -1,4 +1,8 @@
 import { notifyAgentProfileRouteCatalogChangedResponseSchema } from "@openmeld/schemas";
+import {
+	applyOpenMeldGatewayClientAddress,
+	resolveOpenMeldGatewayUpstream,
+} from "#/lib/openmeld-api/gateway-upstream";
 
 export type LocalExecutionEvidenceChangedReason =
 	| "agent_profile_binding_changed"
@@ -33,7 +37,15 @@ export async function notifyLocalExecutionEvidenceChanged(input: {
 		}
 	}
 
-	const response = await (input.fetchImpl ?? fetch)(
+	const gatewayUpstream = await resolveOpenMeldGatewayUpstream({
+		fetchImpl: input.fetchImpl,
+	});
+	applyOpenMeldGatewayClientAddress({
+		upstream: gatewayUpstream,
+		requestHeaders: input.requestHeaders,
+		upstreamHeaders: headers,
+	});
+	const response = await gatewayUpstream.fetch(
 		new URL("/v1/agent-profiles/route-catalog-sync", input.gatewayUrl),
 		{
 			method: "POST",

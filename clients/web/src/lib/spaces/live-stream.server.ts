@@ -8,6 +8,11 @@ import {
 	normalizeSpacePasswordText,
 } from "@openmeld/schemas";
 import {
+	applyOpenMeldGatewayClientAddress,
+	type OpenMeldGatewayUpstream,
+	resolveOpenMeldGatewayUpstream,
+} from "#/lib/openmeld-api/gateway-upstream";
+import {
 	createExpiredProtectedSpaceAccessCookieHeader,
 	resolveProtectedSpaceAccessFromCookieHeader,
 	shouldClearProtectedSpaceAccessFromErrorBody,
@@ -67,6 +72,7 @@ export async function proxySpaceLiveStreamRequest(input: {
 	authBaseUrl: string;
 	spaceAccessCookieSecret?: string;
 	fetchImpl?: typeof fetch;
+	gatewayUpstream?: OpenMeldGatewayUpstream;
 }): Promise<Response> {
 	const requestId = createWebProxyRequestId();
 	const diagnostics = createSpaceLiveStreamDiagnostics({
@@ -128,16 +134,26 @@ export async function proxySpaceLiveStreamRequest(input: {
 		diagnostics.upstreamUrl = upstreamUrl;
 
 		diagnostics.failureStage = "forward_upstream";
-		const upstreamResponse = await (input.fetchImpl ?? fetch)(upstreamUrl, {
+		const upstreamHeaders = buildSpaceStreamUpstreamHeaders({
+			requestHeaders: input.request.headers,
+			webAppUrl: input.webAppUrl,
+			profileId: requestedProfileId,
+			...(protectedSpaceAccess?.status === "available"
+				? { spacePassword: protectedSpaceAccess.password }
+				: {}),
+		});
+		const gatewayUpstream = await resolveOpenMeldGatewayUpstream({
+			upstream: input.gatewayUpstream,
+			fetchImpl: input.fetchImpl,
+		});
+		applyOpenMeldGatewayClientAddress({
+			upstream: gatewayUpstream,
+			requestHeaders: input.request.headers,
+			upstreamHeaders,
+		});
+		const upstreamResponse = await gatewayUpstream.fetch(upstreamUrl, {
 			method: "GET",
-			headers: buildSpaceStreamUpstreamHeaders({
-				requestHeaders: input.request.headers,
-				webAppUrl: input.webAppUrl,
-				profileId: requestedProfileId,
-				...(protectedSpaceAccess?.status === "available"
-					? { spacePassword: protectedSpaceAccess.password }
-					: {}),
-			}),
+			headers: upstreamHeaders,
 		});
 
 		diagnostics.failureStage = "process_upstream_response";

@@ -111,6 +111,13 @@ test("keeps staging service bindings, queues, and storage inside staging", () =>
   assert.deepEqual(configs.website.env.stg.services, [
     { binding: "APP", service: "openmeld-web-stg" },
   ]);
+  assert.deepEqual(configs.web.env.stg.services, [
+    { binding: "OPENMELD_GATEWAY_WORKER", service: "openmeld-gateway-stg" },
+  ]);
+  assert.deepEqual(configs.web.env.prod.services, [
+    { binding: "OPENMELD_GATEWAY_WORKER", service: "openmeld-gateway-prod" },
+  ]);
+  assert.equal(configs.web.services, undefined);
   assert.deepEqual(
     configs.core.env.stg.services.map((binding) => binding.service),
     ["openmeld-gateway-stg", "openmeld-auth-stg", "openmeld-remote-agent-stg"]
