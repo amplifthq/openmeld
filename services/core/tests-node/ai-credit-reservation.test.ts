@@ -159,6 +159,23 @@ describe("Hosted AI credit reservations on real PostgreSQL", () => {
     expect((await holdRows()).length).toBe(5);
   });
 
+  it("subtracts in-flight holds from a provider balance lower than the local one", async () => {
+    await admit(pending({}), hold(1));
+    // The provider sees $1 (1000 credits) left while the local ledger has ~$5.
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(
+        Response.json({
+          data: { ...budget, limit_remaining: 1, usage_monthly: 4 },
+        })
+      )
+    );
+    const results = await Promise.allSettled(
+      Array.from({ length: 6 }, () => admit(pending({}), hold(credits(400))))
+    );
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(2);
+    expect(results.filter((r) => r.status === "rejected")).toHaveLength(4);
+  });
+
   it("applies the new-task floor but lets an admitted attempt continue with one-request grace", async () => {
     await recordAiUsage(harness.db, {
       ...pending({}),

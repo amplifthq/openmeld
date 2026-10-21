@@ -22,6 +22,14 @@ export type AiCreditBalance = {
   continuation: boolean;
 };
 
+// The provider's remaining balance on the workspace's managed key, read
+// outside the lock. It cannot see requests still in flight, nor costs settled
+// after the read.
+export type ProviderAiCreditBalance = {
+  availableNanoUsd: number;
+  observedAtMs: number;
+};
+
 export function aiCreditPeriodStartMs(nowMs: number) {
   const now = new Date(nowMs);
   return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
@@ -31,13 +39,20 @@ export function aiCreditPeriodStartMs(nowMs: number) {
 // source only in record_json. They can only appear in the rollout month.
 const PLATFORM_FUNDED = `COALESCE(funding_source, ((record_json)::jsonb #>> '{fundingSource}')) = 'free'`;
 
+type BalanceInput = {
+  organizationId: string;
+  attemptId: string | null;
+  nowMs: number;
+};
+
 async function readBalance(
   db: AiUsageQueryable,
-  input: { organizationId: string; attemptId: string | null; nowMs: number }
-): Promise<AiCreditBalance> {
+  input: BalanceInput & { providerObservedAtMs?: number }
+): Promise<AiCreditBalance & { providerUnseenNanoUsd: number }> {
   const result = await db.query<{
     committed: number;
     continuation: boolean;
+    provider_unseen: number;
   }>({
     // A reported cost replaces its hold. Without one, the hold counts until it
     // expires. Legacy rows without a hold count only their reported cost.
@@ -50,7 +65,14 @@ async function readBalance(
         WHEN credit_hold_admitted_at_ms > $3::bigint - $5::bigint THEN credit_hold_nano_usd
         ELSE 0 END)::bigint, 0) AS committed,
       COALESCE(BOOL_OR(credit_hold_nano_usd IS NOT NULL
-        AND attempt_id = $4::text), false) AS continuation
+        AND attempt_id = $4::text), false) AS continuation,
+      COALESCE(SUM(CASE
+        WHEN cost_nano_usd IS NULL
+          AND credit_hold_admitted_at_ms > $3::bigint - $5::bigint
+          THEN credit_hold_nano_usd
+        WHEN cost_nano_usd IS NOT NULL
+          AND credit_hold_admitted_at_ms >= $6::bigint THEN cost_nano_usd
+        ELSE 0 END)::bigint, 0) AS provider_unseen
     FROM "openmeld"."ai_usage_records"
     WHERE organization_id = $1 AND runtime = 'remote'
       AND occurred_at_ms >= $2::bigint - $5::bigint
@@ -62,6 +84,7 @@ async function readBalance(
       input.nowMs,
       input.attemptId,
       AI_CREDIT_HOLD_TTL_MS,
+      input.providerObservedAtMs ?? input.nowMs,
     ],
   });
   const committedNanoUsd = Number(result.rows[0]?.committed ?? 0);
@@ -69,15 +92,17 @@ async function readBalance(
     committedNanoUsd,
     availableNanoUsd: AI_FREE_MONTHLY_ALLOWANCE_NANO_USD - committedNanoUsd,
     continuation: result.rows[0]?.continuation === true,
+    providerUnseenNanoUsd: Number(result.rows[0]?.provider_unseen ?? 0),
   };
 }
 
 /** A cheap pre-check outside the lock; the reservation re-reads under lock. */
-export function readAiCreditBalance(
+export async function readAiCreditBalance(
   db: PostgresDatabase,
-  input: { organizationId: string; attemptId: string | null; nowMs: number }
-) {
-  return readBalance(db, input);
+  input: BalanceInput
+): Promise<AiCreditBalance> {
+  const { providerUnseenNanoUsd: _, ...balance } = await readBalance(db, input);
+  return balance;
 }
 
 export function admitsAiCreditHold(input: {
@@ -104,7 +129,7 @@ export async function reserveAiCredits(input: {
   record: AiUsageRecord;
   holdNanoUsd: number;
   // Provider remaining balance observed for a new task, outside the lock.
-  providerAvailableNanoUsd: number | null;
+  providerBalance: ProviderAiCreditBalance | null;
 }): Promise<{ admitted: boolean; balance: AiCreditBalance }> {
   return await input.db.transaction(async (client) => {
     await client.query("SET LOCAL lock_timeout = '5s'");
@@ -114,15 +139,18 @@ export async function reserveAiCredits(input: {
     );
     // Read the clock after the lock wait so the period and expiry are current.
     const admittedAtMs = Date.now();
-    const balance = await readBalance(client, {
+    const { providerUnseenNanoUsd, ...balance } = await readBalance(client, {
       organizationId: input.record.organizationId,
       attemptId: input.record.attemptId,
       nowMs: admittedAtMs,
+      providerObservedAtMs: input.providerBalance?.observedAtMs,
     });
-    if (input.providerAvailableNanoUsd !== null) {
+    if (input.providerBalance) {
+      // Concurrent new tasks share one provider remainder: subtract holds the
+      // provider cannot see yet, and costs of requests admitted after the read.
       balance.availableNanoUsd = Math.min(
         balance.availableNanoUsd,
-        input.providerAvailableNanoUsd
+        input.providerBalance.availableNanoUsd - providerUnseenNanoUsd
       );
     }
     if (!admitsAiCreditHold({ balance, holdNanoUsd: input.holdNanoUsd })) {

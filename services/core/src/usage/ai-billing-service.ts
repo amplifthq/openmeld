@@ -22,6 +22,7 @@ import {
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   aiCreditsToNanoUsd,
+  type ProviderAiCreditBalance,
   readAiCreditBalance,
   reserveAiCredits,
 } from "./ai-credit-reservation";
@@ -280,16 +281,21 @@ export async function admitRemoteAiRequest(
     attemptId: record.attemptId,
     nowMs: Date.now(),
   });
-  const providerAvailableNanoUsd = precheck.continuation
-    ? null
-    : aiCreditsToNanoUsd(
+  let providerBalance: ProviderAiCreditBalance | null = null;
+  if (!precheck.continuation) {
+    const observedAtMs = Date.now();
+    providerBalance = {
+      observedAtMs,
+      availableNanoUsd: aiCreditsToNanoUsd(
         sponsoredCredits(await readOpenRouterKey(apiKey)).remainingCredits
-      );
+      ),
+    };
+  }
   const reservation = await reserveAiCredits({
     db,
     record: sponsoredRecord,
     holdNanoUsd: input.creditHold.nanoUsd,
-    providerAvailableNanoUsd,
+    providerBalance,
   });
   if (!reservation.admitted) {
     throw monthlyAiLimitError();
