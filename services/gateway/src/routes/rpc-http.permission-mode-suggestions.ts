@@ -7,7 +7,8 @@ import {
   suggestPermissionModeResponseSchema,
 } from "@openmeld/schemas";
 import type { Context, Hono } from "hono";
-import { z } from "zod/v4";
+// biome-ignore lint/performance/noNamespaceImport: Worker runtime Zod guard requires this import form to keep locales out of the bundle.
+import * as z from "zod/v4";
 import type { HonoBindings } from "../lib/bindings";
 import {
   buildCoreRpcContext,
