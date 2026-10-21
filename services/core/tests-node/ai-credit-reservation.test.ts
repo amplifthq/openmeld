@@ -244,6 +244,23 @@ describe("Hosted AI credit reservations on real PostgreSQL", () => {
     ).toBe(credits(12));
   });
 
+  it("assigns a held request to the period in which Core admitted it", async () => {
+    const periodStart = Date.UTC(2026, 10, 1);
+    vi.spyOn(Date, "now").mockReturnValue(periodStart + 1000);
+    try {
+      // Observed by the Remote Agent before midnight, admitted after it.
+      await admit(
+        pending({ occurredAtMs: periodStart - 1000 }),
+        hold(credits(4800))
+      );
+      await expect(admit(pending({}), hold(credits(10)))).rejects.toMatchObject(
+        { code: "ai_usage.monthly_limit_reached" }
+      );
+    } finally {
+      vi.mocked(Date.now).mockRestore();
+    }
+  });
+
   it("counts legacy platform receipts but not previous months, BYOK, or holdless pending rows", async () => {
     const legacy = { ...pending({}), fundingSource: "free" as const };
     await recordAiUsage(harness.db, {

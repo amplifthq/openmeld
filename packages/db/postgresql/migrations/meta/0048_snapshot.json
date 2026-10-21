@@ -1,5 +1,5 @@
 {
-  "id": "5befdd93-487a-40da-ab11-4b1d471513f2",
+  "id": "d9c661d4-27a3-4f28-bfd2-a6187f401b8b",
   "prevId": "77253326-2b32-46a8-8b8a-3c19fbe6d25c",
   "version": "7",
   "dialect": "postgresql",
@@ -5218,8 +5218,8 @@
           "primaryKey": false,
           "notNull": false
         },
-        "credit_hold_expires_at_ms": {
-          "name": "credit_hold_expires_at_ms",
+        "credit_hold_admitted_at_ms": {
+          "name": "credit_hold_admitted_at_ms",
           "type": "bigint",
           "primaryKey": false,
           "notNull": false
@@ -5331,7 +5331,7 @@
       "checkConstraints": {
         "ai_usage_records_credit_hold_check": {
           "name": "ai_usage_records_credit_hold_check",
-          "value": "(\"credit_hold_nano_usd\" is null and \"credit_hold_expires_at_ms\" is null)\n        or (\"credit_hold_nano_usd\" > 0 and \"credit_hold_expires_at_ms\" is not null)"
+          "value": "(\"credit_hold_nano_usd\" is null and \"credit_hold_admitted_at_ms\" is null)\n        or (\"credit_hold_nano_usd\" > 0 and \"credit_hold_admitted_at_ms\" is not null)"
         }
       },
       "isRLSEnabled": false

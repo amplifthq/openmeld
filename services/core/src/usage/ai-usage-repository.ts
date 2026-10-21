@@ -21,7 +21,7 @@ export type AiUsageQueryable = {
   ): Promise<QueryResult<T>>;
 };
 
-export type AiCreditHold = { nanoUsd: number; expiresAtMs: number };
+export type AiCreditHold = { nanoUsd: number; admittedAtMs: number };
 
 // A provider event is immutable. Replayed transport deliveries are harmless;
 // conflicting facts surface an error instead of silently changing spend.
@@ -41,7 +41,7 @@ export async function recordAiUsage(
       agent_profile_id, space_id, task_id, attempt_id, computer_id, controller,
       occurred_at_ms, input_tokens, output_tokens, total_tokens,
       cost_nano_usd, cost_kind, record_json, funding_source,
-      credit_hold_nano_usd, credit_hold_expires_at_ms
+      credit_hold_nano_usd, credit_hold_admitted_at_ms
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
     ON CONFLICT (organization_id, runtime, event_id) DO UPDATE SET
       model = excluded.model,
@@ -84,7 +84,7 @@ export async function recordAiUsage(
       json,
       record.fundingSource ?? null,
       creditHold?.nanoUsd ?? null,
-      creditHold?.expiresAtMs ?? null,
+      creditHold?.admittedAtMs ?? null,
     ],
   });
   const stored = await db

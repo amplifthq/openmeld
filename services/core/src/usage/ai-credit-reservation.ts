@@ -41,21 +41,27 @@ async function readBalance(
   }>({
     // A reported cost replaces its hold. Without one, the hold counts until it
     // expires. Legacy rows without a hold count only their reported cost.
+    // Admission time, not the Remote Agent's earlier observation time, assigns
+    // a held request to its credit period. Admission follows the observation
+    // within one hold lifetime, which bounds the index range.
     text: `
     SELECT COALESCE(SUM(CASE
         WHEN cost_nano_usd IS NOT NULL THEN cost_nano_usd
-        WHEN credit_hold_expires_at_ms > $3 THEN credit_hold_nano_usd
+        WHEN credit_hold_admitted_at_ms > $3::bigint - $5::bigint THEN credit_hold_nano_usd
         ELSE 0 END)::bigint, 0) AS committed,
       COALESCE(BOOL_OR(credit_hold_nano_usd IS NOT NULL
         AND attempt_id = $4::text), false) AS continuation
     FROM "openmeld"."ai_usage_records"
-    WHERE organization_id = $1 AND runtime = 'remote' AND occurred_at_ms >= $2
+    WHERE organization_id = $1 AND runtime = 'remote'
+      AND occurred_at_ms >= $2::bigint - $5::bigint
+      AND COALESCE(credit_hold_admitted_at_ms, occurred_at_ms) >= $2::bigint
       AND ${PLATFORM_FUNDED}`,
     values: [
       input.organizationId,
       aiCreditPeriodStartMs(input.nowMs),
       input.nowMs,
       input.attemptId,
+      AI_CREDIT_HOLD_TTL_MS,
     ],
   });
   const committedNanoUsd = Number(result.rows[0]?.committed ?? 0);
@@ -97,7 +103,6 @@ export async function reserveAiCredits(input: {
   db: PostgresDatabase;
   record: AiUsageRecord;
   holdNanoUsd: number;
-  nowMs: number;
   // Provider remaining balance observed for a new task, outside the lock.
   providerAvailableNanoUsd: number | null;
 }): Promise<{ admitted: boolean; balance: AiCreditBalance }> {
@@ -107,10 +112,12 @@ export async function reserveAiCredits(input: {
       "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
       [`ai-credit-reservation:${input.record.organizationId}`]
     );
+    // Read the clock after the lock wait so the period and expiry are current.
+    const admittedAtMs = Date.now();
     const balance = await readBalance(client, {
       organizationId: input.record.organizationId,
       attemptId: input.record.attemptId,
-      nowMs: input.nowMs,
+      nowMs: admittedAtMs,
     });
     if (input.providerAvailableNanoUsd !== null) {
       balance.availableNanoUsd = Math.min(
@@ -123,7 +130,7 @@ export async function reserveAiCredits(input: {
     }
     await recordAiUsage(client, input.record, {
       nanoUsd: input.holdNanoUsd,
-      expiresAtMs: input.nowMs + AI_CREDIT_HOLD_TTL_MS,
+      admittedAtMs,
     });
     return { admitted: true, balance };
   });

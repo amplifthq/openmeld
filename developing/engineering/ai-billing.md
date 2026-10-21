@@ -89,7 +89,10 @@ the estimate. Every hosted request must therefore send an explicit output cap.
 `ai-credit-reservation:<organization>` and computes, for the current UTC month,
 `available = 5,000 credits − committed`. Committed spend sums remote
 platform-funded rows: a provider-reported cost when present, otherwise the hold
-while it has not expired. Rows recorded before migration `0048` have no
+while it has not expired. Core reads the clock after acquiring the lock and
+stores it as the hold's admission time; a held request belongs to the month in
+which Core admitted it, even when the Remote Agent observed it just before
+midnight. Rows recorded before migration `0048` have no
 `funding_source` column value and are matched by their stored `fundingSource`.
 Holdless legacy pending rows count nothing. Core inserts the pending record and
 its hold in the same transaction, so concurrent begins see each other's holds.
@@ -115,7 +118,8 @@ the provider read is never made while holding it. Lock waits are bounded by a
 provider-reported cost; the hold columns remain as admission evidence. A
 settlement without a cost (`unavailable`, `collection_failed`) keeps counting its
 hold, and a hold that is still pending, stops counting 30 minutes after
-admission. Normal settlement takes seconds, and the durable outbox retries
+admission. The row stores the admission time, not an expiry, so the window is
+read-time policy. Normal settlement takes seconds, and the durable outbox retries
 transport failures. Expiry was chosen over a reconciliation job so a lost
 settlement cannot permanently lock a workspace out of its credits; the native key
 limit still charges the true cost.
@@ -193,7 +197,8 @@ a workspace can be refused while the card still shows a small remainder. BYOK
 costs remain visible in the all-model-cost chart but never reduce included
 credits.
 
-Credit holds need migration `0048_ai_credit_holds` (three nullable columns and a
+Credit holds need migration `0048_ai_credit_holds` (`funding_source`,
+`credit_hold_nano_usd`, `credit_hold_admitted_at_ms`: three nullable columns and a
 check constraint, no backfill), then Core, then Remote Agent. Core must be first:
 earlier Core rejects the new `creditHold` field. Between the Core and Remote
 Agent deployments, version 1 workers keep BYOK requests working while

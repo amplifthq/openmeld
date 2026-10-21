@@ -74,9 +74,10 @@ export const aiUsageRecords = applicationTable(
     // credit reservations have no funding_source column value.
     fundingSource: text("funding_source"),
     // Platform-funded admission holds an upper estimate until the provider
-    // reports a cost. Expired holds no longer count; see ai-billing.md.
+    // reports a cost. Admission time assigns the credit period; the hold
+    // expiry policy is applied when reading. See ai-billing.md.
     creditHoldNanoUsd: bigint("credit_hold_nano_usd", { mode: "number" }),
-    creditHoldExpiresAtMs: bigint("credit_hold_expires_at_ms", {
+    creditHoldAdmittedAtMs: bigint("credit_hold_admitted_at_ms", {
       mode: "number",
     }),
     recordJson: text("record_json").notNull(),
@@ -101,8 +102,8 @@ export const aiUsageRecords = applicationTable(
     ),
     check(
       "ai_usage_records_credit_hold_check",
-      sql`("credit_hold_nano_usd" is null and "credit_hold_expires_at_ms" is null)
-        or ("credit_hold_nano_usd" > 0 and "credit_hold_expires_at_ms" is not null)`
+      sql`("credit_hold_nano_usd" is null and "credit_hold_admitted_at_ms" is null)
+        or ("credit_hold_nano_usd" > 0 and "credit_hold_admitted_at_ms" is not null)`
     ),
   ]
 );

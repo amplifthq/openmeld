@@ -273,13 +273,12 @@ export async function admitRemoteAiRequest(
   }
   const apiKey = await managedCredential(env, record.organizationId);
   const sponsoredRecord: AiUsageRecord = { ...record, fundingSource: "free" };
-  const nowMs = Date.now();
   // Only a new task pays for the live provider balance read. Continuations of
   // an admitted attempt rely on the local ledger and the native key limit.
   const precheck = await readAiCreditBalance(db, {
     organizationId: record.organizationId,
     attemptId: record.attemptId,
-    nowMs,
+    nowMs: Date.now(),
   });
   const providerAvailableNanoUsd = precheck.continuation
     ? null
@@ -290,7 +289,6 @@ export async function admitRemoteAiRequest(
     db,
     record: sponsoredRecord,
     holdNanoUsd: input.creditHold.nanoUsd,
-    nowMs,
     providerAvailableNanoUsd,
   });
   if (!reservation.admitted) {
