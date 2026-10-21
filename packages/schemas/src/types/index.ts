@@ -44,6 +44,7 @@ export type {
   AiUsageSummary,
   CenterAgentAiUsageRpcInput,
   OrganizationAiUsageRpcInput,
+  RemoteAiCreditHold,
   RemoteAiUsageWrite,
   RemoteAiUsageWriteResponse,
 } from "./ai-usage";

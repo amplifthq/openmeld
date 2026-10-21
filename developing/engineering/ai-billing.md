@@ -6,13 +6,16 @@
 - Read this when: Changing AI credits, BYOK, provider admission, or running real AI smoke tests.
 - Update this when: Funding policy, secret ownership, or rollout contracts change.
 - Do not use this for: Local controller token estimates, payments, or release authorization.
-- Source of truth: Core billing service and OpenRouter native key limits own admission; this file owns the operator and product contract.
+- Source of truth: Core billing service owns admission and credit holds; OpenRouter native key limits are the backstop; this file owns the operator and product contract.
 
 ## Ownership and product contract
 
-Core owns workspace funding selection, key encryption, and admission. OpenRouter
-owns the spend counter and enforcement. Usage receipts are an audit projection;
-they do not debit a second wallet. No payment processor or paid plan is active.
+Core owns workspace funding selection, key encryption, and admission. For
+platform funding, usage receipts and credit holds in `ai_usage_records`
+participate in admission (see [Admission and credit holds](#admission-and-credit-holds)).
+OpenRouter owns the provider spend counter and its native key limit remains the
+enforcement backstop. Receipts are not a second wallet: they never mint, carry
+over, or refund credits. No payment processor or paid plan is active.
 
 - A creator's first workspace receives 5,000 credits each UTC calendar month.
   Credits do not roll over. One credit represents $0.001 of provider-reported
@@ -45,11 +48,105 @@ orphan upstream key; operators reconcile by its `openmeld:<organization>:<source
 name. Never rotate or recreate an existing key to recover a balance error.
 
 Native limits have propagation delay and can overshoot for already admitted
-requests. They are a practical abuse cap, not a strict concurrent reservation.
+requests, so they are a backstop, not the concurrent admission control.
 The UI must not promise an exact hard maximum or a fixed token count. Changing
 the monthly grant or conversion is a versioned product policy change: document
 its effective date, update existing provider keys deliberately, and do not
 silently reinterpret historical receipts.
+
+## Admission and credit holds
+
+Admission policy versions:
+
+| Version | Effective | Platform-funded admission |
+| --- | --- | --- |
+| `provider-counter` | 2026-10-19 | Live OpenRouter `GET /key` `limit_remaining > 0` per request. Concurrent requests could jointly overdraw. |
+| `credit-holds` | Deployment of migration `0048_ai_credit_holds` | Per-workspace reservation against the local ledger, described below. |
+
+The grant size and the 1 credit = $0.001 conversion are unchanged; historical
+receipts keep their meaning. BYOK and local runtimes are not reserved.
+
+**Hold estimate.** Before Core admission, the Remote Agent metered fetch reads
+the exact request body and sends `providerAuthorizationVersion: 2` with a
+`creditHold`. The hold is 1.25 × (estimated prompt tokens × input price +
+requested `max_tokens`/`max_completion_tokens` × output price + server research
+fees). Prompt tokens are UTF-8 body bytes ÷ 3 plus 6,000 tokens per image; the
+higher OpenRouter price band applies once the estimate reaches its threshold.
+Server web search and fetch tools share one OpenRouter step budget,
+`max_tool_calls` (default and maximum 30; web research sends 3). Each step adds
+retrieved content, another model pass, and a per-call fee of the selected
+engine, which is separate from model token prices. Search may use every step,
+because `max_uses` binds only Anthropic native search:
+the direct `openrouter` fetch engine is free; search with `auto` or `native`
+reserves the larger of the model's native search fee and the Exa fallback
+(OpenRouter falls back to Exa for models without native search). Engines without
+a reviewed fee fail closed. Pro variants reserve their output cap twice. Prices come
+from the reviewed table in `services/remote-agent/agent-core/ai-credit-hold.ts`;
+a test keeps it equal to the captured OpenRouter prices and requires a price for
+every hosted catalog model. The 1.25 margin covers price drift between reviews
+and estimate error.
+
+The estimate is `unavailable` for an unreviewed model, a body without an output
+cap, fallback model lists, plugins, multiple choices, or an unknown server tool.
+Core then rejects platform funding with `ai_usage.credit_hold_unavailable`
+(HTTP 402) before provisioning or calling the provider. A BYOK workspace ignores
+the estimate. Every hosted request must therefore send an explicit output cap.
+
+**Reservation.** Core takes a transaction-scoped advisory lock
+`ai-credit-reservation:<organization>` and computes, for the current UTC month,
+`available = 5,000 credits − committed`. Committed spend sums remote
+platform-funded rows: a provider-reported cost when present, otherwise the hold
+while it has not expired. Core reads the clock after acquiring the lock and
+stores it as the hold's admission time; a held request belongs to the month in
+which Core admitted it, even when the Remote Agent observed it just before
+midnight. Rows recorded before migration `0048` have no
+`funding_source` column value and are matched by their stored `fundingSource`.
+Holdless legacy pending rows count nothing. Core inserts the pending record and
+its hold in the same transaction, so concurrent begins see each other's holds.
+
+- A **new task** (no earlier platform hold for the same execution attempt this
+  month, or no attempt ID) needs `available ≥ 300 credits` and
+  `hold ≤ available`. It also reads the live provider balance first, outside the
+  lock, after a local pre-check. Under the lock it subtracts what that read may
+  have missed: requests admitted after the pre-check, and requests the pre-check
+  saw unsettled, at their hold or, once settled, their actual cost. It then uses the
+  smaller of the local and provider balances. This keeps the provider
+  configuration check, covers usage the local ledger cannot see, and stops
+  concurrent new tasks from reserving the same provider remainder.
+- A **continuation** of an attempt that already holds platform credits is
+  admitted while `available > 0`, even when its hold exceeds the remainder. This
+  one-request grace keeps high-frequency tool loops from stopping one call short.
+  It skips the live provider read: measured `GET /key` latency was about
+  0.45–0.77 s per call (12 calls, 2026-10-21), paid on every tool-loop request
+  under the earlier policy.
+
+A rejected reservation returns the existing `ai_usage.monthly_limit_reached`
+error and writes no record. The lock covers one aggregate query and one insert;
+the provider read is never made while holding it. Lock waits are bounded by a
+5 s `lock_timeout`, which fails the request rather than admitting it.
+
+**Settlement and expiry.** Settlement replaces the hold with the
+provider-reported cost; the hold columns remain as admission evidence. A
+settlement without a cost (`unavailable`, `collection_failed`) keeps counting its
+hold. Every hold without a reported cost, pending or settled, stops counting 30
+minutes after admission. The row stores the admission time, not an expiry, so the window is
+read-time policy. Normal settlement takes seconds, and the durable outbox retries
+transport failures. Expiry was chosen over a reconciliation job so a lost
+settlement cannot permanently lock a workspace out of its credits; the native key
+limit still charges the true cost.
+
+**Residual overshoot.** Concurrent admission cannot jointly exceed the local
+allowance, nor the provider balance net of the holds Core knows about. The remaining bounded overshoot is: one continuation's hold past zero;
+an actual cost above its estimate (the 1.25 margin makes this unlikely for priced
+text, but an unusual tokenizer or server-tool result can exceed it); costs of
+expired or unknown-cost holds after 30 minutes; and, in the rollout month only,
+continuations of tasks that the local ledger cannot fully see; and the
+provider's own propagation delay for costs settled before a new task's pre-check. Each is capped by
+the OpenRouter native key limit, which keeps its own propagation delay.
+
+The monthly aggregate scans that workspace's remote rows for the month through
+`ai_usage_records_org_time_idx`. Revisit it with a per-period total if larger
+paid allowances make those scans material.
 
 ## Configuration and open-source boundary
 
@@ -99,16 +196,28 @@ This change does not enable or alter a production deployment by itself. Before
 an authorized rollout, provision the management and encryption secrets in Core's
 deployment secret store. Keep their
 values out of Wrangler files. Apply the PostgreSQL migration first, deploy Core
-and Gateway, then Remote Agent and Web in the same maintenance window. Old Remote
-workers fail closed until they send `providerAuthorizationVersion: 1`; missing
-configuration also stops sponsored requests. Do not roll back to workers that
+and Gateway, then Remote Agent and Web in the same maintenance window. Remote
+workers without `providerAuthorizationVersion` fail closed. Version 1 supports
+BYOK only; platform credits require version 2 with a `creditHold` (see the
+credit-hold order below). Missing configuration also stops sponsored requests. Do not roll back to workers that
 can use an unmetered official alias. A safe rollback keeps the new admission gate
 or pauses hosted inference. Local Service and CLI are not part of this protocol.
 
 The former daily allowance table remains historical evidence. Its operator
-script is retired and its rows no longer authorize inference. Use provider-native
-key status for balances and usage receipts for attribution; BYOK costs remain
-visible in the all-model-cost chart but never reduce included credits.
+script is retired and its rows no longer authorize inference. The AI usage card
+shows the provider-native key balance; admission also applies credit holds, so
+a workspace can be refused while the card still shows a small remainder. BYOK
+costs remain visible in the all-model-cost chart but never reduce included
+credits.
+
+Credit holds need migration `0048_ai_credit_holds` (`funding_source`,
+`credit_hold_nano_usd`, `credit_hold_admitted_at_ms`: three nullable columns and a
+check constraint, no backfill), then Core, then Remote Agent. Core must be first:
+earlier Core rejects the new `creditHold` field. Between the Core and Remote
+Agent deployments, version 1 workers keep BYOK requests working while
+platform-funded requests stop with `ai_billing.provider_authorization_required`.
+Rolling Remote Agent back to version 1 pauses platform-funded inference instead
+of bypassing holds.
 
 ## Verification boundary
 

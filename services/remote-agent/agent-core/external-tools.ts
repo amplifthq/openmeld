@@ -44,6 +44,7 @@ import {
 import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
+  REMOTE_AGENT_MAX_OUTPUT_TOKENS,
   type RemoteAgentModelEnv,
   resolveRemoteAgentAiGatewayOpenRouterBaseUrl,
   resolveRemoteAgentOpenRouterModelId,
@@ -327,6 +328,9 @@ export function getRemoteAgentExternalToolDefinitions(input: {
   ];
 }
 
+// One research helper call may refine its search a few times.
+const RESEARCH_MAX_SERVER_TOOL_STEPS = 3;
+
 type ResearchServerTool = {
   parameters: Record<string, unknown>;
   type: "openrouter:web_fetch" | "openrouter:web_search";
@@ -379,6 +383,9 @@ async function runOpenRouterResearch(input: {
               : input.prompt,
         },
       ],
+      // Explicit output and server-tool step caps bound the platform credit hold.
+      max_tokens: REMOTE_AGENT_MAX_OUTPUT_TOKENS,
+      max_tool_calls: RESEARCH_MAX_SERVER_TOOL_STEPS,
       provider: REMOTE_AGENT_OPENROUTER_PROVIDER_ROUTING,
       tools: [input.serverTool],
     });

@@ -109,7 +109,12 @@ describe("Remote AI consumption at the provider boundary", () => {
         : await request(url, options);
     expect(response.status).toBe(403);
     expect(fetch).toHaveBeenCalledOnce();
-    expect(writes[0]?.providerAuthorizationVersion).toBe(1);
+    expect(writes[0]?.providerAuthorizationVersion).toBe(2);
+    // An unreviewed model cannot be estimated; Core decides per funding source.
+    expect(writes[0]?.creditHold).toEqual({
+      status: "unavailable",
+      reason: "unknown_model_price",
+    });
     expect(writes[1]?.record.fundingSource).toBe(source);
     expect(JSON.stringify(writes)).not.toContain("sk-or-authorized-test-key");
     await expect(
