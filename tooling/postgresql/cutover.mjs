@@ -111,6 +111,7 @@ export async function runCutoverDataCommand([command, ...args]) {
         "reconcile <snapshot>",
         "completion <snapshot>",
         "grant-runtime",
+        "backfill-member-agents [--dry-run]",
       ],
       productionOperationExecuted: false,
     };
