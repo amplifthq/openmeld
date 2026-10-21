@@ -894,7 +894,7 @@ Canonical command families:
   `verify:pr`, and `verify:pr:full`.
 
 Web, Website, and Docs use TanStack Start 1.169.2 and Vite 8.3.4.
-Remote Agent's Flue 2 build retains Vite 8.1.2, and the native Desktop build
+Remote Agent's Flue 2 build retains Vite 8.1.6, and the native Desktop build
 retains Vite 7.3.7. Desktop's shared Web renderer uses the Web build.
 Root Sherif configuration allows only those exact retained Vite versions to
 differ; it does not disable the dependency rule or exempt a package. The
