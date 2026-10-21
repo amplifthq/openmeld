@@ -56,8 +56,6 @@ export type ArchiveProjectOutcome =
 // when one Project owns most rows, the planner estimates every equality probe
 // as a match and picks a sequential scan or a backward scan of an unrelated
 // time index, which reads the entire table for a Project with no Activity.
-// agent_activity_daily_session_keys still lacks that index, so its probe
-// remains a small scan until the index ships.
 function projectActivityEvidenceProbe(table: string): string {
   return `EXISTS (
     SELECT 1 FROM (
