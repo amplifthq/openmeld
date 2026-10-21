@@ -101,7 +101,7 @@ test("expands explicit scopes and rejects unknown components", () => {
   assert.equal(parseDeployArgs(["--", "--scope", "web"]).lane, "auto");
 });
 
-test("splits lanes into ordered segments so GitHub work waits for local dependencies", () => {
+test("splits lanes and the CLI publisher into ordered segments after their dependencies", () => {
   assert.deepEqual(planLaneSegments(["db", "core", "gateway", "web"], "auto"), [
     { lane: "github", components: ["db", "core", "gateway", "web"] },
   ]);
@@ -126,9 +126,20 @@ test("splits lanes into ordered segments so GitHub work waits for local dependen
   assert.deepEqual(planLaneSegments(["cli"], "auto"), [
     { lane: "github", components: ["cli"] },
   ]);
+  assert.deepEqual(
+    planLaneSegments(orderComponents(["cli", "web", "core"]), "github"),
+    [
+      { lane: "github", components: ["core", "web"] },
+      { lane: "github", components: ["cli"] },
+    ]
+  );
+  assert.deepEqual(planLaneSegments(["cli", "web"], "github"), [
+    { lane: "github", components: ["cli"] },
+    { lane: "github", components: ["web"] },
+  ]);
 });
 
-test("dispatches one workflow run for a GitHub segment", () => {
+test("dispatches cloud and CLI segments through their own top-level workflows on main", () => {
   assert.deepEqual(
     buildGithubDispatch({
       repository: "amplifthq/openmeld",
@@ -148,6 +159,36 @@ test("dispatches one workflow run for a GitHub segment", () => {
       "-f",
       "scopes=gateway,web",
     ]
+  );
+  assert.deepEqual(
+    buildGithubDispatch({
+      repository: "amplifthq/openmeld",
+      sha: TARGET,
+      components: ["cli"],
+    }),
+    [
+      "workflow",
+      "run",
+      "cli-release.yml",
+      "--repo",
+      "amplifthq/openmeld",
+      "--ref",
+      "main",
+      "-f",
+      `release_sha=${TARGET}`,
+    ]
+  );
+  assert.throws(
+    () =>
+      buildGithubDispatch({
+        repository: "amplifthq/openmeld",
+        sha: TARGET,
+        components: ["core", "cli"],
+      }),
+    {
+      message:
+        "CLI publication must be dispatched separately through cli-release.yml.",
+    }
   );
 });
 

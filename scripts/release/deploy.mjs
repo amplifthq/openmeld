@@ -2,8 +2,9 @@
 
 // Production release orchestrator. It does three things only: select
 // components (release/components.mjs paths or an explicit scope), order them
-// (dependsOn), and run them (local deploy-component.mjs or one deploy.yml
-// dispatch). Special receiver-first orders are two explicit invocations.
+// (dependsOn), and run them (local deploy-component.mjs or top-level GitHub
+// dispatches). CLI uses cli-release.yml to preserve its npm OIDC identity.
+// Special receiver-first orders are separate explicit invocations.
 //
 //   pnpm run deploy -- --scope <auto|cloud|name[,name]> --lane <local|github|auto>
 //                      [--sha <sha>] [--base <sha>] [--dry-run]
@@ -128,8 +129,9 @@ export function orderComponents(names) {
   return ordered;
 }
 
-// Consecutive components on the same lane form one segment; segments run in
-// order so a GitHub component never starts before a local dependency ends.
+// Consecutive components on the same lane and workflow form one segment.
+// CLI must remain a top-level dispatch for npm Trusted Publishing. Segments
+// run in order, so CLI publication waits for selected cloud dependencies.
 export function planLaneSegments(
   names,
   lane,
@@ -146,7 +148,10 @@ export function planLaneSegments(
       );
     }
     const last = segments.at(-1);
-    if (last?.lane === componentLane) {
+    const sameWorkflow =
+      componentLane !== "github" ||
+      last?.components.includes("cli") === (name === "cli");
+    if (last?.lane === componentLane && sameWorkflow) {
       last.components.push(name);
     } else {
       segments.push({ lane: componentLane, components: [name] });
@@ -269,18 +274,23 @@ export function buildLocalCommand(name, sha, env = process.env) {
 }
 
 export function buildGithubDispatch({ repository, sha, components }) {
+  const isCli = components.includes("cli");
+  if (isCli && components.length !== 1) {
+    throw new Error(
+      "CLI publication must be dispatched separately through cli-release.yml."
+    );
+  }
   return [
     "workflow",
     "run",
-    "deploy.yml",
+    isCli ? "cli-release.yml" : "deploy.yml",
     "--repo",
     repository,
     "--ref",
     "main",
-    "-f",
-    `sha=${sha}`,
-    "-f",
-    `scopes=${components.join(",")}`,
+    ...(isCli
+      ? ["-f", `release_sha=${sha}`]
+      : ["-f", `sha=${sha}`, "-f", `scopes=${components.join(",")}`]),
   ];
 }
 

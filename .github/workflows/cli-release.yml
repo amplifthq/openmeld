@@ -1,19 +1,21 @@
 name: 📦 CLI Release
 run-name: CLI Release @ ${{ inputs.release_sha }}
 
-# Called by deploy.yml for the cli component after its validate job checked
-# the SHA on main's first-parent history. The Windows helper is built in this
-# run beside the macOS checkout; the macOS job packages, signs, notarizes, and
-# publishes with scripts/release/publish-cli.mjs, the same script the local
-# lane runs. Installation checks run after publication.
+# Dispatch this workflow directly to preserve the npm Trusted Publisher's
+# cli-release.yml OIDC identity. Validate the SHA on main's first-parent history
+# before building the Windows helper. The macOS job packages, signs, notarizes,
+# and publishes with scripts/release/publish-cli.mjs. Installation checks run
+# after publication.
 
 on:
-  workflow_call:
+  workflow_dispatch:
     inputs:
       release_sha:
+        description: "Exact 40-character commit on main's first-parent history"
         required: true
         type: string
       dry_run:
+        description: "Validate the source and gates and print each step without publishing"
         required: false
         type: boolean
         default: false
@@ -22,18 +24,59 @@ permissions:
   contents: read
 
 jobs:
+  validate:
+    name: Validate Release Source
+    runs-on: ubuntu-latest
+    outputs:
+      release_sha: ${{ steps.source.outputs.release_sha }}
+    steps:
+      - name: Require main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Production deploys run release control from main. Current ref: ${GITHUB_REF}"
+          exit 1
+
+      - name: Checkout release control
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          path: release-control
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Refresh current main
+        uses: ./release-control/.github/actions/trusted-git-network
+        with:
+          github_token: ${{ github.token }}
+          operation: fetch-main
+          repository: ${{ github.repository }}
+          working_directory: release-control
+
+      - name: Require the SHA on main first-parent history
+        id: source
+        working-directory: release-control
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          set -euo pipefail
+          node scripts/release/require-mainline-release-sha.mjs "$RELEASE_SHA" refs/remotes/origin/main --github-output
+
   windows_helper:
     name: Build Windows Process Helper
+    needs: validate
     runs-on: windows-2025
     timeout-minutes: 20
     defaults: { run: { working-directory: release-source } }
     steps:
       - name: Checkout release control
         uses: actions/checkout@v5
-        with: { path: release-control, persist-credentials: false, ref: "${{ github.sha }}" }
-      - name: Checkout release source
-        uses: actions/checkout@v5
-        with: { path: release-source, persist-credentials: false, ref: "${{ inputs.release_sha }}" }
+        with: { fetch-depth: 0, path: release-control, persist-credentials: false, ref: "${{ github.sha }}" }
+      - name: Prepare verified release source
+        shell: bash
+        working-directory: release-control
+        env:
+          RELEASE_SHA: ${{ needs.validate.outputs.release_sha }}
+        run: node scripts/release/prepare-release-source.mjs "$RELEASE_SHA"
       - name: Setup toolchain
         uses: ./release-control/.github/actions/setup-node-pnpm
         with: { working_directory: release-source, control_directory: release-control }
@@ -45,7 +88,7 @@ jobs:
           OPENMELD_RELEASE_SOURCE_ROOT: ${{ github.workspace }}/release-source
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-process-${{ inputs.release_sha }}
+          name: windows-process-${{ needs.validate.outputs.release_sha }}
           path: |
             release-source/cli/dist/openmeld-windows-process.exe
             release-source/cli/dist/windows-process-artifact.json
@@ -54,7 +97,7 @@ jobs:
 
   publish:
     name: Publish CLI
-    needs: windows_helper
+    needs: [validate, windows_helper]
     runs-on: macos-15
     timeout-minutes: 45
     environment: production
@@ -63,20 +106,23 @@ jobs:
       contents: write
       id-token: write
     env:
-      RELEASE_SHA: ${{ inputs.release_sha }}
+      RELEASE_SHA: ${{ needs.validate.outputs.release_sha }}
       DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
     defaults: { run: { working-directory: release-source } }
     steps:
       - name: Checkout release control
         uses: actions/checkout@v5
-        with: { path: release-control, persist-credentials: false, ref: "${{ github.sha }}" }
-      - name: Checkout release source
-        uses: actions/checkout@v5
-        with: { path: release-source, persist-credentials: false, ref: "${{ inputs.release_sha }}" }
+        with: { fetch-depth: 0, path: release-control, persist-credentials: false, ref: "${{ github.sha }}" }
+      - name: Prepare verified release source
+        shell: bash
+        working-directory: release-control
+        env:
+          RELEASE_SHA: ${{ needs.validate.outputs.release_sha }}
+        run: node scripts/release/prepare-release-source.mjs "$RELEASE_SHA"
       - name: Use the Windows helper built for this source
         uses: actions/download-artifact@v4
         with:
-          name: windows-process-${{ inputs.release_sha }}
+          name: windows-process-${{ needs.validate.outputs.release_sha }}
           path: release-source/cli/dist
       - name: Setup toolchain
         if: inputs.dry_run != true
@@ -107,7 +153,7 @@ jobs:
 
   npm_consumers:
     name: npm Install / Node ${{ matrix.node }} / ${{ matrix.os }}
-    needs: publish
+    needs: [validate, publish]
     if: inputs.dry_run != true
     strategy:
       fail-fast: false
@@ -120,10 +166,13 @@ jobs:
     steps:
       - name: Checkout release control
         uses: actions/checkout@v5
-        with: { path: release-control, persist-credentials: false, ref: "${{ github.sha }}" }
-      - name: Checkout release source
-        uses: actions/checkout@v5
-        with: { path: release-source, persist-credentials: false, ref: "${{ inputs.release_sha }}" }
+        with: { fetch-depth: 0, path: release-control, persist-credentials: false, ref: "${{ github.sha }}" }
+      - name: Prepare verified release source
+        shell: bash
+        working-directory: release-control
+        env:
+          RELEASE_SHA: ${{ needs.validate.outputs.release_sha }}
+        run: node scripts/release/prepare-release-source.mjs "$RELEASE_SHA"
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
