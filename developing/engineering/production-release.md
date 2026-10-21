@@ -127,6 +127,8 @@ calling it as a reusable workflow from `deploy.yml` changes the OIDC caller
 and can fail npm authentication. The CLI entry validates `main` and the source
 SHA independently, retains the `production` environment and `id-token: write`
 permission, and runs the existing signing, publication, and installation checks.
+Downstream jobs consume the SHA returned by that verifier, rather than the raw
+dispatch input. Invalid or non-mainline source values produce no release output.
 `deploy.yml` rejects CLI scopes so it cannot report a skipped CLI release as
 successful. Use the unified deploy command for mixed cloud/CLI releases.
 

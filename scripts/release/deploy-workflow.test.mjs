@@ -231,10 +231,11 @@ test("the CLI source validator emits its SHA only after the mainline guard succe
     (step) => step.name === "Require the SHA on main first-parent history"
   );
   const releaseSha = "a".repeat(40);
+  const verifiedSha = "b".repeat(40);
   try {
     writeFileSync(
       join(directory, "node"),
-      '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$NODE_ARGUMENTS"\nexit "$NODE_STATUS"\n',
+      '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$NODE_ARGUMENTS"\nif [ "$NODE_STATUS" -eq 0 ]; then printf \'%s\\n\' "$VERIFIED_SHA"; fi\nexit "$NODE_STATUS"\n',
       { mode: 0o755 }
     );
     for (const status of [1, 0]) {
@@ -251,6 +252,7 @@ test("the CLI source validator emits its SHA only after the mainline guard succe
           NODE_ARGUMENTS: argumentsPath,
           NODE_STATUS: String(status),
           RELEASE_SHA: releaseSha,
+          VERIFIED_SHA: verifiedSha,
         },
       });
       assert.equal(result.status, status, result.stderr);
@@ -260,7 +262,7 @@ test("the CLI source validator emits its SHA only after the mainline guard succe
       );
       assert.equal(
         readFileSync(output, "utf8"),
-        status === 0 ? `release_sha=${releaseSha}\n` : ""
+        status === 0 ? `release_sha=${verifiedSha}\n` : ""
       );
     }
     assert.equal(

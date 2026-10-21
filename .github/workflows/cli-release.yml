@@ -59,8 +59,8 @@ jobs:
           RELEASE_SHA: ${{ inputs.release_sha }}
         run: |
           set -euo pipefail
-          node scripts/release/require-mainline-release-sha.mjs "$RELEASE_SHA" refs/remotes/origin/main
-          echo "release_sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+          validated_sha="$(node scripts/release/require-mainline-release-sha.mjs "$RELEASE_SHA" refs/remotes/origin/main)"
+          echo "release_sha=$validated_sha" >> "$GITHUB_OUTPUT"
 
   windows_helper:
     name: Build Windows Process Helper

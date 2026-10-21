@@ -29,13 +29,14 @@ export function requireMainlineReleaseSha(input) {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   });
-  const releaseIsOnMainline =
-    mainline.status === 0 &&
-    mainline.stdout
-      .split(LINE_SPLIT_PATTERN)
-      .some((commitSha) => commitSha === releaseSha);
+  const verifiedReleaseSha =
+    mainline.status === 0
+      ? mainline.stdout
+          .split(LINE_SPLIT_PATTERN)
+          .find((commitSha) => commitSha === releaseSha)
+      : undefined;
 
-  if (!(commit.status === 0 && releaseIsOnMainline)) {
+  if (!(commit.status === 0 && verifiedReleaseSha)) {
     const diagnostics = [commit.stderr.trim(), mainline.stderr.trim()].filter(
       Boolean
     );
@@ -46,12 +47,13 @@ export function requireMainlineReleaseSha(input) {
       ].join("\n")
     );
   }
-  return { mainRef, releaseSha };
+  return { mainRef, releaseSha: verifiedReleaseSha };
 }
 
 function main(argv) {
   const [releaseSha, mainRef = "refs/remotes/origin/main"] = argv;
-  requireMainlineReleaseSha({ mainRef, releaseSha });
+  const verified = requireMainlineReleaseSha({ mainRef, releaseSha });
+  process.stdout.write(`${verified.releaseSha}\n`);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
