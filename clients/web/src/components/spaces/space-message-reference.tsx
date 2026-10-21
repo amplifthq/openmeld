@@ -107,10 +107,44 @@ export function hasResolvedSpaceMessageReference(input: {
 	);
 }
 
+type SpaceMessageReferenceRemarkOptions = {
+	references: readonly (readonly [string, SpaceMessageReference])[];
+};
+
+// A module-level attacher with plain options, rather than a closure, lets the
+// rendered Markdown cache recognize the same pipeline across remounts.
 export function createSpaceMessageReferenceRemarkPlugin(
 	referencesById: SpaceMessageReferencesById
 ) {
-	return () => (tree: MarkdownNode) => {
+	const plugin: [
+		typeof spaceMessageReferenceRemarkPlugin,
+		SpaceMessageReferenceRemarkOptions,
+	] = [
+		spaceMessageReferenceRemarkPlugin,
+		{
+			references: [...referencesById].map(
+				([id, reference]) =>
+					[
+						id,
+						{
+							href: reference.href,
+							name: reference.name,
+							spaceId: reference.spaceId,
+						},
+					] as const
+			),
+		},
+	];
+	return plugin;
+}
+
+function spaceMessageReferenceRemarkPlugin(
+	options: SpaceMessageReferenceRemarkOptions
+) {
+	const referencesById: SpaceMessageReferencesById = new Map(
+		options.references
+	);
+	return (tree: MarkdownNode) => {
 		transformMarkdownSpaceReferences(tree, referencesById);
 	};
 }
