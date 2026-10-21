@@ -312,8 +312,9 @@ export function createOpenMeldProfileService(
   };
 
   // Request-auth hot path: one read answers both the primary Human Profile
-  // and the requested Profile. Outcomes match ensurePrimaryHumanProfile
-  // followed by resolveProfileForOwner for the same owner.
+  // and the requested Profile. For unchanged state, outcomes match
+  // ensurePrimaryHumanProfile followed by resolveProfileForOwner; both
+  // answers now come from one snapshot instead of two reads.
   const resolvePrimaryHumanAndRequestedProfileForOwner = async (
     input: ResolvePrimaryHumanAndRequestedProfileInput
   ): Promise<{
