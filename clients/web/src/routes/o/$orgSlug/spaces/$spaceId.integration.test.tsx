@@ -107,6 +107,14 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 		await importOriginal<typeof import("@tanstack/react-router")>();
 	return {
 		...actual,
+		// These tests render the route content without a router; only the
+		// location search and state are read.
+		useLocation: (options?: {
+			select?: (location: { search: object; state: object }) => unknown;
+		}) => {
+			const location = { search: {}, state: {} };
+			return options?.select ? options.select(location) : location;
+		},
 		useNavigate: () => navigateMock,
 	};
 });
@@ -453,7 +461,7 @@ describe("app space entry route", () => {
 		expect(spaceWindowShellMock).toHaveBeenCalled();
 	});
 
-	it("centers the profile check loading state without a card surface", () => {
+	it("keeps the conversation frame on screen while the profile check is pending", () => {
 		listStartProfilesMock.mockImplementation(
 			() =>
 				new Promise(() => {
@@ -467,17 +475,13 @@ describe("app space entry route", () => {
 			spaceId: "space-123",
 		});
 
-		const loadingState = screen.getByRole("status", {
-			name: "Checking profile",
-		});
+		// The profile check shows the same conversation frame the conversation
+		// replaces, not a centered status card.
+		expect(screen.getByText("Loading messages…")).toBeTruthy();
 		expect(
-			screen.getByRole("heading", { name: "Checking your profile" })
-		).toBeTruthy();
-		// Horizontal centering + text alignment stay on the loading state; the
-		// vertical centering now belongs to the app shell content body.
-		expect(loadingState.classList.contains("items-center")).toBe(true);
-		expect(loadingState.classList.contains("text-center")).toBe(true);
-		expect(loadingState.querySelector('[data-slot="card"]')).toBeNull();
+			screen.queryByRole("heading", { name: "Checking your profile" })
+		).toBeNull();
+		expect(document.querySelector('[data-slot="card"]')).toBeNull();
 		expect(screen.queryByTestId("space-landing")).toBeNull();
 		expect(appSpaceShellMock).not.toHaveBeenCalled();
 		expect(spaceWindowShellMock).toHaveBeenCalled();
