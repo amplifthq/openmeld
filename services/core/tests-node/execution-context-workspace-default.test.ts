@@ -11,6 +11,13 @@ import {
 } from "../src/runtime-transport/application/execution-context-authority";
 import type { RuntimeCoordinatorHeadLifecycleRecord } from "../src/runtime-transport/application/runtime-coordinator-authority";
 
+// These cases cover the path without request chains; the enforced path is
+// covered by the *-request-chain tests.
+vi.mock("../src/member-agent/member-agents-feature", () => ({
+  isMemberAgentsEnabled: () => false,
+  isRequestChainEnforced: () => false,
+}));
+
 // design-plans/member-agent-program.md §4.9: a non-owner root defaults to an
 // isolated copy of a git folder; Core marks the default, the Service chooses.
 

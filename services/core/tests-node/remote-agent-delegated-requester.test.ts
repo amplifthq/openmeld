@@ -35,6 +35,13 @@ import {
 } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
+// These cases cover the path without request chains; the enforced path is
+// covered by the *-request-chain tests.
+vi.mock("../src/member-agent/member-agents-feature", () => ({
+  isMemberAgentsEnabled: () => false,
+  isRequestChainEnforced: () => false,
+}));
+
 const CENTER = "agt_00000000-0000-4000-8000-000000000001";
 const CHILD = "agt_00000000-0000-4000-8000-000000000002";
 const HUMAN = "22222222-2222-4222-8222-222222222222";

@@ -1,5 +1,5 @@
 import type { OpenMeldDaemonDispatchQueueMessage } from "@openmeld/schemas/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   applyFolderSelectionPolicy,
   buildAcceptedDispatchSnapshot,
@@ -9,6 +9,13 @@ import {
   createPostgresHarness,
   postgresTestBinding,
 } from "./helpers/postgresql-harness.test-support";
+
+// These cases cover the path without request chains; the enforced path is
+// covered by the *-request-chain tests.
+vi.mock("../src/member-agent/member-agents-feature", () => ({
+  isMemberAgentsEnabled: () => false,
+  isRequestChainEnforced: () => false,
+}));
 
 const FOLDER_ID = "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11";
 const ORG = "org_folders";
