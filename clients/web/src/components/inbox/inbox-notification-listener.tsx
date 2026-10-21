@@ -149,6 +149,7 @@ export function InboxNotificationListener(input: {
 		}),
 		refetchInterval: false,
 	});
+	const refetchSummary = summaryQuery.refetch;
 	const attentionSummary = summaryQuery.data;
 	const attention = useMemo(
 		() =>
@@ -253,6 +254,7 @@ export function InboxNotificationListener(input: {
 		let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 		let pingTimer: ReturnType<typeof setInterval> | null = null;
 		let spaceRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+		let summaryRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 		let connection: ReturnType<typeof createAccountInvalidationTransport> =
 			null;
 		let retryCount = 0;
@@ -286,6 +288,26 @@ export function InboxNotificationListener(input: {
 					refreshSpaces();
 				}
 			}, 75);
+		};
+		// The observation cursor only reports insertions. A read or resolve
+		// elsewhere changes the Desktop tray count without a new item, so push
+		// refreshes the summary directly, coalesced across bursts. Web reads its
+		// summary through its own mounted observers.
+		const scheduleSummaryRefresh = () => {
+			if (!desktop || summaryRefreshTimer) {
+				return;
+			}
+			summaryRefreshTimer = setTimeout(() => {
+				summaryRefreshTimer = null;
+				if (stopped) {
+					return;
+				}
+				refetchSummary({ cancelRefetch: false }).catch((error: unknown) =>
+					console.warn("[openmeld.desktop.inbox_summary_refresh_failed]", {
+						error,
+					})
+				);
+			}, 1000);
 		};
 		const connect = () => {
 			if (stopped) {
@@ -333,6 +355,7 @@ export function InboxNotificationListener(input: {
 				}
 				if (frame.type === "inbox.changed") {
 					refreshInbox();
+					scheduleSummaryRefresh();
 				} else {
 					scheduleSpaceRefresh();
 				}
@@ -365,6 +388,9 @@ export function InboxNotificationListener(input: {
 			if (spaceRefreshTimer) {
 				clearTimeout(spaceRefreshTimer);
 			}
+			if (summaryRefreshTimer) {
+				clearTimeout(summaryRefreshTimer);
+			}
 			connection?.close();
 		};
 	}, [
@@ -372,6 +398,7 @@ export function InboxNotificationListener(input: {
 		input.organizationId,
 		itemsQuery.refetch,
 		queryClient,
+		refetchSummary,
 		streamScope,
 	]);
 	const feedIdentity = `${input.organizationId}:${input.organizationSlug}:${input.userId}:${notificationsEnabled}`;

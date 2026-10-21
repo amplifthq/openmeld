@@ -1238,9 +1238,22 @@ describe("InboxNotificationListener", () => {
 			poll?.();
 		});
 		expect(summaryRefetch).toHaveBeenCalledTimes(2);
+		// A read elsewhere adds no observation, so push refreshes the tray
+		// summary directly, coalesced across a burst of frames.
+		act(() => {
+			for (let frame = 0; frame < 3; frame += 1) {
+				socket.dispatchEvent(
+					new MessageEvent("message", {
+						data: JSON.stringify({ type: "inbox.changed" }),
+					})
+				);
+			}
+			vi.advanceTimersByTime(1000);
+		});
+		expect(summaryRefetch).toHaveBeenCalledTimes(3);
 		act(() => socket.dispatchEvent(new Event("close")));
 		act(() => poll?.());
-		expect(summaryRefetch).toHaveBeenCalledTimes(3);
+		expect(summaryRefetch).toHaveBeenCalledTimes(4);
 	});
 
 	it("backs off short-lived connections until a keepalive succeeds", async () => {
