@@ -86,6 +86,36 @@ const missedOnce = catalogEntry({
 });
 
 describe("readMemberAgentPresence", () => {
+  it("reads missing once the Harness is turned off on its only computer, keeping the Agent", async () => {
+    const [presence] = await readMemberAgentPresence(
+      presenceDeps({
+        entries: [
+          catalogEntry({
+            agentControllerRef: "builtin:claude-code",
+            fact: presentFact(),
+            openMeldServiceRuntimeId: "runtime-macbook",
+            reasonCodes: ["local_agent_preparation.not_enabled"],
+            reportStatus: "disabled",
+          }),
+          catalogEntry({
+            agentControllerRef: "builtin:claude-code",
+            fact: presentFact(),
+            openMeldServiceRuntimeId: "runtime-imac",
+            reasonCodes: ["local_agent_preparation.not_enabled"],
+            reportStatus: "disabled",
+          }),
+        ],
+        online: ["runtime-macbook", "runtime-imac"],
+      })
+    );
+
+    expect(presence).toMatchObject({
+      computers: [],
+      memberAgentId: "ma-claude",
+      state: "missing",
+    });
+  });
+
   it("keeps an Agent available across one missing report during an upgrade", async () => {
     const [presence] = await readMemberAgentPresence(
       presenceDeps({ entries: [missedOnce], online: ["runtime-macbook"] })

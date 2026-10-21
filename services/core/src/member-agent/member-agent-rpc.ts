@@ -137,9 +137,9 @@ export async function rpcGetMemberAgentPresence(
 
 /**
  * Catalog-update hook for `submitRuntimeAgentControllerReports`. It records
- * each accepted report in the debounce fact and, when a Harness newly
- * appears, reconciles only the Organizations where this owner already has a
- * MemberAgent. Failures are logged; the report submission never fails here.
+ * each accepted report in the debounce fact and, when a Harness becomes
+ * detected (installed, or turned back on in Local agents), reconciles only
+ * the Organizations where this owner already has a MemberAgent. Failures are logged; the report submission never fails here.
  */
 export async function recordMemberAgentCatalogReports(
   env: CoreBindings,
@@ -161,7 +161,7 @@ export async function recordMemberAgentCatalogReports(
   if (!(input.enabled ?? MEMBER_AGENTS_ENABLED)) {
     return;
   }
-  let becamePresent = false;
+  let becameDetected = false;
   for (const report of input.reports) {
     if (!report.agentControllerRef.startsWith("builtin:")) {
       continue;
@@ -179,7 +179,7 @@ export async function recordMemberAgentCatalogReports(
         observedAtMs: report.observedAtMs,
         openMeldServiceRuntimeId: report.openMeldServiceRuntimeId,
       });
-      becamePresent ||= recorded.becamePresent;
+      becameDetected ||= recorded.becameDetected;
     } catch (error) {
       console.warn("[core.member_agents.presence_fact_failed]", {
         agentControllerRef: report.agentControllerRef,
@@ -188,7 +188,7 @@ export async function recordMemberAgentCatalogReports(
       });
     }
   }
-  if (!becamePresent) {
+  if (!becameDetected) {
     return;
   }
   try {
@@ -495,7 +495,7 @@ async function listRuntimeHarnesses(caller: MemberAgentCaller, nowMs: number) {
 
 function logSyncResults(
   caller: Pick<MemberAgentCaller, "organizationId" | "ownerUserId">,
-  trigger: "catalog_update" | "create" | "surface_open",
+  trigger: "catalog_update" | "create" | "surface_open" | "turned_on",
   results: readonly MemberAgentSyncResult[]
 ): void {
   const changed = results.filter((result) => result.outcome !== "unchanged");
@@ -527,6 +527,42 @@ function chunk(values: readonly string[]): string[][] {
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Turn a local agent on or off from OpenMeld Web, then, when it was turned
+ * on, add its MemberAgent in the caller's current Organization: turning a
+ * Harness on is how the member adds it (§4.1). The Service refreshed its
+ * catalog report before answering, so the sync sees the Harness on. The
+ * switch response never depends on the sync; a failed sync is logged and
+ * the next Agents surface open finishes it.
+ */
+export async function setLocalAgentEnabledWithMemberAgents<
+  Input extends { context?: OpenMeldRequestContext; enabled: boolean },
+  Output,
+>(
+  env: CoreBindings,
+  input: Input,
+  setEnabled: (input: Input) => Promise<Output>,
+  options: MemberAgentRpcOptions = {}
+): Promise<Output> {
+  const response = await setEnabled(input);
+  if (!(input.enabled && (options.enabled ?? MEMBER_AGENTS_ENABLED))) {
+    return response;
+  }
+  try {
+    const caller = await requireMemberAgentCaller(env, input.context, options);
+    logSyncResults(
+      caller,
+      "turned_on",
+      (await syncMemberAgents(createSyncDeps(env, caller))).results
+    );
+  } catch (error) {
+    console.warn("[core.member_agents.turned_on_sync_failed]", {
+      error: toErrorMessage(error),
+    });
+  }
+  return response;
 }
 
 /**

@@ -441,7 +441,9 @@ describe("syncMemberAgents", () => {
         createHarnessKinds: ["cursor", "opencode", "openclaw"],
       })
     ).toEqual({
-      addableHarnessKinds: [],
+      // Installed but turned off in Local agents: the member can add it by
+      // turning it on.
+      addableHarnessKinds: ["openclaw"],
       assignedProfileIds: [],
       results: ["cursor", "openclaw", "opencode"].map((harnessKind) => ({
         binding: "not_attempted",
@@ -541,22 +543,30 @@ describe("syncMemberAgents", () => {
       ],
     });
   });
-  it("creates only the requested Harnesses and offers the others", async () => {
+  it("creates only the Harnesses turned on in Local agents and offers the turned-off ones", async () => {
     // Smoke: setup with --local-agent claude-code codex opencode created
-    // all six detected Harnesses, and each opened a Direct Message.
+    // all six detected Harnesses, and each opened a Direct Message. Setup
+    // turns on only the chosen Harnesses; the others stay off.
     const deps = createDeps({
-      entries: ["claude-code", "codex", "cursor", "grok-bot", "opencode"].map(
-        (harnessKind) =>
+      entries: [
+        ...["claude-code", "codex", "grok-bot", "opencode"].map((harnessKind) =>
           catalogEntry({
             agentControllerRef: `builtin:${harnessKind}`,
             openMeldServiceRuntimeId: "runtime-1",
           })
-      ),
+        ),
+        ...["antigravity", "cursor"].map((harnessKind) =>
+          catalogEntry({
+            agentControllerRef: `builtin:${harnessKind}`,
+            openMeldServiceRuntimeId: "runtime-1",
+            reasonCodes: ["local_agent_preparation.not_enabled"],
+            reportStatus: "disabled",
+          })
+        ),
+      ],
     });
 
-    const report = await syncMemberAgents(deps, {
-      createHarnessKinds: ["claude-code", "codex", "opencode"],
-    });
+    const report = await syncMemberAgents(deps);
 
     expect(report.results.map((result) => result.harnessKind)).toEqual([
       "claude-code",
@@ -565,23 +575,115 @@ describe("syncMemberAgents", () => {
     ]);
     expect(deps.ensureDetectedMemberAgent).toHaveBeenCalledTimes(3);
     expect(deps.openDirectMessage).toHaveBeenCalledTimes(3);
-    // A shared-account Harness needs a chosen conversation, so it is not
-    // offered as a one-click add.
-    expect(report.addableHarnessKinds).toEqual(["cursor"]);
+    expect(report.addableHarnessKinds).toEqual(["antigravity", "cursor"]);
   });
 
-  it("creates nothing without a request", async () => {
+  it("does not offer a shared-account Harness that is turned off", async () => {
     const deps = createDeps({
       entries: [
         catalogEntry({
-          agentControllerRef: "builtin:codex",
+          agentControllerRef: "builtin:grok-bot",
           openMeldServiceRuntimeId: "runtime-1",
+          reportStatus: "disabled",
         }),
       ],
     });
 
     expect(await syncMemberAgents(deps)).toEqual({
-      addableHarnessKinds: ["codex"],
+      addableHarnessKinds: [],
+      assignedProfileIds: [],
+      results: [],
+    });
+  });
+
+  it("adds a turned-on Harness an existing member has no Profile for on the first surface open", async () => {
+    // Production: Felix's Profiles were backfilled into MemberAgents, but
+    // none was bound to Claude Code, which his computer has turned on.
+    const codex = memberAgent({
+      defaultProfileId: "agt_codex",
+      harnessKind: "codex",
+      id: "ma-codex",
+      source: "migrated",
+    });
+    const entries = ["claude-code", "codex"].map((harnessKind) =>
+      catalogEntry({
+        agentControllerRef: `builtin:${harnessKind}`,
+        openMeldServiceRuntimeId: "runtime-macbook",
+      })
+    );
+    const deps = createDeps({ entries, existing: listing([codex]) });
+
+    const first = await syncMemberAgents(deps);
+
+    expect(first.results).toEqual([
+      {
+        binding: "succeeded",
+        defaultProfileId: DEFAULT_PROFILE_ID,
+        directMessage: "succeeded",
+        directMessageSpaceId: "space-dm",
+        harnessKind: "claude-code",
+        memberAgentId: "ma-1",
+        outcome: "created",
+        reasonCodes: [],
+      },
+      {
+        binding: "not_attempted",
+        defaultProfileId: "agt_codex",
+        directMessage: "not_attempted",
+        directMessageSpaceId: null,
+        harnessKind: "codex",
+        memberAgentId: "ma-codex",
+        outcome: "unchanged",
+        reasonCodes: [],
+      },
+    ]);
+    expect(deps.ensureDetectedMemberAgent).toHaveBeenCalledTimes(1);
+    expect(deps.ensureDetectedMemberAgent).toHaveBeenCalledWith("claude-code");
+
+    // The next sync sees the new MemberAgent and its Binding: nothing is
+    // created twice and no second Direct Message is opened.
+    const again = createDeps({
+      entries,
+      existing: listing([
+        codex,
+        memberAgent({
+          defaultProfileId: DEFAULT_PROFILE_ID,
+          harnessKind: "claude-code",
+          id: "ma-1",
+        }),
+      ]),
+      hasBinding: true,
+    });
+    const second = await syncMemberAgents(again);
+    expect(second.results.map((result) => result.outcome)).toEqual([
+      "unchanged",
+      "unchanged",
+    ]);
+    expect(again.ensureDetectedMemberAgent).not.toHaveBeenCalled();
+    expect(again.writeDefaultBinding).not.toHaveBeenCalled();
+    expect(again.openDirectMessage).not.toHaveBeenCalled();
+  });
+
+  it("neither creates nor offers a Harness turned off after its MemberAgent exists", async () => {
+    const deps = createDeps({
+      entries: [
+        catalogEntry({
+          agentControllerRef: "builtin:codex",
+          openMeldServiceRuntimeId: "runtime-1",
+          reportStatus: "disabled",
+        }),
+      ],
+      existing: listing([
+        memberAgent({
+          defaultProfileId: "agt_codex",
+          harnessKind: "codex",
+          id: "ma-codex",
+        }),
+      ]),
+    });
+
+    expect(await syncMemberAgents(deps)).toEqual({
+      addableHarnessKinds: [],
       assignedProfileIds: [],
       results: [],
     });
