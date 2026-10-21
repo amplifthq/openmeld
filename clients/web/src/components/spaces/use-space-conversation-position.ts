@@ -364,6 +364,10 @@ export function useSpaceConversationPosition(input: {
 	const releaseReadingPosition = useCallback(() => releaseRef.current(), []);
 	return {
 		releaseReadingPosition,
+		/** The saved reading anchor this conversation will restore, if any. */
+		restorationAnchorSignalId: shouldRestore
+			? (rememberedPosition?.anchorSignalId ?? null)
+			: null,
 		restorationStatus,
 		followLatest,
 		autoScroll:
