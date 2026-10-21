@@ -305,7 +305,9 @@ function nestsMemberAgentSessions(input: {
 
 // The collapsed Center Agent entry stands for several chats, so it has no
 // per-chat rename or archive action.
-function isSingleChat(item: Conversation) {
+function isSingleChat(
+	item: Conversation
+): item is Extract<Conversation, { kind: "direct-message" }> {
 	// A MemberAgent row stands for several Sessions; their dedicated Session
 	// operations live in the Direct Message header, not personal archive/rename.
 	return (
@@ -427,7 +429,7 @@ export function ConversationsSidebar(
 		(item) =>
 			kinds.includes(conversationCategory(item)) &&
 			(item.kind === "direct-message"
-				? dm.preferences.archivedIds.includes(item.spaceId) === archived
+				? dm.isArchived(item.chat) === archived
 				: !archived) &&
 			item.title
 				.toLocaleLowerCase()
@@ -1042,18 +1044,7 @@ export function ConversationsSidebar(
 																}
 																onArchive={
 																	isSingleChat(item)
-																		? () =>
-																				dm.save({
-																					...dm.preferences,
-																					archivedIds: archived
-																						? dm.preferences.archivedIds.filter(
-																								(id) => id !== item.spaceId
-																							)
-																						: [
-																								...dm.preferences.archivedIds,
-																								item.spaceId,
-																							],
-																				})
+																		? () => dm.setArchived(item.chat, !archived)
 																		: undefined
 																}
 																onMove={(target) =>

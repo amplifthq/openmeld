@@ -1,17 +1,18 @@
 import { MEMBER_AGENTS_ENABLED } from "@openmeld/schemas";
-import type { BetterAuthPlugin } from "better-auth";
+import type { BetterAuthPlugin, Session, User } from "better-auth";
 import {
   APIError,
   createAuthMiddleware,
   getSessionFromCtx,
 } from "better-auth/api";
+import { setSessionCookie } from "better-auth/cookies";
 
 // Sensitive operations accept the owner's own Web or App session, but not the
 // CLI login credential while a task with another root requester runs
 // (design-plans/member-agent-program.md §4.7). The two must stay
-// distinguishable even though a CLI can hold a browser session's own token
-// (`openmeld setup --ott` returns the generating session). So a session is
-// marked, once and permanently, as soon as a CLI holds it.
+// distinguishable. An OTT exchange creates a separate marked CLI session,
+// leaving the generating Web session available for owner confirmations.
+// Existing sessions stay marked, once and permanently, when a CLI holds them.
 
 export const CLI_CREDENTIAL_SESSION_FIELD = "cliCredentialAt";
 export const INTERACTIVE_SESSION_REQUIRED_CODE =
@@ -35,7 +36,12 @@ const INTERACTIVE_SESSION_ONLY_PATHS = new Set([
 ]);
 
 type SessionShape = {
-  session: { token: string; [CLI_CREDENTIAL_SESSION_FIELD]?: unknown };
+  session: Pick<Session, "token"> &
+    Partial<Session> & {
+      activeOrganizationId?: unknown;
+      [CLI_CREDENTIAL_SESSION_FIELD]?: unknown;
+    };
+  user?: User;
 };
 
 export function isCliCredentialSessionRecord(session: unknown): boolean {
@@ -119,6 +125,14 @@ export function createCliCredentialPlugin(): BetterAuthPlugin {
             MEMBER_AGENTS_ENABLED &&
             INTERACTIVE_SESSION_ONLY_PATHS.has(context.path ?? ""),
           handler: createAuthMiddleware(async (context) => {
+            // This plugin runs before Bearer so its after-hook can replace
+            // the OTT session before Bearer exposes the signed CLI token.
+            if (hasBearerAuthorization(readRequestHeaders(context))) {
+              throw new APIError("FORBIDDEN", {
+                code: INTERACTIVE_SESSION_REQUIRED_CODE,
+                message: "Sign in to OpenMeld in your browser to do this.",
+              });
+            }
             const session = await getSessionFromCtx(context, {
               disableRefresh: true,
             });
@@ -129,11 +143,7 @@ export function createCliCredentialPlugin(): BetterAuthPlugin {
             const stored = await context.context.internalAdapter.findSession(
               session.session.token
             );
-            if (
-              hasBearerAuthorization(readRequestHeaders(context)) ||
-              !stored ||
-              isCliCredentialSessionRecord(stored.session)
-            ) {
+            if (!stored || isCliCredentialSessionRecord(stored.session)) {
               throw new APIError("FORBIDDEN", {
                 code: INTERACTIVE_SESSION_REQUIRED_CODE,
                 message: "Sign in to OpenMeld in your browser to do this.",
@@ -150,7 +160,46 @@ export function createCliCredentialPlugin(): BetterAuthPlugin {
             hasBearerAuthorization(readRequestHeaders(context)),
           handler: createAuthMiddleware(async (context) => {
             const held = readHeldSession(context);
-            if (!held || isCliCredentialSessionRecord(held.session)) {
+            if (!held) {
+              return;
+            }
+            if (context.path === ONE_TIME_TOKEN_VERIFY_PATH) {
+              // Better Auth validates and consumes the OTT, then returns its
+              // generating session. Never expose or mark that Web session.
+              if (!(held.user && held.session.userId === held.user.id)) {
+                throw new APIError("INTERNAL_SERVER_ERROR", {
+                  message: "Could not create the CLI sign-in session.",
+                });
+              }
+              const created =
+                await context.context.internalAdapter.createSession(
+                  held.user.id,
+                  false,
+                  { [CLI_CREDENTIAL_SESSION_FIELD]: new Date() },
+                  true
+                );
+              // The session-create hook selects the personal Organization;
+              // this handoff keeps the generating session's current choice.
+              const session =
+                await context.context.internalAdapter.updateSession(
+                  created.token,
+                  {
+                    activeOrganizationId:
+                      typeof held.session.activeOrganizationId === "string"
+                        ? held.session.activeOrganizationId
+                        : null,
+                  }
+                );
+              if (!session) {
+                throw new APIError("INTERNAL_SERVER_ERROR", {
+                  message: "Could not create the CLI sign-in session.",
+                });
+              }
+              const cliSession = { session, user: held.user };
+              await setSessionCookie(context, cliSession);
+              return context.json(cliSession);
+            }
+            if (isCliCredentialSessionRecord(held.session)) {
               return;
             }
             await context.context.internalAdapter.updateSession(

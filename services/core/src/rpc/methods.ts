@@ -19953,20 +19953,28 @@ export async function rpcConvertDirectMessageToSpace(
   }
   return validated.data;
 }
+type DirectMessageSpaceOpenInput = {
+  context: CoreRpcContextInput;
+  member: ResolvedSpaceMemberProfile;
+  legacySpaceId?: string;
+  organizationId: string;
+  targetMember: ResolvedSpaceMemberProfile;
+  timing?: CenterAgentDirectMessageOpenTimingRecorder;
+};
+type OpenedDirectMessageSpace = { created: boolean; spaceId: string };
+
+export function openDirectMessageSpaceInternal(
+  env: CoreBindings,
+  input: DirectMessageSpaceOpenInput & { initialOnly: true }
+): Promise<OpenedDirectMessageSpace | null>;
+export function openDirectMessageSpaceInternal(
+  env: CoreBindings,
+  input: DirectMessageSpaceOpenInput
+): Promise<OpenedDirectMessageSpace>;
 export async function openDirectMessageSpaceInternal(
   env: CoreBindings,
-  input: {
-    context: CoreRpcContextInput;
-    member: ResolvedSpaceMemberProfile;
-    legacySpaceId?: string;
-    organizationId: string;
-    targetMember: ResolvedSpaceMemberProfile;
-    timing?: CenterAgentDirectMessageOpenTimingRecorder;
-  }
-): Promise<{
-  created: boolean;
-  spaceId: string;
-}> {
+  input: DirectMessageSpaceOpenInput & { initialOnly?: boolean }
+): Promise<OpenedDirectMessageSpace | null> {
   const measureStage = async <T>(
     stage: CenterAgentDirectMessageOpenTimingStage,
     operation: () => Promise<T> | T
@@ -20066,6 +20074,12 @@ export async function openDirectMessageSpaceInternal(
         pairKey,
       })
   );
+  // Automatic setup may finish its original chat, but a deleted or converted
+  // chat records a deliberate user choice. Only an explicit open creates the
+  // next generation. The index retains both deletion and conversion history.
+  if (input.initialOnly && generation > 0) {
+    return null;
+  }
   const spaceId = resolveDirectMessageSpaceId(env.OPENMELD_SPACES, {
     generation,
     organizationId: input.organizationId,

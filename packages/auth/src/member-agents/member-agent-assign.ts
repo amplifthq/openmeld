@@ -15,8 +15,9 @@ export type AssignAgentProfileMemberAgentResult = {
  * its Binding (developing/product/agent-profiles.md, MemberAgent Layer). The
  * caller derives `harnessKind` from the Binding it accepted.
  *
- * Only an existing MemberAgent is used: catalog sync is the single creation
- * trigger. An assigned Profile is never moved to another MemberAgent; the
+ * Local Harnesses use an existing MemberAgent chosen through setup or add.
+ * A hosted Binding instead ensures the owner's manual hosted MemberAgent.
+ * An assigned Profile is never moved to another MemberAgent; the
  * repository write is conditional on the Profile being unassigned or already
  * under this MemberAgent, so a concurrent writer cannot be overwritten.
  */
@@ -51,6 +52,21 @@ export async function assignAgentProfileToMemberAgent(input: {
     return profile.memberAgentId === memberAgent?.id
       ? { outcome: "unchanged", memberAgentId: memberAgent.id }
       : { outcome: "assigned_elsewhere", memberAgentId: profile.memberAgentId };
+  }
+  if (input.harnessKind === "hosted") {
+    const memberAgentId = await input.repository.assignHostedProfile({
+      organizationId,
+      ownerUserId: input.ownerUserId,
+      profileId: profile.profileId,
+    });
+    if (memberAgentId) {
+      return { outcome: "assigned", memberAgentId };
+    }
+    const assigned = await input.findProfile(profile.profileId);
+    return {
+      outcome: assigned?.memberAgentId ? "assigned_elsewhere" : "not_eligible",
+      memberAgentId: assigned?.memberAgentId ?? null,
+    };
   }
   if (!memberAgent) {
     return { outcome: "no_member_agent", memberAgentId: null };

@@ -85,13 +85,18 @@ conditional insert on the unique key makes two Computers converge on one
 MemberAgent. Core then writes the Binding and assigns the default Profile under
 the same lock as every other assignment, and opens the owner's Direct Message.
 A sync without requested harnesses (surface open, catalog update) never
-creates a MemberAgent: it finishes interrupted creations, repairs unassigned
+creates a local MemberAgent: it finishes interrupted creations, repairs unassigned
 bound Profiles, and reports the other detected harnesses as addable.
-MemberAgent `source` is `detected`, `migrated`, or `manual`; the default
-Profile's `source` is `auto_detected`.
+MemberAgent `source` is `detected`, `migrated`, or `manual`; a detected Agent's
+default Profile's `source` is `auto_detected`.
 
 Personal Remote Agents are MemberAgents with `harnessKind = hosted` and
-`source = manual`. The Organization-owned Center Agent has no owner and stays
+`source = manual`. The first accepted hosted Binding atomically creates this
+MemberAgent, assigns its Profile, and selects that Profile as the default.
+Later hosted Profiles join the same MemberAgent without replacing its default;
+catalog sync also repairs a hosted assignment interrupted after the Binding
+was accepted, without requiring a connected Computer.
+The Organization-owned Center Agent has no owner and stays
 outside this structure. Two kinds of Profile cannot be grouped and stay
 unassigned: Profiles that never bound and Profiles bound to a `custom`
 controller. A disabled Binding still groups by its last Binding's harness and
@@ -112,14 +117,21 @@ Core accepts a Binding write (Create, a Personal Remote Agent, the controller
 switcher, or catalog sync), it asks Auth to assign the Profile to the owner's
 existing MemberAgent for that harness in the Profile's Organization. A Profile
 created on purpose therefore joins the existing Agent as one more Profile; it
-never creates a second MemberAgent. The assignment never creates a MemberAgent
-and never moves an assigned Profile. It reads the harness from the Profile's
+never creates a second MemberAgent. Local assignment never creates a MemberAgent;
+hosted assignment ensures the manually chosen hosted MemberAgent as above.
+Neither moves an assigned Profile. It reads the harness from the Profile's
 current Binding under a per-Profile lock that every Binding write also takes,
 so a controller switch that commits first is never grouped under the old
 harness. A failed assignment does not fail the Binding write: each catalog
 sync, with or without a connected Computer, assigns any bound Profile still
 unassigned whose harness has a MemberAgent, grouping by the same Binding as
 the migration.
+
+Detected-Agent setup retries the initial owner Direct Message independently of
+the Binding. It repairs or reuses an existing chat, but never creates a replacement
+after the owner deletes or converts the earlier chat. The existing Space index
+history distinguishes those deliberate actions from setup that never created a
+chat; no separate setup-completion flag is stored.
 
 Nothing is configurable on the MemberAgent itself. Space participants remain
 Agent Profiles: a MemberAgent is a grouping, never a Space member, message

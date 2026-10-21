@@ -1189,6 +1189,11 @@ Create Agent pinned to that harness and is absent for Remote Agents. Grants and
 the Agent's sensitive changes sit in one **Who can use this Agent** section,
 collapsed by default, with its own Fluid scroll area. Working-folder recovery
 keeps its entry on the Profile page.
+Ordinary Human–Agent chats use Core's Session archive state in the chat menu,
+conversation sidebar, and Agent page, including chats with colleagues' Agents.
+The Human participant can archive or restore their own Session; owning the
+Agent does not give an observer those controls. Personal sidebar archive
+preferences do not override this Session state.
 The product destinations are:
 
 1. **Desk** — renders ordinary Space windows and a greeting on the shared infinite

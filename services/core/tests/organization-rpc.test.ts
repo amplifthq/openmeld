@@ -86,6 +86,7 @@ import * as organizationComputersService from "../src/organizations/organization
 import * as slackFinalReplyPresentation from "../src/remote-agent/application/slack-final-reply-presentation";
 import { encryptSlackSearchAuthorization } from "../src/remote-agent/application/slack-search-authorization";
 import {
+  openDirectMessageSpaceInternal,
   projectTeamSafeOrganizationDirectoryReadiness,
   rpcAddCenterAgentToSpace,
   rpcAddOrganizationDirectoryProfilesToSpace,
@@ -10648,7 +10649,10 @@ describe("organization Core RPC", () => {
     });
   });
 
-  it("repairs incomplete Direct Message membership without rewriting its origin", async () => {
+  it.each([
+    false,
+    true,
+  ])("repairs incomplete Direct Message membership without rewriting its origin (setup=%s)", async (initialOnly) => {
     const pairKey = `${HUMAN_PROFILE_ID}:${AGENT_PROFILE_ID}`;
     const spaceId = resolveTestNamedSpaceId(`dm-v1:org-a:${pairKey}:0`);
     const db = await createOrganizationRpcDb({
@@ -10680,13 +10684,16 @@ describe("organization Core RPC", () => {
     const spaceStub = createSpaceStub({ spaces: db.spaces });
     const env = await buildEnv({ db, spaceStub });
 
-    const response = await rpcOpenDirectMessageSpace(env, {
-      context: buildContext({
-        activeOrganizationId: "org-a",
-        userId: "user-a",
-      }),
-      targetProfileId: AGENT_PROFILE_ID,
+    const context = buildContext({
+      activeOrganizationId: "org-a",
+      userId: "user-a",
     });
+    const response = initialOnly
+      ? await openInitialAgentChat(env, context)
+      : await rpcOpenDirectMessageSpace(env, {
+          context,
+          targetProfileId: AGENT_PROFILE_ID,
+        });
 
     expect(response).toMatchObject({ created: false, spaceId });
     expect(spaceStub.rpcInitializeDirectMessageMeta).not.toHaveBeenCalled();
@@ -10770,7 +10777,10 @@ describe("organization Core RPC", () => {
     ).toBe(2);
   });
 
-  it("creates the next Direct Message generation after conversion even when two members remain", async () => {
+  it.each([
+    "converted",
+    "deleted",
+  ])("only an explicit open replaces a %s Direct Message", async (history) => {
     const pairKey = `${HUMAN_PROFILE_ID}:${AGENT_PROFILE_ID}`;
     const convertedSpaceId = resolveTestNamedSpaceId(
       `dm-v1:org-a:${pairKey}:0`
@@ -10792,7 +10802,9 @@ describe("organization Core RPC", () => {
           activeAgentCount: 1,
           activeHumanCount: 1,
           activeMemberCount: 2,
-          directMessageConvertedAtMs: 1_786_113_764_181,
+          ...(history === "converted"
+            ? { directMessageConvertedAtMs: 1_786_113_764_181 }
+            : { status: "deleted" as const }),
           directMessagePairKey: pairKey,
           organizationId: "org-a",
           spaceId: convertedSpaceId,
@@ -10807,11 +10819,14 @@ describe("organization Core RPC", () => {
       spaceStub: createSpaceStub({ spaces: db.spaces }),
     });
 
+    const context = buildContext({
+      activeOrganizationId: "org-a",
+      userId: "user-a",
+    });
+    expect(await openInitialAgentChat(env, context)).toBeNull();
+    expect(db.spaces).toHaveLength(1);
     const response = await rpcOpenDirectMessageSpace(env, {
-      context: buildContext({
-        activeOrganizationId: "org-a",
-        userId: "user-a",
-      }),
+      context,
       targetProfileId: AGENT_PROFILE_ID,
     });
 
@@ -12333,6 +12348,33 @@ function buildCenterAgentContext(
       callerPrincipalId: actor.openMeldProfileId,
     },
   };
+}
+
+function openInitialAgentChat(
+  env: CoreBindings,
+  context: OpenMeldRequestContext
+) {
+  return openDirectMessageSpaceInternal(env, {
+    context,
+    initialOnly: true,
+    organizationId: "org-a",
+    member: {
+      profileId: HUMAN_PROFILE_ID,
+      profileName: "Ava",
+      profileKind: "human",
+      ownerUserId: "user-a",
+      ownerName: null,
+      agentControllerRef: null,
+    },
+    targetMember: {
+      profileId: AGENT_PROFILE_ID,
+      profileName: "Codex",
+      profileKind: "agent",
+      ownerUserId: "user-a",
+      ownerName: null,
+      agentControllerRef: null,
+    },
+  });
 }
 
 function buildContext(input: {

@@ -1,12 +1,12 @@
 {
-  "version": "0.3.268",
+  "version": "0.3.269",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Test tooling only: Vitest 4 and the Cloudflare Vitest plugin replace the deprecated Workers pool, with no shipped CLI code, command, or wire-contract change; the mandatory CLI floor stays at 0.3.251."
+    "reason": "Packages the Service fix for resuming an established fork after its source folder is removed. CLI commands and wire contracts remain compatible; the mandatory CLI floor stays at 0.3.251."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "The mandatory Service floor remains 0.3.264. Only test dependencies and the lockfile change; Service transport, execution, and Wake contracts are unchanged."
+    "reason": "Established forked Sessions resume using their own native conversation without requiring the historical source folder. Transport and stored context contracts are unchanged, so the mandatory Service floor remains 0.3.264."
   },
   "skills": {
     "updatePolicy": "available",
