@@ -100,6 +100,8 @@ export type {
   ListProfilesForOwnerEnsuringPrimaryHumanProfileInput,
   OpenMeldProfileService,
   QuerySpaceDeletionTombstonesInput,
+  RequestedProfileResolution,
+  ResolvePrimaryHumanAndRequestedProfileInput,
   ResolveProfileForOwnerInput,
   UpdateAgentProfileDefaultProjectForOwnerInput,
   UpdateProfileForOwnerInput,
