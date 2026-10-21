@@ -1,6 +1,7 @@
 # MemberAgent program
 
-Status: design accepted by Felix on 2026-10-18; implementation not started.
+Status: design accepted by Felix on 2026-10-18; implemented in PR #236
+(merged 2026-10-20) and enabled with `MEMBER_AGENTS_ENABLED` in PR #264.
 This is the single reference for the local-agent restructuring. Implementers
 and reviewers work from this document only. It supersedes the Chinese drafts
 `local-agent-design-v4.md`, `local-agent-design-final-review.md` and
