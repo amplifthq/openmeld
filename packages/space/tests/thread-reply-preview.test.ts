@@ -59,6 +59,11 @@ describe("thread reply preview text", () => {
     ).toBe("Hello");
   });
 
+  it("skips a line of only trailing whitespace before the shown line", () => {
+    const text = `${" ".repeat(40_000)}\u00a0\nDone\n${"x".repeat(MAX + 100)}`;
+    expect(boundThreadReplyPreviewText(text)).toBe("Done");
+  });
+
   it("does not carry a large code block before the line it shows", () => {
     const text = `\`\`\`\n${"x\n".repeat(50_000)}\`\`\`\nDone`;
     expect(boundThreadReplyPreviewText(text)).toBe("Done");

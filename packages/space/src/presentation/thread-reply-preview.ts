@@ -17,8 +17,6 @@ const THREAD_REPLY_PREVIEW_DECORATION = /^(?:[-*_]{3,}|`{3,}[^`]*|~{3,}.*)$/;
 const THREAD_REPLY_PREVIEW_FENCE_OPENER = /^ {0,3}(?:(`{3,})[^`]*|(~{3,}).*)$/;
 const THREAD_REPLY_PREVIEW_FENCE_CLOSER = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
 
-const THREAD_REPLY_PREVIEW_TRAILING_SPACE = /[ \t\r]+$/;
-
 // Reply text at or under this length is carried whole.
 export const THREAD_REPLY_PREVIEW_TEXT_MAX_CHARS = 1000;
 
@@ -63,10 +61,7 @@ function* threadReplyPreviewLines(
     const newline = text.indexOf("\n", lineStart);
     const end = newline === -1 ? text.length : newline;
     const line = readThreadReplyPreviewSourceLine(
-      // CommonMark allows only spaces and tabs after a closing fence.
-      text
-        .slice(lineStart, end)
-        .replace(THREAD_REPLY_PREVIEW_TRAILING_SPACE, ""),
+      trimThreadReplyPreviewLineEnd(text, lineStart, end),
       state
     );
     if (line) {
@@ -77,6 +72,25 @@ function* threadReplyPreviewLines(
     }
     lineStart = newline + 1;
   }
+}
+
+// CommonMark allows only spaces and tabs after a closing fence, so only those
+// (and a CR before the newline) are trimmed. A backward scan stays linear on
+// long runs of spaces.
+function trimThreadReplyPreviewLineEnd(
+  text: string,
+  start: number,
+  end: number
+): string {
+  let trimmedEnd = end;
+  while (trimmedEnd > start) {
+    const char = text[trimmedEnd - 1];
+    if (char !== " " && char !== "\t" && char !== "\r") {
+      break;
+    }
+    trimmedEnd -= 1;
+  }
+  return text.slice(start, trimmedEnd);
 }
 
 // Advances the fence state past one raw line and returns the line a preview
@@ -144,9 +158,9 @@ export function boundThreadReplyPreviewText(
   return text.slice(selected.fenced ? 0 : selected.start, selected.end);
 }
 
-// Thread previews render one line per reply, so a text reply carries only the
-// prefix through the line it shows. Opening the Thread reads full
-// signals.
+// Thread previews render one line per reply, so a long text reply carries
+// only what boundThreadReplyPreviewText keeps for the line it shows. Opening
+// the Thread reads full signals.
 export function boundThreadPreviewSignal(
   signal: SignalEnvelope
 ): SignalEnvelope {
