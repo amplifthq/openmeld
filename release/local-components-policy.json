@@ -1,12 +1,12 @@
 {
-  "version": "0.3.268",
+  "version": "0.3.269",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Test tooling only: Vitest 4 and the Cloudflare Vitest plugin replace the deprecated Workers pool, with no shipped CLI code, command, or wire-contract change; the mandatory CLI floor stays at 0.3.251."
+    "reason": "Setup now turns off the detected local agents the member did not select before adding Agents, and `openmeld agent add` turns the harness on through OpenMeld Service before Core adds its Agent. Older CLIs keep working: Core adds an Agent for every harness turned on, so an older setup may leave unselected agents on until the member turns them off. Wire schemas are unchanged, so the mandatory CLI floor stays at 0.3.251."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "The mandatory Service floor remains 0.3.264. Only test dependencies and the lockfile change; Service transport, execution, and Wake contracts are unchanged."
+    "reason": "The mandatory Service floor remains 0.3.264. The Service's agent registry gains a setup helper that registers unselected agents turned off; Service transport, reporting, execution, and Wake contracts are unchanged."
   },
   "skills": {
     "updatePolicy": "available",

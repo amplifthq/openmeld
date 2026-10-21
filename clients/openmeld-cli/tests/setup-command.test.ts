@@ -27,6 +27,7 @@ const {
   submitSelectedAgentControllerReportsMock,
   syncLocalSetupCurrentDeviceTargetFromServiceContractMock,
   resolveControllingTerminalSessionMock,
+  turnOffUnselectedLocalAgentsForSetupMock,
 } = vi.hoisted(() => ({
   assertSetupServiceUpdateCompleteMock: vi.fn(),
   collectStartLocalReadinessMock: vi.fn(),
@@ -53,6 +54,7 @@ const {
   submitSelectedAgentControllerReportsMock: vi.fn(),
   syncLocalSetupCurrentDeviceTargetFromServiceContractMock: vi.fn(),
   resolveControllingTerminalSessionMock: vi.fn(),
+  turnOffUnselectedLocalAgentsForSetupMock: vi.fn(),
 }));
 
 vi.mock("../src/commands/setup-service-update-truth", () => ({
@@ -145,6 +147,11 @@ vi.mock("../src/start-local/agents-local", () => ({
   runStartLocalAgentsEnable: runStartLocalAgentsEnableMock,
 }));
 
+vi.mock("../src/start-local/local-agent-choice", () => ({
+  turnOffUnselectedLocalAgentsForSetup:
+    turnOffUnselectedLocalAgentsForSetupMock,
+}));
+
 vi.mock("../src/system/local-service-participation-gate", () => ({
   runDaemonServiceParticipationGate: runDaemonServiceParticipationGateMock,
 }));
@@ -168,6 +175,10 @@ describe("setup command", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     assertSetupServiceUpdateCompleteMock.mockResolvedValue(undefined);
+    turnOffUnselectedLocalAgentsForSetupMock.mockResolvedValue({
+      failedAgentIds: [],
+      turnedOffAgentIds: [],
+    });
     Reflect.deleteProperty(process.env, "OPENMELD_SETUP_FORCE_SERVICE_REFRESH");
     resolveRuntimeContextMock.mockResolvedValue({
       resolvedView: "agent",
@@ -410,6 +421,11 @@ describe("setup command", () => {
     expect(setupComplete?.payload?.localAgents?.selectedAgentIds).toEqual([
       "codex",
     ]);
+    // The Connect page selection is the member's choice: the agents it left
+    // out are turned off before any Agent is added.
+    expect(turnOffUnselectedLocalAgentsForSetupMock).toHaveBeenCalledWith({
+      selectedLocalAgentIds: ["codex"],
+    });
     expect(setupComplete?.payload?.localAgents?.spaceSetupHint).toBe(
       "Center Agent will guide setup from OpenMeld Home"
     );

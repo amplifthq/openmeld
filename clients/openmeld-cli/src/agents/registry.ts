@@ -603,6 +603,69 @@ export async function reconcileNewRunnableBuiltinAgentRegistrations(
   return result;
 }
 
+/**
+ * Setup's local agent selection is the member's choice of which detected
+ * built-in agents are on for this computer (design-plans/member-agent-program.md
+ * §4.1). Each detected built-in agent the member did not select and that
+ * has no registration yet is registered turned off, so the Service never
+ * turns it on automatically. Returns the unselected agents that are still
+ * on, which the caller turns off through the Service so Core sees the
+ * change at once.
+ */
+export async function registerUnselectedBuiltinAgentsTurnedOff(input: {
+  selectedAgentIds: readonly string[];
+  states?: readonly AgentTargetState[];
+}): Promise<{
+  registeredOffAgentIds: string[];
+  unselectedOnAgentIds: string[];
+}> {
+  const selected = new Set(input.selectedAgentIds.map(normalizeAgentId));
+  const unselected = (input.states ?? (await listAgentTargetStates()))
+    .filter(
+      (state) =>
+        state.targetKind === "builtin" &&
+        state.detected &&
+        !selected.has(state.agentId)
+    )
+    .sort((left, right) =>
+      compareAgentControllerRefsForDisplay(left.agentId, right.agentId)
+    );
+  const registeredOffAgentIds: string[] = [];
+  const unselectedOnAgentIds: string[] = [];
+  const toRegister = unselected.filter(
+    (state) => !state.registered && isRunnableBuiltinForAutomaticSetup(state)
+  );
+  await updateAgentRegistrations(
+    (current) => {
+      const next = [...current];
+      const currentById = new Map(
+        next.map((registration) => [registration.agentId, registration])
+      );
+      for (const state of unselected) {
+        const registration = currentById.get(state.agentId);
+        if (registration) {
+          // Registered meanwhile, for example by the Service's discovery.
+          if (registration.enabled) {
+            unselectedOnAgentIds.push(state.agentId);
+          }
+          continue;
+        }
+        if (!toRegister.includes(state)) {
+          continue;
+        }
+        next.push({
+          ...createRegistrationFromCatalogTarget(state),
+          enabled: false,
+        });
+        registeredOffAgentIds.push(state.agentId);
+      }
+      return next;
+    },
+    { notifyRouteCatalogChanged: false }
+  );
+  return { registeredOffAgentIds, unselectedOnAgentIds };
+}
+
 export async function reconcileNewRunnableBuiltinAgentsForSetup(
   input: { states?: readonly AgentTargetState[] } = {}
 ): Promise<SetupLocalAgentRegistrationReconciliation> {

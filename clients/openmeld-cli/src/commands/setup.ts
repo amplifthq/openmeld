@@ -40,6 +40,7 @@ import { createPresenter } from "../runtime/presenter/index";
 import type { Presenter } from "../runtime/presenter/types";
 import { resolveGatewayWebOrigin } from "../space/web-url";
 import { runStartLocalAgentsEnable } from "../start-local/agents-local";
+import { turnOffUnselectedLocalAgentsForSetup } from "../start-local/local-agent-choice";
 import { collectStartLocalReadiness } from "../start-local/readiness";
 import {
   LocalMachineFailureError,
@@ -321,6 +322,10 @@ async function runSetupUnlocked(input: {
           reason: "setup_local_capabilities_reported",
         })
       : null;
+  if (selectedLocalAgentIds.length > 0) {
+    // Before any Agent is added: an unselected agent left on would become one.
+    await turnOffUnselectedLocalAgentsForSetup({ selectedLocalAgentIds });
+  }
   emitSetupMemberAgentsLine(
     presenter,
     await addSetupSelectedMemberAgents({ selectedLocalAgentIds })
@@ -860,6 +865,8 @@ async function resolveDelegatedSetupCompletionFacts(input: {
     reason: "setup_session_capabilities_reported",
   });
   // The Connect page's selection arrives as the setup session's agents.
+  // Before any Agent is added: an unselected agent left on would become one.
+  await turnOffUnselectedLocalAgentsForSetup({ selectedLocalAgentIds });
   await addSetupSelectedMemberAgents({ selectedLocalAgentIds });
 
   return {
