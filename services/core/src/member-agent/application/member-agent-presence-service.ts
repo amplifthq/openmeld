@@ -12,17 +12,18 @@ type WakeAvailabilityCategory =
 export type MemberAgentPresenceDeps = {
   listOwnerMemberAgents: () => Promise<ListMemberAgentsResponse>;
   listRuntimeHarnesses: () => Promise<readonly RuntimeHarness[]>;
-  // Online computers keyed by `${deviceId}\u0000${lane}`; null when the live
-  // connection lookup is unavailable.
-  readOnlineRuntimeKeys: () => Promise<ReadonlySet<string> | null>;
+  // Online computers keyed by `${deviceId}\u0000${lane}`. A failed lookup
+  // throws: it is no verdict, so the whole read fails instead of answering
+  // Checking (developing/product/agent-profiles.md, MemberAgent presence).
+  readOnlineRuntimeKeys: () => Promise<ReadonlySet<string>>;
   // The existing per-Profile workload read; a missing entry is unknown.
   readOperationalContexts: (
     agentProfileIds: readonly string[]
   ) => Promise<
     ReadonlyMap<string, RuntimeTransportAgentProfileOperationalContext>
   >;
-  // The existing four-state Wakeability per Profile; a missing entry reads
-  // as checking.
+  // The existing four-state Wakeability per Profile; a Profile the answer
+  // leaves out reads as checking, and a failed read throws.
   readWakeAvailability: (
     agentProfileIds: readonly string[]
   ) => Promise<ReadonlyMap<string, WakeAvailabilityCategory>>;
@@ -79,7 +80,7 @@ export async function readMemberAgentPresence(
             )
             .map((harness) => ({
               openMeldServiceRuntimeId: harness.openMeldServiceRuntimeId,
-              online: onlineKeys?.has(buildOnlineRuntimeKey(harness)) ?? false,
+              online: onlineKeys.has(buildOnlineRuntimeKey(harness)),
             }));
     const profiles = memberAgent.profiles.map((profile) => ({
       openMeldProfileId: profile.openMeldProfileId,
@@ -92,7 +93,6 @@ export async function readMemberAgentPresence(
       state: resolveMemberAgentPresenceState({
         computers,
         hosted: memberAgent.harnessKind === "hosted",
-        onlineKnown: onlineKeys !== null,
         profiles,
       }),
       computers,
@@ -109,15 +109,11 @@ export async function readMemberAgentPresence(
 export function resolveMemberAgentPresenceState(input: {
   computers: readonly { online: boolean }[];
   hosted: boolean;
-  onlineKnown: boolean;
   profiles: readonly { wakeAvailability: WakeAvailabilityCategory }[];
 }): MemberAgentPresenceState {
   if (!input.hosted) {
     if (input.computers.length === 0) {
       return "missing";
-    }
-    if (!input.onlineKnown) {
-      return "checking";
     }
     if (!input.computers.some((computer) => computer.online)) {
       return "all_offline";

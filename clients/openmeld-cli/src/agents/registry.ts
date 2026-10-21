@@ -22,6 +22,7 @@ import {
   updateConfiguredDeviceRuntimeState,
   updateConfiguredSkillsConfig,
 } from "../config/runtime-config";
+import { mapWithConcurrency } from "../lib/map-with-concurrency";
 import { notifyDaemonRouteCatalogChanged } from "../local-service/state/route-catalog-sync-notifier";
 import {
   detectInstalledRuntimeAgents,
@@ -408,6 +409,9 @@ function reconcileAgentRegistrationRuntimeDefaults(input: {
 export async function listAgentTargetStates(
   input: {
     agentIds?: readonly string[];
+    // Targets checked at once. Each check is independently time-bounded, so a
+    // bounded pool keeps one slow installation from delaying every other one.
+    concurrency?: number;
     onState?: (state: AgentTargetState) => Promise<void>;
     reconcileNewRegistrations?: boolean;
   } = {}
@@ -432,48 +436,65 @@ export async function listAgentTargetStates(
       ]
     ),
   ].sort(compareAgentControllerRefsForDisplay);
-  const states: AgentTargetState[] = [];
-  for (const agentId of agentIds) {
-    // Discover one target at a time so a completed controller can be checked
-    // and reported before another installation's slow discovery begins.
-    const catalog = await loadAgentCatalog({ agentIds: [agentId] });
-    const target =
-      catalog.builtinsById.get(agentId) ?? catalog.customById.get(agentId);
-    if (!target) {
-      continue;
-    }
-    const registration = registrationById.get(target.agentId) ?? null;
-    let state = await toAgentTargetState(target, registration);
-    if (
-      input.reconcileNewRegistrations &&
-      !state.registered &&
-      isRunnableBuiltinForAutomaticSetup(state)
-    ) {
-      await reconcileNewRunnableBuiltinAgentRegistrations({ states: [state] });
-      // Use the committed registration, including a concurrent disabled choice.
-      const current = (
-        await getConfiguredDeviceRuntimeState()
-      )?.controllers?.find((item) => item.agentId === agentId);
-      if (current) {
-        state =
-          state.launchContract &&
-          current.launchContract &&
-          launchContractsEqual(state.launchContract, current.launchContract)
-            ? {
-                ...state,
-                registered: true,
-                enabled: current.enabled,
-                registration: current,
-                contextIdMappingSpec:
-                  current.contextIdMappingSpec ?? state.contextIdMappingSpec,
-              }
-            : await toAgentTargetState(target, current);
-      }
-    }
-    states.push(state);
-    await input.onState?.(state);
+  // Discover targets independently so a completed controller can be checked
+  // and reported without waiting for another installation's slow discovery.
+  const states = await mapWithConcurrency(
+    agentIds,
+    input.concurrency ?? 1,
+    async (agentId) =>
+      await resolveListedAgentTargetState({
+        agentId,
+        onState: input.onState,
+        reconcileNewRegistrations: input.reconcileNewRegistrations,
+        registrationById,
+      })
+  );
+  return states.filter((state): state is AgentTargetState => state !== null);
+}
+
+async function resolveListedAgentTargetState(input: {
+  agentId: string;
+  onState?: (state: AgentTargetState) => Promise<void>;
+  reconcileNewRegistrations?: boolean;
+  registrationById: ReadonlyMap<string, RuntimeAgentControllerState>;
+}): Promise<AgentTargetState | null> {
+  const { agentId, registrationById } = input;
+  const catalog = await loadAgentCatalog({ agentIds: [agentId] });
+  const target =
+    catalog.builtinsById.get(agentId) ?? catalog.customById.get(agentId);
+  if (!target) {
+    return null;
   }
-  return states;
+  const registration = registrationById.get(target.agentId) ?? null;
+  let state = await toAgentTargetState(target, registration);
+  if (
+    input.reconcileNewRegistrations &&
+    !state.registered &&
+    isRunnableBuiltinForAutomaticSetup(state)
+  ) {
+    await reconcileNewRunnableBuiltinAgentRegistrations({ states: [state] });
+    // Use the committed registration, including a concurrent disabled choice.
+    const current = (
+      await getConfiguredDeviceRuntimeState()
+    )?.controllers?.find((item) => item.agentId === agentId);
+    if (current) {
+      state =
+        state.launchContract &&
+        current.launchContract &&
+        launchContractsEqual(state.launchContract, current.launchContract)
+          ? {
+              ...state,
+              registered: true,
+              enabled: current.enabled,
+              registration: current,
+              contextIdMappingSpec:
+                current.contextIdMappingSpec ?? state.contextIdMappingSpec,
+            }
+          : await toAgentTargetState(target, current);
+    }
+  }
+  await input.onState?.(state);
+  return state;
 }
 
 export async function resolveAgentTargetState(

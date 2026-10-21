@@ -12,6 +12,7 @@ import type {
   RuntimeAgentTransportMode,
   RuntimeSkillsConfig,
 } from "../config/runtime-config";
+import { mapWithConcurrency } from "../lib/map-with-concurrency";
 
 export type SkillsAgentTransportMode = {
   mode: RuntimeAgentTransportMode;
@@ -195,30 +196,6 @@ async function detectInstalledBuiltinAgent(
   // the real reason as a needs-repair status, instead of this collapsing into
   // "not found on this computer" and disappearing from every agent picker.
   return installedCandidates.reason === "not_launchable";
-}
-
-async function mapWithConcurrency<TInput, TOutput>(
-  inputs: TInput[],
-  maxConcurrency: number,
-  mapper: (input: TInput) => Promise<TOutput>
-): Promise<TOutput[]> {
-  const results = new Array<TOutput>(inputs.length);
-  let nextIndex = 0;
-  const workerCount = Math.max(1, Math.min(maxConcurrency, inputs.length));
-  await Promise.all(
-    Array.from({ length: workerCount }, async () => {
-      for (;;) {
-        const currentIndex = nextIndex;
-        nextIndex += 1;
-        const input = inputs[currentIndex];
-        if (input === undefined) {
-          return;
-        }
-        results[currentIndex] = await mapper(input);
-      }
-    })
-  );
-  return results;
 }
 
 function resolveRegistryMetadata(

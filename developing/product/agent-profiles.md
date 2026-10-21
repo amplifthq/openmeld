@@ -68,7 +68,12 @@ Profile of the group. The MemberAgent stores no status. Presence and state
 are derived at read time from its Profiles' Wakeability and their Computers'
 online state. A harness reads as missing on every Computer only after it has
 been absent from several consecutive catalog reports or for several minutes,
-so a PATH hiccup or an upgrade never greys the Agent. The display name
+so a PATH hiccup or an upgrade never greys the Agent. A presence read whose
+evidence read fails (the Computers' online lookup or the Profiles'
+Wakeability) fails as a whole instead of answering `Checking`: a failed read is
+no verdict, so a client keeps the state it last read and shows `Checking` only
+before any state has been read. A Profile the Wakeability answer leaves out
+still reads `Checking`. The display name
 `Felix Lu's Claude Code` is derived by the client from the owner's default
 Human Profile name and the harness display name. It is English only and never
 stored.
@@ -116,7 +121,12 @@ reads as missing. Unassigned Profiles sit in their own section at the bottom of
 the Agents list, with the controller switcher as their assignment action. The
 system never guesses an assignment.
 
-The MemberAgent list and presence are owner reads. A MemberAgent link
+The MemberAgent list and presence are owner reads. Surfaces that need the
+title or archive state of every Session with the member's MemberAgents read
+them in one owner read
+(`GET /v1/organizations/current/member-agents/direct-message-sessions`, every
+Profile of every MemberAgent, active and archived), never one Session list per
+Profile. A MemberAgent link
 (`/agents?memberAgentId=`) still opens for any member of its Organization:
 `GET /v1/member-agents/:memberAgentId/profiles` resolves it to the Profiles the
 caller can see, with the same rule as All Agents (active Agent Profiles of the

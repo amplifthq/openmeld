@@ -1,4 +1,5 @@
-import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { MemberAgentDirectMessageSessionSummary } from "@openmeld/schemas";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 import { isMemberAgentsEnabled } from "#/lib/member-agents/member-agents-feature";
 import {
@@ -6,7 +7,10 @@ import {
 	syncMemberAgents,
 } from "#/lib/member-agents/sync-member-agents";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
-import { agentDirectMessageSessionsQueryOptions } from "#/query/organizations/agent-direct-message-sessions";
+import {
+	agentDirectMessageSessionQueryKeys,
+	memberAgentDirectMessageSessionsQueryOptions,
+} from "#/query/organizations/agent-direct-message-sessions";
 import {
 	memberAgentQueryKeys,
 	memberAgentsQueryOptions,
@@ -120,8 +124,8 @@ const MEMBER_AGENT_SETUP_SYNC_ATTEMPTS = 12;
 /**
  * Rereads everything a MemberAgent row is built from, so a new MemberAgent
  * never shows without its Profiles: the listing, presence, the
- * Organization's Profile directory and runtime overview, and the owner's
- * Profiles. Never the sync query itself, which lives under the same prefix.
+ * Organization's Profile directory and runtime overview, the owner's
+ * Profiles, and their Sessions. Never the sync query itself, which lives under the same prefix.
  */
 export function invalidateMemberAgentReads(
 	queryClient: ReturnType<typeof useQueryClient>,
@@ -142,6 +146,9 @@ export function invalidateMemberAgentReads(
 			queryKey: organizationQueryKeys.agentRuntimeOverview(organizationId),
 		}),
 		queryClient.invalidateQueries({ queryKey: startQueryKeys.allProfiles }),
+		queryClient.invalidateQueries({
+			queryKey: agentDirectMessageSessionQueryKeys.memberAgents(organizationId),
+		}),
 	]).catch(console.error);
 }
 
@@ -157,26 +164,38 @@ export const useMemberAgentSync: () => void = isMemberAgentsEnabled()
 	? useEnabledMemberAgentSync
 	: useDisabledMemberAgentSync;
 
+/**
+ * The member's Sessions with their own MemberAgents' Profiles, in one read
+ * for every Profile (never one list per Profile).
+ */
+function useMemberAgentSessionSummaries(
+	memberAgents: MemberAgentIndexState
+): readonly MemberAgentDirectMessageSessionSummary[] {
+	const organizationId =
+		useOptionalAppOrganization()?.currentOrganization.id ?? "";
+	const query = useQuery(
+		memberAgentDirectMessageSessionsQueryOptions({
+			organizationId,
+			enabled: memberAgents.ready && Boolean(organizationId),
+		})
+	);
+	const byProfileId = memberAgents.index.byProfileId;
+	return useMemo(
+		() =>
+			(query.data?.sessions ?? []).filter((session) =>
+				byProfileId.has(session.agentProfileId)
+			),
+		[query.data, byProfileId]
+	);
+}
+
 function useEnabledArchivedMemberAgentSessionIds(
 	memberAgents: MemberAgentIndexState
 ): ReadonlySet<string> {
-	const organizationId =
-		useOptionalAppOrganization()?.currentOrganization.id ?? "";
-	const profileIds = [...memberAgents.index.byProfileId.keys()];
-	const archived = useQueries({
-		queries: profileIds.map((agentProfileId) =>
-			agentDirectMessageSessionsQueryOptions({
-				organizationId,
-				agentProfileId,
-				archived: true,
-				enabled: memberAgents.ready && Boolean(organizationId),
-			})
-		),
-	});
-	const key = archived
-		.flatMap(
-			(query) => query.data?.sessions.map((session) => session.spaceId) ?? []
-		)
+	const sessions = useMemberAgentSessionSummaries(memberAgents);
+	const key = sessions
+		.filter((session) => session.archivedAt !== null)
+		.map((session) => session.spaceId)
 		.join("\n");
 	// Stable across renders until the archived Sessions change.
 	return useMemo(() => new Set(key ? key.split("\n") : []), [key]);
@@ -194,31 +213,10 @@ export const useArchivedMemberAgentSessionIds: (
 function useEnabledMemberAgentSessionTitles(
 	memberAgents: MemberAgentIndexState
 ): ReadonlyMap<string, string> {
-	const organizationId =
-		useOptionalAppOrganization()?.currentOrganization.id ?? "";
-	const profileIds = [...memberAgents.index.byProfileId.keys()];
-	// Archived Sessions keep their title too; that list is already read for
-	// useArchivedMemberAgentSessionIds, so it shares the cache.
-	const sessions = useQueries({
-		queries: [false, true].flatMap((archived) =>
-			profileIds.map((agentProfileId) =>
-				agentDirectMessageSessionsQueryOptions({
-					organizationId,
-					agentProfileId,
-					archived,
-					enabled: memberAgents.ready && Boolean(organizationId),
-				})
-			)
-		),
-	});
+	// Archived Sessions keep their title too.
+	const sessions = useMemberAgentSessionSummaries(memberAgents);
 	const key = JSON.stringify(
-		sessions.flatMap(
-			(query) =>
-				query.data?.sessions.map((session) => [
-					session.spaceId,
-					session.name ?? "New chat",
-				]) ?? []
-		)
+		sessions.map((session) => [session.spaceId, session.name ?? "New chat"])
 	);
 	// Stable across renders until a Session is added or renamed.
 	return useMemo(() => new Map(JSON.parse(key) as [string, string][]), [key]);

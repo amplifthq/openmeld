@@ -6,7 +6,10 @@ import {
   type DetectedHarnessKind,
   type GetMemberAgentPresenceResponse,
   getMemberAgentPresenceResponseSchema,
+  type ListMemberAgentDirectMessageSessionsQuery,
+  type ListMemberAgentDirectMessageSessionsResponse,
   type ListMemberAgentsResponse,
+  listMemberAgentDirectMessageSessionsQuerySchema,
   MEMBER_AGENTS_DISABLED_CODE,
   MEMBER_AGENTS_DISABLED_MESSAGE,
   MEMBER_AGENTS_ENABLED,
@@ -38,6 +41,7 @@ import {
   type SubmitRuntimeAgentControllerReportsInput,
 } from "../rpc/methods";
 import { callRequiredAuthWorkerRpc } from "../rpc/required-auth-worker-rpc";
+import { listAuthorizedMemberAgentDirectMessageSessions } from "../space/application/member-agent-direct-message-session-list";
 import {
   classifyHarnessReportDetection,
   type HarnessReportDetection,
@@ -133,6 +137,53 @@ export async function rpcGetMemberAgentPresence(
     organizationId: caller.organizationId,
     generatedAt: new Date(nowMs).toISOString(),
     memberAgents,
+  });
+}
+
+export type ListMemberAgentDirectMessageSessionsRpcInput = MemberAgentRpcInput &
+  ListMemberAgentDirectMessageSessionsQuery;
+
+/**
+ * The signed-in member's Sessions with all of their MemberAgents' Profiles in
+ * one read, so a surface that needs every Session's title or archive state
+ * never lists one Profile at a time.
+ */
+export async function rpcListMemberAgentDirectMessageSessions(
+  env: CoreBindings,
+  input: ListMemberAgentDirectMessageSessionsRpcInput,
+  options: MemberAgentRpcOptions = {}
+): Promise<ListMemberAgentDirectMessageSessionsResponse> {
+  const query = listMemberAgentDirectMessageSessionsQuerySchema.safeParse({
+    ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+    ...(input.limit === undefined ? {} : { limit: input.limit }),
+  });
+  if (!query.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Provide a valid chat-list cursor and limit.",
+    });
+  }
+  const caller = await requireMemberAgentCaller(env, input.context, options);
+  const memberProfileId = caller.context.actorContext.openMeldProfileId?.trim();
+  if (!memberProfileId) {
+    throw createCoreRpcHttpError({
+      status: 403,
+      code: "member_agents.human_caller_required",
+      reason: "Only the signed-in member can manage their Agents.",
+    });
+  }
+  const listing = await listOwnerMemberAgents(env, caller);
+  return await listAuthorizedMemberAgentDirectMessageSessions({
+    db: caller.db,
+    organizationId: caller.organizationId,
+    memberProfileId,
+    ownerUserId: caller.ownerUserId,
+    agentProfileIds: listing.memberAgents.flatMap((memberAgent) =>
+      memberAgent.profiles.map((profile) => profile.openMeldProfileId)
+    ),
+    limit: query.data.limit,
+    ...(query.data.cursor === undefined ? {} : { cursor: query.data.cursor }),
   });
 }
 
@@ -420,7 +471,7 @@ function createPresenceDeps(
           error: toErrorMessage(error),
           ownerUserId: caller.ownerUserId,
         });
-        return null;
+        throw presenceEvidenceUnavailable();
       }
     },
     readOperationalContexts: async (agentProfileIds) => {
@@ -460,16 +511,26 @@ function createPresenceDeps(
             );
           }
         } catch (error) {
-          // Missing entries read as checking, never as a hard verdict.
+          // A failed read is no verdict: fail the presence read so a client
+          // keeps its last confirmed state, never a made-up Checking.
           console.warn("[core.member_agents.wakeability_unavailable]", {
             error: toErrorMessage(error),
             ownerUserId: caller.ownerUserId,
           });
+          throw presenceEvidenceUnavailable();
         }
       }
       return categories;
     },
   };
+}
+
+function presenceEvidenceUnavailable() {
+  return createCoreRpcHttpError({
+    status: 503,
+    code: "member_agents.presence_unavailable",
+    reason: "OpenMeld couldn't read your Agents' state. Try again shortly.",
+  });
 }
 
 async function listOwnerMemberAgents(

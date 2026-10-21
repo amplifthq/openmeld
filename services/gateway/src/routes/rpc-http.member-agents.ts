@@ -1,5 +1,8 @@
 import {
   getMemberAgentPresenceResponseSchema,
+  listMemberAgentDirectMessageSessionsQuerySchema,
+  listMemberAgentDirectMessageSessionsResponseSchema,
+  MEMBER_AGENT_DIRECT_MESSAGE_SESSIONS_ROUTE,
   MEMBER_AGENT_PRESENCE_ROUTE,
   MEMBER_AGENT_SYNC_ROUTE,
   syncMemberAgentsRequestSchema,
@@ -11,6 +14,7 @@ import {
   buildCoreRpcContext,
   executeRpcRoute,
   parseJsonBody,
+  respondBadRequest,
 } from "./rpc-http.helpers";
 
 // MemberAgent catalog sync and derived presence for the signed-in member's
@@ -49,4 +53,32 @@ export function registerMemberAgentRoutes(app: Hono<HonoBindings>): void {
         }),
     })
   );
+  // Every Session with the member's own MemberAgents in one list.
+  app.get(MEMBER_AGENT_DIRECT_MESSAGE_SESSIONS_ROUTE, async (c) => {
+    const cursor = c.req.query("cursor");
+    const limit = c.req.query("limit");
+    const parsed = listMemberAgentDirectMessageSessionsQuerySchema.safeParse({
+      ...(cursor === undefined ? {} : { cursor }),
+      ...(limit === undefined ? {} : { limit: Number(limit) }),
+    });
+    if (!parsed.success) {
+      return respondBadRequest({
+        c,
+        route: MEMBER_AGENT_DIRECT_MESSAGE_SESSIONS_ROUTE,
+        method: "GET",
+        message: "Provide a valid chat-list cursor and limit.",
+      });
+    }
+    return await executeRpcRoute({
+      c,
+      route: MEMBER_AGENT_DIRECT_MESSAGE_SESSIONS_ROUTE,
+      method: "GET",
+      responseSchema: listMemberAgentDirectMessageSessionsResponseSchema,
+      execute: async () =>
+        await c.var.coreRpc.listMemberAgentDirectMessageSessions({
+          ...parsed.data,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
 }
