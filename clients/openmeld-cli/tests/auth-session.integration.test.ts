@@ -587,6 +587,137 @@ describe("auth session storage", () => {
     });
   });
 
+  it("releases the replaced previous token when the journal update fails during a renewal", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        expiresAt: "2026-01-01T00:00:00.000Z",
+        user: { id: "previous-owner" },
+      });
+      await beginThenCrashAuthSessionTransition({
+        accessToken: "candidate-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        computerHandoff: true,
+        user: { id: "candidate-owner" },
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          Promise.resolve(
+            new Response(
+              JSON.stringify({
+                session: {
+                  expiresAt: "2099-01-01T00:00:00.000Z",
+                  id: "previous-session",
+                  token: "previous-token",
+                  userId: "previous-owner",
+                },
+                user: { email: "previous@example.com", id: "previous-owner" },
+              }),
+              {
+                headers: {
+                  "content-type": "application/json",
+                  "set-auth-token": "rotated-previous-token",
+                },
+                status: 200,
+              }
+            )
+          )
+        )
+      );
+      const authDirectory = join(home, ".openmeld", "auth");
+      const transitionPath = join(authDirectory, "session-transition.json");
+      const tokenPath = (tokenRef: { key: string }) =>
+        join(authDirectory, "tokens", `${tokenRef.key}.token`);
+      const readTokenRef = async (path: string, field?: "previousPayload") => {
+        const value = JSON.parse(await readFile(path, "utf8")) as {
+          previousPayload?: { tokenRef: { key: string } };
+          tokenRef?: { key: string };
+        };
+        const tokenRef =
+          field === "previousPayload"
+            ? value.previousPayload?.tokenRef
+            : value.tokenRef;
+        if (!tokenRef) {
+          throw new Error(`Missing tokenRef in ${path}`);
+        }
+        return tokenRef;
+      };
+      const journalWrite = { fail: false };
+      vi.resetModules();
+      vi.doMock("node:fs/promises", async (importOriginal) => {
+        const fs = await importOriginal<typeof import("node:fs/promises")>();
+        return {
+          ...fs,
+          rename: (from: string, to: string) =>
+            journalWrite.fail && to === transitionPath
+              ? Promise.reject(
+                  Object.assign(new Error("injected journal write failure"), {
+                    code: "EIO",
+                  })
+                )
+              : fs.rename(from, to),
+        };
+      });
+      try {
+        const restartedAuthSession = await import("../src/config/auth-session");
+        const recovery =
+          await restartedAuthSession.getInterruptedComputerAuthSessionRecovery();
+        const replacedTokenRef = await readTokenRef(
+          transitionPath,
+          "previousPayload"
+        );
+
+        journalWrite.fail = true;
+        await expect(
+          restartedAuthSession.getAuthSessionState({
+            refreshExpired: true,
+            validateRemote: true,
+          })
+        ).rejects.toThrow("injected journal write failure");
+        journalWrite.fail = false;
+
+        const committedTokenRef = await readTokenRef(
+          join(authDirectory, "session.json")
+        );
+        expect(committedTokenRef).not.toEqual(replacedTokenRef);
+        await expect(
+          readTokenRef(transitionPath, "previousPayload")
+        ).resolves.toEqual(replacedTokenRef);
+        await expect(
+          readFile(tokenPath(replacedTokenRef), "utf8")
+        ).resolves.toBeTruthy();
+
+        for (const phase of ["service", "remote_session"] as const) {
+          await restartedAuthSession.markInterruptedComputerAuthSessionRecovery(
+            { id: recovery?.id ?? "", phase }
+          );
+        }
+        await expect(
+          restartedAuthSession.completeInterruptedComputerAuthSessionRecovery(
+            recovery?.id ?? ""
+          )
+        ).resolves.toBe(true);
+
+        await expect(
+          readFile(tokenPath(replacedTokenRef), "utf8")
+        ).rejects.toMatchObject({ code: "ENOENT" });
+        await expect(
+          restartedAuthSession.getAuthSession()
+        ).resolves.toMatchObject({
+          accessToken: "rotated-previous-token",
+          user: { id: "previous-owner" },
+        });
+      } finally {
+        vi.doUnmock("node:fs/promises");
+      }
+    });
+  });
+
   it("finishes recovery after the candidate token was deleted but journal unlink failed", async () => {
     await withTempHome(async (home) => {
       process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";

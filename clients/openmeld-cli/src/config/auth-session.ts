@@ -1270,6 +1270,7 @@ export async function getInterruptedComputerAuthSessionRecovery(): Promise<Inter
     if (journal.computerHandoff.remoteSessionRevokedAt) {
       if (journal.computerHandoff.serviceReconciledAt) {
         await cleanupCandidateTokenRefs(journal);
+        await releaseReplacedPreviousTokenRef(journal);
         await removeAuthSessionTransitionJournalIfOwned(journal);
         return null;
       }
@@ -1394,6 +1395,7 @@ export async function completeInterruptedComputerAuthSessionRecovery(
     }
     try {
       await cleanupCandidateTokenRefs(journal);
+      await releaseReplacedPreviousTokenRef(journal);
       await removeAuthSessionTransitionJournalIfOwned(journal);
       return true;
     } catch (error) {
@@ -2089,6 +2091,28 @@ async function cleanupCandidateTokenRefs(
     }
     await deleteAccessTokenOrRetainForCleanup(tokenRef);
   }
+}
+
+// A renewal of the restored previous sign-in can commit a new token before
+// the journal's restore point moves to it. Once recovery no longer needs that
+// restore point, release its token unless the committed session still uses it.
+async function releaseReplacedPreviousTokenRef(
+  journal: AuthSessionTransitionJournalV1
+): Promise<void> {
+  const previousTokenRef = normalizeTokenRef(journal.previousPayload?.tokenRef);
+  if (!previousTokenRef) {
+    return;
+  }
+  const committedTokenRef = normalizeTokenRef(
+    (await readSessionPayloadFile())?.tokenRef
+  );
+  if (
+    committedTokenRef &&
+    areStoredTokenRefsEqual(committedTokenRef, previousTokenRef)
+  ) {
+    return;
+  }
+  await deleteAccessTokenOrRetainForCleanup(previousTokenRef);
 }
 
 async function persistRemoteSessionRefresh(input: {
