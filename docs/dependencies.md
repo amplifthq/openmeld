@@ -120,10 +120,10 @@ not install packages or query the network. Stage new manifests before running it
 | [@react-email/hr](https://www.npmjs.com/package/@react-email/hr) | <code>0.0.12</code> | Runtime | [packages/auth](../packages/auth/package.json) |
 | [@react-email/html](https://www.npmjs.com/package/@react-email/html) | <code>0.0.12</code> | Runtime | [packages/auth](../packages/auth/package.json) |
 | [@react-email/preview](https://www.npmjs.com/package/@react-email/preview) | <code>0.0.14</code> | Runtime | [packages/auth](../packages/auth/package.json) |
-| [@react-email/preview-server](https://www.npmjs.com/package/@react-email/preview-server) | <code>5.2.9</code> | Development | [packages/auth](../packages/auth/package.json) |
 | [@react-email/render](https://www.npmjs.com/package/@react-email/render) | <code>2.0.4</code> | Runtime | [packages/auth](../packages/auth/package.json) |
 | [@react-email/section](https://www.npmjs.com/package/@react-email/section) | <code>0.0.17</code> | Runtime | [packages/auth](../packages/auth/package.json) |
 | [@react-email/text](https://www.npmjs.com/package/@react-email/text) | <code>0.1.6</code> | Runtime | [packages/auth](../packages/auth/package.json) |
+| [@react-email/ui](https://www.npmjs.com/package/@react-email/ui) | <code>6.11.3</code> | Development | [packages/auth](../packages/auth/package.json) |
 | [@shadcn/react](https://www.npmjs.com/package/@shadcn/react) | <code>^0.2.1</code> | Runtime | [clients/web](../clients/web/package.json) |
 | [@slack/web-api](https://www.npmjs.com/package/@slack/web-api) | <code>8.0.0</code> | Development | [services/core](../services/core/package.json) |
 | [@streamdown/cjk](https://www.npmjs.com/package/@streamdown/cjk) | <code>^1.0.3</code> | Runtime | [clients/web](../clients/web/package.json) |
@@ -235,7 +235,7 @@ not install packages or query the network. Stage new manifests before running it
 | [react](https://www.npmjs.com/package/react) | <code>^19</code><br><code>^19.3.1</code> | Development, Peer, Runtime | [clients/desktop](../clients/desktop/package.json)<br>[clients/docs](../clients/docs/package.json)<br>[clients/web](../clients/web/package.json)<br>[clients/website](../clients/website/package.json)<br>[packages/auth](../packages/auth/package.json)<br>[packages/ui](../packages/ui/package.json) |
 | [react-day-picker](https://www.npmjs.com/package/react-day-picker) | <code>^10.0.1</code> | Runtime | [packages/ui](../packages/ui/package.json) |
 | [react-dom](https://www.npmjs.com/package/react-dom) | <code>^19</code><br><code>^19.3.1</code> | Development, Peer, Runtime | [clients/desktop](../clients/desktop/package.json)<br>[clients/docs](../clients/docs/package.json)<br>[clients/web](../clients/web/package.json)<br>[clients/website](../clients/website/package.json)<br>[packages/ui](../packages/ui/package.json) |
-| [react-email](https://www.npmjs.com/package/react-email) | <code>5.2.9</code> | Development | [packages/auth](../packages/auth/package.json) |
+| [react-email](https://www.npmjs.com/package/react-email) | <code>6.11.3</code> | Development | [packages/auth](../packages/auth/package.json) |
 | [react-joyride](https://www.npmjs.com/package/react-joyride) | <code>3.2.0</code> | Runtime | [clients/web](../clients/web/package.json) |
 | [rehype-sanitize](https://www.npmjs.com/package/rehype-sanitize) | <code>6.0.0</code> | Runtime | [clients/web](../clients/web/package.json)<br>[clients/website](../clients/website/package.json) |
 | [remark-gfm](https://www.npmjs.com/package/remark-gfm) | <code>^4.0.1</code> | Runtime | [clients/web](../clients/web/package.json) |
