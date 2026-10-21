@@ -5,6 +5,7 @@ import {
 	SpaceConversationSendScrollController,
 	type SpaceMessageScrollAction,
 	SpaceMessageScrollController,
+	scrollMessageIntoConversationViewport,
 } from "./space-conversation-scroll-controller";
 import { buildSpaceConversationScrollRestorationId } from "./space-conversation-scroll-restoration";
 
@@ -179,5 +180,39 @@ describe("buildSpaceConversationScrollRestorationId", () => {
 		expect(
 			buildSpaceConversationScrollRestorationId(undefined)
 		).toBeUndefined();
+	});
+});
+
+describe("scrollMessageIntoConversationViewport", () => {
+	it("places a requested offset exactly in a scaled viewport", () => {
+		const scrollElement = document.createElement("div");
+		const messageElement = document.createElement("div");
+		Object.defineProperty(scrollElement, "offsetHeight", { value: 600 });
+		scrollElement.scrollTop = 0;
+		// Rendered at 50% scale: 600 layout pixels occupy 300 screen pixels.
+		vi.spyOn(scrollElement, "getBoundingClientRect").mockReturnValue(
+			new DOMRect(0, 0, 400, 300)
+		);
+		vi.spyOn(messageElement, "getBoundingClientRect").mockImplementation(
+			() => new DOMRect(0, 500 - scrollElement.scrollTop / 2, 400, 30)
+		);
+		const frames: FrameRequestCallback[] = [];
+		vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+			frames.push(callback);
+			return frames.length;
+		});
+
+		scrollMessageIntoConversationViewport({
+			messageElement,
+			offsetFromVisibleTop: 24,
+			scrollElement,
+		});
+		expect(scrollElement.scrollTop).toBe(952);
+		while (frames.length > 0) {
+			frames.shift()?.(0);
+		}
+
+		expect(messageElement.getBoundingClientRect().top).toBe(24);
+		vi.restoreAllMocks();
 	});
 });
