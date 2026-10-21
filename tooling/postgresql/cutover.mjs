@@ -24,6 +24,7 @@ import {
   migrate,
   readMigrationsAtSource,
 } from "./database.mjs";
+import { backfillMemberAgents } from "./member-agent-backfill.mjs";
 import { readCutoverTarget, verifyRemoteCredential } from "./remote-target.mjs";
 
 export function formatCutoverDataFailure(error) {
@@ -177,12 +178,14 @@ export async function runCutoverDataCommand([command, ...args]) {
   if (
     (["migrate", "verify", "grant-runtime"].includes(command) &&
       args.length === 0) ||
-    (command === "verify-retry-baseline" && args.length === 1)
+    (command === "verify-retry-baseline" && args.length === 1) ||
+    (command === "backfill-member-agents" &&
+      (args.length === 0 || (args.length === 1 && args[0] === "--dry-run")))
   ) {
     return runNativeDataCommand(command, args, registered);
   }
   throw new Error(
-    "Usage: cutover.mjs plan | prepare-barrier <maintenance-id> <new-directory> | inspect-barrier <maintenance-id> | capture <maintenance-id> <new-snapshot> | <migrate|verify|grant-runtime> | verify-retry-baseline <exact-verified-source> | <import|reconcile|completion> <snapshot>"
+    "Usage: cutover.mjs plan | prepare-barrier <maintenance-id> <new-directory> | inspect-barrier <maintenance-id> | capture <maintenance-id> <new-snapshot> | <migrate|verify|grant-runtime> | verify-retry-baseline <exact-verified-source> | backfill-member-agents [--dry-run] | <import|reconcile|completion> <snapshot>"
   );
 }
 
@@ -195,6 +198,11 @@ async function runNativeDataCommand(command, args, registered) {
     if (command === "grant-runtime") {
       await grantRuntime(client, registered.runtimeRole);
       return { runtimeGrantsApplied: true };
+    }
+    if (command === "backfill-member-agents") {
+      return await backfillMemberAgents(client, {
+        dryRun: args[0] === "--dry-run",
+      });
     }
     await client.query("BEGIN READ ONLY");
     const target =

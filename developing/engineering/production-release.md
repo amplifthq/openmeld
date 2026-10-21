@@ -115,6 +115,20 @@ journal. Migrations are immutable; a failure stops dependent components, and
 Core's startup admission refuses a journal that is behind. Credentials and
 ownership: [postgresql.md](postgresql.md). D1 is not a rollback target.
 
+Data backfills are explicit operator steps, not part of `--scope db`. Run them
+from a clean checkout of the released SHA after the migration that adds their
+columns. Preview first; the dry run executes the same writes and invariant
+checks in one transaction and always rolls back:
+
+```sh
+node tooling/postgresql/cutover.mjs backfill-member-agents --dry-run
+node tooling/postgresql/cutover.mjs backfill-member-agents
+```
+
+The MemberAgent backfill is idempotent; a second run reports zero writes. It
+groups existing Agent Profiles into MemberAgents
+([member-agent-program.md §8](../../design-plans/member-agent-program.md)).
+
 ## CLI Release
 
 CLI and Service releases require `--scope cli --lane github`. The Windows
