@@ -14,8 +14,8 @@ import { ensureSpaceReactionTables } from "./space-reaction-repo";
 import { SpaceTaskDeliveryRepository } from "./space-task-delivery-repo";
 import { ensureSpaceTaskTables } from "./space-task-repo";
 
-export const SPACE_SQL_SCHEMA_VERSION = 53;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v53";
+export const SPACE_SQL_SCHEMA_VERSION = 54;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v54";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";

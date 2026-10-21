@@ -503,7 +503,7 @@ account images); none of the rules below changes an authorization or response
 contract.
 
 - **Profile lineage.** Auth owns Profile lineage. A Space keeps the last
-  confirmed read per owner in its SQLite (`space_profile_lineage`, schema v53)
+  confirmed read per owner in its SQLite (`space_profile_lineage`, schema v54)
   together with the active Profiles that read covered. Lineage authorizes
   origin facts and dispatch-continuity authority, so a copy is usable only
   while it is under 10 minutes old and covers every active Profile of that
