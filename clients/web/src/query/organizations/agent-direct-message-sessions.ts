@@ -40,6 +40,10 @@ export function createAgentDirectMessageSessionApi(organizationId: string) {
 // Bounds one read to 2,000 Sessions per Profile; `nextCursor` stays set when
 // more exist so a caller can say the list is incomplete.
 const MAX_SESSION_PAGES = 20;
+// The one read for every MemberAgent Profile replaces one list per Profile
+// (each up to MAX_SESSION_PAGES pages of 100), so its bound covers many
+// Profiles' worth: 100 pages of 500. It is a runaway guard, not a page size.
+const MAX_MEMBER_AGENT_SESSION_PAGES = 100;
 
 /** One agent Profile's Direct Message Sessions with the signed-in Human. */
 export function agentDirectMessageSessionsQueryOptions(input: {
@@ -123,7 +127,11 @@ export function memberAgentDirectMessageSessionsQueryOptions(input: {
 				await readPage(null);
 			const sessions = [...first.sessions];
 			let cursor = first.nextCursor;
-			for (let page = 1; cursor && page < MAX_SESSION_PAGES; page += 1) {
+			for (
+				let page = 1;
+				cursor && page < MAX_MEMBER_AGENT_SESSION_PAGES;
+				page += 1
+			) {
 				const next = await readPage(cursor);
 				sessions.push(...next.sessions);
 				cursor = next.nextCursor;

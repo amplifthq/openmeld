@@ -56,10 +56,14 @@ const accountSpaceSectionsDisplaySchema = z.strictObject({
 
 const MAX_AGENT_SESSION_LISTS = 24;
 
-// The merged pages of the one MemberAgent Session read.
+// The newest Sessions of the one MemberAgent Session read. A longer list is
+// cut, not dropped: the seed is only shown until the live read replaces it.
+const MAX_SNAPSHOT_MEMBER_AGENT_SESSIONS = 2000;
 const memberAgentSessionsDisplaySchema =
 	listMemberAgentDirectMessageSessionsResponseSchema.extend({
-		sessions: z.array(memberAgentDirectMessageSessionSummarySchema).max(2000),
+		sessions: z
+			.array(memberAgentDirectMessageSessionSummarySchema)
+			.max(MAX_SNAPSHOT_MEMBER_AGENT_SESSIONS),
 	});
 
 export const sidebarDisplaySnapshotSchema = z.strictObject({
@@ -116,6 +120,22 @@ function parsedOrNull<T>(schema: z.ZodType<T>, data: unknown): T | null {
 	}
 	const parsed = schema.safeParse(data);
 	return parsed.success ? parsed.data : null;
+}
+
+function newestMemberAgentSessions(data: unknown): unknown {
+	if (
+		typeof data !== "object" ||
+		data === null ||
+		!("sessions" in data) ||
+		!Array.isArray(data.sessions)
+	) {
+		return data;
+	}
+	// The read lists newest first.
+	return {
+		...data,
+		sessions: data.sessions.slice(0, MAX_SNAPSHOT_MEMBER_AGENT_SESSIONS),
+	};
 }
 
 /** Reads the sidebar's current data into a snapshot, or null if none loaded. */
@@ -180,8 +200,10 @@ export function readSidebarDisplaySnapshot(
 		agentSessions,
 		memberAgentSessions: parsedOrNull(
 			memberAgentSessionsDisplaySchema,
-			queryClient.getQueryData(
-				agentDirectMessageSessionQueryKeys.memberAgents(organizationId)
+			newestMemberAgentSessions(
+				queryClient.getQueryData(
+					agentDirectMessageSessionQueryKeys.memberAgents(organizationId)
+				)
 			)
 		),
 	};
