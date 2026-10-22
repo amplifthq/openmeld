@@ -613,6 +613,37 @@ describe("dispatch runtime working folder", () => {
     ).rejects.toMatchObject({ code: "project.local_connection.missing" });
   });
 
+  it("blocks selected code work in a legacy connection nobody reconnected", async () => {
+    const routeConfig = createCurrentRoute();
+    listProjectConnectionsWithStatus.mockResolvedValue([
+      {
+        bindingGeneration: "ownerless-binding",
+        boundAtMs: 1,
+        isDefault: true,
+        organizationId: "organization-1",
+        projectId: "project-1",
+        projectSlug: "payments",
+        repositoryFingerprint: `sha256:${"b".repeat(64)}`,
+        repositoryPath: "/tmp/ownerless-repository",
+        status: "available",
+      },
+    ]);
+    await expect(
+      resolveDispatchWorkingFolderRuntimeContext({
+        ...createDispatchIdentityInput(routeConfig),
+        defaultProjectId: "project-1",
+        defaultProjectIdWasProvided: true,
+        executionContext: createProjectExecutionContext(
+          `sha256:${"b".repeat(64)}`
+        ),
+        ownerUserId: "user-1",
+        nowMs: 10_000,
+        routeConfig,
+        targetProfileId: "agt-1",
+      })
+    ).rejects.toMatchObject({ code: "project.local_connection.missing" });
+  });
+
   it("rejects a delivered Default Project that disagrees with the current route and requests a refresh", async () => {
     const routeConfig = createCurrentRoute();
     const onCurrentWorkingFolderFactRejected = vi.fn();
