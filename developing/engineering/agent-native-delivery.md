@@ -234,7 +234,8 @@ installing dependencies or running repository build scripts. The pull request
 scan gates queue admission and the `main` push scan covers the merged result,
 so a merge group reports the required check without repeating the 9-15 minute
 full scan. A finding that only the combination of queued changes introduces
-surfaces after merge, on the `main` push scan.
+can surface only in a later completed `main` scan; a newer `main` push cancels
+an in-progress one, and the weekly schedule also covers `main`.
 
 Use the current-main entrypoint, never candidate-owned package scripts. GitHub
 Actions is the normal compute lane; the guarded local lane below is for Actions
