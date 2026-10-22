@@ -869,6 +869,14 @@ when SQL semantics are the risk, with focused PostgreSQL tests for shared relati
 tests for Durable Object or local Service storage. The skills' no-network advice applies to isolated unit tests, not
 to explicitly selected integration or real-user smoke.
 
+The CLI, Core, Gateway, Remote Agent, and Web Vitest suites run
+`vi.resetAllMocks()` after every test from a shared setup file, because Vitest
+4's `vi.restoreAllMocks()` only restores `vi.spyOn` spies. Put a shared mock's
+default in its implementation (`vi.fn(async () => value)`) or arm it in
+`beforeEach`. A default from `vi.fn().mockResolvedValue(...)` at module scope,
+in a `vi.mock` factory, or re-armed in `afterEach` is wiped before the next
+test.
+
 When cleaning substantial coverage, establish what still catches the important
 failure. A focused temporary fault can demonstrate this when useful; mutation
 testing is not mandatory for every PR. Control time when dates are fixtures,

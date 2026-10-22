@@ -52,7 +52,7 @@ vi.mock("#/lib/spaces/composer-file-drafts", () => ({
 
 const { createSession, createBoardTask, navigate, save } = vi.hoisted(() => ({
 	createSession: vi.fn(),
-	createBoardTask: vi.fn().mockResolvedValue({}),
+	createBoardTask: vi.fn(async () => ({})),
 	navigate: vi.fn(),
 	save: vi.fn(),
 }));

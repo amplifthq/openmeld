@@ -43,7 +43,7 @@ const { listAccountSpaceItemsMock, navigateMock, createSpaceMock, routerMock } =
 	vi.hoisted(() => ({
 		createSpaceMock: vi.fn(),
 		routerMock: { state: { location: { pathname: "/o/acme/new-space" } } },
-		navigateMock: vi.fn().mockResolvedValue(undefined),
+		navigateMock: vi.fn(async () => undefined),
 		listAccountSpaceItemsMock: vi.fn(),
 	}));
 const JOIN_CHOICE = /Join a Space/;
