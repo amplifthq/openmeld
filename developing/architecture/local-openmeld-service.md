@@ -2133,6 +2133,19 @@ that decision.
   authorize execution. Rollback preserves the original payload, but does not
   restart a Service with an unreadable credential. Recovery must not reread an
   already revoked candidate token merely to finish local cleanup.
+  Recovery restores the previous owner's Service only from that owner's usable
+  sign-in. It first validates the restored sign-in with the server, which may
+  refresh a stale local expiry. While the journal is `recovery_required`, the
+  auth-session owner persists that renewal of the same restored sign-in and
+  moves the journal's restore point with it, because the Service reads only the
+  committed local session at startup. When the server reports it expired, revoked, or
+  invalid, or the committed sign-in belongs to another account, recovery leaves
+  the Service stopped, keeps the previous committed sign-in metadata, revokes
+  the candidate, and clears the journal. No account inherits a running Service,
+  and an explicit sign-in or a new setup can then replace the sign-in. An
+  unreachable server keeps the restore attempt and its retryable failure. The
+  Auth Worker's sign-out succeeds for an unknown, expired, or deleted bearer,
+  so an already invalid candidate counts as revoked.
   If the committed account cannot be identified, setup remains blocked with
   an explicit local sign-out action. Explicit logout preserves malformed
   session JSON in a uniquely named file in the same auth directory before
@@ -3406,9 +3419,10 @@ the verified active bundle before trusting a saved OS registration. A plist or
 unit can survive removal of the local executable; registration alone cannot
 prove automatic updates can run. An active update keeps its existing executor.
 
-Interrupted account handoff recovery belongs to the explicit handoff flow.
-Generic command dispatch must leave install, update, and diagnostics usable
-when the previous Service cannot start. Credential transition isolation and
+Interrupted account handoff recovery belongs to explicit account flows: the
+setup handoff, and `openmeld login` and `openmeld logout`, which finish it
+before changing the sign-in. Generic command dispatch must leave install,
+update, and diagnostics usable when the previous Service cannot start. Credential transition isolation and
 candidate cleanup remain owned by auth-session storage.
 
 Setup succeeds when the service is aligned for this computer, local

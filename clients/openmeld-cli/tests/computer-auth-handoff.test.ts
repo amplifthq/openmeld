@@ -572,6 +572,204 @@ describe("Computer authorization handoff", () => {
     );
   });
 
+  it.each([
+    { reasonCode: "session_expired", state: "expired" },
+    { reasonCode: "remote_session_revoked", state: "revoked" },
+    { reasonCode: "remote_session_invalid", state: "invalid" },
+  ] as const)("leaves the Service stopped and finishes recovery when the previous sign-in is $state", async ({
+    reasonCode,
+    state,
+  }) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    getInterruptedComputerAuthSessionRecoveryMock.mockResolvedValueOnce({
+      candidateSession,
+      gatewayUrl: "https://gateway.openmeld.test",
+      id: "transition-previous-unusable",
+      previousSession: existingSession,
+      remoteSessionRevoked: false,
+      serviceReconciled: false,
+    });
+    getAuthSessionStateMock.mockResolvedValueOnce({
+      reasonCode,
+      session: state === "expired" ? existingSession : null,
+      state,
+    });
+
+    await expect(
+      recoverInterruptedComputerAuthHandoff({
+        presenter,
+        runtime: agentRuntime,
+      })
+    ).resolves.toBe("completed");
+
+    expect(getAuthSessionStateMock).toHaveBeenCalledWith({
+      refreshExpired: true,
+      validateRemote: true,
+    });
+    expect(bestEffortStopCurrentLaneDaemonServiceMock).toHaveBeenCalledTimes(1);
+    expect(runDaemonServiceParticipationGateMock).not.toHaveBeenCalled();
+    expect(
+      recordInterruptedComputerAuthSessionRecoveryFailureMock
+    ).not.toHaveBeenCalled();
+    expect(markInterruptedComputerAuthSessionRecoveryMock).toHaveBeenCalledWith(
+      { id: "transition-previous-unusable", phase: "service" }
+    );
+    expect(revokePreparedAuthSessionMock).toHaveBeenCalledWith(
+      candidateSession
+    );
+    expect(
+      completeInterruptedComputerAuthSessionRecoveryMock
+    ).toHaveBeenCalledWith("transition-previous-unusable");
+    expect(presenter.line).toHaveBeenCalledWith({
+      code: "setup.computer_handoff_recovery.previous_sign_in_unavailable",
+      text: expect.stringContaining("left OpenMeld Service stopped"),
+      data: { reasonCode, state },
+    });
+    expect(presenter.line).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "setup.computer_handoff_recovery.completed",
+        text: expect.stringContaining("stays stopped"),
+      })
+    );
+    expect(warn).toHaveBeenCalledWith(
+      "[openmeld.auth.computer_handoff_recovery_previous_sign_in_unavailable]",
+      { reasonCode, state, transitionId: "transition-previous-unusable" }
+    );
+  });
+
+  it("does not claim a restored Service when an earlier attempt finished the service phase", async () => {
+    getInterruptedComputerAuthSessionRecoveryMock.mockResolvedValueOnce({
+      candidateSession,
+      gatewayUrl: "https://gateway.openmeld.test",
+      id: "transition-service-done-earlier",
+      previousSession: existingSession,
+      remoteSessionRevoked: false,
+      serviceReconciled: true,
+    });
+
+    await expect(
+      recoverInterruptedComputerAuthHandoff({
+        presenter,
+        runtime: agentRuntime,
+      })
+    ).resolves.toBe("completed");
+
+    expect(runDaemonServiceParticipationGateMock).not.toHaveBeenCalled();
+    expect(presenter.line).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "setup.computer_handoff_recovery.completed",
+        text: "Finished cleaning up the interrupted computer connection.",
+      })
+    );
+    expect(presenter.line).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "Restored the previous computer connection.",
+      })
+    );
+  });
+
+  it("retries instead of leaving the Service stopped when the secret store is temporarily unavailable", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    getInterruptedComputerAuthSessionRecoveryMock.mockResolvedValueOnce({
+      candidateSession,
+      gatewayUrl: "https://gateway.openmeld.test",
+      id: "transition-keychain-locked",
+      previousSession: existingSession,
+      remoteSessionRevoked: false,
+      serviceReconciled: false,
+    });
+    getAuthSessionStateMock.mockResolvedValueOnce({
+      errorMessage: "The macOS Keychain is locked.",
+      reasonCode: "session_token_unavailable",
+      retryAfterMs: 5000,
+      session: null,
+      state: "invalid",
+    });
+
+    await expect(
+      recoverInterruptedComputerAuthHandoff({
+        presenter,
+        runtime: agentRuntime,
+      })
+    ).rejects.toThrow("The macOS Keychain is locked.");
+
+    expect(
+      recordInterruptedComputerAuthSessionRecoveryFailureMock
+    ).toHaveBeenCalledWith({
+      id: "transition-keychain-locked",
+      message: "The macOS Keychain is locked.",
+      phase: "service",
+    });
+    expect(runDaemonServiceParticipationGateMock).not.toHaveBeenCalled();
+    expect(
+      markInterruptedComputerAuthSessionRecoveryMock
+    ).not.toHaveBeenCalled();
+    expect(revokePreparedAuthSessionMock).not.toHaveBeenCalled();
+    expect(
+      completeInterruptedComputerAuthSessionRecoveryMock
+    ).not.toHaveBeenCalled();
+  });
+
+  it("does not restore the previous owner's Service from another account's sign-in", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    getInterruptedComputerAuthSessionRecoveryMock.mockResolvedValueOnce({
+      candidateSession,
+      gatewayUrl: "https://gateway.openmeld.test",
+      id: "transition-owner-mismatch",
+      previousSession: existingSession,
+      remoteSessionRevoked: false,
+      serviceReconciled: false,
+    });
+    getAuthSessionStateMock.mockResolvedValueOnce({
+      session: { ...existingSession, user: { id: "someone-else" } },
+      state: "valid",
+    });
+
+    await expect(
+      recoverInterruptedComputerAuthHandoff({
+        presenter,
+        runtime: agentRuntime,
+      })
+    ).resolves.toBe("completed");
+
+    expect(runDaemonServiceParticipationGateMock).not.toHaveBeenCalled();
+  });
+
+  it("still fails recovery when a usable previous sign-in cannot restart its Service", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    getInterruptedComputerAuthSessionRecoveryMock.mockResolvedValueOnce({
+      candidateSession,
+      gatewayUrl: "https://gateway.openmeld.test",
+      id: "transition-service-start-failed",
+      previousSession: existingSession,
+      remoteSessionRevoked: false,
+      serviceReconciled: false,
+    });
+    runDaemonServiceParticipationGateMock.mockResolvedValueOnce({
+      errorMessage: "OpenMeld could not finish starting OpenMeld Service.",
+      status: "needs_attention",
+    });
+
+    await expect(
+      recoverInterruptedComputerAuthHandoff({
+        presenter,
+        runtime: agentRuntime,
+      })
+    ).rejects.toThrow("OpenMeld could not finish starting OpenMeld Service.");
+
+    expect(
+      recordInterruptedComputerAuthSessionRecoveryFailureMock
+    ).toHaveBeenCalledWith({
+      id: "transition-service-start-failed",
+      message: "OpenMeld could not finish starting OpenMeld Service.",
+      phase: "service",
+    });
+    expect(
+      markInterruptedComputerAuthSessionRecoveryMock
+    ).not.toHaveBeenCalled();
+    expect(revokePreparedAuthSessionMock).not.toHaveBeenCalled();
+  });
+
   it("waits and retries when an update wins the Service lock after the first preflight", async () => {
     getInterruptedComputerAuthSessionRecoveryMock.mockResolvedValueOnce({
       candidateSession,

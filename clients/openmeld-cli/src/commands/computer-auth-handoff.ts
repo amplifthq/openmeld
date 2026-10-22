@@ -103,7 +103,7 @@ async function runPreparedComputerAuthHandoff(
       view: input.view,
     });
     if (recoveryOutcome === "deferred") {
-      throw new AuthSessionRecoveryInProgressError();
+      throw new AuthSessionRecoveryInProgressError({ recoveryRequired: true });
     }
     const notifyStopped = async (reasonCode: string, message: string) => {
       try {
