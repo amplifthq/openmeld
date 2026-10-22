@@ -9,8 +9,8 @@ import type {
 } from "@openmeld/schemas";
 import { localProjectControlDiscoverProjectsResponseSchema } from "@openmeld/schemas";
 import { collectObservedSessionWorkingDirectories } from "../../agent-activity/local-observer";
+import { isProjectConnectionUsableByOwner } from "../../agent-activity/project-binding-resolution";
 import {
-  isProjectConnectionUsableByOwner,
   listProjectBindings,
   type ProjectBinding,
 } from "../../agent-activity/project-bindings";

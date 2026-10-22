@@ -4,9 +4,9 @@ import {
   type LocalProjectControlErrorResponse,
   localProjectControlDaemonFrameSchema,
 } from "@openmeld/schemas";
+import { isProjectConnectionUsableByOwner } from "../../agent-activity/project-binding-resolution";
 import {
   bindProject,
-  isProjectConnectionUsableByOwner,
   listProjectConnectionsWithStatus,
   ProjectBindingOperationError,
   ProjectBindingStoreUpdateRequiredError,

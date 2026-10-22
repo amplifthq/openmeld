@@ -8,6 +8,19 @@ export type LocalProjectConnectionIdentity = {
   repositoryPath: string;
 };
 
+/**
+ * One ownership rule for local Project connections. A connection written
+ * before connections recorded their owner has no `ownerUserId`; it stays usable
+ * by the signed-in account. Only a connection owned by another account is
+ * excluded.
+ */
+export function isProjectConnectionUsableByOwner(
+  connection: { ownerUserId?: string },
+  ownerUserId: string | undefined
+): boolean {
+  return !connection.ownerUserId || connection.ownerUserId === ownerUserId;
+}
+
 export async function canonicalizeLocalProjectPath(
   path: string
 ): Promise<string | null> {

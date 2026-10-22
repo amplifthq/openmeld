@@ -12,10 +12,8 @@ import type {
   ProfileFolderProjection,
   ProviderDispatchRuntimeContext,
 } from "@openmeld/schemas/types";
-import {
-  isProjectConnectionUsableByOwner,
-  listProjectConnectionsWithStatus,
-} from "../agent-activity/project-bindings";
+import { isProjectConnectionUsableByOwner } from "../agent-activity/project-binding-resolution";
+import { listProjectConnectionsWithStatus } from "../agent-activity/project-bindings";
 import { resolveCurrentOpenMeldAccountContext } from "../config/account-context";
 import {
   accountProfileWorkspacePath,

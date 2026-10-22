@@ -32,8 +32,8 @@ import {
   startAgentActivityTranscriptWatchers,
 } from "./local-observer";
 import { withAgentActivityDeliveryLock } from "./local-state-lock";
+import { isProjectConnectionUsableByOwner } from "./project-binding-resolution";
 import {
-  isProjectConnectionUsableByOwner,
   listProjectBindings,
   removeAgentActivityBindingsWhileDeliveryLocked,
 } from "./project-bindings";
