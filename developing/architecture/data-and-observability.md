@@ -4431,6 +4431,13 @@ absence or a missing terminal record alone does not establish where a request
 failed. Successful/started HTTP records follow the existing console-log filter
 and remain queryable in Analytics Engine.
 
+Space file and attachment downloads also emit
+`web.openmeld.proxy_response_body` once the body has fully reached the client
+(`body_completed`), the client stopped reading (`body_cancelled`), or the
+upstream body failed (`body_failed`). Its
+duration starts at the response headers and `inputBytes` counts the body bytes
+Web streamed, so a slow client link is distinguishable from a slow upstream.
+
 Select the deployed dataset explicitly when tracing these records:
 `pnpm ops:cf:query --dataset openmeld_runtime_evidence_prod --request <requestId>`.
 Staging uses `openmeld_runtime_evidence_stg`. Browser account-context and
