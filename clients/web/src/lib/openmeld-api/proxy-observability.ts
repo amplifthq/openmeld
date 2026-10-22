@@ -129,7 +129,12 @@ export async function executeObservedWebProxyRequest(input: {
 	try {
 		const response = await input.execute(diagnosticsContext);
 		const responseWithDiagnostics = withWebProxyRequestIdHeader(
-			response,
+			observeMediaResponseBody({
+				cloudflareRuntimeEvidence: input.cloudflareRuntimeEvidence,
+				diagnosticsState,
+				requestEvidence,
+				response,
+			}),
 			diagnosticsState.webProxyRequestId
 		);
 		logWebProxyRecord({
@@ -186,6 +191,110 @@ function withWebProxyRequestIdHeader(
 	headers.set(WEB_PROXY_REQUEST_ID_HEADER, webProxyRequestId);
 	return new Response(response.body, {
 		headers,
+		status: response.status,
+		statusText: response.statusText,
+	});
+}
+
+const WEB_PROXY_MEDIA_DOWNLOAD_ROUTE_PATTERN =
+	/^\/v1\/spaces\/[^/]+\/(?:attachments\/[^/]+|files\/[^/]+\/content)$/u;
+
+// The request record's duration stops at the response headers, so a slow
+// media body is invisible there. These records close when the last byte
+// reaches the client, the client stops reading, or the upstream body fails.
+// `proxy_response_body` is the whole body time; `proxy_response_body_upstream`
+// is the part spent waiting on the upstream body, so the remainder is the
+// client link.
+function observeMediaResponseBody(input: {
+	cloudflareRuntimeEvidence?: WebProxyCloudflareRuntimeEvidence;
+	diagnosticsState: WebProxyDiagnosticsState;
+	requestEvidence: ReturnType<typeof readWebCloudflareRequestEvidence>;
+	response: Response;
+}): Response {
+	const { diagnosticsState, response } = input;
+	if (
+		!(input.cloudflareRuntimeEvidence && response.body) ||
+		diagnosticsState.method !== "GET" ||
+		response.status < 200 ||
+		response.status >= 300 ||
+		!WEB_PROXY_MEDIA_DOWNLOAD_ROUTE_PATTERN.test(diagnosticsState.path)
+	) {
+		return response;
+	}
+	const bodyStartedAtMs = Date.now();
+	let upstreamWaitMs = 0;
+	let bytes = 0;
+	let recorded = false;
+	const record = (
+		outcome: "body_completed" | "body_cancelled" | "body_failed",
+		error?: unknown
+	) => {
+		if (recorded) {
+			return;
+		}
+		recorded = true;
+		const evidence = {
+			runtimeKind: "http",
+			status: outcome === "body_completed" ? "succeeded" : "failed",
+			operation: buildWebProxyOperation(diagnosticsState),
+			route: diagnosticsState.path,
+			method: diagnosticsState.method,
+			statusCode: response.status,
+			inputBytes: bytes,
+			reasonCode: outcome,
+			errorName: resolveErrorName(error),
+			cfRayId: input.requestEvidence.cfRayId,
+			requestId:
+				diagnosticsState.upstreamRequestId ??
+				diagnosticsState.webProxyRequestId,
+			traceId: input.requestEvidence.traceId,
+			spaceId: readSpaceIdFromPath(diagnosticsState.path),
+		} as const;
+		emitWebCloudflareRuntimeEvidence(input.cloudflareRuntimeEvidence, {
+			...evidence,
+			event: "web.openmeld.proxy_response_body",
+			durationMs: Date.now() - bodyStartedAtMs,
+		});
+		emitWebCloudflareRuntimeEvidence(input.cloudflareRuntimeEvidence, {
+			...evidence,
+			event: "web.openmeld.proxy_response_body_upstream",
+			durationMs: upstreamWaitMs,
+		});
+	};
+	// A pull source, unlike pipeThrough, tells an upstream read failure apart
+	// from the client cancelling its download.
+	const reader = response.body.getReader();
+	const body = new ReadableStream<Uint8Array>(
+		{
+			async pull(controller) {
+				let result: ReadableStreamReadResult<Uint8Array>;
+				const readStartedAtMs = Date.now();
+				try {
+					result = await reader.read();
+				} catch (error) {
+					upstreamWaitMs += Date.now() - readStartedAtMs;
+					record("body_failed", error);
+					controller.error(error);
+					return;
+				}
+				upstreamWaitMs += Date.now() - readStartedAtMs;
+				if (result.done) {
+					record("body_completed");
+					controller.close();
+					return;
+				}
+				bytes += result.value.byteLength;
+				controller.enqueue(result.value);
+			},
+			async cancel(reason) {
+				record("body_cancelled");
+				await reader.cancel(reason);
+			},
+		},
+		{ highWaterMark: 0 }
+	);
+	return new Response(body, {
+		headers: response.headers,
 		status: response.status,
 		statusText: response.statusText,
 	});
