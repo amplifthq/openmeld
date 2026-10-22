@@ -48,6 +48,7 @@ import {
   manageAgentRegistrationInstallation,
   reconcileNewRunnableBuiltinAgentRegistrations,
   reconcileNewRunnableBuiltinAgentsForSetup,
+  registerUnselectedBuiltinAgentsTurnedOff,
   resolveAgentContextBinding,
   resolveAgentTargetState,
 } from "../src/agents/registry";
@@ -92,6 +93,37 @@ describe("agents registry resolve target state", () => {
           Object.keys(registry)
         )
       ).toEqual(["codex", "cursor"]);
+    });
+  });
+  it("does not let one slow installation hold back the others in a bounded pool", async () => {
+    await withTempHome(async () => {
+      let release!: (value: string[]) => void;
+      const slow = new Promise<string[]>((resolve) => {
+        release = resolve;
+      });
+      // Codex is listed first and stalls; Cursor must still be delivered.
+      detectInstalledRuntimeAgentsMock.mockImplementation(async (registry) =>
+        Object.hasOwn(registry, "codex") ? await slow : []
+      );
+      const onState = vi.fn(async (_state: AgentTargetState) => undefined);
+      const listing = listAgentTargetStates({
+        agentIds: ["codex", "cursor"],
+        concurrency: 2,
+        onState,
+      });
+      let states: AgentTargetState[] = [];
+      try {
+        await vi.waitFor(() =>
+          expect(onState).toHaveBeenCalledWith(
+            expect.objectContaining({ agentId: "cursor" })
+          )
+        );
+        expect(onState).toHaveBeenCalledTimes(1);
+      } finally {
+        release([]);
+        states = await listing;
+      }
+      expect(states.map((state) => state.agentId)).toEqual(["codex", "cursor"]);
     });
   });
   beforeEach(() => {
@@ -502,6 +534,141 @@ describe("agents registry resolve target state", () => {
         { agentId: "claude-code", enabled: false },
         { agentId: "codex", enabled: true },
         { agentId: "opencode", enabled: true },
+      ]);
+    });
+  });
+
+  it("registers unselected detected agents turned off and reports the unselected ones still on", async () => {
+    // Smoke: setup chose three of six detected agents, the others stayed
+    // on, and each became an Agent.
+    await withTempHome(async () => {
+      await setConfiguredDeviceRuntimeState({
+        controllers: [
+          {
+            agentId: "claude-code",
+            displayName: "Claude Code",
+            enabled: true,
+            registeredAt: "2026-07-01T00:00:00.000Z",
+            updatedAt: "2026-07-01T00:00:00.000Z",
+          },
+          {
+            agentId: "cursor",
+            displayName: "Cursor",
+            enabled: true,
+            registeredAt: "2026-07-01T00:00:00.000Z",
+            updatedAt: "2026-07-01T00:00:00.000Z",
+          },
+        ],
+      });
+
+      const result = await registerUnselectedBuiltinAgentsTurnedOff({
+        selectedAgentIds: ["claude-code"],
+        states: [
+          buildBuiltinState({
+            agentId: "claude-code",
+            displayName: "Claude Code",
+            enabled: true,
+            registered: true,
+          }),
+          buildBuiltinState({
+            agentId: "cursor",
+            displayName: "Cursor",
+            enabled: true,
+            registered: true,
+          }),
+          buildBuiltinState({
+            agentId: "opencode",
+            displayName: "OpenCode",
+            enabled: false,
+            registered: false,
+          }),
+        ],
+      });
+
+      expect(result).toEqual({
+        registeredOffAgentIds: ["opencode"],
+        turnedOffExistingAgentIds: [],
+        unselectedOnAgentIds: ["cursor"],
+      });
+      expect(
+        (await getConfiguredDeviceRuntimeState())?.controllers?.map(
+          ({ agentId, enabled }) => ({ agentId, enabled })
+        )
+      ).toEqual([
+        { agentId: "claude-code", enabled: true },
+        { agentId: "cursor", enabled: true },
+        { agentId: "opencode", enabled: false },
+      ]);
+      // The Service later sees OpenCode registered and keeps it off.
+      expect(
+        await reconcileNewRunnableBuiltinAgentsForSetup({
+          states: [
+            buildBuiltinState({
+              agentId: "opencode",
+              displayName: "OpenCode",
+              enabled: false,
+              registered: false,
+            }),
+          ],
+        })
+      ).toMatchObject({ preservedDisabledAgentIds: ["opencode"] });
+    });
+  });
+
+  it("turns existing unselected registrations off before the Service starts", async () => {
+    // An unselected agent already on would otherwise be reported, and become
+    // an Agent, before setup turned it off through the Service.
+    await withTempHome(async () => {
+      await setConfiguredDeviceRuntimeState({
+        controllers: [
+          {
+            agentId: "codex",
+            displayName: "Codex",
+            enabled: true,
+            registeredAt: "2026-07-01T00:00:00.000Z",
+            updatedAt: "2026-07-01T00:00:00.000Z",
+          },
+          {
+            agentId: "cursor",
+            displayName: "Cursor",
+            enabled: true,
+            registeredAt: "2026-07-01T00:00:00.000Z",
+            updatedAt: "2026-07-01T00:00:00.000Z",
+          },
+        ],
+      });
+
+      const result = await registerUnselectedBuiltinAgentsTurnedOff({
+        selectedAgentIds: ["codex"],
+        states: [
+          buildBuiltinState({
+            agentId: "codex",
+            displayName: "Codex",
+            enabled: true,
+            registered: true,
+          }),
+          buildBuiltinState({
+            agentId: "cursor",
+            displayName: "Cursor",
+            enabled: true,
+            registered: true,
+          }),
+        ],
+        turnOffExisting: true,
+      });
+
+      expect(result).toEqual({
+        registeredOffAgentIds: [],
+        turnedOffExistingAgentIds: ["cursor"],
+        unselectedOnAgentIds: [],
+      });
+      expect(
+        (await getConfiguredDeviceRuntimeState())?.controllers?.map(
+          ({ agentId, enabled }) => ({ agentId, enabled })
+        )
+      ).toEqual([
+        { agentId: "codex", enabled: true },
+        { agentId: "cursor", enabled: false },
       ]);
     });
   });

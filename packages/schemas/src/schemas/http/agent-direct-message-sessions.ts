@@ -56,6 +56,49 @@ export const listAgentDirectMessageSessionsResponseSchema = z.strictObject({
   nextCursor: z.string().min(1).max(1024).nullable(),
 });
 
+// The signed-in Human's Sessions with every Profile of their own
+// MemberAgents, active and archived, as one list. Surfaces that need every
+// Session's title or archive state read this instead of one list per Profile.
+export const MEMBER_AGENT_DIRECT_MESSAGE_SESSIONS_ROUTE =
+  "/v1/organizations/current/member-agents/direct-message-sessions";
+export const MAX_MEMBER_AGENT_DIRECT_MESSAGE_SESSIONS_PAGE = 500;
+
+export const listMemberAgentDirectMessageSessionsQuerySchema = z.strictObject({
+  cursor: z.string().trim().min(1).max(1024).optional(),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_MEMBER_AGENT_DIRECT_MESSAGE_SESSIONS_PAGE)
+    .default(MAX_MEMBER_AGENT_DIRECT_MESSAGE_SESSIONS_PAGE),
+});
+
+export const memberAgentDirectMessageSessionListCursorSchema = z.strictObject({
+  v: z.literal(1),
+  organizationId: trimmedNonEmptyStringSchema,
+  memberProfileId: trimmedNonEmptyStringSchema,
+  createdAtMs: z.number().int().nonnegative(),
+  spaceId: agentDirectMessageSessionSelectorSchema.shape.spaceId,
+});
+
+export const memberAgentDirectMessageSessionSummarySchema = z.strictObject({
+  spaceId: trimmedNonEmptyStringSchema,
+  agentProfileId: trimmedNonEmptyStringSchema,
+  name: z.string().nullable(),
+  archivedAt: ISO_DATE_TIME_SCHEMA.nullable(),
+});
+
+export const listMemberAgentDirectMessageSessionsResponseSchema =
+  z.strictObject({
+    generatedAt: ISO_DATE_TIME_SCHEMA,
+    organizationId: trimmedNonEmptyStringSchema,
+    memberProfileId: trimmedNonEmptyStringSchema,
+    sessions: z
+      .array(memberAgentDirectMessageSessionSummarySchema)
+      .max(MAX_MEMBER_AGENT_DIRECT_MESSAGE_SESSIONS_PAGE),
+    nextCursor: z.string().min(1).max(1024).nullable(),
+  });
+
 // One dedicated operation per Session change. These never unlock the generic
 // Direct Message metadata, lifecycle, or deletion mutations.
 export const updateAgentDirectMessageSessionBodySchema = z.union([
@@ -97,4 +140,13 @@ export type UpdateAgentDirectMessageSessionResponse = z.infer<
 >;
 export type DeleteAgentDirectMessageSessionResponse = z.infer<
   typeof deleteAgentDirectMessageSessionResponseSchema
+>;
+export type ListMemberAgentDirectMessageSessionsQuery = z.input<
+  typeof listMemberAgentDirectMessageSessionsQuerySchema
+>;
+export type ListMemberAgentDirectMessageSessionsResponse = z.infer<
+  typeof listMemberAgentDirectMessageSessionsResponseSchema
+>;
+export type MemberAgentDirectMessageSessionSummary = z.infer<
+  typeof memberAgentDirectMessageSessionSummarySchema
 >;

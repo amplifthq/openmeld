@@ -181,7 +181,14 @@ function projectBuiltinLocalAgentCatalogEntry(input: {
       targetKind: "builtin",
     };
   }
-  if (status === "not_ready" || status === "stale") {
+  // An expired report is missing evidence, not a failed launch. Only a launch
+  // blocker that the last report actually carried may keep it in repair; the
+  // execution target stays stale, so Wakeability still fails closed.
+  if (
+    status === "not_ready" ||
+    (status === "stale" &&
+      hasLaunchBlockerReasonCode(input.capability?.reasonCodes))
+  ) {
     return {
       agentId: input.definition.agentId,
       detected: true,
@@ -189,6 +196,19 @@ function projectBuiltinLocalAgentCatalogEntry(input: {
       enabled,
       lifecycleStatus: input.definition.lifecycleStatus,
       launchStatus: "needs_repair",
+      selectable: true,
+      selectableReason: null,
+      targetKind: "builtin",
+    };
+  }
+  if (status === "stale") {
+    return {
+      agentId: input.definition.agentId,
+      detected: true,
+      displayName: input.definition.displayName,
+      enabled,
+      lifecycleStatus: input.definition.lifecycleStatus,
+      launchStatus: "ready",
       selectable: true,
       selectableReason: null,
       targetKind: "builtin",
@@ -216,6 +236,18 @@ function hasNonLaunchControllerBlocker(
         reasonCode === "controller.interface.check_failed" ||
         reasonCode === "controller.auth.unauthenticated" ||
         reasonCode.startsWith("provider_account.")
+    )
+  );
+}
+
+function hasLaunchBlockerReasonCode(
+  reasonCodes: readonly string[] | undefined
+): boolean {
+  return Boolean(
+    reasonCodes?.some(
+      (reasonCode) =>
+        reasonCode.startsWith("controller.launch.") ||
+        reasonCode.startsWith("local_agent_preparation.")
     )
   );
 }

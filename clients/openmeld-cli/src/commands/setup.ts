@@ -40,6 +40,10 @@ import { createPresenter } from "../runtime/presenter/index";
 import type { Presenter } from "../runtime/presenter/types";
 import { resolveGatewayWebOrigin } from "../space/web-url";
 import { runStartLocalAgentsEnable } from "../start-local/agents-local";
+import {
+  registerUnselectedLocalAgentsOffForSetup,
+  turnOffUnselectedLocalAgentsForSetup,
+} from "../start-local/local-agent-choice";
 import { collectStartLocalReadiness } from "../start-local/readiness";
 import {
   LocalMachineFailureError,
@@ -234,6 +238,14 @@ async function runSetupUnlocked(input: {
     selectedLocalAgentIds,
   });
 
+  // The selection is the Local agents switch (an explicit `none` included).
+  const appliesLocalAgentChoice =
+    selectedLocalAgentIds.length > 0 ||
+    normalizeOptionalString(input.localAgents) === "none";
+  // Before the Service starts, so it never reports an unselected agent as on.
+  const turnedOffBeforeServiceAgentIds = appliesLocalAgentChoice
+    ? await registerUnselectedLocalAgentsOffForSetup({ selectedLocalAgentIds })
+    : [];
   if (selectedLocalAgentIds.length > 0) {
     assertStartLocalAgentsEnableCompleted(
       await runWithSetupProgress({
@@ -321,10 +333,15 @@ async function runSetupUnlocked(input: {
           reason: "setup_local_capabilities_reported",
         })
       : null;
-  emitSetupMemberAgentsLine(
-    presenter,
-    await addSetupSelectedMemberAgents({ selectedLocalAgentIds })
-  );
+  if (appliesLocalAgentChoice) {
+    emitSetupMemberAgentsLine(
+      presenter,
+      await addSetupMemberAgentsAfterLocalAgentChoice({
+        selectedLocalAgentIds,
+        turnedOffBeforeServiceAgentIds,
+      })
+    );
+  }
 
   await runWithSetupProgress({
     code: "setup.progress.skills.updating",
@@ -369,6 +386,27 @@ async function runSetupUnlocked(input: {
     selectedLocalAgentIds,
     view: runtime.resolvedView,
   });
+}
+
+/**
+ * Apply the selection to Local agents, then add the selected Agents. Every
+ * harness turned on becomes an Agent, so an unselected agent the Service
+ * could not turn off (or whose switch OpenMeld has not seen) would be added
+ * too; setup then leaves the Agents to the next sync instead.
+ */
+async function addSetupMemberAgentsAfterLocalAgentChoice(input: {
+  selectedLocalAgentIds: readonly string[];
+  turnedOffBeforeServiceAgentIds?: readonly string[];
+}): Promise<SetupMemberAgentsResult> {
+  const choice = await turnOffUnselectedLocalAgentsForSetup(input);
+  if (choice.failedAgentIds.length > 0) {
+    const names = choice.failedAgentIds.map(formatSetupLocalAgentDisplayName);
+    return {
+      status: "failed",
+      message: `OpenMeld Service couldn't turn off ${names.join(", ")}`,
+    };
+  }
+  return await addSetupSelectedMemberAgents(input);
 }
 
 function emitSetupMemberAgentsLine(
@@ -787,6 +825,13 @@ async function resolveDelegatedSetupCompletionFacts(input: {
             reason: "setup_profile_agent_controller_reported",
           })
         : null;
+    // The Connect page chose these; the session turned every runnable agent
+    // on before it did.
+    if (completionFacts.selectedLocalAgentIds.length > 0) {
+      await addSetupMemberAgentsAfterLocalAgentChoice({
+        selectedLocalAgentIds: completionFacts.selectedLocalAgentIds,
+      });
+    }
     return {
       routeCatalogSync,
       openMeldServiceRuntimeIdentity,
@@ -835,6 +880,11 @@ async function resolveDelegatedSetupCompletionFacts(input: {
       gatewayUrl: input.gatewayUrl,
     }));
   if (selectedLocalAgentIds.length === 0) {
+    // An empty setup session selection means the Connect page has not chosen
+    // yet; only an explicit `--local-agents none` turns every agent off.
+    if (normalizeOptionalString(input.setupInput.localAgents) === "none") {
+      await turnOffUnselectedLocalAgentsForSetup({ selectedLocalAgentIds });
+    }
     return {
       routeCatalogSync: null,
       openMeldServiceRuntimeIdentity,
@@ -860,7 +910,7 @@ async function resolveDelegatedSetupCompletionFacts(input: {
     reason: "setup_session_capabilities_reported",
   });
   // The Connect page's selection arrives as the setup session's agents.
-  await addSetupSelectedMemberAgents({ selectedLocalAgentIds });
+  await addSetupMemberAgentsAfterLocalAgentChoice({ selectedLocalAgentIds });
 
   return {
     routeCatalogSync,

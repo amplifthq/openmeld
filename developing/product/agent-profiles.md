@@ -68,25 +68,47 @@ Profile of the group. The MemberAgent stores no status. Presence and state
 are derived at read time from its Profiles' Wakeability and their Computers'
 online state. A harness reads as missing on every Computer only after it has
 been absent from several consecutive catalog reports or for several minutes,
-so a PATH hiccup or an upgrade never greys the Agent. The display name
+so a PATH hiccup or an upgrade never greys the Agent. A presence read whose
+evidence read fails (the Computers' online lookup or the Profiles'
+Wakeability) fails as a whole instead of answering `Checking`: a failed read is
+no verdict, so a client keeps the state it last read and shows `Checking` only
+before any state has been read. A Profile the Wakeability answer leaves out
+still reads `Checking`. The display name
 `Felix Lu's Claude Code` is derived by the client from the owner's default
 Human Profile name and the harness display name. It is English only and never
 stored.
 
-A MemberAgent exists only for a harness the member chose. Setup creates one
-for each local agent the member selected (`--local-agent`, or the agents
-chosen on the Connect page), and `openmeld agent add <harness>` or the web add
-action creates one later. Each of these sends the harnesses to create to the
-catalog sync, and Core creates a MemberAgent only for a requested harness that
-the OpenMeld Service's harness catalog report shows on a connected Computer.
-Core asks Auth to create the MemberAgent and its default Agent Profile with the
-deterministic idempotency key `auto:{organizationId}:{harnessKind}`; the
-conditional insert on the unique key makes two Computers converge on one
-MemberAgent. Core then writes the Binding and assigns the default Profile under
-the same lock as every other assignment, and opens the owner's Direct Message.
-A sync without requested harnesses (surface open, catalog update) never
-creates a MemberAgent: it finishes interrupted creations, repairs unassigned
-bound Profiles, and reports the other detected harnesses as addable.
+A MemberAgent exists for every harness the member has turned on. The member's
+choice is the Local agents switch of each connected Computer: a harness that a
+Computer reports as turned on and detected gets a MemberAgent, and an
+installed harness that is turned off gets none and is listed as addable.
+Setup's selection is that switch: `openmeld setup` and the Connect page turn
+the selected local agents on and every other detected one off before any
+Agent is added, so choosing three of six harnesses adds three Agents. Turning
+a harness on is how the member adds it later: the Local agents switch in
+OpenMeld Web, the one-click Add in My Agents, and `openmeld agent add
+<harness>` all end in the same Core catalog sync, and Add or `agent add` name
+the harness so Core turns it on there first when it is installed but off. A
+harness that is newly installed and runnable is turned on by the OpenMeld
+Service, so it gets an Agent unless the member turns it off.
+
+Core runs the catalog sync when the member opens an Organization's Agents or
+Direct Message surface, when a harness is turned on from OpenMeld Web, and when
+a catalog report shows a harness that the previous report did not detect (in
+Organizations where the owner already has a MemberAgent). Members whose
+Agents predate this rule get their missing turned-on harnesses on the next
+surface open; no backfill is needed. Core asks Auth to create the MemberAgent
+and its default Agent Profile with the deterministic idempotency key
+`auto:{organizationId}:{harnessKind}`; the conditional insert on the unique
+key makes two Computers and repeated syncs converge on one MemberAgent. Core
+then writes the Binding and assigns the default Profile under the same lock
+as every other assignment, and opens the owner's Direct Message. Creation adds
+no Inbox item and no welcome message. Every sync also finishes interrupted
+creations and repairs unassigned bound Profiles. A shared-account harness
+(for example Grok Bot) waits for the owner to choose a provider conversation
+and is never added this way. Turning a harness off never deletes its
+MemberAgent: on every Computer with it turned off, it reads as missing and
+keeps its Profiles, Sessions, and history.
 MemberAgent `source` is `detected`, `migrated`, or `manual`; the default
 Profile's `source` is `auto_detected`.
 
@@ -99,7 +121,12 @@ reads as missing. Unassigned Profiles sit in their own section at the bottom of
 the Agents list, with the controller switcher as their assignment action. The
 system never guesses an assignment.
 
-The MemberAgent list and presence are owner reads. A MemberAgent link
+The MemberAgent list and presence are owner reads. Surfaces that need the
+title or archive state of every Session with the member's MemberAgents read
+them in one owner read
+(`GET /v1/organizations/current/member-agents/direct-message-sessions`, every
+Profile of every MemberAgent, active and archived), never one Session list per
+Profile. A MemberAgent link
 (`/agents?memberAgentId=`) still opens for any member of its Organization:
 `GET /v1/member-agents/:memberAgentId/profiles` resolves it to the Profiles the
 caller can see, with the same rule as All Agents (active Agent Profiles of the
@@ -159,7 +186,8 @@ mention, and anyone else's mention creates a request to the owner (see
 two of the Agent's Profiles are members, the mention must name one. No "last
 used in this Space" state is stored.
 
-When a harness disappears, its MemberAgent reads as missing after the debounce,
+When a harness disappears, its MemberAgent reads as missing after the debounce
+(a harness turned off reads as missing at once),
 moves to an unavailable group, and keeps its Profiles, Sessions, and history.
 After 30 days the owner gets a manual Archive action; nothing is deleted
 automatically, and reinstalling restores the same MemberAgent. A second

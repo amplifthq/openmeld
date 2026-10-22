@@ -120,6 +120,8 @@ function describeRow(row: MemberAgentDirectoryRow): string {
  * Profile card; opening one reaches the controller switcher that assigns it.
  */
 export function MemberAgentDirectorySection(input: {
+	/** Installed, turned-off Harnesses the member can add, under their Agents. */
+	addable?: ReactNode;
 	directory: MemberAgentDirectory;
 	label: string;
 	/** No Agents yet: connecting a computer detects them; creating is secondary. */
@@ -136,23 +138,26 @@ export function MemberAgentDirectorySection(input: {
 	const { rows, unassigned } = input.directory;
 	if (rows.length === 0 && unassigned.length === 0) {
 		return (
-			<div className="flex flex-wrap items-center gap-3 text-muted-foreground text-sm">
-				<p>No Agents yet. Connect a computer to detect your harnesses.</p>
-				<Link
-					className={buttonVariants({ size: "sm" })}
-					to={input.emptyActions.connectComputerPath}
-				>
-					Connect computer
-				</Link>
-				{input.emptyActions.onCreateAgent ? (
-					<Button
-						onClick={input.emptyActions.onCreateAgent}
-						size="sm"
-						variant="secondary"
+			<div className="space-y-6">
+				<div className="flex flex-wrap items-center gap-3 text-muted-foreground text-sm">
+					<p>No Agents yet. Connect a computer to detect your harnesses.</p>
+					<Link
+						className={buttonVariants({ size: "sm" })}
+						to={input.emptyActions.connectComputerPath}
 					>
-						Create Agent
-					</Button>
-				) : null}
+						Connect computer
+					</Link>
+					{input.emptyActions.onCreateAgent ? (
+						<Button
+							onClick={input.emptyActions.onCreateAgent}
+							size="sm"
+							variant="secondary"
+						>
+							Create Agent
+						</Button>
+					) : null}
+				</div>
+				{input.addable}
 			</div>
 		);
 	}
@@ -187,6 +192,7 @@ export function MemberAgentDirectorySection(input: {
 					))}
 				</AgentCardNavMenu>
 			) : null}
+			{input.addable}
 			{unassigned.length > 0 ? (
 				<section aria-label="Unassigned Profiles" className="space-y-3">
 					<div>

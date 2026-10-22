@@ -495,7 +495,27 @@ of the Prepare catalog used for an explicit Agent selection.
 Background controller discovery submits each completed controller check without
 waiting for unrelated controllers to finish. Submission uses the existing
 per-controller report contract; it does not imply that unchecked controllers are
-ready. Background probes remain sequential to limit process-launch load.
+ready. Background probes run in a small bounded pool (three controllers at a
+time). Every probe keeps its own timeout, so one slow controller cannot hold
+back the other controllers' reports, while cold starts still do not compete
+for the whole machine at once.
+
+Core accepts a native controller check only for a fixed window after its check
+time (`AGENT_CONTROLLER_AUTH_STALE_AFTER_MS`, two minutes). The periodic report
+cadence is therefore measured from when a pass starts, not from when it ends, so
+the time a pass spends checking never stretches the interval between two checks
+of the same controller past that window. The next pass runs on its own timer
+when it comes due; it must not wait for a heartbeat, because an idle heartbeat
+stretches to a minute and a pass that just misses one would land on the
+window's edge. Heartbeats may still start a due pass. A background pass may reuse a held
+snapshot only while its native check is under 30 seconds old, measured from
+the check time rather than probe completion, so a periodic pass always renews
+the observation instead of republishing one that expires before the next pass.
+A slow pass still leaves a short idle gap, and a failed pass settles only after
+its in-flight checks finish. When a report does expire, Core keeps
+the execution target `stale` for Wake eligibility, but the local-agent catalog
+must not turn that missing evidence into `needs_repair`: only a launch blocker
+carried by the last report may keep the launch status in repair.
 
 Installation discovery, registration reconciliation, native checks, and reporting
 form one per-controller pass. A scan must not wait for all installation probes
@@ -1520,6 +1540,12 @@ snapshot records that failure explicitly, preserves the timestamp of the last
 successful check while the selected command fingerprint remains stable, and
 keeps the controller's current status unknown. It must not relabel the
 controller as needing setup or discard the last successful evidence.
+
+Install launch verification follows the same rule on every install path:
+first-use resolution, a persisted launch contract, and explicit repair. A
+failed launch check is retried once immediately. Only a completed negative
+result after that retry reports `needs_repair`; a check that still could not
+finish, including a probe timeout, keeps the install usable.
 
 An installed or detected controller that cannot currently launch must remain
 visible with explicit repair evidence; it must not be relabeled as missing or

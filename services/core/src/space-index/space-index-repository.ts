@@ -1313,7 +1313,8 @@ export async function readCenterAgentDirectMessageProjectionCandidateBySpaceId(i
 export async function listDirectMessageSessionIndexRows(input: {
   db: PostgresDatabase;
   organizationId: string;
-  pairKey: string;
+  /** One pair, or several read as one list in the same order. */
+  pairKeys: readonly string[];
   limit: number;
   /** True: archived only; false: active only; omitted: both. */
   archived?: boolean;
@@ -1324,6 +1325,7 @@ export async function listDirectMessageSessionIndexRows(input: {
 }): Promise<
   Array<{
     spaceId: string;
+    pairKey: string;
     name: string | null;
     createdAtMs: number | null;
     archivedAtMs: number | null;
@@ -1339,8 +1341,12 @@ export async function listDirectMessageSessionIndexRows(input: {
   } else if (input.archived === false) {
     archivedClause = "AND st.archived_at_ms IS NULL";
   }
+  if (input.pairKeys.length === 0) {
+    return [];
+  }
   const rows = await input.db.query<{
     space_id: string;
+    direct_message_pair_key: string;
     space_name: string | null;
     space_created_at_ms: number | null;
     archived_at_ms: number | string | null;
@@ -1348,12 +1354,13 @@ export async function listDirectMessageSessionIndexRows(input: {
     message_preview_json: string | null;
   }>({
     text: `
-    SELECT s.space_id, s.space_name, s.space_created_at_ms, st.archived_at_ms,
+    SELECT s.space_id, s.direct_message_pair_key, s.space_name,
+      s.space_created_at_ms, st.archived_at_ms,
       s.message_preview_revision, s.message_preview_json
     FROM "openmeld"."space_index_spaces" s
     LEFT JOIN "openmeld"."direct_message_session_states" st
       ON st.space_id = s.space_id
-    WHERE s.organization_id = $1 AND s.direct_message_pair_key = $2
+    WHERE s.organization_id = $1 AND s.direct_message_pair_key = ANY($2::text[])
       AND s.space_purpose = $3 AND s.direct_message_converted_at_ms IS NULL
       AND s.status = 'active'
       ${archivedClause}
@@ -1363,7 +1370,7 @@ export async function listDirectMessageSessionIndexRows(input: {
   `,
     values: [
       input.organizationId,
-      input.pairKey,
+      [...input.pairKeys],
       OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
       input.limit,
       ...(input.before ? [input.before.createdAtMs, input.before.spaceId] : []),
@@ -1371,6 +1378,7 @@ export async function listDirectMessageSessionIndexRows(input: {
   });
   return rows.rows.map((row) => ({
     spaceId: row.space_id,
+    pairKey: row.direct_message_pair_key,
     name: row.space_name,
     createdAtMs: row.space_created_at_ms,
     archivedAtMs:
