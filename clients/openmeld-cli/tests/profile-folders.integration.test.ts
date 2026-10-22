@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { profileFolderProjectionSchema } from "@openmeld/schemas";
@@ -831,6 +831,53 @@ describe("profile folders", () => {
       ).rejects.toMatchObject({
         reasonCode: "profile_folder.configuration_invalid",
       });
+      expect(
+        (await readProjectBindingStore()).bindings[0]?.ownerUserId
+      ).toBeUndefined();
+    });
+  });
+
+  it("keeps a claim's I/O failure distinct from a Project that needs reconnecting", async () => {
+    await withTempHome(async (home) => {
+      const repositoryPath = join(home, "openmeld");
+      await mkdir(repositoryPath);
+      await writeProjectBindingStore({
+        bindings: [
+          {
+            bindingGeneration: "binding-ownerless",
+            boundAtMs: 1_783_892_400_000,
+            isDefault: true,
+            organizationId: "org_1",
+            projectId: "prj_1",
+            projectSlug: "openmeld",
+            repositoryFingerprint: null,
+            repositoryPath,
+          },
+        ],
+        version: 3,
+      });
+      const storeDir = join(
+        resolveOpenMeldRootDir(),
+        "device",
+        "agent-activity"
+      );
+      await chmod(storeDir, 0o555);
+      try {
+        const outcome = await applyProfileFolderOperation({
+          account: ACCOUNT,
+          openMeldProfileId: PROFILE_ID,
+          operation: {
+            operation: "add_project",
+            organizationId: "org_1",
+            projectId: "prj_1",
+          },
+          ownerUserId: "user_1",
+        }).catch((error: unknown) => error);
+        expect(outcome).toBeInstanceOf(Error);
+        expect(outcome).not.toBeInstanceOf(ProfileFolderOperationError);
+      } finally {
+        await chmod(storeDir, 0o755);
+      }
       expect(
         (await readProjectBindingStore()).bindings[0]?.ownerUserId
       ).toBeUndefined();

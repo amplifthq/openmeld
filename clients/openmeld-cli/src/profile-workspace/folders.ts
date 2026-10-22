@@ -143,11 +143,14 @@ async function claimProjectFolderConnection(
   try {
     await claimLegacyProjectConnection(claim);
   } catch (error) {
+    // Only a refused claim means "reconnect"; a store that needs an update,
+    // a lock timeout or an I/O failure keeps its own handling.
+    if (!(error instanceof ProjectBindingOperationError)) {
+      throw error;
+    }
     throw new ProfileFolderOperationError(
       "profile_folder.project_not_connected",
-      error instanceof ProjectBindingOperationError
-        ? `${error.message} Connect this Project on this computer again before adding it as a folder.`
-        : "Connect this Project on this computer again before adding it as a folder."
+      `${error.message} Connect this Project on this computer again before adding it as a folder.`
     );
   }
 }
