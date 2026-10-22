@@ -664,7 +664,26 @@ update command must come from the selected install's channel: that controller's
 official native updater, npm/pnpm/bun, or the Homebrew formula actually
 installed, including its tap. ACI must not compare a third-party tap install
 with Homebrew core, and must not advertise a generic updater whose latest
-source is a different package.
+source is a different package. Homebrew cask versions may append a comma and
+numeric revision after the SemVer core, as in `0.143.0,45`. ACI compares that
+core and keeps the full version string in the advisory.
+
+Cursor native installs use that same channel, with one recovery for builds that
+cannot run the updater. Builds before 2026.07.17 make `cursor-agent update`
+exit with `[unauthenticated]` when the CLI is not signed in, and that exit
+cannot install a newer build. Cursor's published recovery for that install is
+the official installer. ACI reports `curl https://cursor.com/install -fsS | bash`
+on macOS and Linux, and `irm 'https://cursor.com/install?win32=true' | iex` on
+Windows, when the selected install is that native channel, the build is older
+than 2026.07.17, and the CLI is not authenticated. Authenticated Cursor CLIs
+report `cursor-agent update`. Builds from 2026.07.17 onward report
+`cursor-agent update` because that updater reaches Cursor's public installer
+without a signed-in CLI. The 2026.07.17 boundary is the first build date whose
+logged-out updater is known to call that public installer: Cursor confirmed on
+2026-07-19 that older logged-out builds, including 2026.01.28, cannot update
+themselves, and build 2026.07.17-3e2a980 updates through
+`https://cursor.com/install`. Homebrew Cursor installs continue to report the
+Homebrew cask upgrade for the installed tap.
 
 When an
 official controller package adds a thin launcher around a packaged native

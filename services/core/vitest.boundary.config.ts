@@ -8,5 +8,6 @@ export default defineConfig({
     environment: "node",
     fileParallelism: false,
     include: ["tests-node/**/*.test.ts"],
+    setupFiles: ["./test-support/reset-mocks.setup.ts"],
   },
 });

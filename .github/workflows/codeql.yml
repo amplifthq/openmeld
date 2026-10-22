@@ -27,17 +27,23 @@ jobs:
       fail-fast: false
       matrix:
         language: [actions, javascript-typescript]
+    # The pull request scan gates admission to the merge queue and the main
+    # push scan covers the merged result. A merge group still reports the
+    # required check so the queue can proceed, but skips a repeat full scan.
     steps:
       - name: Checkout repository
+        if: github.event_name != 'merge_group'
         uses: actions/checkout@v5
         with:
           persist-credentials: false
       - name: Initialize CodeQL
+        if: github.event_name != 'merge_group'
         uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           build-mode: none
       - name: Perform CodeQL Analysis
+        if: github.event_name != 'merge_group'
         uses: github/codeql-action/analyze@v4
         with:
           category: /language:${{ matrix.language }}
