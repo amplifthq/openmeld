@@ -668,6 +668,48 @@ describe("Computer authorization handoff", () => {
     );
   });
 
+  it("retries instead of leaving the Service stopped when the secret store is temporarily unavailable", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    getInterruptedComputerAuthSessionRecoveryMock.mockResolvedValueOnce({
+      candidateSession,
+      gatewayUrl: "https://gateway.openmeld.test",
+      id: "transition-keychain-locked",
+      previousSession: existingSession,
+      remoteSessionRevoked: false,
+      serviceReconciled: false,
+    });
+    getAuthSessionStateMock.mockResolvedValueOnce({
+      errorMessage: "The macOS Keychain is locked.",
+      reasonCode: "session_token_unavailable",
+      retryAfterMs: 5000,
+      session: null,
+      state: "invalid",
+    });
+
+    await expect(
+      recoverInterruptedComputerAuthHandoff({
+        presenter,
+        runtime: agentRuntime,
+      })
+    ).rejects.toThrow("The macOS Keychain is locked.");
+
+    expect(
+      recordInterruptedComputerAuthSessionRecoveryFailureMock
+    ).toHaveBeenCalledWith({
+      id: "transition-keychain-locked",
+      message: "The macOS Keychain is locked.",
+      phase: "service",
+    });
+    expect(runDaemonServiceParticipationGateMock).not.toHaveBeenCalled();
+    expect(
+      markInterruptedComputerAuthSessionRecoveryMock
+    ).not.toHaveBeenCalled();
+    expect(revokePreparedAuthSessionMock).not.toHaveBeenCalled();
+    expect(
+      completeInterruptedComputerAuthSessionRecoveryMock
+    ).not.toHaveBeenCalled();
+  });
+
   it("does not restore the previous owner's Service from another account's sign-in", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     getInterruptedComputerAuthSessionRecoveryMock.mockResolvedValueOnce({

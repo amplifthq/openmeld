@@ -197,6 +197,19 @@ async function reconcileInterruptedComputerService(
   const previousSignIn = recovery.previousOwnerUserId
     ? await readPreviousComputerSignIn(recovery.previousOwnerUserId)
     : null;
+  if (previousSignIn?.usable === "retry") {
+    await recordInterruptedComputerAuthSessionRecoveryFailure({
+      id: recovery.id,
+      message: previousSignIn.message,
+      phase: "service",
+    });
+    logDeferredComputerAuthHandoffRecovery({
+      error: previousSignIn.message,
+      phase: "service",
+      transitionId: recovery.id,
+    });
+    throw new Error(previousSignIn.message);
+  }
   if (previousSignIn && !previousSignIn.usable) {
     // Only a usable sign-in for the previous owner may run its Service.
     // Without one, the Service stays stopped: the committed sign-in remains
@@ -262,6 +275,9 @@ export async function finishInterruptedComputerAuthHandoffBeforeAccountChange(
 
 type PreviousComputerSignIn =
   | { usable: true }
+  // The secret store could not be read right now (for example, a locked
+  // Keychain). That says nothing about the sign-in, so recovery retries.
+  | { usable: "retry"; message: string }
   | {
       usable: false;
       reasonCode: string | null;
@@ -283,6 +299,14 @@ async function readPreviousComputerSignIn(
     normalizeOptionalString(previous.session?.user?.id) === previousOwnerUserId
   ) {
     return { usable: true };
+  }
+  if (previous.reasonCode === "session_token_unavailable") {
+    return {
+      usable: "retry",
+      message:
+        previous.errorMessage ??
+        "OpenMeld could not read the previous Computer sign-in. Try again.",
+    };
   }
   return {
     usable: false,
