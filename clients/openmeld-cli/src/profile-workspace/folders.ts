@@ -12,7 +12,10 @@ import type {
   ProfileFolderProjection,
   ProviderDispatchRuntimeContext,
 } from "@openmeld/schemas/types";
-import { listProjectConnectionsWithStatus } from "../agent-activity/project-bindings";
+import {
+  isProjectConnectionUsableByOwner,
+  listProjectConnectionsWithStatus,
+} from "../agent-activity/project-bindings";
 import { resolveCurrentOpenMeldAccountContext } from "../config/account-context";
 import {
   accountProfileWorkspacePath,
@@ -542,7 +545,7 @@ async function findProjectFolderConnection(input: {
     (connection) =>
       connection.projectId === input.projectId &&
       (input.ownerUserId === undefined ||
-        connection.ownerUserId === input.ownerUserId)
+        isProjectConnectionUsableByOwner(connection, input.ownerUserId))
   );
   return (
     matches.find((connection) => connection.isDefault) ??

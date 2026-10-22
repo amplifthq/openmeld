@@ -112,6 +112,19 @@ type ProjectBindingStore = ProjectBindingStoreV4 & {
 
 type StoreLocationInput = { rootDir?: string };
 
+/**
+ * One ownership rule for local Project connections. A connection written
+ * before connections recorded their owner has no `ownerUserId`; it stays usable
+ * by the signed-in account. Only a connection owned by another account is
+ * excluded.
+ */
+export function isProjectConnectionUsableByOwner(
+  connection: Pick<ProjectBinding, "ownerUserId">,
+  ownerUserId: string | undefined
+): boolean {
+  return !connection.ownerUserId || connection.ownerUserId === ownerUserId;
+}
+
 export async function listProjectBindings(
   input: StoreLocationInput & { organizationId?: string }
 ): Promise<ProjectBinding[]> {
@@ -180,8 +193,7 @@ export async function bindProject(
         );
         if (
           existingProjectConnections.some(
-            (current) =>
-              current.ownerUserId && current.ownerUserId !== ownerUserId
+            (current) => !isProjectConnectionUsableByOwner(current, ownerUserId)
           )
         ) {
           throw new ProjectBindingOperationError(

@@ -6,6 +6,7 @@ import {
 } from "@openmeld/schemas";
 import {
   bindProject,
+  isProjectConnectionUsableByOwner,
   listProjectConnectionsWithStatus,
   ProjectBindingOperationError,
   ProjectBindingStoreUpdateRequiredError,
@@ -464,8 +465,7 @@ async function projectConnections(
     .filter(
       (connection) =>
         connection.projectId === request.projectId &&
-        (!connection.ownerUserId ||
-          connection.ownerUserId === input.ownerUserId)
+        isProjectConnectionUsableByOwner(connection, input.ownerUserId)
     )
     .map((connection) => ({
       bindingGeneration: connection.bindingGeneration,
