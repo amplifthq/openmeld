@@ -81,7 +81,7 @@ function makeOrganizationScope(): OrganizationScopeAuthorized {
 }
 
 vi.mock("#/lib/organizations/organization-join-requests", () => ({
-	requestOrganizationJoinRequests: vi.fn().mockResolvedValue([]),
+	requestOrganizationJoinRequests: vi.fn(async () => []),
 }));
 
 vi.mock("@tanstack/react-router", () => ({

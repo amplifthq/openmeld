@@ -25,7 +25,9 @@ import * as runtimeRegistryRepo from "../runtime-registry/infrastructure/postgre
 import * as forgottenDeviceRepo from "../start/infrastructure/postgresql/forgotten-device-repo";
 import { REQUIRED_SERVICE_UPDATE_RELEASE_MANIFEST } from "./local-components-release-manifest-fixture";
 
-const recordDispatchAttemptExecutionOwnershipMock = vi.fn();
+const recordDispatchAttemptExecutionOwnershipMock = vi.fn<
+  (...args: unknown[]) => Promise<void>
+>(async () => undefined);
 
 import { createPublishedCliReleasesBucket } from "../../test-support/published-local-components-release";
 import {
@@ -202,7 +204,6 @@ describe("dispatch execution profile identity boundaries", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
-    recordDispatchAttemptExecutionOwnershipMock.mockResolvedValue(undefined);
   });
 
   beforeEach(() => {
@@ -673,6 +674,7 @@ describe("dispatch execution profile identity boundaries", () => {
     const callOrder: string[] = [];
     recordDispatchAttemptExecutionOwnershipMock.mockImplementationOnce(() => {
       callOrder.push("record_ownership");
+      return Promise.resolve();
     });
     vi.mocked(deliverRuntimeTransportDispatch).mockImplementationOnce(() => {
       callOrder.push("deliver");
