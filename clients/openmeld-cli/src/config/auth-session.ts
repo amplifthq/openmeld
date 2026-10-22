@@ -231,7 +231,11 @@ export type AuthSessionTransitionContext = {
 export type InterruptedComputerAuthSessionRecovery = {
   gatewayUrl: string;
   id: string;
-  previousSession: StoredAuthSession | null;
+  // Identity comes from the restored payload metadata, never from its
+  // credential: a temporarily unreadable secret store must not erase which
+  // account the restore belongs to. Recovery decides between a restore and a
+  // stopped Service from that owner's sign-in state.
+  previousOwnerUserId: string | null;
   serviceReconciled: boolean;
 } & (
   | { remoteSessionRevoked: true; candidateSession: null }
@@ -1294,8 +1298,8 @@ export async function getInterruptedComputerAuthSessionRecovery(): Promise<Inter
         candidateSession: null,
         gatewayUrl: journal.computerHandoff.gatewayUrl,
         id: journal.id,
-        previousSession: await readRecoverablePreviousSession(
-          journal.previousPayload
+        previousOwnerUserId: normalizeOptionalString(
+          journal.previousPayload?.user?.id
         ),
         remoteSessionRevoked: true,
         serviceReconciled: Boolean(journal.computerHandoff.serviceReconciledAt),
@@ -1329,8 +1333,8 @@ export async function getInterruptedComputerAuthSessionRecovery(): Promise<Inter
       },
       gatewayUrl: journal.computerHandoff.gatewayUrl,
       id: journal.id,
-      previousSession: await readRecoverablePreviousSession(
-        journal.previousPayload
+      previousOwnerUserId: normalizeOptionalString(
+        journal.previousPayload?.user?.id
       ),
       remoteSessionRevoked: false,
       serviceReconciled: Boolean(journal.computerHandoff.serviceReconciledAt),
@@ -2896,21 +2900,6 @@ async function readStoredAuthSessionFromPayloadIfPresent(
     accessToken: accessToken.accessToken,
     payload,
   });
-}
-
-async function readRecoverablePreviousSession(
-  payload: AuthSessionV1 | null
-): Promise<StoredAuthSession | null> {
-  if (!payload) {
-    return null;
-  }
-  const token = await readAccessToken(payload.tokenRef);
-  // The rollback has already restored the original payload. An unreadable
-  // credential cannot restart a Service, but must not prevent cleanup of the
-  // failed candidate or permanently block a fresh authorization attempt.
-  return token.status === "found"
-    ? buildStoredAuthSession({ accessToken: token.accessToken, payload })
-    : null;
 }
 
 async function readRequiredComputerAuthRecoveryJournal(id: string): Promise<

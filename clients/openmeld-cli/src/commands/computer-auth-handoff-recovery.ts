@@ -77,9 +77,6 @@ async function runInterruptedComputerAuthHandoffRecovery(
     text: "Restoring the previous computer connection.",
   });
 
-  const previousOwnerUserId = normalizeOptionalString(
-    recovery.previousSession?.user?.id
-  );
   // An earlier attempt may have finished the service phase; this attempt then
   // does not know whether the Service was restored or left stopped.
   let serviceOutcome: ComputerServiceRecoveryOutcome = "reconciled_earlier";
@@ -87,7 +84,7 @@ async function runInterruptedComputerAuthHandoffRecovery(
     serviceOutcome = await reconcileInterruptedComputerService(input, {
       gatewayUrl: recovery.gatewayUrl,
       id: recovery.id,
-      previousOwnerUserId,
+      previousOwnerUserId: recovery.previousOwnerUserId,
     });
     await markInterruptedComputerAuthSessionRecovery({
       id: recovery.id,
@@ -166,7 +163,8 @@ function resolveComputerAuthHandoffRecoveryCompletionText(input: {
 
 // The previous owner's Service is restored only from that owner's usable
 // sign-in. Otherwise the Service stays stopped (fail closed). Returns
-// whether the Service was restored or left stopped for an unusable sign-in.
+// whether the Service was restored or left stopped. An unreadable secret
+// store throws instead, so the restore point survives for a retry.
 async function reconcileInterruptedComputerService(
   input: ComputerAuthHandoffRecoveryInput,
   recovery: {
@@ -194,10 +192,14 @@ async function reconcileInterruptedComputerService(
     throw error;
   }
 
-  const previousSignIn = recovery.previousOwnerUserId
-    ? await readPreviousComputerSignIn(recovery.previousOwnerUserId)
-    : null;
-  if (previousSignIn?.usable === "retry") {
+  if (!recovery.previousOwnerUserId) {
+    // An incomplete first connection has no previous account to reconnect.
+    return "left_stopped";
+  }
+  const previousSignIn = await readPreviousComputerSignIn(
+    recovery.previousOwnerUserId
+  );
+  if (previousSignIn.usable === "retry") {
     await recordInterruptedComputerAuthSessionRecoveryFailure({
       id: recovery.id,
       message: previousSignIn.message,
@@ -210,7 +212,7 @@ async function reconcileInterruptedComputerService(
     });
     throw new Error(previousSignIn.message);
   }
-  if (previousSignIn && !previousSignIn.usable) {
+  if (!previousSignIn.usable) {
     // Only a usable sign-in for the previous owner may run its Service.
     // Without one, the Service stays stopped: the committed sign-in remains
     // the previous account's, and neither account receives a running
@@ -222,38 +224,36 @@ async function reconcileInterruptedComputerService(
     });
     return "left_stopped";
   }
-  if (recovery.previousOwnerUserId) {
-    const restored = await runDaemonServiceParticipationGate({
-      intent: "start",
-      presenter: input.presenter,
-      resolvedView: input.runtime.resolvedView,
-      allowPrompt: false,
-      autoRepair: true,
-      expectedOwnerUserId: recovery.previousOwnerUserId,
-      forcePrompt: true,
-      forceRefresh: true,
-      gatewayUrl: recovery.gatewayUrl,
-      suppressRefreshHumanResultCard: true,
-      suppressStartSpinner: true,
-      view: input.view,
+  const restored = await runDaemonServiceParticipationGate({
+    intent: "start",
+    presenter: input.presenter,
+    resolvedView: input.runtime.resolvedView,
+    allowPrompt: false,
+    autoRepair: true,
+    expectedOwnerUserId: recovery.previousOwnerUserId,
+    forcePrompt: true,
+    forceRefresh: true,
+    gatewayUrl: recovery.gatewayUrl,
+    suppressRefreshHumanResultCard: true,
+    suppressStartSpinner: true,
+    view: input.view,
+  });
+  if (restored.status !== "aligned") {
+    const error = new Error(
+      restored.errorMessage ??
+        "OpenMeld could not reconnect the previous Computer account."
+    );
+    await recordInterruptedComputerAuthSessionRecoveryFailure({
+      id: recovery.id,
+      message: error.message,
+      phase: "service",
     });
-    if (restored.status !== "aligned") {
-      const error = new Error(
-        restored.errorMessage ??
-          "OpenMeld could not reconnect the previous Computer account."
-      );
-      await recordInterruptedComputerAuthSessionRecoveryFailure({
-        id: recovery.id,
-        message: error.message,
-        phase: "service",
-      });
-      logDeferredComputerAuthHandoffRecovery({
-        error: error.message,
-        phase: "service",
-        transitionId: recovery.id,
-      });
-      throw error;
-    }
+    logDeferredComputerAuthHandoffRecovery({
+      error: error.message,
+      phase: "service",
+      transitionId: recovery.id,
+    });
+    throw error;
   }
   return "restored";
 }

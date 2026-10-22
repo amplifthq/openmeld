@@ -312,10 +312,7 @@ describe("auth session storage", () => {
           accessToken: "candidate-token",
           user: { id: "candidate-owner" },
         },
-        previousSession: {
-          accessToken: "previous-token",
-          user: { id: "previous-owner" },
-        },
+        previousOwnerUserId: "previous-owner",
         remoteSessionRevoked: false,
         serviceReconciled: false,
       });
@@ -579,10 +576,7 @@ describe("auth session storage", () => {
       await expect(
         serviceProcess.getInterruptedComputerAuthSessionRecovery()
       ).resolves.toMatchObject({
-        previousSession: {
-          accessToken: "rotated-previous-token",
-          user: { id: "previous-owner" },
-        },
+        previousOwnerUserId: "previous-owner",
       });
     });
   });
@@ -1056,10 +1050,7 @@ describe("auth session storage", () => {
           accessToken: "candidate-token",
           user: { id: "candidate-owner" },
         },
-        previousSession: {
-          accessToken: "previous-token",
-          user: { id: "previous-owner" },
-        },
+        previousOwnerUserId: "previous-owner",
         remoteSessionRevoked: false,
         serviceReconciled: true,
       });

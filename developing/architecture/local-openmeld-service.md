@@ -2129,12 +2129,18 @@ that decision.
   second session writer nor a second lifecycle owner.
   A missing or unreadable old bearer token does not veto a freshly authorized
   handoff when the committed account metadata is intact. Metadata is used only
-  for account-switch consent and the locked identity comparison, never to
-  authorize execution. Rollback preserves the original payload, but does not
+  for account-switch consent, the locked identity comparison, and naming the
+  account a recovery restores, never to authorize execution. Rollback preserves the original payload, but does not
   restart a Service with an unreadable credential. Recovery must not reread an
   already revoked candidate token merely to finish local cleanup.
   Recovery restores the previous owner's Service only from that owner's usable
-  sign-in. It first validates the restored sign-in with the server, which may
+  sign-in. It names that owner from the restored payload metadata, not by
+  reading its credential, so a temporarily unreadable secret store (for
+  example, a locked Keychain) cannot erase the restore point. A previous
+  payload that names no owner, including an incomplete first connection,
+  finishes with the Service stopped. An unreadable previous credential records
+  a retryable failure and keeps the journal; a missing one is an unusable
+  sign-in. Recovery first validates the restored sign-in with the server, which may
   refresh a stale local expiry. While the journal is `recovery_required`, the
   auth-session owner persists that renewal of the same restored sign-in and
   moves the journal's restore point with it, because the Service reads only the
