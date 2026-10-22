@@ -17,7 +17,7 @@ import {
 import { AgentProfileProjectSelector } from "./agent-profile-project-selector";
 
 const RECOMMENDED_COPY_PATTERN = /Recommended/u;
-const desktopPlatform = vi.hoisted(() => vi.fn());
+const desktopPlatform = vi.hoisted(() => vi.fn((): unknown => null));
 const discovery = vi.hoisted(() => vi.fn());
 vi.mock("#/components/app/start-flow-state", () => ({
 	useStartFlowState: () => ({ storageScope: "account-1" }),
@@ -85,7 +85,6 @@ vi.mock("#/lib/organizations/local-project-control", async (importOriginal) => {
 afterEach(() => {
 	cleanup();
 	vi.clearAllMocks();
-	desktopPlatform.mockReturnValue(null);
 	discoveryController.projectView.mockImplementation(() => ({
 		connections: [],
 		discovery: {
