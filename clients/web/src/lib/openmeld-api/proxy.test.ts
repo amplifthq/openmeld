@@ -745,7 +745,7 @@ describe("OpenMeld gateway proxy", () => {
 
 		expect(writeDataPoint).toHaveBeenCalledOnce();
 		expect((await response.arrayBuffer()).byteLength).toBe(4096);
-		expect(writeDataPoint).toHaveBeenCalledTimes(2);
+		expect(writeDataPoint).toHaveBeenCalledTimes(3);
 		const point = writeDataPoint.mock.calls[1]?.[0] as {
 			blobs: string[];
 			doubles: number[];
@@ -759,6 +759,76 @@ describe("OpenMeld gateway proxy", () => {
 				OBSERVABILITY_CLOUDFLARE_ANALYTICS_DOUBLES.indexOf("inputBytes")
 			]
 		).toBe(4096);
+	});
+
+	it("separates upstream body waits from the client reading the body", async () => {
+		const writeDataPoint = vi.fn();
+		let chunks = 0;
+		const upstreamBody = new ReadableStream<Uint8Array>(
+			{
+				async pull(controller) {
+					if (chunks === 2) {
+						controller.close();
+						return;
+					}
+					chunks += 1;
+					await new Promise((resolve) => setTimeout(resolve, 40));
+					controller.enqueue(new Uint8Array(512));
+				},
+			},
+			{ highWaterMark: 0 }
+		);
+		const fetchMock = vi.fn<typeof fetch>(() =>
+			Promise.resolve(
+				new Response(upstreamBody, {
+					status: 200,
+					headers: { "content-type": "image/png" },
+				})
+			)
+		);
+
+		const response = await proxyOpenMeldGatewayRequest({
+			cloudflareRuntimeEvidence: {
+				analytics: { writeDataPoint },
+				workerEnvironment: "test",
+			},
+			request: new Request(
+				"https://openmeld.test/v1/spaces/space-123/files/file-1/content"
+			),
+			gatewayUrl: "https://gateway.openmeld.test",
+			webAppUrl: "https://openmeld.test",
+			fetchImpl: fetchMock,
+		});
+		const reader = (response.body as ReadableStream<Uint8Array>).getReader();
+		for (;;) {
+			const { done } = await reader.read();
+			if (done) {
+				break;
+			}
+			await new Promise((resolve) => setTimeout(resolve, 40));
+		}
+
+		expect(writeDataPoint).toHaveBeenCalledTimes(3);
+		const durationIndex =
+			OBSERVABILITY_CLOUDFLARE_ANALYTICS_DOUBLES.indexOf("durationMs");
+		const [body, upstream] = [1, 2].map(
+			(call) =>
+				writeDataPoint.mock.calls[call]?.[0] as {
+					blobs: string[];
+					doubles: number[];
+				}
+		) as [
+			{ blobs: string[]; doubles: number[] },
+			{ blobs: string[]; doubles: number[] },
+		];
+		expect(readAnalyticsBlob(upstream, "event")).toBe(
+			"web.openmeld.proxy_response_body_upstream"
+		);
+		const bodyMs = body.doubles[durationIndex] ?? 0;
+		const upstreamMs = upstream.doubles[durationIndex] ?? 0;
+		// Two 40 ms upstream waits, plus two 40 ms client pauses on top.
+		expect(upstreamMs).toBeGreaterThanOrEqual(70);
+		expect(bodyMs - upstreamMs).toBeGreaterThanOrEqual(70);
 	});
 
 	it("records an upstream Space file body failure as failed, not cancelled", async () => {
@@ -794,7 +864,7 @@ describe("OpenMeld gateway proxy", () => {
 		});
 
 		await expect(response.arrayBuffer()).rejects.toThrow("upstream reset");
-		expect(writeDataPoint).toHaveBeenCalledTimes(2);
+		expect(writeDataPoint).toHaveBeenCalledTimes(3);
 		const point = writeDataPoint.mock.calls[1]?.[0] as { blobs: string[] };
 		expect(readAnalyticsBlob(point, "reasonCode")).toBe("body_failed");
 	});
@@ -824,7 +894,7 @@ describe("OpenMeld gateway proxy", () => {
 		});
 
 		await response.body?.cancel();
-		expect(writeDataPoint).toHaveBeenCalledTimes(2);
+		expect(writeDataPoint).toHaveBeenCalledTimes(3);
 		const point = writeDataPoint.mock.calls[1]?.[0] as { blobs: string[] };
 		expect(readAnalyticsBlob(point, "reasonCode")).toBe("body_cancelled");
 	});

@@ -200,9 +200,11 @@ const WEB_PROXY_MEDIA_DOWNLOAD_ROUTE_PATTERN =
 	/^\/v1\/spaces\/[^/]+\/(?:attachments\/[^/]+|files\/[^/]+\/content)$/u;
 
 // The request record's duration stops at the response headers, so a slow
-// media body is invisible there. This record closes when the last byte
-// reaches the client or the client stops reading, which separates a slow
-// downstream link from a slow upstream.
+// media body is invisible there. These records close when the last byte
+// reaches the client, the client stops reading, or the upstream body fails.
+// `proxy_response_body` is the whole body time; `proxy_response_body_upstream`
+// is the part spent waiting on the upstream body, so the remainder is the
+// client link.
 function observeMediaResponseBody(input: {
 	cloudflareRuntimeEvidence?: WebProxyCloudflareRuntimeEvidence;
 	diagnosticsState: WebProxyDiagnosticsState;
@@ -220,6 +222,7 @@ function observeMediaResponseBody(input: {
 		return response;
 	}
 	const bodyStartedAtMs = Date.now();
+	let upstreamWaitMs = 0;
 	let bytes = 0;
 	let recorded = false;
 	const record = (
@@ -230,15 +233,13 @@ function observeMediaResponseBody(input: {
 			return;
 		}
 		recorded = true;
-		emitWebCloudflareRuntimeEvidence(input.cloudflareRuntimeEvidence, {
-			event: "web.openmeld.proxy_response_body",
+		const evidence = {
 			runtimeKind: "http",
 			status: outcome === "body_completed" ? "succeeded" : "failed",
 			operation: buildWebProxyOperation(diagnosticsState),
 			route: diagnosticsState.path,
 			method: diagnosticsState.method,
 			statusCode: response.status,
-			durationMs: Date.now() - bodyStartedAtMs,
 			inputBytes: bytes,
 			reasonCode: outcome,
 			errorName: resolveErrorName(error),
@@ -248,6 +249,16 @@ function observeMediaResponseBody(input: {
 				diagnosticsState.webProxyRequestId,
 			traceId: input.requestEvidence.traceId,
 			spaceId: readSpaceIdFromPath(diagnosticsState.path),
+		} as const;
+		emitWebCloudflareRuntimeEvidence(input.cloudflareRuntimeEvidence, {
+			...evidence,
+			event: "web.openmeld.proxy_response_body",
+			durationMs: Date.now() - bodyStartedAtMs,
+		});
+		emitWebCloudflareRuntimeEvidence(input.cloudflareRuntimeEvidence, {
+			...evidence,
+			event: "web.openmeld.proxy_response_body_upstream",
+			durationMs: upstreamWaitMs,
 		});
 	};
 	// A pull source, unlike pipeThrough, tells an upstream read failure apart
@@ -257,13 +268,16 @@ function observeMediaResponseBody(input: {
 		{
 			async pull(controller) {
 				let result: ReadableStreamReadResult<Uint8Array>;
+				const readStartedAtMs = Date.now();
 				try {
 					result = await reader.read();
 				} catch (error) {
+					upstreamWaitMs += Date.now() - readStartedAtMs;
 					record("body_failed", error);
 					controller.error(error);
 					return;
 				}
+				upstreamWaitMs += Date.now() - readStartedAtMs;
 				if (result.done) {
 					record("body_completed");
 					controller.close();
