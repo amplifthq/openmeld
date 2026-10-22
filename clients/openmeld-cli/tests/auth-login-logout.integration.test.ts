@@ -288,6 +288,64 @@ describe("auth login/logout commands", () => {
     });
   });
 
+  it("asks the user to wait, not to sign in, while another setup owns the transition", async () => {
+    bestEffortStopCurrentLaneDaemonServiceMock.mockResolvedValue({
+      status: "stopped",
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await withTempHome(async () => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      try {
+        await setAuthSession({
+          accessToken: "previous-token",
+          authBaseUrl: "https://auth.openmeld.invalid",
+          clientId: "openmeld-cli",
+          user: { id: "previous-owner" },
+        });
+        // A live setup in this process still owns its pending transition.
+        const activeSetup = await beginAuthSessionTransition(
+          {
+            accessToken: "candidate-token",
+            authBaseUrl: "https://auth.openmeld.invalid",
+            clientId: "openmeld-cli",
+            user: { id: "candidate-owner" },
+          },
+          {
+            computerHandoff: { gatewayUrl: "https://gateway.openmeld.invalid" },
+          }
+        );
+        try {
+          const failure = await withCapturedStdio(() =>
+            runAuthLogin({
+              view: "agent",
+              authUrl: "https://auth.openmeld.invalid",
+              clientId: "openmeld-cli",
+              method: "ott",
+              ott: "OTT_TOKEN_123",
+            })
+          ).catch((error: unknown) => error);
+          expect(failure).toMatchObject({
+            message: expect.stringContaining("Wait for that setup to finish"),
+          });
+          expect(String((failure as Error).message)).not.toContain(
+            "openmeld login"
+          );
+          expect(fetchMock).not.toHaveBeenCalled();
+          expect(runDaemonServiceParticipationGateMock).not.toHaveBeenCalled();
+        } finally {
+          await activeSetup.rollback();
+        }
+      } finally {
+        Reflect.deleteProperty(
+          process.env,
+          "OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN"
+        );
+      }
+    });
+  });
+
   it("explains stale one-time token sessions without exposing auth internals", async () => {
     const fetchMock = vi
       .fn()

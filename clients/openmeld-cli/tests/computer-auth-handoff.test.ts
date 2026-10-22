@@ -637,6 +637,37 @@ describe("Computer authorization handoff", () => {
     );
   });
 
+  it("does not claim a restored Service when an earlier attempt finished the service phase", async () => {
+    getInterruptedComputerAuthSessionRecoveryMock.mockResolvedValueOnce({
+      candidateSession,
+      gatewayUrl: "https://gateway.openmeld.test",
+      id: "transition-service-done-earlier",
+      previousSession: existingSession,
+      remoteSessionRevoked: false,
+      serviceReconciled: true,
+    });
+
+    await expect(
+      recoverInterruptedComputerAuthHandoff({
+        presenter,
+        runtime: agentRuntime,
+      })
+    ).resolves.toBe("completed");
+
+    expect(runDaemonServiceParticipationGateMock).not.toHaveBeenCalled();
+    expect(presenter.line).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "setup.computer_handoff_recovery.completed",
+        text: "Finished cleaning up the interrupted computer connection.",
+      })
+    );
+    expect(presenter.line).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "Restored the previous computer connection.",
+      })
+    );
+  });
+
   it("does not restore the previous owner's Service from another account's sign-in", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     getInterruptedComputerAuthSessionRecoveryMock.mockResolvedValueOnce({

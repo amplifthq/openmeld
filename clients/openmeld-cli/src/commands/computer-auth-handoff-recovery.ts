@@ -80,9 +80,11 @@ async function runInterruptedComputerAuthHandoffRecovery(
   const previousOwnerUserId = normalizeOptionalString(
     recovery.previousSession?.user?.id
   );
-  let serviceLeftStopped = false;
+  // An earlier attempt may have finished the service phase; this attempt then
+  // does not know whether the Service was restored or left stopped.
+  let serviceOutcome: ComputerServiceRecoveryOutcome = "reconciled_earlier";
   if (!recovery.serviceReconciled) {
-    serviceLeftStopped = await reconcileInterruptedComputerService(input, {
+    serviceOutcome = await reconcileInterruptedComputerService(input, {
       gatewayUrl: recovery.gatewayUrl,
       id: recovery.id,
       previousOwnerUserId,
@@ -134,27 +136,37 @@ async function runInterruptedComputerAuthHandoffRecovery(
     state: completed ? "completed" : "failed",
     text: resolveComputerAuthHandoffRecoveryCompletionText({
       completed,
-      serviceLeftStopped,
+      serviceOutcome,
     }),
   });
   return completed ? "completed" : "deferred";
 }
 
+type ComputerServiceRecoveryOutcome =
+  | "restored"
+  | "left_stopped"
+  | "reconciled_earlier";
+
 function resolveComputerAuthHandoffRecoveryCompletionText(input: {
   completed: boolean;
-  serviceLeftStopped: boolean;
+  serviceOutcome: ComputerServiceRecoveryOutcome;
 }): string {
   if (!input.completed) {
     return "The previous computer connection has not been fully restored.";
   }
-  return input.serviceLeftStopped
-    ? "Cleared the interrupted computer connection. OpenMeld Service stays stopped until this computer signs in again."
-    : "Restored the previous computer connection.";
+  switch (input.serviceOutcome) {
+    case "left_stopped":
+      return "Cleared the interrupted computer connection. OpenMeld Service stays stopped until this computer signs in again.";
+    case "reconciled_earlier":
+      return "Finished cleaning up the interrupted computer connection.";
+    default:
+      return "Restored the previous computer connection.";
+  }
 }
 
 // The previous owner's Service is restored only from that owner's usable
-// sign-in. Otherwise the Service stays stopped (fail closed). Returns whether
-// the Service was left stopped for an unusable previous sign-in.
+// sign-in. Otherwise the Service stays stopped (fail closed). Returns
+// whether the Service was restored or left stopped for an unusable sign-in.
 async function reconcileInterruptedComputerService(
   input: ComputerAuthHandoffRecoveryInput,
   recovery: {
@@ -162,7 +174,7 @@ async function reconcileInterruptedComputerService(
     id: string;
     previousOwnerUserId: string | null;
   }
-): Promise<boolean> {
+): Promise<Exclude<ComputerServiceRecoveryOutcome, "reconciled_earlier">> {
   const stopped = await stopCurrentLaneDaemonServiceAfterToolsUpdate(input);
   if (stopped.status === "warning") {
     const error = new Error(
@@ -195,7 +207,7 @@ async function reconcileInterruptedComputerService(
       state: previousSignIn.state,
       transitionId: recovery.id,
     });
-    return true;
+    return "left_stopped";
   }
   if (recovery.previousOwnerUserId) {
     const restored = await runDaemonServiceParticipationGate({
@@ -230,7 +242,7 @@ async function reconcileInterruptedComputerService(
       throw error;
     }
   }
-  return false;
+  return "restored";
 }
 
 // Explicit account changes (sign-in and sign-out) finish an interrupted
@@ -244,7 +256,7 @@ export async function finishInterruptedComputerAuthHandoffBeforeAccountChange(
   }
   const outcome = await recoverInterruptedComputerAuthHandoff(input);
   if (outcome === "deferred") {
-    throw new AuthSessionRecoveryInProgressError();
+    throw new AuthSessionRecoveryInProgressError({ recoveryRequired: true });
   }
 }
 

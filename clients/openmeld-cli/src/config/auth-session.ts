@@ -109,9 +109,14 @@ class AuthSessionStorageError extends Error {
 }
 
 export class AuthSessionRecoveryInProgressError extends Error {
-  constructor() {
+  // `recoveryRequired` marks an interrupted handoff that a sign-in can finish.
+  // Otherwise another setup still owns the transition, and sending the user
+  // to sign in would repeat a command that cannot finish it.
+  constructor(input: { recoveryRequired?: boolean } = {}) {
     super(
-      `OpenMeld is still finishing an interrupted Computer sign-in recovery. The current sign-in was not changed. Run ${formatOpenMeldCliCommand("openmeld login")} to finish the recovery and sign in, or get a new setup command from OpenMeld Web.`
+      input.recoveryRequired
+        ? `OpenMeld is still finishing an interrupted Computer sign-in recovery. The current sign-in was not changed. Run ${formatOpenMeldCliCommand("openmeld login")} to finish the recovery and sign in, or get a new setup command from OpenMeld Web.`
+        : "OpenMeld is still finishing a Computer sign-in change on this computer. The current sign-in was not changed. Wait for that setup to finish, then try again."
     );
     this.name = "AuthSessionRecoveryInProgressError";
   }
@@ -1577,8 +1582,11 @@ async function assertAuthSessionMutationAvailableWithOwnership(): Promise<void> 
     }
   }
   await recoverInterruptedAuthSessionTransitionWithOwnership();
-  if (await readAuthSessionTransitionJournal()) {
-    throw new AuthSessionRecoveryInProgressError();
+  const journal = await readAuthSessionTransitionJournal();
+  if (journal) {
+    throw new AuthSessionRecoveryInProgressError({
+      recoveryRequired: journal.state === "recovery_required",
+    });
   }
 }
 
@@ -1613,6 +1621,32 @@ async function deleteAccessTokenOrRetainForCleanup(
     }
     await persistPendingTokenCleanup([...pending.tokenRefs, tokenRef]);
   }
+}
+
+async function retainAccessTokenForCleanup(
+  tokenRef: StoredTokenRef
+): Promise<void> {
+  const pending = await readPendingTokenCleanup();
+  if (pending.tokenRefs.some((ref) => areStoredTokenRefsEqual(ref, tokenRef))) {
+    return;
+  }
+  await persistPendingTokenCleanup([...pending.tokenRefs, tokenRef]);
+}
+
+// Deletes a token already recorded for cleanup, and drops the record only
+// once the deletion succeeded.
+async function releaseRetainedAccessToken(
+  tokenRef: StoredTokenRef
+): Promise<void> {
+  try {
+    await deleteAccessToken(tokenRef);
+  } catch {
+    return;
+  }
+  const pending = await readPendingTokenCleanup();
+  await persistPendingTokenCleanup(
+    pending.tokenRefs.filter((ref) => !areStoredTokenRefsEqual(ref, tokenRef))
+  );
 }
 
 async function readPendingTokenCleanup(): Promise<PendingTokenCleanupV1> {
@@ -2103,9 +2137,18 @@ async function releaseReplacedPreviousTokenRef(
   if (!previousTokenRef) {
     return;
   }
-  const committedTokenRef = normalizeTokenRef(
-    (await readSessionPayloadFile())?.tokenRef
-  );
+  let committedPayload: Partial<AuthSessionV1> | null;
+  try {
+    committedPayload = await readSessionPayloadFile();
+  } catch (error) {
+    if (error instanceof AuthSessionStorageError) {
+      // Unreadable metadata cannot prove the token is unused. Keep it, and
+      // let explicit sign-out preserve the damaged record as it already does.
+      return;
+    }
+    throw error;
+  }
+  const committedTokenRef = normalizeTokenRef(committedPayload?.tokenRef);
   if (
     committedTokenRef &&
     areStoredTokenRefsEqual(committedTokenRef, previousTokenRef)
@@ -2194,13 +2237,21 @@ async function persistRestoredPreviousSessionRefresh(input: {
   const { journal, ...refresh } = input;
   return await persistCommittedRemoteSessionRefresh({
     ...refresh,
-    // Move the journal's restore point to the renewed credential before the
-    // replaced token is deleted, so recovery never reads a deleted token.
-    beforeReleasingReplacedToken: async (payload) => {
+    // Record the replaced token for cleanup before the journal stops
+    // referencing it, then move the restore point, then delete it. A crash at
+    // any step leaves the old token reachable by a durable record. Pending
+    // cleanup runs only once no transition journal exists.
+    releaseReplacedToken: async (payload, replacedTokenRef) => {
+      if (replacedTokenRef) {
+        await retainAccessTokenForCleanup(replacedTokenRef);
+      }
       await writeAuthSessionTransitionJournalIfOwned(journal, {
         ...journal,
         previousPayload: payload,
       });
+      if (replacedTokenRef) {
+        await releaseRetainedAccessToken(replacedTokenRef);
+      }
     },
   });
 }
@@ -2210,10 +2261,13 @@ async function persistCommittedRemoteSessionRefresh(input: {
   expectedPayloadKey: string | null;
   expiresAt: string;
   previousAccessToken: string;
-  // Runs after the new payload is committed and before the replaced token is
-  // deleted, so another durable reference can move first. If it throws, the
-  // replaced token is kept because that reference may still point to it.
-  beforeReleasingReplacedToken?: (payload: AuthSessionV1) => Promise<void>;
+  // Takes over releasing the replaced token (null when the token did not
+  // rotate) after the new payload is committed, so another durable reference
+  // can move first. Without it, the replaced token is deleted directly.
+  releaseReplacedToken?: (
+    payload: AuthSessionV1,
+    replacedTokenRef: StoredTokenRef | null
+  ) => Promise<void>;
 }): Promise<StoredAuthSession | null> {
   const payload = await readSessionPayloadFile();
   if (
@@ -2253,9 +2307,16 @@ async function persistCommittedRemoteSessionRefresh(input: {
     payload: refresh.nextPayload,
     session: refresh.nextSession,
   });
-  await input.beforeReleasingReplacedToken?.(refresh.nextPayload);
-  if (!areStoredTokenRefsEqual(refresh.currentTokenRef, refresh.nextTokenRef)) {
-    await deleteAccessTokenOrRetainForCleanup(refresh.currentTokenRef);
+  const replacedTokenRef = areStoredTokenRefsEqual(
+    refresh.currentTokenRef,
+    refresh.nextTokenRef
+  )
+    ? null
+    : refresh.currentTokenRef;
+  if (input.releaseReplacedToken) {
+    await input.releaseReplacedToken(refresh.nextPayload, replacedTokenRef);
+  } else if (replacedTokenRef) {
+    await deleteAccessTokenOrRetainForCleanup(replacedTokenRef);
   }
   return refresh.nextSession;
 }
