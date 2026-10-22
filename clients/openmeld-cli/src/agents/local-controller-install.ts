@@ -1,3 +1,4 @@
+import type { LaunchContractVerificationResult } from "@openmeld/adapter-core";
 import type {
   AgentControllerInterfaceSnapshot,
   RuntimeAgentControllerLaunchCandidate,
@@ -165,7 +166,6 @@ export async function resolveBuiltinControllerInstallResolution(input: {
       };
     }
     const verificationError = await verifySelectedInstall({
-      displayName: input.displayName,
       resolver,
       selectedInstall: candidate,
     });
@@ -192,7 +192,6 @@ export async function resolveBuiltinControllerInstallResolution(input: {
     });
     if (selectedInstall) {
       const verificationError = await verifySelectedInstall({
-        displayName: input.displayName,
         resolver,
         selectedInstall,
       });
@@ -232,17 +231,15 @@ async function resolvePersistedControllerInstall(input: {
   persistedLaunchContract: RuntimeAgentControllerLaunchContract;
   resolver: BuiltinControllerInstallResolver;
 }): Promise<LocalControllerInstallResolution> {
-  const persistedVerification = await input.resolver.verifyLaunchContract({
+  const persistedVerification = await verifyLaunchContractWithRetry({
     launchContract: input.persistedLaunchContract,
+    resolver: input.resolver,
   });
   const installedCandidates =
     await input.resolver.resolveInstalledLaunchCandidates({
       preferredLaunchContract: input.persistedLaunchContract,
     });
-  if (
-    persistedVerification.ok ||
-    persistedVerification.failureKind === "incomplete_check"
-  ) {
+  if (!isCompletedLaunchFailure(persistedVerification)) {
     return {
       detail: null,
       installChoices: installedCandidates.ok
@@ -344,7 +341,6 @@ export async function repairBuiltinControllerInstall(input: {
       };
     }
     const verificationError = await verifySelectedInstall({
-      displayName: input.displayName,
       resolver,
       selectedInstall,
     });
@@ -374,7 +370,6 @@ export async function repairBuiltinControllerInstall(input: {
       };
     }
     const verificationError = await verifySelectedInstall({
-      displayName: input.displayName,
       resolver,
       selectedInstall,
     });
@@ -411,20 +406,41 @@ export async function repairBuiltinControllerInstall(input: {
 }
 
 async function verifySelectedInstall(input: {
-  displayName: string;
   resolver: BuiltinControllerInstallResolver;
   selectedInstall: LocalControllerInstallChoice;
 }): Promise<string | null> {
-  const verification = await input.resolver.verifyLaunchContract({
+  const verification = await verifyLaunchContractWithRetry({
     launchContract: input.selectedInstall.launchContract,
+    resolver: input.resolver,
   });
-  if (verification.ok) {
-    return null;
+  return isCompletedLaunchFailure(verification)
+    ? verification.errorMessage
+    : null;
+}
+
+// One launch-verification rule for every install path. A check that could not
+// finish (including a probe timeout) proves nothing about the install, so it
+// never downgrades it; only a completed negative result does. Any failure gets
+// one immediate retry so a single transient start failure cannot report repair.
+async function verifyLaunchContractWithRetry(input: {
+  launchContract: RuntimeAgentControllerLaunchContract;
+  resolver: BuiltinControllerInstallResolver;
+}): Promise<LaunchContractVerificationResult> {
+  const firstAttempt = await input.resolver.verifyLaunchContract({
+    launchContract: input.launchContract,
+  });
+  if (firstAttempt.ok) {
+    return firstAttempt;
   }
-  if (verification.failureKind === "incomplete_check") {
-    return `OpenMeld couldn't finish checking whether this ${input.displayName} install can start. Try again.`;
-  }
-  return verification.errorMessage;
+  return await input.resolver.verifyLaunchContract({
+    launchContract: input.launchContract,
+  });
+}
+
+function isCompletedLaunchFailure(
+  verification: LaunchContractVerificationResult
+): verification is Extract<LaunchContractVerificationResult, { ok: false }> {
+  return !verification.ok && verification.failureKind === "completed_negative";
 }
 
 function resolveBuiltinControllerInstallResolverOrNull(

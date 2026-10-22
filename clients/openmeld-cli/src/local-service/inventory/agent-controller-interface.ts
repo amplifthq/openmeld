@@ -354,7 +354,9 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
       return recordAgentControllerInterfaceProbeSuccess({
         commandFingerprint: commandFingerprintAfterProbe,
         keeperKey,
-        nowMs: Date.now(),
+        // Reuse age counts from the native check time Core measures, not
+        // from when a slow probe happened to finish.
+        nowMs: Date.parse(completedSnapshot.checkedAt),
         snapshot: completedSnapshot,
       });
     }

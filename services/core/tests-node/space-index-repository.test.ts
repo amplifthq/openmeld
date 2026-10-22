@@ -1,5 +1,6 @@
 import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it } from "vitest";
+import { listAuthorizedMemberAgentDirectMessageSessions } from "../src/space/application/member-agent-direct-message-session-list";
 import type { SpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
 import type { SpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 import {
@@ -633,7 +634,7 @@ describe("space index AccountSpaces read model", () => {
       const sessions = await listDirectMessageSessionIndexRows({
         db: harness.db,
         organizationId: "org-1",
-        pairKey: "agt_33333333-3333-4333-8333-333333333333:human-1",
+        pairKeys: ["agt_33333333-3333-4333-8333-333333333333:human-1"],
         limit: 10,
       });
       expect(sessions).toMatchObject([
@@ -652,7 +653,7 @@ describe("space index AccountSpaces read model", () => {
         await listDirectMessageSessionIndexRows({
           db: harness.db,
           organizationId: "org-1",
-          pairKey: "agt_33333333-3333-4333-8333-333333333333:human-1",
+          pairKeys: ["agt_33333333-3333-4333-8333-333333333333:human-1"],
           limit: 10,
         })
       ).toMatchObject([
@@ -669,7 +670,7 @@ describe("space index AccountSpaces read model", () => {
       const sessionPair = {
         db: harness.db,
         organizationId: "org-1",
-        pairKey: "agt_33333333-3333-4333-8333-333333333333:human-1",
+        pairKeys: ["agt_33333333-3333-4333-8333-333333333333:human-1"],
         limit: 10,
         archived: false,
       };
@@ -703,6 +704,115 @@ describe("space index AccountSpaces read model", () => {
       ).toMatchObject([
         { spaceId: "space-center-agent-dm", archivedAtMs: null },
       ]);
+    } finally {
+      await harness.close();
+    }
+  });
+  it("lists the member's Sessions with several agent Profiles as one paged list", async () => {
+    const harness = await createSpaceIndexHarness();
+    try {
+      const sessions = [
+        { spaceId: "space-a-1", agent: "agent-a", human: "human-1" },
+        { spaceId: "space-a-2", agent: "agent-a", human: "human-1" },
+        { spaceId: "space-b-1", agent: "agent-b", human: "human-1" },
+        // Another Human's Session with the same Agent stays out.
+        { spaceId: "space-a-other", agent: "agent-a", human: "human-2" },
+      ];
+      for (const session of sessions) {
+        await projectActiveSpaceIndexSnapshot({
+          db: harness.db,
+          eventType: "space.created",
+          metaRecord: createMeta({
+            directMessagePairKey: `${session.agent}:${session.human}`,
+            name: `Chat ${session.spaceId}`,
+            purpose: "openmeld_dm_space",
+            spaceId: session.spaceId,
+            updatedAt: "2026-04-10T00:00:00.000Z",
+          }),
+          memberRecords: [
+            createMember({
+              addedAt: "2026-04-10T00:01:00.000Z",
+              profileId: session.human,
+              profileKindSnapshot: "human",
+              profileNameSnapshot: "Mira",
+              spaceId: session.spaceId,
+            }),
+            createMember({
+              addedAt: "2026-04-10T00:02:00.000Z",
+              profileId: session.agent,
+              profileKindSnapshot: "agent",
+              profileNameSnapshot: "Helper",
+              spaceId: session.spaceId,
+            }),
+          ],
+        });
+      }
+      await writeDirectMessageSessionArchivedAt({
+        db: harness.db,
+        spaceId: "space-b-1",
+        organizationId: "org-1",
+        archivedAtMs: Date.parse("2026-04-14T00:00:00.000Z"),
+        nowMs: Date.parse("2026-04-14T00:00:00.000Z"),
+      });
+      const read = (cursor?: string) =>
+        listAuthorizedMemberAgentDirectMessageSessions({
+          db: harness.db,
+          organizationId: "org-1",
+          memberProfileId: "human-1",
+          ownerUserId: "owner-1",
+          agentProfileIds: ["agent-a", "agent-b"],
+          limit: 2,
+          ...(cursor === undefined ? {} : { cursor }),
+        });
+      const first = await read();
+      expect(first.nextCursor).not.toBeNull();
+      const second = await read(first.nextCursor ?? undefined);
+      expect(second.nextCursor).toBeNull();
+      // Active and archived Sessions of every Profile, each tagged with its
+      // Profile, newest first across Profiles.
+      expect([...first.sessions, ...second.sessions]).toEqual([
+        {
+          spaceId: "space-b-1",
+          agentProfileId: "agent-b",
+          name: "Chat space-b-1",
+          archivedAt: "2026-04-14T00:00:00.000Z",
+        },
+        {
+          spaceId: "space-a-2",
+          agentProfileId: "agent-a",
+          name: "Chat space-a-2",
+          archivedAt: null,
+        },
+        {
+          spaceId: "space-a-1",
+          agentProfileId: "agent-a",
+          name: "Chat space-a-1",
+          archivedAt: null,
+        },
+      ]);
+      await expect(
+        listAuthorizedMemberAgentDirectMessageSessions({
+          db: harness.db,
+          organizationId: "org-1",
+          memberProfileId: "human-2",
+          ownerUserId: "owner-2",
+          agentProfileIds: ["agent-a"],
+          limit: 2,
+          cursor: first.nextCursor ?? "",
+        })
+      ).rejects.toMatchObject({ status: 400 });
+      expect(
+        (
+          await listAuthorizedMemberAgentDirectMessageSessions({
+            db: harness.db,
+            organizationId: "org-1",
+            memberProfileId: "human-1",
+            ownerUserId: "owner-1",
+            agentProfileIds: [],
+            limit: 2,
+          })
+        ).sessions
+      ).toEqual([]);
     } finally {
       await harness.close();
     }

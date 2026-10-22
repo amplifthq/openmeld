@@ -33,6 +33,14 @@ projection is not an operation receipt: only the original successful control
 response reports that the check completed. An unknown or partial result keeps
 the still-checking guidance.
 
+On the owner's Local agents card, each agent shows one status from one rule.
+Launch facts come only from the Core catalog entry, and controller facts only
+from the Agent Controller Interface snapshot. A completed negative launch result shows
+`Choose installation` or `Can't start`; a check that is late, expired, or did
+not finish shows a neutral `Check delayed` and keeps the last known details;
+sign-in and controller health follow. The interface snapshot never decides
+`Can't start` on its own.
+
 Message details offers **Hand off** to continue work from its current readable
 message with another Agent. The current form requires a Project/repository and
 published commit only when **Include a repository** is selected. By default it
@@ -1167,6 +1175,11 @@ The selected scope, search, filters, sorting, and grouping are browser preferenc
 scoped to the current account and workspace, so returning from detail restores
 the list. These preferences contain no Profile, permission, or readiness facts.
 My Agents adds no separate navigation destination, identity, or permission owner.
+Under the signed-in member's own Agents, an unfiltered list shows **Found on
+your computers**: the installed harnesses that are turned off in Local agents,
+from Core's catalog sync, each with **Add**. Add asks Core to add that harness,
+which turns it on where it is installed and creates its Agent and Direct
+Message (`developing/product/agent-profiles.md`, MemberAgent Layer).
 Agent cards in the list draw their hover background on their own card layer;
 the menu-level shared hover indicator stays off behind opaque cards. Every
 group header, including the signed-in member's own Agents, offers the shared
