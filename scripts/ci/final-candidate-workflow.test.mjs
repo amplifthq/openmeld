@@ -43,7 +43,7 @@ const RETIRED_MANDATORY_REVIEW_LANGUAGE = [
   /review remains required/iu,
 ];
 
-test("required CodeQL scans include forks without executing repository build scripts", () => {
+test("required CodeQL scans include forks without executing repository build scripts or rescanning merge groups", () => {
   const workflow = parse(readRepoFile(".github/workflows/codeql.yml"));
   assert.deepEqual(workflow.on.pull_request, { branches: ["main"] });
   // The required check must also report on merge-queue groups.
@@ -64,6 +64,10 @@ test("required CodeQL scans include forks without executing repository build scr
   });
   assert.equal(job.environment, undefined);
   assert.ok(job.steps.every((step) => !step.run));
+  // Merge groups report the required check without repeating the full scan.
+  assert.ok(
+    job.steps.every((step) => step.if === "github.event_name != 'merge_group'")
+  );
   assert.equal(job.steps[0].with["persist-credentials"], false);
   assert.equal(job.steps[1].with["build-mode"], "none");
 });

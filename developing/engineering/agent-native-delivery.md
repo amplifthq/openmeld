@@ -230,7 +230,12 @@ CodeQL uses `.github/workflows/codeql.yml` so fork PRs and merge groups
 receive the same required `Analyze (javascript-typescript)` check as
 repository branches. Keep GitHub's default setup disabled; it excludes fork PRs
 and blocks uploads from advanced workflows. The workflow scans without
-installing dependencies or running repository build scripts.
+installing dependencies or running repository build scripts. The pull request
+scan gates queue admission and the `main` push scan covers the merged result,
+so a merge group reports the required check without repeating the 9-15 minute
+full scan. A finding that only the combination of queued changes introduces
+can surface only in a later completed `main` scan; a newer `main` push cancels
+an in-progress one, and the weekly schedule also covers `main`.
 
 Use the current-main entrypoint, never candidate-owned package scripts. GitHub
 Actions is the normal compute lane; the guarded local lane below is for Actions
@@ -345,9 +350,10 @@ review requirement or a second delivery process.
 ### Merge queue
 
 Merge queue owns freshness for `main`: a pull request queues after its own
-checks pass, so a green candidate on an older base needs no sync. CodeQL and
+checks pass, so a green candidate on an older base needs no sync.
 `merge-group-final-candidate.yml` (the required `OpenMeld Final Candidate`
-check) validate GitHub's exact merge-group commit. Branch protection requires
+check) validates GitHub's exact merge-group commit; CodeQL reports its required
+check there without rescanning. Branch protection requires
 merge queue (method `merge`, build concurrency 1, one to five pull requests per
 group, only non-failing pull requests, 60-minute status check timeout) with
 "Require branches to be up to date" off; until then strict up-to-date owns
