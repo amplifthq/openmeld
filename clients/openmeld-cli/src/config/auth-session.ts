@@ -122,6 +122,16 @@ export class AuthSessionRecoveryInProgressError extends Error {
   }
 }
 
+// Picks the next action from the journal that blocks the change: a sign-in
+// can finish recovery_required, while a pending transition belongs to a setup.
+function recoveryInProgressErrorFor(
+  journal: Pick<AuthSessionTransitionJournalV1, "state"> | null
+): AuthSessionRecoveryInProgressError {
+  return new AuthSessionRecoveryInProgressError({
+    recoveryRequired: journal?.state === "recovery_required",
+  });
+}
+
 export class AuthSessionChangedBeforeTransitionError extends Error {
   readonly reason = "previous_session_changed" as const;
 
@@ -356,8 +366,9 @@ export function withAdmittedServiceSession<T>(
 // local snapshot under it. It never refreshes credentials or recovers a journal
 // while recursively holding the auth lock.
 export async function readServiceAdmissionSessionWithOwnership(): Promise<StoredAuthSession> {
-  if (await readAuthSessionTransitionJournal()) {
-    throw new AuthSessionRecoveryInProgressError();
+  const journal = await readAuthSessionTransitionJournal();
+  if (journal) {
+    throw recoveryInProgressErrorFor(journal);
   }
   return requireValidOwnedLocalAuthSession(
     await getLocalAuthSessionState({ recover: false })
@@ -377,7 +388,7 @@ export async function readComputerSetupSessionWithOwnership(input: {
     input.expectedTransitionId !== undefined &&
     transitionId !== input.expectedTransitionId
   ) {
-    throw new AuthSessionRecoveryInProgressError();
+    throw recoveryInProgressErrorFor(journal);
   }
   if (!journal) {
     return {
@@ -396,7 +407,7 @@ export async function readComputerSetupSessionWithOwnership(input: {
     normalizeGatewayBaseUrlOrNull(journal.computerHandoff.gatewayUrl) !==
       normalizeGatewayBaseUrlOrNull(input.gatewayUrl)
   ) {
-    throw new AuthSessionRecoveryInProgressError();
+    throw recoveryInProgressErrorFor(journal);
   }
   const session = await readStoredAuthSessionFromPayload(
     journal.candidatePayload
@@ -1584,9 +1595,7 @@ async function assertAuthSessionMutationAvailableWithOwnership(): Promise<void> 
   await recoverInterruptedAuthSessionTransitionWithOwnership();
   const journal = await readAuthSessionTransitionJournal();
   if (journal) {
-    throw new AuthSessionRecoveryInProgressError({
-      recoveryRequired: journal.state === "recovery_required",
-    });
+    throw recoveryInProgressErrorFor(journal);
   }
 }
 
@@ -2200,7 +2209,7 @@ async function persistRemoteSessionRefresh(input: {
           journal: transitionJournal,
         });
       }
-      throw new AuthSessionRecoveryInProgressError();
+      throw recoveryInProgressErrorFor(transitionJournal);
     }
     return await persistCommittedRemoteSessionRefresh(input);
   });

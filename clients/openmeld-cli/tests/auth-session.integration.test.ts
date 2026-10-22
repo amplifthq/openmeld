@@ -899,6 +899,39 @@ describe("auth session storage", () => {
     });
   });
 
+  it("points Service admission to sign-in once the interrupted handoff only needs recovery", async () => {
+    await withTempHome(async () => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "previous-owner" },
+      });
+      await beginThenCrashAuthSessionTransition({
+        accessToken: "candidate-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        computerHandoff: true,
+        user: { id: "candidate-owner" },
+      });
+      vi.resetModules();
+      const restartedAuthSession = await import("../src/config/auth-session");
+      await restartedAuthSession.getInterruptedComputerAuthSessionRecovery();
+
+      const failure = await restartedAuthSession
+        .readServiceAdmissionSessionWithOwnership()
+        .catch((error: unknown) => error);
+      expect(failure).toMatchObject({
+        name: "AuthSessionRecoveryInProgressError",
+        message: expect.stringContaining("openmeld login"),
+      });
+      expect(String((failure as Error).message)).not.toContain(
+        "Wait for that setup"
+      );
+    });
+  });
+
   it("finishes recovery after the candidate token was deleted but journal unlink failed", async () => {
     await withTempHome(async (home) => {
       process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
