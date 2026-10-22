@@ -6,7 +6,6 @@ import type {
   ProviderDispatchRuntimeContext,
   RuntimeTransportDeliveryExecutionIdentity,
 } from "@openmeld/schemas/types";
-import { isProjectConnectionUsableByOwner } from "../../agent-activity/project-binding-resolution";
 import { listProjectConnectionsWithStatus } from "../../agent-activity/project-bindings";
 import { resolveCurrentOpenMeldAccountContext } from "../../config/account-context";
 import {
@@ -334,7 +333,7 @@ async function resolveSelectedProjectWorkingFolder(
   ).filter(
     (connection) =>
       connection.projectId === selected.projectId &&
-      isProjectConnectionUsableByOwner(connection, ownerUserId) &&
+      connection.ownerUserId === ownerUserId &&
       connection.repositoryFingerprint === selected.repositoryFingerprint
   );
   const connection =

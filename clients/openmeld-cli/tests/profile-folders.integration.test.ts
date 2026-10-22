@@ -47,6 +47,22 @@ async function writeProjectBindingStore(payload: unknown): Promise<void> {
   await writeFile(path, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 }
 
+async function readProjectBindingStore(): Promise<{
+  bindings: Array<Record<string, unknown> & { ownerUserId?: string }>;
+}> {
+  return JSON.parse(
+    await readFile(
+      join(
+        resolveOpenMeldRootDir(),
+        "device",
+        "agent-activity",
+        "project-bindings.json"
+      ),
+      "utf8"
+    )
+  );
+}
+
 async function readEnvelope(): Promise<Record<string, unknown>> {
   return JSON.parse(
     await readFile(accountProfileLocalMetaPath(ACCOUNT, PROFILE_ID), "utf8")
@@ -588,7 +604,7 @@ describe("profile folders", () => {
     });
   });
 
-  it("adds and resolves a Project folder whose connection has no owner", async () => {
+  it("claims a legacy Project connection when its folder is added, then runs in it", async () => {
     await withTempHome(async (home) => {
       // An older CLI wrote this v3 connection before connections had an owner.
       const repositoryPath = join(home, "openmeld");
@@ -625,6 +641,15 @@ describe("profile folders", () => {
         displayName: "openmeld",
         kind: "project",
       });
+      // Adding the folder is the explicit reconnect: the owner is recorded
+      // and the connection keeps its generation and default.
+      expect((await readProjectBindingStore()).bindings).toEqual([
+        expect.objectContaining({
+          bindingGeneration: "binding-ownerless",
+          isDefault: true,
+          ownerUserId: "user_1",
+        }),
+      ]);
       await expect(
         resolveProfileFolderRuntimeForAccount({
           account: ACCOUNT,
@@ -638,6 +663,217 @@ describe("profile folders", () => {
         runtimeContext: { providerRuntimeWorkingDirectory: repositoryPath },
         status: "ready",
       });
+    });
+  });
+
+  it("never runs a Project folder in a legacy connection nobody reconnected", async () => {
+    await withTempHome(async (home) => {
+      // The computer has since switched accounts. The folder list and the
+      // ownerless connection both predate the current account.
+      const repositoryPath = join(home, "openmeld");
+      await mkdir(repositoryPath);
+      await writeProjectBindingStore({
+        bindings: [
+          {
+            bindingGeneration: "binding-ownerless",
+            boundAtMs: 1_783_892_400_000,
+            isDefault: true,
+            organizationId: "org_1",
+            projectId: "prj_1",
+            projectSlug: "openmeld",
+            repositoryFingerprint: null,
+            repositoryPath,
+          },
+        ],
+        version: 3,
+      });
+      await setCustomProfileWorkspace({
+        account: ACCOUNT,
+        customWorkspacePath: repositoryPath,
+        openMeldProfileId: PROFILE_ID,
+      });
+      const envelope = await readEnvelope();
+      const projectFolderId = "3c2e8f8a-6b55-4b8e-9a43-0f3f2c9d7e21";
+      await writeEnvelope({
+        ...envelope,
+        folders: [
+          ...(envelope.folders as unknown[]),
+          {
+            displayName: "openmeld",
+            id: projectFolderId,
+            kind: "project",
+            projectId: "prj_1",
+          },
+        ],
+      });
+      await expect(
+        resolveProfileFolderRuntimeForAccount({
+          account: ACCOUNT,
+          folderId: projectFolderId,
+          mode: "dispatch",
+          openMeldProfileId: PROFILE_ID,
+          organizationId: "org_1",
+          ownerUserId: "user_2",
+        })
+      ).resolves.toMatchObject({
+        reasonCode: "project.local_connection.missing",
+        status: "failed",
+      });
+      expect(
+        (await readProjectBindingStore()).bindings[0]?.ownerUserId
+      ).toBeUndefined();
+    });
+  });
+
+  it("does not swap an unclaimed default for another connection of the Project", async () => {
+    await withTempHome(async (home) => {
+      const defaultPath = join(home, "openmeld");
+      const worktreePath = join(home, "openmeld-worktree");
+      await mkdir(defaultPath);
+      await mkdir(worktreePath);
+      const binding = {
+        boundAtMs: 1_783_892_400_000,
+        organizationId: "org_1",
+        projectId: "prj_1",
+        projectSlug: "openmeld",
+        repositoryFingerprint: null,
+      };
+      await writeProjectBindingStore({
+        bindings: [
+          {
+            ...binding,
+            bindingGeneration: "binding-ownerless-default",
+            isDefault: true,
+            repositoryPath: defaultPath,
+          },
+          {
+            ...binding,
+            bindingGeneration: "binding-owned-worktree",
+            isDefault: false,
+            ownerUserId: "user_1",
+            repositoryPath: worktreePath,
+          },
+        ],
+        version: 4,
+      });
+      await setCustomProfileWorkspace({
+        account: ACCOUNT,
+        customWorkspacePath: defaultPath,
+        openMeldProfileId: PROFILE_ID,
+      });
+      const envelope = await readEnvelope();
+      const projectFolderId = "3c2e8f8a-6b55-4b8e-9a43-0f3f2c9d7e21";
+      await writeEnvelope({
+        ...envelope,
+        folders: [
+          ...(envelope.folders as unknown[]),
+          {
+            displayName: "openmeld",
+            id: projectFolderId,
+            kind: "project",
+            projectId: "prj_1",
+          },
+        ],
+      });
+      await expect(
+        resolveProfileFolderRuntimeForAccount({
+          account: ACCOUNT,
+          folderId: projectFolderId,
+          mode: "dispatch",
+          openMeldProfileId: PROFILE_ID,
+          organizationId: "org_1",
+          ownerUserId: "user_1",
+        })
+      ).resolves.toMatchObject({
+        reasonCode: "project.local_connection.missing",
+        status: "failed",
+      });
+    });
+  });
+
+  it("leaves a legacy connection unclaimed when the folder change is refused", async () => {
+    await withTempHome(async (home) => {
+      const repositoryPath = join(home, "openmeld");
+      await mkdir(repositoryPath);
+      await writeProjectBindingStore({
+        bindings: [
+          {
+            bindingGeneration: "binding-ownerless",
+            boundAtMs: 1_783_892_400_000,
+            isDefault: true,
+            organizationId: "org_1",
+            projectId: "prj_1",
+            projectSlug: "openmeld",
+            repositoryFingerprint: null,
+            repositoryPath,
+          },
+        ],
+        version: 3,
+      });
+      await writeEnvelope({
+        folders: [{ id: "not-a-uuid", kind: "custom", path: "/tmp" }],
+        openMeldProfileId: PROFILE_ID,
+        updatedAt: "2026-10-01T00:00:00.000Z",
+        v: 2,
+        workspace: { mode: "openmeld_managed" },
+      });
+      await expect(
+        applyProfileFolderOperation({
+          account: ACCOUNT,
+          openMeldProfileId: PROFILE_ID,
+          operation: {
+            operation: "add_project",
+            organizationId: "org_1",
+            projectId: "prj_1",
+          },
+          ownerUserId: "user_1",
+        })
+      ).rejects.toMatchObject({
+        reasonCode: "profile_folder.configuration_invalid",
+      });
+      expect(
+        (await readProjectBindingStore()).bindings[0]?.ownerUserId
+      ).toBeUndefined();
+    });
+  });
+
+  it("refuses a claimed legacy connection to the next account on this computer", async () => {
+    await withTempHome(async (home) => {
+      const repositoryPath = join(home, "openmeld");
+      await mkdir(repositoryPath);
+      await writeProjectBindingStore({
+        bindings: [
+          {
+            bindingGeneration: "binding-ownerless",
+            boundAtMs: 1_783_892_400_000,
+            isDefault: true,
+            organizationId: "org_1",
+            projectId: "prj_1",
+            projectSlug: "openmeld",
+            repositoryFingerprint: null,
+            repositoryPath,
+          },
+        ],
+        version: 3,
+      });
+      const addProject = (ownerUserId: string) =>
+        applyProfileFolderOperation({
+          account: ACCOUNT,
+          openMeldProfileId: PROFILE_ID,
+          operation: {
+            operation: "add_project",
+            organizationId: "org_1",
+            projectId: "prj_1",
+          },
+          ownerUserId,
+        });
+      await addProject("user_1");
+      await expect(addProject("user_2")).rejects.toMatchObject({
+        reasonCode: "profile_folder.project_not_connected",
+      });
+      expect((await readProjectBindingStore()).bindings[0]?.ownerUserId).toBe(
+        "user_1"
+      );
     });
   });
 

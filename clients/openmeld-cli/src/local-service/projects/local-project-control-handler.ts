@@ -4,7 +4,7 @@ import {
   type LocalProjectControlErrorResponse,
   localProjectControlDaemonFrameSchema,
 } from "@openmeld/schemas";
-import { isProjectConnectionUsableByOwner } from "../../agent-activity/project-binding-resolution";
+import { isProjectConnectionReadableByOwner } from "../../agent-activity/project-binding-resolution";
 import {
   bindProject,
   listProjectConnectionsWithStatus,
@@ -465,7 +465,7 @@ async function projectConnections(
     .filter(
       (connection) =>
         connection.projectId === request.projectId &&
-        isProjectConnectionUsableByOwner(connection, input.ownerUserId)
+        isProjectConnectionReadableByOwner(connection, input.ownerUserId)
     )
     .map((connection) => ({
       bindingGeneration: connection.bindingGeneration,

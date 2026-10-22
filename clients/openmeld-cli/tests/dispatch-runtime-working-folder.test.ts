@@ -613,7 +613,7 @@ describe("dispatch runtime working folder", () => {
     ).rejects.toMatchObject({ code: "project.local_connection.missing" });
   });
 
-  it("uses a selected Project connection that an older CLI saved without an owner", async () => {
+  it("blocks selected code work in a legacy connection nobody reconnected", async () => {
     const routeConfig = createCurrentRoute();
     listProjectConnectionsWithStatus.mockResolvedValue([
       {
@@ -641,9 +641,7 @@ describe("dispatch runtime working folder", () => {
         routeConfig,
         targetProfileId: "agt-1",
       })
-    ).resolves.toEqual({
-      providerRuntimeWorkingDirectory: "/tmp/ownerless-repository",
-    });
+    ).rejects.toMatchObject({ code: "project.local_connection.missing" });
   });
 
   it("rejects a delivered Default Project that disagrees with the current route and requests a refresh", async () => {

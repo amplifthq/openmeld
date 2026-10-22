@@ -9,7 +9,7 @@ import type {
 } from "@openmeld/schemas";
 import { localProjectControlDiscoverProjectsResponseSchema } from "@openmeld/schemas";
 import { collectObservedSessionWorkingDirectories } from "../../agent-activity/local-observer";
-import { isProjectConnectionUsableByOwner } from "../../agent-activity/project-binding-resolution";
+import { isProjectConnectionReadableByOwner } from "../../agent-activity/project-binding-resolution";
 import {
   listProjectBindings,
   type ProjectBinding,
@@ -192,7 +192,7 @@ async function readLocalDiscoveryState(input: {
       input.now
     );
     const bindings = allBindings.filter((binding) =>
-      isProjectConnectionUsableByOwner(binding, input.ownerUserId)
+      isProjectConnectionReadableByOwner(binding, input.ownerUserId)
     );
     const connectionsByProject = await runWithinDeadline(
       () =>

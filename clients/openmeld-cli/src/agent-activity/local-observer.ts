@@ -29,7 +29,7 @@ import {
 import { resolveOpenCodeDatabasePath } from "./opencode-storage";
 import {
   canonicalizeLocalProjectPath,
-  isProjectConnectionUsableByOwner,
+  isProjectConnectionReadableByOwner,
 } from "./project-binding-resolution";
 import { listProjectBindings } from "./project-bindings";
 import { readCodexSessionTitles } from "./provider-session-titles";
@@ -72,7 +72,7 @@ async function listCurrentOwnerProjectBindings(input: { rootDir?: string }) {
     await getAuthSessionState({ validateRemote: false }).catch(() => null)
   )?.session?.user?.id;
   return bindings.filter((binding) =>
-    isProjectConnectionUsableByOwner(binding, ownerUserId)
+    isProjectConnectionReadableByOwner(binding, ownerUserId)
   );
 }
 
