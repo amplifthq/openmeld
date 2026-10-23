@@ -495,7 +495,27 @@ of the Prepare catalog used for an explicit Agent selection.
 Background controller discovery submits each completed controller check without
 waiting for unrelated controllers to finish. Submission uses the existing
 per-controller report contract; it does not imply that unchecked controllers are
-ready. Background probes remain sequential to limit process-launch load.
+ready. Background probes run in a small bounded pool (three controllers at a
+time). Every probe keeps its own timeout, so one slow controller cannot hold
+back the other controllers' reports, while cold starts still do not compete
+for the whole machine at once.
+
+Core accepts a native controller check only for a fixed window after its check
+time (`AGENT_CONTROLLER_AUTH_STALE_AFTER_MS`, two minutes). The periodic report
+cadence is therefore measured from when a pass starts, not from when it ends, so
+the time a pass spends checking never stretches the interval between two checks
+of the same controller past that window. The next pass runs on its own timer
+when it comes due; it must not wait for a heartbeat, because an idle heartbeat
+stretches to a minute and a pass that just misses one would land on the
+window's edge. Heartbeats may still start a due pass. A background pass may reuse a held
+snapshot only while its native check is under 30 seconds old, measured from
+the check time rather than probe completion, so a periodic pass always renews
+the observation instead of republishing one that expires before the next pass.
+A slow pass still leaves a short idle gap, and a failed pass settles only after
+its in-flight checks finish. When a report does expire, Core keeps
+the execution target `stale` for Wake eligibility, but the local-agent catalog
+must not turn that missing evidence into `needs_repair`: only a launch blocker
+carried by the last report may keep the launch status in repair.
 
 Installation discovery, registration reconciliation, native checks, and reporting
 form one per-controller pass. A scan must not wait for all installation probes
@@ -644,7 +664,26 @@ update command must come from the selected install's channel: that controller's
 official native updater, npm/pnpm/bun, or the Homebrew formula actually
 installed, including its tap. ACI must not compare a third-party tap install
 with Homebrew core, and must not advertise a generic updater whose latest
-source is a different package.
+source is a different package. Homebrew cask versions may append a comma and
+numeric revision after the SemVer core, as in `0.143.0,45`. ACI compares that
+core and keeps the full version string in the advisory.
+
+Cursor native installs use that same channel, with one recovery for builds that
+cannot run the updater. Builds before 2026.07.17 make `cursor-agent update`
+exit with `[unauthenticated]` when the CLI is not signed in, and that exit
+cannot install a newer build. Cursor's published recovery for that install is
+the official installer. ACI reports `curl https://cursor.com/install -fsS | bash`
+on macOS and Linux, and `irm 'https://cursor.com/install?win32=true' | iex` on
+Windows, when the selected install is that native channel, the build is older
+than 2026.07.17, and the CLI is not authenticated. Authenticated Cursor CLIs
+report `cursor-agent update`. Builds from 2026.07.17 onward report
+`cursor-agent update` because that updater reaches Cursor's public installer
+without a signed-in CLI. The 2026.07.17 boundary is the first build date whose
+logged-out updater is known to call that public installer: Cursor confirmed on
+2026-07-19 that older logged-out builds, including 2026.01.28, cannot update
+themselves, and build 2026.07.17-3e2a980 updates through
+`https://cursor.com/install`. Homebrew Cursor installs continue to report the
+Homebrew cask upgrade for the installed tap.
 
 When an
 official controller package adds a thin launcher around a packaged native
@@ -1521,6 +1560,12 @@ successful check while the selected command fingerprint remains stable, and
 keeps the controller's current status unknown. It must not relabel the
 controller as needing setup or discard the last successful evidence.
 
+Install launch verification follows the same rule on every install path:
+first-use resolution, a persisted launch contract, and explicit repair. A
+failed launch check is retried once immediately. Only a completed negative
+result after that retry reports `needs_repair`; a check that still could not
+finish, including a probe timeout, keeps the install usable.
+
 An installed or detected controller that cannot currently launch must remain
 visible with explicit repair evidence; it must not be relabeled as missing or
 silently removed from local-agent selection and diagnostics.
@@ -2084,10 +2129,29 @@ that decision.
   second session writer nor a second lifecycle owner.
   A missing or unreadable old bearer token does not veto a freshly authorized
   handoff when the committed account metadata is intact. Metadata is used only
-  for account-switch consent and the locked identity comparison, never to
-  authorize execution. Rollback preserves the original payload, but does not
+  for account-switch consent, the locked identity comparison, and naming the
+  account a recovery restores, never to authorize execution. Rollback preserves the original payload, but does not
   restart a Service with an unreadable credential. Recovery must not reread an
   already revoked candidate token merely to finish local cleanup.
+  Recovery restores the previous owner's Service only from that owner's usable
+  sign-in. It names that owner from the restored payload metadata, not by
+  reading its credential, so a temporarily unreadable secret store (for
+  example, a locked Keychain) cannot erase the restore point. A previous
+  payload that names no owner, including an incomplete first connection,
+  finishes with the Service stopped. An unreadable previous credential records
+  a retryable failure and keeps the journal; a missing one is an unusable
+  sign-in. Recovery first validates the restored sign-in with the server, which may
+  refresh a stale local expiry. While the journal is `recovery_required`, the
+  auth-session owner persists that renewal of the same restored sign-in and
+  moves the journal's restore point with it, because the Service reads only the
+  committed local session at startup. When the server reports it expired, revoked, or
+  invalid, or the committed sign-in belongs to another account, recovery leaves
+  the Service stopped, keeps the previous committed sign-in metadata, revokes
+  the candidate, and clears the journal. No account inherits a running Service,
+  and an explicit sign-in or a new setup can then replace the sign-in. An
+  unreachable server keeps the restore attempt and its retryable failure. The
+  Auth Worker's sign-out succeeds for an unknown, expired, or deleted bearer,
+  so an already invalid candidate counts as revoked.
   If the committed account cannot be identified, setup remains blocked with
   an explicit local sign-out action. Explicit logout preserves malformed
   session JSON in a uniquely named file in the same auth directory before
@@ -3361,9 +3425,10 @@ the verified active bundle before trusting a saved OS registration. A plist or
 unit can survive removal of the local executable; registration alone cannot
 prove automatic updates can run. An active update keeps its existing executor.
 
-Interrupted account handoff recovery belongs to the explicit handoff flow.
-Generic command dispatch must leave install, update, and diagnostics usable
-when the previous Service cannot start. Credential transition isolation and
+Interrupted account handoff recovery belongs to explicit account flows: the
+setup handoff, and `openmeld login` and `openmeld logout`, which finish it
+before changing the sign-in. Generic command dispatch must leave install,
+update, and diagnostics usable when the previous Service cannot start. Credential transition isolation and
 candidate cleanup remain owned by auth-session storage.
 
 Setup succeeds when the service is aligned for this computer, local

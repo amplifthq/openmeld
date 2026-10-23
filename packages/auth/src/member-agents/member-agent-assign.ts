@@ -15,7 +15,7 @@ export type AssignAgentProfileMemberAgentResult = {
  * its Binding (developing/product/agent-profiles.md, MemberAgent Layer). The
  * caller derives `harnessKind` from the Binding it accepted.
  *
- * Local Harnesses use an existing MemberAgent chosen through setup or add.
+ * Local Harnesses use an existing MemberAgent created by catalog sync.
  * A hosted Binding instead ensures the owner's manual hosted MemberAgent.
  * An assigned Profile is never moved to another MemberAgent; the
  * repository write is conditional on the Profile being unassigned or already

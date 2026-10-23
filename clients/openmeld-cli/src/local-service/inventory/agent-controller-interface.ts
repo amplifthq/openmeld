@@ -73,6 +73,13 @@ const PROBE_OUTPUT_LIMIT = 32_000;
 const CODEX_USER_AGENT_VERSION_RE = /\/([^\s]+)/u;
 const CLI_SEMVER_RE = /\bv?(\d+\.\d+\.\d+(?:[-+][^\s]+)?)\b/u;
 const CURSOR_BUILD_DATE_RE = /^(\d{4})\.(\d{2})\.(\d{2})-[\da-f]+$/u;
+const CURSOR_NATIVE_UPDATER_COMMAND = "cursor-agent update";
+// First build date whose logged-out updater calls Cursor's public installer.
+const CURSOR_LOGGED_OUT_UPDATER_AVAILABLE_ON = "2026.07.17-0000000";
+const CURSOR_UNIX_INSTALLER_COMMAND =
+  "curl https://cursor.com/install -fsS | bash";
+const CURSOR_WINDOWS_INSTALLER_COMMAND =
+  "irm 'https://cursor.com/install?win32=true' | iex";
 const WHITESPACE_RE = /\s+/u;
 
 // "fresh" always runs the controller probe and reports its real outcome; it is
@@ -347,7 +354,9 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
       return recordAgentControllerInterfaceProbeSuccess({
         commandFingerprint: commandFingerprintAfterProbe,
         keeperKey,
-        nowMs: Date.now(),
+        // Reuse age counts from the native check time Core measures, not
+        // from when a slow probe happened to finish.
+        nowMs: Date.parse(completedSnapshot.checkedAt),
         snapshot: completedSnapshot,
       });
     }
@@ -521,6 +530,7 @@ function resolveBaseStatus(
 }
 
 async function resolveControllerVersionAdvisory(input: {
+  authStatus?: AgentControllerInterfaceAuthSnapshot["status"];
   checkedAt: string;
   controllerId: string;
   currentVersion: string | null;
@@ -556,7 +566,13 @@ async function resolveControllerVersionAdvisory(input: {
     commandPaths,
     definition,
   });
-  const updateCommand = channel?.updateCommand ?? null;
+  const updateCommand = resolveReportedControllerUpdateCommand({
+    authStatus: input.authStatus ?? "unknown",
+    controllerId: input.controllerId,
+    currentVersion: input.currentVersion,
+    platform: process.platform,
+    updateCommand: channel?.updateCommand ?? null,
+  });
   if (!input.currentVersion) {
     return {
       checkedAt: input.checkedAt,
@@ -592,14 +608,11 @@ async function resolveControllerVersionAdvisory(input: {
     };
   }
 
-  const compareVersions =
-    input.controllerId === "cursor"
-      ? compareCursorBuildDates
-      : compareAgentControllerVersions;
-  const versionComparison = compareVersions(
-    input.currentVersion,
-    latestVersion
-  );
+  const versionComparison = compareAdvisoryVersions({
+    controllerId: input.controllerId,
+    currentVersion: input.currentVersion,
+    latestVersion,
+  });
   if (versionComparison === null) {
     return {
       checkedAt: input.checkedAt,
@@ -649,6 +662,69 @@ function recordLatestVersionFailureDiagnostics(
       }
     );
   }
+}
+
+const HOMEBREW_CASK_REVISION_RE = /,\d+$/u;
+
+function compareAdvisoryVersions(input: {
+  controllerId: string;
+  currentVersion: string;
+  latestVersion: string;
+}): number | null {
+  if (input.controllerId === "cursor") {
+    return compareCursorBuildDates(input.currentVersion, input.latestVersion);
+  }
+  const direct = compareAgentControllerVersions(
+    input.currentVersion,
+    input.latestVersion
+  );
+  if (direct !== null) {
+    return direct;
+  }
+  // Homebrew cask versions append ",<revision>" after the SemVer core.
+  const currentCore = input.currentVersion.replace(
+    HOMEBREW_CASK_REVISION_RE,
+    ""
+  );
+  const latestCore = input.latestVersion.replace(HOMEBREW_CASK_REVISION_RE, "");
+  if (
+    currentCore === input.currentVersion &&
+    latestCore === input.latestVersion
+  ) {
+    return null;
+  }
+  return compareAgentControllerVersions(currentCore, latestCore);
+}
+
+function resolveReportedControllerUpdateCommand(input: {
+  authStatus: AgentControllerInterfaceAuthSnapshot["status"];
+  controllerId: string;
+  currentVersion: string | null;
+  platform: NodeJS.Platform;
+  updateCommand: string | null;
+}): string | null {
+  if (
+    input.controllerId !== "cursor" ||
+    input.updateCommand !== CURSOR_NATIVE_UPDATER_COMMAND ||
+    input.authStatus === "authenticated" ||
+    cursorLoggedOutUpdaterCanRun(input.currentVersion)
+  ) {
+    return input.updateCommand;
+  }
+  return input.platform === "win32"
+    ? CURSOR_WINDOWS_INSTALLER_COMMAND
+    : CURSOR_UNIX_INSTALLER_COMMAND;
+}
+
+function cursorLoggedOutUpdaterCanRun(version: string | null): boolean {
+  if (!version) {
+    return false;
+  }
+  const comparison = compareCursorBuildDates(
+    version,
+    CURSOR_LOGGED_OUT_UPDATER_AVAILABLE_ON
+  );
+  return comparison !== null && comparison >= 0;
 }
 
 // Cursor's YYYY.MM.DD-commit builds are not SemVer; compare their release dates.
@@ -863,6 +939,7 @@ async function resolveCursorInterfaceSnapshot(
       status,
       version,
       versionAdvisory: await resolveControllerVersionAdvisory({
+        authStatus: auth.status,
         checkedAt: input.baseSnapshot.checkedAt,
         controllerId: input.baseSnapshot.controllerId,
         currentVersion: version,

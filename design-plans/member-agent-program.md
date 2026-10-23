@@ -132,6 +132,26 @@ Target:
   `source` (`detected` | `migrated` | `manual`), `archived_at`, timestamps.
   Unique `(organization_id, owner_user_id, harness_kind)`.
   `openmeld_profiles.member_agent_id` nullable foreign key.
+- **Existence follows the Local agents switch** (revised 2026-10-21). The
+  member's choice is the Local agents switch of each connected computer: a
+  harness that a computer reports as turned on (catalog `enabled`) and
+  detected has a MemberAgent with its default Profile (named after the
+  harness, not renameable) and the owner's DM. An installed harness that is
+  turned off has none and is listed as addable. Setup's selection sets the
+  switch: selected agents are turned on, every other detected agent is turned
+  off before any Agent is added, so Tali choosing 3 of 6 still gets 3.
+  Turning a harness on is adding it; the web My Agents Add action and
+  `openmeld agent add` name the harness, and Core turns it on where it is
+  installed before it creates the Agent. Turning it off, or uninstalling it,
+  makes the MemberAgent read missing; nothing is deleted. Creation is
+  idempotent (`auto:{organizationId}:{harnessKind}`) and adds no Inbox item.
+  Members whose Agents were backfilled from Profiles get the missing
+  turned-on harnesses on their next Agents surface open or catalog update; no
+  backfill rerun is needed. History: the first design created an Agent for
+  every detected harness; 9b924b6fb (2026-10-20) limited creation to the
+  harnesses setup requested, which never covered members who did not run the
+  new setup (Felix's Claude Code after the 2026-10-21 backfill). The switch
+  rule keeps both promises.
 - **No status column.** Presence and state are derived at read time from the
   Profiles' wakeability and computer online state. "Missing on every computer"
   flips only after the harness has been absent from several consecutive
@@ -269,23 +289,28 @@ Current: the Service reports its harness catalog continuously. The invariant
 Target:
 
 - The catalog report is the single source for MemberAgent state; the member's
-  choice decides existence.
-- Creation: only for a harness the member chose. Setup sends the selected
-  local agents (`--local-agent`, or the Connect page selection), and
-  `openmeld agent add <harness>` or the web add action sends one more. When
-  the catalog reports a requested harness **in the current organization** and
-  the member has no MemberAgent for it, Core asks Auth to create the
-  MemberAgent and default Profile with the deterministic idempotency key
-  `auto:{organizationId}:{harnessKind}`, writes the Binding (which assigns the
-  Profile under the assignment lock), and opens the owner's DM. The unique
-  key's conditional insert makes two simultaneous computers safe. Other
-  detected harnesses are reported as addable, never created.
-- **Per organization.** A sync without requested harnesses (opening an
-  organization's Agents or DM surface, a catalog update) creates nothing. It
-  finishes interrupted creations, assigns bound Profiles, and lists the
-  addable harnesses. A catalog update reconciles every organization where the
-  owner already has a non-archived MemberAgent, including migrated ones; it
-  never broadcasts to every organization on connect.
+  choice, the Local agents switch it reports (§4.1), decides existence.
+- Creation: for every harness a reporting computer has turned on and detects
+  **in the current organization** when the member has no MemberAgent for it,
+  Core asks Auth to create the MemberAgent and default Profile with the
+  deterministic idempotency key `auto:{organizationId}:{harnessKind}`, writes
+  the Binding (which assigns the Profile under the assignment lock), and opens
+  the owner's DM. The unique key's conditional insert makes two simultaneous
+  computers and repeated syncs safe. Installed, turned-off harnesses are
+  reported as addable, never created. Setup turns its selection on and the
+  other detected agents off (through the Service, which refreshes its report
+  at once) before it syncs. A request naming a harness (`createHarnessKinds`:
+  setup, web Add, `openmeld agent add`) turns an installed, turned-off one on
+  there first; a refused switch comes back as the result's reason code.
+  Shared-account harnesses wait for a chosen conversation.
+- **Per organization.** Sync runs when the member opens an organization's
+  Agents or DM surface, when a harness is turned on from OpenMeld Web, and on
+  a catalog update that shows a harness the previous report did not detect
+  (installed, reinstalled, or turned back on). A catalog update reconciles
+  every organization where the owner already has a non-archived MemberAgent,
+  including migrated ones; it never broadcasts to every organization on
+  connect. Every sync also finishes interrupted creations and assigns bound
+  Profiles.
 - Rewrite the explicit-intent invariant: the default Profile is created with
   the MemberAgent; every other Profile still needs explicit intent. Add
   `auto_detected` to the Profile `source` enum.
@@ -302,15 +327,22 @@ Target:
   The welcome card adds one line about the permission mode (§4.8).
 
 Worked example, Felix with a MacBook (Claude Code, Codex, Grok Build) and an
-iMac (Claude Code):
+iMac (Claude Code). Separately, Tali's setup selects 3 of 6 detected harnesses:
+the other 3 are turned off, so she gets 3 MemberAgents and 3 addable rows.
+And an existing member whose backfilled Profiles never bound Claude Code, with
+Claude Code turned on: opening Agents adds Claude Code with its DM.
 
 | Day | Event | Result |
 | --- | --- | --- |
-| 1 | MacBook connects, Felix opens Agents | three MemberAgents, each with a default Profile and DM |
+| 1 | MacBook connects, setup keeps all three on, Felix opens Agents | three MemberAgents, each with a default Profile and DM |
+| 2 | Felix turns Codex off in Local agents | Codex reads missing, greyed, history kept |
+| 2 | Felix turns Codex back on | same MemberAgent returns; nothing new |
 | 3 | iMac connects | Claude Code gains a computer; nothing new |
 | 10 | Grok Build uninstalled | Grok Build reads missing, greyed, history kept |
 | 12 | Claude Code upgrades, briefly absent from one report | debounce holds; no change |
-| 30 | Cursor installed | new MemberAgent, "ready" card |
+| 30 | Cursor installed (the Service turns it on) | new MemberAgent, "ready" card |
+| 31 | OpenCode installed, Felix turns it off before the next report | listed under "Found on your computers" with Add; no MemberAgent |
+| 32 | Felix clicks Add on OpenCode | Core turns it on on the MacBook, then a new MemberAgent and DM |
 | 45 | Grok Build reinstalled | same MemberAgent returns with its Sessions |
 | 60 | iMac forgotten | iMac Profile unreachable; the MemberAgent stays available via MacBook |
 

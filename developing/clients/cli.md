@@ -222,11 +222,16 @@ each with an explicit short name. `profiles create --member-agent <agent>`
 refuses an Agent Controller whose harness differs from the parent's. Core
 refuses an update that would move an assigned Profile to another harness.
 
-`openmeld setup` adds a MemberAgent only for each local agent the member
-selected, with `--local-agent <id...>` or on the Connect page; `--local-agents
-all` selects every detected harness. Setup prints the other detected harnesses,
-and `openmeld agent add <harness>` adds one of them. A MemberAgent step that
-fails never fails setup; the next sync finishes it.
+`openmeld setup` treats the local agent selection (`--local-agent <id...>`,
+or the Connect page) as the Local agents switch of this Computer: it turns the
+selected agents on and every other detected agent off, through the running
+OpenMeld Service so Core sees the change at once, before it asks Core to add
+Agents. Core adds a MemberAgent for each harness turned on (see
+`developing/product/agent-profiles.md`, MemberAgent Layer); `--local-agents
+all` selects every detected harness. Setup prints the harnesses left off, and
+`openmeld agent add <harness>` adds one of them: Core turns it on where it is
+installed and creates its Agent, the same path as Add in OpenMeld Web. A
+MemberAgent step that fails never fails setup; the next sync finishes it.
 
 `openmeld agent list` prints one row per MemberAgent in the current
 Organization with its derived state, running and queued counts, and latest

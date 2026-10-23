@@ -14,7 +14,9 @@ import { afterEach, expect, it, vi } from "vitest";
 import { ConversationsSidebar } from "./conversations-sidebar";
 
 const sidebarState = vi.hoisted(() => ({ accountIndexPending: false }));
-const navigate = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const navigate = vi.hoisted(() =>
+	vi.fn(async (_options: unknown) => undefined)
+);
 vi.mock("./use-conversations", async () => {
 	const { useConversationSidebarFixture } = await import(
 		"#/test-support/conversation-sidebar-fixture"

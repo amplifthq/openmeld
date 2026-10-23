@@ -23,7 +23,7 @@ import {
 } from "./agents-page-openmeld-service";
 
 const copyCliEntryCommandMock = vi.hoisted(() => vi.fn());
-const refreshSharedCachesMock = vi.hoisted(() => vi.fn());
+const refreshSharedCachesMock = vi.hoisted(() => vi.fn(async () => undefined));
 const requestCurrentOpenMeldToolsUpdateMock = vi.hoisted(() => vi.fn());
 const setCurrentOpenMeldToolsMaintenanceMock = vi.hoisted(() => vi.fn());
 const setQueryDataMock = vi.hoisted(() => vi.fn());
@@ -34,7 +34,7 @@ const desktop = vi.hoisted(() => ({
 	openWeb: vi.fn(),
 	native: false,
 }));
-const copyTextMock = vi.hoisted(() => vi.fn().mockResolvedValue(true));
+const copyTextMock = vi.hoisted(() => vi.fn(async () => true));
 vi.mock("#/lib/clipboard", () => ({ copyTextToClipboard: copyTextMock }));
 vi.mock("#/env", () => ({
 	env: {
@@ -166,7 +166,6 @@ describe("OpenMeldServiceCard", () => {
 		vi.useRealTimers();
 		vi.clearAllMocks();
 		vi.restoreAllMocks();
-		refreshSharedCachesMock.mockResolvedValue(undefined);
 	});
 
 	it.each([

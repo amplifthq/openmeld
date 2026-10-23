@@ -1,5 +1,5 @@
 {
-  "version": "0.3.269",
+  "version": "0.3.272",
   "cli": {
     "updatePolicy": "available",
     "reason": "Packages the Service fix for resuming an established fork after its source folder is removed. CLI commands and wire contracts remain compatible; the mandatory CLI floor stays at 0.3.251."

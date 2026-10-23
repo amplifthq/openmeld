@@ -12,7 +12,12 @@ import type {
   ProfileFolderProjection,
   ProviderDispatchRuntimeContext,
 } from "@openmeld/schemas/types";
-import { listProjectConnectionsWithStatus } from "../agent-activity/project-bindings";
+import { isProjectConnectionReadableByOwner } from "../agent-activity/project-binding-resolution";
+import {
+  claimLegacyProjectConnection,
+  listProjectConnectionsWithStatus,
+  ProjectBindingOperationError,
+} from "../agent-activity/project-bindings";
 import { resolveCurrentOpenMeldAccountContext } from "../config/account-context";
 import {
   accountProfileWorkspacePath,
@@ -106,15 +111,20 @@ export async function applyProfileFolderOperation(input: {
     return await mutateProfileFolderListForAccount({
       account,
       openMeldProfileId,
-      mutate: (current) =>
-        planProfileFolderMutation({
+      mutate: async (current) => {
+        const mutation = await planProfileFolderMutation({
           account,
           current,
           now,
           openMeldProfileId,
           operation,
           prepared,
-        }),
+        });
+        if (prepared.claim) {
+          await claimProjectFolderConnection(prepared.claim);
+        }
+        return mutation;
+      },
     });
   } catch (error) {
     if (error instanceof ProfileFolderListLimitError) {
@@ -124,6 +134,24 @@ export async function applyProfileFolderOperation(input: {
       );
     }
     throw error;
+  }
+}
+
+async function claimProjectFolderConnection(
+  claim: Parameters<typeof claimLegacyProjectConnection>[0]
+): Promise<void> {
+  try {
+    await claimLegacyProjectConnection(claim);
+  } catch (error) {
+    // Only a refused claim means "reconnect"; a store that needs an update,
+    // a lock timeout or an I/O failure keeps its own handling.
+    if (!(error instanceof ProjectBindingOperationError)) {
+      throw error;
+    }
+    throw new ProfileFolderOperationError(
+      "profile_folder.project_not_connected",
+      `${error.message} Connect this Project on this computer again before adding it as a folder.`
+    );
   }
 }
 
@@ -475,7 +503,11 @@ async function resolveProjectFolderRuntime(input: {
     ownerUserId: input.ownerUserId,
     projectId,
   });
-  if (!connection) {
+  if (
+    !connection ||
+    (input.ownerUserId !== undefined &&
+      connection.ownerUserId !== input.ownerUserId)
+  ) {
     return {
       projectFailureContext: { projectId },
       reasonCode: "project.local_connection.missing",
@@ -529,11 +561,18 @@ function readyResolution(
   return { folder, runtimeContext: runtimeContext.data, status: "ready" };
 }
 
+/**
+ * Chooses the Project's local connection among those the account may see:
+ * the default, else the only one. A legacy connection without an owner can be
+ * chosen; adding the folder claims it, and running requires the owner, so a
+ * Project never silently runs in another of its connections instead.
+ */
 async function findProjectFolderConnection(input: {
   organizationId: string;
   ownerUserId?: string;
   projectId: string;
 }) {
+  const ownerUserId = input.ownerUserId;
   const matches = (
     await listProjectConnectionsWithStatus({
       organizationId: input.organizationId,
@@ -541,8 +580,8 @@ async function findProjectFolderConnection(input: {
   ).filter(
     (connection) =>
       connection.projectId === input.projectId &&
-      (input.ownerUserId === undefined ||
-        connection.ownerUserId === input.ownerUserId)
+      (ownerUserId === undefined ||
+        isProjectConnectionReadableByOwner(connection, ownerUserId))
   );
   return (
     matches.find((connection) => connection.isDefault) ??
@@ -550,10 +589,15 @@ async function findProjectFolderConnection(input: {
   );
 }
 
+type PreparedFolderOperation = {
+  claim?: Parameters<typeof claimLegacyProjectConnection>[0];
+  folder?: ProfileFolder;
+};
+
 async function prepareOperationInput(input: {
   operation: Exclude<ProfileFolderOperation, { operation: "list" }>;
   ownerUserId?: string;
-}): Promise<{ folder?: ProfileFolder }> {
+}): Promise<PreparedFolderOperation> {
   const operation = input.operation;
   switch (operation.operation) {
     case "add_custom": {
@@ -590,6 +634,18 @@ async function prepareOperationInput(input: {
         );
       }
       return {
+        // Choosing a legacy connection's folder is the account's explicit
+        // reconnect; it is claimed once the folder change is accepted.
+        ...(input.ownerUserId && !connection.ownerUserId
+          ? {
+              claim: {
+                bindingGeneration: connection.bindingGeneration,
+                organizationId: operation.organizationId,
+                ownerUserId: input.ownerUserId,
+                projectId: operation.projectId,
+              },
+            }
+          : {}),
         folder: {
           displayName:
             operation.displayName ??

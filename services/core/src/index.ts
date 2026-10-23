@@ -15,6 +15,7 @@ import type {
 } from "@openmeld/protocol";
 import type {
   GetMemberAgentPresenceResponse,
+  ListMemberAgentDirectMessageSessionsResponse,
   RequestCredential,
   SpacePreferencesRpc,
   SyncMemberAgentsResponse,
@@ -520,11 +521,14 @@ import {
 } from "./inbox/transport/rpc/inbox-rpc";
 import type { CoreBindings } from "./lib/bindings";
 import {
+  type ListMemberAgentDirectMessageSessionsRpcInput,
   type MemberAgentRpcInput,
   rpcGetMemberAgentPresence,
+  rpcListMemberAgentDirectMessageSessions,
   rpcSubmitRuntimeAgentControllerReportsWithMemberAgents,
   rpcSyncMemberAgents,
   type SyncMemberAgentsRpcInput,
+  setLocalAgentEnabledWithMemberAgents,
 } from "./member-agent/member-agent-rpc";
 import { rpcCenterAgentManageOrganizationDocuments } from "./organization-documents/center-agent-document-rpc";
 import {
@@ -4467,6 +4471,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcGetMemberAgentPresence(this.env, input)
     );
   }
+  listMemberAgentDirectMessageSessions(
+    input: ListMemberAgentDirectMessageSessionsRpcInput
+  ): Promise<ListMemberAgentDirectMessageSessionsResponse> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListMemberAgentDirectMessageSessions(this.env, input)
+    );
+  }
   listAgentAccessRequests(
     input: Parameters<typeof rpcListAgentAccessRequests>[1]
   ) {
@@ -4563,7 +4574,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: Parameters<typeof rpcSetPeopleComputerLocalAgentEnabled>[1]
   ) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
-      rpcSetPeopleComputerLocalAgentEnabled(this.env, input)
+      setLocalAgentEnabledWithMemberAgents(this.env, input, (current) =>
+        rpcSetPeopleComputerLocalAgentEnabled(this.env, current)
+      )
     );
   }
   getPeopleComputerLocalAgentInstallations(
@@ -4633,7 +4646,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: SetCurrentLocalAgentEnabledInput
   ): Promise<SetCurrentLocalAgentEnabledResponse> {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
-      rpcSetCurrentLocalAgentEnabled(this.env, input)
+      setLocalAgentEnabledWithMemberAgents(this.env, input, (current) =>
+        rpcSetCurrentLocalAgentEnabled(this.env, current)
+      )
     );
   }
   getCurrentLocalAgentInstallations(
@@ -6705,6 +6720,11 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: MemberAgentRpcInput
   ): Promise<GetMemberAgentPresenceResponse> {
     return super.getMemberAgentPresence(input);
+  }
+  listMemberAgentDirectMessageSessions(
+    input: ListMemberAgentDirectMessageSessionsRpcInput
+  ): Promise<ListMemberAgentDirectMessageSessionsResponse> {
+    return super.listMemberAgentDirectMessageSessions(input);
   }
   listAgentAccessRequests(
     input: Parameters<typeof rpcListAgentAccessRequests>[1]

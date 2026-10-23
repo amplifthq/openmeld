@@ -512,6 +512,7 @@ export async function runDaemonSocketSession(input: {
   let lastHeartbeatSentAtMs: number | null = null;
   let consecutiveHeartbeatFailures = 0;
   let catalogSyncSignalTimer: NodeJS.Timeout | null = null;
+  let runtimeAgentControllerReportSyncTimer: NodeJS.Timeout | null = null;
   let currentHeartbeatIntervalMs = normalizeHeartbeatIntervalMs(
     input.heartbeatIntervalMs
   );
@@ -606,6 +607,7 @@ export async function runDaemonSocketSession(input: {
     closed = true;
     admissionHeartbeatPending = false;
     clearHeartbeatTimer();
+    clearRuntimeAgentControllerReportSyncTimer();
     keepalive.stop();
     clearCatalogSyncSignalTimer();
     hostLink.detach().catch(reportHostFailure);
@@ -690,6 +692,14 @@ export async function runDaemonSocketSession(input: {
       reconnectAttempt: input.reconnectAttempt,
     },
   });
+
+  const clearRuntimeAgentControllerReportSyncTimer = (): void => {
+    if (!runtimeAgentControllerReportSyncTimer) {
+      return;
+    }
+    clearTimeout(runtimeAgentControllerReportSyncTimer);
+    runtimeAgentControllerReportSyncTimer = null;
+  };
 
   const clearHeartbeatTimer = (): void => {
     if (!heartbeatTimer) {
@@ -1496,6 +1506,11 @@ export async function runDaemonSocketSession(input: {
   const runRuntimeAgentControllerReportSync = async (
     probePolicy: "background" | "fresh"
   ): Promise<LocalServiceRuntimeAgentControllerReportSyncResult> => {
+    // Core accepts a native check for a fixed window after its check time, so
+    // the cadence is measured from when this pass starts checking. Measuring
+    // from its end would let a slow pass push every controller's renewal past
+    // that window and briefly turn a healthy controller stale.
+    const passStartedAtMs = Date.now();
     try {
       const result = await input.executionHost.call("reportControllers", {
         probePolicy,
@@ -1514,9 +1529,11 @@ export async function runDaemonSocketSession(input: {
       nextRuntimeAgentControllerReportSyncAtMs =
         resolveNextRuntimeAgentControllerReportSyncAtMs({
           nowMs: Date.now(),
+          passStartedAtMs,
           baseRetryMs: retryInMs,
           hasArmedReprobe: result.hasArmedReprobe,
         });
+      scheduleRuntimeAgentControllerReportSyncTimer();
       let reportSyncLineText: string;
       if (result.status === "skipped") {
         reportSyncLineText = `runtime agent controller report sync skipped; ${result.reasonCodes[0] ?? "no reports"}`;
@@ -1545,6 +1562,7 @@ export async function runDaemonSocketSession(input: {
     } catch (error) {
       nextRuntimeAgentControllerReportSyncAtMs =
         Date.now() + RUNTIME_AGENT_CONTROLLER_REPORT_SYNC_RETRY_INTERVAL_MS;
+      scheduleRuntimeAgentControllerReportSyncTimer();
       emitRunLine({
         presenter: input.presenter,
         code: "daemon.run.runtime_agent_controller_report_sync_failed",
@@ -1589,6 +1607,36 @@ export async function runDaemonSocketSession(input: {
       // scheduled the bounded retry. Background heartbeats stay independent.
     }
   };
+
+  // The report cadence must not depend on the heartbeat. An idle heartbeat
+  // stretches to a minute, so a pass that comes due just after one would wait
+  // for the next and land on Core's two-minute check window, briefly turning
+  // every healthy controller stale. Heartbeats still trigger a due pass; this
+  // timer only guarantees one runs on time.
+  function scheduleRuntimeAgentControllerReportSyncTimer(): void {
+    clearRuntimeAgentControllerReportSyncTimer();
+    // A controlled shutdown drains accepted work; it must not start new
+    // controller probes even when a pass that began earlier finishes now.
+    if (closed || shutdownStopCause) {
+      return;
+    }
+    runtimeAgentControllerReportSyncTimer = setTimeout(
+      () => {
+        runtimeAgentControllerReportSyncTimer = null;
+        if (closed || shutdownStopCause) {
+          return;
+        }
+        syncRuntimeAgentControllerReportsIfDue().catch((error) => {
+          emitRunLine({
+            presenter: input.presenter,
+            code: "daemon.run.runtime_agent_controller_report_sync_failed",
+            text: `runtime agent controller report sync failed: ${toErrorMessage(error)}`,
+          });
+        });
+      },
+      Math.max(0, nextRuntimeAgentControllerReportSyncAtMs - Date.now())
+    );
+  }
 
   const requestFreshRuntimeAgentControllerReportSync =
     async (): Promise<LocalServiceRuntimeAgentControllerReportSyncResult> => {
@@ -2201,6 +2249,7 @@ export async function runDaemonSocketSession(input: {
       .call("beginDrain", {})
       .catch(input.failHostShutdown);
     clearHeartbeatTimer();
+    clearRuntimeAgentControllerReportSyncTimer();
     emitRunLine({
       presenter: input.presenter,
       code: "daemon.run.controlled_shutdown_started",
@@ -2318,6 +2367,7 @@ export async function runDaemonSocketSession(input: {
     hostLink.detach().catch(reportHostFailure);
     input.attachRouteCatalogSyncInvoker?.(null);
     clearHeartbeatTimer();
+    clearRuntimeAgentControllerReportSyncTimer();
     keepalive.stop();
     clearCatalogSyncSignalTimer();
   }

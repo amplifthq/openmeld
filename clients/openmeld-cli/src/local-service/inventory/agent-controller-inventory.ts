@@ -72,6 +72,7 @@ const CONTROLLER_INTERFACE_CHECK_FAILED_REASON_CODES = [
 
 export async function collectLocalAgentControllerInventory(
   input: {
+    concurrency?: number;
     includeControllerInterface?: boolean;
     localAdapterContainer?: LocalDaemonAdapterContainer;
     probePolicy?: AgentControllerInterfaceProbePolicy;
@@ -99,20 +100,31 @@ export async function collectLocalAgentControllerInventory(
     return capability;
   };
 
-  const capabilities: LocalAgentControllerInventoryItem[] = [];
-  await listAgentTargetStates({
+  const capabilityByAgentId = new Map<
+    string,
+    LocalAgentControllerInventoryItem
+  >();
+  const states = await listAgentTargetStates({
     agentIds: input.agentIds,
+    // Each controller is checked and reported as soon as its own check ends;
+    // there is no full-machine scan barrier.
+    concurrency: input.concurrency,
     reconcileNewRegistrations: input.reconcileNewRegistrations,
     onState: async (state) => {
       if (state.targetKind === "builtin") {
-        // One controller process at a time, with no full-machine scan barrier.
-        capabilities.push(
+        capabilityByAgentId.set(
+          state.agentId,
           await collectCapability({ ...state, targetKind: "builtin" })
         );
       }
     },
   });
-  return { capabilities };
+  return {
+    capabilities: states.flatMap((state) => {
+      const capability = capabilityByAgentId.get(state.agentId);
+      return capability ? [capability] : [];
+    }),
+  };
 }
 
 export async function resolveLocalAgentControllerInventoryItem(input: {

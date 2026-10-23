@@ -4,6 +4,7 @@ import { link, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { prepareSessionContinuationSchema } from "@openmeld/schemas";
 import type { PrepareSessionContinuation } from "@openmeld/schemas/types";
+import { formatOpenMeldCliCommand } from "../runtime/cli-entry-command";
 import {
   DEFAULT_REMOTE_SESSION_TIMEOUT_MS,
   LOOPBACK_REMOTE_SESSION_TIMEOUT_MS,
@@ -108,12 +109,27 @@ class AuthSessionStorageError extends Error {
 }
 
 export class AuthSessionRecoveryInProgressError extends Error {
-  constructor() {
+  // `recoveryRequired` marks an interrupted handoff that a sign-in can finish.
+  // Otherwise another setup still owns the transition, and sending the user
+  // to sign in would repeat a command that cannot finish it.
+  constructor(input: { recoveryRequired?: boolean } = {}) {
     super(
-      "OpenMeld is still finishing an interrupted Computer sign-in recovery. The current sign-in was not changed; retry after the recovery cleanup succeeds."
+      input.recoveryRequired
+        ? `OpenMeld is still finishing an interrupted Computer sign-in recovery. The current sign-in was not changed. Run ${formatOpenMeldCliCommand("openmeld login")} to finish the recovery and sign in, or get a new setup command from OpenMeld Web.`
+        : "OpenMeld is still finishing a Computer sign-in change on this computer. The current sign-in was not changed. Wait for that setup to finish, then try again."
     );
     this.name = "AuthSessionRecoveryInProgressError";
   }
+}
+
+// Picks the next action from the journal that blocks the change: a sign-in
+// can finish recovery_required, while a pending transition belongs to a setup.
+function recoveryInProgressErrorFor(
+  journal: Pick<AuthSessionTransitionJournalV1, "state"> | null
+): AuthSessionRecoveryInProgressError {
+  return new AuthSessionRecoveryInProgressError({
+    recoveryRequired: journal?.state === "recovery_required",
+  });
 }
 
 export class AuthSessionChangedBeforeTransitionError extends Error {
@@ -215,7 +231,11 @@ export type AuthSessionTransitionContext = {
 export type InterruptedComputerAuthSessionRecovery = {
   gatewayUrl: string;
   id: string;
-  previousSession: StoredAuthSession | null;
+  // Identity comes from the restored payload metadata, never from its
+  // credential: a temporarily unreadable secret store must not erase which
+  // account the restore belongs to. Recovery decides between a restore and a
+  // stopped Service from that owner's sign-in state.
+  previousOwnerUserId: string | null;
   serviceReconciled: boolean;
 } & (
   | { remoteSessionRevoked: true; candidateSession: null }
@@ -350,8 +370,9 @@ export function withAdmittedServiceSession<T>(
 // local snapshot under it. It never refreshes credentials or recovers a journal
 // while recursively holding the auth lock.
 export async function readServiceAdmissionSessionWithOwnership(): Promise<StoredAuthSession> {
-  if (await readAuthSessionTransitionJournal()) {
-    throw new AuthSessionRecoveryInProgressError();
+  const journal = await readAuthSessionTransitionJournal();
+  if (journal) {
+    throw recoveryInProgressErrorFor(journal);
   }
   return requireValidOwnedLocalAuthSession(
     await getLocalAuthSessionState({ recover: false })
@@ -371,7 +392,7 @@ export async function readComputerSetupSessionWithOwnership(input: {
     input.expectedTransitionId !== undefined &&
     transitionId !== input.expectedTransitionId
   ) {
-    throw new AuthSessionRecoveryInProgressError();
+    throw recoveryInProgressErrorFor(journal);
   }
   if (!journal) {
     return {
@@ -390,7 +411,7 @@ export async function readComputerSetupSessionWithOwnership(input: {
     normalizeGatewayBaseUrlOrNull(journal.computerHandoff.gatewayUrl) !==
       normalizeGatewayBaseUrlOrNull(input.gatewayUrl)
   ) {
-    throw new AuthSessionRecoveryInProgressError();
+    throw recoveryInProgressErrorFor(journal);
   }
   const session = await readStoredAuthSessionFromPayload(
     journal.candidatePayload
@@ -1110,6 +1131,13 @@ async function commitAuthSessionTransitionJournal(
   );
 }
 
+// Read-only: explicit account commands use this to decide whether they must
+// finish an interrupted Computer handoff before changing the sign-in.
+export async function hasInterruptedComputerAuthSessionTransition(): Promise<boolean> {
+  const journal = await readAuthSessionTransitionJournal();
+  return Boolean(journal?.computerHandoff && journal.state !== "committed");
+}
+
 export async function hasPendingComputerSetupContinuation(): Promise<boolean> {
   const journal = await readAuthSessionTransitionJournal();
   return (
@@ -1262,6 +1290,7 @@ export async function getInterruptedComputerAuthSessionRecovery(): Promise<Inter
     if (journal.computerHandoff.remoteSessionRevokedAt) {
       if (journal.computerHandoff.serviceReconciledAt) {
         await cleanupCandidateTokenRefs(journal);
+        await releaseReplacedPreviousTokenRef(journal);
         await removeAuthSessionTransitionJournalIfOwned(journal);
         return null;
       }
@@ -1269,8 +1298,8 @@ export async function getInterruptedComputerAuthSessionRecovery(): Promise<Inter
         candidateSession: null,
         gatewayUrl: journal.computerHandoff.gatewayUrl,
         id: journal.id,
-        previousSession: await readRecoverablePreviousSession(
-          journal.previousPayload
+        previousOwnerUserId: normalizeOptionalString(
+          journal.previousPayload?.user?.id
         ),
         remoteSessionRevoked: true,
         serviceReconciled: Boolean(journal.computerHandoff.serviceReconciledAt),
@@ -1304,8 +1333,8 @@ export async function getInterruptedComputerAuthSessionRecovery(): Promise<Inter
       },
       gatewayUrl: journal.computerHandoff.gatewayUrl,
       id: journal.id,
-      previousSession: await readRecoverablePreviousSession(
-        journal.previousPayload
+      previousOwnerUserId: normalizeOptionalString(
+        journal.previousPayload?.user?.id
       ),
       remoteSessionRevoked: false,
       serviceReconciled: Boolean(journal.computerHandoff.serviceReconciledAt),
@@ -1386,6 +1415,7 @@ export async function completeInterruptedComputerAuthSessionRecovery(
     }
     try {
       await cleanupCandidateTokenRefs(journal);
+      await releaseReplacedPreviousTokenRef(journal);
       await removeAuthSessionTransitionJournalIfOwned(journal);
       return true;
     } catch (error) {
@@ -1567,8 +1597,9 @@ async function assertAuthSessionMutationAvailableWithOwnership(): Promise<void> 
     }
   }
   await recoverInterruptedAuthSessionTransitionWithOwnership();
-  if (await readAuthSessionTransitionJournal()) {
-    throw new AuthSessionRecoveryInProgressError();
+  const journal = await readAuthSessionTransitionJournal();
+  if (journal) {
+    throw recoveryInProgressErrorFor(journal);
   }
 }
 
@@ -1603,6 +1634,32 @@ async function deleteAccessTokenOrRetainForCleanup(
     }
     await persistPendingTokenCleanup([...pending.tokenRefs, tokenRef]);
   }
+}
+
+async function retainAccessTokenForCleanup(
+  tokenRef: StoredTokenRef
+): Promise<void> {
+  const pending = await readPendingTokenCleanup();
+  if (pending.tokenRefs.some((ref) => areStoredTokenRefsEqual(ref, tokenRef))) {
+    return;
+  }
+  await persistPendingTokenCleanup([...pending.tokenRefs, tokenRef]);
+}
+
+// Deletes a token already recorded for cleanup, and drops the record only
+// once the deletion succeeded.
+async function releaseRetainedAccessToken(
+  tokenRef: StoredTokenRef
+): Promise<void> {
+  try {
+    await deleteAccessToken(tokenRef);
+  } catch {
+    return;
+  }
+  const pending = await readPendingTokenCleanup();
+  await persistPendingTokenCleanup(
+    pending.tokenRefs.filter((ref) => !areStoredTokenRefsEqual(ref, tokenRef))
+  );
 }
 
 async function readPendingTokenCleanup(): Promise<PendingTokenCleanupV1> {
@@ -2083,6 +2140,37 @@ async function cleanupCandidateTokenRefs(
   }
 }
 
+// A renewal of the restored previous sign-in can commit a new token before
+// the journal's restore point moves to it. Once recovery no longer needs that
+// restore point, release its token unless the committed session still uses it.
+async function releaseReplacedPreviousTokenRef(
+  journal: AuthSessionTransitionJournalV1
+): Promise<void> {
+  const previousTokenRef = normalizeTokenRef(journal.previousPayload?.tokenRef);
+  if (!previousTokenRef) {
+    return;
+  }
+  let committedPayload: Partial<AuthSessionV1> | null;
+  try {
+    committedPayload = await readSessionPayloadFile();
+  } catch (error) {
+    if (error instanceof AuthSessionStorageError) {
+      // Unreadable metadata cannot prove the token is unused. Keep it, and
+      // let explicit sign-out preserve the damaged record as it already does.
+      return;
+    }
+    throw error;
+  }
+  const committedTokenRef = normalizeTokenRef(committedPayload?.tokenRef);
+  if (
+    committedTokenRef &&
+    areStoredTokenRefsEqual(committedTokenRef, previousTokenRef)
+  ) {
+    return;
+  }
+  await deleteAccessTokenOrRetainForCleanup(previousTokenRef);
+}
+
 async function persistRemoteSessionRefresh(input: {
   accessToken: string;
   expectedPayloadKey: string | null;
@@ -2119,9 +2207,65 @@ async function persistRemoteSessionRefresh(input: {
           journal: transitionJournal,
         });
       }
-      throw new AuthSessionRecoveryInProgressError();
+      if (isRestoredPreviousSessionRefresh(transitionJournal, input)) {
+        return await persistRestoredPreviousSessionRefresh({
+          ...input,
+          journal: transitionJournal,
+        });
+      }
+      throw recoveryInProgressErrorFor(transitionJournal);
     }
     return await persistCommittedRemoteSessionRefresh(input);
+  });
+}
+
+// After rollback, a recovery_required journal's committed session is the
+// previous account's restored sign-in. Recovery must be able to persist a
+// server-confirmed renewal of that same sign-in, or the restored Service
+// rereads the stale local expiry and the recovery can never finish.
+function isRestoredPreviousSessionRefresh(
+  journal: AuthSessionTransitionJournalV1,
+  input: { expectedPayloadKey: string | null }
+): journal is AuthSessionTransitionJournalV1 & {
+  previousPayload: AuthSessionV1;
+} {
+  return Boolean(
+    journal.state === "recovery_required" &&
+      journal.computerHandoff &&
+      !journal.computerHandoff.prepareContinuation &&
+      journal.previousPayload &&
+      input.expectedPayloadKey !== null &&
+      buildAuthSessionPayloadKey(journal.previousPayload) ===
+        input.expectedPayloadKey
+  );
+}
+
+async function persistRestoredPreviousSessionRefresh(input: {
+  accessToken: string;
+  expectedPayloadKey: string | null;
+  expiresAt: string;
+  journal: AuthSessionTransitionJournalV1 & { previousPayload: AuthSessionV1 };
+  previousAccessToken: string;
+}): Promise<StoredAuthSession | null> {
+  const { journal, ...refresh } = input;
+  return await persistCommittedRemoteSessionRefresh({
+    ...refresh,
+    // Record the replaced token for cleanup before the journal stops
+    // referencing it, then move the restore point, then delete it. A crash at
+    // any step leaves the old token reachable by a durable record. Pending
+    // cleanup runs only once no transition journal exists.
+    releaseReplacedToken: async (payload, replacedTokenRef) => {
+      if (replacedTokenRef) {
+        await retainAccessTokenForCleanup(replacedTokenRef);
+      }
+      await writeAuthSessionTransitionJournalIfOwned(journal, {
+        ...journal,
+        previousPayload: payload,
+      });
+      if (replacedTokenRef) {
+        await releaseRetainedAccessToken(replacedTokenRef);
+      }
+    },
   });
 }
 
@@ -2130,6 +2274,13 @@ async function persistCommittedRemoteSessionRefresh(input: {
   expectedPayloadKey: string | null;
   expiresAt: string;
   previousAccessToken: string;
+  // Takes over releasing the replaced token (null when the token did not
+  // rotate) after the new payload is committed, so another durable reference
+  // can move first. Without it, the replaced token is deleted directly.
+  releaseReplacedToken?: (
+    payload: AuthSessionV1,
+    replacedTokenRef: StoredTokenRef | null
+  ) => Promise<void>;
 }): Promise<StoredAuthSession | null> {
   const payload = await readSessionPayloadFile();
   if (
@@ -2169,8 +2320,16 @@ async function persistCommittedRemoteSessionRefresh(input: {
     payload: refresh.nextPayload,
     session: refresh.nextSession,
   });
-  if (!areStoredTokenRefsEqual(refresh.currentTokenRef, refresh.nextTokenRef)) {
-    await deleteAccessTokenOrRetainForCleanup(refresh.currentTokenRef);
+  const replacedTokenRef = areStoredTokenRefsEqual(
+    refresh.currentTokenRef,
+    refresh.nextTokenRef
+  )
+    ? null
+    : refresh.currentTokenRef;
+  if (input.releaseReplacedToken) {
+    await input.releaseReplacedToken(refresh.nextPayload, replacedTokenRef);
+  } else if (replacedTokenRef) {
+    await deleteAccessTokenOrRetainForCleanup(replacedTokenRef);
   }
   return refresh.nextSession;
 }
@@ -2741,21 +2900,6 @@ async function readStoredAuthSessionFromPayloadIfPresent(
     accessToken: accessToken.accessToken,
     payload,
   });
-}
-
-async function readRecoverablePreviousSession(
-  payload: AuthSessionV1 | null
-): Promise<StoredAuthSession | null> {
-  if (!payload) {
-    return null;
-  }
-  const token = await readAccessToken(payload.tokenRef);
-  // The rollback has already restored the original payload. An unreadable
-  // credential cannot restart a Service, but must not prevent cleanup of the
-  // failed candidate or permanently block a fresh authorization attempt.
-  return token.status === "found"
-    ? buildStoredAuthSession({ accessToken: token.accessToken, payload })
-    : null;
 }
 
 async function readRequiredComputerAuthRecoveryJournal(id: string): Promise<

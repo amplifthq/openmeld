@@ -62,7 +62,7 @@ describe("auth session transition integrity", () => {
           script: `
             const { getInterruptedComputerAuthSessionRecovery } = await import(${JSON.stringify(authSessionModuleUrl)});
             const recovery = await getInterruptedComputerAuthSessionRecovery();
-            process.stdout.write(JSON.stringify({ status: "success", userId: recovery?.previousSession?.user?.id }));
+            process.stdout.write(JSON.stringify({ status: "success", userId: recovery?.previousOwnerUserId }));
           `,
         });
         expect((await recovery.result).userId).toBe("previous-owner");

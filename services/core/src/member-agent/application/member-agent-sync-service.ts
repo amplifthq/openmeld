@@ -12,6 +12,7 @@ import {
   resolveBuiltinAgentControllerConversationCapability,
 } from "@openmeld/schemas";
 import {
+  isRuntimeHarnessAddable,
   isRuntimeHarnessCreatable,
   type RuntimeHarness,
 } from "./runtime-harness-catalog";
@@ -45,6 +46,10 @@ export type MemberAgentSyncDeps = {
   // The enabled primary Binding's controller ref, else the most recent
   // Binding's; null when the Profile never bound.
   readGroupingControllerRef: (agentProfileId: string) => Promise<string | null>;
+  // Turns an installed Harness on in that computer's Local agents through
+  // its OpenMeld Service, which refreshes its catalog report before it
+  // answers. It throws with a reason code when the computer refuses.
+  turnOnHarness: (target: MemberAgentBindingTarget) => Promise<void>;
   // Writes the default Profile's first Binding with the Harness defaults.
   writeDefaultBinding: (input: {
     agentProfileId: string;
@@ -60,18 +65,21 @@ export const MEMBER_AGENT_SYNC_CONVERSATION_REQUIRED_REASON =
 /**
  * Reconcile the signed-in member's MemberAgents in one Organization with the
  * Harnesses their computers report (design-plans/member-agent-program.md
- * §4.5). Only the Harnesses the member chose (`createHarnessKinds`, from
- * setup or "add") get a new MemberAgent: Auth ensures it with its keyed
- * default Profile, Core binds that Profile to one of the reporting computers
- * and assigns it under the Profile's assignment lock, Auth then sets the
- * default, and Core opens the owner's Direct Message with it. Every call
- * also finishes existing detected MemberAgents and assigns bound Profiles.
- * Other detected Harnesses are reported as addable. A second computer with
- * the same Harness adds nothing. Hosted and custom controllers never appear
- * in the catalog.
+ * §4.1, §4.5). The Local agents switch is the member's choice: every
+ * Harness that a reporting computer has turned on and detects gets a
+ * MemberAgent. Auth ensures it with its keyed default Profile, Core binds
+ * that Profile to one of the reporting computers and assigns it under the
+ * Profile's assignment lock, Auth then sets the default, and Core opens the
+ * owner's Direct Message with it. Every call also finishes existing detected
+ * MemberAgents and assigns bound Profiles. Installed Harnesses that are
+ * turned off are reported as addable; turning one on adds it, and a
+ * Harness named in `createHarnessKinds` ("add") is turned on here. A second
+ * computer with the same Harness adds nothing. Hosted and custom controllers
+ * never appear in the catalog.
  */
 export type MemberAgentSyncReport = {
-  // Detected Harnesses with no MemberAgent that the member can add.
+  // Installed, turned-off Harnesses with no MemberAgent that the member can
+  // add by turning them on.
   addableHarnessKinds: DetectedHarnessKind[];
   // Unassigned Profiles this call put under their Harness's MemberAgent.
   assignedProfileIds: string[];
@@ -82,21 +90,27 @@ export async function syncMemberAgents(
   deps: MemberAgentSyncDeps,
   input: { createHarnessKinds?: readonly DetectedHarnessKind[] } = {}
 ): Promise<MemberAgentSyncReport> {
-  const harnesses = (await deps.listRuntimeHarnesses()).filter(
-    isRuntimeHarnessCreatable
+  // The Harnesses the member chose now (setup, "add"). One that is
+  // installed but turned off is turned on first: turning it on is adding it.
+  const requested = new Set(input.createHarnessKinds ?? []);
+  const { harnesses, turnOnFailures } = await turnOnRequestedHarnesses(
+    deps,
+    requested
   );
   const byHarnessKind = new Map<DetectedHarnessKind, RuntimeHarness[]>();
-  for (const harness of harnesses) {
+  for (const harness of harnesses.filter(isRuntimeHarnessCreatable)) {
     const list = byHarnessKind.get(harness.harnessKind) ?? [];
     list.push(harness);
     byHarnessKind.set(harness.harnessKind, list);
   }
-  const requested = new Set(input.createHarnessKinds ?? []);
   // The listing is read even with no Harness detected: assigning bound
   // Profiles needs only their Bindings and the existing MemberAgents.
   const listing = await deps.listOwnerMemberAgents();
+  const hasMemberAgent = (harnessKind: DetectedHarnessKind) =>
+    listing.memberAgents.some(
+      (memberAgent) => memberAgent.harnessKind === harnessKind
+    );
   const results: MemberAgentSyncResult[] = [];
-  const addableHarnessKinds: DetectedHarnessKind[] = [];
   for (const [harnessKind, candidates] of [...byHarnessKind].sort(([a], [b]) =>
     a.localeCompare(b)
   )) {
@@ -104,10 +118,12 @@ export async function syncMemberAgents(
       listing.memberAgents.find(
         (memberAgent) => memberAgent.harnessKind === harnessKind
       ) ?? null;
-    if (!(existing || requested.has(harnessKind))) {
-      if (!requiresChosenConversation(harnessKind)) {
-        addableHarnessKinds.push(harnessKind);
-      }
+    // A shared-account Harness waits for the owner to choose a provider
+    // conversation; only an explicit request reports why.
+    if (
+      !(existing || requested.has(harnessKind)) &&
+      requiresChosenConversation(harnessKind)
+    ) {
       continue;
     }
     results.push(
@@ -124,10 +140,29 @@ export async function syncMemberAgents(
         harnessKind,
         memberAgentId: null,
         outcome: "skipped",
-        reasonCodes: [MEMBER_AGENT_SYNC_HARNESS_NOT_DETECTED_REASON],
+        reasonCodes: [
+          turnOnFailures.get(harnessKind) ??
+            MEMBER_AGENT_SYNC_HARNESS_NOT_DETECTED_REASON,
+        ],
       });
     }
   }
+  const addableHarnessKinds = [
+    ...new Set(
+      harnesses
+        .filter(isRuntimeHarnessAddable)
+        .map((harness) => harness.harnessKind)
+    ),
+  ]
+    .filter(
+      (harnessKind) =>
+        !(
+          byHarnessKind.has(harnessKind) ||
+          hasMemberAgent(harnessKind) ||
+          requiresChosenConversation(harnessKind)
+        )
+    )
+    .sort();
   return {
     addableHarnessKinds,
     assignedProfileIds: await assignUnassignedBoundProfiles(
@@ -138,6 +173,54 @@ export async function syncMemberAgents(
         : listing
     ),
     results,
+  };
+}
+
+// Turns each requested Harness that no computer has on, but one has
+// installed and turned off, on there, then rereads the catalog. A
+// shared-account Harness is never turned on here: it waits for a chosen
+// conversation.
+async function turnOnRequestedHarnesses(
+  deps: MemberAgentSyncDeps,
+  requested: ReadonlySet<DetectedHarnessKind>
+): Promise<{
+  harnesses: readonly RuntimeHarness[];
+  turnOnFailures: Map<DetectedHarnessKind, string>;
+}> {
+  const harnesses = await deps.listRuntimeHarnesses();
+  const turnOnFailures = new Map<DetectedHarnessKind, string>();
+  let turnedOn = false;
+  for (const harnessKind of [...requested].sort()) {
+    const ofKind = harnesses.filter(
+      (harness) => harness.harnessKind === harnessKind
+    );
+    const addable = ofKind.filter(isRuntimeHarnessAddable);
+    if (
+      ofKind.some(isRuntimeHarnessCreatable) ||
+      addable.length === 0 ||
+      requiresChosenConversation(harnessKind)
+    ) {
+      continue;
+    }
+    // Several computers may have it turned off: try each, best first, so an
+    // offline one does not block the others.
+    for (const target of rankBindingTargets(addable)) {
+      try {
+        await deps.turnOnHarness(target);
+        turnedOn = true;
+        turnOnFailures.delete(harnessKind);
+        break;
+      } catch (error) {
+        turnOnFailures.set(
+          harnessKind,
+          readErrorCode(error, "member_agent.turn_on_failed")
+        );
+      }
+    }
+  }
+  return {
+    harnesses: turnedOn ? await deps.listRuntimeHarnesses() : harnesses,
+    turnOnFailures,
   };
 }
 
@@ -391,7 +474,18 @@ function requiresChosenConversation(harnessKind: DetectedHarnessKind) {
 function selectBindingTarget(
   candidates: readonly RuntimeHarness[]
 ): MemberAgentBindingTarget {
-  const [target] = [...candidates].sort(
+  const [target] = rankBindingTargets(candidates);
+  if (!target) {
+    throw new Error("a detected Harness has no reporting computer");
+  }
+  return target;
+}
+
+// Ready first, then a current report, then the freshest.
+function rankBindingTargets(
+  candidates: readonly RuntimeHarness[]
+): RuntimeHarness[] {
+  return [...candidates].sort(
     (left, right) =>
       Number(right.reportReady) - Number(left.reportReady) ||
       Number(right.reportCurrent) - Number(left.reportCurrent) ||
@@ -400,10 +494,6 @@ function selectBindingTarget(
         right.openMeldServiceRuntimeId
       )
   );
-  if (!target) {
-    throw new Error("a detected Harness has no reporting computer");
-  }
-  return target;
 }
 
 function isInterruptedDetectedCreation(memberAgent: MemberAgent): boolean {

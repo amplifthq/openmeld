@@ -118,9 +118,10 @@ export async function listOwnerRuntimeHarnessCatalog(input: {
 export type RuntimeHarnessObservationResult = {
   // False when an equal or newer report was already recorded.
   applied: boolean;
-  // The Harness is detected now and was not settled as present before:
-  // first sighting, a sighting after misses, or a reinstall.
-  becamePresent: boolean;
+  // The Harness is detected now and the previous report did not detect it:
+  // first sighting, a sighting after misses, a reinstall, or the member
+  // turning it back on in Local agents.
+  becameDetected: boolean;
 };
 
 /**
@@ -200,16 +201,17 @@ export async function recordRuntimeHarnessObservation(input: {
       ],
     });
     if ((written.rowCount ?? 0) === 0) {
-      return { applied: false, becamePresent: false };
+      return { applied: false, becameDetected: false };
     }
     const row = previous.rows[0];
-    const wasSettledPresent =
+    const previousReportDetected =
       row !== undefined &&
       row.last_detected_at_ms !== null &&
-      Number(row.undetected_report_count) === 0;
+      Number(row.last_detected_at_ms) ===
+        Number(row.last_report_observed_at_ms);
     return {
       applied: true,
-      becamePresent: input.detection === "detected" && !wasSettledPresent,
+      becameDetected: input.detection === "detected" && !previousReportDetected,
     };
   });
 }

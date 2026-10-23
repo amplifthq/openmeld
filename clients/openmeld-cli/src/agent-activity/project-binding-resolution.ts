@@ -8,6 +8,21 @@ export type LocalProjectConnectionIdentity = {
   repositoryPath: string;
 };
 
+/**
+ * Whether an account may see a local Project connection. A legacy connection
+ * written before connections recorded their owner has no `ownerUserId` and
+ * stays readable for compatibility; a connection owned by another account is
+ * hidden. Readable is not usable: selected code work and Project folders run
+ * only in a connection whose `ownerUserId` is the requesting account, so a
+ * legacy connection must first be reconnected (claimed) by that account.
+ */
+export function isProjectConnectionReadableByOwner(
+  connection: { ownerUserId?: string },
+  ownerUserId: string | undefined
+): boolean {
+  return !connection.ownerUserId || connection.ownerUserId === ownerUserId;
+}
+
 export async function canonicalizeLocalProjectPath(
   path: string
 ): Promise<string | null> {

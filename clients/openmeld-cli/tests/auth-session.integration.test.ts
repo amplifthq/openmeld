@@ -312,10 +312,7 @@ describe("auth session storage", () => {
           accessToken: "candidate-token",
           user: { id: "candidate-owner" },
         },
-        previousSession: {
-          accessToken: "previous-token",
-          user: { id: "previous-owner" },
-        },
+        previousOwnerUserId: "previous-owner",
         remoteSessionRevoked: false,
         serviceReconciled: false,
       });
@@ -354,6 +351,578 @@ describe("auth session storage", () => {
           "utf8"
         )
       ).rejects.toMatchObject({ code: "ENOENT" });
+    });
+  });
+
+  it("lets an explicit sign-in finish recovery when the previous sign-in expired, without restarting a Service", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        expiresAt: "2026-01-01T00:00:00.000Z",
+        user: { id: "previous-owner" },
+      });
+      await beginThenCrashAuthSessionTransition({
+        accessToken: "candidate-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        computerHandoff: true,
+        user: { id: "candidate-owner" },
+      });
+
+      // Responses captured from the real Auth Worker (better-auth 1.6.30):
+      // get-session for an expired or deleted session is 200 `null`, and
+      // sign-out with an unknown, expired, or deleted bearer is 200 success.
+      const authRequests: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((url: string | URL, init?: RequestInit) => {
+          const authorization = new Headers(init?.headers).get("authorization");
+          const pathname = new URL(String(url)).pathname;
+          authRequests.push(`${pathname} ${String(authorization)}`);
+          const body =
+            pathname === "/api/auth/sign-out" ? { success: true } : null;
+          return Promise.resolve(
+            new Response(JSON.stringify(body), {
+              headers: { "content-type": "application/json" },
+              status: 200,
+            })
+          );
+        })
+      );
+      const stopService = vi.fn(() => Promise.resolve({ status: "stopped" }));
+      // An expired previous sign-in can never align its Service.
+      const restoreService = vi.fn(() =>
+        Promise.resolve({
+          errorMessage: "OpenMeld could not finish starting OpenMeld Service.",
+          status: "needs_attention",
+        })
+      );
+      const serviceModuleMocks = {
+        "../src/commands/service": () => ({
+          bestEffortStopCurrentLaneDaemonService: stopService,
+        }),
+        "../src/system/local-service-participation-gate": () => ({
+          runDaemonServiceParticipationGate: restoreService,
+        }),
+        "../src/local-service/lifecycle/daemon-service-update-state": () => ({
+          readPendingDaemonServiceUpdate: () => Promise.resolve(null),
+        }),
+        "../src/local-service/maintenance/openmeld-tools-update-attempt-state":
+          () => ({
+            readPendingOpenMeldToolsUpdateAttempt: () => Promise.resolve(null),
+          }),
+        "../src/local-service/maintenance/openmeld-tools-update-join": () => ({
+          resolveExternalOpenMeldToolsUpdate: () => Promise.resolve(null),
+          waitForExternalOpenMeldToolsUpdate: () => Promise.resolve(),
+        }),
+      };
+      vi.resetModules();
+      for (const [path, factory] of Object.entries(serviceModuleMocks)) {
+        vi.doMock(path, factory);
+      }
+      try {
+        const restartedAuthSession = await import("../src/config/auth-session");
+        const { finishInterruptedComputerAuthHandoffBeforeAccountChange } =
+          await import("../src/commands/computer-auth-handoff-recovery");
+
+        await expect(
+          restartedAuthSession.assertAuthSessionMutationAvailable()
+        ).rejects.toMatchObject({
+          name: "AuthSessionRecoveryInProgressError",
+          message: expect.stringContaining("openmeld login"),
+        });
+
+        await finishInterruptedComputerAuthHandoffBeforeAccountChange({
+          presenter: {
+            data: vi.fn(),
+            event: vi.fn(),
+            line: vi.fn(),
+            view: "agent",
+          },
+          runtime: {
+            interactive: false,
+            resolvedView: "agent",
+            viewMode: "agent",
+          },
+        });
+
+        expect(stopService).toHaveBeenCalledTimes(1);
+        expect(restoreService).not.toHaveBeenCalled();
+        expect(authRequests).toEqual([
+          "/api/auth/get-session Bearer previous-token",
+          "/api/auth/sign-out Bearer candidate-token",
+        ]);
+        await expect(
+          readFile(
+            join(home, ".openmeld", "auth", "session-transition.json"),
+            "utf8"
+          )
+        ).rejects.toMatchObject({ code: "ENOENT" });
+        await expect(
+          restartedAuthSession.getAuthSessionMetadata()
+        ).resolves.toMatchObject({ user: { id: "previous-owner" } });
+
+        await restartedAuthSession.assertAuthSessionMutationAvailable();
+        await restartedAuthSession.setAuthSession({
+          accessToken: "replacement-token",
+          authBaseUrl: "https://auth.openmeld.invalid",
+          clientId: "openmeld-cli",
+          user: { id: "replacement-owner" },
+        });
+        await expect(
+          restartedAuthSession.getAuthSession()
+        ).resolves.toMatchObject({
+          accessToken: "replacement-token",
+          user: { id: "replacement-owner" },
+        });
+      } finally {
+        for (const path of Object.keys(serviceModuleMocks)) {
+          vi.doUnmock(path);
+        }
+      }
+    });
+  });
+
+  it("persists a server-confirmed renewal, including a rotated token, of the restored previous sign-in during recovery", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        expiresAt: "2026-01-01T00:00:00.000Z",
+        user: { id: "previous-owner" },
+      });
+      await beginThenCrashAuthSessionTransition({
+        accessToken: "candidate-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        computerHandoff: true,
+        user: { id: "candidate-owner" },
+      });
+      // Shape captured from the real Auth Worker get-session response.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          Promise.resolve(
+            new Response(
+              JSON.stringify({
+                session: {
+                  expiresAt: "2099-01-01T00:00:00.000Z",
+                  id: "previous-session",
+                  token: "previous-token",
+                  userId: "previous-owner",
+                },
+                user: { email: "previous@example.com", id: "previous-owner" },
+              }),
+              {
+                headers: {
+                  "content-type": "application/json",
+                  "set-auth-token": "rotated-previous-token",
+                },
+                status: 200,
+              }
+            )
+          )
+        )
+      );
+
+      vi.resetModules();
+      const restartedAuthSession = await import("../src/config/auth-session");
+      await restartedAuthSession.getInterruptedComputerAuthSessionRecovery();
+      await expect(
+        restartedAuthSession.getAuthSessionState({
+          refreshExpired: true,
+          validateRemote: true,
+        })
+      ).resolves.toMatchObject({
+        state: "valid",
+        session: { expiresAt: "2099-01-01T00:00:00.000Z" },
+      });
+
+      // OpenMeld Service startup reads the committed sign-in locally only.
+      vi.resetModules();
+      const serviceProcess = await import("../src/config/auth-session");
+      await expect(
+        serviceProcess.getAuthSessionState({ validateRemote: false })
+      ).resolves.toMatchObject({
+        state: "valid",
+        session: {
+          accessToken: "rotated-previous-token",
+          expiresAt: "2099-01-01T00:00:00.000Z",
+          user: { id: "previous-owner" },
+        },
+      });
+      const journal = JSON.parse(
+        await readFile(
+          join(home, ".openmeld", "auth", "session-transition.json"),
+          "utf8"
+        )
+      ) as {
+        previousPayload: { expiresAt?: string; tokenRef: unknown };
+        state: string;
+      };
+      const committed = JSON.parse(
+        await readFile(join(home, ".openmeld", "auth", "session.json"), "utf8")
+      ) as { tokenRef: unknown };
+      expect(journal.previousPayload.tokenRef).toEqual(committed.tokenRef);
+      expect(journal).toMatchObject({
+        previousPayload: { expiresAt: "2099-01-01T00:00:00.000Z" },
+        state: "recovery_required",
+      });
+      await expect(
+        serviceProcess.getInterruptedComputerAuthSessionRecovery()
+      ).resolves.toMatchObject({
+        previousOwnerUserId: "previous-owner",
+      });
+    });
+  });
+
+  it("releases the replaced previous token when the journal update fails during a renewal", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        expiresAt: "2026-01-01T00:00:00.000Z",
+        user: { id: "previous-owner" },
+      });
+      await beginThenCrashAuthSessionTransition({
+        accessToken: "candidate-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        computerHandoff: true,
+        user: { id: "candidate-owner" },
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          Promise.resolve(
+            new Response(
+              JSON.stringify({
+                session: {
+                  expiresAt: "2099-01-01T00:00:00.000Z",
+                  id: "previous-session",
+                  token: "previous-token",
+                  userId: "previous-owner",
+                },
+                user: { email: "previous@example.com", id: "previous-owner" },
+              }),
+              {
+                headers: {
+                  "content-type": "application/json",
+                  "set-auth-token": "rotated-previous-token",
+                },
+                status: 200,
+              }
+            )
+          )
+        )
+      );
+      const authDirectory = join(home, ".openmeld", "auth");
+      const transitionPath = join(authDirectory, "session-transition.json");
+      const tokenPath = (tokenRef: { key: string }) =>
+        join(authDirectory, "tokens", `${tokenRef.key}.token`);
+      const readTokenRef = async (path: string, field?: "previousPayload") => {
+        const value = JSON.parse(await readFile(path, "utf8")) as {
+          previousPayload?: { tokenRef: { key: string } };
+          tokenRef?: { key: string };
+        };
+        const tokenRef =
+          field === "previousPayload"
+            ? value.previousPayload?.tokenRef
+            : value.tokenRef;
+        if (!tokenRef) {
+          throw new Error(`Missing tokenRef in ${path}`);
+        }
+        return tokenRef;
+      };
+      const journalWrite = { fail: false };
+      vi.resetModules();
+      vi.doMock("node:fs/promises", async (importOriginal) => {
+        const fs = await importOriginal<typeof import("node:fs/promises")>();
+        return {
+          ...fs,
+          rename: (from: string, to: string) =>
+            journalWrite.fail && to === transitionPath
+              ? Promise.reject(
+                  Object.assign(new Error("injected journal write failure"), {
+                    code: "EIO",
+                  })
+                )
+              : fs.rename(from, to),
+        };
+      });
+      try {
+        const restartedAuthSession = await import("../src/config/auth-session");
+        const recovery =
+          await restartedAuthSession.getInterruptedComputerAuthSessionRecovery();
+        const replacedTokenRef = await readTokenRef(
+          transitionPath,
+          "previousPayload"
+        );
+
+        journalWrite.fail = true;
+        await expect(
+          restartedAuthSession.getAuthSessionState({
+            refreshExpired: true,
+            validateRemote: true,
+          })
+        ).rejects.toThrow("injected journal write failure");
+        journalWrite.fail = false;
+
+        const committedTokenRef = await readTokenRef(
+          join(authDirectory, "session.json")
+        );
+        expect(committedTokenRef).not.toEqual(replacedTokenRef);
+        await expect(
+          readTokenRef(transitionPath, "previousPayload")
+        ).resolves.toEqual(replacedTokenRef);
+        await expect(
+          readFile(tokenPath(replacedTokenRef), "utf8")
+        ).resolves.toBeTruthy();
+
+        for (const phase of ["service", "remote_session"] as const) {
+          await restartedAuthSession.markInterruptedComputerAuthSessionRecovery(
+            { id: recovery?.id ?? "", phase }
+          );
+        }
+        await expect(
+          restartedAuthSession.completeInterruptedComputerAuthSessionRecovery(
+            recovery?.id ?? ""
+          )
+        ).resolves.toBe(true);
+
+        await expect(
+          readFile(tokenPath(replacedTokenRef), "utf8")
+        ).rejects.toMatchObject({ code: "ENOENT" });
+        await expect(
+          restartedAuthSession.getAuthSession()
+        ).resolves.toMatchObject({
+          accessToken: "rotated-previous-token",
+          user: { id: "previous-owner" },
+        });
+      } finally {
+        vi.doUnmock("node:fs/promises");
+      }
+    });
+  });
+
+  it("keeps a durable cleanup record when the replaced previous token cannot be deleted after the journal moved", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        expiresAt: "2026-01-01T00:00:00.000Z",
+        user: { id: "previous-owner" },
+      });
+      await beginThenCrashAuthSessionTransition({
+        accessToken: "candidate-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        computerHandoff: true,
+        user: { id: "candidate-owner" },
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          Promise.resolve(
+            new Response(
+              JSON.stringify({
+                session: {
+                  expiresAt: "2099-01-01T00:00:00.000Z",
+                  id: "previous-session",
+                  token: "previous-token",
+                  userId: "previous-owner",
+                },
+                user: { email: "previous@example.com", id: "previous-owner" },
+              }),
+              {
+                headers: {
+                  "content-type": "application/json",
+                  "set-auth-token": "rotated-previous-token",
+                },
+                status: 200,
+              }
+            )
+          )
+        )
+      );
+      const authDirectory = join(home, ".openmeld", "auth");
+      const transitionPath = join(authDirectory, "session-transition.json");
+      const tokenPath = (tokenRef: { key: string }) =>
+        join(authDirectory, "tokens", `${tokenRef.key}.token`);
+      const readTokenRef = async (path: string, field?: "previousPayload") => {
+        const value = JSON.parse(await readFile(path, "utf8")) as {
+          previousPayload?: { tokenRef: { key: string } };
+          tokenRef?: { key: string };
+        };
+        const tokenRef =
+          field === "previousPayload"
+            ? value.previousPayload?.tokenRef
+            : value.tokenRef;
+        if (!tokenRef) {
+          throw new Error(`Missing tokenRef in ${path}`);
+        }
+        return tokenRef;
+      };
+      const tokenDelete = { failPath: "" };
+      vi.resetModules();
+      vi.doMock("node:fs/promises", async (importOriginal) => {
+        const fs = await importOriginal<typeof import("node:fs/promises")>();
+        return {
+          ...fs,
+          rm: (path: string, options?: Parameters<typeof fs.rm>[1]) =>
+            tokenDelete.failPath && path === tokenDelete.failPath
+              ? Promise.reject(
+                  Object.assign(new Error("injected token delete failure"), {
+                    code: "EIO",
+                  })
+                )
+              : fs.rm(path, options),
+        };
+      });
+      try {
+        const restartedAuthSession = await import("../src/config/auth-session");
+        const recovery =
+          await restartedAuthSession.getInterruptedComputerAuthSessionRecovery();
+        const replacedTokenRef = await readTokenRef(
+          transitionPath,
+          "previousPayload"
+        );
+
+        tokenDelete.failPath = tokenPath(replacedTokenRef);
+        await expect(
+          restartedAuthSession.getAuthSessionState({
+            refreshExpired: true,
+            validateRemote: true,
+          })
+        ).resolves.toMatchObject({ state: "valid" });
+        tokenDelete.failPath = "";
+
+        const committedTokenRef = await readTokenRef(
+          join(authDirectory, "session.json")
+        );
+        expect(committedTokenRef).not.toEqual(replacedTokenRef);
+        await expect(
+          readTokenRef(transitionPath, "previousPayload")
+        ).resolves.toEqual(committedTokenRef);
+        await expect(
+          readFile(tokenPath(replacedTokenRef), "utf8")
+        ).resolves.toBeTruthy();
+        const pendingCleanup = JSON.parse(
+          await readFile(
+            join(authDirectory, "pending-token-cleanup.json"),
+            "utf8"
+          )
+        ) as { tokenRefs: unknown[] };
+        expect(pendingCleanup.tokenRefs).toContainEqual(replacedTokenRef);
+
+        for (const phase of ["service", "remote_session"] as const) {
+          await restartedAuthSession.markInterruptedComputerAuthSessionRecovery(
+            { id: recovery?.id ?? "", phase }
+          );
+        }
+        await expect(
+          restartedAuthSession.completeInterruptedComputerAuthSessionRecovery(
+            recovery?.id ?? ""
+          )
+        ).resolves.toBe(true);
+        await restartedAuthSession.clearAuthSession();
+        await expect(
+          readFile(tokenPath(replacedTokenRef), "utf8")
+        ).rejects.toMatchObject({ code: "ENOENT" });
+        await expect(
+          readFile(join(authDirectory, "pending-token-cleanup.json"), "utf8")
+        ).rejects.toMatchObject({ code: "ENOENT" });
+      } finally {
+        vi.doUnmock("node:fs/promises");
+      }
+    });
+  });
+
+  it("finishes recovery cleanup when the committed sign-in metadata is corrupt", async () => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "previous-owner" },
+      });
+      await beginThenCrashAuthSessionTransition({
+        accessToken: "candidate-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        computerHandoff: true,
+        user: { id: "candidate-owner" },
+      });
+      vi.resetModules();
+      const restartedAuthSession = await import("../src/config/auth-session");
+      const recovery =
+        await restartedAuthSession.getInterruptedComputerAuthSessionRecovery();
+      for (const phase of ["service", "remote_session"] as const) {
+        await restartedAuthSession.markInterruptedComputerAuthSessionRecovery({
+          id: recovery?.id ?? "",
+          phase,
+        });
+      }
+      const authDirectory = join(home, ".openmeld", "auth");
+      await writeFile(join(authDirectory, "session.json"), "{not json", "utf8");
+
+      await expect(
+        restartedAuthSession.completeInterruptedComputerAuthSessionRecovery(
+          recovery?.id ?? ""
+        )
+      ).resolves.toBe(true);
+      await expect(
+        readFile(join(authDirectory, "session-transition.json"), "utf8")
+      ).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(
+        restartedAuthSession.clearAuthSession()
+      ).resolves.toMatchObject({
+        hadLocalSession: true,
+        preservedSessionPath: expect.stringContaining("session-corrupt-"),
+      });
+    });
+  });
+
+  it("points Service admission to sign-in once the interrupted handoff only needs recovery", async () => {
+    await withTempHome(async () => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "previous-owner" },
+      });
+      await beginThenCrashAuthSessionTransition({
+        accessToken: "candidate-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        computerHandoff: true,
+        user: { id: "candidate-owner" },
+      });
+      vi.resetModules();
+      const restartedAuthSession = await import("../src/config/auth-session");
+      await restartedAuthSession.getInterruptedComputerAuthSessionRecovery();
+
+      const failure = await restartedAuthSession
+        .readServiceAdmissionSessionWithOwnership()
+        .catch((error: unknown) => error);
+      expect(failure).toMatchObject({
+        name: "AuthSessionRecoveryInProgressError",
+        message: expect.stringContaining("openmeld login"),
+      });
+      expect(String((failure as Error).message)).not.toContain(
+        "Wait for that setup"
+      );
     });
   });
 
@@ -481,10 +1050,7 @@ describe("auth session storage", () => {
           accessToken: "candidate-token",
           user: { id: "candidate-owner" },
         },
-        previousSession: {
-          accessToken: "previous-token",
-          user: { id: "previous-owner" },
-        },
+        previousOwnerUserId: "previous-owner",
         remoteSessionRevoked: false,
         serviceReconciled: true,
       });

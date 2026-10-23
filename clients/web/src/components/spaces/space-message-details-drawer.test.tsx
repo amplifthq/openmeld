@@ -49,12 +49,14 @@ import type { SpaceMessageReferencesById } from "./space-message-reference";
 
 const useQueryMock = vi.hoisted(() => vi.fn());
 const postNewTaskMessageMock = vi.hoisted(() => vi.fn());
-const createSpaceApiMock = vi.hoisted(() => vi.fn());
-vi.mock("#/lib/spaces/api", () => ({
-	createUnscopedWebSpaceApi: createSpaceApiMock.mockImplementation(() => ({
+const createSpaceApiMock = vi.hoisted(() =>
+	vi.fn(() => ({
 		postNormalMessage: postNewTaskMessageMock,
 		postThreadSignal: postNewTaskMessageMock,
-	})),
+	}))
+);
+vi.mock("#/lib/spaces/api", () => ({
+	createUnscopedWebSpaceApi: createSpaceApiMock,
 }));
 const REPORT_POINTER_COPY_PATTERN = /Message text is not included/;
 const COMPUTERS_RECOVERY_HREF_PATTERN = /\/computers$/u;
