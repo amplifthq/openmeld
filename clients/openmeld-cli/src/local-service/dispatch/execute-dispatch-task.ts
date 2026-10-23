@@ -1587,12 +1587,13 @@ export async function handleDispatchDeliverFrame(input: {
         unscopedNativeConversationId: effectiveAgentControllerConversationId,
         context: parsedTask.executionContext,
         currentWorkingDirectory: originalWorkingDirectory,
-        forkSourceWorkingDirectory: await resolveForkSourceWorkingDirectory({
-          executionContext: parsedTask.executionContext,
-          ownerUserId: input.profileOwnerUserId,
-          routeConfig,
-          targetProfileId: parsedTask.targetProfileId,
-        }),
+        resolveForkSourceWorkingDirectory: () =>
+          resolveForkSourceWorkingDirectory({
+            executionContext: parsedTask.executionContext,
+            ownerUserId: input.profileOwnerUserId,
+            routeConfig,
+            targetProfileId: parsedTask.targetProfileId,
+          }),
         workingDirectory: activeRuntimeContext.providerRuntimeWorkingDirectory,
         existingNativeConversationId: existingContextId,
         ledgerRootPath: input.ledgerPaths.rootDirPath,

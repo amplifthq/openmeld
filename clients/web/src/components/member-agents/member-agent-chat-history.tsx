@@ -348,11 +348,23 @@ export function useMemberAgentSessionGroups(input: {
  * archive (useChatArchive), so the chat menu keeps one Archive item and one
  * confirmation; it calls Core's Session archive instead of the personal list.
  */
-export function useMemberAgentSessionArchive(spaceId: string) {
+export function useMemberAgentSessionArchive(
+	spaceId: string,
+	agentProfileId: string
+) {
 	const { currentOrganization: organization } = useAppOrganization();
 	const navigate = useNavigate();
-	const memberAgents = useMemberAgentIndex();
-	const archived = useArchivedMemberAgentSessionIds(memberAgents).has(spaceId);
+	const sessions = useQuery(
+		agentDirectMessageSessionsQueryOptions({
+			organizationId: organization.id,
+			agentProfileId,
+			archived: true,
+			enabled: true,
+		})
+	);
+	const archived =
+		sessions.data?.sessions.some((session) => session.spaceId === spaceId) ===
+		true;
 	const actions = useDirectMessageSessionActions({
 		spaceId,
 		enabled: false,
@@ -360,7 +372,7 @@ export function useMemberAgentSessionArchive(spaceId: string) {
 	});
 	return {
 		archived,
-		disabled: actions.pending,
+		disabled: actions.pending || !sessions.isSuccess,
 		label: archived ? "Unarchive conversation" : "Archive conversation",
 		confirmDescription:
 			"It leaves your chat list. Its messages are kept, and you can restore it from the Archived tab on this Agent’s page.",

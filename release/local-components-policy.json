@@ -1,12 +1,12 @@
 {
-  "version": "0.3.271",
+  "version": "0.3.272",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Adding a Project as an Agent working folder no longer fails with \"Connect this Project on this computer\" when the Project's local connection was written by an older CLI without an owner: the add is the account's explicit reconnect and records it as the owner, keeping the connection's generation and default, so the folder then runs. A legacy connection nobody reconnected still never runs work, and a connection owned by another OpenMeld account is still refused. Wire schemas, commands, and arguments are unchanged, so the mandatory CLI floor stays at 0.3.251."
+    "reason": "Packages the Service fix for resuming an established fork after its source folder is removed. CLI commands and wire contracts remain compatible; the mandatory CLI floor stays at 0.3.251."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "OpenMeld Service claims a legacy ownerless local Project connection for the requesting account when that account adds the Project as a working folder; running a Project folder or selected repository still requires a connection owned by the requesting account. The local control contract is unchanged, so the mandatory Service floor remains 0.3.264."
+    "reason": "Established forked Sessions resume using their own native conversation without requiring the historical source folder. Transport and stored context contracts are unchanged, so the mandatory Service floor remains 0.3.264."
   },
   "skills": {
     "updatePolicy": "available",

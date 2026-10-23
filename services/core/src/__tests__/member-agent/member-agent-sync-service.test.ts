@@ -61,7 +61,12 @@ function createDeps(input: {
     listRuntimeHarnesses: vi.fn(async () =>
       projectRuntimeHarnesses({ entries: input.entries, nowMs: NOW_MS })
     ),
-    openDirectMessage: vi.fn(async () => ({ spaceId: "space-dm" })),
+    openDirectMessage: vi.fn(
+      async (): Promise<{ spaceId: string; created: boolean } | null> => ({
+        spaceId: "space-dm",
+        created: false,
+      })
+    ),
     readGroupingControllerRef: vi.fn(
       async (agentProfileId: string) =>
         input.controllerRefs?.[agentProfileId] ?? null
@@ -227,11 +232,57 @@ describe("syncMemberAgents", () => {
 
     expect(deps.ensureDetectedMemberAgent).not.toHaveBeenCalled();
     expect(deps.writeDefaultBinding).not.toHaveBeenCalled();
-    expect(deps.openDirectMessage).not.toHaveBeenCalled();
     expect(results[0]).toMatchObject({
       memberAgentId: "ma-codex",
       outcome: "unchanged",
+      directMessage: "succeeded",
     });
+  });
+
+  it("retries a failed initial chat after its default Profile is already bound", async () => {
+    const deps = createDeps({
+      entries: [
+        catalogEntry({
+          agentControllerRef: "builtin:codex",
+          openMeldServiceRuntimeId: "runtime-1",
+        }),
+      ],
+    });
+    deps.openDirectMessage.mockRejectedValueOnce(
+      new Error("temporary failure")
+    );
+    const first = await syncMemberAgents(deps, {
+      createHarnessKinds: ["codex"],
+    });
+    expect(first.results[0]).toMatchObject({
+      binding: "succeeded",
+      directMessage: "failed",
+      outcome: "created",
+    });
+
+    deps.hasAnyBinding.mockResolvedValue(true);
+    deps.listOwnerMemberAgents.mockResolvedValue(
+      listing([
+        memberAgent({
+          id: "ma-1",
+          harnessKind: "codex",
+          defaultProfileId: DEFAULT_PROFILE_ID,
+        }),
+      ])
+    );
+    deps.openDirectMessage.mockResolvedValueOnce({
+      spaceId: "space-recovered",
+      created: true,
+    });
+    const retry = await syncMemberAgents(deps);
+    expect(retry.results[0]).toMatchObject({
+      binding: "not_attempted",
+      directMessage: "succeeded",
+      directMessageSpaceId: "space-recovered",
+      outcome: "completed",
+      reasonCodes: [],
+    });
+    expect(deps.writeDefaultBinding).toHaveBeenCalledTimes(1);
   });
 
   it("assigns an unassigned Profile bound to a Harness that has a MemberAgent", async () => {
@@ -280,7 +331,10 @@ describe("syncMemberAgents", () => {
   it("assigns bound Profiles while no Harness is detected", async () => {
     // The computer is offline: the Binding and the MemberAgent still decide.
     const deps = createDeps({
-      controllerRefs: { "agt-second-cursor": "builtin:cursor" },
+      controllerRefs: {
+        "agt-second-cursor": "builtin:cursor",
+        "agt-first-hosted": "hosted:remote-agent",
+      },
       entries: [],
       existing: {
         ...listing([
@@ -292,13 +346,17 @@ describe("syncMemberAgents", () => {
         ]),
         unassignedProfiles: [
           { openMeldProfileId: "agt-second-cursor", profileName: "Second" },
+          {
+            openMeldProfileId: "agt-first-hosted",
+            profileName: "Remote Agent",
+          },
         ],
       },
     });
 
     expect(await syncMemberAgents(deps)).toEqual({
       addableHarnessKinds: [],
-      assignedProfileIds: ["agt-second-cursor"],
+      assignedProfileIds: ["agt-second-cursor", "agt-first-hosted"],
       results: [],
     });
   });
@@ -772,8 +830,8 @@ describe("syncMemberAgents", () => {
     expect(deps.ensureDetectedMemberAgent).toHaveBeenCalledTimes(1);
     expect(deps.ensureDetectedMemberAgent).toHaveBeenCalledWith("claude-code");
 
-    // The next sync sees the new MemberAgent and its Binding: nothing is
-    // created twice and no second Direct Message is opened.
+    // The next sync keeps the new MemberAgent and its Binding, and reuses
+    // the initial Direct Message without creating a replacement.
     const again = createDeps({
       entries,
       existing: listing([
@@ -793,7 +851,10 @@ describe("syncMemberAgents", () => {
     ]);
     expect(again.ensureDetectedMemberAgent).not.toHaveBeenCalled();
     expect(again.writeDefaultBinding).not.toHaveBeenCalled();
-    expect(again.openDirectMessage).not.toHaveBeenCalled();
+    expect(second.results[0]).toMatchObject({
+      directMessage: "succeeded",
+      directMessageSpaceId: "space-dm",
+    });
   });
 
   it("neither creates nor offers a Harness turned off after its MemberAgent exists", async () => {

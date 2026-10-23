@@ -38,7 +38,11 @@ export type MemberAgentSyncDeps = {
   hasAnyBinding: (agentProfileId: string) => Promise<boolean>;
   listOwnerMemberAgents: () => Promise<ListMemberAgentsResponse>;
   listRuntimeHarnesses: () => Promise<readonly RuntimeHarness[]>;
-  openDirectMessage: (agentProfileId: string) => Promise<{ spaceId: string }>;
+  // Idempotently creates or repairs the first chat. Null means an earlier
+  // chat was deliberately deleted or converted and must not be replaced.
+  openDirectMessage: (
+    agentProfileId: string
+  ) => Promise<{ spaceId: string; created: boolean } | null>;
   // The enabled primary Binding's controller ref, else the most recent
   // Binding's; null when the Profile never bound.
   readGroupingControllerRef: (agentProfileId: string) => Promise<string | null>;
@@ -222,8 +226,10 @@ async function turnOnRequestedHarnesses(
 
 // A Profile bound to a Harness belongs to that Harness's MemberAgent. The
 // Binding write assigns it; this repairs Profiles bound before that or whose
-// assignment failed. Profiles without a Binding, with a `custom` controller,
-// or whose Harness has no MemberAgent stay unassigned: nothing is guessed.
+// assignment failed. Hosted assignment also ensures its manual MemberAgent;
+// a hosted Binding already records the owner's choice. Profiles without a
+// Binding, with a `custom` controller, or whose local Harness has no
+// MemberAgent stay unassigned: nothing is guessed.
 async function assignUnassignedBoundProfiles(
   deps: MemberAgentSyncDeps,
   listing: ListMemberAgentsResponse
@@ -240,7 +246,7 @@ async function assignUnassignedBoundProfiles(
     if (
       agentControllerRef &&
       harnessKind &&
-      harnessKinds.has(harnessKind) &&
+      (harnessKind === "hosted" || harnessKinds.has(harnessKind)) &&
       (await deps.assignBoundProfile(profile.openMeldProfileId)) === "assigned"
     ) {
       assigned.push(profile.openMeldProfileId);
@@ -324,22 +330,34 @@ async function syncHarness(input: {
     }
     if (!(await input.deps.hasAnyBinding(defaultProfileId))) {
       binding = await bindDefaultProfile(defaultProfileId);
-    } else if (!ensured.finishedCreation) {
-      // A creation this call finished still opens the Direct Message, even
-      // when an interrupted earlier call already wrote the Binding.
-      return unchanged;
     }
   }
 
   const directMessage = defaultProfileId
     ? await openDirectMessage(input.deps, defaultProfileId, reasonCodes)
     : // The Direct Message waits for a default Profile; the next sync opens it.
-      { directMessage: "not_attempted" as const, directMessageSpaceId: null };
+      {
+        directMessage: "not_attempted" as const,
+        directMessageSpaceId: null,
+        created: false,
+      };
+  const completed =
+    ensured.finishedCreation ||
+    binding !== "not_attempted" ||
+    directMessage.created ||
+    directMessage.directMessage === "failed";
+  let outcome: MemberAgentSyncResult["outcome"] = completed
+    ? "completed"
+    : "unchanged";
+  if (created) {
+    outcome = "created";
+  }
   return {
     ...identified,
-    ...directMessage,
+    directMessage: directMessage.directMessage,
+    directMessageSpaceId: directMessage.directMessageSpaceId,
     binding,
-    outcome: created ? "created" : "completed",
+    outcome,
     reasonCodes: [...new Set(reasonCodes)],
   };
 }
@@ -413,16 +431,32 @@ async function openDirectMessage(
   agentProfileId: string,
   reasonCodes: string[]
 ): Promise<
-  Pick<MemberAgentSyncResult, "directMessage" | "directMessageSpaceId">
+  Pick<MemberAgentSyncResult, "directMessage" | "directMessageSpaceId"> & {
+    created: boolean;
+  }
 > {
   try {
-    const { spaceId } = await deps.openDirectMessage(agentProfileId);
-    return { directMessage: "succeeded", directMessageSpaceId: spaceId };
+    const opened = await deps.openDirectMessage(agentProfileId);
+    return opened
+      ? {
+          directMessage: "succeeded",
+          directMessageSpaceId: opened.spaceId,
+          created: opened.created,
+        }
+      : {
+          directMessage: "not_attempted",
+          directMessageSpaceId: null,
+          created: false,
+        };
   } catch (error) {
     reasonCodes.push(
       readErrorCode(error, "member_agent.direct_message_failed")
     );
-    return { directMessage: "failed", directMessageSpaceId: null };
+    return {
+      directMessage: "failed",
+      directMessageSpaceId: null,
+      created: false,
+    };
   }
 }
 

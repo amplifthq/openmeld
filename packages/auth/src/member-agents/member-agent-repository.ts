@@ -61,6 +61,13 @@ export type MemberAgentRepository = {
   insertDetectedIfAbsent: (
     input: MemberAgentOwnerHarnessKey & { id: string }
   ) => Promise<void>;
+  // A hosted Binding is an explicit manual creation. Atomically ensures its
+  // Agent, assigns the Profile, and picks the first Profile as the default.
+  assignHostedProfile: (input: {
+    organizationId: string;
+    ownerUserId: string;
+    profileId: string;
+  }) => Promise<string | null>;
   // Assigns the Profile only while it has no MemberAgent or already has
   // this one; never moves a Profile between MemberAgents.
   assignProfile: (input: {
@@ -225,6 +232,68 @@ export function createDrizzleMemberAgentRepository(
             AND ${members.userId} = ${ownerUserId}
         )
         ON CONFLICT (organization_id, owner_user_id, harness_kind) DO NOTHING`);
+    },
+    async assignHostedProfile({ organizationId, ownerUserId, profileId }) {
+      return await db.transaction(async (tx) => {
+        const [profile] = await tx
+          .select({ profileId: openMeldProfiles.profileId })
+          .from(openMeldProfiles)
+          .where(
+            and(
+              eq(openMeldProfiles.profileId, profileId),
+              eq(openMeldProfiles.organizationId, organizationId),
+              eq(openMeldProfiles.ownerUserId, ownerUserId),
+              eq(openMeldProfiles.profileKind, "agent"),
+              eq(openMeldProfiles.status, "active"),
+              isNull(openMeldProfiles.managedRole),
+              isNull(openMeldProfiles.memberAgentId)
+            )
+          )
+          .for("update");
+        if (!profile) {
+          return null;
+        }
+        const nowMs = Date.now();
+        await tx.execute(sql`INSERT INTO ${memberAgents} (
+          id, organization_id, owner_user_id, harness_kind, source,
+          created_at, updated_at
+        )
+        SELECT ${crypto.randomUUID()}, ${organizationId}, ${ownerUserId},
+          'hosted', 'manual', ${nowMs}, ${nowMs}
+        WHERE EXISTS (
+          SELECT 1 FROM ${members}
+          WHERE ${members.organizationId} = ${organizationId}
+            AND ${members.userId} = ${ownerUserId}
+        )
+        ON CONFLICT (organization_id, owner_user_id, harness_kind) DO NOTHING`);
+        const [agent] = await tx
+          .select({ id: memberAgents.id })
+          .from(memberAgents)
+          .where(
+            and(
+              eq(memberAgents.organizationId, organizationId),
+              eq(memberAgents.ownerUserId, ownerUserId),
+              eq(memberAgents.harnessKind, "hosted")
+            )
+          );
+        if (!agent) {
+          return null;
+        }
+        await tx
+          .update(openMeldProfiles)
+          .set({ memberAgentId: agent.id, updatedAt: new Date(nowMs) })
+          .where(eq(openMeldProfiles.profileId, profileId));
+        await tx
+          .update(memberAgents)
+          .set({ defaultProfileId: profileId, updatedAt: new Date(nowMs) })
+          .where(
+            and(
+              eq(memberAgents.id, agent.id),
+              isNull(memberAgents.defaultProfileId)
+            )
+          );
+        return agent.id;
+      });
     },
     async assignProfile({ memberAgentId, profileId }) {
       await db

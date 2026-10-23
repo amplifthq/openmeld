@@ -264,6 +264,14 @@ applying the change. Ordinary terminal use is never interrupted, and the CLI
 keeps no TTY elevation cache. Every sensitive operation is written to the audit
 log with its request chain.
 
+One-time-token CLI login creates a distinct Better Auth session for the CLI,
+marked as a CLI credential before it is returned. It preserves the generating
+Web session's active Organization and leaves that Web session available for
+owner confirmations. The response body, session cookies, and signed
+`set-auth-token` header all identify the new CLI session. Previously shared or
+marked sessions retain their classification; a handoff never restores
+interactive authority to a credential a CLI already held.
+
 Other secrets on the computer, such as SSH keys, harness logins, and browser
 data, are not protected by OpenMeld; a harness that can run any command can
 reach them, as it can natively. When an owner grants a colleague access to a

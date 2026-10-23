@@ -1,8 +1,67 @@
 import { describe, expect, it } from "vitest";
-import { mergeChatPreferences } from "./chat-sidebar-model";
+import {
+	type Chat,
+	isChatArchived,
+	mergeChatPreferences,
+} from "./chat-sidebar-model";
 import { sortSidebarSpaces } from "./sidebar-space-order";
 
 describe("unified Chats", () => {
+	it.each([
+		"owner",
+		"colleague",
+	])("uses Core archive state for %s Agent chats even when old preferences disagree", (ownerUserId) => {
+		const chat = {
+			spaceId: "agent-chat",
+			name: "Work",
+			createdAt: null,
+			peer: {
+				profileId: "agent",
+				profileKind: "agent",
+				profileName: "Agent",
+				displayName: "Agent",
+				agentControllerRef: "builtin:codex",
+				avatarUrl: null,
+				ownerUserId,
+			},
+		} satisfies Chat;
+		expect(
+			isChatArchived({
+				chat,
+				memberAgentsEnabled: true,
+				personalArchivedIds: [],
+				sessionArchivedIds: new Set([chat.spaceId]),
+			})
+		).toBe(true);
+		expect(
+			isChatArchived({
+				chat,
+				memberAgentsEnabled: true,
+				personalArchivedIds: [chat.spaceId],
+				sessionArchivedIds: new Set(),
+			})
+		).toBe(false);
+		// Disabling MemberAgents and other chat kinds retain personal archiving.
+		for (const input of [
+			{ chat, memberAgentsEnabled: false },
+			{ chat: { ...chat, session: true }, memberAgentsEnabled: true },
+			{
+				chat: {
+					...chat,
+					peer: { ...chat.peer, profileKind: "human" as const },
+				},
+				memberAgentsEnabled: true,
+			},
+		]) {
+			expect(
+				isChatArchived({
+					...input,
+					personalArchivedIds: [chat.spaceId],
+					sessionArchivedIds: new Set(),
+				})
+			).toBe(true);
+		}
+	});
 	it("preserves Space Index pins even without legacy list settings and respects unpinning", () => {
 		const initial = mergeChatPreferences(undefined, [
 			{ spaceId: "person", pinnedAt: "2026-09-09" },

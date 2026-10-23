@@ -164,6 +164,49 @@ describe("assignAgentProfileMemberAgent RPC", () => {
     ).toHaveLength(0);
   });
 
+  it("groups the first hosted Profiles under one manual Agent with a stable default", async () => {
+    const first = await createProfile({ profileName: "Remote Agent" });
+    const second = await createProfile({ profileName: "Reviewer" });
+    const requests = [first, second].map((profile) => ({
+      harnessKind: "hosted",
+      profileId: profile.profileId,
+    }));
+
+    const results = await Promise.all(
+      requests.map((request) => assign(request))
+    );
+    expect(
+      results.every((result) => result.ok && result.outcome === "assigned")
+    ).toBe(true);
+    const readListing = () =>
+      inRequest(() =>
+        listOwnerMemberAgentsRpc(
+          { organizationId: "one", ownerUserId: "alice" },
+          { enabled: true }
+        )
+      );
+    const beforeReplay = await readListing();
+    expect(beforeReplay).toMatchObject({
+      ok: true,
+      unassignedProfiles: [],
+      memberAgents: [{ source: "manual", harnessKind: "hosted" }],
+    });
+    if (!beforeReplay.ok) {
+      throw new Error(beforeReplay.code);
+    }
+    const agent = beforeReplay.memberAgents[0];
+    expect(agent?.profiles).toHaveLength(2);
+    expect(agent?.profiles.filter((profile) => profile.isDefault)).toHaveLength(
+      1
+    );
+    expect([first.profileId, second.profileId]).toContain(
+      agent?.defaultProfileId
+    );
+
+    await Promise.all(requests.map((request) => assign(request)));
+    expect(await readListing()).toEqual(beforeReplay);
+  });
+
   it("never moves a Profile to another Harness's MemberAgent", async () => {
     const cursor = await ensureMemberAgent("cursor");
     await ensureMemberAgent("codex");
@@ -180,16 +223,19 @@ describe("assignAgentProfileMemberAgent RPC", () => {
     expect(await memberAgentIdOf(profile.profileId)).toBe(cursor.id);
   });
 
-  it("refuses another owner's Profile", async () => {
+  it.each([
+    "cursor",
+    "hosted",
+  ])("refuses another owner's %s Profile", async (harnessKind) => {
     await ensureMemberAgent("cursor");
     const profile = await createProfile({
       ownerUserId: "mallory",
       profileName: "Mallory Agent",
     });
 
-    expect(
-      await assign({ harnessKind: "cursor", profileId: profile.profileId })
-    ).toEqual({ ok: true, outcome: "not_eligible", memberAgentId: null });
+    expect(await assign({ harnessKind, profileId: profile.profileId })).toEqual(
+      { ok: true, outcome: "not_eligible", memberAgentId: null }
+    );
     expect(await memberAgentIdOf(profile.profileId)).toBeNull();
   });
 

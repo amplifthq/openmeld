@@ -113,7 +113,13 @@ MemberAgent `source` is `detected`, `migrated`, or `manual`; the default
 Profile's `source` is `auto_detected`.
 
 Personal Remote Agents are MemberAgents with `harnessKind = hosted` and
-`source = manual`. The Organization-owned Center Agent has no owner and stays
+`source = manual`. An accepted hosted Binding triggers an Auth transaction
+that atomically ensures this MemberAgent, assigns its Profile, and selects
+the first Profile as the default. Binding acceptance is separate from that
+transaction; catalog sync retries a failed hosted assignment without requiring
+a connected Computer. Later hosted Profiles join the same MemberAgent without
+replacing its default.
+The Organization-owned Center Agent has no owner and stays
 outside this structure. Two kinds of Profile cannot be grouped and stay
 unassigned: Profiles that never bound and Profiles bound to a `custom`
 controller. A disabled Binding still groups by its last Binding's harness and
@@ -139,14 +145,21 @@ Core accepts a Binding write (Create, a Personal Remote Agent, the controller
 switcher, or catalog sync), it asks Auth to assign the Profile to the owner's
 existing MemberAgent for that harness in the Profile's Organization. A Profile
 created on purpose therefore joins the existing Agent as one more Profile; it
-never creates a second MemberAgent. The assignment never creates a MemberAgent
-and never moves an assigned Profile. It reads the harness from the Profile's
+never creates a second MemberAgent. Local assignment never creates a MemberAgent;
+hosted assignment ensures the manually chosen hosted MemberAgent as above.
+Neither moves an assigned Profile. It reads the harness from the Profile's
 current Binding under a per-Profile lock that every Binding write also takes,
 so a controller switch that commits first is never grouped under the old
 harness. A failed assignment does not fail the Binding write: each catalog
 sync, with or without a connected Computer, assigns any bound Profile still
 unassigned whose harness has a MemberAgent, grouping by the same Binding as
 the migration.
+
+Detected-Agent setup retries the initial owner Direct Message independently of
+the Binding. It repairs or reuses an existing chat, but never creates a replacement
+after the owner deletes or converts the earlier chat. The existing Space index
+history distinguishes those deliberate actions from setup that never created a
+chat; no separate setup-completion flag is stored.
 
 Nothing is configurable on the MemberAgent itself. Space participants remain
 Agent Profiles: a MemberAgent is a grouping, never a Space member, message

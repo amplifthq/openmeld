@@ -138,12 +138,12 @@ import {
 import type { SpaceBootstrapSnapshot } from "#/query/spaces/bootstrap";
 import { spaceMemberDirectoryDisplayQueryOptions } from "#/query/spaces/member-directory-display";
 import { spaceQueryKeys } from "#/query/spaces/status";
-import type { ChatArchiveKind } from "./chat-header-menu";
 import {
 	buildDirectMessageConversionDefaultName,
 	resolveDirectMessageConversionNames,
 } from "./direct-message-conversion";
 import { DirectMessageConversionDialog } from "./direct-message-conversion-dialog";
+import { resolveDirectMessageSessionAgentProfileId } from "./direct-message-presentation";
 import { isManualOnlyAgentRecoveryPlan } from "./space-agent-manual-participation";
 import { SpaceAgentProfileEditProvider } from "./space-agent-profile-edit-context";
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
@@ -1872,7 +1872,15 @@ function SpaceLandingConversationShell({
 							accessModeErrorMessage={controller.accessModeErrorMessage}
 							canManageSpaceAccess={currentSpaceControls.canManageSpaceAccess}
 							canManageSpaceName={currentSpaceControls.canManageSpaceName}
-							chatArchiveKind={chatArchiveKindFor(memberAgentDirectMessage)}
+							chatSessionAgentProfileId={resolveDirectMessageSessionAgentProfileId(
+								{
+									isDirectMessage,
+									isCenterAgentDirectMessage:
+										currentSpaceIsCenterAgentDirectMessage,
+									viewerProfileId: controller.profileId,
+									snapshot: controller.membersSnapshot,
+								}
+							)}
 							conversationTitle={conversationTitle}
 							conversationTitleAction={input.conversationTitleAction}
 							conversationTitleControl={resolveConversationTitleControl({
@@ -2047,12 +2055,6 @@ function SpaceLandingConversationShell({
 			</SpaceReadingHeaderProvider>
 		</SpacePinsProvider>
 	);
-}
-
-function chatArchiveKindFor(
-	memberAgent: DirectMessageMemberAgent | null
-): ChatArchiveKind {
-	return memberAgent ? "session" : "personal";
 }
 
 function useCurrentMemberAgentDirectMessage(input: {

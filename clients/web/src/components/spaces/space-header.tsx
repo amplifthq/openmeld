@@ -23,7 +23,7 @@ import {
 	useHasModuleSidebar,
 } from "#/components/app/app-module-sidebar";
 import { MessageSearchButton } from "#/components/search/message-search";
-import { type ChatArchiveKind, ChatHeaderMenu } from "./chat-header-menu";
+import { ChatHeaderMenu } from "./chat-header-menu";
 import { useConversationNames } from "./conversation-names";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
 import { SpaceDeletedLabel } from "./space-deleted-label";
@@ -169,15 +169,15 @@ function ConversationHeaderMenu(input: {
 	isDirectMessage: boolean;
 	isCenterAgent?: boolean;
 	onOpenSettings: () => void;
-	chatArchiveKind?: ChatArchiveKind;
+	chatSessionAgentProfileId?: string | null;
 }) {
 	const ariaLabel = input.isCenterAgent ? "Center Agent menu" : "Chat menu";
 	if (input.isDirectMessage && input.profileId) {
 		return (
 			<ChatHeaderMenu
-				archiveKind={input.chatArchiveKind}
 				ariaLabel={ariaLabel}
 				onOpenConversationInformation={input.onOpenSettings}
+				sessionAgentProfileId={input.chatSessionAgentProfileId}
 				spaceId={input.spaceId}
 			/>
 		);
@@ -208,8 +208,8 @@ export function SpaceHeader(input: {
 	isLeaveSpacePending: boolean;
 	isSpaceNamePending: boolean;
 	isCenterAgentDirectMessage?: boolean;
-	/** "session" archives a MemberAgent Session through Core instead. */
-	chatArchiveKind?: ChatArchiveKind;
+	/** The Agent in the viewer's Human–Agent Session, including colleagues' Agents. */
+	chatSessionAgentProfileId?: string | null;
 	leaveSpaceErrorMessage: string | null;
 	managementControl?: ReactNode;
 	showChatSettingsMenu?: boolean;
@@ -332,7 +332,7 @@ export function SpaceHeader(input: {
 						)}
 						{showChatMenu ? (
 							<ConversationHeaderMenu
-								chatArchiveKind={input.chatArchiveKind}
+								chatSessionAgentProfileId={input.chatSessionAgentProfileId}
 								isCenterAgent={input.isCenterAgentDirectMessage}
 								isDirectMessage={isDirectMessage}
 								onOpenSettings={() => {

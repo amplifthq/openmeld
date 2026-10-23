@@ -1036,8 +1036,9 @@ export function createAuthConfig(
         coreWorker: env.OPENMELD_CORE_WORKER,
         db: env.AUTH_SCHEMA_CODEGEN ? undefined : getPostgresDatabase(env),
       }),
-      bearer(),
+      // Replace the OTT result before Bearer exposes its signed session token.
       createCliCredentialPlugin(),
+      bearer(),
       username(),
       multiSession({
         maximumSessions: 5,
@@ -1075,6 +1076,8 @@ export function createAuthConfig(
         },
       }),
       oneTimeToken({
+        // The CLI credential hook issues its own session and cookies.
+        disableSetSessionCookie: true,
         expiresIn: DEFAULT_OTT_EXPIRES_IN_MINUTES,
         storeToken: "hashed",
       }),

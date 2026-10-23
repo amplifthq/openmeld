@@ -25,6 +25,7 @@ import type {
   RuntimeTransportAgentProfileOperationalContext,
   SubmitRuntimeAgentControllerReportsResponse,
 } from "@openmeld/schemas/types";
+import { readResolvedOrganizationSpaceMember } from "../center-agent/center-agent-repository";
 import {
   lookupRuntimeTransportOwnerService,
   readRuntimeTransportAgentProfileOperationalContexts,
@@ -33,9 +34,10 @@ import type { CoreBindings } from "../lib/bindings";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
+  openDirectMessageSpaceInternal,
+  requireHumanSpaceMemberFromContext,
   rpcEnsureAgentProfilePrimaryBinding,
   rpcGetAgentExecutionReadinessBatch,
-  rpcOpenDirectMessageSpace,
   rpcSetPeopleComputerLocalAgentEnabled,
   rpcSubmitRuntimeAgentControllerReports,
   type SubmitRuntimeAgentControllerReportsInput,
@@ -400,11 +402,28 @@ function createSyncDeps(
     listOwnerMemberAgents: () => listOwnerMemberAgents(env, caller),
     listRuntimeHarnesses: () => listRuntimeHarnesses(caller, Date.now()),
     openDirectMessage: async (agentProfileId) => {
-      const opened = await rpcOpenDirectMessageSpace(env, {
-        context: caller.context,
-        targetProfileId: agentProfileId,
+      const targetMember = await readResolvedOrganizationSpaceMember({
+        db: caller.db,
+        organizationId: caller.organizationId,
+        profileId: agentProfileId,
       });
-      return { spaceId: opened.spaceId };
+      if (!targetMember || targetMember.ownerUserId !== caller.ownerUserId) {
+        throw createCoreRpcHttpError({
+          status: 404,
+          code: "direct_message.target_not_found",
+          reason: "That Agent is not available in this Organization.",
+        });
+      }
+      return await openDirectMessageSpaceInternal(env, {
+        context: caller.context,
+        member: requireHumanSpaceMemberFromContext({
+          context: caller.context,
+          userId: caller.ownerUserId,
+        }),
+        targetMember,
+        organizationId: caller.organizationId,
+        initialOnly: true,
+      });
     },
     readGroupingControllerRef: (agentProfileId) =>
       readAgentProfileGroupingControllerRef({
