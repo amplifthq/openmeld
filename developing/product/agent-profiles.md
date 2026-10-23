@@ -113,11 +113,12 @@ MemberAgent `source` is `detected`, `migrated`, or `manual`; the default
 Profile's `source` is `auto_detected`.
 
 Personal Remote Agents are MemberAgents with `harnessKind = hosted` and
-`source = manual`. The first accepted hosted Binding atomically creates this
-MemberAgent, assigns its Profile, and selects that Profile as the default.
-Later hosted Profiles join the same MemberAgent without replacing its default;
-catalog sync also repairs a hosted assignment interrupted after the Binding
-was accepted, without requiring a connected Computer.
+`source = manual`. An accepted hosted Binding triggers an Auth transaction
+that atomically ensures this MemberAgent, assigns its Profile, and selects
+the first Profile as the default. Binding acceptance is separate from that
+transaction; catalog sync retries a failed hosted assignment without requiring
+a connected Computer. Later hosted Profiles join the same MemberAgent without
+replacing its default.
 The Organization-owned Center Agent has no owner and stays
 outside this structure. Two kinds of Profile cannot be grouped and stay
 unassigned: Profiles that never bound and Profiles bound to a `custom`
