@@ -534,7 +534,7 @@ describe("agent execution readiness through the PostgreSQL binding", () => {
         method: "codex_app_server_thread_read",
       });
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
-        reads,
+        reads: freshReads,
         activeOrganizationId: ORGANIZATION_ID,
         env: createLocalStateRoutedEnv({
           db: harness.db,

@@ -8,5 +8,5 @@ audiences: ["users", "operators"]
 
 Background conversation checks read the stored Codex conversation summary
 without resuming the conversation or initializing its tools. This avoids
-repeated provider startup work while OpenMeld is idle. Actual Wake execution
-still uses Codex's normal admission and resume checks.
+repeated conversation and tool initialization while OpenMeld is idle. Actual
+Wake execution still uses Codex's normal admission and resume checks.

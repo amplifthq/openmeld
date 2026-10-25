@@ -1313,7 +1313,7 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "      return;",
       "    }",
       "    const turns = statuses.map((status, index) => ({ id: 'turn-read-' + (index + 1), items: [], itemsView: 'complete', status, error: null, startedAt: 1, completedAt: status === 'completed' ? 1 : null, durationMs: null }));",
-      "    write({ jsonrpc: '2.0', id: message.id, result: { thread: { ...buildThread(message.params.threadId, process.env.OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_SOURCE ?? 'user'), turns: message.params.includeTurns ? turns : [] } } });",
+      "    write({ jsonrpc: '2.0', id: message.id, result: { thread: { ...buildThread(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_READ_THREAD_ID ?? message.params.threadId, process.env.OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_SOURCE ?? 'user'), turns: message.params.includeTurns ? turns : [] } } });",
       "    return;",
       "  }",
       "  if (message.method === 'thread/name/set') {",
@@ -5037,6 +5037,19 @@ test("verifyCodexAppServerThread reads only metadata without resuming or startin
         threadId: "missing-thread",
       }),
       (error) => error.message.includes("no rollout found")
+    );
+    await assert.rejects(
+      verifyCodexAppServerThread({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        codexTimeoutMs: 5000,
+        codexWorkdir: dispatchDir,
+        env: {
+          OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+          OPENMELD_FAKE_CODEX_APP_SERVER_READ_THREAD_ID: "different-thread",
+        },
+        threadId: "thread-proof-1",
+      }),
+      { code: "context.thread_mismatch" }
     );
     assert.equal(
       (await readFakeAppServerMessages(logPath)).some(

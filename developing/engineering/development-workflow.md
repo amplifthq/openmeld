@@ -1189,6 +1189,10 @@ reporting failure and never falls back to resume. New Core accepts old receipts
 while supported local components update. Publish local artifacts before Core
 enforces their floor. Setup, service status, trace and self-update retain their
 existing commands; use the new CLI with the new Service diagnostic schema.
+The current Desktop control surface reads CLI service status and controller
+inventory, not provider-conversation proof or agent-execution-readiness payloads;
+its IPC schemas do not contain this method enum. No Desktop release is required
+for this change.
 
 Rollback must stop new proof writers before reverting Core/readers. Retain the
 additive database constraint and existing rows. Do not lower published mandatory
