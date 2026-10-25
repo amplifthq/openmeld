@@ -1606,7 +1606,7 @@ async function resolveAgentProviderConversationEvidence(input: {
 
   const requiredBase = {
     agentControllerConversationId,
-    method: "codex_app_server_thread_resume" as const,
+    method: "codex_app_server_thread_read" as const,
     provider: "codex" as const,
     required: true,
   };
@@ -1635,7 +1635,10 @@ async function resolveAgentProviderConversationEvidence(input: {
         agentControllerRef: executionTarget.agentControllerRef,
         agentControllerConversationId,
         db: domainDb,
-        method: "codex_app_server_thread_resume",
+        methods: [
+          "codex_app_server_thread_read",
+          "codex_app_server_thread_resume",
+        ],
         nowMs: parseGeneratedAtMs(input.generatedAt),
         provider: "codex",
         openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
@@ -1657,6 +1660,7 @@ async function resolveAgentProviderConversationEvidence(input: {
     if (proof.status === "passed") {
       return {
         ...requiredBase,
+        method: proof.method,
         errorCode: null,
         errorMessage: null,
         errorType: null,
@@ -1671,6 +1675,7 @@ async function resolveAgentProviderConversationEvidence(input: {
     return {
       ...requiredBase,
       errorCode: proof.errorCode,
+      method: proof.method,
       errorMessage: proof.errorMessage,
       errorType: proof.errorType,
       expiresAtMs: proof.expiresAtMs,

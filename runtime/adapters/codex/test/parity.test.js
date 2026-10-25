@@ -4995,7 +4995,7 @@ test("invokeCodexAppServerTransport applies bounded policy-driven approval param
   }
 });
 
-test("verifyCodexAppServerThread proves thread control without starting a turn", async () => {
+test("verifyCodexAppServerThread reads only metadata without resuming or starting a turn", async () => {
   const { verifyCodexAppServerThread } = await import("../dist/index.js");
   const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-proof-"));
   const dispatchDir = await mkdtemp(join(tmpdir(), "codex-proof-cwd-"));
@@ -5019,20 +5019,29 @@ test("verifyCodexAppServerThread proves thread control without starting a turn",
     const methods = messages.map((message) => message.method);
 
     assert.equal(result.threadId, "thread-proof-1");
-    assert.deepEqual(methods, ["initialize", "initialized", "thread/resume"]);
-    assert.equal(
-      messages.find((message) => message.method === "thread/resume").params
-        .excludeTurns,
-      true
+    assert.deepEqual(methods, ["initialize", "initialized", "thread/read"]);
+    assert.deepEqual(
+      messages.find((message) => message.method === "thread/read").params,
+      { threadId: "thread-proof-1", includeTurns: false }
+    );
+
+    await assert.rejects(
+      verifyCodexAppServerThread({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        codexTimeoutMs: 5000,
+        codexWorkdir: dispatchDir,
+        env: {
+          OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+          OPENMELD_FAKE_CODEX_APP_SERVER_REJECT_THREAD_READ: "1",
+        },
+        threadId: "missing-thread",
+      }),
+      (error) => error.message.includes("no rollout found")
     );
     assert.equal(
-      "approvalPolicy" in
-        messages.find((message) => message.method === "thread/resume").params,
-      false
-    );
-    assert.equal(
-      "sandbox" in
-        messages.find((message) => message.method === "thread/resume").params,
+      (await readFakeAppServerMessages(logPath)).some(
+        (message) => message.method === "thread/resume"
+      ),
       false
     );
   } finally {

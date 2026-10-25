@@ -19,7 +19,10 @@ import {
   clearProviderAccessFailureEvidenceForExecutionSuccess,
   writeAcceptedProviderAccessFailureEvidence,
 } from "../src/agent-execution/infrastructure/postgresql/provider-access-evidence-repo";
-import { acceptProviderConversationProofRecord } from "../src/agent-execution/infrastructure/postgresql/provider-conversation-proof-repo";
+import {
+  acceptProviderConversationProofRecord,
+  readFreshProviderConversationProofForBinding,
+} from "../src/agent-execution/infrastructure/postgresql/provider-conversation-proof-repo";
 import { ensurePrimaryAgentProfileBindingRecord } from "../src/agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import type { CoreBindings } from "../src/lib/bindings";
 import { acceptRuntimeAgentControllerReportRecord } from "../src/runtime-registry/infrastructure/postgresql/runtime-agent-controller-report-repo";
@@ -462,7 +465,10 @@ describe("agent execution readiness through the PostgreSQL binding", () => {
         agentControllerConversationId,
         openMeldServiceRuntimeId: openMeldServiceRuntimeId.value,
         provider: "codex" as const,
-        method: "codex_app_server_thread_resume" as const,
+        methods: [
+          "codex_app_server_thread_read",
+          "codex_app_server_thread_resume",
+        ] as const,
         nowMs: GENERATED_AT_MS,
       };
       const queryCount = vi.spyOn(harness.db, "query");
@@ -483,6 +489,50 @@ describe("agent execution readiness through the PostgreSQL binding", () => {
       ).toBeNull();
       expect(queryCount).not.toHaveBeenCalled();
       queryCount.mockRestore();
+      // A newer read failure must supersede a still-fresh legacy resume pass.
+      await acceptProviderConversationProofRecord({
+        db: harness.db,
+        nowMs: GENERATED_AT_MS + 1,
+        proof: {
+          agentProfileId: AGENT_PROFILE_ID,
+          bindingId,
+          agentControllerConversationId,
+          agentControllerRef: "builtin:codex",
+          openMeldServiceRuntimeId,
+          errorCode: "context.missing",
+          errorMessage: "Stored conversation no longer exists",
+          errorType: "config",
+          expiresAtMs: GENERATED_AT_MS + 60_000,
+          intrusive: false,
+          method: "codex_app_server_thread_read",
+          observedAtMs: GENERATED_AT_MS + 1,
+          provider: "codex",
+          status: "failed",
+          transportMode: "codex-app-server",
+        },
+      });
+      const currentProof = { ...proofRead, nowMs: GENERATED_AT_MS + 2 };
+      expect(
+        await readFreshProviderConversationProofForBinding(currentProof)
+      ).toMatchObject({
+        status: "failed",
+        method: "codex_app_server_thread_read",
+      });
+      const freshReads = createAgentExecutionReadinessReads();
+      await freshReads.preloadPrimaryBindings({
+        db: harness.db,
+        nowMs: GENERATED_AT_MS + 2,
+        owner: { id: OWNER_USER_ID, kind: "owner_account" },
+        profileIds: [AGENT_PROFILE_ID],
+      });
+      expect(
+        await freshReads.readFreshProviderConversationProofForBinding(
+          currentProof
+        )
+      ).toMatchObject({
+        status: "failed",
+        method: "codex_app_server_thread_read",
+      });
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
         reads,
         activeOrganizationId: ORGANIZATION_ID,
@@ -500,10 +550,11 @@ describe("agent execution readiness through the PostgreSQL binding", () => {
         facts: {
           providerConversation: {
             agentControllerConversationId,
-            ready: true,
+            method: "codex_app_server_thread_read",
+            ready: false,
             required: true,
             source: "runtime_reporting",
-            status: "passed",
+            status: "failed",
           },
         },
         primaryAction: "none",

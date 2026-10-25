@@ -6033,7 +6033,8 @@ export async function rpcSubmitRuntimeProviderConversationProofs(
     }
     if (
       proof.provider !== "codex" ||
-      proof.method !== "codex_app_server_thread_resume" ||
+      (proof.method !== "codex_app_server_thread_resume" &&
+        proof.method !== "codex_app_server_thread_read") ||
       proof.transportMode !== "codex-app-server" ||
       proof.intrusive !== false
     ) {

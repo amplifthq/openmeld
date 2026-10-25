@@ -1,12 +1,12 @@
 {
-  "version": "0.3.272",
+  "version": "0.3.273",
   "cli": {
-    "updatePolicy": "available",
-    "reason": "Packages the Service fix for resuming an established fork after its source folder is removed. CLI commands and wire contracts remain compatible; the mandatory CLI floor stays at 0.3.251."
+    "updatePolicy": "required",
+    "reason": "Reads the new codex_app_server_thread_read proof method in Service diagnostics and Core readiness responses. Upgrade response readers before emitting the new method."
   },
   "service": {
-    "updatePolicy": "available",
-    "reason": "Established forked Sessions resume using their own native conversation without requiring the historical source folder. Transport and stored context contracts are unchanged, so the mandatory Service floor remains 0.3.264."
+    "updatePolicy": "required",
+    "reason": "Passive Codex conversation checks must use thread/read; older Services repeatedly resume idle conversations and initialize provider tools. Apply the additive database migration and upgrade response readers, publish the supported local release, then deploy Core."
   },
   "skills": {
     "updatePolicy": "available",

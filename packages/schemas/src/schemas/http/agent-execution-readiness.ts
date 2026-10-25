@@ -228,7 +228,13 @@ export const agentExecutionReadinessSchema = z.strictObject({
       errorMessage: nullableTrimmedStringSchema,
       errorType: nullableTrimmedStringSchema,
       expiresAtMs: z.number().int().nonnegative().nullable(),
-      method: z.union([z.literal("codex_app_server_thread_resume"), z.null()]),
+      method: z.union([
+        z.enum([
+          "codex_app_server_thread_resume",
+          "codex_app_server_thread_read",
+        ]),
+        z.null(),
+      ]),
       observedAtMs: z.number().int().nonnegative().nullable(),
       provider: z.union([z.literal("codex"), z.null()]),
       ready: z.boolean(),
