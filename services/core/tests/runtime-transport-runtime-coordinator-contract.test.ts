@@ -1193,6 +1193,9 @@ const createHarness = async (input?: {
   };
   Object.defineProperty(hub, "state", { value: state });
   Object.defineProperties(hub, {
+    gateLogContext: {
+      value: { bootId: "test-hub-boot", durableObjectId: "test-hub" },
+    },
     pendingAgentReadinessInvalidationsByReason: {
       value: new Map(),
       writable: true,
