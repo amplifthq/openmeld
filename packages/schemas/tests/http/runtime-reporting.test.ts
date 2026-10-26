@@ -269,7 +269,7 @@ describe("runtime reporting schemas", () => {
               "019d8ac0-46e2-78e2-9f4a-a41b3a6674c8",
             transportMode: "codex-app-server",
             provider: "codex",
-            method: "codex_app_server_thread_resume",
+            method: "codex_app_server_thread_read",
             intrusive: false,
             observedAtMs: 1000,
             expiresAtMs: 2000,
@@ -285,7 +285,7 @@ describe("runtime reporting schemas", () => {
       proofs: [
         {
           agentControllerRef: "builtin:codex",
-          method: "codex_app_server_thread_resume",
+          method: "codex_app_server_thread_read",
           provider: "codex",
           status: "passed",
         },

@@ -47,6 +47,7 @@ import {
   addCenterAgentToSpaceBodySchema,
   addOrganizationDirectoryProfilesToSpaceBodySchema,
   agentDirectMessageSessionSelectorSchema,
+  agentExecutionReadinessResponseOptionsSchema,
   agentExecutionReadinessRouteParamsSchema,
   agentProfileBindingRouteParamsSchema,
   agentProfileBindingTargetSchema,
@@ -320,6 +321,7 @@ import {
   profileFolderIdSchema,
   profileSpaceHistoryGatewayHostSchema,
   projectOwnerComputerLocalRuntimes,
+  projectProviderConversationProofMethod,
   type ReadPluginConnectionContinuationBindingRequest,
   readPluginConnectionContinuationBindingResponseSchema,
   recordSpaceAttachmentPayloadSchema,
@@ -412,6 +414,7 @@ import type {
   AgentActivityStatsRpcInput,
   AgentControllerCollaborationMode,
   AgentControllerPermissionMode,
+  AgentExecutionReadinessResponseOptions,
   AgentExecutionReadinessTargetRuntime,
   AgentProfileBindingOpenCodePermission,
   AgentProfileBindingProjection,
@@ -3878,14 +3881,16 @@ export type ConvertDirectMessageToSpaceInput =
     context?: CoreRpcContextInput;
     spaceId: string;
   };
-export type GetAgentExecutionReadinessInput = {
-  agentProfileId: string;
-  context?: CoreRpcContextInput;
-};
-export type GetAgentExecutionReadinessBatchInput =
-  GetAgentExecutionReadinessBatchBody & {
+export type GetAgentExecutionReadinessInput =
+  AgentExecutionReadinessResponseOptions & {
+    agentProfileId: string;
     context?: CoreRpcContextInput;
   };
+export type GetAgentExecutionReadinessBatchInput =
+  GetAgentExecutionReadinessBatchBody &
+    AgentExecutionReadinessResponseOptions & {
+      context?: CoreRpcContextInput;
+    };
 type GetAgentExecutionReadinessResponseDraft = Omit<
   GetAgentExecutionReadinessResponse,
   "agentExecutionReadiness" | "routeLane"
@@ -6033,7 +6038,8 @@ export async function rpcSubmitRuntimeProviderConversationProofs(
     }
     if (
       proof.provider !== "codex" ||
-      proof.method !== "codex_app_server_thread_resume" ||
+      (proof.method !== "codex_app_server_thread_resume" &&
+        proof.method !== "codex_app_server_thread_read") ||
       proof.transportMode !== "codex-app-server" ||
       proof.intrusive !== false
     ) {
@@ -20256,6 +20262,7 @@ export async function rpcGetAgentExecutionReadiness(
   return buildGetAgentExecutionReadinessResponse({
     generatedAt,
     readiness,
+    responseVersion: request.responseVersion,
   });
 }
 export async function rpcGetAgentExecutionReadinessBatch(
@@ -20329,6 +20336,7 @@ export async function rpcGetAgentExecutionReadinessBatch(
   return buildGetAgentExecutionReadinessBatchResponse({
     generatedAt,
     readinessItems,
+    responseVersion: request.responseVersion,
   });
 }
 export async function rpcEnsureAgentProfilePrimaryBinding(
@@ -26451,10 +26459,9 @@ function assertManagedCenterAgentProfile(input: {
     code: "center_agent.profile_invalid",
   });
 }
-function requireAgentExecutionReadinessRequest(input: {
-  agentProfileId: string;
-  context?: CoreRpcContextInput;
-}): {
+function requireAgentExecutionReadinessRequest(
+  input: GetAgentExecutionReadinessInput
+): AgentExecutionReadinessResponseOptions & {
   agentProfileId: string;
   context: CoreRpcContextInput;
   owner: AgentProfileBindingOwner;
@@ -26473,6 +26480,7 @@ function requireAgentExecutionReadinessRequest(input: {
   const context = requireRpcContext(input.context);
   const ownerUserId = requireAuthenticatedOwnerUserId(context);
   return {
+    ...requireAgentExecutionReadinessResponseOptions(input),
     agentProfileId: parsedRouteParams.data.agentProfileId,
     context,
     owner: {
@@ -26483,7 +26491,7 @@ function requireAgentExecutionReadinessRequest(input: {
 }
 function requireAgentExecutionReadinessBatchRequest(
   input: GetAgentExecutionReadinessBatchInput
-): {
+): AgentExecutionReadinessResponseOptions & {
   agentProfileIds: string[];
   context: CoreRpcContextInput;
   owner: AgentProfileBindingOwner;
@@ -26507,6 +26515,7 @@ function requireAgentExecutionReadinessBatchRequest(
   const context = requireRpcContext(input.context);
   const ownerUserId = requireAuthenticatedOwnerUserId(context);
   return {
+    ...requireAgentExecutionReadinessResponseOptions(input),
     agentProfileIds: parsedBody.data.agentProfileIds,
     context,
     owner: {
@@ -26515,6 +26524,21 @@ function requireAgentExecutionReadinessBatchRequest(
     },
     targetRuntime: parsedBody.data.targetRuntime ?? null,
   };
+}
+function requireAgentExecutionReadinessResponseOptions(
+  input: AgentExecutionReadinessResponseOptions
+): AgentExecutionReadinessResponseOptions {
+  const parsed = agentExecutionReadinessResponseOptionsSchema.safeParse({
+    responseVersion: input.responseVersion,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      reason: "Unsupported Agent Execution Readiness response version.",
+      code: "invalid_payload",
+    });
+  }
+  return parsed.data;
 }
 async function resolveAgentExecutionTargetRuntimeContext(input: {
   env: CoreBindings;
@@ -27161,12 +27185,27 @@ function buildListAgentProfileCreationDefaultsResponse(input: {
     userId: input.userId,
   });
 }
-function buildGetAgentExecutionReadinessResponse(input: {
-  generatedAt: string;
-  readiness: CoreAgentExecutionReadiness;
-}): GetAgentExecutionReadinessResponse {
+function buildGetAgentExecutionReadinessResponse(
+  input: {
+    generatedAt: string;
+    readiness: CoreAgentExecutionReadiness;
+  } & AgentExecutionReadinessResponseOptions
+): GetAgentExecutionReadinessResponse {
+  const readiness = input.readiness.agentExecutionReadiness;
   const response = {
-    agentExecutionReadiness: input.readiness.agentExecutionReadiness,
+    agentExecutionReadiness: {
+      ...readiness,
+      facts: {
+        ...readiness.facts,
+        providerConversation: {
+          ...readiness.facts.providerConversation,
+          method: projectProviderConversationProofMethod(
+            readiness.facts.providerConversation.method,
+            input.responseVersion
+          ),
+        },
+      },
+    },
     agentWakeAvailability: resolveHttpAgentWakeAvailability(input.readiness),
     agentWakeRouteRegistration: input.readiness.agentWakeRouteRegistration,
     agentProfileId: input.readiness.agentExecutionReadiness.agentProfileId,
@@ -27582,15 +27621,18 @@ function buildAgentExecutionReadinessPrimaryActionPlan(
     }
   }
 }
-function buildGetAgentExecutionReadinessBatchResponse(input: {
-  generatedAt: string;
-  readinessItems: readonly CoreAgentExecutionReadiness[];
-}): GetAgentExecutionReadinessBatchResponse {
+function buildGetAgentExecutionReadinessBatchResponse(
+  input: {
+    generatedAt: string;
+    readinessItems: readonly CoreAgentExecutionReadiness[];
+  } & AgentExecutionReadinessResponseOptions
+): GetAgentExecutionReadinessBatchResponse {
   const response = {
     items: input.readinessItems.map((readiness) =>
       buildGetAgentExecutionReadinessResponse({
         generatedAt: input.generatedAt,
         readiness,
+        responseVersion: input.responseVersion,
       })
     ),
   } satisfies GetAgentExecutionReadinessBatchResponse;
