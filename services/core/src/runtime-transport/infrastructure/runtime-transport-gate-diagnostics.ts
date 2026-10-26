@@ -2,7 +2,6 @@ import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
 
 type RuntimeTransportGateStage =
   | "gate"
-  | "release_refresh"
   | "reasoning_preference_read"
   | "runtime_records_restore"
   | "update_retries_restore"

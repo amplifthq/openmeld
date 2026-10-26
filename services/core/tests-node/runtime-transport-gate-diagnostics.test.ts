@@ -16,7 +16,7 @@ describe("Runtime Transport gate diagnostics", () => {
     };
 
     const result = observeRuntimeTransportGate(context, async (runStage) => {
-      await runStage("release_refresh", () => pending.promise);
+      await runStage("reasoning_preference_read", () => pending.promise);
       return "ready";
     });
 
@@ -26,17 +26,17 @@ describe("Runtime Transport gate diagnostics", () => {
       info.mock.calls.map(([, entry]) => [entry.stage, entry.status])
     ).toEqual([
       ["gate", "started"],
-      ["release_refresh", "started"],
+      ["reasoning_preference_read", "started"],
     ]);
     nowMs = 35;
-    pending.resolve("release");
+    pending.resolve("preferences");
     await expect(result).resolves.toBe("ready");
     expect(
       info.mock.calls.map(([, entry]) => [entry.stage, entry.status])
     ).toEqual([
       ["gate", "started"],
-      ["release_refresh", "started"],
-      ["release_refresh", "completed"],
+      ["reasoning_preference_read", "started"],
+      ["reasoning_preference_read", "completed"],
       ["gate", "completed"],
     ]);
     const gateId = info.mock.calls[0]?.[1].gateId;

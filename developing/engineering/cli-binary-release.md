@@ -535,6 +535,14 @@ waiting for that refresh. Cold or expired policy reads wait only for required
 policy, never for the optional channels. A slow first R2 policy read can therefore
 still delay a cold request.
 
+RuntimeTransportHub constructor and registration gates are snapshot consumers:
+they start background refresh before entering the gate and never await it there.
+They use only unexpired validated policy, or a missing-policy snapshot while R2
+is pending. This keeps local initialization and registration responsive even
+when R2 never returns. The ordinary Core new-Wake admission path independently
+reads and validates required policy; a connected Service is not evidence that
+new work may bypass that check.
+
 A missing or invalid required manifest fails closed and blocks new Wake work.
 Transport failures retry after ten seconds but never extend a previously
 validated policy's expiry. Once that policy expires, a failed read leaves Wake

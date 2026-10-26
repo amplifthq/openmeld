@@ -2529,9 +2529,16 @@ Required local-component policy and optional binary-channel availability use
 independent R2 reads and pending refreshes. The source reader owns their bounded
 validity; RuntimeTransportHub must not retain an unchecked per-instance policy.
 An unexpired policy serves queries immediately while a due refresh runs through
-Workers `waitUntil`. A cold or expired read waits only for required policy.
-Heartbeat and synchronous context-migration checks use the source reader's
-currently valid snapshot, with heartbeat scheduling refresh in the background.
+Workers `waitUntil`. The constructor and Service-registration entrypoint must
+start release refresh outside `blockConcurrencyWhile` and attach it to the
+background lifetime without awaiting it. The gates retain their local-state
+initialization and persistence fences; registration reads the source's currently
+valid snapshot. Neither gate may start R2 I/O or join a pending release read, including
+on a cold start or after policy expiry. A never-settling R2 request must not
+hold up initialization, connection-generation persistence, or registration ACK.
+Heartbeat and synchronous context-migration checks also use the currently valid
+snapshot, with heartbeat scheduling refresh in the background. Ordinary Core
+policy readers may still await a cold required-policy read outside these gates.
 Missing valid policy blocks new Wake admission in Core's update projection; it
 does not make a live Service physically offline or revoke an in-flight
 RuntimeCoordinator execution. The TTL and failure rules are owned by
@@ -2576,6 +2583,11 @@ without `completed` or `failed` remains visible if the platform resets the
 object. Correlate it with native reset logs for the same Durable Object and
 instance; an absent completion alone does not prove a reset or identify an
 unlogged dependency inside that stage.
+
+Release refresh is background work outside both gates, so new gate logs do not
+emit the historical `release_refresh` stage. A completed gate does not establish
+that R2 finished or that valid policy is available. Use native R2 spans and the
+release-source error logs for that separate operation.
 
 `elapsedMs` and `durationMs` use `performance.now()`. The Workers clock advances
 at I/O boundaries, so synchronous work can report `0 ms` even when it takes

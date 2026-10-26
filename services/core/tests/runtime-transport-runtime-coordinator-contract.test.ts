@@ -76,10 +76,12 @@ import { describe, expect, it, type Mock, onTestFinished, vi } from "vitest";
 import { handleDispatchQueueBatch } from "../src/dispatch/transport/queue/dispatch-queue-consumer";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
+  getCachedCoreLocalComponentsRelease,
   LOCAL_COMPONENTS_RELEASE_OBJECT_KEY,
   readCoreLocalComponentsRelease,
   resetCoreLocalComponentsReleaseCacheForTests,
 } from "../src/local-components/release-source";
+import { resolveLocalComponentUpdateProjection } from "../src/local-components/update-projection";
 // biome-ignore lint/performance/noNamespaceImport: Spy on the authoritative transaction result in the worker graph.
 import * as executionAdmission from "../src/runtime-transport/application/agent-profile-execution-admission";
 import {
@@ -5606,6 +5608,181 @@ describe("runtime transport runtime coordinator transport contract", () => {
       }
     );
   });
+  it("finishes constructor and registration gates while required policy remains unreadable", async () => {
+    const transport = (env as unknown as CoreBindings)
+      .OPENMELD_RUNTIME_TRANSPORT;
+    if (!transport) {
+      throw new Error("Expected runtime transport binding");
+    }
+    await runInDurableObject(
+      transport.get(transport.newUniqueId()),
+      async (_instance, durableState) => {
+        resetCoreLocalComponentsReleaseCacheForTests();
+        let r2Started = Promise.withResolvers<void>();
+        let r2Response = Promise.withResolvers<void>();
+        let nowMs = Date.now();
+        const clock = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+        const r2CallsInsideGate: boolean[] = [];
+        const gates: Promise<unknown>[] = [];
+        const backgroundTasks = new Set<Promise<unknown>>();
+        let activeGateCount = 0;
+        const blockConcurrencyWhile =
+          durableState.blockConcurrencyWhile.bind(durableState);
+        const gateSpy = vi
+          .spyOn(durableState, "blockConcurrencyWhile")
+          .mockImplementation(<T>(operation: () => Promise<T>): Promise<T> => {
+            const gate = blockConcurrencyWhile(async () => {
+              activeGateCount += 1;
+              try {
+                return await operation();
+              } finally {
+                activeGateCount -= 1;
+              }
+            });
+            gates.push(gate);
+            return gate;
+          });
+        const waitUntil = durableState.waitUntil.bind(durableState);
+        const backgroundSpy = vi
+          .spyOn(durableState, "waitUntil")
+          .mockImplementation((task: Promise<unknown>): void => {
+            backgroundTasks.add(task);
+            task.then(
+              () => backgroundTasks.delete(task),
+              () => backgroundTasks.delete(task)
+            );
+            waitUntil(task);
+          });
+        const bucket = createPublishedCliReleasesBucket();
+        const get = bucket.get.bind(bucket);
+        const pendingGet = vi
+          .spyOn(bucket, "get")
+          .mockImplementation(async (key) => {
+            r2CallsInsideGate.push(activeGateCount > 0);
+            r2Started.resolve();
+            await r2Response.promise;
+            return get(key);
+          });
+        const sentFrames: { code: string; payload: { ok?: boolean } }[] = [];
+        let socketAttachment: unknown = {
+          verifiedOwnerUserId: "owner-policy-gate",
+        };
+        const socket = {
+          deserializeAttachment: () => socketAttachment,
+          serializeAttachment: (value: unknown) => {
+            socketAttachment = value;
+          },
+          send: (message: string) => sentFrames.push(JSON.parse(message)),
+        } as unknown as WebSocket;
+        try {
+          const hub = new RuntimeTransportHub(durableState, {
+            ...env,
+            OPENMELD_CLI_RELEASES: bucket,
+          } as unknown as CoreBindings);
+
+          await r2Started.promise;
+          expect(r2CallsInsideGate).not.toContain(true);
+          expect(gates).toHaveLength(1);
+          await gates[0];
+
+          const registerFrame = JSON.stringify({
+            v: 1,
+            code: "daemon.session.register",
+            payload: {
+              v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+              ownerUserId: "owner-policy-gate",
+              deviceId: "device-policy-gate",
+              lane: "prod",
+              daemonSessionId: "session-policy-gate",
+              connectionGeneration: 1,
+              connectedAtMs: nowMs,
+              profileIds: [],
+              capabilities: {},
+              runtimeContract: {
+                epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+              },
+              serviceVersion: PUBLISHED_SERVICE_VERSION,
+            },
+          });
+          hub.webSocketMessage(socket, registerFrame);
+          expect(gates).toHaveLength(2);
+          await gates[1];
+          expect(sentFrames).toContainEqual(
+            expect.objectContaining({
+              code: "daemon.session.register",
+              payload: expect.objectContaining({ ok: true }),
+            })
+          );
+          expect(r2CallsInsideGate).not.toContain(true);
+          expect(
+            resolveLocalComponentUpdateProjection({
+              generatedAt: new Date().toISOString(),
+              release: getCachedCoreLocalComponentsRelease(),
+              serviceConnected: true,
+              serviceVersion: PUBLISHED_SERVICE_VERSION,
+            }).service
+          ).toMatchObject({
+            wakeBlocked: true,
+            reasonCodes: ["local_components.release_manifest_invalid"],
+          });
+
+          r2Response.resolve();
+          const release = await readCoreLocalComponentsRelease(bucket);
+          expect(release.manifest).toEqual(PUBLISHED_LOCAL_COMPONENTS_MANIFEST);
+          expect(
+            resolveLocalComponentUpdateProjection({
+              generatedAt: new Date().toISOString(),
+              release,
+              serviceConnected: true,
+              serviceVersion: PUBLISHED_SERVICE_VERSION,
+            }).service.wakeBlocked
+          ).toBe(false);
+
+          nowMs += 60_001;
+          r2Started = Promise.withResolvers<void>();
+          r2Response = Promise.withResolvers<void>();
+          r2CallsInsideGate.length = 0;
+          hub.webSocketMessage(socket, registerFrame);
+          await r2Started.promise;
+          expect(r2CallsInsideGate).not.toContain(true);
+          expect(gates).toHaveLength(3);
+          await gates[2];
+          expect(
+            sentFrames.filter(
+              (frame) =>
+                frame.code === "daemon.session.register" && frame.payload.ok
+            )
+          ).toHaveLength(2);
+          expect(
+            resolveLocalComponentUpdateProjection({
+              generatedAt: new Date().toISOString(),
+              release: getCachedCoreLocalComponentsRelease(),
+              serviceConnected: true,
+              serviceVersion: PUBLISHED_SERVICE_VERSION,
+            }).service
+          ).toMatchObject({
+            wakeBlocked: true,
+            reasonCodes: ["local_components.release_manifest_invalid"],
+          });
+        } finally {
+          r2Response.resolve();
+          await Promise.allSettled(gates);
+          for (let wave = 0; backgroundTasks.size && wave < 20; wave += 1) {
+            await Promise.allSettled([...backgroundTasks]);
+          }
+          pendingGet.mockRestore();
+          gateSpy.mockRestore();
+          backgroundSpy.mockRestore();
+          clock.mockRestore();
+          await durableState.storage.deleteAll();
+          await durableState.storage.deleteAlarm();
+          await durableState.storage.sync();
+          resetCoreLocalComponentsReleaseCacheForTests();
+        }
+      }
+    );
+  });
+
   it("requests the published release through a real register frame", async () => {
     const harness = await createHarness();
     const firstWaitUntilTaskIndex = harness.waitUntilTasks.length;
@@ -5643,8 +5820,6 @@ describe("runtime transport runtime coordinator transport contract", () => {
         ["gate", "started"],
         ["connection_generation_read", "started"],
         ["connection_generation_read", "completed"],
-        ["release_refresh", "started"],
-        ["release_refresh", "completed"],
         ["runtime_records_persist", "started"],
         ["runtime_records_persist", "completed"],
         ["gate", "completed"],
