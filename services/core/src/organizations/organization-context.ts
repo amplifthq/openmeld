@@ -138,6 +138,8 @@ export async function resolveOrganizationMembershipById(input: {
 // Share in-flight reads only within one PostgreSQL request scope. A Durable
 // Object gate must not join I/O started outside it, whose completion it blocks.
 // Nothing is kept after settlement, so later reads see current membership.
+// getPostgresDatabase returns a stable facade inside withPostgresRequest;
+// unscoped calls receive new facades and intentionally do not coalesce.
 export class ConcurrentOrganizationMembershipReads {
   private readonly inFlightByDatabase = new WeakMap<
     PostgresDatabase,
@@ -150,6 +152,7 @@ export class ConcurrentOrganizationMembershipReads {
     userId: string;
   }): Promise<ActiveOrganizationMembership> {
     if (!input.env.OPENMELD_POSTGRESQL) {
+      // Leave context validation and asynchronous binding errors to the resolver.
       return resolveOrganizationMembershipById(input);
     }
     const db = getPostgresDatabase(input.env);
