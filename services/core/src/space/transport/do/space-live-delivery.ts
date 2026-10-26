@@ -61,7 +61,7 @@ export type SpaceLiveDeliveryClosure =
 
 type SessionQueue<TSession extends object, TMessage> = {
   target: SpaceLiveDeliveryTarget<TSession>;
-  pending: TMessage[];
+  pending: Array<{ message: TMessage; settle: () => void }>;
 };
 
 export class SpaceLiveDelivery<TSession extends object, TMessage> {
@@ -81,39 +81,48 @@ export class SpaceLiveDelivery<TSession extends object, TMessage> {
   enqueue(
     targets: Iterable<SpaceLiveDeliveryTarget<TSession>>,
     message: TMessage
-  ): void {
+  ): Promise<void> {
+    const receipts: Promise<void>[] = [];
     for (const target of targets) {
+      let settle!: () => void;
+      receipts.push(
+        new Promise<void>((resolve) => {
+          settle = resolve;
+        })
+      );
+      const pending = { message, settle };
       const queue = this.queues.get(target.session);
       if (queue) {
         queue.target = target;
-        queue.pending.push(message);
+        queue.pending.push(pending);
         continue;
       }
       const created: SessionQueue<TSession, TMessage> = {
         target,
-        pending: [message],
+        pending: [pending],
       };
       this.queues.set(target.session, created);
       const drain = this.drain(created);
       this.dependencies.waitUntil?.(drain);
     }
+    // This receipt covers only this message, even when later messages join
+    // the same session queue. It acknowledges send/closure, not client render.
+    return Promise.all(receipts).then(() => undefined);
   }
 
   private async drain(queue: SessionQueue<TSession, TMessage>): Promise<void> {
+    let batch: SessionQueue<TSession, TMessage>["pending"] = [];
     try {
       while (queue.pending.length > 0) {
         // Take the batch before the check starts so the check is never older
         // than any message it authorizes.
-        const batch = queue.pending.splice(0);
+        batch = queue.pending.splice(0);
         let decision: SpaceLiveAccessDecision;
         try {
           decision = await this.dependencies.authorize(queue.target.session);
         } catch {
-          // Retry at once, on the rejected check's own continuation. A timer
-          // would not keep a hibernating Space awake (waitUntil does not
-          // extend a Durable Object's lifetime), so a delayed retry could be
-          // discarded with the queue, leaving the socket open and the
-          // withheld messages lost.
+          // Retry on the rejected check's own continuation, keeping the
+          // withheld batch in this drain rather than a detached timer.
           batch.push(...queue.pending.splice(0));
           try {
             decision = await this.dependencies.authorize(queue.target.session);
@@ -134,10 +143,16 @@ export class SpaceLiveDelivery<TSession extends object, TMessage> {
           return;
         }
         if (!this.dependencies.isActive(queue.target)) {
-          queue.pending.length = 0;
           return;
         }
-        this.dependencies.deliver(queue.target, batch);
+        this.dependencies.deliver(
+          queue.target,
+          batch.map((entry) => entry.message)
+        );
+        for (const entry of batch) {
+          entry.settle();
+        }
+        batch = [];
       }
     } catch (error) {
       this.closeQueue(queue, {
@@ -146,6 +161,11 @@ export class SpaceLiveDelivery<TSession extends object, TMessage> {
         error,
       });
     } finally {
+      // Denied, inactive and failed sessions must release both the batch
+      // being authorized and messages queued while that check was pending.
+      for (const entry of [...batch, ...queue.pending.splice(0)]) {
+        entry.settle();
+      }
       this.queues.delete(queue.target.session);
     }
   }
@@ -154,7 +174,6 @@ export class SpaceLiveDelivery<TSession extends object, TMessage> {
     queue: SessionQueue<TSession, TMessage>,
     closure: SpaceLiveDeliveryClosure
   ): void {
-    queue.pending.length = 0;
     if (this.dependencies.isActive(queue.target)) {
       this.dependencies.close(queue.target, closure);
     }
