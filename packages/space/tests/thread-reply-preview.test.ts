@@ -1,4 +1,8 @@
 import type { SignalEnvelope } from "@openmeld/protocol";
+import {
+  signalTextEnvelopeSchema,
+  spaceThreadPreviewSchema,
+} from "@openmeld/schemas/schemas";
 import { describe, expect, it } from "vitest";
 import {
   boundThreadPreviewSignal,
@@ -142,30 +146,68 @@ describe("thread reply preview text", () => {
     expect(boundThreadReplyPreviewText(oneLongLine)).toBe(oneLongLine);
   });
 
-  it("bounds only text reply signals and keeps every other field", () => {
+  it.each([
+    false,
+    true,
+  ])("keeps bounded reply signals valid (message envelope: %s)", (withMessageEnvelope) => {
     const longText = `Done\n${"x".repeat(MAX * 3)}`;
-    const text = {
-      id: "s1",
-      type: "signal.text",
-      data: { text: longText, meta: { messageRevision: 2 } },
-    } as unknown as SignalEnvelope;
-    const bounded = boundThreadPreviewSignal(text) as typeof text & {
-      data: { text: string; meta: unknown };
+    const messageEnvelope = {
+      text: longText,
+      activationTargets: ["agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+      referenceTargets: ["agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"],
+      mentionTargets: ["11111111-1111-4111-8111-111111111111"],
+      replyToSignalId: "root-signal",
     };
-    expect(bounded.data.text).toBe("Done");
-    expect(bounded.data.meta).toEqual({ messageRevision: 2 });
-    expect(bounded.id).toBe("s1");
+    const text = signalTextEnvelopeSchema.parse({
+      v: 1,
+      id: "s1",
+      spaceId: "space-1",
+      ts: 1,
+      profile: {
+        kind: "agent",
+        profileId: "agt_cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        profileName: "Morgan",
+      },
+      type: "signal.text",
+      data: {
+        text: longText,
+        meta: { messageRevision: 2 },
+        ...(withMessageEnvelope ? { messageEnvelope } : {}),
+      },
+    });
+    const original = structuredClone(text);
+    const bounded = boundThreadPreviewSignal(text);
+    expect(
+      spaceThreadPreviewSchema.safeParse({
+        threadId: "thr_11111111-1111-4111-8111-111111111111",
+        replyCount: 1,
+        signals: [bounded],
+        placements: [],
+      }).success
+    ).toBe(true);
+    expect(bounded).toEqual({
+      ...original,
+      data: {
+        ...original.data,
+        text: "Done",
+        ...(withMessageEnvelope
+          ? { messageEnvelope: { ...messageEnvelope, text: "Done" } }
+          : {}),
+      },
+    });
+    expect(text).toEqual(original);
 
-    const short = {
+    const short = signalTextEnvelopeSchema.parse({
       ...text,
       data: { text: "short" },
-    } as unknown as SignalEnvelope;
+    });
     expect(boundThreadPreviewSignal(short)).toBe(short);
-    const notice = {
+    const presence: SignalEnvelope = {
+      ...text,
       id: "s2",
-      type: "signal.system_notice",
-      data: { text: longText },
-    } as unknown as SignalEnvelope;
-    expect(boundThreadPreviewSignal(notice)).toBe(notice);
+      type: "presence.join",
+      data: {},
+    };
+    expect(boundThreadPreviewSignal(presence)).toBe(presence);
   });
 });

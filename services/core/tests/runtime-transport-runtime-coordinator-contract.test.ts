@@ -1193,6 +1193,9 @@ const createHarness = async (input?: {
   };
   Object.defineProperty(hub, "state", { value: state });
   Object.defineProperties(hub, {
+    gateLogContext: {
+      value: { bootId: "test-hub-boot", durableObjectId: "test-hub" },
+    },
     pendingAgentReadinessInvalidationsByReason: {
       value: new Map(),
       writable: true,
@@ -5602,28 +5605,59 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("requests the published release through a real register frame", async () => {
     const harness = await createHarness();
     const firstWaitUntilTaskIndex = harness.waitUntilTasks.length;
+    const consoleInfo = vi
+      .spyOn(console, "info")
+      .mockImplementation(() => undefined);
 
-    sendAutomaticUpdateRegisterFrame(harness);
+    try {
+      sendAutomaticUpdateRegisterFrame(harness);
 
-    await vi.waitFor(() =>
-      expect(getAutomaticUpdateRequestFrames(harness.sentFrames)).toHaveLength(
-        1
-      )
-    );
-    expect(getAutomaticUpdateRequestFrames(harness.sentFrames)).toEqual([
-      expect.objectContaining({
-        payload: expect.objectContaining({
-          request: {
-            operation: "request_update",
-            requestSource: "automatic",
-          },
+      await vi.waitFor(() =>
+        expect(
+          getAutomaticUpdateRequestFrames(harness.sentFrames)
+        ).toHaveLength(1)
+      );
+      expect(getAutomaticUpdateRequestFrames(harness.sentFrames)).toEqual([
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            request: {
+              operation: "request_update",
+              requestSource: "automatic",
+            },
+          }),
         }),
-      }),
-    ]);
-    await completeLatestAutomaticUpdateRequest({
-      firstWaitUntilTaskIndex,
-      harness,
-    });
+      ]);
+      await completeLatestAutomaticUpdateRequest({
+        firstWaitUntilTaskIndex,
+        harness,
+      });
+
+      const gateEntries = consoleInfo.mock.calls
+        .map(([, entry]) => entry)
+        .filter((entry) => entry?.event === "runtime_transport_gate_phase");
+      expect(gateEntries.map(({ stage, status }) => [stage, status])).toEqual([
+        ["gate", "started"],
+        ["connection_generation_read", "started"],
+        ["connection_generation_read", "completed"],
+        ["release_refresh", "started"],
+        ["release_refresh", "completed"],
+        ["runtime_records_persist", "started"],
+        ["runtime_records_persist", "completed"],
+        ["gate", "completed"],
+      ]);
+      const gateId = gateEntries[0]?.gateId;
+      expect(gateId).toEqual(expect.any(String));
+      for (const entry of gateEntries) {
+        expect(entry).toMatchObject({
+          bootId: "test-hub-boot",
+          durableObjectId: "test-hub",
+          gateId,
+          gateKind: "register",
+        });
+      }
+    } finally {
+      consoleInfo.mockRestore();
+    }
   });
 
   it("requests the published release through a real heartbeat frame", async () => {

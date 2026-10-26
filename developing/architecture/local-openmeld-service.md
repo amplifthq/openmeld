@@ -2554,6 +2554,36 @@ RuntimeCoordinator backlog, and any phase failure or exhausted alarm budget must
 schedule a near-term continuation instead of relying only on platform alarm
 retries.
 
+RuntimeTransportHub emits `runtime_transport_gate_phase` Worker logs for its
+constructor and Service-registration concurrency gates. Each record carries
+`durableObjectId`, a per-instance `bootId`, a per-operation `gateId`,
+`gateKind`, `stage`, `status`, and elapsed/stage duration in milliseconds.
+The `gate` stage covers the whole callback; named stages identify its critical
+awaits. A `started` record is emitted before each operation, so the last stage
+without `completed` or `failed` remains visible if the platform resets the
+object. Correlate it with native reset logs for the same Durable Object and
+instance; an absent completion alone does not prove a reset or identify an
+unlogged dependency inside that stage.
+
+`elapsedMs` and `durationMs` use `performance.now()`. The Workers clock advances
+at I/O boundaries, so synchronous work can report `0 ms` even when it takes
+time. A zero duration does not establish that a stage was fast; these values
+are neither CPU measurements nor measurements of I/O wait alone. See
+[Cloudflare's timing limitations](https://developers.cloudflare.com/workers/observability/traces/known-limitations/#non-io-operations-may-report-time-of-0-ms).
+
+Named stages cover critical awaits, not every synchronous operation. Socket
+adoption, lease reaping, and reasoning-preference schema parsing remain covered
+by the whole `gate` stage. With complete logs, a failed gate without a failed
+named stage points to uninstrumented synchronous work or code between stages.
+Treat this as an investigation lead, not a definitive failure location: missing
+stage records can also reflect incomplete log delivery.
+
+These records contain only diagnostic metadata, never request/response bodies,
+session credentials, release manifests, or raw exceptions. A completed gate
+means the callback returned; it does not establish registration acceptance,
+Service liveness, Wakeability, or execution success. Logging preserves existing
+gate ordering, exceptions, deadlines, and authority boundaries.
+
 ## Wake Route Registration
 
 Wake route registration is the Core-owned fact that says whether an Agent
