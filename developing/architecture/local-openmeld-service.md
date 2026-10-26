@@ -2565,6 +2565,19 @@ object. Correlate it with native reset logs for the same Durable Object and
 instance; an absent completion alone does not prove a reset or identify an
 unlogged dependency inside that stage.
 
+`elapsedMs` and `durationMs` use `performance.now()`. The Workers clock advances
+at I/O boundaries, so synchronous work can report `0 ms` even when it takes
+time. A zero duration does not establish that a stage was fast; these values
+are neither CPU measurements nor measurements of I/O wait alone. See
+[Cloudflare's timing limitations](https://developers.cloudflare.com/workers/observability/traces/known-limitations/#non-io-operations-may-report-time-of-0-ms).
+
+Named stages cover critical awaits, not every synchronous operation. Socket
+adoption, lease reaping, and reasoning-preference schema parsing remain covered
+by the whole `gate` stage. With complete logs, a failed gate without a failed
+named stage points to uninstrumented synchronous work or code between stages.
+Treat this as an investigation lead, not a definitive failure location: missing
+stage records can also reflect incomplete log delivery.
+
 These records contain only diagnostic metadata, never request/response bodies,
 session credentials, release manifests, or raw exceptions. A completed gate
 means the callback returned; it does not establish registration acceptance,

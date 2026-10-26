@@ -176,6 +176,7 @@ export function boundThreadPreviewSignal(
     data: {
       ...signal.data,
       text,
+      // Keep the derived preview's message envelope consistent with its text.
       ...(signal.data.messageEnvelope
         ? { messageEnvelope: { ...signal.data.messageEnvelope, text } }
         : {}),
