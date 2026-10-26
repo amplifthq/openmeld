@@ -8,6 +8,12 @@ import {
   withPostgresRequest,
 } from "@openmeld/db/postgresql";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
+import type {
+  AuthRpcProfileFact,
+  DaemonServiceLane,
+  OpenMeldRequestContext,
+  RuntimeTransportLookupRouteResponse,
+} from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import { createAgentExecutionReadinessReads } from "../src/agent-execution/application/agent-execution-readiness-reads";
 import {
@@ -25,6 +31,10 @@ import {
 } from "../src/agent-execution/infrastructure/postgresql/provider-conversation-proof-repo";
 import { ensurePrimaryAgentProfileBindingRecord } from "../src/agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import type { CoreBindings } from "../src/lib/bindings";
+import {
+  rpcGetAgentExecutionReadiness,
+  rpcGetAgentExecutionReadinessBatch,
+} from "../src/rpc/methods";
 import { acceptRuntimeAgentControllerReportRecord } from "../src/runtime-registry/infrastructure/postgresql/runtime-agent-controller-report-repo";
 import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 import {
@@ -550,7 +560,12 @@ describe("agent execution readiness through the PostgreSQL binding", () => {
         facts: {
           providerConversation: {
             agentControllerConversationId,
+            errorCode: "context.missing",
+            errorMessage: "Stored conversation no longer exists",
+            errorType: "config",
+            expiresAtMs: GENERATED_AT_MS + 60_000,
             method: "codex_app_server_thread_read",
+            observedAtMs: GENERATED_AT_MS + 1,
             ready: false,
             required: true,
             source: "runtime_reporting",
@@ -559,6 +574,61 @@ describe("agent execution readiness through the PostgreSQL binding", () => {
         },
         primaryAction: "none",
       });
+      const providerConversation =
+        readiness.agentExecutionReadiness.facts.providerConversation;
+      expect(
+        readiness.spaceMemberAgentExecutionReadiness.facts.providerConversation
+      ).toEqual({ ...providerConversation, method: null });
+
+      const env = createLocalStateRoutedEnv({
+        db: harness.db,
+        routeDeviceId: "device-current",
+        routeLane: "dev-local",
+        workingFolderBindingId: bindingId,
+      });
+      const context: OpenMeldRequestContext = {
+        activeOrganizationId: ORGANIZATION_ID,
+        actorContext: {
+          callerPrincipalId: OWNER_USER_ID,
+          openMeldProfileId: "11111111-1111-4111-8111-111111111111",
+          ownerUserId: OWNER_USER_ID,
+          profileKind: "human",
+          profileName: "Owner",
+          requestId: "req-conversation-proof-readiness",
+        },
+      };
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(GENERATED_AT_MS + 2);
+      try {
+        for (const responseVersion of [undefined, 2] as const) {
+          const responseOptions =
+            responseVersion === undefined ? {} : { responseVersion };
+          const expectedProof = {
+            ...providerConversation,
+            method:
+              responseVersion === 2 ? "codex_app_server_thread_read" : null,
+          };
+          const response = await rpcGetAgentExecutionReadiness(env, {
+            agentProfileId: AGENT_PROFILE_ID,
+            context,
+            ...responseOptions,
+          });
+          expect(
+            response.agentExecutionReadiness.facts.providerConversation
+          ).toEqual(expectedProof);
+          const batch = await rpcGetAgentExecutionReadinessBatch(env, {
+            agentProfileIds: [AGENT_PROFILE_ID],
+            context,
+            ...responseOptions,
+          });
+          expect(batch.items).toHaveLength(1);
+          expect(
+            batch.items[0]?.agentExecutionReadiness.facts.providerConversation
+          ).toEqual(expectedProof);
+        }
+      } finally {
+        vi.useRealTimers();
+      }
       await writeAcceptedProviderAccessFailureEvidence({
         db: harness.db,
         agentProfileId: AGENT_PROFILE_ID,
@@ -746,21 +816,26 @@ describe("agent execution readiness through the PostgreSQL binding", () => {
 function createLocalStateRoutedEnv(input: {
   db: PostgresDatabase;
   routeDeviceId: string | null;
-  routeLane: string | null;
+  routeLane: DaemonServiceLane | null;
   workingFolderBindingId?: string;
 }): CoreBindings {
+  const profile: AuthRpcProfileFact = {
+    ownerUserId: OWNER_USER_ID,
+    profileHandle: "codex",
+    profileId: AGENT_PROFILE_ID,
+    profileKind: "agent",
+    profileName: "Codex",
+    status: "active",
+  };
   return {
     OPENMELD_AUTH_WORKER: {
       resolveProfileById: vi.fn().mockResolvedValue({
         ok: true,
-        profile: {
-          ownerUserId: OWNER_USER_ID,
-          profileHandle: "codex",
-          profileId: AGENT_PROFILE_ID,
-          profileKind: "agent",
-          profileName: "Codex",
-          status: "active",
-        },
+        profile,
+      }),
+      resolveProfilesByIds: vi.fn().mockResolvedValue({
+        ok: true,
+        profiles: { [AGENT_PROFILE_ID]: profile },
       }),
     },
     OPENMELD_RUNTIME_TRANSPORT: createRuntimeTransportNamespace({
@@ -816,7 +891,7 @@ async function seedAgentProfileOrganizationContext(
 }
 function createRuntimeTransportNamespace(input: {
   routeDeviceId: string | null;
-  routeLane: string | null;
+  routeLane: DaemonServiceLane | null;
   workingFolderBindingId?: string;
 }): DurableObjectNamespace {
   return {
@@ -860,45 +935,50 @@ function createRuntimeTransportNamespace(input: {
               })
             );
           }
+          const route: RuntimeTransportLookupRouteResponse = {
+            capabilities: {},
+            connectionGeneration: 1,
+            daemonSessionId: "session-1",
+            deviceId: input.routeDeviceId,
+            executionCompatibility: COMPATIBLE_DAEMON_EXECUTION_CONTRACT,
+            lane: input.routeLane ?? "dev-local",
+            lastHeartbeatMs: GENERATED_AT_MS,
+            leaseEpoch: 1,
+            ...(input.workingFolderBindingId
+              ? {
+                  localWakeRouteReport: {
+                    daemonSessionId: "session-1",
+                    deviceId: input.routeDeviceId,
+                    expectedRoutesContractVersion: "v4",
+                    includedProfileIds: [AGENT_PROFILE_ID],
+                    lane: input.routeLane ?? "dev-local",
+                    reportedAtMs: GENERATED_AT_MS,
+                    skippedProfiles: [],
+                    workingFolderObservations: [
+                      {
+                        bindingId: input.workingFolderBindingId,
+                        configurationRevision: 1,
+                        defaultProjectId: null,
+                        localProjectBindingGeneration: null,
+                        observedAtMs: GENERATED_AT_MS,
+                        profileId: AGENT_PROFILE_ID,
+                        reasonCode: null,
+                        source: "profile_workspace",
+                        status: "ready",
+                      },
+                    ],
+                  },
+                }
+              : {}),
+            online: true,
+            serviceVersion: CURRENT_SERVICE_VERSION,
+          };
           return Promise.resolve(
-            Response.json({
-              capabilities: {},
-              connectionGeneration: 1,
-              daemonSessionId: "session-1",
-              deviceId: input.routeDeviceId,
-              executionCompatibility: COMPATIBLE_DAEMON_EXECUTION_CONTRACT,
-              lane: input.routeLane ?? "dev-local",
-              lastHeartbeatMs: GENERATED_AT_MS,
-              leaseEpoch: 1,
-              ...(input.workingFolderBindingId
-                ? {
-                    localWakeRouteReport: {
-                      daemonSessionId: "session-1",
-                      deviceId: input.routeDeviceId,
-                      expectedRoutesContractVersion: "v4",
-                      includedProfileIds: [AGENT_PROFILE_ID],
-                      lane: input.routeLane ?? "dev-local",
-                      reportedAtMs: GENERATED_AT_MS,
-                      skippedProfiles: [],
-                      workingFolderObservations: [
-                        {
-                          bindingId: input.workingFolderBindingId,
-                          configurationRevision: 1,
-                          defaultProjectId: null,
-                          localProjectBindingGeneration: null,
-                          observedAtMs: GENERATED_AT_MS,
-                          profileId: AGENT_PROFILE_ID,
-                          reasonCode: null,
-                          source: "profile_workspace",
-                          status: "ready",
-                        },
-                      ],
-                    },
-                  }
-                : {}),
-              online: true,
-              serviceVersion: CURRENT_SERVICE_VERSION,
-            })
+            Response.json(
+              url.endsWith("/lookup-routes-batch")
+                ? { routes: { [AGENT_PROFILE_ID]: route } }
+                : route
+            )
           );
         },
       }) as unknown as DurableObjectStub,

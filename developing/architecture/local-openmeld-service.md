@@ -1135,7 +1135,11 @@ Proof reporting uses `codex_app_server_thread_read`; Core accepts legacy resume
 receipts during rollout and selects the newest unexpired receipt for the exact
 Binding, runtime, controller, and conversation. Checks must not set approval,
 sandbox, model, collaboration-mode, or other turn policy on the canonical
-controller conversation. Codex's official cross-process thread
+controller conversation. Public readiness responses expose the read method only
+with the explicit version-2 opt-in defined in `shared-contracts.md`; legacy
+responses leave the method unspecified (`null`) without hiding the check's
+status or diagnostic evidence. Local Service diagnostics retain the exact
+method. Codex's official cross-process thread
 writer lock makes `thread/resume` the atomic occupancy admission boundary. The
 exact App Server `-32600` response `thread <id> already has an active writer`
 for that resume is structured Agent Controller conversation occupancy, not a

@@ -1179,11 +1179,22 @@ not be masked by an older successful resume. No proof grants execution authority
 Actual Wake resume, writer locking, Stop, Space actions, and runtime transport
 envelopes are unchanged. Skills and the execution epoch do not change.
 
+Public readiness uses `x-openmeld-agent-execution-readiness-version: 2` on
+single and batch reads. The API client sends it, Web preserves it, and Gateway
+forwards the exact opt-in to Core. Unversioned requests, including old CLI
+`doctor` calls, receive `method: null` for read-based evidence with the outcome,
+errors, identity and timestamps intact. Embedded Organization, Center Agent and
+Space readiness keeps this legacy view. Missing/unknown HTTP versions also use
+the legacy view; old Gateway/Core receivers ignore the new opt-in and upgraded
+readers accept their responses. No read receipt is relabeled as a resume.
+
 CLI and Service contract versions and minimum versions advance to 0.3.273:
-old strict response readers do not accept the new method, and old Services keep
-performing the intrusive background operation. Rollout must apply the additive
-PostgreSQL migration and upgrade Web/Gateway response readers first, publish
-the supported CLI/Service release, then deploy Core. During the short local-first
+local Service diagnostics use the exact new method, and old Services keep
+performing the intrusive background operation. The required CLI floor does not
+replace public response negotiation; diagnostic commands bypass that gate.
+Rollout must apply the additive PostgreSQL migration and upgrade Web/Gateway
+response readers first, publish the supported CLI/Service release, then deploy
+Core. During the short local-first
 window, old Core can reject new passive reports; the Service preserves that
 reporting failure and never falls back to resume. New Core accepts old receipts
 while supported local components update. Publish local artifacts before Core

@@ -26,6 +26,7 @@ import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   isHostedAgentControllerRef,
+  projectProviderConversationProofMethod,
 } from "@openmeld/schemas";
 import type {
   AgentControllerPermissionMode,
@@ -2484,7 +2485,9 @@ function toSpaceMemberAgentExecutionReadiness(
         errorMessage: readiness.facts.providerConversation.errorMessage,
         errorType: readiness.facts.providerConversation.errorType,
         expiresAtMs: readiness.facts.providerConversation.expiresAtMs,
-        method: readiness.facts.providerConversation.method,
+        method: projectProviderConversationProofMethod(
+          readiness.facts.providerConversation.method
+        ),
         observedAtMs: readiness.facts.providerConversation.observedAtMs,
         provider: readiness.facts.providerConversation.provider,
         ready: readiness.facts.providerConversation.ready,

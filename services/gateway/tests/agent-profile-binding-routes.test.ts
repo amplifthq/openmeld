@@ -588,12 +588,23 @@ describe("agent profile binding routes", () => {
     expect(coreRpc.ensureAgentProfilePrimaryBinding).not.toHaveBeenCalled();
   });
 
-  it("reads Agent Execution Readiness through the canonical Agent Profile route", async () => {
+  it.each([
+    undefined,
+    "2",
+    "99",
+  ])("reads Agent Execution Readiness with response version %s", async (responseVersion) => {
     const { coreRpc, env } = makeEnv();
 
     const response = await app.fetch(
       new Request(
-        `http://local/v1/agent-profiles/${encodeURIComponent(AGENT_PROFILE_ID)}/execution-readiness`
+        `http://local/v1/agent-profiles/${encodeURIComponent(AGENT_PROFILE_ID)}/execution-readiness`,
+        {
+          headers: responseVersion
+            ? {
+                "x-openmeld-agent-execution-readiness-version": responseVersion,
+              }
+            : undefined,
+        }
       ),
       env,
       TEST_EXECUTION_CONTEXT
@@ -612,9 +623,19 @@ describe("agent profile binding routes", () => {
         agentProfileId: AGENT_PROFILE_ID,
       })
     );
+    const request = coreRpc.getAgentExecutionReadiness.mock.calls[0]?.[0];
+    if (responseVersion === "2") {
+      expect(request).toHaveProperty("responseVersion", 2);
+    } else {
+      expect(request).not.toHaveProperty("responseVersion");
+    }
   });
 
-  it("reads Agent Execution Readiness for multiple Agent Profiles", async () => {
+  it.each([
+    undefined,
+    "2",
+    "99",
+  ])("reads Agent Execution Readiness batches with response version %s", async (responseVersion) => {
     const { coreRpc, env } = makeEnv();
 
     const response = await app.fetch(
@@ -622,7 +643,14 @@ describe("agent profile binding routes", () => {
         body: JSON.stringify({
           agentProfileIds: [AGENT_PROFILE_ID],
         }),
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          ...(responseVersion
+            ? {
+                "x-openmeld-agent-execution-readiness-version": responseVersion,
+              }
+            : {}),
+        },
         method: "POST",
       }),
       env,
@@ -646,6 +674,12 @@ describe("agent profile binding routes", () => {
         agentProfileIds: [AGENT_PROFILE_ID],
       })
     );
+    const request = coreRpc.getAgentExecutionReadinessBatch.mock.calls[0]?.[0];
+    if (responseVersion === "2") {
+      expect(request).toHaveProperty("responseVersion", 2);
+    } else {
+      expect(request).not.toHaveProperty("responseVersion");
+    }
   });
 
   it("forwards Binding commands to Core without inventing owner identity", async () => {

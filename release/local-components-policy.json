@@ -2,7 +2,7 @@
   "version": "0.3.273",
   "cli": {
     "updatePolicy": "required",
-    "reason": "Reads the new codex_app_server_thread_read proof method in Service diagnostics and Core readiness responses. Upgrade response readers before emitting the new method."
+    "reason": "Reads the exact codex_app_server_thread_read method in local Service diagnostics. Public Core readiness negotiates response version 2 and preserves legacy CLI diagnostics during upgrades."
   },
   "service": {
     "updatePolicy": "required",
