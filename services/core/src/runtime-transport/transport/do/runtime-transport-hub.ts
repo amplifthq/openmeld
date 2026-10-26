@@ -1750,13 +1750,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }
   constructor(ctx: DurableObjectState, env: CoreBindings) {
     super(ctx, env);
+    // Release storage must not hold the initialization gate open. New Wake
+    // admission separately requires valid policy from the source reader.
+    this.ctx.waitUntil(this.refreshLocalComponentsRelease());
     this.ctx.blockConcurrencyWhile(() =>
       observeRuntimeTransportGate(
         { ...this.gateLogContext, gateKind: "constructor" },
         async (runStage) => {
-          await runStage("release_refresh", () =>
-            this.refreshLocalComponentsRelease()
-          );
           const reasoningPreference = await runStage(
             "reasoning_preference_read",
             () => this.ctx.storage.get("local-agent-reasoning-preferences")
@@ -3714,6 +3714,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   ): void {
     switch (frame.code) {
       case "daemon.session.register": {
+        // Start R2 work before entering the gate, including when the cache is
+        // cold or expired. Registration consumes only the valid snapshot.
+        this.ctx.waitUntil(this.refreshLocalComponentsRelease());
         this.ctx.waitUntil(
           this.ctx.blockConcurrencyWhile(() =>
             this.handleRegisterSessionFrame(webSocket, frame.payload)
@@ -4144,9 +4147,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         highWater + 1
       );
     }
-    const localComponentsRelease = await runStage("release_refresh", () =>
-      this.refreshLocalComponentsRelease()
-    );
+    const localComponentsRelease = getCachedCoreLocalComponentsRelease();
     const response = handleRegisterSession(
       this.state,
       {
