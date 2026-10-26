@@ -2,7 +2,10 @@ import {
   isPersonalOrganization,
   memberRoleHasOrganizationPermission,
 } from "@openmeld/auth/organization-policy";
-import { getPostgresDatabase } from "@openmeld/db/postgresql";
+import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
 import { authRpcResolveOrganizationAccountIdentityResultSchema } from "@openmeld/schemas";
 import type {
   AuthRpcResolveOrganizationAccountIdentityInput,
@@ -132,13 +135,15 @@ export async function resolveOrganizationMembershipById(input: {
 }): Promise<ActiveOrganizationMembership> {
   return await resolveOrganizationMembership(input);
 }
-// Concurrent reads of one caller's membership (such as the access checks of
-// one bootstrap's branches) share a single in-flight query. Nothing is kept
-// after it settles, so every later read sees current membership.
+// Share in-flight reads only within one PostgreSQL request scope. A Durable
+// Object gate must not join I/O started outside it, whose completion it blocks.
+// Nothing is kept after settlement, so later reads see current membership.
+// getPostgresDatabase returns a stable facade inside withPostgresRequest;
+// unscoped calls receive new facades and intentionally do not coalesce.
 export class ConcurrentOrganizationMembershipReads {
-  private readonly inFlightByKey = new Map<
-    string,
-    Promise<ActiveOrganizationMembership>
+  private readonly inFlightByDatabase = new WeakMap<
+    PostgresDatabase,
+    Map<string, Promise<ActiveOrganizationMembership>>
   >();
 
   read(input: {
@@ -146,15 +151,25 @@ export class ConcurrentOrganizationMembershipReads {
     organizationId: string;
     userId: string;
   }): Promise<ActiveOrganizationMembership> {
+    if (!input.env.OPENMELD_POSTGRESQL) {
+      // Leave context validation and asynchronous binding errors to the resolver.
+      return resolveOrganizationMembershipById(input);
+    }
+    const db = getPostgresDatabase(input.env);
+    let inFlightByKey = this.inFlightByDatabase.get(db);
+    if (!inFlightByKey) {
+      inFlightByKey = new Map();
+      this.inFlightByDatabase.set(db, inFlightByKey);
+    }
     const key = JSON.stringify([input.organizationId, input.userId]);
-    const inFlight = this.inFlightByKey.get(key);
+    const inFlight = inFlightByKey.get(key);
     if (inFlight) {
       return inFlight;
     }
     const read = resolveOrganizationMembershipById(input).finally(() => {
-      this.inFlightByKey.delete(key);
+      inFlightByKey.delete(key);
     });
-    this.inFlightByKey.set(key, read);
+    inFlightByKey.set(key, read);
     return read;
   }
 }
