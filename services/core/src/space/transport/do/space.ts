@@ -2782,6 +2782,10 @@ export class Space extends DurableObject<CoreBindings> {
   private lastTimestamp = 0;
   private lastLiveInvalidationVersion = 0;
   private liveInvalidationVersionUpdate: Promise<void> = Promise.resolve();
+  private readonly pendingSignalLiveDeliveries = new Map<
+    string,
+    Promise<void>
+  >();
   private readonly liveDelivery = new SpaceLiveDelivery<
     Session,
     Parameters<Space["encodeLiveMessageForSession"]>[0]
@@ -4768,14 +4772,6 @@ export class Space extends DurableObject<CoreBindings> {
       false,
       signalContext
     );
-    if (persistResult.persistedSignal) {
-      await flushAndScheduleSpaceInboxProjection({
-        flush: () => this.flushPendingSpaceInboxProjectionOutbox(),
-        schedule: () => this.syncSpaceBackgroundAlarm(),
-        spaceId: this.spaceId,
-        storage: this.ctx.storage,
-      });
-    }
     const settledClaim = readClaim();
     if (
       persistResult.persistedSignal &&
@@ -4784,6 +4780,14 @@ export class Space extends DurableObject<CoreBindings> {
       settledClaim.publishedSignalId === signal.id
     ) {
       this.broadcastSignal(signal, signalContext, { persisted: true });
+    }
+    if (persistResult.persistedSignal) {
+      await flushAndScheduleSpaceInboxProjection({
+        flush: () => this.flushPendingSpaceInboxProjectionOutbox(),
+        schedule: () => this.syncSpaceBackgroundAlarm(),
+        spaceId: this.spaceId,
+        storage: this.ctx.storage,
+      });
     }
     return settledClaim;
   }
@@ -4901,14 +4905,6 @@ export class Space extends DurableObject<CoreBindings> {
       signalContext
     );
     if (persistResult.persistedSignal) {
-      await flushAndScheduleSpaceInboxProjection({
-        flush: () => owner.flushPendingSpaceInboxProjectionOutbox(),
-        schedule: () => owner.syncSpaceBackgroundAlarm(),
-        spaceId: owner.spaceId,
-        storage: owner.ctx.storage,
-      });
-    }
-    if (persistResult.persistedSignal) {
       const visibleFinal =
         resolveRuntimeCoordinatorFailurePublicationVisibleFinalMessage({
           command,
@@ -4918,6 +4914,14 @@ export class Space extends DurableObject<CoreBindings> {
         });
       if (visibleFinal?.kind === "failure_notice") {
         owner.broadcastSignal(signal, signalContext, { persisted: true });
+      }
+      await flushAndScheduleSpaceInboxProjection({
+        flush: () => owner.flushPendingSpaceInboxProjectionOutbox(),
+        schedule: () => owner.syncSpaceBackgroundAlarm(),
+        spaceId: owner.spaceId,
+        storage: owner.ctx.storage,
+      });
+      if (visibleFinal?.kind === "failure_notice") {
         await recordRuntimeCoordinatorFailureTaskOutcome({
           command,
           db: getPostgresDatabase(owner.bindings),
@@ -6613,14 +6617,6 @@ export class Space extends DurableObject<CoreBindings> {
       false,
       signalContext
     );
-    if (persistResult.persistedSignal) {
-      await flushAndScheduleSpaceInboxProjection({
-        flush: () => owner.flushPendingSpaceInboxProjectionOutbox(),
-        schedule: () => owner.syncSpaceBackgroundAlarm(),
-        spaceId: owner.spaceId,
-        storage: owner.ctx.storage,
-      });
-    }
     if (!persistResult.persistedSignal) {
       const concurrentlyPublished = owner.readSignalById(signalId);
       if (!concurrentlyPublished) {
@@ -6638,6 +6634,12 @@ export class Space extends DurableObject<CoreBindings> {
       };
     }
     owner.broadcastSignal(signal, signalContext, { persisted: true });
+    await flushAndScheduleSpaceInboxProjection({
+      flush: () => owner.flushPendingSpaceInboxProjectionOutbox(),
+      schedule: () => owner.syncSpaceBackgroundAlarm(),
+      spaceId: owner.spaceId,
+      storage: owner.ctx.storage,
+    });
     return { publishedSignalId: signal.id, status: "published" };
   }
   async rpcInspectExecutionRecovery(
@@ -20990,6 +20992,7 @@ export class Space extends DurableObject<CoreBindings> {
       if (!record) {
         continue;
       }
+      await this.pendingSignalLiveDeliveries.get(record.signalId);
       const selected = await selectSpaceInboxRecipients(
         record.candidates.filter(
           (candidate) =>
@@ -21078,6 +21081,14 @@ export class Space extends DurableObject<CoreBindings> {
         limit: SPACE_INBOX_PROJECTION_OUTBOX_REDRIVE_BATCH_SIZE,
         nowMs: Date.now(),
       }
+    );
+    // Include recovery alarms and concurrent publishers in the same ordering:
+    // notification eligibility follows each source Signal's captured send.
+    // Later stream frames cannot extend these per-Signal receipts.
+    await Promise.all(
+      records.map((record) =>
+        this.pendingSignalLiveDeliveries.get(record.signalId)
+      )
     );
     for (const record of records) {
       const targetInboxDb = getPostgresDatabase(this.bindings);
@@ -21862,11 +21873,11 @@ export class Space extends DurableObject<CoreBindings> {
       | SpaceAgentStreamDeltaFrame
       | SpaceAgentStreamPartFrame
       | SpaceAgentStreamTerminalFrame
-  ) {
+  ): Promise<void> {
     if (this.sessions.size === 0) {
-      return;
+      return Promise.resolve();
     }
-    this.liveDelivery.enqueue(
+    return this.liveDelivery.enqueue(
       [...this.sessions].map(([webSocket, session]) => ({
         session,
         webSocket,
@@ -22129,14 +22140,13 @@ export class Space extends DurableObject<CoreBindings> {
     signal: SignalEnvelope,
     signalContext?: SignalPublishContext,
     history?: SpaceLiveSignalFrame["history"]
-  ): void {
+  ): Promise<void> {
     const finalReplyClaim = resolveSignalFinalReplyClaimForLog(signal);
     if (finalReplyClaim) {
       this.activeReplyingSignalsByDispatchId.delete(finalReplyClaim.dispatchId);
     }
     if (!(signalContext?.threadContext || history)) {
-      this.broadcast(signal);
-      return;
+      return this.broadcast(signal);
     }
     const frame: SpaceLiveSignalFrame = {
       type: "space.signal",
@@ -22154,7 +22164,22 @@ export class Space extends DurableObject<CoreBindings> {
           }
         : {}),
     };
-    this.broadcast(frame);
+    const delivery = this.broadcast(frame);
+    return history?.persisted
+      ? this.trackSignalLiveDelivery(signal.id, delivery)
+      : delivery;
+  }
+  private trackSignalLiveDelivery(
+    signalId: string,
+    delivery: Promise<void>
+  ): Promise<void> {
+    const pending = delivery.finally(() => {
+      if (this.pendingSignalLiveDeliveries.get(signalId) === pending) {
+        this.pendingSignalLiveDeliveries.delete(signalId);
+      }
+    });
+    this.pendingSignalLiveDeliveries.set(signalId, pending);
+    return pending;
   }
   private closeAllSessions(
     reason: "space_deleted" | "space_access_changed"
@@ -24736,14 +24761,6 @@ export class Space extends DurableObject<CoreBindings> {
         signalContext
       );
       if (persistResult.persistedSignal) {
-        await flushAndScheduleSpaceInboxProjection({
-          flush: () => this.flushPendingSpaceInboxProjectionOutbox(),
-          schedule: () => this.syncSpaceBackgroundAlarm(),
-          spaceId: this.spaceId,
-          storage: this.ctx.storage,
-        });
-      }
-      if (persistResult.persistedSignal) {
         const finalSignalId = readFinalReplyClaimSignalId(
           this.ctx.storage.sql,
           {
@@ -24753,6 +24770,14 @@ export class Space extends DurableObject<CoreBindings> {
         );
         if (finalSignalId === signal.id) {
           this.broadcastSignal(signal, signalContext, { persisted: true });
+        }
+        await flushAndScheduleSpaceInboxProjection({
+          flush: () => this.flushPendingSpaceInboxProjectionOutbox(),
+          schedule: () => this.syncSpaceBackgroundAlarm(),
+          spaceId: this.spaceId,
+          storage: this.ctx.storage,
+        });
+        if (finalSignalId === signal.id) {
           return { ok: true, publishedSignalId: finalSignalId };
         }
         if (finalSignalId && this.readSignalById(finalSignalId)) {
@@ -27675,17 +27700,22 @@ export class Space extends DurableObject<CoreBindings> {
                 signalContextArg
               )
             );
-    await publishTextSignalUseCase({
-      signal: signalWithAgentActivity,
-      signalContext,
-      persistSignalWithOptionalOutbox,
-      flushPendingDispatchOutbox: () => this.flushPendingDispatchOutbox(),
-      recordHumanActivity: (currentSignal) =>
-        this.recordOrganizationMemberHumanActivity(currentSignal),
-      waitUntil: (promise) => this.ctx.waitUntil(promise),
-      broadcast: (currentSignal) =>
-        this.broadcastSignal(currentSignal, signalContext, { persisted: true }),
-    });
+    await this.trackSignalLiveDelivery(
+      signal.id,
+      publishTextSignalUseCase({
+        signal: signalWithAgentActivity,
+        signalContext,
+        persistSignalWithOptionalOutbox,
+        flushPendingDispatchOutbox: () => this.flushPendingDispatchOutbox(),
+        recordHumanActivity: (currentSignal) =>
+          this.recordOrganizationMemberHumanActivity(currentSignal),
+        waitUntil: (promise) => this.ctx.waitUntil(promise),
+        broadcast: (currentSignal) =>
+          this.broadcastSignal(currentSignal, signalContext, {
+            persisted: true,
+          }),
+      })
+    );
     await flushAndScheduleSpaceInboxProjection({
       flush: () => this.flushPendingSpaceInboxProjectionOutbox(),
       schedule: () => this.syncSpaceBackgroundAlarm(),

@@ -2181,6 +2181,7 @@ describe("accepted dispatch finalization", () => {
       // Final-reply delivery reads caller identity before its persisted reply.
       // Keep the real test binding instead of failing before the intended read.
       bindings: { value: env },
+      pendingSignalLiveDeliveries: { value: new Map() },
       broadcastSignal: { value: vi.fn() },
       ctx: {
         value: { storage: projectionStorage, waitUntil: vi.fn() },
