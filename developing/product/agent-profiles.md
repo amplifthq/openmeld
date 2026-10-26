@@ -968,11 +968,21 @@ The controller's native mode still decides which requests occur and which
 choices are valid. OpenMeld does not turn `Ask`, `Plan`, or an approval mode into
 one generic permission policy. It maps only the choices the controller offers,
 never fabricates an approval, and never upgrades a one-time decision into a
-persistent rule without a separate explicit choice from the owner. When the
-owner chooses both, OpenMeld answers the current request first so the Wake can
-resume, then saves the controller-native low-interruption mode as a non-blocking
-follow-up. A failed Profile save must not undo or delay the accepted current
-response. When a controller offers a "don't ask again" choice but does not
+persistent rule without a separate explicit choice from the owner. Supported
+permission-mode choices are visible before an approval is selected, with
+current permissions selected by default. Choosing Deny clears any draft mode
+change. Codex command-prefix approvals preserve the exact native amendment;
+OpenMeld does not reinterpret "matching" as semantic similarity or broaden the
+prefix. When Codex omits its optional decision list, its explicit proposed
+execpolicy amendment supplies the reusable choice. A supplied decision list,
+including an empty one, remains authoritative. Native Codex policy owns saving
+and evaluating these rules across requests and sessions.
+
+When the owner chooses both on a request that supports permission-mode updates,
+OpenMeld saves the Binding mode and includes its canonical reference with the
+current approval response. A failed mode save keeps the request actionable;
+the owner can retry or keep the current permissions. When a controller offers a
+"don't ask again" choice but does not
 honor it itself, as Grok Build's ACP does not (Claude Code, Codex, Cursor, and
 OpenCode honor theirs natively), OpenMeld keeps the owner's
 choice for that controller conversation while the OpenMeld Service keeps

@@ -3212,7 +3212,7 @@ async function resolveCommandApprovalInteraction(input: {
   const cwd = normalizeBoundedText(params.cwd, 4096);
   const decisions = input.legacy
     ? ["approved", "approved_for_session", "denied"]
-    : resolveCommandApprovalDecisions(params.availableDecisions);
+    : resolveCommandApprovalDecisions(params);
   const mappedOptions = decisions
     .map((decision, index) => {
       const presentation = presentCommandApprovalDecision(decision);
@@ -3251,10 +3251,9 @@ async function resolveCommandApprovalInteraction(input: {
             },
           },
         ];
+  const description = describeCommandApproval(params.reason, decisions);
   const response = await input.onInteractionRequest({
-    ...(normalizeBoundedText(params.reason, 4000)
-      ? { description: normalizeBoundedText(params.reason, 4000) }
-      : {}),
+    ...(description ? { description } : {}),
     kind: "permission",
     options: options.map(({ option }) => option),
     subject: {
@@ -3289,11 +3288,60 @@ async function resolveCommandApprovalInteraction(input: {
   };
 }
 
-function resolveCommandApprovalDecisions(value: unknown): unknown[] {
-  if (Array.isArray(value) && value.length > 0) {
-    return value;
+function resolveCommandApprovalDecisions(
+  params: Record<string, unknown>
+): unknown[] {
+  // An explicit list is authoritative, including an empty/restricted list.
+  if (Array.isArray(params.availableDecisions)) {
+    return params.availableDecisions;
   }
-  return ["accept", "acceptForSession", "decline", "cancel"];
+  const amendment = readExecpolicyAmendment(params.proposedExecpolicyAmendment);
+  return [
+    "accept",
+    "acceptForSession",
+    ...(amendment
+      ? [{ acceptWithExecpolicyAmendment: { execpolicy_amendment: amendment } }]
+      : []),
+    "decline",
+    "cancel",
+  ];
+}
+
+function readExecpolicyAmendment(value: unknown): string[] | null {
+  return Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((token) => typeof token === "string") &&
+    typeof value[0] === "string" &&
+    value[0].trim().length > 0
+    ? value
+    : null;
+}
+
+function describeCommandApproval(
+  reason: unknown,
+  decisions: unknown[]
+): string | null {
+  const prefixes = decisions.flatMap((decision) => {
+    const amendment = readExecpolicyAmendment(
+      toRecord(toRecord(decision)?.acceptWithExecpolicyAmendment)
+        ?.execpolicy_amendment
+    );
+    return amendment ? [JSON.stringify(amendment)] : [];
+  });
+  if (prefixes.length === 0) {
+    return normalizeBoundedText(reason, 4000);
+  }
+  const scope = prefixes.join("; ");
+  const preview =
+    scope.length <= 2400
+      ? scope
+      : `${scope.slice(0, 2400)}… (prefix preview truncated)`;
+  return [
+    normalizeBoundedText(reason, 1000),
+    `Allow matching commands asks Codex to save the exact command prefix: ${preview}. It does not cover every command with a similar purpose; other prefixes or stricter policies may still need approval.`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function presentCommandApprovalDecision(decision: unknown): {
