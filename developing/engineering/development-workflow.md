@@ -1162,6 +1162,54 @@ Answer these questions in the PR, task handoff, or release note:
   separately; a single generic "Core before Remote Agent" statement is not a
   Contract Impact Audit.
 
+### Passive Codex Conversation Check Contract Impact Audit
+
+Passive conversation checks now use Codex `thread/read` with `includeTurns:
+false` instead of loading the conversation through `thread/resume`. The official
+[App Server contract](https://learn.chatgpt.com/docs/app-server#read-a-stored-thread-without-resuming)
+defines this as a stored-thread read without loading the thread or subscribing
+to its events. A successful check proves stored-conversation availability, not
+writer admission, tool startup, or the ability to complete a Wake.
+
+The Service proof method, Core reporting receiver, PostgreSQL check constraint,
+and diagnostic/readiness response readers accept `codex_app_server_thread_read`.
+Core still accepts legacy resume receipts and picks the newest fresh receipt
+across both methods for the exact execution identity. A newer failed read must
+not be masked by an older successful resume. No proof grants execution authority.
+Actual Wake resume, writer locking, Stop, Space actions, and runtime transport
+envelopes are unchanged. Skills and the execution epoch do not change.
+
+Public readiness uses `x-openmeld-agent-execution-readiness-version: 2` on
+single and batch reads. The API client sends it, Web preserves it, and Gateway
+forwards the exact opt-in to Core. Unversioned requests, including old CLI
+`doctor` calls, receive `method: null` for read-based evidence with the outcome,
+errors, identity and timestamps intact. Embedded Organization, Center Agent and
+Space readiness keeps this legacy view. Missing/unknown HTTP versions also use
+the legacy view; old Gateway/Core receivers ignore the new opt-in and upgraded
+readers accept their responses. No read receipt is relabeled as a resume.
+
+CLI and Service contract versions and minimum versions advance to 0.3.273:
+local Service diagnostics use the exact new method, and old Services keep
+performing the intrusive background operation. The required CLI floor does not
+replace public response negotiation; diagnostic commands bypass that gate.
+Rollout must apply the additive PostgreSQL migration and upgrade Web/Gateway
+response readers first, publish the supported CLI/Service release, then deploy
+Core. During the short local-first
+window, old Core can reject new passive reports; the Service preserves that
+reporting failure and never falls back to resume. New Core accepts old receipts
+while supported local components update. Publish local artifacts before Core
+enforces their floor. Setup, service status, trace and self-update retain their
+existing commands; use the new CLI with the new Service diagnostic schema.
+The current Desktop control surface reads CLI service status and controller
+inventory, not provider-conversation proof or agent-execution-readiness payloads;
+its IPC schemas do not contain this method enum. No Desktop release is required
+for this change.
+
+Rollback must stop new proof writers before reverting Core/readers. Retain the
+additive database constraint and existing rows. Do not lower published mandatory
+version floors; ship a forward corrective release. This audit authorizes no
+production migration, publication, or deployment.
+
 ### Trusted Delegation Contract Impact Audit
 
 The Local task permission correction also adds an optional Core-owned requester

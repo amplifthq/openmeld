@@ -2,6 +2,8 @@ import type { z } from "zod/v4";
 
 type AgentExecutionReadinessRouteParamsSchema =
   typeof import("../../schemas/http/agent-execution-readiness")["agentExecutionReadinessRouteParamsSchema"];
+type AgentExecutionReadinessResponseOptionsSchema =
+  typeof import("../../schemas/http/agent-execution-readiness")["agentExecutionReadinessResponseOptionsSchema"];
 type AgentExecutionReadinessTargetRuntimeSchema =
   typeof import("../../schemas/http/agent-execution-readiness")["agentExecutionReadinessTargetRuntimeSchema"];
 type AgentExecutionReadinessSchema =
@@ -35,6 +37,8 @@ type WakeRouteStatusSchema =
 
 export type AgentExecutionReadinessRouteParams =
   z.infer<AgentExecutionReadinessRouteParamsSchema>;
+export type AgentExecutionReadinessResponseOptions =
+  z.infer<AgentExecutionReadinessResponseOptionsSchema>;
 export type AgentExecutionReadinessTargetRuntime =
   z.infer<AgentExecutionReadinessTargetRuntimeSchema>;
 export type AgentExecutionReadiness = z.infer<AgentExecutionReadinessSchema>;

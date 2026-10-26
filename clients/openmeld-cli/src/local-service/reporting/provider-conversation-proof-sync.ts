@@ -135,7 +135,7 @@ function toRuntimeProviderConversationProofInput(input: {
   if (
     !(
       input.proof.provider === "codex" &&
-      input.proof.method === "codex_app_server_thread_resume" &&
+      input.proof.method === "codex_app_server_thread_read" &&
       input.proof.transportMode === "codex-app-server" &&
       input.proof.intrusive === false
     )
@@ -160,7 +160,7 @@ function toRuntimeProviderConversationProofInput(input: {
     agentControllerConversationId: input.agentControllerConversationId,
     transportMode: "codex-app-server",
     provider: "codex",
-    method: "codex_app_server_thread_resume",
+    method: "codex_app_server_thread_read",
     intrusive: false,
     observedAtMs,
     expiresAtMs,

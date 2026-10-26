@@ -25,6 +25,32 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
+## Passive Codex conversation proof response compatibility
+
+The single and batch Agent Execution Readiness endpoints accept
+`x-openmeld-agent-execution-readiness-version: 2`. The shared API client sends
+this header, Web's proxy preserves it, and Gateway forwards the exact opt-in as
+`responseVersion: 2` to Core. Missing or unknown HTTP versions select the legacy
+projection. An older Gateway ignores the header, so upgraded clients must also
+accept the legacy response.
+
+Core retains the exact `codex_app_server_thread_read` method in its canonical
+evidence. Version 2 exposes it; unversioned responses project that method to
+`null`, including missing or unavailable checks, while preserving status,
+errors, identity, timestamps, and readiness. A read must never be labeled as a
+resume. Legacy resume receipts retain their original method in either view.
+Organization directory/runtime-overview and Center Agent embedded readiness
+use the legacy view. Space member owner diagnostics apply the same rule until
+their own response contract explicitly opts in.
+
+This keeps installed CLI diagnostics, including `openmeld doctor`, and existing
+Web clients readable during upgrades. Publishing a required CLI version is not
+response negotiation: diagnostic commands deliberately bypass the update gate.
+The projection does not change Wakeability, dispatch admission, or execution
+authority. New Core accepts omitted options from old Gateway callers; old Core
+ignores the added option. Rollback must retain support for stored read receipts
+or use a forward correction, as described in the passive-check rollout audit.
+
 ## Public read throttling compatibility
 
 Gateway may return HTTP 429 with `Retry-After: 60` and

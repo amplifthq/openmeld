@@ -1313,7 +1313,7 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "      return;",
       "    }",
       "    const turns = statuses.map((status, index) => ({ id: 'turn-read-' + (index + 1), items: [], itemsView: 'complete', status, error: null, startedAt: 1, completedAt: status === 'completed' ? 1 : null, durationMs: null }));",
-      "    write({ jsonrpc: '2.0', id: message.id, result: { thread: { ...buildThread(message.params.threadId, process.env.OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_SOURCE ?? 'user'), turns: message.params.includeTurns ? turns : [] } } });",
+      "    write({ jsonrpc: '2.0', id: message.id, result: { thread: { ...buildThread(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_READ_THREAD_ID ?? message.params.threadId, process.env.OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_SOURCE ?? 'user'), turns: message.params.includeTurns ? turns : [] } } });",
       "    return;",
       "  }",
       "  if (message.method === 'thread/name/set') {",
@@ -4995,7 +4995,7 @@ test("invokeCodexAppServerTransport applies bounded policy-driven approval param
   }
 });
 
-test("verifyCodexAppServerThread proves thread control without starting a turn", async () => {
+test("verifyCodexAppServerThread reads only metadata without resuming or starting a turn", async () => {
   const { verifyCodexAppServerThread } = await import("../dist/index.js");
   const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-proof-"));
   const dispatchDir = await mkdtemp(join(tmpdir(), "codex-proof-cwd-"));
@@ -5019,20 +5019,42 @@ test("verifyCodexAppServerThread proves thread control without starting a turn",
     const methods = messages.map((message) => message.method);
 
     assert.equal(result.threadId, "thread-proof-1");
-    assert.deepEqual(methods, ["initialize", "initialized", "thread/resume"]);
-    assert.equal(
-      messages.find((message) => message.method === "thread/resume").params
-        .excludeTurns,
-      true
+    assert.deepEqual(methods, ["initialize", "initialized", "thread/read"]);
+    assert.deepEqual(
+      messages.find((message) => message.method === "thread/read").params,
+      { threadId: "thread-proof-1", includeTurns: false }
+    );
+
+    await assert.rejects(
+      verifyCodexAppServerThread({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        codexTimeoutMs: 5000,
+        codexWorkdir: dispatchDir,
+        env: {
+          OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+          OPENMELD_FAKE_CODEX_APP_SERVER_REJECT_THREAD_READ: "1",
+        },
+        threadId: "missing-thread",
+      }),
+      (error) => error.message.includes("no rollout found")
+    );
+    await assert.rejects(
+      verifyCodexAppServerThread({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        codexTimeoutMs: 5000,
+        codexWorkdir: dispatchDir,
+        env: {
+          OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+          OPENMELD_FAKE_CODEX_APP_SERVER_READ_THREAD_ID: "different-thread",
+        },
+        threadId: "thread-proof-1",
+      }),
+      { code: "context.thread_mismatch" }
     );
     assert.equal(
-      "approvalPolicy" in
-        messages.find((message) => message.method === "thread/resume").params,
-      false
-    );
-    assert.equal(
-      "sandbox" in
-        messages.find((message) => message.method === "thread/resume").params,
+      (await readFakeAppServerMessages(logPath)).some(
+        (message) => message.method === "thread/resume"
+      ),
       false
     );
   } finally {

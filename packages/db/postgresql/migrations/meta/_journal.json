@@ -351,6 +351,13 @@
       "when": 1792561440084,
       "tag": "0049_agent_activity_daily_session_keys_project_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1792937876774,
+      "tag": "0050_codex_read_conversation_proof",
+      "breakpoints": true
     }
   ]
 }
