@@ -525,13 +525,26 @@ the same SHA resumes after the last completed stage.
 
 Binary publishers include `componentPolicy` from the exact release manifest.
 Each policy version must match its selected CLI or Service artifact; never rewrite
-a bundle hash to an executable SHA-256. Core reads `cli/local-components.json`,
-`cli/manifest.json`, and `cli/windows-preview/manifest.json` from R2 at runtime
-and caches them for one minute per isolate. A Windows-preview 404 means channel
-absence; a missing release manifest fails closed and blocks Wake until it is
-seeded. A read error keeps the last valid value. A new CLI or Windows preview
-therefore needs no Core deploy. Deploy all strict Gateway/Core/Web report
-receivers before publishing a new CLI/Service source field.
+a bundle hash to an executable SHA-256. Core reads the required policy from
+`cli/local-components.json` independently of the optional `cli/manifest.json`
+and `cli/windows-preview/manifest.json` channel catalogs. Each successful read
+is valid for at most one minute from its start, per isolate. Reads after 30
+seconds trigger one shared background refresh per source group through Workers
+`waitUntil`; queries continue using the validated, unexpired policy without
+waiting for that refresh. Cold or expired policy reads wait only for required
+policy, never for the optional channels. A slow first R2 policy read can therefore
+still delay a cold request.
+
+A missing or invalid required manifest fails closed and blocks new Wake work.
+Transport failures retry after ten seconds but never extend a previously
+validated policy's expiry. Once that policy expires, a failed read leaves Wake
+blocked until a valid required manifest is read again. Channel reads and their
+pending work cannot hold up required-policy refresh. Channel availability also
+expires after one minute; it is derived against the current valid required
+policy, so a late channel read cannot restore an older required policy. A
+Windows-preview 404 means channel absence. A new CLI or Windows preview needs
+no Core deploy. Deploy all strict Gateway/Core/Web report receivers before
+publishing a new CLI/Service source field.
 
 The native Windows preview builder currently builds a fresh GUI Service carrier
 at the CLI version. It rejects a retained older Service policy before compilation;

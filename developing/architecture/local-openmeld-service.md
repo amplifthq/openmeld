@@ -2525,6 +2525,18 @@ They may reap local expired leases because that is part of route lookup
 semantics, but they must not synchronously run RuntimeCoordinator or other
 background housekeeping scans.
 
+Required local-component policy and optional binary-channel availability use
+independent R2 reads and pending refreshes. The source reader owns their bounded
+validity; RuntimeTransportHub must not retain an unchecked per-instance policy.
+An unexpired policy serves queries immediately while a due refresh runs through
+Workers `waitUntil`. A cold or expired read waits only for required policy.
+Heartbeat and synchronous context-migration checks use the source reader's
+currently valid snapshot, with heartbeat scheduling refresh in the background.
+Missing valid policy blocks new Wake admission in Core's update projection; it
+does not make a live Service physically offline or revoke an in-flight
+RuntimeCoordinator execution. The TTL and failure rules are owned by
+[CLI binary release](../engineering/cli-binary-release.md#source-specific-binary-update-projection).
+
 When a fast-path read reaps an expired route or service-liveness lease, Runtime
 Transport may publish targeted `agent.readiness.invalidated` refresh signals for
 the affected Agent Profile IDs. That publish is allowed only as bounded

@@ -1,8 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { waitUntil } from "cloudflare:workers";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildLocalComponentsAvailabilityCatalog,
   CLI_STABLE_MANIFEST_OBJECT_KEY,
   CLI_WINDOWS_PREVIEW_MANIFEST_OBJECT_KEY,
+  getCachedCoreLocalComponentsRelease,
   LOCAL_COMPONENTS_RELEASE_OBJECT_KEY,
   readCoreLocalComponentsRelease,
   resetCoreLocalComponentsReleaseCacheForTests,
@@ -13,9 +15,12 @@ import { PUBLISHED_LOCAL_COMPONENTS_MANIFEST } from "../test-support/published-l
 type Objects = Record<string, unknown>;
 
 // R2Bucket.get returns null for a missing key and an object with json().
-function createBucket(objects: Objects) {
+function createBucket(
+  objects: Objects,
+  beforeGet: (key: string) => Promise<unknown> = () => Promise.resolve()
+) {
   const get = vi.fn(async (key: string) => {
-    await Promise.resolve();
+    await beforeGet(key);
     if (objects[key] instanceof Error) {
       throw objects[key];
     }
@@ -24,6 +29,23 @@ function createBucket(objects: Objects) {
       : null;
   });
   return { get } as unknown as R2Bucket & { get: typeof get };
+}
+
+function finishRefreshes() {
+  return Promise.all(
+    vi.mocked(waitUntil).mock.calls.map(([promise]) => promise)
+  );
+}
+
+function projectService(
+  release: Awaited<ReturnType<typeof readCoreLocalComponentsRelease>>
+) {
+  return resolveLocalComponentUpdateProjection({
+    generatedAt: new Date().toISOString(),
+    release,
+    serviceConnected: true,
+    serviceVersion: "0.3.264",
+  }).service;
 }
 
 const STABLE_CHANNEL = {
@@ -44,21 +66,39 @@ const STABLE_CHANNEL = {
 };
 
 describe("published CLI release read by Core", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-26T00:00:00.000Z"));
+  });
+
   afterEach(() => {
     resetCoreLocalComponentsReleaseCacheForTests();
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
-  it("reads the published manifest and derives the stable availability catalog", async () => {
-    const release = await readCoreLocalComponentsRelease(
-      createBucket({
+  it.each([
+    CLI_STABLE_MANIFEST_OBJECT_KEY,
+    CLI_WINDOWS_PREVIEW_MANIFEST_OBJECT_KEY,
+  ])("returns required policy without waiting for %s, then derives availability", async (slowKey) => {
+    const channelRead = Promise.withResolvers<void>();
+    const bucket = createBucket(
+      {
         [LOCAL_COMPONENTS_RELEASE_OBJECT_KEY]:
           PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
         [CLI_STABLE_MANIFEST_OBJECT_KEY]: STABLE_CHANNEL,
-      })
+      },
+      (key) => (key === slowKey ? channelRead.promise : Promise.resolve())
     );
+    const release = await readCoreLocalComponentsRelease(bucket);
     expect(release.manifest).toEqual(PUBLISHED_LOCAL_COMPONENTS_MANIFEST);
-    expect(release.availabilityCatalog?.entries).toEqual([
+    expect(release.availabilityCatalog).toBeNull();
+    channelRead.resolve();
+    await finishRefreshes();
+    expect(
+      (await readCoreLocalComponentsRelease(bucket)).availabilityCatalog
+        ?.entries
+    ).toEqual([
       {
         channel: "stable",
         platform: "darwin-arm64",
@@ -82,42 +122,85 @@ describe("published CLI release read by Core", () => {
         next: expect.stringContaining("publish-cli.mjs seed-manifest"),
       })
     );
-    const projection = resolveLocalComponentUpdateProjection({
-      generatedAt: "2026-10-18T00:00:00.000Z",
-      release,
-      serviceConnected: true,
-      serviceVersion: "0.3.264",
-    });
-    expect(projection.service).toMatchObject({
+    expect(projectService(release)).toMatchObject({
       wakeBlocked: true,
       reasonCodes: ["local_components.release_manifest_invalid"],
     });
   });
 
-  it("rejects an invalid manifest instead of guessing", async () => {
+  it.each([
+    { schemaVersion: 2 },
+    new Error("R2 timeout"),
+  ])("fails closed without a validated policy (%s)", async (source) => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const release = await readCoreLocalComponentsRelease(
       createBucket({
-        [LOCAL_COMPONENTS_RELEASE_OBJECT_KEY]: { schemaVersion: 2 },
+        [LOCAL_COMPONENTS_RELEASE_OBJECT_KEY]: source,
       })
     );
     expect(release.manifest).toBeNull();
+    expect(projectService(release).wakeBlocked).toBe(true);
   });
 
-  it("caches one read per minute and keeps the last valid manifest across a read failure", async () => {
+  it("serves valid policy during one shared refresh and never extends its expiry on repeated failure", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const objects: Objects = {
       [LOCAL_COMPONENTS_RELEASE_OBJECT_KEY]:
         PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
     };
-    const bucket = createBucket(objects);
-    await readCoreLocalComponentsRelease(bucket, 1000);
-    await readCoreLocalComponentsRelease(bucket, 30_000);
+    let blockPolicy = false;
+    const policyRead = Promise.withResolvers<void>();
+    const bucket = createBucket(objects, (key) =>
+      blockPolicy && key === LOCAL_COMPONENTS_RELEASE_OBJECT_KEY
+        ? policyRead.promise
+        : Promise.resolve()
+    );
+    await readCoreLocalComponentsRelease(bucket);
+    await finishRefreshes();
+    vi.setSystemTime(Date.now() + 29_999);
+    await readCoreLocalComponentsRelease(bucket);
     expect(bucket.get).toHaveBeenCalledTimes(3);
 
+    blockPolicy = true;
+    vi.setSystemTime(Date.now() + 1);
+    const duringRefresh = await Promise.all(
+      Array.from({ length: 5 }, () => readCoreLocalComponentsRelease(bucket))
+    );
+    expect(duringRefresh.every(({ manifest }) => manifest !== null)).toBe(true);
+    expect(
+      bucket.get.mock.calls.filter(
+        ([key]) => key === LOCAL_COMPONENTS_RELEASE_OBJECT_KEY
+      )
+    ).toHaveLength(2);
+
     objects[LOCAL_COMPONENTS_RELEASE_OBJECT_KEY] = new Error("R2 timeout");
-    const retained = await readCoreLocalComponentsRelease(bucket, 70_000);
-    expect(retained.manifest).toEqual(PUBLISHED_LOCAL_COMPONENTS_MANIFEST);
+    policyRead.resolve();
+    await finishRefreshes();
+    vi.setSystemTime(Date.now() + 20_000);
+    expect(
+      (await readCoreLocalComponentsRelease(bucket)).manifest
+    ).not.toBeNull();
+    await finishRefreshes();
+    vi.setSystemTime(Date.now() + 10_000);
+    expect(
+      projectService(getCachedCoreLocalComponentsRelease()).wakeBlocked
+    ).toBe(true);
+    expect(
+      projectService(await readCoreLocalComponentsRelease(bucket)).wakeBlocked
+    ).toBe(true);
+    await finishRefreshes();
+    vi.setSystemTime(Date.now() + 10_000);
+    expect(
+      projectService(await readCoreLocalComponentsRelease(bucket)).wakeBlocked
+    ).toBe(true);
+    await finishRefreshes();
+
+    objects[LOCAL_COMPONENTS_RELEASE_OBJECT_KEY] =
+      PUBLISHED_LOCAL_COMPONENTS_MANIFEST;
+    vi.setSystemTime(Date.now() + 10_000);
+    expect((await readCoreLocalComponentsRelease(bucket)).manifest).toEqual(
+      PUBLISHED_LOCAL_COMPONENTS_MANIFEST
+    );
   });
 
   it("never borrows the global policy for a channel that selects other versions", () => {
@@ -132,20 +215,38 @@ describe("published CLI release read by Core", () => {
     ).toEqual([]);
   });
 
-  it("applies a new required policy even when the preview channel cannot be read", async () => {
+  it.each([
+    "pending",
+    "failed",
+  ] as const)("refreshes required policy independently of a %s preview channel", async (channelState) => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const objects: Objects = {
       [LOCAL_COMPONENTS_RELEASE_OBJECT_KEY]:
         PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
     };
-    const bucket = createBucket(objects);
-    await readCoreLocalComponentsRelease(bucket, 1000);
+    const channelRead = Promise.withResolvers<void>();
+    const bucket = createBucket(objects, (key) =>
+      key === CLI_WINDOWS_PREVIEW_MANIFEST_OBJECT_KEY
+        ? channelRead.promise
+        : Promise.resolve()
+    );
+    await readCoreLocalComponentsRelease(bucket);
     const required = structuredClone(PUBLISHED_LOCAL_COMPONENTS_MANIFEST);
     required.components.service.bundleVersion = "0.3.265";
     required.components.service.updatePolicy = "required";
     objects[LOCAL_COMPONENTS_RELEASE_OBJECT_KEY] = required;
-    objects[CLI_WINDOWS_PREVIEW_MANIFEST_OBJECT_KEY] = new Error("R2 timeout");
-    const release = await readCoreLocalComponentsRelease(bucket, 70_000);
+    vi.setSystemTime(Date.now() + 30_000);
+    const previousTaskCount = vi.mocked(waitUntil).mock.calls.length;
+    expect((await readCoreLocalComponentsRelease(bucket)).manifest).toEqual(
+      PUBLISHED_LOCAL_COMPONENTS_MANIFEST
+    );
+    await Promise.all(
+      vi
+        .mocked(waitUntil)
+        .mock.calls.slice(previousTaskCount)
+        .map(([promise]) => promise)
+    );
+    const release = await readCoreLocalComponentsRelease(bucket);
     expect(release.manifest).toEqual(required);
     expect(release.availabilityCatalog).toBeNull();
     const projection = resolveLocalComponentUpdateProjection({
@@ -155,5 +256,17 @@ describe("published CLI release read by Core", () => {
       serviceVersion: "0.3.264",
     });
     expect(projection.service.wakeBlocked).toBe(true);
+    if (channelState === "failed") {
+      objects[CLI_WINDOWS_PREVIEW_MANIFEST_OBJECT_KEY] = new Error(
+        "R2 timeout"
+      );
+    }
+    channelRead.resolve();
+    await finishRefreshes();
+    expect(getCachedCoreLocalComponentsRelease().manifest).toEqual(required);
+    vi.setSystemTime(Date.now() + 30_000);
+    expect(
+      getCachedCoreLocalComponentsRelease().availabilityCatalog
+    ).toBeNull();
   });
 });

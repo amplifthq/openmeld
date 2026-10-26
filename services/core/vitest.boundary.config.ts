@@ -8,6 +8,9 @@ export default defineConfig({
     environment: "node",
     fileParallelism: false,
     include: ["tests-node/**/*.test.ts"],
-    setupFiles: ["./test-support/reset-mocks.setup.ts"],
+    setupFiles: [
+      "./test-support/reset-mocks.setup.ts",
+      "./test-support/node-cloudflare-workers.setup.ts",
+    ],
   },
 });
