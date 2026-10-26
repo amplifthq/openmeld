@@ -531,10 +531,13 @@ contract.
   cut, so its links and formatting render exactly as before on every client.
   Placements stay complete; opening the Thread reads full signals.
 - **Organization membership.** Concurrent membership checks for one caller
-  inside a Space object share one in-flight PostgreSQL read; nothing is kept
-  after it settles. Entry resolution reads membership and the route slug in
-  one query and overlaps it with the Space access check, keeping the previous
-  error precedence.
+  share one in-flight PostgreSQL read only within the same request scope,
+  identified by its database facade. A protected Durable Object gate has its
+  own scope and must never join a query started outside it: the gate blocks
+  that query's completion events. Nothing is kept after settlement, and
+  authorization still rechecks current membership. Entry resolution reads
+  membership and the route slug in one query and overlaps it with the Space
+  access check, keeping the previous error precedence.
 - **Member activity scans.** Latest activity and join-notice scans filter on
   the indexed `space_signals.type` and `profile_id`/`profile_kind` columns,
   which are written from the same envelope at insert and never change; only

@@ -4335,5 +4335,12 @@ adding unknown fields to older strict registration payloads. Core validates the
 human owner and selected Computer, and the transport resolves the latest exact
 owner/device/lane session. The execution host checks the device again. Read
 responses include saved preference, actual held-request state, and a problem
-when acquisition fails. Both UI entries refresh every five seconds and on focus;
-mutations update the shared account/device/lane query immediately after confirmation.
+when acquisition fails. Both UI entries refresh every five seconds and on focus
+only while the selected device/lane has a connected session in the Core-owned
+Computer inventory. A saved execution target does not establish a live connection.
+If a power request reports `computer.target_disconnected` before that inventory
+updates, automatic reads pause and the failure remains visible. Polling resumes
+when the matching session supplies a newer heartbeat or the user retries
+explicitly; another disconnected response pauses it again. Refreshing an
+inventory with the same heartbeat is not reconnection evidence. Mutations update
+the shared account/device/lane query immediately after confirmation.
