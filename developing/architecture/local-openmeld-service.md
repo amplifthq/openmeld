@@ -2535,6 +2535,25 @@ They may reap local expired leases because that is part of route lookup
 semantics, but they must not synchronously run RuntimeCoordinator or other
 background housekeeping scans.
 
+Required local-component policy and optional binary-channel availability use
+independent R2 reads and pending refreshes. The source reader owns their bounded
+validity; RuntimeTransportHub must not retain an unchecked per-instance policy.
+An unexpired policy serves queries immediately while a due refresh runs through
+Workers `waitUntil`. The constructor and Service-registration entrypoint must
+start release refresh outside `blockConcurrencyWhile` and attach it to the
+background lifetime without awaiting it. The gates retain their local-state
+initialization and persistence fences; registration reads the source's currently
+valid snapshot. Neither gate may start R2 I/O or join a pending release read, including
+on a cold start or after policy expiry. A never-settling R2 request must not
+hold up initialization, connection-generation persistence, or registration ACK.
+Heartbeat and synchronous context-migration checks also use the currently valid
+snapshot, with heartbeat scheduling refresh in the background. Ordinary Core
+policy readers may still await a cold required-policy read outside these gates.
+Missing valid policy blocks new Wake admission in Core's update projection; it
+does not make a live Service physically offline or revoke an in-flight
+RuntimeCoordinator execution. The TTL and failure rules are owned by
+[CLI binary release](../engineering/cli-binary-release.md#source-specific-binary-update-projection).
+
 When a fast-path read reaps an expired route or service-liveness lease, Runtime
 Transport may publish targeted `agent.readiness.invalidated` refresh signals for
 the affected Agent Profile IDs. That publish is allowed only as bounded
@@ -2563,6 +2582,41 @@ resumable alarm work. A single alarm invocation must not drain an unbounded
 RuntimeCoordinator backlog, and any phase failure or exhausted alarm budget must
 schedule a near-term continuation instead of relying only on platform alarm
 retries.
+
+RuntimeTransportHub emits `runtime_transport_gate_phase` Worker logs for its
+constructor and Service-registration concurrency gates. Each record carries
+`durableObjectId`, a per-instance `bootId`, a per-operation `gateId`,
+`gateKind`, `stage`, `status`, and elapsed/stage duration in milliseconds.
+The `gate` stage covers the whole callback; named stages identify its critical
+awaits. A `started` record is emitted before each operation, so the last stage
+without `completed` or `failed` remains visible if the platform resets the
+object. Correlate it with native reset logs for the same Durable Object and
+instance; an absent completion alone does not prove a reset or identify an
+unlogged dependency inside that stage.
+
+Release refresh is background work outside both gates, so new gate logs do not
+emit the historical `release_refresh` stage. A completed gate does not establish
+that R2 finished or that valid policy is available. Use native R2 spans and the
+release-source error logs for that separate operation.
+
+`elapsedMs` and `durationMs` use `performance.now()`. The Workers clock advances
+at I/O boundaries, so synchronous work can report `0 ms` even when it takes
+time. A zero duration does not establish that a stage was fast; these values
+are neither CPU measurements nor measurements of I/O wait alone. See
+[Cloudflare's timing limitations](https://developers.cloudflare.com/workers/observability/traces/known-limitations/#non-io-operations-may-report-time-of-0-ms).
+
+Named stages cover critical awaits, not every synchronous operation. Socket
+adoption, lease reaping, and reasoning-preference schema parsing remain covered
+by the whole `gate` stage. With complete logs, a failed gate without a failed
+named stage points to uninstrumented synchronous work or code between stages.
+Treat this as an investigation lead, not a definitive failure location: missing
+stage records can also reflect incomplete log delivery.
+
+These records contain only diagnostic metadata, never request/response bodies,
+session credentials, release manifests, or raw exceptions. A completed gate
+means the callback returned; it does not establish registration acceptance,
+Service liveness, Wakeability, or execution success. Logging preserves existing
+gate ordering, exceptions, deadlines, and authority boundaries.
 
 ## Wake Route Registration
 

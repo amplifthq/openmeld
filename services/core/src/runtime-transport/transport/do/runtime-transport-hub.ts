@@ -362,8 +362,8 @@ import type { CoreBindings } from "../../../lib/bindings";
 import { resolveReleaseTriggeredOpenMeldToolsUpdateDecision } from "../../../local-components/automatic-update-trigger";
 import {
   type CoreLocalComponentsRelease,
+  getCachedCoreLocalComponentsRelease,
   readCoreLocalComponentsRelease,
-  UNAVAILABLE_LOCAL_COMPONENTS_RELEASE,
 } from "../../../local-components/release-source";
 import { isLocalComponentVersionAtLeast } from "../../../local-components/update-projection";
 import { isRequestChainEnforced } from "../../../member-agent/member-agents-feature";
@@ -730,6 +730,10 @@ import {
   writeRuntimeCoordinatorExecutionProjection,
   writeRuntimeCoordinatorTerminalExecutionProjectionWithoutRead,
 } from "../../infrastructure/postgresql/runtime-coordinator-execution-repo";
+import {
+  observeRuntimeTransportGate,
+  type RuntimeTransportGateStageRunner,
+} from "../../infrastructure/runtime-transport-gate-diagnostics";
 import {
   adoptHibernatedSockets,
   persistServiceRuntimeRecords,
@@ -1616,10 +1620,10 @@ function requiredExecutionContextVersion(
 }
 export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private readonly state = createRuntimeTransportHubMutableState();
-  // The published CLI release decides accepted Service epochs and update
-  // policy. Loaded before this instance handles any event, then refreshed.
-  private localComponentsRelease: CoreLocalComponentsRelease =
-    UNAVAILABLE_LOCAL_COMPONENTS_RELEASE;
+  private readonly gateLogContext = {
+    bootId: crypto.randomUUID(),
+    durableObjectId: this.ctx.id.toString(),
+  };
   private readonly currentDeviceOperationWaiters = new Map<
     string,
     CurrentDeviceOperationWaiter
@@ -1746,31 +1750,47 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }
   constructor(ctx: DurableObjectState, env: CoreBindings) {
     super(ctx, env);
-    this.ctx.blockConcurrencyWhile(async () => {
-      await this.refreshLocalComponentsRelease();
-      const reasoningPreference = await this.ctx.storage.get(
-        "local-agent-reasoning-preferences"
-      );
-      this.reasoningStreamEnabled =
-        reasoningPreference === undefined
-          ? true
-          : localAgentReasoningPreferencesSchema.parse(reasoningPreference)
-              .enabled;
-      const restoredRecords = await restoreServiceRuntimeRecords(
-        this.ctx,
-        this.state
-      );
-      await this.restoreAutomaticToolsUpdateUnavailableRetries();
-      const adoptedSockets = adoptHibernatedSockets(this.ctx, this.state, {
-        closeSocket: safeCloseSocket,
-      });
-      await this.observeComputerConnectionIncidents();
-      this.reapExpiredLeases(Date.now());
-      if (restoredRecords.needsPersist || adoptedSockets.needsPersist) {
-        await persistServiceRuntimeRecordsNow(this.ctx, this.state);
-      }
-      await this.syncHousekeepingAlarm();
-    });
+    // Release storage must not hold the initialization gate open. New Wake
+    // admission separately requires valid policy from the source reader.
+    this.ctx.waitUntil(this.refreshLocalComponentsRelease());
+    this.ctx.blockConcurrencyWhile(() =>
+      observeRuntimeTransportGate(
+        { ...this.gateLogContext, gateKind: "constructor" },
+        async (runStage) => {
+          const reasoningPreference = await runStage(
+            "reasoning_preference_read",
+            () => this.ctx.storage.get("local-agent-reasoning-preferences")
+          );
+          this.reasoningStreamEnabled =
+            reasoningPreference === undefined
+              ? true
+              : localAgentReasoningPreferencesSchema.parse(reasoningPreference)
+                  .enabled;
+          const restoredRecords = await runStage(
+            "runtime_records_restore",
+            () => restoreServiceRuntimeRecords(this.ctx, this.state)
+          );
+          await runStage("update_retries_restore", () =>
+            this.restoreAutomaticToolsUpdateUnavailableRetries()
+          );
+          const adoptedSockets = adoptHibernatedSockets(this.ctx, this.state, {
+            closeSocket: safeCloseSocket,
+          });
+          await runStage("connection_incidents_observe", () =>
+            this.observeComputerConnectionIncidents()
+          );
+          this.reapExpiredLeases(Date.now());
+          if (restoredRecords.needsPersist || adoptedSockets.needsPersist) {
+            await runStage("runtime_records_persist", () =>
+              persistServiceRuntimeRecordsNow(this.ctx, this.state)
+            );
+          }
+          await runStage("housekeeping_alarm_sync", () =>
+            this.syncHousekeepingAlarm()
+          );
+        }
+      )
+    );
     // Hibernation-safe transport keepalive: auto-answer the daemon-stream PING
     // with PONG without waking the DO, so the gateway-pass-through connection
     // chain never goes idle and gets evicted. Idle eviction surfaced as
@@ -2819,10 +2839,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
   }
   private async refreshLocalComponentsRelease(): Promise<CoreLocalComponentsRelease> {
-    this.localComponentsRelease = await readCoreLocalComponentsRelease(
-      this.env.OPENMELD_CLI_RELEASES
-    );
-    return this.localComponentsRelease;
+    return await readCoreLocalComponentsRelease(this.env.OPENMELD_CLI_RELEASES);
   }
   private resolveContextMigrationCapability(input: {
     allowPendingRoute?: boolean;
@@ -2843,7 +2860,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         persistRuntimeRecords: this.persistRuntimeRecords,
         cleanupExpiredPendingDispatches: this.cleanupExpiredPendingDispatches,
         recordReapedReadinessProfiles: this.publishReapedReadinessProfiles,
-        localComponentsManifest: this.localComponentsRelease.manifest,
+        localComponentsManifest: getCachedCoreLocalComponentsRelease().manifest,
       }
     );
     if (!route.online || route.acceptingDispatches === false) {
@@ -3697,6 +3714,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   ): void {
     switch (frame.code) {
       case "daemon.session.register": {
+        // Start R2 work before entering the gate, including when the cache is
+        // cold or expired. Registration consumes only the valid snapshot.
+        this.ctx.waitUntil(this.refreshLocalComponentsRelease());
         this.ctx.waitUntil(
           this.ctx.blockConcurrencyWhile(() =>
             this.handleRegisterSessionFrame(webSocket, frame.payload)
@@ -4063,9 +4083,19 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.orderedDispatchFrameTails.set(dispatchId, tail);
     this.ctx.waitUntil(tail);
   }
-  private async handleRegisterSessionFrame(
+  private handleRegisterSessionFrame(
     webSocket: WebSocket,
     payload: unknown
+  ): Promise<void> {
+    return observeRuntimeTransportGate(
+      { ...this.gateLogContext, gateKind: "register" },
+      (runStage) => this.registerSession(webSocket, payload, runStage)
+    );
+  }
+  private async registerSession(
+    webSocket: WebSocket,
+    payload: unknown,
+    runStage: RuntimeTransportGateStageRunner
   ): Promise<void> {
     const parsed =
       runtimeTransportRegisterSessionRequestSchema.safeParse(payload);
@@ -4105,17 +4135,19 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       !isSameSocketReRegister &&
       request.ownerUserId === verifiedOwnerUserId
     ) {
-      const highWater = await readServiceRuntimeConnectionGeneration(this.ctx, {
-        ownerUserId: verifiedOwnerUserId,
-        deviceId: request.deviceId,
-        lane: request.lane,
-      });
+      const highWater = await runStage("connection_generation_read", () =>
+        readServiceRuntimeConnectionGeneration(this.ctx, {
+          ownerUserId: verifiedOwnerUserId,
+          deviceId: request.deviceId,
+          lane: request.lane,
+        })
+      );
       request.connectionGeneration = Math.max(
         request.connectionGeneration,
         highWater + 1
       );
     }
-    const localComponentsRelease = await this.refreshLocalComponentsRelease();
+    const localComponentsRelease = getCachedCoreLocalComponentsRelease();
     const response = handleRegisterSession(
       this.state,
       {
@@ -4136,7 +4168,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     // Registration must not acknowledge a fence that only exists in memory.
     // blockConcurrencyWhile resets this object on failure, withdrawing the
     // mutated session instead of exposing an uncommitted registration.
-    await persistServiceRuntimeRecordsNow(this.ctx, this.state);
+    await runStage("runtime_records_persist", () =>
+      persistServiceRuntimeRecordsNow(this.ctx, this.state)
+    );
     this.sendFrame(webSocket, {
       code: "daemon.session.register",
       payload: {
@@ -4314,9 +4348,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         previousAcceptingDispatches:
           sessionBeforeHeartbeat?.acceptingDispatches,
       });
-    // Heartbeats stay synchronous. They use the release this instance read
-    // last and refresh it for the next frame.
-    const localComponentsRelease = this.localComponentsRelease;
+    // Heartbeats stay synchronous. The release source owns the validity of
+    // the current policy; refresh it without retaining an instance copy.
+    const localComponentsRelease = getCachedCoreLocalComponentsRelease();
     this.ctx.waitUntil(this.refreshLocalComponentsRelease());
     const response = handleHeartbeat(
       this.state,

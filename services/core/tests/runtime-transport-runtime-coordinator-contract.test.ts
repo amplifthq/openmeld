@@ -75,6 +75,13 @@ import type {
 import { describe, expect, it, type Mock, onTestFinished, vi } from "vitest";
 import { handleDispatchQueueBatch } from "../src/dispatch/transport/queue/dispatch-queue-consumer";
 import type { CoreBindings } from "../src/lib/bindings";
+import {
+  getCachedCoreLocalComponentsRelease,
+  LOCAL_COMPONENTS_RELEASE_OBJECT_KEY,
+  readCoreLocalComponentsRelease,
+  resetCoreLocalComponentsReleaseCacheForTests,
+} from "../src/local-components/release-source";
+import { resolveLocalComponentUpdateProjection } from "../src/local-components/update-projection";
 // biome-ignore lint/performance/noNamespaceImport: Spy on the authoritative transaction result in the worker graph.
 import * as executionAdmission from "../src/runtime-transport/application/agent-profile-execution-admission";
 import {
@@ -132,7 +139,6 @@ import { listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace } fro
 import { RuntimeTransportHub } from "../src/runtime-transport/transport/do/runtime-transport-hub";
 import {
   createPublishedCliReleasesBucket,
-  createPublishedLocalComponentsRelease,
   PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
 } from "../test-support/published-local-components-release";
 import { env } from "../test-support/worker-env";
@@ -697,6 +703,7 @@ const createRecordingPostgres = async (input?: {
 };
 
 const createHarness = async (input?: {
+  cliReleasesBucket?: R2Bucket;
   bindingReadGate?: Promise<void>;
   onBindingRead?: () => void;
   bindingControllerRef?: string;
@@ -1193,6 +1200,9 @@ const createHarness = async (input?: {
   };
   Object.defineProperty(hub, "state", { value: state });
   Object.defineProperties(hub, {
+    gateLogContext: {
+      value: { bootId: "test-hub-boot", durableObjectId: "test-hub" },
+    },
     pendingAgentReadinessInvalidationsByReason: {
       value: new Map(),
       writable: true,
@@ -1202,19 +1212,16 @@ const createHarness = async (input?: {
       writable: true,
     },
     liveInvalidationFlushTimer: { value: null, writable: true },
-    // Object.create skips the constructor that loads the published release.
-    localComponentsRelease: {
-      value: createPublishedLocalComponentsRelease(),
-      writable: true,
-    },
   });
+  const cliReleasesBucket =
+    input?.cliReleasesBucket ?? createPublishedCliReleasesBucket();
   Object.defineProperty(hub, "env", {
     value: {
       OPENMELD_AUTH_WORKER: {
         resolveProfileById: authResolveProfileById,
       },
       OPENMELD_POSTGRESQL: recordingPostgres.binding,
-      OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
+      OPENMELD_CLI_RELEASES: cliReleasesBucket,
       OPENMELD_DAEMON_DISPATCH_QUEUE: {
         send: queueSend,
       },
@@ -1224,6 +1231,8 @@ const createHarness = async (input?: {
       },
     } as unknown as CoreBindings,
   });
+  // Object.create skips the constructor; prime the source that owns policy validity.
+  await readCoreLocalComponentsRelease(cliReleasesBucket);
   Object.defineProperty(hub, "ctx", {
     value: {
       blockConcurrencyWhile: async <T>(callback: () => Promise<T>) =>
@@ -5599,31 +5608,235 @@ describe("runtime transport runtime coordinator transport contract", () => {
       }
     );
   });
+  it("finishes constructor and registration gates while required policy remains unreadable", async () => {
+    const transport = (env as unknown as CoreBindings)
+      .OPENMELD_RUNTIME_TRANSPORT;
+    if (!transport) {
+      throw new Error("Expected runtime transport binding");
+    }
+    await runInDurableObject(
+      transport.get(transport.newUniqueId()),
+      async (_instance, durableState) => {
+        resetCoreLocalComponentsReleaseCacheForTests();
+        let r2Started = Promise.withResolvers<void>();
+        let r2Response = Promise.withResolvers<void>();
+        let nowMs = Date.now();
+        const clock = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+        const r2CallsInsideGate: boolean[] = [];
+        const gates: Promise<unknown>[] = [];
+        const backgroundTasks = new Set<Promise<unknown>>();
+        let activeGateCount = 0;
+        const blockConcurrencyWhile =
+          durableState.blockConcurrencyWhile.bind(durableState);
+        const gateSpy = vi
+          .spyOn(durableState, "blockConcurrencyWhile")
+          .mockImplementation(<T>(operation: () => Promise<T>): Promise<T> => {
+            const gate = blockConcurrencyWhile(async () => {
+              activeGateCount += 1;
+              try {
+                return await operation();
+              } finally {
+                activeGateCount -= 1;
+              }
+            });
+            gates.push(gate);
+            return gate;
+          });
+        const waitUntil = durableState.waitUntil.bind(durableState);
+        const backgroundSpy = vi
+          .spyOn(durableState, "waitUntil")
+          .mockImplementation((task: Promise<unknown>): void => {
+            backgroundTasks.add(task);
+            task.then(
+              () => backgroundTasks.delete(task),
+              () => backgroundTasks.delete(task)
+            );
+            waitUntil(task);
+          });
+        const bucket = createPublishedCliReleasesBucket();
+        const get = bucket.get.bind(bucket);
+        const pendingGet = vi
+          .spyOn(bucket, "get")
+          .mockImplementation(async (key) => {
+            r2CallsInsideGate.push(activeGateCount > 0);
+            r2Started.resolve();
+            await r2Response.promise;
+            return get(key);
+          });
+        const sentFrames: { code: string; payload: { ok?: boolean } }[] = [];
+        let socketAttachment: unknown = {
+          verifiedOwnerUserId: "owner-policy-gate",
+        };
+        const socket = {
+          deserializeAttachment: () => socketAttachment,
+          serializeAttachment: (value: unknown) => {
+            socketAttachment = value;
+          },
+          send: (message: string) => sentFrames.push(JSON.parse(message)),
+        } as unknown as WebSocket;
+        try {
+          const hub = new RuntimeTransportHub(durableState, {
+            ...env,
+            OPENMELD_CLI_RELEASES: bucket,
+          } as unknown as CoreBindings);
+
+          await r2Started.promise;
+          expect(r2CallsInsideGate).not.toContain(true);
+          expect(gates).toHaveLength(1);
+          await gates[0];
+
+          const registerFrame = JSON.stringify({
+            v: 1,
+            code: "daemon.session.register",
+            payload: {
+              v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+              ownerUserId: "owner-policy-gate",
+              deviceId: "device-policy-gate",
+              lane: "prod",
+              daemonSessionId: "session-policy-gate",
+              connectionGeneration: 1,
+              connectedAtMs: nowMs,
+              profileIds: [],
+              capabilities: {},
+              runtimeContract: {
+                epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+              },
+              serviceVersion: PUBLISHED_SERVICE_VERSION,
+            },
+          });
+          hub.webSocketMessage(socket, registerFrame);
+          expect(gates).toHaveLength(2);
+          await gates[1];
+          expect(sentFrames).toContainEqual(
+            expect.objectContaining({
+              code: "daemon.session.register",
+              payload: expect.objectContaining({ ok: true }),
+            })
+          );
+          expect(r2CallsInsideGate).not.toContain(true);
+          expect(
+            resolveLocalComponentUpdateProjection({
+              generatedAt: new Date().toISOString(),
+              release: getCachedCoreLocalComponentsRelease(),
+              serviceConnected: true,
+              serviceVersion: PUBLISHED_SERVICE_VERSION,
+            }).service
+          ).toMatchObject({
+            wakeBlocked: true,
+            reasonCodes: ["local_components.release_manifest_invalid"],
+          });
+
+          r2Response.resolve();
+          const release = await readCoreLocalComponentsRelease(bucket);
+          expect(release.manifest).toEqual(PUBLISHED_LOCAL_COMPONENTS_MANIFEST);
+          expect(
+            resolveLocalComponentUpdateProjection({
+              generatedAt: new Date().toISOString(),
+              release,
+              serviceConnected: true,
+              serviceVersion: PUBLISHED_SERVICE_VERSION,
+            }).service.wakeBlocked
+          ).toBe(false);
+
+          nowMs += 60_001;
+          r2Started = Promise.withResolvers<void>();
+          r2Response = Promise.withResolvers<void>();
+          r2CallsInsideGate.length = 0;
+          hub.webSocketMessage(socket, registerFrame);
+          await r2Started.promise;
+          expect(r2CallsInsideGate).not.toContain(true);
+          expect(gates).toHaveLength(3);
+          await gates[2];
+          expect(
+            sentFrames.filter(
+              (frame) =>
+                frame.code === "daemon.session.register" && frame.payload.ok
+            )
+          ).toHaveLength(2);
+          expect(
+            resolveLocalComponentUpdateProjection({
+              generatedAt: new Date().toISOString(),
+              release: getCachedCoreLocalComponentsRelease(),
+              serviceConnected: true,
+              serviceVersion: PUBLISHED_SERVICE_VERSION,
+            }).service
+          ).toMatchObject({
+            wakeBlocked: true,
+            reasonCodes: ["local_components.release_manifest_invalid"],
+          });
+        } finally {
+          r2Response.resolve();
+          await Promise.allSettled(gates);
+          for (let wave = 0; backgroundTasks.size && wave < 20; wave += 1) {
+            await Promise.allSettled([...backgroundTasks]);
+          }
+          pendingGet.mockRestore();
+          gateSpy.mockRestore();
+          backgroundSpy.mockRestore();
+          clock.mockRestore();
+          await durableState.storage.deleteAll();
+          await durableState.storage.deleteAlarm();
+          await durableState.storage.sync();
+          resetCoreLocalComponentsReleaseCacheForTests();
+        }
+      }
+    );
+  });
+
   it("requests the published release through a real register frame", async () => {
     const harness = await createHarness();
     const firstWaitUntilTaskIndex = harness.waitUntilTasks.length;
+    const consoleInfo = vi
+      .spyOn(console, "info")
+      .mockImplementation(() => undefined);
 
-    sendAutomaticUpdateRegisterFrame(harness);
+    try {
+      sendAutomaticUpdateRegisterFrame(harness);
 
-    await vi.waitFor(() =>
-      expect(getAutomaticUpdateRequestFrames(harness.sentFrames)).toHaveLength(
-        1
-      )
-    );
-    expect(getAutomaticUpdateRequestFrames(harness.sentFrames)).toEqual([
-      expect.objectContaining({
-        payload: expect.objectContaining({
-          request: {
-            operation: "request_update",
-            requestSource: "automatic",
-          },
+      await vi.waitFor(() =>
+        expect(
+          getAutomaticUpdateRequestFrames(harness.sentFrames)
+        ).toHaveLength(1)
+      );
+      expect(getAutomaticUpdateRequestFrames(harness.sentFrames)).toEqual([
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            request: {
+              operation: "request_update",
+              requestSource: "automatic",
+            },
+          }),
         }),
-      }),
-    ]);
-    await completeLatestAutomaticUpdateRequest({
-      firstWaitUntilTaskIndex,
-      harness,
-    });
+      ]);
+      await completeLatestAutomaticUpdateRequest({
+        firstWaitUntilTaskIndex,
+        harness,
+      });
+
+      const gateEntries = consoleInfo.mock.calls
+        .map(([, entry]) => entry)
+        .filter((entry) => entry?.event === "runtime_transport_gate_phase");
+      expect(gateEntries.map(({ stage, status }) => [stage, status])).toEqual([
+        ["gate", "started"],
+        ["connection_generation_read", "started"],
+        ["connection_generation_read", "completed"],
+        ["runtime_records_persist", "started"],
+        ["runtime_records_persist", "completed"],
+        ["gate", "completed"],
+      ]);
+      const gateId = gateEntries[0]?.gateId;
+      expect(gateId).toEqual(expect.any(String));
+      for (const entry of gateEntries) {
+        expect(entry).toMatchObject({
+          bootId: "test-hub-boot",
+          durableObjectId: "test-hub",
+          gateId,
+          gateKind: "register",
+        });
+      }
+    } finally {
+      consoleInfo.mockRestore();
+    }
   });
 
   it("requests the published release through a real heartbeat frame", async () => {
@@ -5653,6 +5866,46 @@ describe("runtime transport runtime coordinator transport contract", () => {
       firstWaitUntilTaskIndex,
       harness,
     });
+  });
+
+  it("acknowledges a heartbeat without using expired policy for automatic updates", async () => {
+    resetCoreLocalComponentsReleaseCacheForTests();
+    let nowMs = 1_700_000_000_000;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    const refresh = Promise.withResolvers<void>();
+    const bucket = createPublishedCliReleasesBucket();
+    const get = bucket.get.bind(bucket);
+    const harness = await createHarness({ cliReleasesBucket: bucket });
+    sendAutomaticUpdateRegisterFrame(harness, false);
+    await Promise.all(harness.waitUntilTasks);
+    const firstWaitUntilTaskIndex = harness.waitUntilTasks.length;
+    const refreshGet = vi
+      .spyOn(bucket, "get")
+      .mockImplementation(async (key) => {
+        await refresh.promise;
+        return get(key);
+      });
+
+    try {
+      nowMs += 60_001;
+      sendAutomaticUpdateHeartbeatFrame(harness);
+
+      expect(harness.sentFrames).toContainEqual(
+        expect.objectContaining({
+          code: "daemon.session.heartbeat",
+          payload: expect.objectContaining({ ok: true }),
+        })
+      );
+      expect(getAutomaticUpdateRequestFrames(harness.sentFrames)).toEqual([]);
+      expect(refreshGet).toHaveBeenCalledWith(
+        LOCAL_COMPONENTS_RELEASE_OBJECT_KEY
+      );
+    } finally {
+      refresh.resolve();
+      await Promise.all(harness.waitUntilTasks.slice(firstWaitUntilTaskIndex));
+      refreshGet.mockRestore();
+      clock.mockRestore();
+    }
   });
 
   it("coalesces the heartbeat after register reaches the published release", async () => {
@@ -6485,7 +6738,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
   });
 
-  it("keeps route lookup fast paths off RuntimeCoordinator housekeeping sync", async () => {
+  it("keeps route lookup fast paths off housekeeping and optional channel reads", async () => {
     const requests = [
       {
         path: "/lookup-route",
@@ -6515,45 +6768,64 @@ describe("runtime transport runtime coordinator transport contract", () => {
       },
     ] as const;
 
-    for (const request of requests) {
-      const { hub } = await createHarness();
-      const syncHousekeepingAlarm = vi.fn(() =>
-        Promise.reject(
-          new Error("lookup fast paths must not sync housekeeping")
-        )
-      );
-      Object.defineProperty(hub, "syncHousekeepingAlarm", {
-        value: syncHousekeepingAlarm,
-      });
-      const ctx = (
-        hub as unknown as {
-          ctx: {
-            storage: {
-              deleteAlarm: () => Promise<void>;
-              getAlarm: () => Promise<number | null>;
-              setAlarm: (scheduledTime: number) => Promise<void>;
-            };
-            waitUntil: (promise: Promise<unknown>) => void;
-          };
+    resetCoreLocalComponentsReleaseCacheForTests();
+    const channels = Promise.withResolvers<void>();
+    const bucket = createPublishedCliReleasesBucket();
+    const get = bucket.get.bind(bucket);
+    const pendingChannels = vi
+      .spyOn(bucket, "get")
+      .mockImplementation(async (key) => {
+        if (key !== LOCAL_COMPONENTS_RELEASE_OBJECT_KEY) {
+          await channels.promise;
         }
-      ).ctx;
-      const deleteAlarm = vi.mocked(ctx.storage.deleteAlarm);
-      const getAlarm = vi.mocked(ctx.storage.getAlarm);
-      const setAlarm = vi.mocked(ctx.storage.setAlarm);
-      const waitUntil = vi.mocked(ctx.waitUntil);
+        return get(key);
+      });
+    const { hub } = await createHarness({ cliReleasesBucket: bucket });
+    const syncHousekeepingAlarm = vi.fn(() =>
+      Promise.reject(new Error("lookup fast paths must not sync housekeeping"))
+    );
+    Object.defineProperty(hub, "syncHousekeepingAlarm", {
+      value: syncHousekeepingAlarm,
+    });
+    const ctx = (
+      hub as unknown as {
+        ctx: {
+          storage: {
+            deleteAlarm: () => Promise<void>;
+            getAlarm: () => Promise<number | null>;
+            setAlarm: (scheduledTime: number) => Promise<void>;
+          };
+          waitUntil: (promise: Promise<unknown>) => void;
+        };
+      }
+    ).ctx;
+    const deleteAlarm = vi.mocked(ctx.storage.deleteAlarm);
+    const getAlarm = vi.mocked(ctx.storage.getAlarm);
+    const setAlarm = vi.mocked(ctx.storage.setAlarm);
+    const waitUntil = vi.mocked(ctx.waitUntil);
 
-      const response = await fetchRuntimeTransportJson(
-        hub,
-        request.path,
-        request.body
+    try {
+      for (const request of requests) {
+        const response = await fetchRuntimeTransportJson(
+          hub,
+          request.path,
+          request.body
+        );
+
+        expect(response.status).toBe(request.expectedStatus);
+        expect(pendingChannels).toHaveBeenCalledTimes(3);
+        expect(syncHousekeepingAlarm).not.toHaveBeenCalled();
+        expect(deleteAlarm).not.toHaveBeenCalled();
+        expect(getAlarm).not.toHaveBeenCalled();
+        expect(setAlarm).not.toHaveBeenCalled();
+        expect(waitUntil).not.toHaveBeenCalled();
+      }
+    } finally {
+      channels.resolve();
+      await Promise.all(
+        pendingChannels.mock.results.map((result) => result.value)
       );
-
-      expect(response.status).toBe(request.expectedStatus);
-      expect(syncHousekeepingAlarm).not.toHaveBeenCalled();
-      expect(deleteAlarm).not.toHaveBeenCalled();
-      expect(getAlarm).not.toHaveBeenCalled();
-      expect(setAlarm).not.toHaveBeenCalled();
-      expect(waitUntil).not.toHaveBeenCalled();
+      pendingChannels.mockRestore();
     }
   });
 

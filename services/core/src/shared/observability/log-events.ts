@@ -2,6 +2,7 @@ export const CORE_LOG_EVENTS = {
   coreInternalError: "core_internal_error",
   runtimeTransportClientRequestTimeout:
     "runtime_transport_client_request_timeout",
+  runtimeTransportGatePhase: "runtime_transport_gate_phase",
   runtimeTransportConnectionGenerationResultRejected:
     "runtime_transport_connection_generation_result_rejected",
   runtimeTransportDeliveryRouteAssessed:
