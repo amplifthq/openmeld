@@ -362,8 +362,8 @@ import type { CoreBindings } from "../../../lib/bindings";
 import { resolveReleaseTriggeredOpenMeldToolsUpdateDecision } from "../../../local-components/automatic-update-trigger";
 import {
   type CoreLocalComponentsRelease,
+  getCachedCoreLocalComponentsRelease,
   readCoreLocalComponentsRelease,
-  UNAVAILABLE_LOCAL_COMPONENTS_RELEASE,
 } from "../../../local-components/release-source";
 import { isLocalComponentVersionAtLeast } from "../../../local-components/update-projection";
 import { isRequestChainEnforced } from "../../../member-agent/member-agents-feature";
@@ -1624,10 +1624,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     bootId: crypto.randomUUID(),
     durableObjectId: this.ctx.id.toString(),
   };
-  // The published CLI release decides accepted Service epochs and update
-  // policy. Loaded before this instance handles any event, then refreshed.
-  private localComponentsRelease: CoreLocalComponentsRelease =
-    UNAVAILABLE_LOCAL_COMPONENTS_RELEASE;
   private readonly currentDeviceOperationWaiters = new Map<
     string,
     CurrentDeviceOperationWaiter
@@ -2843,10 +2839,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
   }
   private async refreshLocalComponentsRelease(): Promise<CoreLocalComponentsRelease> {
-    this.localComponentsRelease = await readCoreLocalComponentsRelease(
-      this.env.OPENMELD_CLI_RELEASES
-    );
-    return this.localComponentsRelease;
+    return await readCoreLocalComponentsRelease(this.env.OPENMELD_CLI_RELEASES);
   }
   private resolveContextMigrationCapability(input: {
     allowPendingRoute?: boolean;
@@ -2867,7 +2860,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         persistRuntimeRecords: this.persistRuntimeRecords,
         cleanupExpiredPendingDispatches: this.cleanupExpiredPendingDispatches,
         recordReapedReadinessProfiles: this.publishReapedReadinessProfiles,
-        localComponentsManifest: this.localComponentsRelease.manifest,
+        localComponentsManifest: getCachedCoreLocalComponentsRelease().manifest,
       }
     );
     if (!route.online || route.acceptingDispatches === false) {
@@ -4354,9 +4347,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         previousAcceptingDispatches:
           sessionBeforeHeartbeat?.acceptingDispatches,
       });
-    // Heartbeats stay synchronous. They use the release this instance read
-    // last and refresh it for the next frame.
-    const localComponentsRelease = this.localComponentsRelease;
+    // Heartbeats stay synchronous. The release source owns the validity of
+    // the current policy; refresh it without retaining an instance copy.
+    const localComponentsRelease = getCachedCoreLocalComponentsRelease();
     this.ctx.waitUntil(this.refreshLocalComponentsRelease());
     const response = handleHeartbeat(
       this.state,

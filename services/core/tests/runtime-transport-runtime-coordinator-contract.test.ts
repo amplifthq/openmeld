@@ -75,6 +75,11 @@ import type {
 import { describe, expect, it, type Mock, onTestFinished, vi } from "vitest";
 import { handleDispatchQueueBatch } from "../src/dispatch/transport/queue/dispatch-queue-consumer";
 import type { CoreBindings } from "../src/lib/bindings";
+import {
+  LOCAL_COMPONENTS_RELEASE_OBJECT_KEY,
+  readCoreLocalComponentsRelease,
+  resetCoreLocalComponentsReleaseCacheForTests,
+} from "../src/local-components/release-source";
 // biome-ignore lint/performance/noNamespaceImport: Spy on the authoritative transaction result in the worker graph.
 import * as executionAdmission from "../src/runtime-transport/application/agent-profile-execution-admission";
 import {
@@ -132,7 +137,6 @@ import { listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace } fro
 import { RuntimeTransportHub } from "../src/runtime-transport/transport/do/runtime-transport-hub";
 import {
   createPublishedCliReleasesBucket,
-  createPublishedLocalComponentsRelease,
   PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
 } from "../test-support/published-local-components-release";
 import { env } from "../test-support/worker-env";
@@ -697,6 +701,7 @@ const createRecordingPostgres = async (input?: {
 };
 
 const createHarness = async (input?: {
+  cliReleasesBucket?: R2Bucket;
   bindingReadGate?: Promise<void>;
   onBindingRead?: () => void;
   bindingControllerRef?: string;
@@ -1205,19 +1210,16 @@ const createHarness = async (input?: {
       writable: true,
     },
     liveInvalidationFlushTimer: { value: null, writable: true },
-    // Object.create skips the constructor that loads the published release.
-    localComponentsRelease: {
-      value: createPublishedLocalComponentsRelease(),
-      writable: true,
-    },
   });
+  const cliReleasesBucket =
+    input?.cliReleasesBucket ?? createPublishedCliReleasesBucket();
   Object.defineProperty(hub, "env", {
     value: {
       OPENMELD_AUTH_WORKER: {
         resolveProfileById: authResolveProfileById,
       },
       OPENMELD_POSTGRESQL: recordingPostgres.binding,
-      OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
+      OPENMELD_CLI_RELEASES: cliReleasesBucket,
       OPENMELD_DAEMON_DISPATCH_QUEUE: {
         send: queueSend,
       },
@@ -1227,6 +1229,8 @@ const createHarness = async (input?: {
       },
     } as unknown as CoreBindings,
   });
+  // Object.create skips the constructor; prime the source that owns policy validity.
+  await readCoreLocalComponentsRelease(cliReleasesBucket);
   Object.defineProperty(hub, "ctx", {
     value: {
       blockConcurrencyWhile: async <T>(callback: () => Promise<T>) =>
@@ -5689,6 +5693,46 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
   });
 
+  it("acknowledges a heartbeat without using expired policy for automatic updates", async () => {
+    resetCoreLocalComponentsReleaseCacheForTests();
+    let nowMs = 1_700_000_000_000;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    const refresh = Promise.withResolvers<void>();
+    const bucket = createPublishedCliReleasesBucket();
+    const get = bucket.get.bind(bucket);
+    const harness = await createHarness({ cliReleasesBucket: bucket });
+    sendAutomaticUpdateRegisterFrame(harness, false);
+    await Promise.all(harness.waitUntilTasks);
+    const firstWaitUntilTaskIndex = harness.waitUntilTasks.length;
+    const refreshGet = vi
+      .spyOn(bucket, "get")
+      .mockImplementation(async (key) => {
+        await refresh.promise;
+        return get(key);
+      });
+
+    try {
+      nowMs += 60_001;
+      sendAutomaticUpdateHeartbeatFrame(harness);
+
+      expect(harness.sentFrames).toContainEqual(
+        expect.objectContaining({
+          code: "daemon.session.heartbeat",
+          payload: expect.objectContaining({ ok: true }),
+        })
+      );
+      expect(getAutomaticUpdateRequestFrames(harness.sentFrames)).toEqual([]);
+      expect(refreshGet).toHaveBeenCalledWith(
+        LOCAL_COMPONENTS_RELEASE_OBJECT_KEY
+      );
+    } finally {
+      refresh.resolve();
+      await Promise.all(harness.waitUntilTasks.slice(firstWaitUntilTaskIndex));
+      refreshGet.mockRestore();
+      clock.mockRestore();
+    }
+  });
+
   it("coalesces the heartbeat after register reaches the published release", async () => {
     const harness = await createHarness();
     const firstWaitUntilTaskIndex = harness.waitUntilTasks.length;
@@ -6519,7 +6563,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
   });
 
-  it("keeps route lookup fast paths off RuntimeCoordinator housekeeping sync", async () => {
+  it("keeps route lookup fast paths off housekeeping and optional channel reads", async () => {
     const requests = [
       {
         path: "/lookup-route",
@@ -6549,45 +6593,64 @@ describe("runtime transport runtime coordinator transport contract", () => {
       },
     ] as const;
 
-    for (const request of requests) {
-      const { hub } = await createHarness();
-      const syncHousekeepingAlarm = vi.fn(() =>
-        Promise.reject(
-          new Error("lookup fast paths must not sync housekeeping")
-        )
-      );
-      Object.defineProperty(hub, "syncHousekeepingAlarm", {
-        value: syncHousekeepingAlarm,
-      });
-      const ctx = (
-        hub as unknown as {
-          ctx: {
-            storage: {
-              deleteAlarm: () => Promise<void>;
-              getAlarm: () => Promise<number | null>;
-              setAlarm: (scheduledTime: number) => Promise<void>;
-            };
-            waitUntil: (promise: Promise<unknown>) => void;
-          };
+    resetCoreLocalComponentsReleaseCacheForTests();
+    const channels = Promise.withResolvers<void>();
+    const bucket = createPublishedCliReleasesBucket();
+    const get = bucket.get.bind(bucket);
+    const pendingChannels = vi
+      .spyOn(bucket, "get")
+      .mockImplementation(async (key) => {
+        if (key !== LOCAL_COMPONENTS_RELEASE_OBJECT_KEY) {
+          await channels.promise;
         }
-      ).ctx;
-      const deleteAlarm = vi.mocked(ctx.storage.deleteAlarm);
-      const getAlarm = vi.mocked(ctx.storage.getAlarm);
-      const setAlarm = vi.mocked(ctx.storage.setAlarm);
-      const waitUntil = vi.mocked(ctx.waitUntil);
+        return get(key);
+      });
+    const { hub } = await createHarness({ cliReleasesBucket: bucket });
+    const syncHousekeepingAlarm = vi.fn(() =>
+      Promise.reject(new Error("lookup fast paths must not sync housekeeping"))
+    );
+    Object.defineProperty(hub, "syncHousekeepingAlarm", {
+      value: syncHousekeepingAlarm,
+    });
+    const ctx = (
+      hub as unknown as {
+        ctx: {
+          storage: {
+            deleteAlarm: () => Promise<void>;
+            getAlarm: () => Promise<number | null>;
+            setAlarm: (scheduledTime: number) => Promise<void>;
+          };
+          waitUntil: (promise: Promise<unknown>) => void;
+        };
+      }
+    ).ctx;
+    const deleteAlarm = vi.mocked(ctx.storage.deleteAlarm);
+    const getAlarm = vi.mocked(ctx.storage.getAlarm);
+    const setAlarm = vi.mocked(ctx.storage.setAlarm);
+    const waitUntil = vi.mocked(ctx.waitUntil);
 
-      const response = await fetchRuntimeTransportJson(
-        hub,
-        request.path,
-        request.body
+    try {
+      for (const request of requests) {
+        const response = await fetchRuntimeTransportJson(
+          hub,
+          request.path,
+          request.body
+        );
+
+        expect(response.status).toBe(request.expectedStatus);
+        expect(pendingChannels).toHaveBeenCalledTimes(3);
+        expect(syncHousekeepingAlarm).not.toHaveBeenCalled();
+        expect(deleteAlarm).not.toHaveBeenCalled();
+        expect(getAlarm).not.toHaveBeenCalled();
+        expect(setAlarm).not.toHaveBeenCalled();
+        expect(waitUntil).not.toHaveBeenCalled();
+      }
+    } finally {
+      channels.resolve();
+      await Promise.all(
+        pendingChannels.mock.results.map((result) => result.value)
       );
-
-      expect(response.status).toBe(request.expectedStatus);
-      expect(syncHousekeepingAlarm).not.toHaveBeenCalled();
-      expect(deleteAlarm).not.toHaveBeenCalled();
-      expect(getAlarm).not.toHaveBeenCalled();
-      expect(setAlarm).not.toHaveBeenCalled();
-      expect(waitUntil).not.toHaveBeenCalled();
+      pendingChannels.mockRestore();
     }
   });
 
