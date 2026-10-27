@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -62,6 +68,7 @@ const {
   buildWranglerObjectPutArgs,
   DEFAULT_DOWNLOAD_PAGE_URL,
   DEFAULT_DOWNLOAD_URL,
+  inspectDesktopCandidateCommand,
   resolveDesktopArtifactName,
   resolveDesktopReleaseCommand,
   readDesktopReleaseStatus,
@@ -69,6 +76,65 @@ const {
   reuseDesktopCandidate,
   verifyDesktopPublicArtifact,
 } = await import("./desktop-preview.mjs");
+
+test("native candidate inspection preserves both streams and nonzero failure details", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "desktop-inspect-"));
+  const script = path.join(directory, "native-tool.mjs");
+  try {
+    for (const [stdout, stderr, status] of [
+      ["signature", "identity", 0],
+      ["ticket validation failed", "", 66],
+      ["validation detail", "tool diagnostic", 65],
+    ]) {
+      writeFileSync(
+        script,
+        `process.stdout.write(${JSON.stringify(stdout)}); process.stderr.write(${JSON.stringify(stderr)}); process.exit(${status});`
+      );
+      const args = [script];
+      if (status === 0) {
+        assert.equal(
+          inspectDesktopCandidateCommand(process.execPath, args),
+          stdout + stderr
+        );
+        continue;
+      }
+      assert.throws(
+        () => inspectDesktopCandidateCommand(process.execPath, args),
+        (error) => {
+          assert.ok(error.message.includes(process.execPath));
+          assert.ok(error.message.includes(script));
+          assert.ok(error.message.includes(`Exit status: ${status}`));
+          assert.ok(error.message.includes(`stdout:\n${stdout}`));
+          if (stderr) {
+            assert.ok(error.message.includes(`stderr:\n${stderr}`));
+          }
+          return true;
+        }
+      );
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("native candidate inspection reports a failed process launch", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "desktop-inspect-"));
+  const command = path.join(directory, "missing-native-tool");
+  try {
+    assert.throws(
+      () => inspectDesktopCandidateCommand(command, ["validate"]),
+      (error) => {
+        assert.ok(error.message.includes(command));
+        assert.ok(error.message.includes("validate"));
+        assert.ok(error.message.includes("ENOENT"));
+        assert.equal(error.cause.code, "ENOENT");
+        return true;
+      }
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test("candidate upload retries verify complete immutable publication without overwriting it", async () => {
   const manifest = buildDesktopCandidateMetadata({
