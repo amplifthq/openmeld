@@ -33,6 +33,7 @@ import {
 	resolveConnectCompletionTarget,
 } from "#/lib/connect/connect-route";
 import {
+	buildOrganizationAgentCreationPath,
 	buildOrganizationConnectPath,
 	buildOrganizationSpacePath,
 } from "#/lib/organizations/organization-routes";
@@ -946,12 +947,16 @@ function nativeConnectionDescription(
 		| "connection"
 		| "pending"
 		| "updateService"
+		| "canDisconnect"
 	>
 ) {
 	if (state.updateService) {
 		return "Install the latest OpenMeld Tools and verify the background Service before continuing.";
 	}
 	if (state.connected) {
+		if (state.canDisconnect) {
+			return "This Mac is connected to OpenMeld. Choose a local Agent to use here.";
+		}
 		return state.requiresConnection
 			? "This Mac is connected to OpenMeld. Reconnect to refresh its connection."
 			: "This Mac is connected to OpenMeld. You don’t need to connect it again.";
@@ -963,6 +968,7 @@ function nativeConnectionDescription(
 }
 
 function NativeComputerConnection(input: ComputerConnectionProps) {
+	const state = useComputerConnection(input);
 	const {
 		updateService,
 		connection,
@@ -985,7 +991,7 @@ function NativeComputerConnection(input: ComputerConnectionProps) {
 		diagnosticCode,
 		checkConnection,
 		checking,
-	} = useComputerConnection(input);
+	} = state;
 	const disconnectFeedbackAvailable = Boolean(
 		getDesktopPlatform()?.disconnectComputerWithFeedback
 	);
@@ -1015,6 +1021,7 @@ function NativeComputerConnection(input: ComputerConnectionProps) {
 		requiresConnection,
 		connection,
 		pending,
+		canDisconnect,
 	});
 	const disconnectAction = connected && canDisconnect;
 	const observeInWebPath = buildObserveConnectionProgressPath({
@@ -1047,6 +1054,7 @@ function NativeComputerConnection(input: ComputerConnectionProps) {
 					Check connection
 				</Button>
 			) : null}
+			<ConnectAgentNextStep orgSlug={input.orgSlug} state={state} />
 			<Button
 				disabled={disabled}
 				onClick={disconnectAction ? disconnect : connect}
@@ -1073,6 +1081,47 @@ function NativeComputerConnection(input: ComputerConnectionProps) {
 			{message ? (
 				<p className="text-sm" role={failed ? "alert" : "status"}>
 					{message}
+				</p>
+			) : null}
+		</div>
+	);
+}
+
+function ConnectAgentNextStep({
+	orgSlug,
+	state,
+}: {
+	orgSlug?: string;
+	state: ReturnType<typeof useComputerConnection>;
+}) {
+	const navigate = useNavigate();
+	const [error, setError] = useState<string | null>(null);
+	if (
+		!(orgSlug && state.connected && state.canDisconnect) ||
+		state.pending ||
+		state.disabled ||
+		state.needsCheck ||
+		state.connection.isError ||
+		state.refreshWarning
+	) {
+		return null;
+	}
+	return (
+		<div className="flex flex-col items-center gap-3">
+			<Button
+				onClick={() => {
+					setError(null);
+					navigate({ to: buildOrganizationAgentCreationPath(orgSlug) }).catch(
+						() => setError("Couldn’t open Agent setup. Try again.")
+					);
+				}}
+				type="button"
+			>
+				Create an Agent
+			</Button>
+			{error ? (
+				<p className="text-sm" role="alert">
+					{error}
 				</p>
 			) : null}
 		</div>
