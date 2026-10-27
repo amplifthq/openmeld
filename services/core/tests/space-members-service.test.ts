@@ -7,9 +7,18 @@ import {
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
 } from "@openmeld/schemas";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 import type { RuntimeTransportHub } from "../src";
 import type { CoreBindings } from "../src/lib/bindings";
+import { resetCoreLocalComponentsReleaseCacheForTests } from "../src/local-components/release-source";
 import {
   addSpaceMembersUseCase,
   leaveSpaceUseCase,
@@ -29,6 +38,7 @@ import {
 } from "../src/space/infrastructure/sql/space-member-repo";
 import type { SpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 import { createProjectionPostgresBinding } from "../test-support/postgresql-query.test-support";
+import { createPublishedCliReleasesBucket } from "../test-support/published-local-components-release";
 
 type SqlRow = Record<string, SqlStorageValue>;
 
@@ -444,7 +454,11 @@ class MutableSqlStorage {
 type RouteTruthPostgresProjection = {
   bindSpy: ReturnType<typeof vi.fn>;
   db: PostgreSQLBinding;
-  querySpy: ReturnType<typeof vi.fn>;
+  querySpy: ReturnType<
+    typeof vi.fn<
+      (query: string, values: readonly unknown[]) => Record<string, unknown>[]
+    >
+  >;
 };
 
 type RouteTruthPostgresProjectionInput = {
@@ -4300,6 +4314,248 @@ describe("space-members-service", () => {
         },
       },
     });
+  });
+
+  it.each([
+    "route batch",
+    "owner service",
+  ] as const)("keeps the member list available when one owner's %s lookup fails", async (failedLookup) => {
+    resetCoreLocalComponentsReleaseCacheForTests();
+    onTestFinished(resetCoreLocalComponentsReleaseCacheForTests);
+    const sql = new MutableSqlStorage();
+    const spaceId = "space-members-partial-transport";
+    const nowIso = "2026-03-06T13:15:00.000Z";
+    const affectedIds = ["agt_affected_1", "agt_affected_2"] as const;
+    const healthyId = "agt_healthy";
+    const affectedDb = createRouteTruthPostgresProjection({
+      agentProfileId: affectedIds[0],
+      agentProfileIds: affectedIds,
+      ownerUserId: "owner-affected",
+    });
+    const healthyDb = createRouteTruthPostgresProjection({
+      agentProfileId: healthyId,
+      ownerUserId: "owner-healthy",
+      deviceId: "device-healthy",
+      openMeldServiceRuntimeId: "runtime-healthy",
+      agentControllerReport: { status: "ready", reasonCodes: [] },
+    });
+    const db = createProjectionPostgresBinding(({ text, values }) => {
+      if (text.includes('"openmeld_profiles"')) {
+        return (values ?? []).flat().map((profileId) => ({
+          profile_id: profileId,
+          organization_id: "org-1",
+          owner_user_id:
+            profileId === healthyId ? "owner-healthy" : "owner-affected",
+          profile_kind: "agent",
+          profile_name: profileId,
+          managed_role: null,
+        }));
+      }
+      const healthy = (values ?? []).some((value) =>
+        [
+          healthyId,
+          "owner-healthy",
+          "device-healthy",
+          "runtime-healthy",
+        ].includes(String(value))
+      );
+      return (healthy ? healthyDb : affectedDb).querySpy(text, values ?? []);
+    });
+    const runtimeTransportClient = await import(
+      "../src/dispatch/infrastructure/runtime-transport/runtime-transport-client"
+    );
+    let unavailable = false;
+    const routeLookup = vi.spyOn(
+      runtimeTransportClient,
+      "lookupRuntimeTransportRoute"
+    );
+    const batchLookup = vi
+      .spyOn(runtimeTransportClient, "lookupRuntimeTransportRoutesBatch")
+      .mockImplementation(({ ownerUserId, profileIds }) => {
+        if (
+          unavailable &&
+          ownerUserId === "owner-affected" &&
+          failedLookup === "route batch"
+        ) {
+          return Promise.reject(new Error("Runtime Transport read timed out."));
+        }
+        return Promise.resolve({
+          routes: Object.fromEntries(
+            profileIds.map((profileId) => [
+              profileId,
+              ownerUserId === "owner-healthy"
+                ? {
+                    capabilities: {},
+                    connectionGeneration: 1,
+                    daemonSessionId: "session-healthy",
+                    deviceId: "device-healthy",
+                    lane: "dev-local" as const,
+                    lastHeartbeatMs: 1,
+                    leaseEpoch: 1,
+                    online: true as const,
+                    localWakeRouteReport: {
+                      daemonSessionId: "session-healthy",
+                      deviceId: "device-healthy",
+                      expectedRoutesContractVersion: "v4" as const,
+                      includedProfileIds: [healthyId],
+                      lane: "dev-local" as const,
+                      reportedAtMs: Date.parse(nowIso),
+                      skippedProfiles: [],
+                      workingFolderObservations: [
+                        {
+                          bindingId: "binding-route-truth",
+                          configurationRevision: 1,
+                          defaultProjectId: null,
+                          localProjectBindingGeneration: null,
+                          observedAtMs: Date.parse(nowIso),
+                          profileId: healthyId,
+                          reasonCode: null,
+                          source: "profile_workspace" as const,
+                          status: "ready" as const,
+                        },
+                      ],
+                    },
+                    executionCompatibility: {
+                      expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+                      observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+                      reasonCode: "daemon.runtime_contract.compatible" as const,
+                      status: "compatible" as const,
+                    },
+                    serviceVersion: "999.0.0",
+                  }
+                : {
+                    online: false as const,
+                    reasonCode: "daemon.profile.offline" as const,
+                  },
+            ])
+          ),
+        });
+      });
+    const ownerLookup = vi
+      .spyOn(runtimeTransportClient, "lookupRuntimeTransportOwnerService")
+      .mockImplementation(({ ownerUserId }) => {
+        if (
+          unavailable &&
+          ownerUserId === "owner-affected" &&
+          failedLookup === "owner service"
+        ) {
+          return Promise.reject(new Error("Runtime Transport read timed out."));
+        }
+        return Promise.resolve({
+          online: false,
+          reasonCode: "daemon.session.not_found",
+        });
+      });
+    const env = withProjectionBinding({
+      OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
+      OPENMELD_POSTGRESQL: db,
+      OPENMELD_RUNTIME_TRANSPORT: TEST_RUNTIME_TRANSPORT,
+      OPENMELD_AUTH_WORKER: {
+        resolveProfileById: async ({
+          openMeldProfileId,
+        }: {
+          openMeldProfileId: string;
+        }) => ({
+          ok: true,
+          profile: {
+            ownerUserId:
+              openMeldProfileId === healthyId
+                ? "owner-healthy"
+                : "owner-affected",
+            profileHandle: openMeldProfileId,
+            profileId: openMeldProfileId,
+            profileKind: "agent",
+            profileName: openMeldProfileId,
+            status: "active",
+            defaultProjectId: null,
+          },
+        }),
+      } as unknown as CoreBindings["OPENMELD_AUTH_WORKER"],
+    });
+    upsertJoinedSpaceMember({
+      sql: sql as unknown as SqlStorage,
+      spaceId,
+      profile: createHumanProfile("human-reader", "Reader"),
+      nowIso,
+    });
+    for (const profileId of [...affectedIds, healthyId]) {
+      upsertJoinedSpaceMember({
+        sql: sql as unknown as SqlStorage,
+        spaceId,
+        profile: createAgentProfile({
+          profileId,
+          profileName: profileId,
+          ownerUserId:
+            profileId === healthyId ? "owner-healthy" : "owner-affected",
+          agentControllerRef: "builtin:ops-bot",
+        }),
+        nowIso: "2026-03-06T13:14:00.000Z",
+      });
+    }
+    const readMembers = () =>
+      listSpaceMembersSnapshotUseCase({
+        sql: sql as unknown as SqlStorage,
+        env,
+        spaceId,
+        metaRecord: createReadinessMetaRecord(spaceId, "human-reader"),
+        viewerOwnerUserId: "owner-affected",
+        viewerProfileId: "human-reader",
+        liveSessions: [],
+        nowIso,
+      });
+    const before = await readMembers();
+    expect(
+      before.agents.find((agent) => agent.profileId === healthyId)
+        ?.agentWakeAvailability?.status
+    ).toBe("available_for_wake");
+    expect(before.humans).toHaveLength(1);
+    batchLookup.mockClear();
+    ownerLookup.mockClear();
+    unavailable = true;
+
+    const snapshot = await readMembers();
+    expect(snapshot.humans).toEqual(before.humans);
+    expect(snapshot.agents.map((agent) => agent.profileId).sort()).toEqual(
+      [...affectedIds, healthyId].sort()
+    );
+    expect(
+      snapshot.agents.find((agent) => agent.profileId === healthyId)
+    ).toEqual(before.agents.find((agent) => agent.profileId === healthyId));
+    for (const profileId of affectedIds) {
+      const agent = snapshot.agents.find(
+        (member) => member.profileId === profileId
+      );
+      if (failedLookup === "route batch") {
+        expect(agent?.agentWakeAvailability?.status).toBe(
+          "unavailable_for_wake"
+        );
+        expect(agent?.ownerWakeDiagnostics?.wakeRouteEvidence).toMatchObject({
+          status: "unavailable",
+          reasonCode: "lookup_failed",
+        });
+      } else {
+        // The independently read offline route remains authoritative even when
+        // the supplemental owner-Service read is unavailable.
+        expect(agent?.agentWakeAvailability).toMatchObject({
+          status: "offline_for_wake",
+        });
+        expect(
+          agent?.ownerWakeDiagnostics?.agentExecutionReadiness.reasonCodes
+        ).toContain("local_service.unavailable");
+      }
+    }
+    expect(batchLookup).toHaveBeenCalledTimes(2);
+    expect(batchLookup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerUserId: "owner-affected",
+        readTimeoutMs: 5000,
+      })
+    );
+    expect(ownerLookup).toHaveBeenCalledTimes(2);
+    expect(routeLookup).not.toHaveBeenCalled();
+
+    unavailable = false;
+    expect(await readMembers()).toEqual(before);
   });
 
   it("preserves unavailable daemon route truth instead of collapsing lookup failures into offline", async () => {

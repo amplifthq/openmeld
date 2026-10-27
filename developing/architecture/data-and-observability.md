@@ -524,6 +524,17 @@ contract.
   `space.members.changed`. A null value is a confirmed absence; failed reads
   write nothing. These rows never feed access, readiness, or Wake policy.
   Readiness snapshots keep request-scoped Auth Profile facts.
+- **Member runtime status.** Members snapshots isolate failed Hub route and
+  owner-Service preloads to the affected owner. A failed read is an explicit
+  unavailable input to the existing Core readiness projection, not a missing
+  preload that permits per-Profile lookup fan-out. Successful owner reads remain
+  usable in the same snapshot. Failures retain bounded diagnostic context and
+  are not cached across snapshots. Membership, identity, lineage, and access
+  reads keep their existing fail-closed behavior. Members route-batch reads use
+  the same five-second total Hub budget as owner-Service lookups, so an
+  unavailable owner cannot hold this projection behind the general batch
+  reader's longer budget. The readiness owner still resolves independently
+  confirmed route evidence; the members reader does not override that policy.
 - **Thread previews.** A thread preview renders one line per reply, so
   bootstrap and thread-preview reads carry a text reply longer than 1,000
   characters only through the end of the line it shows

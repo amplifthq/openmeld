@@ -31,6 +31,15 @@ export class RuntimeTransportReadTimeoutError extends Error {
   }
 }
 
+class RuntimeTransportReadAttemptTimeoutError extends Error {
+  constructor(operation: RuntimeTransportReadOperation, timeoutMs: number) {
+    super(
+      `Runtime Transport read ${operation} attempt exceeded ${timeoutMs}ms.`
+    );
+    this.name = "RuntimeTransportReadAttemptTimeoutError";
+  }
+}
+
 function readExceptionProperties(error: unknown) {
   const source = typeof error === "object" && error !== null ? error : {};
   return {
@@ -72,6 +81,7 @@ function decideRetry(
   }
   if (
     !(
+      error instanceof RuntimeTransportReadAttemptTimeoutError ||
       properties.retryable === true ||
       (properties.retryable === null && properties.inactiveInstance)
     )
@@ -97,6 +107,8 @@ export async function callRuntimeTransportRead<T>(input: {
   operation: RuntimeTransportReadOperation;
   requestId?: string | null;
   timeoutMs: number;
+  // Only HTTP reads opt in: direct RPC cannot cancel an attempt's transport.
+  attemptTimeoutMs?: number;
   execute: (
     stub: DurableObjectStub<RuntimeTransportHub>,
     signal: AbortSignal
@@ -105,7 +117,7 @@ export async function callRuntimeTransportRead<T>(input: {
   const readId = crypto.randomUUID();
   const startedAt = Date.now();
   const deadlineAt = startedAt + input.timeoutMs;
-  const controller = new AbortController();
+  let activeController: AbortController | undefined;
   const timeoutError = new RuntimeTransportReadTimeoutError(
     input.operation,
     input.timeoutMs
@@ -117,7 +129,7 @@ export async function callRuntimeTransportRead<T>(input: {
   const deadline = new Promise<never>((_resolve, reject) => {
     deadlineTimer = setTimeout(() => {
       reject(timeoutError);
-      controller.abort();
+      activeController?.abort();
     }, input.timeoutMs);
   });
 
@@ -136,9 +148,70 @@ export async function callRuntimeTransportRead<T>(input: {
       elapsedMs: Math.max(0, Date.now() - startedAt),
       timeoutMs: input.timeoutMs,
       ...readExceptionProperties(error),
+      ...(input.attemptTimeoutMs === undefined
+        ? {}
+        : {
+            attemptTimedOut:
+              error instanceof RuntimeTransportReadAttemptTimeoutError,
+            attemptTimeoutMs: input.attemptTimeoutMs,
+          }),
       decision,
       delayMs,
     });
+  };
+
+  const executeAttempt = async (
+    stub: DurableObjectStub<RuntimeTransportHub>
+  ): Promise<T> => {
+    const controller = new AbortController();
+    activeController = controller;
+    let attemptTimer: ReturnType<typeof setTimeout> | undefined;
+    const pending = [deadline];
+    const attemptTimeoutMs = input.attemptTimeoutMs;
+    const attemptDeadlineAt = Math.min(
+      deadlineAt,
+      Date.now() + (attemptTimeoutMs ?? input.timeoutMs)
+    );
+    // The total deadline owns the final boundary, including when a shorter
+    // remaining budget cannot fit the full per-attempt allowance.
+    if (
+      attemptTimeoutMs !== undefined &&
+      attemptTimeoutMs < deadlineAt - Date.now()
+    ) {
+      pending.push(
+        new Promise<never>((_resolve, reject) => {
+          attemptTimer = setTimeout(() => {
+            reject(
+              new RuntimeTransportReadAttemptTimeoutError(
+                input.operation,
+                attemptTimeoutMs
+              )
+            );
+            controller.abort();
+          }, attemptTimeoutMs);
+        })
+      );
+    }
+    try {
+      const result = await Promise.race([
+        input.execute(stub, controller.signal),
+        ...pending,
+      ]);
+      if (Date.now() >= deadlineAt) {
+        throw timeoutError;
+      }
+      if (attemptTimeoutMs !== undefined && Date.now() >= attemptDeadlineAt) {
+        throw new RuntimeTransportReadAttemptTimeoutError(
+          input.operation,
+          attemptTimeoutMs
+        );
+      }
+      return result;
+    } finally {
+      clearTimeout(attemptTimer);
+      controller.abort();
+      activeController = undefined;
+    }
   };
 
   try {
@@ -156,14 +229,7 @@ export async function callRuntimeTransportRead<T>(input: {
         // A broken stub must never be reused. HTTP reads can consume the abort
         // signal; these direct RPC methods do not accept it. The race bounds
         // caller waiting and ignores late completion without replaying after expiry.
-        const result = await Promise.race([
-          input.execute(stub, controller.signal),
-          deadline,
-        ]);
-        if (Date.now() >= deadlineAt) {
-          throw timeoutError;
-        }
-        return result;
+        return await executeAttempt(stub);
       } catch (error) {
         if (error === timeoutError) {
           throw error;
@@ -194,6 +260,6 @@ export async function callRuntimeTransportRead<T>(input: {
   } finally {
     clearTimeout(deadlineTimer);
     clearTimeout(backoffTimer);
-    controller.abort();
+    activeController?.abort();
   }
 }
