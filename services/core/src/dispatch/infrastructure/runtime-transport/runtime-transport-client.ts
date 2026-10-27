@@ -84,6 +84,7 @@ import type {
   RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse,
   RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse,
   RuntimeTransportAgentProfileOperationalContextsResponse,
+  RuntimeTransportAgentProfileWorkRecoveryReadResponse,
   RuntimeTransportDeletedAgentProfileWakeCancellationResponse,
   RuntimeTransportDisconnectRatesResponse,
   RuntimeTransportForkAgentSessionResult,
@@ -99,7 +100,12 @@ import type {
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../../lib/bindings";
 import { readForgottenDeviceRecord } from "../../../start/infrastructure/postgresql/forgotten-device-repo";
+import {
+  RUNTIME_TRANSPORT_LOOKUP_TIMEOUT_MS,
+  RUNTIME_TRANSPORT_RECOVERY_READ_TIMEOUT_MS,
+} from "../../../strategy-constants";
 import { callRuntimeTransportApi } from "./runtime-transport-api-client";
+import { callRuntimeTransportRead } from "./runtime-transport-read-retry";
 import { resolveRuntimeTransportOwnerShard } from "./runtime-transport-shard";
 
 export const cancelRuntimeTransportDeletedAgentProfileWakes = async (input: {
@@ -350,9 +356,32 @@ export async function readRuntimeTransportPluginConnectionExecutionSource(
   return parsed.data.source;
 }
 
+export function readRuntimeTransportAgentProfileWorkRecovery(input: {
+  env: CoreBindings;
+  ownerUserId: string;
+  requestId?: string | null;
+  targetProfileId: string;
+}): Promise<RuntimeTransportAgentProfileWorkRecoveryReadResponse> {
+  return callRuntimeTransportRead<RuntimeTransportAgentProfileWorkRecoveryReadResponse>(
+    {
+      env: input.env,
+      ownerUserId: input.ownerUserId,
+      operation: "rpcReadAgentProfileWorkRecovery",
+      requestId: input.requestId,
+      timeoutMs: RUNTIME_TRANSPORT_RECOVERY_READ_TIMEOUT_MS,
+      execute: (stub) =>
+        stub.rpcReadAgentProfileWorkRecovery({
+          ownerUserId: input.ownerUserId,
+          targetProfileId: input.targetProfileId,
+        }),
+    }
+  );
+}
+
 export const readRuntimeTransportAgentProfileExecutionState = async (input: {
   env: CoreBindings;
   ownerUserId: string;
+  requestId?: string | null;
   targetProfileId: string;
 }): Promise<RuntimeTransportAgentProfileExecutionStateResponse> => {
   const parsedRequest =
@@ -367,13 +396,18 @@ export const readRuntimeTransportAgentProfileExecutionState = async (input: {
     };
   }
   try {
-    const shard = resolveRuntimeTransportOwnerShard(
-      input.env,
-      input.ownerUserId
-    );
-    const response = await shard.rpcReadAgentProfileExecutionState(
-      parsedRequest.data
-    );
+    const response =
+      await callRuntimeTransportRead<RuntimeTransportAgentProfileExecutionStateResponse>(
+        {
+          env: input.env,
+          ownerUserId: input.ownerUserId,
+          operation: "rpcReadAgentProfileExecutionState",
+          requestId: input.requestId,
+          timeoutMs: RUNTIME_TRANSPORT_LOOKUP_TIMEOUT_MS,
+          execute: (stub) =>
+            stub.rpcReadAgentProfileExecutionState(parsedRequest.data),
+        }
+      );
     const parsedResponse =
       runtimeTransportAgentProfileExecutionStateResponseSchema.safeParse(
         response
@@ -407,6 +441,7 @@ export const readRuntimeTransportAgentProfileOperationalContexts =
     env: CoreBindings;
     includeWorkReferences: boolean;
     ownerUserId: string;
+    requestId?: string | null;
     targetProfileIds: readonly string[];
   }): Promise<RuntimeTransportAgentProfileOperationalContextsResponse> => {
     const fallback =
@@ -429,13 +464,18 @@ export const readRuntimeTransportAgentProfileOperationalContexts =
       return fallback();
     }
     try {
-      const shard = resolveRuntimeTransportOwnerShard(
-        input.env,
-        input.ownerUserId
-      );
-      const response = await shard.rpcReadAgentProfileOperationalContexts(
-        parsedRequest.data
-      );
+      const response =
+        await callRuntimeTransportRead<RuntimeTransportAgentProfileOperationalContextsResponse>(
+          {
+            env: input.env,
+            ownerUserId: input.ownerUserId,
+            operation: "rpcReadAgentProfileOperationalContexts",
+            requestId: input.requestId,
+            timeoutMs: RUNTIME_TRANSPORT_LOOKUP_TIMEOUT_MS,
+            execute: (stub) =>
+              stub.rpcReadAgentProfileOperationalContexts(parsedRequest.data),
+          }
+        );
       const parsedResponse =
         runtimeTransportAgentProfileOperationalContextsResponseSchema.safeParse(
           response
@@ -469,6 +509,7 @@ export const lookupRuntimeTransportRoute = async (input: {
   env: CoreBindings;
   ownerUserId: string;
   profileId: string;
+  requestId?: string | null;
 }): Promise<RuntimeTransportLookupRouteResponse> => {
   const parsedRequest = runtimeTransportLookupRouteRequestSchema.safeParse({
     v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
@@ -492,6 +533,7 @@ export const lookupRuntimeTransportRoute = async (input: {
     ownerUserId: input.ownerUserId,
     path: "/lookup-route",
     body: parsedRequest.data,
+    requestId: input.requestId,
   });
 
   const parsed = runtimeTransportLookupRouteResponseSchema.safeParse(response);
@@ -519,9 +561,10 @@ export const lookupRuntimeTransportRoutesBatch = async (input: {
   env: CoreBindings;
   ownerUserId: string;
   profileIds: readonly string[];
+  requestId?: string | null;
 }): Promise<RuntimeTransportLookupRoutesBatchResponse | null> => {
-  // Single DO round trip for a whole readiness batch. Returns null on any
-  // failure so callers fall back to per-profile lookups (fail-open).
+  // Invalid responses retain the per-profile fallback. Transport failures
+  // propagate so a failing shard does not receive another read per Profile.
   const parsedRequest =
     runtimeTransportLookupRoutesBatchRequestSchema.safeParse({
       v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
@@ -532,17 +575,13 @@ export const lookupRuntimeTransportRoutesBatch = async (input: {
     return null;
   }
 
-  let response: unknown;
-  try {
-    response = await callRuntimeTransportApi({
-      env: input.env,
-      ownerUserId: input.ownerUserId,
-      path: "/lookup-routes-batch",
-      body: parsedRequest.data,
-    });
-  } catch {
-    return null;
-  }
+  const response = await callRuntimeTransportApi({
+    env: input.env,
+    ownerUserId: input.ownerUserId,
+    path: "/lookup-routes-batch",
+    body: parsedRequest.data,
+    requestId: input.requestId,
+  });
 
   const parsed =
     runtimeTransportLookupRoutesBatchResponseSchema.safeParse(response);
@@ -583,6 +622,7 @@ export const lookupRuntimeTransportOwnerService = async (input: {
   blockForgottenDevices?: boolean;
   env: CoreBindings;
   ownerUserId: string;
+  requestId?: string | null;
 }): Promise<RuntimeTransportLookupOwnerServiceResponse> => {
   const parsedRequest =
     runtimeTransportLookupOwnerServiceRequestSchema.safeParse({
@@ -600,6 +640,7 @@ export const lookupRuntimeTransportOwnerService = async (input: {
     ownerUserId: input.ownerUserId,
     path: "/lookup-owner-service",
     body: parsedRequest.data,
+    requestId: input.requestId,
   });
 
   const parsed =
