@@ -212,6 +212,15 @@ test("only the validate job checks the SHA, from release control on main", () =>
       ],
       name
     );
+    const sourceCheckout = checkouts.find(
+      (step) => step.with.path === "release-source"
+    );
+    assert.equal(
+      sourceCheckout.with["fetch-depth"],
+      0,
+      `${name}: signed CLI Skill verification needs origin/main and its history`
+    );
+    assert.equal(sourceCheckout.with["persist-credentials"], false);
     assert.ok(
       job.steps.some((step) =>
         String(step.run ?? "").includes(
