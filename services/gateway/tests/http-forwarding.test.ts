@@ -13,6 +13,7 @@ import {
   organizationAgentRuntimeOverviewResponseSchema,
   organizationDirectoryResponseSchema,
   organizationProfileDirectoryResponseSchema,
+  SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_ERROR_CODE,
 } from "@openmeld/schemas";
 import { createSpaceMemberAgentExecutionReadiness } from "@openmeld/schemas/testing";
@@ -2805,6 +2806,7 @@ describe("gateway http forwarding", () => {
     "4",
     "5",
     "6",
+    String(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION),
   ])("negotiates dispatch trace response version %s without changing the public route", async (version) => {
     const { env, rpc } = makeEnv();
     const response = await app.fetch(
@@ -2857,7 +2859,9 @@ describe("gateway http forwarding", () => {
     const response = await app.fetch(
       new Request("http://local/v1/spaces/demo/dispatches/dispatch-1/trace", {
         headers: {
-          "x-openmeld-space-dispatch-trace-response-version": "7",
+          "x-openmeld-space-dispatch-trace-response-version": String(
+            SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION + 1
+          ),
         },
       }),
       env,
@@ -6979,6 +6983,8 @@ describe("gateway http forwarding", () => {
     });
     expect(rpc.listAccountSpaces).toHaveBeenCalledWith({
       gatewayHost: "localhost:8080",
+      includeDeletedSpaces: false,
+      includeDirectoryPreviews: false,
       limit: 20,
       ownerUserId: "owner-001",
       scope: "account",
@@ -6987,7 +6993,7 @@ describe("gateway http forwarding", () => {
     expect(authRpc.listProfileSpaceHistory).not.toHaveBeenCalled();
   });
 
-  it("forwards opt-in AccountSpaces presentation fields to Core", async () => {
+  it("forwards opt-in AccountSpaces fields to Core", async () => {
     const { env, rpc, authRpc } = makeEnv({
       coreOverrides: {
         listAccountSpaces: vi.fn(async () => ({
@@ -7030,7 +7036,7 @@ describe("gateway http forwarding", () => {
     });
 
     const request = new Request(
-      "http://local/v1/account/spaces?gatewayHost=localhost%3A8080&scope=account&selectedProfileId=11111111-1111-4111-8111-111111111111&limit=20&includeDirectMessageProfileIds=true&includePurposes=true",
+      "http://local/v1/account/spaces?gatewayHost=localhost%3A8080&scope=account&selectedProfileId=11111111-1111-4111-8111-111111111111&limit=20&includeDirectMessageProfileIds=true&includePurposes=true&includeDeletedSpaces=true&includeDirectoryPreviews=true",
       { method: "GET" }
     );
 
@@ -7048,7 +7054,9 @@ describe("gateway http forwarding", () => {
     });
     expect(rpc.listAccountSpaces).toHaveBeenCalledWith({
       gatewayHost: "localhost:8080",
+      includeDeletedSpaces: true,
       includeDirectMessageProfileIds: true,
+      includeDirectoryPreviews: true,
       includePurposes: true,
       limit: 20,
       ownerUserId: "owner-001",
