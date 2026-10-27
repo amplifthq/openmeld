@@ -1676,6 +1676,9 @@ function AgentProfileDirectoryRow(input: {
 			storageScope: input.cardInput.recovery.storageScope,
 		})
 	);
+	const configurationReadFailed = bindingQuery.data
+		? bindingQuery.data.status === "unavailable"
+		: bindingQuery.isError;
 	const primaryBinding =
 		projectedBinding ??
 		(loadConfiguration ? bindingQuery.data?.binding : null) ??
@@ -1710,7 +1713,7 @@ function AgentProfileDirectoryRow(input: {
 
 	return (
 		<>
-			{loadConfiguration && bindingQuery.isError && !bindingQuery.data ? (
+			{loadConfiguration && configurationReadFailed ? (
 				<div role="alert">
 					OpenMeld could not load this Agent’s settings.
 					<Button
