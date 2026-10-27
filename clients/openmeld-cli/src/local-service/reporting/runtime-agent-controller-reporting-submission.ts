@@ -3,7 +3,10 @@ import {
   type SubmitRuntimeAgentControllerReportsInput,
   toStructuredApiClientFailure,
 } from "@openmeld/api-client";
-import type { AgentControllerInterfaceSnapshot } from "@openmeld/schemas/types";
+import type {
+  AgentControllerInterfaceSnapshot,
+  RuntimeProviderConversationProofMethod,
+} from "@openmeld/schemas/types";
 import { getAuthSessionState } from "../../config/auth-session";
 import { readDaemonServiceContract } from "../../config/daemon-service-contract";
 import type { OpenMeldProfile } from "../../config/openmeld-profiles-api";
@@ -92,7 +95,7 @@ export type RuntimeProviderConversationProofInput = {
   agentControllerConversationId: string;
   transportMode: "codex-app-server";
   provider: "codex";
-  method: "codex_app_server_thread_resume";
+  method: RuntimeProviderConversationProofMethod;
   intrusive: false;
   observedAtMs: number;
   expiresAtMs: number;

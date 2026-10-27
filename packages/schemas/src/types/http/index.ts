@@ -91,6 +91,7 @@ export type {
   AgentExecutionReadiness,
   AgentExecutionReadinessPrimaryAction,
   AgentExecutionReadinessPrimaryActionPlan,
+  AgentExecutionReadinessResponseOptions,
   AgentExecutionReadinessRouteParams,
   AgentExecutionReadinessTargetRuntime,
   AgentWakeAvailability,

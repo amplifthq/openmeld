@@ -248,6 +248,7 @@ export const openMeldDaemonProviderConversationProofProviderSchema = z.enum([
 
 export const openMeldDaemonProviderConversationProofMethodSchema = z.enum([
   "codex_app_server_thread_resume",
+  "codex_app_server_thread_read",
 ]);
 
 export const openMeldDaemonProviderConversationProofSchema = z.strictObject({

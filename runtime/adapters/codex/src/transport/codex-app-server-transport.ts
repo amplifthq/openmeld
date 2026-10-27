@@ -892,19 +892,26 @@ export async function verifyCodexAppServerThread(input: {
     },
     async (session) => {
       const response = await session.requestControl(
-        "thread/resume",
+        "thread/read",
         {
-          cwd: input.codexWorkdir,
-          excludeTurns: true,
+          includeTurns: false,
           threadId,
         },
         {
-          code: "context.resume_timeout",
-          operation: "thread/resume",
+          code: "context.read_timeout",
+          operation: "thread/read",
         }
       );
+      if (readThreadIdFromResponse(response) !== threadId) {
+        throw new CodexAppServerTransportError({
+          code: "context.thread_mismatch",
+          errorType: "config",
+          message:
+            "Codex returned a different thread for the conversation check.",
+        });
+      }
       return {
-        threadId: readThreadIdFromResponse(response),
+        threadId,
       };
     }
   );
@@ -3212,7 +3219,7 @@ async function resolveCommandApprovalInteraction(input: {
   const cwd = normalizeBoundedText(params.cwd, 4096);
   const decisions = input.legacy
     ? ["approved", "approved_for_session", "denied"]
-    : resolveCommandApprovalDecisions(params.availableDecisions);
+    : resolveCommandApprovalDecisions(params);
   const mappedOptions = decisions
     .map((decision, index) => {
       const presentation = presentCommandApprovalDecision(decision);
@@ -3251,10 +3258,9 @@ async function resolveCommandApprovalInteraction(input: {
             },
           },
         ];
+  const description = describeCommandApproval(params.reason, decisions);
   const response = await input.onInteractionRequest({
-    ...(normalizeBoundedText(params.reason, 4000)
-      ? { description: normalizeBoundedText(params.reason, 4000) }
-      : {}),
+    ...(description ? { description } : {}),
     kind: "permission",
     options: options.map(({ option }) => option),
     subject: {
@@ -3289,11 +3295,72 @@ async function resolveCommandApprovalInteraction(input: {
   };
 }
 
-function resolveCommandApprovalDecisions(value: unknown): unknown[] {
-  if (Array.isArray(value) && value.length > 0) {
-    return value;
+function resolveCommandApprovalDecisions(
+  params: Record<string, unknown>
+): unknown[] {
+  // An explicit list is authoritative, including an empty/restricted list.
+  const amendment = readExecpolicyAmendment(params.proposedExecpolicyAmendment);
+  const decisions = Array.isArray(params.availableDecisions)
+    ? params.availableDecisions
+    : [
+        "accept",
+        "acceptForSession",
+        ...(amendment
+          ? [
+              {
+                acceptWithExecpolicyAmendment: {
+                  execpolicy_amendment: amendment,
+                },
+              },
+            ]
+          : []),
+        "decline",
+        "cancel",
+      ];
+  // A reusable grant requires the complete rule to fit in its disclosure.
+  return readCommandApprovalRuleScope(decisions).length > 2400
+    ? decisions.filter(
+        (decision) => !toRecord(decision)?.acceptWithExecpolicyAmendment
+      )
+    : decisions;
+}
+
+function readExecpolicyAmendment(value: unknown): string[] | null {
+  return Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((token) => typeof token === "string") &&
+    typeof value[0] === "string" &&
+    value[0].trim().length > 0
+    ? value
+    : null;
+}
+
+function readCommandApprovalRuleScope(decisions: unknown[]): string {
+  return decisions
+    .flatMap((decision) => {
+      const amendment = readExecpolicyAmendment(
+        toRecord(toRecord(decision)?.acceptWithExecpolicyAmendment)
+          ?.execpolicy_amendment
+      );
+      return amendment ? [JSON.stringify(amendment)] : [];
+    })
+    .join("; ");
+}
+
+function describeCommandApproval(
+  reason: unknown,
+  decisions: unknown[]
+): string | null {
+  const scope = readCommandApprovalRuleScope(decisions);
+  if (!scope) {
+    return normalizeBoundedText(reason, 4000);
   }
-  return ["accept", "acceptForSession", "decline", "cancel"];
+  return [
+    normalizeBoundedText(reason, 1000),
+    `Allow matching commands asks Codex to save the exact command prefix: ${scope}. It does not cover every command with a similar purpose; other prefixes or stricter policies may still need approval.`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function presentCommandApprovalDecision(decision: unknown): {

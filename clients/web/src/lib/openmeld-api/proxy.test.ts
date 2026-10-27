@@ -8,6 +8,7 @@ import {
 	OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION,
 } from "@openmeld/gateway-contract";
 import {
+	AGENT_EXECUTION_READINESS_RESPONSE_VERSION_HEADER,
 	OBSERVABILITY_CLOUDFLARE_ANALYTICS_BLOBS,
 	OBSERVABILITY_CLOUDFLARE_ANALYTICS_DOUBLES,
 } from "@openmeld/schemas";
@@ -177,17 +178,32 @@ describe("OpenMeld gateway proxy", () => {
 		expect(response.status).toBe(200);
 	});
 
-	it("forwards the Inbox summary version while retaining the request header allowlist", async () => {
+	it.each([
+		{
+			header: OPENMELD_HEADER_INBOX_SUMMARY_VERSION,
+			path: "/v1/inbox/summary",
+			version: "1",
+		},
+		{
+			header: AGENT_EXECUTION_READINESS_RESPONSE_VERSION_HEADER,
+			path: "/v1/agent-profiles/agt_11111111-1111-4111-8111-111111111111/execution-readiness",
+			version: "2",
+		},
+	])("forwards $header while retaining the request header allowlist", async ({
+		header,
+		path,
+		version,
+	}) => {
 		const fetchMock = vi.fn<typeof fetch>((_input, init) => {
 			const headers = init?.headers as Headers;
-			expect(headers.get(OPENMELD_HEADER_INBOX_SUMMARY_VERSION)).toBe("1");
+			expect(headers.get(header)).toBe(version);
 			expect(headers.has("x-openmeld-untrusted")).toBe(false);
 			return Promise.resolve(new Response("ok", { status: 200 }));
 		});
 		await proxyOpenMeldGatewayRequest({
-			request: new Request("https://openmeld.test/v1/inbox/summary", {
+			request: new Request(`https://openmeld.test${path}`, {
 				headers: {
-					[OPENMELD_HEADER_INBOX_SUMMARY_VERSION]: "1",
+					[header]: version,
 					"x-openmeld-untrusted": "blocked",
 				},
 			}),

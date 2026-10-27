@@ -26,6 +26,7 @@ import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   isHostedAgentControllerRef,
+  projectProviderConversationProofMethod,
 } from "@openmeld/schemas";
 import type {
   AgentControllerPermissionMode,
@@ -1606,7 +1607,7 @@ async function resolveAgentProviderConversationEvidence(input: {
 
   const requiredBase = {
     agentControllerConversationId,
-    method: "codex_app_server_thread_resume" as const,
+    method: "codex_app_server_thread_read" as const,
     provider: "codex" as const,
     required: true,
   };
@@ -1635,7 +1636,10 @@ async function resolveAgentProviderConversationEvidence(input: {
         agentControllerRef: executionTarget.agentControllerRef,
         agentControllerConversationId,
         db: domainDb,
-        method: "codex_app_server_thread_resume",
+        methods: [
+          "codex_app_server_thread_read",
+          "codex_app_server_thread_resume",
+        ],
         nowMs: parseGeneratedAtMs(input.generatedAt),
         provider: "codex",
         openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
@@ -1657,6 +1661,7 @@ async function resolveAgentProviderConversationEvidence(input: {
     if (proof.status === "passed") {
       return {
         ...requiredBase,
+        method: proof.method,
         errorCode: null,
         errorMessage: null,
         errorType: null,
@@ -1671,6 +1676,7 @@ async function resolveAgentProviderConversationEvidence(input: {
     return {
       ...requiredBase,
       errorCode: proof.errorCode,
+      method: proof.method,
       errorMessage: proof.errorMessage,
       errorType: proof.errorType,
       expiresAtMs: proof.expiresAtMs,
@@ -2479,7 +2485,9 @@ function toSpaceMemberAgentExecutionReadiness(
         errorMessage: readiness.facts.providerConversation.errorMessage,
         errorType: readiness.facts.providerConversation.errorType,
         expiresAtMs: readiness.facts.providerConversation.expiresAtMs,
-        method: readiness.facts.providerConversation.method,
+        method: projectProviderConversationProofMethod(
+          readiness.facts.providerConversation.method
+        ),
         observedAtMs: readiness.facts.providerConversation.observedAtMs,
         provider: readiness.facts.providerConversation.provider,
         ready: readiness.facts.providerConversation.ready,
