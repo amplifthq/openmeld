@@ -109,12 +109,14 @@ export function buildDesktopCandidateMetadata(input) {
 export function inspectDesktopCandidateCommand(command, args) {
   const result = spawnSync(command, args, { encoding: "utf8" });
   if (result.error || result.status !== 0) {
+    const stdout = result.stdout?.trim();
+    const stderr = result.stderr?.trim();
     const details = [
       `Desktop candidate verification failed: ${[command, ...args].map((argument) => JSON.stringify(argument)).join(" ")}`,
       `Exit status: ${result.status ?? "none"}; signal: ${result.signal ?? "none"}`,
-      result.error?.message,
-      result.stdout?.trim(),
-      result.stderr?.trim(),
+      result.error && `Launch error: ${result.error.message}`,
+      stdout && `stdout:\n${stdout}`,
+      stderr && `stderr:\n${stderr}`,
     ].filter(Boolean);
     throw new Error(details.join("\n"), { cause: result.error });
   }

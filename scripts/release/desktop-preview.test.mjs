@@ -104,9 +104,9 @@ test("native candidate inspection preserves both streams and nonzero failure det
           assert.ok(error.message.includes(process.execPath));
           assert.ok(error.message.includes(script));
           assert.ok(error.message.includes(`Exit status: ${status}`));
-          assert.ok(error.message.includes(stdout));
+          assert.ok(error.message.includes(`stdout:\n${stdout}`));
           if (stderr) {
-            assert.ok(error.message.includes(stderr));
+            assert.ok(error.message.includes(`stderr:\n${stderr}`));
           }
           return true;
         }
