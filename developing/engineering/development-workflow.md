@@ -2337,6 +2337,13 @@ leave the SHA empty to select the dispatched main commit).
   rebuilds the candidate; it is not a publication-only retry. A local retry with
   the same signed bytes can reuse an already uploaded candidate. Never rebuild
   a candidate that has already been reviewed for promotion.
+- A failed candidate run preserves any built DMG, ZIP, and source receipt for
+  three days as `desktop-candidate-diagnostics-<release-sha>`. These unverified
+  diagnostic artifacts cannot supply promotion metadata; promotion still
+  requires a successful candidate run. Native verification failures report the
+  command and arguments, exit status or signal, launch error, stdout, and stderr.
+  Inspect the retained bytes without resigning or restapling them before deciding
+  whether another build is needed.
 - Complete the public-download and installed acceptance below. Then explicitly
   dispatch `operation=promote` with the same `release_sha`, successful
   `candidate_run_id`, reviewed `candidate_hash`, and `expected_version` (or

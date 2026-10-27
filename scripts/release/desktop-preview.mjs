@@ -106,20 +106,27 @@ export function buildDesktopCandidateMetadata(input) {
   return { manifest, ...desktopCandidateLocation(manifest) };
 }
 
+export function inspectDesktopCandidateCommand(command, args) {
+  const result = spawnSync(command, args, { encoding: "utf8" });
+  if (result.error || result.status !== 0) {
+    const details = [
+      `Desktop candidate verification failed: ${[command, ...args].map((argument) => JSON.stringify(argument)).join(" ")}`,
+      `Exit status: ${result.status ?? "none"}; signal: ${result.signal ?? "none"}`,
+      result.error?.message,
+      result.stdout?.trim(),
+      result.stderr?.trim(),
+    ].filter(Boolean);
+    throw new Error(details.join("\n"), { cause: result.error });
+  }
+  return (result.stdout ?? "") + (result.stderr ?? "");
+}
+
 function inspectSignedCandidate(repoRoot, artifactPath, version, zipPath) {
   const temporary = mkdtempSync(path.join(tmpdir(), "openmeld-candidate-"));
   const mount = path.join(temporary, "mount");
   mkdirSync(mount);
   let mounted = false;
-  const inspect = (command, args) => {
-    const result = spawnSync(command, args, { encoding: "utf8" });
-    if (result.status !== 0) {
-      throw new Error(
-        `Desktop candidate verification failed: ${command}: ${result.stderr}`
-      );
-    }
-    return result.stdout + result.stderr;
-  };
+  const inspect = inspectDesktopCandidateCommand;
   try {
     inspect("codesign", ["--verify", "--strict", artifactPath]);
     inspect("hdiutil", [
@@ -146,14 +153,14 @@ function inspectSignedCandidate(repoRoot, artifactPath, version, zipPath) {
         "Desktop candidate must have the production Developer ID identity."
       );
     }
-    inspect("xcrun", ["stapler", "validate", app]);
+    inspect("xcrun", ["stapler", "validate", "-v", app]);
     inspect("spctl", ["--assess", "--type", "execute", app]);
     if (zipPath) {
       const zipRoot = path.join(temporary, "zip");
       inspect("ditto", ["-x", "-k", zipPath, zipRoot]);
       const zipApp = path.join(zipRoot, "OpenMeld.app");
       inspect("codesign", ["--verify", "--deep", "--strict", zipApp]);
-      inspect("xcrun", ["stapler", "validate", zipApp]);
+      inspect("xcrun", ["stapler", "validate", "-v", zipApp]);
       const zipSignature = inspect("codesign", ["-dvvv", zipApp]);
       const digest = (value) =>
         value.split("\n").find((line) => line.startsWith("CDHash="));
