@@ -36,7 +36,7 @@ const NUMERIC_SEMVER_IDENTIFIER_RE = /^\d+$/u;
 // Execution Context 5 and saved-workspace reads require Service 0.3.251 for new
 // work once that release is available on the stable channel.
 const AUTH_FRESHNESS_MINIMUM_OPENMELD_SERVICE_VERSION = "0.3.264";
-const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.264";
+const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.273";
 const EXECUTION_CONTEXT_MINIMUM_OPENMELD_SERVICE_VERSION = "0.3.251";
 // Preserve the Project-aware runtime and shared-folder capability v4 floor
 // while receivers still project the published 0.3.250 release.

@@ -82,7 +82,7 @@ function createHarness(input: {
     delivered,
     enqueue: (sessions: TestSession[], message: string) => {
       enqueued += 1;
-      delivery.enqueue(targets(...sessions), message);
+      return delivery.enqueue(targets(...sessions), message);
     },
     settle: async () => {
       while (drains.length > 0) {
@@ -106,7 +106,7 @@ describe("Space live delivery", () => {
       authorize: () => Promise.reject(transientError),
     });
 
-    harness.enqueue([alice], "wake.progress.changed#1");
+    const receipt = harness.enqueue([alice], "wake.progress.changed#1");
     await flushMicrotasks();
 
     expect(harness.attempts.get("alice")).toBe(2);
@@ -115,6 +115,7 @@ describe("Space live delivery", () => {
       reason: "space_access_unverified",
     });
     expect(harness.delivered.get("alice")).toBeUndefined();
+    await receipt;
   });
 
   it("keeps every other session open when one access check cannot reach its evidence", async () => {
@@ -127,9 +128,12 @@ describe("Space live delivery", () => {
           : Promise.resolve("authorized"),
     });
 
-    harness.enqueue([alice, bob], "wake.progress.changed#1");
-    harness.enqueue([alice, bob], "wake.progress.changed#2");
+    const receipts = [
+      harness.enqueue([alice, bob], "wake.progress.changed#1"),
+      harness.enqueue([alice, bob], "wake.progress.changed#2"),
+    ];
     await harness.settle();
+    await Promise.all(receipts);
 
     expect(harness.delivered.get("alice")).toEqual([
       "wake.progress.changed#1",
@@ -176,8 +180,9 @@ describe("Space live delivery", () => {
         Promise.resolve(session === departed ? "denied" : "authorized"),
     });
 
-    harness.enqueue([departed, member], "space.meta.changed");
+    const receipt = harness.enqueue([departed, member], "space.meta.changed");
     await harness.settle();
+    await receipt;
 
     expect(harness.delivered.get("departed")).toBeUndefined();
     expect(harness.closed.get("departed")).toEqual({
@@ -268,5 +273,70 @@ describe("Space live delivery", () => {
     slowCheck.resolve("authorized");
     await harness.settle();
     expect(harness.delivered.get("slow")).toEqual(["signal#1", "signal#2"]);
+  });
+
+  it("settles a message receipt after its authorized delivery without waiting for later messages", async () => {
+    const session: TestSession = { name: "reader" };
+    const checks: Deferred<SpaceLiveAccessDecision>[] = [];
+    const harness = createHarness({
+      authorize: () => {
+        const check = deferred<SpaceLiveAccessDecision>();
+        checks.push(check);
+        return check.promise;
+      },
+    });
+    const settled: string[] = [];
+    const first = Promise.resolve(harness.enqueue([session], "reply#1")).then(
+      () => settled.push("reply#1")
+    );
+    const second = Promise.resolve(harness.enqueue([session], "reply#2")).then(
+      () => settled.push("reply#2")
+    );
+    await flushMicrotasks();
+    expect(settled).toEqual([]);
+
+    checks[0]?.resolve("authorized");
+    await first;
+    expect(harness.delivered.get("reader")).toEqual(["reply#1"]);
+    expect(settled).toEqual(["reply#1"]);
+
+    const third = harness.enqueue([session], "later-stream-delta");
+    checks[1]?.resolve("authorized");
+    await second;
+    expect(harness.delivered.get("reader")).toEqual(["reply#1", "reply#2"]);
+    expect(settled).toEqual(["reply#1", "reply#2"]);
+
+    checks[2]?.resolve("authorized");
+    await third;
+    await harness.settle();
+  });
+
+  it.each([
+    "inactive",
+    "send-failed",
+  ] as const)("settles the in-flight and queued receipts when the session is %s", async (outcome) => {
+    const session: TestSession = { name: "reader" };
+    const check = deferred<SpaceLiveAccessDecision>();
+    const close = vi.fn();
+    let active = true;
+    const delivery = new SpaceLiveDelivery<TestSession, string>({
+      authorize: () => check.promise,
+      close,
+      deliver: () => {
+        throw new Error("socket closed during send");
+      },
+      isActive: () => active,
+    });
+    const targets = [{ session, webSocket: {} as WebSocket }];
+    const receipts = [
+      delivery.enqueue(targets, "reply#1"),
+      delivery.enqueue(targets, "reply#2"),
+    ];
+    if (outcome === "inactive") {
+      active = false;
+    }
+    check.resolve("authorized");
+    await Promise.all(receipts);
+    expect(close).toHaveBeenCalledTimes(outcome === "inactive" ? 0 : 1);
   });
 });

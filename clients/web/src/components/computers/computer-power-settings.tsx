@@ -5,6 +5,8 @@ import {
 import type {
 	ComputerPowerRequest,
 	ComputerPowerState,
+	PeopleComputerConnection,
+	PeopleComputersResponse,
 	PeopleComputerTarget,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
@@ -20,7 +22,9 @@ import { SettingsSection } from "@openmeld/ui/components/settings-section";
 import { Switch } from "@openmeld/ui/components/switch";
 import { InfoIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { localRuntimesQueryOptions } from "#/query/connect/local-runtimes";
 
 export function ComputerPowerSettings({
 	target,
@@ -36,8 +40,29 @@ export function ComputerPowerSettings({
 		target?.deviceId,
 		target?.runtimeLane,
 	];
+	const targetKey = JSON.stringify(queryKey);
+	const inventory = useQuery(
+		localRuntimesQueryOptions({ enabled: target !== null, storageScope })
+	);
+	const connection = selectComputerPowerConnection(
+		inventory.isError ? undefined : inventory.data?.peopleComputers,
+		target
+	);
+	const selectedSession = connection.session;
+	const [disconnectedConnection, setDisconnectedConnection] = useState<{
+		targetKey: string;
+		lastHeartbeatMs: number;
+	} | null>(null);
+	// A refreshed inventory timestamp is not reconnection evidence. Resume only
+	// after this Service has supplied a newer heartbeat, or the user retries explicitly.
+	const canRead =
+		!!selectedSession &&
+		!(
+			disconnectedConnection?.targetKey === targetKey &&
+			selectedSession.lastHeartbeatMs <= disconnectedConnection.lastHeartbeatMs
+		);
 	const request = async (value: ComputerPowerRequest) => {
-		if (!target) {
+		if (!(target && selectedSession)) {
 			throw new Error("Reconnect this computer to manage sleep prevention.");
 		}
 		try {
@@ -45,13 +70,20 @@ export function ComputerPowerSettings({
 				createUnscopedWebOpenMeldApiFoundation()
 			)(target, value);
 		} catch (error) {
-			throw toStructuredApiClientFailure(error);
+			const failure = toStructuredApiClientFailure(error);
+			if (failure.upstreamCode === "computer.target_disconnected") {
+				setDisconnectedConnection({
+					targetKey,
+					lastHeartbeatMs: selectedSession.lastHeartbeatMs,
+				});
+			}
+			throw failure;
 		}
 	};
 	const query = useQuery({
 		queryKey,
 		queryFn: () => request({ operation: "read" }),
-		enabled: target !== null,
+		enabled: canRead,
 		retry: false,
 		staleTime: 0,
 		refetchOnMount: "always",
@@ -64,13 +96,39 @@ export function ComputerPowerSettings({
 			await client.cancelQueries({ queryKey });
 		},
 		onSuccess: (value) => client.setQueryData(queryKey, value),
-		onSettled: () => client.invalidateQueries({ queryKey }),
+		onSettled: (_value, error) => {
+			if (
+				toStructuredApiClientFailure(error).upstreamCode ===
+				"computer.target_disconnected"
+			) {
+				return;
+			}
+			return client.invalidateQueries({ queryKey });
+		},
 	});
+	useEffect(() => {
+		if (
+			canRead &&
+			query.isSuccess &&
+			!query.isFetching &&
+			toStructuredApiClientFailure(mutation.error).upstreamCode ===
+				"computer.target_disconnected"
+		) {
+			mutation.reset();
+		}
+	}, [
+		canRead,
+		query.isSuccess,
+		query.isFetching,
+		mutation.error,
+		mutation.reset,
+	]);
 	const value = query.data;
-	const failure = mutation.error ?? query.error;
+	const failure = mutation.error ?? query.error ?? inventory.error;
 	const message = failure ? failure.message : value?.problem;
-	const available = !!target && !query.isError && value?.supported === true;
-	const statusText = powerStatusText(target, available, value);
+	const available = canRead && !query.isError && value?.supported === true;
+	const checkingConnection = target !== null && inventory.isPending;
+	const statusText = powerStatusText(connection.status, available, value);
 	return (
 		<SettingsSection
 			id="computer-power"
@@ -120,7 +178,9 @@ export function ComputerPowerSettings({
 						/>
 					) : (
 						<span className="text-muted-foreground text-xs">
-							{target && query.isPending ? "Loading…" : "Unavailable"}
+							{checkingConnection || (canRead && query.isPending)
+								? "Loading…"
+								: "Unavailable"}
 						</span>
 					)
 				}
@@ -141,7 +201,12 @@ export function ComputerPowerSettings({
 						disabled={query.isFetching || mutation.isPending}
 						onClick={() => {
 							mutation.reset();
-							query.refetch();
+							if (selectedSession) {
+								setDisconnectedConnection(null);
+								query.refetch();
+							} else {
+								inventory.refetch();
+							}
 						}}
 						size="sm"
 						variant="outline"
@@ -154,12 +219,41 @@ export function ComputerPowerSettings({
 	);
 }
 
+function selectComputerPowerConnection(
+	inventory: PeopleComputersResponse | undefined,
+	target: PeopleComputerTarget | null
+) {
+	const computer = target
+		? inventory?.computers.find(
+				(entry) =>
+					entry.deviceId === target.deviceId ||
+					entry.legacyDeviceIds?.includes(target.deviceId) === true
+			)
+		: undefined;
+	const session =
+		computer?.connection.status === "connected"
+			? computer.connection.sessions.find(
+					(entry) =>
+						entry.deviceId === target?.deviceId &&
+						entry.runtimeLane === target.runtimeLane
+				)
+			: undefined;
+	let status: PeopleComputerConnection["status"] = "unknown";
+	if (computer && computer.connection.status !== "unknown") {
+		status = session ? "connected" : "disconnected";
+	}
+	return { status, session };
+}
+
 function powerStatusText(
-	target: PeopleComputerTarget | null,
+	connectionStatus: PeopleComputerConnection["status"],
 	available: boolean,
 	value?: ComputerPowerState
 ) {
-	if (!target) {
+	if (connectionStatus === "unknown") {
+		return null;
+	}
+	if (connectionStatus === "disconnected") {
 		return "Reconnect this computer to manage sleep prevention.";
 	}
 	if (value?.supported === false) {

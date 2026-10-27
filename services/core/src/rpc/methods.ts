@@ -47,6 +47,7 @@ import {
   addCenterAgentToSpaceBodySchema,
   addOrganizationDirectoryProfilesToSpaceBodySchema,
   agentDirectMessageSessionSelectorSchema,
+  agentExecutionReadinessResponseOptionsSchema,
   agentExecutionReadinessRouteParamsSchema,
   agentProfileBindingRouteParamsSchema,
   agentProfileBindingTargetSchema,
@@ -320,6 +321,7 @@ import {
   profileFolderIdSchema,
   profileSpaceHistoryGatewayHostSchema,
   projectOwnerComputerLocalRuntimes,
+  projectProviderConversationProofMethod,
   type ReadPluginConnectionContinuationBindingRequest,
   readPluginConnectionContinuationBindingResponseSchema,
   recordSpaceAttachmentPayloadSchema,
@@ -412,6 +414,7 @@ import type {
   AgentActivityStatsRpcInput,
   AgentControllerCollaborationMode,
   AgentControllerPermissionMode,
+  AgentExecutionReadinessResponseOptions,
   AgentExecutionReadinessTargetRuntime,
   AgentProfileBindingOpenCodePermission,
   AgentProfileBindingProjection,
@@ -1071,6 +1074,7 @@ import {
   notifyRuntimeTransportRouteCatalogChanged,
   readRuntimeTransportAgentProfileExecutionState,
   readRuntimeTransportAgentProfileOperationalContexts,
+  readRuntimeTransportAgentProfileWorkRecovery,
   readRuntimeTransportComputerFileAccessPolicy,
   readRuntimeTransportProfileFolderProjection,
   readRuntimeTransportProfileWorkspace,
@@ -3878,14 +3882,16 @@ export type ConvertDirectMessageToSpaceInput =
     context?: CoreRpcContextInput;
     spaceId: string;
   };
-export type GetAgentExecutionReadinessInput = {
-  agentProfileId: string;
-  context?: CoreRpcContextInput;
-};
-export type GetAgentExecutionReadinessBatchInput =
-  GetAgentExecutionReadinessBatchBody & {
+export type GetAgentExecutionReadinessInput =
+  AgentExecutionReadinessResponseOptions & {
+    agentProfileId: string;
     context?: CoreRpcContextInput;
   };
+export type GetAgentExecutionReadinessBatchInput =
+  GetAgentExecutionReadinessBatchBody &
+    AgentExecutionReadinessResponseOptions & {
+      context?: CoreRpcContextInput;
+    };
 type GetAgentExecutionReadinessResponseDraft = Omit<
   GetAgentExecutionReadinessResponse,
   "agentExecutionReadiness" | "routeLane"
@@ -6033,7 +6039,8 @@ export async function rpcSubmitRuntimeProviderConversationProofs(
     }
     if (
       proof.provider !== "codex" ||
-      proof.method !== "codex_app_server_thread_resume" ||
+      (proof.method !== "codex_app_server_thread_resume" &&
+        proof.method !== "codex_app_server_thread_read") ||
       proof.transportMode !== "codex-app-server" ||
       proof.intrusive !== false
     ) {
@@ -6350,14 +6357,16 @@ export async function rpcExecuteAgentProfileWorkRecovery(
     request,
     parsedBody.data
   );
-  const ownerShard = resolveRuntimeTransportOwnerShard(env, request.owner.id);
   const recovery =
     runtimeTransportAgentProfileWorkRecoveryReadResponseSchema.parse(
-      await ownerShard.rpcReadAgentProfileWorkRecovery({
+      await readRuntimeTransportAgentProfileWorkRecovery({
+        env,
         ownerUserId: request.owner.id,
+        requestId: request.context.actorContext.requestId,
         targetProfileId: request.agentProfileId,
       })
     );
+  const ownerShard = resolveRuntimeTransportOwnerShard(env, request.owner.id);
   if (recovery.status === "unavailable") {
     throw createCoreRpcHttpError({
       code: "agent_profile_work_recovery.temporarily_unavailable",
@@ -6565,8 +6574,10 @@ async function resumeUsageExhaustedAgentProfileWork(input: {
     try {
       const recovery =
         runtimeTransportAgentProfileWorkRecoveryReadResponseSchema.parse(
-          await ownerShard.rpcReadAgentProfileWorkRecovery({
+          await readRuntimeTransportAgentProfileWorkRecovery({
+            env: input.env,
             ownerUserId: input.ownerUserId,
+            requestId: input.context.actorContext.requestId,
             targetProfileId,
           })
         );
@@ -6768,8 +6779,10 @@ async function executeAgentProfileWorkContinuation(input: {
   if (input.requireAutomaticForkEligibility) {
     const current =
       runtimeTransportAgentProfileWorkRecoveryReadResponseSchema.parse(
-        await input.ownerShard.rpcReadAgentProfileWorkRecovery({
+        await readRuntimeTransportAgentProfileWorkRecovery({
+          env: input.env,
           ownerUserId: input.ownerUserId,
+          requestId: input.context.actorContext.requestId,
           targetProfileId: input.targetProfileId,
         })
       );
@@ -6989,6 +7002,7 @@ export async function rpcGetAgentProfileControllerChangeEligibility(
     agentProfileId: request.agentProfileId,
     env,
     ownerUserId: request.owner.id,
+    requestId: request.context.actorContext.requestId,
   });
 }
 // Contract: developing/architecture/agent-transport-contract.md ("Expected Routes Projection")
@@ -7341,6 +7355,7 @@ export async function rpcGetCurrentOrganizationDirectory(
     env,
     generatedAt,
     organizationId,
+    requestId,
     viewerUserId: activeOrganization.userId,
   });
   const runtimeByProfileId = new Map(
@@ -7513,6 +7528,7 @@ export async function rpcGetCurrentOrganizationAgentRuntimeOverview(
     env,
     generatedAt,
     organizationId,
+    requestId: context.actorContext.requestId,
     viewerUserId: activeOrganization.userId,
   });
   let result = response;
@@ -7686,6 +7702,7 @@ async function resolveOrganizationAgentRuntimeOverview(input: {
   env: CoreBindings;
   generatedAt: string;
   organizationId: string;
+  requestId?: string | null;
   viewerUserId: string | null;
 }): Promise<OrganizationAgentRuntimeOverviewResponse> {
   const [readinessByProfileId, operationalContextsByProfileId] =
@@ -7694,6 +7711,7 @@ async function resolveOrganizationAgentRuntimeOverview(input: {
       readOrganizationDirectoryAgentProfileOperationalContexts({
         eligibleAgentProfiles: input.eligibleAgentProfiles,
         env: input.env,
+        requestId: input.requestId,
         viewerUserId: input.viewerUserId,
       }).catch((error) => {
         console.warn(
@@ -7786,6 +7804,7 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
   env: CoreBindings;
   generatedAt: string;
   organizationId: string;
+  requestId?: string | null;
   viewerUserId: string | null;
 }): Promise<
   ReadonlyMap<
@@ -7839,12 +7858,14 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
               blockForgottenDevices: true,
               env: input.env,
               ownerUserId,
+              requestId: input.requestId,
               profileIds: profiles.map((profile) => profile.profileId),
             }),
             lookupRuntimeTransportOwnerService({
               blockForgottenDevices: true,
               env: input.env,
               ownerUserId,
+              requestId: input.requestId,
             }).catch(() => null),
           ])
         : [null, null];
@@ -7975,6 +7996,7 @@ async function readOrganizationDirectoryAgentProfileOperationalContexts(input: {
     profileId: string;
   }[];
   env: CoreBindings;
+  requestId?: string | null;
   viewerUserId: string | null;
 }): Promise<Map<string, DirectoryOperationalContextRead>> {
   const profileIdsByOwner = new Map<string, string[]>();
@@ -8001,6 +8023,7 @@ async function readOrganizationDirectoryAgentProfileOperationalContexts(input: {
             env: input.env,
             includeWorkReferences: exposeWorkReferences,
             ownerUserId,
+            requestId: input.requestId,
             targetProfileIds: targetProfileIds.slice(start, start + 100),
           });
         for (const context of response.contexts) {
@@ -20256,6 +20279,7 @@ export async function rpcGetAgentExecutionReadiness(
   return buildGetAgentExecutionReadinessResponse({
     generatedAt,
     readiness,
+    responseVersion: request.responseVersion,
   });
 }
 export async function rpcGetAgentExecutionReadinessBatch(
@@ -20295,17 +20319,20 @@ export async function rpcGetAgentExecutionReadinessBatch(
     targetRuntime: request.targetRuntime ?? null,
   });
   // One RuntimeTransport round trip for the whole batch instead of one per profile.
-  // A null prefetch (DO busy, schema drift) falls back to per-profile lookups.
+  // Invalid batch responses retain the per-profile fallback; exhausted
+  // transport failures propagate without another read per Profile.
   const preloadedRoutes = await lookupRuntimeTransportRoutesBatch({
     blockForgottenDevices: true,
     env,
     ownerUserId: request.owner.id,
     profileIds: request.agentProfileIds,
+    requestId: request.context.actorContext.requestId,
   });
   const preloadedOwnerService = await lookupRuntimeTransportOwnerService({
     blockForgottenDevices: true,
     env,
     ownerUserId: request.owner.id,
+    requestId: request.context.actorContext.requestId,
   }).catch(() => null);
   const readinessItems = await mapWithConcurrency(
     request.agentProfileIds,
@@ -20329,6 +20356,7 @@ export async function rpcGetAgentExecutionReadinessBatch(
   return buildGetAgentExecutionReadinessBatchResponse({
     generatedAt,
     readinessItems,
+    responseVersion: request.responseVersion,
   });
 }
 export async function rpcEnsureAgentProfilePrimaryBinding(
@@ -26451,10 +26479,9 @@ function assertManagedCenterAgentProfile(input: {
     code: "center_agent.profile_invalid",
   });
 }
-function requireAgentExecutionReadinessRequest(input: {
-  agentProfileId: string;
-  context?: CoreRpcContextInput;
-}): {
+function requireAgentExecutionReadinessRequest(
+  input: GetAgentExecutionReadinessInput
+): AgentExecutionReadinessResponseOptions & {
   agentProfileId: string;
   context: CoreRpcContextInput;
   owner: AgentProfileBindingOwner;
@@ -26473,6 +26500,7 @@ function requireAgentExecutionReadinessRequest(input: {
   const context = requireRpcContext(input.context);
   const ownerUserId = requireAuthenticatedOwnerUserId(context);
   return {
+    ...requireAgentExecutionReadinessResponseOptions(input),
     agentProfileId: parsedRouteParams.data.agentProfileId,
     context,
     owner: {
@@ -26483,7 +26511,7 @@ function requireAgentExecutionReadinessRequest(input: {
 }
 function requireAgentExecutionReadinessBatchRequest(
   input: GetAgentExecutionReadinessBatchInput
-): {
+): AgentExecutionReadinessResponseOptions & {
   agentProfileIds: string[];
   context: CoreRpcContextInput;
   owner: AgentProfileBindingOwner;
@@ -26507,6 +26535,7 @@ function requireAgentExecutionReadinessBatchRequest(
   const context = requireRpcContext(input.context);
   const ownerUserId = requireAuthenticatedOwnerUserId(context);
   return {
+    ...requireAgentExecutionReadinessResponseOptions(input),
     agentProfileIds: parsedBody.data.agentProfileIds,
     context,
     owner: {
@@ -26515,6 +26544,21 @@ function requireAgentExecutionReadinessBatchRequest(
     },
     targetRuntime: parsedBody.data.targetRuntime ?? null,
   };
+}
+function requireAgentExecutionReadinessResponseOptions(
+  input: AgentExecutionReadinessResponseOptions
+): AgentExecutionReadinessResponseOptions {
+  const parsed = agentExecutionReadinessResponseOptionsSchema.safeParse({
+    responseVersion: input.responseVersion,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      reason: "Unsupported Agent Execution Readiness response version.",
+      code: "invalid_payload",
+    });
+  }
+  return parsed.data;
 }
 async function resolveAgentExecutionTargetRuntimeContext(input: {
   env: CoreBindings;
@@ -26910,10 +26954,12 @@ async function resolveAgentProfileControllerChangeEligibility(input: {
   agentProfileId: string;
   env: CoreBindings;
   ownerUserId: string;
+  requestId?: string | null;
 }): Promise<GetAgentProfileControllerChangeEligibilityResponse> {
   const executionState = await readRuntimeTransportAgentProfileExecutionState({
     env: input.env,
     ownerUserId: input.ownerUserId,
+    requestId: input.requestId,
     targetProfileId: input.agentProfileId,
   });
   let response: GetAgentProfileControllerChangeEligibilityResponse;
@@ -27161,12 +27207,27 @@ function buildListAgentProfileCreationDefaultsResponse(input: {
     userId: input.userId,
   });
 }
-function buildGetAgentExecutionReadinessResponse(input: {
-  generatedAt: string;
-  readiness: CoreAgentExecutionReadiness;
-}): GetAgentExecutionReadinessResponse {
+function buildGetAgentExecutionReadinessResponse(
+  input: {
+    generatedAt: string;
+    readiness: CoreAgentExecutionReadiness;
+  } & AgentExecutionReadinessResponseOptions
+): GetAgentExecutionReadinessResponse {
+  const readiness = input.readiness.agentExecutionReadiness;
   const response = {
-    agentExecutionReadiness: input.readiness.agentExecutionReadiness,
+    agentExecutionReadiness: {
+      ...readiness,
+      facts: {
+        ...readiness.facts,
+        providerConversation: {
+          ...readiness.facts.providerConversation,
+          method: projectProviderConversationProofMethod(
+            readiness.facts.providerConversation.method,
+            input.responseVersion
+          ),
+        },
+      },
+    },
     agentWakeAvailability: resolveHttpAgentWakeAvailability(input.readiness),
     agentWakeRouteRegistration: input.readiness.agentWakeRouteRegistration,
     agentProfileId: input.readiness.agentExecutionReadiness.agentProfileId,
@@ -27582,15 +27643,18 @@ function buildAgentExecutionReadinessPrimaryActionPlan(
     }
   }
 }
-function buildGetAgentExecutionReadinessBatchResponse(input: {
-  generatedAt: string;
-  readinessItems: readonly CoreAgentExecutionReadiness[];
-}): GetAgentExecutionReadinessBatchResponse {
+function buildGetAgentExecutionReadinessBatchResponse(
+  input: {
+    generatedAt: string;
+    readinessItems: readonly CoreAgentExecutionReadiness[];
+  } & AgentExecutionReadinessResponseOptions
+): GetAgentExecutionReadinessBatchResponse {
   const response = {
     items: input.readinessItems.map((readiness) =>
       buildGetAgentExecutionReadinessResponse({
         generatedAt: input.generatedAt,
         readiness,
+        responseVersion: input.responseVersion,
       })
     ),
   } satisfies GetAgentExecutionReadinessBatchResponse;

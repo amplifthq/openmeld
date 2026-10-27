@@ -892,19 +892,26 @@ export async function verifyCodexAppServerThread(input: {
     },
     async (session) => {
       const response = await session.requestControl(
-        "thread/resume",
+        "thread/read",
         {
-          cwd: input.codexWorkdir,
-          excludeTurns: true,
+          includeTurns: false,
           threadId,
         },
         {
-          code: "context.resume_timeout",
-          operation: "thread/resume",
+          code: "context.read_timeout",
+          operation: "thread/read",
         }
       );
+      if (readThreadIdFromResponse(response) !== threadId) {
+        throw new CodexAppServerTransportError({
+          code: "context.thread_mismatch",
+          errorType: "config",
+          message:
+            "Codex returned a different thread for the conversation check.",
+        });
+      }
       return {
-        threadId: readThreadIdFromResponse(response),
+        threadId,
       };
     }
   );

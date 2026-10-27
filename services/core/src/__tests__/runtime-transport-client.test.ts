@@ -34,6 +34,7 @@ import {
   releaseRuntimeTransportAgentProfileExecutionTargetMutation,
   selectRuntimeTransportLocalFolders,
 } from "../dispatch/infrastructure/runtime-transport/runtime-transport-client";
+import { RuntimeTransportReadTimeoutError } from "../dispatch/infrastructure/runtime-transport/runtime-transport-read-retry";
 import type { CoreBindings } from "../lib/bindings";
 import { CORE_LOG_EVENTS } from "../shared/observability/log-events";
 import { createSpaceBootstrapTimingCollector } from "../space/application/space-bootstrap-timing";
@@ -1245,7 +1246,29 @@ describe("runtime transport split clients call fallback behavior", () => {
     ).rejects.toThrow("shard resolution failed");
   });
 
-  it("uses lookup timeout for owner-service lookup requests", async () => {
+  it("propagates an overloaded batch read without per-profile fallback", async () => {
+    const { env, stub } = createEnv();
+    const failure = Object.assign(new Error("Too many requests queued"), {
+      overloaded: true,
+      retryable: true,
+    });
+    stub.fetch.mockRejectedValue(failure);
+
+    await expect(
+      lookupRuntimeTransportRoutesBatch({
+        env,
+        ownerUserId: "owner",
+        profileIds: ["agent-1", "agent-2"],
+        requestId: "batch-overloaded",
+      })
+    ).rejects.toBe(failure);
+    expect(stub.fetch).toHaveBeenCalledOnce();
+    expect(stub.fetch.mock.calls[0]?.[0]).toBe(
+      "https://runtime-transport.internal/lookup-routes-batch"
+    );
+  });
+
+  it("uses one bounded lookup budget for owner-service lookup requests", async () => {
     vi.useFakeTimers();
     const warnSpy = vi
       .spyOn(console, "warn")
@@ -1266,17 +1289,20 @@ describe("runtime transport split clients call fallback behavior", () => {
       const responsePromise = lookupRuntimeTransportOwnerService({
         env,
         ownerUserId: "owner",
+        requestId: "owner-service-timeout",
       });
       const failure = expect(responsePromise).rejects.toThrow(
-        "Invalid Runtime Transport owner-Service response."
+        RuntimeTransportReadTimeoutError
       );
       await vi.advanceTimersByTimeAsync(5000);
       await failure;
       expect(warnSpy).toHaveBeenCalledWith(
-        "[core.runtime_transport_client.request_timeout]",
+        "[core.runtime_transport.read_attempt_failed]",
         expect.objectContaining({
-          event: CORE_LOG_EVENTS.runtimeTransportClientRequestTimeout,
-          path: "/lookup-owner-service",
+          event: CORE_LOG_EVENTS.runtimeTransportReadAttemptFailed,
+          operation: "/lookup-owner-service",
+          requestId: "owner-service-timeout",
+          decision: "budget_exhausted",
           timeoutMs: 5000,
         })
       );
@@ -1886,7 +1912,7 @@ describe("runtime transport split clients call fallback behavior", () => {
     });
   });
 
-  it("emits event field for timeout warning logs", async () => {
+  it("reports route lookup timeout without inventing offline evidence", async () => {
     vi.useFakeTimers();
     const warnSpy = vi
       .spyOn(console, "warn")
@@ -1909,17 +1935,17 @@ describe("runtime transport split clients call fallback behavior", () => {
         ownerUserId: "owner",
         profileId: "agent-1",
       });
+      const failure = expect(responsePromise).rejects.toThrow(
+        RuntimeTransportReadTimeoutError
+      );
       await vi.advanceTimersByTimeAsync(5000);
-      const response = await responsePromise;
-      expect(response).toEqual({
-        online: false,
-        reasonCode: "daemon.session.not_found",
-      });
+      await failure;
       expect(warnSpy).toHaveBeenCalledWith(
-        "[core.runtime_transport_client.request_timeout]",
+        "[core.runtime_transport.read_attempt_failed]",
         expect.objectContaining({
-          event: CORE_LOG_EVENTS.runtimeTransportClientRequestTimeout,
-          path: "/lookup-route",
+          event: CORE_LOG_EVENTS.runtimeTransportReadAttemptFailed,
+          operation: "/lookup-route",
+          decision: "budget_exhausted",
           timeoutMs: 5000,
         })
       );

@@ -1135,8 +1135,10 @@ export {
   updateAgentDirectMessageSessionResponseSchema,
 } from "./http/agent-direct-message-sessions";
 export {
+  AGENT_EXECUTION_READINESS_RESPONSE_VERSION_HEADER,
   agentExecutionReadinessPrimaryActionPlanSchema,
   agentExecutionReadinessPrimaryActionSchema,
+  agentExecutionReadinessResponseOptionsSchema,
   agentExecutionReadinessRouteParamsSchema,
   agentExecutionReadinessSchema,
   agentExecutionReadinessTargetRuntimeSchema,
@@ -1149,6 +1151,7 @@ export {
   getAgentExecutionReadinessBatchBodySchema,
   getAgentExecutionReadinessBatchResponseSchema,
   getAgentExecutionReadinessResponseSchema,
+  projectProviderConversationProofMethod,
   wakeRouteEvidenceSchema,
   wakeRouteStatusSchema,
 } from "./http/agent-execution-readiness";
