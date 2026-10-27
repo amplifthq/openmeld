@@ -4463,18 +4463,19 @@ export function AgentProfileConfigurationOverview(
 	input: AgentProfileConfigurationOverviewProps
 ) {
 	const editor = useAgentProfileConfigurationEditor(input);
+	const defaultSummary = input.editState ? "Default" : "Unavailable";
 	const collaboration = input.editState?.controllerCollaborationMode;
 	const collaborationSummary = collaboration
 		? (collaboration.options.find(
 				(option) => option.value === collaboration.value
 			)?.label ?? "Default")
-		: "Default";
+		: defaultSummary;
 	const permissionMode = input.editState?.controllerPermissionMode;
 	const permissionSummary = permissionMode?.value
 		? getAgentControllerPermissionModeDisplayMetadata(permissionMode.value, {
 				agentControllerRef: permissionMode.agentControllerRef,
 			}).label
-		: "Default";
+		: defaultSummary;
 	const owner = resolveProfileDetailsValue(input.details, "owner") ?? "You";
 	const ownerProfileId = input.ownerProfileId ?? owner;
 	const workingFolderNeedsAttention =
@@ -4769,18 +4770,19 @@ function AgentProfileModelConfigurationCard(input: {
 		(entry) => entry.id === selection?.modelId
 	);
 	// What a new chat uses; the hosted summary already names its model.
-	const cardValue = isHostedAgentControllerRef(props.agentControllerRef)
-		? null
-		: resolveAgentProfileModelCardValue({
-				agentControllerRef: props.agentControllerRef ?? null,
-				modelCatalog: props.modelCatalog,
-				modelSelection: selection
-					? {
-							modelId: selection.modelId,
-							reasoningLevel: selection.reasoningLevel || undefined,
-						}
-					: null,
-			});
+	const cardValue =
+		props.editState && !isHostedAgentControllerRef(props.agentControllerRef)
+			? resolveAgentProfileModelCardValue({
+					agentControllerRef: props.agentControllerRef ?? null,
+					modelCatalog: props.modelCatalog,
+					modelSelection: selection
+						? {
+								modelId: selection.modelId,
+								reasoningLevel: selection.reasoningLevel || undefined,
+							}
+						: null,
+				})
+			: null;
 	const retirement = resolveModelRetirementDisplay(
 		model,
 		props.modelCompatibilityContext

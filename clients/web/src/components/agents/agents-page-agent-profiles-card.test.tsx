@@ -396,6 +396,15 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				.textContent
 		).toContain("Chat with Research Agent");
 		expect(screen.getByRole("button", { name: "Edit Name" })).toBeTruthy();
+		await waitFor(() => {
+			expect(
+				screen.getByRole("button", { name: "Edit Model" }).textContent
+			).toContain("GPT-5.5");
+		});
+		expect(
+			screen.getByRole("button", { name: "Edit Collaboration mode" })
+				.textContent
+		).toContain("Default");
 		fireEvent.click(
 			screen.getByRole("button", { name: "Agent options for Research Agent" })
 		);
@@ -3797,7 +3806,23 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(
 			(await screen.findAllByText("Model unavailable")).length
 		).toBeGreaterThan(0);
-		expect(screen.queryByText("GPT-5.6 Sol")).toBeNull();
+		const configuration = within(
+			screen.getByTestId("agent-configuration-overview")
+		);
+		await waitFor(() => {
+			expect(configuration.getByText("Model unavailable")).toBeTruthy();
+			expect(
+				configuration.getAllByText("Unavailable", { exact: true })
+			).toHaveLength(2);
+		});
+		expect(configuration.queryByText("GPT-5.5")).toBeNull();
+		expect(configuration.queryByText("Default", { exact: true })).toBeNull();
+		expect(
+			configuration.queryByRole("button", { name: "Edit Model" })
+		).toBeNull();
+		expect(
+			configuration.queryByRole("button", { name: "Edit Permissions" })
+		).toBeNull();
 		if (status === "missing") {
 			expect(
 				screen.queryByRole("button", { name: "Retry settings" })
@@ -3811,12 +3836,25 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			screen.getByText("OpenMeld could not load this Agent’s settings.")
 		).toBeTruthy();
 		readPrimaryBindingMock.mockResolvedValue(
-			createPrimaryBindingResponse("codex:askForApproval")
+			createPrimaryBindingResponse("codex:askForApproval", "builtin:codex", {
+				modelId: "gpt-5.5",
+				reasoningLevel: "high",
+			})
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Retry settings" }));
 		expect(
 			await screen.findByRole("button", { name: "Edit Permissions" })
 		).toBeTruthy();
+		expect(
+			configuration.getByRole("button", { name: "Edit Model" }).textContent
+		).toContain("GPT-5.5 · High");
+		expect(
+			configuration.getByRole("button", { name: "Edit Permissions" })
+				.textContent
+		).toContain("Ask for approval");
+		expect(
+			configuration.queryByText("Unavailable", { exact: true })
+		).toBeNull();
 		expect(
 			screen.queryByText("OpenMeld could not load this Agent’s settings.")
 		).toBeNull();
