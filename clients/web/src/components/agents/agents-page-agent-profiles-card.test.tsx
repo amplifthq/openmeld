@@ -1,3 +1,4 @@
+import { getAgentProfilePrimaryBindingResponseSchema } from "@openmeld/schemas/schemas";
 import type {
 	AuthProfileView,
 	GetAgentExecutionReadinessResponse,
@@ -3735,8 +3736,44 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBeNull();
 	});
 
-	it("offers a retry instead of a catalog default when saved settings cannot be read", async () => {
-		readPrimaryBindingMock.mockRejectedValue(new Error("Settings unavailable"));
+	it.each([
+		"request_error",
+		"unavailable",
+		"missing",
+	] as const)("handles %s settings reads with recovery only for failures", async (status) => {
+		if (status === "request_error") {
+			readPrimaryBindingMock.mockRejectedValue(
+				new Error("Settings unavailable")
+			);
+		} else {
+			// Core returns an unavailable projection when the Auth owner lookup fails.
+			const reasonCodes = [
+				status === "unavailable"
+					? "agent_profile_binding.profile_owner_unavailable"
+					: "agent_profile_binding.missing",
+			];
+			readPrimaryBindingMock.mockResolvedValue(
+				getAgentProfilePrimaryBindingResponseSchema.parse({
+					binding: {
+						agentProfileId: AGENT_PROFILE_ID,
+						authoritySource: "none",
+						bindingState: "missing",
+						dispatchEligibility: {
+							reasonCodes,
+							routable: false,
+							status: "not_routable",
+						},
+						grantsClaimSuccess: false,
+						reasonCodes,
+						resolutionSource: "missing_projection",
+						routable: false,
+						executionTarget: null,
+					},
+					grantsClaimSuccess: false,
+					status,
+				})
+			);
+		}
 		const binding = createPrimaryBindingResponse("codex:approveForMe").binding;
 		const readiness = {
 			...createReadinessResponseWithPrimaryBinding(binding),
@@ -3761,6 +3798,18 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			(await screen.findAllByText("Model unavailable")).length
 		).toBeGreaterThan(0);
 		expect(screen.queryByText("GPT-5.6 Sol")).toBeNull();
+		if (status === "missing") {
+			expect(
+				screen.queryByRole("button", { name: "Retry settings" })
+			).toBeNull();
+			expect(
+				screen.queryByText("OpenMeld could not load this Agent’s settings.")
+			).toBeNull();
+			return;
+		}
+		expect(
+			screen.getByText("OpenMeld could not load this Agent’s settings.")
+		).toBeTruthy();
 		readPrimaryBindingMock.mockResolvedValue(
 			createPrimaryBindingResponse("codex:askForApproval")
 		);
