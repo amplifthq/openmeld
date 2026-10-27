@@ -657,9 +657,10 @@ it.each([
 	"ordinary",
 	"embedded",
 	"reconnect",
+	"service-update",
 	"stopped",
 	"account-mismatch",
-] as const)("shows the confirmed connection in the %s flow without offering first-time setup", async (flow) => {
+] as const)("shows the appropriate connection actions in the %s flow", async (flow) => {
 	state.localComputer.mockResolvedValue({
 		...availableComputer(),
 		accountId: flow === "account-mismatch" ? "account-b" : "account-a",
@@ -667,6 +668,10 @@ it.each([
 	state.coreConnectionStatus =
 		flow === "stopped" ? "disconnected" : "connected";
 	state.routeIntent.resetThisComputer = flow === "reconnect";
+	if (flow === "service-update") {
+		state.updateAvailable = true;
+		state.routeIntent.serviceAction = "update_service";
+	}
 	const onCompleted = vi.fn();
 	renderConnection(
 		<DesktopComputerConnection
@@ -678,7 +683,7 @@ it.each([
 	if (flow === "stopped" || flow === "account-mismatch") {
 		await screen.findByRole("button", { name: "Connect this Mac" });
 		expect(
-			screen.queryByRole("button", { name: "Connect an Agent" })
+			screen.queryByRole("button", { name: "Create an Agent" })
 		).toBeNull();
 		expect(screen.queryByText("Connected")).toBeNull();
 		expect(
@@ -690,13 +695,28 @@ it.each([
 		ordinary: "Disconnect this Mac",
 		embedded: "Continue",
 		reconnect: "Reconnect this Mac",
+		"service-update": "Update OpenMeld Tools",
 	}[flow];
 	const button = await screen.findByRole("button", { name: label });
-	expect(screen.getByText("Connected")).toBeTruthy();
+	if (flow === "service-update") {
+		await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
+	} else {
+		expect(screen.getByText("Connected")).toBeTruthy();
+	}
 	expect(screen.queryByRole("button", { name: "Connect this Mac" })).toBeNull();
 	expect(state.connect).not.toHaveBeenCalled();
 	if (flow === "ordinary") {
-		fireEvent.click(screen.getByRole("button", { name: "Connect an Agent" }));
+		expect(
+			screen.queryByText("You don’t need to connect it again.", {
+				exact: false,
+			})
+		).toBeNull();
+		expect(
+			screen.getByText(
+				"This Mac is connected to OpenMeld. Choose a local Agent to create your Agent Profile."
+			)
+		).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Create an Agent" }));
 		await waitFor(() =>
 			expect(state.navigate).toHaveBeenCalledWith({ to: "/o/org-a/new-agent" })
 		);
@@ -705,16 +725,41 @@ it.each([
 		expect(state.disconnect).not.toHaveBeenCalled();
 	} else {
 		expect(
-			screen.queryByRole("button", { name: "Connect an Agent" })
+			screen.queryByRole("button", { name: "Create an Agent" })
 		).toBeNull();
 	}
 	if (flow === "embedded") {
+		expect(
+			screen.getByText(
+				"This Mac is connected to OpenMeld. You don’t need to connect it again."
+			)
+		).toBeTruthy();
 		fireEvent.click(button);
 		await waitFor(() =>
 			expect(onCompleted).toHaveBeenCalledWith(availableComputer().target)
 		);
 		expect(state.connect).not.toHaveBeenCalled();
 	}
+});
+
+it("shows an Agent setup navigation failure and lets the user retry", async () => {
+	state.localComputer.mockResolvedValue(availableComputer());
+	state.navigate.mockRejectedValueOnce(new Error("Navigation failed"));
+	renderConnection(
+		<DesktopComputerConnection allowDisconnect orgSlug="org-a" />
+	);
+	const button = await screen.findByRole("button", { name: "Create an Agent" });
+	fireEvent.click(button);
+	expect((await screen.findByRole("alert")).textContent).toBe(
+		"Couldn’t open Agent setup. Try again."
+	);
+	fireEvent.click(button);
+	await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+	expect(state.navigate).toHaveBeenLastCalledWith({ to: "/o/org-a/new-agent" });
+	expect(state.navigate).toHaveBeenCalledTimes(2);
+	expect(state.connect).not.toHaveBeenCalled();
+	expect(state.disconnect).not.toHaveBeenCalled();
+	expect(state.openWeb).not.toHaveBeenCalled();
 });
 
 it("offers Agent setup after connection settles without starting another native operation", async () => {
@@ -735,12 +780,12 @@ it("offers Agent setup after connection settles without starting another native 
 	await waitFor(() => expect(connect.hasAttribute("disabled")).toBe(false));
 	fireEvent.click(connect);
 	await screen.findByRole("button", { name: "Connecting…" });
-	expect(screen.queryByRole("button", { name: "Connect an Agent" })).toBeNull();
+	expect(screen.queryByRole("button", { name: "Create an Agent" })).toBeNull();
 	await act(() =>
 		result.resolve({ status: "reused", connection: availableComputer().target })
 	);
 	fireEvent.click(
-		await screen.findByRole("button", { name: "Connect an Agent" })
+		await screen.findByRole("button", { name: "Create an Agent" })
 	);
 	await waitFor(() =>
 		expect(state.navigate).toHaveBeenCalledWith({ to: "/o/org-a/new-agent" })
@@ -837,10 +882,14 @@ it("reports real Disconnect stages, refuses duplicate requests and keeps the out
 });
 
 it.each([
-	"connection_changed",
-	"failed",
-	"unconfirmed",
-] as const)("shows a %s Disconnect result with diagnostics and requires a read before another mutation", async (status) => {
+	{ status: "connection_changed", staysConnected: false },
+	{ status: "failed", staysConnected: false },
+	{ status: "unconfirmed", staysConnected: false },
+	{ status: "unconfirmed", staysConnected: true },
+] as const)("checks a $status Disconnect result with diagnostics (still connected: $staysConnected)", async ({
+	status,
+	staysConnected,
+}) => {
 	state.feedbackAvailable = true;
 	state.localComputer.mockResolvedValue(availableComputer());
 	state.disconnectWithFeedback.mockResolvedValue({
@@ -850,7 +899,9 @@ it.each([
 		diagnosticId: "operation-diagnostic-a",
 		diagnosticsPath: "/test-owned/computer-operation/diagnostics.json",
 	});
-	renderConnection(<DesktopComputerConnection allowDisconnect />);
+	renderConnection(
+		<DesktopComputerConnection allowDisconnect orgSlug="org-a" />
+	);
 	fireEvent.click(
 		await screen.findByRole("button", { name: "Disconnect this Mac" })
 	);
@@ -858,6 +909,7 @@ it.each([
 		await screen.findByText("Check the connection before trying again.")
 	).toBeTruthy();
 	expect(screen.getByText("Connection unconfirmed")).toBeTruthy();
+	expect(screen.queryByRole("button", { name: "Create an Agent" })).toBeNull();
 	expect(screen.getByText(`desktop.disconnect.${status}`)).toBeTruthy();
 	expect(screen.getByText("operation-diagnostic-a")).toBeTruthy();
 	expect(
@@ -876,16 +928,33 @@ it.each([
 		)
 	).toBeNull();
 	expect(state.localComputer).toHaveBeenCalledOnce();
-	state.localComputer.mockResolvedValue({
-		status: "unavailable",
-		message: "No confirmed connection.",
-	});
+	state.localComputer.mockResolvedValue(
+		staysConnected
+			? availableComputer()
+			: { status: "unavailable", message: "No confirmed connection." }
+	);
 	fireEvent.click(screen.getByRole("button", { name: "Check connection" }));
 	await waitFor(() =>
 		expect(
-			screen.getByRole("button", { name: "Try again" }).hasAttribute("disabled")
+			screen
+				.getByRole("button", {
+					name: staysConnected ? "Disconnect this Mac" : "Try again",
+				})
+				.hasAttribute("disabled")
 		).toBe(false)
 	);
+	if (staysConnected) {
+		expect(screen.getByText("Connected")).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Create an Agent" }));
+		await waitFor(() =>
+			expect(state.navigate).toHaveBeenCalledWith({ to: "/o/org-a/new-agent" })
+		);
+		expect(screen.getByText("operation-diagnostic-a")).toBeTruthy();
+	} else {
+		expect(
+			screen.queryByRole("button", { name: "Create an Agent" })
+		).toBeNull();
+	}
 	expect(state.disconnectWithFeedback).toHaveBeenCalledOnce();
 	expect(state.connect).not.toHaveBeenCalled();
 });
