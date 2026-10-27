@@ -6,8 +6,11 @@ areas: ["desktop", "agents"]
 audiences: ["users"]
 ---
 
-After your Mac's connection is confirmed, the Desktop connection page offers
+After your Mac's connection check finishes and confirms the connection, the
+Desktop connection page offers
 **Create an Agent** as the next step. It opens Agent setup inside the app with
 **Choose a Local Agent** selected, so you can choose a Computer and local Agent
 without looking for another setup entry. Connection management and the optional
-Web progress link remain available.
+Web progress link remain available. If a Disconnect result is unconfirmed,
+checking the connection restores this next step once the Mac is confirmed
+connected again.

@@ -761,6 +761,16 @@ function useComputerConnection(input: ComputerConnectionProps) {
 		disconnect,
 		connected,
 		canDisconnect,
+		showCreateAgentNextStep: Boolean(
+			input.orgSlug &&
+				connected &&
+				canDisconnect &&
+				!pending &&
+				!needsCheck &&
+				!refreshWarning &&
+				!connection.isFetching &&
+				!connection.isError
+		),
 		requiresConnection,
 		pending,
 		operation,
@@ -947,16 +957,16 @@ function nativeConnectionDescription(
 		| "connection"
 		| "pending"
 		| "updateService"
-		| "canDisconnect"
+		| "showCreateAgentNextStep"
 	>
 ) {
 	if (state.updateService) {
 		return "Install the latest OpenMeld Tools and verify the background Service before continuing.";
 	}
+	if (state.showCreateAgentNextStep) {
+		return "This Mac is connected to OpenMeld. Choose a local Agent to create your Agent Profile.";
+	}
 	if (state.connected) {
-		if (state.canDisconnect) {
-			return "This Mac is connected to OpenMeld. Choose a local Agent to use here.";
-		}
 		return state.requiresConnection
 			? "This Mac is connected to OpenMeld. Reconnect to refresh its connection."
 			: "This Mac is connected to OpenMeld. You don’t need to connect it again.";
@@ -991,6 +1001,7 @@ function NativeComputerConnection(input: ComputerConnectionProps) {
 		diagnosticCode,
 		checkConnection,
 		checking,
+		showCreateAgentNextStep,
 	} = state;
 	const disconnectFeedbackAvailable = Boolean(
 		getDesktopPlatform()?.disconnectComputerWithFeedback
@@ -1015,14 +1026,7 @@ function NativeComputerConnection(input: ComputerConnectionProps) {
 	if (needsCheck) {
 		title = "Connection unconfirmed";
 	}
-	const description = nativeConnectionDescription({
-		updateService,
-		connected,
-		requiresConnection,
-		connection,
-		pending,
-		canDisconnect,
-	});
+	const description = nativeConnectionDescription(state);
 	const disconnectAction = connected && canDisconnect;
 	const observeInWebPath = buildObserveConnectionProgressPath({
 		orgSlug: input.orgSlug,
@@ -1054,7 +1058,10 @@ function NativeComputerConnection(input: ComputerConnectionProps) {
 					Check connection
 				</Button>
 			) : null}
-			<ConnectAgentNextStep orgSlug={input.orgSlug} state={state} />
+			<CreateAgentNextStep
+				orgSlug={input.orgSlug}
+				show={showCreateAgentNextStep}
+			/>
 			<Button
 				disabled={disabled}
 				onClick={disconnectAction ? disconnect : connect}
@@ -1087,23 +1094,16 @@ function NativeComputerConnection(input: ComputerConnectionProps) {
 	);
 }
 
-function ConnectAgentNextStep({
+function CreateAgentNextStep({
 	orgSlug,
-	state,
+	show,
 }: {
 	orgSlug?: string;
-	state: ReturnType<typeof useComputerConnection>;
+	show: boolean;
 }) {
 	const navigate = useNavigate();
 	const [error, setError] = useState<string | null>(null);
-	if (
-		!(orgSlug && state.connected && state.canDisconnect) ||
-		state.pending ||
-		state.disabled ||
-		state.needsCheck ||
-		state.connection.isError ||
-		state.refreshWarning
-	) {
+	if (!(show && orgSlug)) {
 		return null;
 	}
 	return (

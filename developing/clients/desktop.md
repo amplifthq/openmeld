@@ -533,10 +533,16 @@ Connected and a primary **Create an Agent** action. It opens the shared New Agen
 page inside Desktop, where **Choose a Local Agent** is selected by default and
 the existing Computer and local-agent selection owns the eventual Binding.
 It does not create or connect an Agent merely by opening the page. Disconnect
-this Mac and the optional Web progress link remain secondary actions. Pending,
-failed, stale/unconfirmed, or account-mismatched connection states do not offer
-this next step; embedded recovery and explicit reconnect/update keep their
-existing completion actions. The account menu's Computer entry
+this Mac and the optional Web progress link remain secondary actions. The
+confirmed standalone state describes Agent creation as the next step; embedded
+Continue retains its existing connection reassurance. Connection reads in progress,
+including background checks of cached connections, withhold the next step.
+Pending operations, stale/unconfirmed connections, failed connection reads,
+connection refresh warnings, or account-mismatched connection states do not
+offer this next step. A successful Check connection that confirms this Mac restores
+the action even when a previous Disconnect failed; its diagnostic context remains
+available. Embedded recovery and explicit reconnect/update keep their existing
+completion actions. The account menu's Computer entry
 opens the native account-aligned device's Computer details when connected, and
 the connection page when no local connection is available. A browser-selected
 remote Computer never replaces native device identity for this entry. The
