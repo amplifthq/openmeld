@@ -3299,19 +3299,30 @@ function resolveCommandApprovalDecisions(
   params: Record<string, unknown>
 ): unknown[] {
   // An explicit list is authoritative, including an empty/restricted list.
-  if (Array.isArray(params.availableDecisions)) {
-    return params.availableDecisions;
-  }
   const amendment = readExecpolicyAmendment(params.proposedExecpolicyAmendment);
-  return [
-    "accept",
-    "acceptForSession",
-    ...(amendment
-      ? [{ acceptWithExecpolicyAmendment: { execpolicy_amendment: amendment } }]
-      : []),
-    "decline",
-    "cancel",
-  ];
+  const decisions = Array.isArray(params.availableDecisions)
+    ? params.availableDecisions
+    : [
+        "accept",
+        "acceptForSession",
+        ...(amendment
+          ? [
+              {
+                acceptWithExecpolicyAmendment: {
+                  execpolicy_amendment: amendment,
+                },
+              },
+            ]
+          : []),
+        "decline",
+        "cancel",
+      ];
+  // A reusable grant requires the complete rule to fit in its disclosure.
+  return readCommandApprovalRuleScope(decisions).length > 2400
+    ? decisions.filter(
+        (decision) => !toRecord(decision)?.acceptWithExecpolicyAmendment
+      )
+    : decisions;
 }
 
 function readExecpolicyAmendment(value: unknown): string[] | null {
@@ -3324,28 +3335,29 @@ function readExecpolicyAmendment(value: unknown): string[] | null {
     : null;
 }
 
+function readCommandApprovalRuleScope(decisions: unknown[]): string {
+  return decisions
+    .flatMap((decision) => {
+      const amendment = readExecpolicyAmendment(
+        toRecord(toRecord(decision)?.acceptWithExecpolicyAmendment)
+          ?.execpolicy_amendment
+      );
+      return amendment ? [JSON.stringify(amendment)] : [];
+    })
+    .join("; ");
+}
+
 function describeCommandApproval(
   reason: unknown,
   decisions: unknown[]
 ): string | null {
-  const prefixes = decisions.flatMap((decision) => {
-    const amendment = readExecpolicyAmendment(
-      toRecord(toRecord(decision)?.acceptWithExecpolicyAmendment)
-        ?.execpolicy_amendment
-    );
-    return amendment ? [JSON.stringify(amendment)] : [];
-  });
-  if (prefixes.length === 0) {
+  const scope = readCommandApprovalRuleScope(decisions);
+  if (!scope) {
     return normalizeBoundedText(reason, 4000);
   }
-  const scope = prefixes.join("; ");
-  const preview =
-    scope.length <= 2400
-      ? scope
-      : `${scope.slice(0, 2400)}… (prefix preview truncated)`;
   return [
     normalizeBoundedText(reason, 1000),
-    `Allow matching commands asks Codex to save the exact command prefix: ${preview}. It does not cover every command with a similar purpose; other prefixes or stricter policies may still need approval.`,
+    `Allow matching commands asks Codex to save the exact command prefix: ${scope}. It does not cover every command with a similar purpose; other prefixes or stricter policies may still need approval.`,
   ]
     .filter(Boolean)
     .join("\n\n");

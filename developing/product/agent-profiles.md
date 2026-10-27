@@ -977,6 +977,9 @@ prefix. When Codex omits its optional decision list, its explicit proposed
 execpolicy amendment supplies the reusable choice. A supplied decision list,
 including an empty one, remains authoritative. Native Codex policy owns saving
 and evaluating these rules across requests and sessions.
+Reusable command-prefix choices are withheld when their complete combined rule
+description cannot fit within the bounded request. Other native decisions remain
+available; OpenMeld never asks the owner to save a rule from a truncated preview.
 
 When the owner chooses both on a request that supports permission-mode updates,
 OpenMeld saves the Binding mode and includes its canonical reference with the

@@ -3086,6 +3086,26 @@ for (const scenario of [
     select: "allow_once",
     noRule: true,
   },
+  {
+    name: "one-time decisions when the proposed rule cannot be fully shown",
+    proposal: ["git", "a".repeat(4000)],
+    select: "allow_once",
+    noRule: true,
+  },
+  {
+    name: "one-time decisions when explicit rule descriptions exceed the limit",
+    decisions: [
+      "accept",
+      ...["a", "b"].map((token) => ({
+        acceptWithExecpolicyAmendment: {
+          execpolicy_amendment: ["git", token.repeat(2000)],
+        },
+      })),
+      "decline",
+    ],
+    select: "allow_once",
+    noRule: true,
+  },
 ]) {
   test(`codex command approval preserves ${scenario.name}`, async () => {
     const { invokeCodexAppServerTransport } = await import("../dist/index.js");
