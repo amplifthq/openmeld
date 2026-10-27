@@ -706,7 +706,10 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBeNull();
 	});
 
-	it("shows a neutral cold Wakeability check without a recovery CTA", () => {
+	it("loads editable settings while a cold Wakeability check remains pending", async () => {
+		readPrimaryBindingMock.mockResolvedValue(
+			createPrimaryBindingResponse("codex:askForApproval")
+		);
 		renderAgentProfilesCard(
 			{
 				agentExecutionReadinessByProfileId: new Map(),
@@ -719,6 +722,12 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		const presence = screen.getByRole("status", {
 			name: "Loading Agent availability",
 		});
+		const editPermissions = await screen.findByRole("button", {
+			name: "Edit Permissions",
+		});
+		expect(
+			screen.getByRole("status", { name: "Loading Agent availability" })
+		).toBe(presence);
 		expect(presence.querySelector('[data-slot="skeleton"]')).toBeTruthy();
 		expect(within(presence).queryByText("Available")).toBeNull();
 		expect(
@@ -731,6 +740,10 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				name: "Connect local agent",
 			})
 		).toBeNull();
+		fireEvent.click(editPermissions);
+		expect(
+			screen.getByRole("combobox", { name: PERMISSIONS_MODE_NAME_PATTERN })
+		).toBeTruthy();
 	});
 
 	it("keeps cached Available Wakeability while Activity is Working and refreshes", () => {
@@ -3722,7 +3735,8 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBeNull();
 	});
 
-	it("does not show a catalog default when the saved model cannot be confirmed", () => {
+	it("offers a retry instead of a catalog default when saved settings cannot be read", async () => {
+		readPrimaryBindingMock.mockRejectedValue(new Error("Settings unavailable"));
 		const binding = createPrimaryBindingResponse("codex:approveForMe").binding;
 		const readiness = {
 			...createReadinessResponseWithPrimaryBinding(binding),
@@ -3743,8 +3757,20 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				presentation: "detail",
 			}
 		);
-		expect(screen.getAllByText("Model unavailable").length).toBeGreaterThan(0);
+		expect(
+			(await screen.findAllByText("Model unavailable")).length
+		).toBeGreaterThan(0);
 		expect(screen.queryByText("GPT-5.6 Sol")).toBeNull();
+		readPrimaryBindingMock.mockResolvedValue(
+			createPrimaryBindingResponse("codex:askForApproval")
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Retry settings" }));
+		expect(
+			await screen.findByRole("button", { name: "Edit Permissions" })
+		).toBeTruthy();
+		expect(
+			screen.queryByText("OpenMeld could not load this Agent’s settings.")
+		).toBeNull();
 	});
 
 	it("keeps self-healing readiness active without rendering controller UI", async () => {
