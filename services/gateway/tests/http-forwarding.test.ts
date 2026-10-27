@@ -9,6 +9,9 @@ import {
   createDaemonRouteObservationSummary,
   DB_FACT_SCHEMA_VERSION,
   type DbDiagnosticsPayload,
+  getAgentExecutionReadinessResponseSchema,
+  organizationAgentRuntimeOverviewResponseSchema,
+  organizationDirectoryResponseSchema,
   organizationProfileDirectoryResponseSchema,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_ERROR_CODE,
 } from "@openmeld/schemas";
@@ -25,6 +28,7 @@ type CoreRpcMock = {
   inspectDbState: ReturnType<typeof vi.fn>;
   inspectDispatchStorageReadiness: ReturnType<typeof vi.fn>;
   createSpace: ReturnType<typeof vi.fn>;
+  centerAgentGetOrganizationDirectory: ReturnType<typeof vi.fn>;
   getCurrentOrganizationAgentRuntimeOverview: ReturnType<typeof vi.fn>;
   getCurrentOrganizationDirectory: ReturnType<typeof vi.fn>;
   getCurrentOrganizationProfileDirectory: ReturnType<typeof vi.fn>;
@@ -442,6 +446,7 @@ function makeEnv(input?: {
       checkedAt: "2026-04-07T00:00:00.000Z",
     })),
     createSpace: vi.fn(async () => ({ spaceId: "from-core-space-id" })),
+    centerAgentGetOrganizationDirectory: vi.fn(),
     getCurrentOrganizationAgentRuntimeOverview: vi.fn(async () => ({
       organizationId: "org-1",
       generatedAt: "2026-07-04T00:00:00.000Z",
@@ -1090,6 +1095,8 @@ function makeEnv(input?: {
       inspectDbState: rpc.inspectDbState,
       inspectDispatchStorageReadiness: rpc.inspectDispatchStorageReadiness,
       createSpace: rpc.createSpace,
+      centerAgentGetOrganizationDirectory:
+        rpc.centerAgentGetOrganizationDirectory,
       getCurrentOrganizationAgentRuntimeOverview:
         rpc.getCurrentOrganizationAgentRuntimeOverview,
       getCurrentOrganizationDirectory: rpc.getCurrentOrganizationDirectory,
@@ -1626,20 +1633,140 @@ describe("gateway http forwarding", () => {
     expect(response.headers.get("x-openmeld-request-id")).toBeTruthy();
   });
 
-  it("forwards GET /v1/organizations/current/directory to core RPC", async () => {
+  it.each([
+    {
+      route: "/v1/organizations/current/directory",
+      method: "getCurrentOrganizationDirectory" as const,
+    },
+    {
+      route: "/v1/organizations/current/agent-runtime-overview",
+      method: "getCurrentOrganizationAgentRuntimeOverview" as const,
+    },
+    {
+      route: "/v1/organizations/current/center-agent/directory",
+      method: "centerAgentGetOrganizationDirectory" as const,
+    },
+  ])("preserves legacy readiness and opt-in public reasons on $route", async ({
+    route,
+    method,
+  }) => {
     const { env, rpc } = makeEnv();
-    const request = new Request(
-      "http://local/v1/organizations/current/directory"
-    );
-
-    const response = await app.fetch(request, env, TEST_EXECUTION_CONTEXT);
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      organizationId: "org-1",
-      members: [],
-      agentProfiles: [],
+    const generatedAt = "2026-10-27T00:00:00.000Z";
+    const agentProfiles = [
+      {
+        profileId: VALID_CONTROLLER_AGENT_PROFILE_ID,
+        publicWakeabilityReason: { code: "computer_offline" as const },
+      },
+      {
+        profileId: VALID_VISITED_AGENT_PROFILE_ID,
+        publicWakeabilityReason: null,
+      },
+    ].map(({ profileId, publicWakeabilityReason }) => {
+      const member = buildOfflineAgentMemberSnapshot({
+        profileId,
+        profileName: "Agent",
+        agentControllerRef: "builtin:codex",
+        ownerName: "Mira",
+      });
+      return {
+        organizationId: "org-1",
+        profileId,
+        profileName: member.profileName,
+        profileHandle: profileId,
+        profileKind: "agent" as const,
+        isDefault: false as const,
+        status: "active" as const,
+        ownerUserId: member.ownerUserId,
+        source: "cli_create",
+        managedRole: null,
+        createdByUserId: member.ownerUserId,
+        creatorProfileId: null,
+        lastUsedAt: null,
+        createdAt: generatedAt,
+        updatedAt: generatedAt,
+        readiness: getAgentExecutionReadinessResponseSchema.parse({
+          agentProfileId: profileId,
+          agentControllerRef: member.agentControllerRef,
+          agentExecutionReadiness:
+            member.ownerWakeDiagnostics.agentExecutionReadiness,
+          agentWakeAvailability: member.agentWakeAvailability,
+          agentWakeRouteRegistration:
+            member.ownerWakeDiagnostics.agentWakeRouteRegistration,
+          generatedAt,
+          ownerUserId: member.ownerUserId,
+          primaryActionPlan: {
+            action: "check_status",
+            target: { kind: "status" },
+          },
+          profileName: member.profileName,
+          publicWakeabilityReason,
+          routeDeviceId: null,
+          routeLane: null,
+          runtimeDeviceDisplayName: null,
+          wakeRouteEvidence: member.ownerWakeDiagnostics.wakeRouteEvidence,
+          wakeRouteStatus: member.ownerWakeDiagnostics.wakeRouteStatus,
+        }),
+      };
     });
-    expect(rpc.getCurrentOrganizationDirectory).toHaveBeenCalledWith({
+    const runtimeOverview =
+      method === "getCurrentOrganizationAgentRuntimeOverview";
+    const responseSchema = runtimeOverview
+      ? organizationAgentRuntimeOverviewResponseSchema
+      : organizationDirectoryResponseSchema;
+    const canonical = responseSchema.parse({
+      organizationId: "org-1",
+      generatedAt,
+      ...(runtimeOverview ? {} : { members: [] }),
+      agentProfiles: runtimeOverview
+        ? agentProfiles.map(({ profileId, readiness }) => ({
+            profileId,
+            readiness,
+          }))
+        : agentProfiles,
+    });
+    rpc[method].mockResolvedValue(canonical);
+    // Desktop 0.1.38 predates this strict response field.
+    const legacyReadinessSchema = getAgentExecutionReadinessResponseSchema.omit(
+      {
+        publicWakeabilityReason: true,
+      }
+    );
+    const expectedReadiness = agentProfiles.map(({ readiness }) => readiness);
+
+    for (const option of [undefined, "false", "unknown", "true"]) {
+      const url = new URL(route, "http://local");
+      if (option !== undefined) {
+        url.searchParams.set("includePublicWakeabilityReason", option);
+      }
+      const response = await app.fetch(
+        new Request(url),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(200);
+      const body = responseSchema.parse(await response.json());
+      expect(body).toMatchObject({
+        organizationId: "org-1",
+        ...(runtimeOverview ? {} : { members: [] }),
+      });
+      expect(body.agentProfiles).toHaveLength(agentProfiles.length);
+      const actualReadiness = body.agentProfiles.map(
+        ({ readiness }) => readiness
+      );
+      if (option === "true") {
+        expect(actualReadiness).toEqual(expectedReadiness);
+      } else {
+        expect(actualReadiness).toEqual(
+          expectedReadiness.map(
+            ({ publicWakeabilityReason, ...legacy }) => legacy
+          )
+        );
+        for (const readiness of actualReadiness) {
+          expect(legacyReadinessSchema.safeParse(readiness).success).toBe(true);
+        }
+      }
+    }
+    expect(rpc[method]).toHaveBeenCalledWith({
       context: EXPECTED_CORE_CONTEXT,
     });
   });
