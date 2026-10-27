@@ -768,6 +768,7 @@ function useComputerConnection(input: ComputerConnectionProps) {
 				!pending &&
 				!needsCheck &&
 				!refreshWarning &&
+				!connection.isFetching &&
 				!connection.isError
 		),
 		requiresConnection,

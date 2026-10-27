@@ -796,25 +796,47 @@ it("offers Agent setup after connection settles without starting another native 
 });
 
 it.each([
-	"account-a",
-	"account-b",
-])("uses background display data only for its matching account: %s", async (accountId) => {
+	{ cachedAccountId: "account-a", stillConnected: true },
+	{ cachedAccountId: "account-a", stillConnected: false },
+	{ cachedAccountId: "account-b", stillConnected: true },
+])("waits for current connection evidence before Agent setup ($cachedAccountId, connected: $stillConnected)", async ({
+	cachedAccountId,
+	stillConnected,
+}) => {
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false } },
 	});
 	client.setQueryData(["desktop", "computer-connection", "account-a"], {
 		...availableComputer(),
-		accountId,
+		accountId: cachedAccountId,
 	});
-	state.localComputer.mockReturnValue(new Promise(() => undefined));
-	renderConnection(<DesktopComputerConnection allowDisconnect />, client);
+	const check = createDeferred<unknown>();
+	state.localComputer.mockReturnValue(check.promise);
+	renderConnection(
+		<DesktopComputerConnection allowDisconnect orgSlug="org-a" />,
+		client
+	);
 	const button = screen.getByRole("button", {
 		name:
-			accountId === "account-a" ? "Disconnect this Mac" : "Connect this Mac",
+			cachedAccountId === "account-a"
+				? "Disconnect this Mac"
+				: "Connect this Mac",
 	});
-	expect(button.hasAttribute("disabled")).toBe(accountId !== "account-a");
+	expect(button.hasAttribute("disabled")).toBe(cachedAccountId !== "account-a");
 	await waitFor(() => expect(state.localComputer).toHaveBeenCalledOnce());
 	expect(client.isFetching()).toBe(1);
+	expect(screen.queryByRole("button", { name: "Create an Agent" })).toBeNull();
+	await act(() =>
+		check.resolve(
+			stillConnected
+				? availableComputer()
+				: { status: "unavailable", message: "No confirmed connection." }
+		)
+	);
+	await waitFor(() => expect(client.isFetching()).toBe(0));
+	expect(
+		Boolean(screen.queryByRole("button", { name: "Create an Agent" }))
+	).toBe(stillConnected);
 });
 
 it("reports real Disconnect stages, refuses duplicate requests and keeps the outer operation identity", async () => {

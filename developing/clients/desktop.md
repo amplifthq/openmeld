@@ -535,7 +535,9 @@ the existing Computer and local-agent selection owns the eventual Binding.
 It does not create or connect an Agent merely by opening the page. Disconnect
 this Mac and the optional Web progress link remain secondary actions. The
 confirmed standalone state describes Agent creation as the next step; embedded
-Continue retains its existing connection reassurance. Pending, stale/unconfirmed,
+Continue retains its existing connection reassurance. Connection reads in progress,
+including background checks of cached connections, withhold the next step.
+Pending, stale/unconfirmed,
 failed connection reads, or account-mismatched connection states do not offer
 this next step. A successful Check connection that confirms this Mac restores
 the action even when a previous Disconnect failed; its diagnostic context remains
