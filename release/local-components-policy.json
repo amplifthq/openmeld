@@ -1,12 +1,12 @@
 {
-  "version": "0.3.273",
+  "version": "0.3.274",
   "cli": {
-    "updatePolicy": "required",
-    "reason": "Reads the exact codex_app_server_thread_read method in local Service diagnostics. Public Core readiness negotiates response version 2 and preserves legacy CLI diagnostics during upgrades."
+    "updatePolicy": "available",
+    "reason": "Ships reusable Codex command-prefix approvals without changing the public CLI command contract. The existing 0.3.273 required floor remains supported."
   },
   "service": {
-    "updatePolicy": "required",
-    "reason": "Passive Codex conversation checks must use thread/read; older Services repeatedly resume idle conversations and initialize provider tools. Apply the additive database migration and upgrade response readers, publish the supported local release, then deploy Core."
+    "updatePolicy": "available",
+    "reason": "Preserves exact native Codex reusable approval decisions when optional choices are omitted and discloses their complete scope. No runtime or Service wire contract changes; 0.3.273 remains compatible."
   },
   "skills": {
     "updatePolicy": "available",
