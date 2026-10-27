@@ -9,6 +9,12 @@ export const PROVIDER_ACCESS_EVIDENCE_TTL_MS = 60 * 60 * 1000;
 export const DELIVERY_STABILITY_DEFAULT_METRICS_WINDOW_MS = 60_000;
 export const DELIVERY_STABILITY_DEFAULT_DISPATCHING_TIMEOUT_MS = 5000;
 export const RUNTIME_TRANSPORT_LOOKUP_TIMEOUT_MS = 5000;
+// Recovery reads may receive a platform shutdown error near the end of the
+// 30-second drain window. This is one total read budget, including retries;
+// it never limits or changes the lifetime of an Agent execution.
+export const RUNTIME_TRANSPORT_RECOVERY_READ_TIMEOUT_MS = 30_000;
+export const RUNTIME_TRANSPORT_READ_MAX_ATTEMPTS = 3;
+export const RUNTIME_TRANSPORT_READ_RETRY_BASE_DELAY_MS = 100;
 export const RUNTIME_TRANSPORT_DELIVER_TIMEOUT_MS = 30_000;
 export const RUNTIME_TRANSPORT_WAIT_TIMEOUT_FALLBACK_MS =
   DEFAULT_DISPATCH_WAIT_WINDOW_MS;

@@ -370,6 +370,7 @@ import {
 import { callRuntimeTransportApi } from "../../../dispatch/infrastructure/runtime-transport/runtime-transport-api-client";
 import {
   cancelRuntimeTransportDeletedAgentProfileWakes,
+  readRuntimeTransportAgentProfileWorkRecovery,
   readRuntimeTransportPluginConnectionExecutionSource,
 } from "../../../dispatch/infrastructure/runtime-transport/runtime-transport-client";
 import { resolveRuntimeTransportOwnerShard } from "../../../dispatch/infrastructure/runtime-transport/runtime-transport-shard";
@@ -8835,11 +8836,10 @@ export class Space extends DurableObject<CoreBindings> {
       }
       const recovery =
         runtimeTransportAgentProfileWorkRecoveryReadResponseSchema.parse(
-          await resolveRuntimeTransportOwnerShard(
-            this.bindings,
-            ownerUserId
-          ).rpcReadAgentProfileWorkRecovery({
+          await readRuntimeTransportAgentProfileWorkRecovery({
+            env: this.bindings,
             ownerUserId,
+            requestId: context.actorContext.requestId,
             targetProfileId: agent.profileId,
           })
         );
