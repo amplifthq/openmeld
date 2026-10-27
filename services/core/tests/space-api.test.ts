@@ -1,7 +1,11 @@
 import { runInDurableObject, SELF } from "cloudflare:test";
 import { exports, RpcStub, RpcTarget } from "cloudflare:workers";
 import { createHash, randomUUID } from "node:crypto";
-import { getPostgresDatabase, PostgresDatabase } from "@openmeld/db/postgresql";
+import {
+  getPostgresDatabase,
+  PostgresDatabase,
+  withPostgresRequest,
+} from "@openmeld/db/postgresql";
 import {
   applyOpenMeldRequestContextHeaders,
   OPENMELD_EXPECTED_FORWARDED_BY,
@@ -7160,6 +7164,128 @@ describe("OpenMeld Core", () => {
       referenceTargets: [],
     });
   });
+  it("publishes idempotently while another request's membership read remains pending", async () => {
+    const spaceId = await createSpace();
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const context = createRpcContext({
+      requestId: "membership-gate-publication",
+      profileId: DEFAULT_HUMAN_PROFILE_ID,
+      profileKind: "human",
+      profileName: "Test User",
+      ownerUserId: "owner-test-default",
+    });
+    const clientMessageId = `membership-gate-${randomUUID()}`;
+    const request = {
+      authoringPolicy: "user_authored" as const,
+      clientMessageId,
+      context,
+      meta: { clientMessageId },
+      profile: {
+        kind: "human" as const,
+        profileId: DEFAULT_HUMAN_PROFILE_ID,
+      },
+      spaceId,
+      text: "Publication does not borrow a pending membership read",
+    };
+
+    await runInDurableObject(stub, async (instance, state) => {
+      const outsideStarted = Promise.withResolvers<void>();
+      const releaseOutside = Promise.withResolvers<void>();
+      let holdNextMembership = false;
+      let outsideSettled = false;
+      let outsideRead: Promise<unknown> | undefined;
+      const nativeQuery = PostgresDatabase.prototype.query;
+      const queryObserver = vi
+        .spyOn(PostgresDatabase.prototype, "query")
+        .mockImplementation(async function (
+          this: PostgresDatabase,
+          query,
+          values
+        ) {
+          const text = typeof query === "string" ? query : query.text;
+          const parameters = typeof query === "string" ? values : query.values;
+          const hold =
+            holdNextMembership &&
+            text.includes('FROM "openmeld"."members"') &&
+            parameters?.[0] === DEFAULT_TEST_ORGANIZATION_ID &&
+            parameters?.[1] === "owner-test-default";
+          if (hold) {
+            holdNextMembership = false;
+          }
+          const result = await nativeQuery.call(this, query, values);
+          if (hold) {
+            outsideStarted.resolve();
+            await releaseOutside.promise;
+          }
+          return result;
+        });
+      const blockConcurrencyWhile = state.blockConcurrencyWhile.bind(state);
+      const gateObserver = vi
+        .spyOn(state, "blockConcurrencyWhile")
+        .mockImplementation(
+          async <T>(operation: () => Promise<T>): Promise<T> => {
+            if (!outsideRead) {
+              holdNextMembership = true;
+              outsideRead = withPostgresRequest(
+                env.OPENMELD_POSTGRESQL,
+                () => instance.rpcInputQueue({ spaceId, context }),
+                { reuseConnection: false }
+              ).finally(() => {
+                outsideSettled = true;
+              });
+              await outsideStarted.promise;
+            }
+            return await blockConcurrencyWhile(async () => {
+              // A failure watchdog belongs to the gate so it can release the
+              // fixture even when outside I/O continuations are blocked.
+              let timeout: ReturnType<typeof setTimeout> | undefined;
+              const deadline = new Promise<never>((_resolve, reject) => {
+                timeout = setTimeout(
+                  () =>
+                    reject(
+                      new Error("Publication joined outside membership I/O")
+                    ),
+                  2000
+                );
+              });
+              try {
+                return await Promise.race([operation(), deadline]);
+              } finally {
+                clearTimeout(timeout);
+              }
+            });
+          }
+        );
+      try {
+        const posted =
+          await instance.rpcPostSignalOnceByClientMessageId(request);
+        expect(outsideSettled).toBe(false);
+        expect(posted).toMatchObject({
+          type: "signal.text",
+          data: { text: request.text, meta: { clientMessageId } },
+        });
+        expect(
+          await instance.rpcPostSignalOnceByClientMessageId(request)
+        ).toEqual(posted);
+        expect(outsideSettled).toBe(false);
+        expect(
+          state.storage.sql
+            .exec<{ count: number }>(
+              "SELECT COUNT(*) AS count FROM space_signals WHERE id = ?",
+              posted.id
+            )
+            .one().count
+        ).toBe(1);
+      } finally {
+        releaseOutside.resolve();
+        await outsideRead?.catch(() => undefined);
+        gateObserver.mockRestore();
+        queryObserver.mockRestore();
+      }
+    });
+  });
+
   it.each([
     "conversation",
     "thread",

@@ -1,3 +1,4 @@
+import { withPostgresRequest } from "@openmeld/db/postgresql";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   ConcurrentOrganizationMembershipReads,
@@ -10,6 +11,7 @@ import {
 } from "../src/organizations/organization-context";
 import {
   createPostgresHarness,
+  observeNativePostgresQueries,
   postgresTestBinding,
 } from "./helpers/postgresql-harness.test-support";
 
@@ -97,7 +99,7 @@ describe("organization context owner contracts", () => {
     });
   });
 
-  it("shares concurrent membership reads and rereads after they settle", async () => {
+  it("shares membership reads only within a request scope and rereads after they settle", async () => {
     await harness.query({
       text: "INSERT INTO \"openmeld\".\"members\" (id, organization_id, user_id, role, \"created_at\") VALUES ('member-1', 'org-1', 'user-1', 'member', 1700000000000)",
     });
@@ -105,17 +107,51 @@ describe("organization context owner contracts", () => {
     const env = { OPENMELD_POSTGRESQL: postgresTestBinding(harness.db) };
     const input = { env, organizationId: "org-1", userId: "user-1" };
 
-    const first = reads.read(input);
-    expect(reads.read(input)).toBe(first);
-    await expect(first).resolves.toMatchObject({ ok: true });
+    const queryStarted = Promise.withResolvers<void>();
+    const releaseQuery = Promise.withResolvers<void>();
+    let holdNextRead = true;
+    const queryObserver = observeNativePostgresQueries(async (query) => {
+      if (holdNextRead && query.text.includes('FROM "openmeld"."members"')) {
+        holdNextRead = false;
+        queryStarted.resolve();
+        await releaseQuery.promise;
+      }
+    });
+    try {
+      await withPostgresRequest(env.OPENMELD_POSTGRESQL, async () => {
+        const first = reads.read(input);
+        expect(reads.read(input)).toBe(first);
+        await queryStarted.promise;
+        try {
+          // A publication gate creates a fresh scope. It must finish even
+          // while a read initiated outside that gate cannot deliver its I/O.
+          await withPostgresRequest(
+            env.OPENMELD_POSTGRESQL,
+            async () => {
+              const protectedRead = reads.read(input);
+              expect(protectedRead).not.toBe(first);
+              expect(reads.read(input)).toBe(protectedRead);
+              await expect(protectedRead).resolves.toMatchObject({ ok: true });
+            },
+            { reuseConnection: false }
+          );
+        } finally {
+          releaseQuery.resolve();
+          await first;
+        }
 
-    await harness.query({
-      text: 'DELETE FROM "openmeld"."members" WHERE id = \'member-1\'',
-    });
-    await expect(reads.read(input)).resolves.toMatchObject({
-      ok: false,
-      code: "organization.membership_required",
-    });
+        await harness.query({
+          text: 'DELETE FROM "openmeld"."members" WHERE id = \'member-1\'',
+        });
+        await expect(reads.read(input)).resolves.toMatchObject({
+          ok: false,
+          code: "organization.membership_required",
+        });
+      });
+    } finally {
+      releaseQuery.resolve();
+      queryObserver.mockRestore();
+    }
   });
 
   it("classifies a Personal Workspace from Auth-owned organization metadata", async () => {

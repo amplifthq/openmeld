@@ -2563,6 +2563,57 @@ registration authority, or Wake execution decision. If a future implementation
 needs larger scans, it belongs in bounded alarm housekeeping instead of the
 request path.
 
+Core callers recover interrupted Hub reads as follows.
+
+Cloudflare can replace a Durable Object instance without changing the Worker
+version. Core retries only the audited idempotent Hub reads: work recovery,
+Agent Profile execution state and operational contexts, and the three HTTP
+lookups (`/lookup-route`, `/lookup-routes-batch`, `/lookup-owner-service`). Their
+existing lease/index housekeeping is repeatable; it does not admit execution,
+send device commands, authorize continuation, or publish results. Mutation RPCs,
+device commands (including their read operations), and all other HTTP paths are
+single-attempt at this boundary. A recovery action retries only its prerequisite
+read, never the action itself.
+
+Each read has at most three attempts, with full-jitter exponential backoff from
+100 ms, and obtains a new DurableObjectStub for each attempt. `overloaded=true`
+always stops retries, including when `retryable=true`. Otherwise only
+`retryable=true`, or the exact platform inactive-instance message when that flag
+is absent, permits a retry. An explicit `retryable=false`, other exceptions,
+malformed responses, and HTTP/business responses do not trigger retries.
+
+One deadline covers all attempts, backoff, and HTTP response-body consumption.
+Recovery reads have a 30-second total budget to allow a shutdown interruption
+near the end of Cloudflare's drain window to recover. Execution-state and
+operational-context reads use 5 seconds. HTTP lookup budgets remain unchanged:
+5 seconds for route/owner-Service reads and 38 seconds for the batch route read.
+An exhausted read preserves its last transport exception; an elapsed deadline
+raises a read timeout. Neither becomes offline or missing-work evidence. Batch
+transport failures propagate instead of triggering per-Profile lookup fan-out.
+Existing execution-state and operational-context callers still map unavailable
+reads to their explicit unavailable/checking projections.
+
+The HTTP abort signal cancels local transport/body waiting where supported. The
+direct RPC methods do not accept that signal: the deadline bounds caller waiting,
+discards late completion, and starts no further attempt after expiry; it does not
+claim that the receiver was canceled. These read deadlines never terminate a Wake or
+change RuntimeCoordinator execution authority. No new concurrency gate or
+cross-request pending cache is introduced.
+
+Failures emit `runtime_transport_read_attempt_failed` at the caller before error
+translation. Logs contain the operation, per-read correlation ID, caller request
+ID when available, Durable Object ID when a stub was obtained, attempt number,
+elapsed/budget/backoff milliseconds, retry decision, and the boolean or missing
+(`null`) `retryable`, `overloaded`, and `remote` properties. The exact known
+inactive-instance error is recorded as a boolean classification. Native
+Cloudflare trace/request metadata provides correlation when an application
+request ID is unavailable. Bodies, tokens, raw messages, and stacks are not
+logged. `remote=true` alone is not a retry classification. Elapsed times describe
+caller waiting, not receiver execution or CPU duration.
+
+This follows Cloudflare's [error-handling guidance](https://developers.cloudflare.com/durable-objects/best-practices/error-handling/)
+and [shutdown lifecycle](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/#shutdown-behavior).
+
 The local service daemon stream URL remains on Gateway. Gateway is the public
 authenticated endpoint for `/v1/daemon/stream`; it forwards the canonical OpenMeld
 request context to Core and returns Core's WebSocket upgrade response without
@@ -4335,5 +4386,12 @@ adding unknown fields to older strict registration payloads. Core validates the
 human owner and selected Computer, and the transport resolves the latest exact
 owner/device/lane session. The execution host checks the device again. Read
 responses include saved preference, actual held-request state, and a problem
-when acquisition fails. Both UI entries refresh every five seconds and on focus;
-mutations update the shared account/device/lane query immediately after confirmation.
+when acquisition fails. Both UI entries refresh every five seconds and on focus
+only while the selected device/lane has a connected session in the Core-owned
+Computer inventory. A saved execution target does not establish a live connection.
+If a power request reports `computer.target_disconnected` before that inventory
+updates, automatic reads pause and the failure remains visible. Polling resumes
+when the matching session supplies a newer heartbeat or the user retries
+explicitly; another disconnected response pauses it again. Refreshing an
+inventory with the same heartbeat is not reconnection evidence. Mutations update
+the shared account/device/lane query immediately after confirmation.
