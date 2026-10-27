@@ -458,7 +458,7 @@ export async function publishTextSignalUseCase(input: {
   flushPendingDispatchOutbox: () => Promise<void>;
   recordHumanActivity?: (signal: SignalEnvelope) => Promise<void>;
   waitUntil: (promise: Promise<unknown>) => void;
-  broadcast: (signal: SignalEnvelope) => void;
+  broadcast: (signal: SignalEnvelope) => void | Promise<void>;
 }): Promise<void> {
   const persistResult = await input.persistSignalWithOptionalOutbox(
     input.signal,
@@ -493,7 +493,7 @@ export async function publishTextSignalUseCase(input: {
     input.waitUntil(input.recordHumanActivity(input.signal));
   }
   input.waitUntil(input.flushPendingDispatchOutbox());
-  input.broadcast(input.signal);
+  await input.broadcast(input.signal);
 }
 
 export function publishPresenceSignalUseCase(input: {

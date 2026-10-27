@@ -1946,6 +1946,17 @@ row. `dispatch_results` is an archive/query projection only. A Wake may choose
 not to archive a result, but it must still close through the Space final signal
 claim when a visible outcome is published.
 
+Space queues authorized live delivery of a persisted final Signal before its
+Inbox projection can expose the corresponding notification. Outbox drains and
+Inbox read repair wait for delivery of their selected Signals, without waiting
+for later stream updates or Signals outside that selection. Delivery settles
+when the message is sent or its session closes under the existing access and
+transport policy; durable Inbox recovery remains available. These transient
+delivery receipts order server sends, not browser rendering or client acknowledgements,
+and are not execution authority. Clients continue to use the durable final
+Signal to retire stale Working presentation while RuntimeCoordinator completes
+its own finalization.
+
 Do not bypass this boundary for RuntimeCoordinator accepted result publication.
 Ordinary human/client Space APIs may still post messages, status, and system
 notices through their own request paths; those APIs are not the Agent Transport

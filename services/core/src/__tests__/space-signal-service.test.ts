@@ -427,6 +427,7 @@ const createSystemWakePublishingHarness = (input: {
   });
   Object.defineProperties(space, {
     bindings: { value: bindings },
+    pendingSignalLiveDeliveries: { value: new Map() },
     broadcastSignal: { value: broadcastSignal },
     ctx: {
       value: {
@@ -2690,6 +2691,7 @@ describe("space signal service", () => {
     Object.defineProperties(space, {
       broadcastSignal: { value: broadcastSignal },
       ctx: { value: { waitUntil } },
+      pendingSignalLiveDeliveries: { value: new Map() },
       readSpaceMetaRecord: { value: () => null },
       flushPendingDispatchOutbox: { value: flushPendingDispatchOutbox },
       persistTextSignalWithOptionalOutbox: {
