@@ -4,6 +4,7 @@ import {
   ORGANIZATION_DIRECTORY_INCLUDE_AGENT_AVATARS_QUERY_PARAMETER,
   ORGANIZATION_DIRECTORY_INCLUDE_HUMAN_PROFILE_LAST_USED_AT_QUERY_PARAMETER,
   ORGANIZATION_DIRECTORY_INCLUDE_MEMBER_LAST_ACTIVE_AT_QUERY_PARAMETER,
+  ORGANIZATION_DIRECTORY_INCLUDE_PUBLIC_WAKEABILITY_REASON_QUERY_PARAMETER,
   ORGANIZATION_DIRECTORY_INCLUDE_TASK_ACTIVITY_QUERY_PARAMETER,
   ORGANIZATION_PROFILE_DIRECTORY_INCLUDE_MODEL_SELECTION_QUERY_PARAMETER,
 } from "@openmeld/gateway-contract";
@@ -46,6 +47,7 @@ import type {
 } from "@openmeld/schemas/types";
 import type { Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
+import { projectOrganizationPublicWakeabilityReason } from "../lib/organization-directory-projection";
 import {
   buildCoreRpcContext,
   buildCoreRpcCredential,
@@ -363,7 +365,15 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
       c,
       route: CURRENT_ORGANIZATION_DIRECTORY_ROUTE,
       method: "GET",
-      responseSchema: organizationDirectoryResponseSchema,
+      responseSchema: organizationDirectoryResponseSchema.transform(
+        (response) =>
+          projectOrganizationPublicWakeabilityReason(
+            response,
+            c.req.query(
+              ORGANIZATION_DIRECTORY_INCLUDE_PUBLIC_WAKEABILITY_REASON_QUERY_PARAMETER
+            ) === "true"
+          )
+      ),
       resolveSuccessPayload: (result) =>
         projectOrganizationDirectoryResponse({
           includeAgentAvatars,
@@ -464,7 +474,15 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
           context: buildCoreRpcContext(c),
         }),
       method: "GET",
-      responseSchema: organizationAgentRuntimeOverviewResponseSchema,
+      responseSchema: organizationAgentRuntimeOverviewResponseSchema.transform(
+        (response) =>
+          projectOrganizationPublicWakeabilityReason(
+            response,
+            c.req.query(
+              ORGANIZATION_DIRECTORY_INCLUDE_PUBLIC_WAKEABILITY_REASON_QUERY_PARAMETER
+            ) === "true"
+          )
+      ),
       route: CURRENT_ORGANIZATION_AGENT_RUNTIME_OVERVIEW_ROUTE,
     });
   });

@@ -25,6 +25,27 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
+## Organization directory public Wakeability reason compatibility
+
+The Organization directory, Agent runtime overview, and Center Agent directory
+HTTP endpoints return `readiness.publicWakeabilityReason` only when the caller
+requests `includePublicWakeabilityReason=true`. Gateway validates the current
+Core response before projecting this optional field for the HTTP reader.
+Omitted, false, or unknown query values omit the field entirely, including when
+its value is null, because installed Desktop and CLI readers use strict schemas.
+Web and newly packaged Desktop readers request it on both directory and runtime
+overview reads. Core remains the owner of the reason and all Wakeability facts;
+internal Core/Remote Agent RPC projections and authorization are unchanged.
+
+Contract Impact Audit: deploy Web before Gateway so current readers retain the
+additional reason. Old Gateway already returns the field and ignores the new
+query parameter; old Core responses without it remain valid for new readers.
+Gateway restores compatibility for already-installed Desktop and CLI versions
+without requiring a local component update. Setup, Wake admission, Space
+actions, Service transport, and trace contracts do not change. No database or
+local-component contract floor changes are needed. Rolling Gateway back
+reintroduces the old-reader failure; use a forward correction for that boundary.
+
 ## Passive Codex conversation proof response compatibility
 
 The single and batch Agent Execution Readiness endpoints accept
