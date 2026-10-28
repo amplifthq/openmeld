@@ -11,6 +11,7 @@ import {
   readLinearIssueReference,
 } from "@openmeld/schemas";
 import type {
+  CenterAgentReadConnectorActionOperationResponse,
   CenterAgentRecordConnectorActionOperationBody,
   ConnectorService,
   OpenConnectorRuntimeAction,
@@ -326,6 +327,27 @@ export function getRemoteAgentConnectorToolDefinitions(
     },
     {
       name: "openmeld_get_app_action_status",
+      progressValue: (result) => {
+        const { operation, ...status } =
+          result as CenterAgentReadConnectorActionOperationResponse;
+        if (!operation) {
+          return result;
+        }
+        const {
+          replayWindowRemainingMs: _replayWindowRemainingMs,
+          replay,
+          ...facts
+        } = operation;
+        return {
+          ...status,
+          operation: {
+            ...facts,
+            replay: replay?.allowed
+              ? { allowed: true, maxAttempts: replay.maxAttempts }
+              : replay,
+          },
+        };
+      },
       description:
         "Read the retained outcome and destination confirmation for one original App operation. Supply its original service, actionId and operationId. This never executes or approves an action. Pending means the requester must use the conversation or Inbox approval; a chat message is not approval. Approved is permission, not proof of creation: inspect operation.status and continuation separately. A requested continuation is already queued; do not start a duplicate. If continuation is unavailable, explain that the original request could not resume. Do not retry a pending or unknown provider operation to query its result.",
       input: object({
