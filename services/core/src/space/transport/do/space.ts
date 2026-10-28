@@ -722,6 +722,10 @@ import {
   type SpaceTaskMutationContext,
   SpaceTaskWorkflowError,
 } from "../../application/space-task-workflow";
+import {
+  accessSpaceWorkTarget,
+  type SpaceWorkTargetInput,
+} from "../../application/space-work-target";
 import { resolveExistingThreadSignalRetry } from "../../application/space-thread-signal-idempotency";
 import {
   readSpaceUpdatesUseCase,
@@ -6108,6 +6112,23 @@ export class Space extends DurableObject<CoreBindings> {
       localSource
     );
   }
+  async rpcCenterAgentWorkTarget(
+    input: SpaceWorkTargetInput & { spaceAccess: SpaceAccessContext }
+  ) {
+    this.applySpaceRef(input.spaceAccess.spaceId);
+    const access = await this.authorizeSpaceAccess(input.spaceAccess);
+    if (!access.ok) {
+      throw createCoreRpcHttpError({
+        status: 403,
+        code: "center_agent.work_target.access_denied",
+        reason: "Work target access is unavailable.",
+      });
+    }
+    return accessSpaceWorkTarget(this.ctx.storage.sql, input, (id) =>
+      this.readSourceTextSignalById(id)
+    );
+  }
+
   private buildIdempotentPostSignalInput(input: {
     agentStreamId: string | undefined;
     clientMessageId: string;

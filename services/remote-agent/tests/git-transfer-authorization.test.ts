@@ -22,6 +22,7 @@ import { authorizePluginConnection } from "../flue-adapter/plugin-connection-aut
 import { executionAccessFixture } from "./execution-access-fixture";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 import { createGitHttpProxy } from "./fixtures/git-http-proxy";
+import { selectedRepositoryWorkTarget } from "./fixtures/work-target";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 const NATIVE_GIT_URL =
@@ -161,6 +162,11 @@ describe("Git transfer authorization", () => {
           context,
           storage,
           coreWorker: {
+            centerAgentWorkTarget: async () =>
+              selectedRepositoryWorkTarget(context, {
+                owner: "acme",
+                repo: "private",
+              }),
             authorizeRemoteAgentExecutionAccess: vi.fn(
               executionAccessFixture(context)
             ),
@@ -288,6 +294,11 @@ describe("Git transfer authorization", () => {
       context: f.context,
       storage,
       coreWorker: {
+        centerAgentWorkTarget: async () =>
+          selectedRepositoryWorkTarget(f.context, {
+            owner: "acme",
+            repo: "private",
+          }),
         authorizeRemoteAgentExecutionAccess: authorize,
         centerAgentResolveConnectorConnection: async () => ({
           connection,
@@ -308,6 +319,10 @@ describe("Git transfer authorization", () => {
       repo: "private",
       githubActor: actor,
     };
+    await expect(
+      tool.execute({ ...request, repo: "another-project" })
+    ).rejects.toThrow("work_target.destination_mismatch");
+    expect(register).not.toHaveBeenCalled();
     const first = await tool.execute(request);
     const retry = await tool.execute(request);
     expect(first).toMatchObject({

@@ -278,6 +278,17 @@ ownership is checked synchronously before deletion in the owning Space.
 
 ## Space Task ownership
 
+The Space also owns `space_work_targets` (SQLite schema version 55), a private
+goal and destination constraint keyed by the admitted Task or logical conversation.
+Core derives that key and the Human source from current native execution evidence;
+the model cannot name another Space, Task, requester, or source. Selection uses
+revision comparison and exact same-source replay. Source and selecting Signal
+revisions are checked on access; an edited, recalled, or missing source invalidates
+the record. Space deletion clears it. This table contains no Task phase, assignee,
+delegation, execution, permission, or provider outcome and is never a parallel
+authority for those facts. Remote Agent materializes the current owner read on
+each render rather than preserving a second writable copy in model memory.
+
 The Space Durable Object is the only writer for Space Tasks. Its SQLite schema
 owns `space_tasks`, append-only `space_task_events`, and idempotent
 `space_task_operations`. The stored Task document is the current read model;

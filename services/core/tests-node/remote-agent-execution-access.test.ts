@@ -2,6 +2,7 @@ import { PostgresDatabase } from "@openmeld/db/postgresql";
 import { resolveRemoteAgentExecutionScope } from "@openmeld/schemas";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createSubmitTurnRequest } from "../../remote-agent/tests/fixtures";
+import { centerAgentWorkTarget } from "../src/center-agent/application/work-target";
 import type { CoreBindings } from "../src/lib/bindings";
 import { authorizeRemoteAgentExecutionAccess } from "../src/remote-agent/application/remote-agent-execution-access";
 import { rpcRemoteAgentReadMessages } from "../src/search/message-read";
@@ -16,6 +17,10 @@ const owners = vi.hoisted(() => ({
   connection: vi.fn(),
   delegated: vi.fn(),
   computer: vi.fn(),
+  workTarget: vi.fn(),
+}));
+vi.mock("../src/rpc/space-ref", () => ({
+  resolveSpaceStub: () => ({ rpcCenterAgentWorkTarget: owners.workTarget }),
 }));
 vi.mock("../src/computer/personal-computer", () => ({
   ensurePersonalComputer: owners.computer,
@@ -86,6 +91,7 @@ describe("current execution access is an owner projection, not a cached grant", 
       mock.mockReset();
     }
     owners.delivery.mockResolvedValue(record);
+    owners.workTarget.mockResolvedValue(null);
     owners.caller.mockResolvedValue({
       db: new PostgresDatabase({
         connectionString:
@@ -109,6 +115,70 @@ describe("current execution access is an owner projection, not a cached grant", 
           createdAtMs: 1,
         })
     );
+  });
+
+  it.each([
+    {
+      taskId: undefined,
+      conversationId: "center-space:tonebird:root:walkthrough",
+    },
+    {
+      taskId: "task-tonebird",
+      conversationId: "center-space:tonebird:root:walkthrough",
+    },
+    { taskId: undefined, conversationId: undefined },
+  ])("derives work-target scope from the active admission, never a model-selected Space or Task (%j)", async ({
+    taskId,
+    conversationId,
+  }) => {
+    owners.delivery.mockResolvedValue({
+      ...record,
+      triggerMessageId: request.triggerMessageId,
+      createdAtMs: 123,
+      workerSubmitRequest: {
+        ...request,
+        conversationId,
+        ...(taskId ? { taskId } : {}),
+      },
+    });
+    const env = {
+      OPENMELD_POSTGRESQL: {
+        connectionString:
+          "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+      },
+    } as CoreBindings;
+    expect(
+      await centerAgentWorkTarget(env, { context: input.context })
+    ).toEqual({ record: null, selectionRequired: true });
+    expect(owners.workTarget).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scopeKey: taskId
+          ? `task:${taskId}`
+          : `conversation:${conversationId ?? request.spaceId}`,
+        sourceSignalId: request.triggerMessageId,
+        requesterProfileId: request.author.profileId,
+      })
+    );
+    await expect(
+      centerAgentWorkTarget(env, {
+        context: input.context,
+        scopeKey: "task:another-member",
+      })
+    ).rejects.toMatchObject({ code: "center_agent.work_target.invalid_input" });
+    owners.delivery.mockResolvedValue({
+      ...record,
+      workerSubmitRequest: {
+        ...request,
+        conversationId: "root",
+        sourceClientMessageId: "plugin-continue:approval",
+      },
+    });
+    await expect(
+      centerAgentWorkTarget(env, {
+        context: input.context,
+        selection: { expectedRevision: 0, choice: { kind: "inherit" } },
+      })
+    ).rejects.toThrow("human_source_required");
   });
 
   it.each([

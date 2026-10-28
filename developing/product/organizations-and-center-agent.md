@@ -219,6 +219,23 @@ the requested decision or outcome. Latency and tool cost are part of that
 judgment. This is an intelligence contract, not a keyword classifier, fixed
 search budget, second model, or pre-agent gate.
 
+For interactive Space work, the Space persists a narrow work-target record:
+the requested goal, explicitly selected code repositories, and a separate issue
+destination. Core derives its scope from the admitted Task when present, otherwise
+from the logical request conversation. A new verified Human message selects or
+inherits that record once, using its revision; the source Signal and revision are
+retained. A correction updates that exact scope, while an independent Task keeps
+its own target. Ordinary messages do not create Tasks to store this context.
+This record is a context constraint, not a Situation Snapshot, work planner,
+Project association, permission grant, execution ledger, or completion state.
+Its `requestGoal` describes the current requested operation; the Task's declared
+deliverable and completion conditions remain solely in the existing Task owner.
+The same Center Agent interprets the request; no second model or task-text router
+chooses the target. The current record is read again after compaction or rollover.
+Structured provider operations and repository publication must agree with it;
+an unrelated tool result never changes it. Explicit multi-repository work selects
+those repositories together. An issue destination does not replace the code target.
+
 The Kernel also teaches stable interaction mechanics that affect whether the
 user's next step can work. In an ordinary Space, a human must explicitly Wake
 the intended Agent Profile with an `@` mention; only a current one-to-one Agent

@@ -13,9 +13,10 @@ import { ensureSpaceProfileLineageTable } from "./space-profile-lineage-repo";
 import { ensureSpaceReactionTables } from "./space-reaction-repo";
 import { SpaceTaskDeliveryRepository } from "./space-task-delivery-repo";
 import { ensureSpaceTaskTables } from "./space-task-repo";
+import { ensureSpaceWorkTargetTable } from "./space-work-target-repo";
 
-export const SPACE_SQL_SCHEMA_VERSION = 54;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v54";
+export const SPACE_SQL_SCHEMA_VERSION = 55;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v55";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -47,6 +48,7 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   ensureSpaceInboxContactTable(sql);
   ensureSpaceInboxProjectionSelectionsTable(sql);
   ensureSpaceTaskTables(sql);
+  ensureSpaceWorkTargetTable(sql);
   new SpaceTaskDeliveryRepository(sql).initialize();
   ensureSpaceProfileLineageTable(sql);
   ensureSpaceMemberDisplayCacheTables(sql);

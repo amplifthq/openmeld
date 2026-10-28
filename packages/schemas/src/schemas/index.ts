@@ -47,6 +47,13 @@ export {
   centerAgentSearchMemoryRpcInputSchema,
 } from "./http/center-agent-memory-search";
 export {
+  centerAgentWorkTargetRecordSchema,
+  centerAgentWorkTargetRequestSchema,
+  centerAgentWorkTargetResponseSchema,
+  centerAgentWorkTargetSchema,
+  centerAgentWorkTargetSelectionSchema,
+} from "./http/center-agent-work-target";
+export {
   LOCAL_AGENT_REASONING_MAX_CHARS,
   localAgentReasoningPreferencesRpcSchema,
   localAgentReasoningPreferencesSchema,
@@ -2381,6 +2388,7 @@ export {
   createProjectBodySchema,
   createProjectResponseSchema,
   createProjectRpcInputSchema,
+  githubRepositoryTargetSchema,
   isLinearIssueCreateAction,
   listProjectsQuerySchema,
   listProjectsResponseSchema,
