@@ -20,6 +20,7 @@ export const Route = createFileRoute("/o/$orgSlug/files")({
 	): {
 		view?: "team" | "my" | "trash" | "trash-my" | "knowledge" | "skills";
 		folder?: string;
+		file?: string;
 		create?: "1";
 		document?: string;
 		kind?: OrganizationDocumentKind;
@@ -32,6 +33,10 @@ export const Route = createFileRoute("/o/$orgSlug/files")({
 		folder:
 			typeof search.folder === "string" && search.folder.trim()
 				? search.folder.trim()
+				: undefined,
+		file:
+			typeof search.file === "string" && search.file.trim()
+				? search.file.trim()
 				: undefined,
 		create:
 			search.create === "1" || search.create === 1 ? ("1" as const) : undefined,

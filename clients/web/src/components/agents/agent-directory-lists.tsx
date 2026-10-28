@@ -303,9 +303,9 @@ export function AgentDirectoryLists({
 	);
 	return (
 		<div
-			aria-labelledby="team-directory-tab-1"
+			aria-labelledby="team-directory-tab-2"
 			className="space-y-7 [&>div:first-child]:mb-0"
-			id="team-directory-panel-1"
+			id="team-directory-panel-2"
 			role="tabpanel"
 		>
 			<div>{toolbar}</div>

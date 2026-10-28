@@ -316,7 +316,7 @@ Routine pins are ignored so it never appears twice. A divider separates the crea
 offers New message and New Space; Team offers New Agent. These actions cannot be
 pinned. New message shares the rail-owned dialog with command search; New Space
 and New Agent use the existing Organization creation routes.
-Clicking Team still opens People. Pinned shortcuts appear below a short divider and
+Clicking Team opens Desks; People remains an explicit Team tab. Pinned shortcuts appear below a short divider and
 persist in the browser; links always target the current Organization. A pinned
 current page selects its shortcut instead of also selecting Team. Icon tooltips
 open immediately. Desk is temporarily hidden
@@ -726,10 +726,32 @@ Cold detail pages can show curated identity and scope navigation immediately,
 but setup controls wait for live provider metadata. Skeletons occupy pending
 settings; a static Plugin definition does not establish sign-in readiness.
 
+### Team desks
+
+Team tabs are **Desks / People / Agents / Files / Skills / Plugins**.
+Desks is the default `/o/{orgSlug}/people` view; `?view=people` opens the
+Human directory and `?profileId=...` retains the existing Human detail.
+Each desk represents a named Agent Profile and shows its owner to disambiguate
+similar names. It reads the existing identity and Runtime Overview projections;
+Computer presence and Wakeability never stand in for active work. Failed or
+older-than-90-second overview display evidence reads as unavailable, without
+changing execution state. Hover, keyboard activation, or tap opens a compact
+catch-up popover. Only an open desk requests that Profile's source-authorized
+workload preview. The existing foreground polling reads status; no Agent Wake,
+model summary, or private local-session collection runs on this page.
+
+A desk may link the latest Agent-authored content revision among files in the
+Team root listing. This is explicitly a shared file (or a shared `.diff`/`.patch`),
+not a claim about the Agent's latest local edit or all nested/Space files. File
+renames do not change attribution; the content revision author owns it. Team
+Files accepts `?file=...` within the current folder, and changing file locations
+clears that selection. The existing authenticated Files viewer owns content
+reads. Shared Team knowledge is a separate list of existing knowledge titles;
+it never labels task progress or private Agent memory as newly learned facts.
+
 ### Organization Skills
 
-Team tabs are **People / Agents / Files / Skills / Plugins**. The Organization Skill
-catalog at `/o/{orgSlug}/skills` and detail at `/o/{orgSlug}/skills/{skillId}`
+The Organization Skill catalog at `/o/{orgSlug}/skills` and detail at `/o/{orgSlug}/skills/{skillId}`
 share Team's header, page padding, and rail highlight without a member sidebar. Pending
 and error states retain that ownership; neither route mounts Center Agent state.
 All members can discover and browse Skills, while Core-projected permissions
@@ -1162,7 +1184,7 @@ inside the workspace switcher. The primary destinations are flat and fixed:
 - **Inbox** — opens the current workspace's attention feed.
 - **Spaces** — opens the existing chat directory, with Spaces and private
   conversations available in its contextual list.
-- **Team** — opens the people directory. Each person's profile owns their Agent list.
+- **Team** — opens Agent desks. People remains a tab, and each person's profile owns their Agent list.
 - **Routines** — opens personal and shared scheduled work and Run history.
 
 **New Agent** remains a contextual creation action. It opens

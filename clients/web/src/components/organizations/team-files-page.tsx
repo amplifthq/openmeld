@@ -225,7 +225,7 @@ function TeamFilesBrowser(input: {
 	} | null>(null);
 	const [actionError, setActionError] = useState<string | null>(null);
 	const [dialogError, setDialogError] = useState<string | null>(null);
-	const [selectedId, setSelectedId] = useState<string | null>(null);
+	const [selectedId, setSelectedId] = useQueryState("file", parseAsString);
 	const [selectedKnowledgeFolder, setSelectedKnowledgeFolder] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const objectUrls = useRef(new Map<string, string>());

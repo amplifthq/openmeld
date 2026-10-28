@@ -96,9 +96,9 @@ export function TeamHome(input: {
 	);
 	return (
 		<div
-			aria-labelledby="team-directory-tab-0"
+			aria-labelledby="team-directory-tab-1"
 			className="w-full"
-			id="team-directory-panel-0"
+			id="team-directory-panel-1"
 			role="tabpanel"
 		>
 			<div className="flex h-16 items-center justify-between gap-3 px-[var(--app-page-inline-padding)]">

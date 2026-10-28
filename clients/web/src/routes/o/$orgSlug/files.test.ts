@@ -4,6 +4,15 @@ import { buildOrganizationNewDocumentPath } from "#/lib/organizations/organizati
 import { Route } from "./files";
 
 describe("Team Knowledge creation links", () => {
+	it("retains a desk's shared-file selection in the Team location", () => {
+		const validateSearch = Route.options.validateSearch as (
+			search: Record<string, unknown>
+		) => Record<string, unknown>;
+		expect(
+			validateSearch(defaultParseSearch("?view=team&file=shared-diff"))
+		).toMatchObject({ view: "team", file: "shared-diff" });
+		expect(validateSearch({ file: { id: "bad" } }).file).toBeUndefined();
+	});
 	it("opens the Team Brief form from the Center Agent settings link", () => {
 		const href = buildOrganizationNewDocumentPath({
 			kind: "brief",

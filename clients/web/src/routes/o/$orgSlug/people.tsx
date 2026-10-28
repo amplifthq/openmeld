@@ -1,12 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod/v4";
 import { appShellStaticData } from "#/components/app/shell-layout";
+import { TeamDesksPage } from "#/components/directory/team-desks-page";
 import { PeopleAndAgentsPage } from "#/components/profiles/people-and-agents-page";
 import { prefetchPeopleRouteData } from "#/lib/organizations/app-route-prefetch";
 import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
 
 const peopleRouteSearchSchema = z.object({
 	profileId: z.string().trim().min(1).optional(),
+	view: z.literal("people").optional(),
 });
 
 export const Route = createFileRoute("/o/$orgSlug/people")({
@@ -32,6 +34,9 @@ export const Route = createFileRoute("/o/$orgSlug/people")({
 function PeopleRoute() {
 	const { sidebarStates } = Route.useLoaderData();
 	const search = Route.useSearch();
+	if (!search.profileId && search.view !== "people") {
+		return <TeamDesksPage initialSidebarStates={sidebarStates} />;
+	}
 
 	return (
 		<PeopleAndAgentsPage

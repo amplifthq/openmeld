@@ -8,6 +8,7 @@ export function useTeamFilesView() {
 	const [search, setSearch] = useQueryStates({
 		view: fileViewParser,
 		folder: parseAsString,
+		file: parseAsString,
 		create: parseAsString,
 		document: parseAsString,
 		kind: parseAsString,
@@ -17,6 +18,7 @@ export function useTeamFilesView() {
 		setSearch({
 			view,
 			folder: null,
+			file: null,
 			create: null,
 			document: null,
 			kind: null,

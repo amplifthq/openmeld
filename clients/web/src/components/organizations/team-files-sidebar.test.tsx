@@ -34,7 +34,7 @@ describe("Files navigation", () => {
 			<NuqsTestingAdapter
 				hasMemory
 				onUrlUpdate={onUrlUpdate}
-				searchParams={`?view=${view}&folder=folder-a&document=document-a&create=1&kind=knowledge&subjectUserId=user-a`}
+				searchParams={`?view=${view}&folder=folder-a&file=file-a&document=document-a&create=1&kind=knowledge&subjectUserId=user-a`}
 			>
 				<TeamFilesSidebar />
 			</NuqsTestingAdapter>
@@ -46,6 +46,7 @@ describe("Files navigation", () => {
 		expect(params.get("view") ?? "team").toBe(expected);
 		for (const key of [
 			"folder",
+			"file",
 			"document",
 			"create",
 			"kind",
