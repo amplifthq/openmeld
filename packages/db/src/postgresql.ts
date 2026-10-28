@@ -11,11 +11,15 @@ const TLS_OPTION_PATTERN = /^ssl/iu;
 const SQLSTATE_PATTERN = /^[0-9A-Z]{5}$/;
 
 export type PostgreSQLBinding = { connectionString: string };
+export type PostgresTransactionRunner = <T>(
+  run: () => Promise<T>
+) => Promise<T>;
 type RequestConnection = {
   binding: PostgreSQLBinding;
   pool: pg.Pool;
   database: PostgresDatabase;
   closed: boolean;
+  runTransaction?: PostgresTransactionRunner;
 };
 const requestConnection = new AsyncLocalStorage<RequestConnection>();
 const transactionActive = new AsyncLocalStorage<boolean>();
@@ -68,7 +72,10 @@ const integerTypes = {
 export async function withPostgresRequest<T>(
   binding: PostgreSQLBinding | undefined,
   callback: () => T | Promise<T>,
-  options: { reuseConnection?: boolean } = {}
+  options: {
+    reuseConnection?: boolean;
+    runTransaction?: PostgresTransactionRunner;
+  } = {}
 ): Promise<T> {
   if (!binding?.connectionString) {
     throw new Error("OPENMELD_POSTGRESQL Hyperdrive binding is required");
@@ -96,6 +103,13 @@ export async function withPostgresRequest<T>(
     pool,
     database: new PostgresDatabase(binding),
     closed: false,
+    runTransaction:
+      options.runTransaction ??
+      (options.reuseConnection !== false &&
+      current?.binding === binding &&
+      current.closed
+        ? current.runTransaction
+        : undefined),
   };
   try {
     return await requestConnection.run(scope, callback);
@@ -144,23 +158,29 @@ export class PostgresDatabase {
         "Nested PostgreSQL transactions require the owning transaction client"
       );
     }
-    return withPostgresRequest(this.binding, async () => {
-      const client = await getPostgresRequestPool().connect();
-      try {
-        await client.query("BEGIN");
+    return withPostgresRequest(this.binding, () => {
+      const execute = async () => {
+        const client = await getPostgresRequestPool().connect();
         try {
-          const result = await transactionActive.run(true, () =>
-            callback(client)
-          );
-          await client.query("COMMIT");
-          return result;
-        } catch (error) {
-          await client.query("ROLLBACK");
-          throw error;
+          await client.query("BEGIN");
+          try {
+            const result = await transactionActive.run(true, () =>
+              callback(client)
+            );
+            await client.query("COMMIT");
+            return result;
+          } catch (error) {
+            await client.query("ROLLBACK");
+            throw error;
+          }
+        } finally {
+          client.release();
         }
-      } finally {
-        client.release();
-      }
+      };
+      // Admission precedes checkout. The owner can execute directly inside
+      // an existing gate or provide a fresh scope without recursive dispatch.
+      const runTransaction = requestConnection.getStore()?.runTransaction;
+      return runTransaction ? runTransaction(execute) : execute();
     });
   }
 }

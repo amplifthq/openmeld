@@ -235,6 +235,27 @@ Pure local SQLite reconciliation keeps its ordinary input gate. Preserve these
 idempotency and ordering boundaries; do not expand a gate to an entire network
 request or move a protected write outside it to avoid connection deadlock.
 
+Space also admits each explicit PostgreSQL transaction through its native input
+gate before checking out a client or sending BEGIN. Its request-scope transaction
+runner covers alarm projections and RPC/HTTP work alike. Protected scopes retain
+that owner, while a Space-local context identifies their active gate.
+Transactions within an already active gate use its current protected pool
+without opening another gate; nested SQL transactions remain unsupported.
+Deferred work which outlives a scope keeps its matching-binding owner and seeks
+fresh admission once the original gate has finished. COMMIT or ROLLBACK and pool
+closure finish before the gate opens. A transaction started outside the gate
+could otherwise retain a
+scarce Hyperdrive origin slot while a later gate blocks the socket completion
+needed to release it and waits for that same slot.
+
+Only the database transaction is protected this way; ordinary queries do not
+acquire a transaction gate, and the rest of an alarm or request is not held
+inside it. A failure in a newly protected
+transaction is captured inside the gate, including cleanup, and rethrown to its
+existing caller after the gate settles. It must not reset the Space merely
+because an ordinary background transaction rolled back. Existing protected
+publication and ownership operations retain their failure semantics.
+
 Keep the operator/default provider role for provisioning only. Create a distinct
 migration owner and a runtime role per environment. Runtime roles must have no
 administrative attributes or broad inherited roles; grant only USAGE plus

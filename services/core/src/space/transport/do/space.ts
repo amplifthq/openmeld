@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { AsyncLocalStorage } from "node:async_hooks";
 import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   resolveWakeStopEligibility,
@@ -2900,6 +2901,63 @@ export class Space extends DurableObject<CoreBindings> {
     );
     this.ctx.setWebSocketAutoResponse(keepalivePair);
   }
+  private withPostgresRequest<T>(
+    callback: () => T | Promise<T>
+  ): Promise<T> {
+    return withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, callback, {
+      runTransaction: this.runPostgresTransaction,
+    });
+  }
+
+  private readonly runPostgresTransaction = async <T>(
+    callback: () => Promise<T>
+  ): Promise<T> => {
+    if (this.postgresGateContext.getStore()?.active) {
+      return callback();
+    }
+    // A later input gate must not suspend a transaction that still owns an
+    // origin-pool slot. Admit the transaction before it opens its connection.
+    const outcome = await this.ctx.blockConcurrencyWhile(async () => {
+      try {
+        return {
+          value: await this.withPostgresGateScope(callback),
+        };
+      } catch (error) {
+        // Include rollback and pool-close failures. Ordinary transaction
+        // errors still reach their caller without resetting the whole Space.
+        return { error };
+      }
+    });
+    if ("error" in outcome) {
+      throw outcome.error;
+    }
+    return outcome.value;
+  };
+
+  private readonly postgresGateContext = new AsyncLocalStorage<{
+    active: boolean;
+  }>();
+
+  private withPostgresGateScope<T>(callback: () => Promise<T>): Promise<T> {
+    const gate = { active: true };
+    return this.postgresGateContext.run(gate, async () => {
+      try {
+        return await withPostgresRequest(
+          this.bindings.OPENMELD_POSTGRESQL,
+          callback,
+          {
+            reuseConnection: false,
+            runTransaction: this.runPostgresTransaction,
+          }
+        );
+      } finally {
+        // Deferred work retains its Space owner after this scope closes, but
+        // must seek fresh admission once this gate has finished.
+        gate.active = false;
+      }
+    });
+  }
+
   private blockConcurrencyWithPostgres<T>(
     callback: () => Promise<T>
   ): Promise<T> {
@@ -2908,14 +2966,11 @@ export class Space extends DurableObject<CoreBindings> {
     // Preserve the caller's existing serialization boundary and close the
     // pool before reopening the gate; never borrow the outer request pool.
     return this.ctx.blockConcurrencyWhile(() =>
-      withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, callback, {
-        reuseConnection: false,
-      })
+      this.withPostgresGateScope(callback)
     );
   }
   async alarm(): Promise<void> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         logSpaceOutboxConsoleEvent({
           eventName: "alarm_fired",
@@ -3027,8 +3082,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
   }
   async fetch(request: Request): Promise<Response> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const response = await handleErrors(request, () => {
           const url = new URL(request.url);
@@ -3123,8 +3177,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceId: string;
     query?: ListSpaceFilesQuery;
   }): Promise<ListSpaceFilesResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         await assertRpcSpaceAccessAuthorized(
@@ -3155,8 +3208,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceAccess: SpaceAccessContext;
     spaceId: string;
   }): Promise<ResolveSpaceComposerUploadScopeResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
@@ -3173,8 +3225,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceAccess: SpaceAccessContext;
     spaceId: string;
   }): Promise<SpaceFileDescriptor> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         await assertRpcSpaceAccessAuthorized(
@@ -3192,8 +3243,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceAccess: SpaceAccessContext;
     command: import("@openmeld/schemas/types").SpaceFileUpdateSettingsCommand;
   }): Promise<import("@openmeld/schemas/types").SpaceFileUpdateSettings> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
@@ -3389,8 +3439,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceAccess: SpaceAccessContext;
     spaceId: string;
   }): Promise<ListSpaceFileRevisionsResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         await assertRpcSpaceAccessAuthorized(
@@ -3408,8 +3457,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceAccess: SpaceAccessContext;
     spaceId: string;
   }): Promise<CreateSpaceFolderResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
@@ -3447,8 +3495,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceAccess: SpaceAccessContext;
     spaceId: string;
   }): Promise<UpdateSpaceFileEntryResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
@@ -3482,8 +3529,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceAccess: SpaceAccessContext;
     spaceId: string;
   }): Promise<TrashSpaceFileEntryResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
@@ -3516,8 +3562,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceAccess: SpaceAccessContext;
     spaceId: string;
   }): Promise<RestoreSpaceFileEntryResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
@@ -3552,8 +3597,7 @@ export class Space extends DurableObject<CoreBindings> {
     command: SpaceFileUploadCommand;
     body?: ReadableStream<Uint8Array>;
   }) {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
@@ -3740,8 +3784,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceAccess: SpaceAccessContext;
     write: unknown;
   }): Promise<PrepareSpaceFileWriteResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const write = commitSpaceFileWriteInputSchema.parse(input.write);
         this.applySpaceRef(write.spaceId);
@@ -3777,8 +3820,7 @@ export class Space extends DurableObject<CoreBindings> {
     name: string;
     parentId: string | null;
   }): Promise<void> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         await this.requireSpaceFileWriteActor(input.spaceAccess);
@@ -3804,8 +3846,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceId: string;
     copy: unknown;
   }): Promise<void> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const copy = copyOwnMessageExcerptBodySchema.parse(input.copy);
         this.applySpaceRef(input.spaceId);
@@ -3866,8 +3907,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceAccess: SpaceAccessContext;
     spaceId: string;
   }): Promise<SpaceFileDescriptor | null> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const clientMutationId = spaceFileClientMutationIdSchema.parse(
           input.clientMutationId
@@ -3890,8 +3930,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceAccess: SpaceAccessContext;
     write: unknown;
   }): Promise<SpaceFileDescriptor> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const write = commitSpaceFileWriteInputSchema.parse(input.write);
         this.applySpaceRef(write.spaceId);
@@ -3953,8 +3992,7 @@ export class Space extends DurableObject<CoreBindings> {
     content: unknown;
     spaceAccess: SpaceAccessContext;
   }): Promise<ResolveSpaceFileContentResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const content = resolveSpaceFileContentInputSchema.parse(input.content);
         this.applySpaceRef(content.spaceId);
@@ -4128,8 +4166,7 @@ export class Space extends DurableObject<CoreBindings> {
   // They reuse application use cases or dispatch handlers so HTTP and RPC
   // paths keep identical validation, business behavior, and public errors.
   async rpcRecordMemberWebActivity(input: unknown): Promise<void> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         try {
           const profileId = recordSpaceMemberWebActivityUseCase({
@@ -4155,8 +4192,7 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
   async rpcListSignals(input: ListSignalsInput): Promise<ListSignalsResult> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         return unwrapSpaceRpcJsonResult(await this.rpcListSignalsResult(input));
       }
@@ -4165,8 +4201,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcListSignalsResult(
     input: ListSignalsInput
   ): Promise<SpaceRpcJsonResult<ListSignalsResult>> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -4189,8 +4224,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcListDispatchConversationContinuitySignalsResult(
     input: ListSignalsInput
   ): Promise<SpaceRpcJsonResult<ListSignalsResult>> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const spaceAccess = input.spaceAccess;
@@ -4291,7 +4325,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcFinalizeAcceptedDispatchResult(
     input: FinalizeAcceptedDispatchResultInput
   ): Promise<FinalizeAcceptedDispatchResultResponse> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcFinalizeAcceptedDispatchResult(this, input)
     );
   }
@@ -4445,7 +4479,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcApplyRuntimeCoordinatorFinalizationCommand(
     input: RuntimeCoordinatorFinalizationCommand
   ): Promise<RuntimeCoordinatorFinalizationOutcome> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcApplyRuntimeCoordinatorFinalizationCommand(this, input)
     );
   }
@@ -4654,8 +4688,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcApplyRuntimeCoordinatorPublicationExhaustionCommand(
     input: RuntimeCoordinatorFinalizationCommand
   ): Promise<RuntimeCoordinatorFinalizationClaimRead> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         return await this.applyRuntimeCoordinatorFinalNoticeCommand(
           input,
@@ -4667,8 +4700,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcApplyRuntimeCoordinatorWakeStopCommand(
     input: RuntimeCoordinatorFinalizationCommand
   ): Promise<RuntimeCoordinatorFinalizationClaimRead> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         return await this.applyRuntimeCoordinatorFinalNoticeCommand(
           input,
@@ -4795,7 +4827,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcApplyRuntimeCoordinatorFailurePublicationCommand(
     input: RuntimeCoordinatorFailurePublicationCommand
   ): Promise<RuntimeCoordinatorFailurePublicationOutcome> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcApplyRuntimeCoordinatorFailurePublicationCommand(
         this,
         input
@@ -5316,7 +5348,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcMutateSpaceMessage(
     input: import("../../../rpc/methods").MutateSpaceMessageInput
   ) {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcMutateSpaceMessage(this, input)
     );
   }
@@ -5541,7 +5573,7 @@ export class Space extends DurableObject<CoreBindings> {
     return { message: result.message };
   }
   async rpcPostSignal(input: PostSignalInput): Promise<SignalEnvelope> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcPostSignal(this, input)
     );
   }
@@ -5686,8 +5718,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcReadPluginConnectionLocalSource(
     raw: PluginConnectionLocalSourceRequest
   ) {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const { execution, source, reply, completedAtMs } =
           await this.readPluginConnectionLocalExecutionSource(raw);
@@ -5780,8 +5811,7 @@ export class Space extends DurableObject<CoreBindings> {
       pluginContinuation: PluginConnectionContinuationBinding;
     }
   ): Promise<SignalEnvelope> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const binding = pluginConnectionContinuationBindingSchema.parse(
           input.pluginContinuation
@@ -5896,8 +5926,7 @@ export class Space extends DurableObject<CoreBindings> {
     input: PostSignalOnceByClientMessageIdInput,
     workRecoveryQueueHandoff?: SignalPublishContext["workRecoveryQueueHandoff"]
   ): Promise<SignalEnvelope> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const agentStreamId = parseOptionalAgentStreamId(input.agentStreamId);
@@ -6397,8 +6426,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcPostStatusSignal(
     input: PostStatusSignalInput
   ): Promise<SignalEnvelope> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const author = await authorizeRpcSignalWrite({
@@ -6432,7 +6460,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcPostSystemNoticeSignal(
     input: PostSystemNoticeSignalInput
   ): Promise<SignalEnvelope> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcPostSystemNoticeSignal(this, input)
     );
   }
@@ -6546,7 +6574,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcPostExecutionRecoveryNoticeSignal(
     input: PostExecutionRecoveryNoticeSignalInput
   ): Promise<PostExecutionRecoveryNoticeSignalResponse> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcPostExecutionRecoveryNoticeSignal(this, input)
     );
   }
@@ -6646,8 +6674,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcInspectExecutionRecovery(
     input: InspectExecutionRecoveryInput
   ): Promise<InspectExecutionRecoveryResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const traceResponse = await this.rpcGetDispatchTrace({
@@ -6673,8 +6700,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcExecuteExecutionRecovery(
     input: ExecuteExecutionRecoveryInput
   ): Promise<ExecuteExecutionRecoveryResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const inspected = await this.rpcInspectExecutionRecovery({
@@ -6737,7 +6763,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcStartUsageExhaustedContinuation(
     input: StartUsageExhaustedContinuationInput
   ): Promise<StartUsageExhaustedContinuationResponse> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcStartUsageExhaustedContinuation(this, input)
     );
   }
@@ -7692,7 +7718,7 @@ export class Space extends DurableObject<CoreBindings> {
     };
   }
   async rpcPostTransientSignal(input: PostTransientSignalInput): Promise<void> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcPostTransientSignal(this, input)
     );
   }
@@ -8144,8 +8170,7 @@ export class Space extends DurableObject<CoreBindings> {
     input: GetSpaceMetaInput &
       import("@openmeld/schemas/types").SpaceEntryTarget
   ): Promise<import("@openmeld/schemas/types").SpaceEntryTarget> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         if (!input.spaceAccess) {
@@ -8174,8 +8199,7 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
   async rpcGetMeta(input: GetSpaceMetaInput): Promise<SpaceMeta> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchMetaRequest(
@@ -8197,8 +8221,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetEntryAccess(
     input: GetSpaceMetaInput
   ): Promise<SpaceEntryAccessResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const meta = await this.rpcGetMeta(input);
         const context = input.spaceAccess
@@ -8224,8 +8247,7 @@ export class Space extends DurableObject<CoreBindings> {
     meta: SpaceMeta;
     isDirectMessage: boolean;
   }> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         // Reuse normal member authorization. Keep DM internals out of the public
         // metadata DTO; expose only the canonical current audience fact.
@@ -8244,8 +8266,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcMessagePins(
     input: SpaceMessagePinsInput
   ): Promise<SpaceMessagePinsResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         if (!input.mutation && input.spaceAccess) {
@@ -8274,8 +8295,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcListTasks(
     input: ListSpaceTasksInput
   ): Promise<ListSpaceTasksResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         if (input.spaceAccess) {
@@ -8305,8 +8325,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcInputQueue(
     input: SpaceInputQueueInput
   ): Promise<SpaceInputQueueResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         if (input.mutation) {
@@ -8357,8 +8376,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcAgentWorkload(
     raw: SpaceAgentWorkloadInput
   ): Promise<AgentWorkloadSnapshot> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const input = spaceAgentWorkloadInputSchema.parse(raw);
         this.applySpaceRef(input.spaceId);
@@ -9521,8 +9539,7 @@ export class Space extends DurableObject<CoreBindings> {
   }
 
   async rpcGetTask(input: GetSpaceTaskInput): Promise<SpaceTaskResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         if (input.spaceAccess) {
@@ -9571,8 +9588,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcCreateTask(
     input: CreateSpaceTaskInput
   ): Promise<SpaceTaskMutationReceipt> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchPasswordProtectedMethod(
@@ -9614,8 +9630,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcMutateTask(
     input: MutateSpaceTaskInput
   ): Promise<SpaceTaskMutationReceipt> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchPasswordProtectedMethod(
@@ -9639,8 +9654,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcApplyGitHubIssueObservation(
     input: ApplyGitHubIssueObservationInput
   ): Promise<ApplyGitHubIssueObservationResult> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         await this.armSpaceTaskRecovery();
@@ -9658,8 +9672,7 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
   async rpcFilePins(input: SpaceFilePinsInput): Promise<SpaceFilePinsResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         if (!input.mutation && input.spaceAccess) {
@@ -10736,8 +10749,7 @@ export class Space extends DurableObject<CoreBindings> {
     return Response.json(this.readMessagePins());
   }
   async rpcGetContract(input: GetSpaceContractInput): Promise<SpaceContract> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchContractRequest(
@@ -10758,8 +10770,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetBoard(
     input: GetSpaceBoardInput
   ): Promise<SpaceBoardRoomProjection> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         return unwrapSpaceRpcJsonResult(await this.rpcGetBoardResult(input));
       }
@@ -10768,8 +10779,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetBoardResult(
     input: GetSpaceBoardInput
   ): Promise<SpaceRpcJsonResult<SpaceBoardRoomProjection>> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -10791,8 +10801,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetStatus(
     input: GetSpaceStatusInput
   ): Promise<GetSpaceStatusResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         return unwrapSpaceRpcJsonResult(await this.rpcGetStatusResult(input));
       }
@@ -10801,8 +10810,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetStatusResult(
     input: GetSpaceStatusInput
   ): Promise<SpaceRpcJsonResult<GetSpaceStatusResponse>> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -10824,8 +10832,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetConversationState(
     input: GetSpaceConversationStateRpcInput
   ): Promise<GetSpaceConversationStateResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -10847,8 +10854,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcResolveNativeReplyPlacement(
     raw: ResolveNativeReplyPlacementInput
   ): Promise<NativeReplyPlacement> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const input = resolveNativeReplyPlacementInputSchema.parse(raw);
         this.applySpaceRef(input.spaceId);
@@ -11055,8 +11061,7 @@ export class Space extends DurableObject<CoreBindings> {
         reasonCode: string;
       }
   > {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(raw.spaceId);
         const input = await this.projectAgentStreamReplyPlacement(raw);
@@ -11118,8 +11123,7 @@ export class Space extends DurableObject<CoreBindings> {
         reasonCode: string;
       }
   > {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(raw.spaceId);
         const input = await this.projectAgentStreamReplyPlacement(raw);
@@ -11157,8 +11161,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcCloseAgentStream(
     input: CloseSpaceAgentStreamInput
   ): Promise<SpaceAgentStreamTerminalFrame | null> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const nowMs = Date.now();
@@ -11197,8 +11200,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetBootstrap(
     input: GetSpaceBootstrapInput
   ): Promise<SpaceBootstrapResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         return (await this.rpcGetBootstrapWithTiming(input)).payload;
       }
@@ -11207,8 +11209,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetBootstrapWithTiming(
     input: GetSpaceBootstrapInput
   ): Promise<SpaceBootstrapWithTiming> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const collector = createSpaceBootstrapTimingCollector();
@@ -11481,8 +11482,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetUpdates(
     input: GetSpaceUpdatesInput
   ): Promise<GetSpaceUpdatesResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchUpdatesRequest(
@@ -11510,8 +11510,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetDispatchResult(
     input: GetSpaceDispatchResultInput
   ): Promise<DispatchResult> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchDispatchResultRequest(
@@ -11542,8 +11541,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetMembers(
     input: GetSpaceMembersInput
   ): Promise<SpaceMembersSnapshot> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchMembersRequest(
@@ -11564,8 +11562,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetHistoryNavigation(
     input: GetSpaceMembersInput & SpaceHistoryNavigationQuery
   ): Promise<SpaceHistoryNavigation> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -11642,8 +11639,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetIdentityDirectory(
     input: GetSpaceMembersInput
   ): Promise<SpaceIdentityDirectory> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchIdentityDirectoryRequest(
@@ -11664,8 +11660,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetMemberDirectory(
     input: GetSpaceMembersInput
   ): Promise<SpaceMemberDirectory> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchMemberDirectoryRequest(
@@ -11686,8 +11681,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetViewerMembership(
     input: GetSpaceViewerMembershipInput
   ): Promise<SpaceViewerMembershipResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -11709,8 +11703,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcListThreads(
     input: ListSpaceThreadsInput
   ): Promise<ListSpaceThreadsResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         return unwrapSpaceRpcJsonResult(await this.rpcListThreadsResult(input));
       }
@@ -11719,8 +11712,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcListThreadsResult(
     input: ListSpaceThreadsInput
   ): Promise<SpaceRpcJsonResult<ListSpaceThreadsResponse>> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -11747,8 +11739,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetThread(
     input: GetSpaceThreadInput
   ): Promise<GetSpaceThreadResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         return unwrapSpaceRpcJsonResult(await this.rpcGetThreadResult(input));
       }
@@ -11757,8 +11748,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetThreadResult(
     input: GetSpaceThreadInput
   ): Promise<SpaceRpcJsonResult<GetSpaceThreadResponse>> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -11785,8 +11775,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcListThreadEvents(
     input: ListSpaceThreadEventsInput
   ): Promise<ListSpaceThreadEventsResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         return unwrapSpaceRpcJsonResult(
           await this.rpcListThreadEventsResult(input)
@@ -11797,8 +11786,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcListThreadEventsResult(
     input: ListSpaceThreadEventsInput
   ): Promise<SpaceRpcJsonResult<ListSpaceThreadEventsResponse>> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -11825,8 +11813,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcListThreadSignals(
     input: ListSpaceThreadSignalsInput
   ): Promise<ListSpaceThreadSignalsResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         return unwrapSpaceRpcJsonResult(
           await this.rpcListThreadSignalsResult(input)
@@ -11837,8 +11824,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcListThreadSignalsResult(
     input: ListSpaceThreadSignalsInput
   ): Promise<SpaceRpcJsonResult<ListSpaceThreadSignalsResponse>> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -11870,8 +11856,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcCheckDeviceWaitingWakeAccess(
     request: import("@openmeld/schemas/types").WakeDeviceWaitAccessRequest
   ): Promise<import("@openmeld/schemas/types").WakeDeviceWaitAccessResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const parsed = wakeDeviceWaitAccessRequestSchema.safeParse(request);
         if (!parsed.success) {
@@ -11935,8 +11920,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcCheckTaskSummaryRecoveryAccess(
     raw: ReturnType<typeof taskSummaryRecoveryAccessRequestSchema.parse>
   ): Promise<ReturnType<typeof taskSummaryRecoveryAccessResponseSchema.parse>> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const parsed = taskSummaryRecoveryAccessRequestSchema.safeParse(raw);
         if (!parsed.success) {
@@ -11978,8 +11962,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetClaimTimeLiveness(
     input: SpaceClaimTimeLivenessInput
   ): Promise<SpaceClaimTimeLivenessResult> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         return await resolveSpaceClaimTimeLiveness({
@@ -12033,8 +12016,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetDispatchTrace(
     input: GetSpaceDispatchTraceInput
   ): Promise<SpaceDispatchTraceResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const url = new URL(
@@ -12070,8 +12052,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetDispatchLookup(
     input: GetSpaceDispatchLookupInput
   ): Promise<GetSpaceDispatchLookupResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const url = new URL("https://openmeld.local/dispatches/lookup");
@@ -12104,8 +12085,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetWakeProgress(
     input: GetSpaceWakeProgressInput
   ): Promise<GetSpaceWakeProgressResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const url = new URL("https://openmeld.local/wake-progress");
@@ -12154,7 +12134,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetActiveWakeProgress(
     input: GetActiveSpaceWakeProgressInput
   ): Promise<GetActiveSpaceWakeProgressResponse> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcGetActiveWakeProgress(this, input)
     );
   }
@@ -12216,8 +12196,7 @@ export class Space extends DurableObject<CoreBindings> {
     context?: CoreRpcContextInput;
     spaceAccess?: SpaceAccessContext;
   }): Promise<PostSpaceWakeStopResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -12245,8 +12224,7 @@ export class Space extends DurableObject<CoreBindings> {
     context?: CoreRpcContextInput;
     spaceAccess?: SpaceAccessContext;
   }): Promise<RespondToSpaceAgentInteractionResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -12270,8 +12248,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetWakeTraceWaterfall(
     input: GetSpaceWakeTraceWaterfallInput
   ): Promise<GetSpaceWakeTraceWaterfallResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const url = new URL("https://openmeld.local/wake-trace-waterfall");
@@ -12306,8 +12283,7 @@ export class Space extends DurableObject<CoreBindings> {
       spaceAccess: SpaceAccessContext;
     }
   ): Promise<GetSpaceMessageReactionsResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         await assertRpcSpaceAccessAuthorized(
@@ -12338,7 +12314,7 @@ export class Space extends DurableObject<CoreBindings> {
       spaceAccess: SpaceAccessContext;
     }
   ): Promise<GetSpaceMessageReactionsResponse> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcSetMessageReaction(this, input)
     );
   }
@@ -12482,8 +12458,7 @@ export class Space extends DurableObject<CoreBindings> {
       spaceAccess: SpaceAccessContext;
     }
   ) {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         await assertRpcSpaceAccessAuthorized(
@@ -12523,8 +12498,7 @@ export class Space extends DurableObject<CoreBindings> {
       spaceAccess: SpaceAccessContext;
     }
   ): Promise<import("@openmeld/schemas").SpaceMessageLinks> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         await assertRpcSpaceAccessAuthorized(
@@ -12562,8 +12536,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetMessageDetails(
     input: GetSpaceMessageDetailsInput
   ): Promise<GetSpaceMessageDetailsResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const url = new URL("https://openmeld.local/message-details");
@@ -12594,8 +12567,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcCreateDiagnosticReport(
     input: CreateSpaceDiagnosticReportInput
   ): Promise<CreateSpaceDiagnosticReportResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -12619,8 +12591,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcPostMembers(
     input: AddSpaceMembersInput
   ): Promise<PostSpaceMembersResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchMembersRequest(
@@ -12768,8 +12739,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcAcceptSpaceInvitation(
     raw: SpaceInvitationGrantInput
   ): Promise<"accepted" | "revoked"> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const input = spaceInvitationGrantInputSchema.parse(raw);
         if (
@@ -12857,8 +12827,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcConvertDirectMessageToSpace(
     input: ConvertDirectMessageToSpaceInput
   ): Promise<ConvertDirectMessageToSpaceResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const result = await this.blockConcurrencyWithPostgres(async () => {
           try {
@@ -13053,8 +13022,7 @@ export class Space extends DurableObject<CoreBindings> {
     ok: true;
     spaceId: string;
   }> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const requestedProfileIds = normalizeProfileIds(input.agentProfileIds);
@@ -13106,8 +13074,7 @@ export class Space extends DurableObject<CoreBindings> {
     ok: true;
     spaceId: string;
   }> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const agentProfileIds = normalizeProfileIds(input.agentProfileIds);
@@ -13137,8 +13104,7 @@ export class Space extends DurableObject<CoreBindings> {
   }): Promise<{
     status: "removed" | "skipped_creator" | "noop" | "deferred";
   }> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const status = await this.reconcileDeletedAgentProfileMemberInternal({
@@ -13165,8 +13131,7 @@ export class Space extends DurableObject<CoreBindings> {
   }): Promise<{
     recorded: boolean;
   }> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const record = readSpaceMemberRecord(
@@ -13199,8 +13164,7 @@ export class Space extends DurableObject<CoreBindings> {
     projectionStatus: string;
     spaceId: string;
   }> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const metaRecord = this.readSpaceMetaRecord();
@@ -13456,8 +13420,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcRemoveMembers(
     input: RemoveSpaceMembersInput
   ): Promise<RemoveSpaceMembersResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchRemoveMembersRequest(
@@ -13478,8 +13441,7 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
   async rpcLeaveSpace(input: LeaveSpaceInput): Promise<LeaveSpaceResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchLeaveSpaceRequest(
@@ -13497,7 +13459,7 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
   async rpcPatchMeta(input: PatchSpaceMetaInput): Promise<SpaceMeta> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcPatchMeta(this, input)
     );
   }
@@ -13544,7 +13506,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcInitializeSpaceMetaWithOwners(
     input: InitializeSpaceMetaWithOwnersInput
   ): Promise<InitializeSpaceMetaWithOwnersResponse> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcInitializeSpaceMetaWithOwners(this, input)
     );
   }
@@ -13671,7 +13633,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcInitializeDirectMessageMeta(
     input: InitializeDirectMessageSpaceMetaInput
   ): Promise<InitializeDirectMessageSpaceMetaResponse> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcInitializeDirectMessageMeta(this, input)
     );
   }
@@ -13750,8 +13712,7 @@ export class Space extends DurableObject<CoreBindings> {
     };
   }
   async rpcPutContract(input: PutSpaceContractInput): Promise<SpaceContract> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchContractRequest(
@@ -13772,8 +13733,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcPatchContract(
     input: PatchSpaceContractInput
   ): Promise<SpaceContract> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchContractRequest(
@@ -13794,8 +13754,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcPatchMetaWithPasswordAtomic(
     input: PatchSpaceMetaWithPasswordAtomicInput
   ): Promise<SpaceMeta> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -13826,8 +13785,7 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
   async rpcDelete(input: DeleteSpaceInput): Promise<DeleteSpaceResult> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const approvedAgentCreatorProfileId =
@@ -14086,7 +14044,7 @@ export class Space extends DurableObject<CoreBindings> {
     };
     // Stop can call back into this Space to close its stream. Do not hold the
     // Space concurrency gate while waiting for that callback.
-    await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, async () => {
+    await this.withPostgresRequest(async () => {
       const authorized = await authorize();
       if (authorized) {
         await stopAccountConversation({
@@ -14150,8 +14108,7 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
   async rpcGetCursor(input: GetSpaceCursorInput): Promise<SpaceCursor> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const profileId = String(input.profileId ?? "").trim();
@@ -14174,8 +14131,7 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
   async rpcPatchCursor(input: UpdateSpaceCursorInput): Promise<SpaceCursor> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const profileId = String(input.profileId ?? "").trim();
@@ -14213,8 +14169,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcUpsertPassword(
     input: UpsertSpacePasswordInput
   ): Promise<SpacePasswordStateResult> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchPasswordRequest(
@@ -14232,8 +14187,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcClearPassword(
     input: ClearSpacePasswordInput
   ): Promise<SpacePasswordStateResult> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchPasswordRequest(
@@ -14250,8 +14204,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcSetAccessMode(
     input: SetSpaceAccessModeInput
   ): Promise<SpaceAccessModeStateResult> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchAccessModeRequest(
@@ -17791,8 +17744,7 @@ export class Space extends DurableObject<CoreBindings> {
     this.ctx.waitUntil(this.flushPendingDispatchOutbox());
   }
   async webSocketMessage(webSocket: WebSocket, msg: string | ArrayBuffer) {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         let payload: Record<string, unknown> | undefined;
         try {
@@ -23516,7 +23468,7 @@ export class Space extends DurableObject<CoreBindings> {
     const applied = gated.value;
     // Projection and dispatch can call back into this Space, so they run
     // after the gate opens.
-    await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, async () => {
+    await this.withPostgresRequest(async () => {
       if (applied.addedMemberIds?.length) {
         await this.projectCurrentSpaceIndexSnapshot("space.members_updated");
         await this.broadcastSpaceMembersChanged({

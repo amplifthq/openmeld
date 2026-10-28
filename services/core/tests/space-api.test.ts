@@ -3,6 +3,8 @@ import { exports, RpcStub, RpcTarget } from "cloudflare:workers";
 import { createHash, randomUUID } from "node:crypto";
 import {
   getPostgresDatabase,
+  getPostgresRequestPool,
+  type PoolClient,
   PostgresDatabase,
   withPostgresRequest,
 } from "@openmeld/db/postgresql";
@@ -100,7 +102,10 @@ import {
   recordDispatchOutboxCandidateFailure,
 } from "../src/space/infrastructure/outbox/dispatch-outbox-repo";
 import { SpaceFileRepository } from "../src/space/infrastructure/sql/space-file-repo";
-import { readSpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
+import {
+  readSpaceMemberRecord,
+  upsertSpaceMemberRecord,
+} from "../src/space/infrastructure/sql/space-member-repo";
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
 import { Space } from "../src/space/transport/do/space";
 import {
@@ -7284,6 +7289,211 @@ describe("OpenMeld Core", () => {
         queryObserver.mockRestore();
       }
     });
+  });
+
+  it.each([
+    "commit",
+    "rollback",
+  ] as const)("publishes while an alarm transaction releases a shared PostgreSQL resource after %s", async (transactionOutcome) => {
+    const spaceId = await createSpace();
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const ownerUserId = "owner-test-default";
+    const clientMessageId = `pool-gate-${randomUUID()}`;
+    const resourceKey = Number.parseInt(randomUUID().slice(0, 8), 16);
+    const controlKey = resourceKey + 0x1_00_00_00_00;
+    const fixtureName = `pool_gate_${randomUUID().replaceAll("-", "")}`;
+    const operator = postgresFixtureOperator(env);
+    const controllerReady = Promise.withResolvers<void>();
+    const releaseController = Promise.withResolvers<void>();
+
+    // A real transaction-scoped lock models one scarce origin resource. The
+    // trigger bounds the failed publication without waiting for a DO reset.
+    await operator.query(`
+      CREATE FUNCTION public.${fixtureName}() RETURNS trigger LANGUAGE plpgsql AS $fixture$
+      BEGIN
+        PERFORM set_config('lock_timeout', '1500ms', true);
+        PERFORM pg_advisory_xact_lock(${resourceKey}::bigint);
+        RETURN NEW;
+      END $fixture$;
+      CREATE TRIGGER ${fixtureName} BEFORE INSERT OR UPDATE
+        ON "openmeld"."user_time_contexts" FOR EACH ROW
+        WHEN (NEW.user_id = '${ownerUserId}')
+        EXECUTE FUNCTION public.${fixtureName}();
+    `);
+    try {
+      await runInDurableObject(stub, async (instance, state) => {
+        let controllerPid = 0;
+        const controller = withPostgresRequest(
+          env.TEST_POSTGRESQL_OWNER,
+          async () => {
+            const pool = getPostgresRequestPool();
+            pool.on("error", () => undefined);
+            const client = await pool.connect();
+            client.on("error", () => undefined);
+            try {
+              await client.query("BEGIN");
+              await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [
+                controlKey,
+              ]);
+              controllerPid = Number(
+                (await client.query("SELECT pg_backend_pid() AS pid")).rows[0]
+                  ?.pid
+              );
+              controllerReady.resolve();
+              await releaseController.promise;
+            } finally {
+              client.release(true);
+            }
+          }
+        );
+        await controllerReady.promise;
+        const member = readSpaceMemberRecord(
+          state.storage.sql,
+          DEFAULT_HUMAN_PROFILE_ID
+        );
+        if (!member) {
+          throw new Error("Expected the seeded Space member");
+        }
+        // A membership added by someone else produces a real Inbox write
+        // after the alarm projects its dirty Space Index snapshot.
+        upsertSpaceMemberRecord(state.storage.sql, {
+          ...member,
+          addedByOwnerUserId: null,
+        });
+        const outsideStarted = Promise.withResolvers<void>();
+        let heldTransaction = false;
+        const nativeTransaction = PostgresDatabase.prototype.transaction;
+        const transactionObserver = vi
+          .spyOn(PostgresDatabase.prototype, "transaction")
+          .mockImplementation(function (
+            this: PostgresDatabase,
+            callback: (client: PoolClient) => Promise<unknown>
+          ) {
+            return nativeTransaction.call(this, async (client) => {
+              if (heldTransaction) {
+                return callback(client);
+              }
+              heldTransaction = true;
+              await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [
+                resourceKey,
+              ]);
+              const result = await callback(client);
+              // The real Inbox write is still uncommitted. A pending native
+              // socket completion must be allowed to reach COMMIT before a
+              // publication gate waits for the same resource.
+              const pending = client.query(
+                "SELECT pg_advisory_xact_lock($1::bigint)",
+                [controlKey]
+              );
+              outsideStarted.resolve();
+              await pending;
+              if (transactionOutcome === "rollback") {
+                throw new Error("fixture alarm transaction rollback");
+              }
+              return result;
+            });
+          });
+        const nativeGate = state.blockConcurrencyWhile.bind(state);
+        let releasedControl = false;
+        const gateObserver = vi
+          .spyOn(state, "blockConcurrencyWhile")
+          .mockImplementation(<T>(callback: () => Promise<T>): Promise<T> => {
+            return nativeGate(async () => {
+              if (!releasedControl) {
+                releasedControl = true;
+                // Release the fixture lock server-side using a fresh socket
+                // inside the gate. The controller's old socket need not run.
+                await postgresFixtureOperator(env).query(
+                  "SELECT pg_terminate_backend($1)",
+                  [controllerPid]
+                );
+                releaseController.resolve();
+              }
+              return callback();
+            });
+          });
+        let firstAlarmFailureStatus: string | undefined;
+        const alarm = instance.alarm().then(() => {
+          firstAlarmFailureStatus = state.storage.sql
+            .exec<{ status: string }>(
+              "SELECT status FROM space_index_projection_outbox WHERE last_error = ?",
+              "fixture alarm transaction rollback"
+            )
+            .toArray()[0]?.status;
+        });
+        try {
+          await Promise.race([
+            outsideStarted.promise,
+            alarm.then(() => {
+              throw new Error("Alarm did not reach its Inbox transaction");
+            }),
+          ]);
+          const context = {
+            ...createRpcContext({
+              requestId: clientMessageId,
+              profileId: DEFAULT_HUMAN_PROFILE_ID,
+              profileKind: "human",
+              profileName: "Test User",
+              ownerUserId,
+            }),
+            userTimeZoneObservation: {
+              timeZone: "Asia/Taipei",
+              source: "web" as const,
+            },
+          };
+          const request = {
+            authoringPolicy: "user_authored" as const,
+            clientMessageId,
+            context,
+            meta: { clientMessageId },
+            profile: {
+              kind: "human" as const,
+              profileId: DEFAULT_HUMAN_PROFILE_ID,
+            },
+            spaceId,
+            text: "Publication waits for the alarm transaction to finish",
+          };
+          const posted =
+            await instance.rpcPostSignalOnceByClientMessageId(request);
+          expect(posted).toMatchObject({
+            type: "signal.text",
+            data: { text: request.text },
+          });
+          expect(
+            await instance.rpcPostSignalOnceByClientMessageId(request)
+          ).toEqual(posted);
+          await alarm;
+          if (transactionOutcome === "rollback") {
+            expect(firstAlarmFailureStatus).toBe("failed");
+            state.storage.sql.exec(
+              "UPDATE space_index_projection_outbox SET next_retry_at_ms = 0 WHERE status = 'failed'"
+            );
+            await instance.alarm();
+          }
+          expect(
+            (
+              await getPostgresDatabase(env).query({
+                text: 'SELECT COUNT(*)::int AS count FROM "openmeld"."inbox_items" WHERE source_key = $1',
+                values: [
+                  `space-joined:${spaceId}:${member.profileId}:${Date.parse(member.addedAt)}`,
+                ],
+              })
+            ).rows
+          ).toEqual([{ count: 1 }]);
+        } finally {
+          releaseController.resolve();
+          await alarm.catch(() => undefined);
+          await controller;
+          gateObserver.mockRestore();
+          transactionObserver.mockRestore();
+        }
+      });
+    } finally {
+      releaseController.resolve();
+      await operator.query(`DROP TRIGGER ${fixtureName} ON "openmeld"."user_time_contexts";
+        DROP FUNCTION public.${fixtureName}();`);
+    }
   });
 
   it.each([
