@@ -7294,6 +7294,7 @@ describe("OpenMeld Core", () => {
   it.each([
     "commit",
     "rollback",
+    "timeout",
   ] as const)("publishes while an alarm transaction releases a shared PostgreSQL resource after %s", async (transactionOutcome) => {
     const spaceId = await createSpace();
     const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
@@ -7323,6 +7324,12 @@ describe("OpenMeld Core", () => {
     `);
     try {
       await runInDurableObject(stub, async (instance, state) => {
+        // This fixture drives redelivery explicitly. A long deadline would
+        // otherwise let an automatically due alarm overwrite the failed row.
+        await state.storage.deleteAlarm();
+        const alarmScheduling = vi
+          .spyOn(state.storage, "setAlarm")
+          .mockResolvedValue(undefined);
         let controllerPid = 0;
         const controller = withPostgresRequest(
           env.TEST_POSTGRESQL_OWNER,
@@ -7330,6 +7337,9 @@ describe("OpenMeld Core", () => {
             const pool = getPostgresRequestPool();
             pool.on("error", () => undefined);
             const client = await pool.connect();
+            const controllerEnded = new Promise<void>((resolve) =>
+              client.once("end", resolve)
+            );
             client.on("error", () => undefined);
             try {
               await client.query("BEGIN");
@@ -7344,6 +7354,7 @@ describe("OpenMeld Core", () => {
               await releaseController.promise;
             } finally {
               client.release(true);
+              await controllerEnded;
             }
           }
         );
@@ -7396,28 +7407,36 @@ describe("OpenMeld Core", () => {
           });
         const nativeGate = state.blockConcurrencyWhile.bind(state);
         let releasedControl = false;
-        const gateObserver = vi
-          .spyOn(state, "blockConcurrencyWhile")
-          .mockImplementation(<T>(callback: () => Promise<T>): Promise<T> => {
-            return nativeGate(async () => {
-              if (!releasedControl) {
-                releasedControl = true;
-                // Release the fixture lock server-side using a fresh socket
-                // inside the gate. The controller's old socket need not run.
-                await postgresFixtureOperator(env).query(
-                  "SELECT pg_terminate_backend($1)",
-                  [controllerPid]
+        const gateObserver =
+          transactionOutcome === "timeout"
+            ? undefined
+            : vi
+                .spyOn(state, "blockConcurrencyWhile")
+                .mockImplementation(
+                  <T>(callback: () => Promise<T>): Promise<T> => {
+                    return nativeGate(async () => {
+                      if (!releasedControl) {
+                        releasedControl = true;
+                        // Release the fixture lock server-side using a fresh socket
+                        // inside the gate. The controller's old socket need not run.
+                        await postgresFixtureOperator(env).query(
+                          "SELECT pg_terminate_backend($1)",
+                          [controllerPid]
+                        );
+                        releaseController.resolve();
+                      }
+                      return await callback();
+                    });
+                  }
                 );
-                releaseController.resolve();
-              }
-              return callback();
-            });
-          });
         let firstAlarmFailureStatus: string | undefined;
         const alarm = instance.alarm().then(() => {
           firstAlarmFailureStatus = state.storage.sql
             .exec<{ status: string }>(
-              "SELECT status FROM space_index_projection_outbox WHERE last_error = ?",
+              `SELECT status FROM space_index_projection_outbox
+               WHERE last_error = ?
+                 OR last_error LIKE 'PostgreSQL transaction exceeded its %ms budget'
+                 OR last_error LIKE '%transaction timeout%'`,
               "fixture alarm transaction rollback"
             )
             .toArray()[0]?.status;
@@ -7454,6 +7473,11 @@ describe("OpenMeld Core", () => {
             spaceId,
             text: "Publication waits for the alarm transaction to finish",
           };
+          if (transactionOutcome === "timeout") {
+            // An external Space request cannot enter while the admitted
+            // transaction owns the native gate. Check recovery after expiry.
+            await alarm;
+          }
           const posted =
             await instance.rpcPostSignalOnceByClientMessageId(request);
           expect(posted).toMatchObject({
@@ -7464,8 +7488,17 @@ describe("OpenMeld Core", () => {
             await instance.rpcPostSignalOnceByClientMessageId(request)
           ).toEqual(posted);
           await alarm;
-          if (transactionOutcome === "rollback") {
+          if (transactionOutcome !== "commit") {
             expect(firstAlarmFailureStatus).toBe("failed");
+            if (transactionOutcome === "timeout") {
+              expect(
+                state.storage.sql
+                  .exec<{ last_error: string }>(
+                    "SELECT last_error FROM space_index_projection_outbox WHERE status = 'failed'"
+                  )
+                  .one().last_error
+              ).toBe("terminating connection due to transaction timeout");
+            }
             state.storage.sql.exec(
               "UPDATE space_index_projection_outbox SET next_retry_at_ms = 0 WHERE status = 'failed'"
             );
@@ -7485,7 +7518,8 @@ describe("OpenMeld Core", () => {
           releaseController.resolve();
           await alarm.catch(() => undefined);
           await controller;
-          gateObserver.mockRestore();
+          alarmScheduling.mockRestore();
+          gateObserver?.mockRestore();
           transactionObserver.mockRestore();
         }
       });
@@ -7494,7 +7528,7 @@ describe("OpenMeld Core", () => {
       await operator.query(`DROP TRIGGER ${fixtureName} ON "openmeld"."user_time_contexts";
         DROP FUNCTION public.${fixtureName}();`);
     }
-  });
+  }, 25_000);
 
   it.each([
     "conversation",

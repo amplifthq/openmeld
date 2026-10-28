@@ -256,6 +256,27 @@ existing caller after the gate settles. It must not reset the Space merely
 because an ordinary background transaction rolled back. Existing protected
 publication and ownership operations retain their failure semantics.
 
+Space transactions have a 15-second budget starting before client acquisition.
+The existing 10-second acquisition cap remains within this budget. BEGIN sets
+PostgreSQL 18's transaction-local `transaction_timeout` to the remaining budget
+in the same protocol message, bounding SQL, lock waits and idle transaction time
+without relying only on a Worker timer. A local watchdog allows one additional
+second for the origin to finish, then destroys the checked-out client through
+the driver's public release API. Client disposal has a two-second cap, leaving
+margin below the native gate's 30-second reset limit. The watchdog covers the
+callback, COMMIT and ROLLBACK; it does not merely abandon a live client.
+When PostgreSQL ends a session with a fatal timeout, the owner waits for the
+native close before releasing it, preserving the original SQLSTATE instead of
+sending ROLLBACK or Terminate into a closing socket. Expired clients are not
+reused, and late callbacks cannot submit more SQL or commit. Ambiguous commit
+failures are not replayed; existing domain idempotency and outboxes own recovery.
+
+This serializes a Space only for each admitted SQL transaction, not for a whole
+alarm, HTTP/RPC request or external service call. Space transaction callbacks
+must keep non-database work outside the transaction. Assess throughput using
+the native concurrent publication/projection regression and the affected Space
+API suite; local results do not establish production requests-per-second.
+
 Keep the operator/default provider role for provisioning only. Create a distinct
 migration owner and a runtime role per environment. Runtime roles must have no
 administrative attributes or broad inherited roles; grant only USAGE plus

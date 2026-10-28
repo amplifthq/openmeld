@@ -539,7 +539,10 @@ import {
   writeDirectMessageSessionArchivedAt,
 } from "../../../space-index/space-index-repository";
 import { captureSpaceMessagePreview } from "../../../space-index/space-message-preview";
-import { SPACE_OUTBOX_ALARM_REDRIVE_INTERVAL_MS } from "../../../strategy-constants";
+import {
+  SPACE_OUTBOX_ALARM_REDRIVE_INTERVAL_MS,
+  SPACE_POSTGRES_TRANSACTION_TIMEOUT_MS,
+} from "../../../strategy-constants";
 import { resolveUserRequestTimeContext } from "../../../user-time-context/user-time-context-repository";
 import { buildAcceptedDispatchFinalizationQueueMessage } from "../../application/accepted-dispatch-finalization";
 import {
@@ -2948,6 +2951,7 @@ export class Space extends DurableObject<CoreBindings> {
           {
             reuseConnection: false,
             runTransaction: this.runPostgresTransaction,
+            transactionTimeoutMs: SPACE_POSTGRES_TRANSACTION_TIMEOUT_MS,
           }
         );
       } finally {

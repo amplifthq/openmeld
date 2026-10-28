@@ -57,6 +57,10 @@ export const RUNTIME_COORDINATOR_PROGRESS_EVIDENCE_WATCHDOG_INTERVAL_MS = 30_000
 export const PREPARE_SESSION_TTL_MS = 30 * 60 * 1000;
 export const PREPARE_TOKEN_TTL_MS = 10 * 60 * 1000;
 export const SPACE_OUTBOX_ALARM_REDRIVE_INTERVAL_MS = 15_000;
+// Includes connection acquisition (itself capped at 10s). The PostgreSQL owner
+// allows 1s for origin cleanup and caps client disposal at 2s, keeping this
+// transaction gate below the platform's 30s reset limit.
+export const SPACE_POSTGRES_TRANSACTION_TIMEOUT_MS = 15_000;
 export const EXECUTION_TARGET_MUTATION_LEASE_MS = 5 * 60_000;
 // A Wake blocked by a target edit gets the full lease plus one outbox alarm
 // to retry before Core publishes a visible no-execution failure.
