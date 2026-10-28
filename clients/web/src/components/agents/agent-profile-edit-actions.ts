@@ -1,3 +1,4 @@
+import type { ListMemberAgentsResponse } from "@openmeld/schemas";
 import type {
 	AgentControllerCollaborationMode,
 	AgentControllerPermissionMode,
@@ -27,6 +28,7 @@ import {
 } from "#/lib/profiles/agent-profile-runtime-binding";
 import { renameOpenMeldProfile } from "#/lib/profiles/rename-profile";
 import { refreshWebAgentReadinessFacts } from "#/query/agents/execution-readiness";
+import { memberAgentQueryKeys } from "#/query/organizations/member-agents";
 import {
 	organizationDirectoryQueryFilters,
 	organizationQueryKeys,
@@ -238,6 +240,10 @@ export async function renameAgentProfile(input: {
 	});
 	await Promise.all([
 		input.context.queryClient.cancelQueries({
+			queryKey: memberAgentQueryKeys.all(input.context.organizationId),
+			exact: true,
+		}),
+		input.context.queryClient.cancelQueries({
 			queryKey: startQueryKeys.profilesForStorageScope(
 				input.context.storageScope
 			),
@@ -255,6 +261,11 @@ export async function renameAgentProfile(input: {
 		storageScope: input.context.storageScope,
 	});
 	await Promise.all([
+		input.context.queryClient.invalidateQueries({
+			queryKey: memberAgentQueryKeys.all(input.context.organizationId),
+			exact: true,
+			refetchType: "none",
+		}),
 		input.context.queryClient.invalidateQueries({
 			queryKey: startQueryKeys.profilesForStorageScope(
 				input.context.storageScope
@@ -277,6 +288,28 @@ export function updateAgentProfileListCaches(input: {
 	queryClient: QueryClient;
 	storageScope: string;
 }) {
+	input.queryClient.setQueryData<ListMemberAgentsResponse>(
+		memberAgentQueryKeys.all(input.organizationId),
+		(current) =>
+			current
+				? {
+						...current,
+						memberAgents: current.memberAgents.map((agent) => ({
+							...agent,
+							profiles: agent.profiles.map((profile) =>
+								profile.openMeldProfileId === input.profile.openMeldProfileId
+									? { ...profile, profileName: input.profile.profileName }
+									: profile
+							),
+						})),
+						unassignedProfiles: current.unassignedProfiles.map((profile) =>
+							profile.openMeldProfileId === input.profile.openMeldProfileId
+								? { ...profile, profileName: input.profile.profileName }
+								: profile
+						),
+					}
+				: current
+	);
 	input.queryClient.setQueriesData<readonly AuthProfileView[]>(
 		{
 			queryKey: startQueryKeys.profilesForStorageScope(input.storageScope),

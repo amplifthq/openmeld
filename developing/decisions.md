@@ -17,6 +17,12 @@
   conflicts with an owner doc means one of the two must be fixed in the same
   PR.
 
+2026-10-27: Owners can rename default Agent Profiles as well as additional
+Profiles. This supersedes the MemberAgent program's default-name lock in
+response to indistinguishable Agent names. Harness assignment remains fixed;
+sync preserves chosen names, and mention candidates show the owner. See
+`product/agent-profiles.md` and `product/space-collaboration.md`.
+
 2026-10-21: New Space Durable Objects are created with location hint `enam`,
 next to the PostgreSQL primary; existing Spaces are not moved and no
 jurisdiction is set. See `architecture/data-and-observability.md` (Space

@@ -127,7 +127,6 @@ import {
 import {
 	MemberAgentHarnessLock,
 	useMemberAgentHarnessLocked,
-	useMemberAgentProfileNameLocked,
 } from "#/components/member-agents/member-agent-harness-lock";
 import { useMemberAgentIndex } from "#/components/member-agents/use-member-agents";
 import {
@@ -5514,7 +5513,6 @@ function AgentProfileEditDialogFields(input: {
 	permissionControlRef: Ref<HTMLButtonElement>;
 	profileNameInputId: string;
 }) {
-	const nameLocked = useMemberAgentProfileNameLocked();
 	return (
 		<div className="grid gap-5">
 			<AgentConfigurationEditorCard
@@ -5526,27 +5524,18 @@ function AgentProfileEditDialogFields(input: {
 					<Label className="sr-only" htmlFor={input.profileNameInputId}>
 						Name
 					</Label>
-					{nameLocked ? (
-						<p className="text-sm">
-							{input.activeDraft.profileName}
-							<span className="mt-1 block text-muted-foreground text-xs">
-								The default Profile is named after its harness.
-							</span>
-						</p>
-					) : (
-						<Input
-							disabled={input.disabled}
-							id={input.profileNameInputId}
-							onChange={(event) => {
-								input.onDraftChange({
-									...input.activeDraft,
-									key: input.draftKey,
-									profileName: event.target.value,
-								});
-							}}
-							value={input.activeDraft.profileName}
-						/>
-					)}
+					<Input
+						disabled={input.disabled}
+						id={input.profileNameInputId}
+						onChange={(event) => {
+							input.onDraftChange({
+								...input.activeDraft,
+								key: input.draftKey,
+								profileName: event.target.value,
+							});
+						}}
+						value={input.activeDraft.profileName}
+					/>
 					{input.dialogState.profileNameChanged &&
 					!input.dialogState.profileNameIsValid ? (
 						<p className="text-destructive text-xs">Enter an Agent name.</p>

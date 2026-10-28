@@ -18,9 +18,11 @@ import {
 import { type ComponentProps, type ReactNode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
+import { memberAgentQueryKeys } from "#/query/organizations/member-agents";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { projectQueryKeys } from "#/query/organizations/projects";
 import { startQueryKeys } from "#/query/query-keys";
+import { MIGRATED_LISTING } from "#/test-support/member-agent-fixtures";
 import {
 	createTestQueryClient,
 	TestQueryClientProvider,
@@ -1836,11 +1838,36 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBe("Still in the form");
 	});
 
-	it("leaves inline edit after a rename without waiting for a full refresh", async () => {
+	it.each([
+		false,
+		true,
+	])("saves an inline rename without a full refresh (default Profile: %s)", async (isDefaultProfile) => {
 		const refreshAll = vi.fn().mockResolvedValue(undefined);
-		renderAgentProfilesCard({ refreshAll }, undefined, {
+		const { queryClient } = renderAgentProfilesCard({ refreshAll }, undefined, {
 			presentation: "detail",
 		});
+		if (isDefaultProfile) {
+			await act(() => {
+				queryClient.setQueryData(memberAgentQueryKeys.all("org-acme"), {
+					...MIGRATED_LISTING,
+					organizationId: "org-acme",
+					memberAgents: MIGRATED_LISTING.memberAgents.filter(
+						(agent) => agent.harnessKind === "codex"
+					),
+				});
+				queryClient.setQueryData(
+					organizationQueryKeys.profileIdentityDirectory("org-acme"),
+					{
+						organizationId: "org-acme",
+						generatedAt: "2026-10-27T00:00:00.000Z",
+						members: [
+							{ userId: "user-1", user: { name: "Mira" }, humanProfile: null },
+						],
+						agentProfiles: [],
+					}
+				);
+			});
+		}
 
 		fireEvent.click(await screen.findByRole("button", { name: "Edit Name" }));
 		fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {

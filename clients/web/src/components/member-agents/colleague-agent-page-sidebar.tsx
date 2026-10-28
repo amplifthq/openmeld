@@ -62,6 +62,7 @@ export function ColleagueAgentPageSidebar(input: {
 			defaultProfileId={siblings[0]?.openMeldProfileId ?? null}
 			displayName={displayName}
 			emptyAction={<ColleagueAgentChatButton profile={selected} />}
+			harnessKind={harnessKind}
 			memberAgentId={null}
 			onSelectProfile={input.onSelectProfile}
 			profiles={siblings}

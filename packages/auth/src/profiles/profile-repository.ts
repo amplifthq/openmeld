@@ -9,7 +9,6 @@ import {
   sql,
 } from "@openmeld/db/query";
 import type { createAuthDatabase } from "../db";
-import { memberAgents } from "../db/member-agent.schema";
 import type {
   OpenMeldProfileManagedRole,
   OpenMeldProfileSource,
@@ -72,8 +71,6 @@ export type OpenMeldProfileRepository = {
     ownerUserId: string,
     profileId: string
   ) => Promise<OpenMeldProfileRecord | null>;
-  /** True when a MemberAgent names this Profile as its default Profile. */
-  isMemberAgentDefaultProfile: (profileId: string) => Promise<boolean>;
   findAgentByOwnerAndCreationIdempotencyKey: (
     ownerUserId: string,
     creationIdempotencyKey: string
@@ -193,14 +190,6 @@ export function createDrizzleOpenMeldProfileRepository(
         )
         .limit(1);
       return rows[0] ?? null;
-    },
-    async isMemberAgentDefaultProfile(profileId) {
-      const rows = await db
-        .select({ id: memberAgents.id })
-        .from(memberAgents)
-        .where(eq(memberAgents.defaultProfileId, profileId))
-        .limit(1);
-      return rows.length > 0;
     },
     async findAgentByOwnerAndCreationIdempotencyKey(
       ownerUserId,

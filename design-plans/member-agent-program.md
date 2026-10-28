@@ -195,9 +195,10 @@ Target:
 - One Profile runs on one computer (already true).
 - **A Profile cannot change harness.** The controller switcher is hidden for
   assigned Profiles and kept only for unassigned ones as the way to assign them.
-- The default Profile's `profile_name` is the harness display name and is not
-  editable. Later Profiles get a short owner-chosen name. Display:
-  `Felix Lu's Claude Code · PR Reviewer`; the default Profile shows no suffix.
+- The default Profile's `profile_name` starts as the harness display name.
+  As revised on 2026-10-27, owners can rename default and additional Profiles.
+  Display: `Felix Lu's Claude Code · PR Reviewer`; only a default Profile still
+  using its harness display name shows no suffix. Harness sync preserves renames.
   Handle rules unchanged. The long template is no longer used for defaults.
 - `agentControllerConversationId` on the Binding remains only for harnesses
   without context support and for `legacyAssociation`. Every context-enabled
