@@ -895,6 +895,72 @@ describe("canonical Inbox attention page", () => {
 		expect(mocks.read).not.toHaveBeenCalled();
 	});
 
+	it("shows one refresh warning when the Inbox and an open group both fail to refresh", async () => {
+		const first = item({ id: "first", title: "Monica contacted your Codex" });
+		const second = item({ id: "second", title: "Codex replied" });
+		const { queryClient } = renderPage({
+			rows: [
+				row(first, {
+					itemCount: 12,
+					unreadCount: 12,
+					groupKey: "Y29udmVyc2F0aW9u",
+					group: { kind: "space", conversationCount: 2 },
+				}),
+			],
+			expandedRows: [row(first), row(second)],
+		});
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Design Room 2 conversations · 12 unread",
+			})
+		);
+		expect(await screen.findByText("Codex replied")).toBeTruthy();
+		mocks.feed.mockRejectedValue(new Error("Connection lost"));
+		await act(async () => {
+			await queryClient.refetchQueries();
+		});
+		await waitFor(() =>
+			expect(
+				screen.getAllByText(
+					"Couldn’t refresh. Showing the latest Inbox view available."
+				)
+			).toHaveLength(1)
+		);
+		expect(screen.getByText("Codex replied")).toBeTruthy();
+	});
+
+	it("tells an open group that failed its first load to try again", async () => {
+		const first = item({ id: "first", title: "Monica contacted your Codex" });
+		renderPage({
+			rows: [
+				row(first, {
+					itemCount: 12,
+					unreadCount: 12,
+					groupKey: "Y29udmVyc2F0aW9u",
+					group: { kind: "space", conversationCount: 2 },
+				}),
+			],
+		});
+		mocks.feed.mockImplementation((query: { groupKey?: string }) =>
+			query.groupKey
+				? Promise.reject(new Error("Connection lost"))
+				: Promise.resolve(page([]))
+		);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Design Room 2 conversations · 12 unread",
+			})
+		);
+		expect(
+			await screen.findByText("Couldn’t load the updates in this group.")
+		).toBeTruthy();
+		expect(
+			screen.queryByText(
+				"Couldn’t refresh. Showing the latest Inbox view available."
+			)
+		).toBeNull();
+	});
+
 	it("remembers expand-all and individual overrides without marking anything as read", async () => {
 		const first = item({ id: "first", title: "Conversation" });
 		const grouped = row(first, {
