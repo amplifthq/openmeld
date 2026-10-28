@@ -81,6 +81,7 @@ import {
   peopleComputersResponseSchema,
   peopleComputerTargetSchema,
 } from "./people-computers";
+import { pluginActionRequestStatusSchema } from "./plugin-action-request-status";
 import { prepareReadinessRuntimeIdSchema } from "./prepare-readiness";
 import {
   authProfileViewSchema,
@@ -296,6 +297,7 @@ export const connectorActionVerificationEvidenceSchema = z.strictObject({
 
 export const centerAgentReadConnectorActionOperationBodySchema = z.strictObject(
   {
+    includeRequestAuthorization: z.literal(true).optional(),
     includeExecutionPermit: z.literal(true).optional(),
     includeRecoveryWindow: z.boolean().optional(),
     actionId: trimmedNonEmptyStringSchema.max(160),
@@ -339,6 +341,7 @@ const centerAgentConnectorActionOperationSchema = z
 export const centerAgentReadConnectorActionOperationResponseSchema =
   z.strictObject({
     operation: centerAgentConnectorActionOperationSchema.nullable(),
+    requestAuthorization: pluginActionRequestStatusSchema.nullable().optional(),
   });
 
 export const githubIssueObservationSchema = z.strictObject({

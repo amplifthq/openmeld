@@ -52,6 +52,209 @@ const CONNECTOR_OPERATION_ATTRIBUTION = {
   },
 } as const;
 describe("Remote Agent generic App tools", () => {
+  it.each([
+    "pending",
+    "approved",
+    "rejected",
+    "expired",
+    "revoked",
+    "legacy",
+  ] as const)("reads %s App confirmation without executing or approving it", async (state) => {
+    const requestAuthorization =
+      state === "legacy"
+        ? undefined
+        : {
+            requestId: "11111111-1111-4111-8111-111111111111",
+            state,
+            continuation: state === "approved" ? "unavailable" : null,
+          };
+    const read = vi.fn(async () => ({
+      operation: null,
+      ...(requestAuthorization ? { requestAuthorization } : {}),
+    }));
+    const record = vi.fn();
+    const fetchMock = vi.fn<typeof fetch>();
+    const tools = getRemoteAgentConnectorToolDefinitions({
+      coreWorker: {
+        centerAgentReadConnectorActionOperation: read as never,
+        centerAgentRecordConnectorActionOperation: record,
+      },
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        fetch: fetchMock,
+        runtimeToken: "test-runtime-token",
+      },
+      storage: await createStorage(createSubmitTurnRequest()),
+      submissionId: ACK.submissionId,
+    });
+    const result = await executeTool(tools, "openmeld_get_app_action_status", {
+      service: "linear",
+      actionId: "linear.create_linear_issue",
+      operationId: "original-operation",
+    });
+    expect(result).toMatchObject({
+      operation: null,
+      requestAuthorizationSupported: state !== "legacy",
+      ...(requestAuthorization ? { requestAuthorization } : {}),
+    });
+    expect(read).toHaveBeenCalledWith(
+      expect.objectContaining({
+        includeRequestAuthorization: true,
+        operationId: "original-operation",
+      })
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    undefined,
+    "explicit_request",
+  ] as const)("retains Linear confirmation and resumes the same operation (authority=%s)", async (issueDestinationAuthority) => {
+    const request = createSubmitTurnRequest();
+    const actionId = "linear.create_linear_issue";
+    const operationId = "linear-confirmed-issue";
+    const destination = {
+      provider: "linear" as const,
+      teamId: "a86813e7-c458-4af2-8cfa-73a796d81201",
+    };
+    const providerData = {
+      id: "73c7947f-5bba-4e67-a668-9392b70cd424",
+      identifier: "PAY-82",
+      ticket_url: "https://linear.app/acme/issue/PAY-82/fix-payment-retry",
+    };
+    const fetchMock = vi.fn<typeof fetch>(async (_url, init) =>
+      Response.json(
+        init?.method === "POST"
+          ? {
+              data: providerData,
+              message: "OK",
+              meta: {
+                actionId,
+                auditPersisted: true,
+                executionId: "linear-result",
+              },
+              success: true,
+            }
+          : {
+              ...openConnectorRuntimeActions,
+              data: [
+                {
+                  ...capturedExecutableOpenConnectorAction,
+                  id: actionId,
+                  service: "linear",
+                  effect: "write",
+                  inputSchema: linearIssueCreateInputSchema,
+                  outputSchema: { type: "object" },
+                },
+              ],
+            }
+      )
+    );
+    const record = vi
+      .fn(async (entry: { outcome: string }) => ({
+        attribution: CONNECTOR_OPERATION_ATTRIBUTION,
+        operationId,
+        providerExecutionId:
+          entry.outcome === "attempted" ? null : "linear-result",
+        recorded: true,
+        replayed: false,
+        executionAllowed: entry.outcome === "attempted",
+        status: entry.outcome === "attempted" ? "pending" : "completed",
+      }))
+      .mockRejectedValueOnce(
+        new Error(
+          'HTTP 409: {"error":{"code":"project.issue_confirmation_required","message":"Confirm the exact destination."}}'
+        )
+      );
+    const resolve = vi.fn(async () => ({
+      basis: "confirmation_required",
+      destination,
+      projectId: null,
+      projectRevision: null,
+    }));
+    const dependencies = {
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        fetch: fetchMock,
+        runtimeToken: "test-runtime-token",
+      },
+      coreWorker: {
+        centerAgentReadConnectorActionOperation: vi.fn(async () => ({
+          operation: null,
+        })),
+        centerAgentRecordConnectorActionOperation: record as never,
+        centerAgentResolveConnectorConnection: vi.fn(async () =>
+          connectionSelection({
+            ownerDisplayName: "Felix",
+            service: "linear",
+            userId: "user_1",
+          })
+        ),
+        resolveProjectIssueAction: resolve as never,
+      },
+      storage: await createStorage(request),
+      submissionId: ACK.submissionId,
+    };
+    const payload = {
+      actionId,
+      service: "linear",
+      operationId,
+      input: { team_id: destination.teamId, title: "Fix payment retry" },
+      ...(issueDestinationAuthority ? { issueDestinationAuthority } : {}),
+    };
+    await expect(
+      executeTool(
+        getRemoteAgentConnectorToolDefinitions(dependencies),
+        "openmeld_execute_app_action",
+        payload
+      )
+    ).resolves.toMatchObject({
+      status: "awaiting_confirmation",
+      operationId,
+      actionId,
+      issueDestination: destination,
+      providerSubmitted: false,
+    });
+    expect(
+      fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")
+    ).toHaveLength(0);
+    const continued = await createNextTurnConnectorTools({
+      ...dependencies,
+      request,
+    });
+    await expect(
+      executeTool(continued, "openmeld_execute_app_action", payload)
+    ).resolves.toMatchObject({ operationId, data: providerData });
+    const claims = record.mock.calls
+      .map(([entry]) => entry)
+      .filter((entry) => entry.outcome === "attempted");
+    expect(claims).toHaveLength(2);
+    expect(claims[0]).toMatchObject({
+      operationId,
+      issueDestination: destination,
+      ...(issueDestinationAuthority ? { issueDestinationAuthority } : {}),
+    });
+    expect(claims[1]).toMatchObject({
+      requestSignature: (claims[0] as unknown as { requestSignature: string })
+        .requestSignature,
+    });
+    expect(
+      fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")
+    ).toHaveLength(1);
+    expect(
+      JSON.parse(
+        String(
+          fetchMock.mock.calls.find(([, init]) => init?.method === "POST")?.[1]
+            ?.body
+        )
+      )
+    ).not.toHaveProperty("issueDestinationAuthority");
+    if (issueDestinationAuthority) {
+      expect(resolve).not.toHaveBeenCalled();
+    }
+  });
+
   it("retains provider completion while Task synchronization is pending", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
     const issue = {
@@ -2516,7 +2719,7 @@ function requireDestructiveConfirmationToken(result: unknown): string {
 function connectionSelection(input: {
   ownerDisplayName: string;
   scope?: "member" | "shared";
-  service: "gmail" | "posthog";
+  service: "gmail" | "posthog" | "linear";
   userId: string;
 }) {
   return {
