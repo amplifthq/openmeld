@@ -965,6 +965,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
       async readRuntimeDiagnostics(input: { spaceId: string }) {
         return await readRemoteAgentRuntimeDiagnostics({
           getAlarmAtMs: () => this.ctx.storage.getAlarm(),
+          listSchedules: () => this.listSchedules(),
           spaceId: input.spaceId,
           sql: this.ctx.storage.sql,
         });

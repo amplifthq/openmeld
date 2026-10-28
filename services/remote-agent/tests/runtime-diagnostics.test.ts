@@ -36,6 +36,68 @@ class FakeSqlStorage {
 }
 
 describe("Remote Agent runtime diagnostics", () => {
+  it("reads scheduled work through the SDK after the legacy table is removed", async () => {
+    const sql = new FakeSqlStorage([]);
+    const exec = sql.exec.bind(sql);
+    sql.exec = (query: string) => {
+      if (query.includes("cf_agents_schedules")) {
+        throw new Error("no such table: cf_agents_schedules");
+      }
+      return exec(query);
+    };
+    const result = await readRemoteAgentRuntimeDiagnostics({
+      getAlarmAtMs: async () => 10_000,
+      listSchedules: async () => [
+        {
+          id: "schedule-1",
+          callback: "retryCallback",
+          payload: { secret: "private" },
+          type: "delayed",
+          time: 9,
+          delayInSeconds: 5,
+        },
+      ],
+      nowMs: 1000,
+      spaceId: "space-1",
+      sql,
+    });
+    expect(result.v).toBe(3);
+    expect(result.schedules).toEqual([
+      {
+        id: "schedule-1",
+        callback: "retryCallback",
+        type: "delayed",
+        timeMs: 9000,
+        delayInSeconds: 5,
+      },
+    ]);
+    expect(JSON.stringify(result)).not.toContain("private");
+  });
+  it("bounds the schedule projection and preserves SDK read failures", async () => {
+    const input = {
+      getAlarmAtMs: async () => null,
+      listSchedules: async () =>
+        Array.from({ length: 52 }, (_, i) => ({
+          id: `schedule-${i}`,
+          callback: "retryCallback",
+          type: "scheduled" as const,
+          time: i,
+          payload: "private",
+        })),
+      nowMs: 1000,
+      spaceId: "space-1",
+      sql: new FakeSqlStorage([]),
+    };
+    const result = await readRemoteAgentRuntimeDiagnostics(input);
+    expect(result.schedules).toHaveLength(50);
+    expect(result.schedules[0]?.timeMs).toBe(51_000);
+    await expect(
+      readRemoteAgentRuntimeDiagnostics({
+        ...input,
+        listSchedules: () => Promise.reject(new Error("SDK read failed")),
+      })
+    ).rejects.toThrow("SDK read failed");
+  });
   it("reads the actual pinned Flue submission schema without legacy tables", async () => {
     const directory = await mkdtemp(join(tmpdir(), "flue-diagnostics-"));
     const path = join(directory, "flue.sqlite");
@@ -57,6 +119,7 @@ describe("Remote Agent runtime diagnostics", () => {
     try {
       const result = await readRemoteAgentRuntimeDiagnostics({
         getAlarmAtMs: async () => null,
+        listSchedules: async () => [],
         spaceId: "space-1",
         sql: {
           exec: (query, ...bindings) =>
@@ -119,21 +182,6 @@ describe("Remote Agent runtime diagnostics", () => {
             name: "flue:dispatch",
             started_at: 115,
             status: "running",
-          },
-        ],
-      },
-      {
-        match: "FROM cf_agents_schedules",
-        rows: [
-          {
-            callback: "_cf_keepAliveHeartbeat",
-            created_at: 101,
-            delayInSeconds: 10,
-            execution_started_at: null,
-            id: "schedule-1",
-            running: 0,
-            time: 900,
-            type: "delayed",
           },
         ],
       },
@@ -203,6 +251,16 @@ describe("Remote Agent runtime diagnostics", () => {
 
     const result = await readRemoteAgentRuntimeDiagnostics({
       getAlarmAtMs: () => Promise.resolve(850),
+      listSchedules: async () => [
+        {
+          id: "schedule-1",
+          callback: "retryCallback",
+          payload: "private",
+          type: "delayed",
+          time: 900,
+          delayInSeconds: 10,
+        },
+      ],
       nowMs: 1000,
       spaceId: "space-1",
       sql,
@@ -244,13 +302,10 @@ describe("Remote Agent runtime diagnostics", () => {
       ],
       schedules: [
         {
-          callback: "_cf_keepAliveHeartbeat",
-          createdAtSeconds: 101,
+          callback: "retryCallback",
           delayInSeconds: 10,
-          executionStartedAtMs: null,
           id: "schedule-1",
-          running: false,
-          timeMs: 900,
+          timeMs: 900_000,
           type: "delayed",
         },
       ],
@@ -304,7 +359,7 @@ describe("Remote Agent runtime diagnostics", () => {
           updatedAtMs: 150,
         },
       ],
-      v: 2,
+      v: 3,
     });
 
     const statements = sql.statements.join("\n").toLowerCase();

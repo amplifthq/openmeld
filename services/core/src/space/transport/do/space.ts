@@ -136,6 +136,7 @@ import {
   SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
   SPACE_AGENT_REPLY_CONTEXT_CHANGED_ERROR_CODE,
   SPACE_COMPOSER_UPLOAD_TTL_MS,
+  SPACE_DISPATCH_TRACE_EXECUTION_CONTEXT_CONTRACT_VERSION,
   SPACE_DISPATCH_TRACE_NATIVE_DELIVERY_CONTRACT_VERSION,
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
   SPACE_MESSAGE_CHANGED_PURPOSE,
@@ -25639,7 +25640,9 @@ export class Space extends DurableObject<CoreBindings> {
       readRuntimeCoordinatorHeadLifecycleTrace: (input) =>
         readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace({
           env: this.bindings,
-          includeExecutionContext: options.responseContractVersion === 7,
+          includeExecutionContext:
+            (options.responseContractVersion ?? 1) >=
+            SPACE_DISPATCH_TRACE_EXECUTION_CONTEXT_CONTRACT_VERSION,
           ownerUserId: input.ownerUserId,
           request: input.request,
         }),

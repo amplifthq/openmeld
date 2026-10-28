@@ -4118,6 +4118,10 @@ Detailed CLI trace is the supported handoff to local agents and operators. A
 caller supplies the normal Space and dispatch selectors; Core resolves the
 frozen runtime conversation identity and returns the bounded runtime diagnostic
 projection. Callers must not query PostgreSQL or supply a runtime generation identity.
+Schedule evidence comes from the Agents SDK's public schedule projection rather
+than SDK-private tables. The v3 projection does not assert creation or running
+state that the SDK does not report; its response is limited to 50 schedules and
+never contains callback payloads.
 
 Native continuations can have a native-delivery ledger record without a
 workstation Dispatch Ledger row. Negotiated trace response v6 reads the unique
