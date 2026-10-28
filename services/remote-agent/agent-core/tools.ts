@@ -1767,6 +1767,7 @@ export const REMOTE_AGENT_OBSERVATION_TOOL_NAMES = [
   "openmeld_check_agent_profile_readiness",
   "openmeld_list_connected_apps",
   "openmeld_list_app_actions",
+  "openmeld_get_app_action_status",
   ...REMOTE_AGENT_GITHUB_READ_TOOL_NAMES,
 ] as const satisfies readonly RemoteAgentOpenMeldToolName[];
 
