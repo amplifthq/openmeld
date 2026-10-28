@@ -354,7 +354,7 @@ async function readVerifiedNpmHashes({
 function assertResumablePublication({ channelVersion, npm, version }) {
   if (channelVersion === version && !npm) {
     throw new Error(
-      `CLI ${version} binary is published but npm is not yet visible; wait for npm before resuming.`
+      `CLI ${version} binary is published but npm is not visible. If npm accepted the submission, wait for visibility and rerun. If submission failed or never ran, release a new CLI version with a new component policy.`
     );
   }
   if (npm && channelVersion !== version) {

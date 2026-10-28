@@ -183,6 +183,8 @@ the published npm package and verifies its Service bytes against the channel's
 component policy before writing the release manifest. A binary without a
 visible npm package, a missing channel policy, or mismatched published bytes
 stops recovery; a newly rebuilt helper is not evidence for published bytes.
+If npm accepted the submission, wait for it to become visible and rerun. If
+the submission failed or never ran, release a new version and component policy.
 Completed releases also verify that npm, the channel, and the release manifest
 agree. Repair an already published mismatch with a new forward release.
 
