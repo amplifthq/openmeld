@@ -629,6 +629,12 @@ function OrganizationMembersSection(input: {
 		memberName: string;
 		message: string;
 	} | null>(null);
+	const currentMemberIsOwner =
+		input.directory?.members.some(
+			(member) =>
+				member.userId === input.currentUserId &&
+				member.role.split(",").includes("owner")
+		) === true;
 	return (
 		<SettingsSection
 			description="Manage members and their organization roles."
@@ -666,6 +672,14 @@ function OrganizationMembersSection(input: {
 								.map((member, index) => (
 									<OrganizationMemberRoleRow
 										canManage={input.canManage}
+										canManageOwner={
+											currentMemberIsOwner &&
+											directory.members.some(
+												(other) =>
+													other.userId !== member.userId &&
+													other.role.split(",").includes("owner")
+											)
+										}
 										canRemove={input.canRemoveMembers}
 										currentUserId={input.currentUserId}
 										index={index}
@@ -709,6 +723,7 @@ function OrganizationMembersSection(input: {
 function OrganizationMemberRoleRow(input: {
 	index: number;
 	canManage: boolean;
+	canManageOwner: boolean;
 	canRemove: boolean;
 	currentUserId: string;
 	member: DirectoryMember;
@@ -718,7 +733,8 @@ function OrganizationMemberRoleRow(input: {
 }) {
 	const queryClient = useQueryClient();
 	const initialRole = normalizeEditableMemberRole(input.member.role);
-	const [role, setRole] = useState<OrganizationInviteRole>(initialRole);
+	const [role, setRole] = useState<OrganizationInviteRole | null>(initialRole);
+	const [roleDialogOpen, setRoleDialogOpen] = useState(false);
 	const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
 	const [successorUserId, setSuccessorUserId] = useState("");
 	const [savedMessage, setSavedMessage] = useState<string | null>(null);
@@ -737,12 +753,16 @@ function OrganizationMemberRoleRow(input: {
 		},
 	});
 	const roleMutation = useMutation({
-		mutationFn: async () =>
+		mutationFn: async () => {
+			if (!role) {
+				throw new Error("Choose a new role before saving.");
+			}
 			await updateOrganizationMemberRole({
 				memberId: input.member.memberId,
 				organizationId: input.organizationId,
 				role,
-			}),
+			});
+		},
 		onSuccess: async () => {
 			await queryClient.invalidateQueries(
 				organizationDirectoryQueryFilters({
@@ -750,6 +770,7 @@ function OrganizationMemberRoleRow(input: {
 				})
 			);
 			setSavedMessage("Role updated.");
+			setRoleDialogOpen(false);
 		},
 	});
 	const removeMutation = useMutation({
@@ -816,10 +837,13 @@ function OrganizationMemberRoleRow(input: {
 	const memberName =
 		input.member.humanProfile?.profileName ?? input.member.user.name;
 	const isOwner = input.member.role === "owner";
-	const canEdit = input.canManage && !isOwner;
+	const canEdit =
+		input.canManage &&
+		(!isOwner ||
+			(input.canManageOwner && input.member.userId !== input.currentUserId));
 	const canRemove =
 		input.canRemove && !isOwner && input.member.userId !== input.currentUserId;
-	const hasChanges = canEdit && role !== input.member.role;
+	const hasChanges = canEdit && role !== null && role !== input.member.role;
 	const isMutating = roleMutation.isPending || removeMutation.isPending;
 	const requiresSuccessor = removalPreview.data?.spaces.some(
 		(space) => space.action === "transfer"
@@ -853,30 +877,13 @@ function OrganizationMemberRoleRow(input: {
 			</TableCell>
 			<TableCell>
 				{canEdit ? (
-					<Select
+					<MemberRoleSelect
+						currentRole={input.member.role}
 						disabled={isMutating}
-						onValueChange={(value) =>
-							setRole(value === "admin" ? "admin" : "member")
-						}
-						value={role}
-					>
-						<SelectTrigger
-							aria-label={`Role for ${memberName}`}
-							className="w-32"
-							displayValue={resolveMemberRoleLabel(role)}
-						/>
-						<SelectContent>
-							{MEMBER_ROLE_OPTIONS.map((option, index) => (
-								<SelectItem
-									index={index}
-									key={option.value}
-									value={option.value}
-								>
-									{option.label}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
+						memberName={memberName}
+						onChange={setRole}
+						role={role}
+					/>
 				) : (
 					<span className="text-muted-foreground capitalize">
 						{input.member.role}
@@ -893,7 +900,11 @@ function OrganizationMemberRoleRow(input: {
 							disabled={!hasChanges || isMutating}
 							onClick={() => {
 								setSavedMessage(null);
-								roleMutation.mutate();
+								if (isOwner) {
+									setRoleDialogOpen(true);
+								} else {
+									roleMutation.mutate();
+								}
 							}}
 							size="sm"
 							type="button"
@@ -923,6 +934,15 @@ function OrganizationMemberRoleRow(input: {
 						</Button>
 					) : null}
 				</div>
+				<OwnerRoleChangeDialog
+					canConfirm={hasChanges}
+					isPending={roleMutation.isPending}
+					memberName={memberName}
+					onConfirm={() => roleMutation.mutate()}
+					onOpenChange={setRoleDialogOpen}
+					open={roleDialogOpen}
+					role={role}
+				/>
 				<AlertDialog
 					onOpenChange={(open) => {
 						if (!removeMutation.isPending) {
@@ -1077,6 +1097,96 @@ function OrganizationMemberRemovalReview(input: {
 	);
 }
 
+function MemberRoleSelect(input: {
+	currentRole: string;
+	disabled: boolean;
+	memberName: string;
+	onChange: (role: OrganizationInviteRole) => void;
+	role: OrganizationInviteRole | null;
+}) {
+	const isOwner = input.currentRole === "owner";
+	return (
+		<Select
+			disabled={input.disabled}
+			onValueChange={(value) =>
+				input.onChange(value === "admin" ? "admin" : "member")
+			}
+			value={input.role ?? input.currentRole}
+		>
+			<SelectTrigger
+				aria-label={`Role for ${input.memberName}`}
+				className="w-32"
+				displayValue={input.role ? resolveMemberRoleLabel(input.role) : "Owner"}
+			/>
+			<SelectContent>
+				{isOwner ? (
+					<SelectItem disabled index={0} value="owner">
+						Owner
+					</SelectItem>
+				) : null}
+				{MEMBER_ROLE_OPTIONS.map((option, index) => (
+					<SelectItem
+						index={index + (isOwner ? 1 : 0)}
+						key={option.value}
+						value={option.value}
+					>
+						{option.label}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
+	);
+}
+
+function OwnerRoleChangeDialog(input: {
+	canConfirm: boolean;
+	isPending: boolean;
+	memberName: string;
+	onConfirm: () => void;
+	onOpenChange: (open: boolean) => void;
+	open: boolean;
+	role: OrganizationInviteRole | null;
+}) {
+	if (!input.role) {
+		return null;
+	}
+	return (
+		<AlertDialog
+			onOpenChange={(open) => {
+				if (!input.isPending) {
+					input.onOpenChange(open);
+				}
+			}}
+			open={input.open}
+		>
+			<AlertDialogContent>
+				<AlertDialogHeader>
+					<AlertDialogTitle>
+						Change {input.memberName}'s role to{" "}
+						{resolveMemberRoleLabel(input.role)}?
+					</AlertDialogTitle>
+					<AlertDialogDescription>
+						{input.memberName} will lose full control of this organization. They
+						will remain a member, and another Owner will remain in control.
+					</AlertDialogDescription>
+				</AlertDialogHeader>
+				<AlertDialogFooter>
+					<AlertDialogCancel disabled={input.isPending}>
+						Cancel
+					</AlertDialogCancel>
+					<AlertDialogAction
+						disabled={!input.canConfirm || input.isPending}
+						onClick={input.onConfirm}
+						type="button"
+					>
+						{input.isPending ? "Saving" : "Change role"}
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialogContent>
+		</AlertDialog>
+	);
+}
+
 function memberRoleOrder(role: string): number {
 	if (role === "owner") {
 		return 0;
@@ -1084,7 +1194,12 @@ function memberRoleOrder(role: string): number {
 	return role === "admin" ? 1 : 2;
 }
 
-function normalizeEditableMemberRole(role: string): OrganizationInviteRole {
+function normalizeEditableMemberRole(
+	role: string
+): OrganizationInviteRole | null {
+	if (role === "owner") {
+		return null;
+	}
 	return role === "admin" ? "admin" : "member";
 }
 
