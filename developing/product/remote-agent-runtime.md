@@ -1983,6 +1983,24 @@ environment contract. Only `web_dm` and `space_wake` label Core's
 locators, member-research task ids, and delegated-task ids retain their own
 trigger-specific names and are never presented as Space signal ids.
 
+For a verified member, the model-facing environment preserves the existing
+sender `profileId` and `ownerUserId` when supplied. Display names are labels,
+not identity keys. Missing optional identifiers remain absent; an unlinked
+provider identity or a speaking Agent is never promoted into a verified Human
+Profile by this rendering.
+
+Within one Space, including its threads, the Center Agent reuses member and
+external-account mappings established by authoritative directory facts or an
+explicit member answer. A different provider name or email alone does not
+invalidate that confirmation. If the source is outside the current context,
+the Agent recovers the original answer and later corrections through a known
+source/thread read, retained conversation recall, or a bounded same-Space
+message search before asking again. Prior assistant guesses and unanswered
+questions are not confirmations. The mapped provider account must still be
+resolved in the selected workspace before an authorized action. These facts
+remain conversation evidence: they do not link login identities, grant access,
+authorize another action, or require automatic shared-Space memory capture.
+
 Working-language choice is part of that same model inference. The worker does
 not call a second model or run a keyword detector before submission. The
 Organization hint is rendered separately from stable language-judgment rules
