@@ -7,18 +7,13 @@ import {
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
 } from "@openmeld/schemas";
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  onTestFinished,
-  vi,
-} from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeTransportHub } from "../src";
 import type { CoreBindings } from "../src/lib/bindings";
-import { resetCoreLocalComponentsReleaseCacheForTests } from "../src/local-components/release-source";
+import {
+  readCoreLocalComponentsRelease,
+  resetCoreLocalComponentsReleaseCacheForTests,
+} from "../src/local-components/release-source";
 import {
   addSpaceMembersUseCase,
   leaveSpaceUseCase,
@@ -633,6 +628,12 @@ function createRouteTruthPostgresProjection(
   const querySpy = vi.fn((query: string, values: readonly unknown[]) => {
     bindSpy(...values);
     const sql = query.replaceAll('"', "").replaceAll("openmeld.", "");
+    if (sql.toLowerCase().includes("from openmeld_profiles")) {
+      return values.flat().map((profileId) => ({
+        ...firstForSql(sql, [profileId]),
+        profile_id: profileId,
+      }));
+    }
     const rows = allForSql(sql);
     if (rows.length) {
       return rows;
@@ -660,10 +661,15 @@ function withProjectionBinding(env: Partial<CoreBindings>): CoreBindings {
   } as CoreBindings;
 }
 describe("space-members-service", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    // Member-state fixtures start with valid published policy, independently
+    // of any prior test's missing-binding result or negative cache.
+    resetCoreLocalComponentsReleaseCacheForTests();
+    await readCoreLocalComponentsRelease(createPublishedCliReleasesBucket());
     createProjectionPostgresBinding(() => []);
   });
   afterEach(() => {
+    resetCoreLocalComponentsReleaseCacheForTests();
     vi.restoreAllMocks();
   });
 
@@ -4320,8 +4326,6 @@ describe("space-members-service", () => {
     "route batch",
     "owner service",
   ] as const)("keeps the member list available when one owner's %s lookup fails", async (failedLookup) => {
-    resetCoreLocalComponentsReleaseCacheForTests();
-    onTestFinished(resetCoreLocalComponentsReleaseCacheForTests);
     const sql = new MutableSqlStorage();
     const spaceId = "space-members-partial-transport";
     const nowIso = "2026-03-06T13:15:00.000Z";
