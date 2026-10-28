@@ -3996,8 +3996,9 @@ callbacks. Task continuations inherit their observer's logical identity.
 The Space id and Thread placement remain publication authority; this change
 does not hide authorized Space history or replace progressive context reads.
 Runtime rollover for a top-level request uses the Space owner's separate
-request-root continuity reader. Only that root, its main replies and its Thread
-enter the new runtime generation; neighbouring main requests are excluded.
+request-root continuity reader. Only that root and its Space-owned Thread
+placements enter the new runtime generation. Main-timeline quotations do not
+establish request membership and are excluded, including legacy reply references.
 The root is eligible as source evidence within the existing bounds. Center Agent DMs and already-frozen
 legacy conversation identities keep their existing continuity reader.
 

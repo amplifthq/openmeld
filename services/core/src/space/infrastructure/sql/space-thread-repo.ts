@@ -226,8 +226,8 @@ export function readSpaceThreadSignalPlacementBySignalId(
   return row ? toSpaceThreadSignalPlacement(row) : null;
 }
 
-/** A root can have both main replies and a Thread. Never pull neighbouring
- * main requests into a hosted request's runtime rollover. */
+/** Only the exact root and Space-owned Thread placement establish membership.
+ * A quotation on the main timeline may start an independent request. */
 export function listSpaceRequestRootSignalIds(
   sql: SqlStorage,
   input: { rootSignalId: string; limit: number; signalTypes: readonly string[] }
@@ -241,8 +241,6 @@ export function listSpaceRequestRootSignalIds(
       `SELECT signal.id FROM space_signals AS signal
      WHERE signal.type IN (${types.map(() => "?").join(", ")})
        AND (signal.id = ?
-         OR json_extract(signal.payload_json, '$.data.messageEnvelope.replyToSignalId') = ?
-         OR json_extract(signal.payload_json, '$.data.replyTo.signalId') = ?
          OR EXISTS (
            SELECT 1 FROM space_thread_signal_placements AS placement
            JOIN space_threads AS thread ON thread.thread_id = placement.thread_id
@@ -250,8 +248,6 @@ export function listSpaceRequestRootSignalIds(
          ))
      ORDER BY signal.rowid DESC LIMIT ?`,
       ...types,
-      input.rootSignalId,
-      input.rootSignalId,
       input.rootSignalId,
       input.rootSignalId,
       input.limit

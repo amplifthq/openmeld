@@ -10,7 +10,7 @@ import {
 } from "../src/space/infrastructure/sql/space-thread-repo";
 
 describe("space-thread-repo", () => {
-  it("bounds rollover evidence to one request root across main replies and its Thread", () => {
+  it("bounds rollover evidence to the root and its Thread without treating quotations as membership", () => {
     const db = new DatabaseSync(":memory:");
     try {
       db.exec(`CREATE TABLE space_signals (id TEXT PRIMARY KEY, type TEXT, payload_json TEXT);
@@ -52,13 +52,11 @@ describe("space-thread-repo", () => {
       };
       expect(listSpaceRequestRootSignalIds(sql, selection)).toEqual([
         "walkthrough",
-        "walkthrough-main",
-        "walkthrough-legacy",
         "walkthrough-thread",
       ]);
       expect(
         listSpaceRequestRootSignalIds(sql, { ...selection, limit: 2 })
-      ).toEqual(["walkthrough-legacy", "walkthrough-thread"]);
+      ).toEqual(["walkthrough", "walkthrough-thread"]);
     } finally {
       db.close();
     }
