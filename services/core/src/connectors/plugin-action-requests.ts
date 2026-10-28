@@ -223,17 +223,7 @@ export async function readPluginActionRequestForOperation(input: {
   actorProfileId: string;
   operationId: string;
 }) {
-  const row = await input.db
-    .query<RequestRow>({
-      text: 'SELECT * FROM "openmeld"."plugin_action_requests" WHERE organization_id = $1 AND user_id = $2 AND actor_profile_id = $3 AND operation_id = $4',
-      values: [
-        input.organizationId,
-        input.userId,
-        input.actorProfileId,
-        input.operationId,
-      ],
-    })
-    .then((result) => result.rows[0] ?? null);
+  const row = await readRequestForOperation(input);
   if (!row) {
     return null;
   }
@@ -248,6 +238,51 @@ export async function readPluginActionRequestForOperation(input: {
         expiresAtMs: row.expires_at_ms,
       }
     : null;
+}
+
+/** A recipient- and actor-scoped projection; never approves or retries a write. */
+export async function readPluginActionRequestStatusForOperation(
+  input: Parameters<typeof readPluginActionRequestForOperation>[0] & {
+    service: string;
+    actionId: string;
+  }
+) {
+  const row = await readRequestForOperation(input);
+  if (!row) {
+    return null;
+  }
+  const intent = pluginActionRequestIntentSchema.parse(
+    JSON.parse(row.request_json)
+  );
+  if (intent.service !== input.service || intent.actionId !== input.actionId) {
+    return null;
+  }
+  return {
+    requestId: row.id,
+    state: await currentState(input.db, row, intent),
+    continuation: row.continuation_json
+      ? pluginActionRequestContinuationSchema.parse(
+          JSON.parse(row.continuation_json)
+        ).state
+      : null,
+  };
+}
+
+async function readRequestForOperation(
+  input: Parameters<typeof readPluginActionRequestForOperation>[0]
+) {
+  const row = await input.db
+    .query<RequestRow>({
+      text: 'SELECT * FROM "openmeld"."plugin_action_requests" WHERE organization_id = $1 AND user_id = $2 AND actor_profile_id = $3 AND operation_id = $4',
+      values: [
+        input.organizationId,
+        input.userId,
+        input.actorProfileId,
+        input.operationId,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
+  return row;
 }
 
 export async function rpcPluginActionRequest(

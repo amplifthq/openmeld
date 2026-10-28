@@ -528,6 +528,9 @@ describe("Project issue destination confirmation", () => {
   it.each([
     ["github", undefined, false],
     ["linear", undefined, false],
+    ["linear", "explicit_request", true],
+    ["linear", "explicit_request", "unverified"],
+    ["linear", "explicit_request", "membership_revoked"],
     ["github", "explicit_request", true],
     ["github", "explicit_request", false],
     ["github", undefined, true],
@@ -826,7 +829,7 @@ describe("Project issue destination confirmation", () => {
         },
         {
           text: 'SELECT id FROM "openmeld"."center_agent_audit_journal" WHERE resource_id = $1',
-          values: [`github:github.create_issue:${proposal.operationId}`],
+          values: [`${service}:${proposal.actionId}:${proposal.operationId}`],
         },
         {
           text: 'SELECT id FROM "openmeld"."plugin_action_requests" WHERE operation_id = $1',
@@ -902,7 +905,9 @@ describe("Project issue destination confirmation", () => {
         (
           await db.query({
             text: 'SELECT id FROM "openmeld"."center_agent_audit_journal" WHERE resource_id = $1',
-            values: [`github:github.create_issue:${racedProposal.operationId}`],
+            values: [
+              `${service}:${proposal.actionId}:${racedProposal.operationId}`,
+            ],
           })
         ).rows
       ).toEqual([]);
@@ -974,6 +979,36 @@ describe("Project issue destination confirmation", () => {
     if (!requestId) {
       throw new Error("Missing issue confirmation request");
     }
+    const readRequest = {
+      context: proposal.context,
+      speakerMember: proposal.speakerMember,
+      service,
+      actionId: proposal.actionId,
+      operationId: proposal.operationId,
+    };
+    // Older strict callers retain exactly the previous response shape.
+    await expect(
+      rpcCenterAgentReadConnectorActionOperation(core, readRequest)
+    ).resolves.toEqual({ operation: null });
+    await expect(
+      rpcCenterAgentReadConnectorActionOperation(core, {
+        ...readRequest,
+        includeRequestAuthorization: true,
+      })
+    ).resolves.toMatchObject({
+      operation: null,
+      requestAuthorization: { requestId, state: "pending", continuation: null },
+    });
+    await expect(
+      rpcCenterAgentReadConnectorActionOperation(core, {
+        ...readRequest,
+        actionId: `${service}.other_action`,
+        includeRequestAuthorization: true,
+      })
+    ).resolves.toMatchObject({
+      operation: null,
+      requestAuthorization: null,
+    });
     const inbox = createInboxService({ db });
     const scope = {
       organizationId: f.organizationA,
@@ -1065,6 +1100,19 @@ describe("Project issue destination confirmation", () => {
     ).rejects.toMatchObject({ code: "plugin.request_not_found" });
     const approved = await rpcPluginActionRequest(core, confirmation);
     expect(approved.state).toBe("approved");
+    await expect(
+      rpcCenterAgentReadConnectorActionOperation(core, {
+        ...readRequest,
+        includeRequestAuthorization: true,
+      })
+    ).resolves.toMatchObject({
+      operation: null,
+      requestAuthorization: {
+        requestId,
+        state: "approved",
+        continuation: approved.continuation,
+      },
+    });
     expect((await inbox.spaceSummary(scope)).attention).toEqual([]);
     expect(approved.targets).toEqual(
       expect.arrayContaining(
@@ -1175,6 +1223,16 @@ describe("Project issue destination confirmation", () => {
         rpcCenterAgentRecordConnectorActionOperation(core, terminalProposal)
       ).rejects.toMatchObject({
         code: "project.issue_confirmation_unavailable",
+      });
+      await expect(
+        rpcCenterAgentReadConnectorActionOperation(core, {
+          ...readRequest,
+          operationId: terminalProposal.operationId,
+          includeRequestAuthorization: true,
+        })
+      ).resolves.toMatchObject({
+        operation: null,
+        requestAuthorization: { requestId: terminalId, state },
       });
     }
   });

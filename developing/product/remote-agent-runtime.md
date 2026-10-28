@@ -3746,6 +3746,18 @@ the recovered provider result as a failed write. Current membership, connection
 availability, and provider catalog state gate only a new claim; they cannot
 erase or redefine a provider execution that Core already claimed.
 
+Linear issue creation accepts `issueDestinationAuthority: explicit_request`
+when the verified interactive requester has authorized the exact team and
+optional project. Core applies the same live requester, execution-access and
+existing-confirmation checks as GitHub issue creation. The declaration is part
+of the operation signature and is never sent to OpenConnector. Without that
+authority or a verified Project default, the tool returns `awaiting_confirmation`
+with its stable operation ID and no provider submission. Approval continuation
+names the original request and action; retries keep the same input and authority.
+The read-only `openmeld_get_app_action_status` tool reads the retained operation
+and its private confirmation/continuation projection. It cannot approve or
+execute a write, and does not treat approval as a completed provider result.
+
 The path does not add confirmation to ordinary writes. A verified user's
 explicit request or an explicit Routine instruction is authorization. The
 shared OpenConnector action contract may supply first-class

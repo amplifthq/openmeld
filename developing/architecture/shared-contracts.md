@@ -2913,10 +2913,14 @@ remain separate associations. Neither a repository association nor Common
 Agent membership authorizes file, provider, Space, or Agent execution access.
 
 For an OpenMeld-controlled new issue action, the action owner sends its exact
-proposed provider target to Core. GitHub issue and batch claims may also carry
+proposed provider target to Core. GitHub issue and batch claims and Linear issue
+creation claims may also carry
 `issueDestinationAuthority: explicit_request`. The Agent declares this only for
 the verified interactive member's explicit authorization of that exact
-repository and issue-creation effect, interpreted from the complete conversation.
+repository or Linear team/project and issue-creation effect, interpreted from
+the complete conversation. Linear resolves user-facing names through provider
+discovery; it does not ask members to supply UUIDs or derive authority from
+untrusted Space content.
 Core rechecks the admitted active delivery, Organization, Agent, submission,
 verified Human sender and represented member. Explicit requests also call the
 existing execution-access owner before admission, retaining its live Binding
@@ -2928,7 +2932,7 @@ owners. An absent declaration,
 Routine, Agent sender, or missing/mismatched requester evidence cannot use this
 path. Inferred, incomplete, or conflicting destinations retain confirmation.
 The declaration is included in both the operation input digest and the immutable
-batch manifest digest, and is never forwarded to GitHub. A changed declaration
+batch manifest digest, and is never forwarded to the provider. A changed declaration
 cannot resume a batch's remaining writes. Existing Plugin requests keep their
 decision authority on retry, including after a Project default changes. Fresh
 direct/default claims reuse the Plugin request owner's SQL execution guard to
@@ -2962,11 +2966,27 @@ connection and actor authorization. Local Plugin calls use their verified
 dispatch source Task or the same exact-action Inbox confirmation; direct third-party tools outside
 OpenMeld are not covered by this boundary.
 
-The optional authority field changes the hosted Remote Agent-to-Core request
+`centerAgentReadConnectorActionOperation` accepts the opt-in
+`includeRequestAuthorization: true`. Only opted-in responses include
+`requestAuthorization`, a nullable projection of the existing Plugin request's
+ID, current state and continuation state. The request owner reads by verified
+Organization, represented member, Agent and operation, and matches service and
+action. It exposes no raw input or approval capability. The read never creates,
+approves, or continues a request. `openmeld_get_app_action_status` exposes that
+read to the Agent; an older Core response without the projection explicitly
+reports that confirmation status is unavailable. Approval and provider execution
+remain separate facts. Unversioned/legacy callers retain their strict response
+shape.
+The status tool is also available in the connected Message Channel member,
+personal Agent and member-research tool catalogs, with their existing Core
+authorization checks. Its model-visible operation explicitly projects the
+shared response fields and excludes the internal monotonic-clock replay deadline.
+
+The optional authority field and opt-in status projection change the hosted Remote Agent-to-Core request
 only. Deploy Core before Remote Agent for the direct-admission behavior. Old
 callers omit it and retain Project/default confirmation behavior; old Core
 ignores the new field in its explicit input projection and still requires its
-existing confirmation. No response enum, stored intent, database migration,
+existing confirmation. No existing response enum, stored intent, database migration,
 CLI/Service/Skills contract floor, setup, Wake, Space action, or diagnostic
 payload changes. Local Plugin calls retain their existing dispatch/confirmation
 path. Shared-schema packaging impact must be checked by release readiness;

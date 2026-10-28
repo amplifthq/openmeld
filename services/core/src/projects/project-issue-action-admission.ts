@@ -73,8 +73,7 @@ export async function prepareProjectIssueActionAdmission(input: {
         "The complete issue destination must match its provider before a new operation is accepted.",
     });
   }
-  const explicitGitHubIssueRequest =
-    await authorizeExplicitGitHubIssueRequest(input);
+  const explicitIssueRequest = await authorizeExplicitIssueRequest(input);
   const requestAbsenceGuard = input.userId
     ? await preparePluginActionRequestAbsenceGuard({
         db: input.db,
@@ -87,7 +86,7 @@ export async function prepareProjectIssueActionAdmission(input: {
   // Once a request exists, neither a new declaration nor a Project edit can
   // replace its decision. Fresh direct/default claims guard absence atomically.
   if (requestAbsenceGuard !== null) {
-    if (explicitGitHubIssueRequest) {
+    if (explicitIssueRequest) {
       return {
         executionGuard: requestAbsenceGuard,
         sourceRequestKey: input.sourceRequestKey,
@@ -165,12 +164,11 @@ export async function prepareProjectIssueActionAdmission(input: {
   };
 }
 
-async function authorizeExplicitGitHubIssueRequest(
+async function authorizeExplicitIssueRequest(
   input: Parameters<typeof prepareProjectIssueActionAdmission>[0]
 ): Promise<boolean> {
   if (
     input.operation.issueDestinationAuthority !== "explicit_request" ||
-    input.operation.issueDestination?.provider !== "github" ||
     !input.userId ||
     !input.sourceNativeDeliveryId
   ) {
