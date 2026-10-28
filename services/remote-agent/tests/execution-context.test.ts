@@ -278,6 +278,7 @@ describe("Remote Agent submission execution context", () => {
       ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",
     ]);
+    expect(toolNames).toContain("openmeld_get_app_action_status");
   });
 
   it("keeps legacy unverified participants without provider identity closed", async () => {

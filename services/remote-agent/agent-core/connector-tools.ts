@@ -350,7 +350,25 @@ export function getRemoteAgentConnectorToolDefinitions(
         });
         return {
           ...request,
-          ...result,
+          operation: result.operation
+            ? {
+                actionId: result.operation.actionId,
+                operationId: result.operation.operationId,
+                service: result.operation.service,
+                status: result.operation.status,
+                connectionName: result.operation.connectionName,
+                createdAtMs: result.operation.createdAtMs,
+                executionConnection: result.operation.executionConnection,
+                linearIssueReceipt: result.operation.linearIssueReceipt,
+                providerExecutionId: result.operation.providerExecutionId,
+                replay: result.operation.replay,
+                replayWindowRemainingMs:
+                  result.operation.replayWindowRemainingMs,
+              }
+            : null,
+          ...(result.requestAuthorization !== undefined
+            ? { requestAuthorization: result.requestAuthorization }
+            : {}),
           requestAuthorizationSupported:
             result.requestAuthorization !== undefined,
         };

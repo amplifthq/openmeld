@@ -2960,6 +2960,10 @@ read to the Agent; an older Core response without the projection explicitly
 reports that confirmation status is unavailable. Approval and provider execution
 remain separate facts. Unversioned/legacy callers retain their strict response
 shape.
+The status tool is also available in the connected Message Channel member,
+personal Agent and member-research tool catalogs, with their existing Core
+authorization checks. Its model-visible operation explicitly projects the
+shared response fields and excludes the internal monotonic-clock replay deadline.
 
 The optional authority field and opt-in status projection change the hosted Remote Agent-to-Core request
 only. Deploy Core before Remote Agent for the direct-admission behavior. Old

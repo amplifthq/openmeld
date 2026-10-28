@@ -1821,6 +1821,7 @@ export const REMOTE_AGENT_MEMBER_RESEARCH_TOOL_NAMES = [
   "openmeld_list_agent_activity_sessions",
   "openmeld_list_connected_apps",
   "openmeld_list_app_actions",
+  "openmeld_get_app_action_status",
   "openmeld_execute_app_action",
   "github_execute_action",
   ...REMOTE_AGENT_GITHUB_READ_TOOL_NAMES,

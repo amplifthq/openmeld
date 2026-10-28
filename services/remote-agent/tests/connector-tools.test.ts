@@ -60,6 +60,28 @@ describe("Remote Agent generic App tools", () => {
     "revoked",
     "legacy",
   ] as const)("reads %s App confirmation without executing or approving it", async (state) => {
+    const operation =
+      state === "approved"
+        ? {
+            actionId: "linear.create_linear_issue",
+            operationId: "original-operation",
+            service: "linear",
+            connectionName: "linear-shared",
+            createdAtMs: TEST_NOW_MS,
+            executionConnection: {
+              connectionName: "linear-shared",
+              service: "linear",
+              scope: "shared",
+              ownerUserId: "user_1",
+              ownerDisplayName: "Felix",
+            },
+            linearIssueReceipt: null,
+            providerExecutionId: "provider-linear-1",
+            status: "completed",
+            replay: { allowed: false, reason: "operation_terminal" },
+            replayWindowRemainingMs: 1000,
+          }
+        : null;
     const requestAuthorization =
       state === "legacy"
         ? undefined
@@ -69,7 +91,7 @@ describe("Remote Agent generic App tools", () => {
             continuation: state === "approved" ? "unavailable" : null,
           };
     const read = vi.fn(async () => ({
-      operation: null,
+      operation,
       ...(requestAuthorization ? { requestAuthorization } : {}),
     }));
     const record = vi.fn();
@@ -93,10 +115,11 @@ describe("Remote Agent generic App tools", () => {
       operationId: "original-operation",
     });
     expect(result).toMatchObject({
-      operation: null,
+      operation,
       requestAuthorizationSupported: state !== "legacy",
       ...(requestAuthorization ? { requestAuthorization } : {}),
     });
+    expect(result).not.toHaveProperty("operation.operationReplayExpiresAtMs");
     expect(read).toHaveBeenCalledWith(
       expect.objectContaining({
         includeRequestAuthorization: true,
