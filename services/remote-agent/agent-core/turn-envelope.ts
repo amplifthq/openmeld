@@ -48,6 +48,16 @@ export function renderRemoteAgentTurnEnvelope(
       action: [renderReplyAction(envelope)],
       environment: [
         renderSender(envelope),
+        ...(envelope.sender.kind === "member" &&
+        envelope.sender.verified &&
+        (envelope.sender.profileId || envelope.sender.ownerUserId)
+          ? [
+              `Verified OpenMeld member identity: ${JSON.stringify({
+                profileId: envelope.sender.profileId,
+                ownerUserId: envelope.sender.ownerUserId,
+              })}`,
+            ]
+          : []),
         renderConversationEnvironment(envelope),
         `Organization: ${envelope.organization.name}${envelope.organization.personal ? " (personal)" : ""}`,
       ],

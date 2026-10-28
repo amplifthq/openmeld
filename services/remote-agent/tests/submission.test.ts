@@ -697,6 +697,7 @@ describe("remote agent submission", () => {
         "- Source signal: signal_123",
         "[Environment]",
         "- Speaking to you: Felix (member, verified, owner)",
+        '- Verified OpenMeld member identity: {"profileId":"22222222-2222-4222-8222-222222222222","ownerUserId":"user_1"}',
         "- Space: Felix and Center Agent (DM with you)",
         "- Organization: Felix (personal)",
         "[Rules]",
@@ -1403,6 +1404,122 @@ describe("remote agent submission", () => {
     );
   });
 
+  it.each([
+    {
+      label: "original display name",
+      sender: {
+        kind: "member" as const,
+        verified: true,
+        displayName: "Carol",
+        profileId: "22222222-2222-4222-8222-222222222222",
+        ownerUserId: "user_1",
+      },
+      identity:
+        '{"profileId":"22222222-2222-4222-8222-222222222222","ownerUserId":"user_1"}',
+    },
+    {
+      label: "renamed member",
+      sender: {
+        kind: "member" as const,
+        verified: true,
+        displayName: "Yuxin",
+        profileId: "22222222-2222-4222-8222-222222222222",
+        ownerUserId: "user_1",
+      },
+      identity:
+        '{"profileId":"22222222-2222-4222-8222-222222222222","ownerUserId":"user_1"}',
+    },
+    {
+      label: "different member with the same name",
+      sender: {
+        kind: "member" as const,
+        verified: true,
+        displayName: "Carol",
+        profileId: "33333333-3333-4333-8333-333333333333",
+        ownerUserId: "user_2",
+      },
+      identity:
+        '{"profileId":"33333333-3333-4333-8333-333333333333","ownerUserId":"user_2"}',
+    },
+    {
+      label: "legacy sender without optional identity",
+      sender: {
+        kind: "member" as const,
+        verified: true,
+        displayName: "Carol",
+      },
+      identity: null,
+    },
+    {
+      label: "verified member with only a Profile ID",
+      sender: {
+        kind: "member" as const,
+        verified: true,
+        displayName: "Carol",
+        profileId: "22222222-2222-4222-8222-222222222222",
+      },
+      identity: '{"profileId":"22222222-2222-4222-8222-222222222222"}',
+    },
+    {
+      label: "verified member with only a user ID",
+      sender: {
+        kind: "member" as const,
+        verified: true,
+        displayName: "Carol",
+        ownerUserId: "user_1",
+      },
+      identity: '{"ownerUserId":"user_1"}',
+    },
+    {
+      label: "unverified Message Channel participant",
+      sender: {
+        kind: "member" as const,
+        verified: false,
+        displayName: "Carol",
+        profileId: "provider_profile_123",
+        ownerUserId: "provider_user_123",
+        messageChannelIdentity: {
+          provider: "slack" as const,
+          connectionId: "connection_123",
+          providerUserId: "provider_user_123",
+        },
+      },
+      identity: null,
+    },
+    {
+      label: "Agent with a human owner",
+      sender: {
+        kind: "agent_profile" as const,
+        verified: true,
+        displayName: "Carol",
+        profileId: "agt_22222222-2222-4222-8222-222222222222",
+        ownerUserId: "user_1",
+      },
+      identity: null,
+    },
+  ])("preserves exact requester identity for $label", ({
+    sender,
+    identity,
+  }) => {
+    const request = createSubmitTurnRequest();
+    request.turnEnvelope.sender = { id: "sender_123", ...sender };
+    request.turnEnvelope.space = {
+      id: "space_shared",
+      name: "Launch Room",
+      kind: "space",
+      isCenterAgentDm: false,
+    };
+    request.turnEnvelope.trigger = { source: "space_wake" };
+
+    const prompt = buildRemoteAgentPromptMessage(request);
+    const identityPrefix = "- Verified OpenMeld member identity: ";
+    expect(
+      prompt.split("\n").filter((line) => line.startsWith(identityPrefix))
+    ).toEqual(identity ? [`${identityPrefix}${identity}`] : []);
+    expect(prompt).toContain(`Speaking to you: ${sender.displayName}`);
+    expect(prompt).not.toContain("provider_user_123");
+  });
+
   it("renders the Space guide for an ordinary Direct Message Space", () => {
     const request = createSubmitTurnRequest({
       turnEnvelope: {
@@ -1990,6 +2107,7 @@ describe("remote agent submission", () => {
         "- Source signal: signal_123",
         "[Environment]",
         "- Speaking to you: Felix (member, verified, owner)",
+        '- Verified OpenMeld member identity: {"profileId":"22222222-2222-4222-8222-222222222222","ownerUserId":"user_1"}',
         "- Space: Felix and Center Agent (DM with you)",
         "- Organization: Felix (personal)",
         "[Rules]",
