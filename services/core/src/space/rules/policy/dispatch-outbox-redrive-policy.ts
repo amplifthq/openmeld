@@ -152,11 +152,8 @@ export const resolveHandedOffOutboxCandidatePolicyDecision = (input: {
   recentInflightSkipWithinMs: number;
   staleReclaimMs: number;
 }): HandedOffOutboxCandidatePolicyDecision => {
-  if (input.outboxStatus !== "handed_off") {
-    return { kind: "submit" };
-  }
   if (!input.ledgerRow) {
-    return { kind: "skip" };
+    return { kind: input.outboxStatus === "pending" ? "submit" : "skip" };
   }
   if (isTerminalDispatchState(input.ledgerRow.status)) {
     return { kind: "delete" };

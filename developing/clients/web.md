@@ -5232,11 +5232,13 @@ loading does not hide already available live work. History and progress reads
 remain independent; neither waits for the other to render.
 
 Direct Messages and ordinary Spaces share the same unfinished Agent answer row.
-Its compact progress reads **Working…** continuously through sending,
-connecting, active work, reply streaming, and publication. This is request
-progress, not a claim that execution admission has completed. Authoritative
+Its compact progress distinguishes **Sending request…**, **Waiting to start…**,
+**Connecting…**, and **Retrying delivery…** from confirmed **Working…**.
+Pre-execution phases do not show the working Orb or elapsed-work indicator;
+source-level summaries and the sidebar preserve the same distinction. Active
+work, reply streaming, and publication retain **Working…**. Authoritative
 waiting, input-required, confirmation-pending, and terminal outcomes retain
-their distinct meaning. The elapsed request time begins with submission. The row's
+their distinct meaning. When shown, elapsed request time begins with submission. The row's
 avatar and identity header name the Agent once, while source-level summaries
 still name each target when multiple Agents are involved. The work disclosure
 opens only when reasoning, public progress, or tool steps arrive; reasoning
@@ -5393,16 +5395,14 @@ uses the shared Clover Bot presentation until its saved style is available.
 The new-chat transcript reuses MessageScroller's follow and user-scroll behavior;
 starter cards remain in the transcript. A pending first send keeps this shell
 while membership is unknown, rather than displaying a join prompt.
-That row uses the existing `Working…`
-presentation continuously from local submission through queueing, connecting,
-admission, and active streaming, and reserves one stable Stop-control slot so
-transport evidence does not move the conversation or introduce a second
-near-synonymous state. In this Center Agent Direct Message shell, the copy is a
-conversation-level progress placeholder, not a browser-owned claim that worker
-admission already completed. Authoritative transport diagnostics still
-distinguish direct, Queue, fallback, and admission stages. Web does not invent a
-reasoning state. A presentation-only elapsed timer starts at the source request's
-submission time and includes delivery, preparation, and working time. It never
+That row uses the same phase-specific progress as other Spaces and reserves one
+stable Stop-control slot so transport evidence does not move the conversation.
+Connecting or retrying delivery must not appear as confirmed Agent work, even
+when the request has been pending for a long time. Authoritative transport
+diagnostics still distinguish direct, Queue, fallback, and admission stages.
+Web does not invent a reasoning state. Once work is confirmed, the existing
+presentation-only elapsed timer starts at the source request's submission time
+and includes delivery, preparation, and working time. It never
 determines execution health or a timeout. The
 optimistic source message itself is sufficient immediate send feedback and must
 not add a short-lived

@@ -26,6 +26,10 @@ type SpaceScenario = {
 	activeWakeSummary?: SpaceSidebarActiveWakeSummary;
 };
 const statusLabels: Record<WakeProgressStatusKind, string> = {
+	sending: "Sending request…",
+	request_sent: "Waiting to start…",
+	connecting: "Connecting…",
+	retrying: "Retrying delivery…",
 	queued: "Queued",
 	working: "Agent is working",
 	needs_input: "Agent needs your input",

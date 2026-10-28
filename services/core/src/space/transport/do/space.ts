@@ -743,6 +743,7 @@ import {
   createDispatchOutboxRecord,
   type DispatchSourceSignalSnapshotInput,
   deleteDispatchOutboxRecord,
+  hasHostedDispatchOutboxHandoffRecords,
   hasPendingDispatchOutboxRecords,
   hasUnsettledDispatchOutboxRecords,
   insertDispatchOutboxHandoffSeed,
@@ -7969,10 +7970,10 @@ export class Space extends DurableObject<CoreBindings> {
     if (!this.canSubmitDispatchOutbox()) {
       return null;
     }
-    const hasPendingWork = hasPendingDispatchOutboxRecords(
-      this.ctx.storage.sql
-    );
-    if (!hasPendingWork) {
+    if (
+      !hasPendingDispatchOutboxRecords(this.ctx.storage.sql) &&
+      !hasHostedDispatchOutboxHandoffRecords(this.ctx.storage.sql)
+    ) {
       return null;
     }
     if (this.dispatchOutboxRetryNotBeforeMs > Date.now()) {
@@ -24850,7 +24851,12 @@ export class Space extends DurableObject<CoreBindings> {
         lastAttemptAtMs,
       });
     };
-    if (candidate.outboxStatus !== "handed_off") {
+    if (
+      candidate.outboxStatus !== "handed_off" &&
+      !isHostedAgentControllerRef(
+        candidate.controllerSnapshot?.agentControllerRef
+      )
+    ) {
       const stoppedGuard =
         await this.readPreAgentStoppedGuardForOutboxCandidate(candidate);
       if (stoppedGuard.stopped) {
@@ -24878,14 +24884,18 @@ export class Space extends DurableObject<CoreBindings> {
       shouldReadHostedNativeDeliveryHandoffState
         ? await this.readHostedNativeDeliveryHandoffState(candidate)
         : "not_applicable";
-    const policyDecision = resolveHandedOffOutboxCandidatePolicyDecision({
-      hostedNativeDeliveryHandoffState,
-      outboxStatus: candidate.outboxStatus,
-      ledgerRow,
-      nowMs,
-      recentInflightSkipWithinMs: OUTBOX_HANDED_OFF_SKIP_REDRIVE_WITHIN_MS,
-      staleReclaimMs: DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS,
-    });
+    const policyDecision =
+      ledgerEvidence.kind === "unavailable"
+        ? { kind: "skip" as const }
+        : resolveHandedOffOutboxCandidatePolicyDecision({
+            hostedNativeDeliveryHandoffState,
+            outboxStatus: candidate.outboxStatus,
+            ledgerRow,
+            nowMs,
+            recentInflightSkipWithinMs:
+              OUTBOX_HANDED_OFF_SKIP_REDRIVE_WITHIN_MS,
+            staleReclaimMs: DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS,
+          });
     const human = buildHuman(ledgerRow?.lastAttemptAtMs ?? null);
     const candidateTransitionViolation =
       resolveCoreOutboxCandidateTransitionContractViolation({
@@ -25191,8 +25201,9 @@ export class Space extends DurableObject<CoreBindings> {
           : "durably_owned";
       }
       if (
-        candidate.controllerSnapshot?.agentControllerRef ===
-        HOSTED_CENTER_AGENT_CONTROLLER_REF
+        isHostedAgentControllerRef(
+          candidate.controllerSnapshot?.agentControllerRef
+        )
       ) {
         return "admission_incomplete";
       }

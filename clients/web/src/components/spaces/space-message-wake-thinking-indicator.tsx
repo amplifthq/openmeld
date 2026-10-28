@@ -239,11 +239,7 @@ function formatWakeProgressSummary(
 ): string {
 	const counts = new Map<WakeProgressStatusKind, number>();
 	for (const entry of entries) {
-		const kind = ["starting", "sent", "connecting", "retrying"].includes(
-			entry.step.kind
-		)
-			? "working"
-			: entry.step.kind;
+		const kind = entry.step.kind;
 		counts.set(kind, (counts.get(kind) ?? 0) + 1);
 	}
 	const labels: string[] = [];
@@ -259,6 +255,14 @@ function formatWakeProgressSummaryPart(
 ): string {
 	const agentCount = count === 1 ? "1 agent" : `${count} agents`;
 	switch (kind) {
+		case "sending":
+			return `Sending ${count === 1 ? "1 request" : `${count} requests`}`;
+		case "request_sent":
+			return `${agentCount} waiting to start`;
+		case "connecting":
+			return `${agentCount} connecting`;
+		case "retrying":
+			return `Retrying ${count === 1 ? "1 request" : `${count} requests`}`;
 		case "confirmation_pending":
 			return `${agentCount} awaiting confirmation`;
 		case "needs_input":

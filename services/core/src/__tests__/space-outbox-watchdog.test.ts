@@ -53,13 +53,16 @@ const createRuntimeCoordinatorRedriveOutboxRecord = () =>
   });
 
 describe("space outbox watchdog", () => {
-  it("does not keep the outbox alarm alive when only persisted handoff evidence remains", async () => {
+  it.each([
+    false,
+    true,
+  ])("retains the handoff recovery alarm only for hosted admission (hosted=%s)", async (hosted) => {
     const deleteAlarm = vi.fn(async () => undefined);
     const setAlarm = vi.fn(async () => undefined);
     const getAlarm = vi.fn(async () => 1_700_000_015_000);
     const exec = vi.fn((_query: string, ...params: unknown[]) => ({
       toArray: () =>
-        params.includes("pending") && params.includes("queued")
+        hosted && params.includes(HOSTED_CENTER_AGENT_CONTROLLER_REF)
           ? [{ dispatch_id: "dispatch-queued" }]
           : [],
     }));
@@ -72,8 +75,13 @@ describe("space outbox watchdog", () => {
 
     await space.syncDispatchOutboxAlarm();
 
-    expect(deleteAlarm).toHaveBeenCalledTimes(1);
-    expect(setAlarm).not.toHaveBeenCalled();
+    if (hosted) {
+      expect(deleteAlarm).not.toHaveBeenCalled();
+      expect(setAlarm).toHaveBeenCalledTimes(1);
+    } else {
+      expect(deleteAlarm).toHaveBeenCalledTimes(1);
+      expect(setAlarm).not.toHaveBeenCalled();
+    }
   });
 
   it("does not keep the dispatch outbox alarm alive without Queue or direct delivery", async () => {
@@ -295,15 +303,26 @@ describe("space outbox watchdog", () => {
     });
   });
 
-  it("does not treat a dispatch ledger read failure as missing intake evidence", async () => {
+  it.each([
+    "pending",
+    "handed_off",
+  ])("does not treat a %s hosted ledger read failure as missing intake evidence", async (outboxStatus) => {
     const db = createProjectionPostgresBinding(() => {
       throw new Error("PostgreSQL read failed");
     });
     const space = createSpaceHarness({ db });
-
+    const candidate = {
+      ...handedOffOutboxCandidate,
+      outboxStatus,
+      controllerSnapshot: {
+        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+        targetBindingEnabled: true,
+        targetBindingState: "bound" as const,
+      },
+    };
     await expect(
       space.resolveHandedOffOutboxCandidateDecision(
-        handedOffOutboxCandidate,
+        candidate,
         1_700_000_030_000,
         buildLogContext()
       )
@@ -314,36 +333,39 @@ describe("space outbox watchdog", () => {
     });
   });
 
-  it("redrives a hosted handoff when native admission never became durable", async () => {
-    const db = createProjectionPostgresBinding(() => [
-      {
-        connection_generation: null,
-        daemon_session_id: null,
-        last_attempt_at_ms: 1_700_000_001_000,
-        latest_attempt_error_code: null,
-        latest_attempt_status: "dispatching",
-        lease_epoch: null,
-        status: "dispatching",
+  it.each([
+    "pending",
+    "handed_off",
+  ])("redrives a %s hosted Wake on its original identity when native admission never became durable", async (outboxStatus) => {
+    const db = createProjectionPostgresBinding((query) =>
+      query.text?.includes("openMeldRemoteAgent_native_delivery_ledger")
+        ? []
+        : [
+            {
+              connection_generation: null,
+              daemon_session_id: null,
+              last_attempt_at_ms: 1_700_000_001_000,
+              latest_attempt_error_code: null,
+              latest_attempt_status: "dispatching",
+              lease_epoch: null,
+              status: "queued",
+            },
+          ]
+    );
+    const space = createSpaceHarness({ db });
+    const candidate = {
+      ...handedOffOutboxCandidate,
+      outboxStatus,
+      controllerSnapshot: {
+        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+        targetBindingEnabled: true,
+        targetBindingState: "bound" as const,
       },
-    ]);
-    const space = createSpaceHarness({ db }) as ReturnType<
-      typeof createSpaceHarness
-    > & {
-      readPreAgentStoppedGuardForOutboxCandidate: ReturnType<typeof vi.fn>;
     };
-    const readPreAgentStoppedGuardForOutboxCandidate = vi
-      .fn()
-      .mockResolvedValue({ stopped: false });
-    Object.defineProperty(space, "readPreAgentStoppedGuardForOutboxCandidate", {
-      value: readPreAgentStoppedGuardForOutboxCandidate,
-    });
-    Object.defineProperty(space, "readHostedNativeDeliveryHandoffState", {
-      value: vi.fn().mockResolvedValue("admission_incomplete"),
-    });
 
     await expect(
       space.resolveHandedOffOutboxCandidateDecision(
-        handedOffOutboxCandidate,
+        candidate,
         1_700_000_030_000,
         buildLogContext()
       )
@@ -351,7 +373,6 @@ describe("space outbox watchdog", () => {
       deliveryRecoveryReason: "hosted_admission_incomplete",
       kind: "submit",
     });
-    expect(readPreAgentStoppedGuardForOutboxCandidate).toHaveBeenCalledOnce();
   });
 
   it("uses the frozen hosted route when the current Binding may have changed", async () => {
@@ -871,7 +892,8 @@ describe("space outbox watchdog", () => {
       lanes.reconcileDeletedAgentProfileMemberLiveness
     ).toHaveBeenCalledTimes(1);
     expect(lanes.flushDirtyMemberProjection).toHaveBeenCalledTimes(1);
-    expect(lanes.syncSpaceBackgroundAlarm).toHaveBeenCalledTimes(1);
+    // A failed lane persists its backoff and re-arms before the final sync.
+    expect(lanes.syncSpaceBackgroundAlarm).toHaveBeenCalledTimes(2);
     expect(errorSpy).toHaveBeenCalledWith(
       "[core.openmeld.space.alarm_step_failed]",
       expect.objectContaining({ step: "space_index_projection_outbox" })
@@ -977,6 +999,7 @@ const createSpaceAlarmHarness = (input: {
     ctx: {
       value: {
         storage: {
+          get: <T>() => Promise.resolve<T | undefined>(undefined),
           deleteAlarm: input.deleteAlarm,
           getAlarm: input.getAlarm,
           list: <T>() => Promise.resolve(new Map<string, T>()),
@@ -1267,6 +1290,7 @@ const createAlarmLaneHarness = (lanes: {
   reconcileDeletedAgentProfileMemberLiveness: () => Promise<void>;
   syncSpaceBackgroundAlarm: () => Promise<void>;
 }) => {
+  const storedValues = new Map<string, unknown>();
   const space = Object.create(Space.prototype) as {
     alarm: () => Promise<void>;
     spaceId: string;
@@ -1276,6 +1300,18 @@ const createAlarmLaneHarness = (lanes: {
     configurable: true,
   });
   Object.defineProperties(space, {
+    ctx: {
+      value: {
+        storage: {
+          get: (key: string) => Promise.resolve(storedValues.get(key)),
+          put: (key: string, value: unknown) => {
+            storedValues.set(key, value);
+            return Promise.resolve();
+          },
+          delete: (key: string) => Promise.resolve(storedValues.delete(key)),
+        },
+      },
+    },
     flushDirtyMemberProjection: { value: lanes.flushDirtyMemberProjection },
     flushPendingDispatchOutbox: { value: lanes.flushPendingDispatchOutbox },
     flushPendingSpaceIndexProjectionOutbox: {

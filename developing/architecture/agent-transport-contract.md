@@ -148,6 +148,17 @@ must redrive that same dispatch and attempt through hosted recovery instead of
 retiring the outbox item or creating another attempt. If the exact worker
 request is already persisted, recovery submits that frozen request directly;
 it does not rebuild mutable conversation context before replay.
+This also applies when an interrupted direct call leaves the outbox `pending`
+after creating the dispatch attempt. A hosted `handed_off` seed keeps the Space
+recovery alarm armed until native admission or a terminal outcome is durable;
+a Queue receipt alone cannot retire that responsibility. Workstation handoffs
+remain excluded from this scheduled hosted recovery batch; RuntimeCoordinator
+explicitly redrives their retained payload. Recovery of an older
+message without a hosted recovery marker first resolves its authoritative
+runtime family. An unaccepted hosted attempt resumes with the same identity,
+without requiring a workstation owner or entering RuntimeCoordinator. Accepted,
+terminal, replaced, or workstation-owned attempts cannot be reopened by that
+hosted recovery marker.
 The dispatch attempt remains `dispatching` until the native admission
 acknowledgement is durably recorded. An ambiguous submit or failed ACK
 persistence must not advance it to `waiting_result`, which would prevent

@@ -1,4 +1,6 @@
 import {
+  HOSTED_CENTER_AGENT_CONTROLLER_REF,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   OPENMELD_DAEMON_DISPATCH_CONTRACT_VERSION,
   OPENMELD_DAEMON_DISPATCH_QUEUE_SCHEMA_VERSION,
   parseOpenMeldDaemonDispatchQueueIngress,
@@ -20,6 +22,10 @@ export const OPENMELD_DAEMON_OUTBOX_STATUS_CANCELLED = "cancelled" as const;
 // Keep that encoding inside the repository boundary; application code sees the
 // transport-neutral `handed_off` fact for both direct and Queue delivery.
 const PERSISTED_OUTBOX_STATUS_QUEUED = "queued" as const;
+const HOSTED_OUTBOX_HANDOFF_PREDICATE = `status = ?
+  AND CASE WHEN json_valid(payload_json)
+    THEN json_extract(payload_json, '$.controllerSnapshot.agentControllerRef')
+  END IN (?, ?)`;
 export const OPENMELD_DAEMON_DISPATCH_SNAPSHOT_MAX_BYTES = 32_768;
 export const OPENMELD_DAEMON_DISPATCH_SNAPSHOT_OVERSIZE_ERROR_CODE =
   "dispatch.snapshot.oversize" as const;
@@ -551,6 +557,21 @@ export const hasPendingDispatchOutboxRecords = (sql: SqlStorage): boolean => {
     .toArray();
   return rows.length > 0;
 };
+/** Queue receipt alone does not establish native execution ownership. */
+export const hasHostedDispatchOutboxHandoffRecords = (
+  sql: SqlStorage
+): boolean =>
+  sql
+    .exec(
+      `SELECT 1 FROM openMeldDaemon_outbox
+       WHERE ${HOSTED_OUTBOX_HANDOFF_PREDICATE}
+         AND poisoned_at_ms IS NULL
+       LIMIT 1`,
+      PERSISTED_OUTBOX_STATUS_QUEUED,
+      HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      HOSTED_REMOTE_AGENT_CONTROLLER_REF
+    )
+    .toArray().length > 0;
 /** Handoff is not completion. Poisoned rows already have a published failure. */
 export const hasUnsettledDispatchOutboxRecords = (sql: SqlStorage): boolean =>
   sql
@@ -574,7 +595,8 @@ export const listDispatchOutboxRecoveryCandidates = (
         FROM openMeldDaemon_outbox
         WHERE (
             status = ?
-            OR (status = ? AND queued_at_ms IS NOT NULL AND queued_at_ms <= ?)
+            OR (${HOSTED_OUTBOX_HANDOFF_PREDICATE}
+                AND queued_at_ms IS NOT NULL AND queued_at_ms <= ?)
           )
           AND poisoned_at_ms IS NULL
         ORDER BY
@@ -584,6 +606,8 @@ export const listDispatchOutboxRecoveryCandidates = (
       `,
       OPENMELD_DAEMON_OUTBOX_STATUS_PENDING,
       PERSISTED_OUTBOX_STATUS_QUEUED,
+      HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      HOSTED_REMOTE_AGENT_CONTROLLER_REF,
       input.handedOffRedriveBeforeMs,
       OPENMELD_DAEMON_OUTBOX_STATUS_PENDING,
       Math.max(1, input.limit)

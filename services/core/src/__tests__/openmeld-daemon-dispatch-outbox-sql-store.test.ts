@@ -1,4 +1,7 @@
-import { sanitizeSignalTextPreview } from "@openmeld/schemas";
+import {
+  HOSTED_CENTER_AGENT_CONTROLLER_REF,
+  sanitizeSignalTextPreview,
+} from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import {
   createDispatchOutboxRecord,
@@ -597,6 +600,10 @@ describe("openMeldDaemon dispatch outbox sql store", () => {
     };
     const staleQueuedPayload = {
       ...pendingPayload,
+      controllerSnapshot: {
+        ...pendingPayload.controllerSnapshot,
+        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      },
       dispatchId: "dispatch-stale-queued",
       sourceEventId: "evt-stale",
       idempotencyKey: "9:evt-stale|5:agt-1",

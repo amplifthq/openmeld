@@ -24,13 +24,19 @@ describe("Space working identity", () => {
 			sourceSignalId: "queued-message",
 			startedAtMs: 0,
 		};
+		const connecting = {
+			...running,
+			phase: "connecting" as const,
+			sourceSignalId: "connecting-message",
+			startedAtMs: 0,
+		};
 		const finished = {
 			...running,
 			terminal: true,
 			phase: "replied" as const,
 			sourceSignalId: "finished",
 		};
-		const items = [queued, finished, running];
+		const items = [queued, connecting, finished, running];
 		expect(resolveSpaceActiveWakeTarget(items)?.sourceSignalId).toBe(
 			"thread-reply"
 		);
