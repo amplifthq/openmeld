@@ -258,10 +258,35 @@ function useConversationReadState(
 
 function ConversationsSidebarSearch(input: {
 	disclosure: ReturnType<typeof useSidebarSearchDisclosure>;
+	home?: boolean;
 	visible: boolean;
 	value: string;
 	onValueChange: (value: string) => void;
 }) {
+	if (input.home) {
+		return (
+			<div className="relative mx-1 mb-3">
+				<MagnifyingGlassIcon
+					aria-hidden="true"
+					className="pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2 text-muted-foreground"
+				/>
+				<Input
+					aria-label="Search conversations"
+					className="pl-8"
+					onChange={(event) => input.onValueChange(event.target.value)}
+					onKeyDown={(event) => {
+						if (event.key === "Escape") {
+							input.onValueChange("");
+						}
+					}}
+					placeholder="Search chats"
+					ref={input.disclosure.inputRef}
+					type="search"
+					value={input.value}
+				/>
+			</div>
+		);
+	}
 	if (!(input.visible && input.disclosure.open)) {
 		return null;
 	}
@@ -321,6 +346,7 @@ export function ConversationsSidebar(
 	input: {
 		currentProfileId?: string;
 		currentSpaceId?: string;
+		home?: boolean;
 		hideAccountSpacesFailure?: boolean;
 		showSearch?: boolean;
 	} = {}
@@ -570,6 +596,19 @@ export function ConversationsSidebar(
 				<PlusIcon />
 				New Space
 			</FluidDropdownMenuItem>
+			<DropdownMenuSeparator />
+			<FluidDropdownMenuItem
+				index={2}
+				onClick={() => {
+					dismiss();
+					navigate({
+						to: buildOrganizationSpacesPath(dm.org.slug),
+						search: { view: "spaces" },
+					}).catch(console.error);
+				}}
+			>
+				<FolderIcon /> Browse Spaces
+			</FluidDropdownMenuItem>
 		</>
 	);
 	const viewMenu = (
@@ -620,7 +659,11 @@ export function ConversationsSidebar(
 			<AppModuleSidebarHeader
 				ref={headerRef}
 				title={
-					<SpacesDirectoryLink onNavigate={onNavigate} orgSlug={dm.org.slug} />
+					<SpacesDirectoryLink
+						home={input.home}
+						onNavigate={onNavigate}
+						orgSlug={dm.org.slug}
+					/>
 				}
 				titleRef={titleRef}
 			>
@@ -751,6 +794,7 @@ export function ConversationsSidebar(
 			</AppModuleSidebarHeader>
 			<ConversationsSidebarSearch
 				disclosure={searchDisclosure}
+				home={input.home}
 				onValueChange={setSearch}
 				value={search}
 				visible={input.showSearch !== false}
@@ -1174,20 +1218,22 @@ export function ConversationsSidebar(
 }
 
 function SpacesDirectoryLink({
+	home,
 	onNavigate,
 	orgSlug,
 }: {
+	home?: boolean;
 	onNavigate: (event: MouseEvent<HTMLAnchorElement>) => void;
 	orgSlug: string;
 }) {
 	return (
 		<Link
-			aria-label="Spaces"
+			aria-label={home ? "Chats" : "Spaces"}
 			className="flex min-w-20 flex-1 items-center rounded-sm font-medium text-sm focus-visible:outline-2"
 			onClick={onNavigate}
 			to={buildOrganizationSpacesPath(orgSlug)}
 		>
-			<span className="truncate">Spaces</span>
+			<span className="truncate">{home ? "Chats" : "Spaces"}</span>
 		</Link>
 	);
 }
