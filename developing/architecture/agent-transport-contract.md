@@ -148,6 +148,27 @@ must redrive that same dispatch and attempt through hosted recovery instead of
 retiring the outbox item or creating another attempt. If the exact worker
 request is already persisted, recovery submits that frozen request directly;
 it does not rebuild mutable conversation context before replay.
+This also applies when an interrupted direct call leaves the outbox `pending`
+after creating the dispatch attempt. A hosted `handed_off` seed keeps the Space
+recovery alarm armed until native admission or a terminal outcome is durable;
+a Queue receipt alone cannot retire that responsibility. Direct-to-Queue hosted
+recovery persists the existing hosted admission marker with the handoff. An
+older handoff with neither a frozen Controller nor an owner remains eligible
+for investigation; Space uses the existing Core preflight to identify its
+runtime family and treats unavailable evidence as unavailable, not as hosted.
+Confirmed workstation handoffs remain excluded from the scheduled hosted
+recovery batch; RuntimeCoordinator explicitly redrives their retained payload.
+An unaccepted hosted attempt resumes with the same identity,
+without requiring a workstation owner or entering RuntimeCoordinator. Accepted,
+terminal, replaced, or workstation-owned attempts cannot be reopened by that
+hosted recovery marker.
+When a hosted handoff has no dispatch ledger row, Space may redrive the same
+dispatch only if its durable admission fence proves no native exposure and the
+exact native delivery is absent. An unavailable ledger, an existing native
+delivery, or unknown exposure is not proof that execution never started.
+The bounded Space outbox scan persists its pagination position so unresolved
+handoffs cannot indefinitely hide later candidates, including across eviction.
+This cursor is scheduling metadata and does not establish execution or outcome.
 The dispatch attempt remains `dispatching` until the native admission
 acknowledgement is durably recorded. An ambiguous submit or failed ACK
 persistence must not advance it to `waiting_result`, which would prevent

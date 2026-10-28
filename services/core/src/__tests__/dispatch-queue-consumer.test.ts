@@ -629,7 +629,9 @@ describe("handleDispatchQueueBatch", () => {
         | {
             ok: true;
             profile: {
-              ownerUserId: string;
+              ownerUserId: string | null;
+              managedRole?: "center_agent";
+              organizationId?: string;
               profileHandle: string;
               profileId: string;
               profileKind: "agent";
@@ -4860,13 +4862,16 @@ describe("handleDispatchQueueBatch", () => {
     infoSpy.mockRestore();
   });
 
-  it("resumes a deduped hosted admission on its original dispatch attempt", async () => {
+  it.each([
+    "explicit_recovery",
+    "stale_queued",
+    "stale_dispatching",
+    "expired_window",
+  ] as const)("resumes a deduped hosted admission on its original dispatch attempt: %s", async (scenario) => {
+    const nowMs = 1_700_000_100_000;
+    vi.spyOn(Date, "now").mockReturnValue(nowMs);
     const executionAttemptId = "attempt-hosted-admission-recovery-1";
-    vi.mocked(claimDispatchAttempt).mockResolvedValueOnce({
-      hostedAdmissionRecoveryAttemptId: executionAttemptId,
-      hostedAdmissionRecoveryAttemptNo: 1,
-      status: "deduped",
-    });
+    vi.mocked(claimDispatchAttempt).mockRestore();
     const submitNativeDelivery = vi
       .spyOn(
         remoteAgentNativeDeliveryService,
@@ -4888,7 +4893,9 @@ describe("handleDispatchQueueBatch", () => {
           targetProfileId,
           visitedProfileIdsHash: "stable32:hosted-admission-recovery-1",
         }),
-        deliveryRecoveryReason: "hosted_admission_incomplete",
+        ...(scenario === "explicit_recovery"
+          ? { deliveryRecoveryReason: "hosted_admission_incomplete" as const }
+          : {}),
       },
       2
     );
@@ -4896,19 +4903,81 @@ describe("handleDispatchQueueBatch", () => {
     await handleDispatchQueueBatch({
       batch: { messages: [message] } as unknown as MessageBatch<unknown>,
       env: makeEnvWithBindings(
-        createOpenMeldDbWithProfileRow({
-          agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-          bindingId: "binding-hosted-center-agent",
-          controllerEnabled: 1,
-          hostedRuntimeIdentityJson: JSON.stringify(
-            HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
-          ),
-          modelId: "deepseek/deepseek-v4-flash",
-          profileKind: "agent",
-          profileStatus: "active",
-          runtimeKind: "hosted_center_agent",
-          openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
-        })
+        createProjectionPostgresBinding((query) => {
+          const normalizedSql = query.text.toLowerCase();
+          if (
+            normalizedSql.includes(
+              'from "openmeld"."openmelddaemon_dispatch_ledger"'
+            )
+          ) {
+            return [
+              {
+                dispatch_id: "dispatch-hosted-admission-recovery-1",
+                first_seen_at_ms:
+                  scenario === "expired_window"
+                    ? nowMs - 2 * 24 * 60 * 60_000
+                    : nowMs - 60_000,
+                last_attempt_at_ms: nowMs - 60_000,
+                latest_attempt_id: executionAttemptId,
+                attempt_count: 1,
+                dispatch_owner_kind: null,
+                dispatch_owner_id: null,
+                status:
+                  scenario === "stale_dispatching" ? "dispatching" : "queued",
+              },
+            ];
+          }
+          if (
+            normalizedSql.includes(
+              'from "openmeld"."openmelddaemon_dispatch_attempts"'
+            )
+          ) {
+            return [
+              {
+                attemptId: executionAttemptId,
+                attemptNo: 1,
+                status: "dispatching",
+                errorCode: null,
+                connectionGeneration: null,
+                daemonSessionId: null,
+                leaseEpoch: null,
+              },
+            ];
+          }
+          const result = resolveNativeProjectionRow({
+            args: query.values ?? [],
+            normalizedSql,
+            row: {
+              agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+              bindingId: "binding-hosted-center-agent",
+              controllerEnabled: 1,
+              hostedRuntimeIdentityJson: JSON.stringify(
+                HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
+              ),
+              modelId: "deepseek/deepseek-v4-flash",
+              profileKind: "agent",
+              profileStatus: "active",
+              runtimeKind: "hosted_center_agent",
+              openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+            },
+          });
+          return result ? [result] : [];
+        }),
+        {
+          resolveProfileById: async () => ({
+            ok: true,
+            profile: {
+              ownerUserId: null,
+              managedRole: "center_agent",
+              organizationId: "org-default",
+              profileHandle: "center-agent",
+              profileId: targetProfileId,
+              profileKind: "agent",
+              profileName: "Center Agent",
+              status: "active",
+            },
+          }),
+        }
       ),
     });
 
@@ -4929,6 +4998,12 @@ describe("handleDispatchQueueBatch", () => {
     );
     expect(message.ack).toHaveBeenCalledOnce();
     expect(message.retry).not.toHaveBeenCalled();
+    expect(
+      runtimeCoordinatorClient.decideRuntimeTransportRuntimeCoordinatorExecution
+    ).not.toHaveBeenCalled();
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
   });
 
   it("keeps hosted admission recovery metadata off the workstation transport", async () => {

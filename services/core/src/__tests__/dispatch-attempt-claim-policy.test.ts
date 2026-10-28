@@ -190,6 +190,54 @@ describe("dispatch attempt claim policy", () => {
     });
   });
 
+  it.each([
+    "queued",
+    "dispatching",
+    "accepted",
+    "succeeded",
+    "cancelled",
+    "replaced_attempt",
+    "workstation_owned",
+  ] as const)("resumes hosted admission only while the original unaccepted attempt owns the dispatch: %s", (scenario) => {
+    const decision = resolveDispatchAttemptClaimDecision({
+      existing: buildExisting({
+        status: (
+          {
+            queued: "queued",
+            dispatching: "dispatching",
+            accepted: "dispatching",
+            succeeded: "succeeded",
+            cancelled: "cancelled",
+            replaced_attempt: "queued",
+            workstation_owned: "queued",
+          } as const
+        )[scenario],
+        latestAttemptId:
+          scenario === "replaced_attempt" ? "attempt-2" : "attempt-1",
+      }),
+      latestAttempt: buildLatestAttempt({
+        connectionGeneration: null,
+        daemonSessionId:
+          scenario === "workstation_owned" ? "daemon-session-1" : null,
+        leaseEpoch: null,
+        status: scenario === "accepted" ? "waiting_result" : "dispatching",
+      }),
+      nowMs: 1000 + DISPATCH_IDEMPOTENCY_WINDOW_MS + 1,
+      requestedDispatchId: "dispatch-1",
+      requestedRecoveryReason: "hosted_admission_incomplete",
+      staleReclaimMs: DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS,
+    });
+    expect(decision).toEqual(
+      scenario === "queued" || scenario === "dispatching"
+        ? {
+            kind: "resume_hosted_admission",
+            attemptId: "attempt-1",
+            attemptNo: 1,
+          }
+        : { kind: "dedupe" }
+    );
+  });
+
   it("resets existing rows after the idempotency window expires", () => {
     expect(
       resolveDispatchAttemptClaimDecision({

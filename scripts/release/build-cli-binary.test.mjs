@@ -1,11 +1,69 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { resolveInstalledNodeHeaders } from "../../clients/openmeld-cli/scripts/build-macos-keychain-addon.mjs";
 
 const WINDOWS_ONLY_ERROR = /only for Windows/;
+
+test("uses installed Node headers only when they match the running Node version", () => {
+  const root = mkdtempSync(join(tmpdir(), "openmeld-node-headers-"));
+  try {
+    const include = join(root, "include", "node");
+    mkdirSync(include, { recursive: true });
+    for (const file of ["node.h", "common.gypi", "config.gypi"]) {
+      writeFileSync(join(include, file), "fixture");
+    }
+    writeFileSync(
+      join(include, "node_version.h"),
+      "#define NODE_MAJOR_VERSION 24\n#define NODE_MINOR_VERSION 20\n#define NODE_PATCH_VERSION 0\n"
+    );
+    const executablePath = join(root, "bin", "node");
+    assert.equal(
+      resolveInstalledNodeHeaders({
+        executablePath,
+        nodeVersion: "24.20.0",
+        env: {},
+      }),
+      root
+    );
+    assert.equal(
+      resolveInstalledNodeHeaders({
+        executablePath,
+        nodeVersion: "24.19.0",
+        env: {},
+      }),
+      null
+    );
+    for (const name of [
+      "NPM_CONFIG_NODEDIR",
+      "npm_config_dist_url",
+      "npm_package_config_node_gyp_disturl",
+    ]) {
+      assert.equal(
+        resolveInstalledNodeHeaders({
+          executablePath,
+          nodeVersion: "24.20.0",
+          env: { [name]: "custom" },
+        }),
+        null
+      );
+    }
+    rmSync(join(include, "config.gypi"));
+    assert.equal(
+      resolveInstalledNodeHeaders({
+        executablePath,
+        nodeVersion: "24.20.0",
+        env: {},
+      }),
+      null
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 import {
   buildBunCompileArgs,

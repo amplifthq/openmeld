@@ -131,6 +131,9 @@ export const resolveDispatchAttemptClaimDecision = (input: {
   if (hostedAdmissionRecoveryDecision) {
     return hostedAdmissionRecoveryDecision;
   }
+  if (input.requestedRecoveryReason === "hosted_admission_incomplete") {
+    return { kind: "dedupe" };
+  }
 
   const deliveryRecoveryReason = resolveDispatchDeliveryRecoveryReason({
     requestedRecoveryReason: input.requestedRecoveryReason,
@@ -257,7 +260,13 @@ const resolveHostedAdmissionRecoveryDecision = (input: {
     input.requestedRecoveryReason !== "hosted_admission_incomplete" ||
     !input.existing ||
     input.existing.dispatchId !== input.requestedDispatchId ||
+    (input.existing.status !== OPENMELD_DAEMON_DISPATCH_STATE.queued &&
+      input.existing.status !== OPENMELD_DAEMON_DISPATCH_STATE.dispatching) ||
     !input.latestAttempt?.attemptId ||
+    input.latestAttempt.attemptId !== input.existing.latestAttemptId ||
+    input.latestAttempt.daemonSessionId !== null ||
+    input.latestAttempt.connectionGeneration !== null ||
+    input.latestAttempt.leaseEpoch !== null ||
     input.latestAttempt.status !==
       OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.dispatching
   ) {

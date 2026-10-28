@@ -1,12 +1,12 @@
 {
-  "version": "0.3.274",
+  "version": "0.3.275",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Ships reusable Codex command-prefix approvals without changing the public CLI command contract. The existing 0.3.273 required floor remains supported."
+    "reason": "Publishes current shared schemas and Space contracts with a more reliable native Keychain build. CLI commands remain compatible and the 0.3.273 required floor stays supported."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Preserves exact native Codex reusable approval decisions when optional choices are omitted and discloses their complete scope. No runtime or Service wire contract changes; 0.3.273 remains compatible."
+    "reason": "Packages current shared schema and Space changes without changing the Service runtime contract. Existing 0.3.273 Services remain compatible with the cloud release."
   },
   "skills": {
     "updatePolicy": "available",

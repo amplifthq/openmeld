@@ -3,6 +3,8 @@ import type { SignalEnvelope } from "@openmeld/protocol";
 import {
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
+  HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+  HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
 } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import { createProjectionPostgresBinding } from "../../test-support/postgresql-query.test-support";
@@ -53,13 +55,16 @@ const createRuntimeCoordinatorRedriveOutboxRecord = () =>
   });
 
 describe("space outbox watchdog", () => {
-  it("does not keep the outbox alarm alive when only persisted handoff evidence remains", async () => {
+  it.each([
+    false,
+    true,
+  ])("retains the handoff recovery alarm only for hosted admission (hosted=%s)", async (hosted) => {
     const deleteAlarm = vi.fn(async () => undefined);
     const setAlarm = vi.fn(async () => undefined);
     const getAlarm = vi.fn(async () => 1_700_000_015_000);
     const exec = vi.fn((_query: string, ...params: unknown[]) => ({
       toArray: () =>
-        params.includes("pending") && params.includes("queued")
+        hosted && params.includes(HOSTED_CENTER_AGENT_CONTROLLER_REF)
           ? [{ dispatch_id: "dispatch-queued" }]
           : [],
     }));
@@ -72,8 +77,13 @@ describe("space outbox watchdog", () => {
 
     await space.syncDispatchOutboxAlarm();
 
-    expect(deleteAlarm).toHaveBeenCalledTimes(1);
-    expect(setAlarm).not.toHaveBeenCalled();
+    if (hosted) {
+      expect(deleteAlarm).not.toHaveBeenCalled();
+      expect(setAlarm).toHaveBeenCalledTimes(1);
+    } else {
+      expect(deleteAlarm).toHaveBeenCalledTimes(1);
+      expect(setAlarm).not.toHaveBeenCalled();
+    }
   });
 
   it("does not keep the dispatch outbox alarm alive without Queue or direct delivery", async () => {
@@ -187,7 +197,13 @@ describe("space outbox watchdog", () => {
     expect(directDelivery).toHaveBeenCalledWith(
       expect.objectContaining({ message })
     );
-    expect(queueSend).toHaveBeenCalledWith(message);
+    expect(queueSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dispatchId: message.dispatchId,
+        idempotencyKey: message.idempotencyKey,
+        deliveryRecoveryReason: "hosted_admission_incomplete",
+      })
+    );
     expect(syncDispatchOutboxAlarm).toHaveBeenCalled();
   });
 
@@ -295,15 +311,49 @@ describe("space outbox watchdog", () => {
     });
   });
 
-  it("does not treat a dispatch ledger read failure as missing intake evidence", async () => {
+  it.each([
+    [0, "submit"],
+    [null, "skip"],
+  ] as const)("only resumes a missing-ledger hosted handoff with proven unexposed admission (%s)", async (nativeAdmissionStartedAtMs, kind) => {
+    const db = createProjectionPostgresBinding(() => []);
+    const space = createSpaceHarness({ db, nativeAdmissionStartedAtMs });
+    const candidate = {
+      ...handedOffOutboxCandidate,
+      controllerSnapshot: {
+        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+        targetBindingEnabled: true,
+        targetBindingState: "bound" as const,
+      },
+    };
+    await expect(
+      space.resolveHandedOffOutboxCandidateDecision(
+        candidate,
+        1_700_000_030_000,
+        buildLogContext()
+      )
+    ).resolves.toMatchObject({ kind });
+  });
+
+  it.each([
+    "pending",
+    "handed_off",
+  ])("does not treat a %s hosted ledger read failure as missing intake evidence", async (outboxStatus) => {
     const db = createProjectionPostgresBinding(() => {
       throw new Error("PostgreSQL read failed");
     });
     const space = createSpaceHarness({ db });
-
+    const candidate = {
+      ...handedOffOutboxCandidate,
+      outboxStatus,
+      controllerSnapshot: {
+        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+        targetBindingEnabled: true,
+        targetBindingState: "bound" as const,
+      },
+    };
     await expect(
       space.resolveHandedOffOutboxCandidateDecision(
-        handedOffOutboxCandidate,
+        candidate,
         1_700_000_030_000,
         buildLogContext()
       )
@@ -314,36 +364,92 @@ describe("space outbox watchdog", () => {
     });
   });
 
-  it("redrives a hosted handoff when native admission never became durable", async () => {
-    const db = createProjectionPostgresBinding(() => [
-      {
-        connection_generation: null,
-        daemon_session_id: null,
-        last_attempt_at_ms: 1_700_000_001_000,
-        latest_attempt_error_code: null,
-        latest_attempt_status: "dispatching",
-        lease_epoch: null,
-        status: "dispatching",
+  it("recovers an ownerless legacy handoff only after Core confirms the hosted Binding", async () => {
+    const profileId = "agt_11111111-1111-4111-8111-111111111111";
+    const db = createProjectionPostgresBinding((query) => {
+      if (query.text.includes("openMeldRemoteAgent_native_delivery_ledger")) {
+        return [];
+      }
+      if (query.text.includes("openMeldDaemon_dispatch_ledger")) {
+        return [
+          {
+            connection_generation: null,
+            daemon_session_id: null,
+            last_attempt_at_ms: 1_700_000_001_000,
+            latest_attempt_error_code: null,
+            latest_attempt_status: "dispatching",
+            lease_epoch: null,
+            status: "queued",
+          },
+        ];
+      }
+      if (query.text.includes("profile_organization_id")) {
+        return [{ profile_organization_id: "org-default" }];
+      }
+      if (query.text.includes("openMeldDaemon_agent_profile_bindings")) {
+        return [
+          {
+            agent_profile_id: profileId,
+            binding_id: "binding-center",
+            binding_state: "enabled_primary",
+            configuration_revision: 1,
+            agent_controller_ref: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+            created_at_ms: 1,
+            created_by_profile_id: null,
+            disabled_at_ms: null,
+            hosted_runtime_identity_json: JSON.stringify(
+              HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
+            ),
+            model_id: "deepseek/deepseek-v4-flash",
+            owner_id: "org-default",
+            owner_kind: "organization",
+            reason_code: "agent_profile_binding.enabled_primary",
+            runtime_kind: "hosted_center_agent",
+            openmeld_service_runtime_id: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+            updated_at_ms: 1,
+          },
+        ];
+      }
+      return [];
+    });
+    const space = createSpaceHarness({
+      db,
+      authRpc: {
+        resolveProfileById: async () => ({
+          ok: true,
+          profile: {
+            ownerUserId: null,
+            managedRole: "center_agent",
+            organizationId: "org-default",
+            profileHandle: "center-agent",
+            profileId,
+            profileKind: "agent",
+            profileName: "Center Agent",
+            status: "active",
+          },
+        }),
       },
-    ]);
-    const space = createSpaceHarness({ db }) as ReturnType<
-      typeof createSpaceHarness
-    > & {
-      readPreAgentStoppedGuardForOutboxCandidate: ReturnType<typeof vi.fn>;
+    });
+    const record = createRuntimeCoordinatorRedriveOutboxRecord();
+    const candidate = {
+      ...record,
+      organizationId: "org-default",
+      targetProfileId: profileId,
+      sourceClientMessageId: "client-message-1",
+      sourceSignalSnapshot: {
+        profileId: "human-1",
+        profileKind: "human",
+        text: "@agent(wake) hello",
+      },
+      spaceNameSnapshot: null,
+      targetProfileNameSnapshot: "Center Agent",
+      outboxStatus: "handed_off",
+      handedOffAtMs: record.createdAtMs + 100,
     };
-    const readPreAgentStoppedGuardForOutboxCandidate = vi
-      .fn()
-      .mockResolvedValue({ stopped: false });
-    Object.defineProperty(space, "readPreAgentStoppedGuardForOutboxCandidate", {
-      value: readPreAgentStoppedGuardForOutboxCandidate,
-    });
-    Object.defineProperty(space, "readHostedNativeDeliveryHandoffState", {
-      value: vi.fn().mockResolvedValue("admission_incomplete"),
-    });
 
     await expect(
       space.resolveHandedOffOutboxCandidateDecision(
-        handedOffOutboxCandidate,
+        candidate,
         1_700_000_030_000,
         buildLogContext()
       )
@@ -351,7 +457,92 @@ describe("space outbox watchdog", () => {
       deliveryRecoveryReason: "hosted_admission_incomplete",
       kind: "submit",
     });
-    expect(readPreAgentStoppedGuardForOutboxCandidate).toHaveBeenCalledOnce();
+    const unavailable = createSpaceHarness({ db });
+    await expect(
+      unavailable.resolveHandedOffOutboxCandidateDecision(
+        candidate,
+        1_700_000_030_000,
+        buildLogContext()
+      )
+    ).resolves.toMatchObject({ kind: "skip" });
+
+    const removedProfile = {
+      resolveProfileById: async () => ({
+        ok: false,
+        code: "profile.not_found",
+        message: "Profile not found",
+      }),
+    };
+    const taggedCandidate = {
+      ...candidate,
+      deliveryRecoveryReason: "hosted_admission_incomplete" as const,
+    };
+    const unexposed = createSpaceHarness({
+      db,
+      authRpc: removedProfile,
+      nativeAdmissionStartedAtMs: 0,
+    });
+    await expect(
+      unexposed.resolveHandedOffOutboxCandidateDecision(
+        taggedCandidate,
+        1_700_000_030_000,
+        buildLogContext()
+      )
+    ).resolves.toMatchObject({ kind: "submit" });
+    const exposureUnknown = createSpaceHarness({
+      db,
+      authRpc: removedProfile,
+      nativeAdmissionStartedAtMs: null,
+    });
+    await expect(
+      exposureUnknown.resolveHandedOffOutboxCandidateDecision(
+        taggedCandidate,
+        1_700_000_030_000,
+        buildLogContext()
+      )
+    ).resolves.toMatchObject({ kind: "skip" });
+  });
+
+  it.each([
+    "pending",
+    "handed_off",
+  ])("redrives a %s hosted Wake on its original identity when native admission never became durable", async (outboxStatus) => {
+    const db = createProjectionPostgresBinding((query) =>
+      query.text?.includes("openMeldRemoteAgent_native_delivery_ledger")
+        ? []
+        : [
+            {
+              connection_generation: null,
+              daemon_session_id: null,
+              last_attempt_at_ms: 1_700_000_001_000,
+              latest_attempt_error_code: null,
+              latest_attempt_status: "dispatching",
+              lease_epoch: null,
+              status: "queued",
+            },
+          ]
+    );
+    const space = createSpaceHarness({ db });
+    const candidate = {
+      ...handedOffOutboxCandidate,
+      outboxStatus,
+      controllerSnapshot: {
+        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+        targetBindingEnabled: true,
+        targetBindingState: "bound" as const,
+      },
+    };
+
+    await expect(
+      space.resolveHandedOffOutboxCandidateDecision(
+        candidate,
+        1_700_000_030_000,
+        buildLogContext()
+      )
+    ).resolves.toMatchObject({
+      deliveryRecoveryReason: "hosted_admission_incomplete",
+      kind: "submit",
+    });
   });
 
   it("uses the frozen hosted route when the current Binding may have changed", async () => {
@@ -596,6 +787,29 @@ describe("space outbox watchdog", () => {
     );
     errorSpy.mockRestore();
     infoSpy.mockRestore();
+  });
+
+  it("continues past a full batch of unresolved handoffs after an eviction", async () => {
+    const candidates = Array.from({ length: 21 }, (_, index) =>
+      createOutboxRecordForSource(`fairness-${index}`)
+    );
+    const storedValues = new Map<string, unknown>();
+    const decision = vi.fn(async () => buildSkipDecision());
+    const input = {
+      candidateRows: candidates.map(toOutboxRow),
+      resolveDecision: decision,
+      storedValues,
+    };
+    await createFlushHarness(input).space.flushPendingDispatchOutbox();
+    expect(decision).toHaveBeenCalledTimes(20);
+    await createFlushHarness(input).space.flushPendingDispatchOutbox();
+    expect(decision).toHaveBeenCalledWith(
+      expect.objectContaining({ dispatchId: candidates[20]?.dispatchId }),
+      expect.any(Number),
+      expect.any(Object)
+    );
+    await createFlushHarness(input).space.flushPendingDispatchOutbox();
+    expect(decision).toHaveBeenCalledTimes(41);
   });
 
   it("processes only 20 candidates and requests an immediate continuation for the backlog", async () => {
@@ -871,7 +1085,8 @@ describe("space outbox watchdog", () => {
       lanes.reconcileDeletedAgentProfileMemberLiveness
     ).toHaveBeenCalledTimes(1);
     expect(lanes.flushDirtyMemberProjection).toHaveBeenCalledTimes(1);
-    expect(lanes.syncSpaceBackgroundAlarm).toHaveBeenCalledTimes(1);
+    // A failed lane persists its backoff and re-arms before the final sync.
+    expect(lanes.syncSpaceBackgroundAlarm).toHaveBeenCalledTimes(2);
     expect(errorSpy).toHaveBeenCalledWith(
       "[core.openmeld.space.alarm_step_failed]",
       expect.objectContaining({ step: "space_index_projection_outbox" })
@@ -898,7 +1113,11 @@ describe("space outbox watchdog", () => {
   });
 });
 
-const createSpaceHarness = (input: { db: PostgreSQLBinding | null }) => {
+const createSpaceHarness = (input: {
+  db: PostgreSQLBinding | null;
+  authRpc?: unknown;
+  nativeAdmissionStartedAtMs?: number | null;
+}) => {
   const space = Object.create(Space.prototype) as {
     bindings: { OPENMELD_POSTGRESQL: PostgreSQLBinding | null };
     ctx: { storage: { sql: unknown } };
@@ -913,14 +1132,24 @@ const createSpaceHarness = (input: { db: PostgreSQLBinding | null }) => {
     bindings: {
       value: {
         OPENMELD_POSTGRESQL: input.db,
+        ...(input.authRpc ? { OPENMELD_AUTH_WORKER: input.authRpc } : {}),
       },
     },
     ctx: {
       value: {
         storage: {
           sql: {
-            exec: () => ({
-              toArray: () => [],
+            exec: (query: string) => ({
+              toArray: () =>
+                query.includes("native_admission_started_at_ms") &&
+                input.nativeAdmissionStartedAtMs !== undefined
+                  ? [
+                      {
+                        native_admission_started_at_ms:
+                          input.nativeAdmissionStartedAtMs,
+                      },
+                    ]
+                  : [],
             }),
           },
         },
@@ -977,6 +1206,7 @@ const createSpaceAlarmHarness = (input: {
     ctx: {
       value: {
         storage: {
+          get: <T>() => Promise.resolve<T | undefined>(undefined),
           deleteAlarm: input.deleteAlarm,
           getAlarm: input.getAlarm,
           list: <T>() => Promise.resolve(new Map<string, T>()),
@@ -1090,12 +1320,14 @@ const buildSkipDecision = () => ({
 const createFlushHarness = (input: {
   candidateRows: ReturnType<typeof toOutboxRow>[];
   persistTerminalFailure?: boolean;
+  storedValues?: Map<string, unknown>;
   resolveDecision: (
     candidate: { dispatchId: string },
     nowMs: number,
     logContext: unknown
   ) => Promise<unknown>;
 }) => {
+  const storedValues = input.storedValues ?? new Map<string, unknown>();
   const finalClaimByDispatchAndProfile = new Map<string, string>();
   const poisonStateByDispatchId = new Map(
     input.candidateRows.map((row) => [
@@ -1159,13 +1391,20 @@ const createFlushHarness = (input: {
       query.includes("SELECT")
     ) {
       return {
-        toArray: () =>
-          input.candidateRows.filter((row) => {
+        toArray: () => {
+          const rows = input.candidateRows.filter((row) => {
             const dispatchId = readDispatchIdFromOutboxRow(row);
             return (
               poisonStateByDispatchId.get(dispatchId)?.poisonedAtMs === null
             );
-          }),
+          });
+          return query.includes("OFFSET ?")
+            ? rows.slice(
+                Number(params.at(-1)),
+                Number(params.at(-1)) + Number(params.at(-2))
+              )
+            : rows;
+        },
       };
     }
     return { toArray: () => [] };
@@ -1230,6 +1469,11 @@ const createFlushHarness = (input: {
     ctx: {
       value: {
         storage: {
+          get: (key: string) => Promise.resolve(storedValues.get(key)),
+          put: (key: string, value: unknown) => {
+            storedValues.set(key, value);
+            return Promise.resolve();
+          },
           sql: { exec },
         },
       },
@@ -1267,6 +1511,7 @@ const createAlarmLaneHarness = (lanes: {
   reconcileDeletedAgentProfileMemberLiveness: () => Promise<void>;
   syncSpaceBackgroundAlarm: () => Promise<void>;
 }) => {
+  const storedValues = new Map<string, unknown>();
   const space = Object.create(Space.prototype) as {
     alarm: () => Promise<void>;
     spaceId: string;
@@ -1276,6 +1521,18 @@ const createAlarmLaneHarness = (lanes: {
     configurable: true,
   });
   Object.defineProperties(space, {
+    ctx: {
+      value: {
+        storage: {
+          get: (key: string) => Promise.resolve(storedValues.get(key)),
+          put: (key: string, value: unknown) => {
+            storedValues.set(key, value);
+            return Promise.resolve();
+          },
+          delete: (key: string) => Promise.resolve(storedValues.delete(key)),
+        },
+      },
+    },
     flushDirtyMemberProjection: { value: lanes.flushDirtyMemberProjection },
     flushPendingDispatchOutbox: { value: lanes.flushPendingDispatchOutbox },
     flushPendingSpaceIndexProjectionOutbox: {

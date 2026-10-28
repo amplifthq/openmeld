@@ -349,6 +349,7 @@ import {
   finalizeAcceptedDispatchResult,
   recordConfirmedAcceptedDispatchFailure,
   recordConfirmedAcceptedDispatchSuccess,
+  runDispatchExecutionPreflightGate,
 } from "../../../dispatch/application/dispatch-execution-service";
 import {
   buildDispatchHumanLogContext,
@@ -753,6 +754,7 @@ import {
   createDispatchOutboxRecord,
   type DispatchSourceSignalSnapshotInput,
   deleteDispatchOutboxRecord,
+  hasRecoverableDispatchOutboxHandoffRecords,
   hasPendingDispatchOutboxRecords,
   hasUnsettledDispatchOutboxRecords,
   insertDispatchOutboxHandoffSeed,
@@ -1149,6 +1151,7 @@ class SpaceHistoryAnchorNotFoundError extends Error {
 const OUTBOX_QUEUE_MAX_ATTEMPTS = 3;
 const OUTBOX_QUEUE_BACKOFF_MS = [1000, 3000] as const;
 const OUTBOX_ALARM_REDRIVE_INTERVAL_MS = SPACE_OUTBOX_ALARM_REDRIVE_INTERVAL_MS;
+const OUTBOX_RECOVERY_OFFSET_KEY = "dispatch-outbox-recovery-offset-v1";
 const OUTBOX_CANDIDATE_POISON_FAILURE_THRESHOLD = 3;
 const OUTBOX_POISON_VISIBLE_FAILURE_REASON_CODE =
   "dispatch.outbox.candidate_failed";
@@ -7979,10 +7982,10 @@ export class Space extends DurableObject<CoreBindings> {
     if (!this.canSubmitDispatchOutbox()) {
       return null;
     }
-    const hasPendingWork = hasPendingDispatchOutboxRecords(
-      this.ctx.storage.sql
-    );
-    if (!hasPendingWork) {
+    if (
+      !hasPendingDispatchOutboxRecords(this.ctx.storage.sql) &&
+      !hasRecoverableDispatchOutboxHandoffRecords(this.ctx.storage.sql)
+    ) {
       return null;
     }
     if (this.dispatchOutboxRetryNotBeforeMs > Date.now()) {
@@ -24530,7 +24533,7 @@ export class Space extends DurableObject<CoreBindings> {
     });
     if (fallsBackToQueue) {
       const enqueued = await this.enqueueDispatchMessageWithRetry(
-        message,
+        { ...message, deliveryRecoveryReason: "hosted_admission_incomplete" },
         reason,
         candidate,
         human
@@ -24562,6 +24565,8 @@ export class Space extends DurableObject<CoreBindings> {
         markDispatchOutboxHandedOff(this.ctx.storage.sql, {
           dispatchId: message.dispatchId,
           handedOffAtMs: Date.now(),
+          hostedAdmissionRecovery:
+            message.deliveryRecoveryReason === "hosted_admission_incomplete",
         });
         logSpaceOutboxConsoleEvent({
           eventName: "queue_sent",
@@ -24617,14 +24622,29 @@ export class Space extends DurableObject<CoreBindings> {
     this.dispatchOutboxContinuationDueAtMs = null;
     const nowMs = Date.now();
     const handedOffRedriveBeforeMs = nowMs - OUTBOX_HANDED_OFF_REDRIVE_AFTER_MS;
-    const recoveryCandidates = listDispatchOutboxRecoveryCandidates(
+    const savedOffset = await this.ctx.storage.get<number>(OUTBOX_RECOVERY_OFFSET_KEY);
+    let offset = Number.isSafeInteger(savedOffset) && (savedOffset ?? 0) >= 0
+      ? (savedOffset ?? 0)
+      : 0;
+    let recoveryCandidates = listDispatchOutboxRecoveryCandidates(
       this.ctx.storage.sql,
       {
         limit: DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE,
         handedOffRedriveBeforeMs,
+        offset,
       }
     ).slice(0, DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE);
+    if (recoveryCandidates.length === 0 && offset > 0) {
+      offset = 0;
+      recoveryCandidates = listDispatchOutboxRecoveryCandidates(
+        this.ctx.storage.sql,
+        { limit: DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE, handedOffRedriveBeforeMs, offset }
+      );
+    }
     if (recoveryCandidates.length === 0) {
+      if (savedOffset !== undefined && savedOffset !== 0) {
+        await this.ctx.storage.put(OUTBOX_RECOVERY_OFFSET_KEY, 0);
+      }
       logSpaceOutboxConsoleEvent({
         eventName: "flush_started",
         fields: {
@@ -24685,6 +24705,13 @@ export class Space extends DurableObject<CoreBindings> {
       },
       resolveTargetProfileId: (candidate) => candidate.targetProfileId,
     });
+    const nextOffset =
+      recoveryCandidates.length === DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE
+        ? offset + DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE
+        : 0;
+    if (nextOffset !== (savedOffset ?? 0)) {
+      await this.ctx.storage.put(OUTBOX_RECOVERY_OFFSET_KEY, nextOffset);
+    }
     if (
       recoveryCandidates.length === DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE &&
       advancedCandidateCount === recoveryCandidates.length &&
@@ -25118,7 +25145,12 @@ export class Space extends DurableObject<CoreBindings> {
         lastAttemptAtMs,
       });
     };
-    if (candidate.outboxStatus !== "handed_off") {
+    if (
+      candidate.outboxStatus !== "handed_off" &&
+      !isHostedAgentControllerRef(
+        candidate.controllerSnapshot?.agentControllerRef
+      )
+    ) {
       const stoppedGuard =
         await this.readPreAgentStoppedGuardForOutboxCandidate(candidate);
       if (stoppedGuard.stopped) {
@@ -25140,20 +25172,24 @@ export class Space extends DurableObject<CoreBindings> {
     const ledgerRow =
       ledgerEvidence.kind === "found" ? ledgerEvidence.row : null;
     const shouldReadHostedNativeDeliveryHandoffState =
-      ledgerRow !== null &&
-      ledgerRow.latestAttemptStatus !== "profile_queue_waiting";
+      ledgerEvidence.kind !== "unavailable" &&
+      ledgerRow?.latestAttemptStatus !== "profile_queue_waiting";
     const hostedNativeDeliveryHandoffState =
       shouldReadHostedNativeDeliveryHandoffState
-        ? await this.readHostedNativeDeliveryHandoffState(candidate)
+        ? await this.readHostedNativeDeliveryHandoffState(candidate, ledgerRow === null)
         : "not_applicable";
-    const policyDecision = resolveHandedOffOutboxCandidatePolicyDecision({
-      hostedNativeDeliveryHandoffState,
-      outboxStatus: candidate.outboxStatus,
-      ledgerRow,
-      nowMs,
-      recentInflightSkipWithinMs: OUTBOX_HANDED_OFF_SKIP_REDRIVE_WITHIN_MS,
-      staleReclaimMs: DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS,
-    });
+    const policyDecision =
+      ledgerEvidence.kind === "unavailable"
+        ? { kind: "skip" as const }
+        : resolveHandedOffOutboxCandidatePolicyDecision({
+            hostedNativeDeliveryHandoffState,
+            outboxStatus: candidate.outboxStatus,
+            ledgerRow,
+            nowMs,
+            recentInflightSkipWithinMs:
+              OUTBOX_HANDED_OFF_SKIP_REDRIVE_WITHIN_MS,
+            staleReclaimMs: DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS,
+          });
     const human = buildHuman(ledgerRow?.lastAttemptAtMs ?? null);
     const candidateTransitionViolation =
       resolveCoreOutboxCandidateTransitionContractViolation({
@@ -25440,7 +25476,8 @@ export class Space extends DurableObject<CoreBindings> {
     return row ? { kind: "found", row } : { kind: "missing" };
   }
   private async readHostedNativeDeliveryHandoffState(
-    candidate: OpenMeldDaemonDispatchOutboxRecoveryCandidate
+    candidate: OpenMeldDaemonDispatchOutboxRecoveryCandidate,
+    missingDispatchLedger = false
   ): Promise<HostedNativeDeliveryHandoffState> {
     const evidenceDb = getPostgresDatabase(this.bindings);
     if (!(evidenceDb && typeof evidenceDb.query === "function")) {
@@ -25454,13 +25491,27 @@ export class Space extends DurableObject<CoreBindings> {
         spaceId: candidate.spaceId,
       });
       if (delivery) {
+        if (missingDispatchLedger) {
+          return "evidence_unavailable";
+        }
         return delivery.status === "submitted"
           ? "admission_incomplete"
           : "durably_owned";
       }
       if (
-        candidate.controllerSnapshot?.agentControllerRef ===
-        HOSTED_CENTER_AGENT_CONTROLLER_REF
+        missingDispatchLedger &&
+        !isSpaceNativeWakeUnexposed(this.ctx.storage.sql, {
+          spaceId: candidate.spaceId,
+          dispatchId: candidate.dispatchId,
+          targetProfileId: candidate.targetProfileId,
+        })
+      ) {
+        return "evidence_unavailable";
+      }
+      if (
+        isHostedAgentControllerRef(
+          candidate.controllerSnapshot?.agentControllerRef
+        )
       ) {
         return "admission_incomplete";
       }
@@ -25476,6 +25527,33 @@ export class Space extends DurableObject<CoreBindings> {
           owner: { id: ownerUserId, kind: "owner_account" },
         });
         return isHostedAgentRuntimeKind(binding?.runtimeKind)
+          ? "admission_incomplete"
+          : "not_applicable";
+      }
+      if (!candidate.controllerSnapshot?.agentControllerRef) {
+        const preflight = await runDispatchExecutionPreflightGate({
+          env: this.bindings,
+          message: candidate,
+        });
+        if (!preflight.ok) {
+          if (
+            preflight.finalStatus === "failed_terminal" &&
+            candidate.deliveryRecoveryReason === "hosted_admission_incomplete" &&
+            isSpaceNativeWakeUnexposed(this.ctx.storage.sql, {
+              spaceId: candidate.spaceId,
+              dispatchId: candidate.dispatchId,
+              targetProfileId: candidate.targetProfileId,
+            })
+          ) {
+            // The existing queue owner publishes the failure; this read does
+            // not turn current readiness into execution truth.
+            return "admission_incomplete";
+          }
+          return "evidence_unavailable";
+        }
+        return isHostedAgentRuntimeKind(
+          preflight.effectiveTargetBindingSnapshot.runtimeKind
+        )
           ? "admission_incomplete"
           : "not_applicable";
       }
