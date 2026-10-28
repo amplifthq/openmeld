@@ -562,6 +562,7 @@ export const lookupRuntimeTransportRoutesBatch = async (input: {
   ownerUserId: string;
   profileIds: readonly string[];
   requestId?: string | null;
+  readTimeoutMs?: number;
 }): Promise<RuntimeTransportLookupRoutesBatchResponse | null> => {
   // Invalid responses retain the per-profile fallback. Transport failures
   // propagate so a failing shard does not receive another read per Profile.
@@ -581,6 +582,7 @@ export const lookupRuntimeTransportRoutesBatch = async (input: {
     path: "/lookup-routes-batch",
     body: parsedRequest.data,
     requestId: input.requestId,
+    readTimeoutMs: input.readTimeoutMs,
   });
 
   const parsed =

@@ -58,6 +58,8 @@ export const callRuntimeTransportApi = async (input: {
   ownerUserId: string;
   path: RuntimeTransportApiPath;
   requestId?: string | null;
+  // Callers may shorten, never extend, an audited read's existing budget.
+  readTimeoutMs?: number;
   query?: Record<string, string>;
   body: unknown;
 }): Promise<unknown> => {
@@ -86,12 +88,27 @@ export const callRuntimeTransportApi = async (input: {
     input.path === "/lookup-routes-batch" ||
     input.path === "/lookup-owner-service"
   ) {
+    if (
+      input.readTimeoutMs !== undefined &&
+      (!Number.isFinite(input.readTimeoutMs) || input.readTimeoutMs <= 0)
+    ) {
+      throw new RangeError(
+        "Runtime Transport read budget must be positive and finite."
+      );
+    }
+    const readTimeoutMs = Math.min(
+      requestTimeoutMs,
+      input.readTimeoutMs ?? requestTimeoutMs
+    );
     return await callRuntimeTransportRead({
       env: input.env,
       ownerUserId: input.ownerUserId,
       operation: input.path,
       requestId: input.requestId,
-      timeoutMs: requestTimeoutMs,
+      timeoutMs: readTimeoutMs,
+      // Reserve time for a fresh-stub attempt without extending the total
+      // budget. Batch reads keep their existing longer allowance.
+      attemptTimeoutMs: readTimeoutMs / 2,
       execute: async (shard, signal) => {
         const response = await fetchResponse(shard, signal);
         // Body transport failures must reach the retry classifier; only a

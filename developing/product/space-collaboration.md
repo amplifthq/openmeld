@@ -85,6 +85,13 @@ mention and addressing labels needed by clients and dispatch prompts. It helps
 users and agents choose valid send targets; it does not create membership,
 prove Wake readiness, or decide execution authority.
 
+An unavailable Agent status read must not hide the authorized member directory
+or other members' available status. Core keeps the affected Agent in the list
+and uses its existing Wake Availability projection: an unverifiable status is
+unavailable, while independently confirmed route evidence keeps its established
+meaning. A failed read does not establish that the Agent is offline. Membership,
+identity, and access verification retain their own failure behavior.
+
 A focused Agent read may combine one resolved directory member with that
 member's Core-owned current Agent Wake Availability projection. This avoids
 returning the complete directory and unrelated runtime diagnostics when the

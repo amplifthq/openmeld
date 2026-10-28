@@ -2582,7 +2582,25 @@ always stops retries, including when `retryable=true`. Otherwise only
 is absent, permits a retry. An explicit `retryable=false`, other exceptions,
 malformed responses, and HTTP/business responses do not trigger retries.
 
-One deadline covers all attempts, backoff, and HTTP response-body consumption.
+Allowlisted HTTP lookups also retry a locally timed-out attempt while their
+overall budget permits it. Each attempt may use half of the effective total
+budget: 2.5 seconds for route/owner-Service reads and 19 seconds for batch
+route reads. This leaves room for a fresh-stub attempt without shortening the
+batch read's existing 38-second total allowance. Each attempt has its own abort
+controller, and its timeout covers fetch and response-body consumption. Before
+backoff or another attempt, Core aborts the previous local transport wait and
+clears its timer. Late completion cannot settle a later attempt. When the
+remaining overall budget is shorter, the overall deadline takes precedence.
+Direct RPC reads do not use this per-attempt timeout because they cannot abort
+their transport; they retain retries only for the classified exceptions above.
+A replacement gap covering the entire total budget can still make the read fail.
+The member directory caps its batch prefetch at five seconds as well, so a
+single unavailable Hub cannot outlast the directory's client request budget.
+This internal caller cap may only shorten the default HTTP read budget and is
+not part of the wire request. Its attempts use half of that capped total.
+
+One overall deadline covers all attempts, backoff, and HTTP response-body
+consumption.
 Recovery reads have a 30-second total budget to allow a shutdown interruption
 near the end of Cloudflare's drain window to recover. Execution-state and
 operational-context reads use 5 seconds. HTTP lookup budgets remain unchanged:
@@ -2610,6 +2628,11 @@ Cloudflare trace/request metadata provides correlation when an application
 request ID is unavailable. Bodies, tokens, raw messages, and stacks are not
 logged. `remote=true` alone is not a retry classification. Elapsed times describe
 caller waiting, not receiver execution or CPU duration.
+
+HTTP attempt logs also include `attemptTimeoutMs` and `attemptTimedOut` to
+distinguish local attempt expiry from Cloudflare exception properties. A local
+attempt timeout leaves absent platform `retryable`, `overloaded`, and `remote`
+properties as `null`; total-budget exhaustion remains terminal.
 
 This follows Cloudflare's [error-handling guidance](https://developers.cloudflare.com/durable-objects/best-practices/error-handling/)
 and [shutdown lifecycle](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/#shutdown-behavior).
