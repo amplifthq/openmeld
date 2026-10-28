@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "controller": "grok-build",
-  "observedAt": "2026-10-19T12:46:18.735Z",
-  "fingerprint": "d236b63bd2777398b36fef8a36b3a2a87334df8731a46487df75f94ca630a621",
+  "observedAt": "2026-10-21T12:44:39.413Z",
+  "fingerprint": "c6a2ad0860c1c9ac8acf595a9c8464845e5633999f98393a8ad16cd93eb8fdfa",
   "sources": [
     {
       "url": "https://docs.x.ai/build/overview.md",
@@ -12,7 +12,7 @@
     {
       "url": "https://docs.x.ai/build/settings.md",
       "kind": "official-document",
-      "data": "# Settings\n\nGrok Build offers a variety of configurations to suit your needs, many of which are made directly available in the TUI under `/settings`.\n\nSettings are persisted under `~/.grok/config.toml` (on Windows, `%USERPROFILE%\\.grok\\config.toml`). To configure the default home directory, you can set `$GROK_HOME`.\n\nFor MCP servers, see [MCP Servers](/build/features/mcp-servers). For marketplaces, skills, and plugins, see [Skills, Plugins, and Marketplaces](/build/features/skills-plugins-marketplaces); for hooks, see [Hooks](/build/features/hooks).\n\n## Scopes\n\n| Scope | Path | Use for |\n| --- | --- | --- |\n| Environment | `GROK_*` (and related) variables | Session / CI overrides |\n| User | `~/.grok/config.toml` (or `$GROK_HOME/config.toml`) | Personal defaults |\n| Project | `.grok/config.toml` in the repo | Repo-shared MCP, plugins, and permission rules |\n| Managed | `~/.grok/managed_config.toml`, `/etc/grok/managed_config.toml` | Enterprise-served defaults |\n| Requirements | `~/.grok/requirements.toml`, `/etc/grok/requirements.toml` | Policy pins |\n\nProject configs are limited to MCP servers, plugins, and permission rules, not full user configs. For scope merge order and managed deployments, see [Enterprise Deployments](/build/enterprise#configuration). Day-to-day [permissions](/build/features/permissions) and [sandbox](/build/features/sandbox) apply to individual use; managed locks and headless modes are under Enterprise.\n\n## Verification\n\nTo confirm which configs are picked up by Grok Build, run the following command:\n\n```bash customLanguage=\"bash\"\ngrok inspect\n```\n\n## Example `config.toml`\n\nCopy into `$GROK_HOME/config.toml`, or `~/.grok/config.toml` when `GROK_HOME` is unset. Prefer `/settings` for UI, notifications, and other in-app options.\n\n```toml customLanguage=\"toml\"\n[models]\ndefault = \"grok-build\"                       # recommended for coding / agent sessions\nweb_search = \"grok-4.7\"                      # model used by client-side web_search tool\n\n[model.\"grok-4.7\"]\nmodel = \"grok-4.7\"                           # id sent to the API\nbase_url = \"https://api.x.ai/v1\"             # provider endpoint\nname = \"Grok 4.7\"                            # shown in model picker\ndescription = \"Grok 4.7 from SpaceXSI\"\nenv_key = \"XAI_API_KEY\"                      # env var holding the API key\napi_backend = \"responses\"                    # chat_completions | responses | messages\ntemperature = 0.7\ntop_p = 0.95\nmax_completion_tokens = 8192\ncontext_window = 500000\nextra_headers = { \"x-api-key\" = \"xai-...\" }\nsupports_backend_search = true               # if the endpoint supports Grok-hosted server-side search tools\n\n[mcp_servers.filesystem]\ncommand = \"npx\"\nargs = [\"-y\", \"@modelcontextprotocol/server-filesystem\", \"/path/to/allowed/directory\"]\nenabled = true\nstartup_timeout_sec = 30\ntool_timeout_sec = 6000\n\n[mcp_servers.linear]\nurl = \"https://mcp.linear.app/mcp\"\nheaders = { \"Authorization\" = \"Bearer ${LINEAR_API_KEY}\", \"x-mcp-session-id\" = \"{{session_id}}\" }\n\n[ui]\ncompact_mode = false\ntheme = \"auto\"\nshow_thinking_blocks = true\n```\n\n## TOML Values\n\nFor the full list of `config.toml` keys, see [TOML Values](/build/settings/reference#toml-values).\n\n## Environment variables\n\nFor the full list of environment variables, see [Environment variables](/build/settings/reference#environment-variables)."
+      "data": "# Settings\n\nGrok Build offers a variety of configurations to suit your needs, many of which are made directly available in the TUI under `/settings`.\n\nSettings are persisted under `~/.grok/config.toml` (on Windows, `%USERPROFILE%\\.grok\\config.toml`). To configure the default home directory, you can set `$GROK_HOME`.\n\nFor MCP servers, see [MCP Servers](/build/features/mcp-servers). For marketplaces, skills, and plugins, see [Skills, Plugins, and Marketplaces](/build/features/skills-plugins-marketplaces); for hooks, see [Hooks](/build/features/hooks).\n\n## Scopes\n\n| Scope | Path | Use for |\n| --- | --- | --- |\n| Environment | `GROK_*` (and related) variables | Session / CI overrides |\n| User | `~/.grok/config.toml` (or `$GROK_HOME/config.toml`) | Personal defaults |\n| Project | `.grok/config.toml` in the repo | Repo-shared MCP, plugins, and permission rules |\n| Managed | `~/.grok/managed_config.toml`, `/etc/grok/managed_config.toml` | Enterprise-served defaults |\n| Requirements | `~/.grok/requirements.toml`, `/etc/grok/requirements.toml` | Policy pins |\n\nProject configs are limited to MCP servers, plugins, and permission rules, not full user configs. For scope merge order and managed deployments, see [Enterprise Deployments](/build/enterprise#configuration). Day-to-day [permissions](/build/features/permissions) and [sandbox](/build/features/sandbox) apply to individual use; managed locks and headless modes are under Enterprise.\n\n## Verification\n\nTo confirm which configs are picked up by Grok Build, run the following command:\n\n```bash customLanguage=\"bash\"\ngrok inspect\n```\n\n## Example `config.toml`\n\nCopy into `$GROK_HOME/config.toml`, or `~/.grok/config.toml` when `GROK_HOME` is unset. Prefer `/settings` for UI, notifications, and other in-app options.\n\n```toml customLanguage=\"toml\"\n[models]\ndefault = \"grok-build\"                       # recommended for coding / agent sessions\nweb_search = \"grok-4.7\"                      # model used by client-side web_search tool\n\n[model.\"grok-4.7\"]\nmodel = \"grok-4.7\"                           # id sent to the API\nbase_url = \"https://api.x.ai/v1\"             # provider endpoint\nname = \"Grok 4.7\"                            # shown in model picker\ndescription = \"Grok 4.7 from SpaceXSI\"\nenv_key = \"XAI_API_KEY\"                      # env var holding the API key\napi_backend = \"responses\"                    # chat_completions | responses | messages\ntemperature = 0.7\ntop_p = 0.95\nmax_completion_tokens = 8192\ncontext_window = 500000\nextra_headers = { \"x-api-key\" = \"xai-...\" }\nsupports_backend_search = true               # if the endpoint supports Grok-hosted server-side search tools\n\n[mcp_servers.filesystem]\ncommand = \"npx\"\nargs = [\"-y\", \"@modelcontextprotocol/server-filesystem\", \"/path/to/allowed/directory\"]\nenabled = true\nstartup_timeout_sec = 30\ntool_timeout_sec = 6000\n\n[mcp_servers.linear]\nurl = \"https://mcp.linear.app/mcp\"\nheaders = { \"Authorization\" = \"Bearer ${LINEAR_API_KEY}\", \"x-mcp-session-id\" = \"{{session_id}}\" }\n\n[ui]\ncompact_mode = false\ntheme = \"auto\"\nshow_thinking_blocks = true\n```\n\n## TOML Values\n\nFor a selection of `config.toml` keys, see [TOML Values](/build/settings/reference#toml-values).\n\n## Environment variables\n\nFor a selection of environment variables, see [Environment variables](/build/settings/reference#environment-variables)."
     },
     {
       "url": "https://models.dev/api.json",
@@ -29,7 +29,7 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "medium", "high"]
+                "values": ["low", "medium", "high", "xhigh"]
               }
             ],
             "tool_call": true,
@@ -173,6 +173,7 @@
           },
           "grok-imagine-video-1.5-lite": {
             "id": "grok-imagine-video-1.5-lite",
+            "type": "video",
             "name": "Grok Imagine Video 1.5 Lite",
             "description": "Cost-efficient video model for text-to-video and image-to-video generation",
             "family": "grok",
@@ -183,7 +184,7 @@
             "release_date": "2026-10-01",
             "last_updated": "2026-10-01",
             "modalities": {
-              "input": ["text", "image", "pdf"],
+              "input": ["text", "image"],
               "output": ["video"]
             },
             "open_weights": false,
