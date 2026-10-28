@@ -20,6 +20,49 @@ afterEach(async () => {
 });
 
 describe("account deletion", () => {
+  it("preserves an Owner when account departure races an Owner role change", async () => {
+    const context = await fixture();
+    const initial = accountDeletionPreviewSchema.parse(
+      await (await context.request("/v1/account/deletion")).json()
+    );
+    const organizationId = initial.deleteOrganizations[0]?.id;
+    if (!organizationId) {
+      throw new Error("Missing workspace fixture.");
+    }
+    await context.harness.query({
+      text: "UPDATE openmeld.organizations SET metadata=NULL WHERE id=$1",
+      values: [organizationId],
+    });
+    await context.harness.query({
+      text: "INSERT INTO openmeld.users(id,name,email) VALUES('remaining-owner','Remaining Owner','remaining-owner@example.test')",
+    });
+    await context.harness.query({
+      text: "INSERT INTO openmeld.members(id,organization_id,user_id,role,created_at) VALUES('remaining-owner-member',$1,'remaining-owner','owner',$2)",
+      values: [organizationId, Date.now()],
+    });
+    const preview = accountDeletionPreviewSchema.parse(
+      await (await context.request("/v1/account/deletion")).json()
+    );
+    const responses = await Promise.all([
+      context.request("/v1/account/deletion", {
+        confirmation: "DELETE",
+        confirmationToken: preview.confirmationToken,
+        password,
+      }),
+      context.request("/api/auth/organization/update-member-role", {
+        organizationId,
+        memberId: "remaining-owner-member",
+        role: "member",
+      }),
+    ]);
+    expect(responses.filter((response) => response.ok)).toHaveLength(1);
+    const owners = await context.harness.queryAll({
+      text: "SELECT id FROM openmeld.members WHERE organization_id=$1 AND 'owner'=ANY(string_to_array(role,','))",
+      values: [organizationId],
+    });
+    expect(owners).toHaveLength(1);
+  });
+
   it("retries a late credential disconnect after the workspace has already been removed", async () => {
     const context = await fixture();
     const preview = accountDeletionPreviewSchema.parse(
