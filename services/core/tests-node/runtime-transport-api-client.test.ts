@@ -203,32 +203,161 @@ describe("Runtime Transport HTTP retry boundary", () => {
     expect(namespace.get).toHaveBeenCalledTimes(1);
   });
 
-  it("includes reading the response body in the lookup deadline", async () => {
-    let finish: (() => void) | undefined;
-    const response = new Response(
-      new ReadableStream({
-        start(controller) {
-          finish = () => {
-            controller.enqueue(new TextEncoder().encode("{}"));
-            controller.close();
-          };
-        },
+  it.each([
+    "fetch",
+    "body",
+    "fetch resolved after its deadline",
+  ])("abandons a stalled %s attempt and ignores its late result while a fresh attempt recovers", async (phase) => {
+    const pending = Promise.withResolvers<Response>();
+    const secondResponse = Promise.withResolvers<Response>();
+    let finishBody: (() => void) | undefined;
+    const lateResponse = {
+      online: false,
+      reasonCode: "daemon.session.not_found",
+    };
+    const first =
+      phase !== "body"
+        ? vi.fn().mockReturnValue(pending.promise)
+        : vi.fn().mockResolvedValue(
+            new Response(
+              new ReadableStream({
+                start(controller) {
+                  finishBody = () => {
+                    controller.enqueue(
+                      new TextEncoder().encode(JSON.stringify(lateResponse))
+                    );
+                    controller.close();
+                  };
+                },
+              })
+            )
+          );
+    const second = vi.fn().mockReturnValue(secondResponse.promise);
+    const { env, namespace } = createEnv(first, second);
+    const startedAt = Date.now();
+    const result = callRuntimeTransportApi({
+      env,
+      ownerUserId: "owner",
+      path: "/lookup-owner-service",
+      requestId: "stalled-owner-lookup",
+      body: { v: 1, ownerUserId: "owner" },
+    });
+    const settled = vi.fn();
+    result.then(settled, () => undefined);
+
+    await vi.advanceTimersByTimeAsync(2499);
+    expect(namespace.get).toHaveBeenCalledTimes(1);
+    expect(first.mock.calls[0]?.[1].signal.aborted).toBe(false);
+    if (phase === "fetch resolved after its deadline") {
+      // A result can arrive after the deadline before the timer is serviced.
+      vi.setSystemTime(startedAt + 2501);
+      pending.resolve(Response.json(lateResponse));
+      await vi.advanceTimersByTimeAsync(0);
+    } else {
+      await vi.advanceTimersByTimeAsync(1);
+    }
+    expect(first.mock.calls[0]?.[1].signal.aborted).toBe(true);
+    expect(console.warn).toHaveBeenCalledWith(
+      "[core.runtime_transport.read_attempt_failed]",
+      expect.objectContaining({
+        operation: "/lookup-owner-service",
+        requestId: "stalled-owner-lookup",
+        attemptTimedOut: true,
+        attemptTimeoutMs: 2500,
+        retryable: null,
+        overloaded: null,
+        decision: "retry",
       })
     );
-    const fetch = vi.fn().mockResolvedValue(response);
-    const { env, namespace } = createEnv(fetch);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(namespace.get).toHaveBeenCalledTimes(2);
+    expect(second.mock.calls[0]?.[1].signal).not.toBe(
+      first.mock.calls[0]?.[1].signal
+    );
+    expect(second.mock.calls[0]?.[1].signal.aborted).toBe(false);
+
+    pending.resolve(Response.json(lateResponse));
+    finishBody?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).not.toHaveBeenCalled();
+    const recoveredResponse = {
+      online: false,
+      reasonCode: "core.transport_restarting",
+    };
+    secondResponse.resolve(Response.json(recoveredResponse, { status: 503 }));
+    await expect(result).resolves.toEqual(recoveredResponse);
+    expect(second.mock.calls[0]?.[1].body).toBe(first.mock.calls[0]?.[1].body);
+    expect(namespace.get).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    {
+      path: "/lookup-owner-service",
+      timeoutMs: 5000,
+      readTimeoutMs: undefined,
+    },
+    {
+      path: "/lookup-routes-batch",
+      timeoutMs: 38_000,
+      readTimeoutMs: undefined,
+    },
+    { path: "/lookup-routes-batch", timeoutMs: 5000, readTimeoutMs: 5000 },
+    { path: "/lookup-routes-batch", timeoutMs: 38_000, readTimeoutMs: 60_000 },
+  ] as const)("keeps the shared $timeoutMs ms budget for $path bodies with caller cap $readTimeoutMs", async ({
+    path,
+    timeoutMs,
+    readTimeoutMs,
+  }) => {
+    const finishBodies: (() => void)[] = [];
+    const fetch = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              finishBodies.push(() => {
+                controller.enqueue(new TextEncoder().encode("{}"));
+                controller.close();
+              });
+            },
+          })
+        )
+      )
+    );
+    const { env, namespace } = createEnv(fetch, fetch);
     const failure = expect(
       callRuntimeTransportApi({
         env,
         ownerUserId: "owner",
-        path: "/lookup-owner-service",
-        body: {},
+        path,
+        readTimeoutMs,
+        body: {
+          v: 1,
+          ownerUserId: "owner",
+          ...(path === "/lookup-routes-batch"
+            ? { profileIds: ["profile"] }
+            : {}),
+        },
       })
     ).rejects.toBeInstanceOf(RuntimeTransportReadTimeoutError);
-    await vi.advanceTimersByTimeAsync(5000);
-    await failure;
+    await vi.advanceTimersByTimeAsync(timeoutMs / 2 + 50);
+    expect(namespace.get).toHaveBeenCalledTimes(2);
     expect(fetch.mock.calls[0]?.[1].signal.aborted).toBe(true);
-    expect(namespace.get).toHaveBeenCalledTimes(1);
-    finish?.();
+    expect(fetch.mock.calls[1]?.[1].signal.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(timeoutMs / 2 - 50);
+    await failure;
+    expect(fetch.mock.calls.every(([, init]) => init.signal.aborted)).toBe(
+      true
+    );
+    expect(console.warn).toHaveBeenLastCalledWith(
+      "[core.runtime_transport.read_attempt_failed]",
+      expect.objectContaining({ decision: "budget_exhausted", timeoutMs })
+    );
+    for (const finish of finishBodies) {
+      finish();
+    }
+    await vi.runAllTimersAsync();
+    expect(namespace.get).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
