@@ -246,6 +246,12 @@ const SpaceFilesPanel = lazy(() =>
 	}))
 );
 
+const SpaceGuidePanel = lazy(() =>
+	import("./space-guide-panel").then((module) => ({
+		default: module.SpaceGuidePanel,
+	}))
+);
+
 const SpaceTasksPanel = lazy(() =>
 	import("./space-tasks-panel").then((module) => ({
 		default: module.SpaceTasksPanel,
@@ -1948,6 +1954,7 @@ function SpaceLandingConversationShell({
 									<SpaceViewTabs
 										activeView={spaceView}
 										className="shrink-0"
+										guideEnabled
 										idPrefix={spaceViewIdPrefix}
 										onViewChange={spaceFileNavigation.changeSpaceView}
 										tasksEnabled
@@ -2543,6 +2550,19 @@ function SpaceLandingConversation({
 				</Suspense>
 			}
 			firstUnreadSignalId={controller.firstUnreadSignalId}
+			guide={
+				<Suspense fallback={null}>
+					<SpaceGuidePanel
+						canEdit={Boolean(
+							currentOwnerUserId &&
+								controller.status?.ownerUserIds?.includes(currentOwnerUserId)
+						)}
+						key={controller.spaceId}
+						openMeldProfileId={controller.profileId}
+						spaceId={controller.spaceId}
+					/>
+				</Suspense>
+			}
 			historyActionErrorMessage={controller.historyActionErrorMessage}
 			historyErrorMessage={historyErrorMessage}
 			historyNavigation={controller.historyNavigation}
