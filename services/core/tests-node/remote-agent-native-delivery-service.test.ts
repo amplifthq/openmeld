@@ -334,6 +334,10 @@ describe("Remote Agent native delivery callback service", () => {
   ])("freezes task attribution for receiver support=%s across an upgrade", async (supported) => {
     const harness = await createPostgresHarness();
     await seedRemoteAgentSubmitAuthority(harness);
+    await harness.query({
+      text: "UPDATE openmeld.space_index_spaces SET space_purpose = NULL, direct_message_pair_key = NULL WHERE space_id = $1",
+      values: [SPACE_ID],
+    });
     const readSubmitTurnCapabilities = vi.fn(() => {
       if (!supported) {
         throw new Error(
@@ -379,6 +383,9 @@ describe("Remote Agent native delivery callback service", () => {
     try {
       await submitRemoteAgentNativeDelivery(input);
       expect(requests).toHaveLength(1);
+      expect(requests[0]?.conversationId).toBe(
+        `center-space:${SPACE_ID}:root:${input.message.threadContext?.rootSignalId ?? input.message.sourceEventId}`
+      );
       if (!supported) {
         expect(requests[0]).not.toHaveProperty("taskId");
       }

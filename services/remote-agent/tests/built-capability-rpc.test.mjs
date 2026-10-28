@@ -43,6 +43,14 @@ test("the real Core resolver negotiates through the built Remote service binding
         export default { async fetch(request, env) {
           try {
             const invalid = new URL(request.url).pathname === "/invalid";
+            if (new URL(request.url).pathname === "/approval-recovery") {
+              return Response.json(await env.REMOTE.readSubmitTurnCapabilities({
+                v: 1, includePluginActionRecovery: true,
+              }));
+            }
+            if (new URL(request.url).pathname === "/legacy-capabilities") {
+              return Response.json(await env.REMOTE.readSubmitTurnCapabilities({ v: 1 }));
+            }
             const result = invalid
               ? await env.REMOTE.readSubmitTurnCapabilities({ v: 1, unexpected: true })
               : await resolveRemoteAgentWorkerTaskAttribution(env.REMOTE, "task-rpc");
@@ -121,6 +129,20 @@ test("the real Core resolver negotiates through the built Remote service binding
     const result = await response.json();
     assert.equal(response.status, 200, JSON.stringify(result));
     assert.deepEqual(result, { taskId: "task-rpc" });
+    assert.deepEqual(
+      await (
+        await runtime.dispatchFetch(
+          "https://caller.example/legacy-capabilities"
+        )
+      ).json(),
+      { v: 1, taskId: true }
+    );
+    assert.deepEqual(
+      await (
+        await runtime.dispatchFetch("https://caller.example/approval-recovery")
+      ).json(),
+      { v: 1, taskId: true, pluginActionRecovery: true }
+    );
     const invalid = await runtime.dispatchFetch(
       "https://caller.example/invalid"
     );

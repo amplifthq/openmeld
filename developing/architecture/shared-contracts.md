@@ -181,6 +181,40 @@ Service, managed Skills, setup, Wake admission, Space mutations, Stop,
 result recovery, and trace contracts are unchanged. No local-component epoch
 or required update is introduced by this read projection.
 
+## Approved Plugin action recovery
+
+Hosted issue creation may send `issueActionRecovery` with the complete provider
+input and its existing GitHub actor / destination-authority choices. Core checks
+that these bytes reconstruct the admitted operation signature before retaining
+them in the existing private Plugin request. Neither the public Signal nor the
+operation/audit ledger receives this body. Existing approval digests remain
+stable; adding recovery metadata cannot replace an earlier pending decision.
+
+The private continuation binding carries `approvedActionRequestId`. The
+`readApprovedPluginAction` service receiver resolves only that admitted
+continuation's request after checking live execution, requester, source,
+connection generation, access revision and approval expiry. It is not a
+model-selectable approval lookup or a permission grant. Remote resumes the
+saved action through the normal tool owner before model execution, preserving
+the same operation ID and replay fences. The model receives the resulting
+evidence, never a requirement to reconstruct the original input.
+
+This path covers individual Linear and GitHub issue creates, including many
+independently approved creates from one request. Existing GitHub batch and Local
+Agent execution owners are unchanged. A legacy approval without saved input
+cannot be automatically reconstructed. Approval continuations omit unrelated
+operation lists; the exact operation ledger still owns pending/unknown replay.
+
+Core deploys first. Remote advertises `pluginActionRecovery: true` only when
+`readSubmitTurnCapabilities` receives `includePluginActionRecovery: true`.
+Legacy capability responses remain unchanged. Core keeps recovery pending while
+that capability is unavailable. Deploy Remote after the Core receiver. A Remote
+rollback leaves saved approvals pending; retain the compatible Core reader while
+new private recovery records and continuation bindings exist. Older strict Core
+readers cannot interpret those records. No database migration, public
+response union, CLI/Service/Skills floor, setup or workstation Wake change is
+required. Shared-schema packaging still requires release-readiness verification.
+
 ## Bounded message reads
 
 `messageReadQuerySchema` and `messageReadPageSchema` own the new

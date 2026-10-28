@@ -86,6 +86,13 @@ changes use the native journal and scoped database release in the
 
 ## Plugin connection action boundary
 
+An approved hosted issue action resumes its retained complete input through the
+ordinary provider tool and operation ledger before the model continues. Approval
+is not a request for the model to rewrite an issue description. Each batch item
+retains its own operation identity; an unrelated Thread cannot become its task
+context. A missing legacy input, changed access or unknown provider outcome
+remains explicit rather than becoming a new create attempt.
+
 The existing navigation action capability can offer `plugin_connection` with
 one supported service and `member`, `shared`, or `choose` setup intent. An
 explicit identity requirement is preserved; `choose` requests a permitted Web
@@ -1334,7 +1341,8 @@ The agent worker is built on **Flue**, pinned by exact package version in
 Object session boundary, while keeping OpenMeld product facts out of Flue's
 private tables. Core talks to the worker through direct service-binding RPC;
 the worker addresses the Center Agent Durable Object by OpenMeld conversation
-id: a Space id for `space` conversations, or
+id: the request's canonical root in an ordinary Space, the Space id for a
+Center Agent DM, or
 `slack:{teamId}:{channelId}:{threadTs}` for Slack conversations.
 New provider-neutral Message Channel turns use
 `{provider}:{connectionId}:{chatId}:{rootMessageId}`. Existing Slack
@@ -3976,8 +3984,19 @@ configured Flue capability:
 
 ### Conversation Identity And Result Surface
 
-The per-conversation DO instance key is the OpenMeld conversation id. For
-`space` conversations, that id is the Space id. A DM with the Center Agent is a
+Ordinary Space Center Agent requests use
+`center-space:{spaceId}:root:{rootSignalId}` as their logical conversation.
+The admitted Thread root selects the root; a new main message starts with its
+own signal ID. Replies and approvals in that Thread keep the same model history,
+while unrelated Threads do not share it. Core derives this identity from
+Space-owned addressing, never message text or a model-selected project.
+The existing runtime-generation owner still selects the physical DO instance.
+Already-admitted requests retain their frozen identity across retries and
+callbacks. Task continuations inherit their observer's logical identity.
+The Space id and Thread placement remain publication authority; this change
+does not hide authorized Space history or replace progressive context reads.
+
+A DM with the Center Agent keeps its Space id as its logical conversation and is a
 Direct Message Space as defined in
 `developing/product/space-collaboration.md`, so DMs need no separate
 conversation object. The Space timeline remains the durable user-facing record

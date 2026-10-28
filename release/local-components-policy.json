@@ -1,12 +1,12 @@
 {
-  "version": "0.3.277",
+  "version": "0.3.278",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Adds support for accurate hosted runtime diagnostics while existing commands and the 0.3.273 required floor remain supported."
+    "reason": "Packages the optional hosted approval-recovery schemas without changing CLI commands or existing public responses. Existing 0.3.273 clients remain compatible."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Includes shared diagnostic schema updates without changing the Service runtime contract. Existing 0.3.273 Services remain compatible."
+    "reason": "Packages the optional hosted approval-recovery and conversation contracts without changing workstation execution. Existing 0.3.273 Services remain compatible."
   },
   "skills": {
     "updatePolicy": "available",

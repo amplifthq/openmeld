@@ -3428,6 +3428,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       listPluginActionRequests(this.env, input)
     );
   }
+  readApprovedPluginAction(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      readApprovedPluginAction(this.env, input)
+    );
+  }
   suggestPermissionMode(input: unknown) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcSuggestPermissionMode(this.env, input)
@@ -7325,6 +7330,7 @@ import {
 } from "./agent-profile/application/permission-mode-suggestion-card";
 import {
   listPluginActionRequests,
+  readApprovedPluginAction,
   rpcPluginActionRequest,
 } from "./connectors/plugin-action-requests";
 import {

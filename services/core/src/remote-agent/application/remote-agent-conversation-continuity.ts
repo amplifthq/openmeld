@@ -16,6 +16,7 @@ import type {
   RemoteAgentConversationContinuityEntry,
   RemoteAgentWorkerSubmitTurnRequest,
   RemoteAgentWorkerSubmitTurnRequestV4,
+  SpaceThreadContext,
 } from "@openmeld/schemas/types";
 import { createDispatchContinuationSpaceAccessContext } from "@openmeld/space";
 import type { CoreBindings } from "../../lib/bindings";
@@ -25,6 +26,19 @@ import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/postgres
 
 const CONTINUITY_CONTEXT_TOKEN_BUDGET = 8000;
 const TEXT_ENCODER = new TextEncoder();
+
+/** Publication stays in the Space. Independent requests must never share the
+ * same model history merely because their participants share a room. */
+export function resolveCenterAgentSpaceConversationId(input: {
+  spaceId: string;
+  sourceSignalId: string;
+  threadContext?: SpaceThreadContext | null;
+  isCenterAgentDm: boolean;
+}): string {
+  return input.isCenterAgentDm
+    ? input.spaceId
+    : `center-space:${input.spaceId}:root:${input.threadContext?.rootSignalId ?? input.sourceSignalId}`;
+}
 type ContinuityEntryDraft = Omit<
   RemoteAgentConversationContinuityEntry,
   "content"

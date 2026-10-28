@@ -344,6 +344,11 @@ export type RemoteAgentStorage = RemoteAgentReadableStorage &
   RemoteAgentWritableStorage;
 
 export type RemoteAgentCoreWorkerBinding = {
+  readApprovedPluginAction?(
+    input: import("@openmeld/schemas/types").ReadApprovedPluginActionInput
+  ): Promise<
+    import("@openmeld/schemas/types").ReadApprovedPluginActionResponse
+  >;
   authorizeLocalPluginConnection?(input: unknown): Promise<unknown>;
   recordRemoteAiUsage?(
     input: RemoteAiUsageWrite

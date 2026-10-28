@@ -1039,6 +1039,15 @@ alone cannot approve. This is the existing account credential boundary, not a
 human-presence guarantee when an Agent has the owner's full account credentials.
 No email code or separate factor enrollment is required.
 
+For hosted Linear and GitHub issue creation, that same private request may also
+retain signature-verified recovery input, bounded to 256 KiB. It is executable
+only by its exact admitted, approved continuation within the existing one-hour
+request lifetime. The approval recovery sweep removes expired recovery bodies
+in batches of at most 1,000 while preserving decision and operation identity.
+No provider credentials, public message copies or second execution ledger are
+introduced. Source edits, another requester, revoked membership, a changed
+connection/access revision, expiry and rejection prevent recovery.
+
 The decision and Inbox resolution share a conditional PostgreSQL transaction. Repeated or
 lost responses return the same decision and root. The operation owner rechecks
 that approved root and current revisions in its atomic execution/replay claim.

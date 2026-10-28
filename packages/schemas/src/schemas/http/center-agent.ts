@@ -81,6 +81,7 @@ import {
   peopleComputersResponseSchema,
   peopleComputerTargetSchema,
 } from "./people-computers";
+import { pluginActionRecoveryInputSchema } from "./plugin-action-recovery";
 import { pluginActionRequestStatusSchema } from "./plugin-action-request-status";
 import { prepareReadinessRuntimeIdSchema } from "./prepare-readiness";
 import {
@@ -376,6 +377,7 @@ export const centerAgentRecordConnectorActionOperationBodySchema = z
     requestSignature: z.string().regex(/^[0-9a-f]{64}$/),
     issueDestination: projectIssueDestinationSchema.optional(),
     issueDestinationAuthority: z.literal("explicit_request").optional(),
+    issueActionRecovery: pluginActionRecoveryInputSchema.optional(),
     service: connectorServiceSchema,
     speakerMember: centerAgentToolSpeakerSchema,
   })

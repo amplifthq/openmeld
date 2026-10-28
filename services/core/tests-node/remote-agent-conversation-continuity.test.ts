@@ -5,13 +5,54 @@ import type {
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
-import { buildRemoteAgentConversationContinuityContext } from "../src/remote-agent/application/remote-agent-conversation-continuity";
+import {
+  buildRemoteAgentConversationContinuityContext,
+  resolveCenterAgentSpaceConversationId,
+} from "../src/remote-agent/application/remote-agent-conversation-continuity";
 import { resolveSpaceDispatchConversationContinuityScope } from "../src/space/application/space-dispatch-conversation-continuity";
 
 const SPACE_ID = "0123456789abcdef".repeat(4);
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 
 describe("Remote Agent conversation rollover continuity", () => {
+  it("keeps one request root across approvals without changing Center Agent DM continuity", () => {
+    const base = { spaceId: SPACE_ID, isCenterAgentDm: false };
+    const initial = resolveCenterAgentSpaceConversationId({
+      ...base,
+      sourceSignalId: "walkthrough",
+    });
+    const approvals = Array.from({ length: 27 }, (_, index) =>
+      resolveCenterAgentSpaceConversationId({
+        ...base,
+        sourceSignalId: `approval-${index}`,
+        threadContext: {
+          threadId: "thr-walkthrough",
+          rootSignalId: "walkthrough",
+        },
+      })
+    );
+    expect(new Set(approvals)).toEqual(new Set([initial]));
+    expect(
+      resolveCenterAgentSpaceConversationId({
+        ...base,
+        sourceSignalId: "circle",
+      })
+    ).not.toBe(initial);
+    expect(
+      resolveCenterAgentSpaceConversationId({
+        ...base,
+        sourceSignalId: "dm-first",
+        isCenterAgentDm: true,
+      })
+    ).toBe(SPACE_ID);
+    expect(
+      resolveCenterAgentSpaceConversationId({
+        ...base,
+        sourceSignalId: "dm-followup",
+        isCenterAgentDm: true,
+      })
+    ).toBe(SPACE_ID);
+  });
   it("keeps the Space dispatch's frozen main or thread scope", () => {
     const identity = {
       sourceSignalId: "source",
