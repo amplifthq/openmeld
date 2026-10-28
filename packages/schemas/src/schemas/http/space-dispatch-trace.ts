@@ -25,10 +25,13 @@ const trimmedNonEmptyStringSchema = z.string().trim().min(1);
 const SPACE_DISPATCH_TRACE_TIMEOUT_POLICY_MAX_MS = 604_800_000;
 const SPACE_DISPATCH_TRACE_PROMPT_LENGTH_MAX = 1_000_000 as const;
 export const SPACE_DISPATCH_TRACE_PROMPT_PREVIEW_MAX_CHARS = 1200 as const;
-export const SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION = 7 as const;
+export const SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION = 8 as const;
 export const SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS =
-  6 as const;
+  7 as const;
 // Frozen feature boundaries; these must not advance with CURRENT/PREVIOUS.
+export const SPACE_DISPATCH_TRACE_EXECUTION_CONTEXT_CONTRACT_VERSION =
+  7 as const;
+export const SPACE_DISPATCH_TRACE_SDK_SCHEDULES_CONTRACT_VERSION = 8 as const;
 export const SPACE_DISPATCH_TRACE_NATIVE_DELIVERY_CONTRACT_VERSION = 6 as const;
 export const SPACE_DISPATCH_TRACE_WAITING_EVIDENCE_CONTRACT_VERSION =
   5 as const;
@@ -41,6 +44,7 @@ export const spaceDispatchTraceResponseContractVersionSchema = z.union([
   z.literal(3),
   z.literal(4),
   z.literal(5),
+  z.literal(6),
   z.literal(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS),
   z.literal(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION),
 ]);
@@ -50,6 +54,7 @@ export const spaceDispatchTraceResponseContractVersionHeaderSchema = z
     "3",
     "4",
     "5",
+    "6",
     String(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS),
     String(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION),
   ])
