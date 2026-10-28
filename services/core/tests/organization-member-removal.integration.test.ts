@@ -1,6 +1,7 @@
 import { runInDurableObject } from "cloudflare:test";
 import { getPostgresDatabase, PostgresDatabase } from "@openmeld/db/postgresql";
-import { describe, expect, it } from "vitest";
+import { applyOpenMeldRequestContextHeaders } from "@openmeld/gateway-contract";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { GatewayRpcEntrypoint } from "../src/index";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
@@ -24,6 +25,7 @@ import {
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
 import type { Space } from "../src/space/transport/do/space";
 import { env } from "../test-support/worker-env";
+import { waitForJsonMessage } from "./test-support/ws-stream";
 
 const core = env as unknown as CoreBindings;
 
@@ -67,7 +69,57 @@ describe("Organization member removal Space preparation", () => {
       "organization.member_removal_successor_required"
     );
     expect((await f.state()).meta?.ownerUserIds).toEqual([f.departing.userId]);
-    await f.prepare(plan.spaces, f.successor.userId);
+    let membershipChanged: ReturnType<typeof waitForJsonMessage> | undefined;
+    if (status === "active") {
+      const headers = new Headers({ Upgrade: "websocket" });
+      applyOpenMeldRequestContextHeaders(headers, {
+        requestContext: f.context(f.collaborator),
+      });
+      const response = await f.stub.fetch(
+        new Request(
+          `https://openmeld-core.internal/stream?space=${f.spaceId}`,
+          {
+            headers,
+          }
+        )
+      );
+      const socket = response.webSocket;
+      if (!socket) {
+        throw new Error("Missing accepted collaborator WebSocket");
+      }
+      socket.accept();
+      onTestFinished(() => socket.close());
+      const hello = waitForJsonMessage(
+        socket,
+        (message) => message.type === "system.hello.ack"
+      );
+      socket.send(
+        JSON.stringify({
+          type: "hello",
+          profile: {
+            kind: "human",
+            profileId: f.collaborator.profileId,
+            profileName: f.collaborator.name,
+          },
+        })
+      );
+      await hello;
+      membershipChanged = waitForJsonMessage(
+        socket,
+        (message) => message.type === "space.members.changed"
+      );
+    }
+    const [, membershipFrame] = await Promise.all([
+      f.prepare(plan.spaces, f.successor.userId),
+      membershipChanged,
+    ]);
+    if (status === "active") {
+      expect(membershipFrame).toMatchObject({
+        spaceId: f.spaceId,
+        reason: "space.members.added",
+        profileIds: [f.successor.profileId],
+      });
+    }
     const retained = await f.state();
     expect(retained.meta?.deletedAt).toBeUndefined();
     expect(retained.meta?.ownerUserIds).toEqual([f.successor.userId]);
@@ -131,6 +183,53 @@ describe("Organization member removal Space preparation", () => {
     expect((await f.state()).meta?.deletedAt).toBeUndefined();
     await f.deleteDepartingMembership();
     expect(await f.departingMembershipExists()).toBe(false);
+  });
+
+  it.each([
+    { owners: [] },
+    { owners: [" "] },
+  ])("refuses unavailable canonical ownership instead of granting a successor: %j", async ({
+    owners,
+  }) => {
+    const f = await fixture();
+    await runInDurableObject(f.stub, (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE space_meta SET owner_user_ids_json = ? WHERE space_id = ?",
+        JSON.stringify(owners),
+        f.spaceId
+      );
+    });
+    const before = await f.state();
+    await expect(f.preview()).rejects.toThrow("space.ownership_unavailable");
+    await expect(
+      (async () =>
+        await f.stub.rpcPrepareOrganizationMemberRemovalSpace({
+          context: f.context(f.manager),
+          memberId: f.departing.memberId,
+          spaceId: f.spaceId,
+          expected: {
+            spaceId: f.spaceId,
+            name: "Welcome Space",
+            action: "transfer",
+          },
+          successorUserId: f.successor.userId,
+        }))()
+    ).rejects.toThrow("space.ownership_unavailable");
+    const retained = await f.state();
+    expect(retained).toEqual(before);
+    expect(
+      retained.members.some(
+        (member) => member.profileId === f.successor.profileId
+      )
+    ).toBe(false);
+    expect(
+      (
+        await f.db.query({
+          text: 'SELECT member_id FROM "openmeld"."space_owner_member_references" WHERE space_id = $1 ORDER BY member_id',
+          values: [f.spaceId],
+        })
+      ).rows
+    ).toEqual([{ member_id: f.departing.memberId }]);
   });
 
   it("preserves successor discovery when departing-owner reference cleanup fails", async () => {

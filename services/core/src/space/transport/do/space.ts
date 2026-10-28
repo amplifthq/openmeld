@@ -12764,9 +12764,10 @@ export class Space extends DurableObject<CoreBindings> {
         throw new Error("A shared Space must retain an owner.");
       }
       const now = Date.now();
+      let addedMemberIds: string[] = [];
       this.ctx.storage.transactionSync(() => {
         if (successor) {
-          addSpaceMembersUseCase({
+          addedMemberIds = addSpaceMembersUseCase({
             sql: this.ctx.storage.sql,
             env: this.bindings,
             spaceId: this.spaceId,
@@ -12775,7 +12776,7 @@ export class Space extends DurableObject<CoreBindings> {
             actorOwnerUserId: authorized.actorUserId,
             actorDisplayName: input.context.actorContext.profileName,
             liveSessions: this.sessions.values(),
-          });
+          }).addedMemberIds;
           this.ctx.storage.sql.exec(
             "INSERT INTO space_ownership_audit (id, actor_user_id, target_user_id, role, created_at) VALUES (?, ?, ?, 'owner', ?)",
             crypto.randomUUID(),
@@ -12801,6 +12802,12 @@ export class Space extends DurableObject<CoreBindings> {
       // Persist/schedule the index outbox before cleanup can fail, so the new
       // owner can discover the Space even when membership removal needs retry.
       await this.projectCurrentSpaceIndexSnapshot("space.members_updated");
+      if (addedMemberIds.length > 0) {
+        await this.broadcastSpaceMembersChanged({
+          profileIds: addedMemberIds,
+          reason: "space.members.added",
+        });
+      }
       await authorized.db.query({
         text: 'DELETE FROM "openmeld"."space_owner_member_references" WHERE space_id = $1 AND member_id = $2',
         values: [this.spaceId, authorized.memberId],
@@ -12827,8 +12834,22 @@ export class Space extends DurableObject<CoreBindings> {
     if (!meta || meta.organizationId !== input.organizationId) {
       throw new Error("Space ownership could not be verified.");
     }
-    if (meta.deletedAt) {
+    const isDirectMessage = Boolean(
+      meta.directMessage && !meta.directMessage.convertedAt
+    );
+    if (meta.deletedAt || isDirectMessage) {
       return null;
+    }
+    // A restrictive reference cannot substitute for canonical ownership.
+    if (
+      !meta.ownerUserIds?.length ||
+      meta.ownerUserIds.some((ownerUserId) => !ownerUserId.trim())
+    ) {
+      throw createCoreRpcHttpError({
+        status: 503,
+        code: "space.ownership_unavailable",
+        reason: "Space ownership could not be verified. Try again.",
+      });
     }
     const db = this.requireSpaceIndexDb();
     const members = listSpaceMemberRecords(this.ctx.storage.sql);
@@ -12855,9 +12876,7 @@ export class Space extends DurableObject<CoreBindings> {
       visibility: meta.visibility,
       accessMode: meta.accessMode,
       allowGuests: meta.allowGuests,
-      isDirectMessage: Boolean(
-        meta.directMessage && !meta.directMessage.convertedAt
-      ),
+      isDirectMessage,
       historicalMembers: members.map((member) => ({
         profileId: member.profileId,
         profileKind: member.profileKindSnapshot,

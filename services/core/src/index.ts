@@ -4782,7 +4782,9 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
         operation: "organization_member_removal_prepare",
       },
       (operationInput) =>
-        prepareOrganizationMemberRemoval(this.env, operationInput)
+        withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+          prepareOrganizationMemberRemoval(this.env, operationInput)
+        )
     );
   }
   readOrganizationAiBilling(input: OrganizationAiBillingRpcInput) {
