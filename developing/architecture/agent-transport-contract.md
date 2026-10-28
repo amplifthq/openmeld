@@ -166,6 +166,9 @@ When a hosted handoff has no dispatch ledger row, Space may redrive the same
 dispatch only if its durable admission fence proves no native exposure and the
 exact native delivery is absent. An unavailable ledger, an existing native
 delivery, or unknown exposure is not proof that execution never started.
+The bounded Space outbox scan persists its pagination position so unresolved
+handoffs cannot indefinitely hide later candidates, including across eviction.
+This cursor is scheduling metadata and does not establish execution or outcome.
 The dispatch attempt remains `dispatching` until the native admission
 acknowledgement is durably recorded. An ambiguous submit or failed ACK
 persistence must not advance it to `waiting_result`, which would prevent

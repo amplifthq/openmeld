@@ -596,6 +596,7 @@ export const listDispatchOutboxRecoveryCandidates = (
   input: {
     limit: number;
     handedOffRedriveBeforeMs: number;
+    offset?: number;
   }
 ): OpenMeldDaemonDispatchOutboxRecoveryCandidate[] => {
   const rows = sql
@@ -611,8 +612,9 @@ export const listDispatchOutboxRecoveryCandidates = (
           AND poisoned_at_ms IS NULL
         ORDER BY
           CASE status WHEN ? THEN 0 ELSE 1 END,
-          COALESCE(queued_at_ms, created_at_ms) ASC
-        LIMIT ?
+          COALESCE(queued_at_ms, created_at_ms) ASC,
+          dispatch_id ASC
+        LIMIT ? OFFSET ?
       `,
       OPENMELD_DAEMON_OUTBOX_STATUS_PENDING,
       PERSISTED_OUTBOX_STATUS_QUEUED,
@@ -620,7 +622,8 @@ export const listDispatchOutboxRecoveryCandidates = (
       HOSTED_REMOTE_AGENT_CONTROLLER_REF,
       input.handedOffRedriveBeforeMs,
       OPENMELD_DAEMON_OUTBOX_STATUS_PENDING,
-      Math.max(1, input.limit)
+      Math.max(1, input.limit),
+      Math.max(0, Math.trunc(input.offset ?? 0))
     )
     .toArray();
   const candidates: OpenMeldDaemonDispatchOutboxRecoveryCandidate[] = [];

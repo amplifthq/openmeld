@@ -789,6 +789,29 @@ describe("space outbox watchdog", () => {
     infoSpy.mockRestore();
   });
 
+  it("continues past a full batch of unresolved handoffs after an eviction", async () => {
+    const candidates = Array.from({ length: 21 }, (_, index) =>
+      createOutboxRecordForSource(`fairness-${index}`)
+    );
+    const storedValues = new Map<string, unknown>();
+    const decision = vi.fn(async () => buildSkipDecision());
+    const input = {
+      candidateRows: candidates.map(toOutboxRow),
+      resolveDecision: decision,
+      storedValues,
+    };
+    await createFlushHarness(input).space.flushPendingDispatchOutbox();
+    expect(decision).toHaveBeenCalledTimes(20);
+    await createFlushHarness(input).space.flushPendingDispatchOutbox();
+    expect(decision).toHaveBeenCalledWith(
+      expect.objectContaining({ dispatchId: candidates[20]?.dispatchId }),
+      expect.any(Number),
+      expect.any(Object)
+    );
+    await createFlushHarness(input).space.flushPendingDispatchOutbox();
+    expect(decision).toHaveBeenCalledTimes(41);
+  });
+
   it("processes only 20 candidates and requests an immediate continuation for the backlog", async () => {
     const records = Array.from({ length: 21 }, (_, index) =>
       createOutboxRecordForSource(`signal-burst-${index + 1}`)
@@ -1297,12 +1320,14 @@ const buildSkipDecision = () => ({
 const createFlushHarness = (input: {
   candidateRows: ReturnType<typeof toOutboxRow>[];
   persistTerminalFailure?: boolean;
+  storedValues?: Map<string, unknown>;
   resolveDecision: (
     candidate: { dispatchId: string },
     nowMs: number,
     logContext: unknown
   ) => Promise<unknown>;
 }) => {
+  const storedValues = input.storedValues ?? new Map<string, unknown>();
   const finalClaimByDispatchAndProfile = new Map<string, string>();
   const poisonStateByDispatchId = new Map(
     input.candidateRows.map((row) => [
@@ -1366,13 +1391,20 @@ const createFlushHarness = (input: {
       query.includes("SELECT")
     ) {
       return {
-        toArray: () =>
-          input.candidateRows.filter((row) => {
+        toArray: () => {
+          const rows = input.candidateRows.filter((row) => {
             const dispatchId = readDispatchIdFromOutboxRow(row);
             return (
               poisonStateByDispatchId.get(dispatchId)?.poisonedAtMs === null
             );
-          }),
+          });
+          return query.includes("OFFSET ?")
+            ? rows.slice(
+                Number(params.at(-1)),
+                Number(params.at(-1)) + Number(params.at(-2))
+              )
+            : rows;
+        },
       };
     }
     return { toArray: () => [] };
@@ -1437,6 +1469,11 @@ const createFlushHarness = (input: {
     ctx: {
       value: {
         storage: {
+          get: (key: string) => Promise.resolve(storedValues.get(key)),
+          put: (key: string, value: unknown) => {
+            storedValues.set(key, value);
+            return Promise.resolve();
+          },
           sql: { exec },
         },
       },

@@ -1151,6 +1151,7 @@ class SpaceHistoryAnchorNotFoundError extends Error {
 const OUTBOX_QUEUE_MAX_ATTEMPTS = 3;
 const OUTBOX_QUEUE_BACKOFF_MS = [1000, 3000] as const;
 const OUTBOX_ALARM_REDRIVE_INTERVAL_MS = SPACE_OUTBOX_ALARM_REDRIVE_INTERVAL_MS;
+const OUTBOX_RECOVERY_OFFSET_KEY = "dispatch-outbox-recovery-offset-v1";
 const OUTBOX_CANDIDATE_POISON_FAILURE_THRESHOLD = 3;
 const OUTBOX_POISON_VISIBLE_FAILURE_REASON_CODE =
   "dispatch.outbox.candidate_failed";
@@ -24621,14 +24622,29 @@ export class Space extends DurableObject<CoreBindings> {
     this.dispatchOutboxContinuationDueAtMs = null;
     const nowMs = Date.now();
     const handedOffRedriveBeforeMs = nowMs - OUTBOX_HANDED_OFF_REDRIVE_AFTER_MS;
-    const recoveryCandidates = listDispatchOutboxRecoveryCandidates(
+    const savedOffset = await this.ctx.storage.get<number>(OUTBOX_RECOVERY_OFFSET_KEY);
+    let offset = Number.isSafeInteger(savedOffset) && (savedOffset ?? 0) >= 0
+      ? (savedOffset ?? 0)
+      : 0;
+    let recoveryCandidates = listDispatchOutboxRecoveryCandidates(
       this.ctx.storage.sql,
       {
         limit: DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE,
         handedOffRedriveBeforeMs,
+        offset,
       }
     ).slice(0, DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE);
+    if (recoveryCandidates.length === 0 && offset > 0) {
+      offset = 0;
+      recoveryCandidates = listDispatchOutboxRecoveryCandidates(
+        this.ctx.storage.sql,
+        { limit: DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE, handedOffRedriveBeforeMs, offset }
+      );
+    }
     if (recoveryCandidates.length === 0) {
+      if (savedOffset !== undefined && savedOffset !== 0) {
+        await this.ctx.storage.put(OUTBOX_RECOVERY_OFFSET_KEY, 0);
+      }
       logSpaceOutboxConsoleEvent({
         eventName: "flush_started",
         fields: {
@@ -24689,6 +24705,13 @@ export class Space extends DurableObject<CoreBindings> {
       },
       resolveTargetProfileId: (candidate) => candidate.targetProfileId,
     });
+    const nextOffset =
+      recoveryCandidates.length === DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE
+        ? offset + DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE
+        : 0;
+    if (nextOffset !== (savedOffset ?? 0)) {
+      await this.ctx.storage.put(OUTBOX_RECOVERY_OFFSET_KEY, nextOffset);
+    }
     if (
       recoveryCandidates.length === DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE &&
       advancedCandidateCount === recoveryCandidates.length &&

@@ -24,19 +24,7 @@ describe("hosted outbox handoff recovery", () => {
     [null, false, false, true],
     [null, true, true, true],
   ] as const)("keeps %s owner=%s recovery=%s handoffs eligible=%s until retirement", (agentControllerRef, hasOwner, hostedRecovery, eligible) => {
-    const db = new DatabaseSync(":memory:");
-    onTestFinished(() => db.close());
-    const sql = {
-      exec(query: string, ...params: SQLInputValue[]) {
-        const statement = db.prepare(query);
-        if (!statement.columns().length) {
-          const result = statement.run(...params);
-          return { rowsWritten: Number(result.changes), toArray: () => [] };
-        }
-        return { toArray: () => statement.all(...params) };
-      },
-    } as unknown as SqlStorage;
-    ensureSpaceSqlSchema(sql);
+    const sql = createSql();
     const input = {
       agentControllerRef,
       bindingEnabled: true,
@@ -112,4 +100,57 @@ describe("hosted outbox handoff recovery", () => {
     deleteDispatchOutboxRecord(sql, { dispatchId: next.dispatchId });
     expect(hasRecoverableDispatchOutboxHandoffRecords(sql)).toBe(false);
   });
+
+  it("paginates past older pending rows without changing their state", () => {
+    const sql = createSql();
+    const records = Array.from({ length: 21 }, (_, index) =>
+      createDispatchOutboxRecord({
+        bindingEnabled: true,
+        bindingState: "bound",
+        dispatchPolicy: "mention_only",
+        nowMs: 1_700_000_000_000 + index,
+        ruleId: "registry.default.all_members.v1",
+        ruleReason: "default allow all members mention",
+        ruleSource: "registry",
+        senderProfileId: "human-1",
+        sourceEventId: `pending-${index}`,
+        sourceSignalSnapshot: {
+          profileId: "human-1",
+          profileKind: "human",
+          text: "Please check this request.",
+        },
+        spaceId: "space-1",
+        targetProfileId: "agent-1",
+      })
+    );
+    for (const record of records) {
+      insertDispatchOutboxRecord(sql, record);
+    }
+    const input = { limit: 20, handedOffRedriveBeforeMs: 1_700_000_001_000 };
+    expect(
+      listDispatchOutboxRecoveryCandidates(sql, { ...input, offset: 0 })
+    ).toHaveLength(20);
+    expect(
+      listDispatchOutboxRecoveryCandidates(sql, { ...input, offset: 20 })
+    ).toMatchObject([
+      { dispatchId: records[20]?.dispatchId, outboxStatus: "pending" },
+    ]);
+  });
 });
+
+function createSql(): SqlStorage {
+  const db = new DatabaseSync(":memory:");
+  onTestFinished(() => db.close());
+  const sql = {
+    exec(query: string, ...params: SQLInputValue[]) {
+      const statement = db.prepare(query);
+      if (!statement.columns().length) {
+        const result = statement.run(...params);
+        return { rowsWritten: Number(result.changes), toArray: () => [] };
+      }
+      return { toArray: () => statement.all(...params) };
+    },
+  } as unknown as SqlStorage;
+  ensureSpaceSqlSchema(sql);
+  return sql;
+}
