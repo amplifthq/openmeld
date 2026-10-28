@@ -1,5 +1,8 @@
 import { createDirectMessageApi } from "@openmeld/api-client";
-import { AGENT_DIRECT_MESSAGE_SESSION_NAME_MAX_LENGTH } from "@openmeld/schemas";
+import {
+	AGENT_DIRECT_MESSAGE_SESSION_NAME_MAX_LENGTH,
+	type HarnessKind,
+} from "@openmeld/schemas";
 import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -243,6 +246,7 @@ export function sortChatsByActivity<
  * owner's MemberAgent: the viewer's own chats group the same way.
  */
 export type ColleagueSessionAgent = {
+	harnessKind: HarnessKind | null;
 	displayName: string;
 	defaultProfileId: string | null;
 	profiles: readonly { openMeldProfileId: string; profileName: string }[];
@@ -321,6 +325,8 @@ export function useMemberAgentSessionGroups(input: {
 				id: profile.openMeldProfileId,
 				profileName: profile.profileName,
 				label: formatMemberAgentProfileDisplayName({
+					harnessKind:
+						memberAgent?.harnessKind ?? colleague?.harnessKind ?? null,
 					memberAgentName: agentName,
 					profileName: profile.profileName,
 					isDefaultProfile:

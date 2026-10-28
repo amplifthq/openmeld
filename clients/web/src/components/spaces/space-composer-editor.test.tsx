@@ -32,12 +32,14 @@ import {
 
 const AGENT_PROFILE_ID = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const HUMAN_PROFILE_ID = "22222222-2222-4222-8222-222222222222";
-const FELIX_OPTION_NAME = /Felix/;
+const FELIX_OPTION_NAME = /^(?!.*Owned by).*Felix/;
 const RUNNER_OPTION_NAME = /Runner/;
 const ALL_OPTION_NAME = /@all/;
 const BOTH_OPTION_NAME = /Both/;
 const CODEX_REQUEST_OPTION_NAME = /Asks Felix/;
 const MENTION_ONLY_OPTION_NAME = /^Mention only\s*— Won’t wake the agent$/;
+const MONICA_CODEX_OPTION = /Codex.*Owned by Monica/;
+const TALI_CODEX_OPTION = /Codex.*Owned by Tali/;
 
 describe("SpaceComposerEditor", () => {
 	afterEach(() => {
@@ -84,6 +86,67 @@ describe("SpaceComposerEditor", () => {
 				profileId: AGENT_PROFILE_ID,
 				relation: "wake",
 				start: 0,
+			})
+		);
+	});
+
+	it("distinguishes same-name Agents by owner and mentions the selected Profile", async () => {
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		const onChange = vi.fn();
+		const taliProfileId = "agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+		const mentionPickerItems = buildSpaceMentionTargetItems({
+			query: "",
+			snapshot: createSpaceMembersSnapshot({
+				agents: [
+					createSpaceMemberAgentSnapshot({
+						profileId: AGENT_PROFILE_ID,
+						profileName: "Codex",
+						ownerName: "Monica",
+						ownerUserId: "monica",
+					}),
+					createSpaceMemberAgentSnapshot({
+						profileId: taliProfileId,
+						profileName: "Codex",
+						ownerName: "Tali",
+						ownerUserId: "tali",
+					}),
+				],
+			}),
+		});
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[]}
+				ariaLabel="Message"
+				authoredMentions={[]}
+				composerRef={composerRef}
+				mentionPickerItems={mentionPickerItems}
+				onChange={onChange}
+				onSend={vi.fn()}
+				placeholder="Message"
+				text=""
+			/>
+		);
+		await act(() => {
+			composerRef.current?.insertMentionTrigger();
+		});
+		expect(
+			await screen.findByRole("option", { name: MONICA_CODEX_OPTION })
+		).toBeTruthy();
+		fireEvent.change(
+			screen.getByRole("combobox", { name: "Find a member to mention" }),
+			{ target: { value: "Tali" } }
+		);
+		await waitFor(() =>
+			expect(
+				screen.queryByRole("option", { name: MONICA_CODEX_OPTION })
+			).toBeNull()
+		);
+		fireEvent.click(
+			await screen.findByRole("option", { name: TALI_CODEX_OPTION })
+		);
+		await waitFor(() =>
+			expect(onChange.mock.lastCall?.[0].authoredMentions[0]).toMatchObject({
+				profileId: taliProfileId,
 			})
 		);
 	});

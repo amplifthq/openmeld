@@ -4,13 +4,10 @@ import { useMemberAgentIndex } from "./use-member-agents";
 type MemberAgentProfileLocks = {
 	/** The Profile belongs to a MemberAgent and cannot change harness. */
 	harnessLocked: boolean;
-	/** The MemberAgent's default Profile keeps its harness name (§4.2). */
-	nameLocked: boolean;
 };
 
 const UNLOCKED: MemberAgentProfileLocks = {
 	harnessLocked: false,
-	nameLocked: false,
 };
 
 const MemberAgentHarnessLockContext =
@@ -29,9 +26,7 @@ export function MemberAgentHarnessLock(input: {
 	const entry = memberAgents.ready
 		? memberAgents.index.byProfileId.get(input.profileId)
 		: undefined;
-	const locks = entry
-		? { harnessLocked: true, nameLocked: entry.isDefaultProfile }
-		: UNLOCKED;
+	const locks = entry ? { harnessLocked: true } : UNLOCKED;
 	return (
 		<MemberAgentHarnessLockContext value={locks}>
 			{input.children}
@@ -41,9 +36,4 @@ export function MemberAgentHarnessLock(input: {
 
 export function useMemberAgentHarnessLocked(): boolean {
 	return use(MemberAgentHarnessLockContext).harnessLocked;
-}
-
-/** True for a MemberAgent's default Profile, whose name is not editable. */
-export function useMemberAgentProfileNameLocked(): boolean {
-	return use(MemberAgentHarnessLockContext).nameLocked;
 }

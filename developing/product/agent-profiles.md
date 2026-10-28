@@ -165,11 +165,12 @@ Nothing is configurable on the MemberAgent itself. Space participants remain
 Agent Profiles: a MemberAgent is a grouping, never a Space member, message
 author, or mention target.
 
-The default Agent Profile is created with its MemberAgent. Its name is the
-harness display name and is not editable, and it displays without a suffix:
-`Felix Lu's Claude Code`. Every other Agent Profile is created on purpose with
-a short owner-chosen name and displays as `Felix Lu's Claude Code · PR
-Reviewer`. Handle rules are unchanged. A new model, folder, or task never needs
+The default Agent Profile is created with its MemberAgent. Its initial name is
+the harness display name; the owner can rename it. An unchanged default displays
+without a suffix: `Felix Lu's Claude Code`. A renamed default or an additional
+Profile includes its chosen name, for example `Felix Lu's Claude Code · PR
+Reviewer`. Synchronizing detected harnesses preserves the chosen name. Every
+additional Profile is created on purpose. Handle rules are unchanged. A new model, folder, or task never needs
 a new Profile. A Profile runs on one Computer and cannot change harness: Core
 refuses a Binding write that would move an assigned Profile to another harness,
 a `custom` controller included, with
@@ -258,8 +259,8 @@ An Agent Profile owns product identity and collaboration meaning:
 - Space membership meaning
 
 An Agent Profile name is a practical label for distinguishing configurations
-of one MemberAgent. A default Profile's name is its harness display name, set
-at creation and not editable. Ordinary interactive creation of another Profile
+of one MemberAgent. A default Profile starts with its harness display name and
+can be renamed by its owner, just like an additional Profile. Ordinary interactive creation of another Profile
 must not make a user create one profile per task: a new model, folder, or task
 uses the existing Profile's settings or a new Session. An additional Profile
 gets a short owner-chosen name such as `PR Reviewer`; it is shown after the
@@ -2078,8 +2079,8 @@ Use scoped owner documents for detailed rules:
 - The harness catalog report is the single source of MemberAgent existence.
   Only the default Agent Profile is created with its MemberAgent; every other
   Agent Profile needs explicit intent.
-- A default Agent Profile's name is its harness display name and is not
-  editable.
+- A default Agent Profile starts with its harness display name; the owner can
+  rename it, and later harness synchronization preserves that name.
 - An assigned Agent Profile cannot change harness; the controller switcher is
   only the assignment action for unassigned Profiles.
 - Only the owner, as the root requester, changes Agent Profile settings,

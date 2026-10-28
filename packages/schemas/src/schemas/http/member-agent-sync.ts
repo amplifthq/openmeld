@@ -10,8 +10,8 @@ import { memberAgentSchema } from "./member-agents";
 
 const identifierSchema = z.string().trim().min(1);
 
-// Auth rejects renaming a detected MemberAgent's default Profile: its name is
-// the Harness display name.
+// Legacy error code retained for older clients. Current Auth allows owners to
+// rename default Profiles and no longer emits this rejection.
 export const AUTO_DETECTED_PROFILE_NAME_LOCKED_CODE =
   "profile.auto_detected_name_locked";
 const reasonCodeSchema = z.string().trim().min(1).max(256);
