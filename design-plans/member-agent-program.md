@@ -611,6 +611,7 @@ stored.
 | Answer agent interaction | Binding owner | `runtime-coordinator-authority.ts`; `rpcRespondToAgentInteraction` (`methods.ts:2249`) | unchanged; requester-side cancel added |
 | Work-recovery approval (skip or approve queued work) | owner shard + `ownerUserId` | `rpcExecuteAgentProfileWorkRecovery` `:5841`; `executeAgentProfileWorkQueueApproval` `:6039` | root owns |
 | Delete Profile / Space | owner / Space owner | existing | root owns |
+| Prepare Organization member removal (close, demote, transfer Spaces) | current human Organization owner/admin with `member:delete`; exact non-owner target membership; Space-owned reviewed plan | `GatewayRpcEntrypoint.prepareOrganizationMemberRemoval`, `organizations/member-removal.ts` | root owns the administrator's credential; interactive Web/App session passes, CLI/task credential uses the owner-wide risk-window confirmation; target member need not participate |
 | Grant, revoke, archive | new | — | root owns; archive is non-additive and needs an explicit instruction |
 | Space actions from a task | task context file + execution token | `dispatch-space-action-context.ts` | task credential with chain |
 

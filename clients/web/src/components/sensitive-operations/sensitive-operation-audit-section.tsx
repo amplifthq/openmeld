@@ -85,6 +85,10 @@ const OPERATION_PRESENTATION: Record<
 		title: "Concurrent tasks changed",
 	},
 	profile_delete: { icon: TrashIcon, title: "Profile deleted" },
+	organization_member_removal_prepare: {
+		icon: UsersThreeIcon,
+		title: "Space ownership prepared for member removal",
+	},
 	session_archive: { icon: ArchiveIcon, title: "Chat archived" },
 	session_delete: { icon: TrashIcon, title: "Chat deleted" },
 	runtime_settings_write: { icon: GearSixIcon, title: "Settings changed" },
