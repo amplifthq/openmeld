@@ -226,6 +226,40 @@ export function readSpaceThreadSignalPlacementBySignalId(
   return row ? toSpaceThreadSignalPlacement(row) : null;
 }
 
+/** A root can have both main replies and a Thread. Never pull neighbouring
+ * main requests into a hosted request's runtime rollover. */
+export function listSpaceRequestRootSignalIds(
+  sql: SqlStorage,
+  input: { rootSignalId: string; limit: number; signalTypes: readonly string[] }
+): string[] {
+  const types = [...new Set(input.signalTypes)];
+  if (types.length === 0) {
+    throw new Error("Continuity signal types are required.");
+  }
+  const rows = sql
+    .exec<{ id: string }>(
+      `SELECT signal.id FROM space_signals AS signal
+     WHERE signal.type IN (${types.map(() => "?").join(", ")})
+       AND (signal.id = ?
+         OR json_extract(signal.payload_json, '$.data.messageEnvelope.replyToSignalId') = ?
+         OR json_extract(signal.payload_json, '$.data.replyTo.signalId') = ?
+         OR EXISTS (
+           SELECT 1 FROM space_thread_signal_placements AS placement
+           JOIN space_threads AS thread ON thread.thread_id = placement.thread_id
+           WHERE placement.signal_id = signal.id AND thread.root_signal_id = ?
+         ))
+     ORDER BY signal.rowid DESC LIMIT ?`,
+      ...types,
+      input.rootSignalId,
+      input.rootSignalId,
+      input.rootSignalId,
+      input.rootSignalId,
+      input.limit
+    )
+    .toArray();
+  return rows.toReversed().map((row) => row.id);
+}
+
 export function listSpaceThreadSignalPlacements(
   sql: SqlStorage,
   threadId: string

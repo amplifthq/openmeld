@@ -15,6 +15,60 @@ const SPACE_ID = "0123456789abcdef".repeat(4);
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 
 describe("Remote Agent conversation rollover continuity", () => {
+  it.each([
+    false,
+    true,
+  ])("keeps rollover root isolation while retaining Center Agent DM history=%s", async (dm) => {
+    const request = createSpaceRequest();
+    request.turnEnvelope.space.isCenterAgentDm = dm;
+    request.turnEnvelope.space.kind = dm ? "dm" : "space";
+    request.conversationId = resolveCenterAgentSpaceConversationId({
+      spaceId: request.spaceId,
+      sourceSignalId: request.triggerMessageId,
+      isCenterAgentDm: dm,
+    });
+    const rootReader = vi.fn(async () => ({
+      ok: true as const,
+      value: {
+        nextCursor: null,
+        signals: [
+          createTextSignal(
+            request.triggerMessageId,
+            "Original walkthrough",
+            100
+          ),
+          createTextSignal("own-result", "27 original operations", 200),
+        ],
+      },
+    }));
+    const mainReader = vi.fn(async () => ({
+      ok: true as const,
+      value: {
+        nextCursor: null,
+        signals: [createTextSignal("other-main", "Other main history", 90)],
+      },
+    }));
+    const result = await buildRemoteAgentConversationContinuityContext({
+      db: new PostgresDatabase({
+        connectionString: "postgresql://127.0.0.1:1/unexpected_database_access",
+      }),
+      env: {
+        OPENMELD_SPACES: createSpaceNamespace({
+          rpcListRequestRootContinuitySignalsResult: rootReader,
+          rpcListDispatchConversationContinuitySignalsResult: mainReader,
+        }),
+      } as unknown as CoreBindings,
+      generation: 1,
+      request,
+    });
+    expect(result.entries.map((entry) => entry.content.text)).toEqual(
+      dm
+        ? ["Other main history"]
+        : ["Original walkthrough", "27 original operations"]
+    );
+    expect(rootReader).toHaveBeenCalledTimes(dm ? 0 : 1);
+    expect(mainReader).toHaveBeenCalledTimes(dm ? 1 : 0);
+  });
   it("keeps one request root across approvals without changing Center Agent DM continuity", () => {
     const base = { spaceId: SPACE_ID, isCenterAgentDm: false };
     const initial = resolveCenterAgentSpaceConversationId({

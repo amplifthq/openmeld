@@ -950,6 +950,7 @@ import {
   listSpaceThreadSignalPlacements,
   listSpaceThreadSignalPlacementsAfter,
   listSpaceThreadSignalPlacementsBefore,
+  listSpaceRequestRootSignalIds,
   listSpaceThreads,
   readLatestExplicitThreadWake,
   readSpaceThread,
@@ -4242,6 +4243,17 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcListDispatchConversationContinuitySignalsResult(
     input: ListSignalsInput
   ): Promise<SpaceRpcJsonResult<ListSignalsResult>> {
+    return await this.readDispatchConversationContinuitySignalsResult(input, false);
+  }
+  async rpcListRequestRootContinuitySignalsResult(
+    input: ListSignalsInput
+  ): Promise<SpaceRpcJsonResult<ListSignalsResult>> {
+    return await this.readDispatchConversationContinuitySignalsResult(input, true);
+  }
+  private async readDispatchConversationContinuitySignalsResult(
+    input: ListSignalsInput,
+    requestRoot: boolean
+  ): Promise<SpaceRpcJsonResult<ListSignalsResult>> {
     return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
@@ -4276,6 +4288,7 @@ export class Space extends DurableObject<CoreBindings> {
             sourceSignalId: actor.sourceSignalId,
             spaceAccess,
             targetProfileId: actor.targetProfileId,
+            requestRoot,
           }
         );
         return readSpaceRpcJsonResult(response);
@@ -18681,6 +18694,7 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
   private async handleDispatchConversationContinuitySignals(input: {
+    requestRoot?: boolean;
     beforeCount: number;
     dispatchId: string;
     signalTypes: readonly (
@@ -18710,6 +18724,29 @@ export class Space extends DurableObject<CoreBindings> {
     const accessResult = await this.authorizeSpaceAccess(input.spaceAccess);
     if (!accessResult.ok) {
       return accessResult.response;
+    }
+    if (input.requestRoot) {
+      if (!this.readSourceTextSignalById(input.sourceSignalId)) {
+        return Response.json(
+          { error: {
+            code: "space.continuity.source_not_found",
+            message: "The request root is unavailable.",
+          } },
+          { status: 404 }
+        );
+      }
+      const viewer = await this.resolveReadViewerIdentity(input.spaceAccess);
+      const signals = listSpaceRequestRootSignalIds(this.ctx.storage.sql, {
+        rootSignalId: input.sourceSignalId,
+        limit: input.beforeCount,
+        signalTypes: input.signalTypes,
+      })
+        .map((id) => this.readSignalById(id))
+        .filter((signal): signal is SignalEnvelope => signal !== null);
+      return Response.json({
+        nextCursor: null,
+        signals: this.redactSignalsForReadViewer(signals, viewer),
+      });
     }
     const scope = resolveSpaceDispatchConversationContinuityScope({
       dispatch: readDispatchOutboxRecordByDispatchId(

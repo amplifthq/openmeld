@@ -1,6 +1,7 @@
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
+  listSpaceRequestRootSignalIds,
   listSpaceThreadPreviewEntries,
   listSpaceThreadSignalPlacementsAfter,
   listSpaceThreadSignalPlacementsBefore,
@@ -9,6 +10,59 @@ import {
 } from "../src/space/infrastructure/sql/space-thread-repo";
 
 describe("space-thread-repo", () => {
+  it("bounds rollover evidence to one request root across main replies and its Thread", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(`CREATE TABLE space_signals (id TEXT PRIMARY KEY, type TEXT, payload_json TEXT);
+        CREATE TABLE space_threads (thread_id TEXT PRIMARY KEY, root_signal_id TEXT);
+        CREATE TABLE space_thread_signal_placements (signal_id TEXT PRIMARY KEY, thread_id TEXT);`);
+      const add = (
+        id: string,
+        data: Record<string, unknown> = {},
+        type = "signal.text"
+      ) => {
+        db.prepare("INSERT INTO space_signals VALUES (?, ?, ?)").run(
+          id,
+          type,
+          JSON.stringify({ data })
+        );
+      };
+      add("unrelated-before");
+      add("walkthrough");
+      add("circle");
+      add("walkthrough-main", {
+        messageEnvelope: { replyToSignalId: "walkthrough" },
+      });
+      add("circle-reply", { messageEnvelope: { replyToSignalId: "circle" } });
+      add("walkthrough-legacy", { replyTo: { signalId: "walkthrough" } });
+      add("walkthrough-thread");
+      add("noise", {}, "signal.status");
+      db.prepare("INSERT INTO space_threads VALUES (?, ?)").run(
+        "thread-walkthrough",
+        "walkthrough"
+      );
+      db.prepare(
+        "INSERT INTO space_thread_signal_placements VALUES (?, ?)"
+      ).run("walkthrough-thread", "thread-walkthrough");
+      const sql = new SqliteSqlStorage(db) as unknown as SqlStorage;
+      const selection = {
+        rootSignalId: "walkthrough",
+        limit: 20,
+        signalTypes: ["signal.text"],
+      };
+      expect(listSpaceRequestRootSignalIds(sql, selection)).toEqual([
+        "walkthrough",
+        "walkthrough-main",
+        "walkthrough-legacy",
+        "walkthrough-thread",
+      ]);
+      expect(
+        listSpaceRequestRootSignalIds(sql, { ...selection, limit: 2 })
+      ).toEqual(["walkthrough-legacy", "walkthrough-thread"]);
+    } finally {
+      db.close();
+    }
+  });
   it("finds the last human selection across pages without following Agent replies or automatic continuations", () => {
     const db = new DatabaseSync(":memory:");
     try {

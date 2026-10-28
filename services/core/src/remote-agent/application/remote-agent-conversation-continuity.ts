@@ -22,6 +22,7 @@ import { createDispatchContinuationSpaceAccessContext } from "@openmeld/space";
 import type { CoreBindings } from "../../lib/bindings";
 import type { ListSignalsInput, ListSignalsResult } from "../../rpc/methods";
 import { resolveSpaceStub } from "../../rpc/space-ref";
+import type { SpaceRpcJsonResult } from "../../space/transport/rpc/space-rpc-adapter";
 import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/postgresql/native-delivery-ledger-repo";
 
 const CONTINUITY_CONTEXT_TOKEN_BUDGET = 8000;
@@ -305,20 +306,12 @@ async function readSpaceContinuityEntryDrafts(input: {
     input.env.OPENMELD_SPACES,
     input.request.spaceId
   ) as {
+    rpcListRequestRootContinuitySignalsResult(
+      request: ListSignalsInput
+    ): Promise<SpaceRpcJsonResult<ListSignalsResult>>;
     rpcListDispatchConversationContinuitySignalsResult(
       request: ListSignalsInput
-    ): Promise<
-      | {
-          ok: true;
-          value: ListSignalsResult;
-        }
-      | {
-          code?: string;
-          message: string;
-          ok: false;
-          status: number;
-        }
-    >;
+    ): Promise<SpaceRpcJsonResult<ListSignalsResult>>;
   } | null;
   if (!stub) {
     throw new RemoteAgentConversationContinuitySourceError({
@@ -327,7 +320,15 @@ async function readSpaceContinuityEntryDrafts(input: {
     });
   }
   const requestContext = buildContinuityRequestContext(input.request);
-  const result = await stub.rpcListDispatchConversationContinuitySignalsResult({
+  const requestRoot =
+    !input.request.turnEnvelope.space.isCenterAgentDm &&
+    input.request.conversationId ===
+      resolveCenterAgentSpaceConversationId({
+        spaceId: input.request.spaceId,
+        sourceSignalId: input.request.triggerMessageId,
+        isCenterAgentDm: false,
+      });
+  const query: ListSignalsInput = {
     aroundSignalId: input.request.triggerMessageId,
     beforeCount: REMOTE_AGENT_CONVERSATION_CONTINUITY_MAX_ENTRIES + 1,
     signalTypes: ["signal.text"],
@@ -339,16 +340,21 @@ async function readSpaceContinuityEntryDrafts(input: {
       targetProfileId: input.request.agentProfileId,
     }),
     spaceId: input.request.spaceId,
-  });
+  };
+  const result = requestRoot
+    ? await stub.rpcListRequestRootContinuitySignalsResult(query)
+    : await stub.rpcListDispatchConversationContinuitySignalsResult(query);
   if (!result.ok) {
     throw new RemoteAgentConversationContinuitySourceError({
       code: result.code ?? "space.continuity.read_failed",
       message: result.message,
     });
   }
-  const candidateSignals = result.value.signals.filter(
-    (signal) => signal.id !== input.request.triggerMessageId
-  );
+  const candidateSignals = requestRoot
+    ? result.value.signals
+    : result.value.signals.filter(
+        (signal) => signal.id !== input.request.triggerMessageId
+      );
   const projection = await buildCenterAgentContextMessageProjection({
     hasOlderMessages:
       candidateSignals.length >
