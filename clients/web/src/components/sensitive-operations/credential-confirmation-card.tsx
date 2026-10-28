@@ -36,6 +36,8 @@ const OPERATION_LABELS: Record<SensitiveOperation, string> = {
 	creation_defaults_write: "Change defaults for new Agents",
 	default_project_write: "Change the default Project",
 	execution_mode_write: "Change how many tasks the Agent runs at once",
+	organization_member_removal_prepare:
+		"Resolve Space ownership before removing a member",
 	profile_delete: "Delete an Agent Profile",
 	session_archive: "Archive a chat with the Agent",
 	session_delete: "Delete a chat with the Agent",
