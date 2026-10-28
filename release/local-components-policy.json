@@ -2,7 +2,7 @@
   "version": "0.3.275",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Publishes the current shared schemas and Space contracts alongside the cloud catch-up release. CLI commands remain compatible and the existing 0.3.273 required floor stays supported."
+    "reason": "Publishes current shared schemas and Space contracts with a more reliable native Keychain build. CLI commands remain compatible and the 0.3.273 required floor stays supported."
   },
   "service": {
     "updatePolicy": "available",
