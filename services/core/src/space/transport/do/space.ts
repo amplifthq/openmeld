@@ -25149,11 +25149,11 @@ export class Space extends DurableObject<CoreBindings> {
     const ledgerRow =
       ledgerEvidence.kind === "found" ? ledgerEvidence.row : null;
     const shouldReadHostedNativeDeliveryHandoffState =
-      ledgerRow !== null &&
-      ledgerRow.latestAttemptStatus !== "profile_queue_waiting";
+      ledgerEvidence.kind !== "unavailable" &&
+      ledgerRow?.latestAttemptStatus !== "profile_queue_waiting";
     const hostedNativeDeliveryHandoffState =
       shouldReadHostedNativeDeliveryHandoffState
-        ? await this.readHostedNativeDeliveryHandoffState(candidate)
+        ? await this.readHostedNativeDeliveryHandoffState(candidate, ledgerRow === null)
         : "not_applicable";
     const policyDecision =
       ledgerEvidence.kind === "unavailable"
@@ -25453,7 +25453,8 @@ export class Space extends DurableObject<CoreBindings> {
     return row ? { kind: "found", row } : { kind: "missing" };
   }
   private async readHostedNativeDeliveryHandoffState(
-    candidate: OpenMeldDaemonDispatchOutboxRecoveryCandidate
+    candidate: OpenMeldDaemonDispatchOutboxRecoveryCandidate,
+    missingDispatchLedger = false
   ): Promise<HostedNativeDeliveryHandoffState> {
     const evidenceDb = getPostgresDatabase(this.bindings);
     if (!(evidenceDb && typeof evidenceDb.query === "function")) {
@@ -25467,9 +25468,22 @@ export class Space extends DurableObject<CoreBindings> {
         spaceId: candidate.spaceId,
       });
       if (delivery) {
+        if (missingDispatchLedger) {
+          return "evidence_unavailable";
+        }
         return delivery.status === "submitted"
           ? "admission_incomplete"
           : "durably_owned";
+      }
+      if (
+        missingDispatchLedger &&
+        !isSpaceNativeWakeUnexposed(this.ctx.storage.sql, {
+          spaceId: candidate.spaceId,
+          dispatchId: candidate.dispatchId,
+          targetProfileId: candidate.targetProfileId,
+        })
+      ) {
+        return "evidence_unavailable";
       }
       if (
         isHostedAgentControllerRef(
@@ -25499,6 +25513,19 @@ export class Space extends DurableObject<CoreBindings> {
           message: candidate,
         });
         if (!preflight.ok) {
+          if (
+            preflight.finalStatus === "failed_terminal" &&
+            candidate.deliveryRecoveryReason === "hosted_admission_incomplete" &&
+            isSpaceNativeWakeUnexposed(this.ctx.storage.sql, {
+              spaceId: candidate.spaceId,
+              dispatchId: candidate.dispatchId,
+              targetProfileId: candidate.targetProfileId,
+            })
+          ) {
+            // The existing queue owner publishes the failure; this read does
+            // not turn current readiness into execution truth.
+            return "admission_incomplete";
+          }
           return "evidence_unavailable";
         }
         return isHostedAgentRuntimeKind(

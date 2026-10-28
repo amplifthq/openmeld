@@ -162,6 +162,10 @@ An unaccepted hosted attempt resumes with the same identity,
 without requiring a workstation owner or entering RuntimeCoordinator. Accepted,
 terminal, replaced, or workstation-owned attempts cannot be reopened by that
 hosted recovery marker.
+When a hosted handoff has no dispatch ledger row, Space may redrive the same
+dispatch only if its durable admission fence proves no native exposure and the
+exact native delivery is absent. An unavailable ledger, an existing native
+delivery, or unknown exposure is not proof that execution never started.
 The dispatch attempt remains `dispatching` until the native admission
 acknowledgement is durably recorded. An ambiguous submit or failed ACK
 persistence must not advance it to `waiting_result`, which would prevent

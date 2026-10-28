@@ -152,7 +152,18 @@ export const resolveHandedOffOutboxCandidatePolicyDecision = (input: {
   recentInflightSkipWithinMs: number;
   staleReclaimMs: number;
 }): HandedOffOutboxCandidatePolicyDecision => {
+  const hostedHandoffState =
+    input.hostedNativeDeliveryHandoffState ?? "not_applicable";
   if (!input.ledgerRow) {
+    if (hostedHandoffState === "evidence_unavailable") {
+      return { kind: "skip" };
+    }
+    if (hostedHandoffState === "admission_incomplete") {
+      return {
+        kind: "submit",
+        deliveryRecoveryReason: "hosted_admission_incomplete",
+      };
+    }
     return { kind: input.outboxStatus === "pending" ? "submit" : "skip" };
   }
   if (isTerminalDispatchState(input.ledgerRow.status)) {
@@ -169,8 +180,6 @@ export const resolveHandedOffOutboxCandidatePolicyDecision = (input: {
     // exact route/heartbeat redrive; an ordinary conveyor alarm cannot start it.
     return { kind: "skip" };
   }
-  const hostedHandoffState =
-    input.hostedNativeDeliveryHandoffState ?? "not_applicable";
   if (hostedHandoffState === "evidence_unavailable") {
     return { kind: "skip" };
   }

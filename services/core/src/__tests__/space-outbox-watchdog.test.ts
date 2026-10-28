@@ -312,6 +312,29 @@ describe("space outbox watchdog", () => {
   });
 
   it.each([
+    [0, "submit"],
+    [null, "skip"],
+  ] as const)("only resumes a missing-ledger hosted handoff with proven unexposed admission (%s)", async (nativeAdmissionStartedAtMs, kind) => {
+    const db = createProjectionPostgresBinding(() => []);
+    const space = createSpaceHarness({ db, nativeAdmissionStartedAtMs });
+    const candidate = {
+      ...handedOffOutboxCandidate,
+      controllerSnapshot: {
+        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+        targetBindingEnabled: true,
+        targetBindingState: "bound" as const,
+      },
+    };
+    await expect(
+      space.resolveHandedOffOutboxCandidateDecision(
+        candidate,
+        1_700_000_030_000,
+        buildLogContext()
+      )
+    ).resolves.toMatchObject({ kind });
+  });
+
+  it.each([
     "pending",
     "handed_off",
   ])("does not treat a %s hosted ledger read failure as missing intake evidence", async (outboxStatus) => {
@@ -438,6 +461,42 @@ describe("space outbox watchdog", () => {
     await expect(
       unavailable.resolveHandedOffOutboxCandidateDecision(
         candidate,
+        1_700_000_030_000,
+        buildLogContext()
+      )
+    ).resolves.toMatchObject({ kind: "skip" });
+
+    const removedProfile = {
+      resolveProfileById: async () => ({
+        ok: false,
+        code: "profile.not_found",
+        message: "Profile not found",
+      }),
+    };
+    const taggedCandidate = {
+      ...candidate,
+      deliveryRecoveryReason: "hosted_admission_incomplete" as const,
+    };
+    const unexposed = createSpaceHarness({
+      db,
+      authRpc: removedProfile,
+      nativeAdmissionStartedAtMs: 0,
+    });
+    await expect(
+      unexposed.resolveHandedOffOutboxCandidateDecision(
+        taggedCandidate,
+        1_700_000_030_000,
+        buildLogContext()
+      )
+    ).resolves.toMatchObject({ kind: "submit" });
+    const exposureUnknown = createSpaceHarness({
+      db,
+      authRpc: removedProfile,
+      nativeAdmissionStartedAtMs: null,
+    });
+    await expect(
+      exposureUnknown.resolveHandedOffOutboxCandidateDecision(
+        taggedCandidate,
         1_700_000_030_000,
         buildLogContext()
       )
@@ -1034,6 +1093,7 @@ describe("space outbox watchdog", () => {
 const createSpaceHarness = (input: {
   db: PostgreSQLBinding | null;
   authRpc?: unknown;
+  nativeAdmissionStartedAtMs?: number | null;
 }) => {
   const space = Object.create(Space.prototype) as {
     bindings: { OPENMELD_POSTGRESQL: PostgreSQLBinding | null };
@@ -1056,8 +1116,17 @@ const createSpaceHarness = (input: {
       value: {
         storage: {
           sql: {
-            exec: () => ({
-              toArray: () => [],
+            exec: (query: string) => ({
+              toArray: () =>
+                query.includes("native_admission_started_at_ms") &&
+                input.nativeAdmissionStartedAtMs !== undefined
+                  ? [
+                      {
+                        native_admission_started_at_ms:
+                          input.nativeAdmissionStartedAtMs,
+                      },
+                    ]
+                  : [],
             }),
           },
         },

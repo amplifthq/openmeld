@@ -225,7 +225,7 @@ function StableWakeProgressSummary(input: {
 				/>
 			</span>
 			<span
-				className="min-w-0 truncate text-[13px]"
+				className="min-w-0 whitespace-normal break-words text-[13px]"
 				style={{ fontVariationSettings: fontWeights.medium }}
 			>
 				{formatWakeProgressSummary(input.entries)}
