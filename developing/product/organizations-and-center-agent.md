@@ -410,6 +410,16 @@ docs directly readable against our schema.
   roles, no dynamic access control in MVP. Org-scoped permission statements
   (via `createAccessControl`) carry our resources (for example
   `space: [create, ...]`, `centerAgent: [designate]`) on those three roles.
+- In Organization Settings, an Owner may change another Owner to Admin or
+  Member when another Owner remains. The current Owner's own row stays
+  read-only, and Admins and Members cannot edit Owner roles. Demotion requires
+  confirmation and preserves membership and assets; member removal keeps its
+  separate Space-handoff flow. Auth remains the sole membership writer and
+  retains its native permission and last-owner checks. PostgreSQL additionally
+  rejects concurrent writes that would leave retained members without an
+  Owner, using the existing Organization row lock. Empty membership sets and
+  closing Organizations remain compatible with the native deletion lifecycle.
+  Owner promotion and broader ownership-transfer UI remain deferred.
 - Invitations are the plugin's email-bound invitations (accepting requires a
   session whose email matches the invite). Email verification is on from day
   one; set `requireEmailVerificationOnInvitation` per its documented

@@ -49,6 +49,7 @@ const releaseOrganizationLogoCropDraftMock = vi.hoisted(() => vi.fn());
 const removeCurrentOrganizationLogoMock = vi.hoisted(() => vi.fn());
 const updateCurrentOrganizationLogoMock = vi.hoisted(() => vi.fn());
 const updateOrganizationMock = vi.hoisted(() => vi.fn());
+const updateOrganizationMemberRoleMock = vi.hoisted(() => vi.fn());
 
 let currentOrganization: OrganizationSummary;
 let organizations: OrganizationSummary[];
@@ -209,7 +210,7 @@ vi.mock("#/lib/organizations/auth-organizations", () => ({
 	resetOrganizationJoinLink: vi.fn(),
 	revokeOrganizationJoinLink: vi.fn(),
 	updateOrganization: updateOrganizationMock,
-	updateOrganizationMemberRole: vi.fn(),
+	updateOrganizationMemberRole: updateOrganizationMemberRoleMock,
 }));
 
 vi.mock("#/lib/organizations/organization-member-removal", () => ({
@@ -351,6 +352,7 @@ describe("OrganizationSettingsPage", () => {
 			ok: true,
 		});
 		updateOrganizationMock.mockReset().mockResolvedValue(undefined);
+		updateOrganizationMemberRoleMock.mockReset().mockResolvedValue(undefined);
 	});
 
 	afterEach(cleanup);
@@ -567,6 +569,71 @@ describe("OrganizationSettingsPage", () => {
 		});
 	});
 
+	it.each([
+		"Admin",
+		"Member",
+	])("lets an Owner confirm changing another Owner to %s", async (nextRole) => {
+		getActiveOrganizationMemberRoleMock.mockResolvedValue("owner");
+		readCurrentOrganizationDirectoryMock.mockResolvedValue({
+			agentProfiles: [],
+			members: [
+				{
+					humanProfile: null,
+					memberId: "member-current",
+					role: "owner",
+					user: { email: "owner@example.com", name: "Current Owner" },
+					userId: "user-owner",
+				},
+				{
+					humanProfile: null,
+					memberId: "member-other-owner",
+					role: "owner",
+					user: { email: "other@example.com", name: "Other Owner" },
+					userId: "user-other-owner",
+				},
+			],
+		});
+		render(
+			<TestQueryClientProvider>
+				<OrganizationSettingsPage section="members" />
+			</TestQueryClientProvider>
+		);
+		const select = await screen.findByRole("combobox", {
+			name: "Role for Other Owner",
+		});
+		expect(select.textContent).toContain("Owner");
+		expect(
+			(screen.getByRole("button", { name: "Save role" }) as HTMLButtonElement)
+				.disabled
+		).toBe(true);
+		expect(
+			screen.queryByRole("combobox", { name: "Role for Current Owner" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Remove Other Owner" })
+		).toBeNull();
+		fireEvent.click(select);
+		fireEvent.click(await screen.findByRole("option", { name: nextRole }));
+		fireEvent.click(screen.getByRole("button", { name: "Save role" }));
+		const dialog = screen.getByRole("alertdialog");
+		expect(
+			within(dialog).getByRole("heading", {
+				name: `Change Other Owner's role to ${nextRole}?`,
+			})
+		).toBeTruthy();
+		expect(updateOrganizationMemberRoleMock).not.toHaveBeenCalled();
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Change role" })
+		);
+		await waitFor(() => {
+			expect(updateOrganizationMemberRoleMock).toHaveBeenCalledWith({
+				memberId: "member-other-owner",
+				organizationId: "org-acme",
+				role: nextRole.toLowerCase(),
+			});
+		});
+	});
+
 	it("never offers Remove for owners or the current member", async () => {
 		getActiveOrganizationMemberRoleMock.mockResolvedValue("admin");
 		readCurrentOrganizationDirectoryMock.mockResolvedValue({
@@ -605,11 +672,47 @@ describe("OrganizationSettingsPage", () => {
 		await screen.findByText("Ada Lovelace");
 		expect(screen.queryByRole("button", { name: "Remove Owner" })).toBeNull();
 		expect(
+			screen.queryByRole("combobox", { name: "Role for Owner" })
+		).toBeNull();
+		expect(
 			screen.queryByRole("button", { name: "Remove Current Admin" })
 		).toBeNull();
 		expect(
 			screen.getByRole("button", { name: "Remove Ada Lovelace" })
 		).toBeTruthy();
+	});
+
+	it("keeps the last Owner read-only when the viewer role is stale", async () => {
+		getActiveOrganizationMemberRoleMock.mockResolvedValue("owner");
+		readCurrentOrganizationDirectoryMock.mockResolvedValue({
+			agentProfiles: [],
+			members: [
+				{
+					humanProfile: null,
+					memberId: "member-current",
+					role: "member",
+					user: { email: "owner@example.com", name: "Current Member" },
+					userId: "user-owner",
+				},
+				{
+					humanProfile: null,
+					memberId: "member-last-owner",
+					role: "owner",
+					user: { email: "other@example.com", name: "Last Owner" },
+					userId: "user-last-owner",
+				},
+			],
+		});
+		render(
+			<TestQueryClientProvider>
+				<OrganizationSettingsPage section="members" />
+			</TestQueryClientProvider>
+		);
+		await screen.findByText("Last Owner");
+		expect(
+			screen.queryByRole("combobox", { name: "Role for Last Owner" })
+		).toBeNull();
+		expect(updateOrganizationMemberRoleMock).not.toHaveBeenCalled();
 	});
 
 	it.each([

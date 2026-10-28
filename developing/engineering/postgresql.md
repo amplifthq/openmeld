@@ -154,6 +154,13 @@ replacing the file. Neither command applies a database migration.
 Drizzle Kit generates SQL and its journal in the PostgreSQL migrations directory.
 The official Drizzle migrator executes that journal and owns the only PostgreSQL
 history table, `drizzle.__drizzle_migrations`. Review generated SQL explicitly.
+Migration `0051` adds Owner retention to the existing membership/Organization
+locking boundary from `0018`. It rejects a role change or departure that would
+leave retained members without an Owner; native Organization deletion may
+still remove the complete membership set. Closing-Organization cleanup remains
+unchanged. Auth maps this specific constraint refusal to the existing error
+envelope with HTTP 409 and `organization.last_owner`; other database failures
+keep their original handling. The migration adds no rows or new ownership state.
 Do not replay SQLite DDL at runtime or copy D1's migration ledger. SQL files must
 be transaction-compatible and must not contain their own BEGIN/COMMIT. Concurrent
 index builds require a separately reviewed execution step, not a silent exception.
