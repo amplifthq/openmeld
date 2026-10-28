@@ -151,11 +151,14 @@ it does not rebuild mutable conversation context before replay.
 This also applies when an interrupted direct call leaves the outbox `pending`
 after creating the dispatch attempt. A hosted `handed_off` seed keeps the Space
 recovery alarm armed until native admission or a terminal outcome is durable;
-a Queue receipt alone cannot retire that responsibility. Workstation handoffs
-remain excluded from this scheduled hosted recovery batch; RuntimeCoordinator
-explicitly redrives their retained payload. Recovery of an older
-message without a hosted recovery marker first resolves its authoritative
-runtime family. An unaccepted hosted attempt resumes with the same identity,
+a Queue receipt alone cannot retire that responsibility. Direct-to-Queue hosted
+recovery persists the existing hosted admission marker with the handoff. An
+older handoff with neither a frozen Controller nor an owner remains eligible
+for investigation; Space uses the existing Core preflight to identify its
+runtime family and treats unavailable evidence as unavailable, not as hosted.
+Confirmed workstation handoffs remain excluded from the scheduled hosted
+recovery batch; RuntimeCoordinator explicitly redrives their retained payload.
+An unaccepted hosted attempt resumes with the same identity,
 without requiring a workstation owner or entering RuntimeCoordinator. Accepted,
 terminal, replaced, or workstation-owned attempts cannot be reopened by that
 hosted recovery marker.

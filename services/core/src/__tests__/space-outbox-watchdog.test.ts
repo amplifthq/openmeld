@@ -3,6 +3,8 @@ import type { SignalEnvelope } from "@openmeld/protocol";
 import {
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
+  HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+  HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
 } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import { createProjectionPostgresBinding } from "../../test-support/postgresql-query.test-support";
@@ -195,7 +197,13 @@ describe("space outbox watchdog", () => {
     expect(directDelivery).toHaveBeenCalledWith(
       expect.objectContaining({ message })
     );
-    expect(queueSend).toHaveBeenCalledWith(message);
+    expect(queueSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dispatchId: message.dispatchId,
+        idempotencyKey: message.idempotencyKey,
+        deliveryRecoveryReason: "hosted_admission_incomplete",
+      })
+    );
     expect(syncDispatchOutboxAlarm).toHaveBeenCalled();
   });
 
@@ -331,6 +339,109 @@ describe("space outbox watchdog", () => {
       kind: "skip",
       reason: "dispatch_ledger_read_failed",
     });
+  });
+
+  it("recovers an ownerless legacy handoff only after Core confirms the hosted Binding", async () => {
+    const profileId = "agt_11111111-1111-4111-8111-111111111111";
+    const db = createProjectionPostgresBinding((query) => {
+      if (query.text.includes("openMeldRemoteAgent_native_delivery_ledger")) {
+        return [];
+      }
+      if (query.text.includes("openMeldDaemon_dispatch_ledger")) {
+        return [
+          {
+            connection_generation: null,
+            daemon_session_id: null,
+            last_attempt_at_ms: 1_700_000_001_000,
+            latest_attempt_error_code: null,
+            latest_attempt_status: "dispatching",
+            lease_epoch: null,
+            status: "queued",
+          },
+        ];
+      }
+      if (query.text.includes("profile_organization_id")) {
+        return [{ profile_organization_id: "org-default" }];
+      }
+      if (query.text.includes("openMeldDaemon_agent_profile_bindings")) {
+        return [
+          {
+            agent_profile_id: profileId,
+            binding_id: "binding-center",
+            binding_state: "enabled_primary",
+            configuration_revision: 1,
+            agent_controller_ref: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+            created_at_ms: 1,
+            created_by_profile_id: null,
+            disabled_at_ms: null,
+            hosted_runtime_identity_json: JSON.stringify(
+              HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
+            ),
+            model_id: "deepseek/deepseek-v4-flash",
+            owner_id: "org-default",
+            owner_kind: "organization",
+            reason_code: "agent_profile_binding.enabled_primary",
+            runtime_kind: "hosted_center_agent",
+            openmeld_service_runtime_id: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+            updated_at_ms: 1,
+          },
+        ];
+      }
+      return [];
+    });
+    const space = createSpaceHarness({
+      db,
+      authRpc: {
+        resolveProfileById: async () => ({
+          ok: true,
+          profile: {
+            ownerUserId: null,
+            managedRole: "center_agent",
+            organizationId: "org-default",
+            profileHandle: "center-agent",
+            profileId,
+            profileKind: "agent",
+            profileName: "Center Agent",
+            status: "active",
+          },
+        }),
+      },
+    });
+    const record = createRuntimeCoordinatorRedriveOutboxRecord();
+    const candidate = {
+      ...record,
+      organizationId: "org-default",
+      targetProfileId: profileId,
+      sourceClientMessageId: "client-message-1",
+      sourceSignalSnapshot: {
+        profileId: "human-1",
+        profileKind: "human",
+        text: "@agent(wake) hello",
+      },
+      spaceNameSnapshot: null,
+      targetProfileNameSnapshot: "Center Agent",
+      outboxStatus: "handed_off",
+      handedOffAtMs: record.createdAtMs + 100,
+    };
+
+    await expect(
+      space.resolveHandedOffOutboxCandidateDecision(
+        candidate,
+        1_700_000_030_000,
+        buildLogContext()
+      )
+    ).resolves.toMatchObject({
+      deliveryRecoveryReason: "hosted_admission_incomplete",
+      kind: "submit",
+    });
+    const unavailable = createSpaceHarness({ db });
+    await expect(
+      unavailable.resolveHandedOffOutboxCandidateDecision(
+        candidate,
+        1_700_000_030_000,
+        buildLogContext()
+      )
+    ).resolves.toMatchObject({ kind: "skip" });
   });
 
   it.each([
@@ -920,7 +1031,10 @@ describe("space outbox watchdog", () => {
   });
 });
 
-const createSpaceHarness = (input: { db: PostgreSQLBinding | null }) => {
+const createSpaceHarness = (input: {
+  db: PostgreSQLBinding | null;
+  authRpc?: unknown;
+}) => {
   const space = Object.create(Space.prototype) as {
     bindings: { OPENMELD_POSTGRESQL: PostgreSQLBinding | null };
     ctx: { storage: { sql: unknown } };
@@ -935,6 +1049,7 @@ const createSpaceHarness = (input: { db: PostgreSQLBinding | null }) => {
     bindings: {
       value: {
         OPENMELD_POSTGRESQL: input.db,
+        ...(input.authRpc ? { OPENMELD_AUTH_WORKER: input.authRpc } : {}),
       },
     },
     ctx: {

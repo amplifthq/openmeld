@@ -178,6 +178,7 @@ describe("openMeldDaemon dispatch outbox sql store", () => {
       expect.stringContaining("UPDATE openMeldDaemon_outbox"),
       "queued",
       Date.UTC(2026, 1, 26, 1, 2, 0),
+      0,
       "dispatch-1",
       "pending",
       "queued",

@@ -349,6 +349,7 @@ import {
   finalizeAcceptedDispatchResult,
   recordConfirmedAcceptedDispatchFailure,
   recordConfirmedAcceptedDispatchSuccess,
+  runDispatchExecutionPreflightGate,
 } from "../../../dispatch/application/dispatch-execution-service";
 import {
   buildDispatchHumanLogContext,
@@ -753,7 +754,7 @@ import {
   createDispatchOutboxRecord,
   type DispatchSourceSignalSnapshotInput,
   deleteDispatchOutboxRecord,
-  hasHostedDispatchOutboxHandoffRecords,
+  hasRecoverableDispatchOutboxHandoffRecords,
   hasPendingDispatchOutboxRecords,
   hasUnsettledDispatchOutboxRecords,
   insertDispatchOutboxHandoffSeed,
@@ -7982,7 +7983,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
     if (
       !hasPendingDispatchOutboxRecords(this.ctx.storage.sql) &&
-      !hasHostedDispatchOutboxHandoffRecords(this.ctx.storage.sql)
+      !hasRecoverableDispatchOutboxHandoffRecords(this.ctx.storage.sql)
     ) {
       return null;
     }
@@ -24531,7 +24532,7 @@ export class Space extends DurableObject<CoreBindings> {
     });
     if (fallsBackToQueue) {
       const enqueued = await this.enqueueDispatchMessageWithRetry(
-        message,
+        { ...message, deliveryRecoveryReason: "hosted_admission_incomplete" },
         reason,
         candidate,
         human
@@ -24563,6 +24564,8 @@ export class Space extends DurableObject<CoreBindings> {
         markDispatchOutboxHandedOff(this.ctx.storage.sql, {
           dispatchId: message.dispatchId,
           handedOffAtMs: Date.now(),
+          hostedAdmissionRecovery:
+            message.deliveryRecoveryReason === "hosted_admission_incomplete",
         });
         logSpaceOutboxConsoleEvent({
           eventName: "queue_sent",
@@ -25487,6 +25490,20 @@ export class Space extends DurableObject<CoreBindings> {
           owner: { id: ownerUserId, kind: "owner_account" },
         });
         return isHostedAgentRuntimeKind(binding?.runtimeKind)
+          ? "admission_incomplete"
+          : "not_applicable";
+      }
+      if (!candidate.controllerSnapshot?.agentControllerRef) {
+        const preflight = await runDispatchExecutionPreflightGate({
+          env: this.bindings,
+          message: candidate,
+        });
+        if (!preflight.ok) {
+          return "evidence_unavailable";
+        }
+        return isHostedAgentRuntimeKind(
+          preflight.effectiveTargetBindingSnapshot.runtimeKind
+        )
           ? "admission_incomplete"
           : "not_applicable";
       }

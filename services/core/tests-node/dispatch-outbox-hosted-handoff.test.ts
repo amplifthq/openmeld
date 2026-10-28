@@ -7,7 +7,7 @@ import { describe, expect, it, onTestFinished } from "vitest";
 import {
   createDispatchOutboxRecord,
   deleteDispatchOutboxRecord,
-  hasHostedDispatchOutboxHandoffRecords,
+  hasRecoverableDispatchOutboxHandoffRecords,
   insertDispatchOutboxRecord,
   listDispatchOutboxRecoveryCandidates,
   markDispatchOutboxCancelled,
@@ -17,11 +17,13 @@ import { ensureSpaceSqlSchema } from "../src/space/infrastructure/sql/space-sche
 
 describe("hosted outbox handoff recovery", () => {
   it.each([
-    [HOSTED_CENTER_AGENT_CONTROLLER_REF, true],
-    [HOSTED_REMOTE_AGENT_CONTROLLER_REF, true],
-    ["local:codex", false],
-    [null, false],
-  ] as const)("keeps only a hosted %s handoff eligible until its seed is retired", (agentControllerRef, hosted) => {
+    [HOSTED_CENTER_AGENT_CONTROLLER_REF, false, false, true],
+    [HOSTED_REMOTE_AGENT_CONTROLLER_REF, true, false, true],
+    ["local:codex", true, false, false],
+    [null, true, false, false],
+    [null, false, false, true],
+    [null, true, true, true],
+  ] as const)("keeps %s owner=%s recovery=%s handoffs eligible=%s until retirement", (agentControllerRef, hasOwner, hostedRecovery, eligible) => {
     const db = new DatabaseSync(":memory:");
     onTestFinished(() => db.close());
     const sql = {
@@ -40,6 +42,9 @@ describe("hosted outbox handoff recovery", () => {
       bindingEnabled: true,
       bindingState: "bound",
       dispatchPolicy: "mention_only",
+      ...(hasOwner
+        ? { dispatchOwner: { kind: "owner_account" as const, id: "owner-1" } }
+        : {}),
       nowMs: 1_700_000_000_000,
       ruleId: "registry.default.all_members.v1",
       ruleReason: "default allow all members mention",
@@ -56,7 +61,7 @@ describe("hosted outbox handoff recovery", () => {
     } as const;
     const record = createDispatchOutboxRecord(input);
     insertDispatchOutboxRecord(sql, record);
-    expect(hasHostedDispatchOutboxHandoffRecords(sql)).toBe(false);
+    expect(hasRecoverableDispatchOutboxHandoffRecords(sql)).toBe(false);
     // Old workstation handoffs must not consume the bounded hosted recovery batch.
     for (let index = 0; index < 21; index += 1) {
       const workstation = createDispatchOutboxRecord({
@@ -74,18 +79,25 @@ describe("hosted outbox handoff recovery", () => {
     markDispatchOutboxHandedOff(sql, {
       dispatchId: record.dispatchId,
       handedOffAtMs: record.createdAtMs + 1,
+      hostedAdmissionRecovery: hostedRecovery,
     });
-    expect(hasHostedDispatchOutboxHandoffRecords(sql)).toBe(hosted);
+    expect(hasRecoverableDispatchOutboxHandoffRecords(sql)).toBe(eligible);
     const candidates = listDispatchOutboxRecoveryCandidates(sql, {
       limit: 20,
       handedOffRedriveBeforeMs: input.nowMs + 100,
     });
     expect(candidates.map((candidate) => candidate.dispatchId)).toEqual(
-      hosted ? [record.dispatchId] : []
+      eligible ? [record.dispatchId] : []
     );
+    if (hostedRecovery) {
+      expect(candidates[0]).toMatchObject({
+        deliveryRecoveryReason: "hosted_admission_incomplete",
+        idempotencyKey: record.idempotencyKey,
+      });
+    }
 
     markDispatchOutboxCancelled(sql, { dispatchId: record.dispatchId });
-    expect(hasHostedDispatchOutboxHandoffRecords(sql)).toBe(false);
+    expect(hasRecoverableDispatchOutboxHandoffRecords(sql)).toBe(false);
     // A new independent Wake can be retired after durable admission.
     const next = createDispatchOutboxRecord({
       ...input,
@@ -98,6 +110,6 @@ describe("hosted outbox handoff recovery", () => {
       handedOffAtMs: next.createdAtMs + 1,
     });
     deleteDispatchOutboxRecord(sql, { dispatchId: next.dispatchId });
-    expect(hasHostedDispatchOutboxHandoffRecords(sql)).toBe(false);
+    expect(hasRecoverableDispatchOutboxHandoffRecords(sql)).toBe(false);
   });
 });

@@ -22,10 +22,15 @@ export const OPENMELD_DAEMON_OUTBOX_STATUS_CANCELLED = "cancelled" as const;
 // Keep that encoding inside the repository boundary; application code sees the
 // transport-neutral `handed_off` fact for both direct and Queue delivery.
 const PERSISTED_OUTBOX_STATUS_QUEUED = "queued" as const;
-const HOSTED_OUTBOX_HANDOFF_PREDICATE = `status = ?
+const RECOVERY_OUTBOX_HANDOFF_PREDICATE = `status = ?
   AND CASE WHEN json_valid(payload_json)
-    THEN json_extract(payload_json, '$.controllerSnapshot.agentControllerRef')
-  END IN (?, ?)`;
+    THEN (
+      json_extract(payload_json, '$.controllerSnapshot.agentControllerRef') IN (?, ?)
+      OR json_extract(payload_json, '$.deliveryRecoveryReason') = 'hosted_admission_incomplete'
+      OR (json_extract(payload_json, '$.controllerSnapshot.agentControllerRef') IS NULL
+          AND json_extract(payload_json, '$.dispatchOwner.id') IS NULL)
+    )
+  END`;
 export const OPENMELD_DAEMON_DISPATCH_SNAPSHOT_MAX_BYTES = 32_768;
 export const OPENMELD_DAEMON_DISPATCH_SNAPSHOT_OVERSIZE_ERROR_CODE =
   "dispatch.snapshot.oversize" as const;
@@ -457,6 +462,7 @@ export const markDispatchOutboxHandedOff = (
   input: {
     dispatchId: string;
     handedOffAtMs: number;
+    hostedAdmissionRecovery?: boolean;
   }
 ): void => {
   sql.exec(
@@ -465,6 +471,9 @@ export const markDispatchOutboxHandedOff = (
       SET
         status = ?,
         queued_at_ms = ?,
+        payload_json = CASE WHEN ? AND json_valid(payload_json)
+          THEN json_set(payload_json, '$.deliveryRecoveryReason', 'hosted_admission_incomplete')
+          ELSE payload_json END,
         poison_failure_count = 0,
         poisoned_at_ms = NULL,
         poison_reason_code = NULL
@@ -473,6 +482,7 @@ export const markDispatchOutboxHandedOff = (
     `,
     PERSISTED_OUTBOX_STATUS_QUEUED,
     input.handedOffAtMs,
+    input.hostedAdmissionRecovery ? 1 : 0,
     input.dispatchId,
     OPENMELD_DAEMON_OUTBOX_STATUS_PENDING,
     PERSISTED_OUTBOX_STATUS_QUEUED
@@ -557,14 +567,14 @@ export const hasPendingDispatchOutboxRecords = (sql: SqlStorage): boolean => {
     .toArray();
   return rows.length > 0;
 };
-/** Queue receipt alone does not establish native execution ownership. */
-export const hasHostedDispatchOutboxHandoffRecords = (
+/** Hosted or unresolved handoffs still need an authoritative admission check. */
+export const hasRecoverableDispatchOutboxHandoffRecords = (
   sql: SqlStorage
 ): boolean =>
   sql
     .exec(
       `SELECT 1 FROM openMeldDaemon_outbox
-       WHERE ${HOSTED_OUTBOX_HANDOFF_PREDICATE}
+       WHERE ${RECOVERY_OUTBOX_HANDOFF_PREDICATE}
          AND poisoned_at_ms IS NULL
        LIMIT 1`,
       PERSISTED_OUTBOX_STATUS_QUEUED,
@@ -595,7 +605,7 @@ export const listDispatchOutboxRecoveryCandidates = (
         FROM openMeldDaemon_outbox
         WHERE (
             status = ?
-            OR (${HOSTED_OUTBOX_HANDOFF_PREDICATE}
+            OR (${RECOVERY_OUTBOX_HANDOFF_PREDICATE}
                 AND queued_at_ms IS NOT NULL AND queued_at_ms <= ?)
           )
           AND poisoned_at_ms IS NULL
