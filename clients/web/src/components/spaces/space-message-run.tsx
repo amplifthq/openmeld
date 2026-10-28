@@ -253,6 +253,8 @@ export const SpaceMessageRun = memo(function SpaceMessageRun(
 								data-history-signal-id={getSpaceConversationHistorySignalId(
 									item
 								)}
+								data-message-row-id={item.id}
+								data-message-source-at={spaceMessageReadSourceAt(item)}
 								data-signal-id={item.id}
 								ref={(element) =>
 									input.registerMessageElement(item.id, element)

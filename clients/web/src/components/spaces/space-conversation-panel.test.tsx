@@ -1883,6 +1883,63 @@ describe("SpaceConversationPanel", () => {
 		).toBeTruthy();
 	});
 
+	it("acknowledges visible recalled messages without reading notices below the viewport", async () => {
+		const focus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+		const geometry = vi
+			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+			.mockImplementation(function (this: HTMLElement) {
+				if (this.closest('[data-signal-id="recalled-message"]')) {
+					return new DOMRect(0, 150, 500, 40);
+				}
+				if (this.closest('[data-signal-id="unseen-recalled-message"]')) {
+					return new DOMRect(0, 900, 500, 40);
+				}
+				return new DOMRect(0, 0, 500, 500);
+			});
+		const originalHitTest = Object.getOwnPropertyDescriptor(
+			document,
+			"elementFromPoint"
+		);
+		Object.defineProperty(document, "elementFromPoint", {
+			configurable: true,
+			value: () => document.querySelector('[data-slot="message-recalled"]'),
+		});
+		try {
+			const item = createTimelineItem({
+				id: "recalled-message",
+				recalledAt: Date.UTC(2026, 4, 27, 11),
+				text: "Felix recalled a message.",
+			});
+			const target = {
+				signalId: item.id,
+				occurredAtMs: item.createdAtMs,
+				threadRootSignalId: null,
+			};
+			const onViewedUpdates = vi.fn();
+			renderSpaceConversationPanel({
+				onViewedUpdates,
+				timelineItems: [item, { ...item, id: "unseen-recalled-message" }],
+				unreadStateReady: true,
+				unreadTargets: [
+					target,
+					{ ...target, signalId: "unseen-recalled-message" },
+				],
+			});
+			await waitFor(() =>
+				expect(onViewedUpdates).toHaveBeenCalledExactlyOnceWith([target])
+			);
+		} finally {
+			cleanup();
+			focus.mockRestore();
+			geometry.mockRestore();
+			if (originalHitTest) {
+				Object.defineProperty(document, "elementFromPoint", originalHitTest);
+			} else {
+				Reflect.deleteProperty(document, "elementFromPoint");
+			}
+		}
+	});
+
 	it("stops advancing the unread watermark while the Graph is open", () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		const onViewedUpdates = vi.fn();
