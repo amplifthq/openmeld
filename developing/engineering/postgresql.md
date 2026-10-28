@@ -270,6 +270,10 @@ native close before releasing it, preserving the original SQLSTATE instead of
 sending ROLLBACK or Terminate into a closing socket. Expired clients are not
 reused, and late callbacks cannot submit more SQL or commit. Ambiguous commit
 failures are not replayed; existing domain idempotency and outboxes own recovery.
+Rollback cleanup failures are logged without replacing the original transaction
+error or its SQLSTATE. If COMMIT was acknowledged, a disposal timeout is logged
+with `committed: true` and the original result is returned; transport cleanup
+must not turn a completed write into a retryable transaction failure.
 
 This serializes a Space only for each admitted SQL transaction, not for a whole
 alarm, HTTP/RPC request or external service call. Space transaction callbacks

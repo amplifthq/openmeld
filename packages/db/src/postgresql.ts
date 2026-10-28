@@ -264,7 +264,13 @@ export class PostgresDatabase {
             await acquired.query("ROLLBACK");
           } catch (rollbackError) {
             release(true);
-            throw rollbackError;
+            console.warn("[postgresql.rollback_failed]", {
+              sqlState: readPostgresErrorCode(rollbackError),
+              errorName:
+                rollbackError instanceof Error
+                  ? rollbackError.name
+                  : typeof rollbackError,
+            });
           }
           throw error;
         };
@@ -307,12 +313,22 @@ export class PostgresDatabase {
         release(timeoutMs !== undefined);
         const disposed = await disposal;
         if (disposed === false) {
-          throw new Error(
+          if ("value" in outcome) {
+            // COMMIT was acknowledged. Report the transport cleanup failure
+            // without turning a completed write into a retryable failure.
+            console.warn("[postgresql.connection_disposal_timeout]", {
+              committed: true,
+            });
+            return outcome.value;
+          }
+          const error = new Error(
             "PostgreSQL connection disposal exceeded its budget",
             {
-              cause: "error" in outcome ? outcome.error : undefined,
+              cause: outcome.error,
             }
           );
+          error.name = "PostgresConnectionDisposalTimeoutError";
+          throw error;
         }
         client?.removeListener("error", interrupt);
         if ("error" in outcome) {
