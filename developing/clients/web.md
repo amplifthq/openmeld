@@ -1039,10 +1039,17 @@ The private `/o/{orgSlug}` boundary is client-loaded (`ssr: false`); public
 entry, login, and public content retain SSR. Router default and private-route
 pending content use the same visible loading surface so server HTML and client
 hydration do not leave a blank screen. The account query has a five-second
-transport deadline, forwards cancellation through body consumption, does not
-retry automatically, and attempts offline reads rather than pausing the parent
-loader indefinitely. The existing root error surface owns retry and asset
-version recovery. A successful fresh read projects the URL Organization; only
+transport deadline per attempt and forwards cancellation through body consumption.
+When online, a structured `network.timeout` gets one immediate fresh attempt
+so a single slow read need not strand the user on the root error page. This
+recovery happens inside the read, not Query's focus-paused retry scheduler;
+background tabs retain the same bounded outcome. Other failures are not retried,
+and account cancellation prevents recovery or aborts its in-flight request.
+Offline entry still attempts the read once rather than pausing the parent
+loader indefinitely. Two consecutive timeouts reach the existing root error
+surface, which owns manual retry and asset version recovery. This is bounded
+recovery, not evidence that upstream latency has been repaired. A successful
+fresh read projects the URL Organization; only
 then may the loader activate its persisted display scope. The component does
 not repeat that activation in a hydration effect. The loader checks cancellation
 before entering persistence activation and before returning its scope; the

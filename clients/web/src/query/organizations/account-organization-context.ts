@@ -1,6 +1,7 @@
+import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type { AccountOrganizationContext } from "@openmeld/schemas";
 import type { QueryClient } from "@tanstack/react-query";
-import { queryOptions } from "@tanstack/react-query";
+import { onlineManager, queryOptions } from "@tanstack/react-query";
 import { readCurrentAccountOrganizationContext } from "#/lib/organizations/account-organization-context";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
 import { baseQueryOptions } from "#/query/query-config";
@@ -14,8 +15,22 @@ export const accountOrganizationContextQueryKey = [
 export function accountOrganizationContextQueryOptions(routeFamily: string) {
 	return queryOptions({
 		queryKey: accountOrganizationContextQueryKey,
-		queryFn: ({ signal }) =>
-			readCurrentAccountOrganizationContext(routeFamily, signal),
+		queryFn: async ({ signal }) => {
+			try {
+				return await readCurrentAccountOrganizationContext(routeFamily, signal);
+			} catch (error) {
+				if (
+					signal.aborted ||
+					!onlineManager.isOnline() ||
+					toStructuredApiClientFailure(error).code !== "network.timeout"
+				) {
+					throw error;
+				}
+				// One fresh attempt after a timeout. Keep this inside the read:
+				// Query's retry scheduler can pause indefinitely in a background tab.
+				return readCurrentAccountOrganizationContext(routeFamily, signal);
+			}
+		},
 		gcTime: baseQueryOptions.gcTime,
 		// An offline entry must reach a recoverable error instead of pausing the
 		// parent loader indefinitely. The read itself has a transport deadline.
