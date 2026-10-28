@@ -93,6 +93,7 @@ export const sensitiveOperationSchema = z.enum([
   "agent_interaction_answer",
   "space_members_add_agent",
   "space_delete",
+  "organization_member_removal_prepare",
   "agent_access_decision",
   "agent_access_grant_revoke",
   "profile_delete",

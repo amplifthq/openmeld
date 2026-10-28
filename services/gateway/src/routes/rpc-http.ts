@@ -39,6 +39,7 @@ import { registerMessageSearchRoutes } from "./rpc-http.message-search";
 import { registerMetaRoutes } from "./rpc-http.meta";
 import { registerOrganizationDocumentRoutes } from "./rpc-http.organization-documents";
 import { registerOrganizationLogoRoutes } from "./rpc-http.organization-logo";
+import { registerOrganizationMemberRemovalRoutes } from "./rpc-http.organization-member-removal";
 import { registerOrganizationSkillRoutes } from "./rpc-http.organization-skills";
 import { registerOrganizationUsageRoutes } from "./rpc-http.organization-usage";
 import { registerOrganizationRoutes } from "./rpc-http.organizations";
@@ -98,6 +99,7 @@ export function registerRpcHttpRoutes(app: Hono<HonoBindings>): void {
   registerAgentAccessRoutes(app);
   registerSensitiveOperationRoutes(app);
   registerOrganizationRoutes(app);
+  registerOrganizationMemberRemovalRoutes(app);
   registerOrganizationUsageRoutes(app);
   registerOrganizationDocumentRoutes(app);
   registerOrganizationSkillRoutes(app);
