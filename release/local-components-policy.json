@@ -1,12 +1,12 @@
 {
-  "version": "0.3.276",
+  "version": "0.3.277",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Releases the existing CLI with consistent published component identities. Existing command contracts and the 0.3.273 required floor remain supported."
+    "reason": "Adds support for accurate hosted runtime diagnostics while existing commands and the 0.3.273 required floor remain supported."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Reconciles the published Service bundle identity without changing its runtime contract. Existing 0.3.273 Services remain compatible."
+    "reason": "Includes shared diagnostic schema updates without changing the Service runtime contract. Existing 0.3.273 Services remain compatible."
   },
   "skills": {
     "updatePolicy": "available",

@@ -970,10 +970,34 @@ const remoteAgentWorkerRuntimeDiagnosticsResponseV2Schema =
       v: z.literal(2),
     });
 
+// Agents SDK schedules no longer expose creation or running timestamps.
+// Version 3 reports only facts from the SDK's public schedule projection.
+const remoteAgentWorkerRuntimeDiagnosticsResponseV3Schema =
+  remoteAgentWorkerRuntimeDiagnosticsResponseV2Schema
+    .omit({
+      schedules: true,
+      v: true,
+    })
+    .extend({
+      schedules: z
+        .array(
+          z.strictObject({
+            callback: nonEmptyStringSchema,
+            delayInSeconds: z.number().nullable(),
+            id: nonEmptyStringSchema,
+            timeMs: z.number().int(),
+            type: z.enum(["scheduled", "delayed", "cron", "interval"]),
+          })
+        )
+        .max(50),
+      v: z.literal(3),
+    });
+
 export const remoteAgentWorkerRuntimeDiagnosticsResponseSchema =
   z.discriminatedUnion("v", [
     remoteAgentWorkerRuntimeDiagnosticsResponseV1Schema,
     remoteAgentWorkerRuntimeDiagnosticsResponseV2Schema,
+    remoteAgentWorkerRuntimeDiagnosticsResponseV3Schema,
   ]);
 
 const remoteAgentCoreCallbackIdentitySchema = {

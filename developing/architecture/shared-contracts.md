@@ -1810,6 +1810,23 @@ Do not discard the diagnostic error or invent beta fields to make an old
 validator accept new evidence. This ordering is a release gate, not deployment
 evidence.
 
+Remote Agent runtime diagnostics version 3 reads schedules from the Agents SDK's
+public `listSchedules()` projection. It reports the bounded schedule id,
+callback, kind, due time in milliseconds, and delayed interval. Creation time,
+running state, execution start, and payload are not exposed by that projection
+and are not inferred. Core continues accepting versions 1 and 2. Dispatch trace
+response version 8 admits version 3; Gateway returns an explicit update-CLI or
+ordinary-trace instruction when versions 4–7 request details and encounter v3.
+Legacy traces and v1/v2 runtime evidence retain their existing shapes. Version 8
+also retains v7 execution-context evidence.
+
+Roll out the Core and Gateway v8 receivers before the CLI that requests v8,
+then deploy the Remote Agent v3 producer. Older CLIs continue ordinary traces;
+after the producer changes, hosted detailed traces require the updated CLI.
+Rollback the producer before removing v3 receivers, and roll back v8 CLI callers
+before removing v8 Gateway/Core receivers. These changes add no execution or
+readiness authority.
+
 Official CLI Skill content uses the signed Markdown channel contract in
 `packages/schemas/src/official-cli-skill.ts`, separately from Organization
 Skills. The optional local component `skills.contentRelease` reports the
@@ -9211,8 +9228,8 @@ maintainability without weakening UX.
 `packages/schemas/src/schemas/http/space-dispatch-trace.ts` owns both the
 legacy and current strict trace response schemas. A caller requests the current
 contract by sending
-`x-openmeld-space-dispatch-trace-response-version: 7`. Core also accepts
-versions `2` through `6`; without the header, Core projects the legacy version `1`
+`x-openmeld-space-dispatch-trace-response-version: 8`. Core also accepts
+versions `2` through `7`; without the header, Core projects the legacy version `1`
 subset. Version `2` omits every version-3-only head no-execution detail,
 including disabled-Local-Agent, reliable Usage, and newer canonical blocker
 families, while retaining the surrounding generic dispatch and attempt
