@@ -63,6 +63,12 @@ export {
   organizationMemberPresenceWriteResponseSchema,
 } from "./http/organization-member-presence";
 export {
+  approvedPluginActionSchema,
+  pluginActionRecoveryInputSchema,
+  readApprovedPluginActionInputSchema,
+  readApprovedPluginActionResponseSchema,
+} from "./http/plugin-action-recovery";
+export {
   listPluginActionRequestsInputSchema,
   listPluginActionRequestsResponseSchema,
   pluginActionRequestCommandRpcSchema,

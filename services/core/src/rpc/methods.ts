@@ -17643,6 +17643,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     requestSignature: input.requestSignature,
     issueDestination: input.issueDestination,
     issueDestinationAuthority: input.issueDestinationAuthority,
+    issueActionRecovery: input.issueActionRecovery,
     linearIssueReceipt: input.linearIssueReceipt,
     githubIssueCompletion: input.githubIssueCompletion,
     includeGitHubTaskSync: input.includeGitHubTaskSync,

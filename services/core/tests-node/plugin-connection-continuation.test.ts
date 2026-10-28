@@ -308,6 +308,8 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
       ).toBe(humanId);
     }
     expect(first.text).toContain("original-issue-write");
+    expect(first.text).not.toContain("Operation receipts");
+    expect(owner.receipts).not.toHaveBeenCalled();
     expect(first.text).toContain(approval.requestId);
     expect(first.text).toContain(approval.intent.actionId);
     expect(first.messageEnvelope.replyToSignalId).toBe(

@@ -371,11 +371,13 @@ export const remoteAgentWorkerSubmitMessagesResultSchema = z.strictObject({
 
 export const remoteAgentWorkerSubmitCapabilitiesRequestSchema = z.strictObject({
   v: z.literal(1),
+  includePluginActionRecovery: z.literal(true).optional(),
 });
 
 export const remoteAgentWorkerSubmitCapabilitiesSchema = z.strictObject({
   v: z.literal(1),
   taskId: z.literal(true),
+  pluginActionRecovery: z.literal(true).optional(),
 });
 
 /** A missing or unfinished receipt never proves that execution did not occur. */

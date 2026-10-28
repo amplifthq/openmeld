@@ -158,15 +158,17 @@ export async function continuePluginConnection(
     connection: selected.connection,
     consumer,
   });
-  const receipts = await listConnectorOperationReceiptsForContinuation({
-    db,
-    organizationId: member.organizationId,
-    actorProfileId: task.profileId,
-    representedUserId: member.userId,
-    sourceSpaceId: input.spaceId,
-    fromMs: task.createdAtMs,
-    throughMs: task.completedAtMs,
-  });
+  const receipts = approvedAction
+    ? []
+    : await listConnectorOperationReceiptsForContinuation({
+        db,
+        organizationId: member.organizationId,
+        actorProfileId: task.profileId,
+        representedUserId: member.userId,
+        sourceSpaceId: input.spaceId,
+        fromMs: task.createdAtMs,
+        throughMs: task.completedAtMs,
+      });
   requireSettledContinuationReceipts(receipts);
   // Deliberately independent of chosen scope and browser instance: changing a
   // setup selection, retrying a timed-out POST, or double-clicking cannot create
@@ -186,6 +188,7 @@ export async function continuePluginConnection(
     organizationId: member.organizationId,
     spaceId: input.spaceId,
     sourceDispatchId: task.dispatchId,
+    approvedActionRequestId: approvedAction?.requestId,
     source: sourceGuard,
     reply: {
       signalId: reply.id,

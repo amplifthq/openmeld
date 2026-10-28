@@ -4,6 +4,7 @@ import type {
   CenterAgentRecordConnectorActionOperationBody,
   OpenMeldRequestContext,
 } from "@openmeld/schemas/types";
+import { digestCanonicalJson } from "@openmeld/utils";
 import { readPluginAccess } from "../connectors/plugin-access";
 import {
   preparePluginActionRequest,
@@ -120,6 +121,10 @@ export async function prepareProjectIssueActionAdmission(input: {
     connectionName: connection.connectionName,
     activeOnly: true,
   });
+  const recovery = await validateIssueActionRecovery(
+    operation,
+    connection.connectionName
+  );
   const authorization = await preparePluginActionRequest({
     db: input.db,
     intent: {
@@ -142,6 +147,7 @@ export async function prepareProjectIssueActionAdmission(input: {
         ...destination,
         requestSignature: operation.requestSignature,
       },
+      recovery,
     },
   });
   if (!authorization.root) {
@@ -162,6 +168,42 @@ export async function prepareProjectIssueActionAdmission(input: {
     executionGuard: authorization.executionGuard,
     sourceRequestKey: authorization.root,
   };
+}
+
+async function validateIssueActionRecovery(
+  operation: CenterAgentRecordConnectorActionOperationBody,
+  connectionName: string
+) {
+  const recovery = operation.issueActionRecovery;
+  if (recovery) {
+    const expectedSignature = await digestCanonicalJson({
+      actionId: operation.actionId,
+      connectionName,
+      input: recovery.input,
+      service: operation.service,
+      ...(recovery.issueDestinationAuthority
+        ? { issueDestinationAuthority: recovery.issueDestinationAuthority }
+        : {}),
+      ...(operation.service === "github"
+        ? {
+            githubActor: recovery.githubActor,
+          }
+        : {}),
+    });
+    if (
+      expectedSignature !== operation.requestSignature ||
+      (operation.service === "github" && !recovery.githubActor) ||
+      (operation.service !== "github" && recovery.githubActor) ||
+      recovery.issueDestinationAuthority !== operation.issueDestinationAuthority
+    ) {
+      throw createCoreRpcHttpError({
+        code: "plugin.request.recovery_input_mismatch",
+        status: 409,
+        reason: "The retained action does not match the exact operation input.",
+      });
+    }
+  }
+  return recovery;
 }
 
 async function authorizeExplicitIssueRequest(

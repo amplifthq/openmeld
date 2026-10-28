@@ -3,6 +3,7 @@ import * as z from "../../lazy-zod";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { centerAgentConnectorActionExecutionConnectionSchema } from "./center-agent";
 import { connectorServiceSchema } from "./connector-connections";
+import { pluginActionRecoveryInputSchema } from "./plugin-action-recovery";
 import { pluginActionRequestStatusSchema } from "./plugin-action-request-status";
 
 export const pluginActionRequestIntentSchema = z.strictObject({
@@ -23,6 +24,7 @@ export const pluginActionRequestIntentSchema = z.strictObject({
   actionId: z.string().min(1).max(160),
   effect: z.enum(["write", "destructive", "unspecified"]),
   input: z.record(z.string(), z.unknown()),
+  recovery: pluginActionRecoveryInputSchema.optional(),
 });
 export const pluginActionRequestViewSchema =
   pluginActionRequestStatusSchema.extend({

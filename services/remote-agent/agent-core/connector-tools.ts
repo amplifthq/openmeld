@@ -919,6 +919,19 @@ async function prepareConnectorActionOperation(input: {
     requestSignature,
     issueDestination: input.issueResolution?.destination,
     issueDestinationAuthority: input.request.issueDestinationAuthority,
+    ...(input.issueResolution
+      ? {
+          issueActionRecovery: {
+            input: input.request.input,
+            ...(input.request.issueDestinationAuthority
+              ? {
+                  issueDestinationAuthority:
+                    input.request.issueDestinationAuthority,
+                }
+              : {}),
+          },
+        }
+      : {}),
     service: input.request.service,
     toolContext: input.toolContext,
   });
@@ -1571,6 +1584,7 @@ export async function recordConnectorActionOperation(input: {
   requestSignature: string;
   issueDestination?: CenterAgentRecordConnectorActionOperationBody["issueDestination"];
   issueDestinationAuthority?: CenterAgentRecordConnectorActionOperationBody["issueDestinationAuthority"];
+  issueActionRecovery?: CenterAgentRecordConnectorActionOperationBody["issueActionRecovery"];
   linearIssueReceipt?: CenterAgentRecordConnectorActionOperationBody["linearIssueReceipt"];
   service: ConnectorService;
   toolContext: ConnectorToolContext;
@@ -1603,6 +1617,9 @@ export async function recordConnectorActionOperation(input: {
             : {}),
           ...(input.issueDestinationAuthority
             ? { issueDestinationAuthority: input.issueDestinationAuthority }
+            : {}),
+          ...(input.issueActionRecovery
+            ? { issueActionRecovery: input.issueActionRecovery }
             : {}),
           ...(input.linearIssueReceipt
             ? { linearIssueReceipt: input.linearIssueReceipt }
