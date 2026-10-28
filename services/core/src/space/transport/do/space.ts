@@ -85,8 +85,13 @@ import {
   nativeReplyPlacementSchema,
   normalizeMessageEnvelope,
   normalizeSpaceCursorPatch,
+  type OrganizationMemberRemovalSpace,
+  type OrganizationMemberRemovalSpaceInput,
+  type OrganizationMemberRemovalSpacePrepareInput,
   openDirectMessageSpaceBodySchema,
   openMeldDaemonTaskResultEnvelopeSchema,
+  organizationMemberRemovalSpaceInputSchema,
+  organizationMemberRemovalSpacePrepareInputSchema,
   type PluginConnectionContinuationBinding,
   type PluginConnectionLocalSourceRequest,
   parseOptionalClientMessageId,
@@ -314,6 +319,7 @@ import {
   isAutomaticWakeSpace,
   isDirectMessageSpace,
   isOneHumanAgentConversation,
+  resolveSpaceMemberDeparture,
   resolveThreadAutomaticWakeTarget,
   resolveThreadWakeContinuation,
   type SpaceAccessContext,
@@ -420,6 +426,10 @@ import {
   eraseAccountConversation,
   stopAccountConversation,
 } from "../../../organizations/account-conversation-deletion";
+import {
+  requireOrganizationMemberRemovalManager,
+  requireOrganizationMemberRemovalSuccessor,
+} from "../../../organizations/member-removal-authorization";
 import {
   ConcurrentOrganizationMembershipReads,
   readOrganizationAccountIdentityProjection,
@@ -12630,6 +12640,7 @@ export class Space extends DurableObject<CoreBindings> {
         throw new Error("Space organization mismatch.");
       }
       if (
+        !meta?.deletedAt &&
         meta?.ownerUserIds?.includes(input.userId) &&
         !(meta.directMessage && !meta.directMessage.convertedAt)
       ) {
@@ -12647,6 +12658,236 @@ export class Space extends DurableObject<CoreBindings> {
       });
       return null;
     });
+  }
+  async rpcPreviewOrganizationMemberRemovalSpace(
+    raw: OrganizationMemberRemovalSpaceInput
+  ): Promise<OrganizationMemberRemovalSpace | null> {
+    const parsed = organizationMemberRemovalSpaceInputSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw createCoreRpcHttpError({
+        status: 400,
+        reason: "Invalid member removal request.",
+      });
+    }
+    const input = parsed.data;
+    this.applySpaceRef(input.spaceId);
+    const result = await this.blockConcurrencyWithPostgres(async () => {
+      try {
+        const authorized = await requireOrganizationMemberRemovalManager(
+          this.bindings,
+          input
+        );
+        return {
+          ok: true as const,
+          value: await this.readOrganizationMemberRemovalSpace(authorized),
+        };
+      } catch (error) {
+        return { ok: false as const, error };
+      }
+    });
+    if (!result.ok) {
+      throw result.error;
+    }
+    return result.value;
+  }
+  async rpcPrepareOrganizationMemberRemovalSpace(
+    raw: OrganizationMemberRemovalSpacePrepareInput
+  ): Promise<void> {
+    const parsed =
+      organizationMemberRemovalSpacePrepareInputSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw createCoreRpcHttpError({
+        status: 400,
+        reason: "Invalid member removal request.",
+      });
+    }
+    const input = parsed.data;
+    this.applySpaceRef(input.spaceId);
+    const result = await this.blockConcurrencyWithPostgres(async () => {
+      try {
+        await this.prepareOrganizationMemberRemovalSpace(input);
+        return { ok: true as const };
+      } catch (error) {
+        return { ok: false as const, error };
+      }
+    });
+    if (!result.ok) {
+      throw result.error;
+    }
+  }
+  private async prepareOrganizationMemberRemovalSpace(
+    input: OrganizationMemberRemovalSpacePrepareInput
+  ): Promise<void> {
+    const authorized = await requireOrganizationMemberRemovalManager(
+      this.bindings,
+      input
+    );
+    const current = await this.readOrganizationMemberRemovalSpace(authorized);
+    if (
+      !current ||
+      current.spaceId !== input.expected.spaceId ||
+      current.action !== input.expected.action ||
+      current.name !== input.expected.name
+    ) {
+      throw createCoreRpcHttpError({
+        status: 409,
+        code: "organization.member_removal_changed",
+        reason:
+          "This Space changed. Review this member's Spaces again before removing them.",
+      });
+    }
+    const meta = this.readSpaceMetaRecord();
+    if (!meta) {
+      throw new Error("Space metadata is unavailable.");
+    }
+    if (current.action === "close") {
+      await this.retainDeletedSpace(meta);
+    } else {
+      const owners = new Set(meta.ownerUserIds);
+      let successor: ResolvedSpaceMemberProfile | null = null;
+      if (current.action === "transfer") {
+        const nextOwner = await requireOrganizationMemberRemovalSuccessor(
+          authorized,
+          input.successorUserId
+        );
+        successor = nextOwner;
+        // The FK protects the successor before either membership or ownership
+        // is granted. The processing administrator is never added to the Space.
+        await this.protectSpaceOwnerMembership(
+          authorized.organizationId,
+          nextOwner.ownerUserId
+        );
+        owners.add(nextOwner.ownerUserId);
+      }
+      owners.delete(authorized.userId);
+      if (owners.size === 0) {
+        throw new Error("A shared Space must retain an owner.");
+      }
+      const now = Date.now();
+      this.ctx.storage.transactionSync(() => {
+        if (successor) {
+          addSpaceMembersUseCase({
+            sql: this.ctx.storage.sql,
+            env: this.bindings,
+            spaceId: this.spaceId,
+            members: [successor],
+            actorProfileId: input.context.actorContext.openMeldProfileId,
+            actorOwnerUserId: authorized.actorUserId,
+            actorDisplayName: input.context.actorContext.profileName,
+            liveSessions: this.sessions.values(),
+          });
+          this.ctx.storage.sql.exec(
+            "INSERT INTO space_ownership_audit (id, actor_user_id, target_user_id, role, created_at) VALUES (?, ?, ?, 'owner', ?)",
+            crypto.randomUUID(),
+            authorized.actorUserId,
+            successor.ownerUserId,
+            now
+          );
+        }
+        this.ctx.storage.sql.exec(
+          "UPDATE space_meta SET owner_user_ids_json = ?, updated_at = ? WHERE space_id = ?",
+          JSON.stringify([...owners].sort()),
+          now,
+          this.spaceId
+        );
+        this.ctx.storage.sql.exec(
+          "INSERT INTO space_ownership_audit (id, actor_user_id, target_user_id, role, created_at) VALUES (?, ?, ?, 'member', ?)",
+          crypto.randomUUID(),
+          authorized.actorUserId,
+          authorized.userId,
+          now
+        );
+      });
+      // Persist/schedule the index outbox before cleanup can fail, so the new
+      // owner can discover the Space even when membership removal needs retry.
+      await this.projectCurrentSpaceIndexSnapshot("space.members_updated");
+      await authorized.db.query({
+        text: 'DELETE FROM "openmeld"."space_owner_member_references" WHERE space_id = $1 AND member_id = $2',
+        values: [this.spaceId, authorized.memberId],
+      });
+      await this.broadcastSpaceMetaChanged({ reason: "space.meta.updated" });
+    }
+    console.info("[core.organization.member_removal_space_prepared]", {
+      event: "core.organization.member_removal_space_prepared",
+      action: current.action,
+      actorUserId: authorized.actorUserId,
+      organizationId: authorized.organizationId,
+      memberId: authorized.memberId,
+      spaceId: this.spaceId,
+      successorUserId:
+        current.action === "transfer" ? input.successorUserId : undefined,
+      requestId: input.context.actorContext.requestId,
+    });
+  }
+  private async readOrganizationMemberRemovalSpace(input: {
+    organizationId: string;
+    userId: string;
+  }): Promise<OrganizationMemberRemovalSpace | null> {
+    const meta = this.readSpaceMetaRecord();
+    if (!meta || meta.organizationId !== input.organizationId) {
+      throw new Error("Space ownership could not be verified.");
+    }
+    if (meta.deletedAt) {
+      return null;
+    }
+    const db = this.requireSpaceIndexDb();
+    const members = listSpaceMemberRecords(this.ctx.storage.sql);
+    // Only a verified Organization-managed Center Agent may count as a solo
+    // user's assistant; a missing owner on any other participant is ambiguous.
+    const center = members.some(
+      (member) =>
+        member.profileKindSnapshot === "agent" && !member.ownerUserIdSnapshot
+    )
+      ? (
+          await db.query<{ profile_id: string }>({
+            text: `SELECT p.profile_id FROM "openmeld"."center_agent_designations" d
+            JOIN "openmeld"."openmeld_profiles" p ON p.profile_id = d.agent_profile_id
+            WHERE d.organization_id = $1 AND p.organization_id = $1
+              AND p.profile_kind = 'agent' AND p.managed_role = 'center_agent'
+              AND p.owner_user_id IS NULL`,
+            values: [input.organizationId],
+          })
+        ).rows[0]?.profile_id
+      : undefined;
+    const decision = resolveSpaceMemberDeparture({
+      departingUserId: input.userId,
+      ownerUserIds: meta.ownerUserIds,
+      visibility: meta.visibility,
+      accessMode: meta.accessMode,
+      allowGuests: meta.allowGuests,
+      isDirectMessage: Boolean(
+        meta.directMessage && !meta.directMessage.convertedAt
+      ),
+      historicalMembers: members.map((member) => ({
+        profileId: member.profileId,
+        profileKind: member.profileKindSnapshot,
+        ownerUserId: member.ownerUserIdSnapshot,
+        isOrganizationCenterAgent: member.profileId === center,
+      })),
+    });
+    if (decision === "not_owner") {
+      return null;
+    }
+    let action: OrganizationMemberRemovalSpace["action"] =
+      decision === "handoff_required" ? "transfer" : decision;
+    if (action === "close") {
+      const invitation = await db.query({
+        text: `SELECT 1 FROM "openmeld"."space_invitations" WHERE space_id = $1
+          AND status IN ('pending', 'accepting') AND expires_at > $2 LIMIT 1`,
+        values: [this.spaceId, Date.now()],
+      });
+      if (
+        invitation.rows.length ||
+        Object.values(await this.readDeletionPendingWork()).some(Boolean)
+      ) {
+        action = "transfer";
+      }
+    }
+    return {
+      spaceId: this.spaceId,
+      name: meta.name ?? "Untitled Space",
+      action,
+    };
   }
   rpcAuthorizeSpaceInvitation(raw: SpaceInvitationAccessInput): {
     name: string;
@@ -20602,17 +20843,10 @@ export class Space extends DurableObject<CoreBindings> {
     context: CoreRpcContextInput
   ): Promise<Response> {
     if (existing.deletedAt) {
+      await this.retainDeletedSpace(existing);
       return Response.json({ spaceId: this.spaceId, deleted: true as const });
     }
-    const pendingWork = {
-      ...(await readSpaceDeletionPendingWork({
-        db: this.requireSpaceIndexDb(),
-        spaceId: this.spaceId,
-      })),
-      dispatch: hasUnsettledDispatchOutboxRecords(this.ctx.storage.sql),
-      stopPublication:
-        listPendingWakeStopOutcomes(this.ctx.storage.sql, 1).length > 0,
-    };
+    const pendingWork = await this.readDeletionPendingWork();
     if (Object.values(pendingWork).some(Boolean)) {
       console.info("[core.space.deletion_blocked]", {
         event: "core.space.deletion_blocked",
@@ -20630,7 +20864,23 @@ export class Space extends DurableObject<CoreBindings> {
         { status: 409 }
       );
     }
-    const deletedAt = new Date().toISOString();
+    await this.retainDeletedSpace(existing);
+    return Response.json({ spaceId: this.spaceId, deleted: true as const });
+  }
+  private async readDeletionPendingWork() {
+    return {
+      ...(await readSpaceDeletionPendingWork({
+        db: this.requireSpaceIndexDb(),
+        spaceId: this.spaceId,
+      })),
+      dispatch: hasUnsettledDispatchOutboxRecords(this.ctx.storage.sql),
+      stopPublication:
+        listPendingWakeStopOutcomes(this.ctx.storage.sql, 1).length > 0,
+    };
+  }
+  /** Retain history and close writes before releasing membership protection. */
+  private async retainDeletedSpace(existing: SpaceMetaRecord): Promise<void> {
+    const deletedAt = existing.deletedAt ?? new Date().toISOString();
     upsertSpaceMetaRecord(this.ctx.storage.sql, {
       ...existing,
       deletedAt,
@@ -20642,7 +20892,6 @@ export class Space extends DurableObject<CoreBindings> {
       values: [this.spaceId],
     });
     await this.broadcastSpaceMetaChanged({ reason: "space.deleted" });
-    return Response.json({ spaceId: this.spaceId, deleted: true as const });
   }
   private async deleteSpaceStorage(
     existing: SpaceMetaRecord,

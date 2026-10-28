@@ -94,6 +94,62 @@ CLI release manifests and binary contents do not change. Core Slack retry pacing
 reuses `receivedAtMs` in the existing v1 message and introduces no wire fields.
 No Service or CLI contract version change or required local update is needed.
 
+## Organization member-removal preparation
+
+`packages/schemas/src/organization-member-removal.ts` owns the additive
+`POST /v1/organizations/current/member-removal/preview` and `/prepare` HTTP
+contracts, their Gateway-to-Core RPC inputs, and the Core-to-Space inspection and
+preparation inputs. HTTP bodies cannot supply actor or Organization context:
+Gateway supplies the authenticated context, and Core and each Space verify the
+current human administrator and the exact target membership. The endpoints
+exclude self-removal and Organization-owner removal.
+
+Preview accepts `memberId` and returns the resolved member/user identity plus
+Space entries containing only `spaceId`, `name`, and `action` (`close`, `demote`,
+or `transfer`). Preparation accepts that exact membership and reviewed Space list,
+plus `successorUserId` when a transfer requires one. The preview is not authority:
+Core rereads it, and each Space rechecks the confirmed action under its existing
+serialization gate. A changed plan requires a new review. No preview version or
+optional response capability changes existing contracts.
+
+Organization administration grants this narrow management action without granting
+ordinary Space read access. Space remains the sole owner of eligibility,
+membership, management authority, and retained closure. A confirmed successor
+receives membership and ownership; the administrator is not implicitly joined.
+The user-visible confirmation precedes these changes, which can remain saved
+when a later action fails. Gateway never automatically retries preparation.
+`prepared: true` confirms Space preparation only; native Auth removal must still
+succeed, including its authorization and restrictive ownership-reference checks.
+Existing private-data cleanup starts through the native departure lifecycle.
+
+Preparation is the sensitive operation `organization_member_removal_prepare`.
+Gateway adds database-verified credential facts separately from the HTTP body and
+general actor context. Core applies the existing sensitive-operation gate to the
+administrator's credential before any Space changes, binds an Inbox confirmation
+to the exact member, reviewed Spaces, and successor, and audits the outcome. The
+credential is stripped before the operation reaches the coordinator or Spaces.
+Interactive Web/App sessions pass; CLI/task credentials retain the existing
+request-root and owner-wide risk-window checks. The departing person never needs
+to confirm. Preview is read-only and does not consume a confirmation.
+
+Deploy the Core receiver first, then the updated Web confirmation/audit readers
+and removal caller, then Gateway to expose the new endpoints. During that interval
+the new Web action may be unavailable and must fail without removing the member.
+The operation enum is additive on this new surface: existing clients do not
+originate it through their old commands, and an older open Web client must refresh
+to handle its confirmation. Never relabel the operation as another kind or bypass
+the credential gate to accommodate an older reader. Remove the new caller before
+rolling back Gateway; Core and confirmation readers must retain this enum value
+while its confirmation or audit records can still be read.
+
+Old clients and native Auth removal keep their existing contracts and handoff
+checks. Existing CLI, OpenMeld Service, managed Skills, setup, Wake, and diagnostic
+payloads are unchanged; no database migration, runtime compatibility-version
+change, or required local update is introduced. Shared-schema/package edits remain
+inputs to local-component release-readiness verification. This feature PR runs
+that gate and defers packaged-artifact version and stamp policy to the release
+owner under the current delivery rules.
+
 ## Message Details thread opt-in
 
 Message Details also accepts `includeThreadContext: true`. Only this opt-in

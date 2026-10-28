@@ -583,6 +583,10 @@ import {
   rpcCenterAgentGetOrganizationInviteLink,
 } from "./organizations/center-agent-organization-invite-link-rpc";
 import { rpcCenterAgentSetOrganizationWorkingLanguage } from "./organizations/center-agent-working-language-rpc";
+import {
+  prepareOrganizationMemberRemoval,
+  previewOrganizationMemberRemoval,
+} from "./organizations/member-removal";
 import { resolveOrganizationMembershipById } from "./organizations/organization-context";
 import { organizationJoinRequest } from "./organizations/organization-join-requests";
 import { spaceInvitation } from "./organizations/space-invitations";
@@ -4755,6 +4759,30 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   ) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcListMemberAgentSensitiveOperationAudit(this.env, input)
+    );
+  }
+  previewOrganizationMemberRemoval(
+    input: import("@openmeld/schemas").OrganizationMemberRemovalPreviewInput
+  ): Promise<import("@openmeld/schemas").OrganizationMemberRemovalPlan> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      previewOrganizationMemberRemoval(this.env, input)
+    );
+  }
+  prepareOrganizationMemberRemoval(
+    input: import("@openmeld/schemas").OrganizationMemberRemovalPrepareInput &
+      GatewaySensitiveCredential
+  ): Promise<
+    import("@openmeld/schemas").OrganizationMemberRemovalPrepareResponse
+  > {
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: null,
+        operation: "organization_member_removal_prepare",
+      },
+      (operationInput) =>
+        prepareOrganizationMemberRemoval(this.env, operationInput)
     );
   }
   readOrganizationAiBilling(input: OrganizationAiBillingRpcInput) {
