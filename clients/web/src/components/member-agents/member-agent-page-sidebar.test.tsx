@@ -65,6 +65,7 @@ describe("MemberAgentPageSidebar", () => {
 				activeProfileId="p-default"
 				defaultProfileId="p-default"
 				displayName="Felix’s Claude Code"
+				harnessKind="claude-code"
 				memberAgentId="ma-1"
 				onSelectProfile={vi.fn()}
 				profiles={[DEFAULT]}
@@ -87,6 +88,7 @@ describe("MemberAgentPageSidebar", () => {
 				activeProfileId="p-default"
 				defaultProfileId="p-default"
 				displayName="Felix’s Claude Code"
+				harnessKind="claude-code"
 				memberAgentId="ma-1"
 				onSelectProfile={onSelectProfile}
 				profiles={[DEFAULT, REVIEWER]}
@@ -123,6 +125,7 @@ describe("MemberAgentPageSidebar", () => {
 				activeProfileId={null}
 				defaultProfileId="p-default"
 				displayName="Felix’s Claude Code"
+				harnessKind="claude-code"
 				memberAgentId="ma-1"
 				onSelectProfile={vi.fn()}
 				profiles={[DEFAULT]}
@@ -145,6 +148,7 @@ describe("MemberAgentPageSidebar", () => {
 				activeProfileId={null}
 				defaultProfileId="p-default"
 				displayName="Felix’s Claude Code"
+				harnessKind="claude-code"
 				memberAgentId="ma-1"
 				onSelectProfile={vi.fn()}
 				profiles={[DEFAULT]}
@@ -161,6 +165,7 @@ describe("MemberAgentPageSidebar", () => {
 				defaultProfileId="p-default"
 				displayName="Tali’s Claude Code"
 				emptyAction={<button type="button">Ask to use</button>}
+				harnessKind="claude-code"
 				memberAgentId={null}
 				onSelectProfile={vi.fn()}
 				profiles={[DEFAULT]}
@@ -169,6 +174,7 @@ describe("MemberAgentPageSidebar", () => {
 		expect(sessionList).toHaveBeenLastCalledWith({
 			memberAgentId: null,
 			colleagueAgent: {
+				harnessKind: "claude-code",
 				displayName: "Tali’s Claude Code",
 				defaultProfileId: "p-default",
 				profiles: [DEFAULT],

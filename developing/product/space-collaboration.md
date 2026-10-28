@@ -1713,6 +1713,11 @@ ordinary Agent token labeled `Click to wake` below their latest sent message.
 Clicking it directly saves an edit with that Agent's first Wake, without opening
 an editor, asking for another selection, or requiring another save. Failures
 remain beside the suggestion for retry; repeated clicks cannot dispatch twice.
+Agent candidates in the Composer member picker show the Profile name and, when
+available, its owner's name. This distinguishes identical names without changing
+the Profile ID used by a mention or its Wake/mention-only behavior. Owner names
+are searchable alongside Profile names.
+
 Manual `@` editing uses the same Composer member picker. Selection edits the
 draft; `Save & wake` commits its first Wake. `Save changes` only updates content. All viewers
 see the resulting ordinary Wake token and edited marker on the original
