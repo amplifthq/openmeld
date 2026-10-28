@@ -335,8 +335,19 @@ A compact Light/Dark/System selector follows Download Desktop App without a divi
 open when changed. Settings > Appearance uses three full-size theme cards with
 labels and descriptions. Both controls share the theme choices and icon set;
 the existing theme provider owns persistence and system appearance. Spaces and its contextual sidebar heading always open
-`/o/{orgSlug}/spaces`. The directory contains Your Spaces, Direct messages, and
-Discover, in that order (Discover is absent in personal workspaces).
+`/o/{orgSlug}/spaces`. This home displays the shared conversation list, with
+Spaces, Direct Messages, and Agent conversations interleaved in the default
+Recent view. Existing explicit Grouped, pin-layout, and preview preferences
+remain honored. The home list is primary content: it remains visible even if
+the contextual sidebar was hidden, and fills narrow screens rather than being
+placed behind a drawer. Wide screens show a selection prompt beside it; opening
+a row uses its canonical conversation route and the existing contextual list.
+Home search is visible without opening a menu and does not autofocus. The
+New conversation menu and wide-screen selection prompt expose Browse Spaces
+at `?view=spaces`. The directory retains Your Spaces, Direct messages, and
+Discover, with a leading Chats tab returning home. Discover is absent in
+personal workspaces. Home does not gate its list on the Organization Space
+directory query; it uses the existing authorized conversation read model.
 
 Your Spaces, Direct messages, and Discover default to Cards and offer Table in the directory toolbar.
 The tab body and navigation read the same immediate URL state, so switching
@@ -453,7 +464,9 @@ sidebar preference; ordinary pin membership remains Space Index-owned and
 session pins remain in `chats` preferences. New pins appear first without changing
 the existing pinned order, including entries hidden by filters. Dragging still
 uses the chosen drop position. Unpin restores the saved group.
-Pinned defaults to Grid: 48px avatars above two-line names, with two to four
+Pinned defaults to List, keeping previews and timestamps in the same compact
+row layout as recent conversations. An explicit Grid choice remains supported:
+48px avatars above two-line names, with two to four
 columns targeting at least 76px per tile and 4px gaps. Additional rows use the
 existing disclosure control. The Pinned header's Layout menu switches between
 Grid and ordinary List rows without changing pin membership or manual order.
@@ -464,8 +477,8 @@ clears across empty last-row cells. List retains ordinary previews and timestamp
 Spaces, People, and Agents are optional filters. The plus menu offers New message
 and New Space. The adjacent View and filters menu holds separate Conversation
 view and Filter conversations submenus. The Spaces title remains the link to
-the Your Spaces / Discover directory; there is no separate Browse button.
-Spaces and People hide their sidebar search fields by default. Search in the
+the conversation home; Browse Spaces in the New conversation menu opens the
+Your Spaces / Discover directory. Conversation detail and People hide their sidebar search fields by default. Search in the
 header options menu reveals and focuses the field through the shared sidebar
 search disclosure. The compact Spaces field says "Find a space..." and searches
 existing conversations. In both sidebars, the trailing Close search icon and
