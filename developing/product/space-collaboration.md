@@ -192,6 +192,11 @@ starts it; a queued or failed handoff is shown separately. Generic Wake,
 ordinary replies, and execution completion never advance the Task. Every
 initial, review, and rework handoff carries the same Task identity and its
 current brief in the Agent dispatch context.
+System-emitted Task handoffs must prepare the same durable Wake dispatch seed
+as ordinary messages before publishing an activated message. A blocked target,
+including a self-Wake, leaves a visible Task delivery failure with its original
+reason; it is never recorded as a successful handoff. The Task phase remains
+unchanged, and ordinary Wake permission checks still apply.
 When the Center Agent arranges a Task for its verified current human requester,
 Core rechecks the live delivery, Binding, and requester access. The requester
 must still be an active member of this Space and the Task's requester. This
