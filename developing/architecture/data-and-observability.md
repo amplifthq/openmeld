@@ -524,6 +524,17 @@ contract.
   `space.members.changed`. A null value is a confirmed absence; failed reads
   write nothing. These rows never feed access, readiness, or Wake policy.
   Readiness snapshots keep request-scoped Auth Profile facts.
+- **Member runtime status.** Members snapshots isolate failed Hub route and
+  owner-Service preloads to the affected owner. A failed read is an explicit
+  unavailable input to the existing Core readiness projection, not a missing
+  preload that permits per-Profile lookup fan-out. Successful owner reads remain
+  usable in the same snapshot. Failures retain bounded diagnostic context and
+  are not cached across snapshots. Membership, identity, lineage, and access
+  reads keep their existing fail-closed behavior. Members route-batch reads use
+  the same five-second total Hub budget as owner-Service lookups, so an
+  unavailable owner cannot hold this projection behind the general batch
+  reader's longer budget. The readiness owner still resolves independently
+  confirmed route evidence; the members reader does not override that policy.
 - **Thread previews.** A thread preview renders one line per reply, so
   bootstrap and thread-preview reads carry a text reply longer than 1,000
   characters only through the end of the line it shows
@@ -1027,6 +1038,15 @@ is human. An Agent delegation/execution credential or a selected Human Profile
 alone cannot approve. This is the existing account credential boundary, not a
 human-presence guarantee when an Agent has the owner's full account credentials.
 No email code or separate factor enrollment is required.
+
+For hosted Linear and GitHub issue creation, that same private request may also
+retain signature-verified recovery input, bounded to 256 KiB. It is executable
+only by its exact admitted, approved continuation within the existing one-hour
+request lifetime. The approval recovery sweep removes expired recovery bodies
+in batches of at most 1,000 while preserving decision and operation identity.
+No provider credentials, public message copies or second execution ledger are
+introduced. Source edits, another requester, revoked membership, a changed
+connection/access revision, expiry and rejection prevent recovery.
 
 The decision and Inbox resolution share a conditional PostgreSQL transaction. Repeated or
 lost responses return the same decision and root. The operation owner rechecks
@@ -4107,6 +4127,10 @@ Detailed CLI trace is the supported handoff to local agents and operators. A
 caller supplies the normal Space and dispatch selectors; Core resolves the
 frozen runtime conversation identity and returns the bounded runtime diagnostic
 projection. Callers must not query PostgreSQL or supply a runtime generation identity.
+Schedule evidence comes from the Agents SDK's public schedule projection rather
+than SDK-private tables. The v3 projection does not assert creation or running
+state that the SDK does not report; its response is limited to 50 schedules and
+never contains callback payloads.
 
 Native continuations can have a native-delivery ledger record without a
 workstation Dispatch Ledger row. Negotiated trace response v6 reads the unique

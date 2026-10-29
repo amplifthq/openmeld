@@ -53,6 +53,7 @@ const PERSONAL_PRODUCT_TOOLS = new Set([
   "openmeld_list_message_reads",
   "openmeld_list_connected_apps",
   "openmeld_list_app_actions",
+  "openmeld_get_app_action_status",
   "openmeld_execute_app_action",
 ]);
 

@@ -1108,8 +1108,17 @@ function SpaceComposerMentionGroup(input: {
 			<InlineComboboxGroupLabel>{input.title}</InlineComboboxGroupLabel>
 			{input.items.map((item) => (
 				<InlineComboboxItem
+					className={
+						item.suggestion.profileKind === "agent" &&
+						item.memberEntry.ownerName
+							? "h-auto min-h-10 py-1"
+							: undefined
+					}
 					key={item.suggestion.profileId}
-					keywords={[item.suggestion.primaryMentionLabel]}
+					keywords={[
+						item.suggestion.primaryMentionLabel,
+						item.memberEntry.ownerName ?? "",
+					]}
 					label={item.suggestion.profileName}
 					onClick={() => insertProfile(editor, item)}
 					value={item.suggestion.profileName}
@@ -1127,14 +1136,22 @@ function SpaceComposerMentionGroup(input: {
 						profileKind={item.suggestion.profileKind}
 						profileName={item.suggestion.profileName}
 					/>
-					<span className="flex min-w-0 flex-1 items-center gap-2 font-medium">
-						<span className="truncate">{item.suggestion.profileName}</span>
-						{item.suggestion.profileKind === "agent" ? (
-							<ComposerAgentAvailability item={item} />
-						) : null}
+					<span className="flex min-w-0 flex-1 flex-col">
+						<span className="flex min-w-0 items-center gap-2 font-medium">
+							<span className="truncate">{item.suggestion.profileName}</span>
+							{item.suggestion.profileKind === "agent" ? (
+								<ComposerAgentAvailability item={item} />
+							) : null}
+							{item.suggestion.profileKind === "agent" &&
+							item.suggestion.profileId !== context.centerAgentProfileId ? (
+								<AgentProfileUsage profileId={item.suggestion.profileId} />
+							) : null}
+						</span>
 						{item.suggestion.profileKind === "agent" &&
-						item.suggestion.profileId !== context.centerAgentProfileId ? (
-							<AgentProfileUsage profileId={item.suggestion.profileId} />
+						item.memberEntry.ownerName ? (
+							<span className="truncate text-muted-foreground text-xs">
+								Owned by {item.memberEntry.ownerName}
+							</span>
 						) : null}
 					</span>
 					<span className="ml-2 text-muted-foreground text-xs">

@@ -679,6 +679,10 @@ describe("sensitive operation credentials", () => {
       ["agentProfileExecutionMode", { body: { mode: "serial" } }],
       ["respondToSpaceAgentInteraction", { spaceId: "space-1" }],
       ["deleteSpace", { spaceId: "space-1" }],
+      [
+        "prepareOrganizationMemberRemoval",
+        { memberId: `member_${f.tali.userId}`, spaces: [] },
+      ],
       ["decideAgentAccessRequest", { requestId: "request-1" }],
       ["revokeAgentProfileAccessGrant", { grantId: "grant-1" }],
       [
@@ -712,6 +716,66 @@ describe("sensitive operation credentials", () => {
     }
     // Each distinct request opens its own card.
     expect(await readConfirmationInboxItems(f)).toHaveLength(calls.length);
+  });
+
+  it("binds member-removal preparation approval to the target, reviewed Spaces, and successor", async () => {
+    const f = await seed();
+    shard.riskWindow = runningTask({
+      rootProfileId: f.tali.profileId,
+      runtimeId: LAPTOP,
+      targetProfileId: f.agentProfileId,
+    });
+    const entrypoint = Object.create(
+      GatewayRpcEntrypoint.prototype
+    ) as InstanceType<typeof GatewayRpcEntrypoint>;
+    Reflect.set(entrypoint, "env", env);
+    const confirmationId = crypto.randomUUID().replaceAll("-", "");
+    const input = {
+      context: contextFor(f, f.felix),
+      memberId: `member_${f.tali.userId}`,
+      requestCredential: cli(confirmationId),
+      spaces: [
+        {
+          spaceId: "reviewed-space",
+          name: "Shared project",
+          action: "transfer" as const,
+        },
+      ],
+      successorUserId: f.felix.userId,
+    };
+    await expect(
+      entrypoint.prepareOrganizationMemberRemoval(input)
+    ).rejects.toThrow("credential_confirmation.required");
+    const pending = await rpcGetCredentialConfirmation(coreEnv, {
+      confirmationId,
+      context: input.context,
+    });
+    expect(pending.confirmation).toMatchObject({
+      agentProfileId: null,
+      operation: "organization_member_removal_prepare",
+      status: "pending",
+    });
+    await rpcDecideCredentialConfirmation(coreEnv, {
+      body: { decision: "approve" },
+      confirmationId,
+      context: input.context,
+      requestCredential: interactive(),
+    });
+    for (const changed of [
+      { memberId: `member_${f.felix.userId}` },
+      { spaces: [] },
+      { successorUserId: f.tali.userId },
+    ]) {
+      await expect(
+        entrypoint.prepareOrganizationMemberRemoval({ ...input, ...changed })
+      ).rejects.toThrow("credential_confirmation.required");
+    }
+    const original = await rpcGetCredentialConfirmation(coreEnv, {
+      confirmationId,
+      context: input.context,
+    });
+    expect(original.confirmation.status).toBe("approved");
+    expect(await readConfirmationInboxItems(f)).toHaveLength(4);
   });
 
   it("gates an owner's folder changes as working-folder writes", async () => {

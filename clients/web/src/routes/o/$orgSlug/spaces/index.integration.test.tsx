@@ -31,7 +31,7 @@ const PLANNING_ROW = /Open Planning/;
 const WORKING_ROW = /Open Working.*2 unread/;
 const UNREAD_ROW = /Open Unread.*1 unread/;
 const IDLE_ROW = /Open Idle/;
-const SUPPORT_ROW = /Support.*Preview.*Join/;
+const SUPPORT_ROW = /Support.*Join/;
 const UNREAD_TEXT = /unread/;
 
 const {
@@ -236,6 +236,10 @@ vi.mock("#/lib/organizations/organization-directory", () => ({
 
 import { AppSpacesIndexContent } from "./index";
 
+vi.mock("#/components/spaces/conversations-home", () => ({
+	ConversationsHome: () => <main aria-label="Chats">Conversation home</main>,
+}));
+
 describe("app spaces index route", () => {
 	beforeEach(() => {
 		window.localStorage.clear();
@@ -294,6 +298,14 @@ describe("app spaces index route", () => {
 		vi.restoreAllMocks();
 	});
 
+	it("opens the combined conversation home by default without waiting for the Space directory", () => {
+		listOrganizationSpacesMock.mockRejectedValue(createGenericFailure());
+		renderSpacesIndex({ initialView: "conversations" });
+		expect(screen.getByRole("main", { name: "Chats" })).toBeTruthy();
+		expect(screen.queryByRole("tab", { name: "Your Spaces" })).toBeNull();
+		expect(listOrganizationSpacesMock).not.toHaveBeenCalled();
+	});
+
 	it("renders the Space sidebar shell with the selected active human profile", async () => {
 		listStartProfilesMock.mockResolvedValue([
 			createProfile({
@@ -342,7 +354,7 @@ describe("app spaces index route", () => {
 		).toBe("true");
 		expect(screen.getByRole("tab", { name: "Discover" })).toBeTruthy();
 		expect(screen.getAllByRole("tab")).toEqual(
-			["Your Spaces", "Direct messages", "Discover"].map((name) =>
+			["Chats", "Your Spaces", "Direct messages", "Discover"].map((name) =>
 				screen.getByRole("tab", { name })
 			)
 		);
@@ -367,9 +379,7 @@ describe("app spaces index route", () => {
 		expect(
 			await screen.findByRole("button", { name: "Join Support" })
 		).toBeTruthy();
-		expect(
-			screen.getByRole("button", { name: "Preview Support" })
-		).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Support" })).toBeTruthy();
 		expect(screen.queryByText("Finance")).toBeNull();
 		expect(joinOrganizationSpaceMock).not.toHaveBeenCalled();
 
@@ -431,13 +441,6 @@ describe("app spaces index route", () => {
 					pinnedProfileIds: ["selected-human", "other-human"],
 					spaceId: "space-working",
 					spaceName: "Working",
-					spacePurpose: null,
-				}),
-				createAccountSpaceItem({
-					pinnedAt: "2026-08-24T00:30:00.000Z",
-					pinnedProfileIds: ["selected-human"],
-					spaceId: "space-support",
-					spaceName: "Support",
 					spacePurpose: null,
 				}),
 			],
@@ -672,6 +675,7 @@ describe("app spaces index route", () => {
 				}),
 				createAccountSpaceItem({
 					activeMemberCount: 3,
+					directMessageConvertedAt: "2026-07-06T00:00:00.000Z",
 					spaceId: "space-expanded-conversation",
 					spaceName: "Expanded conversation",
 					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
@@ -1202,7 +1206,7 @@ describe("app spaces index route", () => {
 
 function renderSpacesIndex(
 	input: {
-		initialView?: "discover";
+		initialView?: "conversations" | "spaces" | "discover";
 		orgSlug?: string;
 		queryClient?: ReturnType<typeof createTestQueryClient>;
 	} = {}
@@ -1211,7 +1215,11 @@ function renderSpacesIndex(
 		<NuqsTestingAdapter
 			hasMemory
 			resetUrlUpdateQueueOnMount={false}
-			searchParams={input.initialView ? { view: input.initialView } : {}}
+			searchParams={
+				input.initialView === "conversations"
+					? {}
+					: { view: input.initialView ?? "spaces" }
+			}
 		>
 			<TestQueryClientProvider queryClient={input.queryClient}>
 				<StartFlowStateProvider storageScope="user-123">
@@ -1318,6 +1326,7 @@ function createOrganizationSpace(input: {
 
 function createAccountSpaceItem(input: {
 	activeMemberCount?: number;
+	directMessageConvertedAt?: string;
 	pinnedAt?: string | null;
 	pinnedProfileIds?: readonly string[];
 	spaceId: string;
@@ -1326,6 +1335,7 @@ function createAccountSpaceItem(input: {
 }) {
 	const pinnedAt = input.pinnedAt ?? null;
 	return {
+		directMessageConvertedAt: input.directMessageConvertedAt,
 		activeAgentCount: null,
 		activeHumanCount: null,
 		activeMemberCount: input.activeMemberCount ?? 8,

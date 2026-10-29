@@ -1,12 +1,12 @@
 {
-  "version": "0.3.274",
+  "version": "0.3.278",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Ships reusable Codex command-prefix approvals without changing the public CLI command contract. The existing 0.3.273 required floor remains supported."
+    "reason": "Packages the optional hosted approval-recovery schemas without changing CLI commands or existing public responses. Existing 0.3.273 clients remain compatible."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Preserves exact native Codex reusable approval decisions when optional choices are omitted and discloses their complete scope. No runtime or Service wire contract changes; 0.3.273 remains compatible."
+    "reason": "Packages the optional hosted approval-recovery and conversation contracts without changing workstation execution. Existing 0.3.273 Services remain compatible."
   },
   "skills": {
     "updatePolicy": "available",

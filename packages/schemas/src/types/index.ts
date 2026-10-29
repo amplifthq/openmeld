@@ -89,6 +89,17 @@ export type {
   ComputerPowerRpcInput,
   ComputerPowerState,
 } from "../computer-power";
+export type {
+  OrganizationMemberRemovalPlan,
+  OrganizationMemberRemovalPrepareBody,
+  OrganizationMemberRemovalPrepareInput,
+  OrganizationMemberRemovalPrepareResponse,
+  OrganizationMemberRemovalPreviewBody,
+  OrganizationMemberRemovalPreviewInput,
+  OrganizationMemberRemovalSpace,
+  OrganizationMemberRemovalSpaceInput,
+  OrganizationMemberRemovalSpacePrepareInput,
+} from "../organization-member-removal";
 export type { RemoteAgentExecutionReconciliationObservation } from "../remote-agent-execution-reconciliation";
 export type {
   SpaceFileUpdateSettings,

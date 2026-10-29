@@ -54,16 +54,40 @@ existing retry path. Center Agent member memory uses the existing provider
 deletion path and failure logs; this is not a guarantee of completed remote
 erasure when that provider is unavailable.
 
+Administrators can resolve Space ownership through an explicit preview and
+preparation in the Organization's member-removal flow, even if the departing
+person is unavailable and the administrator has not joined their Spaces. This
+requires a current human owner or admin with `member:delete`; the administrative
+endpoint excludes self-removal and removal of an Organization owner. Its preview
+discloses only the affected Space IDs, names, and actions, without granting the
+administrator access to their contents or adding them as a member.
+
+Preparation closes an eligible solely used private Space to retained read-only
+history, demotes the departing person when another owner remains, or assigns an
+explicit successor. Eligibility considers every historical participant and the
+current access, invitation, and unsettled-work state; `Welcome Space` is not a
+privileged name. A selected successor must be another current Organization member
+with an active Human Profile and receives Space membership and ownership, including
+access to private history. Confirmation must make that access grant explicit.
+The complete Space-owned rules live in `space-collaboration.md`.
+
+These explicitly confirmed Space changes happen before the existing native Auth
+member removal. They persist if preparation partially succeeds or native removal
+later fails. The UI reports the incomplete removal and refreshes the plan for an
+explicit retry; it must not claim rollback or automatically replay the mutation.
+Native permission checks, last-Organization-owner protection, Space ownership
+references, and post-removal private-data cleanup retain their existing owners.
+
 | Operation / asset | Boundary |
 | --- | --- |
 | Leave a Space or Organization; revoke membership | Remove the access grant, not shared messages, files, revisions, or attribution. Public link access remains an independent grant; close it separately when confidentiality requires it. |
-| Space ownership | Hand over management before leaving. Creator attribution alone grants no access. Keep the existing last-owner protection and restrictive membership references. |
+| Space ownership | Resolve active ownership before membership removal through handoff or explicitly confirmed eligible solo-Space closure. Creator attribution alone grants no access. Keep last-owner protection for active Spaces and restrictive membership references. |
 | Team Files, Space Files, Organization Skills, Center Agent | Keep them with their owning Organization or Space. A creator's departure must not delete them or create a second ownership model. |
 | Member-private Files and local agent sessions | Do not transfer them into Team Files or grant administrators ordinary read access. Private file retention is separate from member removal; see `files.md`. |
 | Private Session Inventory and member-specific Center Agent memory | Use the shared departure cleanup. This does not delete work already published into a shared Space. |
 | Explicit file deletion | Use the existing trash and restore mechanism. An independent copied revision is not deleted with its source. |
 | Explicit Skill removal | Disable use while retaining immutable releases and audit evidence under the existing Skill lifecycle. |
-| Explicit Space deletion | A human Space owner confirms permanent deletion for everyone. Pending Wake work blocks deletion; see `space-collaboration.md`. |
+| Explicit Space deletion | A human Space owner, or an authorized administrator preparing an eligible solo-Space member removal, confirms retained read-only closure. Shared history is preserved. Pending Wake work blocks closure; member-removal preparation requires a successor instead. See `space-collaboration.md`. |
 
 This deliberately separates access revocation, shared work retention, and explicit
 content deletion. It follows the purpose of
@@ -386,6 +410,16 @@ docs directly readable against our schema.
   roles, no dynamic access control in MVP. Org-scoped permission statements
   (via `createAccessControl`) carry our resources (for example
   `space: [create, ...]`, `centerAgent: [designate]`) on those three roles.
+- In Organization Settings, an Owner may change another Owner to Admin or
+  Member when another Owner remains. The current Owner's own row stays
+  read-only, and Admins and Members cannot edit Owner roles. Demotion requires
+  confirmation and preserves membership and assets; member removal keeps its
+  separate Space-handoff flow. Auth remains the sole membership writer and
+  retains its native permission and last-owner checks. PostgreSQL additionally
+  rejects concurrent writes that would leave retained members without an
+  Owner, using the existing Organization row lock. Empty membership sets and
+  closing Organizations remain compatible with the native deletion lifecycle.
+  Owner promotion and broader ownership-transfer UI remain deferred.
 - Invitations are the plugin's email-bound invitations (accepting requires a
   session whose email matches the invite). Email verification is on from day
   one; set `requireEmailVerificationOnInvitation` per its documented

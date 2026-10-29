@@ -22,6 +22,10 @@ export default defineConfig({
             className: "ComputerCommandProbe",
             useSQLite: true,
           },
+          SCHEDULE_DIAGNOSTIC_PROBE: {
+            className: "ScheduleDiagnosticProbe",
+            useSQLite: true,
+          },
         },
       },
     }),

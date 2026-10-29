@@ -1,4 +1,7 @@
-import { sanitizeSignalTextPreview } from "@openmeld/schemas";
+import {
+  HOSTED_CENTER_AGENT_CONTROLLER_REF,
+  sanitizeSignalTextPreview,
+} from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import {
   createDispatchOutboxRecord,
@@ -175,6 +178,7 @@ describe("openMeldDaemon dispatch outbox sql store", () => {
       expect.stringContaining("UPDATE openMeldDaemon_outbox"),
       "queued",
       Date.UTC(2026, 1, 26, 1, 2, 0),
+      0,
       "dispatch-1",
       "pending",
       "queued",
@@ -597,6 +601,10 @@ describe("openMeldDaemon dispatch outbox sql store", () => {
     };
     const staleQueuedPayload = {
       ...pendingPayload,
+      controllerSnapshot: {
+        ...pendingPayload.controllerSnapshot,
+        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      },
       dispatchId: "dispatch-stale-queued",
       sourceEventId: "evt-stale",
       idempotencyKey: "9:evt-stale|5:agt-1",

@@ -583,6 +583,10 @@ import {
   rpcCenterAgentGetOrganizationInviteLink,
 } from "./organizations/center-agent-organization-invite-link-rpc";
 import { rpcCenterAgentSetOrganizationWorkingLanguage } from "./organizations/center-agent-working-language-rpc";
+import {
+  prepareOrganizationMemberRemoval,
+  previewOrganizationMemberRemoval,
+} from "./organizations/member-removal";
 import { resolveOrganizationMembershipById } from "./organizations/organization-context";
 import { organizationJoinRequest } from "./organizations/organization-join-requests";
 import { spaceInvitation } from "./organizations/space-invitations";
@@ -3424,6 +3428,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       listPluginActionRequests(this.env, input)
     );
   }
+  readApprovedPluginAction(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      readApprovedPluginAction(this.env, input)
+    );
+  }
   suggestPermissionMode(input: unknown) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcSuggestPermissionMode(this.env, input)
@@ -4755,6 +4764,32 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   ) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcListMemberAgentSensitiveOperationAudit(this.env, input)
+    );
+  }
+  previewOrganizationMemberRemoval(
+    input: import("@openmeld/schemas").OrganizationMemberRemovalPreviewInput
+  ): Promise<import("@openmeld/schemas").OrganizationMemberRemovalPlan> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      previewOrganizationMemberRemoval(this.env, input)
+    );
+  }
+  prepareOrganizationMemberRemoval(
+    input: import("@openmeld/schemas").OrganizationMemberRemovalPrepareInput &
+      GatewaySensitiveCredential
+  ): Promise<
+    import("@openmeld/schemas").OrganizationMemberRemovalPrepareResponse
+  > {
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: null,
+        operation: "organization_member_removal_prepare",
+      },
+      (operationInput) =>
+        withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+          prepareOrganizationMemberRemoval(this.env, operationInput)
+        )
     );
   }
   readOrganizationAiBilling(input: OrganizationAiBillingRpcInput) {
@@ -7295,6 +7330,7 @@ import {
 } from "./agent-profile/application/permission-mode-suggestion-card";
 import {
   listPluginActionRequests,
+  readApprovedPluginAction,
   rpcPluginActionRequest,
 } from "./connectors/plugin-action-requests";
 import {

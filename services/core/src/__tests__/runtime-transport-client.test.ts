@@ -1268,7 +1268,10 @@ describe("runtime transport split clients call fallback behavior", () => {
     );
   });
 
-  it("uses one bounded lookup budget for owner-service lookup requests", async () => {
+  it.each([
+    "/lookup-owner-service",
+    "/lookup-routes-batch",
+  ])("uses one bounded five-second budget for member-directory %s requests", async (operation) => {
     vi.useFakeTimers();
     const warnSpy = vi
       .spyOn(console, "warn")
@@ -1286,11 +1289,20 @@ describe("runtime transport split clients call fallback behavior", () => {
     );
 
     try {
-      const responsePromise = lookupRuntimeTransportOwnerService({
-        env,
-        ownerUserId: "owner",
-        requestId: "owner-service-timeout",
-      });
+      const responsePromise =
+        operation === "/lookup-owner-service"
+          ? lookupRuntimeTransportOwnerService({
+              env,
+              ownerUserId: "owner",
+              requestId: "directory-timeout",
+            })
+          : lookupRuntimeTransportRoutesBatch({
+              env,
+              ownerUserId: "owner",
+              profileIds: ["agent-1"],
+              requestId: "directory-timeout",
+              readTimeoutMs: 5000,
+            });
       const failure = expect(responsePromise).rejects.toThrow(
         RuntimeTransportReadTimeoutError
       );
@@ -1300,8 +1312,8 @@ describe("runtime transport split clients call fallback behavior", () => {
         "[core.runtime_transport.read_attempt_failed]",
         expect.objectContaining({
           event: CORE_LOG_EVENTS.runtimeTransportReadAttemptFailed,
-          operation: "/lookup-owner-service",
-          requestId: "owner-service-timeout",
+          operation,
+          requestId: "directory-timeout",
           decision: "budget_exhausted",
           timeoutMs: 5000,
         })

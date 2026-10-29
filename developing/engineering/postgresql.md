@@ -154,6 +154,13 @@ replacing the file. Neither command applies a database migration.
 Drizzle Kit generates SQL and its journal in the PostgreSQL migrations directory.
 The official Drizzle migrator executes that journal and owns the only PostgreSQL
 history table, `drizzle.__drizzle_migrations`. Review generated SQL explicitly.
+Migration `0051` adds Owner retention to the existing membership/Organization
+locking boundary from `0018`. It rejects a role change or departure that would
+leave retained members without an Owner; native Organization deletion may
+still remove the complete membership set. Closing-Organization cleanup remains
+unchanged. Auth maps this specific constraint refusal to the existing error
+envelope with HTTP 409 and `organization.last_owner`; other database failures
+keep their original handling. The migration adds no rows or new ownership state.
 Do not replay SQLite DDL at runtime or copy D1's migration ledger. SQL files must
 be transaction-compatible and must not contain their own BEGIN/COMMIT. Concurrent
 index builds require a separately reviewed execution step, not a silent exception.
@@ -234,6 +241,52 @@ initialization, publication, thread, ownership and deletion boundaries.
 Pure local SQLite reconciliation keeps its ordinary input gate. Preserve these
 idempotency and ordering boundaries; do not expand a gate to an entire network
 request or move a protected write outside it to avoid connection deadlock.
+
+Space also admits each explicit PostgreSQL transaction through its native input
+gate before checking out a client or sending BEGIN. Its request-scope transaction
+runner covers alarm projections and RPC/HTTP work alike. Protected scopes retain
+that owner, while a Space-local context identifies their active gate.
+Transactions within an already active gate use its current protected pool
+without opening another gate; nested SQL transactions remain unsupported.
+Deferred work which outlives a scope keeps its matching-binding owner and seeks
+fresh admission once the original gate has finished. COMMIT or ROLLBACK and pool
+closure finish before the gate opens. A transaction started outside the gate
+could otherwise retain a
+scarce Hyperdrive origin slot while a later gate blocks the socket completion
+needed to release it and waits for that same slot.
+
+Only the database transaction is protected this way; ordinary queries do not
+acquire a transaction gate, and the rest of an alarm or request is not held
+inside it. A failure in a newly protected
+transaction is captured inside the gate, including cleanup, and rethrown to its
+existing caller after the gate settles. It must not reset the Space merely
+because an ordinary background transaction rolled back. Existing protected
+publication and ownership operations retain their failure semantics.
+
+Space transactions have a 15-second budget starting before client acquisition.
+The existing 10-second acquisition cap remains within this budget. BEGIN sets
+PostgreSQL 18's transaction-local `transaction_timeout` to the remaining budget
+in the same protocol message, bounding SQL, lock waits and idle transaction time
+without relying only on a Worker timer. A local watchdog allows one additional
+second for the origin to finish, then destroys the checked-out client through
+the driver's public release API. Client disposal has a two-second cap, leaving
+margin below the native gate's 30-second reset limit. The watchdog covers the
+callback, COMMIT and ROLLBACK; it does not merely abandon a live client.
+When PostgreSQL ends a session with a fatal timeout, the owner waits for the
+native close before releasing it, preserving the original SQLSTATE instead of
+sending ROLLBACK or Terminate into a closing socket. Expired clients are not
+reused, and late callbacks cannot submit more SQL or commit. Ambiguous commit
+failures are not replayed; existing domain idempotency and outboxes own recovery.
+Rollback cleanup failures are logged without replacing the original transaction
+error or its SQLSTATE. If COMMIT was acknowledged, a disposal timeout is logged
+with `committed: true` and the original result is returned; transport cleanup
+must not turn a completed write into a retryable transaction failure.
+
+This serializes a Space only for each admitted SQL transaction, not for a whole
+alarm, HTTP/RPC request or external service call. Space transaction callbacks
+must keep non-database work outside the transaction. Assess throughput using
+the native concurrent publication/projection regression and the affected Space
+API suite; local results do not establish production requests-per-second.
 
 Keep the operator/default provider role for provisioning only. Create a distinct
 migration owner and a runtime role per environment. Runtime roles must have no

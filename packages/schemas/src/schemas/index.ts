@@ -63,6 +63,12 @@ export {
   organizationMemberPresenceWriteResponseSchema,
 } from "./http/organization-member-presence";
 export {
+  approvedPluginActionSchema,
+  pluginActionRecoveryInputSchema,
+  readApprovedPluginActionInputSchema,
+  readApprovedPluginActionResponseSchema,
+} from "./http/plugin-action-recovery";
+export {
   listPluginActionRequestsInputSchema,
   listPluginActionRequestsResponseSchema,
   pluginActionRequestCommandRpcSchema,
@@ -2645,11 +2651,13 @@ export {
   projectSpaceNativeDeliveryTraceFinalVisibleOutcome,
   resolveRuntimeCoordinatorHeadStatusRootCause,
   resolveSpaceDispatchTraceRootCause,
+  SPACE_DISPATCH_TRACE_EXECUTION_CONTEXT_CONTRACT_VERSION,
   SPACE_DISPATCH_TRACE_NATIVE_DELIVERY_CONTRACT_VERSION,
   SPACE_DISPATCH_TRACE_PROMPT_PREVIEW_MAX_CHARS,
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_HEADER,
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS,
+  SPACE_DISPATCH_TRACE_SDK_SCHEDULES_CONTRACT_VERSION,
   SPACE_DISPATCH_TRACE_WAITING_EVIDENCE_CONTRACT_VERSION,
   spaceDispatchTraceAttemptStatusSchema,
   spaceDispatchTraceClaimLeaseSchema,

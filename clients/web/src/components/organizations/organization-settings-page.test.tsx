@@ -22,6 +22,7 @@ import {
 import { OrganizationSettingsPage } from "./organization-settings-page";
 
 const REMOVE_BUTTON_NAME = /^Remove /;
+const PRIVATE_CONTENT_NOTICE = /including private content/;
 const AUTOMATIC_AGENT_AUTHORIZATION_PATTERN =
 	/automatically authorize my new Agent Profiles/i;
 
@@ -37,6 +38,8 @@ const readCurrentOrganizationInformationProtectionMock = vi.hoisted(() =>
 	vi.fn()
 );
 const removeOrganizationMemberMock = vi.hoisted(() => vi.fn());
+const previewOrganizationMemberRemovalMock = vi.hoisted(() => vi.fn());
+const prepareOrganizationMemberRemovalMock = vi.hoisted(() => vi.fn());
 const setCurrentOrganizationInformationProtectionMock = vi.hoisted(() =>
 	vi.fn()
 );
@@ -46,6 +49,7 @@ const releaseOrganizationLogoCropDraftMock = vi.hoisted(() => vi.fn());
 const removeCurrentOrganizationLogoMock = vi.hoisted(() => vi.fn());
 const updateCurrentOrganizationLogoMock = vi.hoisted(() => vi.fn());
 const updateOrganizationMock = vi.hoisted(() => vi.fn());
+const updateOrganizationMemberRoleMock = vi.hoisted(() => vi.fn());
 
 let currentOrganization: OrganizationSummary;
 let organizations: OrganizationSummary[];
@@ -206,7 +210,12 @@ vi.mock("#/lib/organizations/auth-organizations", () => ({
 	resetOrganizationJoinLink: vi.fn(),
 	revokeOrganizationJoinLink: vi.fn(),
 	updateOrganization: updateOrganizationMock,
-	updateOrganizationMemberRole: vi.fn(),
+	updateOrganizationMemberRole: updateOrganizationMemberRoleMock,
+}));
+
+vi.mock("#/lib/organizations/organization-member-removal", () => ({
+	previewOrganizationMemberRemoval: previewOrganizationMemberRemovalMock,
+	prepareOrganizationMemberRemoval: prepareOrganizationMemberRemovalMock,
 }));
 
 vi.mock("#/query/organizations/organization-directory", async () => {
@@ -307,6 +316,14 @@ describe("OrganizationSettingsPage", () => {
 				updatedByUserId: "user-admin",
 			});
 		removeOrganizationMemberMock.mockReset().mockResolvedValue(undefined);
+		previewOrganizationMemberRemovalMock.mockReset().mockResolvedValue({
+			memberId: "member-ada",
+			userId: "user-ada",
+			spaces: [],
+		});
+		prepareOrganizationMemberRemovalMock.mockReset().mockResolvedValue({
+			prepared: true,
+		});
 		setCurrentOrganizationInformationProtectionMock
 			.mockReset()
 			.mockImplementation(
@@ -335,6 +352,7 @@ describe("OrganizationSettingsPage", () => {
 			ok: true,
 		});
 		updateOrganizationMock.mockReset().mockResolvedValue(undefined);
+		updateOrganizationMemberRoleMock.mockReset().mockResolvedValue(undefined);
 	});
 
 	afterEach(cleanup);
@@ -551,6 +569,71 @@ describe("OrganizationSettingsPage", () => {
 		});
 	});
 
+	it.each([
+		"Admin",
+		"Member",
+	])("lets an Owner confirm changing another Owner to %s", async (nextRole) => {
+		getActiveOrganizationMemberRoleMock.mockResolvedValue("owner");
+		readCurrentOrganizationDirectoryMock.mockResolvedValue({
+			agentProfiles: [],
+			members: [
+				{
+					humanProfile: null,
+					memberId: "member-current",
+					role: "owner",
+					user: { email: "owner@example.com", name: "Current Owner" },
+					userId: "user-owner",
+				},
+				{
+					humanProfile: null,
+					memberId: "member-other-owner",
+					role: "owner",
+					user: { email: "other@example.com", name: "Other Owner" },
+					userId: "user-other-owner",
+				},
+			],
+		});
+		render(
+			<TestQueryClientProvider>
+				<OrganizationSettingsPage section="members" />
+			</TestQueryClientProvider>
+		);
+		const select = await screen.findByRole("combobox", {
+			name: "Role for Other Owner",
+		});
+		expect(select.textContent).toContain("Owner");
+		expect(
+			(screen.getByRole("button", { name: "Save role" }) as HTMLButtonElement)
+				.disabled
+		).toBe(true);
+		expect(
+			screen.queryByRole("combobox", { name: "Role for Current Owner" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Remove Other Owner" })
+		).toBeNull();
+		fireEvent.click(select);
+		fireEvent.click(await screen.findByRole("option", { name: nextRole }));
+		fireEvent.click(screen.getByRole("button", { name: "Save role" }));
+		const dialog = screen.getByRole("alertdialog");
+		expect(
+			within(dialog).getByRole("heading", {
+				name: `Change Other Owner's role to ${nextRole}?`,
+			})
+		).toBeTruthy();
+		expect(updateOrganizationMemberRoleMock).not.toHaveBeenCalled();
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Change role" })
+		);
+		await waitFor(() => {
+			expect(updateOrganizationMemberRoleMock).toHaveBeenCalledWith({
+				memberId: "member-other-owner",
+				organizationId: "org-acme",
+				role: nextRole.toLowerCase(),
+			});
+		});
+	});
+
 	it("never offers Remove for owners or the current member", async () => {
 		getActiveOrganizationMemberRoleMock.mockResolvedValue("admin");
 		readCurrentOrganizationDirectoryMock.mockResolvedValue({
@@ -589,6 +672,9 @@ describe("OrganizationSettingsPage", () => {
 		await screen.findByText("Ada Lovelace");
 		expect(screen.queryByRole("button", { name: "Remove Owner" })).toBeNull();
 		expect(
+			screen.queryByRole("combobox", { name: "Role for Owner" })
+		).toBeNull();
+		expect(
 			screen.queryByRole("button", { name: "Remove Current Admin" })
 		).toBeNull();
 		expect(
@@ -596,8 +682,56 @@ describe("OrganizationSettingsPage", () => {
 		).toBeTruthy();
 	});
 
-	it("confirms member removal and refreshes the organization directory", async () => {
+	it("keeps the last Owner read-only when the viewer role is stale", async () => {
+		getActiveOrganizationMemberRoleMock.mockResolvedValue("owner");
+		readCurrentOrganizationDirectoryMock.mockResolvedValue({
+			agentProfiles: [],
+			members: [
+				{
+					humanProfile: null,
+					memberId: "member-current",
+					role: "member",
+					user: { email: "owner@example.com", name: "Current Member" },
+					userId: "user-owner",
+				},
+				{
+					humanProfile: null,
+					memberId: "member-last-owner",
+					role: "owner",
+					user: { email: "other@example.com", name: "Last Owner" },
+					userId: "user-last-owner",
+				},
+			],
+		});
+		render(
+			<TestQueryClientProvider>
+				<OrganizationSettingsPage section="members" />
+			</TestQueryClientProvider>
+		);
+		await screen.findByText("Last Owner");
+		expect(
+			screen.queryByRole("combobox", { name: "Role for Last Owner" })
+		).toBeNull();
+		expect(updateOrganizationMemberRoleMock).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		{ spaces: [] },
+		{
+			spaces: [
+				{ spaceId: "welcome", name: "Welcome Space", action: "close" },
+				{ spaceId: "shared", name: "Team Space", action: "demote" },
+			],
+		},
+	])("reviews Space changes before removing a member: $spaces", async ({
+		spaces,
+	}) => {
 		getActiveOrganizationMemberRoleMock.mockResolvedValue("admin");
+		previewOrganizationMemberRemovalMock.mockResolvedValue({
+			memberId: "member-ada",
+			userId: "user-ada",
+			spaces,
+		});
 		readCurrentOrganizationDirectoryMock.mockResolvedValue({
 			agentProfiles: [],
 			members: [
@@ -626,12 +760,27 @@ describe("OrganizationSettingsPage", () => {
 		).toBeTruthy();
 		expect(
 			within(dialog).getByText(
-				"This action cannot be undone. Ada Lovelace will immediately lose access to this organization."
+				"Ada Lovelace will lose access to this organization. Review any Space changes before confirming removal."
 			)
 		).toBeTruthy();
-		fireEvent.click(
-			within(dialog).getByRole("button", { name: "Remove member" })
-		);
+		const confirm = within(dialog).getByRole("button", {
+			name: "Remove member",
+		}) as HTMLButtonElement;
+		expect(confirm.disabled).toBe(true);
+		await waitFor(() => expect(confirm.disabled).toBe(false));
+		if (spaces.length > 0) {
+			expect(
+				within(dialog).getByText(
+					"Close this private Space and retain its history."
+				)
+			).toBeTruthy();
+			expect(
+				within(dialog).getByText(
+					"Existing owners will continue managing this Space."
+				)
+			).toBeTruthy();
+		}
+		fireEvent.click(confirm);
 
 		await waitFor(() => {
 			expect(removeOrganizationMemberMock).toHaveBeenCalledWith({
@@ -640,9 +789,18 @@ describe("OrganizationSettingsPage", () => {
 			});
 			expect(readCurrentOrganizationDirectoryMock).toHaveBeenCalledTimes(2);
 		});
+		if (spaces.length > 0) {
+			expect(prepareOrganizationMemberRemovalMock).toHaveBeenCalledWith({
+				memberId: "member-ada",
+				organizationId: "org-acme",
+				spaces,
+			});
+		} else {
+			expect(prepareOrganizationMemberRemovalMock).not.toHaveBeenCalled();
+		}
 	});
 
-	it("shows the server removal error in the member row", async () => {
+	it("identifies the member in removal feedback above the members list", async () => {
 		const guardMessage =
 			"This member activated the organization's Center Agent. Revoke or re-designate the Center Agent before removing them.";
 		getActiveOrganizationMemberRoleMock.mockResolvedValue("admin");
@@ -669,13 +827,213 @@ describe("OrganizationSettingsPage", () => {
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Remove Ada Lovelace" })
 		);
+		const confirm = within(screen.getByRole("alertdialog")).getByRole(
+			"button",
+			{
+				name: "Remove member",
+			}
+		) as HTMLButtonElement;
+		await waitFor(() => expect(confirm.disabled).toBe(false));
+		fireEvent.click(confirm);
+
+		const feedback = await screen.findByRole("alert");
+		expect(within(feedback).getByText(guardMessage)).toBeTruthy();
+		expect(within(feedback).getByText("Ada Lovelace")).toBeTruthy();
+	});
+
+	it("requires an explicit successor before transferring a departed member's private Space", async () => {
+		getActiveOrganizationMemberRoleMock.mockResolvedValue("admin");
+		const spaces = [
+			{ spaceId: "private-team", name: "Private planning", action: "transfer" },
+		];
+		previewOrganizationMemberRemovalMock.mockResolvedValue({
+			memberId: "member-ada",
+			userId: "user-ada",
+			spaces,
+		});
+		readCurrentOrganizationDirectoryMock.mockResolvedValue({
+			agentProfiles: [],
+			members: [
+				{
+					memberId: "member-ada",
+					userId: "user-ada",
+					role: "member",
+					humanProfile: null,
+					user: { email: "ada@example.com", name: "Ada Lovelace" },
+				},
+				{
+					memberId: "member-grace",
+					userId: "user-grace",
+					role: "member",
+					humanProfile: { profileName: "Grace Hopper", status: "active" },
+					user: { email: "grace@example.com", name: "Grace Hopper" },
+				},
+				{
+					memberId: "member-disabled",
+					userId: "user-disabled",
+					role: "member",
+					humanProfile: {
+						profileName: "Disabled teammate",
+						status: "disabled",
+					},
+					user: { email: "disabled@example.com", name: "Disabled teammate" },
+				},
+			],
+		});
+		let finishPreparation: (() => void) | undefined;
+		prepareOrganizationMemberRemovalMock.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					finishPreparation = () => resolve({ prepared: true });
+				})
+		);
+		render(
+			<TestQueryClientProvider>
+				<OrganizationSettingsPage section="members" />
+			</TestQueryClientProvider>
+		);
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Remove Ada Lovelace" })
+		);
+		const dialog = screen.getByRole("alertdialog");
+		await within(dialog).findByText("Private planning");
+		expect(within(dialog).getByText(PRIVATE_CONTENT_NOTICE)).toBeTruthy();
+		const confirm = within(dialog).getByRole("button", {
+			name: "Remove member",
+		}) as HTMLButtonElement;
+		expect(confirm.disabled).toBe(true);
+		fireEvent.click(within(dialog).getByLabelText("New Space owner"));
+		expect(screen.queryByRole("option", { name: "Ada Lovelace" })).toBeNull();
+		expect(
+			screen.queryByRole("option", { name: "Disabled teammate" })
+		).toBeNull();
+		fireEvent.click(
+			await screen.findByRole("option", { name: "Grace Hopper" })
+		);
+		expect(confirm.disabled).toBe(false);
+		fireEvent.click(confirm);
+		await waitFor(() =>
+			expect(prepareOrganizationMemberRemovalMock).toHaveBeenCalledWith({
+				organizationId: "org-acme",
+				memberId: "member-ada",
+				spaces,
+				successorUserId: "user-grace",
+			})
+		);
+		expect(removeOrganizationMemberMock).not.toHaveBeenCalled();
+		finishPreparation?.();
+		await waitFor(() =>
+			expect(removeOrganizationMemberMock).toHaveBeenCalledWith({
+				organizationId: "org-acme",
+				memberIdOrEmail: "member-ada",
+			})
+		);
+	});
+
+	it.each([
+		"prepare",
+		"remove",
+	] as const)("reports saved Space changes honestly after %s fails and reviews again before retry", async (failure) => {
+		getActiveOrganizationMemberRoleMock.mockResolvedValue("admin");
+		readCurrentOrganizationDirectoryMock.mockResolvedValue({
+			agentProfiles: [],
+			members: [
+				{
+					memberId: "member-ada",
+					userId: "user-ada",
+					role: "member",
+					humanProfile: null,
+					user: { email: "ada@example.com", name: "Ada Lovelace" },
+				},
+			],
+		});
+		previewOrganizationMemberRemovalMock.mockResolvedValueOnce({
+			memberId: "member-ada",
+			userId: "user-ada",
+			spaces: [{ spaceId: "welcome", name: "Welcome Space", action: "close" }],
+		});
+		(failure === "prepare"
+			? prepareOrganizationMemberRemovalMock
+			: removeOrganizationMemberMock
+		).mockRejectedValueOnce(new Error("Service unavailable."));
+		render(
+			<TestQueryClientProvider>
+				<OrganizationSettingsPage section="members" />
+			</TestQueryClientProvider>
+		);
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Remove Ada Lovelace" })
+		);
+		await screen.findByText("Welcome Space");
 		fireEvent.click(
 			within(screen.getByRole("alertdialog")).getByRole("button", {
 				name: "Remove member",
 			})
 		);
+		const error = await screen.findByRole("alert");
+		expect(error.textContent).toContain(
+			failure === "prepare"
+				? "Some Space changes may have been saved"
+				: "The Space changes were saved, but member removal could not be confirmed"
+		);
+		expect(error.textContent).toContain("Service unavailable.");
+		expect(removeOrganizationMemberMock).toHaveBeenCalledTimes(
+			failure === "prepare" ? 0 : 1
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Remove Ada Lovelace" })
+		);
+		const confirm = within(screen.getByRole("alertdialog")).getByRole(
+			"button",
+			{ name: "Remove member" }
+		) as HTMLButtonElement;
+		expect(confirm.disabled).toBe(true);
+		await waitFor(() => expect(confirm.disabled).toBe(false));
+		expect(previewOrganizationMemberRemovalMock).toHaveBeenCalledTimes(2);
+		expect(screen.queryByText("Welcome Space")).toBeNull();
+		fireEvent.click(confirm);
+		await waitFor(() =>
+			expect(removeOrganizationMemberMock).toHaveBeenCalledTimes(
+				failure === "prepare" ? 1 : 2
+			)
+		);
+		expect(prepareOrganizationMemberRemovalMock).toHaveBeenCalledTimes(1);
+	});
 
-		expect(await screen.findByText(guardMessage)).toBeTruthy();
+	it("keeps removal disabled when ownership review fails", async () => {
+		getActiveOrganizationMemberRoleMock.mockResolvedValue("admin");
+		readCurrentOrganizationDirectoryMock.mockResolvedValue({
+			agentProfiles: [],
+			members: [
+				{
+					memberId: "member-ada",
+					userId: "user-ada",
+					role: "member",
+					humanProfile: null,
+					user: { email: "ada@example.com", name: "Ada Lovelace" },
+				},
+			],
+		});
+		previewOrganizationMemberRemovalMock.mockRejectedValueOnce(
+			new Error("Couldn't check Space ownership.")
+		);
+		render(
+			<TestQueryClientProvider>
+				<OrganizationSettingsPage section="members" />
+			</TestQueryClientProvider>
+		);
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Remove Ada Lovelace" })
+		);
+		const dialog = screen.getByRole("alertdialog");
+		await within(dialog).findByText("Couldn't check Space ownership.");
+		const confirm = within(dialog).getByRole("button", {
+			name: "Remove member",
+		}) as HTMLButtonElement;
+		expect(confirm.disabled).toBe(true);
+		expect(removeOrganizationMemberMock).not.toHaveBeenCalled();
+		fireEvent.click(within(dialog).getByRole("button", { name: "Try again" }));
+		await waitFor(() => expect(confirm.disabled).toBe(false));
 	});
 
 	it("explains the three organization roles with the managed capability copy", async () => {

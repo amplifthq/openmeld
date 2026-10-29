@@ -312,9 +312,13 @@ Settings and contains Search and theme selection. The workspace switcher contain
   Explicit expanded/hidden choices remain shared across the Spaces directory,
   conversation details, and Team tabs, including People and Agents, and survive
   reloads. Navigation never resets that choice; existing cookies remain valid.
-  The Spaces heading opens the Space directory, without a duplicate
-  aggregate status dot. Direct messages is a tab after Your Spaces. Its plus
-  menu offers New message and New Space. Browse spaces is visible in both views,
+  The Spaces heading opens the combined conversation home, without a duplicate
+  aggregate status dot. On home the list is primary content, always visible at
+  full width on narrow screens and beside a selection prompt on wide screens.
+  This does not overwrite the contextual sidebar's explicit visibility choice.
+  Direct messages remains a secondary directory tab after Your Spaces. The plus
+  menu offers New message, New Space, and Browse Spaces. Browse Spaces opens
+  `?view=spaces`; the directory's Chats tab returns home. Home search is always visible,
   and empty search results offer Find someone with the query prefilled in the
   organization picker. Team remains the member directory, without a separate
   Contacts destination. Recent is the default unless the user chose Grouped. It keeps the same Pinned rows and
@@ -558,8 +562,8 @@ Square.
 ## 6. Shared Sidebar family and resize behavior
 
 The outer rail's Spaces and Team resource popovers open on hover or Arrow Down/Space.
-Clicking Spaces still opens Your Spaces; clicking Team opens People.
-Each popover starts with that primary destination: Your Spaces or People, without
+Clicking Spaces opens the combined conversation home; clicking Team opens People.
+Each popover starts with that primary destination: Chats or People, without
 a pin toggle. Spaces then offers Direct messages and Discover using the existing
 `view` search parameter.
 The pinned Direct messages label is DMs. Discover is hidden in personal workspaces,

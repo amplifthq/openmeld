@@ -27,6 +27,10 @@ node scripts/release/build-cli-binary.mjs
 
 - The build reads `clients/openmeld-cli/package.json` as the only version source.
 - The current output is written under `cli/dist/`, outside the npm package.
+- macOS Keychain addon builds use the running Node installation's headers when
+  the installed headers and version match. Otherwise node-gyp uses its normal
+  header acquisition. This avoids a redundant network download when the exact
+  headers are already installed without building against another Node version.
 - The artifact name is `openmeld-cli-<platform>-<version>`.
 - Local and production download channels also publish
   `openmeld-cli-<platform>-<version>.gz`. Setup and current binary CLI upgrades

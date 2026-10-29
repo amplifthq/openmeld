@@ -158,15 +158,17 @@ export async function continuePluginConnection(
     connection: selected.connection,
     consumer,
   });
-  const receipts = await listConnectorOperationReceiptsForContinuation({
-    db,
-    organizationId: member.organizationId,
-    actorProfileId: task.profileId,
-    representedUserId: member.userId,
-    sourceSpaceId: input.spaceId,
-    fromMs: task.createdAtMs,
-    throughMs: task.completedAtMs,
-  });
+  const receipts = approvedAction
+    ? []
+    : await listConnectorOperationReceiptsForContinuation({
+        db,
+        organizationId: member.organizationId,
+        actorProfileId: task.profileId,
+        representedUserId: member.userId,
+        sourceSpaceId: input.spaceId,
+        fromMs: task.createdAtMs,
+        throughMs: task.completedAtMs,
+      });
   requireSettledContinuationReceipts(receipts);
   // Deliberately independent of chosen scope and browser instance: changing a
   // setup selection, retrying a timed-out POST, or double-clicking cannot create
@@ -186,6 +188,7 @@ export async function continuePluginConnection(
     organizationId: member.organizationId,
     spaceId: input.spaceId,
     sourceDispatchId: task.dispatchId,
+    approvedActionRequestId: approvedAction?.requestId,
     source: sourceGuard,
     reply: {
       signalId: reply.id,
@@ -628,7 +631,7 @@ function buildContinuationText(
       ? "Continue my original request."
       : `Continue the remaining work from my request (${input.triggerMessageId}).`,
     approvedAction
-      ? `I approved this action. Use the same account and unchanged input. Reuse operation ID ${approvedAction.intent.operationId} and recheck the approval before execution.`
+      ? `I approved request ${approvedAction.requestId} for ${approvedAction.intent.actionId} (${approvedAction.intent.service}). Use the same account and unchanged input. Reuse operation ID ${approvedAction.intent.operationId} and recheck the approval before execution. Preserve the original issueDestinationAuthority, including its omission; this approval does not authorize changing the original operation.`
       : `I have reviewed ${input.service} access using ${input.scope === "member" ? "my account" : "the organization connection"}. Recheck the permissions required by the task.`,
     "Use the existing conversation and previous results. Do not restart the task or repeat completed operations. Reuse the original operation ID for an exact retry; stop if its outcome is unknown.",
     ...(receipts.length

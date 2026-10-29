@@ -335,8 +335,19 @@ A compact Light/Dark/System selector follows Download Desktop App without a divi
 open when changed. Settings > Appearance uses three full-size theme cards with
 labels and descriptions. Both controls share the theme choices and icon set;
 the existing theme provider owns persistence and system appearance. Spaces and its contextual sidebar heading always open
-`/o/{orgSlug}/spaces`. The directory contains Your Spaces, Direct messages, and
-Discover, in that order (Discover is absent in personal workspaces).
+`/o/{orgSlug}/spaces`. This home displays the shared conversation list, with
+Spaces, Direct Messages, and Agent conversations interleaved in the default
+Recent view. Existing explicit Grouped, pin-layout, and preview preferences
+remain honored. The home list is primary content: it remains visible even if
+the contextual sidebar was hidden, and fills narrow screens rather than being
+placed behind a drawer. Wide screens show a selection prompt beside it; opening
+a row uses its canonical conversation route and the existing contextual list.
+Home search is visible without opening a menu and does not autofocus. The
+New conversation menu and wide-screen selection prompt expose Browse Spaces
+at `?view=spaces`. The directory retains Your Spaces, Direct messages, and
+Discover, with a leading Chats tab returning home. Discover is absent in
+personal workspaces. Home does not gate its list on the Organization Space
+directory query; it uses the existing authorized conversation read model.
 
 Your Spaces, Direct messages, and Discover default to Cards and offer Table in the directory toolbar.
 The tab body and navigation read the same immediate URL state, so switching
@@ -453,7 +464,9 @@ sidebar preference; ordinary pin membership remains Space Index-owned and
 session pins remain in `chats` preferences. New pins appear first without changing
 the existing pinned order, including entries hidden by filters. Dragging still
 uses the chosen drop position. Unpin restores the saved group.
-Pinned defaults to Grid: 48px avatars above two-line names, with two to four
+Pinned defaults to List, keeping previews and timestamps in the same compact
+row layout as recent conversations. An explicit Grid choice remains supported:
+48px avatars above two-line names, with two to four
 columns targeting at least 76px per tile and 4px gaps. Additional rows use the
 existing disclosure control. The Pinned header's Layout menu switches between
 Grid and ordinary List rows without changing pin membership or manual order.
@@ -464,8 +477,8 @@ clears across empty last-row cells. List retains ordinary previews and timestamp
 Spaces, People, and Agents are optional filters. The plus menu offers New message
 and New Space. The adjacent View and filters menu holds separate Conversation
 view and Filter conversations submenus. The Spaces title remains the link to
-the Your Spaces / Discover directory; there is no separate Browse button.
-Spaces and People hide their sidebar search fields by default. Search in the
+the conversation home; Browse Spaces in the New conversation menu opens the
+Your Spaces / Discover directory. Conversation detail and People hide their sidebar search fields by default. Search in the
 header options menu reveals and focuses the field through the shared sidebar
 search disclosure. The compact Spaces field says "Find a space..." and searches
 existing conversations. In both sidebars, the trailing Close search icon and
@@ -1039,10 +1052,17 @@ The private `/o/{orgSlug}` boundary is client-loaded (`ssr: false`); public
 entry, login, and public content retain SSR. Router default and private-route
 pending content use the same visible loading surface so server HTML and client
 hydration do not leave a blank screen. The account query has a five-second
-transport deadline, forwards cancellation through body consumption, does not
-retry automatically, and attempts offline reads rather than pausing the parent
-loader indefinitely. The existing root error surface owns retry and asset
-version recovery. A successful fresh read projects the URL Organization; only
+transport deadline per attempt and forwards cancellation through body consumption.
+When online, a structured `network.timeout` gets one immediate fresh attempt
+so a single slow read need not strand the user on the root error page. This
+recovery happens inside the read, not Query's focus-paused retry scheduler;
+background tabs retain the same bounded outcome. Other failures are not retried,
+and account cancellation prevents recovery or aborts its in-flight request.
+Offline entry still attempts the read once rather than pausing the parent
+loader indefinitely. Two consecutive timeouts reach the existing root error
+surface, which owns manual retry and asset version recovery. This is bounded
+recovery, not evidence that upstream latency has been repaired. A successful
+fresh read projects the URL Organization; only
 then may the loader activate its persisted display scope. The component does
 not repeat that activation in a hydration effect. The loader checks cancellation
 before entering persistence activation and before returning its scope; the
@@ -5225,11 +5245,13 @@ loading does not hide already available live work. History and progress reads
 remain independent; neither waits for the other to render.
 
 Direct Messages and ordinary Spaces share the same unfinished Agent answer row.
-Its compact progress reads **Working…** continuously through sending,
-connecting, active work, reply streaming, and publication. This is request
-progress, not a claim that execution admission has completed. Authoritative
+Its compact progress distinguishes **Sending request…**, **Waiting to start…**,
+**Connecting…**, and **Retrying delivery…** from confirmed **Working…**.
+Pre-execution phases do not show the working Orb or elapsed-work indicator;
+source-level summaries and the sidebar preserve the same distinction. Active
+work, reply streaming, and publication retain **Working…**. Authoritative
 waiting, input-required, confirmation-pending, and terminal outcomes retain
-their distinct meaning. The elapsed request time begins with submission. The row's
+their distinct meaning. When shown, elapsed request time begins with submission. The row's
 avatar and identity header name the Agent once, while source-level summaries
 still name each target when multiple Agents are involved. The work disclosure
 opens only when reasoning, public progress, or tool steps arrive; reasoning
@@ -5386,16 +5408,14 @@ uses the shared Clover Bot presentation until its saved style is available.
 The new-chat transcript reuses MessageScroller's follow and user-scroll behavior;
 starter cards remain in the transcript. A pending first send keeps this shell
 while membership is unknown, rather than displaying a join prompt.
-That row uses the existing `Working…`
-presentation continuously from local submission through queueing, connecting,
-admission, and active streaming, and reserves one stable Stop-control slot so
-transport evidence does not move the conversation or introduce a second
-near-synonymous state. In this Center Agent Direct Message shell, the copy is a
-conversation-level progress placeholder, not a browser-owned claim that worker
-admission already completed. Authoritative transport diagnostics still
-distinguish direct, Queue, fallback, and admission stages. Web does not invent a
-reasoning state. A presentation-only elapsed timer starts at the source request's
-submission time and includes delivery, preparation, and working time. It never
+That row uses the same phase-specific progress as other Spaces and reserves one
+stable Stop-control slot so transport evidence does not move the conversation.
+Connecting or retrying delivery must not appear as confirmed Agent work, even
+when the request has been pending for a long time. Authoritative transport
+diagnostics still distinguish direct, Queue, fallback, and admission stages.
+Web does not invent a reasoning state. Once work is confirmed, the existing
+presentation-only elapsed timer starts at the source request's submission time
+and includes delivery, preparation, and working time. It never
 determines execution health or a timeout. The
 optimistic source message itself is sufficient immediate send feedback and must
 not add a short-lived

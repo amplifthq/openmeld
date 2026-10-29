@@ -23,7 +23,6 @@ import { buildMemberAgentDirectory } from "./member-agent-directory-model";
 import {
 	MemberAgentHarnessLock,
 	useMemberAgentHarnessLocked,
-	useMemberAgentProfileNameLocked,
 } from "./member-agent-harness-lock";
 import { buildMemberAgentIndex } from "./member-agent-index";
 
@@ -187,8 +186,8 @@ describe("Agents list for a migrated member", () => {
 		renderWorkspace();
 		const own = screen.getByRole("region", { name: "Felix Lu’s Agents" });
 		// Assigned Profiles appear through their MemberAgent rows.
-		expect(within(own).getByText("Felix Lu’s Claude Code")).toBeTruthy();
-		expect(within(own).getByText("Felix Lu’s Codex")).toBeTruthy();
+		expect(within(own).getByText("Claude Code")).toBeTruthy();
+		expect(within(own).getByText("Codex", { selector: "span" })).toBeTruthy();
 		expect(within(own).getByText(TWO_PROFILES_PATTERN)).toBeTruthy();
 		// Unassigned Profiles keep their own cards at the bottom.
 		const unassigned = within(own).getByRole("region", {
@@ -236,13 +235,9 @@ describe("Agents list for a migrated member", () => {
 		expect(screen.getByRole("link", { name: "Back to Agents" })).toBeTruthy();
 	});
 
-	it("locks the default Profile's name and every assigned Profile's harness", async () => {
+	it("locks every assigned Profile's harness", async () => {
 		function Probe() {
-			return (
-				<output>
-					{`harness:${useMemberAgentHarnessLocked()} name:${useMemberAgentProfileNameLocked()}`}
-				</output>
-			);
+			return <output>{`harness:${useMemberAgentHarnessLocked()}`}</output>;
 		}
 		const client = seededClient();
 		render(
@@ -260,10 +255,6 @@ describe("Agents list for a migrated member", () => {
 		);
 		expect(
 			(await screen.findAllByRole("status")).map((node) => node.textContent)
-		).toEqual([
-			"harness:true name:true",
-			"harness:true name:false",
-			"harness:false name:false",
-		]);
+		).toEqual(["harness:true", "harness:true", "harness:false"]);
 	});
 });

@@ -178,9 +178,6 @@ function createInMemoryRepository(
         ) ?? null
       );
     },
-    isMemberAgentDefaultProfile() {
-      return Promise.resolve(false);
-    },
     findManagedAgentByOrganizationAndRole(organizationId, managedRole) {
       return Promise.resolve(
         profiles.find(

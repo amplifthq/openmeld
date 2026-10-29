@@ -3,6 +3,8 @@ import * as z from "../../lazy-zod";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { centerAgentConnectorActionExecutionConnectionSchema } from "./center-agent";
 import { connectorServiceSchema } from "./connector-connections";
+import { pluginActionRecoveryInputSchema } from "./plugin-action-recovery";
+import { pluginActionRequestStatusSchema } from "./plugin-action-request-status";
 
 export const pluginActionRequestIntentSchema = z.strictObject({
   organizationId: z.string().min(1),
@@ -22,30 +24,29 @@ export const pluginActionRequestIntentSchema = z.strictObject({
   actionId: z.string().min(1).max(160),
   effect: z.enum(["write", "destructive", "unspecified"]),
   input: z.record(z.string(), z.unknown()),
+  recovery: pluginActionRecoveryInputSchema.optional(),
 });
-export const pluginActionRequestViewSchema = z.strictObject({
-  requestId: z.string().uuid(),
-  inboxItemId: z.string().min(1),
-  state: z.enum(["pending", "approved", "rejected", "expired", "revoked"]),
-  service: connectorServiceSchema,
-  actionId: z.string(),
-  effect: z.enum(["write", "destructive", "unspecified"]),
-  accountName: z.string(),
-  accountScope: z.enum(["member", "shared"]),
-  actorProfileId: z.string(),
-  inputFieldCount: z.number().int().nonnegative(),
-  // Bounded resource identifiers and explicitly reviewed action labels appear
-  // only in private detail. Arbitrary input, credentials and message bodies
-  // never enter this projection; no input values enter the Inbox preview.
-  targets: z
-    .array(z.strictObject({ label: z.string(), value: z.string() }))
-    .max(12),
-  createdAtMs: z.number().int(),
-  expiresAtMs: z.number().int(),
-  sourceSignalId: z.string().nullish(),
-  sourceThreadId: z.string().nullish(),
-  continuation: z.enum(["pending", "requested", "unavailable"]).nullish(),
-});
+export const pluginActionRequestViewSchema =
+  pluginActionRequestStatusSchema.extend({
+    inboxItemId: z.string().min(1),
+    service: connectorServiceSchema,
+    actionId: z.string(),
+    effect: z.enum(["write", "destructive", "unspecified"]),
+    accountName: z.string(),
+    accountScope: z.enum(["member", "shared"]),
+    actorProfileId: z.string(),
+    inputFieldCount: z.number().int().nonnegative(),
+    // Bounded resource identifiers and explicitly reviewed action labels appear
+    // only in private detail. Arbitrary input, credentials and message bodies
+    // never enter this projection; no input values enter the Inbox preview.
+    targets: z
+      .array(z.strictObject({ label: z.string(), value: z.string() }))
+      .max(12),
+    createdAtMs: z.number().int(),
+    expiresAtMs: z.number().int(),
+    sourceSignalId: z.string().nullish(),
+    sourceThreadId: z.string().nullish(),
+  });
 export const listPluginActionRequestsInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
   expectedOrganizationId: z.string().min(1),

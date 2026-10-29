@@ -1,4 +1,5 @@
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
+import { SidebarProvider } from "@openmeld/ui/fluid/sidebar-state";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
@@ -11,7 +12,21 @@ import {
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
+import { ConversationsHome } from "./conversations-home";
 import { ConversationsSidebar } from "./conversations-sidebar";
+
+vi.mock("./app-space-shell", () => ({
+	SpaceWindowShell: ({ children }: { children: ReactNode }) => (
+		<SidebarProvider
+			geometry={{ mode: "expanded", width: 352 }}
+			onGeometryChange={() => undefined}
+			static
+			style={{ display: "contents" }}
+		>
+			{children}
+		</SidebarProvider>
+	),
+}));
 
 const sidebarState = vi.hoisted(() => ({ accountIndexPending: false }));
 const navigate = vi.hoisted(() =>
@@ -117,16 +132,46 @@ afterEach(() => {
 	navigate.mockClear();
 	vi.useRealTimers();
 });
-function mount() {
+function mount(home = false) {
 	return render(
 		<QueryClientProvider client={new QueryClient()}>
 			<TooltipProvider>
-				<ConversationsSidebar />
+				{home ? <ConversationsHome /> : <ConversationsSidebar />}
 				<textarea aria-label="Message draft" defaultValue="Unsent work" />
 			</TooltipProvider>
 		</QueryClientProvider>
 	);
 }
+
+it("opens the home list with Spaces and direct messages together, searchable without opening a menu", () => {
+	mount(true);
+	expect(
+		screen.getByRole("heading", { name: "Pick a conversation" })
+	).toBeTruthy();
+	const recent = screen.getByRole("region", { name: "Recent" });
+	expect(
+		within(recent)
+			.getByRole("link", { name: "Product design" })
+			.getAttribute("href")
+	).toBe("/o/test/spaces/design");
+	expect(
+		within(recent)
+			.getByRole("link", { name: "Launch checklist" })
+			.getAttribute("href")
+	).toBe("/o/test/chats/center-agent?session=agent");
+	expect(
+		screen.getByRole("link", { name: "Browse Spaces" }).getAttribute("href")
+	).toBe("/o/test/spaces?view=spaces");
+	const search = screen.getByRole("searchbox", {
+		name: "Search conversations",
+	});
+	expect(document.activeElement).not.toBe(search);
+	fireEvent.change(search, { target: { value: "Felix" } });
+	expect(screen.queryByRole("link", { name: "Product design" })).toBeNull();
+	expect(screen.getByRole("link", { name: "Felix" })).toBeTruthy();
+	fireEvent.keyDown(search, { key: "Escape" });
+	expect(screen.getByRole("link", { name: "Product design" })).toBeTruthy();
+});
 async function selectView(name: "Grouped" | "Recent") {
 	fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
 	fireEvent.click(
@@ -160,10 +205,10 @@ it("shows previews by default and remembers an explicit choice after remount", a
 	expect(await screen.findByRole("link", { name: previewName })).toBeTruthy();
 	expect(screen.getByRole("link", { name: "Release planning" })).toBeTruthy();
 	expect(
-		screen.queryByRole("link", {
+		screen.getByRole("link", {
 			name: "Open preview message in Release planning: The release plan is ready to review.",
 		})
-	).toBeNull();
+	).toBeTruthy();
 	hidden.unmount();
 	const remounted = mount();
 	expect(await screen.findByRole("link", { name: previewName })).toBeTruthy();

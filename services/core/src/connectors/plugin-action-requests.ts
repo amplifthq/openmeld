@@ -8,6 +8,9 @@ import {
   pluginActionRequestContinuationSchema,
   pluginActionRequestIntentSchema,
   projectPluginActionRequestView,
+  readApprovedPluginActionInputSchema,
+  readApprovedPluginActionResponseSchema,
+  remoteAgentWorkerSubmitCapabilitiesSchema,
 } from "@openmeld/schemas";
 import type {
   OpenMeldRequestContext,
@@ -23,7 +26,11 @@ import {
 import type { CoreBindings } from "../lib/bindings";
 import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
-import { readRemoteAgentNativeDeliveryByDeliveryId } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import { authorizeRemoteAgentExecutionAccess } from "../remote-agent/application/remote-agent-execution-access";
+import {
+  readRemoteAgentNativeDeliveryByDeliveryId,
+  readRemoteAgentNativeDeliveryBySubmissionId,
+} from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { createCoreRpcHttpError, readCoreRpcHttpStatus } from "../rpc/errors";
 import {
   rpcGetSpaceDispatchTrace,
@@ -34,6 +41,7 @@ import { readSafeRpcFailureReasonCode } from "../shared/rpc/rpc-json";
 import { readConnectorConnectionForExecution } from "./connector-connection-repository";
 import { pluginPermissionAllows, readPluginAccess } from "./plugin-access";
 import { continuePluginConnection } from "./plugin-connection-continuation";
+import { readPluginConnectionExecutionBinding } from "./plugin-connection-execution-binding";
 
 const REQUEST_LIFETIME_MS = 60 * 60 * 1000;
 const TARGET_FIELD =
@@ -93,6 +101,7 @@ export async function preparePluginActionRequest(input: {
     sourceSpaceId: _space,
     sourceSignalId: _signal,
     sourceNativeDeliveryId: _delivery,
+    recovery: _recovery,
     ...boundIntent
   } = intent;
   const digest = await digestCanonicalJson(boundIntent);
@@ -140,6 +149,103 @@ export async function preparePluginActionRequest(input: {
     root: request.state === "approved" ? `plugin-request:${row.id}` : null,
     executionGuard: requestExecutionGuard(row),
   };
+}
+
+/** Only the admitted continuation can recover its own private, approved input. */
+export async function readApprovedPluginAction(
+  env: CoreBindings,
+  value: unknown
+) {
+  const { context } = readApprovedPluginActionInputSchema.parse(value);
+  const submissionId = context.agentControllerConversationId;
+  if (!submissionId) {
+    throw denied(
+      "recovery_unavailable",
+      "The approved execution is unavailable."
+    );
+  }
+  const access = await authorizeRemoteAgentExecutionAccess(env, {
+    context,
+    submissionId,
+    effect: "write",
+  });
+  const binding = await readPluginConnectionExecutionBinding(env, context);
+  if (
+    !(
+      binding &&
+      "approvedActionRequestId" in binding &&
+      binding.approvedActionRequestId
+    )
+  ) {
+    return { action: null };
+  }
+  const db = getPostgresDatabase(env);
+  if (!db || access.scope.principal.kind !== "member") {
+    throw denied(
+      "recovery_unavailable",
+      "The original requester is unavailable."
+    );
+  }
+  const row = await readRequest(db, binding.approvedActionRequestId);
+  const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
+    db,
+    submissionId,
+  });
+  if (!(row && delivery)) {
+    throw denied(
+      "recovery_unavailable",
+      "The approved request is unavailable."
+    );
+  }
+  const intent = pluginActionRequestIntentSchema.parse(
+    JSON.parse(row.request_json)
+  );
+  if (
+    intent.organizationId !== access.scope.organizationId ||
+    intent.actorProfileId !== delivery.profileId ||
+    intent.userId !== access.scope.principal.userId ||
+    intent.sourceSpaceId !== delivery.spaceId ||
+    intent.sourceSignalId !== binding.source.signalId ||
+    intent.service !== binding.service ||
+    intent.connection.connectionName !== binding.connectionName ||
+    intent.connectionUpdatedAtMs !== binding.connectionUpdatedAtMs ||
+    (await currentState(db, row, intent)) !== "approved"
+  ) {
+    throw denied(
+      "recovery_unavailable",
+      "The approved request no longer matches this execution."
+    );
+  }
+  await authorizeRemoteAgentExecutionAccess(env, {
+    context,
+    submissionId,
+    effect: "write",
+    sources: [
+      {
+        kind: "plugin_connection",
+        service: intent.service,
+        connectionName: intent.connection.connectionName,
+        connectionUpdatedAtMs: intent.connectionUpdatedAtMs,
+      },
+    ],
+  });
+  if (!intent.recovery) {
+    throw denied(
+      "recovery_input_unavailable",
+      "This older approval has no retained executable input. No action was replayed."
+    );
+  }
+  return readApprovedPluginActionResponseSchema.parse({
+    action: {
+      requestId: row.id,
+      operationId: intent.operationId,
+      service: intent.service,
+      actionId: intent.actionId,
+      connectionPreference:
+        intent.connection.scope === "member" ? "requester" : "shared",
+      recovery: intent.recovery,
+    },
+  });
 }
 
 export type PluginRequestExecutionGuard = {
@@ -223,17 +329,7 @@ export async function readPluginActionRequestForOperation(input: {
   actorProfileId: string;
   operationId: string;
 }) {
-  const row = await input.db
-    .query<RequestRow>({
-      text: 'SELECT * FROM "openmeld"."plugin_action_requests" WHERE organization_id = $1 AND user_id = $2 AND actor_profile_id = $3 AND operation_id = $4',
-      values: [
-        input.organizationId,
-        input.userId,
-        input.actorProfileId,
-        input.operationId,
-      ],
-    })
-    .then((result) => result.rows[0] ?? null);
+  const row = await readRequestForOperation(input);
   if (!row) {
     return null;
   }
@@ -248,6 +344,51 @@ export async function readPluginActionRequestForOperation(input: {
         expiresAtMs: row.expires_at_ms,
       }
     : null;
+}
+
+/** A recipient- and actor-scoped projection; never approves or retries a write. */
+export async function readPluginActionRequestStatusForOperation(
+  input: Parameters<typeof readPluginActionRequestForOperation>[0] & {
+    service: string;
+    actionId: string;
+  }
+) {
+  const row = await readRequestForOperation(input);
+  if (!row) {
+    return null;
+  }
+  const intent = pluginActionRequestIntentSchema.parse(
+    JSON.parse(row.request_json)
+  );
+  if (intent.service !== input.service || intent.actionId !== input.actionId) {
+    return null;
+  }
+  return {
+    requestId: row.id,
+    state: await currentState(input.db, row, intent),
+    continuation: row.continuation_json
+      ? pluginActionRequestContinuationSchema.parse(
+          JSON.parse(row.continuation_json)
+        ).state
+      : null,
+  };
+}
+
+async function readRequestForOperation(
+  input: Parameters<typeof readPluginActionRequestForOperation>[0]
+) {
+  const row = await input.db
+    .query<RequestRow>({
+      text: 'SELECT * FROM "openmeld"."plugin_action_requests" WHERE organization_id = $1 AND user_id = $2 AND actor_profile_id = $3 AND operation_id = $4',
+      values: [
+        input.organizationId,
+        input.userId,
+        input.actorProfileId,
+        input.operationId,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
+  return row;
 }
 
 export async function rpcPluginActionRequest(
@@ -411,6 +552,7 @@ export async function retryApprovedPluginActionRequests(env: CoreBindings) {
     return;
   }
   const through = Date.now();
+  await expirePluginActionRecoveryInputs(db, through);
   let cursor: { decidedAt: number; id: string } | null = null;
   // Page past still-running requests so they cannot starve later approvals.
   // Bound this scan to decisions already present when the job started.
@@ -433,6 +575,23 @@ export async function retryApprovedPluginActionRequests(env: CoreBindings) {
     }
     cursor = { decidedAt: last.decided_at_ms, id: last.id };
   }
+}
+
+/** Retain decision/operation identity after expiry, but remove private bodies. */
+export async function expirePluginActionRecoveryInputs(
+  db: PostgresDatabase,
+  nowMs: number
+) {
+  await db.query({
+    text: `UPDATE "openmeld"."plugin_action_requests"
+      SET request_json = (request_json::jsonb - 'recovery')::text
+      WHERE id IN (
+        SELECT id FROM "openmeld"."plugin_action_requests"
+        WHERE expires_at_ms <= $1 AND request_json::jsonb ? 'recovery'
+        ORDER BY expires_at_ms, id LIMIT 1000
+      )`,
+    values: [nowMs],
+  });
 }
 
 async function continueApprovedRequest(
@@ -489,6 +648,26 @@ async function continueApprovedRequest(
     }
     if (!replySignalId) {
       return;
+    }
+    if (intent.recovery) {
+      // Keep the durable continuation pending until the receiving executor
+      // supports exact replay; an older worker must not ask the model to retry.
+      const raw =
+        await env.OPENMELD_REMOTE_AGENT_WORKER?.readSubmitTurnCapabilities?.({
+          v: 1,
+          includePluginActionRecovery: true,
+        });
+      if (
+        !remoteAgentWorkerSubmitCapabilitiesSchema.safeParse(raw).data
+          ?.pluginActionRecovery
+      ) {
+        throw createCoreRpcHttpError({
+          code: "plugin.request.recovery_executor_unavailable",
+          status: 503,
+          reason:
+            "The approved operation is waiting for its compatible executor.",
+        });
+      }
     }
     const result = await continuePluginConnection(
       env,

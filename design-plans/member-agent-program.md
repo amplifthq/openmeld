@@ -195,9 +195,10 @@ Target:
 - One Profile runs on one computer (already true).
 - **A Profile cannot change harness.** The controller switcher is hidden for
   assigned Profiles and kept only for unassigned ones as the way to assign them.
-- The default Profile's `profile_name` is the harness display name and is not
-  editable. Later Profiles get a short owner-chosen name. Display:
-  `Felix Lu's Claude Code · PR Reviewer`; the default Profile shows no suffix.
+- The default Profile's `profile_name` starts as the harness display name.
+  As revised on 2026-10-27, owners can rename default and additional Profiles.
+  Display: `Felix Lu's Claude Code · PR Reviewer`; only a default Profile still
+  using its harness display name shows no suffix. Harness sync preserves renames.
   Handle rules unchanged. The long template is no longer used for defaults.
 - `agentControllerConversationId` on the Binding remains only for harnesses
   without context support and for `legacyAssociation`. Every context-enabled
@@ -611,6 +612,7 @@ stored.
 | Answer agent interaction | Binding owner | `runtime-coordinator-authority.ts`; `rpcRespondToAgentInteraction` (`methods.ts:2249`) | unchanged; requester-side cancel added |
 | Work-recovery approval (skip or approve queued work) | owner shard + `ownerUserId` | `rpcExecuteAgentProfileWorkRecovery` `:5841`; `executeAgentProfileWorkQueueApproval` `:6039` | root owns |
 | Delete Profile / Space | owner / Space owner | existing | root owns |
+| Prepare Organization member removal (close, demote, transfer Spaces) | current human Organization owner/admin with `member:delete`; exact non-owner target membership; Space-owned reviewed plan | `GatewayRpcEntrypoint.prepareOrganizationMemberRemoval`, `organizations/member-removal.ts` | root owns the administrator's credential; interactive Web/App session passes, CLI/task credential uses the owner-wide risk-window confirmation; target member need not participate |
 | Grant, revoke, archive | new | — | root owns; archive is non-additive and needs an explicit instruction |
 | Space actions from a task | task context file + execution token | `dispatch-space-action-context.ts` | task credential with chain |
 

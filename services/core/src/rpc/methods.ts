@@ -1052,6 +1052,7 @@ import {
   requireRemotePluginConnection,
   selectPluginConnection,
 } from "../connectors/plugin-access";
+import { readPluginActionRequestStatusForOperation } from "../connectors/plugin-action-requests";
 import {
   assertBoundPluginConnection,
   boundPluginConnectionPreference,
@@ -17540,6 +17541,7 @@ export async function rpcCenterAgentReadConnectorActionOperation(
   input: CenterAgentReadConnectorActionOperationInput
 ): Promise<CenterAgentReadConnectorActionOperationResponse> {
   const parsed = centerAgentReadConnectorActionOperationBodySchema.safeParse({
+    includeRequestAuthorization: input.includeRequestAuthorization,
     includeExecutionPermit: input.includeExecutionPermit,
     includeRecoveryWindow: input.includeRecoveryWindow,
     actionId: input.actionId,
@@ -17575,6 +17577,22 @@ export async function rpcCenterAgentReadConnectorActionOperation(
     service: parsed.data.service,
   });
   return centerAgentReadConnectorActionOperationResponseSchema.parse({
+    ...(parsed.data.includeRequestAuthorization
+      ? {
+          requestAuthorization: prepared.member.userId
+            ? await readPluginActionRequestStatusForOperation({
+                db: prepared.authorization.db,
+                organizationId:
+                  prepared.authorization.activeOrganization.organizationId,
+                userId: prepared.member.userId,
+                actorProfileId: prepared.authorization.actorProfileId,
+                operationId: parsed.data.operationId,
+                actionId: parsed.data.actionId,
+                service: parsed.data.service,
+              })
+            : null,
+        }
+      : {}),
     operation: existing
       ? {
           ...(parsed.data.includeExecutionPermit
@@ -17625,6 +17643,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     requestSignature: input.requestSignature,
     issueDestination: input.issueDestination,
     issueDestinationAuthority: input.issueDestinationAuthority,
+    issueActionRecovery: input.issueActionRecovery,
     linearIssueReceipt: input.linearIssueReceipt,
     githubIssueCompletion: input.githubIssueCompletion,
     includeGitHubTaskSync: input.includeGitHubTaskSync,

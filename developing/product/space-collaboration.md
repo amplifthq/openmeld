@@ -85,6 +85,13 @@ mention and addressing labels needed by clients and dispatch prompts. It helps
 users and agents choose valid send targets; it does not create membership,
 prove Wake readiness, or decide execution authority.
 
+An unavailable Agent status read must not hide the authorized member directory
+or other members' available status. Core keeps the affected Agent in the list
+and uses its existing Wake Availability projection: an unverifiable status is
+unavailable, while independently confirmed route evidence keeps its established
+meaning. A failed read does not establish that the Agent is offline. Membership,
+identity, and access verification retain their own failure behavior.
+
 A focused Agent read may combine one resolved directory member with that
 member's Core-owned current Agent Wake Availability projection. This avoids
 returning the complete directory and unrelated runtime diagnostics when the
@@ -1380,17 +1387,55 @@ operating in that Space. The Space password protects the room from accounts
 that have not joined yet; it is not a recurring command credential for members,
 or their local agents. Creator attribution alone never grants access.
 
-Ordinary Spaces have one or more human Owners, all current Organization
+Active ordinary Spaces have one or more human Owners, all current Organization
 members. Creator attribution is immutable history; `ownerUserIds` is the
 Space-owned management authority. Owners can promote an existing teammate,
 demote an owner while retaining another, and manage access. A guest cannot
-become an Owner. The last Owner cannot be demoted, leave, or be removed.
-Before Organization departure or account removal, the departing person must
-hand over every owned Space and become a Member. Organization deletion requires
-its ordinary Spaces to be deleted first; it cannot strand their history.
+become an Owner. The last Owner cannot leave an active Space without a successor.
+Organization departure or account removal must resolve every active ownership
+before membership is removed. An administrator can perform the explicit removal
+preparation below without participation from the departing person. Organization
+deletion requires its ordinary Spaces to be deleted first; it cannot strand their
+history. Retained, read-only Spaces do not require their historical owners to
+remain Organization members.
+
+Organization member removal provides a limited administrative ownership surface.
+A current human Organization owner or admin with `member:delete` can preview and
+confirm preparation for another non-owner Organization member, including Spaces
+the administrator has not joined. This surface cannot remove the requester or an
+Organization owner. The preview reveals only each affected Space's ID, name, and
+required action; it does not grant access to messages, files, or membership
+details. The administrator is never implicitly added to a Space.
+
+The Space decides the action from authoritative ownership, access, historical
+membership, invitations, and pending work; its name and browser-local Welcome
+tutorial marker do not decide eligibility:
+
+- A private, members-only Space can close to retained read-only history when its
+  only owner is the departing person, every historical participant is that
+  person's own Profile or the verified Organization-managed Center Agent, guest
+  access is disabled, no live invitation is pending or being accepted, and no
+  work remains unsettled. A departed collaborator still counts as collaboration.
+- If another owner remains, preparation demotes the departing owner to Member.
+- Otherwise, preparation requires an explicitly selected current Organization
+  member with an active Human Profile as successor. The successor joins the Space
+  if necessary and becomes Owner before the departing owner is demoted. The
+  confirmation must disclose that this grants the successor access to private
+  Space history. A Space with unsettled work requires a successor rather than
+  being closed; preparation does not stop work or manufacture a final outcome.
+
+The administrator confirms these Space changes before native Organization member
+removal. Core rechecks the reviewed plan, and each Space rechecks its action
+under its serialization gate. A changed plan requires another review. Completed
+closures and transfers remain saved if a later Space action or membership removal
+fails; the UI must explain that removal did not complete and refresh the plan for
+an explicit retry. Preparation is not automatically replayed and does not bypass
+native authorization or restrictive ownership references. Self-departure and
+account deletion retain their existing guards.
 
 Leaving or removing a member preserves shared history and files. Delete Space is
-a human-owner-confirmed transition to a retained, read-only Space. The Space owns
+a human-owner-confirmed transition to a retained, read-only Space; the narrowly
+eligible administrative closure above uses the same retained state. The Space owns
 `deletedAt`; original members retain their existing read grant and can search past
 messages. Public links and passwords do not admit new readers after deletion.
 Deleted Spaces stay in members' lists with a small red `Deleted` label. Members
@@ -1668,6 +1713,11 @@ ordinary Agent token labeled `Click to wake` below their latest sent message.
 Clicking it directly saves an edit with that Agent's first Wake, without opening
 an editor, asking for another selection, or requiring another save. Failures
 remain beside the suggestion for retry; repeated clicks cannot dispatch twice.
+Agent candidates in the Composer member picker show the Profile name and, when
+available, its owner's name. This distinguishes identical names without changing
+the Profile ID used by a mention or its Wake/mention-only behavior. Owner names
+are searchable alongside Profile names.
+
 Manual `@` editing uses the same Composer member picker. Selection edits the
 draft; `Save & wake` commits its first Wake. `Save changes` only updates content. All viewers
 see the resulting ordinary Wake token and edited marker on the original

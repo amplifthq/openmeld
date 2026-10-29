@@ -114,7 +114,10 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 		expect(preview.className).toContain("whitespace-nowrap");
 	});
 
-	it("keeps the authoritative running state after forty-five seconds without visible progress", () => {
+	it.each([
+		["running", "Agent · Working… · 45s", "solving"],
+		["connecting", "Agent · Connecting…", "breathing"],
+	] as const)("preserves authoritative %s after forty-five seconds without visible progress", (phase, label, orbState) => {
 		vi.setSystemTime(STARTED_AT_MS + 45_000);
 
 		render(
@@ -126,7 +129,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 						sourceSignalId: null,
 						targetProfileId: "agt_runner",
 						targetLabel: "Agent",
-						phase: "running",
+						phase,
 						startedAtMs: STARTED_AT_MS,
 						updatedAtMs: STARTED_AT_MS,
 					}),
@@ -136,11 +139,38 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 		);
 
 		expect(
-			screen.getByTestId("space-wake-thinking-indicator").textContent
-		).toBe("Agent · Working… · 45s");
+			screen
+				.getByTestId("space-wake-thinking-indicator")
+				.getAttribute("aria-label")
+		).toBe(label);
 		expect(
 			resolveOrbState(screen.getByTestId("space-wake-thinking-indicator"))
-		).toBe("solving");
+		).toBe(orbState);
+	});
+
+	it("keeps connecting requests distinct from working Agents in a grouped summary", () => {
+		render(
+			<SpaceMessageWakeThinkingIndicator
+				entries={(["connecting", "running"] as const).flatMap((phase, index) =>
+					resolveWakeProgressThinkingEntry({
+						item: createWakeProgressItem({
+							clientMessageId: `request-${index}`,
+							dispatchId: `dispatch-${index}`,
+							sourceSignalId: null,
+							targetProfileId: `agt_runner_${index}`,
+							targetLabel: "Agent",
+							phase,
+							updatedAtMs: STARTED_AT_MS,
+						}),
+						showElapsedTime: false,
+					})
+				)}
+			/>
+		);
+
+		expect(
+			screen.getByTestId("space-wake-thinking-indicator").textContent
+		).toBe("1 agent connecting · 1 agent working");
 	});
 
 	it("keeps showing elapsed time after fifty seconds", () => {

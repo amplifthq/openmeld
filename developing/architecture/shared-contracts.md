@@ -94,6 +94,62 @@ CLI release manifests and binary contents do not change. Core Slack retry pacing
 reuses `receivedAtMs` in the existing v1 message and introduces no wire fields.
 No Service or CLI contract version change or required local update is needed.
 
+## Organization member-removal preparation
+
+`packages/schemas/src/organization-member-removal.ts` owns the additive
+`POST /v1/organizations/current/member-removal/preview` and `/prepare` HTTP
+contracts, their Gateway-to-Core RPC inputs, and the Core-to-Space inspection and
+preparation inputs. HTTP bodies cannot supply actor or Organization context:
+Gateway supplies the authenticated context, and Core and each Space verify the
+current human administrator and the exact target membership. The endpoints
+exclude self-removal and Organization-owner removal.
+
+Preview accepts `memberId` and returns the resolved member/user identity plus
+Space entries containing only `spaceId`, `name`, and `action` (`close`, `demote`,
+or `transfer`). Preparation accepts that exact membership and reviewed Space list,
+plus `successorUserId` when a transfer requires one. The preview is not authority:
+Core rereads it, and each Space rechecks the confirmed action under its existing
+serialization gate. A changed plan requires a new review. No preview version or
+optional response capability changes existing contracts.
+
+Organization administration grants this narrow management action without granting
+ordinary Space read access. Space remains the sole owner of eligibility,
+membership, management authority, and retained closure. A confirmed successor
+receives membership and ownership; the administrator is not implicitly joined.
+The user-visible confirmation precedes these changes, which can remain saved
+when a later action fails. Gateway never automatically retries preparation.
+`prepared: true` confirms Space preparation only; native Auth removal must still
+succeed, including its authorization and restrictive ownership-reference checks.
+Existing private-data cleanup starts through the native departure lifecycle.
+
+Preparation is the sensitive operation `organization_member_removal_prepare`.
+Gateway adds database-verified credential facts separately from the HTTP body and
+general actor context. Core applies the existing sensitive-operation gate to the
+administrator's credential before any Space changes, binds an Inbox confirmation
+to the exact member, reviewed Spaces, and successor, and audits the outcome. The
+credential is stripped before the operation reaches the coordinator or Spaces.
+Interactive Web/App sessions pass; CLI/task credentials retain the existing
+request-root and owner-wide risk-window checks. The departing person never needs
+to confirm. Preview is read-only and does not consume a confirmation.
+
+Deploy the Core receiver first, then the updated Web confirmation/audit readers
+and removal caller, then Gateway to expose the new endpoints. During that interval
+the new Web action may be unavailable and must fail without removing the member.
+The operation enum is additive on this new surface: existing clients do not
+originate it through their old commands, and an older open Web client must refresh
+to handle its confirmation. Never relabel the operation as another kind or bypass
+the credential gate to accommodate an older reader. Remove the new caller before
+rolling back Gateway; Core and confirmation readers must retain this enum value
+while its confirmation or audit records can still be read.
+
+Old clients and native Auth removal keep their existing contracts and handoff
+checks. Existing CLI, OpenMeld Service, managed Skills, setup, Wake, and diagnostic
+payloads are unchanged; no database migration, runtime compatibility-version
+change, or required local update is introduced. Shared-schema/package edits remain
+inputs to local-component release-readiness verification. This feature PR runs
+that gate and defers packaged-artifact version and stamp policy to the release
+owner under the current delivery rules.
+
 ## Message Details thread opt-in
 
 Message Details also accepts `includeThreadContext: true`. Only this opt-in
@@ -124,6 +180,40 @@ Update Web and Gateway readers before Core emits the opted-in field. CLI,
 Service, managed Skills, setup, Wake admission, Space mutations, Stop,
 result recovery, and trace contracts are unchanged. No local-component epoch
 or required update is introduced by this read projection.
+
+## Approved Plugin action recovery
+
+Hosted issue creation may send `issueActionRecovery` with the complete provider
+input and its existing GitHub actor / destination-authority choices. Core checks
+that these bytes reconstruct the admitted operation signature before retaining
+them in the existing private Plugin request. Neither the public Signal nor the
+operation/audit ledger receives this body. Existing approval digests remain
+stable; adding recovery metadata cannot replace an earlier pending decision.
+
+The private continuation binding carries `approvedActionRequestId`. The
+`readApprovedPluginAction` service receiver resolves only that admitted
+continuation's request after checking live execution, requester, source,
+connection generation, access revision and approval expiry. It is not a
+model-selectable approval lookup or a permission grant. Remote resumes the
+saved action through the normal tool owner before model execution, preserving
+the same operation ID and replay fences. The model receives the resulting
+evidence, never a requirement to reconstruct the original input.
+
+This path covers individual Linear and GitHub issue creates, including many
+independently approved creates from one request. Existing GitHub batch and Local
+Agent execution owners are unchanged. A legacy approval without saved input
+cannot be automatically reconstructed. Approval continuations omit unrelated
+operation lists; the exact operation ledger still owns pending/unknown replay.
+
+Core deploys first. Remote advertises `pluginActionRecovery: true` only when
+`readSubmitTurnCapabilities` receives `includePluginActionRecovery: true`.
+Legacy capability responses remain unchanged. Core keeps recovery pending while
+that capability is unavailable. Deploy Remote after the Core receiver. A Remote
+rollback leaves saved approvals pending; retain the compatible Core reader while
+new private recovery records and continuation bindings exist. Older strict Core
+readers cannot interpret those records. No database migration, public
+response union, CLI/Service/Skills floor, setup or workstation Wake change is
+required. Shared-schema packaging still requires release-readiness verification.
 
 ## Bounded message reads
 
@@ -1754,6 +1844,23 @@ Do not discard the diagnostic error or invent beta fields to make an old
 validator accept new evidence. This ordering is a release gate, not deployment
 evidence.
 
+Remote Agent runtime diagnostics version 3 reads schedules from the Agents SDK's
+public `listSchedules()` projection. It reports the bounded schedule id,
+callback, kind, due time in milliseconds, and delayed interval. Creation time,
+running state, execution start, and payload are not exposed by that projection
+and are not inferred. Core continues accepting versions 1 and 2. Dispatch trace
+response version 8 admits version 3; Gateway returns an explicit update-CLI or
+ordinary-trace instruction when versions 4–7 request details and encounter v3.
+Legacy traces and v1/v2 runtime evidence retain their existing shapes. Version 8
+also retains v7 execution-context evidence.
+
+Roll out the Core and Gateway v8 receivers before the CLI that requests v8,
+then deploy the Remote Agent v3 producer. Older CLIs continue ordinary traces;
+after the producer changes, hosted detailed traces require the updated CLI.
+Rollback the producer before removing v3 receivers, and roll back v8 CLI callers
+before removing v8 Gateway/Core receivers. These changes add no execution or
+readiness authority.
+
 Official CLI Skill content uses the signed Markdown channel contract in
 `packages/schemas/src/official-cli-skill.ts`, separately from Organization
 Skills. The optional local component `skills.contentRelease` reports the
@@ -2840,10 +2947,14 @@ remain separate associations. Neither a repository association nor Common
 Agent membership authorizes file, provider, Space, or Agent execution access.
 
 For an OpenMeld-controlled new issue action, the action owner sends its exact
-proposed provider target to Core. GitHub issue and batch claims may also carry
+proposed provider target to Core. GitHub issue and batch claims and Linear issue
+creation claims may also carry
 `issueDestinationAuthority: explicit_request`. The Agent declares this only for
 the verified interactive member's explicit authorization of that exact
-repository and issue-creation effect, interpreted from the complete conversation.
+repository or Linear team/project and issue-creation effect, interpreted from
+the complete conversation. Linear resolves user-facing names through provider
+discovery; it does not ask members to supply UUIDs or derive authority from
+untrusted Space content.
 Core rechecks the admitted active delivery, Organization, Agent, submission,
 verified Human sender and represented member. Explicit requests also call the
 existing execution-access owner before admission, retaining its live Binding
@@ -2855,7 +2966,7 @@ owners. An absent declaration,
 Routine, Agent sender, or missing/mismatched requester evidence cannot use this
 path. Inferred, incomplete, or conflicting destinations retain confirmation.
 The declaration is included in both the operation input digest and the immutable
-batch manifest digest, and is never forwarded to GitHub. A changed declaration
+batch manifest digest, and is never forwarded to the provider. A changed declaration
 cannot resume a batch's remaining writes. Existing Plugin requests keep their
 decision authority on retry, including after a Project default changes. Fresh
 direct/default claims reuse the Plugin request owner's SQL execution guard to
@@ -2889,11 +3000,27 @@ connection and actor authorization. Local Plugin calls use their verified
 dispatch source Task or the same exact-action Inbox confirmation; direct third-party tools outside
 OpenMeld are not covered by this boundary.
 
-The optional authority field changes the hosted Remote Agent-to-Core request
+`centerAgentReadConnectorActionOperation` accepts the opt-in
+`includeRequestAuthorization: true`. Only opted-in responses include
+`requestAuthorization`, a nullable projection of the existing Plugin request's
+ID, current state and continuation state. The request owner reads by verified
+Organization, represented member, Agent and operation, and matches service and
+action. It exposes no raw input or approval capability. The read never creates,
+approves, or continues a request. `openmeld_get_app_action_status` exposes that
+read to the Agent; an older Core response without the projection explicitly
+reports that confirmation status is unavailable. Approval and provider execution
+remain separate facts. Unversioned/legacy callers retain their strict response
+shape.
+The status tool is also available in the connected Message Channel member,
+personal Agent and member-research tool catalogs, with their existing Core
+authorization checks. Its model-visible operation explicitly projects the
+shared response fields and excludes the internal monotonic-clock replay deadline.
+
+The optional authority field and opt-in status projection change the hosted Remote Agent-to-Core request
 only. Deploy Core before Remote Agent for the direct-admission behavior. Old
 callers omit it and retain Project/default confirmation behavior; old Core
 ignores the new field in its explicit input projection and still requires its
-existing confirmation. No response enum, stored intent, database migration,
+existing confirmation. No existing response enum, stored intent, database migration,
 CLI/Service/Skills contract floor, setup, Wake, Space action, or diagnostic
 payload changes. Local Plugin calls retain their existing dispatch/confirmation
 path. Shared-schema packaging impact must be checked by release readiness;
@@ -9155,8 +9282,8 @@ maintainability without weakening UX.
 `packages/schemas/src/schemas/http/space-dispatch-trace.ts` owns both the
 legacy and current strict trace response schemas. A caller requests the current
 contract by sending
-`x-openmeld-space-dispatch-trace-response-version: 7`. Core also accepts
-versions `2` through `6`; without the header, Core projects the legacy version `1`
+`x-openmeld-space-dispatch-trace-response-version: 8`. Core also accepts
+versions `2` through `7`; without the header, Core projects the legacy version `1`
 subset. Version `2` omits every version-3-only head no-execution detail,
 including disabled-Local-Agent, reliable Usage, and newer canonical blocker
 families, while retaining the surrounding generic dispatch and attempt

@@ -7,6 +7,11 @@ export type {
   SpaceAgentWorkloadInput,
 } from "../../schemas/http/agent-workload";
 export type {
+  PluginActionRecoveryInput,
+  ReadApprovedPluginActionInput,
+  ReadApprovedPluginActionResponse,
+} from "../../schemas/http/plugin-action-recovery";
+export type {
   PluginActionRequestCommand,
   PluginActionRequestCommandRpc,
   PluginActionRequestIntent,

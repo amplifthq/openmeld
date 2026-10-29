@@ -33,7 +33,7 @@ describe("Space dispatch trace API", () => {
   });
 
   it.each([
-    1, 2,
+    1, 2, 3,
   ] as const)("accepts runtime diagnostics v%s during the receiver-first rollout", async (version) => {
     const query = {
       spaceId: "space-trace-test",
@@ -46,7 +46,18 @@ describe("Space dispatch trace API", () => {
       collectedAt: "2026-08-12T00:00:00.000Z",
       durableObjectAlarmAtMs: null,
       fibers: [],
-      schedules: [],
+      schedules:
+        version === 3
+          ? [
+              {
+                id: "schedule-1",
+                callback: "retryCallback",
+                type: "delayed",
+                timeMs: 9000,
+                delayInSeconds: 5,
+              },
+            ]
+          : [],
       spaceId: query.spaceId,
       submissions: [],
       v: version,

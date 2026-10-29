@@ -4,6 +4,7 @@ import type {
   CenterAgentRecordConnectorActionOperationBody,
   OpenMeldRequestContext,
 } from "@openmeld/schemas/types";
+import { digestCanonicalJson } from "@openmeld/utils";
 import { readPluginAccess } from "../connectors/plugin-access";
 import {
   preparePluginActionRequest,
@@ -73,8 +74,7 @@ export async function prepareProjectIssueActionAdmission(input: {
         "The complete issue destination must match its provider before a new operation is accepted.",
     });
   }
-  const explicitGitHubIssueRequest =
-    await authorizeExplicitGitHubIssueRequest(input);
+  const explicitIssueRequest = await authorizeExplicitIssueRequest(input);
   const requestAbsenceGuard = input.userId
     ? await preparePluginActionRequestAbsenceGuard({
         db: input.db,
@@ -87,7 +87,7 @@ export async function prepareProjectIssueActionAdmission(input: {
   // Once a request exists, neither a new declaration nor a Project edit can
   // replace its decision. Fresh direct/default claims guard absence atomically.
   if (requestAbsenceGuard !== null) {
-    if (explicitGitHubIssueRequest) {
+    if (explicitIssueRequest) {
       return {
         executionGuard: requestAbsenceGuard,
         sourceRequestKey: input.sourceRequestKey,
@@ -121,6 +121,10 @@ export async function prepareProjectIssueActionAdmission(input: {
     connectionName: connection.connectionName,
     activeOnly: true,
   });
+  const recovery = await validateIssueActionRecovery(
+    operation,
+    connection.connectionName
+  );
   const authorization = await preparePluginActionRequest({
     db: input.db,
     intent: {
@@ -143,6 +147,7 @@ export async function prepareProjectIssueActionAdmission(input: {
         ...destination,
         requestSignature: operation.requestSignature,
       },
+      recovery,
     },
   });
   if (!authorization.root) {
@@ -165,12 +170,47 @@ export async function prepareProjectIssueActionAdmission(input: {
   };
 }
 
-async function authorizeExplicitGitHubIssueRequest(
+async function validateIssueActionRecovery(
+  operation: CenterAgentRecordConnectorActionOperationBody,
+  connectionName: string
+) {
+  const recovery = operation.issueActionRecovery;
+  if (recovery) {
+    const expectedSignature = await digestCanonicalJson({
+      actionId: operation.actionId,
+      connectionName,
+      input: recovery.input,
+      service: operation.service,
+      ...(recovery.issueDestinationAuthority
+        ? { issueDestinationAuthority: recovery.issueDestinationAuthority }
+        : {}),
+      ...(operation.service === "github"
+        ? {
+            githubActor: recovery.githubActor,
+          }
+        : {}),
+    });
+    if (
+      expectedSignature !== operation.requestSignature ||
+      (operation.service === "github" && !recovery.githubActor) ||
+      (operation.service !== "github" && recovery.githubActor) ||
+      recovery.issueDestinationAuthority !== operation.issueDestinationAuthority
+    ) {
+      throw createCoreRpcHttpError({
+        code: "plugin.request.recovery_input_mismatch",
+        status: 409,
+        reason: "The retained action does not match the exact operation input.",
+      });
+    }
+  }
+  return recovery;
+}
+
+async function authorizeExplicitIssueRequest(
   input: Parameters<typeof prepareProjectIssueActionAdmission>[0]
 ): Promise<boolean> {
   if (
     input.operation.issueDestinationAuthority !== "explicit_request" ||
-    input.operation.issueDestination?.provider !== "github" ||
     !input.userId ||
     !input.sourceNativeDeliveryId
   ) {
