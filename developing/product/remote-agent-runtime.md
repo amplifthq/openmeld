@@ -4000,6 +4000,13 @@ An approved Plugin continuation replays its original immutable operation through
 the normal action owner, independently of a new model-selected target.
 Personal Agents, Routines, and external Message Channels keep their current paths.
 
+Work-target refresh uses Flue's delivered-input start hook, after canonical input
+application and before the first model call. It does not perform a fallible Core
+read while the Agent function is being initialized. If that read fails, execution
+still fails closed, but the original Human input remains in canonical history for
+the next continuation. Each repository operation independently rechecks Space;
+the start-hook Signal is context, not another goal or execution owner.
+
 Contract impact: the new Core/Space work-target receiver and schemas are additive;
 no existing request, public read projection, or workstation contract changes.
 Deploy Core before Remote Agent; old Remote Agent does not call the receiver,
