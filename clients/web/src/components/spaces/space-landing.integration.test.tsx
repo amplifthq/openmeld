@@ -16,6 +16,9 @@ import {
 	createDaemonRouteObservationSummary,
 	DISPATCH_ACTIVITY_DISPATCHING_PURPOSE,
 	DISPATCH_ACTIVITY_FAILED_PURPOSE,
+	listMemberAgentsResponseSchema,
+	listPermissionModeSuggestionsResponseSchema,
+	listPluginActionRequestsResponseSchema,
 } from "@openmeld/schemas";
 import { createSpaceMemberAgentExecutionReadiness } from "@openmeld/schemas/testing";
 import type {
@@ -24,6 +27,7 @@ import type {
 	CreateAgentProfileCreationRequestResponse,
 	CreateSpaceThreadResponse,
 	GetSpaceStatusResponse,
+	ListSpaceFilesResponse,
 	ListSpaceTasksResponse,
 	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationDirectoryResponse,
@@ -336,6 +340,9 @@ vi.mock("@tanstack/react-query", async () => {
 		(Array.isArray(queryKey) &&
 			queryKey[0] === "spaces" &&
 			(queryKey[1] === "pending-outgoing" ||
+				queryKey[1] === "composer-tray-display" ||
+				queryKey[1] === "header-title-display" ||
+				queryKey[1] === "viewer-membership-display" ||
 				queryKey.includes("member-directory-display"))) ||
 		(Array.isArray(queryKey) && queryKey[0] === "space-message-reactions") ||
 		(Array.isArray(queryKey) &&
@@ -17266,7 +17273,7 @@ describe("SpaceLanding", () => {
 		focus.mockRestore();
 	});
 
-	it("restores the active Thread panel across a reload until the user closes it", async () => {
+	it("restores the active Thread across reload and tab navigation until the user closes it", async () => {
 		const rootSignal = createTextSignal({
 			id: "sig-persisted-thread-root",
 			text: "Keep this Thread open after reload.",
@@ -17341,6 +17348,29 @@ describe("SpaceLanding", () => {
 			);
 		});
 		expect(screen.getByRole("complementary", { name: "Thread" })).toBeTruthy();
+
+		await setComposerValue(
+			within(restoredPanel).getByRole("textbox", { name: "Reply in thread" }),
+			"Keep this draft while browsing the Space."
+		);
+		for (const tab of ["Tasks", "Files"]) {
+			fireEvent.click(screen.getByRole("tab", { name: tab }));
+			await waitFor(() => {
+				expect(
+					screen.queryByRole("complementary", { name: "Thread" })
+				).toBeNull();
+			});
+			expect(screen.getByRole("tabpanel", { name: tab })).toBeTruthy();
+			fireEvent.click(screen.getByRole("tab", { name: "Messages" }));
+			const thread = await screen.findByRole("complementary", {
+				name: "Thread",
+			});
+			expect(
+				readComposerValue(
+					within(thread).getByRole("textbox", { name: "Reply in thread" })
+				)
+			).toBe("Keep this draft while browsing the Space.");
+		}
 
 		fireEvent.click(
 			within(restoredPanel).getByRole("button", { name: "Close thread" })
@@ -19574,6 +19604,44 @@ function mockSpaceQueries(input: {
 			select?: unknown;
 		}) => {
 			const queryKey = JSON.stringify(options.queryKey);
+			if (options.queryKey[0] === "pending-permission-mode-suggestions") {
+				return createQueryResult({
+					isSuccess: true,
+					data: listPermissionModeSuggestionsResponseSchema.parse({
+						suggestions: [],
+					}),
+				});
+			}
+			if (
+				options.queryKey[0] === "member-agents" &&
+				options.queryKey.length === 2
+			) {
+				return createQueryResult({
+					isSuccess: true,
+					data: listMemberAgentsResponseSchema.parse({
+						ok: true,
+						organizationId: "org-acme",
+						memberAgents: [],
+						unassignedProfiles: [],
+					}),
+				});
+			}
+			if (
+				options.queryKey[0] === "agent-access" &&
+				(options.queryKey[2] === "list" ||
+					options.queryKey[2] === "viewer-grants")
+			) {
+				return createQueryResult({ isSuccess: true, data: [] });
+			}
+			if (
+				options.queryKey[0] === "pending-plugin-action-requests" ||
+				options.queryKey[0] === "message-plugin-action-requests"
+			) {
+				return createQueryResult({
+					isSuccess: true,
+					data: listPluginActionRequestsResponseSchema.parse({ requests: [] }),
+				});
+			}
 			if (options.queryKey[0] === "space-tasks") {
 				return createQueryResult({ isPending: true });
 			}
@@ -19973,6 +20041,26 @@ function mockSpaceQueries(input: {
 						truncated: false,
 					} satisfies ListSpaceTasksResponse,
 				});
+			}
+			if (
+				options.queryKey[0] === "space-files" &&
+				options.queryKey[2] === "folder"
+			) {
+				return createQueryResult({
+					isSuccess: true,
+					data: {
+						spaceId: "space-123",
+						parentId: null,
+						view: "active",
+						origin: "all",
+						breadcrumbs: [],
+						entries: [],
+						capabilities: { canRead: true, canWrite: true },
+					} satisfies ListSpaceFilesResponse,
+				});
+			}
+			if (options.enabled === false) {
+				return createQueryResult({ isPending: true });
 			}
 			throw new Error(`Unexpected query key: ${queryKey}`);
 		}
