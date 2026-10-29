@@ -243,7 +243,11 @@ Project association, permission grant, execution ledger, or completion state.
 Its `requestGoal` describes the current requested operation; the Task's declared
 deliverable and completion conditions remain solely in the existing Task owner.
 The same Center Agent interprets the request; no second model or task-text router
-chooses the target. The current record is read again after compaction or rollover.
+chooses the target. Each delivered input refreshes the current record after the
+runtime has durably applied that input and before the model starts. A failed
+context read must leave the admitted correction available to the next continuation.
+Every repository operation reads the owner again, including after compaction or
+rollover; a compressed model summary cannot replace the current record.
 Structured provider operations and repository publication must agree with it;
 an unrelated tool result never changes it. Explicit multi-repository work selects
 those repositories together. An issue destination does not replace the code target.
