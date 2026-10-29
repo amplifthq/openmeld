@@ -4,6 +4,14 @@ title: Show blocked Task handoffs instead of silent success
 kind: fixed
 areas: ["spaces"]
 audiences: ["members"]
+publishedAt: 2026-10-29
+evidence:
+  - "pr:336"
+  - "pr:337"
+  - "commit:381632813aabf4f0f558f7c4a51a395de989912c"
+  - "commit:c90a68fefcf7ba77e5093337d07a0ec65ae595d8"
+  - "workflow:40886168710"
+  - "workflow:40893009950"
 ---
 
 A Task handoff now prepares a real Wake dispatch before publishing an activated
