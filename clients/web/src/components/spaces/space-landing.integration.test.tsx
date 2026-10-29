@@ -17248,7 +17248,11 @@ describe("SpaceLanding", () => {
 				"Third reply that should stay inside the thread."
 			)
 		).toBeTruthy();
-		expect(screen.queryByText("I'll check it.")).toBeNull();
+		expect(
+			within(screen.getByRole("tabpanel", { name: "Messages" })).queryByText(
+				"I'll check it."
+			)
+		).toBeNull();
 		expect(
 			screen.getByRole("button", { name: "Open thread (3 replies)" })
 		).toBeTruthy();
