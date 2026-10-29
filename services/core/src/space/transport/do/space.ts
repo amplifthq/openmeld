@@ -9855,13 +9855,24 @@ export class Space extends DurableObject<CoreBindings> {
       pendingActions: context
         ? new SpaceTaskDeliveryRepository(this.ctx.storage.sql)
             .status(taskId)
-            .filter(
-              (
-                action
-              ): action is NonNullable<
-                SpaceTaskResponse["pendingActions"]
-              >[number] => action.kind !== "inbox_projection"
-            )
+            .flatMap((action) => {
+              if (action.kind === "inbox_projection") {
+                return [];
+              }
+              if (
+                action.delivery &&
+                !isSpaceTaskDeliveryCurrent(
+                  action.delivery,
+                  detail.task,
+                  new SpaceTaskRepository(this.ctx.storage.sql)
+                )
+              ) {
+                return [];
+              }
+              return [
+                { kind: action.kind, state: action.state, error: action.error },
+              ];
+            })
         : [],
     };
   }
