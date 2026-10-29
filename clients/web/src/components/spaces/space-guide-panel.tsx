@@ -10,13 +10,13 @@ import { Button } from "@openmeld/ui/components/button";
 import { Textarea } from "@openmeld/ui/components/textarea";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { BookOpenTextIcon } from "@phosphor-icons/react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { useQuery } from "@tanstack/react-query";
 import { ReadPausedState } from "#/components/app/read-paused-state";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { useDelayedPending } from "#/lib/use-delayed-pending";
 import { shouldRetrySpaceQuery } from "#/query/spaces/retry";
 import { spaceQueryKeys } from "#/query/spaces/status";
+import { isSpaceGuideTooLong, useSaveSpaceGuide } from "./space-guide-save";
 
 const GUIDE_LENGTH_FORMAT = new Intl.NumberFormat("en-US");
 
@@ -117,28 +117,13 @@ function SpaceGuideEditor(
 		onSaved: (submitted: string) => void;
 	}
 ) {
-	const queryClient = useQueryClient();
-	const saveGuide = useMutation({
-		mutationFn: async (guide: string) =>
-			await createUnscopedWebSpaceApi({
-				openMeldProfileId: input.openMeldProfileId,
-			}).updateMeta({ spaceId: input.spaceId, guide }),
-		onSuccess: (meta, submitted) => {
-			queryClient.setQueryData(
-				spaceQueryKeys.meta(input.spaceId, input.openMeldProfileId),
-				meta
-			);
-			// Keeps the editor open if the text changed while saving.
-			input.onSaved(submitted);
-			toast.success("Guide saved.");
-		},
-	});
+	const saveGuide = useSaveSpaceGuide(input);
 	// The cap only guards storage and Agent context; it is not shown as a
 	// running count, so it reads as unlimited until someone actually hits it.
 	const length = input.draft.trim().length;
-	const tooLong = length > MAX_SPACE_GUIDE_LENGTH;
+	const tooLong = isSpaceGuideTooLong(input.draft);
 	return (
-		<div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-3 p-4 sm:p-6">
+		<div className="flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-3 px-[var(--app-page-inline-padding)] py-[var(--app-page-block-padding)]">
 			<Textarea
 				aria-describedby={tooLong ? "space-guide-too-long" : undefined}
 				aria-invalid={tooLong || undefined}
@@ -218,7 +203,7 @@ function SpaceGuideReader(input: {
 }) {
 	return (
 		<ScrollArea className="min-h-0 flex-1">
-			<div className="mx-auto max-w-3xl p-4 sm:p-6">
+			<div className="max-w-3xl px-[var(--app-page-inline-padding)] py-[var(--app-page-block-padding)]">
 				<div className="mb-4 flex items-center justify-between gap-3">
 					<p className="text-muted-foreground text-sm">
 						Agents follow this guide on every Wake in this Space.

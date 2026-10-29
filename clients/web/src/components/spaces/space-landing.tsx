@@ -152,6 +152,10 @@ import type { SpaceAutomaticWakeComposerHintKind } from "./space-composer-copy";
 import type { SpaceComposerEditorHandle } from "./space-composer-editor";
 import { SpaceConversationPanel } from "./space-conversation-panel";
 import { useSpaceGuideDraft } from "./space-guide-draft";
+import {
+	saveSpaceGuideBeforeLeaving,
+	useSaveSpaceGuide,
+} from "./space-guide-save";
 import { SpaceHeader, SpaceWindowHeader } from "./space-header";
 import { SpaceLandingErrorBoundary } from "./space-landing-error-boundary";
 import { SpaceLiveNotice } from "./space-live-notice";
@@ -1697,6 +1701,11 @@ function SpaceLandingConversationShell({
 		viewerMembership,
 	} = useSpaceLandingViewerState({ controller, state });
 	const guideDraft = useSpaceGuideDraft(controller.spaceId);
+	const saveGuide = useSaveSpaceGuide({
+		onSaved: guideDraft.onSaved,
+		openMeldProfileId: controller.profileId,
+		spaceId: controller.spaceId,
+	});
 	const memberAgentDirectMessage = useCurrentMemberAgentDirectMessage({
 		isActiveSpaceMember: currentProfileIsActiveSpaceMember,
 		isCenterAgentDirectMessage: currentSpaceIsCenterAgentDirectMessage,
@@ -1877,6 +1886,10 @@ function SpaceLandingConversationShell({
 					description="Your changes to this Space's guide haven't been saved."
 					hasUnsavedChanges={guideDraft.hasUnsavedChanges}
 					onDiscard={guideDraft.discard}
+					onSave={() =>
+						saveSpaceGuideBeforeLeaving(guideDraft.draft, saveGuide.mutateAsync)
+					}
+					saving={saveGuide.isPending}
 				/>
 				<AppMainContent
 					bodyClassName="flex"
