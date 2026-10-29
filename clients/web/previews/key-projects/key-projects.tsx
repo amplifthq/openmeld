@@ -1,3 +1,4 @@
+import { buildOrganizationSpacePath } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	Dialog,
@@ -17,19 +18,24 @@ import {
 	CheckIcon,
 	FileTextIcon,
 	GitDiffIcon,
-	LightbulbIcon,
 	StarIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import "./key-projects.css";
 
-// Local design fixtures only. No requests, polling, publication, or model calls.
+// Illustrative project updates with explicitly selected real Space destinations.
+// No requests, polling, publication, or model calls until the viewer navigates.
 // These IDs stand in for canonical Projects; this is not a new Project model.
 const projects = [
 	{
 		id: "demo-openmeld",
 		name: "OpenMeld",
+		space: {
+			orgSlug: "amplift",
+			spaceId:
+				"8824251cb668f85552a023ce35477ce55907bb1e374762a35251a930184856dd",
+		},
 		goal: "Make human–Agent teamwork visible.",
 		stage: "Design review",
 		kind: "milestone",
@@ -67,6 +73,11 @@ const projects = [
 	{
 		id: "demo-tonebird",
 		name: "ToneBird",
+		space: {
+			orgSlug: "amplift",
+			spaceId:
+				"1f4ba0fb33cebc99c1912cdefad304fadc5fc7d89ea281acab775f59063d8fd2",
+		},
 		goal: "Bring the creator launch to market.",
 		stage: "Launch preparation",
 		kind: "delivery",
@@ -102,37 +113,6 @@ const projects = [
 		],
 	},
 	{
-		id: "demo-research",
-		name: "Customer discovery",
-		goal: "Find the strongest first-use experience.",
-		stage: "Synthesis",
-		kind: "learning",
-		title: "The first useful result matters more than setup.",
-		summary:
-			"The shared interview synthesis points to a clearer onboarding goal: help a new team finish one useful task together.",
-		nextLabel: "Next milestone",
-		next: "Test the revised first-use flow.",
-		nextOwner: "MingYoo",
-		artifact: "New learning",
-		artifactKind: "learning",
-		source: "Shared interview synthesis",
-		time: "Yesterday, 16:10",
-		detailTitle: "A learning to test",
-		detail: [
-			"Hypothesis: teams understand the product faster after one shared result.",
-			"Proposed experiment: guide a new team through one small, complete workflow.",
-			"This is a research hypothesis, not a measured improvement.",
-		],
-		agents: [
-			{
-				name: "Research partner",
-				owner: "MingYoo",
-				controller: "builtin:claude-code",
-				work: "Turning the shared research notes into a first-use experiment.",
-			},
-		],
-	},
-	{
 		id: "demo-routine",
 		name: "Routine maintenance",
 		goal: "Keep the app tidy.",
@@ -159,8 +139,6 @@ const headlines: Record<string, string> = {
 	"demo-openmeld":
 		"Key projects replace the Agent activity grid on the homepage.",
 	"demo-tonebird": "The product walkthrough and creator brief are ready.",
-	"demo-research":
-		"First-use research points to one shared result as the onboarding goal.",
 };
 function readFollowing(): string[] {
 	try {
@@ -172,32 +150,6 @@ function readFollowing(): string[] {
 		/* A blocked browser store leaves the preview usable in memory. */
 	}
 	return eligible.map((p) => p.id);
-}
-
-function SpacePreview({ project }: { project: Project }) {
-	return (
-		<main className="preview-space">
-			<a className="focus-source" href="/">
-				← Back to key projects
-			</a>
-			<div className="focus-eyebrow">SPACE · DESIGN PREVIEW</div>
-			<h1>{project.name}</h1>
-			<p className="text-muted-foreground">{project.goal}</p>
-			<section>
-				<h2>Shared project update</h2>
-				<p>{headlines[project.id]}</p>
-				<ul>
-					{project.detail.map((line) => (
-						<li key={line}>{line}</li>
-					))}
-				</ul>
-			</section>
-			<p className="text-muted-foreground text-sm">
-				This is an illustrative Space destination. The production link will open
-				the accessible Space associated with this update.
-			</p>
-		</main>
-	);
 }
 
 function AgentCatchup({ agent }: { agent: Project["agents"][number] }) {
@@ -239,12 +191,6 @@ export function KeyProjectsPreview() {
 			/* Preview remains usable without persistence. */
 		}
 	}, [selected]);
-	const space = eligible.find(
-		(p) => p.id === new URLSearchParams(window.location.search).get("space")
-	);
-	if (space) {
-		return <SpacePreview project={space} />;
-	}
 	return (
 		<div className="focus-shell">
 			<aside aria-label="App navigation" className="focus-rail">
@@ -328,10 +274,7 @@ export function KeyProjectsPreview() {
 													<AgentCatchup agent={agent} key={agent.name} />
 												))}
 											</div>
-											<span>
-												{project.agents.length}{" "}
-												{project.agents.length === 1 ? "Agent" : "Agents"}
-											</span>
+											<span>{project.agents.length} Agents</span>
 										</div>
 									</div>
 									<div className="focus-outcome">
@@ -351,7 +294,6 @@ export function KeyProjectsPreview() {
 											variant="outline"
 										>
 											{project.artifactKind === "diff" && <GitDiffIcon />}
-											{project.artifactKind === "learning" && <LightbulbIcon />}
 											{project.artifactKind === "document" && <FileTextIcon />}
 											{project.artifact}
 										</Button>
@@ -360,7 +302,12 @@ export function KeyProjectsPreview() {
 										<a
 											aria-label={`Open ${project.name} Space`}
 											className="focus-open-space"
-											href={`?space=${project.id}`}
+											href={
+												new URL(
+													buildOrganizationSpacePath(project.space),
+													"https://app.openmeld.ai"
+												).href
+											}
 										>
 											Open Space
 											<ArrowRightIcon />

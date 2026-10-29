@@ -560,43 +560,6 @@
 	margin-bottom: 20px;
 	font-size: 13px;
 }
-.preview-space {
-	max-width: 800px;
-	margin: 0 auto;
-	padding: 40px 24px;
-	min-height: 100vh;
-}
-.preview-space > .focus-eyebrow {
-	margin-top: 55px;
-}
-.preview-space h1 {
-	font-size: 30px;
-	font-weight: 600;
-	margin-bottom: 10px;
-}
-.preview-space section {
-	margin: 35px 0;
-	padding: 28px;
-	border: 1px solid var(--border);
-	border-radius: 12px;
-}
-.preview-space h2 {
-	font-size: 12px;
-	color: var(--muted-foreground);
-	margin-bottom: 14px;
-}
-.preview-space section > p {
-	font-size: 19px;
-	font-weight: 500;
-}
-.preview-space ul {
-	padding-left: 18px;
-	list-style: disc;
-	margin-top: 22px;
-	font-size: 14px;
-	line-height: 1.8;
-	color: var(--muted-foreground);
-}
 @media (max-width: 1000px) {
 	.focus-project {
 		grid-template-columns: 1fr 2fr;

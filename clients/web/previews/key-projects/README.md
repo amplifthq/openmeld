@@ -1,8 +1,9 @@
 # Team key-projects design preview
 
 A local, interactive design proposal for the Team homepage. It is not connected
-to a production route or live Organization data. All project updates, people,
-Agent contributions and Space destinations are illustrative.
+to a production route or live Organization data. Project updates, people and
+Agent contributions are illustrative. Open Space links to real, explicitly
+selected Spaces in the Web app.
 
 ## Run
 
@@ -34,8 +35,16 @@ directory; no tracked source depends on that directory.
   Undo and Manage following restore it. Preview preferences persist only in this
   browser, using the namespaced key
   `openmeld-key-projects-design-preview-following-v1`.
-- Open Space navigates to a clearly labeled local illustrative Space. Browser
-  Back and the explicit return link return to the project overview.
+- Open Space navigates in the same tab using the project's explicit Organization
+  slug and Space ID through the shared `buildOrganizationSpacePath` helper:
+  OpenMeld opens **Openmeld design review**, and ToneBird opens **ToneBird gogogo**.
+  These destinations were confirmed by Monica and verified through
+  `openmeld space access`. The authenticated Organization route preserves the
+  destination through sign-in. The Web app owns sign-in and Space access checks;
+  the links grant no access. Browser Back returns to the preview.
+  No local imitation Space is used.
+- Customer discovery has been removed because it had no confirmed Space.
+  Existing browser selections discard removed fixture IDs.
 - Empty selections stay empty. Unselected and small-fix records do not fill gaps.
 - No Agent Wake, periodic interrogation, model call, live API read, private
   session inspection or publication occurs.
@@ -47,7 +56,8 @@ for a member's followed projects and explicitly published milestone updates.
 A project is not important merely because it has recent tasks; do not infer
 importance from title keywords or promote minor fixes into homepage updates.
 
-Attach each update to a real source and accessible Space. Recheck source and
+Replace the preview's explicit Space mappings with each published update's
+canonical source Space. Attach each update to a real source. Recheck source and
 Space visibility, revocation and current Organization membership. Do not expose
 private session content, local diffs or private memories. Project selection must
 not grant access to its related resources.
@@ -63,8 +73,11 @@ sources need real-data handling before this can replace the Team homepage.
 
 The local design was checked in a browser at desktop and 390px widths, including
 Unfollow across reload, Undo, refollowing, empty selection, Agent catch-up and
-illustrative Space navigation. These are prototype checks, not live-account or
-installed Desktop acceptance.
+Space navigation. The two Open Space actions were also clicked in the in-app
+browser and opened the confirmed live conversations. Signed-out entry preserved
+the destination through sign-in. TypeScript, Biome and the standalone Vite build
+passed. These checks do not certify production homepage or installed Desktop
+integration.
 
 This draft requires user review. Do not mark ready, merge, publish or update the
 client without the user's explicit approval. No architecture owner rule is
