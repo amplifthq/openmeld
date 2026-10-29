@@ -1741,6 +1741,7 @@ const requiresPreparedWakeHandoff = (
   signalContext: SignalPublishContext | undefined
 ): boolean =>
   isUserAuthoredSignalContext(signalContext) ||
+  Boolean(signalContext?.spaceTaskDeliveryId) ||
   (signalContext?.authoringPolicy === "system_emitted" &&
     signalContext.finalOutcomeAuthority !== undefined);
 const readWakeActivationTargetProfileIds = (
@@ -10417,6 +10418,14 @@ export class Space extends DurableObject<CoreBindings> {
       ...(threadContext
         ? { threadContext, threadPlacement: "thread" as const }
         : {}),
+    }).catch((error: unknown) => {
+      if (error instanceof SpaceSignalAuthoringError) {
+        throw new SpaceTaskDeliveryError(
+          error.message,
+          error.code === SPACE_WAKE_TARGET_INVALID_ERROR_CODE
+        );
+      }
+      throw error;
     });
   }
   private async handleSpaceTaskOperation<T>(

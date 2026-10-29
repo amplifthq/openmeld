@@ -44,8 +44,9 @@ describe("Space Task handoff delivery", () => {
     ["agent", true, false],
     ["agent", true, true],
     ["agent", true, "create-and-delegate"],
+    ["agent", true, "self-trigger"],
     ["agent", true, "retry-after-issue-update"],
-  ] as const)("publishes one Task handoff for %s (Thread=%s, assignment=%s)", async (profileKind, inThread, assignment) => {
+  ] as const)("accounts for a Task handoff for %s (Thread=%s, assignment=%s)", async (profileKind, inThread, assignment) => {
     const namespace = (
       env as unknown as { OPENMELD_SPACES: DurableObjectNamespace<Space> }
     ).OPENMELD_SPACES;
@@ -234,17 +235,23 @@ describe("Space Task handoff delivery", () => {
         );
         if (assignment) {
           const bindings = Reflect.get(instance, "bindings") as CoreBindings;
-          const resolveProfileById = vi.fn(async () => ({
-            ok: true,
-            profile: {
-              profileId: requester.profileId,
-              profileKind: "human",
-              profileName: requester.profileName,
-              profileHandle: "avery",
-              ownerUserId: requester.ownerUserId,
-              status: "active",
-            },
-          }));
+          const resolveProfileById = vi.fn(
+            ({ openMeldProfileId }: { openMeldProfileId: string }) => {
+              const actor =
+                openMeldProfileId === reviewer.profileId ? reviewer : requester;
+              return Promise.resolve({
+                ok: true,
+                profile: {
+                  profileId: actor.profileId,
+                  profileKind: actor.profileKind,
+                  profileName: actor.profileName,
+                  profileHandle: "task-participant",
+                  ownerUserId: actor.ownerUserId,
+                  status: "active",
+                },
+              });
+            }
+          );
           if (assignment === "retry-after-issue-update") {
             resolveProfileById.mockRejectedValueOnce(
               new Error("Auth temporarily unavailable")
@@ -275,9 +282,25 @@ describe("Space Task handoff delivery", () => {
                 wakeAssignee: true,
               },
             };
+            const taskRequestContext =
+              assignment === "self-trigger"
+                ? {
+                    ...context,
+                    actorContext: {
+                      ...context.actorContext,
+                      callerPrincipalId: reviewer.ownerUserId ?? undefined,
+                      openMeldProfileId: reviewer.profileId,
+                      ownerUserId: reviewer.ownerUserId ?? undefined,
+                      profileKind: "agent" as const,
+                    },
+                  }
+                : context;
             const createInput = {
               spaceId,
-              context,
+              context: taskRequestContext,
+              ...(assignment === "self-trigger"
+                ? { representedRequester: requester }
+                : {}),
               body: {
                 operationId: "create-with-initial-handoff",
                 title: "Fix loading state",
@@ -289,14 +312,49 @@ describe("Space Task handoff delivery", () => {
                 externalWorkItems: [issue],
               },
             };
-            const assigned =
-              assignment === "create-and-delegate"
-                ? await instance.rpcCreateTask(createInput)
-                : await instance.rpcMutateTask(input);
-            if (assignment === "create-and-delegate") {
+            const creating =
+              assignment === "create-and-delegate" ||
+              assignment === "self-trigger";
+            const assigned = creating
+              ? await instance.rpcCreateTask(createInput)
+              : await instance.rpcMutateTask(input);
+            if (creating) {
               created = assigned;
             }
             expect(assigned.task.phase).toBe("to_do");
+            if (assignment === "self-trigger") {
+              const detail = await instance.rpcGetTask({
+                spaceId,
+                context: taskRequestContext,
+                taskId: assigned.task.taskId,
+                includeAffordances: true,
+              });
+              expect(detail.pendingActions).toContainEqual({
+                kind: "handoff",
+                state: "failed",
+                error: expect.stringContaining("cannot Wake itself"),
+              });
+              const signalId = `space-task-handoff:${assigned.event.eventId}`;
+              expect(
+                state.storage.sql
+                  .exec("SELECT id FROM space_signals WHERE id = ?", signalId)
+                  .toArray()
+              ).toEqual([]);
+              expect(
+                state.storage.sql
+                  .exec(
+                    "SELECT payload_json FROM openMeldDaemon_outbox WHERE source_event_id = ?",
+                    signalId
+                  )
+                  .toArray()
+              ).toEqual([]);
+              expect(
+                new SpaceTaskDeliveryRepository(state.storage.sql).wakeRefs(
+                  assigned.task.taskId
+                )
+              ).toEqual([]);
+              return;
+            }
             if (assignment === "retry-after-issue-update") {
               const deliveries = new SpaceTaskDeliveryRepository(
                 state.storage.sql
