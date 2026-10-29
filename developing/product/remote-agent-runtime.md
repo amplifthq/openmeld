@@ -3984,6 +3984,33 @@ configured Flue capability:
 
 ### Conversation Identity And Result Surface
 
+For verified interactive Space work, the model-facing direct and Code Mode
+catalogs share the same Space-owned work-target check. Each Human input selects
+or inherits its current goal and destinations before repository operations.
+Explicit corrections and independent requests are separate choices. A saved
+source-to-goal receipt fences callbacks from later defaults in the same Thread;
+the default index is scoped by author. An explicitly named earlier source is a
+context reference, never another requester or permission grant. Actual Space Task
+handoffs resolve at the Task owner; execution `taskId` attribution stays unchanged.
+GitHub search qualifiers are provider syntax, not task classification; global or
+ambiguous searches require an explicit bounded repository query. Native Plugin
+Git connections and publication of an existing checkout check the same target.
+Arbitrary Computer command text is not parsed as an alternative target authority.
+An approved Plugin continuation replays its original immutable operation through
+the normal action owner, independently of a new model-selected target.
+Personal Agents, Routines, and external Message Channels keep their current paths.
+
+Contract impact: the new Core/Space work-target receiver and schemas are additive;
+no existing request, public read projection, or workstation contract changes.
+Deploy Core before Remote Agent; old Remote Agent does not call the receiver,
+while new Remote Agent fails closed against an older Core. Rolling Remote Agent
+back leaves the Space record retained. CLI/Service 0.3.279 package the added
+schemas as available updates without a minimum-version change. Existing CLI,
+Service, Skills, Gateway, and Web continue setup, Wake, Space actions, and
+diagnostics through their existing contracts. Desktop has no new payload or
+renderer dependency. The SQLite addition is local to each Space; no PostgreSQL
+migration or Cloudflare binding is added.
+
 Ordinary Space Center Agent requests use
 `center-space:{spaceId}:root:{rootSignalId}` as their logical conversation.
 The admitted Thread root selects the root; a new main message starts with its

@@ -31,6 +31,7 @@ import {
   createSubmitTurnRequest,
   TEST_NOW_MS,
 } from "./fixtures";
+import { selectedRepositoryWorkTarget } from "./fixtures/work-target";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 const SOURCE_COMMIT = "a".repeat(40);
@@ -133,6 +134,8 @@ async function fixture(
   };
   const operations = new Map<string, Operation>();
   const coreWorker: RemoteAgentCoreWorkerBinding = {
+    centerAgentWorkTarget: async () =>
+      selectedRepositoryWorkTarget(context, { owner: "acme", repo: "private" }),
     authorizeRemoteAgentExecutionAccess: authorize,
     centerAgentResolveConnectorConnection: connections,
     centerAgentReadConnectorActionOperation: async (value) => {
@@ -612,6 +615,15 @@ describe("bounded Git publication and receipts", () => {
       commit: REMOTE_COMMIT,
       replayed: true,
     });
+    expect(f.state.writes).toBe(1);
+    f.deps.coreWorker.centerAgentWorkTarget = async () =>
+      selectedRepositoryWorkTarget(f.deps.context, {
+        owner: "acme",
+        repo: "another-project",
+      });
+    await expect(
+      publishCheckout(f.deps, { ...publish, operationId: "different-goal" })
+    ).rejects.toThrow("work_target.destination_mismatch");
     expect(f.state.writes).toBe(1);
   });
   it("allows concurrent identical publication calls to update the branch at most once", async () => {
