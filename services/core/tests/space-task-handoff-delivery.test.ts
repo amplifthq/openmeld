@@ -353,6 +353,34 @@ describe("Space Task handoff delivery", () => {
                   assigned.task.taskId
                 )
               ).toEqual([]);
+              await instance.rpcMutateTask({
+                spaceId,
+                context: taskRequestContext,
+                taskId: assigned.task.taskId,
+                body: {
+                  action: "mark_in_progress",
+                  operationId: "resume-after-blocked-handoff",
+                  expectedRevision: assigned.task.revision,
+                },
+              });
+              const resumed = await instance.rpcGetTask({
+                spaceId,
+                context: taskRequestContext,
+                taskId: assigned.task.taskId,
+                includeAffordances: true,
+              });
+              expect(resumed.task.phase).toBe("in_progress");
+              expect(
+                resumed.pendingActions?.filter(
+                  (action) => action.kind === "handoff"
+                )
+              ).toEqual([]);
+              // Supersession changes the current projection, not failure history.
+              expect(
+                new SpaceTaskDeliveryRepository(state.storage.sql).read(
+                  `${assigned.event.eventId}:handoff`
+                )
+              ).not.toBeNull();
               return;
             }
             if (assignment === "retry-after-issue-update") {

@@ -11,3 +11,10 @@ message. If the selected target is blocked, including when an Agent tries to
 Wake itself, Task details retain the specific delivery failure and the Task
 stays in its current phase. A published-looking message no longer hides work
 that never started.
+
+The Center Agent can also reread one Task's current result, review, and delivery
+status, so it can report the recorded blocker instead of guessing from an earlier
+creation or assignment confirmation.
+
+After work resumes, Task details stop showing superseded handoff failures as
+current actions. The original failure record remains available for diagnostics.
