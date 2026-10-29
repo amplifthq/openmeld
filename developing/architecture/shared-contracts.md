@@ -277,6 +277,18 @@ change the continuation author. Reconcilable operation receipts keep continuatio
 pending; recovery pages past running requests rather than revisiting only the
 oldest 100 rows.
 
+`includeIssuePreview=true` independently opts the signed-in recipient's detail
+read into an optional `issuePreview`: saved issue title/description, target IDs,
+verified display names when available, and a count of other input fields.
+Core's private request remains the sole content owner. Gateway omits the field
+unless explicitly requested; lists never include it. New Web accepts an absent
+preview from old Gateway/Core and explains that the original content is unavailable.
+Deploy Core before Gateway forwards this new RPC option, then Web. Roll back
+Web/Gateway callers before Core. No stored-request format, database migration,
+CLI/Service/Skills protocol or contract floor changes; existing setup, Wake,
+Space actions and diagnostics remain compatible. Shared-schema packaging is an
+available-only local component impact, not a required user upgrade.
+
 The trusted connector completion protocol optionally accepts
 `githubIssueCompletion` for a completed `github.update_issue`. The adapter
 extracts it from the provider response, never from a model-supplied observation.
