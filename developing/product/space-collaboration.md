@@ -197,6 +197,9 @@ as ordinary messages before publishing an activated message. A blocked target,
 including a self-Wake, leaves a visible Task delivery failure with its original
 reason; it is never recorded as a successful handoff. The Task phase remains
 unchanged, and ordinary Wake permission checks still apply.
+The native Agent Task tool can read one exact Task's current detail, including
+pending or failed handoffs, through the same authorized Task read projection.
+Agent reports do not infer delivery from a mutation receipt or Task phase.
 When the Center Agent arranges a Task for its verified current human requester,
 Core rechecks the live delivery, Binding, and requester access. The requester
 must still be an active member of this Space and the Task's requester. This

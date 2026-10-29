@@ -28,25 +28,71 @@ async function fixture(kind: "space" | "dm") {
 
 describe("conversation Task tool boundary", () => {
   it.each([
-    "space",
-    "dm",
-  ] as const)("lists Tasks in the authorized %s using the admitted Agent identity", async (kind) => {
+    { kind: "space", action: "list" },
+    { kind: "dm", action: "list" },
+    { kind: "space", action: "get" },
+    { kind: "dm", action: "get" },
+  ] as const)("reads $action in the authorized $kind using the admitted Agent identity", async ({
+    kind,
+    action,
+  }) => {
     const { request, ...context } = await fixture(kind);
-    const listSpaceTasks = vi.fn(async () => ({ tasks: [], truncated: false }));
+    const taskId = "tsk_11111111-1111-4111-8111-111111111111";
+    const actor = {
+      ownerUserId: null,
+      profileId: request.agentProfileId,
+      profileKind: "agent" as const,
+      profileName: "Center Agent",
+    };
+    const response =
+      action === "list"
+        ? { tasks: [], truncated: false }
+        : spaceTaskResponseSchema.parse({
+            task: {
+              taskId,
+              spaceId: request.spaceId,
+              title: "Verify the current Guide",
+              description: null,
+              completionConditions: [],
+              sourceSignalId: null,
+              threadId: null,
+              requestedBy: actor,
+              createdBy: actor,
+              assignee: actor,
+              reviewer: null,
+              phase: "to_do",
+              result: null,
+              review: null,
+              automaticReworkRounds: 0,
+              needsHumanDecision: false,
+              revision: 1,
+              createdAt: new Date(TEST_NOW_MS).toISOString(),
+              updatedAt: new Date(TEST_NOW_MS).toISOString(),
+            },
+            events: [],
+            pendingActions: [
+              {
+                kind: "handoff",
+                state: "failed",
+                error: "A profile cannot Wake itself.",
+              },
+            ],
+          });
+    const readTasks = vi.fn(() => Promise.resolve(response));
     const tool = getRemoteAgentOpenMeldToolDefinitions({
       ...context,
-      coreWorker: { listSpaceTasks },
+      coreWorker: { listSpaceTasks: readTasks, getSpaceTask: readTasks },
     }).find((item) => item.name === "openmeld_manage_space_tasks");
     if (!tool) {
       throw new Error("Task tool missing");
     }
-    await expect(tool.execute({ action: "list" })).resolves.toEqual({
-      tasks: [],
-      truncated: false,
-    });
-    expect(listSpaceTasks).toHaveBeenCalledWith(
+    await expect(
+      tool.execute({ action, ...(action === "get" ? { taskId } : {}) })
+    ).resolves.toEqual(response);
+    expect(readTasks).toHaveBeenCalledWith(
       expect.objectContaining({
         spaceId: request.spaceId,
+        ...(action === "get" ? { taskId, includeAffordances: true } : {}),
         context: expect.objectContaining({
           actorContext: expect.objectContaining({
             openMeldProfileId: request.agentProfileId,
@@ -58,6 +104,7 @@ describe("conversation Task tool boundary", () => {
   });
 
   it.each([
+    { action: "get" },
     { action: "create", title: "Record an unassigned request" },
     {
       action: "create_and_delegate",
@@ -85,7 +132,11 @@ describe("conversation Task tool boundary", () => {
     const taskRpc = vi.fn(() => Promise.reject(denied));
     const tool = getRemoteAgentOpenMeldToolDefinitions({
       ...context,
-      coreWorker: { mutateSpaceTask: taskRpc, createSpaceTask: taskRpc },
+      coreWorker: {
+        mutateSpaceTask: taskRpc,
+        createSpaceTask: taskRpc,
+        getSpaceTask: taskRpc,
+      },
     }).find((item) => item.name === "openmeld_manage_space_tasks");
     if (!tool) {
       throw new Error("Task tool missing");
@@ -121,8 +172,12 @@ describe("conversation Task tool boundary", () => {
     expect(taskRpc).toHaveBeenCalledWith(
       expect.objectContaining({
         spaceId: request.spaceId,
-        ...(creates ? {} : { taskId }),
-        body: expect.objectContaining(expectedBody),
+        ...(action.action === "get"
+          ? { taskId, includeAffordances: true }
+          : {
+              ...(creates ? {} : { taskId }),
+              body: expect.objectContaining(expectedBody),
+            }),
         context: expect.objectContaining({
           actorContext: expect.objectContaining({
             openMeldProfileId: request.agentProfileId,
@@ -158,3 +213,5 @@ describe("conversation Task tool boundary", () => {
     expect(mutateSpaceTask).not.toHaveBeenCalled();
   });
 });
+
+import { spaceTaskResponseSchema } from "@openmeld/schemas";
