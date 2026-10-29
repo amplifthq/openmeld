@@ -4,6 +4,14 @@ title: Keep Task outcomes tied to the requested work
 kind: fixed
 areas: ["center-agent", "spaces"]
 audiences: ["members"]
+publishedAt: 2026-10-29
+evidence:
+  - "pr:335"
+  - "pr:336"
+  - "commit:118d473bf33805b0fc4541d2780d2392f3d116b4"
+  - "commit:381632813aabf4f0f558f7c4a51a395de989912c"
+  - "workflow:40879073266"
+  - "workflow:40886168710"
 ---
 
 Closing a linked GitHub issue updates its observed status without marking the

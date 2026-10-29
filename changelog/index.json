@@ -2,6 +2,114 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "center-agent-task-outcome-evidence",
+      "title": "Keep Task outcomes tied to the requested work",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "spaces"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-10-29",
+      "evidence": [
+        "pr:335",
+        "pr:336",
+        "commit:118d473bf33805b0fc4541d2780d2392f3d116b4",
+        "commit:381632813aabf4f0f558f7c4a51a395de989912c",
+        "workflow:40879073266",
+        "workflow:40886168710"
+      ],
+      "body": "Closing a linked GitHub issue updates its observed status without marking the\nSpace Task complete or canceled. Task results and reviews remain tied to the\nrequested completion conditions, including when an issue is closed after work\nmoves elsewhere. Tasks created by the Center Agent stay unassigned until an\nexecutor is explicitly selected.\n\nThe Center Agent can create a new Task and queue its initial delegation in one\noperation. Its brief, executor, review decision, and handoff are saved together,\nso an interruption cannot leave a newly created Task waiting for a missing Wake.\n\nThe Center Agent also receives its exact Agent Profile identity and the source\nmessage's shared Wake participants, so it can distinguish an already activated\nteammate from a name or a context-only reference."
+    },
+    {
+      "id": "center-agent-work-targets",
+      "title": "Keep the Center Agent's goal and repository attached to the request",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "spaces"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-10-29",
+      "evidence": [
+        "pr:323",
+        "pr:328",
+        "commit:884c0ecda3a997a88be164c3568bed47c197c3d4",
+        "commit:65c2055d3423e4527aa30846fd039db34255c06f",
+        "workflow:40845178734",
+        "workflow:40848981076",
+        "workflow:40859635716"
+      ],
+      "body": "The Center Agent keeps a request's goal, code repositories, and issue destination\nthrough context compaction and runtime rollover. A correction such as switching\nfrom one repository to another stays attached to that request, while independent\nTasks retain their own targets.\n\nNew requests and late callbacks keep their own source bindings. Code work and\nissue creation can use different destinations without changing each other's scope;\nan issue target no longer silently becomes the repository used for code work.\n\nIf the current goal cannot be read before execution, the admitted request stays\nin conversation history. A later continuation can recover a correction instead\nof asking the requester to repeat input lost during initialization."
+    },
+    {
+      "id": "space-task-blocked-handoff",
+      "title": "Show blocked Task handoffs instead of silent success",
+      "kind": "fixed",
+      "areas": [
+        "spaces"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-10-29",
+      "evidence": [
+        "pr:336",
+        "pr:337",
+        "commit:381632813aabf4f0f558f7c4a51a395de989912c",
+        "commit:c90a68fefcf7ba77e5093337d07a0ec65ae595d8",
+        "workflow:40886168710",
+        "workflow:40893009950"
+      ],
+      "body": "A Task handoff now prepares a real Wake dispatch before publishing an activated\nmessage. If the selected target is blocked, including when an Agent tries to\nWake itself, Task details retain the specific delivery failure and the Task\nstays in its current phase. A published-looking message no longer hides work\nthat never started.\n\nThe Center Agent can also reread one Task's current result, review, and delivery\nstatus, so it can report the recorded blocker instead of guessing from an earlier\ncreation or assignment confirmation.\n\nAfter work resumes, Task details stop showing superseded handoff failures as\ncurrent actions. The original failure record remains available for diagnostics."
+    },
+    {
+      "id": "center-agent-knowledge-source-references",
+      "title": "Trace Center Agent guidance to its current source",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "spaces"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-10-29",
+      "evidence": [
+        "pr:335",
+        "commit:118d473bf33805b0fc4541d2780d2392f3d116b4",
+        "workflow:40878018633",
+        "workflow:40879073266",
+        "workflow:40883355215"
+      ],
+      "body": "The Center Agent can reread a Space's current Guide and identify the returned\ncontent version. Guide snapshots, published Organization Documents, pending\ndrafts, and historical memory remain distinct sources. Current Brief and document\nreads include references to their actual published content, while draft-only\ncontent and identities stay out of automatic context."
+    },
+    {
+      "id": "center-agent-approved-action-continuity",
+      "title": "Keep approved issue actions and Space conversations on track",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "spaces",
+        "plugins"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-10-28",
+      "evidence": [
+        "pr:322",
+        "commit:e81bffebaf37b6df298bec9c379351fabd0a8ba6",
+        "workflow:40707461284",
+        "workflow:40712223521"
+      ],
+      "body": "Approving a Center Agent request to create a Linear or GitHub issue resumes the\nsaved operation with its original content and account. The Agent no longer has\nto reconstruct the issue description from conversation history.\n\nIndependent requests in ordinary Space threads keep separate conversation\nhistory, so a request in another thread cannot replace the context of an\napproval. Center Agent Direct Messages retain their existing continuity."
+    },
+    {
       "id": "release-receipt-network-recovery",
       "title": "Recover interrupted release records without repeating completed deployments",
       "kind": "fixed",

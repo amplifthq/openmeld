@@ -4,6 +4,15 @@ title: Keep the Center Agent's goal and repository attached to the request
 kind: fixed
 areas: ["center-agent", "spaces"]
 audiences: ["members"]
+publishedAt: 2026-10-29
+evidence:
+  - "pr:323"
+  - "pr:328"
+  - "commit:884c0ecda3a997a88be164c3568bed47c197c3d4"
+  - "commit:65c2055d3423e4527aa30846fd039db34255c06f"
+  - "workflow:40845178734"
+  - "workflow:40848981076"
+  - "workflow:40859635716"
 ---
 
 The Center Agent keeps a request's goal, code repositories, and issue destination
