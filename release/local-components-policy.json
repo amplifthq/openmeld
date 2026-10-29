@@ -1,12 +1,12 @@
 {
-  "version": "0.3.279",
+  "version": "0.3.280",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Packages additive hosted work-target RPC schemas without changing CLI commands or existing public responses. Existing supported clients remain compatible."
+    "reason": "Packages opt-in issue approval preview schemas. Existing CLI commands and default approval responses are unchanged; supported clients remain compatible."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Packages additive hosted work-target schemas without changing workstation execution. Existing supported Services remain compatible."
+    "reason": "Packages opt-in issue approval preview schemas without changing workstation execution, setup, Wake or diagnostics. Existing supported Services remain compatible."
   },
   "skills": {
     "updatePolicy": "available",
