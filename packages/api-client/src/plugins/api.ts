@@ -35,12 +35,13 @@ export function createPluginsApi(client: OpenMeldApiClientFoundation) {
       organizationId: string;
       command: PluginActionRequestCommand;
       requestContext?: OpenMeldRequestContext;
+      includeIssuePreview?: boolean;
     }) =>
       client.requestJson({
         method: "POST",
         operation: "plugins.requestAuthorization",
         requestContext: input.requestContext,
-        url: `/v1/organizations/current/plugins/action-requests?expectedOrganizationId=${encodeURIComponent(input.organizationId)}&includeMessageContext=true`,
+        url: `/v1/organizations/current/plugins/action-requests?expectedOrganizationId=${encodeURIComponent(input.organizationId)}&includeMessageContext=true${input.includeIssuePreview ? "&includeIssuePreview=true" : ""}`,
         body: JSON.stringify(
           pluginActionRequestCommandSchema.parse(input.command)
         ),

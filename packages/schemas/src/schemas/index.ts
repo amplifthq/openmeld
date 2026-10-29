@@ -2308,6 +2308,7 @@ export {
 } from "./http/plugin-delegation";
 export {
   connectorActionOutcomeUnknownSchema,
+  linearIssuePreviewNamesSchema,
   pluginActionEffectSchema,
   pluginRuntimeRequestSchema,
   pluginRuntimeResponseSchema,

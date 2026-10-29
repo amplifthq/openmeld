@@ -7,6 +7,19 @@ import {
   connectorServiceSchema,
 } from "./connector-connections";
 
+// Narrow read projection from OpenConnector's Linear run_query GraphQL envelope.
+// Resource IDs must still match the exact approved destination at the caller.
+const linearIssuePreviewResourceSchema = z.object({
+  id: z.string(),
+  name: z.string().min(1).max(200),
+});
+export const linearIssuePreviewNamesSchema = z.object({
+  data: z.object({
+    team: linearIssuePreviewResourceSchema.nullish(),
+    project: linearIssuePreviewResourceSchema.nullish(),
+  }),
+});
+
 export const pluginActionEffectSchema = z.enum([
   "read",
   "write",
