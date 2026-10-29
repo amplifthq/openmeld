@@ -492,7 +492,7 @@ describe("local service dispatch bootstrap prompt", () => {
       '- This space: "Launch Room" — Coordinate the North America launch'
     );
     expect(prompt).toContain(
-      "- Space guide (maintained by this space's steward):\nPrefer reversible decisions.\nEscalate security blockers."
+      "- Space guide (standing rules set by this Space's owners; follow them for all work in this Space, with OpenMeld rules and safety boundaries taking precedence):\nPrefer reversible decisions.\nEscalate security blockers."
     );
   });
 

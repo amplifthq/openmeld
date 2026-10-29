@@ -14,3 +14,7 @@ Tasks retain their own targets.
 New requests and late callbacks keep their own source bindings. Code work and
 issue creation can use different destinations without changing each other's scope;
 an issue target no longer silently becomes the repository used for code work.
+
+If the current goal cannot be read before execution, the admitted request stays
+in conversation history. A later continuation can recover a correction instead
+of asking the requester to repeat input lost during initialization.

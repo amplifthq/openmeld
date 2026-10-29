@@ -1,3 +1,4 @@
+import { useAgentStart } from "@flue/runtime";
 import { centerAgentWorkTargetResponseSchema } from "@openmeld/schemas";
 import type {
   CenterAgentWorkTargetRequest,
@@ -88,12 +89,27 @@ export function supportsCenterAgentWorkTarget(input: {
   );
 }
 
-export async function readCenterAgentWorkTargetFacts(input: {
+type WorkTargetFactsInput = {
   coreWorker: RemoteAgentCoreWorkerBinding;
   storage: RemoteAgentStorage;
   context: RemoteAgentCallbackContext | null;
   personalAgent: boolean;
-}) {
+};
+
+/** Intake runs after Flue has durably applied the Human input. A failed Core
+ * read must not erase a correction from the next same-conversation turn. */
+export function useCenterAgentWorkTargetFacts(input: WorkTargetFactsInput) {
+  useAgentStart(async ({ append }) => {
+    const facts = await readCenterAgentWorkTargetFacts(input);
+    if (facts) {
+      append({ kind: "signal", type: "work_target_context", body: facts });
+    }
+  });
+}
+
+export async function readCenterAgentWorkTargetFacts(
+  input: WorkTargetFactsInput
+) {
   if (
     !(
       input.context &&

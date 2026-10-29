@@ -1,16 +1,30 @@
+import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
+import { init } from "@flue/runtime";
+import { sqlite, start } from "@flue/runtime/node";
 import type { CenterAgentWorkTargetResponse } from "@openmeld/schemas/types";
 import { strictObject } from "valibot";
 import { expect, it, vi } from "vitest";
+import { CenterAgentV2 } from "../.flue/agents/center-agent";
 import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
+import { registerRemoteAgentExecutionPreparation } from "../flue-adapter/execution-context";
 import {
   guardCenterAgentWorkTarget,
   readCenterAgentWorkTargetFacts,
 } from "../flue-adapter/work-target";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
+
+// Node supplies the real Flue runtime. Cloudflare binding construction is not
+// part of this render/intake test and must not be invoked by the prepared Agent.
+vi.mock("@flue/runtime/cloudflare", () => ({
+  extend: (definition: unknown) => definition,
+  getCloudflareContext: () => {
+    throw new Error("Unexpected Cloudflare binding access in prepared render");
+  },
+}));
 
 const target: CenterAgentWorkTargetResponse = {
   selectionRequired: false,
@@ -155,6 +169,75 @@ it("refreshes facts from the Space owner on every generation and blocks tool wor
   });
   expect(refreshed).toContain('"selectionRequired":true');
   expect(refreshed).toContain("repository-correction");
+});
+
+it("retains an admitted correction when the current goal read fails before the first model call", async () => {
+  const input = await fixture();
+  input.coreWorker.centerAgentWorkTarget.mockRejectedValueOnce(
+    new Error("Controlled Core unavailability")
+  );
+  const provider = fauxProvider({
+    provider: "work-target-input-recovery",
+    tokensPerSecond: Number.POSITIVE_INFINITY,
+  });
+  const model = provider.getModel();
+  const restorePreparation = registerRemoteAgentExecutionPreparation(
+    async () => ({
+      workTargetContext: {
+        ...input,
+        context: input.context,
+        personalAgent: false,
+      },
+      model: `${model.provider}/${model.id}`,
+      compaction: false,
+      thinkingLevel: "low",
+      interactiveResponseId: () => null,
+      getAcceptedResponseInputId: () => null,
+      instructions:
+        "Answer from the admitted request and current Space-owned goal.",
+      tools: [],
+      skills: [],
+      steeringSource: {
+        claim: async () => [],
+        listUnresolved: async () => [],
+        finalize: async () => undefined,
+        revert: async () => undefined,
+      },
+    })
+  );
+  const correction = "Use amplifthq/reply instead of amplifthq/openmeld.";
+  provider.setResponses([
+    (context) => {
+      const messages = JSON.stringify(context.messages);
+      expect(messages).toContain(correction);
+      expect(messages).toContain("Continue the corrected request.");
+      expect(messages).toContain("work_target_context");
+      return fauxAssistantMessage("Retained the correction.");
+    },
+  ]);
+  const runtime = await start({
+    agents: [CenterAgentV2],
+    providers: [provider.provider],
+    db: sqlite(),
+  });
+  try {
+    const agent = init(CenterAgentV2, { id: "goal-input-recovery" });
+    await expect(
+      agent.read(await agent.dispatch(correction))
+    ).rejects.toThrow();
+    expect(provider.state.callCount).toBe(0);
+    expect(
+      (
+        await agent.read(
+          await agent.dispatch("Continue the corrected request.")
+        )
+      ).text
+    ).toBe("Retained the correction.");
+    expect(input.coreWorker.centerAgentWorkTarget).toHaveBeenCalledTimes(2);
+  } finally {
+    await runtime.stop();
+    restorePreparation();
+  }
 });
 
 async function fixture() {

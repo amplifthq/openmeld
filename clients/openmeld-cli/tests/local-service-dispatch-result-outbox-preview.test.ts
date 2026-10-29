@@ -1325,7 +1325,7 @@ describe("dispatch result outbox around preview teardown", () => {
           '- This space: "Launch Room" — Coordinate the launch'
         );
         expect(input.task.prompt).toContain(
-          "- Space guide (maintained by this space's steward):\nPrefer reversible decisions."
+          "- Space guide (standing rules set by this Space's owners; follow them for all work in this Space, with OpenMeld rules and safety boundaries taking precedence):\nPrefer reversible decisions."
         );
         return createRuntimeSuccessResult();
       });
@@ -1411,7 +1411,7 @@ describe("dispatch result outbox around preview teardown", () => {
           '- This space: "Launch Room" — Coordinate the launch'
         );
         expect(input.task.prompt).toContain(
-          "- Space guide (maintained by this space's steward):\nPrefer reversible decisions."
+          "- Space guide (standing rules set by this Space's owners; follow them for all work in this Space, with OpenMeld rules and safety boundaries taking precedence):\nPrefer reversible decisions."
         );
         return createRuntimeSuccessResult();
       });
