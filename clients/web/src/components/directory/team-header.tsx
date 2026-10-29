@@ -13,7 +13,6 @@ import {
 } from "#/lib/organizations/organization-routes";
 
 const TEAM_VIEWS = [
-	{ id: "desks", label: "Desks", destination: buildOrganizationPeoplePath },
 	{ id: "people", label: "People", destination: buildOrganizationPeoplePath },
 	{ id: "agents", label: "Agents", destination: buildOrganizationAgentsPath },
 	{ id: "files", label: "Files", destination: buildOrganizationFilesPath },
@@ -40,7 +39,7 @@ export function TeamHeader(input: {
 		router
 			.preloadRoute({
 				to: view.destination(currentOrganization.slug),
-				search: view.id === "people" ? { view: "people" } : {},
+				search: {},
 				hash: "",
 			})
 			.catch(console.error);
@@ -63,7 +62,7 @@ export function TeamHeader(input: {
 						}
 						navigate({
 							to: view.destination(currentOrganization.slug),
-							search: view.id === "people" ? { view: "people" } : {},
+							search: {},
 							hash: "",
 						}).catch(console.error);
 					}}
