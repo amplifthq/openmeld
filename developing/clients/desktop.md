@@ -118,8 +118,9 @@ The hidden window still loads the shared application for native notifications.
 This page explains that closing keeps notifications available and quitting stops
 desktop notifications, while Service and accepted local work remain independent.
 Global shortcuts and Service lifecycle controls remain separate. The Desktop
-Power section reuses the Local Computer setting and API. The independent
-Service owns its saved preference and task-scoped sleep prevention; Desktop
+sleep-prevention row reuses the Local Computer setting and API without a
+redundant Power heading. It defaults on only when no preference is saved. The
+independent Service owns its saved preference and task-scoped sleep prevention; Desktop
 does not hold an Electron power-save blocker.
 
 Window chrome, traffic-light insets, drag regions, tray, and native capabilities

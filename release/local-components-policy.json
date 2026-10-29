@@ -1,12 +1,12 @@
 {
-  "version": "0.3.278",
+  "version": "0.3.279",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Packages the optional hosted approval-recovery schemas without changing CLI commands or existing public responses. Existing 0.3.273 clients remain compatible."
+    "reason": "Packages default-on task sleep prevention without changing CLI commands or public contracts. Existing clients remain compatible."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Packages the optional hosted approval-recovery and conversation contracts without changing workstation execution. Existing 0.3.273 Services remain compatible."
+    "reason": "Enables task sleep prevention only when no preference has been saved and preserves explicit off choices. This optional behavior change does not block existing Services."
   },
   "skills": {
     "updatePolicy": "available",

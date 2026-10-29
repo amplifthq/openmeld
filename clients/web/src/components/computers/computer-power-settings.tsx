@@ -10,17 +10,8 @@ import type {
 	PeopleComputerTarget,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
-import {
-	Popover,
-	PopoverContent,
-	PopoverDescription,
-	PopoverTitle,
-	PopoverTrigger,
-} from "@openmeld/ui/components/popover";
 import { SettingsRow } from "@openmeld/ui/components/settings-row";
-import { SettingsSection } from "@openmeld/ui/components/settings-section";
 import { Switch } from "@openmeld/ui/components/switch";
-import { InfoIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
@@ -130,37 +121,7 @@ export function ComputerPowerSettings({
 	const checkingConnection = target !== null && inventory.isPending;
 	const statusText = powerStatusText(connection.status, available, value);
 	return (
-		<SettingsSection
-			id="computer-power"
-			title="Power"
-			titleAdornment={
-				<Popover>
-					<PopoverTrigger
-						render={
-							<Button
-								aria-label="About sleep prevention"
-								size="icon-xs"
-								variant="ghost"
-							/>
-						}
-					>
-						<InfoIcon aria-hidden="true" />
-					</PopoverTrigger>
-					<PopoverContent align="start">
-						<PopoverTitle>Sleep and app behavior</PopoverTitle>
-						<PopoverDescription>
-							Sleep prevention stays enabled after you quit the desktop app, but
-							only keeps this computer awake during local tasks.
-						</PopoverDescription>
-						<p>
-							Closing the window keeps the app running. Quitting stops desktop
-							notifications. Local tasks continue in either case.
-						</p>
-						<p>Closing the lid or choosing Sleep can still pause tasks.</p>
-					</PopoverContent>
-				</Popover>
-			}
-		>
+		<div className="scroll-mt-16 py-3" id="computer-power">
 			<SettingsRow
 				control={
 					available ? (
@@ -215,7 +176,7 @@ export function ComputerPowerSettings({
 					</Button>
 				</div>
 			) : null}
-		</SettingsSection>
+		</div>
 	);
 }
 

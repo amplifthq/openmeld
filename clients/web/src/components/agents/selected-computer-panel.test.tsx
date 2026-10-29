@@ -53,6 +53,14 @@ vi.mock("./computer-file-access-card", () => ({
 	},
 }));
 
+vi.mock("#/components/computers/computer-power-settings", () => ({
+	ComputerPowerSettings: () => <div data-testid="computer-power-settings" />,
+}));
+
+vi.mock("#/components/computers/computer-token-usage", () => ({
+	ComputerTokenUsage: () => <div data-testid="computer-token-usage" />,
+}));
+
 function buildComputer(
 	executionTargets: LocalRuntimeExecutionTarget[] = [
 		buildExecutionTarget("ready"),
@@ -184,7 +192,7 @@ describe("SelectedComputerPanel detail composition", () => {
 		vi.clearAllMocks();
 	});
 
-	it("renders file access after the local agents for the current Computer", () => {
+	it("prioritizes local agents before token usage and file access for the current Computer", () => {
 		renderPanel();
 
 		expect(openMeldServiceCardSpy).toHaveBeenCalled();
@@ -199,6 +207,9 @@ describe("SelectedComputerPanel detail composition", () => {
 			storageScope: expect.any(String),
 		});
 		expect(screen.getByTestId("local-agents-card").nextElementSibling).toBe(
+			screen.getByTestId("computer-token-usage")
+		);
+		expect(screen.getByTestId("computer-token-usage").nextElementSibling).toBe(
 			screen.getByTestId("computer-file-access-card")
 		);
 		expect(screen.queryByText("Available for Wake")).toBeNull();
