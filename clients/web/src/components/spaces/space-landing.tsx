@@ -151,6 +151,7 @@ import { SpaceAgentRecoveryProvider } from "./space-agent-recovery-context";
 import type { SpaceAutomaticWakeComposerHintKind } from "./space-composer-copy";
 import type { SpaceComposerEditorHandle } from "./space-composer-editor";
 import { SpaceConversationPanel } from "./space-conversation-panel";
+import { useSpaceGuideDraft } from "./space-guide-draft";
 import { SpaceHeader, SpaceWindowHeader } from "./space-header";
 import { SpaceLandingErrorBoundary } from "./space-landing-error-boundary";
 import { SpaceLiveNotice } from "./space-live-notice";
@@ -2399,6 +2400,7 @@ function SpaceLandingConversation({
 		wakeFailureTargetContextsByProfileId,
 	} = state;
 	const welcomeStep = useWelcomeSpace(recovery.storageScope, input.spaceId);
+	const guideDraft = useSpaceGuideDraft(controller.spaceId);
 	const consentEmptyState =
 		directMessageAccessRequest?.access.state === "draft"
 			? directMessageAccessRequestCopy(directMessageAccessRequest)
@@ -2557,7 +2559,9 @@ function SpaceLandingConversation({
 							currentOwnerUserId &&
 								controller.status?.ownerUserIds?.includes(currentOwnerUserId)
 						)}
+						draft={guideDraft.draft}
 						key={controller.spaceId}
+						onDraftChange={guideDraft.onDraftChange}
 						openMeldProfileId={controller.profileId}
 						spaceId={controller.spaceId}
 					/>

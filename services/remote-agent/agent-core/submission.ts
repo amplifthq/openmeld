@@ -16,6 +16,7 @@ import type {
   RemoteAgentWorkerSubmitMessagesResult,
   RemoteAgentWorkerSubmitTurnRequest,
 } from "@openmeld/schemas/types";
+import { SPACE_GUIDE_PROMPT_HEADING } from "@openmeld/space-mesh";
 import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
@@ -535,9 +536,7 @@ function renderRemoteAgentSpaceGuide(
     return null;
   }
   const guide = envelope.space.guide?.trim();
-  return guide
-    ? `Space guide (maintained by this space's steward): ${guide}`
-    : null;
+  return guide ? `${SPACE_GUIDE_PROMPT_HEADING}: ${guide}` : null;
 }
 
 export async function submitRemoteAgentConversationTurn(

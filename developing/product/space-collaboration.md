@@ -616,6 +616,20 @@ turn's Remote Agent envelope. Center Agent DMs, Slack conversations, and
 Slack-destination Routines do not receive a Space guide. This is a per-turn read
 projection, not cached conversation state.
 
+Every Agent prompt introduces the guide with one shared heading
+(`SPACE_GUIDE_PROMPT_HEADING` in `@openmeld/space-mesh`) that tells the Agent
+to follow it for all work in the Space, with OpenMeld rules and safety
+boundaries taking precedence.
+
+In Web, an ordinary Space shows the guide in a Guide tab after Files. Every
+member can read it; Space owners can edit and save it there, and Core still
+authorizes the write. The guide accepts up to `MAX_TEXT_LENGTH` (100,000)
+characters, the same cap as other Space text. Web does not show a running
+count and reports the cap only when an edit exceeds it. An unsaved edit
+survives switching Space tabs, and the tab rereads the guide each time it
+opens. Center Agent DMs do not show the tab; the public Space page shows the
+guide read-only under Space context.
+
 The Space Board is a read-only, room-scoped summary for collaborators and
 agents. It composes:
 
