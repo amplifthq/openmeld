@@ -1581,6 +1581,9 @@ function SpaceLandingContent(input: SpaceLandingInput) {
 				controller={controller}
 				input={input}
 				state={state}
+				threadPanelVisible={
+					state.spaceView === "messages" && controller.threadPanelOpen
+				}
 			/>
 			<WalkthroughGuide
 				onAddAgents={state.handleAddAgentsFromBanner}
@@ -1662,10 +1665,12 @@ function SpaceLandingConversationShell({
 	controller,
 	input,
 	state,
+	threadPanelVisible,
 }: {
 	controller: SpaceConversationController;
 	input: SpaceLandingInput;
 	state: SpaceLandingState;
+	threadPanelVisible: boolean;
 }) {
 	const { conversationInput, onShowMessageInMain } =
 		useThreadRootMainFocus(input);
@@ -1996,7 +2001,7 @@ function SpaceLandingConversationShell({
 							membersOpen &&
 							!currentSpaceIsCenterAgentDirectMessage
 						}
-						data-space-thread-panel-open={controller.threadPanelOpen}
+						data-space-thread-panel-open={threadPanelVisible}
 						style={
 							{
 								"--space-members-panel-width": membersPanelWidth.width,
@@ -2046,6 +2051,7 @@ function SpaceLandingConversationShell({
 								pendingActionSurface={threadPendingActionSurface}
 								prepareSetupHref={prepareSetupHref}
 								state={state}
+								threadPanelVisible={threadPanelVisible}
 							/>
 						)}
 					</div>
@@ -3166,6 +3172,7 @@ function SpaceLandingSecondaryPanels({
 	pendingActionSurface,
 	prepareSetupHref,
 	state,
+	threadPanelVisible,
 }: {
 	organizationId: string | null;
 	automaticWakeConversationKind: ReturnType<
@@ -3183,9 +3190,10 @@ function SpaceLandingSecondaryPanels({
 	pendingActionSurface?: ReactNode;
 	prepareSetupHref?: string;
 	state: SpaceLandingState;
+	threadPanelVisible: boolean;
 }) {
 	if (!controller.isCurrentAccessConfirmed) {
-		return controller.threadPanelOpen ? (
+		return threadPanelVisible ? (
 			<SpaceThreadLoadingPanel onClose={controller.onCloseThread} />
 		) : null;
 	}
@@ -3255,7 +3263,7 @@ function SpaceLandingSecondaryPanels({
 	return (
 		<>
 			<SpaceTaskReferencesProvider
-				disabled={!controller.threadPanelOpen}
+				disabled={!threadPanelVisible}
 				onOpen={(taskId) => {
 					state.setSelectedTaskId(taskId);
 					controller.onCloseThread();
@@ -3366,7 +3374,7 @@ function SpaceLandingSecondaryPanels({
 							: undefined
 					}
 					onWakeStopRequest={controller.onWakeStopRequest}
-					open={controller.threadPanelOpen}
+					open={threadPanelVisible}
 					organizationId={organizationId}
 					orgSlug={input.orgSlug}
 					pendingActionSurface={pendingActionSurface}
