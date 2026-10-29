@@ -1,3 +1,6 @@
+import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
+import { init, useModel } from "@flue/runtime";
+import { sqlite, start } from "@flue/runtime/node";
 import type { CenterAgentWorkTargetResponse } from "@openmeld/schemas/types";
 import { strictObject } from "valibot";
 import { expect, it, vi } from "vitest";
@@ -8,6 +11,7 @@ import {
 import {
   guardCenterAgentWorkTarget,
   readCenterAgentWorkTargetFacts,
+  useCenterAgentWorkTargetFacts,
 } from "../flue-adapter/work-target";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
@@ -155,6 +159,59 @@ it("refreshes facts from the Space owner on every generation and blocks tool wor
   });
   expect(refreshed).toContain('"selectionRequired":true');
   expect(refreshed).toContain("repository-correction");
+});
+
+it("retains an admitted correction when the current goal read fails before the first model call", async () => {
+  const input = await fixture();
+  input.coreWorker.centerAgentWorkTarget.mockRejectedValueOnce(
+    new Error("Controlled Core unavailability")
+  );
+  const provider = fauxProvider({
+    provider: "work-target-input-recovery",
+    tokensPerSecond: Number.POSITIVE_INFINITY,
+  });
+  const model = provider.getModel();
+  function GoalRecovery() {
+    useModel(`${model.provider}/${model.id}`, { compaction: false });
+    useCenterAgentWorkTargetFacts({
+      ...input,
+      context: input.context,
+      personalAgent: false,
+    });
+    return "Answer from the admitted request and current Space-owned goal.";
+  }
+  const correction = "Use amplifthq/reply instead of amplifthq/openmeld.";
+  provider.setResponses([
+    (context) => {
+      const messages = JSON.stringify(context.messages);
+      expect(messages).toContain(correction);
+      expect(messages).toContain("Continue the corrected request.");
+      expect(messages).toContain("work_target_context");
+      return fauxAssistantMessage("Retained the correction.");
+    },
+  ]);
+  const runtime = await start({
+    agents: [GoalRecovery],
+    providers: [provider.provider],
+    db: sqlite(),
+  });
+  try {
+    const agent = init(GoalRecovery, { id: "goal-input-recovery" });
+    await expect(
+      agent.read(await agent.dispatch(correction))
+    ).rejects.toThrow();
+    expect(provider.state.callCount).toBe(0);
+    expect(
+      (
+        await agent.read(
+          await agent.dispatch("Continue the corrected request.")
+        )
+      ).text
+    ).toBe("Retained the correction.");
+    expect(input.coreWorker.centerAgentWorkTarget).toHaveBeenCalledTimes(2);
+  } finally {
+    await runtime.stop();
+  }
 });
 
 async function fixture() {
