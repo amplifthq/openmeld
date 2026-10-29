@@ -2251,8 +2251,17 @@ statistics remain separate from provider account Usage Limits and do not
 present Local usage as free or as spending the organization allowance.
 Owner and teammate views read the same organization-scoped consumption query.
 
-Computer details place a compact Local Agent token usage card directly below Computer
-Connection. It combines recorded Local Agent tokens on that enrolled Computer
+Owned Computer Connection cards keep the current status, actions, and any last
+update failure visible. Update records, software versions, connection history,
+and saved connection reports share one default-collapsed **Technical details**
+disclosure, with matching typography for the nested section controls. A newer
+connection report does not erase a failed update or confirm installation.
+Sleep prevention is one setting row without a separate Power heading; its
+saved preference and default remain owned by the local Service.
+
+Owned and teammate Computer details place Local agents before the compact Local
+Agent token usage card, prioritizing agent availability and controls over usage
+statistics. The usage card combines recorded Local Agent tokens on that enrolled Computer
 in the current Organization. The default seven-day area chart uses calendar
 days in the viewer's time zone, including today so far. Details contains the
 7/30-day selector, refresh, and an accessible daily input/output/total table.

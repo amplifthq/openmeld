@@ -4387,8 +4387,11 @@ This capability does not change Wake execution ownership or readiness.
 
 Computer power settings belong to the local Service execution host. The
 `computer-power.json` file in the Service data root is the only saved preference.
-It defaults off. The Desktop Personal > Desktop page and the selected Local
-Computer page use the same owner-authorized, explicit device/lane API and UI.
+It defaults on when no preference has been saved; an explicit saved off choice
+survives restarts and upgrades. Unreadable preferences do not acquire sleep
+prevention and remain a visible error. The Desktop Personal > Desktop page and
+the selected Local Computer page use the same owner-authorized, explicit
+device/lane API and UI.
 They never save another preference in Desktop, the browser, or an Agent Profile.
 Writes carry the last observed revision; stale writes fail rather than overwrite.
 Disconnected and unsupported Services are unavailable, not unchecked.
