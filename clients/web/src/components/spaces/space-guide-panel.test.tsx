@@ -23,6 +23,10 @@ import { UnsavedChangesGuard } from "#/components/forms/unsaved-changes-guard";
 import { TestQueryClientProvider } from "#/test-support/query-client";
 import { useSpaceGuideDraft } from "./space-guide-draft";
 import { SpaceGuidePanel } from "./space-guide-panel";
+import {
+	saveSpaceGuideBeforeLeaving,
+	useSpaceGuideSaver,
+} from "./space-guide-save";
 
 const CHARACTER_COUNT_TEXT = /characters/;
 
@@ -57,6 +61,11 @@ function spaceMeta(guide?: string): SpaceMeta {
  */
 function GuideHarness(input: { canEdit: boolean }) {
 	const guideDraft = useSpaceGuideDraft("space-1");
+	const guideSaver = useSpaceGuideSaver({
+		onSaved: guideDraft.onSaved,
+		openMeldProfileId: "profile-1",
+		spaceId: "space-1",
+	});
 	const [panelOpen, setPanelOpen] = useState(true);
 	return (
 		<>
@@ -65,6 +74,8 @@ function GuideHarness(input: { canEdit: boolean }) {
 				description="Your changes to this Space's guide haven't been saved."
 				hasUnsavedChanges={guideDraft.hasUnsavedChanges}
 				onDiscard={guideDraft.discard}
+				onSave={() => saveSpaceGuideBeforeLeaving(guideDraft.draft, guideSaver)}
+				saving={guideSaver.isPending}
 			/>
 			<Link to="/privacy">Leave Space</Link>
 			<button onClick={() => setPanelOpen((open) => !open)} type="button">
@@ -75,8 +86,8 @@ function GuideHarness(input: { canEdit: boolean }) {
 					canEdit={input.canEdit}
 					draft={guideDraft.draft}
 					onDraftChange={guideDraft.onDraftChange}
-					onSaved={guideDraft.onSaved}
 					openMeldProfileId="profile-1"
+					saver={guideSaver}
 					spaceId="space-1"
 				/>
 			) : null}
@@ -236,6 +247,93 @@ describe("SpaceGuidePanel", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
 
 		expect(await screen.findByText("Somewhere else")).toBeDefined();
+	});
+
+	it("can save an unsaved edit and then leave", async () => {
+		getMetaMock.mockResolvedValue(spaceMeta("Old rules."));
+		updateMetaMock.mockResolvedValue(spaceMeta("New rules."));
+
+		const router = renderGuide({ canEdit: true });
+
+		fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+		fireEvent.change(screen.getByLabelText("Space guide"), {
+			target: { value: "New rules." },
+		});
+		fireEvent.click(screen.getByRole("link", { name: "Leave Space" }));
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Save and leave" })
+		);
+
+		expect(await screen.findByText("Somewhere else")).toBeDefined();
+		expect(updateMetaMock).toHaveBeenCalledWith({
+			spaceId: "space-1",
+			guide: "New rules.",
+		});
+		expect(router.state.location.pathname).toBe("/privacy");
+	});
+
+	it("saves a newer edit only after a save in flight, then leaves", async () => {
+		getMetaMock.mockResolvedValue(spaceMeta("Old rules."));
+		let finishFirstSave: (meta: SpaceMeta) => void = () => undefined;
+		updateMetaMock.mockReturnValueOnce(
+			new Promise<SpaceMeta>((resolve) => {
+				finishFirstSave = resolve;
+			})
+		);
+		updateMetaMock.mockResolvedValueOnce(spaceMeta("Version B."));
+
+		const router = renderGuide({ canEdit: true });
+
+		fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+		const editor = screen.getByLabelText("Space guide");
+		fireEvent.change(editor, { target: { value: "Version A." } });
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
+		fireEvent.change(editor, { target: { value: "Version B." } });
+		fireEvent.click(screen.getByRole("link", { name: "Leave Space" }));
+
+		// The dialog shares the editor's save, so it waits for version A.
+		const saveAndLeave = (await screen.findByRole("button", {
+			name: "Saving…",
+		})) as HTMLButtonElement;
+		expect(saveAndLeave.disabled).toBe(true);
+		expect(updateMetaMock).toHaveBeenCalledTimes(1);
+
+		await act(async () => {
+			finishFirstSave(spaceMeta("Version A."));
+			await Promise.resolve();
+		});
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Save and leave" })
+		);
+
+		expect(await screen.findByText("Somewhere else")).toBeDefined();
+		expect(updateMetaMock.mock.calls.map(([request]) => request.guide)).toEqual(
+			["Version A.", "Version B."]
+		);
+		expect(router.state.location.pathname).toBe("/privacy");
+	});
+
+	it("stays on the Space when saving before leaving fails", async () => {
+		getMetaMock.mockResolvedValue(spaceMeta("Old rules."));
+		updateMetaMock.mockRejectedValue(new Error("Only a Space owner can edit."));
+
+		const router = renderGuide({ canEdit: true });
+
+		fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+		fireEvent.change(screen.getByLabelText("Space guide"), {
+			target: { value: "New rules." },
+		});
+		fireEvent.click(screen.getByRole("link", { name: "Leave Space" }));
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Save and leave" })
+		);
+
+		expect(
+			await screen.findByText(
+				"OpenMeld couldn't save your changes. Fix the error and try again."
+			)
+		).toBeDefined();
+		expect(router.state.location.pathname).toBe("/space");
 	});
 
 	it("does not ask before leaving when the edit has no changes", async () => {

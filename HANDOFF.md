@@ -4,7 +4,7 @@ Updated 2026-10-29.
 
 ## Working on
 
-Branch `space-guide-tab`: the Space Guide tab.
+The Space Guide tab. PR #330 (branch `space-guide-tab`) was merged into main on 2026-10-29 by mingyooagi, with the review fixes. Follow-up work is on branch `space-guide-save-and-leave`.
 
 Requirements, from the OpenMeld Space chat:
 
@@ -19,7 +19,10 @@ Requirements, from the OpenMeld Space chat:
   - Owners get "Write a guide" or Edit, with Save and Cancel.
   - Everyone else gets a read-only view.
   - An unsaved draft survives tab switches.
-  - Leaving the Space with an unsaved draft asks first. In-app links show the shared `UnsavedChangesGuard` dialog, and refresh or close shows the browser warning. The guard lives in `SpaceLandingConversationShell`.
+  - Leaving the Space with an unsaved draft asks first. In-app links show the shared `UnsavedChangesGuard` dialog, with Cancel / Discard / Save and leave, and refresh or close shows the browser warning. The guard lives in `SpaceLandingConversationShell`.
+  - The Save button and "Save and leave" share one saver, `useSpaceGuideSaver` in `space-guide-save.ts`, created once in `SpaceLandingConversationShell`. Save and leave waits for a save in flight, so an older write can't land after a newer one (review on #332).
+  - The Guide content uses `--app-page-inline-padding`, so its left edge lines up with the Space title and tabs (checked at 1051px wide).
+  - User-confirmed decisions: text typed during a save stays open after the "Guide saved." toast; the tooltip style in #331 is fine as is.
   - Text typed while a save is in flight is kept; see `onSaved` in `space-guide-draft.ts`.
   - The Guide is reread every time the tab opens.
   - Files: `space-guide-panel.tsx`, `space-guide-draft.ts`, `space-landing.tsx`.
@@ -39,9 +42,11 @@ Requirements, from the OpenMeld Space chat:
 - **Center Agent end to end.** Not tested locally, because the Remote Agent's AI binding needs Cloudflare. Check on staging or prod after merge: write a Guide, wake the Center Agent, and confirm it follows the Guide.
 - **New-Space screen.** The temporary "just created" screen (`space-creation-conversation.tsx`) has no Guide tab. The normal Space page does. Decide whether to add it.
 - **PRs.**
-  - Guide: draft PR #330. All three of the reviewer's (mingyooagi) points are fixed. Merge `main` again before marking it ready.
+  - Guide: #330 is merged. Follow-up draft PR on `space-guide-save-and-leave` adds Save and leave, the alignment fix and the Changelog entry.
+  - My push re-created the deleted remote branch `space-guide-tab` after the merge. It holds only merged commits; the user decides whether to delete it.
   - Message-time hover tooltip: separate draft PR #331, on branch `message-time-tooltip`.
-  - Neither PR has a Changelog entry yet.
+  - Changelog: both PRs have a draft entry, `changelog/entries/space-guide-tab.md` and `message-time-hover-date.md`. Publish them only after delivery is proven.
+  - Open question: the screen shown right after creating a Space still has no Guide tab. The user hasn't decided yet.
 - **Local dev gotcha.** Switching branches while the dev stack runs breaks the workers with "No matching export ... packages/schemas/dist". Run `pnpm dev:stop`, then restart.
 - **Old test failures.** These fail on `main` too, so they weren't caused by this branch:
   - 3 in `space-conversation-panel.test.tsx`
