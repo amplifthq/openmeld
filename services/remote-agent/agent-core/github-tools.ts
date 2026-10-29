@@ -2390,6 +2390,7 @@ async function executeIdempotentGitHubAction(input: {
     issueDestinationAuthority: input.issueDestinationAuthority,
     service: "github",
     toolContext: input.toolContext,
+    issueActionRecovery: githubIssueRecoveryInput(input),
   });
   if ("blockedResult" in admission) {
     return admission.blockedResult;
@@ -2526,6 +2527,18 @@ async function executeIdempotentGitHubAction(input: {
     }),
     [source]
   );
+}
+
+function githubIssueRecoveryInput(
+  input: Parameters<typeof executeIdempotentGitHubAction>[0]
+) {
+  return input.actionId === "github.create_issue"
+    ? {
+        input: input.actionInput,
+        githubActor: input.githubActor,
+        issueDestinationAuthority: input.issueDestinationAuthority,
+      }
+    : undefined;
 }
 
 async function assertNewGitHubIssueDestination(

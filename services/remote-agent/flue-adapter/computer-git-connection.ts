@@ -22,6 +22,7 @@ import {
 } from "../agent-core/tool-context";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import type { AgentComputerWorkspaceAccess } from "./agent-computer-workspace-access";
+import { requireCenterAgentCodeTarget } from "./work-target";
 
 /** Connect native programs to an existing Plugin account without installing
  * credentials or changing the Computer's global Git configuration. */
@@ -46,6 +47,7 @@ export function createComputerGitConnectionTool(input: {
         ...(raw as object),
         ref: "HEAD",
       });
+      await requireCenterAgentCodeTarget(input, request);
       const scope = await requireRemoteAgentExecutionAccess(input);
       const toolContext = await buildRemoteAgentToolContext({
         storage: input.storage,

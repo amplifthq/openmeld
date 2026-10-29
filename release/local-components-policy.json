@@ -1,12 +1,12 @@
 {
-  "version": "0.3.276",
+  "version": "0.3.280",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Releases the existing CLI with consistent published component identities. Existing command contracts and the 0.3.273 required floor remain supported."
+    "reason": "Packages opt-in issue approval preview schemas. Existing CLI commands and default approval responses are unchanged; supported clients remain compatible."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Reconciles the published Service bundle identity without changing its runtime contract. Existing 0.3.273 Services remain compatible."
+    "reason": "Packages opt-in issue approval preview schemas without changing workstation execution, setup, Wake or diagnostics. Existing supported Services remain compatible."
   },
   "skills": {
     "updatePolicy": "available",

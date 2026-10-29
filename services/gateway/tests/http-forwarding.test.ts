@@ -13,6 +13,7 @@ import {
   organizationAgentRuntimeOverviewResponseSchema,
   organizationDirectoryResponseSchema,
   organizationProfileDirectoryResponseSchema,
+  remoteAgentWorkerRuntimeDiagnosticsResponseSchema,
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_ERROR_CODE,
 } from "@openmeld/schemas";
@@ -2806,6 +2807,7 @@ describe("gateway http forwarding", () => {
     "4",
     "5",
     "6",
+    "7",
     String(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION),
   ])("negotiates dispatch trace response version %s without changing the public route", async (version) => {
     const { env, rpc } = makeEnv();
@@ -2852,6 +2854,59 @@ describe("gateway http forwarding", () => {
       "Update OpenMeld CLI, or run the trace without --details."
     );
     expect(rpc.getSpaceDispatchTrace).not.toHaveBeenCalled();
+  });
+
+  it("requires the new trace contract only when runtime diagnostics use version 3", async () => {
+    const { env, rpc } = makeEnv();
+    const originalResponse = await app.fetch(
+      new Request("http://local/v1/spaces/demo/dispatches/dispatch-1/trace"),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    const original = (await originalResponse.json()) as Record<string, unknown>;
+    const diagnostics = remoteAgentWorkerRuntimeDiagnosticsResponseSchema.parse(
+      {
+        activeRuns: [],
+        callbackContexts: [],
+        collectedAt: "2026-10-28T00:00:00.000Z",
+        durableObjectAlarmAtMs: null,
+        fibers: [],
+        schedules: [
+          {
+            id: "schedule-1",
+            callback: "retryCallback",
+            delayInSeconds: 5,
+            timeMs: 9000,
+            type: "delayed",
+          },
+        ],
+        spaceId: "demo",
+        submissions: [],
+        v: 3,
+      }
+    );
+    rpc.getSpaceDispatchTrace.mockResolvedValue({
+      ...original,
+      remoteAgentRuntimeDiagnostics: diagnostics,
+    });
+    for (const version of ["7", "8"]) {
+      const response = await app.fetch(
+        new Request(
+          "http://local/v1/spaces/demo/dispatches/dispatch-1/trace?includeRemoteAgentRuntimeDiagnostics=true",
+          {
+            headers: {
+              "x-openmeld-space-dispatch-trace-response-version": version,
+            },
+          }
+        ),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(version === "7" ? 400 : 200);
+      if (version === "7") {
+        expect(await response.text()).toContain("Update OpenMeld CLI");
+      }
+    }
   });
 
   it("rejects unsupported dispatch trace response versions before Core RPC", async () => {

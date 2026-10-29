@@ -319,7 +319,10 @@ import {
   requirePersonalRemoteAgentBinding,
 } from "./personal-remote-agent-binding";
 import { buildMessageChannelProviderPublicationUuid } from "./provider-publication-uuid";
-import { resolveRemoteAgentNativeDeliveryRuntimeConversationId } from "./remote-agent-conversation-continuity";
+import {
+  resolveCenterAgentSpaceConversationId,
+  resolveRemoteAgentNativeDeliveryRuntimeConversationId,
+} from "./remote-agent-conversation-continuity";
 import { attachCenterAgentMemoryToTurnEnvelope as attachCenterAgentMemoryToTurnEnvelopeImpl } from "./remote-agent-memory-context";
 import { resolveRemoteAgentRuntimeAvailability } from "./remote-agent-runtime-policy";
 import { truncateRemoteAgentTriggerText } from "./remote-agent-trigger-text";
@@ -1144,7 +1147,15 @@ export async function submitRemoteAgentNativeDelivery(
               },
             };
           })()
-        : { v: 2 }),
+        : {
+            v: 2,
+            conversationId: resolveCenterAgentSpaceConversationId({
+              spaceId: input.message.spaceId,
+              sourceSignalId: input.message.sourceEventId,
+              threadContext: input.message.threadContext,
+              isCenterAgentDm: turnEnvelope.space.isCenterAgentDm,
+            }),
+          }),
       organizationId: input.binding.organizationId,
       spaceId: input.message.spaceId,
       agentProfileId: input.message.targetProfileId,
@@ -3295,7 +3306,7 @@ type RemoteAgentTaskContinuationWorkerProtocol =
           v: 2;
         }
       >,
-      "modelRoute" | "v"
+      "modelRoute" | "v" | "conversationId"
     >
   | Pick<
       Extract<
@@ -3318,7 +3329,13 @@ function inheritRemoteAgentTaskContinuationWorkerProtocol(
     case 1:
       return { v: request.v };
     case 2:
-      return { modelRoute: request.modelRoute, v: request.v };
+      return {
+        modelRoute: request.modelRoute,
+        v: request.v,
+        ...(request.conversationId
+          ? { conversationId: request.conversationId }
+          : {}),
+      };
     case 4:
       return {
         conversationId: request.conversationId,

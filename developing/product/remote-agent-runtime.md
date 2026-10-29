@@ -86,6 +86,13 @@ changes use the native journal and scoped database release in the
 
 ## Plugin connection action boundary
 
+An approved hosted issue action resumes its retained complete input through the
+ordinary provider tool and operation ledger before the model continues. Approval
+is not a request for the model to rewrite an issue description. Each batch item
+retains its own operation identity; an unrelated Thread cannot become its task
+context. A missing legacy input, changed access or unknown provider outcome
+remains explicit rather than becoming a new create attempt.
+
 The existing navigation action capability can offer `plugin_connection` with
 one supported service and `member`, `shared`, or `choose` setup intent. An
 explicit identity requirement is preserved; `choose` requests a permitted Web
@@ -1334,7 +1341,8 @@ The agent worker is built on **Flue**, pinned by exact package version in
 Object session boundary, while keeping OpenMeld product facts out of Flue's
 private tables. Core talks to the worker through direct service-binding RPC;
 the worker addresses the Center Agent Durable Object by OpenMeld conversation
-id: a Space id for `space` conversations, or
+id: the request's canonical root in an ordinary Space, the Space id for a
+Center Agent DM, or
 `slack:{teamId}:{channelId}:{threadTs}` for Slack conversations.
 New provider-neutral Message Channel turns use
 `{provider}:{connectionId}:{chatId}:{rootMessageId}`. Existing Slack
@@ -3746,6 +3754,18 @@ the recovered provider result as a failed write. Current membership, connection
 availability, and provider catalog state gate only a new claim; they cannot
 erase or redefine a provider execution that Core already claimed.
 
+Linear issue creation accepts `issueDestinationAuthority: explicit_request`
+when the verified interactive requester has authorized the exact team and
+optional project. Core applies the same live requester, execution-access and
+existing-confirmation checks as GitHub issue creation. The declaration is part
+of the operation signature and is never sent to OpenConnector. Without that
+authority or a verified Project default, the tool returns `awaiting_confirmation`
+with its stable operation ID and no provider submission. Approval continuation
+names the original request and action; retries keep the same input and authority.
+The read-only `openmeld_get_app_action_status` tool reads the retained operation
+and its private confirmation/continuation projection. It cannot approve or
+execute a write, and does not treat approval as a completed provider result.
+
 The path does not add confirmation to ordinary writes. A verified user's
 explicit request or an explicit Routine instruction is authorization. The
 shared OpenConnector action contract may supply first-class
@@ -3964,8 +3984,52 @@ configured Flue capability:
 
 ### Conversation Identity And Result Surface
 
-The per-conversation DO instance key is the OpenMeld conversation id. For
-`space` conversations, that id is the Space id. A DM with the Center Agent is a
+For verified interactive Space work, the model-facing direct and Code Mode
+catalogs share the same Space-owned work-target check. Each Human input selects
+or inherits its current goal and destinations before repository operations.
+Explicit corrections and independent requests are separate choices. A saved
+source-to-goal receipt fences callbacks from later defaults in the same Thread;
+the default index is scoped by author. An explicitly named earlier source is a
+context reference, never another requester or permission grant. Actual Space Task
+handoffs resolve at the Task owner; execution `taskId` attribution stays unchanged.
+GitHub search qualifiers are provider syntax, not task classification; global or
+ambiguous searches require an explicit bounded repository query. Native Plugin
+Git connections and publication of an existing checkout check the same target.
+Arbitrary Computer command text is not parsed as an alternative target authority.
+An approved Plugin continuation replays its original immutable operation through
+the normal action owner, independently of a new model-selected target.
+Personal Agents, Routines, and external Message Channels keep their current paths.
+
+Contract impact: the new Core/Space work-target receiver and schemas are additive;
+no existing request, public read projection, or workstation contract changes.
+Deploy Core before Remote Agent; old Remote Agent does not call the receiver,
+while new Remote Agent fails closed against an older Core. Rolling Remote Agent
+back leaves the Space record retained. CLI/Service 0.3.279 package the added
+schemas as available updates without a minimum-version change. Existing CLI,
+Service, Skills, Gateway, and Web continue setup, Wake, Space actions, and
+diagnostics through their existing contracts. Desktop has no new payload or
+renderer dependency. The SQLite addition is local to each Space; no PostgreSQL
+migration or Cloudflare binding is added.
+
+Ordinary Space Center Agent requests use
+`center-space:{spaceId}:root:{rootSignalId}` as their logical conversation.
+The admitted Thread root selects the root; a new main message starts with its
+own signal ID. Replies and approvals in that Thread keep the same model history,
+while unrelated Threads do not share it. Core derives this identity from
+Space-owned addressing, never message text or a model-selected project.
+The existing runtime-generation owner still selects the physical DO instance.
+Already-admitted requests retain their frozen identity across retries and
+callbacks. Task continuations inherit their observer's logical identity.
+The Space id and Thread placement remain publication authority; this change
+does not hide authorized Space history or replace progressive context reads.
+Runtime rollover for a top-level request uses the Space owner's separate
+request-root continuity reader. Only that root and its Space-owned Thread
+placements enter the new runtime generation. Main-timeline quotations do not
+establish request membership and are excluded, including legacy reply references.
+The root is eligible as source evidence within the existing bounds. Center Agent DMs and already-frozen
+legacy conversation identities keep their existing continuity reader.
+
+A DM with the Center Agent keeps its Space id as its logical conversation and is a
 Direct Message Space as defined in
 `developing/product/space-collaboration.md`, so DMs need no separate
 conversation object. The Space timeline remains the durable user-facing record

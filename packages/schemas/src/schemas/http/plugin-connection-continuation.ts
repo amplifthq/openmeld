@@ -95,6 +95,7 @@ export const pluginConnectionContinuationBindingSchema = z.strictObject({
   organizationId: identity,
   spaceId: identity,
   sourceDispatchId: identity,
+  approvedActionRequestId: z.string().uuid().optional(),
   source: messageGuardSchema,
   reply: messageGuardSchema,
   requesterUserId: identity,

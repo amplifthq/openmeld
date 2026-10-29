@@ -47,6 +47,11 @@ import {
 } from "./retained-tool-results";
 import { executeRemoteAgentToolDefinition } from "./tool-execution";
 import { isRemoteAgentNativeCapability } from "./tool-presentation";
+import {
+  createCenterAgentWorkTargetTools,
+  guardCenterAgentWorkTarget,
+  supportsCenterAgentWorkTarget,
+} from "./work-target";
 
 export async function getRemoteAgentFlueTools(input: {
   messageReadBudget?: RemoteAgentMessageReadBudget;
@@ -83,11 +88,13 @@ export async function getRemoteAgentFlueTools(input: {
   const summaryOnly =
     input.turnEnvelope?.trigger.source === "task_continuation" &&
     input.turnEnvelope.trigger.summaryOnly;
+  const workTargetEnabled = supportsCenterAgentWorkTarget(input);
   // Code Mode callbacks cross an RPC boundary and do not inherit AsyncLocalStorage.
   const messageReadBudget = input.messageReadBudget ?? { remainingBytes: 8192 };
   const reserveMessageReadBytes = (requested: number) =>
     reserveRemoteAgentMessageReadBytes(requested, messageReadBudget);
   const availableDefinitions = [
+    ...(workTargetEnabled ? createCenterAgentWorkTargetTools(input) : []),
     createHostedPublicProgressTool(input),
     ...(unverifiedMember
       ? []
@@ -123,6 +130,11 @@ export async function getRemoteAgentFlueTools(input: {
   ].filter(
     (definition) => !summaryOnly || SUMMARY_ONLY_TOOL_NAMES.has(definition.name)
   );
+  const guardedDefinitions = workTargetEnabled
+    ? availableDefinitions.map((definition) =>
+        guardCenterAgentWorkTarget(definition, input)
+      )
+    : availableDefinitions;
   const definitions = input.personalAgent
     ? availableDefinitions.map((definition) => ({
         ...definition,
@@ -145,7 +157,7 @@ export async function getRemoteAgentFlueTools(input: {
           return await definition.execute(...args);
         },
       }))
-    : availableDefinitions;
+    : guardedDefinitions;
   const capabilityDiscoveryDefinitions =
     definitions.length > 0
       ? createRemoteAgentCapabilityDiscoveryDefinitions(

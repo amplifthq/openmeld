@@ -46,6 +46,7 @@ import {
   buildSpaceFileRevisionIdFromDigest,
   CENTER_AGENT_SESSION_TITLE_INPUT_MAX_LENGTH,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
+  centerAgentWorkTargetSourceInputSchema,
   clearSpaceReasoningReplaySchema,
   commitSpaceFileWriteInputSchema,
   copyOwnMessageExcerptBodySchema,
@@ -136,6 +137,7 @@ import {
   SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
   SPACE_AGENT_REPLY_CONTEXT_CHANGED_ERROR_CODE,
   SPACE_COMPOSER_UPLOAD_TTL_MS,
+  SPACE_DISPATCH_TRACE_EXECUTION_CONTEXT_CONTRACT_VERSION,
   SPACE_DISPATCH_TRACE_NATIVE_DELIVERY_CONTRACT_VERSION,
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
   SPACE_MESSAGE_CHANGED_PURPOSE,
@@ -721,6 +723,7 @@ import {
   type SpaceTaskMutationContext,
   SpaceTaskWorkflowError,
 } from "../../application/space-task-workflow";
+import { accessSpaceWorkTarget } from "../../application/space-work-target";
 import { resolveExistingThreadSignalRetry } from "../../application/space-thread-signal-idempotency";
 import {
   readSpaceUpdatesUseCase,
@@ -949,6 +952,7 @@ import {
   listSpaceThreadSignalPlacements,
   listSpaceThreadSignalPlacementsAfter,
   listSpaceThreadSignalPlacementsBefore,
+  listSpaceRequestRootSignalIds,
   listSpaceThreads,
   readLatestExplicitThreadWake,
   readSpaceThread,
@@ -4241,6 +4245,17 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcListDispatchConversationContinuitySignalsResult(
     input: ListSignalsInput
   ): Promise<SpaceRpcJsonResult<ListSignalsResult>> {
+    return await this.readDispatchConversationContinuitySignalsResult(input, false);
+  }
+  async rpcListRequestRootContinuitySignalsResult(
+    input: ListSignalsInput
+  ): Promise<SpaceRpcJsonResult<ListSignalsResult>> {
+    return await this.readDispatchConversationContinuitySignalsResult(input, true);
+  }
+  private async readDispatchConversationContinuitySignalsResult(
+    input: ListSignalsInput,
+    requestRoot: boolean
+  ): Promise<SpaceRpcJsonResult<ListSignalsResult>> {
     return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
@@ -4275,6 +4290,7 @@ export class Space extends DurableObject<CoreBindings> {
             sourceSignalId: actor.sourceSignalId,
             spaceAccess,
             targetProfileId: actor.targetProfileId,
+            requestRoot,
           }
         );
         return readSpaceRpcJsonResult(response);
@@ -6094,6 +6110,46 @@ export class Space extends DurableObject<CoreBindings> {
       localSource
     );
   }
+  async rpcCenterAgentWorkTarget(
+    input: import("@openmeld/schemas/types").CenterAgentWorkTargetSourceInput & {
+      spaceAccess: SpaceAccessContext;
+    }
+  ) {
+    const { spaceAccess, ...sourceInput } = input;
+    const parsed = centerAgentWorkTargetSourceInputSchema.safeParse(sourceInput);
+    if (!parsed.success) {
+      throw createCoreRpcHttpError({
+        status: 400,
+        code: "center_agent.work_target.invalid_source",
+        reason: "The admitted work source is invalid.",
+      });
+    }
+    this.applySpaceRef(spaceAccess.spaceId);
+    const access = await this.authorizeSpaceAccess(spaceAccess);
+    if (!access.ok) {
+      throw createCoreRpcHttpError({
+        status: 403,
+        code: "center_agent.work_target.access_denied",
+        reason: "Work target access is unavailable.",
+      });
+    }
+    const source = parsed.data;
+    const sourceIsOwner = source.sourceAuthorProfileId && source.sourceOwnerUserId
+      ? this.buildSpaceTaskMemberContext(
+          source.sourceAuthorProfileId,
+          source.sourceOwnerUserId
+        ).isSpaceOwner
+      : false;
+    return this.ctx.storage.transactionSync(() =>
+      accessSpaceWorkTarget(
+        this.ctx.storage.sql,
+        source,
+        (id) => this.readSourceTextSignalById(id),
+        sourceIsOwner
+      )
+    );
+  }
+
   private buildIdempotentPostSignalInput(input: {
     agentStreamId: string | undefined;
     clientMessageId: string;
@@ -18680,6 +18736,7 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
   private async handleDispatchConversationContinuitySignals(input: {
+    requestRoot?: boolean;
     beforeCount: number;
     dispatchId: string;
     signalTypes: readonly (
@@ -18709,6 +18766,29 @@ export class Space extends DurableObject<CoreBindings> {
     const accessResult = await this.authorizeSpaceAccess(input.spaceAccess);
     if (!accessResult.ok) {
       return accessResult.response;
+    }
+    if (input.requestRoot) {
+      if (!this.readSourceTextSignalById(input.sourceSignalId)) {
+        return Response.json(
+          { error: {
+            code: "space.continuity.source_not_found",
+            message: "The request root is unavailable.",
+          } },
+          { status: 404 }
+        );
+      }
+      const viewer = await this.resolveReadViewerIdentity(input.spaceAccess);
+      const signals = listSpaceRequestRootSignalIds(this.ctx.storage.sql, {
+        rootSignalId: input.sourceSignalId,
+        limit: input.beforeCount,
+        signalTypes: input.signalTypes,
+      })
+        .map((id) => this.readSignalById(id))
+        .filter((signal): signal is SignalEnvelope => signal !== null);
+      return Response.json({
+        nextCursor: null,
+        signals: this.redactSignalsForReadViewer(signals, viewer),
+      });
     }
     const scope = resolveSpaceDispatchConversationContinuityScope({
       dispatch: readDispatchOutboxRecordByDispatchId(
@@ -25639,7 +25719,9 @@ export class Space extends DurableObject<CoreBindings> {
       readRuntimeCoordinatorHeadLifecycleTrace: (input) =>
         readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace({
           env: this.bindings,
-          includeExecutionContext: options.responseContractVersion === 7,
+          includeExecutionContext:
+            (options.responseContractVersion ?? 1) >=
+            SPACE_DISPATCH_TRACE_EXECUTION_CONTEXT_CONTRACT_VERSION,
           ownerUserId: input.ownerUserId,
           request: input.request,
         }),

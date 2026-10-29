@@ -1089,7 +1089,7 @@ describe("space dispatch read repo", () => {
             }
             return Promise.reject(error);
           });
-    for (const version of [6, 7] as const) {
+    for (const version of [6, 7, 8] as const) {
       const result = await readSpaceDispatchTrace({
         db: createTraceDb({ runtimeCoordinatorExecutionRow: undefined }),
         dispatchId: "dispatch-1",
@@ -1100,7 +1100,7 @@ describe("space dispatch read repo", () => {
       });
       const head = result.trace?.runtimeCoordinatorHeadLifecycle;
       expect(head?.readStatus).toBe("authority_unavailable");
-      if (version === 7) {
+      if (version >= 7) {
         expect(head?.executionContext).toEqual({
           readStatus: "authority_unavailable",
           reasonCode:
@@ -1181,7 +1181,7 @@ describe("space dispatch read repo", () => {
           },
         })
       );
-    for (const version of [undefined, 2, 3, 4, 5, 6, 7] as const) {
+    for (const version of [undefined, 2, 3, 4, 5, 6, 7, 8] as const) {
       const result = await readSpaceDispatchTrace({
         db: createTraceDb({ runtimeCoordinatorExecutionRow: undefined }),
         dispatchId: "dispatch-1",
@@ -1202,7 +1202,7 @@ describe("space dispatch read repo", () => {
               }
             : null,
       });
-      if (version === 7) {
+      if (version !== undefined && version >= 7) {
         expect(
           result.trace?.runtimeCoordinatorHeadLifecycle?.executionContext
         ).toMatchObject({

@@ -460,6 +460,7 @@ import {
 import { app } from "./app";
 import { rpcCenterAgentAuthorizeAnonymousMemberTool } from "./center-agent/application/anonymous-member-request";
 import { rpcCenterAgentRequestMemberAttention } from "./center-agent/application/center-agent-attention-rpc";
+import { centerAgentWorkTarget } from "./center-agent/application/work-target";
 import {
   getCenterAgentMemberResearchStatus,
   runCenterAgentMemberResearchTick,
@@ -3426,6 +3427,16 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   listPluginActionRequests(input: unknown) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       listPluginActionRequests(this.env, input)
+    );
+  }
+  readApprovedPluginAction(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      readApprovedPluginAction(this.env, input)
+    );
+  }
+  centerAgentWorkTarget(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      centerAgentWorkTarget(this.env, input)
     );
   }
   suggestPermissionMode(input: unknown) {
@@ -7325,6 +7336,7 @@ import {
 } from "./agent-profile/application/permission-mode-suggestion-card";
 import {
   listPluginActionRequests,
+  readApprovedPluginAction,
   rpcPluginActionRequest,
 } from "./connectors/plugin-action-requests";
 import {

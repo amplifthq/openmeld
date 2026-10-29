@@ -23,6 +23,7 @@ import {
 import { sqlite, start } from "@flue/runtime/node";
 import { object } from "valibot";
 import { describe, expect, it } from "vitest";
+import { resolveCenterAgentSpaceConversationId } from "../../core/src/remote-agent/application/remote-agent-conversation-continuity";
 import {
   getRemoteAgentModelPurpose,
   REMOTE_AGENT_EXECUTION_INSTRUMENTATION,
@@ -151,7 +152,7 @@ async function createFixture(
       writes: 1,
     },
     requests,
-    agent: () => init(Center, { id: "same-conversation" }),
+    agent: (id = "same-conversation") => init(Center, { id }),
     selectModel: (model: typeof selected) => {
       selected = model;
     },
@@ -266,6 +267,62 @@ function savedResultResponse(fixture: Fixture): FauxResponseFactory {
 }
 
 describe("model switch conversation continuity", () => {
+  it("keeps walkthrough approvals separate from an interleaved Circle request after restart", async () => {
+    const fixture = await createFixture();
+    const spaceId = "tonebird-issues";
+    const walkthrough = resolveCenterAgentSpaceConversationId({
+      spaceId,
+      sourceSignalId: "walkthrough-root",
+      isCenterAgentDm: false,
+    });
+    const circle = resolveCenterAgentSpaceConversationId({
+      spaceId,
+      sourceSignalId: "circle-root",
+      isCenterAgentDm: false,
+    });
+    try {
+      fixture.setResponses([
+        fauxAssistantMessage("27 walkthrough operations prepared."),
+      ]);
+      const first = fixture.agent(walkthrough);
+      await first.read(
+        await first.dispatch(
+          "WALKTHROUGH-TON: create the 27 issues from the uploaded document."
+        )
+      );
+      fixture.setResponses([fauxAssistantMessage("Circle request prepared.")]);
+      const other = fixture.agent(circle);
+      await other.read(
+        await other.dispatch("CIRCLE-TON: default list and relationship view.")
+      );
+      expect(
+        JSON.stringify(fixture.requests.at(-1)?.context.messages)
+      ).not.toContain("WALKTHROUGH-TON");
+
+      await fixture.restart();
+      const approvalConversation = resolveCenterAgentSpaceConversationId({
+        spaceId,
+        sourceSignalId: "approval-onb-01",
+        isCenterAgentDm: false,
+        threadContext: {
+          threadId: "thr-walkthrough",
+          rootSignalId: "walkthrough-root",
+        },
+      });
+      fixture.setResponses([fauxAssistantMessage("ONB-01 result returned.")]);
+      const resumed = fixture.agent(approvalConversation);
+      await resumed.read(
+        await resumed.dispatch("Approved ton-walk-1315-ONB-01.")
+      );
+      const history = JSON.stringify(fixture.requests.at(-1)?.context.messages);
+      expect(history).toContain("WALKTHROUGH-TON");
+      expect(history).not.toContain("CIRCLE-TON");
+      expect(approvalConversation).toBe(walkthrough);
+    } finally {
+      await fixture.dispose();
+    }
+  });
+
   it("finishes an active tool on its frozen model and applies the new model to the next submission", async () => {
     const fixture = await createFixture();
     const wroteFile = Promise.withResolvers<void>();

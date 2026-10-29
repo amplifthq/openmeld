@@ -278,6 +278,28 @@ ownership is checked synchronously before deletion in the owning Space.
 
 ## Space Task ownership
 
+The Space owns `space_work_targets` (SQLite schema version 55), the single private
+writer and read model for goal and destination constraints. Its source receipt
+index, `space_work_target_sources`, stores only source revision, logical identity,
+goal reference, and a selection fingerprint. `space_work_target_conversations`
+indexes the default reference per source author and logical conversation. Neither
+index copies goal content or owns execution. Bound callbacks use their immutable
+source reference; only unbound inputs consult a default or an explicit source
+reference. New requests retain independent records, including within one Thread.
+
+Core derives current source, author, executor, and logical identity from active
+admission. Space resolves actual Task associations from its publication receipts;
+the per-Wake execution `taskId` is not a Space Task ID. A Task handoff resolves
+through its deterministic event Signal and exact recorded Wake target. Goal
+selection, revision/source comparison, receipt insertion, and default update share
+one SQLite transaction. Retries check the receipt fingerprint and return the
+current goal without applying old input again. Goal correction rechecks the
+requester or current Task roles. Source edits, recall, missing evidence, and
+unproven edited legacy inputs fail closed. Space deletion clears all three tables.
+They contain no Task phase, assignee, delegation, execution, permission, or
+provider outcome. Remote Agent materializes this owner read after compaction or
+rollover, and Plugin continuations follow authenticated ancestry to its origin.
+
 The Space Durable Object is the only writer for Space Tasks. Its SQLite schema
 owns `space_tasks`, append-only `space_task_events`, and idempotent
 `space_task_operations`. The stored Task document is the current read model;
@@ -1031,13 +1053,36 @@ provenance. Core's Plugin request owner is its sole writer. The row
 binds requester, Organization, executor, operation ID, frozen connection/access
 revisions, action, effect and input for one hour. Input stays in that protected
 owner record; Inbox receives only an opaque reference and generic private
-recipient text. The detail projection exposes bounded resource identifiers,
-not arbitrary input or credentials. Core permits approval only when the
+recipient text. The standard detail projection exposes bounded resource identifiers,
+not arbitrary input or credentials. An explicit `includeIssuePreview` read by
+the signed-in recipient may also expose the exact saved title and description
+of a recoverable Linear or GitHub issue. Only these allowlisted fields enter
+that private detail; lists, Inbox previews, legacy readers and Agent-principal
+reads retain the standard projection. Preview reads recheck access after any
+provider lookup. Linear target names come from an exact-ID read on the frozen
+account; unavailable or mismatched names leave the IDs visible without guessing.
+Core permits approval only when the
 authenticated account principal matches the request owner and the acting Profile
 is human. An Agent delegation/execution credential or a selected Human Profile
 alone cannot approve. This is the existing account credential boundary, not a
 human-presence guarantee when an Agent has the owner's full account credentials.
 No email code or separate factor enrollment is required.
+
+For hosted Linear and GitHub issue creation, that same private request may also
+retain signature-verified recovery input, bounded to 256 KiB. It is executable
+only by its exact admitted, approved continuation within the existing one-hour
+request lifetime. The approval recovery sweep removes expired recovery bodies
+in batches of at most 1,000 while preserving decision and operation identity.
+No provider credentials, public message copies or second execution ledger are
+introduced. Source edits, another requester, revoked membership, a changed
+connection/access revision, expiry and rejection prevent recovery.
+
+Recoverable issue approvals publish a short acknowledgement attributed to the
+approving member. The private continuation binding carries the approval ID;
+the existing executor retrieves and resumes the saved operation before the
+model continues. Operation IDs, authority declarations and executable input
+are not copied into that acknowledgement. Legacy Local Agent continuations
+retain their existing instruction contract until they have structured recovery.
 
 The decision and Inbox resolution share a conditional PostgreSQL transaction. Repeated or
 lost responses return the same decision and root. The operation owner rechecks
@@ -4118,6 +4163,10 @@ Detailed CLI trace is the supported handoff to local agents and operators. A
 caller supplies the normal Space and dispatch selectors; Core resolves the
 frozen runtime conversation identity and returns the bounded runtime diagnostic
 projection. Callers must not query PostgreSQL or supply a runtime generation identity.
+Schedule evidence comes from the Agents SDK's public schedule projection rather
+than SDK-private tables. The v3 projection does not assert creation or running
+state that the SDK does not report; its response is limited to 50 schedules and
+never contains callback payloads.
 
 Native continuations can have a native-delivery ledger record without a
 workstation Dispatch Ledger row. Negotiated trace response v6 reads the unique

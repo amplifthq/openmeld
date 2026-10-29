@@ -7,6 +7,19 @@ export type {
   SpaceAgentWorkloadInput,
 } from "../../schemas/http/agent-workload";
 export type {
+  CenterAgentWorkTarget,
+  CenterAgentWorkTargetRecord,
+  CenterAgentWorkTargetRequest,
+  CenterAgentWorkTargetResponse,
+  CenterAgentWorkTargetSelection,
+  CenterAgentWorkTargetSourceInput,
+} from "../../schemas/http/center-agent-work-target";
+export type {
+  PluginActionRecoveryInput,
+  ReadApprovedPluginActionInput,
+  ReadApprovedPluginActionResponse,
+} from "../../schemas/http/plugin-action-recovery";
+export type {
   PluginActionRequestCommand,
   PluginActionRequestCommandRpc,
   PluginActionRequestIntent,
