@@ -682,16 +682,16 @@ describe("http schemas", () => {
       expect(parsed.success).toBe(true);
     });
 
-    it("rejects Space guide updates longer than 4,000 characters", () => {
-      expect(MAX_SPACE_GUIDE_LENGTH).toBe(4000);
+    it("rejects Space guide updates longer than 100,000 characters", () => {
+      expect(MAX_SPACE_GUIDE_LENGTH).toBe(100_000);
       expect(
         patchSpaceMetaBodySchema.safeParse({
-          guide: "g".repeat(4000),
+          guide: "g".repeat(100_000),
         }).success
       ).toBe(true);
       expect(
         patchSpaceMetaBodySchema.safeParse({
-          guide: "g".repeat(4001),
+          guide: "g".repeat(100_001),
         }).success
       ).toBe(false);
     });
