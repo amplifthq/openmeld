@@ -30,6 +30,7 @@ type CoreRpcMock = {
   inspectDbState: ReturnType<typeof vi.fn>;
   inspectDispatchStorageReadiness: ReturnType<typeof vi.fn>;
   createSpace: ReturnType<typeof vi.fn>;
+  createSpaceTask: ReturnType<typeof vi.fn>;
   centerAgentGetOrganizationDirectory: ReturnType<typeof vi.fn>;
   getCurrentOrganizationAgentRuntimeOverview: ReturnType<typeof vi.fn>;
   getCurrentOrganizationDirectory: ReturnType<typeof vi.fn>;
@@ -448,6 +449,15 @@ function makeEnv(input?: {
       checkedAt: "2026-04-07T00:00:00.000Z",
     })),
     createSpace: vi.fn(async () => ({ spaceId: "from-core-space-id" })),
+    createSpaceTask: vi.fn(() =>
+      Promise.reject(
+        createCoreRpcHttpError({
+          code: "space_task.forbidden",
+          reason: "Task creation denied by its owner.",
+          status: 403,
+        })
+      )
+    ),
     centerAgentGetOrganizationDirectory: vi.fn(),
     getCurrentOrganizationAgentRuntimeOverview: vi.fn(async () => ({
       organizationId: "org-1",
@@ -1097,6 +1107,7 @@ function makeEnv(input?: {
       inspectDbState: rpc.inspectDbState,
       inspectDispatchStorageReadiness: rpc.inspectDispatchStorageReadiness,
       createSpace: rpc.createSpace,
+      createSpaceTask: rpc.createSpaceTask,
       centerAgentGetOrganizationDirectory:
         rpc.centerAgentGetOrganizationDirectory,
       getCurrentOrganizationAgentRuntimeOverview:
@@ -1612,6 +1623,48 @@ describe("gateway http forwarding", () => {
     );
     expect(payload.error?.requestId).toBe("req-test");
     expect(rpc.createSpace).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { extra: {}, status: 403 },
+    { extra: { wakeAssignee: true, reviewerProfileId: null }, status: 403 },
+    { extra: { wakeAssignee: true }, status: 400 },
+  ])("preserves Task creation intent and owner denial, with $extra", async ({
+    extra,
+    status,
+  }) => {
+    const { env, rpc } = makeEnv();
+    const spaceId = "a".repeat(64);
+    const body = {
+      operationId: "task-create-intent",
+      title: "Deliver the requested Guide feature",
+      assigneeProfileId: "agt_22222222-2222-4222-8222-222222222222",
+      ...extra,
+    };
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/${spaceId}/tasks?taskContractVersion=3`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(status);
+    if (status === 400) {
+      expect(rpc.createSpaceTask).not.toHaveBeenCalled();
+    } else {
+      expect(rpc.createSpaceTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          spaceId,
+          body: { ...body, externalWorkItems: [] },
+          taskContractVersion: 3,
+        })
+      );
+    }
   });
 
   it("forwards POST /v1/spaces to core RPC", async () => {

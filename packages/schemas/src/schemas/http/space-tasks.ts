@@ -65,6 +65,11 @@ const spaceTaskAttributionSchema = z.union([
   z.strictObject({ provider: z.literal("github") }),
 ]);
 
+/** Private Core-to-Space attribution, recomputed from live native admission. */
+export const spaceTaskRequesterRepresentationSchema = z.strictObject({
+  representedRequester: spaceTaskActorSchema.optional(),
+});
+
 export const spaceTaskResultSchema = z.strictObject({
   resultRevision: z.number().int().min(1),
   summary: z.string().trim().min(1).max(SPACE_TASK_RESULT_SUMMARY_MAX_CHARS),
@@ -268,10 +273,22 @@ export const createSpaceTaskBodySchema = z
     threadId: spaceTaskSchema.shape.threadId.optional(),
     assigneeProfileId: openMeldRuntimeProfileIdSchema.nullable().optional(),
     reviewerProfileId: openMeldRuntimeProfileIdSchema.nullable().optional(),
+    wakeAssignee: z.boolean().optional(),
     externalWorkItems: spaceTaskSchema.shape.externalWorkItems.optional(),
     projectIds: spaceTaskProjectIdsSchema.optional(),
   })
   .superRefine((value, ctx) => {
+    if (
+      value.wakeAssignee &&
+      (!value.assigneeProfileId || value.reviewerProfileId === undefined)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["wakeAssignee"],
+        message:
+          "Delegation requires an assignee and an explicit Reviewer decision",
+      });
+    }
     if (
       value.assigneeProfileId &&
       value.reviewerProfileId === value.assigneeProfileId

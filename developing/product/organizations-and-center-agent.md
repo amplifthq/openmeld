@@ -2488,6 +2488,9 @@ than by the model provider:
   that produced it. Entering through a different DM, Space, Slack, Lark, or
   Feishu conversation must not relabel the memory as if it came from the
   current conversation.
+  Its model-facing provenance is historical and not reopened for the current
+  turn; explicit saving does not make a recollection an adopted rule. Current
+  Guide reads and published document references remain separate evidence.
 - Automatic recall reads existing active subjects without provisioning or
   reviving deleted memory, then rechecks policy and subject state after the
   provider returns. Selection preserves rank within each scope and shares both
@@ -2582,6 +2585,15 @@ are withheld; absence does not prove that an action or authorization never
 existed. Audit evidence does not create execution, replay, or repair authority.
 
 ### Organization Documents
+
+Current document reads carry a content-versioned source reference. Automatic
+Brief context can opt into the same reference while preserving legacy response
+shapes. Pending drafts never supply the current Brief, including its source
+identity. Guide snapshots identify their admitted content version; the Center
+Agent can reread the owning Space's current Guide after compaction or a later
+correction. An empty Guide is evidence of empty current content, while a failed
+or revoked read is unavailable evidence. Source references locate context and
+do not grant permissions or establish who personally approved a rule.
 
 Documents are organization-scoped Markdown context. Every document body
 persists as plain CommonMark + GFM text so humans, the Center Agent, and

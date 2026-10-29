@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { createSubmitTurnRequest } from "../../remote-agent/tests/fixtures";
 import type { CoreBindings } from "../src/lib/bindings";
-import { rpcMutateSpaceTask } from "../src/rpc/methods";
+import { rpcCreateSpaceTask, rpcMutateSpaceTask } from "../src/rpc/methods";
 import { resolveSpaceTaskRepresentedRequester } from "../src/space/application/space-task-delegation";
 
 describe("Space Task requester representation", () => {
-  it("discards caller-supplied requester representation at the public RPC boundary", async () => {
+  it.each([
+    "create",
+    "mutate",
+  ] as const)("discards caller-supplied requester representation at the public %s RPC boundary", async (operation) => {
     const ownerDenied = new Error("space_task.forbidden");
     const rpcMutateTask = vi.fn(() => Promise.reject(ownerDenied));
     const requester = {
@@ -33,17 +36,27 @@ describe("Space Task requester representation", () => {
         },
       },
     };
-    await expect(
-      rpcMutateSpaceTask(
-        {
-          OPENMELD_SPACES: {
-            idFromString: (id: string) => id,
-            get: () => ({ rpcMutateTask }),
-          },
-        } as unknown as CoreBindings,
-        input
-      )
-    ).rejects.toBe(ownerDenied);
+    const env = {
+      OPENMELD_SPACES: {
+        idFromString: (id: string) => id,
+        get: () => ({ rpcMutateTask, rpcCreateTask: rpcMutateTask }),
+      },
+    } as unknown as CoreBindings;
+    const result =
+      operation === "create"
+        ? rpcCreateSpaceTask(env, {
+            ...input,
+            body: {
+              operationId: "forged-create-delegation",
+              title: "Deliver the requested feature",
+              sourceSignalId: "human-request",
+              assigneeProfileId: "agt_22222222-2222-4222-8222-222222222222",
+              reviewerProfileId: null,
+              wakeAssignee: true,
+            },
+          })
+        : rpcMutateSpaceTask(env, input);
+    await expect(result).rejects.toBe(ownerDenied);
     expect(rpcMutateTask).toHaveBeenCalledWith(
       expect.objectContaining({
         representedRequester: undefined,

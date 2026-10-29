@@ -9,17 +9,33 @@ import type {
   CenterAgentResultAudience,
   RemoteAgentTurnEnvelope,
 } from "@openmeld/schemas/types";
+import {
+  buildSpaceAgentIdentityLine,
+  buildSpaceWakeParticipantLines,
+} from "@openmeld/space-mesh";
 import { formatMessageChannelProviderName } from "./message-channel";
 
 export function renderRemoteAgentTurnEnvelope(
   envelope: RemoteAgentTurnEnvelope,
-  input: { sourceSignalId?: string | null } = {}
+  input: {
+    sourceSignalId?: string | null;
+    targetProfileId?: string;
+    activationTargets?: readonly string[];
+  } = {}
 ): string {
   const contextScopePlan = resolveCenterAgentContextScopePlan(envelope);
   const task = [
     `Trigger: ${formatTriggerSource(envelope)}`,
     ...renderCenterAgentInteractionSource(envelope),
     ...(input.sourceSignalId ? [`Source signal: ${input.sourceSignalId}`] : []),
+    ...(input.targetProfileId
+      ? buildSpaceWakeParticipantLines({
+          targetProfileId: input.targetProfileId,
+          activationTargets: input.activationTargets ?? [],
+          sourceSignalId: input.sourceSignalId,
+          readOutcomesInstruction: "use openmeld_read_space_updates",
+        })
+      : []),
   ];
 
   if (envelope.trigger.source === "routine") {
@@ -47,6 +63,14 @@ export function renderRemoteAgentTurnEnvelope(
     renderAgentContextEnvelope({
       action: [renderReplyAction(envelope)],
       environment: [
+        ...(input.targetProfileId
+          ? [
+              `Your Agent identity: ${buildSpaceAgentIdentityLine({
+                targetProfileId: input.targetProfileId,
+                targetProfileName: envelope.centerAgent.profileName,
+              })}`,
+            ]
+          : []),
         renderSender(envelope),
         ...(envelope.sender.kind === "member" &&
         envelope.sender.verified &&
@@ -77,6 +101,7 @@ export function renderRemoteAgentTurnEnvelope(
     lines.push(
       "",
       "[Scoped memory]",
+      'Memory provenance: {"kind":"historical_memory","sourceVerification":"not_reopened"}',
       ...envelope.memory.items.map(
         (item) =>
           `- [${renderMemoryScopeLabel({ contextScopePlan, subject: item.subject })}] ${formatMemorySubject(item.subject)} memory from ${formatMemorySource(item)}: ${item.text}`

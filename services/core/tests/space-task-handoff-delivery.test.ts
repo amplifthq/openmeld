@@ -43,6 +43,7 @@ describe("Space Task handoff delivery", () => {
     ["agent", false, false],
     ["agent", true, false],
     ["agent", true, true],
+    ["agent", true, "create-and-delegate"],
     ["agent", true, "retry-after-issue-update"],
   ] as const)("publishes one Task handoff for %s (Thread=%s, assignment=%s)", async (profileKind, inThread, assignment) => {
     const namespace = (
@@ -211,7 +212,7 @@ describe("Space Task handoff delivery", () => {
           lastObservedState: "open" as const,
         };
         const service = space.spaceTaskService;
-        const created = service.create(
+        let created = service.create(
           {
             operationId: "create-task",
             title: "Fix loading state",
@@ -274,7 +275,27 @@ describe("Space Task handoff delivery", () => {
                 wakeAssignee: true,
               },
             };
-            const assigned = await instance.rpcMutateTask(input);
+            const createInput = {
+              spaceId,
+              context,
+              body: {
+                operationId: "create-with-initial-handoff",
+                title: "Fix loading state",
+                sourceSignalId: source.id,
+                threadId,
+                assigneeProfileId: reviewer.profileId,
+                reviewerProfileId: requester.profileId,
+                wakeAssignee: true,
+                externalWorkItems: [issue],
+              },
+            };
+            const assigned =
+              assignment === "create-and-delegate"
+                ? await instance.rpcCreateTask(createInput)
+                : await instance.rpcMutateTask(input);
+            if (assignment === "create-and-delegate") {
+              created = assigned;
+            }
             expect(assigned.task.phase).toBe("to_do");
             if (assignment === "retry-after-issue-update") {
               const deliveries = new SpaceTaskDeliveryRepository(
@@ -314,7 +335,11 @@ describe("Space Task handoff delivery", () => {
               );
               await space.deliverSpaceTaskAction(pending);
             }
-            expect((await instance.rpcMutateTask(input)).applied).toBe(false);
+            const replay =
+              assignment === "create-and-delegate"
+                ? await instance.rpcCreateTask(createInput)
+                : await instance.rpcMutateTask(input);
+            expect(replay.applied).toBe(false);
             const signalId = `space-task-handoff:${assigned.event.eventId}`;
             const row = state.storage.sql
               .exec<{ payload_json: string }>(
@@ -365,17 +390,61 @@ describe("Space Task handoff delivery", () => {
           taskId: created.task.taskId,
           identity: issue,
           observeOperationId: "observe-completed",
-          settleOperationId: "settle-completed",
           observedAt: now,
           observedState: "closed",
           observedStateReason: "completed",
         });
         const deliveries = new SpaceTaskDeliveryRepository(state.storage.sql);
+        expect(service.read(created.task.taskId).task).toMatchObject({
+          phase: "to_do",
+          result: null,
+        });
+        expect(
+          deliveries.pending(Date.now()).some((item) => item.kind === "handoff")
+        ).toBe(false);
+        const taskContext = {
+          actor: requester,
+          isSpaceOwner: true,
+          resolveMember: (id: string) =>
+            [requester, reviewer].find((member) => member.profileId === id) ??
+            null,
+        };
+        const assigned = service.mutate(
+          created.task.taskId,
+          {
+            action: "assign",
+            operationId: "assign-result-author",
+            expectedRevision: service.read(created.task.taskId).task.revision,
+            assigneeProfileId: requester.profileId,
+          },
+          taskContext
+        );
+        const started = service.mutate(
+          created.task.taskId,
+          {
+            action: "mark_in_progress",
+            operationId: "start-explicit-work",
+            expectedRevision: assigned.task.revision,
+          },
+          taskContext
+        );
+        service.mutate(
+          created.task.taskId,
+          {
+            action: "submit_result",
+            operationId: "submit-verified-result",
+            expectedRevision: started.task.revision,
+            summary: "Verified the requested loading-state behavior.",
+          },
+          taskContext
+        );
         const delivery = deliveries
           .pending(Date.now())
           .find((item) => item.kind === "handoff");
         if (!delivery) {
-          throw new Error("Completed issue must deliver its review handoff");
+          throw new Error(
+            "The explicit Task result must deliver its review handoff"
+          );
         }
         expect(delivery.actor).toBeNull();
         // A retained user-authorized action still requires fresh authorization;

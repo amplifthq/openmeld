@@ -6,6 +6,9 @@ export type SpaceTaskId = z.infer<SchemaModule["spaceTaskIdSchema"]>;
 export type SpaceTaskPhase = z.infer<SchemaModule["spaceTaskPhaseSchema"]>;
 export type SpaceTaskAction = z.infer<SchemaModule["spaceTaskActionSchema"]>;
 export type SpaceTaskActor = z.infer<SchemaModule["spaceTaskActorSchema"]>;
+export type SpaceTaskRequesterRepresentation = z.infer<
+  SchemaModule["spaceTaskRequesterRepresentationSchema"]
+>;
 export type SpaceTaskResult = z.infer<SchemaModule["spaceTaskResultSchema"]>;
 export type SpaceTaskReview = z.infer<SchemaModule["spaceTaskReviewSchema"]>;
 export type SpaceTaskEventType = z.infer<

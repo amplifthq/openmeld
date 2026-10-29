@@ -47,6 +47,7 @@ import {
   CENTER_AGENT_SESSION_TITLE_INPUT_MAX_LENGTH,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   centerAgentWorkTargetSourceInputSchema,
+  spaceTaskRequesterRepresentationSchema,
   clearSpaceReasoningReplaySchema,
   commitSpaceFileWriteInputSchema,
   copyOwnMessageExcerptBodySchema,
@@ -9679,10 +9680,29 @@ export class Space extends DurableObject<CoreBindings> {
                   input.body.sourceSignalId ?? null,
                   input.body.threadId ?? null
                 );
-                const createContext = this.buildSpaceTaskCreateContext(
+                let createContext = this.buildSpaceTaskCreateContext(
                   taskContext,
                   normalizedBody.sourceSignalId ?? null
                 );
+                const representation =
+                  spaceTaskRequesterRepresentationSchema.parse({
+                    representedRequester: input.representedRequester,
+                  });
+                if (
+                  normalizedBody.wakeAssignee &&
+                  representation.representedRequester
+                ) {
+                  const represented = this.buildSpaceTaskMemberContext(
+                    representation.representedRequester.profileId,
+                    representation.representedRequester.ownerUserId
+                  );
+                  if (represented.actor.profileKind === "human") {
+                    createContext = {
+                      ...createContext,
+                      representedRequester: represented.actor,
+                    };
+                  }
+                }
                 await this.armSpaceTaskRecovery();
                 const receipt = this.createSpaceTaskService(context).create(
                   normalizedBody,
@@ -9790,8 +9810,11 @@ export class Space extends DurableObject<CoreBindings> {
           receipt,
           previous,
           authorizedActor: Boolean(context),
-          wakeAssignee:
-            command?.action === "assign" && command.wakeAssignee === true,
+          wakeAssignee: Boolean(
+            command &&
+              "wakeAssignee" in command &&
+              command.wakeAssignee === true
+          ),
           ...(context
             ? {
                 sourceDispatchChainContext:
@@ -10232,7 +10255,10 @@ export class Space extends DurableObject<CoreBindings> {
       sourceDispatchChainContext,
       id: deliveryId,
     } = delivery;
-    if (receipt.event.type === "assigned" && receipt.task.assignee) {
+    if (
+      (receipt.event.type === "created" || receipt.event.type === "assigned") &&
+      receipt.task.assignee
+    ) {
       await this.publishSpaceTaskDirectedNotice({
         actor,
         eventId: receipt.event.eventId,

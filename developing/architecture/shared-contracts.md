@@ -1359,11 +1359,16 @@ requires Core and Gateway before Web; no local component upgrade is required.
 changes require the requester or Space owner; preserving the existing reviewer
 needs no additional authority. `wakeAssignee: true` requires an Agent assignee
 and a To do Task, and queues the initial handoff in the assignment transaction.
+Task creation accepts the same optional `wakeAssignee` intent, with an Agent
+assignee and explicit reviewer choice required when true. Task, event, operation,
+and initial handoff commit in one Space transaction. The Remote Agent's
+`create_and_delegate` action requires a stable operation ID and uses this path.
+Plain creation and assignment remain records without execution intent.
 The Remote Agent's `delegate` tool action requires an explicit reviewer choice
 and translates to this mutation with an idempotent operation identity. It does
 not call the generic Wake tool or infer that execution has started.
 
-For assignment, reviewer, and brief mutations only, Core may project a human
+For creation with a handoff, assignment, reviewer, and brief mutations, Core may project a human
 requester from the designated Center Agent's live, authorized native delivery
 in this same Space. This projection is recomputed at the public RPC boundary;
 caller-supplied representation is discarded. Space rechecks current human
@@ -1378,8 +1383,10 @@ remain fail-closed; they do not retry with the actor's independent permissions.
 Contract impact: the mutation fields are optional and Task/event/read payloads
 are unchanged. Existing CLI, Service, Skills, Gateway, and Web readers remain
 compatible, including setup, Wake, dispatch-owned Task tools, and diagnostics.
-Old Core rejects the new write fields, so deploy Core before the Remote Agent
-caller. No CLI/Service/Skills contract bump, database migration, or runtime
+Old Core and Gateway reject the new creation field before creating a Task or
+handoff. Both receivers must be updated before that write is available. Existing public responses retain their shape;
+CLI/Service 0.3.281 are available updates with unchanged required floors.
+No CLI/Service/Skills protocol epoch bump, database migration, or runtime
 lifecycle change is required. The shared schema is a Service bundle input, so
 the base-aware release owner must rebuild, stamp, and publish an available
 CLI/Service artifact while preserving the existing required floors. Old cloud
@@ -1466,9 +1473,9 @@ Creating an issue from a shared Space records a linked Task through the
 existing create/mutate RPCs when the Task list can confirm whether that issue
 is already linked; the GitHub issue remains GitHub-owned. Closing
 the issue through `github_update_issue` or a verified GitHub App webhook
-settles still-active linked Tasks through the Space writer: `completed` becomes
-Done, or In review when a reviewer is assigned; `not_planned` and `duplicate`
-become Canceled. Unknown reasons preserve the current phase. Completing or
+updates its external observation through the Space writer. Every closure reason
+preserves the Task's phase, result, and review; issue migration or duplication is
+not evidence that the requested outcome was delivered. Completing or
 canceling a Task does not PATCH GitHub from Core. Old Remote Agent builds
 simply omit the association.
 
@@ -4358,6 +4365,41 @@ The stable Local and Remote Agent prompt guidance renders this retrieval order
 as a model-facing rule. An Agent must not begin with broad Space history merely
 to decide whether it was assigned work, and a clear reference/candidate
 activation must terminate before any history read or tool call.
+
+### Center Agent knowledge-source references
+
+The Space owns its Guide; Core PostgreSQL owns current Organization Document
+content and pending drafts. Center Agent context carries references to those
+owners rather than a parallel rule store. A source version is the SHA-256 of
+the returned UTF-8 content, not an approval timestamp or an authorization token.
+
+`centerAgentReadSpaceGuide` accepts only the admitted execution context. Core
+derives its Space from that live delivery, rechecks Binding and participation,
+and reads through the Space access contract. It returns the current Guide and
+its source reference; an empty Guide is distinct from denied or unavailable
+access. Admission Guide text is labeled as a snapshot and points to this read.
+The Agent cannot choose another Space or requester through the tool arguments.
+
+`includeSourceReferences: true` opts the private Organization prompt-context
+read into `briefSource`. Only nonempty approved Brief content receives a current
+document reference. Draft-only content and identity remain absent. Default
+responses retain their previous shape, and draft references cannot parse as
+current Brief sources. Explicit document reads expose the same content version.
+Automatic retained memory is labeled historical with its original surface;
+its sources have not been reopened for the current turn.
+
+The integrated rollout accepts the larger shared Guide text limit in Remote
+before Core can produce those envelopes. During this receiver-first step, an
+older Core's typed `invalid_payload` rejection of the source opt-in negotiates
+one fresh legacy projection, preserving current Brief and protection hints.
+Authorization, transport, identity, and malformed-response failures never take
+that path. The new Guide method remains unavailable until Core is updated;
+there is no cached Guide substitute. Release Remote, then Core and Gateway,
+then the CLI artifact. Existing Remote callers keep the legacy prompt-context
+response. Gateway, Web, and Desktop receive no new knowledge
+payload. Existing CLI/Service/Skills commands, setup, Wake, Space actions, and
+diagnostics retain their contracts; the available 0.3.281 schema packaging
+update preserves their existing floors. There is no migration or new resource.
 
 ### Weekly Evaluation Report Contracts
 

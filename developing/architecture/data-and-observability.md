@@ -307,6 +307,17 @@ phase and revision columns support bounded board reads and conflict-safe writes.
 Every mutation compares the expected Task revision inside the Space transaction.
 An operation id may replay only the exact same request and returns the retained
 receipt without appending another event.
+Task creation can opt into an initial handoff. That same transaction writes the
+Task, event, operation receipt, and existing delivery outbox intent. A creation
+handoff is fenced by later assignment, cancellation/reopen, start, or brief
+changes exactly like an assignment handoff. No second delegation registry or
+execution owner is introduced. Core recomputes requester representation from the
+live native admission; Space rechecks current membership and requester/owner
+authority. Caller-supplied requester attribution is never forwarded as authority.
+GitHub completion receipts and verified webhooks can write only the linked
+issue observation. They do not write a Task result, review, cancellation, or
+phase transition. A closed issue may represent migration rather than delivery;
+the normal Task workflow remains the sole completion and cancellation owner.
 The same transaction writes `space_task_delivery_outbox` rows for necessary
 handoff, completion, Inbox, GitHub issue and Project link projections, and authorized
 Stop effects. The Project link PostgreSQL projection contains only Organization,
@@ -365,8 +376,9 @@ carry no actor authority and cannot use this Task-specific Stop path.
 Linked GitHub issues are references on the Task document. GitHub remains the
 only writer of issue state. `lastObservedState` is a Task-owned observation
 from an authorized GitHub tool result or a verified GitHub App webhook
-delivery, not a second issue store. Remote Agent may create or cancel Tasks
-after a GitHub tool succeeds; it does not write Task rows itself and does not
+delivery, not a second issue store. Remote Agent can create a linked Task after
+a GitHub tool succeeds, with no implicit assignee. It can cancel a Task only
+through the normal authorized Task workflow; it does not write Task rows itself and does not
 PATCH GitHub when a Task closes.
 
 `space_task_github_issue_links` is a Core PostgreSQL query projection written after
@@ -3961,6 +3973,14 @@ is unavailable. Both failures remain observable without failing the Wake or
 native conversation.
 
 ## Organization Document Data Boundary
+
+Current Brief source references contain only document identity, current-content
+state, and a SHA-256 content fingerprint from the same query as the returned
+body. Draft-only identities are omitted. These are read projections, not another
+rule body, adoption ledger, approval authority, or document history store.
+Guide source references come from the owning Space through live access checks;
+the admitted Guide snapshot is kept distinct from a current read. No memory
+provider or compressed Agent summary can write either source.
 
 Core PostgreSQL owns `organization_documents`, including approved Markdown, the one
 replaceable Center Agent draft, document identity, kind, member subject, and

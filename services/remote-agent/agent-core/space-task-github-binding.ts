@@ -318,9 +318,9 @@ async function createLinkedSpaceTask(input: {
     readNonEmptyString(input.actionInput.title) ??
     `GitHub issue ${formatSpaceTaskGitHubIssueLabel(input.item)}`;
   const body = createSpaceTaskBodySchema.parse({
-    assigneeProfileId: input.toolContext.context.actorContext.openMeldProfileId,
+    assigneeProfileId: null,
     completionConditions: [
-      "The GitHub issue is resolved or this Space stops tracking it.",
+      "The requested outcome is verified and submitted through this Task's workflow.",
     ],
     description: `Linked GitHub issue ${formatSpaceTaskGitHubIssueLabel(input.item)}.`,
     externalWorkItems: [input.item],
@@ -375,8 +375,8 @@ async function readClosedGitHubIssueTasks(input: {
   spaceId: string;
   toolContext: { context: OpenMeldRequestContext };
 }): Promise<SpaceTaskGitHubBindingSummary> {
-  // Core's connector completion owns provider settlement. This is only a read
-  // projection; an In review Task is not closed, and no member mutation runs.
+  // Core owns the provider observation. Task completion remains with the
+  // Task workflow; this only reads already completed or canceled Tasks.
   const matching = await listLinkedSpaceTasksForGitHubIssue({
     context: input.toolContext.context,
     identity: input.identity,
