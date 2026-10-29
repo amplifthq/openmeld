@@ -1696,6 +1696,7 @@ function SpaceLandingConversationShell({
 		directMessageJoinPrompt,
 		viewerMembership,
 	} = useSpaceLandingViewerState({ controller, state });
+	const guideDraft = useSpaceGuideDraft(controller.spaceId);
 	const memberAgentDirectMessage = useCurrentMemberAgentDirectMessage({
 		isActiveSpaceMember: currentProfileIsActiveSpaceMember,
 		isCenterAgentDirectMessage: currentSpaceIsCenterAgentDirectMessage,
@@ -1871,6 +1872,12 @@ function SpaceLandingConversationShell({
 				threadHasAttachments={controller.threadComposerFiles.length > 0}
 			>
 				<SpaceFileNavigationGuards navigation={spaceFileNavigation} />
+				<UnsavedChangesGuard
+					allowSamePageNavigation
+					description="Your changes to this Space's guide haven't been saved."
+					hasUnsavedChanges={guideDraft.hasUnsavedChanges}
+					onDiscard={guideDraft.discard}
+				/>
 				<AppMainContent
 					bodyClassName="flex"
 					bodySlotName={resolveSpaceLandingBodySlotName(input.presentation)}
@@ -1999,6 +2006,7 @@ function SpaceLandingConversationShell({
 								currentSpaceControls={currentSpaceControls}
 								directMessageAccessRequest={directMessageAccessRequest}
 								directMessageJoinPrompt={directMessageJoinPrompt}
+								guideDraft={guideDraft}
 								historyErrorMessage={historyErrorMessage}
 								input={conversationInput}
 								pendingActionSurface={pendingActionSurface}
@@ -2348,6 +2356,7 @@ function SpaceLandingConversation({
 	currentSpaceControls,
 	directMessageAccessRequest,
 	directMessageJoinPrompt,
+	guideDraft,
 	historyErrorMessage,
 	input,
 	pendingActionSurface,
@@ -2368,6 +2377,7 @@ function SpaceLandingConversation({
 	currentSpaceControls: ReturnType<typeof resolveCurrentSpaceControls>;
 	directMessageAccessRequest: DirectMessageAccessRequest | null;
 	directMessageJoinPrompt: string | null;
+	guideDraft: ReturnType<typeof useSpaceGuideDraft>;
 	historyErrorMessage: string | null;
 	input: SpaceLandingInput;
 	pendingActionSurface?: ReactNode;
@@ -2400,7 +2410,6 @@ function SpaceLandingConversation({
 		wakeFailureTargetContextsByProfileId,
 	} = state;
 	const welcomeStep = useWelcomeSpace(recovery.storageScope, input.spaceId);
-	const guideDraft = useSpaceGuideDraft(controller.spaceId);
 	const consentEmptyState =
 		directMessageAccessRequest?.access.state === "draft"
 			? directMessageAccessRequestCopy(directMessageAccessRequest)
@@ -2562,6 +2571,7 @@ function SpaceLandingConversation({
 						draft={guideDraft.draft}
 						key={controller.spaceId}
 						onDraftChange={guideDraft.onDraftChange}
+						onSaved={guideDraft.onSaved}
 						openMeldProfileId={controller.profileId}
 						spaceId={controller.spaceId}
 					/>

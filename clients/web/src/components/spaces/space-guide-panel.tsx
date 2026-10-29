@@ -32,6 +32,8 @@ export function SpaceGuidePanel(
 		/** The unsaved edit, or null when not editing. Owned by the parent. */
 		draft: string | null;
 		onDraftChange: (draft: string | null) => void;
+		/** Called with the submitted text when a save succeeds. */
+		onSaved: (submitted: string) => void;
 	}
 ) {
 	// Refetches each time the tab opens, so edits made elsewhere (another
@@ -71,6 +73,7 @@ export function SpaceGuidePanel(
 			<SpaceGuideEditor
 				draft={input.draft}
 				onDraftChange={input.onDraftChange}
+				onSaved={input.onSaved}
 				openMeldProfileId={input.openMeldProfileId}
 				spaceId={input.spaceId}
 			/>
@@ -111,6 +114,7 @@ function SpaceGuideEditor(
 	input: SpaceGuideTarget & {
 		draft: string;
 		onDraftChange: (draft: string | null) => void;
+		onSaved: (submitted: string) => void;
 	}
 ) {
 	const queryClient = useQueryClient();
@@ -119,12 +123,13 @@ function SpaceGuideEditor(
 			await createUnscopedWebSpaceApi({
 				openMeldProfileId: input.openMeldProfileId,
 			}).updateMeta({ spaceId: input.spaceId, guide }),
-		onSuccess: (meta) => {
+		onSuccess: (meta, submitted) => {
 			queryClient.setQueryData(
 				spaceQueryKeys.meta(input.spaceId, input.openMeldProfileId),
 				meta
 			);
-			input.onDraftChange(null);
+			// Keeps the editor open if the text changed while saving.
+			input.onSaved(submitted);
 			toast.success("Guide saved.");
 		},
 	});

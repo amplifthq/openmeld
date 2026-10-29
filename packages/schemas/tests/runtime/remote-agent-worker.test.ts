@@ -983,7 +983,7 @@ describe("Remote Agent worker contracts", () => {
       ...createRemoteAgentTurnEnvelope(),
       space: {
         ...createRemoteAgentTurnEnvelope().space,
-        guide: "g".repeat(4000),
+        guide: "g".repeat(100_000),
       },
     };
 
@@ -991,7 +991,7 @@ describe("Remote Agent worker contracts", () => {
     expect(
       remoteAgentTurnEnvelopeSchema.safeParse({
         ...withGuide,
-        space: { ...withGuide.space, guide: "g".repeat(4001) },
+        space: { ...withGuide.space, guide: "g".repeat(100_001) },
       }).success
     ).toBe(false);
     expect(

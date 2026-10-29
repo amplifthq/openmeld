@@ -1,6 +1,16 @@
 import { MAX_SPACE_GUIDE_LENGTH } from "@openmeld/schemas";
 import type { SpaceMeta } from "@openmeld/schemas/types";
 import {
+	createMemoryHistory,
+	createRootRoute,
+	createRoute,
+	createRouter,
+	Link,
+	Outlet,
+	RouterProvider,
+} from "@tanstack/react-router";
+import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -9,6 +19,7 @@ import {
 } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { UnsavedChangesGuard } from "#/components/forms/unsaved-changes-guard";
 import { TestQueryClientProvider } from "#/test-support/query-client";
 import { useSpaceGuideDraft } from "./space-guide-draft";
 import { SpaceGuidePanel } from "./space-guide-panel";
@@ -40,12 +51,22 @@ function spaceMeta(guide?: string): SpaceMeta {
 	return { ...(guide === undefined ? {} : { guide }) } as SpaceMeta;
 }
 
-/** Mirrors Space landing: the draft lives outside the panel. */
+/**
+ * Mirrors Space landing: the draft and its leave guard live outside the
+ * panel, and switching Space tabs unmounts the panel.
+ */
 function GuideHarness(input: { canEdit: boolean }) {
 	const guideDraft = useSpaceGuideDraft("space-1");
 	const [panelOpen, setPanelOpen] = useState(true);
 	return (
 		<>
+			<UnsavedChangesGuard
+				allowSamePageNavigation
+				description="Your changes to this Space's guide haven't been saved."
+				hasUnsavedChanges={guideDraft.hasUnsavedChanges}
+				onDiscard={guideDraft.discard}
+			/>
+			<Link to="/privacy">Leave Space</Link>
 			<button onClick={() => setPanelOpen((open) => !open)} type="button">
 				Toggle panel
 			</button>
@@ -54,6 +75,7 @@ function GuideHarness(input: { canEdit: boolean }) {
 					canEdit={input.canEdit}
 					draft={guideDraft.draft}
 					onDraftChange={guideDraft.onDraftChange}
+					onSaved={guideDraft.onSaved}
 					openMeldProfileId="profile-1"
 					spaceId="space-1"
 				/>
@@ -63,11 +85,29 @@ function GuideHarness(input: { canEdit: boolean }) {
 }
 
 function renderGuide(input: { canEdit: boolean }) {
-	return render(
-		<TestQueryClientProvider>
-			<GuideHarness canEdit={input.canEdit} />
-		</TestQueryClientProvider>
-	);
+	const rootRoute = createRootRoute({
+		component: () => (
+			<TestQueryClientProvider>
+				<Outlet />
+			</TestQueryClientProvider>
+		),
+	});
+	const spaceRoute = createRoute({
+		component: () => <GuideHarness canEdit={input.canEdit} />,
+		getParentRoute: () => rootRoute,
+		path: "/space",
+	});
+	const elsewhereRoute = createRoute({
+		component: () => <h1>Somewhere else</h1>,
+		getParentRoute: () => rootRoute,
+		path: "/privacy",
+	});
+	const router = createRouter({
+		history: createMemoryHistory({ initialEntries: ["/space"] }),
+		routeTree: rootRoute.addChildren([spaceRoute, elsewhereRoute]),
+	});
+	render(<RouterProvider router={router} />);
+	return router;
 }
 
 describe("SpaceGuidePanel", () => {
@@ -176,6 +216,65 @@ describe("SpaceGuidePanel", () => {
 
 		await waitFor(() => expect(screen.getByRole("alert")).toBeDefined());
 		expect(screen.getByLabelText("Space guide")).toBeDefined();
+	});
+
+	it("asks before an in-app link leaves an unsaved edit", async () => {
+		getMetaMock.mockResolvedValue(spaceMeta("Old rules."));
+
+		const router = renderGuide({ canEdit: true });
+
+		fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+		fireEvent.change(screen.getByLabelText("Space guide"), {
+			target: { value: "New rules." },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Toggle panel" }));
+		fireEvent.click(screen.getByRole("link", { name: "Leave Space" }));
+
+		expect(await screen.findByRole("dialog")).toBeDefined();
+		expect(router.state.location.pathname).toBe("/space");
+
+		fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+
+		expect(await screen.findByText("Somewhere else")).toBeDefined();
+	});
+
+	it("does not ask before leaving when the edit has no changes", async () => {
+		getMetaMock.mockResolvedValue(spaceMeta("Old rules."));
+
+		renderGuide({ canEdit: true });
+
+		fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+		fireEvent.click(screen.getByRole("link", { name: "Leave Space" }));
+
+		expect(await screen.findByText("Somewhere else")).toBeDefined();
+		expect(screen.queryByRole("dialog")).toBeNull();
+	});
+
+	it("keeps text typed while a save is in flight", async () => {
+		getMetaMock.mockResolvedValue(spaceMeta("Old rules."));
+		let finishSave: (meta: SpaceMeta) => void = () => undefined;
+		updateMetaMock.mockReturnValue(
+			new Promise<SpaceMeta>((resolve) => {
+				finishSave = resolve;
+			})
+		);
+
+		renderGuide({ canEdit: true });
+
+		fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+		const editor = screen.getByLabelText("Space guide");
+		fireEvent.change(editor, { target: { value: "Version A." } });
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
+		fireEvent.change(editor, { target: { value: "Version A. Then B." } });
+		await act(async () => {
+			finishSave(spaceMeta("Version A."));
+			await Promise.resolve();
+		});
+
+		await waitFor(() => expect(toastSuccessMock).toHaveBeenCalled());
+		expect(
+			(screen.getByLabelText("Space guide") as HTMLTextAreaElement).value
+		).toBe("Version A. Then B.");
 	});
 
 	it("offers a retry when the guide cannot load", async () => {
