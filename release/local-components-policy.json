@@ -1,12 +1,12 @@
 {
-  "version": "0.3.278",
+  "version": "0.3.279",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Packages the optional hosted approval-recovery schemas without changing CLI commands or existing public responses. Existing 0.3.273 clients remain compatible."
+    "reason": "Corrects standalone Setup to reuse the existing automatic registration contract and preserve saved agent switches. CLI arguments, structured responses, cloud APIs, and Wake transport remain compatible; existing sessions can continue without a forced update."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Packages the optional hosted approval-recovery and conversation contracts without changing workstation execution. Existing 0.3.273 Services remain compatible."
+    "reason": "Packages the standalone Setup switch-preservation fix without changing Service startup, reconnect, transport, or execution contracts. Existing Services and cloud components remain interoperable and active Wake work can continue."
   },
   "skills": {
     "updatePolicy": "available",
