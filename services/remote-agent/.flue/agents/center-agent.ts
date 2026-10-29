@@ -136,6 +136,7 @@ import {
   REMOTE_AGENT_TOOL_CALLING_CONTRACT,
 } from "../../flue-adapter/tool-presentation";
 import { getRemoteAgentFlueTools } from "../../flue-adapter/tools";
+import { readCenterAgentWorkTargetFacts } from "../../flue-adapter/work-target";
 
 installRemoteAgentExecutionInstrumentation();
 
@@ -180,6 +181,12 @@ async function prepareCenterAgentRender() {
   }
   const coreWorker =
     env.OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding;
+  const currentWorkTargetFacts = await readCenterAgentWorkTargetFacts({
+    coreWorker,
+    storage,
+    context: executionContext,
+    personalAgent,
+  });
   const organizationSkillSelections =
     executionContext?.organizationSkillReleases ?? [];
   // Space work handoffs pin explicit Skills. Automatically included Skills are
@@ -456,7 +463,7 @@ async function prepareCenterAgentRender() {
     instructions:
       buildRemoteAgentSystemPrompt({
         personalAgent,
-        taskKnowledgeIndex: `${taskKnowledgeIndex}${runtimeContextPlan.includeOrganizationDocuments && !materialization.documents ? "\nCenter document context could not be refreshed. No cached Brief or rules were supplied; use the document read tool before work that depends on them." : ""}`,
+        taskKnowledgeIndex: `${taskKnowledgeIndex}${currentWorkTargetFacts}${runtimeContextPlan.includeOrganizationDocuments && !materialization.documents ? "\nCenter document context could not be refreshed. No cached Brief or rules were supplied; use the document read tool before work that depends on them." : ""}`,
         modelDisplayName: resolveRemoteAgentModelDisplayName(
           env,
           executionContext?.modelRoute

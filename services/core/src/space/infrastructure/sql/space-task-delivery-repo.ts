@@ -228,6 +228,28 @@ export class SpaceTaskDeliveryRepository {
     );
   }
 
+  /** One source message may seed several Tasks. Only the Task owner's
+   * deterministic handoff Signal identifies one exact Task for this Wake. */
+  readHandoffTaskId(
+    sourceSignalId: string,
+    targetProfileId: string
+  ): string | null {
+    return (
+      this.sql
+        .exec<{ task_id: string }>(
+          `
+      SELECT wake.task_id FROM space_task_wake_refs AS wake
+      JOIN space_task_events AS event ON event.task_id = wake.task_id
+      WHERE wake.source_signal_id = ? AND wake.target_profile_id = ?
+        AND wake.source_signal_id = 'space-task-handoff:' || event.event_id
+      LIMIT 1`,
+          sourceSignalId,
+          targetProfileId
+        )
+        .toArray()[0]?.task_id ?? null
+    );
+  }
+
   private parse(json: string): SpaceTaskDelivery {
     const value = JSON.parse(json) as SpaceTaskDelivery;
     return {
