@@ -29,10 +29,7 @@ const target: CenterAgentWorkTargetResponse = {
     sourceSignalId: "repository-correction",
     sourceRevision: 0,
     sourceProfileId: "requester",
-    selectionSignalId: "continue",
-    selectionRevision: 0,
-    selectedByProfileId: "requester",
-    selectionKind: "inherit",
+    sourceProfileKind: "human",
   },
 };
 

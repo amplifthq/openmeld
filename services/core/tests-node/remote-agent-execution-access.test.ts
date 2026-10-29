@@ -91,7 +91,10 @@ describe("current execution access is an owner projection, not a cached grant", 
       mock.mockReset();
     }
     owners.delivery.mockResolvedValue(record);
-    owners.workTarget.mockResolvedValue(null);
+    owners.workTarget.mockResolvedValue({
+      record: null,
+      selectionRequired: true,
+    });
     owners.caller.mockResolvedValue({
       db: new PostgresDatabase({
         connectionString:
@@ -123,11 +126,11 @@ describe("current execution access is an owner projection, not a cached grant", 
       conversationId: "center-space:tonebird:root:walkthrough",
     },
     {
-      taskId: "task-tonebird",
+      taskId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       conversationId: "center-space:tonebird:root:walkthrough",
     },
     { taskId: undefined, conversationId: undefined },
-  ])("derives work-target scope from the active admission, never a model-selected Space or Task (%j)", async ({
+  ])("keeps the admitted logical identity independent from a per-Wake execution taskId (%j)", async ({
     taskId,
     conversationId,
   }) => {
@@ -152,11 +155,9 @@ describe("current execution access is an owner projection, not a cached grant", 
     ).toEqual({ record: null, selectionRequired: true });
     expect(owners.workTarget).toHaveBeenCalledWith(
       expect.objectContaining({
-        scopeKey: taskId
-          ? `task:${taskId}`
-          : `conversation:${conversationId ?? request.spaceId}`,
+        logicalConversationId: conversationId ?? request.spaceId,
         sourceSignalId: request.triggerMessageId,
-        requesterProfileId: request.author.profileId,
+        sourceAuthorProfileId: request.author.profileId,
       })
     );
     await expect(
@@ -176,9 +177,13 @@ describe("current execution access is an owner projection, not a cached grant", 
     await expect(
       centerAgentWorkTarget(env, {
         context: input.context,
-        selection: { expectedRevision: 0, choice: { kind: "inherit" } },
+        selection: {
+          expectedRevision: 0,
+          expectedSourceSignalId: null,
+          choice: { kind: "inherit" },
+        },
       })
-    ).rejects.toThrow("human_source_required");
+    ).rejects.toThrow("source_authority_required");
   });
 
   it.each([

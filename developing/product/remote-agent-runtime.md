@@ -3987,6 +3987,11 @@ configured Flue capability:
 For verified interactive Space work, the model-facing direct and Code Mode
 catalogs share the same Space-owned work-target check. Each Human input selects
 or inherits its current goal and destinations before repository operations.
+Explicit corrections and independent requests are separate choices. A saved
+source-to-goal receipt fences callbacks from later defaults in the same Thread;
+the default index is scoped by author. An explicitly named earlier source is a
+context reference, never another requester or permission grant. Actual Space Task
+handoffs resolve at the Task owner; execution `taskId` attribution stays unchanged.
 GitHub search qualifiers are provider syntax, not task classification; global or
 ambiguous searches require an explicit bounded repository query. Native Plugin
 Git connections and publication of an existing checkout check the same target.

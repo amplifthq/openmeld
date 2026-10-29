@@ -219,13 +219,25 @@ the requested decision or outcome. Latency and tool cost are part of that
 judgment. This is an intelligence contract, not a keyword classifier, fixed
 search budget, second model, or pre-agent gate.
 
-For interactive Space work, the Space persists a narrow work-target record:
-the requested goal, explicitly selected code repositories, and a separate issue
-destination. Core derives its scope from the admitted Task when present, otherwise
-from the logical request conversation. A new verified Human message selects or
-inherits that record once, using its revision; the source Signal and revision are
-retained. A correction updates that exact scope, while an independent Task keeps
-its own target. Ordinary messages do not create Tasks to store this context.
+For interactive Space work, the Space persists one work-target record containing
+the requested goal, selected code repositories, and separate issue destinations.
+Each admitted source selects new work, corrects the same goal, or inherits it.
+The source is then bound immutably to that goal. A late callback follows its
+original source binding even after a new request changes the conversation's
+default. A retry reads newer corrections without overwriting them. Selection
+compares both the observed revision and source identity. An explicit earlier
+source reference can continue that goal without merging conversation histories.
+Defaults are scoped to the source author and logical conversation; an Agent's
+independent request cannot replace a Human's default. Correcting a non-Task goal
+requires its original requester. Task corrections use the existing Task roles.
+
+Core derives the source and logical conversation from live native admission.
+The worker request's `taskId` remains a per-Wake execution identifier and never
+selects a goal. The Space Task owner resolves real Tasks only from the original
+message's Task draft receipt or its exact retained Task handoff and Wake tuple.
+Agent-authored handoffs require the current Task role. Plugin connection and
+action continuations resolve their authenticated original source chain.
+Ordinary messages do not create Tasks to store this context.
 This record is a context constraint, not a Situation Snapshot, work planner,
 Project association, permission grant, execution ledger, or completion state.
 Its `requestGoal` describes the current requested operation; the Task's declared

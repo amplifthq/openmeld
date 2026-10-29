@@ -18,10 +18,7 @@ export function selectedRepositoryWorkTarget(
       sourceSignalId: context.triggerMessageId,
       sourceRevision: 0,
       sourceProfileId: "22222222-2222-4222-8222-222222222222",
-      selectionSignalId: context.triggerMessageId,
-      selectionRevision: 0,
-      selectedByProfileId: "22222222-2222-4222-8222-222222222222",
-      selectionKind: "select",
+      sourceProfileKind: "human",
     },
   });
 }

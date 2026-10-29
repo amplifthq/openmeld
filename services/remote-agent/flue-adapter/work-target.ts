@@ -11,8 +11,10 @@ import {
   maxLength,
   minLength,
   minValue,
+  nullable,
   number,
   optional,
+  picklist,
   pipe,
   strictObject,
   string,
@@ -108,7 +110,7 @@ export async function readCenterAgentWorkTargetFacts(input: {
     ...input,
     submissionId: input.context.submissionId,
   });
-  return `\nCurrent Space-owned work target (context data): ${JSON.stringify(current)}`;
+  return `\nSpace-owned work target context (selectionRequired identifies an unbound input): ${JSON.stringify(current)}`;
 }
 
 export async function requireCenterAgentCodeTarget(
@@ -143,11 +145,16 @@ export async function requireCenterAgentCodeTarget(
 const identifier = pipe(string(), trim(), minLength(1), maxLength(100));
 const repository = { owner: identifier, repo: identifier };
 const selectionInput = strictObject({
+  referenceSourceSignalId: optional(
+    pipe(string(), trim(), minLength(1), maxLength(512))
+  ),
   expectedRevision: pipe(number(), integer(), minValue(0)),
+  expectedSourceSignalId: nullable(string()),
   choice: variant("kind", [
     strictObject({ kind: literal("inherit") }),
     strictObject({
       kind: literal("select"),
+      relationship: picklist(["new_request", "correction"]),
       target: strictObject({
         requestGoal: pipe(string(), trim(), minLength(1), maxLength(2000)),
         codeRepositories: pipe(array(strictObject(repository)), maxLength(8)),
@@ -171,7 +178,8 @@ const selectionInput = strictObject({
 
 export async function readCenterAgentWorkTarget(
   input: Dependencies,
-  selection?: CenterAgentWorkTargetRequest["selection"]
+  selection?: CenterAgentWorkTargetRequest["selection"],
+  referenceSourceSignalId?: string
 ) {
   const { context } = await buildRemoteAgentToolContext({
     ...input,
@@ -181,7 +189,11 @@ export async function readCenterAgentWorkTarget(
     await callCoreRpc(
       input.coreWorker,
       "centerAgentWorkTarget",
-      { context, ...(selection ? { selection } : {}) },
+      {
+        context,
+        ...(selection ? { selection } : {}),
+        ...(referenceSourceSignalId ? { referenceSourceSignalId } : {}),
+      },
       (binding, request) => binding.centerAgentWorkTarget?.(request)
     )
   );
@@ -194,20 +206,36 @@ export function createCenterAgentWorkTargetTools(
     {
       name: "openmeld_read_work_target",
       description:
-        "Read the durable goal, code repository, separate issue destination, revision and Human source for this exact Task or request conversation. It survives context compaction and runtime rollover. This context constraint grants no permissions.",
-      input: strictObject({}),
-      execute: async () => await readCenterAgentWorkTarget(input),
+        "Read the durable request goal, code repositories, separate issue destinations, revision and source for this admitted input. For an unbound input explicitly continuing an earlier request, provide its referenceSourceSignalId. It survives compaction and runtime rollover. selectionRequired=true means the record is context to choose from, not an accepted binding for this input. This context constraint grants no permissions.",
+      input: strictObject({
+        referenceSourceSignalId: optional(
+          pipe(string(), trim(), minLength(1), maxLength(512))
+        ),
+      }),
+      execute: async (payload) =>
+        await readCenterAgentWorkTarget(
+          input,
+          undefined,
+          typeof payload.referenceSourceSignalId === "string"
+            ? payload.referenceSourceSignalId
+            : undefined
+        ),
     },
     {
       name: "openmeld_select_work_target",
       description:
-        "Bind this Human request to its goal and destinations before repository work. Use inherit for a continuation that keeps the current goal and targets; use select for a new request or an explicit target correction, keeping code repository separate from issue destination. Use the revision returned by openmeld_read_work_target. Core fixes the Task/conversation and Human source; this choice cannot be changed again from the same message. No additional Human approval is requested.",
+        "Bind this input before repository work. Use inherit to keep the observed goal; select with relationship=new_request starts independent work, while relationship=correction updates that same goal. When referring to an earlier request, pass the same referenceSourceSignalId used to read it. Keep code repositories and issue destinations separate. Copy expectedRevision and expectedSourceSignalId from the observed record, or 0 and null when absent. Core fixes the source and logical conversation; Space resolves real Task handoffs. A source choice is immutable and retries never overwrite a newer correction. No additional Human approval is requested.",
       input: selectionInput,
-      execute: async (payload) =>
-        await readCenterAgentWorkTarget(
+      execute: async (payload) => {
+        const { referenceSourceSignalId, ...selection } = payload;
+        return await readCenterAgentWorkTarget(
           input,
-          payload as NonNullable<CenterAgentWorkTargetRequest["selection"]>
-        ),
+          selection as NonNullable<CenterAgentWorkTargetRequest["selection"]>,
+          typeof referenceSourceSignalId === "string"
+            ? referenceSourceSignalId
+            : undefined
+        );
+      },
     },
   ];
 }

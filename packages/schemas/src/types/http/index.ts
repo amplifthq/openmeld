@@ -12,6 +12,7 @@ export type {
   CenterAgentWorkTargetRequest,
   CenterAgentWorkTargetResponse,
   CenterAgentWorkTargetSelection,
+  CenterAgentWorkTargetSourceInput,
 } from "../../schemas/http/center-agent-work-target";
 export type {
   PluginActionRecoveryInput,

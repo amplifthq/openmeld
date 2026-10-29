@@ -17,6 +17,7 @@ export const centerAgentWorkTargetSelectionSchema = z.discriminatedUnion(
     z.strictObject({ kind: z.literal("inherit") }),
     z.strictObject({
       kind: z.literal("select"),
+      relationship: z.enum(["new_request", "correction"]),
       target: centerAgentWorkTargetSchema,
     }),
   ]
@@ -27,16 +28,15 @@ export const centerAgentWorkTargetRecordSchema = z.strictObject({
   sourceSignalId: z.string().min(1),
   sourceRevision: z.number().int().nonnegative(),
   sourceProfileId: z.string().min(1),
-  selectedByProfileId: z.string().min(1),
-  selectionSignalId: z.string().min(1),
-  selectionRevision: z.number().int().nonnegative(),
-  selectionKind: z.enum(["inherit", "select"]),
+  sourceProfileKind: z.enum(["human", "agent"]),
 });
 export const centerAgentWorkTargetRequestSchema = z.strictObject({
   context: openMeldRequestContextSchema,
+  referenceSourceSignalId: z.string().min(1).max(512).optional(),
   selection: z
     .strictObject({
       expectedRevision: z.number().int().nonnegative(),
+      expectedSourceSignalId: z.string().min(1).nullable(),
       choice: centerAgentWorkTargetSelectionSchema,
     })
     .optional(),
@@ -45,6 +45,20 @@ export const centerAgentWorkTargetResponseSchema = z.strictObject({
   record: centerAgentWorkTargetRecordSchema.nullable(),
   selectionRequired: z.boolean(),
 });
+// Private Core-to-Space projection, derived from the admitted execution.
+export const centerAgentWorkTargetSourceInputSchema = z.strictObject({
+  logicalConversationId: z.string().min(1).max(1024),
+  sourceSignalId: z.string().min(1).max(512),
+  sourceAuthorProfileId: z.string().min(1).max(512).nullable(),
+  sourceOwnerUserId: z.string().min(1).max(512).nullable(),
+  executorProfileId: z.string().min(1).max(512),
+  referenceSourceSignalId: z.string().min(1).max(512).optional(),
+  admittedAtMs: z.number().int().nonnegative(),
+  selection: centerAgentWorkTargetRequestSchema.shape.selection,
+});
+export type CenterAgentWorkTargetSourceInput = Zod.infer<
+  typeof centerAgentWorkTargetSourceInputSchema
+>;
 export type CenterAgentWorkTarget = Zod.infer<
   typeof centerAgentWorkTargetSchema
 >;

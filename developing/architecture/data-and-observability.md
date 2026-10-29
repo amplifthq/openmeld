@@ -278,16 +278,27 @@ ownership is checked synchronously before deletion in the owning Space.
 
 ## Space Task ownership
 
-The Space also owns `space_work_targets` (SQLite schema version 55), a private
-goal and destination constraint keyed by the admitted Task or logical conversation.
-Core derives that key and the Human source from current native execution evidence;
-the model cannot name another Space, Task, requester, or source. Selection uses
-revision comparison and exact same-source replay. Source and selecting Signal
-revisions are checked on access; an edited, recalled, or missing source invalidates
-the record. Space deletion clears it. This table contains no Task phase, assignee,
-delegation, execution, permission, or provider outcome and is never a parallel
-authority for those facts. Remote Agent materializes the current owner read on
-each render rather than preserving a second writable copy in model memory.
+The Space owns `space_work_targets` (SQLite schema version 55), the single private
+writer and read model for goal and destination constraints. Its source receipt
+index, `space_work_target_sources`, stores only source revision, logical identity,
+goal reference, and a selection fingerprint. `space_work_target_conversations`
+indexes the default reference per source author and logical conversation. Neither
+index copies goal content or owns execution. Bound callbacks use their immutable
+source reference; only unbound inputs consult a default or an explicit source
+reference. New requests retain independent records, including within one Thread.
+
+Core derives current source, author, executor, and logical identity from active
+admission. Space resolves actual Task associations from its publication receipts;
+the per-Wake execution `taskId` is not a Space Task ID. A Task handoff resolves
+through its deterministic event Signal and exact recorded Wake target. Goal
+selection, revision/source comparison, receipt insertion, and default update share
+one SQLite transaction. Retries check the receipt fingerprint and return the
+current goal without applying old input again. Goal correction rechecks the
+requester or current Task roles. Source edits, recall, missing evidence, and
+unproven edited legacy inputs fail closed. Space deletion clears all three tables.
+They contain no Task phase, assignee, delegation, execution, permission, or
+provider outcome. Remote Agent materializes this owner read after compaction or
+rollover, and Plugin continuations follow authenticated ancestry to its origin.
 
 The Space Durable Object is the only writer for Space Tasks. Its SQLite schema
 owns `space_tasks`, append-only `space_task_events`, and idempotent

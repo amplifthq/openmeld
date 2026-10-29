@@ -46,6 +46,7 @@ import {
   buildSpaceFileRevisionIdFromDigest,
   CENTER_AGENT_SESSION_TITLE_INPUT_MAX_LENGTH,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
+  centerAgentWorkTargetSourceInputSchema,
   clearSpaceReasoningReplaySchema,
   commitSpaceFileWriteInputSchema,
   copyOwnMessageExcerptBodySchema,
@@ -722,10 +723,7 @@ import {
   type SpaceTaskMutationContext,
   SpaceTaskWorkflowError,
 } from "../../application/space-task-workflow";
-import {
-  accessSpaceWorkTarget,
-  type SpaceWorkTargetInput,
-} from "../../application/space-work-target";
+import { accessSpaceWorkTarget } from "../../application/space-work-target";
 import { resolveExistingThreadSignalRetry } from "../../application/space-thread-signal-idempotency";
 import {
   readSpaceUpdatesUseCase,
@@ -6113,10 +6111,21 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
   async rpcCenterAgentWorkTarget(
-    input: SpaceWorkTargetInput & { spaceAccess: SpaceAccessContext }
+    input: import("@openmeld/schemas/types").CenterAgentWorkTargetSourceInput & {
+      spaceAccess: SpaceAccessContext;
+    }
   ) {
-    this.applySpaceRef(input.spaceAccess.spaceId);
-    const access = await this.authorizeSpaceAccess(input.spaceAccess);
+    const { spaceAccess, ...sourceInput } = input;
+    const parsed = centerAgentWorkTargetSourceInputSchema.safeParse(sourceInput);
+    if (!parsed.success) {
+      throw createCoreRpcHttpError({
+        status: 400,
+        code: "center_agent.work_target.invalid_source",
+        reason: "The admitted work source is invalid.",
+      });
+    }
+    this.applySpaceRef(spaceAccess.spaceId);
+    const access = await this.authorizeSpaceAccess(spaceAccess);
     if (!access.ok) {
       throw createCoreRpcHttpError({
         status: 403,
@@ -6124,8 +6133,20 @@ export class Space extends DurableObject<CoreBindings> {
         reason: "Work target access is unavailable.",
       });
     }
-    return accessSpaceWorkTarget(this.ctx.storage.sql, input, (id) =>
-      this.readSourceTextSignalById(id)
+    const source = parsed.data;
+    const sourceIsOwner = source.sourceAuthorProfileId && source.sourceOwnerUserId
+      ? this.buildSpaceTaskMemberContext(
+          source.sourceAuthorProfileId,
+          source.sourceOwnerUserId
+        ).isSpaceOwner
+      : false;
+    return this.ctx.storage.transactionSync(() =>
+      accessSpaceWorkTarget(
+        this.ctx.storage.sql,
+        source,
+        (id) => this.readSourceTextSignalById(id),
+        sourceIsOwner
+      )
     );
   }
 

@@ -3,6 +3,7 @@ import {
   centerAgentWorkTargetResponseSchema,
 } from "@openmeld/schemas";
 import { createDispatchContinuationSpaceAccessContext } from "@openmeld/space";
+import { readSpacePluginConnectionOriginalSource } from "../../connectors/plugin-connection-execution-binding";
 import type { CoreBindings } from "../../lib/bindings";
 import { resolveRemoteAgentLogicalConversationId } from "../../remote-agent/application/remote-agent-conversation-continuity";
 import { prepareRemoteAgentExecutionAccess } from "../../remote-agent/application/remote-agent-execution-access";
@@ -19,37 +20,60 @@ export async function centerAgentWorkTarget(env: CoreBindings, value: unknown) {
       reason: "Invalid work target request.",
     });
   }
-  const { context, selection } = parsed.data;
+  const { context, selection, referenceSourceSignalId } = parsed.data;
   const submissionId = context.agentControllerConversationId;
   if (!submissionId) {
     throw new Error("center_agent.work_target.execution_required");
   }
-  const { caller, delivery, request } = await prepareRemoteAgentExecutionAccess(
-    env,
-    {
+  const { projection, caller, delivery, request } =
+    await prepareRemoteAgentExecutionAccess(env, {
       context,
       submissionId,
       effect: selection ? "write" : "read",
-    }
-  );
+    });
   if ("personalExecution" in caller || delivery.conversationKind !== "space") {
     throw new Error("center_agent.work_target.unsupported_conversation");
   }
   const sender = request.turnEnvelope.sender;
   const trigger = request.turnEnvelope.trigger.source;
-  const interactive =
-    sender.kind === "member" &&
+  const canSelect =
+    Boolean(request.author.profileId) &&
+    (sender.kind === "member" || sender.kind === "agent_profile") &&
     sender.verified &&
-    (trigger === "space_wake" || trigger === "web_dm") &&
+    [
+      "space_wake",
+      "web_dm",
+      "task_continuation",
+      "task_watch_continuation",
+    ].includes(trigger) &&
     !request.sourceClientMessageId?.startsWith("plugin-continue:");
-  if (selection && !interactive) {
-    throw new Error("center_agent.work_target.human_source_required");
+  if (selection && !canSelect) {
+    throw new Error("center_agent.work_target.source_authority_required");
   }
   const stub = resolveSpaceStub(env.OPENMELD_SPACES, delivery.spaceId);
   if (!stub) {
     throw new Error("center_agent.work_target.space_unavailable");
   }
-  const record = await stub.rpcCenterAgentWorkTarget({
+  let sourceSignalId = delivery.triggerMessageId;
+  let sourceAuthorProfileId = request.author.profileId;
+  if (request.sourceClientMessageId?.startsWith("plugin-continue:")) {
+    if (projection.scope.principal.kind !== "member") {
+      throw new Error("center_agent.work_target.source_authority_required");
+    }
+    const original = await readSpacePluginConnectionOriginalSource(env, {
+      organizationId: delivery.organizationId,
+      spaceId: delivery.spaceId,
+      signalId: delivery.triggerMessageId,
+      targetProfileId: delivery.profileId,
+      requesterUserId: projection.scope.principal.userId,
+    });
+    if (!original) {
+      throw new Error("center_agent.work_target.source_authority_required");
+    }
+    sourceSignalId = original.signalId;
+    sourceAuthorProfileId = original.requesterProfileId;
+  }
+  const result = await stub.rpcCenterAgentWorkTarget({
     spaceAccess: createDispatchContinuationSpaceAccessContext({
       requestContext: context,
       dispatchId: delivery.dispatchId,
@@ -57,18 +81,17 @@ export async function centerAgentWorkTarget(env: CoreBindings, value: unknown) {
       targetProfileId: delivery.profileId,
       spaceId: delivery.spaceId,
     }),
-    scopeKey: request.taskId
-      ? `task:${request.taskId}`
-      : `conversation:${resolveRemoteAgentLogicalConversationId(request)}`,
-    sourceSignalId: delivery.triggerMessageId,
+    logicalConversationId: resolveRemoteAgentLogicalConversationId(request),
+    sourceSignalId,
     admittedAtMs: delivery.createdAtMs,
-    requesterProfileId:
-      sender.kind === "member" ? (sender.profileId ?? null) : null,
+    sourceAuthorProfileId,
+    sourceOwnerUserId:
+      projection.scope.principal.kind === "member"
+        ? projection.scope.principal.userId
+        : null,
+    executorProfileId: delivery.profileId,
+    ...(referenceSourceSignalId ? { referenceSourceSignalId } : {}),
     ...(selection ? { selection } : {}),
   });
-  return centerAgentWorkTargetResponseSchema.parse({
-    record,
-    selectionRequired:
-      interactive && record?.selectionSignalId !== delivery.triggerMessageId,
-  });
+  return centerAgentWorkTargetResponseSchema.parse(result);
 }
