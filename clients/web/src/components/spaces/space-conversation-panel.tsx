@@ -727,7 +727,6 @@ function SpaceConversationPanelContent(
 			<SpacePrimaryView
 				activeView={input.activeSpaceView}
 				files={input.files}
-				guide={input.guide}
 				graph={
 					spaceGraph ? (
 						<Suspense fallback={<SpaceGraphSkeleton />}>
@@ -752,6 +751,7 @@ function SpaceConversationPanelContent(
 						</Suspense>
 					) : null
 				}
+				guide={input.guide}
 				idPrefix={input.spaceViewIdPrefix}
 				messages={
 					<MessageScrollerProvider

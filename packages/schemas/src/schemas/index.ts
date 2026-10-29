@@ -38,6 +38,10 @@ export {
   centerAgentReadAuditJournalRpcInputSchema,
 } from "./http/center-agent-evidence";
 export {
+  centerAgentReadSpaceGuideRequestSchema,
+  centerAgentReadSpaceGuideResponseSchema,
+} from "./http/center-agent-knowledge";
+export {
   CENTER_AGENT_RETAINED_MEMORY_MAX_ITEMS,
   CENTER_AGENT_RETAINED_MEMORY_MAX_SOURCES,
   CENTER_AGENT_RETAINED_MEMORY_MAX_TEXT_CHARS,
@@ -2069,6 +2073,7 @@ export {
   organizationDocumentPromptContextRpcInputSchema,
   organizationDocumentRouteParamsSchema,
   organizationDocumentSchema,
+  organizationDocumentSourceReferenceSchema,
   organizationDocumentSummarySchema,
   profileReportTypeSchema,
   recordCenterAgentMemberResearchComputerFileResponseSchema,
@@ -2967,6 +2972,7 @@ export {
   spaceTaskIdSchema,
   spaceTaskMutationReceiptSchema,
   spaceTaskPhaseSchema,
+  spaceTaskRequesterRepresentationSchema,
   spaceTaskResponseSchema,
   spaceTaskResultSchema,
   spaceTaskReviewSchema,

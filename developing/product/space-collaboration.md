@@ -181,7 +181,13 @@ requester or Space owner to authorize more work. Task state never substitutes
 for RuntimeCoordinator or native-delivery execution truth.
 An explicit Task delegation assigns the existing Task and records its reviewer
 with the initial Wake intent in one Space transaction. Ordinary assignment still
-does not Wake anyone. Delegation remains **To do** until its assignee explicitly
+does not Wake anyone. Creating and delegating a new Task can commit its brief,
+assignee, explicit reviewer decision, and initial Wake intent together. A failed
+transaction creates neither the Task nor its handoff; retrying the identical
+operation returns the original receipt. The requester/owner permission check and
+live member and reviewer checks apply before that transaction. Native Agent tools
+use this operation when new delegated work should start now, and reuse an existing
+Task when one already represents the request. Delegation remains **To do** until its assignee explicitly
 starts it; a queued or failed handoff is shown separately. Generic Wake,
 ordinary replies, and execution completion never advance the Task. Every
 initial, review, and rework handoff carries the same Task identity and its
@@ -189,7 +195,7 @@ current brief in the Agent dispatch context.
 When the Center Agent arranges a Task for its verified current human requester,
 Core rechecks the live delivery, Binding, and requester access. The requester
 must still be an active member of this Space and the Task's requester. This
-permits assignment, brief updates, and reviewer selection only; it does not
+permits creation with an initial handoff, assignment, brief updates, and reviewer selection; it does not
 permit the Center Agent to start, submit, or accept another Agent's work.
 A requested reviewer must be an active Space member before delegation succeeds.
 An unavailable reviewer is a blocker, not an implicit choice of no review.
@@ -225,12 +231,14 @@ associated with a Space Task when the Task list can confirm whether that issue
 is already linked. The issue body receives an OpenMeld Task
 reference, and the Task stores the repository and issue number. Closing that
 issue through those same GitHub tools, or through a verified GitHub App
-webhook after the issue is already linked, uses the provider's confirmed closure
-reason. Completed issues submit a Task result: Done without a reviewer, In review
-with a reviewer. Not planned and duplicate issues cancel still-active linked
-Tasks. Missing or unknown reasons only refresh the observed issue state; they
-never infer success or cancellation. Reopening the issue
-refreshes that observation and does not reopen a completed or canceled Task.
+webhook after the issue is already linked, updates the external issue observation.
+Provider closure, including Completed, Not planned, or Duplicate, never submits
+a result, accepts review, completes, or cancels the Task. Moving work to another
+issue is not proof that its requested outcome has been delivered. The assignee
+submits the verified outcome through the Task workflow; its reviewer accepts
+that exact result when review is required. A requester or other authorized
+member cancels work explicitly. Reopening the issue refreshes the observation
+and does not reopen a completed or canceled Task.
 Closing or completing a Task does not silently patch GitHub; the Task result
 prompts the Agent or person to close the linked issue when it is still open.
 This is authorized association for already-linked issues, not an import of
@@ -241,11 +249,10 @@ optional provider project, and URL. Failure to attach after creation is a
 partial outcome; recovery adds only the Task reference. Linear references do
 not claim status monitoring, close synchronization, or automatic follow-up.
 Webhook deliveries grant no new execution authority and do not start Agent
-work. When a completed issue needs review, Space publishes a system-authored
-notice at the original Task location, using the same stable handoff identity.
-It mentions a Human reviewer. For an Agent reviewer, it uses a Reference and
-asks a Space member to Wake that Agent to start the review. Member-authorized
-Task handoffs retain their normal permission checks and Wake behavior.
+work or review. Member-authorized Task handoffs retain their normal permission
+checks and Wake behavior. Creating or linking an issue records who created the
+Task, but leaves its assignee empty until an executor is explicitly selected;
+the Center Agent is not an implicit implementation owner.
 
 Project Common Agents are selection suggestions in a Task assignment flow.
 When one is outside the Space and belongs to the caller, **Add and assign**

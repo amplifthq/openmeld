@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   getPersonalRemoteAgentDefaultModelId,
   listAgentControllerPermissionModeCatalog,
@@ -104,6 +105,7 @@ import {
   centerAgentReadSlackWorkspaceDirectoryResponseSchema,
   centerAgentReadSpaceContextResponseSchema,
   centerAgentReadSpaceFileResponseSchema,
+  centerAgentReadSpaceGuideResponseSchema,
   centerAgentReadTurnDiagnosticsResponseSchema,
   centerAgentRecommendOpportunityToolResponseSchema,
   centerAgentRememberForOrganizationResponseSchema,
@@ -1635,6 +1637,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_set_reply_placement",
   "openmeld_read_center_agent_turn_diagnostics",
   "openmeld_read_space_context",
+  "openmeld_read_space_guide",
   "openmeld_query_messages",
   "openmeld_list_message_reads",
   "openmeld_manage_space_tasks",
@@ -1775,6 +1778,7 @@ const REMOTE_AGENT_OBSERVATION_TOOL_NAME_SET =
   new Set<RemoteAgentOpenMeldToolName>(REMOTE_AGENT_OBSERVATION_TOOL_NAMES);
 
 export const REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES = [
+  "openmeld_read_space_guide",
   "openmeld_read_session_history",
   "openmeld_set_reply_placement",
   "openmeld_install_organization_skill",
@@ -1935,6 +1939,7 @@ const manageSpaceTasksToolInputSchema = strictObject({
   action: picklist([
     "list",
     "create",
+    "create_and_delegate",
     "delegate",
     "assign",
     "set_projects",
@@ -1953,6 +1958,7 @@ const manageSpaceTasksToolInputSchema = strictObject({
     "detach_linear_external_work_item",
   ] as const),
   assigneeProfileId: optional(nullable(nonEmptyStringSchema)),
+  operationId: optional(nonEmptyStringSchema),
   completionConditions: optional(
     pipe(
       array(
@@ -2160,6 +2166,7 @@ function buildSpaceTaskMutationFromTool(
       });
     case "list":
     case "create":
+    case "create_and_delegate":
       throw new TypeError(`${input.action} is not a Task mutation.`);
     default:
       throw new TypeError("Unsupported Space Task action.");
@@ -2206,7 +2213,7 @@ async function executeManageSpaceTasksTool(input: {
       })
     );
   }
-  if (request.action === "create") {
+  if (request.action === "create" || request.action === "create_and_delegate") {
     return await createSpaceTaskFromTool({
       coreWorker: input.coreWorker,
       request,
@@ -2229,8 +2236,19 @@ async function createSpaceTaskFromTool(input: {
   spaceId: string;
   toolContext: Awaited<ReturnType<typeof buildOpenMeldToolContext>>;
 }) {
+  const delegate = input.request.action === "create_and_delegate";
+  if (
+    delegate &&
+    (!(input.request.operationId && input.request.assigneeProfileId) ||
+      input.request.reviewerProfileId === undefined)
+  ) {
+    throw new TypeError(
+      "Creating and delegating requires a stable operationId, an Agent assignee, and an explicit reviewerProfileId (null only when no review was requested)."
+    );
+  }
   const body = createSpaceTaskBodySchema.parse({
-    operationId: crypto.randomUUID(),
+    operationId: input.request.operationId ?? crypto.randomUUID(),
+    ...(delegate ? { wakeAssignee: true } : {}),
     title: input.request.title,
     ...(input.request.description === undefined
       ? {}
@@ -2241,10 +2259,7 @@ async function createSpaceTaskFromTool(input: {
     ...(input.request.projectIds === undefined
       ? {}
       : { projectIds: input.request.projectIds }),
-    assigneeProfileId:
-      input.request.assigneeProfileId === undefined
-        ? input.toolContext.context.actorContext.openMeldProfileId
-        : input.request.assigneeProfileId,
+    assigneeProfileId: input.request.assigneeProfileId ?? null,
     ...(input.request.reviewerProfileId === undefined
       ? {}
       : { reviewerProfileId: input.request.reviewerProfileId }),
@@ -3104,6 +3119,27 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       },
     }),
     toolDefinition({
+      name: "openmeld_read_space_guide",
+      description:
+        "Read this conversation's current Space guide and its content version from the owning Space. An empty guide is returned explicitly; a failed read is unavailable context.",
+      input: object({}),
+      execute: async () => {
+        const context = await buildOpenMeldToolRequestContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_read_space_guide",
+        });
+        return centerAgentReadSpaceGuideResponseSchema.parse(
+          await callCoreRpc(
+            input.coreWorker,
+            "centerAgentReadSpaceGuide",
+            { context },
+            (binding, request) => binding.centerAgentReadSpaceGuide?.(request)
+          )
+        );
+      },
+    }),
+    toolDefinition({
       name: "openmeld_read_org_documents",
       description:
         "List the current Organization's document titles and kinds, or read one document's approved content by id. Draft content is never returned.",
@@ -3141,12 +3177,25 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           (binding, rpcInput) =>
             binding.centerAgentReadOrganizationDocuments?.(rpcInput)
         );
-        return parseCoreToolResponse(
+        const result = parseCoreToolResponse(
           centerAgentReadOrganizationDocumentsResponseSchema,
           response,
           "centerAgentReadOrganizationDocuments",
           "Organization documents response"
         );
+        return result.action === "get"
+          ? {
+              ...result,
+              sourceRef: {
+                kind: "organization_document" as const,
+                documentId: result.document.id,
+                state: "current" as const,
+                version: createHash("sha256")
+                  .update(result.document.content, "utf8")
+                  .digest("hex"),
+              },
+            }
+          : result;
       },
     }),
     toolDefinition({
@@ -4284,8 +4333,9 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_manage_space_tasks",
       description:
-        "For an existing Task, action=delegate requires its exact taskId, expectedRevision, assigneeProfileId and reviewerProfileId (null only if no review was requested). First list Tasks and reuse the one linked to the request or issue. Add a requested reviewer to the Space before delegating; missing membership is a blocker, not permission to omit review. Delegation atomically assigns the Task, records the reviewer, and queues its initial Wake. It stays To do until the assignee explicitly starts it. A successful receipt confirms assignment and a handoff request, not running execution. Do not also call the generic Wake tool. Update the brief and completion conditions before delegating when the requested deliverable changes. " +
-        "Manage durable commitments in the current shared OpenMeld Space. Create a Task when the current message asks for a clear, discrete deliverable that will outlive an immediate conversational answer or needs ownership, progress, review, or later closure. Use projectIds on create or set_projects after an explicit Project decision; a Task may have several Projects, and their order does not choose an external destination. Creating a GitHub issue in this Space records a linked Task only when that GitHub tool result's spaceTask.created is true; use attach_external_work_item or detach_external_work_item for an existing GitHub issue. Use attach_linear_external_work_item with the verified Linear issue UUID, identifier, team UUID and URL, or detach_linear_external_work_item; Linear links are not monitored. When a Task linked to an open GitHub issue is completed or canceled, close that issue with github_update_issue unless the result says it is already closed. Do not create Tasks for questions, tiny same-turn actions, exploratory discussion, acknowledgements, or every Agent tool call. A created Task is assigned to you by default but remains To do; call mark_in_progress when work actually begins, then submit_result with the concrete result and verification. Assignment alone never starts execution. Read the Task before changing it and pass its expectedRevision. Review must also pass the resultRevision you actually read as expectedResultRevision. A conflict requires reading the changed Task and deciding again. The Space delivers review and rework handoffs through the normal Wake path. Do not issue another Wake for those transitions or wake more work when needsHumanDecision is true. Two automatic Agent rework rounds are allowed before a human must decide. This tool is limited to this conversation's conversation and does not control Agent execution truth.",
+        "Manage durable delivery commitments in the current Space or private chat. Use Tasks for discrete deliverables that need ownership, progress, review, or later closure; not questions, acknowledgements, exploratory discussion, or tiny same-turn actions. First list Tasks and reuse the one linked to the request or issue. action=create records work without starting execution and leaves assignee empty unless explicitly selected. For new work that should start now, action=create_and_delegate requires a stable operationId, title, self-contained brief and completion conditions, Agent assigneeProfileId, and explicit reviewerProfileId (null only when no review was requested). Creation and the initial Wake intent commit atomically. Reuse operationId only with the identical request. " +
+        "For an existing Task, action=delegate requires taskId, latest expectedRevision, assigneeProfileId and explicit reviewerProfileId. Add a requested reviewer to the Space first; missing membership is a blocker. Delegation assigns and queues the handoff atomically. The Task remains To do until the assignee explicitly starts it; a queued handoff is not running execution. Do not also call a generic Wake. Update the brief when the deliverable changes. Only the assignee starts and submits verified results. Review names the exact expectedResultRevision read. Conflicts require a fresh read and decision. Space delivers review and rework handoffs; needsHumanDecision stops automatic work after two Agent rework rounds. " +
+        "Use projectIds only after an explicit Project decision; Project order does not choose external destinations. Confirm GitHub association from spaceTask.created, or attach an existing issue. Linear attachment requires its verified issue UUID, identifier, team UUID and URL; Linear links are not monitored. External issue closure updates observation only and never completes or cancels the Task. A Task result may require closing a still-open GitHub issue through github_update_issue. Task phase is independent of Agent execution truth.",
       input: manageSpaceTasksToolInputSchema,
       execute: async (payload) =>
         await executeManageSpaceTasksTool({

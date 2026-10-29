@@ -341,7 +341,7 @@ async function prepareCenterAgentRender() {
       executionContext && runtimeContextPlan.includeOrganizationDocuments
         ? await resolveCurrentOrganizationDocumentPromptContext({
             organizationId: executionContext.organizationId,
-            read: async () =>
+            read: async (includeSourceReferences) =>
               await callCoreRpc(
                 coreWorker,
                 "readOrganizationDocumentPromptContext",
@@ -351,6 +351,9 @@ async function prepareCenterAgentRender() {
                     `remote-agent-prompt:${executionContext.submissionId}`
                   ),
                   includeOrganizationProtectedInformation: true as const,
+                  ...(includeSourceReferences
+                    ? { includeSourceReferences: true as const }
+                    : {}),
                 },
                 (binding, rpcInput) =>
                   binding.readOrganizationDocumentPromptContext?.(rpcInput)
@@ -469,6 +472,7 @@ async function prepareCenterAgentRender() {
           executionContext?.modelRoute
         ),
         organizationBrief: materialization.documents?.briefContent,
+        organizationBriefSource: materialization.documents?.briefSource,
         organizationDocumentTitles: materialization.documents?.documentTitles,
         organizationProtectedInformation:
           materialization.documents?.organizationProtectedInformation,

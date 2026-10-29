@@ -88,12 +88,6 @@ export async function syncCompletedGitHubIssue(input: {
           link.taskId,
           operation.id
         ),
-        settleOperationId: spaceTaskGitHubIssueOperationId(
-          "settle",
-          observation,
-          link.taskId,
-          operation.id
-        ),
       });
       if (result.task?.phase === "done" || result.task?.phase === "canceled") {
         closedTaskIds.push(result.task.taskId);

@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { MAX_TEXT_LENGTH } from "../protocol/constants";
 import {
   agentProfileIdSchema,
   openMeldRuntimeProfileIdSchema,
@@ -9,7 +10,6 @@ import {
   spaceAccessModeSchema,
   spaceLinkJoinPolicySchema,
 } from "./space-access-mode";
-import { MAX_TEXT_LENGTH } from "../protocol/constants";
 import { spaceNameSchema } from "./space-name";
 
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);

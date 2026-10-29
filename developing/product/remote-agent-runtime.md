@@ -2463,10 +2463,20 @@ Space, or a Routine whose frozen destination is an OpenMeld Space, Core reads
 `SpaceMeta.guide` from the owning Space Durable Object immediately before every
 native-delivery submission. A non-empty guide is attached as
 `turnEnvelope.space.guide`; an empty guide is omitted. The Remote Agent renders
-that value in the turn message, while the approved Organization Brief remains a
+that value as a content-versioned admission snapshot in the turn message. The
+Center Agent can read the current owning Guide through its scoped native tool;
+an empty result does not stand in for a failed read. The approved Organization Brief remains a
 separate organization-level system-prompt input. Center Agent DMs, Slack turns,
 and Slack-destination Routines do not read or carry a Space guide. Neither Core
 nor the Remote Agent caches this projection between turns.
+Brief context and explicit document reads also identify the returned current
+content by document ID and version. Drafts are not valid current Brief sources.
+Retained memory remains labeled historical instead of becoming a current rule
+through repetition in a summary.
+Source-reference opt-in negotiates the freshly authorized legacy prompt
+projection only when an older Core rejects that new request shape. This keeps
+current Brief and information-protection hints during the receiver-first Guide
+limit rollout; permission failures and invalid responses do not downgrade.
 
 Every hosted Center Agent materialization also renders the shared built-in
 information-protection guidance in its system prompt. Core may attach the
@@ -3331,8 +3341,9 @@ surface adopts official features where they are free**:
   obligations; assignment, start, submission, review, and cancellation remain
   distinct. GitHub issues created from that shared Space record a linked Task
   with mutual references when the Task list can confirm the association;
-  closing the issue through GitHub tools closes
-  still-active linked Tasks, while completing a Task prompts the Agent to close
+  closing the issue through GitHub tools updates only its provider observation.
+  Task completion and cancellation require the Task's own workflow and stated
+  conditions. Completing a Task prompts the Agent to close
   still-open linked issues instead of silently writing GitHub. Task review
   handoffs use the existing Space Wake path and stop after
   two automatic rework rounds for a human decision. This Task surface does not

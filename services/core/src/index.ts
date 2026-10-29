@@ -460,6 +460,7 @@ import {
 import { app } from "./app";
 import { rpcCenterAgentAuthorizeAnonymousMemberTool } from "./center-agent/application/anonymous-member-request";
 import { rpcCenterAgentRequestMemberAttention } from "./center-agent/application/center-agent-attention-rpc";
+import { centerAgentReadSpaceGuide } from "./center-agent/application/space-guide";
 import { centerAgentWorkTarget } from "./center-agent/application/work-target";
 import {
   getCenterAgentMemberResearchStatus,
@@ -3437,6 +3438,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   centerAgentWorkTarget(input: unknown) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       centerAgentWorkTarget(this.env, input)
+    );
+  }
+  centerAgentReadSpaceGuide(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      centerAgentReadSpaceGuide(this.env, input)
     );
   }
   suggestPermissionMode(input: unknown) {

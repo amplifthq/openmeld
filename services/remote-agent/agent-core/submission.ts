@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   buildAgentRequestTimeContext,
   buildSpaceAttachmentObjectKey,
@@ -422,6 +423,11 @@ function buildRemoteAgentPromptContent(
   const turnContext = [
     renderPersonalRemoteAgentCollaborationContext(request) ??
       renderRemoteAgentTurnEnvelope(request.turnEnvelope, {
+        targetProfileId: request.v === 4 ? request.agentProfileId : undefined,
+        activationTargets:
+          request.v === 4
+            ? request.sourceMessageEnvelope?.activationTargets
+            : undefined,
         sourceSignalId:
           request.turnEnvelope.trigger.source === "web_dm" ||
           request.turnEnvelope.trigger.source === "space_wake"
@@ -536,7 +542,19 @@ function renderRemoteAgentSpaceGuide(
     return null;
   }
   const guide = envelope.space.guide?.trim();
-  return guide ? `${SPACE_GUIDE_PROMPT_HEADING}: ${guide}` : null;
+  if (!guide) {
+    return null;
+  }
+  const sourceRef = {
+    kind: "space_guide",
+    spaceId: envelope.space.id,
+    state: "admission_snapshot",
+    version: createHash("sha256").update(guide, "utf8").digest("hex"),
+    ...(envelope.trigger.source === "space_wake"
+      ? { currentReadTool: "openmeld_read_space_guide" }
+      : {}),
+  };
+  return `Space guide source: ${JSON.stringify(sourceRef)}\n${SPACE_GUIDE_PROMPT_HEADING}: ${guide}`;
 }
 
 export async function submitRemoteAgentConversationTurn(

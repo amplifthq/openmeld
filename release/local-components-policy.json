@@ -1,12 +1,12 @@
 {
-  "version": "0.3.280",
+  "version": "0.3.281",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Packages opt-in issue approval preview schemas. Existing CLI commands and default approval responses are unchanged; supported clients remain compatible."
+    "reason": "Packages optional Task delegation, shared requester attribution, knowledge-source references, and existing opt-in approval preview schemas. Existing CLI commands and public responses remain compatible."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Packages opt-in issue approval preview schemas without changing workstation execution, setup, Wake or diagnostics. Existing supported Services remain compatible."
+    "reason": "Packages additive Task, knowledge-source, and approval preview schemas without changing workstation execution, admission, setup, Wake, or diagnostics. Existing supported Services remain compatible."
   },
   "skills": {
     "updatePolicy": "available",

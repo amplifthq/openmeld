@@ -766,6 +766,7 @@ import type {
   SpaceTaskDetailOptions,
   SpaceTaskMutationReceipt,
   SpaceTaskPhase,
+  SpaceTaskRequesterRepresentation,
   SpaceTaskResponse,
   SpaceThreadContext,
   SpaceViewerMembershipResponse,
@@ -27951,17 +27952,17 @@ export type GetSpaceTaskInput = GetSpaceMetaInput &
   SpaceTaskDetailOptions & {
     taskId: string;
   };
-export type CreateSpaceTaskInput = GetSpaceMetaInput & {
-  body: CreateSpaceTaskBody;
-  taskContractVersion?: 2 | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
-};
-export type MutateSpaceTaskInput = GetSpaceMetaInput & {
-  taskId: string;
-  body: MutateSpaceTaskBody;
-  // Internal Core-to-Space projection. The public RPC always recomputes it.
-  representedRequester?: import("@openmeld/schemas/types").SpaceTaskActor;
-  taskContractVersion?: 2 | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
-};
+export type CreateSpaceTaskInput = GetSpaceMetaInput &
+  SpaceTaskRequesterRepresentation & {
+    body: CreateSpaceTaskBody;
+    taskContractVersion?: 2 | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
+  };
+export type MutateSpaceTaskInput = GetSpaceMetaInput &
+  SpaceTaskRequesterRepresentation & {
+    taskId: string;
+    body: MutateSpaceTaskBody;
+    taskContractVersion?: 2 | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
+  };
 export async function rpcSpaceFilePins(
   env: CoreBindings,
   input: SpaceFilePinsInput
@@ -28029,6 +28030,37 @@ export async function rpcGetSpaceTask(
   });
   return projectSpaceTaskDetailForClient(detail, input.taskContractVersion);
 }
+async function resolveCurrentSpaceTaskRequesterRepresentation(
+  env: CoreBindings,
+  context: CoreRpcContextInput,
+  spaceId: string
+): Promise<SpaceTaskRequesterRepresentation["representedRequester"]> {
+  const submissionId = context.agentControllerConversationId;
+  if (
+    context.actorContext.agentControllerRef !==
+      HOSTED_CENTER_AGENT_CONTROLLER_REF ||
+    !submissionId
+  ) {
+    return undefined;
+  }
+  const { authorizeRemoteAgentExecutionAccess } = await import(
+    "../remote-agent/application/remote-agent-execution-access"
+  );
+  await authorizeRemoteAgentExecutionAccess(env, { context, submissionId });
+  const parent = await requireCenterAgentContinuationParent({
+    actorProfileId: context.actorContext.openMeldProfileId ?? "",
+    db: requireCenterAgentDb(env),
+    organizationId: context.activeOrganizationId ?? "",
+    parentSubmissionId: submissionId,
+    destinationNeutralContinuations: true,
+    resumesParent: false,
+  });
+  const { resolveSpaceTaskRepresentedRequester } = await import(
+    "../space/application/space-task-delegation"
+  );
+  return resolveSpaceTaskRepresentedRequester(parent, spaceId);
+}
+
 export async function rpcCreateSpaceTask(
   env: CoreBindings,
   input: CreateSpaceTaskInput
@@ -28062,8 +28094,8 @@ export async function rpcCreateSpaceTask(
   }
   let body = input.body;
   const submissionId = context.agentControllerConversationId?.trim();
-  const db = getPostgresDatabase(env);
-  if (!body.sourceSignalId && submissionId && db) {
+  if (!body.sourceSignalId && submissionId) {
+    const db = getPostgresDatabase(env);
     const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
       db,
       submissionId,
@@ -28080,11 +28112,19 @@ export async function rpcCreateSpaceTask(
       };
     }
   }
+  const representedRequester = parsedBody.wakeAssignee
+    ? await resolveCurrentSpaceTaskRequesterRepresentation(
+        env,
+        context,
+        spaceId
+      )
+    : undefined;
   const receipt = await stub.rpcCreateTask({
     ...input,
     body,
     spaceId,
     context,
+    representedRequester,
   });
   return projectSpaceTaskReceiptForClient(receipt, input.taskContractVersion);
 }
@@ -28119,34 +28159,17 @@ export async function rpcMutateSpaceTask(
       });
     }
   }
-  const { resolveSpaceTaskRepresentedRequester } = await import(
-    "../space/application/space-task-delegation"
-  );
-  const submissionId = context.agentControllerConversationId;
-  let representedRequester: MutateSpaceTaskInput["representedRequester"];
-  if (
-    context.actorContext.agentControllerRef ===
-      HOSTED_CENTER_AGENT_CONTROLLER_REF &&
-    submissionId &&
-    ["assign", "set_reviewer", "update_brief"].includes(input.body.action)
-  ) {
-    const { authorizeRemoteAgentExecutionAccess } = await import(
-      "../remote-agent/application/remote-agent-execution-access"
-    );
-    await authorizeRemoteAgentExecutionAccess(env, { context, submissionId });
-    const parent = await requireCenterAgentContinuationParent({
-      actorProfileId: context.actorContext.openMeldProfileId ?? "",
-      db: requireCenterAgentDb(env),
-      organizationId: context.activeOrganizationId ?? "",
-      parentSubmissionId: submissionId,
-      destinationNeutralContinuations: true,
-      resumesParent: false,
-    });
-    representedRequester = resolveSpaceTaskRepresentedRequester(
-      parent,
-      spaceId
-    );
-  }
+  const representedRequester = [
+    "assign",
+    "set_reviewer",
+    "update_brief",
+  ].includes(input.body.action)
+    ? await resolveCurrentSpaceTaskRequesterRepresentation(
+        env,
+        context,
+        spaceId
+      )
+    : undefined;
   const receipt = await stub.rpcMutateTask({
     ...input,
     spaceId,

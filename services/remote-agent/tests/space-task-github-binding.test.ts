@@ -152,6 +152,11 @@ describe("GitHub issue Space Task binding", () => {
     });
 
     expect(createSpaceTask).toHaveBeenCalledTimes(1);
+    expect(createSpaceTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({ assigneeProfileId: null }),
+      })
+    );
     expect(summary).toMatchObject({
       created: true,
       issueBodyAppendix: `OpenMeld Task: https://app.openmeld.example/o/acme/spaces/${SHARED_SPACE.id} (${created.taskId})`,
