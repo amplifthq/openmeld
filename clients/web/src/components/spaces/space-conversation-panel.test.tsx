@@ -1883,6 +1883,63 @@ describe("SpaceConversationPanel", () => {
 		).toBeTruthy();
 	});
 
+	it("acknowledges visible recalled messages without reading notices below the viewport", async () => {
+		const focus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+		const geometry = vi
+			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+			.mockImplementation(function (this: HTMLElement) {
+				if (this.closest('[data-signal-id="recalled-message"]')) {
+					return new DOMRect(0, 150, 500, 40);
+				}
+				if (this.closest('[data-signal-id="unseen-recalled-message"]')) {
+					return new DOMRect(0, 900, 500, 40);
+				}
+				return new DOMRect(0, 0, 500, 500);
+			});
+		const originalHitTest = Object.getOwnPropertyDescriptor(
+			document,
+			"elementFromPoint"
+		);
+		Object.defineProperty(document, "elementFromPoint", {
+			configurable: true,
+			value: () => document.querySelector('[data-slot="message-recalled"]'),
+		});
+		try {
+			const item = createTimelineItem({
+				id: "recalled-message",
+				recalledAt: Date.UTC(2026, 4, 27, 11),
+				text: "Felix recalled a message.",
+			});
+			const target = {
+				signalId: item.id,
+				occurredAtMs: item.createdAtMs,
+				threadRootSignalId: null,
+			};
+			const onViewedUpdates = vi.fn();
+			renderSpaceConversationPanel({
+				onViewedUpdates,
+				timelineItems: [item, { ...item, id: "unseen-recalled-message" }],
+				unreadStateReady: true,
+				unreadTargets: [
+					target,
+					{ ...target, signalId: "unseen-recalled-message" },
+				],
+			});
+			await waitFor(() =>
+				expect(onViewedUpdates).toHaveBeenCalledExactlyOnceWith([target])
+			);
+		} finally {
+			cleanup();
+			focus.mockRestore();
+			geometry.mockRestore();
+			if (originalHitTest) {
+				Object.defineProperty(document, "elementFromPoint", originalHitTest);
+			} else {
+				Reflect.deleteProperty(document, "elementFromPoint");
+			}
+		}
+	});
+
 	it("stops advancing the unread watermark while the Graph is open", () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		const onViewedUpdates = vi.fn();
@@ -3750,9 +3807,9 @@ describe("SpaceConversationPanel", () => {
 		const wakeIcon = wakeIndicator.querySelector("canvas");
 
 		expect(screen.queryByText("Sending...")).toBeNull();
-		expect(wakeIndicator.textContent).toContain("Working…");
+		expect(wakeIndicator.getAttribute("aria-label")).toBe("Sending request…");
 		expect(wakeIcon).toBeTruthy();
-		expect(wakeIcon?.dataset.spaceAgentOrbState).toBe("solving");
+		expect(wakeIcon?.dataset.spaceAgentOrbState).toBe("breathing");
 		expect(
 			wakeRow
 				.closest("[data-message-id]")
@@ -3793,9 +3850,11 @@ describe("SpaceConversationPanel", () => {
 
 		expect(screen.queryByText("Still sending...")).toBeNull();
 		expect(screen.queryByText("Starting Wake…")).toBeNull();
-		expect(screen.getByTestId("space-wake-thinking-row").textContent).toContain(
-			"Working… · 8s"
-		);
+		expect(
+			screen
+				.getByTestId("space-wake-thinking-indicator")
+				.getAttribute("aria-label")
+		).toBe("Sending request…");
 	});
 
 	it("keeps one stable Center Agent answer shell while its phase advances", () => {
@@ -3856,11 +3915,11 @@ describe("SpaceConversationPanel", () => {
 		expect(within(optimisticReply).getByText("Center Agent")).toBeTruthy();
 		expect(
 			within(progressRow).getByRole("status", {
-				name: "Working… · 2s",
+				name: "Sending request…",
 			}).textContent
-		).toContain("Working…");
+		).toContain("Sending request…");
 		expect(
-			progressRow.querySelector('[data-space-agent-orb-state="solving"]')
+			progressRow.querySelector('[data-space-agent-orb-state="breathing"]')
 		).toBeTruthy();
 		expect(progressInset).toBeNull();
 		expect(
@@ -3903,9 +3962,9 @@ describe("SpaceConversationPanel", () => {
 		expect(persistedSendingReply).toBe(optimisticReply);
 		expect(
 			within(persistedSendingReply as HTMLElement).getByRole("status", {
-				name: "Working… · 2s",
+				name: "Sending request…",
 			}).textContent
-		).toContain("Working…");
+		).toContain("Sending request…");
 
 		view.rerender(
 			<SpaceConversationPanel
