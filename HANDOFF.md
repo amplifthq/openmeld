@@ -4,7 +4,7 @@ Updated 2026-10-29.
 
 ## Working on
 
-Branch `space-guide-tab`: the Space Guide tab.
+The Space Guide tab. PR #330 (branch `space-guide-tab`) was merged into main on 2026-10-29 by mingyooagi, with the review fixes. Follow-up work is on branch `space-guide-save-and-leave`.
 
 Requirements, from the OpenMeld Space chat:
 
@@ -42,7 +42,8 @@ Requirements, from the OpenMeld Space chat:
 - **Center Agent end to end.** Not tested locally, because the Remote Agent's AI binding needs Cloudflare. Check on staging or prod after merge: write a Guide, wake the Center Agent, and confirm it follows the Guide.
 - **New-Space screen.** The temporary "just created" screen (`space-creation-conversation.tsx`) has no Guide tab. The normal Space page does. Decide whether to add it.
 - **PRs.**
-  - Guide: draft PR #330. All three of the reviewer's (mingyooagi) points are fixed. Merge `main` again before marking it ready.
+  - Guide: #330 is merged. Follow-up draft PR on `space-guide-save-and-leave` adds Save and leave, the alignment fix and the Changelog entry.
+  - My push re-created the deleted remote branch `space-guide-tab` after the merge. It holds only merged commits; the user decides whether to delete it.
   - Message-time hover tooltip: separate draft PR #331, on branch `message-time-tooltip`.
   - Changelog: both PRs have a draft entry, `changelog/entries/space-guide-tab.md` and `message-time-hover-date.md`. Publish them only after delivery is proven.
   - Open question: the screen shown right after creating a Space still has no Guide tab. The user hasn't decided yet.
