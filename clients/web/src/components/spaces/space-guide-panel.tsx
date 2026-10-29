@@ -16,7 +16,7 @@ import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { useDelayedPending } from "#/lib/use-delayed-pending";
 import { shouldRetrySpaceQuery } from "#/query/spaces/retry";
 import { spaceQueryKeys } from "#/query/spaces/status";
-import { isSpaceGuideTooLong, useSaveSpaceGuide } from "./space-guide-save";
+import { isSpaceGuideTooLong, type SpaceGuideSaver } from "./space-guide-save";
 
 const GUIDE_LENGTH_FORMAT = new Intl.NumberFormat("en-US");
 
@@ -32,8 +32,8 @@ export function SpaceGuidePanel(
 		/** The unsaved edit, or null when not editing. Owned by the parent. */
 		draft: string | null;
 		onDraftChange: (draft: string | null) => void;
-		/** Called with the submitted text when a save succeeds. */
-		onSaved: (submitted: string) => void;
+		/** The page's single guide save path, shared with "Save and leave". */
+		saver: SpaceGuideSaver;
 	}
 ) {
 	// Refetches each time the tab opens, so edits made elsewhere (another
@@ -73,9 +73,7 @@ export function SpaceGuidePanel(
 			<SpaceGuideEditor
 				draft={input.draft}
 				onDraftChange={input.onDraftChange}
-				onSaved={input.onSaved}
-				openMeldProfileId={input.openMeldProfileId}
-				spaceId={input.spaceId}
+				saver={input.saver}
 			/>
 		);
 	}
@@ -110,14 +108,12 @@ function SpaceGuideLoadError(input: { onRetry: () => void }) {
 	);
 }
 
-function SpaceGuideEditor(
-	input: SpaceGuideTarget & {
-		draft: string;
-		onDraftChange: (draft: string | null) => void;
-		onSaved: (submitted: string) => void;
-	}
-) {
-	const saveGuide = useSaveSpaceGuide(input);
+function SpaceGuideEditor(input: {
+	draft: string;
+	onDraftChange: (draft: string | null) => void;
+	saver: SpaceGuideSaver;
+}) {
+	const saveGuide = input.saver;
 	// The cap only guards storage and Agent context; it is not shown as a
 	// running count, so it reads as unlimited until someone actually hits it.
 	const length = input.draft.trim().length;
@@ -145,7 +141,7 @@ function SpaceGuideEditor(
 					save.
 				</p>
 			) : null}
-			{saveGuide.isError ? (
+			{saveGuide.error ? (
 				<p className="text-destructive text-sm" role="alert">
 					{toStructuredApiClientFailure(saveGuide.error).message}
 				</p>
@@ -164,7 +160,10 @@ function SpaceGuideEditor(
 				</Button>
 				<Button
 					disabled={saveGuide.isPending || tooLong}
-					onClick={() => saveGuide.mutate(input.draft)}
+					onClick={() => {
+						// A failure shows through saveGuide.error.
+						saveGuide.save(input.draft).catch(() => undefined);
+					}}
 					size="sm"
 				>
 					{saveGuide.isPending ? "Saving…" : "Save"}

@@ -20,7 +20,7 @@ Requirements, from the OpenMeld Space chat:
   - Everyone else gets a read-only view.
   - An unsaved draft survives tab switches.
   - Leaving the Space with an unsaved draft asks first. In-app links show the shared `UnsavedChangesGuard` dialog, with Cancel / Discard / Save and leave, and refresh or close shows the browser warning. The guard lives in `SpaceLandingConversationShell`.
-  - The save logic is shared by the Save button and "Save and leave"; see `space-guide-save.ts`.
+  - The Save button and "Save and leave" share one saver, `useSpaceGuideSaver` in `space-guide-save.ts`, created once in `SpaceLandingConversationShell`. Save and leave waits for a save in flight, so an older write can't land after a newer one (review on #332).
   - The Guide content uses `--app-page-inline-padding`, so its left edge lines up with the Space title and tabs (checked at 1051px wide).
   - User-confirmed decisions: text typed during a save stays open after the "Guide saved." toast; the tooltip style in #331 is fine as is.
   - Text typed while a save is in flight is kept; see `onSaved` in `space-guide-draft.ts`.
