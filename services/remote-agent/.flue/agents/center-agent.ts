@@ -181,12 +181,6 @@ async function prepareCenterAgentRender() {
   }
   const coreWorker =
     env.OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding;
-  useCenterAgentWorkTargetFacts({
-    coreWorker,
-    storage,
-    context: executionContext,
-    personalAgent,
-  });
   const organizationSkillSelections =
     executionContext?.organizationSkillReleases ?? [];
   // Space work handoffs pin explicit Skills. Automatically included Skills are
@@ -405,6 +399,12 @@ async function prepareCenterAgentRender() {
     ? createRemoteAgentSteeringSource({ context: executionContext, storage })
     : null;
   return {
+    workTargetContext: {
+      coreWorker,
+      storage,
+      context: executionContext,
+      personalAgent,
+    },
     getAcceptedResponseInputId: executionContext
       ? await remoteAgentStreamPublisher.prepareResponseProjection({
           context: executionContext,
@@ -490,6 +490,7 @@ export function CenterAgentV2() {
     requireRemoteAgentExecutionResources<
       Awaited<ReturnType<typeof prepareCenterAgentRender>>
     >();
+  useCenterAgentWorkTargetFacts(resources.workTargetContext);
   if (resources.checkFinish) {
     useRemoteAgentExecutionFinish(resources.checkFinish);
   }
