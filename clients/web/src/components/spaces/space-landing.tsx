@@ -151,6 +151,7 @@ import { SpaceAgentRecoveryProvider } from "./space-agent-recovery-context";
 import type { SpaceAutomaticWakeComposerHintKind } from "./space-composer-copy";
 import type { SpaceComposerEditorHandle } from "./space-composer-editor";
 import { SpaceConversationPanel } from "./space-conversation-panel";
+import { useSpaceGuideDraft } from "./space-guide-draft";
 import { SpaceHeader, SpaceWindowHeader } from "./space-header";
 import { SpaceLandingErrorBoundary } from "./space-landing-error-boundary";
 import { SpaceLiveNotice } from "./space-live-notice";
@@ -243,6 +244,12 @@ import {
 const SpaceFilesPanel = lazy(() =>
 	import("./space-files-panel").then((module) => ({
 		default: module.SpaceFilesPanel,
+	}))
+);
+
+const SpaceGuidePanel = lazy(() =>
+	import("./space-guide-panel").then((module) => ({
+		default: module.SpaceGuidePanel,
 	}))
 );
 
@@ -1569,6 +1576,9 @@ function SpaceLandingContent(input: SpaceLandingInput) {
 				controller={controller}
 				input={input}
 				state={state}
+				threadPanelVisible={
+					state.spaceView === "messages" && controller.threadPanelOpen
+				}
 			/>
 			<WalkthroughGuide
 				onAddAgents={state.handleAddAgentsFromBanner}
@@ -1650,10 +1660,12 @@ function SpaceLandingConversationShell({
 	controller,
 	input,
 	state,
+	threadPanelVisible,
 }: {
 	controller: SpaceConversationController;
 	input: SpaceLandingInput;
 	state: SpaceLandingState;
+	threadPanelVisible: boolean;
 }) {
 	const { conversationInput, onShowMessageInMain } =
 		useThreadRootMainFocus(input);
@@ -1689,6 +1701,7 @@ function SpaceLandingConversationShell({
 		directMessageJoinPrompt,
 		viewerMembership,
 	} = useSpaceLandingViewerState({ controller, state });
+	const guideDraft = useSpaceGuideDraft(controller.spaceId);
 	const memberAgentDirectMessage = useCurrentMemberAgentDirectMessage({
 		isActiveSpaceMember: currentProfileIsActiveSpaceMember,
 		isCenterAgentDirectMessage: currentSpaceIsCenterAgentDirectMessage,
@@ -1864,6 +1877,12 @@ function SpaceLandingConversationShell({
 				threadHasAttachments={controller.threadComposerFiles.length > 0}
 			>
 				<SpaceFileNavigationGuards navigation={spaceFileNavigation} />
+				<UnsavedChangesGuard
+					allowSamePageNavigation
+					description="Your changes to this Space's guide haven't been saved."
+					hasUnsavedChanges={guideDraft.hasUnsavedChanges}
+					onDiscard={guideDraft.discard}
+				/>
 				<AppMainContent
 					bodyClassName="flex"
 					bodySlotName={resolveSpaceLandingBodySlotName(input.presentation)}
@@ -1948,6 +1967,7 @@ function SpaceLandingConversationShell({
 									<SpaceViewTabs
 										activeView={spaceView}
 										className="shrink-0"
+										guideEnabled
 										idPrefix={spaceViewIdPrefix}
 										onViewChange={spaceFileNavigation.changeSpaceView}
 										tasksEnabled
@@ -1967,7 +1987,7 @@ function SpaceLandingConversationShell({
 							membersOpen &&
 							!currentSpaceIsCenterAgentDirectMessage
 						}
-						data-space-thread-panel-open={controller.threadPanelOpen}
+						data-space-thread-panel-open={threadPanelVisible}
 						style={
 							{
 								"--space-members-panel-width": membersPanelWidth.width,
@@ -1991,6 +2011,7 @@ function SpaceLandingConversationShell({
 								currentSpaceControls={currentSpaceControls}
 								directMessageAccessRequest={directMessageAccessRequest}
 								directMessageJoinPrompt={directMessageJoinPrompt}
+								guideDraft={guideDraft}
 								historyErrorMessage={historyErrorMessage}
 								input={conversationInput}
 								pendingActionSurface={pendingActionSurface}
@@ -2015,6 +2036,7 @@ function SpaceLandingConversationShell({
 								pendingActionSurface={threadPendingActionSurface}
 								prepareSetupHref={prepareSetupHref}
 								state={state}
+								threadPanelVisible={threadPanelVisible}
 							/>
 						)}
 					</div>
@@ -2340,6 +2362,7 @@ function SpaceLandingConversation({
 	currentSpaceControls,
 	directMessageAccessRequest,
 	directMessageJoinPrompt,
+	guideDraft,
 	historyErrorMessage,
 	input,
 	pendingActionSurface,
@@ -2360,6 +2383,7 @@ function SpaceLandingConversation({
 	currentSpaceControls: ReturnType<typeof resolveCurrentSpaceControls>;
 	directMessageAccessRequest: DirectMessageAccessRequest | null;
 	directMessageJoinPrompt: string | null;
+	guideDraft: ReturnType<typeof useSpaceGuideDraft>;
 	historyErrorMessage: string | null;
 	input: SpaceLandingInput;
 	pendingActionSurface?: ReactNode;
@@ -2543,6 +2567,22 @@ function SpaceLandingConversation({
 				</Suspense>
 			}
 			firstUnreadSignalId={controller.firstUnreadSignalId}
+			guide={
+				<Suspense fallback={null}>
+					<SpaceGuidePanel
+						canEdit={Boolean(
+							currentOwnerUserId &&
+								controller.status?.ownerUserIds?.includes(currentOwnerUserId)
+						)}
+						draft={guideDraft.draft}
+						key={controller.spaceId}
+						onDraftChange={guideDraft.onDraftChange}
+						onSaved={guideDraft.onSaved}
+						openMeldProfileId={controller.profileId}
+						spaceId={controller.spaceId}
+					/>
+				</Suspense>
+			}
 			historyActionErrorMessage={controller.historyActionErrorMessage}
 			historyErrorMessage={historyErrorMessage}
 			historyNavigation={controller.historyNavigation}
@@ -3115,6 +3155,7 @@ function SpaceLandingSecondaryPanels({
 	pendingActionSurface,
 	prepareSetupHref,
 	state,
+	threadPanelVisible,
 }: {
 	organizationId: string | null;
 	automaticWakeConversationKind: ReturnType<
@@ -3132,9 +3173,10 @@ function SpaceLandingSecondaryPanels({
 	pendingActionSurface?: ReactNode;
 	prepareSetupHref?: string;
 	state: SpaceLandingState;
+	threadPanelVisible: boolean;
 }) {
 	if (!controller.isCurrentAccessConfirmed) {
-		return controller.threadPanelOpen ? (
+		return threadPanelVisible ? (
 			<SpaceThreadLoadingPanel onClose={controller.onCloseThread} />
 		) : null;
 	}
@@ -3204,7 +3246,7 @@ function SpaceLandingSecondaryPanels({
 	return (
 		<>
 			<SpaceTaskReferencesProvider
-				disabled={!controller.threadPanelOpen}
+				disabled={!threadPanelVisible}
 				onOpen={(taskId) => {
 					state.setSelectedTaskId(taskId);
 					controller.onCloseThread();
@@ -3315,7 +3357,7 @@ function SpaceLandingSecondaryPanels({
 							: undefined
 					}
 					onWakeStopRequest={controller.onWakeStopRequest}
-					open={controller.threadPanelOpen}
+					open={threadPanelVisible}
 					organizationId={organizationId}
 					orgSlug={input.orgSlug}
 					pendingActionSurface={pendingActionSurface}

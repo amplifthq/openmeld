@@ -260,6 +260,7 @@ export type SpaceApi = {
   setAccessMode: (
     input: SetSpaceAccessModeInput
   ) => Promise<SpaceAccessModeState>;
+  getMeta: (input: SpaceRequestInput) => Promise<SpaceMeta>;
   updateMeta: (input: UpdateSpaceMetaInput) => Promise<SpaceMeta>;
   leaveSpace: (input: SpaceRequestInput) => Promise<LeaveSpaceResponse>;
   getBootstrap: (

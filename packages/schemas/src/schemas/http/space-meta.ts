@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { MAX_TEXT_LENGTH } from "../protocol/constants";
 import {
   agentProfileIdSchema,
   openMeldRuntimeProfileIdSchema,
@@ -14,7 +15,9 @@ import { spaceNameSchema } from "./space-name";
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
 const isoDateTimeSchema = z.iso.datetime({ offset: true });
 
-export const MAX_SPACE_GUIDE_LENGTH = 4000 as const;
+// The guide holds room rules a steward writes by hand, so it gets the same cap
+// as other Space text instead of a short-summary limit.
+export const MAX_SPACE_GUIDE_LENGTH = MAX_TEXT_LENGTH;
 
 export const spaceOrganizationVisibilitySchema = z.enum(["public", "private"]);
 

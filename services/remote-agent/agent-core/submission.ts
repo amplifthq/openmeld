@@ -17,6 +17,7 @@ import type {
   RemoteAgentWorkerSubmitMessagesResult,
   RemoteAgentWorkerSubmitTurnRequest,
 } from "@openmeld/schemas/types";
+import { SPACE_GUIDE_PROMPT_HEADING } from "@openmeld/space-mesh";
 import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
@@ -553,7 +554,7 @@ function renderRemoteAgentSpaceGuide(
       ? { currentReadTool: "openmeld_read_space_guide" }
       : {}),
   };
-  return `Space guide source: ${JSON.stringify(sourceRef)}\nSpace guide: ${guide}`;
+  return `Space guide source: ${JSON.stringify(sourceRef)}\n${SPACE_GUIDE_PROMPT_HEADING}: ${guide}`;
 }
 
 export async function submitRemoteAgentConversationTurn(

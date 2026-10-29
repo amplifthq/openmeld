@@ -255,6 +255,7 @@ type SpaceConversationPanelResolvedProps = {
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 	firstUnreadSignalId: string | null;
 	files?: ReactNode;
+	guide?: ReactNode;
 	tasks?: ReactNode;
 	hasEarlierHistory: boolean;
 	historyActionErrorMessage: string | null;
@@ -750,6 +751,7 @@ function SpaceConversationPanelContent(
 						</Suspense>
 					) : null
 				}
+				guide={input.guide}
 				idPrefix={input.spaceViewIdPrefix}
 				messages={
 					<MessageScrollerProvider
@@ -1975,6 +1977,7 @@ function SpacePrimaryView(input: {
 	activeView: SpaceView;
 	files?: ReactNode;
 	graph: ReactNode;
+	guide?: ReactNode;
 	idPrefix: string;
 	messages: ReactNode;
 	tasks?: ReactNode;
@@ -1993,6 +1996,8 @@ function SpacePrimaryView(input: {
 		activeContent = input.graph;
 	} else if (input.activeView === "tasks") {
 		activeContent = input.tasks;
+	} else if (input.activeView === "guide") {
+		activeContent = input.guide;
 	}
 	const renderMessages = visitedMessages || input.activeView === "messages";
 	return (

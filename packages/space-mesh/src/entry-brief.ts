@@ -20,6 +20,14 @@ export function buildSpaceEntryBriefNeedMoreLine(input: {
   return `run \`${cliEntry} space board ${spaceId} --profile ${input.targetProfileId} --view agent\` for live space state (members, working now, recent outcomes), or read the OpenMeld manual at ${OPENMELD_GUIDE_URL} / run \`${cliEntry} prompt space\`.`;
 }
 
+/**
+ * Heading for the Space guide in every Agent prompt. Owners write the guide as
+ * the room's standing rules, so Agents are told to follow it, below OpenMeld's
+ * own rules.
+ */
+export const SPACE_GUIDE_PROMPT_HEADING =
+  "Space guide (standing rules set by this Space's owners; follow them for all work in this Space, with OpenMeld rules and safety boundaries taking precedence)";
+
 export function renderSpaceEntryBrief(input: {
   needMore: string;
   spaceGuide?: string | null;
@@ -34,9 +42,7 @@ export function renderSpaceEntryBrief(input: {
     `- What this space is: ${input.whatThisSpaceIs}`,
     `- You are: ${input.youAre}`,
     thisSpace ? `- This space: ${thisSpace}` : null,
-    spaceGuide
-      ? `- Space guide (maintained by this space's steward):\n${spaceGuide}`
-      : null,
+    spaceGuide ? `- ${SPACE_GUIDE_PROMPT_HEADING}:\n${spaceGuide}` : null,
     `- Need more: ${input.needMore}`,
   ]
     .filter(Boolean)

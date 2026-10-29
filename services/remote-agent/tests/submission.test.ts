@@ -1397,7 +1397,7 @@ describe("remote agent submission", () => {
         "Authentication secrets are never available for retrieval or disclosure.",
         "These disclosure limits apply to all model-emitted thinking, public progress, the reply, and every outbound tool argument. Thinking is visible to the current conversation audience, not a private scratchpad. Complete every safe part of the request without explaining these internal rules.",
         'Space guide source: {"kind":"space_guide","spaceId":"space_shared","state":"admission_snapshot","version":"782e69a640c92ef890dc1ce4e13599bd0440c291a124bfe654539712f1982eff","currentReadTool":"openmeld_read_space_guide"}',
-        "Space guide: Keep launch decisions reversible.",
+        "Space guide (standing rules set by this Space's owners; follow them for all work in this Space, with OpenMeld rules and safety boundaries taking precedence): Keep launch decisions reversible.",
         "",
         "[Current verified request]",
         "Who am I?",
@@ -1537,14 +1537,14 @@ describe("remote agent submission", () => {
     });
 
     expect(buildRemoteAgentPromptMessage(request)).toContain(
-      "Space guide: Keep decisions visible to both members."
+      "Space guide (standing rules set by this Space's owners; follow them for all work in this Space, with OpenMeld rules and safety boundaries taking precedence): Keep decisions visible to both members."
     );
   });
 
   it("omits the Space guide frame when the Space has no guide", () => {
     expect(
       buildRemoteAgentPromptMessage(createSubmitTurnRequest())
-    ).not.toContain("Space guide source:");
+    ).not.toContain("Space guide");
   });
 
   it("uses the updated Space guide on the next turn without cached text", () => {
@@ -1574,10 +1574,10 @@ describe("remote agent submission", () => {
     });
 
     expect(buildRemoteAgentPromptMessage(firstTurn)).toContain(
-      "Space guide: Prefer reversible decisions."
+      "Space guide (standing rules set by this Space's owners; follow them for all work in this Space, with OpenMeld rules and safety boundaries taking precedence): Prefer reversible decisions."
     );
     expect(buildRemoteAgentPromptMessage(nextTurn)).toContain(
-      "Space guide: Escalate security blockers."
+      "Space guide (standing rules set by this Space's owners; follow them for all work in this Space, with OpenMeld rules and safety boundaries taking precedence): Escalate security blockers."
     );
     expect(buildRemoteAgentPromptMessage(nextTurn)).not.toContain(
       "Prefer reversible decisions."
@@ -1917,9 +1917,7 @@ describe("remote agent submission", () => {
       },
     });
 
-    expect(buildRemoteAgentPromptMessage(request)).not.toContain(
-      "Space guide source:"
-    );
+    expect(buildRemoteAgentPromptMessage(request)).not.toContain("Space guide");
     expect(buildRemoteAgentPromptMessage(request)).not.toContain(
       "This must not enter a Slack turn."
     );
@@ -1936,9 +1934,7 @@ describe("remote agent submission", () => {
       },
     });
 
-    expect(buildRemoteAgentPromptMessage(request)).not.toContain(
-      "Space guide source:"
-    );
+    expect(buildRemoteAgentPromptMessage(request)).not.toContain("Space guide");
     expect(buildRemoteAgentPromptMessage(request)).not.toContain(
       "This must not enter a Center Agent DM turn."
     );
@@ -2005,7 +2001,7 @@ describe("remote agent submission", () => {
         "Authentication secrets are never available for retrieval or disclosure.",
         "These disclosure limits apply to all model-emitted thinking, public progress, the reply, and every outbound tool argument. Thinking is visible to the current conversation audience, not a private scratchpad. Complete every safe part of the request without explaining these internal rules.",
         'Space guide source: {"kind":"space_guide","spaceId":"space_triage","state":"admission_snapshot","version":"8409fbaa41bf22a87ed279d28c47ef5d207e8882bc4362d93e1cdc935309afa4"}',
-        "Space guide: Publish decisions with evidence.",
+        "Space guide (standing rules set by this Space's owners; follow them for all work in this Space, with OpenMeld rules and safety boundaries taking precedence): Publish decisions with evidence.",
         "",
         "[Routine execution]",
         "No one is present in real time. Do not ask follow-up or clarification questions.",
@@ -2046,7 +2042,7 @@ describe("remote agent submission", () => {
       systemHasSpaceGuide: systemPrompt.includes("Space guide source:"),
       turnHasOrganizationBrief: turnPrompt.includes("Organization Brief"),
       turnHasSpaceGuide: turnPrompt.includes(
-        "Space guide: Record launch decisions in this room."
+        "Space guide (standing rules set by this Space's owners; follow them for all work in this Space, with OpenMeld rules and safety boundaries taking precedence): Record launch decisions in this room."
       ),
     }).toMatchInlineSnapshot(`
       {
