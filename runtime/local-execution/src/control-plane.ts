@@ -19,6 +19,8 @@ import {
   openMeldDaemonControlPlaneResponseSchema,
 } from "@openmeld/schemas";
 
+const DEFAULT_SHUTDOWN_GRACE_PERIOD_MS = 5000;
+
 type OpenMeldDaemonInterruptResponsePayload = Extract<
   OpenMeldDaemonControlPlaneResponse,
   { code: "service.interrupt" }
@@ -391,7 +393,7 @@ async function buildIdleShutdownControlPlaneResponse(input: {
     });
   }
   const payload = await input.context.shutdownIfIdleHandler(
-    input.payload ?? { gracePeriodMs: 5000 },
+    input.payload ?? { gracePeriodMs: DEFAULT_SHUTDOWN_GRACE_PERIOD_MS },
     input.lifecycle?.onShutdownAdmitted
       ? { onAdmitted: input.lifecycle.onShutdownAdmitted }
       : undefined
@@ -416,7 +418,7 @@ async function buildShutdownControlPlaneResponse(input: {
 }): Promise<OpenMeldDaemonControlPlaneResponse> {
   const resolvedShutdownPayload = input.payload ?? {
     mode: "graceful",
-    gracePeriodMs: 5000,
+    gracePeriodMs: DEFAULT_SHUTDOWN_GRACE_PERIOD_MS,
   };
   const payload = input.context.shutdownHandler
     ? await input.context.shutdownHandler(

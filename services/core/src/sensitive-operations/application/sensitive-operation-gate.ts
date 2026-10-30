@@ -125,8 +125,14 @@ export async function runSensitiveOperation<T>(
   }
   if (
     request.operation === "binding_permission_mode" &&
-    permissionModeChangeCommitted
+    (permissionModeChangeCommitted ||
+      (typeof result === "object" &&
+        result !== null &&
+        "status" in result &&
+        (result.status === "unchanged" || result.status === "conflict")))
   ) {
+    // A committed change already has its transactional audit. An unchanged or
+    // conflicting write must not be presented as a successful mode change.
     return result;
   }
   // The change is done: a failed audit write is reported, never turned into

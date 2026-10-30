@@ -881,6 +881,17 @@ async function recoverLifecycleFailure(input: {
     : originalErrorMessage;
 
   if (originalFailureStage === "backup") {
+    let backupRecoveryErrorMessage = recoveryErrorMessage;
+    if (input.inventoryBefore.serviceManagerStatus?.enabled === true) {
+      await input.serviceManager.enableAutostart().catch((error: unknown) => {
+        backupRecoveryErrorMessage += `; failed to restore service autostart: ${toErrorMessage(error)}`;
+      });
+    }
+    if (input.restorePoint.shouldStartAfterLifecycle) {
+      await input.serviceManager.start().catch((error: unknown) => {
+        backupRecoveryErrorMessage += `; failed to restart previous Service: ${toErrorMessage(error)}`;
+      });
+    }
     // The old installation and its data have not changed. A failed backup is
     // not permission to uninstall it or try a second, unprepared replacement.
     return {
@@ -897,7 +908,7 @@ async function recoverLifecycleFailure(input: {
       evidencePath: input.state.evidencePath,
       recoveryStatus: "failed_before_safe_state",
       errorCode: originalErrorCode,
-      errorMessage: recoveryErrorMessage,
+      errorMessage: backupRecoveryErrorMessage,
     };
   }
 

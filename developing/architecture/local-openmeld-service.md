@@ -3863,7 +3863,10 @@ Ordinary installation replacement retains runtime data in place. It must not
 recursively copy and restore task workspaces as part of an upgrade. Only legacy
 shared-root removal retains the backup step. If that backup fails before
 replacement, preserve the old installation and data and report the failure;
-do not uninstall it in recovery or attempt an unprepared replacement.
+restore its previously enabled autostart and requested running state, retaining
+any restoration errors alongside the backup failure. Previously disabled
+autostart stays disabled. Do not uninstall it in recovery or attempt an
+unprepared replacement.
 
 Waiting for that safe-switch fact must not hold the Service lifecycle lock.
 The worker uses one short lock transaction to normalize the pending job before

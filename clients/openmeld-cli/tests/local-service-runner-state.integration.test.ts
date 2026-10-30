@@ -874,17 +874,21 @@ describe("local service runner dual-write", () => {
     "busy",
     "reconnect",
     "disconnected",
+    "stopping",
   ])("keeps idle-stop admission with its Host through %s", async (state) => {
     const entered = Promise.withResolvers<void>();
     const decision = Promise.withResolvers<boolean>();
-    const markStopping = vi.fn();
+    let stopped = false;
+    const markStopping = vi.fn(() => {
+      stopped = true;
+    });
     const oldSession = vi.fn();
     const replacementSession = vi.fn();
     const admitted = vi.fn();
     const coordinator = createControlledShutdownCoordinator({
       drainHost: async () => undefined,
       hasUndrainedWork: () => false,
-      isStopRequested: () => false,
+      isStopRequested: () => stopped,
       markStopping,
     });
     coordinator.attachSession(oldSession);
@@ -904,6 +908,9 @@ describe("local service runner dual-write", () => {
     if (state === "reconnect") {
       coordinator.attachSession(replacementSession);
     }
+    if (state === "stopping") {
+      stopped = true;
+    }
     decision.resolve(state !== "busy");
     if (state === "reconnect") {
       await vi.waitFor(() => expect(replacementSession).toHaveBeenCalledOnce());
@@ -911,8 +918,55 @@ describe("local service runner dual-write", () => {
     }
     expect(await request).toMatchObject({ accepted: state !== "busy" });
     expect(oldSession).not.toHaveBeenCalled();
-    expect(markStopping).toHaveBeenCalledTimes(state === "busy" ? 0 : 1);
+    expect(markStopping).toHaveBeenCalledTimes(
+      state === "busy" || state === "stopping" ? 0 : 1
+    );
     expect(admitted).toHaveBeenCalledTimes(state === "busy" ? 0 : 1);
+  });
+
+  it("settles concurrent idle requests through the same admitted stop", async () => {
+    const entered = Promise.withResolvers<void>();
+    const decision = Promise.withResolvers<boolean>();
+    const admitted = Promise.withResolvers<void>();
+    let enteredCount = 0;
+    let admittedCount = 0;
+    let stopped = false;
+    const markStopping = vi.fn(() => {
+      stopped = true;
+    });
+    const coordinator = createControlledShutdownCoordinator({
+      drainHost: async () => undefined,
+      hasUndrainedWork: () => false,
+      isStopRequested: () => stopped,
+      markStopping,
+    });
+    coordinator.attachSession(() => undefined);
+    const requests = [0, 1].map(() =>
+      coordinator.requestIfIdle({
+        gracePeriodMs: 2000,
+        tryBeginDrain: async () => {
+          if (++enteredCount === 2) {
+            entered.resolve();
+          }
+          return await decision.promise;
+        },
+        onAdmitted: () => {
+          if (++admittedCount === 2) {
+            admitted.resolve();
+          }
+        },
+      })
+    );
+    await entered.promise;
+    decision.resolve(true);
+    await admitted.promise;
+    expect(coordinator.isDraining()).toBe(true);
+    coordinator.handleSessionCompleted();
+    expect(await Promise.all(requests)).toEqual([
+      { accepted: true, gracePeriodMs: 2000, mode: "graceful" },
+      { accepted: true, gracePeriodMs: 2000, mode: "graceful" },
+    ]);
+    expect(markStopping).toHaveBeenCalledOnce();
   });
 
   it("ends a disconnected stop only after the Host has no local work", async () => {

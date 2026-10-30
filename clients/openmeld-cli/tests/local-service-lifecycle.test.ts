@@ -421,21 +421,41 @@ describe("local service lifecycle", () => {
     expect(restoreDaemonRuntimeDataForReinstallMock).not.toHaveBeenCalled();
   });
 
-  it("retains the original installation when legacy data cannot be backed up", async () => {
+  it.each([
+    { enabled: true, start: false, restoreFailure: false },
+    { enabled: true, start: true, restoreFailure: false },
+    { enabled: false, start: true, restoreFailure: false },
+    { enabled: false, start: false, restoreFailure: false },
+    { enabled: true, start: true, restoreFailure: true },
+  ])("retains the original installation when legacy backup fails ($enabled / $start / $restoreFailure)", async ({
+    enabled,
+    start,
+    restoreFailure,
+  }) => {
     backupDaemonRuntimeDataForReinstallMock.mockRejectedValue(
       new Error("EACCES: unreadable legacy workspace")
     );
-    inspectDaemonServiceInventoryMock.mockReset().mockResolvedValue(
-      buildInitialInventory(serviceManager, {
-        legacySharedServicePresent: true,
-      })
-    );
+    const inventory = buildInitialInventory(serviceManager, {
+      legacySharedServicePresent: true,
+    });
+    if (inventory.serviceManagerStatus) {
+      inventory.serviceManagerStatus.enabled = enabled;
+    }
+    inspectDaemonServiceInventoryMock.mockReset().mockResolvedValue(inventory);
+    if (restoreFailure) {
+      vi.mocked(serviceManager.enableAutostart).mockRejectedValue(
+        new Error("autostart recovery failed")
+      );
+      vi.mocked(serviceManager.start).mockRejectedValue(
+        new Error("Service restart failed")
+      );
+    }
     const result = await runDaemonServiceLifecycle({
       expectedVersion: EXPECTED_VERSION,
       operation: "upgrade_reconcile",
       installSource: "cli.auto_check",
-      desiredState: "stopped",
-      shouldStartAfterLifecycle: false,
+      desiredState: start ? "background" : "stopped",
+      shouldStartAfterLifecycle: start,
       forceReinstall: true,
     });
     expect(result).toMatchObject({ status: "failed", failureStage: "backup" });
@@ -443,6 +463,17 @@ describe("local service lifecycle", () => {
     expect(cleanupLegacySharedDaemonServiceStateMock).not.toHaveBeenCalled();
     expect(installDaemonMock).not.toHaveBeenCalled();
     expect(activateDaemonServiceBundleMock).not.toHaveBeenCalled();
+    expect(serviceManager.enableAutostart).toHaveBeenCalledTimes(
+      enabled ? 1 : 0
+    );
+    expect(serviceManager.start).toHaveBeenCalledTimes(start ? 1 : 0);
+    if (restoreFailure) {
+      expect(result.errorMessage).toContain(
+        "EACCES: unreadable legacy workspace"
+      );
+      expect(result.errorMessage).toContain("autostart recovery failed");
+      expect(result.errorMessage).toContain("Service restart failed");
+    }
   });
 
   it("accepts a verified stopped replacement while the retired runtime snapshot is stale", async () => {
@@ -873,7 +904,10 @@ describe("local service lifecycle", () => {
       failureStage: "verify_final_inventory",
       recoveryStatus: "restored_verified_previous_state",
       status: "failed",
+      backupDataPath: null,
     });
+    expect(backupDaemonRuntimeDataForReinstallMock).not.toHaveBeenCalled();
+    expect(restoreDaemonRuntimeDataForReinstallMock).not.toHaveBeenCalled();
     expect(result.inventoryAfter?.installStatus).toMatchObject({
       installed: true,
       state: { daemonVersion: PREVIOUS_VERSION },
@@ -940,17 +974,30 @@ describe("local service lifecycle", () => {
 
   it.each([
     "busy",
+    "detached busy",
     "unsupported",
     "timeout",
     "restore failed",
     "disable failed",
   ])("does not stop a running Service when an idle update is %s", async (reason) => {
+    if (reason === "detached busy") {
+      const inventory = buildInitialInventory(serviceManager);
+      inventory.serviceManagerStatus = null;
+      inventory.runtimeStatus.managedBySystemService = false;
+      inspectDaemonServiceInventoryMock
+        .mockReset()
+        .mockResolvedValue(inventory);
+    }
     if (reason === "disable failed") {
       vi.mocked(serviceManager.disableAutostart).mockRejectedValue(
         new Error("autostart change unavailable")
       );
     }
-    if (reason === "busy" || reason === "restore failed") {
+    if (
+      reason === "busy" ||
+      reason === "detached busy" ||
+      reason === "restore failed"
+    ) {
       requestLocalDaemonShutdownMock.mockResolvedValue({
         accepted: false,
         mode: "graceful",
@@ -980,7 +1027,7 @@ describe("local service lifecycle", () => {
       forceReinstall: true,
       onlyIfIdle: true,
     });
-    if (reason === "busy") {
+    if (reason === "busy" || reason === "detached busy") {
       await expect(update).rejects.toBeInstanceOf(
         DaemonServiceUpdateDeferredError
       );
@@ -1007,7 +1054,7 @@ describe("local service lifecycle", () => {
     expect(installDaemonMock).not.toHaveBeenCalled();
     expect(forceKillStalledDaemonAfterStopTimeoutMock).not.toHaveBeenCalled();
     expect(serviceManager.enableAutostart).toHaveBeenCalledTimes(
-      reason === "disable failed" ? 0 : 1
+      reason === "disable failed" || reason === "detached busy" ? 0 : 1
     );
   });
 

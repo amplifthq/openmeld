@@ -193,10 +193,10 @@ function runningTask(input: {
 }
 
 /** The permission-mode write, standing in for every §6 operation. */
-async function setPermissionMode(
+async function setPermissionMode<T>(
   f: Fixture,
   credential: RequestCredential,
-  change: () => Promise<string>,
+  change: () => Promise<T>,
   mode = "full_access"
 ) {
   return await runGatewaySensitiveOperation(
@@ -268,6 +268,18 @@ function cli(confirmationId?: string): RequestCredential {
 }
 
 describe("sensitive operation credentials", () => {
+  it.each([
+    "unchanged",
+    "conflict",
+  ])("does not audit an uncommitted permission-mode result as success (%s)", async (status) => {
+    const f = await seed();
+    const result = { status };
+    await expect(
+      setPermissionMode(f, interactive(), async () => result)
+    ).resolves.toEqual(result);
+    expect(await readAudit(f)).toEqual([]);
+  });
+
   it("turns a colleague-rooted task's CLI call into a confirmation card, not a change", async () => {
     const f = await seed();
     shard.riskWindow = runningTask({
