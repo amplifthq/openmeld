@@ -132,12 +132,8 @@
           "tableFrom": "account_sidebar_preferences",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -146,12 +142,8 @@
           "tableFrom": "account_sidebar_preferences",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -159,10 +151,7 @@
       "compositePrimaryKeys": {
         "account_sidebar_preferences_user_id_organization_id_pk": {
           "name": "account_sidebar_preferences_user_id_organization_id_pk",
-          "columns": [
-            "user_id",
-            "organization_id"
-          ]
+          "columns": ["user_id", "organization_id"]
         }
       },
       "uniqueConstraints": {},
@@ -278,12 +267,8 @@
           "tableFrom": "accounts",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -500,12 +485,8 @@
           "tableFrom": "agent_access_requests",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -514,12 +495,8 @@
           "tableFrom": "agent_access_requests",
           "tableTo": "openmeld_profiles",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "agent_profile_id"
-          ],
-          "columnsTo": [
-            "profile_id"
-          ],
+          "columnsFrom": ["agent_profile_id"],
+          "columnsTo": ["profile_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -528,12 +505,8 @@
           "tableFrom": "agent_access_requests",
           "tableTo": "member_agents",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "member_agent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["member_agent_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -542,12 +515,8 @@
           "tableFrom": "agent_access_requests",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "owner_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -556,12 +525,8 @@
           "tableFrom": "agent_access_requests",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "requester_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["requester_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -570,12 +535,8 @@
           "tableFrom": "agent_access_requests",
           "tableTo": "openmeld_profiles",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "requester_profile_id"
-          ],
-          "columnsTo": [
-            "profile_id"
-          ],
+          "columnsFrom": ["requester_profile_id"],
+          "columnsTo": ["profile_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -584,12 +545,8 @@
           "tableFrom": "agent_access_requests",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "decided_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["decided_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -769,12 +726,8 @@
           "tableFrom": "agent_activity_daily_aggregates",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -891,12 +844,8 @@
           "tableFrom": "agent_activity_daily_session_keys",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1066,12 +1015,8 @@
           "tableFrom": "agent_activity_digests",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1440,12 +1385,8 @@
           "tableFrom": "agent_activity_events",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1610,12 +1551,8 @@
           "tableFrom": "agent_activity_execution_links",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1624,12 +1561,8 @@
           "tableFrom": "agent_activity_execution_links",
           "tableTo": "agent_activity_sessions",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "activity_session_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["activity_session_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1638,12 +1571,8 @@
           "tableFrom": "agent_activity_execution_links",
           "tableTo": "openMeldDaemon_runtime_coordinator_executions",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "runtime_coordinator_execution_id"
-          ],
-          "columnsTo": [
-            "runtime_coordinator_execution_id"
-          ],
+          "columnsFrom": ["runtime_coordinator_execution_id"],
+          "columnsTo": ["runtime_coordinator_execution_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1943,12 +1872,8 @@
           "tableFrom": "agent_activity_session_inventory",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1957,12 +1882,8 @@
           "tableFrom": "agent_activity_session_inventory",
           "tableTo": "projects",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2195,12 +2116,8 @@
           "tableFrom": "agent_activity_session_inventory_candidates",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -2209,12 +2126,8 @@
           "tableFrom": "agent_activity_session_inventory_candidates",
           "tableTo": "projects",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2300,12 +2213,8 @@
           "tableFrom": "agent_activity_session_inventory_member_cleanup_requests",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2313,10 +2222,7 @@
       "compositePrimaryKeys": {
         "agent_activity_session_inventory_member_cleanup_requests_pk": {
           "name": "agent_activity_session_inventory_member_cleanup_requests_pk",
-          "columns": [
-            "organization_id",
-            "owner_user_id"
-          ]
+          "columns": ["organization_id", "owner_user_id"]
         }
       },
       "uniqueConstraints": {},
@@ -2510,12 +2416,8 @@
           "tableFrom": "agent_activity_session_inventory_sources",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -2524,12 +2426,8 @@
           "tableFrom": "agent_activity_session_inventory_sources",
           "tableTo": "projects",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2802,12 +2700,8 @@
           "tableFrom": "agent_activity_sessions",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -3291,10 +3185,7 @@
       "compositePrimaryKeys": {
         "agent_delegation_children_pk": {
           "name": "agent_delegation_children_pk",
-          "columns": [
-            "delegation_id",
-            "child_index"
-          ]
+          "columns": ["delegation_id", "child_index"]
         }
       },
       "uniqueConstraints": {},
@@ -3670,12 +3561,8 @@
           "tableFrom": "agent_profile_access_grants",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3684,12 +3571,8 @@
           "tableFrom": "agent_profile_access_grants",
           "tableTo": "openmeld_profiles",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "profile_id"
-          ],
-          "columnsTo": [
-            "profile_id"
-          ],
+          "columnsFrom": ["profile_id"],
+          "columnsTo": ["profile_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3698,12 +3581,8 @@
           "tableFrom": "agent_profile_access_grants",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "grantee_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["grantee_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3712,12 +3591,8 @@
           "tableFrom": "agent_profile_access_grants",
           "tableTo": "agent_access_requests",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "request_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["request_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3726,12 +3601,8 @@
           "tableFrom": "agent_profile_access_grants",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "granted_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["granted_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3740,12 +3611,8 @@
           "tableFrom": "agent_profile_access_grants",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "revoked_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["revoked_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -3868,12 +3735,8 @@
           "tableFrom": "agent_profile_creation_approval_preferences",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3882,12 +3745,8 @@
           "tableFrom": "agent_profile_creation_approval_preferences",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -4030,12 +3889,8 @@
           "tableFrom": "agent_profile_creation_defaults",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -4044,12 +3899,8 @@
           "tableFrom": "agent_profile_creation_defaults",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -4058,12 +3909,8 @@
           "tableFrom": "agent_profile_creation_defaults",
           "tableTo": "projects",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "default_project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["default_project_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -4445,12 +4292,8 @@
           "tableFrom": "agent_profile_creation_requests",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -4459,12 +4302,8 @@
           "tableFrom": "agent_profile_creation_requests",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "requester_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["requester_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -4473,12 +4312,8 @@
           "tableFrom": "agent_profile_creation_requests",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "target_owner_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["target_owner_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -5065,10 +4900,7 @@
       "compositePrimaryKeys": {
         "agent_task_needs_attention_observations_pk": {
           "name": "agent_task_needs_attention_observations_pk",
-          "columns": [
-            "task_key",
-            "event_id"
-          ]
+          "columns": ["task_key", "event_id"]
         }
       },
       "uniqueConstraints": {},
@@ -5255,12 +5087,8 @@
           "tableFrom": "ai_free_grants",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -5269,12 +5097,8 @@
           "tableFrom": "ai_free_grants",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -5284,9 +5108,7 @@
         "ai_free_grants_organization_id_unique": {
           "name": "ai_free_grants_organization_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "organization_id"
-          ]
+          "columns": ["organization_id"]
         }
       },
       "policies": {},
@@ -5513,12 +5335,8 @@
           "tableFrom": "ai_usage_records",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -5526,11 +5344,7 @@
       "compositePrimaryKeys": {
         "ai_usage_records_organization_id_runtime_event_id_pk": {
           "name": "ai_usage_records_organization_id_runtime_event_id_pk",
-          "columns": [
-            "organization_id",
-            "runtime",
-            "event_id"
-          ]
+          "columns": ["organization_id", "runtime", "event_id"]
         }
       },
       "uniqueConstraints": {},
@@ -5689,12 +5503,8 @@
           "tableFrom": "center_agent_attention_requests",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -5703,12 +5513,8 @@
           "tableFrom": "center_agent_attention_requests",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "recipient_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["recipient_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -5898,12 +5704,8 @@
           "tableFrom": "center_agent_audit_journal",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -5912,12 +5714,8 @@
           "tableFrom": "center_agent_audit_journal",
           "tableTo": "openmeld_profiles",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "actor_profile_id"
-          ],
-          "columnsTo": [
-            "profile_id"
-          ],
+          "columnsFrom": ["actor_profile_id"],
+          "columnsTo": ["profile_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -5926,12 +5724,8 @@
           "tableFrom": "center_agent_audit_journal",
           "tableTo": "openmeld_profiles",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "on_behalf_of_profile_id"
-          ],
-          "columnsTo": [
-            "profile_id"
-          ],
+          "columnsFrom": ["on_behalf_of_profile_id"],
+          "columnsTo": ["profile_id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -5940,12 +5734,8 @@
           "tableFrom": "center_agent_audit_journal",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "on_behalf_of_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["on_behalf_of_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -6166,12 +5956,8 @@
           "tableFrom": "center_agent_connector_action_operations",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -6180,12 +5966,8 @@
           "tableFrom": "center_agent_connector_action_operations",
           "tableTo": "openmeld_profiles",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "actor_profile_id"
-          ],
-          "columnsTo": [
-            "profile_id"
-          ],
+          "columnsFrom": ["actor_profile_id"],
+          "columnsTo": ["profile_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -6194,12 +5976,8 @@
           "tableFrom": "center_agent_connector_action_operations",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "represented_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["represented_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -6413,12 +6191,8 @@
           "tableFrom": "center_agent_context_load_receipts",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -6427,12 +6201,8 @@
           "tableFrom": "center_agent_context_load_receipts",
           "tableTo": "center_agent_context_manifests",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "manifest_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["manifest_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -6441,12 +6211,8 @@
           "tableFrom": "center_agent_context_load_receipts",
           "tableTo": "openmeld_profiles",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "requested_by_profile_id"
-          ],
-          "columnsTo": [
-            "profile_id"
-          ],
+          "columnsFrom": ["requested_by_profile_id"],
+          "columnsTo": ["profile_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -6455,12 +6221,8 @@
           "tableFrom": "center_agent_context_load_receipts",
           "tableTo": "openmeld_profiles",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "actor_profile_id"
-          ],
-          "columnsTo": [
-            "profile_id"
-          ],
+          "columnsFrom": ["actor_profile_id"],
+          "columnsTo": ["profile_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -6469,12 +6231,8 @@
           "tableFrom": "center_agent_context_load_receipts",
           "tableTo": "center_agent_audit_journal",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "audit_entry_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["audit_entry_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -6533,12 +6291,8 @@
           "tableFrom": "center_agent_context_manifest_materializations",
           "tableTo": "center_agent_context_manifests",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "manifest_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["manifest_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -6752,12 +6506,8 @@
           "tableFrom": "center_agent_context_manifests",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -6766,12 +6516,8 @@
           "tableFrom": "center_agent_context_manifests",
           "tableTo": "openmeld_profiles",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "requested_by_profile_id"
-          ],
-          "columnsTo": [
-            "profile_id"
-          ],
+          "columnsFrom": ["requested_by_profile_id"],
+          "columnsTo": ["profile_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -6780,12 +6526,8 @@
           "tableFrom": "center_agent_context_manifests",
           "tableTo": "openmeld_profiles",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "actor_profile_id"
-          ],
-          "columnsTo": [
-            "profile_id"
-          ],
+          "columnsFrom": ["actor_profile_id"],
+          "columnsTo": ["profile_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -6794,12 +6536,8 @@
           "tableFrom": "center_agent_context_manifests",
           "tableTo": "center_agent_audit_journal",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "audit_entry_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["audit_entry_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -6939,12 +6677,8 @@
           "tableFrom": "center_agent_designations",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -6953,12 +6687,8 @@
           "tableFrom": "center_agent_designations",
           "tableTo": "openmeld_profiles",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "agent_profile_id"
-          ],
-          "columnsTo": [
-            "profile_id"
-          ],
+          "columnsFrom": ["agent_profile_id"],
+          "columnsTo": ["profile_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -6967,12 +6697,8 @@
           "tableFrom": "center_agent_designations",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "designated_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["designated_by"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -6981,12 +6707,8 @@
           "tableFrom": "center_agent_designations",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "paused_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["paused_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -7188,12 +6910,8 @@
           "tableFrom": "center_agent_member_research_batches",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -7275,12 +6993,8 @@
           "tableFrom": "center_agent_member_research_computer_files",
           "tableTo": "center_agent_member_research_tasks",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -7445,12 +7159,8 @@
           "tableFrom": "center_agent_member_research_tasks",
           "tableTo": "center_agent_member_research_batches",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "batch_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["batch_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -7529,12 +7239,8 @@
           "tableFrom": "center_agent_memory_policies",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -7543,12 +7249,8 @@
           "tableFrom": "center_agent_memory_policies",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "updated_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["updated_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -7733,12 +7435,8 @@
           "tableFrom": "center_agent_memory_subjects",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -7747,12 +7445,8 @@
           "tableFrom": "center_agent_memory_subjects",
           "tableTo": "members",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "member_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["member_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -7761,12 +7455,8 @@
           "tableFrom": "center_agent_memory_subjects",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "member_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["member_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -7963,12 +7653,8 @@
           "tableFrom": "center_agent_organization_document_operations",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -7977,12 +7663,8 @@
           "tableFrom": "center_agent_organization_document_operations",
           "tableTo": "openmeld_profiles",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "actor_profile_id"
-          ],
-          "columnsTo": [
-            "profile_id"
-          ],
+          "columnsFrom": ["actor_profile_id"],
+          "columnsTo": ["profile_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -7991,12 +7673,8 @@
           "tableFrom": "center_agent_organization_document_operations",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "represented_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["represented_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -8089,12 +7767,8 @@
           "tableFrom": "center_agent_organization_skill_operations",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -8102,10 +7776,7 @@
       "compositePrimaryKeys": {
         "center_agent_organization_skill_operations_pk": {
           "name": "center_agent_organization_skill_operations_pk",
-          "columns": [
-            "organization_id",
-            "operation_id"
-          ]
+          "columns": ["organization_id", "operation_id"]
         }
       },
       "uniqueConstraints": {},
@@ -8239,12 +7910,8 @@
           "tableFrom": "center_agent_permission_mode_confirmations",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -8253,12 +7920,8 @@
           "tableFrom": "center_agent_permission_mode_confirmations",
           "tableTo": "openmeld_profiles",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "actor_profile_id"
-          ],
-          "columnsTo": [
-            "profile_id"
-          ],
+          "columnsFrom": ["actor_profile_id"],
+          "columnsTo": ["profile_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -8267,12 +7930,8 @@
           "tableFrom": "center_agent_permission_mode_confirmations",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "represented_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["represented_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -8281,12 +7940,8 @@
           "tableFrom": "center_agent_permission_mode_confirmations",
           "tableTo": "openmeld_profiles",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "represented_profile_id"
-          ],
-          "columnsTo": [
-            "profile_id"
-          ],
+          "columnsFrom": ["represented_profile_id"],
+          "columnsTo": ["profile_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -8295,12 +7950,8 @@
           "tableFrom": "center_agent_permission_mode_confirmations",
           "tableTo": "openmeld_profiles",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "agent_profile_id"
-          ],
-          "columnsTo": [
-            "profile_id"
-          ],
+          "columnsFrom": ["agent_profile_id"],
+          "columnsTo": ["profile_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -8473,12 +8124,8 @@
           "tableFrom": "center_agent_project_operations",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -8487,12 +8134,8 @@
           "tableFrom": "center_agent_project_operations",
           "tableTo": "openmeld_profiles",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "actor_profile_id"
-          ],
-          "columnsTo": [
-            "profile_id"
-          ],
+          "columnsFrom": ["actor_profile_id"],
+          "columnsTo": ["profile_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -8501,12 +8144,8 @@
           "tableFrom": "center_agent_project_operations",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "represented_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["represented_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -8671,12 +8310,8 @@
           "tableFrom": "center_agent_project_remove_confirmations",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -8685,12 +8320,8 @@
           "tableFrom": "center_agent_project_remove_confirmations",
           "tableTo": "openmeld_profiles",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "actor_profile_id"
-          ],
-          "columnsTo": [
-            "profile_id"
-          ],
+          "columnsFrom": ["actor_profile_id"],
+          "columnsTo": ["profile_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -8699,12 +8330,8 @@
           "tableFrom": "center_agent_project_remove_confirmations",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "represented_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["represented_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -8713,12 +8340,8 @@
           "tableFrom": "center_agent_project_remove_confirmations",
           "tableTo": "openmeld_profiles",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "represented_profile_id"
-          ],
-          "columnsTo": [
-            "profile_id"
-          ],
+          "columnsFrom": ["represented_profile_id"],
+          "columnsTo": ["profile_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -8727,12 +8350,8 @@
           "tableFrom": "center_agent_project_remove_confirmations",
           "tableTo": "projects",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -8954,12 +8573,8 @@
           "tableFrom": "center_agent_publication_operations",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -8968,12 +8583,8 @@
           "tableFrom": "center_agent_publication_operations",
           "tableTo": "openmeld_profiles",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "actor_profile_id"
-          ],
-          "columnsTo": [
-            "profile_id"
-          ],
+          "columnsFrom": ["actor_profile_id"],
+          "columnsTo": ["profile_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -8982,12 +8593,8 @@
           "tableFrom": "center_agent_publication_operations",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "represented_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["represented_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -9221,12 +8828,8 @@
           "tableFrom": "center_agent_task_admission_outbox",
           "tableTo": "center_agent_tasks",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -9235,12 +8838,8 @@
           "tableFrom": "center_agent_task_admission_outbox",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -9446,12 +9045,8 @@
           "tableFrom": "center_agent_task_attempts",
           "tableTo": "center_agent_tasks",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -9460,12 +9055,8 @@
           "tableFrom": "center_agent_task_attempts",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -9568,12 +9159,8 @@
           "tableFrom": "center_agent_task_authorized_readers",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -9582,12 +9169,8 @@
           "tableFrom": "center_agent_task_authorized_readers",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -9595,10 +9178,7 @@
       "compositePrimaryKeys": {
         "center_agent_task_authorized_readers_task_id_user_id_pk": {
           "name": "center_agent_task_authorized_readers_task_id_user_id_pk",
-          "columns": [
-            "task_id",
-            "user_id"
-          ]
+          "columns": ["task_id", "user_id"]
         }
       },
       "uniqueConstraints": {},
@@ -9742,12 +9322,8 @@
           "tableFrom": "center_agent_task_events",
           "tableTo": "center_agent_tasks",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -9756,12 +9332,8 @@
           "tableFrom": "center_agent_task_events",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -9985,12 +9557,8 @@
           "tableFrom": "center_agent_tasks",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -9999,12 +9567,8 @@
           "tableFrom": "center_agent_tasks",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "requester_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["requester_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -10422,12 +9986,8 @@
           "tableFrom": "connector_access_events",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -10623,12 +10183,8 @@
           "tableFrom": "connector_app_requests",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -10637,12 +10193,8 @@
           "tableFrom": "connector_app_requests",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "requester_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["requester_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -10651,12 +10203,8 @@
           "tableFrom": "connector_app_requests",
           "tableTo": "members",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "requester_member_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["requester_member_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -10875,12 +10423,8 @@
           "tableFrom": "connector_connections",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -10889,12 +10433,8 @@
           "tableFrom": "connector_connections",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -10974,12 +10514,8 @@
           "tableFrom": "conversation_history_deletions",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -10987,10 +10523,7 @@
       "compositePrimaryKeys": {
         "conversation_history_deletions_space_id_user_id_pk": {
           "name": "conversation_history_deletions_space_id_user_id_pk",
-          "columns": [
-            "space_id",
-            "user_id"
-          ]
+          "columns": ["space_id", "user_id"]
         }
       },
       "uniqueConstraints": {},
@@ -11082,12 +10615,8 @@
           "tableFrom": "desktop_update_installations",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "owner_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -11095,11 +10624,7 @@
       "compositePrimaryKeys": {
         "desktop_update_installations_owner_user_id_installation_id_lane_pk": {
           "name": "desktop_update_installations_owner_user_id_installation_id_lane_pk",
-          "columns": [
-            "owner_user_id",
-            "installation_id",
-            "lane"
-          ]
+          "columns": ["owner_user_id", "installation_id", "lane"]
         }
       },
       "uniqueConstraints": {},
@@ -11300,12 +10825,8 @@
           "tableFrom": "eval_reports",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -11313,11 +10834,7 @@
       "compositePrimaryKeys": {
         "eval_reports_organization_id_period_start_period_end_pk": {
           "name": "eval_reports_organization_id_period_start_period_end_pk",
-          "columns": [
-            "organization_id",
-            "period_start",
-            "period_end"
-          ]
+          "columns": ["organization_id", "period_start", "period_end"]
         }
       },
       "uniqueConstraints": {},
@@ -11407,12 +10924,8 @@
           "tableFrom": "first_work_experiences",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -11421,12 +10934,8 @@
           "tableFrom": "first_work_experiences",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -11434,10 +10943,7 @@
       "compositePrimaryKeys": {
         "first_work_experiences_organization_id_user_id_pk": {
           "name": "first_work_experiences_organization_id_user_id_pk",
-          "columns": [
-            "organization_id",
-            "user_id"
-          ]
+          "columns": ["organization_id", "user_id"]
         }
       },
       "uniqueConstraints": {},
@@ -11566,12 +11072,8 @@
           "tableFrom": "github_app_installation_states",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -11580,12 +11082,8 @@
           "tableFrom": "github_app_installation_states",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -11594,12 +11092,8 @@
           "tableFrom": "github_app_installation_states",
           "tableTo": "connector_connections",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "target_connection_name"
-          ],
-          "columnsTo": [
-            "connection_name"
-          ],
+          "columnsFrom": ["target_connection_name"],
+          "columnsTo": ["connection_name"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -11877,12 +11371,8 @@
           "tableFrom": "inbox_center_agent_read_watermarks",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -11891,12 +11381,8 @@
           "tableFrom": "inbox_center_agent_read_watermarks",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "recipient_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["recipient_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -11952,12 +11438,8 @@
           "tableFrom": "inbox_conversation_notification_preferences",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -11966,12 +11448,8 @@
           "tableFrom": "inbox_conversation_notification_preferences",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -11979,11 +11457,7 @@
       "compositePrimaryKeys": {
         "inbox_conversation_notification_preferences_user_id_organization_id_space_id_pk": {
           "name": "inbox_conversation_notification_preferences_user_id_organization_id_space_id_pk",
-          "columns": [
-            "user_id",
-            "organization_id",
-            "space_id"
-          ]
+          "columns": ["user_id", "organization_id", "space_id"]
         }
       },
       "uniqueConstraints": {},
@@ -12153,12 +11627,8 @@
           "tableFrom": "inbox_email_deliveries",
           "tableTo": "inbox_items",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "inbox_item_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["inbox_item_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -12234,12 +11704,8 @@
           "tableFrom": "inbox_feed_snapshot_members",
           "tableTo": "inbox_feed_snapshots",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "snapshot_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["snapshot_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -12248,12 +11714,8 @@
           "tableFrom": "inbox_feed_snapshot_members",
           "tableTo": "inbox_items",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "item_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["item_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -12261,10 +11723,7 @@
       "compositePrimaryKeys": {
         "inbox_feed_snapshot_members_snapshot_id_item_id_pk": {
           "name": "inbox_feed_snapshot_members_snapshot_id_item_id_pk",
-          "columns": [
-            "snapshot_id",
-            "item_id"
-          ]
+          "columns": ["snapshot_id", "item_id"]
         }
       },
       "uniqueConstraints": {},
@@ -12395,12 +11854,8 @@
           "tableFrom": "inbox_feed_snapshots",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -12409,12 +11864,8 @@
           "tableFrom": "inbox_feed_snapshots",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "recipient_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["recipient_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -12837,12 +12288,8 @@
           "tableFrom": "inbox_items",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -12851,12 +12298,8 @@
           "tableFrom": "inbox_items",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "recipient_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["recipient_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -12944,12 +12387,8 @@
           "tableFrom": "inbox_message_notification_defaults",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -13002,12 +12441,8 @@
           "tableFrom": "inbox_notification_preferences",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -13125,12 +12560,8 @@
           "tableFrom": "inbox_space_thread_read_watermarks",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -13139,12 +12570,8 @@
           "tableFrom": "inbox_space_thread_read_watermarks",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "recipient_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["recipient_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -13258,12 +12685,8 @@
           "tableFrom": "invitations",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -13272,12 +12695,8 @@
           "tableFrom": "invitations",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "inviter_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["inviter_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -13426,12 +12845,8 @@
           "tableFrom": "member_agents",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -13440,12 +12855,8 @@
           "tableFrom": "member_agents",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "owner_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -13544,12 +12955,8 @@
           "tableFrom": "members",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -13558,12 +12965,8 @@
           "tableFrom": "members",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -18036,12 +17439,8 @@
           "tableFrom": "openMeldFeedback_reporting_policies",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -18050,12 +17449,8 @@
           "tableFrom": "openMeldFeedback_reporting_policies",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "updated_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["updated_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -18411,12 +17806,8 @@
           "tableFrom": "openmeld_profile_space_history",
           "tableTo": "openmeld_profiles",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "profile_id"
-          ],
-          "columnsTo": [
-            "profile_id"
-          ],
+          "columnsFrom": ["profile_id"],
+          "columnsTo": ["profile_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -18813,12 +18204,8 @@
           "tableFrom": "openmeld_profiles",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -18827,12 +18214,8 @@
           "tableFrom": "openmeld_profiles",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "owner_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -18841,12 +18224,8 @@
           "tableFrom": "openmeld_profiles",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "created_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["created_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -18860,11 +18239,7 @@
             "organization_id",
             "owner_user_id"
           ],
-          "columnsTo": [
-            "id",
-            "organization_id",
-            "owner_user_id"
-          ],
+          "columnsTo": ["id", "organization_id", "owner_user_id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -18992,10 +18367,7 @@
       "compositePrimaryKeys": {
         "openMeldRemoteAgent_conversation_generations_org_conversation_pk": {
           "name": "openMeldRemoteAgent_conversation_generations_org_conversation_pk",
-          "columns": [
-            "organization_id",
-            "logical_conversation_id"
-          ]
+          "columns": ["organization_id", "logical_conversation_id"]
         }
       },
       "uniqueConstraints": {},
@@ -19062,10 +18434,7 @@
       "compositePrimaryKeys": {
         "openMeldRemoteAgent_daily_admissions_org_day_pk": {
           "name": "openMeldRemoteAgent_daily_admissions_org_day_pk",
-          "columns": [
-            "organization_id",
-            "day_utc"
-          ]
+          "columns": ["organization_id", "day_utc"]
         }
       },
       "uniqueConstraints": {},
@@ -19280,12 +18649,8 @@
           "tableFrom": "openMeldRemoteAgent_lark_platform_channel_connections",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -19294,12 +18659,8 @@
           "tableFrom": "openMeldRemoteAgent_lark_platform_channel_connections",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "installed_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["installed_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -19393,12 +18754,8 @@
           "tableFrom": "openMeldRemoteAgent_lark_platform_channel_credentials",
           "tableTo": "openMeldRemoteAgent_lark_platform_channel_connections",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "connection_id"
-          ],
-          "columnsTo": [
-            "connection_id"
-          ],
+          "columnsFrom": ["connection_id"],
+          "columnsTo": ["connection_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -19494,12 +18851,8 @@
           "tableFrom": "openMeldRemoteAgent_lark_platform_context_cursors",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -19508,12 +18861,8 @@
           "tableFrom": "openMeldRemoteAgent_lark_platform_context_cursors",
           "tableTo": "openMeldRemoteAgent_lark_platform_channel_connections",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "connection_id"
-          ],
-          "columnsTo": [
-            "connection_id"
-          ],
+          "columnsFrom": ["connection_id"],
+          "columnsTo": ["connection_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -19628,12 +18977,8 @@
           "tableFrom": "openMeldRemoteAgent_lark_platform_identity_links",
           "tableTo": "openMeldRemoteAgent_lark_platform_channel_connections",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "connection_id"
-          ],
-          "columnsTo": [
-            "connection_id"
-          ],
+          "columnsFrom": ["connection_id"],
+          "columnsTo": ["connection_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -19642,12 +18987,8 @@
           "tableFrom": "openMeldRemoteAgent_lark_platform_identity_links",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -19656,12 +18997,8 @@
           "tableFrom": "openMeldRemoteAgent_lark_platform_identity_links",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "openmeld_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["openmeld_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -19669,11 +19006,7 @@
       "compositePrimaryKeys": {
         "openMeldRemoteAgent_lark_platform_identity_links_pk": {
           "name": "openMeldRemoteAgent_lark_platform_identity_links_pk",
-          "columns": [
-            "provider",
-            "connection_id",
-            "provider_user_id"
-          ]
+          "columns": ["provider", "connection_id", "provider_user_id"]
         }
       },
       "uniqueConstraints": {},
@@ -19909,12 +19242,8 @@
           "tableFrom": "openMeldRemoteAgent_lark_platform_registration_attempts",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -19923,12 +19252,8 @@
           "tableFrom": "openMeldRemoteAgent_lark_platform_registration_attempts",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "initiated_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["initiated_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -20382,12 +19707,8 @@
           "tableFrom": "openMeldRemoteAgent_message_channel_identity_link_tokens",
           "tableTo": "openMeldRemoteAgent_lark_platform_channel_connections",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "connection_id"
-          ],
-          "columnsTo": [
-            "connection_id"
-          ],
+          "columnsFrom": ["connection_id"],
+          "columnsTo": ["connection_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -20396,12 +19717,8 @@
           "tableFrom": "openMeldRemoteAgent_message_channel_identity_link_tokens",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -21883,12 +21200,8 @@
           "tableFrom": "openMeldRemoteAgent_work_loop_attempts",
           "tableTo": "openMeldRemoteAgent_native_delivery_ledger",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "delivery_id"
-          ],
-          "columnsTo": [
-            "delivery_id"
-          ],
+          "columnsFrom": ["delivery_id"],
+          "columnsTo": ["delivery_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -21896,10 +21209,7 @@
       "compositePrimaryKeys": {
         "openMeldRemoteAgent_work_loop_attempts_pk": {
           "name": "openMeldRemoteAgent_work_loop_attempts_pk",
-          "columns": [
-            "delivery_id",
-            "attempt"
-          ]
+          "columns": ["delivery_id", "attempt"]
         }
       },
       "uniqueConstraints": {},
@@ -22127,12 +21437,8 @@
           "tableFrom": "organization_ai_credentials",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -22140,10 +21446,7 @@
       "compositePrimaryKeys": {
         "organization_ai_credentials_organization_id_source_pk": {
           "name": "organization_ai_credentials_organization_id_source_pk",
-          "columns": [
-            "organization_id",
-            "source"
-          ]
+          "columns": ["organization_id", "source"]
         }
       },
       "uniqueConstraints": {},
@@ -22181,12 +21484,8 @@
           "tableFrom": "organization_ai_usage_policies",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -22285,12 +21584,8 @@
           "tableFrom": "organization_binding_authorization_preferences",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -22299,12 +21594,8 @@
           "tableFrom": "organization_binding_authorization_preferences",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -22427,12 +21718,8 @@
           "tableFrom": "organization_binding_authorizations",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -22441,12 +21728,8 @@
           "tableFrom": "organization_binding_authorizations",
           "tableTo": "openMeldDaemon_agent_profile_bindings",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "binding_id"
-          ],
-          "columnsTo": [
-            "binding_id"
-          ],
+          "columnsFrom": ["binding_id"],
+          "columnsTo": ["binding_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -22455,12 +21738,8 @@
           "tableFrom": "organization_binding_authorizations",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "authorized_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["authorized_by"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -22682,12 +21961,8 @@
           "tableFrom": "organization_document_folders",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -22696,12 +21971,8 @@
           "tableFrom": "organization_document_folders",
           "tableTo": "organization_document_folders",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "parent_folder_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["parent_folder_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -22710,12 +21981,8 @@
           "tableFrom": "organization_document_folders",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "subject_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["subject_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -22979,12 +22246,8 @@
           "tableFrom": "organization_documents",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -22993,12 +22256,8 @@
           "tableFrom": "organization_documents",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "subject_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["subject_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -23007,12 +22266,8 @@
           "tableFrom": "organization_documents",
           "tableTo": "organization_document_folders",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "folder_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["folder_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -23106,12 +22361,8 @@
           "tableFrom": "organization_information_protection_policies",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -23120,12 +22371,8 @@
           "tableFrom": "organization_information_protection_policies",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "updated_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["updated_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -23305,12 +22552,8 @@
           "tableFrom": "organization_join_links",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -23319,12 +22562,8 @@
           "tableFrom": "organization_join_links",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -23512,12 +22751,8 @@
           "tableFrom": "organization_join_requests",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -23526,12 +22761,8 @@
           "tableFrom": "organization_join_requests",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "requested_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["requested_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -23540,12 +22771,8 @@
           "tableFrom": "organization_join_requests",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "applicant_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["applicant_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -23554,12 +22781,8 @@
           "tableFrom": "organization_join_requests",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "reviewed_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["reviewed_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -23612,12 +22835,8 @@
           "tableFrom": "organization_member_activity",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -23626,12 +22845,8 @@
           "tableFrom": "organization_member_activity",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -23639,10 +22854,7 @@
       "compositePrimaryKeys": {
         "organization_member_activity_organization_id_user_id_pk": {
           "name": "organization_member_activity_organization_id_user_id_pk",
-          "columns": [
-            "organization_id",
-            "user_id"
-          ]
+          "columns": ["organization_id", "user_id"]
         }
       },
       "uniqueConstraints": {},
@@ -23745,12 +22957,8 @@
           "tableFrom": "organization_member_presence_sessions",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -23759,12 +22967,8 @@
           "tableFrom": "organization_member_presence_sessions",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -23772,11 +22976,7 @@
       "compositePrimaryKeys": {
         "organization_member_presence_sessions_organization_id_user_id_session_id_pk": {
           "name": "organization_member_presence_sessions_organization_id_user_id_session_id_pk",
-          "columns": [
-            "organization_id",
-            "user_id",
-            "session_id"
-          ]
+          "columns": ["organization_id", "user_id", "session_id"]
         }
       },
       "uniqueConstraints": {},
@@ -23905,12 +23105,8 @@
           "tableFrom": "organization_message_channel_setup_requests",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -23919,12 +23115,8 @@
           "tableFrom": "organization_message_channel_setup_requests",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "requester_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["requester_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -24122,12 +23314,8 @@
           "tableFrom": "organization_opportunities",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -24136,12 +23324,8 @@
           "tableFrom": "organization_opportunities",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "recipient_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["recipient_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -24150,12 +23334,8 @@
           "tableFrom": "organization_opportunities",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "decided_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["decided_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -24270,12 +23450,8 @@
           "tableFrom": "organization_skill_activations",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -24284,12 +23460,8 @@
           "tableFrom": "organization_skill_activations",
           "tableTo": "organization_skill_releases",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "release_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["release_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -24298,12 +23470,8 @@
           "tableFrom": "organization_skill_activations",
           "tableTo": "organization_skills",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "skill_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["skill_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -24396,12 +23564,8 @@
           "tableFrom": "organization_skill_import_batches",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -24409,10 +23573,7 @@
       "compositePrimaryKeys": {
         "organization_skill_import_batches_pk": {
           "name": "organization_skill_import_batches_pk",
-          "columns": [
-            "organization_id",
-            "batch_id"
-          ]
+          "columns": ["organization_id", "batch_id"]
         }
       },
       "uniqueConstraints": {},
@@ -24469,12 +23630,8 @@
           "tableFrom": "organization_skill_import_operations",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -24482,10 +23639,7 @@
       "compositePrimaryKeys": {
         "organization_skill_import_operations_pk": {
           "name": "organization_skill_import_operations_pk",
-          "columns": [
-            "organization_id",
-            "operation_id"
-          ]
+          "columns": ["organization_id", "operation_id"]
         }
       },
       "uniqueConstraints": {},
@@ -24563,12 +23717,8 @@
           "tableFrom": "organization_skill_maintainers",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "assigned_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["assigned_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -24577,12 +23727,8 @@
           "tableFrom": "organization_skill_maintainers",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -24591,12 +23737,8 @@
           "tableFrom": "organization_skill_maintainers",
           "tableTo": "organization_skills",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "skill_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["skill_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -24605,12 +23747,8 @@
           "tableFrom": "organization_skill_maintainers",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -24618,10 +23756,7 @@
       "compositePrimaryKeys": {
         "organization_skill_maintainers_pk": {
           "name": "organization_skill_maintainers_pk",
-          "columns": [
-            "skill_id",
-            "user_id"
-          ]
+          "columns": ["skill_id", "user_id"]
         }
       },
       "uniqueConstraints": {},
@@ -24751,12 +23886,8 @@
           "tableFrom": "organization_skill_releases",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "created_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["created_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -24765,12 +23896,8 @@
           "tableFrom": "organization_skill_releases",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -24779,12 +23906,8 @@
           "tableFrom": "organization_skill_releases",
           "tableTo": "organization_skills",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "skill_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["skill_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -24960,12 +24083,8 @@
           "tableFrom": "organization_skills",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "created_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["created_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -24974,12 +24093,8 @@
           "tableFrom": "organization_skills",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -25062,12 +24177,8 @@
           "tableFrom": "organization_working_language_preferences",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -25076,12 +24187,8 @@
           "tableFrom": "organization_working_language_preferences",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "updated_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["updated_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -25210,9 +24317,7 @@
         "organizations_slug_unique": {
           "name": "organizations_slug_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "slug"
-          ]
+          "columns": ["slug"]
         }
       },
       "policies": {},
@@ -25329,12 +24434,8 @@
           "tableFrom": "passkeys",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -25409,12 +24510,8 @@
           "tableFrom": "plugin_action_confirmations",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -25577,12 +24674,8 @@
           "tableFrom": "plugin_action_requests",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -25813,12 +24906,8 @@
           "tableFrom": "projects",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -26260,12 +25349,8 @@
           "tableFrom": "routine_runs",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -26558,12 +25643,8 @@
           "tableFrom": "routines",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -26790,12 +25871,8 @@
           "tableFrom": "sensitive_operation_audit_events",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -26927,12 +26004,8 @@
           "tableFrom": "sensitive_operation_confirmations",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -26941,12 +26014,8 @@
           "tableFrom": "sensitive_operation_confirmations",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "owner_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -26955,12 +26024,8 @@
           "tableFrom": "sensitive_operation_confirmations",
           "tableTo": "openmeld_profiles",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "agent_profile_id"
-          ],
-          "columnsTo": [
-            "profile_id"
-          ],
+          "columnsFrom": ["agent_profile_id"],
+          "columnsTo": ["profile_id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -27091,10 +26156,7 @@
       "compositePrimaryKeys": {
         "openmeld_service_connection_incidents_owner_user_id_incident_id_pk": {
           "name": "openmeld_service_connection_incidents_owner_user_id_incident_id_pk",
-          "columns": [
-            "owner_user_id",
-            "incident_id"
-          ]
+          "columns": ["owner_user_id", "incident_id"]
         }
       },
       "uniqueConstraints": {},
@@ -27192,12 +26254,8 @@
           "tableFrom": "sessions",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -27207,9 +26265,7 @@
         "sessions_token_unique": {
           "name": "sessions_token_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "token"
-          ]
+          "columns": ["token"]
         }
       },
       "policies": {},
@@ -27335,10 +26391,7 @@
       "compositePrimaryKeys": {
         "slack_channel_introduction_items_interaction_id_slack_channel_id_pk": {
           "name": "slack_channel_introduction_items_interaction_id_slack_channel_id_pk",
-          "columns": [
-            "interaction_id",
-            "slack_channel_id"
-          ]
+          "columns": ["interaction_id", "slack_channel_id"]
         }
       },
       "uniqueConstraints": {},
@@ -27928,10 +26981,7 @@
       "compositePrimaryKeys": {
         "slack_invited_member_welcome_deliveries_interaction_id_target_slack_user_id_pk": {
           "name": "slack_invited_member_welcome_deliveries_interaction_id_target_slack_user_id_pk",
-          "columns": [
-            "interaction_id",
-            "target_slack_user_id"
-          ]
+          "columns": ["interaction_id", "target_slack_user_id"]
         }
       },
       "uniqueConstraints": {},
@@ -28208,10 +27258,7 @@
       "compositePrimaryKeys": {
         "slack_teammate_invitation_deliveries_interaction_id_target_slack_user_id_pk": {
           "name": "slack_teammate_invitation_deliveries_interaction_id_target_slack_user_id_pk",
-          "columns": [
-            "interaction_id",
-            "target_slack_user_id"
-          ]
+          "columns": ["interaction_id", "target_slack_user_id"]
         }
       },
       "uniqueConstraints": {},
@@ -28752,12 +27799,8 @@
           "tableFrom": "space_attachments",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -29068,10 +28111,7 @@
       "compositePrimaryKeys": {
         "space_index_memberships_space_id_profile_id_pk": {
           "name": "space_index_memberships_space_id_profile_id_pk",
-          "columns": [
-            "space_id",
-            "profile_id"
-          ]
+          "columns": ["space_id", "profile_id"]
         }
       },
       "uniqueConstraints": {},
@@ -29636,12 +28676,8 @@
           "tableFrom": "space_invitations",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -29650,12 +28686,8 @@
           "tableFrom": "space_invitations",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "inviter_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["inviter_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -29706,12 +28738,8 @@
           "tableFrom": "space_owner_member_references",
           "tableTo": "members",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "member_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["member_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -29719,10 +28747,7 @@
       "compositePrimaryKeys": {
         "space_owner_member_references_space_id_member_id_pk": {
           "name": "space_owner_member_references_space_id_member_id_pk",
-          "columns": [
-            "space_id",
-            "member_id"
-          ]
+          "columns": ["space_id", "member_id"]
         }
       },
       "uniqueConstraints": {},
@@ -29860,12 +28885,8 @@
           "tableFrom": "space_task_github_issue_links",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -29985,12 +29006,8 @@
           "tableFrom": "space_task_project_links",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -29998,11 +29015,7 @@
       "compositePrimaryKeys": {
         "space_task_project_links_space_id_task_id_project_id_pk": {
           "name": "space_task_project_links_space_id_task_id_project_id_pk",
-          "columns": [
-            "space_id",
-            "task_id",
-            "project_id"
-          ]
+          "columns": ["space_id", "task_id", "project_id"]
         }
       },
       "uniqueConstraints": {},
@@ -30052,12 +29065,8 @@
           "tableFrom": "space_task_project_projection_states",
           "tableTo": "organizations",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -30065,10 +29074,7 @@
       "compositePrimaryKeys": {
         "space_task_project_projection_states_space_id_task_id_pk": {
           "name": "space_task_project_projection_states_space_id_task_id_pk",
-          "columns": [
-            "space_id",
-            "task_id"
-          ]
+          "columns": ["space_id", "task_id"]
         }
       },
       "uniqueConstraints": {},
@@ -30112,12 +29118,8 @@
           "tableFrom": "user_time_contexts",
           "tableTo": "users",
           "schemaTo": "openmeld",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -30229,23 +29231,17 @@
         "users_email_unique": {
           "name": "users_email_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "email"
-          ]
+          "columns": ["email"]
         },
         "users_username_unique": {
           "name": "users_username_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "username"
-          ]
+          "columns": ["username"]
         },
         "users_normalized_email_unique": {
           "name": "users_normalized_email_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "normalized_email"
-          ]
+          "columns": ["normalized_email"]
         }
       },
       "policies": {},

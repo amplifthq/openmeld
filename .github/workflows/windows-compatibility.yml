@@ -142,7 +142,7 @@ jobs:
       - name: Exercise generated setup in Windows PowerShell 5.1
         run: pnpm --dir clients/web exec vitest run src/lib/setup-bootstrap-script.windows.test.ts src/lib/setup-bootstrap-script.windows-binary.test.ts --maxWorkers=1
       - name: Exercise native argv, Job ownership, SDK streams, and physical probe rejection
-        run: node --test --test-concurrency=1 runtime/adapters/core/test/process-launch.test.js runtime/adapters/core/test/process-environment.test.js runtime/adapters/core/test/windows-system.test.js runtime/adapters/core/test/windows-process-job.test.js runtime/adapters/codex/test/workspace-access-probe.test.js runtime/adapters/claude-code/test/windows-process.test.js
+        run: node --test --test-concurrency=1 runtime/adapters/core/test/process-launch.test.js runtime/adapters/core/test/process-environment.test.js runtime/adapters/core/test/windows-system.test.js runtime/adapters/core/test/windows-process-job.test.js runtime/adapters/codex/test/workspace-access-probe.test.js runtime/adapters/claude-code/test/sdk-process.test.js
       - name: Verify Service identity and read-only capability admission
         run: pnpm --dir clients/openmeld-cli exec vitest run tests/process-identity.test.ts tests/service-control-capabilities.test.ts tests/windows-task-admission.test.ts tests/local-service-manager-command-match.test.ts tests/local-service-legacy-shared.test.ts --maxWorkers=1 --minWorkers=1
       - name: Verify console-free task hosting and stopped-task migration
