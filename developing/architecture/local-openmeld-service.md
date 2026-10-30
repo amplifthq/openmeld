@@ -4401,6 +4401,10 @@ response to `computer.power.unavailable` / HTTP 503 rather than parsing it as a
 successful power state. Other Service rejections retain HTTP 409. A timeout or
 lost reply does not prove that an update was never applied; no layer replays
 the update, and the user must check the current preference before retrying.
+When registration replaces a socket, the Hub immediately rejects pending
+current-device controls on that socket as disconnected. It must not wait for a
+close callback that may never arrive. A catalog refresh on the same socket
+preserves its pending controls; replacement never replays them on the new socket.
 
 The execution host reconciles the preference with the canonical active execution
 slot count after ownership changes, including release. Queued tasks, observed

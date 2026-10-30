@@ -4174,7 +4174,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         recordReapedReadinessProfiles: this.publishReapedReadinessProfiles,
         failPendingDispatchResultWaitersForConnectionGeneration:
           this.failPendingDispatchResultWaitersForConnectionGeneration,
-        closeSocket: safeCloseSocket,
+        closeSocket: (socket, code, reason) => {
+          // Replacement is authoritative even if the old socket never emits
+          // a close event. Never leave its control requests waiting or replay them.
+          this.failCurrentDeviceOperationWaitersForSocket(socket);
+          safeCloseSocket(socket, code, reason);
+        },
         localComponentsManifest: localComponentsRelease.manifest,
       }
     );
