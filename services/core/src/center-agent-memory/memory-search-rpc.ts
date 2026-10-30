@@ -40,9 +40,11 @@ export async function rpcCenterAgentSearchMemory(
     request.context,
     request.speakerMember
   );
-  await requireMemoryAudience(
-    await createCenterAgentEvidenceSourceAccess({ env, prepared })
-  );
+  const initialAccess = await createCenterAgentEvidenceSourceAccess({
+    env,
+    prepared,
+  });
+  await requireMemoryAudience(initialAccess);
   const limit = request.limit ?? CENTER_AGENT_RETAINED_MEMORY_MAX_ITEMS;
   const organizationId =
     prepared.authorization.activeOrganization.organizationId;
@@ -51,6 +53,10 @@ export async function rpcCenterAgentSearchMemory(
     speakerMember: request.speakerMember,
     query: request.query,
     limit,
+    ...(initialAccess.audience === "organization_shared" &&
+    initialAccess.envelope?.space.kind === "space"
+      ? { spaceId: initialAccess.envelope.space.id }
+      : {}),
   });
   // Provider latency must not turn a now-revoked represented member into a
   // successful read. The Agent identity is never replaced by the member.
@@ -173,6 +179,13 @@ async function authorizeSources(
   }
   const references: CenterAgentMemorySourceReference[] = [];
   for (const source of candidate.sources) {
+    if (
+      candidate.subject === "space" &&
+      (source.sourceConversationId !== access.envelope?.space.id ||
+        !source.sourceVersion)
+    ) {
+      return null;
+    }
     if (source.source !== "ca_dm" && source.source !== "space_conversation") {
       return null;
     }
@@ -183,13 +196,19 @@ async function authorizeSources(
       occurredAtMs: source.occurredAtMs,
       captureMethod: source.captureMethod,
       availability: "readable",
+      ...(source.sourceVersion ? { version: source.sourceVersion } : {}),
+      ...(source.sourceAuthorKind
+        ? { authorKind: source.sourceAuthorKind }
+        : {}),
     });
     if (
       !(
         reference.success &&
         (await access.canReadSignal(
           reference.data.spaceId,
-          reference.data.signalId
+          reference.data.signalId,
+          reference.data.version,
+          reference.data.authorKind
         ))
       )
     ) {

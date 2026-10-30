@@ -2,6 +2,7 @@ import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   buildCenterAgentMemberMemoryRef,
   buildCenterAgentOrganizationMemoryRef,
+  buildCenterAgentSpaceMemoryRef,
   CENTER_AGENT_ORGANIZATION_MEMORY_DEFAULT_ENABLED,
   type CenterAgentMemoryPolicy,
   type CenterAgentMemoryReadRepository,
@@ -26,6 +27,12 @@ export function createPostgresCenterAgentMemoryRepository(
           })
         : null;
       const organization = buildCenterAgentOrganizationMemoryRef(input);
+      const space = input.spaceId
+        ? buildCenterAgentSpaceMemoryRef({
+            organizationId: input.organizationId,
+            spaceId: input.spaceId,
+          })
+        : null;
       const rows = await db.query<{
         subject_id: string;
         zep_user_id: string | null;
@@ -38,19 +45,26 @@ export function createPostgresCenterAgentMemoryRepository(
         WHERE organization_id = $1 AND provider = 'zep_cloud' AND status = 'active'
           AND deleted_at_ms IS NULL
           AND ((subject_kind = 'member' AND member_id = $2 AND member_user_id = $3)
-            OR (subject_kind = 'organization' AND $4 = 1))
-        LIMIT 2
+            OR (subject_kind = 'organization' AND $4 = 1)
+            OR (subject_kind = 'space' AND $4 = 1 AND subject_id = $5 AND space_id = $6))
+        LIMIT 3
       `,
         values: [
           input.organizationId,
           input.speakerMember?.memberId ?? null,
           input.speakerMember?.userId ?? null,
           policy.organizationMemoryOptIn ? 1 : 0,
+          space?.subjectId ?? null,
+          input.spaceId ?? null,
         ],
       });
       // Use existing active subjects only. A read never creates/revives a graph
       // or trusts a provider selector that differs from its canonical owner.
-      return [...(member ? [member] : []), organization].flatMap((ref) => {
+      return [
+        ...(space ? [space] : []),
+        ...(member ? [member] : []),
+        organization,
+      ].flatMap((ref) => {
         const row = rows.rows.find(
           (row) =>
             row.subject_id === ref.subjectId &&
@@ -58,6 +72,79 @@ export function createPostgresCenterAgentMemoryRepository(
             row.zep_graph_id === (ref.zepGraphId ?? null)
         );
         return row ? [{ ...ref, updatedAtMs: row.updated_at_ms }] : [];
+      });
+    },
+    async upsertSpaceSubject(input) {
+      const ref = buildCenterAgentSpaceMemoryRef(input);
+      const result = await db.query({
+        text: `INSERT INTO "openmeld"."center_agent_memory_subjects"
+          (subject_id, organization_id, subject_kind, space_id, provider, zep_graph_id, status, created_at_ms, updated_at_ms)
+          VALUES ($1, $2, 'space', $3, 'zep_cloud', $4, 'active', $5, $5)
+          ON CONFLICT(subject_id) DO UPDATE SET subject_id = excluded.subject_id
+          WHERE "center_agent_memory_subjects".status = 'active'
+          RETURNING subject_id`,
+        values: [
+          ref.subjectId,
+          input.organizationId,
+          input.spaceId,
+          ref.zepGraphId,
+          input.nowMs,
+        ],
+      });
+      if (!result.rows.length) {
+        throw new Error("center_agent_memory.space_deleted");
+      }
+      return ref;
+    },
+    async markSpaceDeleted(input) {
+      const result = await db.query({
+        text: `UPDATE "openmeld"."center_agent_memory_subjects" SET status = 'deleted', deleted_at_ms = $1, updated_at_ms = $1, last_error = NULL WHERE organization_id = $2 AND subject_kind = 'space' AND space_id = $3`,
+        values: [input.deletedAtMs, input.organizationId, input.spaceId],
+      });
+      return Number(result.rowCount ?? 0) > 0;
+    },
+    async beginSpaceDeletion(input) {
+      const ref = buildCenterAgentSpaceMemoryRef(input);
+      await db.query({
+        text: `INSERT INTO "openmeld"."center_agent_memory_subjects"
+          (subject_id, organization_id, subject_kind, space_id, provider, zep_graph_id, status, created_at_ms, updated_at_ms)
+          VALUES ($1, $2, 'space', $3, 'zep_cloud', $4, 'deleting', $5, $5)
+          ON CONFLICT(subject_id) DO UPDATE SET status = 'deleting', updated_at_ms = excluded.updated_at_ms`,
+        values: [
+          ref.subjectId,
+          input.organizationId,
+          input.spaceId,
+          ref.zepGraphId,
+          input.nowMs,
+        ],
+      });
+    },
+    async isSpaceSubjectActive(input) {
+      const result = await db.query({
+        text: `SELECT 1 FROM "openmeld"."center_agent_memory_subjects" WHERE subject_id = $1 AND organization_id = $2 AND subject_kind = 'space' AND space_id = $3 AND status = 'active' AND deleted_at_ms IS NULL`,
+        values: [
+          buildCenterAgentSpaceMemoryRef(input).subjectId,
+          input.organizationId,
+          input.spaceId,
+        ],
+      });
+      return result.rows.length > 0;
+    },
+    async markSpaceDeleteFailed(input) {
+      const ref = buildCenterAgentSpaceMemoryRef(input);
+      await db.query({
+        text: `INSERT INTO "openmeld"."center_agent_memory_subjects"
+          (subject_id, organization_id, subject_kind, space_id, provider, zep_graph_id, status, created_at_ms, updated_at_ms, last_error)
+          VALUES ($1, $2, 'space', $3, 'zep_cloud', $4, 'delete_failed', $5, $5, $6)
+          ON CONFLICT(subject_id) DO UPDATE SET status = 'delete_failed', updated_at_ms = excluded.updated_at_ms, last_error = excluded.last_error`,
+        values: [
+          ref.subjectId,
+          input.organizationId,
+          input.spaceId,
+          ref.zepGraphId,
+          input.nowMs,
+          input.error,
+        ],
       });
     },
     async markMemberDeleted(input) {

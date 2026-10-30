@@ -56,12 +56,19 @@ export async function attachCenterAgentMemoryToTurnEnvelope(input: {
             organizationId: input.organizationId,
             query,
             speakerMember,
+            ...(contextScopePlan.interactionEnvironment ===
+              "organization_shared" &&
+            turnEnvelope.space.kind === "space" &&
+            turnEnvelope.trigger.source !== "slack" &&
+            turnEnvelope.trigger.source !== "message_channel"
+              ? { spaceId: turnEnvelope.space.id }
+              : {}),
           })
         : await memoryService.recallForOrganization({
             organizationId: input.organizationId,
             query,
           });
-    return memory.items.length > 0 || memory.status
+    return memory.items.length > 0 || memory.status || memory.truncated
       ? { ...turnEnvelope, memory }
       : turnEnvelope;
   } catch (error) {

@@ -124,8 +124,8 @@ export function OrganizationMemoryPolicySection(input: {
 					) : null}
 					<p className="mt-1 text-muted-foreground text-xs leading-5">
 						{input.isPersonalWorkspace
-							? "Use saved Workspace memory in future replies. Shared chats are saved only when you ask. Private chats use your personal memory instead."
-							: "Use saved team memory in future replies. Shared chats are saved only when you ask to remember something for the team. Private chats are not included."}
+							? "Messages sent to Center Agent in a Space can be remembered within that Space. Saving knowledge for the whole Workspace still requires your request. Private chats use personal memory."
+							: "Messages sent to Center Agent in a Space can be remembered within that Space. Saving knowledge for the whole organization still requires an explicit request. Private chats use personal memory."}
 					</p>
 					{memoryPolicyMutation.isPending ? (
 						<p
@@ -204,7 +204,7 @@ function OrganizationMemoryPolicyCard(input: {
 	}
 	return (
 		<AgentConfigurationCard
-			description="Uses saved team memory. Shared chats are saved only when you ask to remember something for the team."
+			description="Remembers messages sent to Center Agent within each Space. Organization-wide saves still require an explicit request."
 			icon={<BrainIcon aria-hidden="true" />}
 			inlineContent={
 				<>

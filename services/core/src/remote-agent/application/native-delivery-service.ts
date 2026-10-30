@@ -7227,6 +7227,15 @@ async function rememberCenterAgentCompletedTurn(input: {
   if (!(source && speakerMember && userMessage)) {
     return;
   }
+  if (source === "space_conversation") {
+    const designation = await readCenterAgentDesignationRecord({
+      db: getPostgresDatabase(input.env),
+      organizationId: input.delivery.organizationId,
+    });
+    if (designation?.agentProfileId !== input.delivery.profileId) {
+      return;
+    }
+  }
   const messageChannelProvider =
     source === "message_channel_conversation"
       ? input.delivery.messageChannelLocator?.provider

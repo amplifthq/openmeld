@@ -20,6 +20,7 @@ export async function searchRetainedCenterAgentMemory(input: {
   speakerMember: { memberId: string; userId: string };
   query: string;
   limit: number;
+  spaceId?: string;
 }): Promise<RetainedMemoryRead> {
   try {
     const refs = await input.repository.readActiveSubjects(input);

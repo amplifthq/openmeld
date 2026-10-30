@@ -101,15 +101,19 @@ export function renderRemoteAgentTurnEnvelope(
     lines.push(
       "",
       "[Scoped memory]",
-      'Memory provenance: {"kind":"historical_memory","sourceVerification":"not_reopened"}',
+      envelope.memory.items.some((item) => item.subject === "space")
+        ? 'Memory provenance: {"kind":"historical_memory","sourceVerification":"space_versions_checked_other_scopes_not_reopened"}'
+        : 'Memory provenance: {"kind":"historical_memory","sourceVerification":"not_reopened"}',
       ...envelope.memory.items.map(
         (item) =>
           `- [${renderMemoryScopeLabel({ contextScopePlan, subject: item.subject })}] ${formatMemorySubject(item.subject)} memory from ${formatMemorySource(item)}: ${item.text}`
       )
     );
-    if (envelope.memory.truncated) {
-      lines.push("- Additional relevant memory was omitted for brevity.");
-    }
+  }
+  if (envelope.memory?.truncated) {
+    lines.push(
+      "Additional whole memory facts were omitted for the turn's context budget."
+    );
   }
 
   return lines.join("\n");
@@ -216,8 +220,18 @@ function renderProtectedInformationHandling(
 
 function renderMemoryScopeLabel(input: {
   contextScopePlan: CenterAgentContextScopePlan;
-  subject: "member" | "organization";
+  subject: "member" | "organization" | "space";
 }): string {
+  if (input.subject === "space") {
+    if (
+      input.contextScopePlan.interactionEnvironment !== "organization_shared"
+    ) {
+      throw new Error(
+        "Space memory requires its authorized shared Space context."
+      );
+    }
+    return "Available in this Space; not Organization-wide knowledge";
+  }
   const handling =
     input.subject === "member"
       ? input.contextScopePlan.memberMemory
@@ -327,7 +341,11 @@ function formatMemorySubject(
     RemoteAgentTurnEnvelope["memory"]
   >["items"][number]["subject"]
 ) {
-  return subject === "organization" ? "organization" : "personal";
+  return {
+    space: "current Space",
+    organization: "organization",
+    member: "personal",
+  }[subject];
 }
 
 function formatMemorySource(

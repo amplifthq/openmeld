@@ -1011,6 +1011,7 @@ import {
   resolveExplicitMemorySourceTurnRequest,
 } from "../center-agent-memory/explicit-memory-origin";
 import { createPostgresCenterAgentMemoryRepository } from "../center-agent-memory/postgresql-memory-repository";
+import { readExplicitMemorySourceExcerpt } from "../center-agent-memory/source-excerpt";
 import { rpcCenterAgentReadChangelog as centerAgentReadChangelog } from "../changelog/changelog-center-agent-rpc";
 import { rpcReadChangelog as readChangelog } from "../changelog/changelog-read-rpc";
 import { createComputerFileAccessRpc } from "../computers/computer-file-access-rpc";
@@ -12358,12 +12359,9 @@ export async function rpcCenterAgentRememberForOrganization(
   env: CoreBindings,
   input: CenterAgentRememberForOrganizationInput
 ): Promise<CenterAgentRememberForOrganizationResponse> {
-  const authorization = await requireCurrentDesignatedCenterAgentCaller({
-    context: requireRpcContext(input.context),
-    env,
-  });
   const parsed = centerAgentRememberForOrganizationBodySchema.safeParse({
     fact: input.fact,
+    ...(input.sourceRef ? { sourceRef: input.sourceRef } : {}),
   });
   if (!parsed.success) {
     throw createCoreRpcHttpError({
@@ -12383,12 +12381,25 @@ export async function rpcCenterAgentRememberForOrganization(
       code: "center_agent_memory.speaker_member_required",
     });
   }
+  const prepared = await prepareCenterAgentRepresentedMemberRequest(
+    env,
+    requireRpcContext(input.context),
+    speakerMember
+  );
+  const authorization = prepared.authorization;
   const memoryService = requireCenterAgentMemoryService(env);
   let saveStatus: "processing" | "processed";
   try {
-    const origin = await requireExplicitMemoryEpisodeOrigin({
+    const saveOrigin = await requireExplicitMemoryEpisodeOrigin({
       authorization,
       env,
+    });
+    const origin = await readExplicitMemorySourceExcerpt({
+      env,
+      prepared,
+      fact: parsed.data.fact,
+      sourceRef: parsed.data.sourceRef,
+      origin: saveOrigin,
     });
     const receipt = await memoryService.rememberFactForOrganization({
       fact: parsed.data.fact,

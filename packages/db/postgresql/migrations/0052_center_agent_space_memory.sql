@@ -1,0 +1,4 @@
+ALTER TABLE "openmeld"."center_agent_memory_subjects" DROP CONSTRAINT "center_agent_memory_subjects_kind_check";--> statement-breakpoint
+ALTER TABLE "openmeld"."center_agent_memory_subjects" ADD COLUMN "space_id" text;--> statement-breakpoint
+ALTER TABLE "openmeld"."center_agent_memory_subjects" ADD CONSTRAINT "center_agent_memory_subjects_space_shape_check" CHECK (("subject_kind" = 'space' AND "space_id" IS NOT NULL AND length(trim("space_id")) > 0 AND "member_id" IS NULL AND "member_user_id" IS NULL AND "zep_user_id" IS NULL AND "zep_graph_id" IS NOT NULL) OR ("subject_kind" <> 'space' AND "space_id" IS NULL));--> statement-breakpoint
+ALTER TABLE "openmeld"."center_agent_memory_subjects" ADD CONSTRAINT "center_agent_memory_subjects_kind_check" CHECK ("subject_kind" in ('member', 'organization', 'space'));

@@ -5690,7 +5690,7 @@ parallel shapes.
 Core owns authorization, policy, provider access, and projection. The provider
 name in an HTTP response is descriptive metadata, not authority. The worker
 consumes only the turn-envelope projection and must not query Zep or infer
-member/organization scope from Flue session state.
+member/organization/Space scope from Flue session state.
 
 Each projected memory item carries its episode source, and Message Channel
 memory also carries its exact provider. Core includes the episode occurrence
@@ -5721,14 +5721,53 @@ Automatic completed-turn writes also consume the frozen Core-owned
 `interactionEnvironment` from the stored native-delivery request. Before
 writing, Core verifies that the stored Organization, conversation, and sender
 still align with the delivery and the owning current-membership projection.
-`requester_private` writes the verified member subject. Both
-`organization_shared` and `externally_shared` write neither scope automatically;
-shared turns never fall back to personal capture. Explicit authorized team saves
-remain a separate path controlled by the existing Organization memory setting.
+`requester_private` writes the verified member subject. `organization_shared`
+may write a separate Space subject only after current member and owning-Space
+source checks. Shared Channels and `externally_shared` still write neither
+automatically. Shared turns never fall back to personal capture. Explicit team
+saves remain a separate path controlled by the Organization memory setting.
 Source values such as
 `slack_conversation` and `message_channel_conversation` remain provenance and
 must not choose the memory subject. Missing or conflicting frozen scope fails
 closed.
+
+The Space-memory increment adds `space` to the memory subject and retained-search
+scope enums. Search source references can include an evidence version and author
+kind. Automatic Space recall verifies every supporting source version; that
+verification does not establish an adopted current decision. Whole facts share
+the existing item/text budgets, and omission remains explicit even for an empty
+envelope. No raw source IDs enter automatic memory text.
+
+OpenMeld explicit saves accept the existing `SpaceEvidenceReference` message
+variant as `sourceRef`. It is optional at the shared request-shape level because
+Channels retain their prior contract; Core requires it for OpenMeld sources and
+verifies an exact excerpt against the owning message version. An old OpenMeld
+caller without a reference gets a conflict and makes no provider write.
+
+#### Space memory contract impact audit
+
+- PostgreSQL migration `0052_center_agent_space_memory` adds a nullable Space ID
+  and the constrained `space` subject kind. Existing member/organization rows and
+  old writers remain valid. Apply the migration before the new Core reader/writer.
+- Remote Agent must be upgraded before Core emits `subject=space` or the optional
+  retained-search source metadata; older strict receivers reject those additions.
+  The new receiver accepts old envelopes. New save callers sending a reference to
+  old Core still get legacy behavior until Core is upgraded; source binding is
+  only guaranteed after both components are current.
+- Core validates source binding and represented-member identity. Legacy in-flight
+  OpenMeld save callers fail closed until they use the new tool shape. There is no
+  fallback to unsourced writes. Channel callers keep their existing shape.
+- Gateway policy/member-wipe payloads, workstation Wake, setup, trace, CLI, Service
+  and Organization Skill protocols do not gain fields or authority. No local
+  protocol-floor change is required. Assess any transitive packaged Service hash
+  through the existing release-readiness procedure during release integration.
+- Web copy must describe Space capture separately from Organization-wide saves.
+  The existing Organization setting remains the single policy control; no second
+  client-side memory state is introduced.
+- Once Space subjects exist, rolling Core back below this capability also removes
+  Space cleanup support. Do not claim that an additive database migration alone
+  makes that rollback safe; retain a cleanup-capable Core or use an explicitly
+  reviewed rollback/erasure plan. No production rollout is implied by local tests.
 
 ### Private Center Agent evidence-read contracts
 

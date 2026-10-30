@@ -38,6 +38,7 @@ type ZepMemoryAdapterLogger = Pick<Console, "warn">;
 
 const ALREADY_EXISTS_ERROR_PATTERN = /already exists|conflict/i;
 const NOT_FOUND_ERROR_PATTERN = /not found|missing/i;
+const SOURCE_VERSION_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const CENTER_AGENT_MEMORY_MAX_PROVENANCE_EPISODES_PER_EDGE =
   CENTER_AGENT_RETAINED_MEMORY_MAX_SOURCES;
 const CENTER_AGENT_MEMORY_SOURCES = new Set<CenterAgentMemorySource>([
@@ -55,6 +56,8 @@ const OPENMELD_MEMORY_METADATA_KEYS = {
   source: "openmeld_memory_source",
   sourceConversationId: "openmeld_memory_source_conversation_id",
   sourceMessageId: "openmeld_memory_source_message_id",
+  sourceVersion: "openmeld_memory_source_version",
+  sourceAuthorKind: "openmeld_memory_source_author_kind",
   version: "openmeld_memory_version",
 } as const;
 
@@ -215,9 +218,22 @@ export function createZepCenterAgentMemoryAdapter(input: {
 
     async search(searchInput) {
       // Automatic prompt recall retains its existing single-origin projection.
-      const records = await searchRecords(searchInput, false);
+      const records = await searchRecords(
+        searchInput,
+        searchInput.ref.subject.kind === "space"
+      );
       return records.flatMap((record) =>
-        record.status === "resolved" ? [record.item] : []
+        record.status === "resolved"
+          ? [
+              {
+                ...record.item,
+                ...(searchInput.ref.subject.kind === "space" ||
+                record.sources.some((source) => source.sourceAuthorKind)
+                  ? { supportingSources: record.sources }
+                  : {}),
+              },
+            ]
+          : []
       );
     },
     async searchDetailed(searchInput) {
@@ -285,6 +301,12 @@ function buildEpisodeMetadata(
     );
     metadata[OPENMELD_MEMORY_METADATA_KEYS.messageChannelProvider] = provider;
   }
+  if (episode.sourceVersion && episode.sourceAuthorKind) {
+    metadata[OPENMELD_MEMORY_METADATA_KEYS.sourceVersion] =
+      episode.sourceVersion;
+    metadata[OPENMELD_MEMORY_METADATA_KEYS.sourceAuthorKind] =
+      episode.sourceAuthorKind;
+  }
   return metadata;
 }
 
@@ -308,6 +330,12 @@ function formatEpisodeSourceDescription(
 }
 
 function formatEpisode(episode: CenterAgentMemoryEpisode): string {
+  if (episode.sourceVersion && episode.sourceAuthorKind) {
+    const author = { human: "Human", agent: "Agent", system: "System notice" }[
+      episode.sourceAuthorKind
+    ];
+    return `${author} (original source excerpt): ${episode.userMessage}`;
+  }
   return [
     `User: ${episode.userMessage}`,
     `Center Agent: ${episode.assistantMessage}`,
@@ -431,9 +459,30 @@ async function readMemorySearchResult(input: {
       ...original.value,
       subject: input.subject,
       text: formatFactValidity(input.edge, text),
+      ...spaceFactValidity(input.subject, input.edge),
     },
     sources: provenance.map(({ value }) => value),
     status: "resolved",
+  };
+}
+
+function spaceFactValidity(
+  subject: CenterAgentMemorySearchResult["subject"],
+  edge: Zep.EntityEdge
+): Pick<CenterAgentMemorySearchResult, "validity"> {
+  if (subject !== "space") {
+    return {};
+  }
+  const invalidAtMs = edge.invalidAt ? Date.parse(edge.invalidAt) : Number.NaN;
+  const expiredAtMs = edge.expiredAt ? Date.parse(edge.expiredAt) : Number.NaN;
+  if (!(Number.isFinite(invalidAtMs) || Number.isFinite(expiredAtMs))) {
+    return {};
+  }
+  return {
+    validity: {
+      ...(Number.isFinite(invalidAtMs) ? { invalidAtMs } : {}),
+      ...(Number.isFinite(expiredAtMs) ? { expiredAtMs } : {}),
+    },
   };
 }
 
@@ -478,7 +527,7 @@ function parseEpisodeProvenance(
 function parseStructuredEpisodeProvenance(
   metadata: Record<string, unknown>
 ): EpisodeProvenance | null {
-  return buildParsedProvenance({
+  const provenance = buildParsedProvenance({
     captureMethod: metadata[OPENMELD_MEMORY_METADATA_KEYS.captureMethod],
     messageChannelProvider:
       metadata[OPENMELD_MEMORY_METADATA_KEYS.messageChannelProvider],
@@ -488,6 +537,26 @@ function parseStructuredEpisodeProvenance(
       metadata[OPENMELD_MEMORY_METADATA_KEYS.sourceConversationId],
     sourceMessageId: metadata[OPENMELD_MEMORY_METADATA_KEYS.sourceMessageId],
   });
+  const version = metadata[OPENMELD_MEMORY_METADATA_KEYS.sourceVersion];
+  const authorKind = metadata[OPENMELD_MEMORY_METADATA_KEYS.sourceAuthorKind];
+  if (version === undefined && authorKind === undefined) {
+    return provenance;
+  }
+  if (
+    !provenance ||
+    typeof version !== "string" ||
+    !SOURCE_VERSION_PATTERN.test(version) ||
+    (authorKind !== "human" &&
+      authorKind !== "agent" &&
+      authorKind !== "system")
+  ) {
+    return null;
+  }
+  return {
+    ...provenance,
+    sourceVersion: version,
+    sourceAuthorKind: authorKind,
+  };
 }
 
 function parseLegacyEpisodeProvenance(

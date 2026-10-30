@@ -4,6 +4,7 @@ import {
   REMOTE_AGENT_TURN_ENVELOPE_MEMORY_ITEM_TEXT_MAX_CHARS,
 } from "@openmeld/schemas";
 import type {
+  CenterAgentContextManifestEntry,
   MessageChannelProvider,
   RemoteAgentTurnEnvelope,
   RemoteAgentTurnEnvelopeMemory,
@@ -29,7 +30,7 @@ export type CenterAgentMemorySource =
   | "slack_conversation"
   | "space_conversation";
 export type CenterAgentMemoryCaptureMethod = "automatic_turn" | "explicit_save";
-export type CenterAgentMemorySubjectKind = "member" | "organization";
+export type CenterAgentMemorySubjectKind = "member" | "organization" | "space";
 
 export type CenterAgentMemoryPolicy = {
   organizationMemoryOptIn: boolean;
@@ -50,7 +51,8 @@ export type CenterAgentMemoryOrganizationSubject = {
 
 export type CenterAgentMemorySubject =
   | CenterAgentMemoryMemberSubject
-  | CenterAgentMemoryOrganizationSubject;
+  | CenterAgentMemoryOrganizationSubject
+  | { kind: "space"; organizationId: string; spaceId: string };
 
 export type CenterAgentMemoryRef = {
   provider: CenterAgentMemoryProvider;
@@ -69,6 +71,8 @@ export type CenterAgentMemoryEpisode = {
   sourceConversationId: string;
   sourceMessageId: string;
   userMessage: string;
+  sourceVersion?: string;
+  sourceAuthorKind?: "human" | "agent" | "system";
 };
 
 export type CenterAgentMemorySearchResult = {
@@ -80,6 +84,14 @@ export type CenterAgentMemorySearchResult = {
   sourceMessageId: string;
   subject: CenterAgentMemorySubjectKind;
   text: string;
+  sourceVersion?: string;
+  sourceAuthorKind?: "human" | "agent" | "system";
+  supportingSources?: (CenterAgentMemoryEpisodeOrigin & {
+    captureMethod: CenterAgentMemoryCaptureMethod;
+  })[];
+  validity?: { invalidAtMs?: number; expiredAtMs?: number };
+  representation?: "source_message";
+  sourceSpeakers?: CenterAgentContextManifestEntry["author"][];
 };
 
 export type CenterAgentMemoryDetailedSearchItem = {
@@ -103,6 +115,7 @@ export type CenterAgentMemoryReadRepository = {
   readActiveSubjects(input: {
     organizationId: string;
     speakerMember?: { memberId: string; userId: string };
+    spaceId?: string;
   }): Promise<(CenterAgentMemoryRef & { updatedAtMs: number })[]>;
 };
 
@@ -125,6 +138,31 @@ export type CenterAgentMemoryAdapter = {
 };
 
 export type CenterAgentMemoryRepository = CenterAgentMemoryReadRepository & {
+  upsertSpaceSubject(input: {
+    organizationId: string;
+    spaceId: string;
+    nowMs: number;
+  }): Promise<CenterAgentMemoryRef>;
+  beginSpaceDeletion(input: {
+    organizationId: string;
+    spaceId: string;
+    nowMs: number;
+  }): Promise<void>;
+  isSpaceSubjectActive(input: {
+    organizationId: string;
+    spaceId: string;
+  }): Promise<boolean>;
+  markSpaceDeleted(input: {
+    organizationId: string;
+    spaceId: string;
+    deletedAtMs: number;
+  }): Promise<boolean>;
+  markSpaceDeleteFailed(input: {
+    organizationId: string;
+    spaceId: string;
+    nowMs: number;
+    error: string;
+  }): Promise<void>;
   markMemberDeleted(input: {
     deletedAtMs: number;
     organizationId: string;
@@ -200,11 +238,14 @@ export type CenterAgentMemoryEpisodeOrigin = {
   source: CenterAgentMemorySource;
   sourceConversationId: string;
   sourceMessageId: string;
+  sourceVersion?: string;
+  sourceAuthorKind?: "human" | "agent" | "system";
 };
 
 export type RecallCenterAgentMemoryForTurnInput = {
   organizationId: string;
   query: string;
+  spaceId?: string;
   speakerMember: {
     memberId: string;
     userId: string;
@@ -252,3 +293,39 @@ export function buildCenterAgentOrganizationMemoryRef(input: {
     zepGraphId,
   };
 }
+
+export function buildCenterAgentSpaceMemoryRef(input: {
+  organizationId: string;
+  spaceId: string;
+}): CenterAgentMemoryRef {
+  const zepGraphId = `org:${input.organizationId}:space:${input.spaceId}:center-agent`;
+  return {
+    provider: "zep_cloud",
+    subject: {
+      kind: "space",
+      organizationId: input.organizationId,
+      spaceId: input.spaceId,
+    },
+    subjectId: zepGraphId,
+    zepGraphId,
+  };
+}
+
+export type CenterAgentMemorySpaceAccess = {
+  canRead(input: {
+    organizationId: string;
+    spaceId: string;
+    speakerMember: { memberId: string; userId: string };
+  }): Promise<boolean>;
+  readSource(input: {
+    organizationId: string;
+    spaceId: string;
+    signalId: string;
+    speakerMember: { memberId: string; userId: string };
+  }): Promise<{
+    text: string;
+    version: string;
+    occurredAtMs: number;
+    author: CenterAgentContextManifestEntry["author"];
+  } | null>;
+};

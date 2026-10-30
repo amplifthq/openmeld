@@ -1,6 +1,7 @@
 import {
   buildCenterAgentMemberMemoryRef,
   buildCenterAgentOrganizationMemoryRef,
+  buildCenterAgentSpaceMemoryRef,
   CENTER_AGENT_MEMORY_MAX_ENVELOPE_TEXT_CHARS,
   CENTER_AGENT_MEMORY_MAX_ITEM_TEXT_CHARS,
   CENTER_AGENT_MEMORY_MAX_ITEMS,
@@ -14,6 +15,7 @@ import {
   type CenterAgentMemoryPolicy,
   type CenterAgentMemoryRepository,
   type CenterAgentMemorySearchResult,
+  type CenterAgentMemorySpaceAccess,
   type RecallCenterAgentMemoryForTurnInput,
   type RecallCenterAgentMemoryForTurnResult,
   type RecallCenterAgentOrganizationMemoryInput,
@@ -22,6 +24,10 @@ import {
 import { interleaveMemoryScopes } from "./memory-selection";
 
 export type CenterAgentMemoryService = {
+  deleteSpaceMemory(input: {
+    organizationId: string;
+    spaceId: string;
+  }): Promise<"deleted" | "not_found">;
   deleteMemberMemory(input: {
     organizationId: string;
     userId: string;
@@ -59,6 +65,8 @@ export function createCenterAgentMemoryService(input: {
   repository: CenterAgentMemoryRepository;
   recallTimeoutMs?: number;
   writeTimeoutMs?: number;
+  spaceAccess?: CenterAgentMemorySpaceAccess;
+  waitUntil?: (promise: Promise<unknown>) => void;
 }): CenterAgentMemoryService {
   const nowMs = input.nowMs ?? Date.now;
   const logger = input.logger ?? console;
@@ -72,7 +80,109 @@ export function createCenterAgentMemoryService(input: {
       | RecallCenterAgentMemoryForTurnInput
       | RecallCenterAgentOrganizationMemoryInput
   ) {
-    const refs = await input.repository.readActiveSubjects(recallInput);
+    const spaceRead =
+      "spaceId" in recallInput &&
+      recallInput.spaceId &&
+      "speakerMember" in recallInput
+        ? {
+            organizationId: recallInput.organizationId,
+            spaceId: recallInput.spaceId,
+            speakerMember: recallInput.speakerMember,
+          }
+        : null;
+    const allowedSpace =
+      spaceRead && (await input.spaceAccess?.canRead(spaceRead));
+    const readInput = {
+      ...recallInput,
+      spaceId: allowedSpace ? spaceRead.spaceId : undefined,
+    };
+    const refs = (await input.repository.readActiveSubjects(readInput)).filter(
+      (ref) =>
+        ref.subject.kind !== "space" ||
+        (allowedSpace && ref.subject.spaceId === spaceRead.spaceId)
+    );
+    const sourceReads = new Map<
+      string,
+      ReturnType<CenterAgentMemorySpaceAccess["readSource"]>
+    >();
+    async function isCurrentSpaceSource(
+      source: CenterAgentMemoryEpisodeOrigin
+    ) {
+      if (
+        !(spaceRead && input.spaceAccess) ||
+        source.source !== "space_conversation" ||
+        source.sourceConversationId !== spaceRead.spaceId ||
+        !source.sourceVersion
+      ) {
+        return false;
+      }
+      let read = sourceReads.get(source.sourceMessageId);
+      if (!read) {
+        if (sourceReads.size >= 48) {
+          return false;
+        }
+        read = input.spaceAccess.readSource({
+          ...spaceRead,
+          signalId: source.sourceMessageId,
+        });
+        sourceReads.set(source.sourceMessageId, read);
+      }
+      const current = await read;
+      return (
+        current?.version === source.sourceVersion &&
+        current.author.profileKind === source.sourceAuthorKind
+      );
+    }
+    async function checkSpaceSources(results: CenterAgentMemorySearchResult[]) {
+      const accepted = await Promise.all(
+        results.map(async (candidate) => {
+          const supports = candidate.supportingSources ?? [candidate];
+          if (!supports.length) {
+            return null;
+          }
+          const current = await Promise.all(supports.map(isCurrentSpaceSource));
+          if (!current.every(Boolean)) {
+            return null;
+          }
+          const speakers = new Map<
+            string,
+            NonNullable<
+              Awaited<ReturnType<CenterAgentMemorySpaceAccess["readSource"]>>
+            >["author"]
+          >();
+          for (const source of supports) {
+            const snapshot = await sourceReads.get(source.sourceMessageId);
+            if (snapshot) {
+              speakers.set(snapshot.author.profileId, snapshot.author);
+            }
+          }
+          return { ...candidate, sourceSpeakers: [...speakers.values()] };
+        })
+      );
+      const facts = accepted.filter((candidate) => candidate !== null);
+      const evidence = new Map<string, CenterAgentMemorySearchResult>();
+      for (const fact of facts) {
+        for (const source of selectGroundingSources(fact)) {
+          if (evidence.has(source.sourceMessageId)) {
+            continue;
+          }
+          const snapshot = await sourceReads.get(source.sourceMessageId);
+          if (!snapshot) {
+            continue;
+          }
+          evidence.set(source.sourceMessageId, {
+            ...source,
+            subject: "space",
+            representation: "source_message",
+            text: `Original source message (historical evidence): ${JSON.stringify({ author: snapshot.author, receivedBy: "Center Agent", text: snapshot.text })}`,
+            supportingSources: [source],
+          });
+        }
+      }
+      return [...evidence.values()]
+        .sort((left, right) => right.occurredAtMs - left.occurredAtMs)
+        .concat(facts);
+    }
     const results = await Promise.all(
       refs.map((ref) =>
         recallMemory({
@@ -82,10 +192,17 @@ export function createCenterAgentMemoryService(input: {
           query: recallInput.query,
           ref,
           timeoutMs: recallTimeoutMs,
+          ...(ref.subject.kind === "space"
+            ? { validate: checkSpaceSources }
+            : {}),
         })
       )
     );
-    const currentRefs = await input.repository.readActiveSubjects(recallInput);
+    const stillAllowed =
+      spaceRead && (await input.spaceAccess?.canRead(spaceRead));
+    const currentRefs = (
+      await input.repository.readActiveSubjects(readInput)
+    ).filter((ref) => ref.subject.kind !== "space" || stillAllowed);
     const currentResults = results.filter((_, index) =>
       currentRefs.some(
         (current) =>
@@ -106,6 +223,32 @@ export function createCenterAgentMemoryService(input: {
   }
 
   return {
+    async deleteSpaceMemory(deleteInput) {
+      const ref = buildCenterAgentSpaceMemoryRef(deleteInput);
+      await input.repository.beginSpaceDeletion({
+        ...deleteInput,
+        nowMs: nowMs(),
+      });
+      try {
+        const status = await withTimeout(
+          input.adapter.deleteOrganizationGraph(ref),
+          writeTimeoutMs,
+          "center_agent_memory.space_delete_timeout"
+        );
+        const existed = await input.repository.markSpaceDeleted({
+          ...deleteInput,
+          deletedAtMs: nowMs(),
+        });
+        return existed || status === "deleted" ? "deleted" : "not_found";
+      } catch (error) {
+        await input.repository.markSpaceDeleteFailed({
+          ...deleteInput,
+          nowMs: nowMs(),
+          error: toErrorMessage(error),
+        });
+        throw error;
+      }
+    },
     async deleteMemberMemory(deleteInput) {
       const ref = buildCenterAgentMemberMemoryRef({
         memberId: "deleted_member",
@@ -211,8 +354,85 @@ export function createCenterAgentMemoryService(input: {
       return { status: receipt.processed ? "processed" : "processing" };
     },
     async rememberTurn(rememberInput) {
-      // Shared conversations require an explicit organization save. Never
-      // reinterpret shared chatter as a private member episode.
+      if (
+        rememberInput.interactionEnvironment === "organization_shared" &&
+        rememberInput.source === "space_conversation"
+      ) {
+        const policy = await input.repository.readPolicy(
+          rememberInput.organizationId
+        );
+        if (!(policy.organizationMemoryOptIn && input.spaceAccess)) {
+          return;
+        }
+        const access = {
+          organizationId: rememberInput.organizationId,
+          spaceId: rememberInput.sourceConversationId,
+          speakerMember: rememberInput.speakerMember,
+        };
+        const source = await input.spaceAccess.readSource({
+          ...access,
+          signalId: rememberInput.sourceMessageId,
+        });
+        if (!source) {
+          throw new Error("center_agent_memory.space_source_unavailable");
+        }
+        if (!source.text.trim()) {
+          return;
+        }
+        const ref = await input.repository.upsertSpaceSubject({
+          organizationId: access.organizationId,
+          spaceId: access.spaceId,
+          nowMs: nowMs(),
+        });
+        const write = (async () => {
+          await input.adapter.ensureOrganizationGraph(ref);
+          if (
+            !(
+              (await input.repository.isSpaceSubjectActive(access)) &&
+              (await input.repository.readPolicy(access.organizationId))
+                .organizationMemoryOptIn &&
+              (await input.spaceAccess?.canRead(access))
+            )
+          ) {
+            return;
+          }
+          await input.adapter.addEpisode({
+            ref,
+            episode: {
+              source: "space_conversation",
+              sourceConversationId: access.spaceId,
+              sourceMessageId: rememberInput.sourceMessageId,
+              captureMethod: "automatic_turn",
+              assistantMessage: "",
+              userMessage: source.text,
+              occurredAtMs: source.occurredAtMs,
+              sourceVersion: source.version,
+              sourceAuthorKind: source.author.profileKind,
+            },
+          });
+          if (!(await input.repository.isSpaceSubjectActive(access))) {
+            try {
+              await input.adapter.deleteOrganizationGraph(ref);
+            } catch (error) {
+              await input.repository.markSpaceDeleteFailed({
+                ...access,
+                nowMs: nowMs(),
+                error: toErrorMessage(error),
+              });
+              throw error;
+            }
+          }
+        })();
+        input.waitUntil?.(write);
+        await withTimeout(
+          write,
+          writeTimeoutMs,
+          "center_agent_memory.space_write_timeout"
+        );
+        return;
+      }
+      // Provider Channels keep their existing capture policy. A Space capture
+      // never becomes Organization memory or an individual member's episode.
       if (rememberInput.interactionEnvironment !== "requester_private") {
         return;
       }
@@ -256,6 +476,22 @@ export function createCenterAgentMemoryService(input: {
     },
   };
 }
+function selectGroundingSources(fact: CenterAgentMemorySearchResult) {
+  const supports = fact.supportingSources ?? [fact];
+  if ((fact.sourceSpeakers?.length ?? 0) > 1) {
+    return supports;
+  }
+  if (
+    fact.validity?.invalidAtMs === undefined &&
+    fact.validity?.expiredAtMs === undefined
+  ) {
+    return [];
+  }
+  return supports
+    .filter((source) => source.occurredAtMs > fact.occurredAtMs)
+    .sort((left, right) => right.occurredAtMs - left.occurredAtMs)
+    .slice(0, 1);
+}
 async function recallMemory(input: {
   adapter: CenterAgentMemoryAdapter;
   limit: number;
@@ -263,14 +499,21 @@ async function recallMemory(input: {
   query: string;
   ref: Parameters<CenterAgentMemoryAdapter["search"]>[0]["ref"];
   timeoutMs: number;
+  validate?: (
+    results: CenterAgentMemorySearchResult[]
+  ) => Promise<CenterAgentMemorySearchResult[]>;
 }): Promise<CenterAgentMemorySearchResult[] | null> {
   try {
     return await withTimeout(
-      input.adapter.search({
-        limit: input.limit,
-        query: truncateMemorySearchQuery(input.query),
-        ref: input.ref,
-      }),
+      input.adapter
+        .search({
+          limit: input.limit,
+          query: truncateMemorySearchQuery(input.query),
+          ref: input.ref,
+        })
+        .then((results) =>
+          input.validate ? input.validate(results) : results
+        ),
       input.timeoutMs,
       "center_agent_memory.recall_timeout"
     );
@@ -298,11 +541,13 @@ function projectMemoryEnvelope(
   const candidates = results.filter((result) =>
     normalizeMemoryText(result.text)
   );
-  const selected = candidates.slice(0, CENTER_AGENT_MEMORY_MAX_ITEMS);
-  let truncated = candidates.length > selected.length;
+  let truncated = false;
 
-  for (const [index, result] of selected.entries()) {
-    const normalizedFact = normalizeMemoryText(result.text);
+  for (const result of candidates) {
+    const normalizedFact =
+      result.representation === "source_message"
+        ? result.text.trim()
+        : normalizeMemoryText(result.text);
     if (!normalizedFact) {
       continue;
     }
@@ -310,18 +555,30 @@ function projectMemoryEnvelope(
       captureMethod: result.captureMethod,
       occurredAtMs: result.occurredAtMs,
       text: normalizedFact,
+      sourceAuthors:
+        result.representation === "source_message"
+          ? []
+          : (result.sourceSpeakers?.map(
+              (speaker) =>
+                `${speaker.profileKind} ${JSON.stringify(speaker.profileName)} (${speaker.profileId})`
+            ) ??
+            [
+              ...new Set(
+                (result.supportingSources ?? [result]).flatMap((source) =>
+                  source.sourceAuthorKind ? [source.sourceAuthorKind] : []
+                )
+              ),
+            ].sort()),
     });
-    const itemText = truncateMemoryText(
-      normalizedText,
-      Math.min(
-        CENTER_AGENT_MEMORY_MAX_ITEM_TEXT_CHARS,
-        Math.floor(remainingChars / (selected.length - index))
-      )
-    );
-    if (itemText.truncated) {
+    if (
+      items.length >= CENTER_AGENT_MEMORY_MAX_ITEMS ||
+      normalizedText.length >
+        Math.min(CENTER_AGENT_MEMORY_MAX_ITEM_TEXT_CHARS, remainingChars)
+    ) {
       truncated = true;
+      continue;
     }
-    const text = itemText.text;
+    const text = normalizedText;
     items.push(buildMemoryEnvelopeItem({ result, text }));
     remainingChars -= text.length;
   }
@@ -354,29 +611,18 @@ function formatMemoryText(input: {
   captureMethod: CenterAgentMemorySearchResult["captureMethod"];
   occurredAtMs: number;
   text: string;
+  sourceAuthors?: string[];
 }): string {
   const captureLabel =
     input.captureMethod === "explicit_save" ? " [Explicitly saved]" : "";
-  return `[Recorded ${new Date(input.occurredAtMs).toISOString()}]${captureLabel} ${input.text}`;
+  const authors = input.sourceAuthors?.length
+    ? ` [Source authors: ${input.sourceAuthors.join(", ")}]`
+    : "";
+  return `[Recorded ${new Date(input.occurredAtMs).toISOString()}]${captureLabel}${authors} ${input.text}`;
 }
 function normalizeMemoryText(value: string): string | null {
   const normalized = value.trim().replace(/\s+/gu, " ");
   return normalized.length > 0 ? normalized : null;
-}
-function truncateMemoryText(
-  text: string,
-  maxChars: number
-): {
-  text: string;
-  truncated: boolean;
-} {
-  if (text.length <= maxChars) {
-    return { text, truncated: false };
-  }
-  return {
-    text: `${text.slice(0, maxChars - 3)}...`,
-    truncated: true,
-  };
 }
 export { withTimeout as withCenterAgentMemoryTimeout };
 async function withTimeout<T>(

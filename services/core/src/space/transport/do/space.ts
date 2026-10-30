@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { deleteCoreCenterAgentSpaceMemory } from "../../../center-agent-memory/core-memory-service";
 import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   resolveWakeStopEligibility,
@@ -21049,6 +21050,12 @@ export class Space extends DurableObject<CoreBindings> {
       profileName?: string | null;
     }
   ): Promise<void> {
+    if (existing.organizationId) {
+      await deleteCoreCenterAgentSpaceMemory(this.bindings, {
+        organizationId: existing.organizationId,
+        spaceId: this.spaceId,
+      });
+    }
     await this.projectDeletedSpaceIndexSnapshot({
       deletedAt: new Date().toISOString(),
       deletedByOwnerUserId: actor.ownerUserId,
