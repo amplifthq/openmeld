@@ -7442,9 +7442,24 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     {
       expectedPayload: {
         fact: "The launch owner is Maya.",
+        includeStatus: true,
+        sourceRef: {
+          kind: "message",
+          spaceId: SPACE_ID,
+          sourceSignalId: "source-message",
+          version: `sha256:${"a".repeat(64)}`,
+        },
         speakerMember: { memberId: "member_123", userId: "user_1" },
       },
-      input: { fact: "The launch owner is Maya." },
+      input: {
+        fact: "The launch owner is Maya.",
+        sourceRef: {
+          kind: "message",
+          spaceId: SPACE_ID,
+          sourceSignalId: "source-message",
+          version: `sha256:${"a".repeat(64)}`,
+        },
+      },
       response: rememberForOrganizationResponse(),
       rpcName: "centerAgentRememberForOrganization",
       toolName: "openmeld_remember_for_organization",

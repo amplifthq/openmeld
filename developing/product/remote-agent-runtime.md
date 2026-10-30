@@ -4722,11 +4722,15 @@ contract in Core, with Zep Cloud behind a provider adapter:
 
 - Core recalls the current member's organization-scoped member memory for a
   turn. When organization memory is enabled, it may also recall the shared
-  organization subject.
+  organization subject. In an authorized ordinary Space it may additionally
+  recall that Space's isolated subject. That context must not be treated as
+  Organization-wide knowledge.
 - Completed requester-private Center Agent turns write only the verified
   member's memory across OpenMeld, Slack, Lark, and Feishu DMs. Completed shared
-  Space and Organization-shared Channel turns may write Organization memory
-  while it is enabled. Externally shared Channels write neither automatically.
+  Space turns capture the owning source message into that Space's memory while
+  the Organization policy is enabled. The generated reply is not reattributed
+  to the human. Organization-shared Channels still require explicit saves;
+  externally shared Channels write neither automatically.
 - Core reads automatic-write scope from the completed delivery's frozen
   `interactionEnvironment`, revalidates its verified sender against current
   Organization membership, and fails closed when those facts are missing,
@@ -4737,6 +4741,11 @@ contract in Core, with Zep Cloud behind a provider adapter:
   the call only while organization memory is enabled; it rejects stale or
   forged calls from requester-private and externally shared environments even
   if an old or compromised worker attempts the RPC.
+- An explicit OpenMeld save supplies a message evidence reference and an exact
+  excerpt. Core reopens the current source, checks its version and excerpt, and
+  retains its author and version time. A recalled or changed message returns a
+  conflict; the worker must read the source again. Memory is still historical
+  reference data, not an adopted rule or action authority.
 - Core projects bounded memory items into the shared turn envelope before
   worker submission. The worker and Flue session must not query Zep, infer the
   enabled state, or create a parallel memory policy.

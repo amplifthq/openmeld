@@ -3886,17 +3886,54 @@ bundle hash; stamp that artifact available during final release integration.
 This change needs no data migration.
 
 Core owns the OpenMeld memory model. PostgreSQL stores the Organization enabled policy,
-member/organization subject identity, provider references, deletion lifecycle,
+member/organization/Space subject identity, provider references, deletion lifecycle,
 and deletion errors. Zep Cloud stores the semantic episodes and search index
 behind Core's `CenterAgentMemoryAdapter`; no client, worker, or tool may use Zep
 as an authorization, scope, or policy owner.
 
-Member memory and organization memory are separate subjects. The product rules
+Member, Organization and Space memory are separate subjects. A Space subject's
+canonical key includes its Organization and Space ID; it never supplies another
+Space's recall. The product rules
 for when each subject may be written live in
 `developing/product/organizations-and-center-agent.md`. Core alone resolves
 those rules, performs provider reads/writes, and projects a bounded memory list
 into the Remote Agent turn envelope. The worker consumes that projection and
 must not query provider state directly.
+
+Space memory uses the existing PostgreSQL subject registry with `subject_kind`
+`space` and a constrained `space_id`, not another store of business facts. Core
+checks current membership and owning-Space access before and after recall, and
+reopens every supporting message version within the recall deadline. Revoked,
+recalled, changed, unversioned, or cross-Space support is withheld. The model sees
+the public speaker identities attached to those readable Space messages. Private
+source-location identifiers and provider episode IDs stay out of automatic text.
+Whole facts share the existing context budget; facts that do not fit are omitted
+with an explicit truncation indication rather than clipped into a different claim.
+
+Provider invalidation is structured evidence, not only a text hint. When a
+superseded fact links to a later verified message, Core can retain that exact
+message as source grounding instead of discarding it after the version check.
+Mixed speakers likewise retain original-source context. Excerpts are JSON-quoted,
+deduplicated and kept whole within the same budget; historical semantic facts are
+not globally filtered out. This gives the model readable evidence for corrections
+without making a remembered rule an execution permission or adopted decision.
+
+Permanent Space purge erases its graph before removing the owning source storage.
+Deletion first fences new captures in the subject registry. Reads and new callbacks
+cannot revive the tombstone; an already-started write rechecks that fence and
+cleans up a late result. The write remains registered with `waitUntil` even if
+the caller's bounded wait expires. Failed cleanup remains diagnosable and retryable.
+Account erasure distinguishes Space, member and Organization subjects. Ordinary
+Space deletion retains history under the existing Space retention/access policy;
+it is not a claim that retained source history was permanently erased.
+
+Versioned OpenMeld explicit saves reuse the existing message evidence contract.
+The selected excerpt must occur in the current referenced source version, in
+the original conversation, with current represented-member access. The episode
+uses the source author and source-version time (`editedAt` when present), never
+the later save request's time or an Agent paraphrase labeled as a user statement.
+Source versions and author kinds are provider provenance metadata. They do not
+make a remembered fact an approved rule or replace current Guide/Document reads.
 
 Each Zep episode carries structured OpenMeld provenance metadata: the stable
 memory source, capture method, source conversation and message references,

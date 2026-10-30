@@ -55,6 +55,7 @@ import * as summaryRecoveryService from "../src/center-agent/application/task-su
 import {
   buildCenterAgentMemberMemoryRef,
   buildCenterAgentOrganizationMemoryRef,
+  buildCenterAgentSpaceMemoryRef,
   CENTER_AGENT_MEMORY_SEARCH_QUERY_MAX_CHARS,
   type CenterAgentMemoryAdapter,
   type CenterAgentMemoryRepository,
@@ -8137,12 +8138,7 @@ describe("Remote Agent native delivery callback service", () => {
     const workerSubmit = vi.fn((input) => {
       const parsed = remoteAgentWorkerSubmitTurnRequestSchema.parse(input);
       expect(parsed.turnEnvelope.memory?.truncated).toBe(true);
-      expect(parsed.turnEnvelope.memory?.items[0]?.text).toHaveLength(
-        REMOTE_AGENT_TURN_ENVELOPE_MEMORY_ITEM_TEXT_MAX_CHARS
-      );
-      expect(parsed.turnEnvelope.memory?.items[0]?.text.endsWith("...")).toBe(
-        true
-      );
+      expect(parsed.turnEnvelope.memory?.items).toEqual([]);
       return Promise.resolve({
         submissionId: "sub_oversized_memory",
         requestId: "req_oversized_memory",
@@ -13432,6 +13428,7 @@ function createTestMemoryService(
   overrides: Partial<CenterAgentMemoryService> = {}
 ): CenterAgentMemoryService {
   return {
+    deleteSpaceMemory: vi.fn(async () => "deleted" as const),
     deleteMemberMemory: vi.fn(async () => "deleted" as const),
     deleteOrganizationMemory: vi.fn(async () => "deleted" as const),
     recallForOrganization: vi.fn(async () => ({ items: [], truncated: false })),
@@ -13480,6 +13477,13 @@ function createMemoryRepository(input: {
   organizationMemoryOptIn: boolean;
 }): CenterAgentMemoryRepository {
   return {
+    upsertSpaceSubject: vi.fn(async (value) =>
+      buildCenterAgentSpaceMemoryRef(value)
+    ),
+    beginSpaceDeletion: vi.fn(async () => undefined),
+    isSpaceSubjectActive: vi.fn(async () => false),
+    markSpaceDeleted: vi.fn(async () => false),
+    markSpaceDeleteFailed: vi.fn(async () => undefined),
     readActiveSubjects: vi.fn(async (readInput) => [
       ...(readInput.speakerMember
         ? [

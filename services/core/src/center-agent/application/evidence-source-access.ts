@@ -1,5 +1,6 @@
 import { resolveCenterAgentContextScopePlan } from "@openmeld/agent-runtime";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
+import { buildSpaceMessageEvidence } from "@openmeld/protocol";
 import { centerAgentEvidenceSourceSpaceSchema } from "@openmeld/schemas";
 import type {
   OpenMeldRequestContext,
@@ -130,8 +131,13 @@ export async function createCenterAgentEvidenceSourceAccess(input: {
   }
 
   const permittedSignals = new Map<string, Promise<boolean>>();
-  function canReadSignal(spaceId: string, signalId: string): Promise<boolean> {
-    const key = JSON.stringify([spaceId, signalId]);
+  function canReadSignal(
+    spaceId: string,
+    signalId: string,
+    version?: string,
+    authorKind?: "human" | "agent" | "system"
+  ): Promise<boolean> {
+    const key = JSON.stringify([spaceId, signalId, version, authorKind]);
     const retained = permittedSignals.get(key);
     if (retained) {
       return retained;
@@ -159,8 +165,25 @@ export async function createCenterAgentEvidenceSourceAccess(input: {
             spaceId,
           }),
         });
-        return (result as ListSignalsResult).signals.some(
-          (signal) => (signal as { id?: unknown }).id === signalId
+        const signal = (result as ListSignalsResult).signals.find(
+          (item) => item.id === signalId
+        );
+        if (!signal) {
+          return false;
+        }
+        if (!(version || authorKind)) {
+          return true;
+        }
+        if (signal.type !== "signal.text") {
+          return false;
+        }
+        const evidence = await buildSpaceMessageEvidence({
+          signal,
+          spaceId,
+          version,
+        });
+        return (
+          !authorKind || evidence.message.author.profileKind === authorKind
         );
       } catch {
         return false;

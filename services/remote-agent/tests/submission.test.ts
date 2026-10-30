@@ -2126,7 +2126,7 @@ describe("remote agent submission", () => {
         'Memory provenance: {"kind":"historical_memory","sourceVerification":"not_reopened"}',
         "- [Available to this requester] personal memory from Center Agent DM: [Recorded 2025-07-27T00:00:00.000Z] The launch team deploys on Thursday.",
         "- [Share only when the requester and destination are authorized] organization memory from shared Space: The Launch Room tracks release blockers.",
-        "- Additional relevant memory was omitted for brevity.",
+        "Additional whole memory facts were omitted for the turn's context budget.",
         "",
         "[Current verified request]",
         "What day should we deploy?",

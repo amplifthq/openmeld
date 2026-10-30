@@ -1,6 +1,9 @@
 import type { Zep } from "@getzep/zep-cloud";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildCenterAgentOrganizationMemoryRef } from "../src/center-agent-memory/contract";
+import {
+  buildCenterAgentOrganizationMemoryRef,
+  buildCenterAgentSpaceMemoryRef,
+} from "../src/center-agent-memory/contract";
 import { createZepCenterAgentMemoryAdapter } from "../src/center-agent-memory/zep-memory-adapter";
 
 const zepMocks = vi.hoisted(() => ({
@@ -45,6 +48,76 @@ describe("Zep Center Agent memory adapter", () => {
     } satisfies Zep.Episode);
     zepMocks.getEpisode.mockResolvedValue(undefined);
     zepMocks.searchGraph.mockResolvedValue({});
+  });
+
+  it.each([
+    "human",
+    "agent",
+  ] as const)("keeps a versioned %s source distinct from an Agent-generated summary", async (authorKind) => {
+    const adapter = createZepCenterAgentMemoryAdapter({ apiKey: "zep_test" });
+    const ref = buildCenterAgentSpaceMemoryRef({
+      organizationId: "org_1",
+      spaceId: "space_1",
+    });
+    const version = `sha256:${"a".repeat(64)}`;
+    await adapter.addEpisode({
+      ref,
+      episode: {
+        captureMethod: "automatic_turn",
+        source: "space_conversation",
+        sourceConversationId: "space_1",
+        sourceMessageId: "message_1",
+        occurredAtMs: 1000,
+        sourceAuthorKind: authorKind,
+        sourceVersion: version,
+        userMessage: "Original statement.",
+        assistantMessage: "An unsupported Agent interpretation.",
+      },
+    });
+    const request = zepMocks.addEpisode.mock
+      .calls[0]?.[0] as Zep.AddDataRequest;
+    expect(request.data).toBe(
+      `${authorKind === "human" ? "Human" : "Agent"} (original source excerpt): Original statement.`
+    );
+    expect(request.metadata).toMatchObject({
+      openmeld_memory_source_version: version,
+      openmeld_memory_source_author_kind: authorKind,
+    });
+    zepMocks.getEpisode.mockResolvedValue({
+      uuid: "episode_1",
+      content: request.data,
+      metadata: request.metadata,
+      createdAt: "1970-01-01T00:00:01.000Z",
+      processed: true,
+    } satisfies Zep.Episode);
+    zepMocks.searchGraph.mockResolvedValue({
+      edges: [
+        {
+          uuid: "edge_1",
+          createdAt: "1970-01-01T00:00:01.000Z",
+          sourceNodeUuid: "node_1",
+          targetNodeUuid: "node_2",
+          name: "stated",
+          fact: "Original statement.",
+          episodes: ["episode_1"],
+        },
+      ],
+    } satisfies Zep.GraphSearchResults);
+    expect(
+      await adapter.search({ ref, query: "Original statement", limit: 6 })
+    ).toEqual([
+      expect.objectContaining({
+        subject: "space",
+        sourceVersion: version,
+        sourceAuthorKind: authorKind,
+        supportingSources: [
+          expect.objectContaining({
+            sourceVersion: version,
+            sourceAuthorKind: authorKind,
+          }),
+        ],
+      }),
+    ]);
   });
 
   it("stores structured provenance with every memory episode", async () => {

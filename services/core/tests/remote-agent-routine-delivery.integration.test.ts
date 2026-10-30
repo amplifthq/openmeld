@@ -5574,6 +5574,7 @@ function retargetRoutineWorkerSubmitRequest(input: {
 }
 function createMemoryService(): CenterAgentMemoryService {
   return {
+    deleteSpaceMemory: vi.fn(async () => "deleted" as const),
     deleteMemberMemory: vi.fn(async () => "deleted" as const),
     deleteOrganizationMemory: vi.fn(async () => "deleted" as const),
     recallForOrganization: vi.fn(async () => ({ items: [], truncated: false })),

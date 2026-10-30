@@ -39,6 +39,7 @@ export const centerAgentMemorySubjects = applicationTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     subjectKind: text("subject_kind").notNull(),
+    spaceId: text("space_id"),
     memberId: text("member_id").references(() => members.id, {
       onDelete: "set null",
     }),
@@ -79,7 +80,11 @@ export const centerAgentMemorySubjects = applicationTable(
     ),
     check(
       "center_agent_memory_subjects_kind_check",
-      sql`"subject_kind" in ('member', 'organization')`
+      sql`"subject_kind" in ('member', 'organization', 'space')`
+    ),
+    check(
+      "center_agent_memory_subjects_space_shape_check",
+      sql`("subject_kind" = 'space' AND "space_id" IS NOT NULL AND length(trim("space_id")) > 0 AND "member_id" IS NULL AND "member_user_id" IS NULL AND "zep_user_id" IS NULL AND "zep_graph_id" IS NOT NULL) OR ("subject_kind" <> 'space' AND "space_id" IS NULL)`
     ),
     check(
       "center_agent_memory_subjects_provider_check",
