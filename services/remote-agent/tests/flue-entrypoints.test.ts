@@ -14,9 +14,13 @@ import {
   completeRemoteAgentExecutionState,
   initializeRemoteAgentExecutionState,
 } from "../agent-core/execution-state";
+import { RemoteAgentImageTransformQuotaError } from "../agent-core/image-understanding";
 import {
+  buildRemoteAgentName,
   buildRemoteAgentPromptMessage,
   buildRemoteAgentSubmissionMetadata,
+  RemoteAgentAdmissionRejectedError,
+  submitRemoteAgentConversationTurn,
 } from "../agent-core/submission";
 import {
   createFlueCenterAgentAdmissionHost,
@@ -95,6 +99,54 @@ async function seedPendingUsage(
 }
 
 describe("Flue Cloudflare entrypoints", () => {
+  it("returns a retained image quota rejection through the actual Durable Object entrypoint", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TEST_NOW_MS);
+    const database = new DatabaseSync(":memory:");
+    const sql = createCloudflareSqlHarness(database);
+    const storage = createRemoteAgentSqlStorage(sql);
+    const request = createSubmitTurnRequest();
+    try {
+      await expect(
+        submitRemoteAgentConversationTurn({
+          agentName: buildRemoteAgentName(request),
+          input: request,
+          storage,
+          host: {
+            prepareConversationTurn: () =>
+              Promise.reject(new RemoteAgentImageTransformQuotaError("9422")),
+            admitConversationTurn: vi.fn(),
+          },
+        })
+      ).rejects.toBeInstanceOf(RemoteAgentAdmissionRejectedError);
+      if (!cloudflare.base) {
+        throw new Error("The Cloudflare extension requires a base.");
+      }
+      const Runtime = cloudflare.base(class {} as never);
+      const onRequest = vi.fn();
+      const runtime = Object.assign(Object.create(Runtime.prototype), {
+        ctx: { storage: { sql, get: () => Promise.resolve(undefined) } },
+        env: {},
+        name: buildRemoteAgentName(request),
+        onRequest,
+      }) as { submitConversationTurn(input: typeof request): Promise<unknown> };
+      await expect(
+        runtime.submitConversationTurn(request)
+      ).resolves.toMatchObject({
+        v: 1,
+        outcome: "rejected",
+        idempotencyKey: request.idempotencyKey,
+        reasonCode: "remote_agent.image_transform_quota_exceeded",
+      });
+      expect(onRequest).not.toHaveBeenCalled();
+      expect(
+        await readRemoteAgentCallbackContext(storage, request.dispatchId)
+      ).toBeNull();
+    } finally {
+      database.close();
+      vi.useRealTimers();
+    }
+  });
   it("reads Stop proof from the original Task owner without cancelling or admitting work", async () => {
     const request = createSubmitTurnRequest({
       conversationId: "center-agent-task:stopped-task",

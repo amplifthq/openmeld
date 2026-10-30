@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import {
   buildAgentRequestTimeContext,
   buildSpaceAttachmentObjectKey,
+  REMOTE_AGENT_IMAGE_TRANSFORM_QUOTA_EXCEEDED_PUBLIC_COPY,
+  remoteAgentWorkerAdmissionRejectedResponseSchema,
   remoteAgentWorkerReadAdmissionResponseSchema,
   remoteAgentWorkerReadAdmissionStopResponseSchema,
   remoteAgentWorkerSubmitMessagesResultSchema,
@@ -11,6 +13,7 @@ import {
 } from "@openmeld/schemas";
 import type {
   RemoteAgentAdmissionStageOperation,
+  RemoteAgentWorkerAdmissionRejectedResponse,
   RemoteAgentWorkerAdmissionRejectionCode,
   RemoteAgentWorkerInputAttachment,
   RemoteAgentWorkerReadAdmissionResponse,
@@ -36,6 +39,7 @@ import {
   initializeRemoteAgentExecutionState,
   readRemoteAgentAdmissionStopIntent,
 } from "./execution-state";
+import { RemoteAgentImageTransformQuotaError } from "./image-understanding";
 import { renderPersonalRemoteAgentCollaborationContext } from "./prompt/space-collaboration";
 import { cleanupExpiredRemoteAgentToolResults } from "./result-retention";
 import { cleanupExpiredRemoteAgentSlackMemberResearchState } from "./slack-member-research-state";
@@ -84,6 +88,11 @@ export type RemoteAgentSubmissionMetadata = {
 };
 
 export type RemoteAgentAdmissionHost = {
+  prepareConversationTurn?(input: {
+    images: RemoteAgentAdmissionImage[];
+    message: string;
+    request: RemoteAgentWorkerSubmitTurnRequest;
+  }): Promise<{ images: RemoteAgentAdmissionImage[]; message: string }>;
   admitConversationTurn(input: {
     images: RemoteAgentAdmissionImage[];
     message: string;
@@ -141,6 +150,10 @@ export async function readRemoteAgentAdmissionStop(input: {
 export type ExistingRemoteAgentSubmission =
   | { claimedAtMs: number; status: "claimed" }
   | {
+      rejection: RemoteAgentWorkerAdmissionRejectedResponse;
+      status: "rejected";
+    }
+  | {
       result: RemoteAgentSubmitConversationTurnResult;
       status: "finalized";
     };
@@ -172,7 +185,23 @@ type RemoteAgentSubmissionReceiptV3 = {
 
 type RemoteAgentSubmissionReceipt =
   | RemoteAgentSubmissionReceiptV2
-  | RemoteAgentSubmissionReceiptV3;
+  | RemoteAgentSubmissionReceiptV3
+  | {
+      v: 4;
+      state: "rejected";
+      claimedAtMs: number;
+      idempotencyKey: string;
+      requestDigest: string;
+      rejection: RemoteAgentWorkerAdmissionRejectedResponse;
+    };
+
+export class RemoteAgentAdmissionRejectedError extends Error {
+  readonly rejection: RemoteAgentWorkerAdmissionRejectedResponse;
+  constructor(rejection: RemoteAgentWorkerAdmissionRejectedResponse) {
+    super(rejection.message);
+    this.rejection = rejection;
+  }
+}
 
 export function parseRemoteAgentSubmitTurnRequest(
   input: unknown
@@ -575,30 +604,20 @@ export async function submitRemoteAgentConversationTurn(
     submittedAtMs + REMOTE_AGENT_SUBMISSION_RECEIPT_RETENTION_MS;
   const submissionId = request.dispatchId;
   let isNewAdmission = true;
-  let originalSubmittedAtMs = submittedAtMs;
+  const existing = await readSubmissionBeforePreparation(input, submittedAtMs);
+  if (existing?.status === "finalized") {
+    return existing.result;
+  }
+  let originalSubmittedAtMs = existing?.claimedAtMs ?? submittedAtMs;
+  const { attachmentResolution, prepared } = await prepareRemoteAgentSubmission(
+    {
+      input,
+      requestDigest,
+      submittedAtMs,
+      originalSubmittedAtMs,
+    }
+  );
   if (input.storage) {
-    await Promise.all([
-      cleanupExpiredRemoteAgentSubmissionReceipts({
-        nowMs: submittedAtMs,
-        storage: input.storage,
-      }),
-      cleanupExpiredRemoteAgentSlackMemberResearchState({
-        nowMs: submittedAtMs,
-        storage: input.storage,
-      }),
-      cleanupExpiredRemoteAgentTurnEndMarkers({
-        nowMs: submittedAtMs,
-        storage: input.storage,
-      }),
-      cleanupExpiredRemoteAgentToolProgress({
-        nowMs: submittedAtMs,
-        storage: input.storage,
-      }),
-      cleanupExpiredRemoteAgentToolResults({
-        nowMs: submittedAtMs,
-        storage: input.storage,
-      }),
-    ]);
     const claimed = await input.storage.putIfAbsentExpiring(
       receiptKey,
       {
@@ -641,12 +660,6 @@ export async function submitRemoteAgentConversationTurn(
     request,
     submittedAtMs: originalSubmittedAtMs,
   });
-  const attachmentResolution = await resolveRemoteAgentAdmissionImages({
-    env: input.env,
-    attachmentBucket: input.attachmentBucket,
-    request,
-  });
-  input.reportStage?.("submission_attachments_resolved");
   const originalAck = remoteAgentWorkerSubmitMessagesResultSchema.parse({
     accepted: true,
     createdAt: originalSubmittedAtMs,
@@ -690,14 +703,7 @@ export async function submitRemoteAgentConversationTurn(
     });
   }
   const submitted = await input.host.admitConversationTurn({
-    images: attachmentResolution.images,
-    message: appendRemoteAgentImageContext(
-      buildRemoteAgentPromptMessage(request, {
-        includeContinuityContext: input.includeContinuityContext,
-        requestSubmittedAtMs: originalSubmittedAtMs,
-      }),
-      attachmentResolution
-    ),
+    ...prepared,
     metadata,
     request,
     submissionId,
@@ -739,6 +745,124 @@ export async function submitRemoteAgentConversationTurn(
   return { ack, callbackContext, request };
 }
 
+async function readSubmissionBeforePreparation(
+  input: RemoteAgentSubmitConversationTurnInput,
+  nowMs: number
+): Promise<Exclude<
+  ExistingRemoteAgentSubmission,
+  { status: "rejected" }
+> | null> {
+  if (!input.storage) {
+    return null;
+  }
+  const { storage, input: request } = input;
+  await Promise.all([
+    cleanupExpiredRemoteAgentSubmissionReceipts({ nowMs, storage }),
+    cleanupExpiredRemoteAgentSlackMemberResearchState({ nowMs, storage }),
+    cleanupExpiredRemoteAgentTurnEndMarkers({ nowMs, storage }),
+    cleanupExpiredRemoteAgentToolProgress({ nowMs, storage }),
+    cleanupExpiredRemoteAgentToolResults({ nowMs, storage }),
+  ]);
+  const existing = await readExistingRemoteAgentSubmission({
+    request,
+    storage,
+  });
+  if (existing?.status === "rejected") {
+    throw new RemoteAgentAdmissionRejectedError(existing.rejection);
+  }
+  if (existing?.status === "finalized") {
+    await cleanupFinalizedRemoteAgentSubmissionAttachments({
+      env: input.env,
+      attachmentBucket: input.attachmentBucket,
+      request,
+    });
+    return existing;
+  }
+  await assertRemoteAgentAdmissionNotStopped({
+    identity: buildRemoteAgentExecutionIdentity({
+      ...request,
+      submissionId: request.dispatchId,
+    }),
+    storage,
+  });
+  return existing;
+}
+
+/** Preparation cannot execute the primary turn or create callback state. */
+async function prepareRemoteAgentSubmission(context: {
+  input: RemoteAgentSubmitConversationTurnInput;
+  requestDigest: string;
+  submittedAtMs: number;
+  originalSubmittedAtMs: number;
+}) {
+  const { input, requestDigest, submittedAtMs, originalSubmittedAtMs } =
+    context;
+  const request = input.input;
+  const attachmentResolution = await resolveRemoteAgentAdmissionImages({
+    env: input.env,
+    attachmentBucket: input.attachmentBucket,
+    request,
+  });
+  input.reportStage?.("submission_attachments_resolved");
+  let prepared = {
+    images: attachmentResolution.images,
+    message: appendRemoteAgentImageContext(
+      buildRemoteAgentPromptMessage(request, {
+        includeContinuityContext: input.includeContinuityContext,
+        requestSubmittedAtMs: originalSubmittedAtMs,
+      }),
+      attachmentResolution
+    ),
+  };
+  try {
+    if (input.host.prepareConversationTurn) {
+      prepared = await input.host.prepareConversationTurn({
+        ...prepared,
+        request,
+      });
+    }
+  } catch (error) {
+    if (!(error instanceof RemoteAgentImageTransformQuotaError)) {
+      throw error;
+    }
+    const rejection = remoteAgentWorkerAdmissionRejectedResponseSchema.parse({
+      v: 1,
+      outcome: "rejected",
+      idempotencyKey: request.idempotencyKey,
+      reasonCode: "remote_agent.image_transform_quota_exceeded",
+      message: REMOTE_AGENT_IMAGE_TRANSFORM_QUOTA_EXCEEDED_PUBLIC_COPY,
+    });
+    // The same atomic receipt slot fences rejection against every concurrent
+    // admission. A claimed turn may already be running and cannot be rejected.
+    if (
+      !input.storage ||
+      (await input.storage.putIfAbsentExpiring(
+        buildRemoteAgentSubmissionReceiptKey(request.idempotencyKey),
+        {
+          v: 4,
+          state: "rejected",
+          claimedAtMs: submittedAtMs,
+          idempotencyKey: request.idempotencyKey,
+          requestDigest,
+          rejection,
+        } satisfies RemoteAgentSubmissionReceipt,
+        submittedAtMs + REMOTE_AGENT_SUBMISSION_RECEIPT_RETENTION_MS
+      ))
+    ) {
+      throw new RemoteAgentAdmissionRejectedError(rejection);
+    }
+    const existing = await readExistingRemoteAgentSubmission({
+      request,
+      storage: input.storage,
+    });
+    if (existing?.status === "rejected") {
+      throw new RemoteAgentAdmissionRejectedError(existing.rejection);
+    }
+    throw error;
+  }
+  return { attachmentResolution, prepared };
+}
+
 /**
  * Reads durable admission ownership without initializing Flue conversation
  * state. Callers use this before any new-admission safety guard so an ACK retry
@@ -770,7 +894,8 @@ export async function readRemoteAgentAdmission(input: {
   storage: Pick<RemoteAgentStorage, "get">;
 }): Promise<RemoteAgentWorkerReadAdmissionResponse> {
   const existing = await readExistingRemoteAgentSubmission(input);
-  if (!existing) {
+  if (!existing || existing.status === "rejected") {
+    // A rejected preparation has no native submission or ACK to recover.
     return { v: 1, status: "not_found" };
   }
   if (existing.status === "claimed") {
@@ -789,7 +914,7 @@ async function resolveRepeatedRemoteAgentSubmission(input: {
   request: RemoteAgentWorkerSubmitTurnRequest;
   requestDigest: string;
   storage: RemoteAgentStorage;
-}): Promise<ExistingRemoteAgentSubmission> {
+}): Promise<Exclude<ExistingRemoteAgentSubmission, { status: "rejected" }>> {
   const receipt = await input.storage.get<RemoteAgentSubmissionReceipt>(
     input.receiptKey
   );
@@ -798,11 +923,15 @@ async function resolveRepeatedRemoteAgentSubmission(input: {
       "Remote Agent idempotency claim exists but its durable receipt is unavailable."
     );
   }
-  return resolveRemoteAgentSubmissionReceipt({
+  const repeated = resolveRemoteAgentSubmissionReceipt({
     receipt,
     request: input.request,
     requestDigest: input.requestDigest,
   });
+  if (repeated.status === "rejected") {
+    throw new RemoteAgentAdmissionRejectedError(repeated.rejection);
+  }
+  return repeated;
 }
 
 function resolveRemoteAgentSubmissionReceipt(input: {
@@ -811,6 +940,22 @@ function resolveRemoteAgentSubmissionReceipt(input: {
   requestDigest: string;
 }): ExistingRemoteAgentSubmission {
   const receipt = input.receipt;
+  if (receipt.v === 4 && receipt.state === "rejected") {
+    const rejection = remoteAgentWorkerAdmissionRejectedResponseSchema.parse(
+      receipt.rejection
+    );
+    if (
+      receipt.idempotencyKey !== input.request.idempotencyKey ||
+      receipt.requestDigest !== input.requestDigest ||
+      rejection.idempotencyKey !== input.request.idempotencyKey ||
+      !Number.isFinite(receipt.claimedAtMs)
+    ) {
+      throw new Error(
+        "Remote Agent rejected admission receipt does not match the request."
+      );
+    }
+    return { status: "rejected", rejection };
+  }
   if (
     (receipt.v !== 2 && receipt.v !== 3) ||
     (receipt.state !== "claimed" && receipt.state !== "finalized") ||

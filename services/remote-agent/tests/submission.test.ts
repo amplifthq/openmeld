@@ -5,6 +5,7 @@ import {
   buildRemoteAgentExecutionIdentity,
   requestRemoteAgentExecutionCancellation,
 } from "../agent-core/execution-state";
+import { RemoteAgentImageTransformQuotaError } from "../agent-core/image-understanding";
 import { buildRemoteAgentSystemPrompt } from "../agent-core/prompt";
 import { REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX } from "../agent-core/slack-member-research-state";
 import {
@@ -16,6 +17,7 @@ import {
   REMOTE_AGENT_SUBMISSION_RECEIPT_CLEANUP_BATCH_SIZE,
   REMOTE_AGENT_SUBMISSION_RECEIPT_RETENTION_MS,
   type RemoteAgentAdmissionHost,
+  RemoteAgentAdmissionRejectedError,
   readExistingRemoteAgentSubmission,
   readRemoteAgentAdmission,
   readRemoteAgentAdmissionStop,
@@ -39,6 +41,113 @@ const SHA_256_HEX_PATTERN = /^[a-f0-9]{64}$/u;
 const ATTACHMENT_SEQUENCE_SUFFIX_PATTERN = /attachment-(\d+)$/u;
 
 describe("remote agent submission", () => {
+  it("retains an image quota rejection and fences a concurrent prepared submission", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequestV2();
+    let releasePreparation!: () => void;
+    const preparationGate = new Promise<void>((resolve) => {
+      releasePreparation = resolve;
+    });
+    let enteredPreparation!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enteredPreparation = resolve;
+    });
+    const admitConversationTurn = vi.fn();
+    const host: RemoteAgentAdmissionHost = {
+      prepareConversationTurn: vi.fn(async (prepared) => {
+        enteredPreparation();
+        await preparationGate;
+        return prepared;
+      }),
+      admitConversationTurn,
+    };
+    const input = {
+      agentName: buildRemoteAgentName(request),
+      input: request,
+      storage,
+      nowMs: () => TEST_NOW_MS,
+    };
+    const concurrent = submitRemoteAgentConversationTurn({ ...input, host });
+    const concurrentRejected = expect(concurrent).rejects.toBeInstanceOf(
+      RemoteAgentAdmissionRejectedError
+    );
+    await entered;
+    const failingHost: RemoteAgentAdmissionHost = {
+      prepareConversationTurn: vi.fn(() =>
+        Promise.reject(
+          new RemoteAgentImageTransformQuotaError(
+            "captured Images quota failure"
+          )
+        )
+      ),
+      admitConversationTurn,
+    };
+    try {
+      for (let replay = 0; replay < 2; replay++) {
+        await expect(
+          submitRemoteAgentConversationTurn({ ...input, host: failingHost })
+        ).rejects.toMatchObject({
+          rejection: {
+            outcome: "rejected",
+            reasonCode: "remote_agent.image_transform_quota_exceeded",
+            idempotencyKey: request.idempotencyKey,
+          },
+        });
+      }
+      expect(failingHost.prepareConversationTurn).toHaveBeenCalledOnce();
+    } finally {
+      releasePreparation();
+      await concurrentRejected;
+    }
+    expect(admitConversationTurn).not.toHaveBeenCalled();
+    expect(
+      await readRemoteAgentCallbackContext(storage, request.dispatchId)
+    ).toBeNull();
+    await expect(
+      readRemoteAgentAdmission({ request, storage })
+    ).resolves.toEqual({ v: 1, status: "not_found" });
+    await expect(
+      submitRemoteAgentConversationTurn({
+        ...input,
+        host,
+        input: {
+          ...request,
+          messages: [{ role: "user", content: "Different request" }],
+        },
+      })
+    ).rejects.toThrow("does not match");
+  });
+
+  it("preserves an earlier ambiguous admission when later image preparation fails", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequestV2();
+    const host: RemoteAgentAdmissionHost = {
+      admitConversationTurn: vi.fn(() =>
+        Promise.reject(new Error("ACK connection lost"))
+      ),
+    };
+    const input = {
+      agentName: buildRemoteAgentName(request),
+      input: request,
+      storage,
+      host,
+      nowMs: () => TEST_NOW_MS,
+    };
+    await expect(submitRemoteAgentConversationTurn(input)).rejects.toThrow(
+      "ACK connection lost"
+    );
+    host.prepareConversationTurn = () =>
+      Promise.reject(
+        new RemoteAgentImageTransformQuotaError("quota exhausted")
+      );
+    await expect(
+      submitRemoteAgentConversationTurn(input)
+    ).rejects.toBeInstanceOf(RemoteAgentImageTransformQuotaError);
+    await expect(
+      readRemoteAgentAdmission({ request, storage })
+    ).resolves.toEqual({ v: 1, status: "unconfirmed" });
+    expect(host.admitConversationTurn).toHaveBeenCalledOnce();
+  });
   it("advertises summary-only enforcement only on an opt-in read, without writing owner state", async () => {
     const request = createSubmitTurnRequest();
     request.turnEnvelope.trigger = {
@@ -139,7 +248,7 @@ describe("remote agent submission", () => {
     expect(host.admitConversationTurn).not.toHaveBeenCalled();
     await expect(
       readRemoteAgentAdmission({ request, storage })
-    ).resolves.toEqual({ v: 1, status: "unconfirmed" });
+    ).resolves.toEqual({ v: 1, status: "not_found" });
   });
   it("reads a lost original ACK without new admission or storage writes and rejects changed request content", async () => {
     const storage = new InMemoryDurableObjectStorage();
@@ -685,8 +794,8 @@ describe("remote agent submission", () => {
 
     expect(admissionStages).toEqual([
       "submission_request_digested",
-      "submission_dedupe_completed",
       "submission_attachments_resolved",
+      "submission_dedupe_completed",
     ]);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.[0]).toMatchObject({

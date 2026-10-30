@@ -396,6 +396,7 @@ export const remoteAgentWorkerReadAdmissionResponseSchema =
   ]);
 
 export const remoteAgentWorkerAdmissionRejectionCodeSchema = z.enum([
+  "remote_agent.image_transform_quota_exceeded",
   "remote_agent.conversation_history_limit_exceeded",
   "remote_agent.routine_identity_mismatch",
   "remote_agent.member_research_identity_mismatch",

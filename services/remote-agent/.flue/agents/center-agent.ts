@@ -48,6 +48,7 @@ import {
   cleanupExpiredRemoteAgentSubmissionReceipts,
   cleanupFinalizedRemoteAgentSubmissionAttachments,
   parseRemoteAgentSubmitTurnRequest,
+  RemoteAgentAdmissionRejectedError,
   readExistingRemoteAgentSubmission,
   readRemoteAgentAdmission,
   readRemoteAgentAdmissionStop,
@@ -861,6 +862,12 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
           }
           outcome = "acknowledged";
           return ack;
+        } catch (error) {
+          if (error instanceof RemoteAgentAdmissionRejectedError) {
+            outcome = "rejected";
+            return error.rejection;
+          }
+          throw error;
         } finally {
           emitRemoteAgentAdmissionStageEvidence(env, {
             ...evidenceContext,

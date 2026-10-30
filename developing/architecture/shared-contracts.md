@@ -6175,6 +6175,21 @@ recovery envelope is a storage concern, not a second cross-service contract:
 its inner request is still validated by the shared worker-request schema before
 write and after read.
 
+`remote_agent.image_transform_quota_exceeded` identifies Cloudflare Images 9422
+during preparation before a primary submission is claimed. Deploy Core's shared
+rejection reader and public error mapping before the Remote Agent emitter;
+older Core rejects the new reason as an invalid response. Roll back Remote Agent
+before Core. Existing ACKs and public trace/Space error-string fields retain
+their shapes, so CLI, Service, Skills, Web, and Gateway need no version floor.
+Remote Agent reuses its admission-receipt slot for a version-4 rejected receipt
+containing the exact request digest and the shared rejection. Its atomic insert
+competes with the existing version-3 execution claim: only one can win. A
+rejection cannot overwrite a claimed/finalized receipt. Replays return the same
+rejection before doing image work; admission reads report no native submission.
+Older Remote Agent readers fail closed on these rejected receipts during rollback.
+Version-2/3 claimed and finalized receipts remain readable and retain their
+existing semantics; no database migration or local-component update is needed.
+
 The strict version-4 worker request separates the stable logical
 `conversationId` from `runtimeConversation = { generation, id }`. The runtime
 id is derived from the Organization, logical conversation, and non-negative
