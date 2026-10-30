@@ -17,6 +17,11 @@ import {
   buildAgentActivitySessionResumeEligibilityQuery,
   canResumeAgentActivitySessionSelection,
 } from "../../../agent-activity/activity-session-inventory-repository";
+import { readPermissionModeAuditAttribution } from "../../../sensitive-operations/application/permission-mode-audit-context";
+import {
+  asQueryable,
+  insertSensitiveOperationAuditEvent,
+} from "../../../sensitive-operations/infrastructure/postgresql/sensitive-operation-repo";
 import type {
   AgentProfileBindingAgentControllerCollaborationModePatch,
   AgentProfileBindingAgentControllerPermissionModePatch,
@@ -548,7 +553,7 @@ async function reconnectPrimaryAgentProfileBindingRecordAttempt(
     if (await hasMemberAgentHarnessConflict(client, input.record)) {
       return null;
     }
-    return [
+    const results = [
       await client.query({
         text: `
           UPDATE "openmeld"."openMeldDaemon_agent_profile_bindings"
@@ -658,9 +663,31 @@ async function reconnectPrimaryAgentProfileBindingRecordAttempt(
         ],
       }),
     ] as const;
+    if (results[0].rowCount === 1 && results[1].rowCount === 1) {
+      await writePermissionModeChangeAudit({
+        client,
+        agentProfileId: input.record.agentProfileId,
+        bindingId: input.record.bindingId,
+        owner: input.record.owner,
+        previousMode: current.agentControllerPermissionMode ?? null,
+        mode: controllerSettings.agentControllerPermissionMode ?? null,
+        previousRevision: current.configurationRevision,
+        revision: 1,
+        nowMs: input.record.updatedAtMs,
+      });
+    }
+    return results;
   });
   if (!writeResults) {
     return { result: memberAgentHarnessLockedResult(), status: "completed" };
+  }
+  if (
+    writeResults[0].rowCount === 1 &&
+    writeResults[1].rowCount === 1 &&
+    (current.agentControllerPermissionMode ?? null) !==
+      (controllerSettings.agentControllerPermissionMode ?? null)
+  ) {
+    readPermissionModeAuditAttribution()?.onPermissionModeChangeCommitted?.();
   }
   if (
     await shouldRetryNoopReconnect({
@@ -1427,6 +1454,7 @@ export async function updatePrimaryAgentProfileBindingAgentControllerPermissionM
       bindingId: current.bindingId,
       db: input.db,
       expectedConfigurationRevision: current.configurationRevision,
+      previousPermissionMode: current.agentControllerPermissionMode ?? null,
       owner: input.owner,
       updatedAtMs: input.updatedAtMs,
     });
@@ -1670,6 +1698,7 @@ async function maybeUpdatePrimaryAgentProfileBindingMetadata(input: {
         bindingId: current.bindingId,
         db: input.db,
         expectedConfigurationRevision: current.configurationRevision,
+        previousPermissionMode: current.agentControllerPermissionMode ?? null,
         owner: input.record.owner,
         updatedAtMs: input.record.updatedAtMs,
       });
@@ -1736,11 +1765,13 @@ async function updatePrimaryAgentProfileBindingAgentControllerPermissionMode(inp
   bindingId: string;
   db: PostgresDatabase;
   expectedConfigurationRevision: number;
+  previousPermissionMode: string | null;
   owner: AgentProfileBindingOwner;
   updatedAtMs: number;
 }): Promise<AgentProfileBindingSettingsWriteAttempt> {
-  const result = await input.db.query({
-    text: `
+  const result = await input.db.transaction(async (client) => {
+    const updated = await client.query({
+      text: `
         UPDATE "openmeld"."openMeldDaemon_agent_profile_bindings"
         SET
           agent_controller_permission_mode = $1,
@@ -1753,16 +1784,34 @@ async function updatePrimaryAgentProfileBindingAgentControllerPermissionMode(inp
           AND binding_state = 'enabled_primary'
           AND configuration_revision = $7
       `,
-    values: [
-      input.agentControllerPermissionMode,
-      input.updatedAtMs,
-      input.owner.kind,
-      input.owner.id,
-      input.agentProfileId,
-      input.bindingId,
-      input.expectedConfigurationRevision,
-    ],
+      values: [
+        input.agentControllerPermissionMode,
+        input.updatedAtMs,
+        input.owner.kind,
+        input.owner.id,
+        input.agentProfileId,
+        input.bindingId,
+        input.expectedConfigurationRevision,
+      ],
+    });
+    if (updated.rowCount === 1) {
+      await writePermissionModeChangeAudit({
+        client,
+        agentProfileId: input.agentProfileId,
+        bindingId: input.bindingId,
+        owner: input.owner,
+        previousMode: input.previousPermissionMode,
+        mode: input.agentControllerPermissionMode,
+        previousRevision: input.expectedConfigurationRevision,
+        revision: input.expectedConfigurationRevision + 1,
+        nowMs: input.updatedAtMs,
+      });
+    }
+    return updated;
   });
+  if (result.rowCount === 1) {
+    readPermissionModeAuditAttribution()?.onPermissionModeChangeCommitted?.();
+  }
   return {
     binding: await readPrimaryAgentProfileBindingRecord({
       agentProfileId: input.agentProfileId,
@@ -1771,6 +1820,51 @@ async function updatePrimaryAgentProfileBindingAgentControllerPermissionMode(inp
     }),
     changed: result.rowCount === 1,
   };
+}
+
+async function writePermissionModeChangeAudit(input: {
+  client: PoolClient;
+  agentProfileId: string;
+  bindingId: string;
+  owner: AgentProfileBindingOwner;
+  previousMode: string | null;
+  mode: string | null;
+  previousRevision: number;
+  revision: number;
+  nowMs: number;
+}): Promise<void> {
+  const attribution = readPermissionModeAuditAttribution();
+  // Internal initialization has no represented human request. Never invent a
+  // Web/CLI actor for it. All public and Center Agent mutations set this scope.
+  if (!attribution || input.previousMode === input.mode) {
+    return;
+  }
+  if (
+    input.owner.kind !== "owner_account" ||
+    input.owner.id !== attribution.actorUserId
+  ) {
+    throw new Error("agent_profile_binding.audit_owner_mismatch");
+  }
+  await insertSensitiveOperationAuditEvent({
+    db: asQueryable(input.client),
+    event: {
+      ...attribution,
+      id: crypto.randomUUID(),
+      agentProfileId: input.agentProfileId,
+      operation: "binding_permission_mode",
+      outcome: "succeeded",
+      reasonCode: "permission_mode_changed",
+      createdAtMs: input.nowMs,
+      permissionModeChange: {
+        bindingId: input.bindingId,
+        previousMode: input.previousMode,
+        mode: input.mode,
+        previousRevision: input.previousRevision,
+        revision: input.revision,
+        requestId: attribution.requestId,
+      },
+    },
+  });
 }
 async function updatePrimaryAgentProfileBindingAgentControllerCollaborationMode(input: {
   agentProfileId: string;

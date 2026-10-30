@@ -27,6 +27,7 @@ import {
   insertSensitiveOperationAuditEvent,
 } from "../infrastructure/postgresql/sensitive-operation-repo";
 import { resolveCredentialConfirmation } from "./credential-confirmation-service";
+import { withPermissionModeAuditAttribution } from "./permission-mode-audit-context";
 
 // Sources for sensitive operations (design-plans/member-agent-program.md
 // §4.7, §6). A task credential passes only when its chain root is the Profile
@@ -94,8 +95,24 @@ export async function runSensitiveOperation<T>(
     request,
   });
   let result: T;
+  let permissionModeChangeCommitted = false;
+  const requestId = request.context?.actorContext.requestId;
+  if (!requestId) {
+    throw new Error("sensitive_operation.request_id_missing");
+  }
   try {
-    result = await run();
+    result = await withPermissionModeAuditAttribution(
+      {
+        ...decision,
+        actorUserId: caller.userId,
+        organizationId: caller.organizationId,
+        requestId,
+        onPermissionModeChangeCommitted: () => {
+          permissionModeChangeCommitted = true;
+        },
+      },
+      run
+    );
   } catch (error) {
     await writeAudit(env, {
       caller,
@@ -105,6 +122,12 @@ export async function runSensitiveOperation<T>(
       request,
     });
     throw error;
+  }
+  if (
+    request.operation === "binding_permission_mode" &&
+    permissionModeChangeCommitted
+  ) {
+    return result;
   }
   // The change is done: a failed audit write is reported, never turned into
   // a failure of the operation.

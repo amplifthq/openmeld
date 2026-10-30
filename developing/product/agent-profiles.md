@@ -846,6 +846,15 @@ owner's explicit instruction in the current turn, with the confirmation and
 root-requester check defined in
 `developing/product/organizations-and-center-agent.md` (Permission model).
 
+Permission-mode changes through public Binding writes or the Center Agent retain
+the verified request source, actor, before/after mode, Binding identity and
+configuration revisions in the existing sensitive-operation audit. The mutation
+and its change event commit together; failed audit persistence rolls the mutation
+back. Reconnecting a Binding retains the same audit rule. Internal initialization
+does not invent a Human actor. Legacy audit readers retain their original shape;
+`responseVersion=2` explicitly requests optional change details. Audit evidence
+does not authorize a change or assert that a running controller applied it.
+
 Pending approvals remain explicit decisions. In the Space, an answered approval
 leaves the pending-action surface as soon as the owner submits it, and the next
 request that still needs the owner takes its place; a response that fails to

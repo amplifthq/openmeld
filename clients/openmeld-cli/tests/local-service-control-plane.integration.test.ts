@@ -350,6 +350,56 @@ describe("local service control-plane", () => {
     });
   });
 
+  it("sends an idle update over its distinct authenticated command and preserves a busy refusal", async () => {
+    await withTempHome(async () => {
+      await installDaemon({
+        daemonVersion: "0.4.0",
+        source: "daemon.command.install",
+      });
+      const token = await readDaemonControlPlaneToken();
+      const ordinary = vi.fn(() => ({
+        accepted: true,
+        mode: "graceful" as const,
+        gracePeriodMs: 1000,
+      }));
+      const phases: Array<{ command?: string; phase: string }> = [];
+      const server = await startLocalDaemonControlPlaneServer({
+        expectedToken: token ?? "missing",
+        onRequestPhase: (event) => phases.push(event),
+        getContext: () => ({
+          ...BASE_CONTEXT,
+          shutdownHandler: ordinary,
+          shutdownIfIdleHandler: (payload) => ({
+            accepted: false,
+            mode: "graceful",
+            gracePeriodMs: payload.gracePeriodMs,
+          }),
+        }),
+      });
+      try {
+        expect(
+          await requestLocalDaemonShutdown({
+            endpoint: server.endpoint,
+            onlyIfIdle: true,
+            payload: { mode: "graceful", gracePeriodMs: 1000 },
+          })
+        ).toEqual({ accepted: false, mode: "graceful", gracePeriodMs: 1000 });
+        expect(ordinary).not.toHaveBeenCalled();
+        expect(phases).toContainEqual(
+          expect.objectContaining({
+            command: "shutdown_if_idle",
+            phase: "authenticated",
+          })
+        );
+        expect(
+          phases.some((event) => event.phase === "shutdown_admitted")
+        ).toBe(false);
+      } finally {
+        await server.close();
+      }
+    });
+  });
+
   it("bounds the caller despite admitted shutdown progress without cancelling the drain", async () => {
     await withTempHome(async () => {
       await installDaemon({

@@ -1,15 +1,15 @@
 {
-  "version": "0.3.281",
+  "version": "0.3.282",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Packages optional Task delegation, shared requester attribution, knowledge-source references, and existing opt-in approval preview schemas. Existing CLI commands and public responses remain compatible."
+    "reason": "Preserves running work and task data during updates. Ordinary automatic updates use a strict idle-only shutdown request and defer to new work; older Services reject that optional request and require an explicit manual update. Existing user commands and responses remain compatible."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Packages additive Task, knowledge-source, and approval preview schemas without changing workstation execution, admission, setup, Wake, or diagnostics. Existing supported Services remain compatible."
+    "reason": "Adds atomic Host idle-switch admission, Claude process evidence and bounded reply review, and contains Codex request failures. Cloud Wake/result protocols are unchanged. Old CLI shutdown requests remain supported; no accepted work is forcibly stopped and no compatibility floor is raised."
   },
   "skills": {
     "updatePolicy": "available",
-    "reason": "Guidance clarifies existing command prefixes, addressing, and Computer operations without adding runtime authority."
+    "reason": "No managed Skills source changes; existing Skills remain compatible."
   }
 }

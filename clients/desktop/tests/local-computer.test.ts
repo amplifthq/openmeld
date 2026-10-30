@@ -1,6 +1,15 @@
 import { afterEach, expect, it, vi } from "vitest";
+import { serviceStatus } from "../src/main/cli/commands";
 import { readComputerConnection } from "../src/main/computer-connection";
-import { createLocalComputerReader } from "../src/main/local-computer";
+import {
+  createLocalComputerReader,
+  createLocalServiceAuthenticationReader,
+} from "../src/main/local-computer";
+
+vi.mock("../src/main/cli/commands", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/main/cli/commands")>()),
+  serviceStatus: vi.fn(),
+}));
 
 vi.mock("../src/main/computer-connection", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/main/computer-connection")>()),
@@ -16,6 +25,51 @@ const deps = {
   openMeldBin: "/test/openmeld",
 };
 const user = { id: "owner-a", email: "a@example.com", name: "A" };
+
+it.each([
+  "auth rejected",
+  "network failure",
+  "stopped",
+  "different account",
+  "account changed",
+])("requires local authentication evidence for the current account: %s", async (scenario) => {
+  const session = vi.fn().mockResolvedValue({ user });
+  if (scenario === "account changed") {
+    session
+      .mockResolvedValueOnce({ user })
+      .mockResolvedValue({ user: { ...user, id: "owner-b" } });
+  }
+  vi.mocked(readComputerConnection).mockResolvedValue({
+    protocol: "computer-connection-v1",
+    previousSessionIdentity: "private",
+    account: {
+      id: scenario === "different account" ? "owner-b" : user.id,
+      email: user.email,
+    },
+    existingConnection: null,
+  });
+  vi.mocked(serviceStatus).mockResolvedValue({
+    ok: true,
+    type: "daemon.status",
+    exitCode: 0,
+    data: {
+      result: {
+        installed: true,
+        runtime: { status: scenario === "stopped" ? "not_running" : "running" },
+      },
+      attention:
+        scenario === "network failure"
+          ? null
+          : { code: "authentication_required" },
+    },
+  });
+  await expect(
+    createLocalServiceAuthenticationReader({ session }, deps)(user.id)
+  ).resolves.toBe(scenario === "auth rejected");
+  if (scenario === "different account") {
+    expect(serviceStatus).not.toHaveBeenCalled();
+  }
+});
 
 it.each([
   "aligned",

@@ -823,7 +823,10 @@ describe("local service runner dual-write", () => {
     );
   });
 
-  it("acknowledges a controlled shutdown only after the active socket session drains", async () => {
+  it.each([
+    "shutdownHandler",
+    "shutdownIfIdleHandler",
+  ])("acknowledges a controlled shutdown only after the active socket session drains (%s)", async (handler) => {
     const socketSessionStarted = Promise.withResolvers<void>();
     let observedStopCause: string | null = null;
     runDaemonSocketSessionMock.mockReset().mockImplementation(async (input) => {
@@ -852,9 +855,9 @@ describe("local service runner dual-write", () => {
       safeToSwitch: true,
       unacknowledgedResultCount: 0,
     });
-    const shutdownResult = await context.shutdownHandler({
+    const shutdownResult = await context[handler]({
       gracePeriodMs: 5000,
-      mode: "graceful",
+      ...(handler === "shutdownHandler" ? { mode: "graceful" } : {}),
     });
     await loop;
 
@@ -865,6 +868,51 @@ describe("local service runner dual-write", () => {
       mode: "graceful",
     });
     expect(clearDaemonServiceRuntimeStateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    "busy",
+    "reconnect",
+    "disconnected",
+  ])("keeps idle-stop admission with its Host through %s", async (state) => {
+    const entered = Promise.withResolvers<void>();
+    const decision = Promise.withResolvers<boolean>();
+    const markStopping = vi.fn();
+    const oldSession = vi.fn();
+    const replacementSession = vi.fn();
+    const admitted = vi.fn();
+    const coordinator = createControlledShutdownCoordinator({
+      drainHost: async () => undefined,
+      hasUndrainedWork: () => false,
+      isStopRequested: () => false,
+      markStopping,
+    });
+    coordinator.attachSession(oldSession);
+    const request = coordinator.requestIfIdle({
+      gracePeriodMs: 2000,
+      onAdmitted: admitted,
+      tryBeginDrain: async () => {
+        entered.resolve();
+        return await decision.promise;
+      },
+    });
+    await entered.promise;
+    expect(coordinator.isDraining()).toBe(false);
+    if (state !== "busy") {
+      coordinator.detachSession(oldSession);
+    }
+    if (state === "reconnect") {
+      coordinator.attachSession(replacementSession);
+    }
+    decision.resolve(state !== "busy");
+    if (state === "reconnect") {
+      await vi.waitFor(() => expect(replacementSession).toHaveBeenCalledOnce());
+      coordinator.handleSessionCompleted();
+    }
+    expect(await request).toMatchObject({ accepted: state !== "busy" });
+    expect(oldSession).not.toHaveBeenCalled();
+    expect(markStopping).toHaveBeenCalledTimes(state === "busy" ? 0 : 1);
+    expect(admitted).toHaveBeenCalledTimes(state === "busy" ? 0 : 1);
   });
 
   it("ends a disconnected stop only after the Host has no local work", async () => {

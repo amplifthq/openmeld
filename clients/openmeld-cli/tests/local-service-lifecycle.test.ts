@@ -6,7 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DaemonInstallState } from "../src/config/daemon-state";
 import { LocalDaemonControlPlaneClientError } from "../src/local-service/control-plane/client";
 import type { DaemonServiceInventory } from "../src/local-service/lifecycle/daemon-service-inventory";
-import { runDaemonServiceLifecycle } from "../src/local-service/lifecycle/daemon-service-lifecycle";
+import {
+  DaemonServiceUpdateDeferredError,
+  runDaemonServiceLifecycle,
+} from "../src/local-service/lifecycle/daemon-service-lifecycle";
 import type { DaemonServiceManager } from "../src/local-service/lifecycle/daemon-service-manager";
 
 const EXPECTED_VERSION = "0.3.6";
@@ -395,20 +398,51 @@ describe("local service lifecycle", () => {
       waitMs: 15_000,
     });
     expect(clearDaemonRuntimeStateIfDefinitelyStoppedMock).toHaveBeenCalled();
-    expect(
-      waitForDaemonSystemServiceToStopMock.mock.invocationCallOrder[0]
-    ).toBeLessThan(
-      backupDaemonRuntimeDataForReinstallMock.mock
-        .invocationCallOrder[0] as number
-    );
-    expect(
-      backupDaemonRuntimeDataForReinstallMock.mock.invocationCallOrder[0]
-    ).toBeLessThan(
-      vi.mocked(serviceManager.uninstall).mock.invocationCallOrder[0] as number
-    );
+    expect(backupDaemonRuntimeDataForReinstallMock).not.toHaveBeenCalled();
     expect(serviceManager.uninstall).toHaveBeenCalledTimes(1);
     expect(serviceManager.install).toHaveBeenCalledTimes(1);
     expect(forceKillStalledDaemonAfterStopTimeoutMock).not.toHaveBeenCalled();
+  });
+
+  it("replaces the Service without copying or restoring its retained workspaces", async () => {
+    backupDaemonRuntimeDataForReinstallMock.mockRejectedValue(
+      new Error("EACCES: unreadable task workspace")
+    );
+    const result = await runDaemonServiceLifecycle({
+      expectedVersion: EXPECTED_VERSION,
+      operation: "upgrade_reconcile",
+      installSource: "cli.auto_check",
+      desiredState: "stopped",
+      shouldStartAfterLifecycle: false,
+      forceReinstall: true,
+    });
+    expect(result.status).toBe("aligned");
+    expect(backupDaemonRuntimeDataForReinstallMock).not.toHaveBeenCalled();
+    expect(restoreDaemonRuntimeDataForReinstallMock).not.toHaveBeenCalled();
+  });
+
+  it("retains the original installation when legacy data cannot be backed up", async () => {
+    backupDaemonRuntimeDataForReinstallMock.mockRejectedValue(
+      new Error("EACCES: unreadable legacy workspace")
+    );
+    inspectDaemonServiceInventoryMock.mockReset().mockResolvedValue(
+      buildInitialInventory(serviceManager, {
+        legacySharedServicePresent: true,
+      })
+    );
+    const result = await runDaemonServiceLifecycle({
+      expectedVersion: EXPECTED_VERSION,
+      operation: "upgrade_reconcile",
+      installSource: "cli.auto_check",
+      desiredState: "stopped",
+      shouldStartAfterLifecycle: false,
+      forceReinstall: true,
+    });
+    expect(result).toMatchObject({ status: "failed", failureStage: "backup" });
+    expect(serviceManager.uninstall).not.toHaveBeenCalled();
+    expect(cleanupLegacySharedDaemonServiceStateMock).not.toHaveBeenCalled();
+    expect(installDaemonMock).not.toHaveBeenCalled();
+    expect(activateDaemonServiceBundleMock).not.toHaveBeenCalled();
   });
 
   it("accepts a verified stopped replacement while the retired runtime snapshot is stale", async () => {
@@ -904,6 +938,79 @@ describe("local service lifecycle", () => {
     expect(restoreDaemonActiveBundleStateSnapshotMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    "busy",
+    "unsupported",
+    "timeout",
+    "restore failed",
+    "disable failed",
+  ])("does not stop a running Service when an idle update is %s", async (reason) => {
+    if (reason === "disable failed") {
+      vi.mocked(serviceManager.disableAutostart).mockRejectedValue(
+        new Error("autostart change unavailable")
+      );
+    }
+    if (reason === "busy" || reason === "restore failed") {
+      requestLocalDaemonShutdownMock.mockResolvedValue({
+        accepted: false,
+        mode: "graceful",
+        gracePeriodMs: 2000,
+      });
+      if (reason === "restore failed") {
+        vi.mocked(serviceManager.enableAutostart).mockRejectedValue(
+          new Error("autostart unavailable")
+        );
+      }
+    } else {
+      requestLocalDaemonShutdownMock.mockRejectedValue(
+        new LocalDaemonControlPlaneClientError(
+          reason === "unsupported"
+            ? "daemon.control.contract_mismatch"
+            : "daemon.control.timeout",
+          reason
+        )
+      );
+    }
+    const update = runDaemonServiceLifecycle({
+      expectedVersion: EXPECTED_VERSION,
+      operation: "upgrade_reconcile",
+      installSource: "cli.auto_check",
+      desiredState: "background",
+      shouldStartAfterLifecycle: true,
+      forceReinstall: true,
+      onlyIfIdle: true,
+    });
+    if (reason === "busy") {
+      await expect(update).rejects.toBeInstanceOf(
+        DaemonServiceUpdateDeferredError
+      );
+    } else {
+      expect(await update).toMatchObject({
+        status: "failed",
+        failureStage: "stop_or_drain",
+      });
+    }
+    if (reason === "disable failed") {
+      expect(requestLocalDaemonShutdownMock).not.toHaveBeenCalled();
+    } else {
+      expect(requestLocalDaemonShutdownMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          onlyIfIdle: true,
+          payload: expect.objectContaining({
+            mode: "graceful",
+          }),
+        })
+      );
+    }
+    expect(serviceManager.stop).not.toHaveBeenCalled();
+    expect(serviceManager.uninstall).not.toHaveBeenCalled();
+    expect(installDaemonMock).not.toHaveBeenCalled();
+    expect(forceKillStalledDaemonAfterStopTimeoutMock).not.toHaveBeenCalled();
+    expect(serviceManager.enableAutostart).toHaveBeenCalledTimes(
+      reason === "disable failed" ? 0 : 1
+    );
+  });
+
   it("uses the legacy stop path only when the old service does not support controlled drain", async () => {
     requestLocalDaemonShutdownMock.mockRejectedValue(
       new LocalDaemonControlPlaneClientError(
@@ -974,7 +1081,10 @@ describe("local service lifecycle", () => {
     );
   });
 
-  it("escapes a timed-out controlled shutdown when upgrading an older service", async () => {
+  it.each([
+    PREVIOUS_VERSION,
+    EXPECTED_VERSION,
+  ])("preserves a running Service when controlled shutdown times out at version %s", async (installedVersion) => {
     requestLocalDaemonShutdownMock.mockRejectedValue(
       new LocalDaemonControlPlaneClientError(
         "daemon.control.timeout",
@@ -985,7 +1095,7 @@ describe("local service lifecycle", () => {
       .mockReset()
       .mockResolvedValueOnce(
         buildInitialInventory(serviceManager, {
-          installedVersion: PREVIOUS_VERSION,
+          installedVersion,
         })
       )
       .mockResolvedValue(buildFinalInventory(serviceManager));
@@ -999,42 +1109,19 @@ describe("local service lifecycle", () => {
       forceReinstall: true,
     });
 
-    expect(result.status).toBe("aligned");
-    expect(serviceManager.stop).toHaveBeenCalledOnce();
+    expect(result.status).toBe("failed");
+    expect(serviceManager.stop).not.toHaveBeenCalled();
+    expect(serviceManager.uninstall).not.toHaveBeenCalled();
+    expect(serviceManager.enableAutostart).toHaveBeenCalledOnce();
     expect(emitDaemonLifecycleEventMock).toHaveBeenCalledWith(
       expect.objectContaining({
         metadata: expect.objectContaining({
-          compatibilityFallback: true,
-          compatibilityReason: "legacy_controlled_shutdown_timeout",
-          observedDaemonVersion: PREVIOUS_VERSION,
-          reasonCode: "socket_close_timeout",
+          compatibilityFallback: false,
         }),
-        result: "fallback",
+        result: "failed",
         type: "stop.controlled_drain",
       })
     );
-  });
-
-  it("does not bypass a timed-out controlled shutdown on the current service version", async () => {
-    requestLocalDaemonShutdownMock.mockRejectedValue(
-      new LocalDaemonControlPlaneClientError(
-        "daemon.control.timeout",
-        "local daemon control timed out after 15000ms"
-      )
-    );
-
-    const result = await runDaemonServiceLifecycle({
-      expectedVersion: EXPECTED_VERSION,
-      operation: "upgrade_reconcile",
-      installSource: "daemon.command.install",
-      desiredState: "stopped",
-      shouldStartAfterLifecycle: false,
-      forceReinstall: true,
-    });
-
-    expect(result.status).toBe("failed");
-    expect(serviceManager.stop).not.toHaveBeenCalled();
-    expect(serviceManager.enableAutostart).toHaveBeenCalledOnce();
   });
 
   it("does not treat the same socket close from a fixed service as a legacy drain", async () => {

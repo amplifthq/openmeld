@@ -97,6 +97,12 @@ export type OpenMeldDaemonControlPlaneContext = {
   serviceUpdateReadinessHandler?: () =>
     | OpenMeldDaemonServiceUpdateReadinessPayload
     | Promise<OpenMeldDaemonServiceUpdateReadinessPayload>;
+  shutdownIfIdleHandler?: (
+    payload: Pick<OpenMeldDaemonShutdownRequestPayload, "gracePeriodMs">,
+    lifecycle?: { onAdmitted: () => void }
+  ) =>
+    | OpenMeldDaemonShutdownResponsePayload
+    | Promise<OpenMeldDaemonShutdownResponsePayload>;
   statusPayload: OpenMeldDaemonStatusPayload;
 };
 
@@ -180,6 +186,13 @@ export async function buildControlPlaneResponse(input: {
       });
     case "shutdown":
       return await buildShutdownControlPlaneResponse({
+        context: input.context,
+        lifecycle: input.lifecycle,
+        payload: request.payload,
+        requestMeta,
+      });
+    case "shutdown_if_idle":
+      return await buildIdleShutdownControlPlaneResponse({
         context: input.context,
         lifecycle: input.lifecycle,
         payload: request.payload,
@@ -353,6 +366,39 @@ async function buildConversationExecutionStatusControlPlaneResponse(input: {
   return parseControlPlaneResponse({
     ...input.requestMeta,
     code: "service.conversation_execution_status",
+    payload,
+  });
+}
+
+async function buildIdleShutdownControlPlaneResponse(input: {
+  context: OpenMeldDaemonControlPlaneContext;
+  lifecycle?: { onShutdownAdmitted?: () => void };
+  payload: Extract<
+    OpenMeldDaemonControlPlaneRequest,
+    { command: "shutdown_if_idle" }
+  >["payload"];
+  requestMeta: Pick<OpenMeldDaemonControlPlaneRequest, "v" | "requestId">;
+}): Promise<OpenMeldDaemonControlPlaneResponse> {
+  if (!input.context.shutdownIfIdleHandler) {
+    return parseControlPlaneResponse({
+      ...input.requestMeta,
+      code: "service.error",
+      payload: {
+        errorCode: "daemon.control.contract_mismatch",
+        errorMessage:
+          "This Service does not support an idle-only update switch.",
+      },
+    });
+  }
+  const payload = await input.context.shutdownIfIdleHandler(
+    input.payload ?? { gracePeriodMs: 5000 },
+    input.lifecycle?.onShutdownAdmitted
+      ? { onAdmitted: input.lifecycle.onShutdownAdmitted }
+      : undefined
+  );
+  return parseControlPlaneResponse({
+    ...input.requestMeta,
+    code: "service.shutdown",
     payload,
   });
 }

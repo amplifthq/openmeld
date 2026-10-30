@@ -1029,6 +1029,18 @@ written only by a new claim holder after local presentation succeeds, so a
 preparation failure or exact completed replay does not create a misleading
 audit row.
 
+## Permission Mode Audit Data Boundary
+
+Permission-mode changes reuse `sensitive_operation_audit_events`. The canonical
+Binding writer records the verified request attribution, before/after mode,
+Binding identity and configuration revision in the same PostgreSQL transaction
+as the conditional settings update or reconnect. No-op/conflicting writes do not
+create successful change events. The request-local attribution carries no
+credentials or execution authority. Missing legacy details are not reconstructed.
+Migration `0052_permission_mode_change_audit` adds a nullable details column;
+legacy API readers omit it, and audit response version 2 opts into validated
+details under the existing owner/Organization access checks.
+
 ## Connector Connection Data Boundary
 
 Connection access policy and revision live on `connector_connections`.

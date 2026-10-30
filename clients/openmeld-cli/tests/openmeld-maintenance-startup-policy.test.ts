@@ -110,6 +110,7 @@ describe("maintenance of the installed Service scheduling policy", () => {
     expect(mocks.schedule).toHaveBeenCalledExactlyOnceWith({
       targetVersion: "0.2.2",
       urgency: "available",
+      requestSource: "automatic",
     });
     expect(mocks.runPending).toHaveBeenCalledOnce();
   });

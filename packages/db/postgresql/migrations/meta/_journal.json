@@ -365,6 +365,13 @@
       "when": 1793180501876,
       "tag": "0051_organization_owner_retention",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1793351721847,
+      "tag": "0052_permission_mode_change_audit",
+      "breakpoints": true
     }
   ]
 }

@@ -354,7 +354,10 @@ export const serviceExecutionHostMethods = {
     input: z.strictObject({ refreshIntegrations: z.boolean().optional() }),
     output: empty,
   },
-  beginDrain: { input: empty, output: serviceExecutionHostSnapshotSchema },
+  beginDrain: {
+    input: z.strictObject({ onlyIfIdle: z.literal(true).optional() }),
+    output: serviceExecutionHostSnapshotSchema,
+  },
   drain: { input: empty, output: serviceExecutionHostSnapshotSchema },
   settleResults: {
     input: empty,

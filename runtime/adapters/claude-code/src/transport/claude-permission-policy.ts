@@ -56,8 +56,8 @@ export function resolveClaudePermissionMode(input: {
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   executionMode?: AdapterDispatchExecutionMode;
 }): ClaudePermissionModeValue {
-  // Concurrent-result reconsideration retains its existing isolated policy.
-  // Missing-action correction instead enforces an exact delivery-only toolset.
+  // Non-delivery repair keeps its isolated policy. Missing-action correction
+  // and concurrent reply review enforce the existing delivery-only toolset.
   if (input.executionMode === "repair" && !input.deliveryOnly) {
     return "plan";
   }

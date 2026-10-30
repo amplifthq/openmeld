@@ -12,6 +12,7 @@ import type {
   SensitiveOperationOutcome,
   SensitiveOperationSourceKind,
 } from "@openmeld/schemas";
+import { permissionModeAuditChangeSchema } from "@openmeld/schemas";
 
 /** The database or the client of an open transaction. */
 export type Queryable = {
@@ -266,6 +267,7 @@ export type SensitiveOperationAuditInsert = {
   reasonCode: string | null;
   confirmationId: string | null;
   createdAtMs: number;
+  permissionModeChange?: SensitiveOperationAuditEvent["permissionModeChange"];
 };
 
 export async function insertSensitiveOperationAuditEvent(input: {
@@ -277,8 +279,8 @@ export async function insertSensitiveOperationAuditEvent(input: {
     text: `INSERT INTO "openmeld"."sensitive_operation_audit_events"
         (id, organization_id, actor_user_id, agent_profile_id, operation,
          source_kind, chain_root_profile_id, task_execution_id, outcome,
-         reason_code, confirmation_id, created_at_ms)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+         reason_code, confirmation_id, created_at_ms, permission_mode_change_json)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
     values: [
       event.id,
       event.organizationId,
@@ -292,6 +294,11 @@ export async function insertSensitiveOperationAuditEvent(input: {
       event.reasonCode,
       event.confirmationId,
       event.createdAtMs,
+      event.permissionModeChange
+        ? JSON.stringify(
+            permissionModeAuditChangeSchema.parse(event.permissionModeChange)
+          )
+        : null,
     ],
   });
 }
@@ -306,6 +313,7 @@ export async function listMemberAgentSensitiveOperationAudit(input: {
   memberAgentId: string;
   organizationId: string;
   ownerUserId: string;
+  responseVersion?: 1 | 2;
 }): Promise<SensitiveOperationAuditEvent[] | null> {
   const owner = await input.db.query<{ id: string }>({
     text: `SELECT id FROM "openmeld"."member_agents"
@@ -326,11 +334,12 @@ export async function listMemberAgentSensitiveOperationAudit(input: {
     reason_code: string | null;
     confirmation_id: string | null;
     created_at_ms: string | number;
+    permission_mode_change_json: string | null;
   }>({
     text: `SELECT audit.id, audit.operation, audit.agent_profile_id,
         audit.source_kind, audit.actor_user_id, audit.chain_root_profile_id,
         audit.outcome, audit.reason_code, audit.confirmation_id,
-        audit.created_at_ms
+        audit.created_at_ms, audit.permission_mode_change_json
       FROM "openmeld"."sensitive_operation_audit_events" AS audit
       WHERE audit.organization_id = $2
         AND audit.agent_profile_id IN (
@@ -359,5 +368,12 @@ export async function listMemberAgentSensitiveOperationAudit(input: {
     reasonCode: row.reason_code,
     confirmationId: row.confirmation_id,
     createdAtMs: Number(row.created_at_ms),
+    ...(input.responseVersion === 2 && row.permission_mode_change_json
+      ? {
+          permissionModeChange: permissionModeAuditChangeSchema.parse(
+            JSON.parse(row.permission_mode_change_json)
+          ),
+        }
+      : {}),
   }));
 }
