@@ -367,14 +367,14 @@ describe("Requester copy", () => {
 		).toBeNull();
 	});
 
-	it("labels the requester's Space list row with the request state", () => {
+	it("clears completed joins from the requester's Space list preview", () => {
 		const join = request({ kind: "space_join", viewerRole: "requester" });
 		expect(resolveAgentRequestSpaceLabel(join)).toBe(
 			"Requested Felix · PR Reviewer"
 		);
-		expect(resolveAgentRequestSpaceLabel({ ...join, status: "joined" })).toBe(
-			"PR Reviewer joined"
-		);
+		expect(
+			resolveAgentRequestSpaceLabel({ ...join, status: "joined" })
+		).toBeNull();
 		expect(resolveAgentRequestSpaceLabel({ ...join, status: "ignored" })).toBe(
 			"Felix didn't add PR Reviewer"
 		);

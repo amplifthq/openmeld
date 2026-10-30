@@ -2829,6 +2829,14 @@ one 4 MiB turn budget divided by image count: adding screenshots must not make
 each screenshot unreadable. Only the bounded textual observations survive the
 auxiliary calls.
 
+Image preparation runs before claiming a new primary-model submission or
+initializing its callback/execution context. Cloudflare Images error 9422 is a
+deterministic preparation rejection (`remote_agent.image_transform_quota_exceeded`).
+Core publishes the quota failure immediately and acknowledges the delivery;
+it does not retry it until the admission watchdog expires. Restoring image
+processing capacity requires a new user request. An already claimed or
+acknowledged submission retains its existing execution/recovery semantics.
+
 The registered provider route measures the complete serialized provider input
 after tools, routing, affinity, history, and current-turn context are composed.
 It derives the input budget from the frozen route's context window and output

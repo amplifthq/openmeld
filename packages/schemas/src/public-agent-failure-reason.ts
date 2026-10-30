@@ -444,6 +444,8 @@ export const REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE =
   "remote_agent.conversation_history_limit_exceeded";
 export const REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY =
   "Center Agent could not continue this conversation automatically. Try again or open diagnostics.";
+export const REMOTE_AGENT_IMAGE_TRANSFORM_QUOTA_EXCEEDED_PUBLIC_COPY =
+  "OpenMeld couldn't process the attached images because its Cloudflare Images transformation quota is exhausted. This request did not start and won't retry automatically. Contact your OpenMeld administrator to restore image processing capacity, then send a new request.";
 export const REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE =
   "remote_agent.work_loop_continuation_limit_exceeded";
 export const REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY =
@@ -1193,6 +1195,12 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       patterns: [
         `=${REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE}`,
       ],
+      recoveryTarget: null,
+    },
+    {
+      body: REMOTE_AGENT_IMAGE_TRANSFORM_QUOTA_EXCEEDED_PUBLIC_COPY,
+      kind: "request_ended",
+      patterns: ["=remote_agent.image_transform_quota_exceeded"],
       recoveryTarget: null,
     },
     {
