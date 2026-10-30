@@ -6325,7 +6325,9 @@ requester and leaves the request pending. The preview uses the Agent message
 avatar and the message bubble radius with a dashed border. A one-line Agent
 requests bar above the Composer repeats the summary and the same actions; while the latest messages are shown, its text
 scrolls to the preview. The requester
-sees only the bar, with `Withdraw` while the request is pending. Composer trays
+sees only the bar, with `Withdraw` while the request is pending. A completed
+Space join request does not override the sidebar's latest-message preview;
+its outcome remains available in the request details. Composer trays
 stack top to bottom as Agent requests, pending Agent actions, then queued
 messages, each tucked under the next with the same inset, and an answer from
 either presentation disables both.
