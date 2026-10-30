@@ -6207,6 +6207,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it.each([
     "responds",
     "times out",
+    "returns a malformed frame",
   ])("settles Computer power when the exact capable Service %s", async (scenario) => {
     const { hub, sentFrames, socket, state } = await createHarness();
     configureCompatibleRoute({ socket, state });
@@ -6247,33 +6248,60 @@ describe("runtime transport runtime coordinator transport contract", () => {
         })
       )
     );
-    if (scenario === "responds") {
+    if (scenario !== "times out") {
+      const frame = {
+        v: 1,
+        code: "daemon.computer_power.request_result",
+        payload: { requestId: "power-1", result },
+        ...(scenario === "returns a malformed frame"
+          ? { unexpected: true }
+          : {}),
+      };
+      if (scenario === "returns a malformed frame") {
+        let finished = false;
+        settled.then(() => {
+          finished = true;
+        });
+        const otherSocket = { send: vi.fn() } as unknown as WebSocket;
+        RuntimeTransportHub.prototype.webSocketMessage.call(
+          hub,
+          otherSocket,
+          JSON.stringify(frame)
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        expect(finished).toBe(false);
+      }
       RuntimeTransportHub.prototype.webSocketMessage.call(
         hub,
         socket,
-        JSON.stringify({
-          v: 1,
-          code: "daemon.computer_power.request_result",
-          payload: { requestId: "power-1", result },
-        })
+        JSON.stringify(frame)
       );
-    } else {
-      await vi.advanceTimersByTimeAsync(30_000);
     }
+    // Advance the existing deadline as well: a malformed response must still
+    // win immediately instead of being reclassified as a timeout.
+    await vi.advanceTimersByTimeAsync(30_000);
     const response = await settled;
     expect(response).toBeInstanceOf(Response);
     if (!(response instanceof Response)) {
       throw response;
     }
-    expect(response.status).toBe(scenario === "responds" ? 200 : 504);
+    const expectedStatus = scenario === "times out" ? 504 : 502;
+    expect(response.status).toBe(
+      scenario === "responds" ? 200 : expectedStatus
+    );
     await expect(response.json()).resolves.toEqual(
       scenario === "responds"
         ? result
         : {
             status: "rejected",
-            code: "computer.power.timeout",
+            code:
+              scenario === "times out"
+                ? "computer.power.timeout"
+                : "computer.power.invalid_response",
             message:
-              "Timed out waiting for the local OpenMeld Service response.",
+              scenario === "times out"
+                ? "Timed out waiting for the local OpenMeld Service response."
+                : "Invalid computer power response.",
           }
     );
   });

@@ -157,6 +157,13 @@ const resolveRuntimeTransportApiResponse = (
   parsedBody: unknown,
   input: { path: RuntimeTransportApiPath; body: unknown }
 ): unknown => {
+  if (input.path === "/computer-power" && parsedBody === null) {
+    return {
+      status: "rejected",
+      code: "computer.power.invalid_response",
+      message: "The sleep-prevention request returned an invalid response.",
+    };
+  }
   if (response.ok) {
     return parsedBody;
   }

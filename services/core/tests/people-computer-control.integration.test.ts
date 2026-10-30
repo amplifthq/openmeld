@@ -35,6 +35,16 @@ describe("PeopleComputer explicit control RPC", () => {
       status: 502,
       code: "computer.power.invalid_response",
     },
+    {
+      failure: "invalid-json",
+      status: 502,
+      code: "computer.power.invalid_response",
+    },
+    {
+      failure: "null-json",
+      status: 502,
+      code: "computer.power.invalid_response",
+    },
   ])("preserves Computer power $failure as an actionable failure", async ({
     failure,
     status,
@@ -55,6 +65,12 @@ describe("PeopleComputer explicit control RPC", () => {
             "Connection closed: this Durable Object instance is no longer active. Reconnect or retry the request."
           )
         );
+      }
+      if (failure === "invalid-json") {
+        return Promise.resolve(new Response("{invalid JSON", { status: 200 }));
+      }
+      if (failure === "null-json") {
+        return Promise.resolve(Response.json(null));
       }
       return Promise.resolve(
         Response.json(

@@ -3698,15 +3698,28 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       webSocket.send(DAEMON_STREAM_KEEPALIVE_PONG);
       return;
     }
-    const frame = parseDaemonStreamFrame(rawMessage);
-    if (!frame) {
+    const rawFrame = parseDaemonStreamJson(rawMessage);
+    const frame = daemonStreamFrameSchema.safeParse(rawFrame);
+    if (!frame.success) {
+      if (
+        rawFrame &&
+        typeof rawFrame === "object" &&
+        "code" in rawFrame &&
+        rawFrame.code === "daemon.computer_power.request_result"
+      ) {
+        this.rejectInvalidCurrentDeviceOperationResultFrame({
+          frame: rawFrame,
+          message: "Invalid computer power response.",
+          webSocket,
+        });
+      }
       this.sendErrorFrame(webSocket, {
         code: "schema.invalid",
         message: "invalid daemon stream frame",
       });
       return;
     }
-    this.handleParsedStreamFrame(webSocket, frame);
+    this.handleParsedStreamFrame(webSocket, frame.data);
   }
   private handleParsedStreamFrame(
     webSocket: WebSocket,
@@ -23391,18 +23404,13 @@ const isCompletedInteractionReplay = (
   !state.pendingInteraction &&
   Object.hasOwn(state.interactionResponseReceipts ?? {}, interactionId);
 
-const parseDaemonStreamFrame = (
-  rawMessage: string | ArrayBuffer
-): DaemonStreamFrame | null => {
+const parseDaemonStreamJson = (rawMessage: string | ArrayBuffer): unknown => {
   const text = decodeWebSocketMessage(rawMessage);
-  let rawFrame: unknown;
   try {
-    rawFrame = JSON.parse(text);
+    return JSON.parse(text);
   } catch {
     return null;
   }
-  const parsedFrame = daemonStreamFrameSchema.safeParse(rawFrame);
-  return parsedFrame.success ? parsedFrame.data : null;
 };
 const parseWaitDispatchResultRequest = (
   value: unknown
