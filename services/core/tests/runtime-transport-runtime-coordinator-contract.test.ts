@@ -73,6 +73,7 @@ import type {
   RuntimeTransportSubmitTaskResultRequest,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, type Mock, onTestFinished, vi } from "vitest";
+import { writeAgentExecutionReadinessImpact } from "../src/agent-execution/infrastructure/postgresql/agent-execution-readiness-impact-repo";
 import { handleDispatchQueueBatch } from "../src/dispatch/transport/queue/dispatch-queue-consumer";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
@@ -1883,6 +1884,20 @@ const buildRuntimeCoordinatorHeadAcceptRequest = (
   overrides: Partial<RuntimeTransportRuntimeCoordinatorHeadAcceptRequest> = {}
 ): RuntimeTransportRuntimeCoordinatorHeadAcceptRequest => {
   const dispatchId = overrides.dispatchId ?? "dispatch-1";
+  let acceptedDispatchSnapshot = overrides.acceptedDispatchSnapshot;
+  const contextRequest = acceptedDispatchSnapshot?.contextRequest;
+  if (acceptedDispatchSnapshot && contextRequest) {
+    acceptedDispatchSnapshot = {
+      ...acceptedDispatchSnapshot,
+      contextRequest: {
+        ...contextRequest,
+        requestChain: contextRequest.requestChain ?? [
+          { kind: "human", profileId: contextRequest.scope.requesterProfileId },
+          { kind: "agent", profileId: contextRequest.scope.targetProfileId },
+        ],
+      },
+    };
+  }
   const targetWakeLifecycleIdentity =
     overrides.targetWakeLifecycleIdentity ??
     projectTargetWakeLifecycleIdentity({
@@ -1894,9 +1909,7 @@ const buildRuntimeCoordinatorHeadAcceptRequest = (
     });
   return {
     v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
-    ...(overrides.acceptedDispatchSnapshot
-      ? { acceptedDispatchSnapshot: overrides.acceptedDispatchSnapshot }
-      : {}),
+    ...(acceptedDispatchSnapshot ? { acceptedDispatchSnapshot } : {}),
     dispatchId,
     idempotencyKey: overrides.idempotencyKey ?? "idempotency-1",
     ownerUserId: overrides.ownerUserId ?? "owner-1",
@@ -17970,6 +17983,19 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
     expect(authorityBefore?.runsById[executionToken.runId]).toMatchObject({
       tokenStatus: "active",
+    });
+    await writeAgentExecutionReadinessImpact({
+      agentProfileId: TARGET_AGENT_PROFILE_ID,
+      db: recordingPostgres.db,
+      executionIdentity: {
+        bindingId: "binding-1",
+        agentControllerRef: "builtin:codex",
+        openMeldServiceRuntimeId: "runtime-1",
+      },
+      observedAtMs: executionToken.issuedAtMs - 1,
+      reasonCode: "controller.launch.needs_repair",
+      sourceAttemptId: "attempt-failed",
+      sourceDispatchId: "dispatch-failed",
     });
     recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
