@@ -4393,6 +4393,15 @@ They never save another preference in Desktop, the browser, or an Agent Profile.
 Writes carry the last observed revision; stale writes fail rather than overwrite.
 Disconnected and unsupported Services are unavailable, not unchecked.
 
+Power-control waiter failures retain the shared rejected-result envelope:
+timeouts use `computer.power.timeout` / HTTP 504, a disconnected Service uses
+`computer.power.offline` / HTTP 503, and invalid replies use
+`computer.power.invalid_response` / HTTP 502. Core maps a missing transport
+response to `computer.power.unavailable` / HTTP 503 rather than parsing it as a
+successful power state. Other Service rejections retain HTTP 409. A timeout or
+lost reply does not prove that an update was never applied; no layer replays
+the update, and the user must check the current preference before retrying.
+
 The execution host reconciles the preference with the canonical active execution
 slot count after ownership changes, including release. Queued tasks, observed
 external sessions, remote tasks, and an idle Service do not acquire a request.

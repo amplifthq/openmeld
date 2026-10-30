@@ -1396,6 +1396,12 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   target still passes its own identity, revision, and freshness checks. A
   failed target read fails closed for that target and the next request reads
   fresh facts. Readiness does not grant an execution lease or publish a reply.
+  Organization directory and runtime-overview route preloads use the existing
+  five-second lookup budget. An exhausted owner read is passed explicitly to
+  the Core readiness owner as unavailable, preserving the other directory
+  entries without issuing a fresh lookup for every Profile. An unavailable
+  owner-service preload is likewise retained for this request, not retried per
+  Profile or interpreted as a confirmed disconnection.
 - Controller target changes, Controller unbinding, and local working-folder
   changes use an owner-sharded RuntimeCoordinator execution-state read that
   spans every Space. Web may use that read to disable disruptive actions

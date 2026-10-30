@@ -1438,6 +1438,7 @@ import {
   readOwnedDeviceRegistryRecord,
   upsertOwnedDeviceRegistryRecord,
 } from "../start/infrastructure/postgresql/owned-device-registry-repo";
+import { RUNTIME_TRANSPORT_LOOKUP_TIMEOUT_MS } from "../strategy-constants";
 import { rpcReadOrganizationUsageOverview as readOrganizationUsageOverview } from "../usage/organization-usage-overview-rpc";
 import { recordUserTimeZoneObservation } from "../user-time-context/user-time-context-repository";
 import {
@@ -7854,6 +7855,7 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
                 });
               })
           : null;
+      let routeLookupFailed = false;
       const [preloadedRoutes, preloadedOwnerService] = ownerUserId
         ? await Promise.all([
             lookupRuntimeTransportRoutesBatch({
@@ -7862,6 +7864,16 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
               ownerUserId,
               requestId: input.requestId,
               profileIds: profiles.map((profile) => profile.profileId),
+              readTimeoutMs: RUNTIME_TRANSPORT_LOOKUP_TIMEOUT_MS,
+            }).catch((error) => {
+              routeLookupFailed = true;
+              console.warn("[core.organization.runtime_routes_unavailable]", {
+                organizationId: input.organizationId,
+                ownerUserId,
+                requestId: input.requestId,
+                error,
+              });
+              return null;
             }),
             lookupRuntimeTransportOwnerService({
               blockForgottenDevices: true,
@@ -7887,13 +7899,14 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
             })
           : null;
       await readinessPreload;
+      const failedRoutePreload = routeLookupFailed ? null : undefined;
       return await mapWithConcurrency(
         profiles,
         ORGANIZATION_AGENT_RUNTIME_PROFILE_CONCURRENCY,
         async (agent) => {
           const preloadedRoute = preloadedRoutes
             ? (preloadedRoutes.routes[agent.profileId] ?? null)
-            : undefined;
+            : failedRoutePreload;
           const readiness = await resolveCoreAgentExecutionReadinessForProfile({
             reads,
             activeOrganizationId: input.organizationId,
@@ -7902,9 +7915,7 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
             ...(preloadedRoute === undefined
               ? {}
               : { preloadedDaemonRoute: preloadedRoute }),
-            ...(preloadedOwnerService === null
-              ? {}
-              : { preloadedOwnerService }),
+            preloadedOwnerService,
             ...(preloadedRoute?.online
               ? {
                   preloadedRuntimeDeviceDisplayName: displayNames
@@ -28407,23 +28418,47 @@ export async function rpcComputerPowerSettings(
     inventory: localRuntimes,
     ownerService,
   });
-  const result = computerPowerResultSchema.parse(
-    await callPowerTransport({
-      env,
+  const transportResult = await callPowerTransport({
+    env,
+    ownerUserId,
+    path: "/computer-power",
+    body: {
       ownerUserId,
-      path: "/computer-power",
-      body: {
-        ownerUserId,
-        deviceId: target.deviceId,
-        lane: target.runtimeLane,
-        requestId: crypto.randomUUID(),
-        request: input.request,
-      },
-    })
-  );
-  if ("status" in result) {
+      deviceId: target.deviceId,
+      lane: target.runtimeLane,
+      requestId: crypto.randomUUID(),
+      request: input.request,
+    },
+  });
+  const parsed = computerPowerResultSchema.safeParse(transportResult);
+  if (!parsed.success) {
     throw createCoreRpcHttpError({
-      status: 409,
+      status: transportResult === null ? 503 : 502,
+      code:
+        transportResult === null
+          ? "computer.power.unavailable"
+          : "computer.power.invalid_response",
+      reason:
+        transportResult === null
+          ? "The sleep-prevention request did not return a response. Check this computer before retrying."
+          : "The sleep-prevention request returned an invalid response.",
+    });
+  }
+  const result = parsed.data;
+  if ("status" in result) {
+    let status = 409;
+    if (result.code === "computer.power.timeout") {
+      status = 504;
+    } else if (result.code === "computer.power.offline") {
+      status = 503;
+    } else if (
+      result.code === "computer.power.invalid_response" ||
+      result.code === "computer.power.internal_error"
+    ) {
+      status = 502;
+    }
+    throw createCoreRpcHttpError({
+      status,
       code: result.code,
       reason: result.message,
     });
