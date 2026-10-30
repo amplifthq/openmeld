@@ -46,8 +46,9 @@ import { buildRemoteAgentSystemPrompt } from "../../agent-core/prompt";
 import {
   buildRemoteAgentName,
   cleanupExpiredRemoteAgentSubmissionReceipts,
-  cleanupFinalizedRemoteAgentSubmissionAttachments,
+  cleanupRemoteAgentSubmissionAttachments,
   parseRemoteAgentSubmitTurnRequest,
+  RemoteAgentAdmissionRejectedError,
   readExistingRemoteAgentSubmission,
   readRemoteAgentAdmission,
   readRemoteAgentAdmissionStop,
@@ -720,7 +721,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
                 this.ctx.storage.sql
               ),
             cleanupFinalizedSubmissionReplay: async () =>
-              await cleanupFinalizedRemoteAgentSubmissionAttachments({
+              await cleanupRemoteAgentSubmissionAttachments({
                 env,
                 attachmentBucket: env.OPENMELD_SPACE_ATTACHMENTS,
                 request,
@@ -861,6 +862,17 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
           }
           outcome = "acknowledged";
           return ack;
+        } catch (error) {
+          if (error instanceof RemoteAgentAdmissionRejectedError) {
+            await cleanupRemoteAgentSubmissionAttachments({
+              env,
+              attachmentBucket: env.OPENMELD_SPACE_ATTACHMENTS,
+              request,
+            });
+            outcome = "rejected";
+            return error.rejection;
+          }
+          throw error;
         } finally {
           emitRemoteAgentAdmissionStageEvidence(env, {
             ...evidenceContext,
